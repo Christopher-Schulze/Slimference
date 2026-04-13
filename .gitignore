@@ -2,3 +2,18 @@
 .env.local
 .env.*.local
 .secrets/
+
+# Build artifacts
+/benchmarks
+/ci
+/tokenproxy
+/tokenproxy.test
+/tokenproxy_test
+
+# Coverage and test output files
+*.out
+*.test
+
+# IDE
+.idea/
+.vscode/

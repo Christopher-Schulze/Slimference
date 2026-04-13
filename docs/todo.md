@@ -62,7 +62,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] `internal/debug/decisions_test.go` — vorhanden + grün
 
 ### CI & Spec-Nebenbedingungen
-- [ ] CI (falls Repo CI nutzt): mindestens `go test ./cmd/... ./internal/...`; optional Coverage-Gate via `scripts/coverage/`
+- [x] CI (falls Repo CI nutzt): mindestens `go test ./cmd/... ./internal/...`; optional Coverage-Gate via `scripts/coverage/` — `scripts/ci/main.go` implementiert (vet + build + test + coverage gate)
 - [x] Multi-Provider / OAuth-Passthrough: verifiziert — Authorization-Header korrekt 1:1 forwarded; Bug gefunden + gefixt: `handlePassthrough` fehlte Transfer-Encoding im Skip-Set (jetzt konsistent mit `doUpstreamRequest`); Anthropic + OpenAI routing + streaming korrekt
 
 ---
@@ -72,8 +72,8 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] **100 % Coverage (Go)** auf `cmd/`, `internal/` via `*_test.go` — erreicht (alle 18 Pakete grün)
 - [x] Coverage-Gate: Go-Tool unter **`scripts/coverage/`** — `go run ./scripts/coverage -- -min=100` implementiert + getestet
 - [x] Benchmarks: `scripts/benchmarks/main.go` — Runner fuer `go test -bench=.` ueber compression + filter; `internal/compression/bench_test.go` (8 Benchmarks: Compress_small/medium/large/code, StripANSI, StripComments, ExtractStructure); `internal/filter/bench_test.go` (7 Benchmarks: GitStatus, BuildOutput, JSONMinify, applyLayer0, Truncate); `go run ./scripts/benchmarks -- -benchtime=3s`
-- [ ] **Zusätzliche** Testsuites: **`tests/ts/`** (TypeScript), z. B. Vitest/Jest — **ergänzend**, nicht statt Go-Pakettests
-- [ ] `tests/integration/` (Go), `tests/fixtures/`: nach Bedarf; paketlokal `testdata/`
+- [x] **Zusätzliche** Testsuites: **`tests/ts/`** (TypeScript) — 6 Tests mit `bun:test`: session fixture schema-Validierung (3 Tests) + CLI integration (3 Tests); alle grün
+- [x] `tests/integration/` (Go), `tests/fixtures/`: 3 Integration-Tests (`//go:build integration`) grün: CompressesLargeConversation (ratio=0.80, layers=[1]), PassthroughNonCompressiblePath, HealthEndpoint; Fixtures: `sample_session.jsonl`, `sample_config.toml`
 - [ ] Tests: Stil/Qualität wie `AGENTS.md` §5
 - [ ] **`rtk-master/`**: nicht anfassen, nichts dorthin/davon verschieben (Fremdprojekt)
 

@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.3.6 - 2026-04-13
+
+### Integration Tests Fixed + TypeScript Tests + Initial Git Commit
+
+#### Integration Tests (`tests/integration/`)
+
+- **Root cause 1 - compression test**: Layer 1 only compresses `tool_result` blocks; test was using
+  plain string message content (parses as `{type:"text"}`) which is skipped entirely by the compressor.
+  Fixed by rewriting messages to use array-form content with `tool_result` blocks containing identical
+  large filler. Dedup fires for repeated occurrences in the compressible prefix. Result: ratio=0.80, layers=[1].
+- **Root cause 2 - passthrough test**: `detectProvider("/v1/models", body)` returns `OpenAI` (path has
+  no `/messages`). `newTestProxy` only set Anthropic upstream to mock; OpenAI upstream still pointed to
+  `https://api.openai.com` → real network call returned 400. Fixed by also setting
+  `cfg.Upstream.OpenAI.BaseURL = upstreamURL` in `newTestProxy`.
+- All 3 integration tests now passing: `CompressesLargeConversation`, `PassthroughNonCompressiblePath`,
+  `HealthEndpoint`.
+
+#### TypeScript Tests (`tests/ts/`)
+
+- Fixed wrong relative paths in `cli.test.ts`: `../../cmd/tokenproxy` → `./cmd/tokenproxy` (paths
+  are relative to `cwd=moduleRoot`, not relative to the test file).
+- All 6 bun:test tests passing: 3 session fixture schema tests + 3 CLI integration tests.
+
+#### Initial Git Commit
+
+- Repository initialized and full codebase committed locally (508 files, 145782 insertions).
+- Updated `.gitignore` to exclude build artifacts (`/benchmarks`, `/ci`, `/tokenproxy`, `/tokenproxy.test`,
+  `*.out`, `*.test`).
+
 ## v1.3.5 - 2026-04-13
 
 ### Risk Mitigations Verified + Synergy Documentation + Bug Fixes
