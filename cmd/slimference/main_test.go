@@ -644,11 +644,11 @@ func TestHandleSubcommand_doctor_configFileExistsBranch(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Recreate the relative structure: <tmp>/~/.slimference/config.toml
-	tildeTokenproxyDir := filepath.Join(tmp, "~", ".slimference")
-	if err := os.MkdirAll(tildeTokenproxyDir, 0o755); err != nil {
+	tildeSlimferenceDir := filepath.Join(tmp, "~", ".slimference")
+	if err := os.MkdirAll(tildeSlimferenceDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tildeTokenproxyDir, "config.toml"), []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tildeSlimferenceDir, "config.toml"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
