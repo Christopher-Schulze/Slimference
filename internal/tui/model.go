@@ -6,9 +6,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
-	"github.com/tokenproxy/tokenproxy/internal/sessions"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/sessions"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // Version is the display version string.
@@ -82,7 +82,7 @@ type proxyEventMsg types.RequestMetrics
 // flashExpiredMsg signals that the flash message should be cleared.
 type flashExpiredMsg struct{}
 
-// Model is the BubbleTea model for the TokenProxy TUI.
+// Model is the BubbleTea model for the Slimference TUI.
 // It holds all display state and communicates with the proxy via the ProxyInterface.
 type Model struct {
 	proxy        ProxyInterface

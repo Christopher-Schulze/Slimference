@@ -17,6 +17,6 @@ func TruncateStdoutWithHint(stdout []byte, maxRunes int) []byte {
 	}
 	runes := []rune(s)
 	cut := string(runes[:maxRunes])
-	hint := fmt.Sprintf("\n[tokenproxy: truncated to %d characters]\n", maxRunes)
+	hint := fmt.Sprintf("\n[slimference: truncated to %d characters]\n", maxRunes)
 	return []byte(cut + hint)
 }

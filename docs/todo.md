@@ -1,4 +1,4 @@
-# TokenProxy - Master TODO
+# Slimference - Master TODO
 
 **Normative Spec:** `spec+.md` · **Sequenz + vollständiges Onboarding:** `handover.md` (Repo-Root) §4 (steht über `spec+.md` §23); Kurzlink: `docs/HANDOVER.md`.  
 **RTK (`rtk-master/`):** nur Referenz beim Portieren — keine zweite Spec.
@@ -13,7 +13,7 @@ Abgleich mit **`handover.md` §4** — diese Reihenfolge **vor** lose Items aus 
    Low-hanging + L1.2–L1.6 + Pipeline-Reihenfolge (ANSI → … per `spec+.md` §3/§5), Exchange-Sliding-Window überall (`layer1`, `layer2`, Prompt-Cache-Grenze), Overflow §17.4, MinHash, `structure_*`, Tests anpassen.
 
 2. **Phase B — Layer 0**  
-   `internal/filter/`, `internal/hooks/`, `tokenproxy filter|hook|rewrite`, SQLite `modernc.org/sqlite`, Tee, Permissions, TOML-DSL, 24 Filter, `tokenproxy gain` Basis.
+   `internal/filter/`, `internal/hooks/`, `slimference filter|hook|rewrite`, SQLite `modernc.org/sqlite`, Tee, Permissions, TOML-DSL, 24 Filter, `slimference gain` Basis.
 
 3. **Phase C — Layer 2 Erweiterungen**  
    Adaptives Fenster, Tool-Priorität für Summarization (wie `spec+.md` §6).
@@ -33,14 +33,14 @@ Abgleich mit **`handover.md` §4** — diese Reihenfolge **vor** lose Items aus 
 Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout, Stand, Tests) und der Datei-Map dort, damit nichts nur „implizit“ bleibt. Überschneidungen mit „Low-Hanging“ / Layer-1 sind **absichtlich** (zweifache Sichtbarkeit).
 
 ### Config, Types, TUI, Modul
-- [x] `internal/config/config.go` + `defaults.go`: `[filter]`, `[hooks]`, `[debug]` *(`decisions_log`; ENV: `TOKENPROXY_HOOK_TOKENPROXY_COMMAND`, `TOKENPROXY_DEBUG_DECISIONS_LOG`)*
+- [x] `internal/config/config.go` + `defaults.go`: `[filter]`, `[hooks]`, `[debug]` *(`decisions_log`; ENV: `SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND`, `SLIMFERENCE_DEBUG_DECISIONS_LOG`)*
 - [x] `internal/types/types.go`: `ToolResultType`, `ToolResultPriority` implementiert; `DecisionEntry` in `internal/debug/decisions.go`
 - [x] `internal/tui/model.go` (+ `views.go`): Hook-Status-Indikator implementiert — `HookStatus`, `SetHookStatus`, `renderHookStatus`; Debug-View zeigt Session-Logs; beide mit 100% Coverage
 - [x] `tui.ProxyInterface` (siehe `internal/tui/model.go`): vollstaendig implementiert - alle TUI-Aufrufe (SetProviderEnabled, GetAnalytics, GetLayer2Status, SessionLogger, etc.) in Interface + proxyAdapter abgedeckt; keine Import-Zyklen
 - [x] `go.mod` / `go.sum`: `go mod tidy` erledigt, alle Deps reproduzierbar
 
 ### Bestehende Dateien anpassen (HANDOVER „Files to MODIFY”)
-- [x] `cmd/tokenproxy/main.go`: `filter`, `hook`, `rewrite`, `gain`, `debug` (`paths|last|summary|tail|replay`), `version` — vollständig implementiert
+- [x] `cmd/slimference/main.go`: `filter`, `hook`, `rewrite`, `gain`, `debug` (`paths|last|summary|tail|replay`), `version` — vollständig implementiert
 - [x] `internal/compression/layer1.go`: Pipeline `spec+.md` §3/§5 komplett; alle Sub-Layer integriert
 - [x] `internal/compression/comment_strip.go` (10 Sprachen), `dedup.go` + `dedup_minhash.go` (MinHash/LSH)
 - [x] `internal/compression/treesitter.go` → `structure.go` (Rename + alle Imports/Refs erledigt)
@@ -53,7 +53,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] **Filter:** alle 63 Dateien unter `internal/filter/` — implementiert + 100% Coverage
 - [x] **Hooks:** `claude.go`, `codex.go`, `verify.go` + Tests unter `internal/hooks/` — implementiert + 100% Coverage
 - [x] **Debug:** `decisions.go` + `session.go` unter `internal/debug/` — implementiert + getestet; JSONL-Chain vorhanden
-- [x] **Analytics:** `internal/analytics/gain.go` (`tokenproxy gain` today|week|month|all, `--json`)
+- [x] **Analytics:** `internal/analytics/gain.go` (`slimference gain` today|week|month|all, `--json`)
 
 ### Tests (HANDOVER §6 — explizit)
 - [x] `internal/filter/*_test.go` — vollständig, 100% Coverage
@@ -82,14 +82,14 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 ## Layer 0: Pre-Entry Filtering (RTK Integration in Go)
 
 ### Core Infrastructure
-- [x] `tokenproxy filter <cmd>` subcommand: subprocess execution, stdout/stderr capture, classify + `RunPipeline` (ANSI strip, optional Git-status compact), exit code propagation, tee/recovery on failure, SQLite tracking, passthrough for unknown commands
-- [x] Hook installation system (v1: Claude Code + Codex only per `spec+.md` §4.3): `tokenproxy hook install|remove <claude|codex>`, generates shell scripts, patches settings.json / config files
-- [x] Hook integrity verification: `tokenproxy hook verify` - SHA-256 check on installed hook scripts
-- [x] Command rewriting engine + `tokenproxy rewrite <cmd>` (Hook-Pfad): JSON stdin extraction, exit 0/1/2/3 (allow / usage+JSON / deny / sudo-ask); vollständiger Shell-Tokenizer + compound split → später
-- [x] Permission system (v1): `filter.DeniedShellCommand` / `AskRequired` + `filter`/`rewrite` vor Ausführung; `[filter] deny_patterns` + `.tokenproxy/filters.toml` → `SetExtraDenyPatterns`; sudo → Exit 3 wenn `TOKENPROXY_CONFIRM_SUDO` nicht gesetzt *— volles allow/ask/exclude-UI → offen*
-- [x] TOML Filter DSL (§4.5): 8-stage pipeline in `internal/filter/filters_toml.go` + `RunPipeline` — `strip_ansi`, `replace`, `match_output` (+ `unless`), `strip_lines_matching`, `keep_lines_matching`, `truncate_lines_at`, `head_lines`/`tail_lines`, `max_lines`, `on_empty`; merged `deny_patterns` (Projekt + `~/.tokenproxy/filters.toml`); Lookup-Reihenfolge Projekt → User
-- [x] Filter dispatch priority: built-in (`TryCompactGitStatus`, …) **vor** TOML; `applyLayer0AfterANSI` in `pipeline.go`; danach `[filter] passthrough_max_chars` / `TOKENPROXY_FILTER_PASSTHROUGH_MAX_CHARS` (`TruncateStdoutWithHint`, Default 2000; `0` = kein Limit)
-- [x] Tee system: save raw unfiltered output to `~/.tokenproxy/tee/` on filter failure, print hint to recovered file
+- [x] `slimference filter <cmd>` subcommand: subprocess execution, stdout/stderr capture, classify + `RunPipeline` (ANSI strip, optional Git-status compact), exit code propagation, tee/recovery on failure, SQLite tracking, passthrough for unknown commands
+- [x] Hook installation system (v1: Claude Code + Codex only per `spec+.md` §4.3): `slimference hook install|remove <claude|codex>`, generates shell scripts, patches settings.json / config files
+- [x] Hook integrity verification: `slimference hook verify` - SHA-256 check on installed hook scripts
+- [x] Command rewriting engine + `slimference rewrite <cmd>` (Hook-Pfad): JSON stdin extraction, exit 0/1/2/3 (allow / usage+JSON / deny / sudo-ask); vollständiger Shell-Tokenizer + compound split → später
+- [x] Permission system (v1): `filter.DeniedShellCommand` / `AskRequired` + `filter`/`rewrite` vor Ausführung; `[filter] deny_patterns` + `.slimference/filters.toml` → `SetExtraDenyPatterns`; sudo → Exit 3 wenn `SLIMFERENCE_CONFIRM_SUDO` nicht gesetzt *— volles allow/ask/exclude-UI → offen*
+- [x] TOML Filter DSL (§4.5): 8-stage pipeline in `internal/filter/filters_toml.go` + `RunPipeline` — `strip_ansi`, `replace`, `match_output` (+ `unless`), `strip_lines_matching`, `keep_lines_matching`, `truncate_lines_at`, `head_lines`/`tail_lines`, `max_lines`, `on_empty`; merged `deny_patterns` (Projekt + `~/.slimference/filters.toml`); Lookup-Reihenfolge Projekt → User
+- [x] Filter dispatch priority: built-in (`TryCompactGitStatus`, …) **vor** TOML; `applyLayer0AfterANSI` in `pipeline.go`; danach `[filter] passthrough_max_chars` / `SLIMFERENCE_FILTER_PASSTHROUGH_MAX_CHARS` (`TruncateStdoutWithHint`, Default 2000; `0` = kein Limit)
+- [x] Tee system: save raw unfiltered output to `~/.slimference/tee/` on filter failure, print hint to recovered file
 - [x] SQLite tracking for filter savings: input_tokens, output_tokens, savings_pct, command, timestamp, project_path (`filter_runs` + `RecordFilterRun`)
 
 ### Built-in Filters (24 total)
@@ -119,8 +119,8 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] F24: Formatters — `TryCompactFormatOutput`: 20+ Formatter erkannt (prettier/gofmt/rustfmt/clang-format/biome/black/ruff format/isort/etc.); empty → `[tool] ok`
 
 ### Analytics
-- [x] `tokenproxy gain` *Basis:* `internal/analytics/gain.go` — `filter.db`, today|week|month|all, `--json`/`--csv`/`--by-command`, `--project`, USD-Felder via Config/ENV *— echte API-Preise → offen*
-- [x] Economics tracking: `cfg.Analytics.GainUSDPerMillionTokens` (TOML) + `TOKENPROXY_GAIN_USD_PER_MILLION` (ENV) → `SavingsUsdEst` = tokens_saved_est / 1e6 * rate; ausgegeben in `tokenproxy gain` Text/JSON/CSV; Validierung auf >= 0 in config.Load()
+- [x] `slimference gain` *Basis:* `internal/analytics/gain.go` — `filter.db`, today|week|month|all, `--json`/`--csv`/`--by-command`, `--project`, USD-Felder via Config/ENV *— echte API-Preise → offen*
+- [x] Economics tracking: `cfg.Analytics.GainUSDPerMillionTokens` (TOML) + `SLIMFERENCE_GAIN_USD_PER_MILLION` (ENV) → `SavingsUsdEst` = tokens_saved_est / 1e6 * rate; ausgegeben in `slimference gain` Text/JSON/CSV; Validierung auf >= 0 in config.Load()
 
 ---
 
@@ -153,14 +153,14 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 
 ## Debug & Observability System
 
-- [x] `tokenproxy debug last` — implementiert in `handleDebugLast` (main.go) mit `--json`
-- [x] `tokenproxy debug summary` — implementiert in `handleDebugSummary` (today|week|month|all)
-- [x] `tokenproxy debug tail` — implementiert in `handleDebugTail` (N Zeilen, `--json`)
-- [x] `tokenproxy debug paths` — zeigt Filter-DB, Tee-Dir, Config-Pfade
+- [x] `slimference debug last` — implementiert in `handleDebugLast` (main.go) mit `--json`
+- [x] `slimference debug summary` — implementiert in `handleDebugSummary` (today|week|month|all)
+- [x] `slimference debug tail` — implementiert in `handleDebugTail` (N Zeilen, `--json`)
+- [x] `slimference debug paths` — zeigt Filter-DB, Tee-Dir, Config-Pfade
 - [x] Filter decision chain logging: `internal/debug/decisions.go` — DecisionEntry, JSONL-Chain, Recorder
 - [x] Structured JSONL output: `decisions.go` Recorder + JSONL-Format
-- [x] Debug log level control: via `TOKENPROXY_LOGGING_LEVEL` env + config `[logging] level` — abgedeckt; kein separater CLI-Flag nötig (kein Spec-Requirement)
-- [x] Session replay: `tokenproxy debug replay <session-file>` — vollstaendig implementiert: parst `RequestSummary`-JSONL, zeigt Tokens/Layers/Layer1-Breakdown/Layer2 pro Request + Gesamttotal; `ReplaySession()` in `internal/debug/session.go`; injectable `replaySessionFn`; 100% Coverage
+- [x] Debug log level control: via `SLIMFERENCE_LOGGING_LEVEL` env + config `[logging] level` — abgedeckt; kein separater CLI-Flag nötig (kein Spec-Requirement)
+- [x] Session replay: `slimference debug replay <session-file>` — vollstaendig implementiert: parst `RequestSummary`-JSONL, zeigt Tokens/Layers/Layer1-Breakdown/Layer2 pro Request + Gesamttotal; `ReplaySession()` in `internal/debug/session.go`; injectable `replaySessionFn`; 100% Coverage
 
 ---
 
@@ -200,8 +200,8 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] `internal/hooks/` — claude.go, codex.go, verify.go + Tests + 100% Coverage
 - [x] `internal/debug/` — decisions.go, session.go + Tests + 100% Coverage
 - [x] `internal/filter/filters_toml.go` (TOML filter DSL engine) — implementiert + 100% Coverage
-- [x] `cmd/tokenproxy/main.go` mit allen Subcommands: filter, hook, rewrite, gain, debug — vollständig
-- [x] `.tokenproxy/filters.toml` support — `project_filters.go` + `LoadMergedDenyPatterns` implementiert
+- [x] `cmd/slimference/main.go` mit allen Subcommands: filter, hook, rewrite, gain, debug — vollständig
+- [x] `.slimference/filters.toml` support — `project_filters.go` + `LoadMergedDenyPatterns` implementiert
 
 ---
 

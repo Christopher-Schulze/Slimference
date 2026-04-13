@@ -1,4 +1,4 @@
-// Package config handles loading, validating, and accessing TokenProxy configuration.
+// Package config handles loading, validating, and accessing Slimference configuration.
 // Priority order: CLI flags > environment variables > config file > defaults.
 package config
 
@@ -13,7 +13,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config is the fully resolved configuration for TokenProxy.
+// Config is the fully resolved configuration for Slimference.
 type Config struct {
 	Proxy       ProxyConfig       `toml:"proxy"`
 	Upstream    UpstreamConfig    `toml:"upstream"`
@@ -42,15 +42,19 @@ type DebugConfig struct {
 
 // HooksConfig affects generated hook scripts and AGENTS.md snippets.
 type HooksConfig struct {
-	// TokenproxyCommand is the executable name or path embedded in hooks (default "tokenproxy").
-	TokenproxyCommand string `toml:"tokenproxy_command"`
+	// SlimferenceCommand is the executable name or path embedded in hooks (default "slimference").
+	SlimferenceCommand string `toml:"slimference_command"`
+	// ExcludeCommands is a list of base command names (argv[0]) that are
+	// never rewritten by "slimference rewrite", regardless of filter rules.
+	// Corresponds to [hooks] exclude_commands in config.toml (spec+.md §4.9).
+	ExcludeCommands []string `toml:"exclude_commands"`
 }
 
 // FilterConfig holds Layer-0 CLI paths (optional; env vars still override when set in the CLI).
 type FilterConfig struct {
-	// FilterDB is the SQLite path for filter_runs. Empty means use TOKENPROXY_FILTER_DB or ~/.tokenproxy/filter.db.
+	// FilterDB is the SQLite path for filter_runs. Empty means use SLIMFERENCE_FILTER_DB or ~/.slimference/filter.db.
 	FilterDB string `toml:"filter_db"`
-	// TeeDir is the raw-output recovery directory. Empty means use TOKENPROXY_TEE_DIR or ~/.tokenproxy/tee.
+	// TeeDir is the raw-output recovery directory. Empty means use SLIMFERENCE_TEE_DIR or ~/.slimference/tee.
 	TeeDir string `toml:"tee_dir"`
 	// DenyPatterns are extra regexes (RE2) matched against the full command line; invalid entries are ignored at runtime.
 	DenyPatterns []string `toml:"deny_patterns"`
@@ -161,7 +165,7 @@ type AnalyticsConfig struct {
 	Dashboard              bool   `toml:"dashboard"`
 	LogDir                 string `toml:"log_dir"`
 	DashboardRefreshSeconds int   `toml:"dashboard_refresh_seconds"`
-	// GainUSDPerMillionTokens is optional: multiply tokens_saved_est / 1e6 for rough $ (tokenproxy gain).
+	// GainUSDPerMillionTokens is optional: multiply tokens_saved_est / 1e6 for rough $ (slimference gain).
 	GainUSDPerMillionTokens float64 `toml:"gain_usd_per_million_tokens"`
 }
 
@@ -179,7 +183,7 @@ type LoggingConfig struct {
 
 // DefaultConfigPath returns the default path to the config file.
 func DefaultConfigPath() string {
-	return filepath.Join(expandHome("~"), ".tokenproxy", "config.toml")
+	return filepath.Join(expandHome("~"), ".slimference", "config.toml")
 }
 
 // Load reads and validates the configuration. It applies file -> env -> flag precedence.
@@ -188,7 +192,7 @@ func Load() (*Config, error) {
 	cfg := Defaults()
 
 	path := DefaultConfigPath()
-	if p := os.Getenv("TOKENPROXY_CONFIG"); p != "" {
+	if p := os.Getenv("SLIMFERENCE_CONFIG"); p != "" {
 		path = p
 	}
 
@@ -207,53 +211,53 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// applyEnvOverrides reads TOKENPROXY_* environment variables and overlays them on cfg.
+// applyEnvOverrides reads SLIMFERENCE_* environment variables and overlays them on cfg.
 func applyEnvOverrides(cfg *Config) {
-	if v := os.Getenv("TOKENPROXY_LISTEN_ADDRESS"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_LISTEN_ADDRESS"); v != "" {
 		cfg.Proxy.ListenAddress = v
 	}
-	if v := envInt("TOKENPROXY_LISTEN_PORT"); v > 0 {
+	if v := envInt("SLIMFERENCE_LISTEN_PORT"); v > 0 {
 		cfg.Proxy.ListenPort = v
 	}
-	if v := os.Getenv("TOKENPROXY_UPSTREAM_ANTHROPIC_BASE_URL"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL"); v != "" {
 		cfg.Upstream.Anthropic.BaseURL = v
 	}
-	if v := os.Getenv("TOKENPROXY_UPSTREAM_OPENAI_BASE_URL"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL"); v != "" {
 		cfg.Upstream.OpenAI.BaseURL = v
 	}
-	if v := envInt("TOKENPROXY_COMPRESSION_SLIDING_WINDOW"); v > 0 {
+	if v := envInt("SLIMFERENCE_COMPRESSION_SLIDING_WINDOW"); v > 0 {
 		cfg.Compression.SlidingWindow = v
 	}
-	if v := os.Getenv("TOKENPROXY_SECRETS_MODE"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_SECRETS_MODE"); v != "" {
 		cfg.Secrets.Mode = v
 	}
-	if v := os.Getenv("TOKENPROXY_LOGGING_LEVEL"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_LOGGING_LEVEL"); v != "" {
 		cfg.Logging.Level = v
 	}
-	if v := os.Getenv("TOKENPROXY_HOOK_TOKENPROXY_COMMAND"); v != "" {
-		cfg.Hooks.TokenproxyCommand = v
+	if v := os.Getenv("SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND"); v != "" {
+		cfg.Hooks.SlimferenceCommand = v
 	}
-	if v := os.Getenv("TOKENPROXY_DEBUG_DECISIONS_LOG"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_DEBUG_DECISIONS_LOG"); v != "" {
 		cfg.Debug.DecisionsLog = v
 	}
-	if v := os.Getenv("TOKENPROXY_DEBUG_LEVEL"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_DEBUG_LEVEL"); v != "" {
 		cfg.Debug.Level = v
 	}
-	if v := os.Getenv("TOKENPROXY_DEBUG_FORMAT"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_DEBUG_FORMAT"); v != "" {
 		cfg.Debug.Format = v
 	}
-	if _, ok := os.LookupEnv("TOKENPROXY_DEBUG_MAX_ENTRIES"); ok {
-		cfg.Debug.MaxEntries = envInt("TOKENPROXY_DEBUG_MAX_ENTRIES")
+	if _, ok := os.LookupEnv("SLIMFERENCE_DEBUG_MAX_ENTRIES"); ok {
+		cfg.Debug.MaxEntries = envInt("SLIMFERENCE_DEBUG_MAX_ENTRIES")
 	}
-	if _, ok := os.LookupEnv("TOKENPROXY_FILTER_PASSTHROUGH_MAX_CHARS"); ok {
-		cfg.Filter.PassthroughMaxChars = envInt("TOKENPROXY_FILTER_PASSTHROUGH_MAX_CHARS")
+	if _, ok := os.LookupEnv("SLIMFERENCE_FILTER_PASSTHROUGH_MAX_CHARS"); ok {
+		cfg.Filter.PassthroughMaxChars = envInt("SLIMFERENCE_FILTER_PASSTHROUGH_MAX_CHARS")
 	}
-	if v := strings.TrimSpace(os.Getenv("TOKENPROXY_GAIN_USD_PER_MILLION")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_GAIN_USD_PER_MILLION")); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.Analytics.GainUSDPerMillionTokens = f
 		}
 	}
-	if v := os.Getenv("TOKENPROXY_MINIMAX_API_KEY"); v != "" {
+	if v := os.Getenv("SLIMFERENCE_MINIMAX_API_KEY"); v != "" {
 		// Store directly in env var that MiniMaxConfig.APIKey() reads
 		// The env var name comes from config, but allow a direct override too.
 		_ = v // already readable via os.Getenv(cfg.Compression.MiniMax.APIKeyEnv)

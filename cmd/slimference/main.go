@@ -1,27 +1,27 @@
-// Command tokenproxy is a transparent HTTP reverse proxy that applies multi-layer
+// Command slimference is a transparent HTTP reverse proxy that applies multi-layer
 // token compression to LLM API requests, extending effective usage limits by 2-3x.
 //
 // Usage:
 //
-//	tokenproxy                    # Start TUI + proxy
-//	tokenproxy config init        # Generate default config file
-//	tokenproxy config show        # Print resolved config
-//	tokenproxy test minimax       # Test MiniMax API connectivity
-//	tokenproxy test anthropic     # Test Anthropic reachability
-//	tokenproxy test openai        # Test OpenAI reachability
-//	tokenproxy doctor             # Run all diagnostics
-//	tokenproxy stats today        # Print today's stats
-//	tokenproxy stats week         # Print this week's stats
-//	tokenproxy gain today         # Layer-0 filter.db savings (--by-command, --csv, --project; optional USD/M rate in config)
-//	tokenproxy filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
-//	tokenproxy rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
-//	tokenproxy hook install claude # Install Claude Code / Codex hooks (v1)
-//	tokenproxy debug paths        # Show resolved config / filter.db / tee paths
-//	tokenproxy debug last         # Last Layer-0 row from filter.db (--json)
-//	tokenproxy debug summary week # Aggregate filter_runs for today|week|month|all
-//	tokenproxy debug tail 30      # Newest 30 rows (default 20, max 500, --json)
-//	tokenproxy debug replay f.jsonl # Replay session JSONL (per-request token breakdown)
-//	tokenproxy version            # Print version
+//	slimference                    # Start TUI + proxy
+//	slimference config init        # Generate default config file
+//	slimference config show        # Print resolved config
+//	slimference test minimax       # Test MiniMax API connectivity
+//	slimference test anthropic     # Test Anthropic reachability
+//	slimference test openai        # Test OpenAI reachability
+//	slimference doctor             # Run all diagnostics
+//	slimference stats today        # Print today's stats
+//	slimference stats week         # Print this week's stats
+//	slimference gain today         # Layer-0 filter.db savings (--by-command, --csv, --project; optional USD/M rate in config)
+//	slimference filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
+//	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
+//	slimference hook install claude # Install Claude Code / Codex hooks (v1)
+//	slimference debug paths        # Show resolved config / filter.db / tee paths
+//	slimference debug last         # Last Layer-0 row from filter.db (--json)
+//	slimference debug summary week # Aggregate filter_runs for today|week|month|all
+//	slimference debug tail 30      # Newest 30 rows (default 20, max 500, --json)
+//	slimference debug replay f.jsonl # Replay session JSONL (per-request token breakdown)
+//	slimference version            # Print version
 package main
 
 import (
@@ -43,14 +43,14 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"golang.org/x/term"
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	dbg "github.com/tokenproxy/tokenproxy/internal/debug"
-	"github.com/tokenproxy/tokenproxy/internal/filter"
-	"github.com/tokenproxy/tokenproxy/internal/hooks"
-	"github.com/tokenproxy/tokenproxy/internal/proxy"
-	"github.com/tokenproxy/tokenproxy/internal/tui"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/config"
+	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/filter"
+	"github.com/slimference/slimference/internal/hooks"
+	"github.com/slimference/slimference/internal/proxy"
+	"github.com/slimference/slimference/internal/tui"
+	"github.com/slimference/slimference/internal/types"
 )
 
 const version = "1.0.0"
@@ -187,18 +187,18 @@ func runTUIAfterStart(p *proxy.Proxy, progCh chan *tea.Program) {
 func handleSubcommand(args []string) {
 	switch args[0] {
 	case "version":
-		fmt.Printf("tokenproxy v%s\n", version)
+		fmt.Printf("slimference v%s\n", version)
 
 	case "config":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: tokenproxy config <init|show>")
+			fmt.Fprintln(os.Stderr, "usage: slimference config <init|show>")
 			exitFn(1)
 		}
 		handleConfigCmd(args[1:])
 
 	case "test":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: tokenproxy test <minimax|anthropic|openai|intercept>")
+			fmt.Fprintln(os.Stderr, "usage: slimference test <minimax|anthropic|openai|intercept>")
 			exitFn(1)
 		}
 		handleTestCmd(args[1:])
@@ -208,7 +208,7 @@ func handleSubcommand(args []string) {
 
 	case "stats":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: tokenproxy stats <today|week|month>")
+			fmt.Fprintln(os.Stderr, "usage: slimference stats <today|week|month>")
 			exitFn(1)
 		}
 		handleStatsCmd(args[1:])
@@ -230,12 +230,12 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'tokenproxy' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, hook, debug, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, hook, debug, version")
 		exitFn(1)
 	}
 }
 
-// syncPermissionDeny merges global [filter] deny_patterns with project .tokenproxy/filters.toml (cwd).
+// syncPermissionDeny merges global [filter] deny_patterns with project .slimference/filters.toml (cwd).
 func syncPermissionDeny(wd string) {
 	var global []string
 	if cfg, err := config.Load(); err == nil {
@@ -255,13 +255,13 @@ func layer0PermissionCheck(cmdLine string) (exitCode int, msg string) {
 		return 2, why
 	}
 	if filter.AskRequired(cmdLine) {
-		return 3, "tokenproxy: sudo requires TOKENPROXY_CONFIRM_SUDO=1"
+		return 3, "slimference: sudo requires SLIMFERENCE_CONFIRM_SUDO=1"
 	}
 	return 0, ""
 }
 
 func resolveFilterDBPath() (string, error) {
-	if p := os.Getenv("TOKENPROXY_FILTER_DB"); p != "" {
+	if p := os.Getenv("SLIMFERENCE_FILTER_DB"); p != "" {
 		return p, nil
 	}
 	if cfg, err := config.Load(); err == nil {
@@ -273,7 +273,7 @@ func resolveFilterDBPath() (string, error) {
 }
 
 func resolveTeeDir() (string, error) {
-	if p := os.Getenv("TOKENPROXY_TEE_DIR"); p != "" {
+	if p := os.Getenv("SLIMFERENCE_TEE_DIR"); p != "" {
 		return p, nil
 	}
 	if cfg, err := config.Load(); err == nil {
@@ -317,7 +317,7 @@ func handleFilterCmd(args []string) {
 		argv = append(argv, a)
 	}
 	if len(argv) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: tokenproxy filter [--] <command> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: slimference filter [--] <command> [args...]")
 		exitFn(1)
 	}
 	cmdLine := strings.Join(argv, " ")
@@ -342,7 +342,7 @@ func handleFilterCmd(args []string) {
 		teeDir, _ := resolveTeeDir()
 		if teeDir != "" {
 			if p, err := filter.WriteTeeRecovery(teeDir, pr.RawStdout, pr.RawStderr); err == nil {
-				fmt.Fprintf(os.Stderr, "tokenproxy: saved raw output to %s\n", p)
+				fmt.Fprintf(os.Stderr, "slimference: saved raw output to %s\n", p)
 			}
 		}
 	}
@@ -367,12 +367,32 @@ func handleFilterCmd(args []string) {
 }
 
 func handleRewriteCmd(args []string) {
+	// rewriteEmit applies the §4.2 rewrite pipeline to cmdLine and exits with
+	// the appropriate hook exit code:
+	//   0 = rewrite applied, stdout contains rewritten command
+	//   1 = no filter matched, hook should passthrough original unchanged
+	//   2 = deny rule matched, hook should block the command
+	//   3 = ask (sudo) required, hook should prompt before running
 	rewriteEmit := func(cmdLine string) {
+		// Permission check runs first (deny/ask take priority over filter matching).
 		if code, msg := layer0PermissionCheck(cmdLine); code != 0 {
 			fmt.Fprintln(os.Stderr, msg)
 			exitFn(code)
 		}
-		fmt.Println(cmdLine)
+
+		// Load excluded commands from config (commands never rewritten).
+		var excluded []string
+		if cfg, err := configLoadFn(); err == nil {
+			excluded = cfg.Hooks.ExcludeCommands
+		}
+
+		// Apply the §4.2 compound-command rewrite engine.
+		rewritten, hasFilter := filter.RewriteCommand(cmdLine, excluded)
+		if !hasFilter {
+			// No filter applies - exit 1 signals the hook to passthrough unchanged.
+			exitFn(1)
+		}
+		fmt.Println(rewritten)
 		exitFn(0)
 	}
 
@@ -385,7 +405,7 @@ func handleRewriteCmd(args []string) {
 	}
 	if len(parts) == 0 {
 		if termIsTerminalFn(int(os.Stdin.Fd())) {
-			fmt.Fprintln(os.Stderr, "usage: tokenproxy rewrite [--] <command words...>   (or pipe hook JSON on stdin)")
+			fmt.Fprintln(os.Stderr, "usage: slimference rewrite [--] <command words...>   (or pipe hook JSON on stdin)")
 			exitFn(1)
 		}
 		b, err := readStdinAll()
@@ -399,13 +419,14 @@ func handleRewriteCmd(args []string) {
 			exitFn(1)
 		}
 		rewriteEmit(cmd)
+		return
 	}
 	rewriteEmit(strings.Join(parts, " "))
 }
 
 func handleHookCmd(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: tokenproxy hook <install|remove|verify|status> ...")
+		fmt.Fprintln(os.Stderr, "usage: slimference hook <install|remove|verify|status> ...")
 		exitFn(1)
 	}
 	home, err := osUserHomeDir()
@@ -415,12 +436,12 @@ func handleHookCmd(args []string) {
 	}
 	tpCmd := ""
 	if cfg, err := config.Load(); err == nil {
-		tpCmd = strings.TrimSpace(cfg.Hooks.TokenproxyCommand)
+		tpCmd = strings.TrimSpace(cfg.Hooks.SlimferenceCommand)
 	}
 	switch args[0] {
 	case "install":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: tokenproxy hook install <claude|codex>")
+			fmt.Fprintln(os.Stderr, "usage: slimference hook install <claude|codex>")
 			exitFn(1)
 		}
 		switch args[1] {
@@ -429,20 +450,20 @@ func handleHookCmd(args []string) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Installed Claude Code hook (~/.claude/hooks/tokenproxy-rewrite.sh).")
+			fmt.Println("Installed Claude Code hook (~/.claude/hooks/slimference-rewrite.sh).")
 		case "codex":
 			if err := hooks.InstallCodex(home, tpCmd); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Updated Codex AGENTS.md with TokenProxy instructions.")
+			fmt.Println("Updated Codex AGENTS.md with Slimference instructions.")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown install target: %s (want claude|codex)\n", args[1])
 			exitFn(1)
 		}
 	case "remove":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: tokenproxy hook remove <claude|codex>")
+			fmt.Fprintln(os.Stderr, "usage: slimference hook remove <claude|codex>")
 			exitFn(1)
 		}
 		switch args[1] {
@@ -451,13 +472,13 @@ func handleHookCmd(args []string) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Removed Claude Code TokenProxy hook files.")
+			fmt.Println("Removed Claude Code Slimference hook files.")
 		case "codex":
 			if err := hooks.RemoveCodex(home); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Removed TokenProxy block from Codex AGENTS.md (if present).")
+			fmt.Println("Removed Slimference block from Codex AGENTS.md (if present).")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown remove target: %s\n", args[1])
 			exitFn(1)
@@ -499,7 +520,7 @@ func handleConfigCmd(args []string) {
 			exitFn(1)
 		}
 		fmt.Printf("Config written to %s\n", path)
-		fmt.Println("Next: set MINIMAX_API_KEY and run 'tokenproxy doctor'")
+		fmt.Println("Next: set MINIMAX_API_KEY and run 'slimference doctor'")
 
 	case "show":
 		cfg, err := config.Load()
@@ -532,7 +553,7 @@ func handleTestCmd(args []string) {
 		testUpstream("OpenAI", cfg.Upstream.OpenAI.BaseURL)
 	case "intercept":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: tokenproxy test intercept <claude|codex>")
+			fmt.Fprintln(os.Stderr, "usage: slimference test intercept <claude|codex>")
 			exitFn(1)
 		}
 		testIntercept(cfg, args[1])
@@ -602,7 +623,7 @@ func testIntercept(cfg *config.Config, provider string) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
-		w.Write([]byte(`{"type":"message","id":"test","content":[{"type":"text","text":"TokenProxy intercept test OK"}],"model":"test","role":"assistant","stop_reason":"end_turn"}`))
+		w.Write([]byte(`{"type":"message","id":"test","content":[{"type":"text","text":"Slimference intercept test OK"}],"model":"test","role":"assistant","stop_reason":"end_turn"}`))
 		fmt.Println("\nPASS - proxy intercept works!")
 		select {
 		case received <- struct{}{}:
@@ -646,7 +667,7 @@ func handleDoctorCmd() {
 		fmt.Printf("[%s] %s: %s\n", symbol, name, msg)
 	}
 
-	fmt.Println("TokenProxy Doctor")
+	fmt.Println("Slimference Doctor")
 	fmt.Println(strings.Repeat("-", 50))
 
 	check("Config file", func() (string, bool) {
@@ -698,7 +719,7 @@ func handleDoctorCmd() {
 
 	fmt.Println(strings.Repeat("-", 50))
 	if allOK {
-		fmt.Println("All checks passed. Run 'tokenproxy' to start.")
+		fmt.Println("All checks passed. Run 'slimference' to start.")
 	} else {
 		fmt.Println("Some checks failed. See above for details.")
 	}
@@ -801,7 +822,7 @@ func handleGainCmd(args []string) {
 	switch period {
 	case "today", "week", "month", "all":
 	default:
-		fmt.Fprintln(os.Stderr, "usage: tokenproxy gain [today|week|month|all] [--json] [--by-command] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or TOKENPROXY_GAIN_USD_PER_MILLION)")
+		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
 		exitFn(1)
 	}
 	path, err := resolveFilterDBPathFn()
@@ -884,7 +905,7 @@ func handleGainCmd(args []string) {
 
 func handleDebugCmd(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: tokenproxy debug <paths|last|summary|tail|replay>")
+		fmt.Fprintln(os.Stderr, "usage: slimference debug <paths|last|summary|tail|replay>")
 		fmt.Fprintln(os.Stderr, "  paths — show resolved config file, analytics log, filter.db, tee dir")
 		fmt.Fprintln(os.Stderr, "  last    — print last filter_runs row (optional --json)")
 		fmt.Fprintln(os.Stderr, "  summary — aggregate for today|week|month|all (default today, --json)")
@@ -943,7 +964,7 @@ func handleDebugSummary(extra []string) {
 	switch period {
 	case "today", "week", "month", "all":
 	default:
-		fmt.Fprintln(os.Stderr, "usage: tokenproxy debug summary [today|week|month|all] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: slimference debug summary [today|week|month|all] [--json]")
 		exitFn(1)
 	}
 	db, ok := mustOpenFilterDB()
@@ -990,12 +1011,12 @@ func handleDebugTail(extra []string) {
 				exitFn(1)
 			}
 			if gotLimit {
-				fmt.Fprintln(os.Stderr, "usage: tokenproxy debug tail [N] [--json]   (default N=20, max 500)")
+				fmt.Fprintln(os.Stderr, "usage: slimference debug tail [N] [--json]   (default N=20, max 500)")
 				exitFn(1)
 			}
 			n, err := strconv.Atoi(a)
 			if err != nil || n < 1 {
-				fmt.Fprintln(os.Stderr, "usage: tokenproxy debug tail [N] [--json]   (default N=20, max 500)")
+				fmt.Fprintln(os.Stderr, "usage: slimference debug tail [N] [--json]   (default N=20, max 500)")
 				exitFn(1)
 			}
 			limit = n
@@ -1036,7 +1057,7 @@ func handleDebugTail(extra []string) {
 
 func handleDebugReplay(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: tokenproxy debug replay <session.jsonl>")
+		fmt.Fprintln(os.Stderr, "usage: slimference debug replay <session.jsonl>")
 		exitFn(1)
 	}
 	path := args[0]
@@ -1213,17 +1234,17 @@ func handleDebugPaths() {
 	}
 	configPath := config.DefaultConfigPath()
 	configNote := "default"
-	if p := os.Getenv("TOKENPROXY_CONFIG"); p != "" {
+	if p := os.Getenv("SLIMFERENCE_CONFIG"); p != "" {
 		configPath = p
-		configNote = "TOKENPROXY_CONFIG"
+		configNote = "SLIMFERENCE_CONFIG"
 	}
 	var filterLine, teeLine string
 	if filterDB, ferr := resolveFilterDBPathFn(); ferr != nil {
 		filterLine = fmt.Sprintf("(error: %v)", ferr)
 	} else {
 		fnote := "default"
-		if os.Getenv("TOKENPROXY_FILTER_DB") != "" {
-			fnote = "TOKENPROXY_FILTER_DB"
+		if os.Getenv("SLIMFERENCE_FILTER_DB") != "" {
+			fnote = "SLIMFERENCE_FILTER_DB"
 		} else if strings.TrimSpace(cfg.Filter.FilterDB) != "" {
 			fnote = "[filter] filter_db"
 		}
@@ -1233,8 +1254,8 @@ func handleDebugPaths() {
 		teeLine = fmt.Sprintf("(error: %v)", terr)
 	} else {
 		tnote := "default"
-		if os.Getenv("TOKENPROXY_TEE_DIR") != "" {
-			tnote = "TOKENPROXY_TEE_DIR"
+		if os.Getenv("SLIMFERENCE_TEE_DIR") != "" {
+			tnote = "SLIMFERENCE_TEE_DIR"
 		} else if strings.TrimSpace(cfg.Filter.TeeDir) != "" {
 			tnote = "[filter] tee_dir"
 		}
@@ -1245,8 +1266,8 @@ func handleDebugPaths() {
 		dataDir = "(error: " + derr.Error() + ")"
 	}
 	dnote := "unset"
-	if os.Getenv("TOKENPROXY_DEBUG_DECISIONS_LOG") != "" {
-		dnote = "TOKENPROXY_DEBUG_DECISIONS_LOG"
+	if os.Getenv("SLIMFERENCE_DEBUG_DECISIONS_LOG") != "" {
+		dnote = "SLIMFERENCE_DEBUG_DECISIONS_LOG"
 	} else if strings.TrimSpace(cfg.Debug.DecisionsLog) != "" {
 		dnote = "[debug] decisions_log"
 	}
@@ -1264,7 +1285,7 @@ func handleDebugPaths() {
 			projectFiltersLine = pf + " [absent]"
 		}
 	}
-	fmt.Println("TokenProxy debug paths")
+	fmt.Println("Slimference debug paths")
 	fmt.Println(strings.Repeat("-", 50))
 	fmt.Printf("config file:      %s [%s]\n", configPath, configNote)
 	fmt.Printf("analytics log:    %s\n", cfg.Analytics.ResolvedLogDir())
@@ -1312,7 +1333,7 @@ func printStatsTable(snapshots []analytics.AnalyticsSnapshot) {
 		ratio = int(float64(total.SavedInputTokens) / float64(total.TotalInputTokens) * 100)
 	}
 
-	fmt.Println("TokenProxy Stats")
+	fmt.Println("Slimference Stats")
 	fmt.Println(strings.Repeat("-", 50))
 	fmt.Printf("Messages sent:       %d\n", total.TotalRequests)
 	fmt.Printf("Input tokens (orig): %s\n", formatTokensPlain(total.TotalInputTokens))

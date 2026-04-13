@@ -3,28 +3,28 @@ import { join } from "path";
 
 const moduleRoot = join(import.meta.dir, "../..");
 
-test("tokenproxy version prints version", () => {
+test("slimference version prints version", () => {
   const result = Bun.spawnSync({
-    cmd: ["go", "run", "./cmd/tokenproxy", "version"],
+    cmd: ["go", "run", "./cmd/slimference", "version"],
     cwd: moduleRoot,
   });
   const stdout = result.stdout.toString();
-  expect(stdout.toLowerCase()).toContain("tokenproxy");
+  expect(stdout.toLowerCase()).toContain("slimference");
   // Version string pattern: digits with dots (e.g. 1.0.0)
   expect(stdout).toMatch(/\d+\.\d+/);
 });
 
-test("tokenproxy gain --help shows usage on bad args", () => {
+test("slimference gain --help shows usage on bad args", () => {
   const result = Bun.spawnSync({
-    cmd: ["go", "run", "./cmd/tokenproxy", "gain", "badperiod"],
+    cmd: ["go", "run", "./cmd/slimference", "gain", "badperiod"],
     cwd: moduleRoot,
   });
   expect(result.exitCode).toBe(1);
 });
 
-test("tokenproxy debug --help shows subcommands", () => {
+test("slimference debug --help shows subcommands", () => {
   const result = Bun.spawnSync({
-    cmd: ["go", "run", "./cmd/tokenproxy", "debug"],
+    cmd: ["go", "run", "./cmd/slimference", "debug"],
     cwd: moduleRoot,
   });
   const stderr = result.stderr.toString();

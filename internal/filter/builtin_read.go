@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tokenproxy/tokenproxy/internal/compression"
+	"github.com/slimference/slimference/internal/compression"
 )
 
 // signatureOnlyThreshold is the byte size above which we try structure extraction

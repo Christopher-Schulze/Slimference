@@ -3,7 +3,7 @@ package summarization
 import (
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestAdaptiveWindowSize_NotEnoughMessages(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // classifyToolResult classifies a tool_result content block by type.

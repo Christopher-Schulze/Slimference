@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // ProviderStats accumulates per-provider request statistics.

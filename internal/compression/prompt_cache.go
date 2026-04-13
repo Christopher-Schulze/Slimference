@@ -1,7 +1,7 @@
 package compression
 
 import (
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 const (

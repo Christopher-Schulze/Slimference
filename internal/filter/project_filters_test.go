@@ -10,10 +10,10 @@ func TestLoadProjectDenyPatterns(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "proj")
-	if err := os.MkdirAll(filepath.Join(sub, ".tokenproxy"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(sub, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(sub, ".tokenproxy", "filters.toml")
+	path := filepath.Join(sub, ".slimference", "filters.toml")
 	content := `deny_patterns = ['^git\s+push\s+--force']
 `
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {

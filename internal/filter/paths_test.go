@@ -12,8 +12,8 @@ func TestDefaultDataDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultDataDir() error: %v", err)
 	}
-	if !strings.HasSuffix(dir, ".tokenproxy") {
-		t.Errorf("DefaultDataDir() = %q, want suffix .tokenproxy", dir)
+	if !strings.HasSuffix(dir, ".slimference") {
+		t.Errorf("DefaultDataDir() = %q, want suffix .slimference", dir)
 	}
 }
 

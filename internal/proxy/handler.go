@@ -11,14 +11,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
-	"github.com/tokenproxy/tokenproxy/internal/caching"
-	"github.com/tokenproxy/tokenproxy/internal/compression"
-	dbg "github.com/tokenproxy/tokenproxy/internal/debug"
-	"github.com/tokenproxy/tokenproxy/internal/security"
-	"github.com/tokenproxy/tokenproxy/internal/summarization"
-	"github.com/tokenproxy/tokenproxy/internal/tokens"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/caching"
+	"github.com/slimference/slimference/internal/compression"
+	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/security"
+	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/tokens"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // newRequestID generates a short random hex request ID for debug correlation.
@@ -460,7 +460,7 @@ func (p *Proxy) handlePassthrough(w http.ResponseWriter, r *http.Request, provid
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok","service":"tokenproxy"}`)) //nolint:errcheck
+	w.Write([]byte(`{"status":"ok","service":"slimference"}`)) //nolint:errcheck
 }
 
 // compressionWorker processes CompressJob items from the queue asynchronously.

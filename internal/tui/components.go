@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // renderProgressBar renders a horizontal progress bar for a given ratio (0.0-1.0).

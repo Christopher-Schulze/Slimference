@@ -16,8 +16,8 @@ UU internal/filter/conflict.go
 	benchGitStatusArgv = []string{"git", "status", "--porcelain=v1"}
 
 	benchBuildSuccessOut = []byte(`go: downloading github.com/foo/bar v1.2.3
-ok github.com/tokenproxy/tokenproxy/internal/filter (cached)
-ok github.com/tokenproxy/tokenproxy/internal/compression (cached)
+ok github.com/slimference/slimference/internal/filter (cached)
+ok github.com/slimference/slimference/internal/compression (cached)
 `)
 	benchBuildArgv = []string{"go", "test", "./..."}
 

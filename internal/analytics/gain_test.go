@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/filter"
+	"github.com/slimference/slimference/internal/filter"
 	_ "modernc.org/sqlite"
 )
 

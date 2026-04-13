@@ -7,19 +7,19 @@ import (
 	"strings"
 )
 
-const codexMarkerBegin = "<!-- tokenproxy:begin -->"
-const codexMarkerEnd = "<!-- tokenproxy:end -->"
+const codexMarkerBegin = "<!-- slimference:begin -->"
+const codexMarkerEnd = "<!-- slimference:end -->"
 
-// CodexAgentsBlock returns the markdown block for AGENTS.md (cmd is usually "tokenproxy" or a full path).
-func CodexAgentsBlock(tokenproxyCmd string) string {
-	cmd := strings.TrimSpace(tokenproxyCmd)
+// CodexAgentsBlock returns the markdown block for AGENTS.md (cmd is usually "slimference" or a full path).
+func CodexAgentsBlock(slimferenceCmd string) string {
+	cmd := strings.TrimSpace(slimferenceCmd)
 	if cmd == "" {
-		cmd = "tokenproxy"
+		cmd = "slimference"
 	}
 	return `
 
 ` + codexMarkerBegin + `
-## TokenProxy (shell output)
+## Slimference (shell output)
 
 When running shell commands, prefer wrapping them with:
 
@@ -31,8 +31,8 @@ Example: ` + fmt.Sprintf("`%s filter git status`", cmd) + ` instead of ` + "`git
 `
 }
 
-// InstallCodex appends a TokenProxy block to ~/.codex/AGENTS.md (or creates it).
-func InstallCodex(home string, tokenproxyCmd string) error {
+// InstallCodex appends a Slimference block to ~/.codex/AGENTS.md (or creates it).
+func InstallCodex(home string, slimferenceCmd string) error {
 	p := filepath.Join(home, ".codex", "AGENTS.md")
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		return err
@@ -49,12 +49,12 @@ func InstallCodex(home string, tokenproxyCmd string) error {
 	if len(prev) > 0 && !strings.HasSuffix(string(prev), "\n") {
 		_, _ = f.WriteString("\n")
 	}
-	block := CodexAgentsBlock(tokenproxyCmd)
+	block := CodexAgentsBlock(slimferenceCmd)
 	_, err = f.WriteString(strings.TrimPrefix(block, "\n"))
 	return err
 }
 
-// RemoveCodex removes the TokenProxy block from ~/.codex/AGENTS.md if present.
+// RemoveCodex removes the Slimference block from ~/.codex/AGENTS.md if present.
 func RemoveCodex(home string) error {
 	p := filepath.Join(home, ".codex", "AGENTS.md")
 	data, err := os.ReadFile(p)
@@ -71,7 +71,7 @@ func RemoveCodex(home string) error {
 	}
 	j := strings.Index(s[i:], codexMarkerEnd)
 	if j < 0 {
-		return fmt.Errorf("tokenproxy: unclosed marker in AGENTS.md")
+		return fmt.Errorf("slimference: unclosed marker in AGENTS.md")
 	}
 	j += i + len(codexMarkerEnd)
 	out := strings.TrimSpace(s[:i] + s[j:])

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 const dateFormat = "2006-01-02"

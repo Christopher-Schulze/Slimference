@@ -1,4 +1,4 @@
-# TokenProxy — Agenten- und Entwicklerregeln
+# Slimference — Agenten- und Entwicklerregeln
 
 Dieses Dokument ist **verbindlich** für alle automatisierten Agenten (Codex, Claude Code, Cursor, …) und für Menschen, die am Repo arbeiten. Abweichungen nur nach ausdrücklicher Projektfreigabe.
 
@@ -18,8 +18,8 @@ Dieses Dokument ist **verbindlich** für alle automatisierten Agenten (Codex, Cl
 ## 2. Fremd- und Referenzcode: `rtk-master/`
 
 - Das Verzeichnis **`rtk-master/`** ist ein **eingebettetes Fremdprojekt** (RTK, Rust/inspiration only).
-- **Nicht bearbeiten, nicht verschieben, nicht in unsere Ordnerstruktur integrieren** — kein Refactoring, keine „Aufräum“-Commits, keine Tests von dort ins TokenProxy-Layout übernehmen.
-- **Nur Inspiration** beim Portieren von Ideen nach Go; die **Spezifikation** für TokenProxy ist **`spec+.md`**, nicht RTK.
+- **Nicht bearbeiten, nicht verschieben, nicht in unsere Ordnerstruktur integrieren** — kein Refactoring, keine „Aufräum“-Commits, keine Tests von dort ins Slimference-Layout übernehmen.
+- **Nur Inspiration** beim Portieren von Ideen nach Go; die **Spezifikation** für Slimference ist **`spec+.md`**, nicht RTK.
 
 ---
 
@@ -34,7 +34,7 @@ Dieses Dokument ist **verbindlich** für alle automatisierten Agenten (Codex, Cl
 
 - **Alle** neuen Hilfsprogramme, Checks, kleinen CLIs, die **kein** Bestandteil der Laufzeit-Binary sind, liegen unter **`scripts/`** in **thematischen Unterordnern** — nicht lose im Repo-Root.
 - **Implementierung:** **Go** (`.go`), als Pakete unter `scripts/<thema>/` ausführbar mit `go run ./scripts/<thema>/...` vom Modulroot (oder `package main` + `go install` nach Konvention in `scripts/README.md`).
-- **Keine** neuen Shell-Skripte, **kein** neues Python/Node für TokenProxy-Repo-Tooling — **Ausnahmen** nur mit expliziter Projektfreigabe.
+- **Keine** neuen Shell-Skripte, **kein** neues Python/Node für Slimference-Repo-Tooling — **Ausnahmen** nur mit expliziter Projektfreigabe.
 
 **Standard-Unterordner (erweitern bei Bedarf, immer thematisch benennen):**
 
@@ -99,7 +99,7 @@ Die Anforderungen **100 %-Coverage** und **Tests unter `tests/` in TypeScript** 
 
 ## 7. Repository-Scan (Tooling-Verschiebung)
 
-- **TokenProxy-Root** (ohne `rtk-master/`): Es gibt **keine** bestehenden Shell-Skripte oder Tooling-Artefakte im Root, die nach `scripts/` **verschoben** werden müssten — das Layout ist vorbereitet (`scripts/coverage/`, `scripts/benchmarks/`, `scripts/utils/`).
+- **Slimference-Root** (ohne `rtk-master/`): Es gibt **keine** bestehenden Shell-Skripte oder Tooling-Artefakte im Root, die nach `scripts/` **verschoben** werden müssten — das Layout ist vorbereitet (`scripts/coverage/`, `scripts/benchmarks/`, `scripts/utils/`).
 - **`rtk-master/scripts/`** etc.: **nicht** nach `scripts/` kopieren oder verschieben (Fremdprojekt, §2).
 
 ---

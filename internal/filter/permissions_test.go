@@ -55,13 +55,13 @@ func TestSetExtraDenyPatterns_skipsEmptyAndInvalid(t *testing.T) {
 }
 
 func TestAskRequired(t *testing.T) {
-	t.Setenv("TOKENPROXY_CONFIRM_SUDO", "")
+	t.Setenv("SLIMFERENCE_CONFIRM_SUDO", "")
 	if !AskRequired("sudo apt update") {
-		t.Fatal("expected ask without TOKENPROXY_CONFIRM_SUDO")
+		t.Fatal("expected ask without SLIMFERENCE_CONFIRM_SUDO")
 	}
-	t.Setenv("TOKENPROXY_CONFIRM_SUDO", "1")
+	t.Setenv("SLIMFERENCE_CONFIRM_SUDO", "1")
 	if AskRequired("sudo apt update") {
-		t.Fatal("expected no ask when TOKENPROXY_CONFIRM_SUDO=1")
+		t.Fatal("expected no ask when SLIMFERENCE_CONFIRM_SUDO=1")
 	}
 	if AskRequired("apt update") {
 		t.Fatal("sudo absent should not ask")

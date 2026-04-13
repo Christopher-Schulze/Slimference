@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // buildPNGHeader returns a minimal PNG header with the given width and height.

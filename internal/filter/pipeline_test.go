@@ -36,7 +36,7 @@ func TestRunPipeline_StripANSI(t *testing.T) {
 func TestApplyLayer0AfterANSI_builtinSkipsTOML(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".tokenproxy"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	toml := `
@@ -44,7 +44,7 @@ func TestApplyLayer0AfterANSI_builtinSkipsTOML(t *testing.T) {
 match_command = "^git\\s+status"
 replace = [{ pattern = ".*", replacement = "TOML_RAN" }]
 `
-	if err := os.WriteFile(filepath.Join(dir, ".tokenproxy", "filters.toml"), []byte(toml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".slimference", "filters.toml"), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}
 	argv := []string{"git", "status"}
@@ -61,7 +61,7 @@ replace = [{ pattern = ".*", replacement = "TOML_RAN" }]
 func TestApplyLayer0AfterANSI_gitDiffEmptySkipsTOML(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".tokenproxy"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	toml := `
@@ -69,7 +69,7 @@ func TestApplyLayer0AfterANSI_gitDiffEmptySkipsTOML(t *testing.T) {
 match_command = "^git\\s+diff"
 replace = [{ pattern = ".*", replacement = "TOML_RAN" }]
 `
-	if err := os.WriteFile(filepath.Join(dir, ".tokenproxy", "filters.toml"), []byte(toml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".slimference", "filters.toml"), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}
 	out := applyLayer0AfterANSI(dir, []string{"git", "diff"}, []byte(""))
@@ -84,7 +84,7 @@ replace = [{ pattern = ".*", replacement = "TOML_RAN" }]
 func TestApplyLayer0AfterANSI_tomlWhenBuiltinNoMatch(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".tokenproxy"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	toml := `
@@ -92,7 +92,7 @@ func TestApplyLayer0AfterANSI_tomlWhenBuiltinNoMatch(t *testing.T) {
 match_command = "^git\\s+status"
 replace = [{ pattern = "branch", replacement = "BR" }]
 `
-	if err := os.WriteFile(filepath.Join(dir, ".tokenproxy", "filters.toml"), []byte(toml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".slimference", "filters.toml"), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}
 	argv := []string{"git", "status"}

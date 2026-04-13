@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // TestCount_NonEmpty verifies that Count returns > 0 for a non-empty string.

@@ -20,12 +20,12 @@ func TestDefaults_Valid(t *testing.T) {
 }
 
 func TestApplyEnvHooksDebug(t *testing.T) {
-	t.Setenv("TOKENPROXY_HOOK_TOKENPROXY_COMMAND", "/opt/bin/tokenproxy")
-	t.Setenv("TOKENPROXY_DEBUG_DECISIONS_LOG", "~/d/decisions.jsonl")
+	t.Setenv("SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND", "/opt/bin/slimference")
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", "~/d/decisions.jsonl")
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
-	if cfg.Hooks.TokenproxyCommand != "/opt/bin/tokenproxy" {
-		t.Fatalf("hooks command: %q", cfg.Hooks.TokenproxyCommand)
+	if cfg.Hooks.SlimferenceCommand != "/opt/bin/slimference" {
+		t.Fatalf("hooks command: %q", cfg.Hooks.SlimferenceCommand)
 	}
 	if cfg.Debug.DecisionsLog != "~/d/decisions.jsonl" {
 		t.Fatalf("decisions log: %q", cfg.Debug.DecisionsLog)
@@ -33,7 +33,7 @@ func TestApplyEnvHooksDebug(t *testing.T) {
 }
 
 func TestApplyEnvPassthroughMaxChars(t *testing.T) {
-	t.Setenv("TOKENPROXY_FILTER_PASSTHROUGH_MAX_CHARS", "4096")
+	t.Setenv("SLIMFERENCE_FILTER_PASSTHROUGH_MAX_CHARS", "4096")
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
 	if cfg.Filter.PassthroughMaxChars != 4096 {
@@ -42,7 +42,7 @@ func TestApplyEnvPassthroughMaxChars(t *testing.T) {
 }
 
 func TestApplyEnvGainUsdPerMillion(t *testing.T) {
-	t.Setenv("TOKENPROXY_GAIN_USD_PER_MILLION", "2.5")
+	t.Setenv("SLIMFERENCE_GAIN_USD_PER_MILLION", "2.5")
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
 	if cfg.Analytics.GainUSDPerMillionTokens != 2.5 {
@@ -70,7 +70,7 @@ func TestExpandHomePath(t *testing.T) {
 func TestLoadMissingFile(t *testing.T) {
 	// Not parallel - uses t.Setenv.
 	// Point to a guaranteed non-existent file.
-	t.Setenv("TOKENPROXY_CONFIG", "/tmp/tokenproxy_test_nonexistent_file_xyzzy.toml")
+	t.Setenv("SLIMFERENCE_CONFIG", "/tmp/slimference_test_nonexistent_file_xyzzy.toml")
 
 	cfg, err := Load()
 	if err != nil {
@@ -134,10 +134,10 @@ func TestListenAddr(t *testing.T) {
 	}
 }
 
-// TestEnvOverrides verifies that TOKENPROXY_LISTEN_PORT is applied by applyEnvOverrides.
+// TestEnvOverrides verifies that SLIMFERENCE_LISTEN_PORT is applied by applyEnvOverrides.
 func TestEnvOverrides(t *testing.T) {
 	// Not parallel - modifies environment variables.
-	t.Setenv("TOKENPROXY_LISTEN_PORT", "9999")
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", "9999")
 
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
@@ -147,9 +147,9 @@ func TestEnvOverrides(t *testing.T) {
 	}
 }
 
-// TestEnvOverrides_ListenAddress verifies TOKENPROXY_LISTEN_ADDRESS override.
+// TestEnvOverrides_ListenAddress verifies SLIMFERENCE_LISTEN_ADDRESS override.
 func TestEnvOverrides_ListenAddress(t *testing.T) {
-	t.Setenv("TOKENPROXY_LISTEN_ADDRESS", "0.0.0.0")
+	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "0.0.0.0")
 
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
@@ -159,9 +159,9 @@ func TestEnvOverrides_ListenAddress(t *testing.T) {
 	}
 }
 
-// TestEnvOverrides_SecretsMode verifies TOKENPROXY_SECRETS_MODE override.
+// TestEnvOverrides_SecretsMode verifies SLIMFERENCE_SECRETS_MODE override.
 func TestEnvOverrides_SecretsMode(t *testing.T) {
-	t.Setenv("TOKENPROXY_SECRETS_MODE", "block")
+	t.Setenv("SLIMFERENCE_SECRETS_MODE", "block")
 
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
@@ -230,24 +230,24 @@ func TestDefaultConfigPath(t *testing.T) {
 		t.Fatal("DefaultConfigPath() returned empty string")
 	}
 	// Must end with config.toml
-	suffix := ".tokenproxy/config.toml"
+	suffix := ".slimference/config.toml"
 	if len(path) < len(suffix) || path[len(path)-len(suffix):] != suffix {
 		t.Errorf("DefaultConfigPath() = %q, expected suffix %q", path, suffix)
 	}
 }
 
-// TestApplyEnvOverrides_MinimaxAPIKey covers the TOKENPROXY_MINIMAX_API_KEY branch.
+// TestApplyEnvOverrides_MinimaxAPIKey covers the SLIMFERENCE_MINIMAX_API_KEY branch.
 func TestApplyEnvOverrides_MinimaxAPIKey(t *testing.T) {
-	t.Setenv("TOKENPROXY_MINIMAX_API_KEY", "test-key-xyz")
+	t.Setenv("SLIMFERENCE_MINIMAX_API_KEY", "test-key-xyz")
 	cfg := Defaults()
 	applyEnvOverrides(cfg) // just must not panic; the value is discarded via _ = v
 }
 
-// TestApplyEnvOverrides_DebugFields covers the TOKENPROXY_DEBUG_LEVEL, DEBUG_FORMAT, and DEBUG_MAX_ENTRIES branches.
+// TestApplyEnvOverrides_DebugFields covers the SLIMFERENCE_DEBUG_LEVEL, DEBUG_FORMAT, and DEBUG_MAX_ENTRIES branches.
 func TestApplyEnvOverrides_DebugFields(t *testing.T) {
-	t.Setenv("TOKENPROXY_DEBUG_LEVEL", "verbose")
-	t.Setenv("TOKENPROXY_DEBUG_FORMAT", "json")
-	t.Setenv("TOKENPROXY_DEBUG_MAX_ENTRIES", "500")
+	t.Setenv("SLIMFERENCE_DEBUG_LEVEL", "verbose")
+	t.Setenv("SLIMFERENCE_DEBUG_FORMAT", "json")
+	t.Setenv("SLIMFERENCE_DEBUG_MAX_ENTRIES", "500")
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
 	if cfg.Debug.Level != "verbose" {
@@ -364,10 +364,10 @@ func TestValidate_GainUSDNegative(t *testing.T) {
 
 // TestApplyEnvOverrides_UpstreamAndCompression covers upstream URL and sliding window overrides.
 func TestApplyEnvOverrides_UpstreamAndCompression(t *testing.T) {
-	t.Setenv("TOKENPROXY_UPSTREAM_ANTHROPIC_BASE_URL", "https://custom.anthropic.com")
-	t.Setenv("TOKENPROXY_UPSTREAM_OPENAI_BASE_URL", "https://custom.openai.com")
-	t.Setenv("TOKENPROXY_COMPRESSION_SLIDING_WINDOW", "10")
-	t.Setenv("TOKENPROXY_LOGGING_LEVEL", "debug")
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "https://custom.anthropic.com")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "https://custom.openai.com")
+	t.Setenv("SLIMFERENCE_COMPRESSION_SLIDING_WINDOW", "10")
+	t.Setenv("SLIMFERENCE_LOGGING_LEVEL", "debug")
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
 	if cfg.Upstream.Anthropic.BaseURL != "https://custom.anthropic.com" {
@@ -386,7 +386,7 @@ func TestApplyEnvOverrides_UpstreamAndCompression(t *testing.T) {
 
 // TestApplyEnvOverrides_InvalidGainFloat covers the parseFloat error branch in applyEnvOverrides.
 func TestApplyEnvOverrides_InvalidGainFloat(t *testing.T) {
-	t.Setenv("TOKENPROXY_GAIN_USD_PER_MILLION", "not-a-float")
+	t.Setenv("SLIMFERENCE_GAIN_USD_PER_MILLION", "not-a-float")
 	cfg := Defaults()
 	original := cfg.Analytics.GainUSDPerMillionTokens
 	applyEnvOverrides(cfg)
@@ -406,7 +406,7 @@ func TestLoad_ValidateFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Close()
-	t.Setenv("TOKENPROXY_CONFIG", f.Name())
+	t.Setenv("SLIMFERENCE_CONFIG", f.Name())
 	_, err = Load()
 	if err == nil {
 		t.Fatal("Load() with invalid config expected error, got nil")
@@ -431,7 +431,7 @@ func TestLoad_InvalidTOML(t *testing.T) {
 	}
 	f.Close()
 
-	t.Setenv("TOKENPROXY_CONFIG", f.Name())
+	t.Setenv("SLIMFERENCE_CONFIG", f.Name())
 
 	_, err = Load()
 	if err == nil {

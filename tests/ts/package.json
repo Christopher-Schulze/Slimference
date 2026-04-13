@@ -1,5 +1,5 @@
 {
-  "name": "tokenproxy-ts-tests",
+  "name": "slimference-ts-tests",
   "version": "1.0.0",
   "scripts": {
     "test": "bun test"

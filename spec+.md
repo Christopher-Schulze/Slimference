@@ -1,4 +1,4 @@
-# TokenProxy - Technical Specification
+# Slimference - Technical Specification
 
 Version: 2.0.0-draft
 Date: 2026-04-10
@@ -94,7 +94,7 @@ Architecture: Dual-Mode Token Optimization Engine (Pre-Entry Filtering + Post-En
 
 ## 1. Executive Summary
 
-TokenProxy is a dual-mode token optimization engine written in Go. It operates at two
+Slimference is a dual-mode token optimization engine written in Go. It operates at two
 distinct layers simultaneously:
 
 **Mode 1 - Pre-Entry Filtering (Layer 0):** A CLI filter engine that intercepts shell
@@ -228,9 +228,9 @@ Your current work context is always preserved at full fidelity.
           | Layer 0          |          |
           | Pre-Entry Filter |          v
           | (Hook System)    |   +-------------------+
-          |                  |   |   TokenProxy       |
+          |                  |   |   Slimference       |
           | "git status"     |   |   HTTP Proxy       |
-          |   -> tokenproxy  |   |   (localhost:8990) |
+          |   -> slimference  |   |   (localhost:8990) |
           |      filter      |   +-------------------+
           |   -> "3 mod,     |          |
           |      1 staged"   |   +------+------+------+
@@ -263,8 +263,8 @@ Your current work context is always preserved at full fidelity.
 LAYER 0 (Pre-Entry) - Affects ALL messages including sliding window
 =================================================================
 1. LLM agent decides to run "git status"
-2. Hook intercepts: calls "tokenproxy filter git status"
-3. tokenproxy executes "git status", captures stdout/stderr
+2. Hook intercepts: calls "slimference filter git status"
+3. slimference executes "git status", captures stdout/stderr
 4. Built-in filter compacts: 40 lines -> "3 modified, 1 staged"
 5. Compact output returned to agent -> becomes tool_result
 6. This tool_result is ALREADY small when it enters the conversation
@@ -299,8 +299,8 @@ LAYERS 1-3 (Post-Entry) - Affects old messages outside sliding window
 ```
 LAYER 0 PATH (Pre-Entry, happens BEFORE the API request):
 0a. LLM agent invokes tool (e.g., Bash with "git status")
-0b. Hook intercepts: calls "tokenproxy filter git status"
-0c. tokenproxy spawns "git status" subprocess, captures stdout/stderr
+0b. Hook intercepts: calls "slimference filter git status"
+0c. slimference spawns "git status" subprocess, captures stdout/stderr
 0d. Filter dispatch: classify command -> select built-in filter or TOML match
 0e. Apply filter pipeline: ANSI strip -> filter logic -> truncation
 0f. Track: record input/output tokens in SQLite
@@ -355,13 +355,13 @@ sliding window. Layers 1-3 only touch old messages outside the window.
 ### 4.1 Filter Subcommand
 
 ```go
-// tokenproxy filter <command> [args...]
+// slimference filter <command> [args...]
 //
 // Executes the given command, captures stdout/stderr, applies the best matching
 // filter, prints the filtered output, and exits with the command's exit code.
 //
 // Example:
-//   tokenproxy filter git status
+//   slimference filter git status
 //   -> Executes "git status"
 //   -> Applies git_status filter
 //   -> Prints: "3 modified, 1 staged, 2 untracked"
@@ -413,14 +413,14 @@ func executeCommand(cmd string) (stdout, stderr []byte, exitCode int, err error)
 
 ### 4.2 Command Rewriting Engine
 
-The rewriting engine translates raw shell commands into their tokenproxy-filtered
+The rewriting engine translates raw shell commands into their slimference-filtered
 equivalents. It handles compound commands, pipes, redirects, and quoting correctly.
 
 ```go
 // rewriteCommand rewrites a raw shell command for RTK-style filtering.
 //
 // Input:  "cargo fmt --all && cargo test 2>&1 | tail -20"
-// Output: "tokenproxy filter cargo fmt --all && tokenproxy filter cargo test 2>&1 | tail -20"
+// Output: "slimference filter cargo fmt --all && slimference filter cargo test 2>&1 | tail -20"
 //
 // Rules:
 // - Split compound commands on && || ;
@@ -428,8 +428,8 @@ equivalents. It handles compound commands, pipes, redirects, and quoting correct
 // - NEVER rewrite the right side of a pipe (it processes output, not a command)
 // - Exception: find/fd before pipe IS rewritten (find produces file lists)
 // - Preserve redirects (2>&1, >output.txt) attached to the correct segment
-// - If command is already "tokenproxy filter ...": pass through unchanged
-// - If TOKENPROXY_DISABLED=1 prefix: pass through unchanged
+// - If command is already "slimference filter ...": pass through unchanged
+// - If SLIMFERENCE_DISABLED=1 prefix: pass through unchanged
 // - If command has no filter match: pass through unchanged (exit code 1 to hook)
 
 func rewriteCommand(cmd string, excluded []string) (rewritten string, hasFilter bool)
@@ -474,7 +474,7 @@ func tokenize(input string) []ParsedToken
 ```go
 type RewriteRule struct {
     Pattern        string    // regex matching the command
-    FilterCmd      string    // tokenproxy filter prefix
+    FilterCmd      string    // slimference filter prefix
     Category       string    // "Git", "Build", "Test", "Files", etc.
     EstSavingsPct  float64   // expected savings percentage
     RewritePrefixes []string // command prefixes that trigger this rule
@@ -483,17 +483,17 @@ type RewriteRule struct {
 // Example rules:
 var rules = []RewriteRule{
     {Pattern: `^git\s+(status|log|diff|show|add|commit|push|pull|branch|fetch|stash)`,
-     FilterCmd: "tokenproxy filter git", Category: "Git", EstSavingsPct: 80.0},
+     FilterCmd: "slimference filter git", Category: "Git", EstSavingsPct: 80.0},
     {Pattern: `^cargo\s+(build|test|clippy|check|fmt)`,
-     FilterCmd: "tokenproxy filter cargo", Category: "Build", EstSavingsPct: 85.0},
+     FilterCmd: "slimference filter cargo", Category: "Build", EstSavingsPct: 85.0},
     {Pattern: `^(cat|head|tail)\s+`,
-     FilterCmd: "tokenproxy filter read", Category: "Files", EstSavingsPct: 60.0},
+     FilterCmd: "slimference filter read", Category: "Files", EstSavingsPct: 60.0},
     {Pattern: `^(rg|grep)\s+`,
-     FilterCmd: "tokenproxy filter grep", Category: "Files", EstSavingsPct: 75.0},
+     FilterCmd: "slimference filter grep", Category: "Files", EstSavingsPct: 75.0},
     {Pattern: `^go\s+(test|build|vet)`,
-     FilterCmd: "tokenproxy filter go", Category: "Build", EstSavingsPct: 85.0},
+     FilterCmd: "slimference filter go", Category: "Build", EstSavingsPct: 85.0},
     {Pattern: `^(pytest|python -m pytest)`,
-     FilterCmd: "tokenproxy filter pytest", Category: "Test", EstSavingsPct: 90.0},
+     FilterCmd: "slimference filter pytest", Category: "Test", EstSavingsPct: 90.0},
     // ... 60+ rules total, covering all ecosystems
 }
 ```
@@ -507,24 +507,24 @@ through the filter engine. This is the entry point for Layer 0.
 
 ```bash
 # Installation (v1):
-tokenproxy hook install claude     # Install hook for Claude Code
-tokenproxy hook install codex      # Install hook for Codex
+slimference hook install claude     # Install hook for Claude Code
+slimference hook install codex      # Install hook for Codex
 
 # Verification:
-tokenproxy hook verify             # Check all installed hooks (SHA-256 integrity)
-tokenproxy hook status             # Show which hooks are installed and active
+slimference hook verify             # Check all installed hooks (SHA-256 integrity)
+slimference hook status             # Show which hooks are installed and active
 
 # Removal:
-tokenproxy hook remove claude      # Remove Claude Code hook
+slimference hook remove claude      # Remove Claude Code hook
 ```
 
 **Claude Code hook installation:**
 
 ```go
-// tokenproxy hook install claude
+// slimference hook install claude
 //
 // 1. Create ~/.claude/hooks/ directory
-// 2. Write rewrite hook script to ~/.claude/hooks/tokenproxy-rewrite.sh
+// 2. Write rewrite hook script to ~/.claude/hooks/slimference-rewrite.sh
 // 3. Compute SHA-256 hash of hook script
 // 4. Patch ~/.claude/settings.json: add PreToolUse hook configuration
 //    {
@@ -533,16 +533,16 @@ tokenproxy hook remove claude      # Remove Claude Code hook
 //          "matcher": "Bash",
 //          "hooks": [{
 //            "type": "command",
-//            "command": "bash ~/.claude/hooks/tokenproxy-rewrite.sh"
+//            "command": "bash ~/.claude/hooks/slimference-rewrite.sh"
 //          }]
 //        }]
 //      }
 //    }
-// 5. Verify hook is registered: tokenproxy hook verify
+// 5. Verify hook is registered: slimference hook verify
 
-// Hook script (tokenproxy-rewrite.sh):
+// Hook script (slimference-rewrite.sh):
 // Reads the tool input JSON from Claude Code's hook system,
-// extracts the command, calls "tokenproxy rewrite <cmd>",
+// extracts the command, calls "slimference rewrite <cmd>",
 // and based on exit code:
 //   0 = rewrite allowed, stdout contains rewritten command
 //   1 = no filter match, passthrough unchanged
@@ -553,16 +553,16 @@ tokenproxy hook remove claude      # Remove Claude Code hook
 **Codex hook installation:**
 
 ```go
-// tokenproxy hook install codex
+// slimference hook install codex
 //
 // Codex supports base URL override but not PreToolUse hooks directly.
 // Instead, we write an AGENTS.md file that instructs the agent to prefix
-// shell commands with "tokenproxy filter":
+// shell commands with "slimference filter":
 //
 // 1. Create ~/.codex/AGENTS.md (or append to existing)
 // 2. Add instruction block:
-//    "When executing shell commands, prefix with 'tokenproxy filter' for
-//     optimized output. Example: tokenproxy filter git status"
+//    "When executing shell commands, prefix with 'slimference filter' for
+//     optimized output. Example: slimference filter git status"
 // 3. This is a suggestion-based approach (~70-85% adoption rate)
 //
 // For full adoption, Codex would need a hook system similar to Claude Code.
@@ -572,21 +572,21 @@ tokenproxy hook remove claude      # Remove Claude Code hook
 
 | Agent | Hook Type | Adoption Rate | Installation |
 |---|---|---|---|
-| Claude Code | PreToolUse shell hook | 100% (auto-rewrite) | `tokenproxy hook install claude` |
-| Codex | AGENTS.md instruction | ~70-85% (suggestion) | `tokenproxy hook install codex` |
+| Claude Code | PreToolUse shell hook | 100% (auto-rewrite) | `slimference hook install claude` |
+| Codex | AGENTS.md instruction | ~70-85% (suggestion) | `slimference hook install codex` |
 
 **Future / additional agents (non-normative for v1; RTK-style parity roadmap):**
 
 | Agent | Hook Type | Adoption Rate | Installation |
 |---|---|---|---|
-| Cursor | preToolUse hook | 100% (auto-rewrite) | `tokenproxy hook install cursor` (future) |
-| GitHub Copilot (VS Code) | PreToolUse hook | 100% (auto-rewrite) | `tokenproxy hook install copilot` (future) |
+| Cursor | preToolUse hook | 100% (auto-rewrite) | `slimference hook install cursor` (future) |
+| GitHub Copilot (VS Code) | PreToolUse hook | 100% (auto-rewrite) | `slimference hook install copilot` (future) |
 | GitHub Copilot CLI | deny-with-suggestion | ~70% (suggestion) | same as copilot |
-| Gemini CLI | BeforeTool hook | 100% (auto-rewrite) | `tokenproxy hook install gemini` |
-| Windsurf | .windsurfrules instruction | ~70% (suggestion) | `tokenproxy hook install windsurf` |
-| Cline/Roo Code | .clinerules instruction | ~70% (suggestion) | `tokenproxy hook install cline` |
-| OpenCode | Plugin (tool.execute.before) | 100% (auto-rewrite) | `tokenproxy hook install opencode` |
-| OpenClaw | Plugin (before_tool_call) | 100% (auto-rewrite) | `tokenproxy hook install openclaw` |
+| Gemini CLI | BeforeTool hook | 100% (auto-rewrite) | `slimference hook install gemini` |
+| Windsurf | .windsurfrules instruction | ~70% (suggestion) | `slimference hook install windsurf` |
+| Cline/Roo Code | .clinerules instruction | ~70% (suggestion) | `slimference hook install cline` |
+| OpenCode | Plugin (tool.execute.before) | 100% (auto-rewrite) | `slimference hook install opencode` |
+| OpenClaw | Plugin (before_tool_call) | 100% (auto-rewrite) | `slimference hook install openclaw` |
 
 ### 4.4 Built-in Filters (24 Modules)
 
@@ -700,8 +700,8 @@ Users can define custom filters in TOML without writing Go code.
 This covers commands that the built-in filters do not handle.
 
 ```toml
-# .tokenproxy/filters.toml (project-local, committed with repo)
-# or ~/.tokenproxy/filters.toml (user-global)
+# .slimference/filters.toml (project-local, committed with repo)
+# or ~/.slimference/filters.toml (user-global)
 
 schema_version = 1
 
@@ -740,8 +740,8 @@ on_empty = "[ok] my-build-tool: no output"
 | 8 | `on_empty` | If result is empty string, return this message instead |
 
 **Lookup priority (first match wins):**
-1. `.tokenproxy/filters.toml` (project-local)
-2. `~/.tokenproxy/filters.toml` (user-global)
+1. `.slimference/filters.toml` (project-local)
+2. `~/.slimference/filters.toml` (user-global)
 3. Built-in filters (compiled into binary)
 4. Generic ANSI strip + truncation
 5. Passthrough (no filter)
@@ -749,7 +749,7 @@ on_empty = "[ok] my-build-tool: no output"
 ### 4.6 Filter Dispatch Priority
 
 ```go
-// When tokenproxy filter receives a command:
+// When slimference filter receives a command:
 //
 // 1. Try built-in filter (classify command via RegexSet, call specialized filter)
 // 2. Try TOML filter match (check match_command against all TOML filter definitions)
@@ -790,12 +790,12 @@ is saved to disk for later inspection. This prevents information loss.
 ```go
 // Tee system: save raw output on failure
 //
-// Location: ~/.tokenproxy/tee/{epoch}_{sanitized_command}.log
+// Location: ~/.slimference/tee/{epoch}_{sanitized_command}.log
 // Rotation: keep last 20 files, max 1MB each
 // Trigger: exit code != 0, OR filter truncated output significantly (>80% removed)
 //
 // After saving, print hint to stderr:
-//   "[full output: ~/.tokenproxy/tee/1712700000_cargo_test.log]"
+//   "[full output: ~/.slimference/tee/1712700000_cargo_test.log]"
 //
 // The LLM agent can read this file if it needs the full unfiltered output.
 // This ensures zero information loss even with aggressive filtering.
@@ -825,7 +825,7 @@ func teeIfNeeded(cmd string, rawOutput string, filtered string, exitCode int) {
 All filter executions are recorded in a local SQLite database for analytics.
 
 ```go
-// Database: ~/.tokenproxy/tracking.db
+// Database: ~/.slimference/tracking.db
 // Retention: 90 days automatic cleanup
 //
 // Schema:
@@ -846,7 +846,7 @@ All filter executions are recorded in a local SQLite database for analytics.
 // Token approximation: chars / 4 (same as RTK, consistent with LLM tokenizers)
 
 // Analytics query:
-// tokenproxy gain
+// slimference gain
 // -> shows total saved, per-command breakdown, daily/weekly/monthly, project-scoped
 ```
 
@@ -1286,7 +1286,7 @@ tool_result content blocks that are outside the sliding window. This handles:
 // For each old tool_result classified by 5.8:
 // Apply the corresponding filter function from the Layer 0 filter inventory.
 //
-// This is the SAME filter code used in "tokenproxy filter" (Section 4.4),
+// This is the SAME filter code used in "slimference filter" (Section 4.4),
 // but applied to content that is already in the conversation history.
 //
 // Key difference from Layer 0: these filters run on content the model has
@@ -2543,13 +2543,13 @@ Before first use, run the built-in connectivity test:
 ```bash
 # This starts a temporary HTTP listener, instructs the user to
 # run a test command with the CLI, and verifies the request arrives.
-tokenproxy test intercept claude    # tests Claude Code routing
-tokenproxy test intercept codex     # tests Codex routing
+slimference test intercept claude    # tests Claude Code routing
+slimference test intercept codex     # tests Codex routing
 ```
 
 Implementation:
 ```go
-// tokenproxy test intercept <provider>
+// slimference test intercept <provider>
 //
 // 1. Start HTTP listener on configured port
 // 2. Print instructions:
@@ -2694,7 +2694,7 @@ type RequestMetrics struct {
 ### 11.2 Interactive TUI Dashboard (BubbleTea + Lipgloss)
 
 The TUI IS the application. No separate CLI commands, no daemon mode.
-`tokenproxy` starts the TUI. The proxy runs as goroutines inside the same process.
+`slimference` starts the TUI. The proxy runs as goroutines inside the same process.
 Close the TUI = proxy stops. Open = proxy runs.
 
 **Framework:** charmbracelet/bubbletea (Elm-architecture TUI) + lipgloss (styling)
@@ -2702,7 +2702,7 @@ Close the TUI = proxy stops. Open = proxy runs.
 **Layout - single screen, live-updating, keyboard-driven:**
 
 ```
-╭── TokenProxy v1.0.0 ──────────────────────────── Session: 2h 14m ──╮
+╭── Slimference v1.0.0 ──────────────────────────── Session: 2h 14m ──╮
 │                                                                      │
 │  ● Claude Code  [ON]       ● Codex  [ON]          Port: 8990       │
 │                                                                      │
@@ -2914,7 +2914,7 @@ func (m TUIModel) renderMainView() string {
         Foreground(lipgloss.Color("240"))
 
     // Build sections
-    header := title.Render("TokenProxy v1.0.0") +
+    header := title.Render("Slimference v1.0.0") +
         dimStyle.Render("  Session: " + m.sessionDuration())
 
     // Provider toggles
@@ -2968,7 +2968,7 @@ func (m TUIModel) renderMainView() string {
 **Stats detail view (toggle with `s`):**
 
 ```
-╭── TokenProxy - Detailed Statistics ─────────────────────────────────╮
+╭── Slimference - Detailed Statistics ─────────────────────────────────╮
 │                                                                      │
 │  Session Summary                                                     │
 │  Started: 2026-04-09 12:18:04    Duration: 2h 14m                  │
@@ -3024,7 +3024,7 @@ func (m TUIModel) renderMainView() string {
 **Debug log view (toggle with `d`):**
 
 ```
-╭── TokenProxy - Debug Log ───────────────────────────────────────────╮
+╭── Slimference - Debug Log ───────────────────────────────────────────╮
 │                                                                      │
 │  14:32:01 INFO  request_processed provider=anthropic model=opus     │
 │    input_orig=87400 input_comp=29100 ratio=0.33 layers=[1,2]       │
@@ -3047,7 +3047,7 @@ func (m TUIModel) renderMainView() string {
 ╰──────────────────────────────────────── [d] back  [q] quit ─────────╯
 ```
 
-**Startup sequence (what happens when you run `tokenproxy`):**
+**Startup sequence (what happens when you run `slimference`):**
 
 ```go
 func main() {
@@ -3080,39 +3080,39 @@ func main() {
 # These run without TUI, print to stdout, and exit:
 
 # Configuration
-tokenproxy config init       # Generate default ~/.tokenproxy/config.toml
-tokenproxy config show       # Print resolved config (file + env)
+slimference config init       # Generate default ~/.slimference/config.toml
+slimference config show       # Print resolved config (file + env)
 
 # Connectivity tests
-tokenproxy test minimax      # Test MiniMax API connectivity
-tokenproxy test anthropic    # Test Anthropic upstream reachability
-tokenproxy test openai       # Test OpenAI upstream reachability
-tokenproxy doctor            # Run ALL diagnostics (config + connectivity + hooks)
+slimference test minimax      # Test MiniMax API connectivity
+slimference test anthropic    # Test Anthropic upstream reachability
+slimference test openai       # Test OpenAI upstream reachability
+slimference doctor            # Run ALL diagnostics (config + connectivity + hooks)
 
 # Layer 0: Pre-entry filtering
-tokenproxy filter <cmd>      # Execute command with filter (RTK-replacement)
-tokenproxy hook install <agent>  # v1: claude | codex (see §4.3)
-tokenproxy hook verify       # Check hook integrity (SHA-256)
-tokenproxy hook status       # Show installed hooks
-tokenproxy hook remove <agent>   # Remove hook
+slimference filter <cmd>      # Execute command with filter (RTK-replacement)
+slimference hook install <agent>  # v1: claude | codex (see §4.3)
+slimference hook verify       # Check hook integrity (SHA-256)
+slimference hook status       # Show installed hooks
+slimference hook remove <agent>   # Remove hook
 
 # Analytics
-tokenproxy stats today       # Print today's stats from persisted analytics
-tokenproxy stats week        # Print this week's stats
-tokenproxy stats month       # Print this month's stats
-tokenproxy gain              # Token savings dashboard (like rtk gain)
-tokenproxy gain --project    # Project-scoped savings
-tokenproxy gain --format json    # Machine-readable export
+slimference stats today       # Print today's stats from persisted analytics
+slimference stats week        # Print this week's stats
+slimference stats month       # Print this month's stats
+slimference gain              # Token savings dashboard (like rtk gain)
+slimference gain --project    # Project-scoped savings
+slimference gain --format json    # Machine-readable export
 
 # Debug (AI-agent-optimized)
-tokenproxy debug last        # Last request decision tree (JSON)
-tokenproxy debug last 5      # Last 5 requests
-tokenproxy debug summary     # Aggregated patterns
-tokenproxy debug tail        # Streaming JSONL output
-tokenproxy debug tail --level trace --layer 1  # Filtered stream
+slimference debug last        # Last request decision tree (JSON)
+slimference debug last 5      # Last 5 requests
+slimference debug summary     # Aggregated patterns
+slimference debug tail        # Streaming JSONL output
+slimference debug tail --level trace --layer 1  # Filtered stream
 
 # Misc
-tokenproxy version           # Print version and exit
+slimference version           # Print version and exit
 ```
 
 These are utility commands that do NOT start the proxy or TUI.
@@ -3156,7 +3156,7 @@ They are for setup, diagnostics, Layer 0 filtering, and reviewing data.
 ```go
 // Session analytics are persisted to disk on shutdown and on periodic flush (every 5 min).
 // Format: JSON lines (one JSON object per line) appended to analytics log file.
-// Location: ~/.tokenproxy/analytics/YYYY-MM-DD.jsonl
+// Location: ~/.slimference/analytics/YYYY-MM-DD.jsonl
 //
 // Enables: historical analysis of token savings, cost tracking over time,
 // identification of usage patterns, ROI measurement.
@@ -3174,26 +3174,26 @@ into every compression decision without flooding the context with unnecessary to
 
 ```bash
 # Show last request with full filter decision tree
-tokenproxy debug last
+slimference debug last
 # Output: single JSON object with all layer decisions
 
 # Show last N requests
-tokenproxy debug last 5
+slimference debug last 5
 
 # Aggregated compression patterns (which filters hit most, savings distribution)
-tokenproxy debug summary
+slimference debug summary
 # Output: JSON with filter_hit_counts, avg_savings_by_type, content_type_distribution
 
 # Streaming JSONL tail (like TUI debug but to stdout for AI agents)
-tokenproxy debug tail
+slimference debug tail
 # Output: continuous JSONL stream, one line per event (Ctrl+C to stop)
 
 # Streaming with filter
-tokenproxy debug tail --level debug --layer 1
+slimference debug tail --level debug --layer 1
 # Only Layer 1 events at debug level
 
 # Replay a session through the filter pipeline with full logging
-tokenproxy debug replay ~/.tokenproxy/sessions/2026-04-10_12-00-00.jsonl
+slimference debug replay ~/.slimference/sessions/2026-04-10_12-00-00.jsonl
 # Replays stored request data, shows what each layer would do now
 ```
 
@@ -3298,19 +3298,19 @@ Per-request summary (DEBUG level) aggregates all decision entries:
 
 ```bash
 # Quick check: "is the proxy working correctly?"
-tokenproxy debug last | jq '.tokens.ratio'
+slimference debug last | jq '.tokens.ratio'
 # Output: 0.33
 
 # Investigate: "why was message 15 not compressed?"
-tokenproxy debug last | jq '.layer1_breakdown'
+slimference debug last | jq '.layer1_breakdown'
 # Shows per-sub-layer savings
 
 # Deep dive: "what happened to the git diff in message 15?"
-tokenproxy debug last --trace | jq 'select(.msg_idx == 15)'
+slimference debug last --trace | jq 'select(.msg_idx == 15)'
 # Shows every decision for message 15
 
 # Pattern analysis: "which filter saves the most?"
-tokenproxy debug summary | jq '.filter_hit_counts | sort_by(-.saved) | .[0:5]'
+slimference debug summary | jq '.filter_hit_counts | sort_by(-.saved) | .[0:5]'
 # Top 5 filters by tokens saved
 ```
 
@@ -3320,10 +3320,10 @@ tokenproxy debug summary | jq '.filter_hit_counts | sort_by(-.saved) | .[0:5]'
 
 ### 13.1 Config File
 
-Location: `~/.tokenproxy/config.toml`
+Location: `~/.slimference/config.toml`
 
 ```toml
-# TokenProxy Configuration
+# Slimference Configuration
 
 [proxy]
 listen_address = "127.0.0.1"
@@ -3412,7 +3412,7 @@ mode = "redact"
 enabled = true
 # Maximum output length for passthrough commands (chars, not tokens)
 passthrough_max_chars = 2000
-# SQLite tracking database path (empty = default ~/.tokenproxy/tracking.db)
+# SQLite tracking database path (empty = default ~/.slimference/tracking.db)
 tracking_db = ""
 # Tracking retention in days
 tracking_retention_days = 90
@@ -3443,7 +3443,7 @@ exclude_commands = []
 # Enable terminal dashboard
 dashboard = true
 # Persistent log directory
-log_dir = "~/.tokenproxy/analytics"
+log_dir = "~/.slimference/analytics"
 # Dashboard refresh interval
 dashboard_refresh_seconds = 2
 
@@ -3469,19 +3469,19 @@ file = ""
 Every config value can be overridden via environment variable:
 
 ```bash
-TOKENPROXY_LISTEN_PORT=9090
-TOKENPROXY_COMPRESSION_SLIDING_WINDOW=8
-TOKENPROXY_BUDGET_DAILY_TOKEN_LIMIT=5000000
-TOKENPROXY_SECRETS_MODE=block
+SLIMFERENCE_LISTEN_PORT=9090
+SLIMFERENCE_COMPRESSION_SLIDING_WINDOW=8
+SLIMFERENCE_BUDGET_DAILY_TOKEN_LIMIT=5000000
+SLIMFERENCE_SECRETS_MODE=block
 # etc.
 
-# Pattern: TOKENPROXY_{SECTION}_{KEY} in uppercase, dots replaced by underscores
+# Pattern: SLIMFERENCE_{SECTION}_{KEY} in uppercase, dots replaced by underscores
 ```
 
 ### 13.3 CLI Flag Overrides
 
 ```bash
-tokenproxy --port 9090 --sliding-window 8 --no-layer2
+slimference --port 9090 --sliding-window 8 --no-layer2
 # CLI flags override env vars, env vars override config file
 ```
 
@@ -3493,30 +3493,30 @@ tokenproxy --port 9090 --sliding-window 8 --no-layer2
 
 ```bash
 # That's it. One command. TUI opens, proxy runs.
-tokenproxy
+slimference
 ```
 
 No `start`, no `--daemon`, no PID files, no systemd units. Open a terminal tab,
-run `tokenproxy`, leave it running. Close it when done. The proxy lifecycle is
+run `slimference`, leave it running. Close it when done. The proxy lifecycle is
 identical to the TUI lifecycle.
 
 ### 14.2 First-Time Setup
 
 ```bash
 # 1. Install
-go install github.com/user/tokenproxy@latest
+go install github.com/user/slimference@latest
 
 # 2. Generate default config
-tokenproxy config init
-# -> Creates ~/.tokenproxy/config.toml with sensible defaults
+slimference config init
+# -> Creates ~/.slimference/config.toml with sensible defaults
 
 # 3. Set MiniMax API key (for Layer 2 compression)
 export MINIMAX_API_KEY="your-key-here"
 # Add to ~/.zshrc for persistence
 
 # 4. Verify proxy intercept works with your OAuth sessions
-tokenproxy test intercept claude   # follow on-screen instructions
-tokenproxy test intercept codex    # follow on-screen instructions
+slimference test intercept claude   # follow on-screen instructions
+slimference test intercept codex    # follow on-screen instructions
 
 # 5. Route CLI tools through the proxy (add to ~/.zshrc)
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8990   # Claude Code
@@ -3524,14 +3524,14 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:8990   # Claude Code
 #   openai_base_url = "http://127.0.0.1:8990"
 
 # 6. Install hooks for pre-entry filtering (Layer 0)
-tokenproxy hook install claude     # Claude Code
-tokenproxy hook install codex      # Codex (if used)
+slimference hook install claude     # Claude Code
+slimference hook install codex      # Codex (if used)
 
 # 7. Run full diagnostics
-tokenproxy doctor
+slimference doctor
 
 # 8. Start
-tokenproxy
+slimference
 ```
 
 **Important: OAuth login is NOT affected.** The proxy only intercepts API requests
@@ -3545,7 +3545,7 @@ Your existing Claude Code and Codex sessions continue to work.
 Terminal Window:
 ┌─────────────────────────────────────┬─────────────────────────────────────┐
 │                                     │                                     │
-│   Tab 1: tokenproxy                │   Tab 2: claude / codex             │
+│   Tab 1: slimference                │   Tab 2: claude / codex             │
 │   (TUI dashboard, always visible)  │   (your actual coding CLI)         │
 │                                     │                                     │
 │   You see savings in real-time     │   Works exactly as before           │
@@ -3560,22 +3560,22 @@ These commands run without TUI, print to stdout, and exit immediately.
 For setup, diagnostics, and reviewing historical data:
 
 ```bash
-tokenproxy config init       # Generate default config file
-tokenproxy config show       # Print resolved config (file + env merged)
-tokenproxy test minimax      # Test MiniMax API connectivity
-tokenproxy test anthropic    # Test Anthropic upstream reachability
-tokenproxy test openai       # Test OpenAI upstream reachability
-tokenproxy doctor            # Run ALL diagnostics (config + connectivity + permissions)
-tokenproxy stats today       # Print today's token savings from persisted analytics
-tokenproxy stats week        # Print this week's aggregated stats
-tokenproxy stats month       # Print this month's aggregated stats
-tokenproxy version           # Print version string
+slimference config init       # Generate default config file
+slimference config show       # Print resolved config (file + env merged)
+slimference test minimax      # Test MiniMax API connectivity
+slimference test anthropic    # Test Anthropic upstream reachability
+slimference test openai       # Test OpenAI upstream reachability
+slimference doctor            # Run ALL diagnostics (config + connectivity + permissions)
+slimference stats today       # Print today's token savings from persisted analytics
+slimference stats week        # Print this week's aggregated stats
+slimference stats month       # Print this month's aggregated stats
+slimference version           # Print version string
 ```
 
 ### 14.5 Shell Integration (optional convenience)
 
 ```bash
-# Add to ~/.zshrc to auto-set env vars when tokenproxy is running:
+# Add to ~/.zshrc to auto-set env vars when slimference is running:
 
 if curl -s http://127.0.0.1:8990/health > /dev/null 2>&1; then
     export ANTHROPIC_BASE_URL=http://127.0.0.1:8990
@@ -3583,8 +3583,8 @@ if curl -s http://127.0.0.1:8990/health > /dev/null 2>&1; then
 fi
 ```
 
-This way, if you forget to start tokenproxy, your CLIs talk directly to
-the real APIs (no proxy, no breakage). If tokenproxy is running, they
+This way, if you forget to start slimference, your CLIs talk directly to
+the real APIs (no proxy, no breakage). If slimference is running, they
 automatically route through it.
 
 ---
@@ -3870,7 +3870,7 @@ Request timing                      Normal timing (proxy adds <5ms)
 A user who frequently uses /compact and writes concise messages. That's it.
 There is no detectable difference between:
 - Claude Code with /compact at message 15 -> sends 50K tokens
-- Claude Code through TokenProxy at message 15 -> sends 50K tokens
+- Claude Code through Slimference at message 15 -> sends 50K tokens
 
 Both produce valid, shorter conversation histories. The API cannot distinguish them.
 
@@ -3888,7 +3888,7 @@ Both produce valid, shorter conversation histories. The API cannot distinguish t
 //    Connection (Go HTTP standard). Everything else: byte-identical passthrough.
 
 // 4. NEVER add metadata to the message content
-//    No "[compressed by TokenProxy]" markers, no version stamps, no watermarks.
+//    No "[compressed by Slimference]" markers, no version stamps, no watermarks.
 //    The compressed content must read like natural conversation.
 
 // 5. NEVER change the request URL path or query parameters
@@ -4170,7 +4170,7 @@ const (
 Every request/response pair is logged to disk for debugging and history review.
 
 ```go
-// Log location: ~/.tokenproxy/sessions/YYYY-MM-DD_HH-MM-SS.jsonl
+// Log location: ~/.slimference/sessions/YYYY-MM-DD_HH-MM-SS.jsonl
 // One JSONL file per proxy session (from start to quit).
 // Each line is one request/response pair.
 //
@@ -4193,9 +4193,9 @@ Every request/response pair is logged to disk for debugging and history review.
 // - Full request/response bodies (never logged)
 //
 // CLI command to review:
-// tokenproxy sessions list          # list session files
-// tokenproxy sessions show latest   # print stats for latest session
-// tokenproxy sessions export latest --format markdown > session.md
+// slimference sessions list          # list session files
+// slimference sessions show latest   # print stats for latest session
+// slimference sessions export latest --format markdown > session.md
 
 type SessionLogEntry struct {
     Timestamp       time.Time       `json:"ts"`
@@ -4428,9 +4428,9 @@ This eliminates CGO dependency, enables trivial cross-compilation, and simplifie
 ## 21. Project Structure
 
 ```
-TokenProxy/
+Slimference/
   cmd/
-    tokenproxy/
+    slimference/
       main.go                  # Entrypoint: subcommand dispatch (TUI default, filter, hook, gain, debug)
   internal/
     proxy/
@@ -4551,25 +4551,25 @@ TokenProxy/
 
 ```bash
 # Development build (pure Go; regex-based structure extraction; modernc.org/sqlite needs no CGO)
-go build -o tokenproxy ./cmd/tokenproxy
+go build -o slimference ./cmd/slimference
 
 # Release build (optimized, stripped)
-go build -ldflags="-s -w -X main.version=2.0.0" -o tokenproxy ./cmd/tokenproxy
+go build -ldflags="-s -w -X main.version=2.0.0" -o slimference ./cmd/slimference
 
-# macOS universal binary (Apple Silicon + Intel) — CGO not required for TokenProxy dependencies
-GOOS=darwin GOARCH=arm64 go build -o tokenproxy-darwin-arm64 ./cmd/tokenproxy
-GOOS=darwin GOARCH=amd64 go build -o tokenproxy-darwin-amd64 ./cmd/tokenproxy
-lipo -create -output tokenproxy tokenproxy-darwin-arm64 tokenproxy-darwin-amd64
+# macOS universal binary (Apple Silicon + Intel) — CGO not required for Slimference dependencies
+GOOS=darwin GOARCH=arm64 go build -o slimference-darwin-arm64 ./cmd/slimference
+GOOS=darwin GOARCH=amd64 go build -o slimference-darwin-amd64 ./cmd/slimference
+lipo -create -output slimference slimference-darwin-arm64 slimference-darwin-amd64
 ```
 
 ### Installation
 
 ```bash
 # From source
-go install github.com/user/tokenproxy@latest
+go install github.com/user/slimference@latest
 
 # Or: download pre-built binary from GitHub releases
-# Or: brew install tokenproxy (future)
+# Or: brew install slimference (future)
 ```
 
 ### Shell Integration
@@ -4577,9 +4577,9 @@ go install github.com/user/tokenproxy@latest
 ```bash
 # Add to ~/.zshrc or ~/.bashrc:
 
-# Start TokenProxy on shell init (if not already running)
-if ! pgrep -x tokenproxy > /dev/null; then
-    tokenproxy start --daemon
+# Start Slimference on shell init (if not already running)
+if ! pgrep -x slimference > /dev/null; then
+    slimference start --daemon
 fi
 
 # Route all LLM CLI tools through the proxy
@@ -4616,7 +4616,7 @@ Expected savings: 40-55% on long sessions.
 ### Phase 2: Layer 0 + Hook System
 
 Deliverables:
-- `tokenproxy filter <cmd>` subcommand with subprocess execution
+- `slimference filter <cmd>` subcommand with subprocess execution
 - Top 10 built-in filters (F01-F10: git, build, test, lint, search, file read)
 - Shell tokenizer + command rewriting engine
 - Hook installation for Claude Code + Codex
@@ -4625,7 +4625,7 @@ Deliverables:
 - Tee recovery system
 - Permission model (allow/ask/deny)
 - Unit tests for all filters + rewriting engine
-- `tokenproxy gain` analytics command
+- `slimference gain` analytics command
 
 Milestone: Layer 0 + Layer 1 working together. Hook installed and active.
 Expected savings: 70-80% on long sessions (Layer 0 + Layer 1 combined).
@@ -4752,8 +4752,8 @@ At 87% average compression (Layer 0 + Layers 1-3), subscription rate limits expa
 | Drawback | Severity | Mitigation |
 |---|---|---|
 | Filter removes critical stacktrace | MODERATE | Failure-focus strategy: failed tests shown in FULL, only passed tests reduced. Tee system saves raw output for recovery. |
-| Hook installs incorrectly | LOW | `tokenproxy hook verify` checks SHA-256. `tokenproxy hook status` shows active hooks. |
-| Command rewriting changes semantics | LOW | Rewriting only adds `tokenproxy filter` prefix. Original command runs unchanged inside. If filter errors: raw output passthrough. |
+| Hook installs incorrectly | LOW | `slimference hook verify` checks SHA-256. `slimference hook status` shows active hooks. |
+| Command rewriting changes semantics | LOW | Rewriting only adds `slimference filter` prefix. Original command runs unchanged inside. If filter errors: raw output passthrough. |
 | Unknown command not filtered | ZERO | Passthrough with generic ANSI strip. Never blocks execution. |
 | Filter slows down command | NEGLIGIBLE | All filters are regex/string ops, <5ms overhead. Subprocess execution is the bottleneck (unchanged). |
 

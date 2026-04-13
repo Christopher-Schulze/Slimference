@@ -11,10 +11,10 @@ func TestLoadMergedDenyPatterns_dedupe(t *testing.T) {
 	tmp := t.TempDir()
 	// same path if wd is home — use subdir for project
 	proj := filepath.Join(tmp, "repo")
-	if err := os.MkdirAll(filepath.Join(proj, ".tokenproxy"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(proj, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(proj, ".tokenproxy", "filters.toml")
+	p := filepath.Join(proj, ".slimference", "filters.toml")
 	if err := os.WriteFile(p, []byte("deny_patterns = ['^x']\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestLoadMergedDenyPatterns_dedupe(t *testing.T) {
 func TestFirstMatchingTOMLRule_andApply(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".tokenproxy"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	content := `
@@ -38,7 +38,7 @@ match_command = "^echo\\s+hi"
 max_lines = 2
 on_empty = "[empty]"
 `
-	if err := os.WriteFile(filepath.Join(dir, ".tokenproxy", "filters.toml"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".slimference", "filters.toml"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 	rule := FirstMatchingTOMLRule(dir, []string{"echo", "hi", "a", "b", "c"})
@@ -171,7 +171,7 @@ func TestCompileLineRegexes_badPattern(t *testing.T) {
 func TestFirstMatchingTOMLRule_emptyMatchCommand(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".tokenproxy"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	content := `
@@ -185,7 +185,7 @@ on_empty = "SHOULD_NOT_MATCH"
 match_command = "^echo"
 on_empty = "MATCHED"
 `
-	if err := os.WriteFile(filepath.Join(dir, ".tokenproxy", "filters.toml"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".slimference", "filters.toml"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 	rule := FirstMatchingTOMLRule(dir, []string{"echo", "hi"})
@@ -244,7 +244,7 @@ func TestUniqueFilterPaths_deduplication(t *testing.T) {
 	// Not parallel — sets HOME env var
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
-	// ProjectFiltersPath(dir) and UserFiltersPath() both resolve to dir/.tokenproxy/filters.toml
+	// ProjectFiltersPath(dir) and UserFiltersPath() both resolve to dir/.slimference/filters.toml
 	paths := uniqueFilterPaths(dir)
 	if len(paths) != 1 {
 		t.Fatalf("expected 1 unique path, got %d: %v", len(paths), paths)
@@ -255,7 +255,7 @@ func TestUniqueFilterPaths_deduplication(t *testing.T) {
 func TestFirstMatchingTOMLRule_invalidRegex(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".tokenproxy"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	content := `
@@ -269,7 +269,7 @@ on_empty = "BAD"
 match_command = "^echo"
 on_empty = "GOOD"
 `
-	if err := os.WriteFile(filepath.Join(dir, ".tokenproxy", "filters.toml"), []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".slimference", "filters.toml"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// aaa_bad sorts before zzz_good; bad regex compile fails → skip → zzz_good matches

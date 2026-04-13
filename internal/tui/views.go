@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
+	"github.com/slimference/slimference/internal/analytics"
 )
 
 // renderMainView renders the primary dashboard.
@@ -21,7 +21,7 @@ func (m *Model) renderMainView() string {
 	var lines []string
 
 	// --- Header ---
-	versionStr := s.Title.Render("TokenProxy v" + Version)
+	versionStr := s.Title.Render("Slimference v" + Version)
 	sessionStr := s.Dim.Render("Session: " + renderSessionDuration(m.sessionStart))
 	headerPad := innerWidth - lipgloss.Width(versionStr) - lipgloss.Width(sessionStr) - 2
 	if headerPad < 1 {
@@ -161,7 +161,7 @@ func (m *Model) renderStatsView() string {
 
 	var lines []string
 
-	lines = append(lines, s.Title.Render("TokenProxy - Detailed Statistics"))
+	lines = append(lines, s.Title.Render("Slimference - Detailed Statistics"))
 	lines = append(lines, "")
 
 	// Session summary.
@@ -263,7 +263,7 @@ func (m *Model) renderDebugView() string {
 	}
 
 	var lines []string
-	lines = append(lines, s.Title.Render("TokenProxy - Debug Log"))
+	lines = append(lines, s.Title.Render("Slimference - Debug Log"))
 	lines = append(lines, "")
 
 	if m.proxy.SessionLogger() != nil {

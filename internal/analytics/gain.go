@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/filter"
+	"github.com/slimference/slimference/internal/filter"
 )
 
 // FilterGainSummary aggregates rows from filter_runs (Layer 0 SQLite tracking).
@@ -70,7 +70,7 @@ func FilterGainWindow(period string, now time.Time) (start, end time.Time, err e
 	return start, end, nil
 }
 
-// QueryFilterGain reads ~/.tokenproxy/filter.db (or any path with the same schema) and aggregates.
+// QueryFilterGain reads ~/.slimference/filter.db (or any path with the same schema) and aggregates.
 func QueryFilterGain(dbPath string, period string, now time.Time) (FilterGainSummary, error) {
 	r, err := QueryFilterGainReport(dbPath, period, now, false, "", 0)
 	if err != nil {

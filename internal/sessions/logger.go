@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // LogEntry represents a single log line captured during a session.

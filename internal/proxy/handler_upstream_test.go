@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func newUpstreamTestProxy(t *testing.T, srv *httptest.Server) *Proxy {

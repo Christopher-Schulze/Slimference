@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // ToolCallIndex tracks tool_use calls to detect repeated identical calls in old messages.

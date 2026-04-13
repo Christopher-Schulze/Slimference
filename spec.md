@@ -1,4 +1,4 @@
-# TokenProxy - Technical Specification
+# Slimference - Technical Specification
 
 Version: 1.0.0-final
 Date: 2026-04-09
@@ -45,7 +45,7 @@ Architecture: Layered Compression Proxy with Async Pre-Processing Pipeline
 
 ## 1. Executive Summary
 
-TokenProxy is a transparent HTTP reverse proxy written in Go that sits between LLM CLI tools
+Slimference is a transparent HTTP reverse proxy written in Go that sits between LLM CLI tools
 (Claude Code, OpenAI Codex) and their respective APIs. It intercepts outgoing requests,
 applies multi-layered token compression to the conversation history, and forwards the
 optimized request to the upstream API. Responses are streamed through unmodified.
@@ -153,7 +153,7 @@ Your current work context is always preserved at full fidelity.
                               |
                               v
                     +-------------------+
-                    |   TokenProxy      |
+                    |   Slimference      |
                     |   (localhost)     |
                     +-------------------+
                               |
@@ -1401,13 +1401,13 @@ Before first use, run the built-in connectivity test:
 ```bash
 # This starts a temporary HTTP listener, instructs the user to
 # run a test command with the CLI, and verifies the request arrives.
-tokenproxy test intercept claude    # tests Claude Code routing
-tokenproxy test intercept codex     # tests Codex routing
+slimference test intercept claude    # tests Claude Code routing
+slimference test intercept codex     # tests Codex routing
 ```
 
 Implementation:
 ```go
-// tokenproxy test intercept <provider>
+// slimference test intercept <provider>
 //
 // 1. Start HTTP listener on configured port
 // 2. Print instructions:
@@ -1552,7 +1552,7 @@ type RequestMetrics struct {
 ### 10.2 Interactive TUI Dashboard (BubbleTea + Lipgloss)
 
 The TUI IS the application. No separate CLI commands, no daemon mode.
-`tokenproxy` starts the TUI. The proxy runs as goroutines inside the same process.
+`slimference` starts the TUI. The proxy runs as goroutines inside the same process.
 Close the TUI = proxy stops. Open = proxy runs.
 
 **Framework:** charmbracelet/bubbletea (Elm-architecture TUI) + lipgloss (styling)
@@ -1560,7 +1560,7 @@ Close the TUI = proxy stops. Open = proxy runs.
 **Layout - single screen, live-updating, keyboard-driven:**
 
 ```
-╭── TokenProxy v1.0.0 ──────────────────────────── Session: 2h 14m ──╮
+╭── Slimference v1.0.0 ──────────────────────────── Session: 2h 14m ──╮
 │                                                                      │
 │  ● Claude Code  [ON]       ● Codex  [ON]          Port: 8990       │
 │                                                                      │
@@ -1772,7 +1772,7 @@ func (m TUIModel) renderMainView() string {
         Foreground(lipgloss.Color("240"))
 
     // Build sections
-    header := title.Render("TokenProxy v1.0.0") +
+    header := title.Render("Slimference v1.0.0") +
         dimStyle.Render("  Session: " + m.sessionDuration())
 
     // Provider toggles
@@ -1826,7 +1826,7 @@ func (m TUIModel) renderMainView() string {
 **Stats detail view (toggle with `s`):**
 
 ```
-╭── TokenProxy - Detailed Statistics ─────────────────────────────────╮
+╭── Slimference - Detailed Statistics ─────────────────────────────────╮
 │                                                                      │
 │  Session Summary                                                     │
 │  Started: 2026-04-09 12:18:04    Duration: 2h 14m                  │
@@ -1882,7 +1882,7 @@ func (m TUIModel) renderMainView() string {
 **Debug log view (toggle with `d`):**
 
 ```
-╭── TokenProxy - Debug Log ───────────────────────────────────────────╮
+╭── Slimference - Debug Log ───────────────────────────────────────────╮
 │                                                                      │
 │  14:32:01 INFO  request_processed provider=anthropic model=opus     │
 │    input_orig=87400 input_comp=29100 ratio=0.33 layers=[1,2]       │
@@ -1905,7 +1905,7 @@ func (m TUIModel) renderMainView() string {
 ╰──────────────────────────────────────── [d] back  [q] quit ─────────╯
 ```
 
-**Startup sequence (what happens when you run `tokenproxy`):**
+**Startup sequence (what happens when you run `slimference`):**
 
 ```go
 func main() {
@@ -1937,15 +1937,15 @@ func main() {
 ```bash
 # These run without TUI, print to stdout, and exit:
 
-tokenproxy config init     # Generate default ~/.tokenproxy/config.toml
-tokenproxy config show     # Print resolved config (file + env)
-tokenproxy test minimax    # Test MiniMax API connectivity, print result
-tokenproxy test anthropic  # Test Anthropic API connectivity
-tokenproxy test openai     # Test OpenAI API connectivity
-tokenproxy doctor          # Run all connectivity + config diagnostics
-tokenproxy stats today     # Print today's stats from persisted analytics
-tokenproxy stats week      # Print this week's stats
-tokenproxy version         # Print version and exit
+slimference config init     # Generate default ~/.slimference/config.toml
+slimference config show     # Print resolved config (file + env)
+slimference test minimax    # Test MiniMax API connectivity, print result
+slimference test anthropic  # Test Anthropic API connectivity
+slimference test openai     # Test OpenAI API connectivity
+slimference doctor          # Run all connectivity + config diagnostics
+slimference stats today     # Print today's stats from persisted analytics
+slimference stats week      # Print this week's stats
+slimference version         # Print version and exit
 ```
 
 These are utility commands that do NOT start the proxy or TUI.
@@ -1989,7 +1989,7 @@ They are for setup, diagnostics, and reviewing historical data.
 ```go
 // Session analytics are persisted to disk on shutdown and on periodic flush (every 5 min).
 // Format: JSON lines (one JSON object per line) appended to analytics log file.
-// Location: ~/.tokenproxy/analytics/YYYY-MM-DD.jsonl
+// Location: ~/.slimference/analytics/YYYY-MM-DD.jsonl
 //
 // Enables: historical analysis of token savings, cost tracking over time,
 // identification of usage patterns, ROI measurement.
@@ -2001,10 +2001,10 @@ They are for setup, diagnostics, and reviewing historical data.
 
 ### 11.1 Config File
 
-Location: `~/.tokenproxy/config.toml`
+Location: `~/.slimference/config.toml`
 
 ```toml
-# TokenProxy Configuration
+# Slimference Configuration
 
 [proxy]
 listen_address = "127.0.0.1"
@@ -2090,7 +2090,7 @@ mode = "redact"
 # Enable terminal dashboard
 dashboard = true
 # Persistent log directory
-log_dir = "~/.tokenproxy/analytics"
+log_dir = "~/.slimference/analytics"
 # Dashboard refresh interval
 dashboard_refresh_seconds = 2
 
@@ -2108,19 +2108,19 @@ file = ""
 Every config value can be overridden via environment variable:
 
 ```bash
-TOKENPROXY_LISTEN_PORT=9090
-TOKENPROXY_COMPRESSION_SLIDING_WINDOW=8
-TOKENPROXY_BUDGET_DAILY_TOKEN_LIMIT=5000000
-TOKENPROXY_SECRETS_MODE=block
+SLIMFERENCE_LISTEN_PORT=9090
+SLIMFERENCE_COMPRESSION_SLIDING_WINDOW=8
+SLIMFERENCE_BUDGET_DAILY_TOKEN_LIMIT=5000000
+SLIMFERENCE_SECRETS_MODE=block
 # etc.
 
-# Pattern: TOKENPROXY_{SECTION}_{KEY} in uppercase, dots replaced by underscores
+# Pattern: SLIMFERENCE_{SECTION}_{KEY} in uppercase, dots replaced by underscores
 ```
 
 ### 11.3 CLI Flag Overrides
 
 ```bash
-tokenproxy --port 9090 --sliding-window 8 --no-layer2
+slimference --port 9090 --sliding-window 8 --no-layer2
 # CLI flags override env vars, env vars override config file
 ```
 
@@ -2132,30 +2132,30 @@ tokenproxy --port 9090 --sliding-window 8 --no-layer2
 
 ```bash
 # That's it. One command. TUI opens, proxy runs.
-tokenproxy
+slimference
 ```
 
 No `start`, no `--daemon`, no PID files, no systemd units. Open a terminal tab,
-run `tokenproxy`, leave it running. Close it when done. The proxy lifecycle is
+run `slimference`, leave it running. Close it when done. The proxy lifecycle is
 identical to the TUI lifecycle.
 
 ### 12.2 First-Time Setup
 
 ```bash
 # 1. Install
-go install github.com/user/tokenproxy@latest
+go install github.com/user/slimference@latest
 
 # 2. Generate default config
-tokenproxy config init
-# -> Creates ~/.tokenproxy/config.toml with sensible defaults
+slimference config init
+# -> Creates ~/.slimference/config.toml with sensible defaults
 
 # 3. Set MiniMax API key (for Layer 2 compression)
 export MINIMAX_API_KEY="your-key-here"
 # Add to ~/.zshrc for persistence
 
 # 4. Verify proxy intercept works with your OAuth sessions
-tokenproxy test intercept claude   # follow on-screen instructions
-tokenproxy test intercept codex    # follow on-screen instructions
+slimference test intercept claude   # follow on-screen instructions
+slimference test intercept codex    # follow on-screen instructions
 
 # 5. Route CLI tools through the proxy (add to ~/.zshrc)
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8990   # Claude Code
@@ -2163,10 +2163,10 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:8990   # Claude Code
 #   openai_base_url = "http://127.0.0.1:8990"
 
 # 6. Run full diagnostics
-tokenproxy doctor
+slimference doctor
 
 # 7. Start
-tokenproxy
+slimference
 ```
 
 **Important: OAuth login is NOT affected.** The proxy only intercepts API requests
@@ -2180,7 +2180,7 @@ Your existing Claude Code and Codex sessions continue to work.
 Terminal Window:
 ┌─────────────────────────────────────┬─────────────────────────────────────┐
 │                                     │                                     │
-│   Tab 1: tokenproxy                │   Tab 2: claude / codex             │
+│   Tab 1: slimference                │   Tab 2: claude / codex             │
 │   (TUI dashboard, always visible)  │   (your actual coding CLI)         │
 │                                     │                                     │
 │   You see savings in real-time     │   Works exactly as before           │
@@ -2195,22 +2195,22 @@ These commands run without TUI, print to stdout, and exit immediately.
 For setup, diagnostics, and reviewing historical data:
 
 ```bash
-tokenproxy config init       # Generate default config file
-tokenproxy config show       # Print resolved config (file + env merged)
-tokenproxy test minimax      # Test MiniMax API connectivity
-tokenproxy test anthropic    # Test Anthropic upstream reachability
-tokenproxy test openai       # Test OpenAI upstream reachability
-tokenproxy doctor            # Run ALL diagnostics (config + connectivity + permissions)
-tokenproxy stats today       # Print today's token savings from persisted analytics
-tokenproxy stats week        # Print this week's aggregated stats
-tokenproxy stats month       # Print this month's aggregated stats
-tokenproxy version           # Print version string
+slimference config init       # Generate default config file
+slimference config show       # Print resolved config (file + env merged)
+slimference test minimax      # Test MiniMax API connectivity
+slimference test anthropic    # Test Anthropic upstream reachability
+slimference test openai       # Test OpenAI upstream reachability
+slimference doctor            # Run ALL diagnostics (config + connectivity + permissions)
+slimference stats today       # Print today's token savings from persisted analytics
+slimference stats week        # Print this week's aggregated stats
+slimference stats month       # Print this month's aggregated stats
+slimference version           # Print version string
 ```
 
 ### 12.5 Shell Integration (optional convenience)
 
 ```bash
-# Add to ~/.zshrc to auto-set env vars when tokenproxy is running:
+# Add to ~/.zshrc to auto-set env vars when slimference is running:
 
 if curl -s http://127.0.0.1:8990/health > /dev/null 2>&1; then
     export ANTHROPIC_BASE_URL=http://127.0.0.1:8990
@@ -2218,8 +2218,8 @@ if curl -s http://127.0.0.1:8990/health > /dev/null 2>&1; then
 fi
 ```
 
-This way, if you forget to start tokenproxy, your CLIs talk directly to
-the real APIs (no proxy, no breakage). If tokenproxy is running, they
+This way, if you forget to start slimference, your CLIs talk directly to
+the real APIs (no proxy, no breakage). If slimference is running, they
 automatically route through it.
 
 ---
@@ -2505,7 +2505,7 @@ Request timing                      Normal timing (proxy adds <5ms)
 A user who frequently uses /compact and writes concise messages. That's it.
 There is no detectable difference between:
 - Claude Code with /compact at message 15 -> sends 50K tokens
-- Claude Code through TokenProxy at message 15 -> sends 50K tokens
+- Claude Code through Slimference at message 15 -> sends 50K tokens
 
 Both produce valid, shorter conversation histories. The API cannot distinguish them.
 
@@ -2523,7 +2523,7 @@ Both produce valid, shorter conversation histories. The API cannot distinguish t
 //    Connection (Go HTTP standard). Everything else: byte-identical passthrough.
 
 // 4. NEVER add metadata to the message content
-//    No "[compressed by TokenProxy]" markers, no version stamps, no watermarks.
+//    No "[compressed by Slimference]" markers, no version stamps, no watermarks.
 //    The compressed content must read like natural conversation.
 
 // 5. NEVER change the request URL path or query parameters
@@ -2789,7 +2789,7 @@ const (
 Every request/response pair is logged to disk for debugging and history review.
 
 ```go
-// Log location: ~/.tokenproxy/sessions/YYYY-MM-DD_HH-MM-SS.jsonl
+// Log location: ~/.slimference/sessions/YYYY-MM-DD_HH-MM-SS.jsonl
 // One JSONL file per proxy session (from start to quit).
 // Each line is one request/response pair.
 //
@@ -2812,9 +2812,9 @@ Every request/response pair is logged to disk for debugging and history review.
 // - Full request/response bodies (never logged)
 //
 // CLI command to review:
-// tokenproxy sessions list          # list session files
-// tokenproxy sessions show latest   # print stats for latest session
-// tokenproxy sessions export latest --format markdown > session.md
+// slimference sessions list          # list session files
+// slimference sessions show latest   # print stats for latest session
+// slimference sessions export latest --format markdown > session.md
 
 type SessionLogEntry struct {
     Timestamp       time.Time       `json:"ts"`
@@ -3053,9 +3053,9 @@ Resilience:
 ## 19. Project Structure
 
 ```
-TokenProxy/
+Slimference/
   cmd/
-    tokenproxy/
+    slimference/
       main.go                  # Entrypoint: subcommand dispatch (TUI default, utilities)
   internal/
     proxy/
@@ -3134,28 +3134,28 @@ TokenProxy/
 
 ```bash
 # Development build
-go build -o tokenproxy ./cmd/tokenproxy
+go build -o slimference ./cmd/slimference
 
 # Release build (optimized, stripped)
-CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=1.0.0" -o tokenproxy ./cmd/tokenproxy
+CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=1.0.0" -o slimference ./cmd/slimference
 
 # CGO_ENABLED=1 is required for tree-sitter (C bindings)
 # This means cross-compilation needs target C toolchain
 
 # macOS universal binary (Apple Silicon + Intel)
-GOOS=darwin GOARCH=arm64 go build -o tokenproxy-darwin-arm64 ./cmd/tokenproxy
-GOOS=darwin GOARCH=amd64 go build -o tokenproxy-darwin-amd64 ./cmd/tokenproxy
-lipo -create -output tokenproxy tokenproxy-darwin-arm64 tokenproxy-darwin-amd64
+GOOS=darwin GOARCH=arm64 go build -o slimference-darwin-arm64 ./cmd/slimference
+GOOS=darwin GOARCH=amd64 go build -o slimference-darwin-amd64 ./cmd/slimference
+lipo -create -output slimference slimference-darwin-arm64 slimference-darwin-amd64
 ```
 
 ### Installation
 
 ```bash
 # From source
-go install github.com/user/tokenproxy@latest
+go install github.com/user/slimference@latest
 
 # Or: download pre-built binary from GitHub releases
-# Or: brew install tokenproxy (future)
+# Or: brew install slimference (future)
 ```
 
 ### Shell Integration
@@ -3163,9 +3163,9 @@ go install github.com/user/tokenproxy@latest
 ```bash
 # Add to ~/.zshrc or ~/.bashrc:
 
-# Start TokenProxy on shell init (if not already running)
-if ! pgrep -x tokenproxy > /dev/null; then
-    tokenproxy start --daemon
+# Start Slimference on shell init (if not already running)
+if ! pgrep -x slimference > /dev/null; then
+    slimference start --daemon
 fi
 
 # Route all LLM CLI tools through the proxy

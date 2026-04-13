@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // TestDetectProvider_ByPath verifies provider detection from URL path.

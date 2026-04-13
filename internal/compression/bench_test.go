@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // benchCompressor returns a DeterministicCompressor with default config.

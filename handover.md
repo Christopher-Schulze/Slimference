@@ -1,4 +1,4 @@
-# TokenProxy — Handover / Agent-Briefing (vollständig)
+# Slimference — Handover / Agent-Briefing (vollständig)
 
 **Stand:** 2026-04-10 (Reality-Check gegen Repo, nicht nur ältere Texte).  
 **Erste Aktion für den nächsten Agenten:** Diese Datei **vollständig** lesen, dann `AGENTS.md` und `docs/todo.md` skimmen; normative Spec ist **`spec+.md`**, Arbeitsliste **`docs/todo.md`**.
@@ -7,9 +7,9 @@
 
 ## 1. Was ist dieses Projekt?
 
-**TokenProxy** ist eine **Go-Binary** (`tokenproxy`), die zwei zusammengehörige Probleme löst:
+**Slimference** ist eine **Go-Binary** (`slimference`), die zwei zusammengehörige Probleme löst:
 
-1. **Layer 0 — Pre-Entry (CLI):** Shell-Befehle, die Coding-Agenten ausführen, können **vor** der Aufnahme in den Chat gekürzt werden (`tokenproxy filter`, Hooks, Rewrites, SQLite-Tracking, Tee-Recovery). Ziel: weniger Tokens in der Historie, bevor der Proxy überhaupt sieht.
+1. **Layer 0 — Pre-Entry (CLI):** Shell-Befehle, die Coding-Agenten ausführen, können **vor** der Aufnahme in den Chat gekürzt werden (`slimference filter`, Hooks, Rewrites, SQLite-Tracking, Tee-Recovery). Ziel: weniger Tokens in der Historie, bevor der Proxy überhaupt sieht.
 
 2. **Layer 1–3 — Post-Entry (HTTP-Proxy):** Ein **transparenter Reverse-Proxy** zwischen Tools (Claude Code, OpenAI-Codex-CLI o. Ä.) und den APIs **Anthropic / OpenAI**. Eingehende Requests werden modifiziert (Kompression alter Nachrichten, Caching, Secrets, Analytics); **Responses** werden **unverändert** durchgereicht (Streaming/SSE).
 
@@ -71,7 +71,7 @@ Entspricht **`docs/todo.md`** (Phasen A–E) und dem früheren HANDOVER §3:
 ## 5. Repository-Layout (was wo liegt)
 
 ```
-TokenProxy/
+Slimference/
   handover.md              ← Diese Datei (Agent-Onboarding)
   AGENTS.md                  ← Verbindliche Repo-Regeln
   spec+.md, spec.md          ← Spezifikationen
@@ -79,7 +79,7 @@ TokenProxy/
   .gitignore                 ← u.a. .env.local, .secrets/ (keine Keys committen)
   .env.local                 ← optional lokal: MINIMAX_API_KEY (nicht versionieren)
 
-  cmd/tokenproxy/            ← main, alle CLI-Subcommands, TUI-Einstieg
+  cmd/slimference/            ← main, alle CLI-Subcommands, TUI-Einstieg
   internal/
     proxy/                   ← HTTP-Handler, Streaming, Provider (Anthropic/OpenAI)
     compression/             ← Layer 1 (layer1.go, ansi_strip, dedup, structure.go, …)
@@ -102,25 +102,25 @@ TokenProxy/
   rtk-master/                ← NUR LESEN, nicht editieren
 ```
 
-**Modul:** `github.com/tokenproxy/tokenproxy` — **Go-Version in `go.mod` ist maßgeblich** (aktuell **1.25.0**; Spec-Text erwähnt teils 1.24+ — Code nach `go.mod`).
+**Modul:** `github.com/slimference/slimference` — **Go-Version in `go.mod` ist maßgeblich** (aktuell **1.25.0**; Spec-Text erwähnt teils 1.24+ — Code nach `go.mod`).
 
 ---
 
 ## 6. Laufzeit-Flow (End-to-End)
 
-1. **Ohne Args:** `tokenproxy` → `config.Load()` → `proxy.New` → Proxy startet Listener → BubbleTea TUI. User toggelt Provider/Layer, sieht Analytics, Debug-Infos, etc.
+1. **Ohne Args:** `slimference` → `config.Load()` → `proxy.New` → Proxy startet Listener → BubbleTea TUI. User toggelt Provider/Layer, sieht Analytics, Debug-Infos, etc.
 
 2. **Mit Args:** `handleSubcommand` — z. B. `config`, `test`, `doctor`, `stats`, `gain`, `filter`, `rewrite`, `hook`, `debug`, `version`. Viele Pfade beenden mit `os.Exit`; Tests nutzen Subprozesse + Env-Flags.
 
 3. **Proxy-Hot-Path:** Request → Handler → Kompression (Layer 1) / Queue für Layer 2 → Upstream → Response-Stream zurück. Details in `internal/proxy/handler.go`, `provider.go`, `streaming.go`.
 
-4. **Layer 0:** `tokenproxy filter -- <argv>` → `filter.RunPipeline` (ANSI, Built-ins, TOML, Truncate) → Exit-Code vom Kind; bei Fehler/nicht-null ggf. Tee-Recovery unter `TOKENPROXY_TEE_DIR` / Config.
+4. **Layer 0:** `slimference filter -- <argv>` → `filter.RunPipeline` (ANSI, Built-ins, TOML, Truncate) → Exit-Code vom Kind; bei Fehler/nicht-null ggf. Tee-Recovery unter `SLIMFERENCE_TEE_DIR` / Config.
 
 ---
 
 ## 7. CLI-Überblick (Stand Code)
 
-Aus `cmd/tokenproxy/main.go` Kommentar + Implementierung — **nicht** jede Zeile hier, aber Orientierung:
+Aus `cmd/slimference/main.go` Kommentar + Implementierung — **nicht** jede Zeile hier, aber Orientierung:
 
 | Bereich | Beispiele |
 |---------|-----------|
@@ -143,11 +143,11 @@ Aus `cmd/tokenproxy/main.go` Kommentar + Implementierung — **nicht** jede Zeil
 - **Proxy** mit Anthropic/OpenAI-Pfaden, Streaming, Retry/Resilience, Session-Logging, Analytics-Persister.
 - **Layer 1:** u. a. `ansi_strip`, `json_compact`, `comment_strip`, `dedup` + **`dedup_minhash`**, **`structure.go`** (Regex, nicht Tree-sitter), `delta`, `prompt_cache`, `success_shortcircuit`, Exchange-Window-Logik — **nicht** alle spec+.md-Sub-Layer vollständig (siehe `docs/todo.md` L1.7–L1.14).
 - **Layer 2:** MiniMax-Client, Summary-Cache, Progressive, Anchor, Validator, etc.
-- **Layer 0:** `internal/filter` mit Pipeline, vielen `TryCompact*`-Built-ins, TOML-DSL (`filters_toml.go`), SQLite `filter_runs`, Tee, Permissions/Deny-Patterns, `tokenproxy gain`.
+- **Layer 0:** `internal/filter` mit Pipeline, vielen `TryCompact*`-Built-ins, TOML-DSL (`filters_toml.go`), SQLite `filter_runs`, Tee, Permissions/Deny-Patterns, `slimference gain`.
 - **Hooks:** Install/Remove/Verify für Claude & Codex.
 - **Debug:** Pfade, last/summary/tail, Replay-**Preview** — volle „Decision JSONL“-Pipeline laut `docs/todo.md` teils **offen**.
 
-**Tests:** Umfangreiche `*_test.go` unter `cmd/tokenproxy` und `internal/**`. Ziel laut **`AGENTS.md`**: **100 %** Statement-Coverage auf `cmd/` + `internal/`; **aktuell** (letzte Messung) **Gesamtrepo ~81 %** Statements — **Lücke bewusst**, weiter mit `go test ./... -cover` und ggf. `scripts/coverage/`.
+**Tests:** Umfangreiche `*_test.go` unter `cmd/slimference` und `internal/**`. Ziel laut **`AGENTS.md`**: **100 %** Statement-Coverage auf `cmd/` + `internal/`; **aktuell** (letzte Messung) **Gesamtrepo ~81 %** Statements — **Lücke bewusst**, weiter mit `go test ./... -cover` und ggf. `scripts/coverage/`.
 
 **Hinweis:** `docs/todo.md` enthält noch Checkboxen wie „Add internal/filter/“ — **teils veraltet** (Paket existiert). Immer **Code + todo** gegenchecken.
 
@@ -157,7 +157,7 @@ Aus `cmd/tokenproxy/main.go` Kommentar + Implementierung — **nicht** jede Zeil
 
 *(Für den nächsten Agenten: konkrete Git-Historie ist maßgeblich; hier inhaltliche Schwerpunkte.)*
 
-- **Test-Coverage erhöht** in mehreren Paketen (`cmd/tokenproxy`, `internal/proxy`, Filter, …): Subcommand-Tests, Provider/Streaming-Kanten, `handleDoctorCmd`, `handleConfigCmd`/`filter` (u. a. Tee bei non-zero exit), `GetLayer2Status` via `proxy.ClearLayer2ForTesting()`.
+- **Test-Coverage erhöht** in mehreren Paketen (`cmd/slimference`, `internal/proxy`, Filter, …): Subcommand-Tests, Provider/Streaming-Kanten, `handleDoctorCmd`, `handleConfigCmd`/`filter` (u. a. Tee bei non-zero exit), `GetLayer2Status` via `proxy.ClearLayer2ForTesting()`.
 - **Secrets:** Projekt-**`.gitignore`** ergänzt; **`MINIMAX_API_KEY`** kann lokal in **`.env.local`** liegen — **niemals committen**; Keys aus Chats rotieren, falls exponiert.
 - **Dokumentation:** Diese **`handover.md`** ersetzt/überführt den veralteten Inhalt von **`docs/HANDOVER.md`** (ältere Version sprach noch von nicht-existierenden Dateinamen wie `treesitter.go` ohne Rename — **im Repo gibt es `structure.go`**).
 
@@ -167,7 +167,7 @@ Aus `cmd/tokenproxy/main.go` Kommentar + Implementierung — **nicht** jede Zeil
 
 1. **Specs:** Änderungen am Verhalten → zuerst **`spec+.md`** klären oder dort als Draft ergänzen (wenn Projektfreigabe).
 2. **Code:** Nur Go in `cmd/`, `internal/`; Tooling nur **`scripts/<thema>/`** in Go (siehe **`AGENTS.md` §3**).
-3. **`rtk-master/`:** **Nicht** editieren, nicht verschieben, nicht in CI mit TokenProxy-Tests mischen.
+3. **`rtk-master/`:** **Nicht** editieren, nicht verschieben, nicht in CI mit Slimference-Tests mischen.
 4. **Tests:** Neue Logik → `*_test.go` neben dem Code; table-driven + `t.Parallel()` wo sicher; keine dauerhafte Coverage-Ausnahme ohne Freigabe.
 5. **PR/Merge-Checkliste:** Siehe **`AGENTS.md` §8** (`go test ./...`, Coverage-Richtung, kein RTK-Diff).
 6. **JSON:** Nur **`encoding/json`** (kein `gjson` o. Ä.).
@@ -176,8 +176,8 @@ Aus `cmd/tokenproxy/main.go` Kommentar + Implementierung — **nicht** jede Zeil
 
 ## 11. Konfiguration & Umgebungsvariablen (Auszug)
 
-- **Config-Datei:** Standard `~/.tokenproxy/config.toml`; Override **`TOKENPROXY_CONFIG`** (Pfad zur TOML).
-- **Wichtige ENV:** `TOKENPROXY_UPSTREAM_*`, `TOKENPROXY_LISTEN_*`, `MINIMAX_API_KEY` (oder Name aus Config `api_key_env`), `TOKENPROXY_FILTER_DB`, `TOKENPROXY_TEE_DIR`, `TOKENPROXY_DEBUG_DECISIONS_LOG`, `TOKENPROXY_HOOK_TOKENPROXY_COMMAND`, `TOKENPROXY_CONFIRM_SUDO` (Layer-0 sudo-Verhalten), … — Vollliste in **`spec+.md` §13** und **`internal/config/config.go`** (`applyEnvOverrides`).
+- **Config-Datei:** Standard `~/.slimference/config.toml`; Override **`SLIMFERENCE_CONFIG`** (Pfad zur TOML).
+- **Wichtige ENV:** `SLIMFERENCE_UPSTREAM_*`, `SLIMFERENCE_LISTEN_*`, `MINIMAX_API_KEY` (oder Name aus Config `api_key_env`), `SLIMFERENCE_FILTER_DB`, `SLIMFERENCE_TEE_DIR`, `SLIMFERENCE_DEBUG_DECISIONS_LOG`, `SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND`, `SLIMFERENCE_CONFIRM_SUDO` (Layer-0 sudo-Verhalten), … — Vollliste in **`spec+.md` §13** und **`internal/config/config.go`** (`applyEnvOverrides`).
 
 ---
 
@@ -194,7 +194,7 @@ Aus `cmd/tokenproxy/main.go` Kommentar + Implementierung — **nicht** jede Zeil
 ## 13. Empfehlungen — wie es sinnvoll weitergeht
 
 1. **`docs/todo.md`** oben (Phasen A–E) + offene **F01–F24** / **L1.x** / **Debug**-Zeilen durchgehen und **nächstes Arbeitspaket** wählen (ein logischer Block, nicht alles parallel).
-2. **Coverage:** Richtung **AGENTS.md**-Ziel; `go test ./... -coverprofile=...`, Hotspots in `cmd/tokenproxy` und dünnen Paketen.
+2. **Coverage:** Richtung **AGENTS.md**-Ziel; `go test ./... -coverprofile=...`, Hotspots in `cmd/slimference` und dünnen Paketen.
 3. **Spec-Sync:** Nach größeren Features **`docs/documentation.md`** / **`docs/map.md`** aktualisieren (`docs/todo.md` §„Documentation Updates“).
 4. **Keine Scope-Creep** in `rtk-master/`.
 

@@ -313,7 +313,7 @@ func TestFileWatcher_Watch_addError(t *testing.T) {
 	}
 	defer fw.Close()
 
-	err = fw.Watch("/nonexistent-tokenproxy-test-dir-xyz999/file.txt")
+	err = fw.Watch("/nonexistent-slimference-test-dir-xyz999/file.txt")
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory")
 	}

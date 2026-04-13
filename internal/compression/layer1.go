@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // Layer1Result carries the compressed message list and per-sub-layer savings metrics.
@@ -148,7 +148,7 @@ func (c *DeterministicCompressor) compressMessage(
 		originalLen := len(origText)
 
 		// L1.14: Pre-Filtered Content Tagging - detect Layer 0 compact markers early.
-		// When content was already filtered by "tokenproxy filter", skip JSON compact,
+		// When content was already filtered by "slimference filter", skip JSON compact,
 		// comment strip, and structure extraction (redundant / could mangle compact format).
 		preFiltered := isPreFiltered(origText)
 

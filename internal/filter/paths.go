@@ -8,16 +8,16 @@ import (
 // userHomeDirFunc is set to os.UserHomeDir; replaced in tests to inject errors.
 var userHomeDirFunc = os.UserHomeDir
 
-// DefaultDataDir returns ~/.tokenproxy (created by callers if needed).
+// DefaultDataDir returns ~/.slimference (created by callers if needed).
 func DefaultDataDir() (string, error) {
 	h, err := userHomeDirFunc()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(h, ".tokenproxy"), nil
+	return filepath.Join(h, ".slimference"), nil
 }
 
-// DefaultFilterDBPath returns ~/.tokenproxy/filter.db.
+// DefaultFilterDBPath returns ~/.slimference/filter.db.
 func DefaultFilterDBPath() (string, error) {
 	dir, err := DefaultDataDir()
 	if err != nil {
@@ -26,7 +26,7 @@ func DefaultFilterDBPath() (string, error) {
 	return filepath.Join(dir, "filter.db"), nil
 }
 
-// DefaultTeeDir returns ~/.tokenproxy/tee (raw output recovery).
+// DefaultTeeDir returns ~/.slimference/tee (raw output recovery).
 func DefaultTeeDir() (string, error) {
 	dir, err := DefaultDataDir()
 	if err != nil {

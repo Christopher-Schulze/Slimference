@@ -1,9 +1,9 @@
-// Package tui implements the BubbleTea TUI dashboard for TokenProxy.
+// Package tui implements the BubbleTea TUI dashboard for Slimference.
 package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Palette defines the color scheme for the TokenProxy dashboard.
+// Palette defines the color scheme for the Slimference dashboard.
 // We use a dark terminal palette with purple accent, green for savings,
 // and subtle grays for secondary information.
 var (

@@ -9,10 +9,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
-	"github.com/tokenproxy/tokenproxy/internal/compression"
+	"github.com/slimference/slimference/internal/compression"
 )
 
-// FiltersFile is the root document for .tokenproxy/filters.toml (project or user-global).
+// FiltersFile is the root document for .slimference/filters.toml (project or user-global).
 type FiltersFile struct {
 	SchemaVersion int                   `toml:"schema_version"`
 	DenyPatterns  []string              `toml:"deny_patterns"`
@@ -48,13 +48,13 @@ type FilterRule struct {
 	OnEmpty              string            `toml:"on_empty"`
 }
 
-// UserFiltersPath returns ~/.tokenproxy/filters.toml.
+// UserFiltersPath returns ~/.slimference/filters.toml.
 func UserFiltersPath() string {
 	h, err := userHomeDirFunc()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(h, ".tokenproxy", "filters.toml")
+	return filepath.Join(h, ".slimference", "filters.toml")
 }
 
 // LoadFiltersFile parses one filters.toml; missing file returns (nil, nil).

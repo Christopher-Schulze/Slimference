@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
+	"github.com/slimference/slimference/internal/analytics"
 )
 
 // TestAggregateFromSnapshots_Empty verifies that an empty slice returns zero stats.
@@ -130,7 +130,7 @@ func TestFormatStatsTable(t *testing.T) {
 
 	output := FormatStatsTable(stats)
 
-	if !strings.Contains(output, "TokenProxy Session Stats") {
+	if !strings.Contains(output, "Slimference Session Stats") {
 		t.Error("output should contain header")
 	}
 	if !strings.Contains(output, "42") {

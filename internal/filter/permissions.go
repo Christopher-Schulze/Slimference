@@ -47,24 +47,24 @@ func DeniedShellCommand(cmdLine string) (denied bool, reason string) {
 	}
 	for _, re := range denyPatterns {
 		if re.MatchString(s) {
-			return true, "tokenproxy: denied (destructive pattern)"
+			return true, "slimference: denied (destructive pattern)"
 		}
 	}
 	extraDenyMu.RLock()
 	defer extraDenyMu.RUnlock()
 	for _, re := range extraDeny {
 		if re.MatchString(s) {
-			return true, "tokenproxy: denied (config pattern)"
+			return true, "slimference: denied (config pattern)"
 		}
 	}
 	return false, ""
 }
 
 // AskRequired returns true if the command should be confirmed (sudo) before running.
-// Set TOKENPROXY_CONFIRM_SUDO=1 to allow without prompting at the hook layer.
+// Set SLIMFERENCE_CONFIRM_SUDO=1 to allow without prompting at the hook layer.
 func AskRequired(cmdLine string) bool {
 	if !strings.Contains(cmdLine, "sudo") {
 		return false
 	}
-	return os.Getenv("TOKENPROXY_CONFIRM_SUDO") != "1"
+	return os.Getenv("SLIMFERENCE_CONFIRM_SUDO") != "1"
 }

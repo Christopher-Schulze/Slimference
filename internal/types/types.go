@@ -1,4 +1,4 @@
-// Package types defines the core data structures shared across all TokenProxy packages.
+// Package types defines the core data structures shared across all Slimference packages.
 package types
 
 import (

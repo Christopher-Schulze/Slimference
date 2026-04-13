@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
+	"github.com/slimference/slimference/internal/config"
 )
 
 const systemPrompt = `You are a lossless conversation compressor for AI coding sessions.

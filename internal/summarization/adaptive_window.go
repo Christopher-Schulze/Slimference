@@ -4,7 +4,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // AdaptiveWindowSize returns a dynamically adjusted sliding window size based on

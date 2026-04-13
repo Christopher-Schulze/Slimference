@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestProxy_ProviderLayerToggles(t *testing.T) {

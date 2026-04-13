@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	tiktoken "github.com/pkoukk/tiktoken-go"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // Counter holds a lazily-initialized, goroutine-safe tiktoken encoder.

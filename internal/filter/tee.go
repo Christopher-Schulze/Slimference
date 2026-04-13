@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// WriteTeeRecovery writes raw stdout/stderr to ~/.tokenproxy/tee for debugging when the subprocess fails.
+// WriteTeeRecovery writes raw stdout/stderr to ~/.slimference/tee for debugging when the subprocess fails.
 func WriteTeeRecovery(teeDir string, rawStdout, rawStderr []byte) (path string, err error) {
 	if err := os.MkdirAll(teeDir, 0755); err != nil {
 		return "", err

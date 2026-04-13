@@ -1,4 +1,4 @@
-module github.com/tokenproxy/tokenproxy
+module github.com/slimference/slimference
 
 go 1.25.0
 

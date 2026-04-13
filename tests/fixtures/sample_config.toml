@@ -1,4 +1,4 @@
-# TokenProxy sample user configuration.
+# Slimference sample user configuration.
 # This is NOT the defaults file - these are user-configured values.
 
 [proxy]
@@ -20,4 +20,4 @@ sliding_window = 4
 gain_usd_per_million_tokens = 15.0
 
 [debug]
-decisions_log = "~/.tokenproxy/decisions.jsonl"
+decisions_log = "~/.slimference/decisions.jsonl"

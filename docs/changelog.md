@@ -19,14 +19,14 @@
 
 #### TypeScript Tests (`tests/ts/`)
 
-- Fixed wrong relative paths in `cli.test.ts`: `../../cmd/tokenproxy` → `./cmd/tokenproxy` (paths
+- Fixed wrong relative paths in `cli.test.ts`: `../../cmd/slimference` → `./cmd/slimference` (paths
   are relative to `cwd=moduleRoot`, not relative to the test file).
 - All 6 bun:test tests passing: 3 session fixture schema tests + 3 CLI integration tests.
 
 #### Initial Git Commit
 
 - Repository initialized and full codebase committed locally (508 files, 145782 insertions).
-- Updated `.gitignore` to exclude build artifacts (`/benchmarks`, `/ci`, `/tokenproxy`, `/tokenproxy.test`,
+- Updated `.gitignore` to exclude build artifacts (`/benchmarks`, `/ci`, `/slimference`, `/slimference.test`,
   `*.out`, `*.test`).
 
 ## v1.3.5 - 2026-04-13
@@ -97,7 +97,7 @@ Added benchmark functions and runner for performance regression tracking:
 
 ### Session Replay: Full Pipeline Implementation
 
-#### `tokenproxy debug replay <session.jsonl>` - Now Fully Functional
+#### `slimference debug replay <session.jsonl>` - Now Fully Functional
 
 **`internal/debug/session.go`** - Added `ReplaySession(path string) ([]RequestSummary, error)`:
 - Reads all JSONL lines from a decisions log file (oldest first)
@@ -105,7 +105,7 @@ Added benchmark functions and runner for performance regression tracking:
 - Returns slice of summaries; scanner errors surfaced as return value
 - Uses 2 MB per-line buffer (consistent with Recorder's JSONL format)
 
-**`cmd/tokenproxy/main.go`** - `handleDebugReplay` fully implemented:
+**`cmd/slimference/main.go`** - `handleDebugReplay` fully implemented:
 - Keeps file stats header (file, size, non-empty lines) for quick orientation
 - Calls `replaySessionFn(path)` (injectable var, default = `dbg.ReplaySession`)
 - For each `RequestSummary`: shows timestamp, provider/model, token savings + ratio
@@ -123,7 +123,7 @@ Added benchmark functions and runner for performance regression tracking:
 - `TestReplaySession_nonExistentFile`: os.Open error returned
 - `TestReplaySession_scanError`: scanner error on line > 2 MB returned
 
-**`cmd/tokenproxy/main_test.go`** - 3 new tests + import:
+**`cmd/slimference/main_test.go`** - 3 new tests + import:
 - `TestHandleDebugReplay_replayParseErrorExits1`: inject error via `replaySessionFn`, verify exit 1
 - `TestHandleDebugReplay_noSummaries`: non-JSON JSONL produces "No decodable..." message
 - `TestHandleDebugReplay_fullOutput`: full replay with layer1 + layer2 output verified end-to-end
@@ -183,7 +183,7 @@ All 17 packages: 100% statement coverage maintained.
 **`internal/tui/model.go`**
 - Added `HookStatus` struct (`Claude bool`, `Codex bool`)
 - Added `hookStatus HookStatus` field on `Model`
-- Added `SetHookStatus(HookStatus)` method — called from `cmd/tokenproxy/main.go` at startup
+- Added `SetHookStatus(HookStatus)` method — called from `cmd/slimference/main.go` at startup
 
 **`internal/tui/views.go`**
 - Added `renderHookStatus(s Styles, h HookStatus) string`
@@ -193,10 +193,10 @@ All 17 packages: 100% statement coverage maintained.
 
 **`internal/hooks/verify.go`**
 - Added `InstalledStatus(home string) (claude, codex bool)`
-  - Claude Code: checks `~/.claude/hooks/tokenproxy-rewrite.sh` existence
-  - Codex: checks `~/.codex/AGENTS.md` for `TOKENPROXY_BEGIN` marker
+  - Claude Code: checks `~/.claude/hooks/slimference-rewrite.sh` existence
+  - Codex: checks `~/.codex/AGENTS.md` for `SLIMFERENCE_BEGIN` marker
 
-**`cmd/tokenproxy/main.go`**
+**`cmd/slimference/main.go`**
 - Hook status read at startup via `hooks.InstalledStatus(osUserHomeDir())`
 - Passed to TUI via `model.SetHookStatus(...)` before BubbleTea program starts
 
@@ -222,15 +222,15 @@ All 17 packages: 100% statement coverage maintained.
 
 ### 100% Test Coverage + L1.6 Prompt Cache Integration Test
 
-#### cmd/tokenproxy — Full Test Coverage
+#### cmd/slimference — Full Test Coverage
 
-**`cmd/tokenproxy/main.go`** — refactored for in-process testability (no subprocess spawning):
+**`cmd/slimference/main.go`** — refactored for in-process testability (no subprocess spawning):
 - Added injectable package-level vars: `configLoadFn`, `runTUIAfterStartFn`, `proxyStartTimeout`, `runTeaProgramFn`, `tuiSendProxyEventFn`, `makeSignalChanFn`
 - Extracted `runTUIAfterStart(p, progCh)` from `runTUI` — now independently injectable/testable
 - Added `progSender` struct with `send(rm)` method (replaces closure, avoids `tui.SendProxyEvent` blocking in tests)
 - Signal goroutine cleanup: `defer func() { signal.Stop(sigCh); close(done) }()` prevents goroutine leak on panic unwind
 
-**`cmd/tokenproxy/main_test.go`** — 6 new test functions:
+**`cmd/slimference/main_test.go`** — 6 new test functions:
 - `TestProgSender_send_withProg` — covers `select` branch with prog in channel
 - `TestProgSender_send_noProg` — covers `default` branch (no prog yet)
 - `TestRunTUI_proxyStartOK` — covers `case <-time.After(proxyStartTimeout)` (normal start)
@@ -253,7 +253,7 @@ All 17 packages: 100% statement coverage maintained.
 
 #### Coverage
 
-All 17 production packages: **100% statement coverage** on `cmd/tokenproxy` and all `internal/` packages.
+All 17 production packages: **100% statement coverage** on `cmd/slimference` and all `internal/` packages.
 
 ---
 
@@ -286,11 +286,11 @@ All 17 production packages: **100% statement coverage** on `cmd/tokenproxy` and 
 - `buildLayer1Breakdown(Layer1Result) map[string]SubLayerBreakdown` - converts result to per-sub-layer map
 - Records `RequestSummary` to `debugRecorder` after every request
 
-**`cmd/tokenproxy/main.go`** - `handleDebugLast` updated:
+**`cmd/slimference/main.go`** - `handleDebugLast` updated:
 - Reads `cfg.Debug.DecisionsLog` JSONL first (proxy Layer 1-3 summaries)
 - `readLastDecisionSummaries(path, n)` reads last N entries from JSONL
 - Falls back to SQLite `filter_runs` if no decisions log configured
-- Supports `tokenproxy debug last N` for multiple entries
+- Supports `slimference debug last N` for multiple entries
 
 #### Documentation (Phase E)
 - `docs/documentation.md`: updated to v1.2.0; added Layer 0 section (§3), L1.14 sub-layer table, L2.8-L2.9 sub-sections, Debug & Observability section (§10), renumbered all sections; Package Structure expanded with all new files
@@ -318,7 +318,7 @@ Complete implementation from scratch based on spec.md v1.0.0-final.
 - `internal/sessions`: In-session log ring buffer with subscriber fan-out
 - `internal/proxy`: HTTP reverse proxy (provider detection, message extraction, compression pipeline, SSE relay)
 - `internal/tui`: BubbleTea TUI (main/stats/debug views, lipgloss styling, keyboard controls)
-- `cmd/tokenproxy`: Entry point, CLI subcommands, adapter wiring
+- `cmd/slimference`: Entry point, CLI subcommands, adapter wiring
 
 #### Test Coverage (13 files)
 - `internal/types`: RingBuffer push/last/overflow/concurrent/len
@@ -384,7 +384,7 @@ Comprehensive test coverage expansion across all packages. All tests pass.
 #### Coverage Results
 | Package | Coverage |
 |---------|----------|
-| `cmd/tokenproxy` | 89.3% |
+| `cmd/slimference` | 89.3% |
 | `internal/analytics` | 97.5% |
 | `internal/caching` | 99.3% |
 | `internal/compression` | 99.8% |
@@ -409,10 +409,10 @@ Comprehensive test coverage expansion across all packages. All tests pass.
 - `internal/hooks/hooks_test.go`: Added MkdirAll error path for `mergeClaudeSettings` via 0555 permission trick. Coverage 96.2% -> 97.2%.
 - `internal/summarization/layer2_run_job_test.go`: Added `TestLayer2_RunCompressionJob_emptyToSummarize` covering all-anchor-message early return.
 - `internal/proxy/proxy_unit_test.go`: Added file watcher callback test, invalid regex pattern test, persister init error test, port-in-use Start test, and ClearLayer2/CompressQueue/SessionLogger tests.
-- `cmd/tokenproxy/main_test.go`: 3079-line comprehensive test suite (139 test functions) covering all CLI subcommands, error paths, subprocess tests for os.Exit paths, and doctor command checks.
+- `cmd/slimference/main_test.go`: 3079-line comprehensive test suite (139 test functions) covering all CLI subcommands, error paths, subprocess tests for os.Exit paths, and doctor command checks.
 
 #### Remaining Gaps (practical ceiling)
-- `cmd/tokenproxy main()` + `runTUI()` (0%): Require full TUI terminal + proxy startup; not unit-testable.
+- `cmd/slimference main()` + `runTUI()` (0%): Require full TUI terminal + proxy startup; not unit-testable.
 - `testIntercept` 60-second timeout path (7 stmts): Impractical.
 - Subprocess-only os.Exit paths (~15 stmts): Coverage only counted for in-process execution.
 - Defensive guards on impossible errors (~40 stmts across all packages): json.Marshal on concrete structs, os.UserHomeDir failure, fsnotify.NewWatcher failure, sql.Open failure, tiktoken init failure, timer goroutine tick paths (60s/5min intervals).

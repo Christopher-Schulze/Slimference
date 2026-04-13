@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // TestLayer2_RunCompressionJob_storesSummary runs the full async job path against a fake MiniMax API.

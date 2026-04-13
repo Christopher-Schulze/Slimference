@@ -1,7 +1,7 @@
 package compression
 
 import (
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // CompressiblePrefixEnd returns the exclusive end index of the prefix that Layer 1 may

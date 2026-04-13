@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/compression"
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/compression"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // summaryMaxAge is the default staleness threshold for cached summaries.

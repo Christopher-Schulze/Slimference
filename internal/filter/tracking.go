@@ -1,5 +1,5 @@
 // Package filter will host Layer-0 pre-entry filtering. This file holds SQLite persistence
-// for per-command filter savings (spec+: tokenproxy filter tracking).
+// for per-command filter savings (spec+: slimference filter tracking).
 package filter
 
 import (
@@ -12,7 +12,7 @@ import (
 // sqlOpenFunc is set to sql.Open; replaced in tests to inject open errors.
 var sqlOpenFunc = func(driver, dsn string) (*sql.DB, error) { return sql.Open(driver, dsn) }
 
-// OpenDB opens (and migrates) the filter tracking database at path (e.g. ~/.tokenproxy/filter.db).
+// OpenDB opens (and migrates) the filter tracking database at path (e.g. ~/.slimference/filter.db).
 func OpenDB(path string) (*sql.DB, error) {
 	db, err := sqlOpenFunc("sqlite", path)
 	if err != nil {

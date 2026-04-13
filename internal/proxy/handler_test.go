@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/caching"
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/caching"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestIsContextOverflow(t *testing.T) {

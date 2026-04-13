@@ -23,7 +23,7 @@ func TestInstalledStatus_claudeOnly(t *testing.T) {
 	if err := os.MkdirAll(scriptDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(scriptDir, "tokenproxy-rewrite.sh"), []byte("#!/bin/sh"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(scriptDir, "slimference-rewrite.sh"), []byte("#!/bin/sh"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	claude, codex := InstalledStatus(home)
@@ -38,7 +38,7 @@ func TestInstalledStatus_claudeOnly(t *testing.T) {
 func TestInstalledStatus_codexOnly(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	if err := InstallCodex(home, "tokenproxy"); err != nil {
+	if err := InstallCodex(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
 	claude, codex := InstalledStatus(home)
@@ -58,11 +58,11 @@ func TestInstalledStatus_both(t *testing.T) {
 	if err := os.MkdirAll(scriptDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(scriptDir, "tokenproxy-rewrite.sh"), []byte("#!/bin/sh"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(scriptDir, "slimference-rewrite.sh"), []byte("#!/bin/sh"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	// Install codex block.
-	if err := InstallCodex(home, "tokenproxy"); err != nil {
+	if err := InstallCodex(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
 	claude, codex := InstalledStatus(home)
@@ -80,7 +80,7 @@ func TestVerifyReport_missingClaudeScript(t *testing.T) {
 	}
 	var sawMissing bool
 	for _, ln := range lines {
-		if strings.Contains(ln, "MISSING") && strings.Contains(ln, "tokenproxy-rewrite.sh") {
+		if strings.Contains(ln, "MISSING") && strings.Contains(ln, "slimference-rewrite.sh") {
 			sawMissing = true
 		}
 	}
@@ -105,7 +105,7 @@ func TestVerifyReport_codexFileWithoutMarker(t *testing.T) {
 	}
 	var sawNoBlock bool
 	for _, ln := range lines {
-		if strings.Contains(ln, "codex") && strings.Contains(ln, "no tokenproxy block") {
+		if strings.Contains(ln, "codex") && strings.Contains(ln, "no slimference block") {
 			sawNoBlock = true
 		}
 	}
@@ -191,10 +191,10 @@ func TestInstallClaude_invalidExistingSettings(t *testing.T) {
 func TestInstallCodex_idempotent(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	if err := InstallCodex(home, "/bin/tokenproxy"); err != nil {
+	if err := InstallCodex(home, "/bin/slimference"); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallCodex(home, "/bin/tokenproxy"); err != nil {
+	if err := InstallCodex(home, "/bin/slimference"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(home, ".codex", "AGENTS.md"))
@@ -223,20 +223,20 @@ func TestRemoveCodex_unclosedMarker(t *testing.T) {
 
 func TestClaudeHookScript_customCommand(t *testing.T) {
 	t.Parallel()
-	s := ClaudeHookScript("/opt/bin/tokenproxy")
-	if !strings.Contains(s, "exec '/opt/bin/tokenproxy' rewrite") {
+	s := ClaudeHookScript("/opt/bin/slimference")
+	if !strings.Contains(s, "exec '/opt/bin/slimference' rewrite") {
 		t.Fatalf("script:\n%s", s)
 	}
 	s2 := ClaudeHookScript("")
-	if !strings.Contains(s2, "exec 'tokenproxy' rewrite") && !strings.Contains(s2, "exec tokenproxy rewrite") {
+	if !strings.Contains(s2, "exec 'slimference' rewrite") && !strings.Contains(s2, "exec slimference rewrite") {
 		t.Fatalf("default script:\n%s", s2)
 	}
 }
 
 func TestCodexAgentsBlock_custom(t *testing.T) {
 	t.Parallel()
-	b := CodexAgentsBlock("/x/tokenproxy")
-	if !strings.Contains(b, "`/x/tokenproxy filter`") {
+	b := CodexAgentsBlock("/x/slimference")
+	if !strings.Contains(b, "`/x/slimference filter`") {
 		t.Fatal(b)
 	}
 }
@@ -247,7 +247,7 @@ func TestInstallRemoveClaude(t *testing.T) {
 	if err := InstallClaude(home, ""); err != nil {
 		t.Fatal(err)
 	}
-	p := filepath.Join(home, ".claude", "hooks", "tokenproxy-rewrite.sh")
+	p := filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh")
 	if _, err := os.Stat(p); err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestInstallCodex_prevNoNewline(t *testing.T) {
 	if err := os.WriteFile(agentsPath, []byte("# existing content"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallCodex(home, "tokenproxy"); err != nil {
+	if err := InstallCodex(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(agentsPath)
@@ -402,7 +402,7 @@ func TestInstallClaude_writeFileError(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(hookDir, 0755) })
-	if err := InstallClaude(home, "tokenproxy"); err == nil {
+	if err := InstallClaude(home, "slimference"); err == nil {
 		t.Fatal("expected WriteFile error when hooks dir is read-only")
 	}
 }
@@ -453,7 +453,7 @@ func TestInstallCodex_openFileError(t *testing.T) {
 	if err := os.Mkdir(agentsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := InstallCodex(home, "tokenproxy"); err == nil {
+	if err := InstallCodex(home, "slimference"); err == nil {
 		t.Fatal("expected OpenFile error when AGENTS.md is a directory")
 	}
 }

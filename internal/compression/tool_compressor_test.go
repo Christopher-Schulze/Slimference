@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestCompressToolOutput_Passthrough(t *testing.T) {

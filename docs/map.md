@@ -1,12 +1,12 @@
-# TokenProxy - Architecture Map
+# Slimference - Architecture Map
 
 ## Module
 
-`github.com/tokenproxy/tokenproxy`
+`github.com/slimference/slimference`
 
 ## Entry Point
 
-`cmd/tokenproxy/main.go` -> `proxy.New(cfg)` + `tui.NewModel(adapter)` + `tea.NewProgram()`
+`cmd/slimference/main.go` -> `proxy.New(cfg)` + `tui.NewModel(adapter)` + `tea.NewProgram()`
 
 ## Dependency Graph (simplified)
 
@@ -114,8 +114,8 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 ### Analytics and Debug
 
 - `internal/analytics/collector.go`: Analytics struct, Record(), Snapshot()
-- `internal/analytics/persistence.go`: JSONL logging to ~/.tokenproxy/analytics/
-- `internal/analytics/gain.go`: tokenproxy gain - filter savings by period/command
+- `internal/analytics/persistence.go`: JSONL logging to ~/.slimference/analytics/
+- `internal/analytics/gain.go`: slimference gain - filter savings by period/command
 - `internal/debug/session.go`: SessionFileStats() for JSONL preview
 - `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary
 
@@ -189,10 +189,10 @@ GetPrefillSpeed() int
 
 ## Config File Location
 
-`~/.tokenproxy/config.toml` (default)
-Override: `TOKENPROXY_CONFIG` env var
+`~/.slimference/config.toml` (default)
+Override: `SLIMFERENCE_CONFIG` env var
 
 ## Analytics Log Location
 
-`~/.tokenproxy/analytics/` (default)
+`~/.slimference/analytics/` (default)
 JSONL files, one per day: `YYYY-MM-DD.jsonl`

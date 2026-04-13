@@ -56,7 +56,7 @@ type Layer2Summary struct {
 }
 
 // RequestSummary aggregates all decision entries for one proxy request.
-// This is the top-level object returned by "tokenproxy debug last".
+// This is the top-level object returned by "slimference debug last".
 type RequestSummary struct {
 	RequestID        string                       `json:"req_id"`
 	Timestamp        time.Time                    `json:"ts"`

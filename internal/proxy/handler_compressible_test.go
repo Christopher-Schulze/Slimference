@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/summarization"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // TestServeHTTP_compressibleAnthropic exercises handleCompressibleRequest → upstream round-trip.

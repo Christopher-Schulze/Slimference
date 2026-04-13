@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/proxy"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/proxy"
 )
 
 const mockAnthropicResponse = `{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-3-5-sonnet-20241022","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":2}}`
@@ -39,7 +39,7 @@ func newTestServer(t *testing.T, p *proxy.Proxy) *httptest.Server {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","service":"tokenproxy"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","service":"slimference"}`))
 	})
 	mux.Handle("/", p)
 	return httptest.NewServer(mux)

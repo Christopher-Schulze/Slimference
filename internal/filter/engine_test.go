@@ -25,7 +25,7 @@ func TestRunCommand_Echo(t *testing.T) {
 
 func TestRunCommand_UnknownBinary(t *testing.T) {
 	t.Parallel()
-	_, _, code, err := RunCommand(context.Background(), t.TempDir(), []string{"/nonexistent/tokenproxy-binary-xyz"})
+	_, _, code, err := RunCommand(context.Background(), t.TempDir(), []string{"/nonexistent/slimference-binary-xyz"})
 	if err == nil {
 		t.Fatal("expected error")
 	}

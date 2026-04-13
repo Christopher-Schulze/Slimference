@@ -8,9 +8,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
-	"github.com/tokenproxy/tokenproxy/internal/sessions"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/sessions"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // mockProxy implements ProxyInterface for testing the TUI model.
@@ -738,7 +738,7 @@ func TestView_MainRender_NarrowHeaderPad(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	m := NewModel(p)
-	// width=40 -> innerWidth=36; "TokenProxy v1.0.0" (17) + "Session: 1000h Xm" (18) + 2 > 36
+	// width=40 -> innerWidth=36; "Slimference v1.0.0" (17) + "Session: 1000h Xm" (18) + 2 > 36
 	m.width = 40
 	m.height = 24
 	m.sessionStart = time.Now().Add(-1001 * time.Hour) // causes very long session string

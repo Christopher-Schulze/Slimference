@@ -7,7 +7,7 @@ import (
 
 // rePreFilteredMarker matches compact output markers produced by Layer 0 built-in filters.
 // These patterns appear at the start of a tool_result that was already processed by
-// "tokenproxy filter" before entering the conversation.
+// "slimference filter" before entering the conversation.
 //
 // When a tool_result is pre-filtered, Layer 1 skips comment stripping, JSON compact,
 // and structure extraction (which would be redundant or could mangle the compact format).

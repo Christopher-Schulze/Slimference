@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // ProviderUsage tracks per-provider compression statistics.

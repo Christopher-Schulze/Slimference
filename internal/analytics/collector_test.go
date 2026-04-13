@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestAnalytics_RecentRequests(t *testing.T) {

@@ -1,4 +1,4 @@
-# `scripts/` — Thematisches Go-Tooling (TokenProxy)
+# `scripts/` — Thematisches Go-Tooling (Slimference)
 
 Alle **Werkzeuge** dieses Repos (Coverage-Gates, Benchmark-Helfer, Utils, …) liegen **hier** in **Unterordnern nach Thema** — nicht im Repository-Root.
 
@@ -19,7 +19,7 @@ Weitere Unterordner nur bei **klarem Thema** (z. B. `lint/`, `release/`).
 
 ## Ausführung
 
-Vom Modulroot (`TokenProxy/`):
+Vom Modulroot (`Slimference/`):
 
 ```bash
 go run ./scripts/coverage/...    # sobald ein entrypoint existiert

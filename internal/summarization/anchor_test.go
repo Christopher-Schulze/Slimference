@@ -3,7 +3,7 @@ package summarization
 import (
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // msg builds a Message with a single text block.

@@ -12,21 +12,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
-	"github.com/tokenproxy/tokenproxy/internal/caching"
-	"github.com/tokenproxy/tokenproxy/internal/compression"
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	dbg "github.com/tokenproxy/tokenproxy/internal/debug"
-	"github.com/tokenproxy/tokenproxy/internal/security"
-	"github.com/tokenproxy/tokenproxy/internal/sessions"
-	"github.com/tokenproxy/tokenproxy/internal/summarization"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/caching"
+	"github.com/slimference/slimference/internal/compression"
+	"github.com/slimference/slimference/internal/config"
+	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/security"
+	"github.com/slimference/slimference/internal/sessions"
+	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // newFileWatcherFunc is called by New to create the file watcher; overridden in tests.
 var newFileWatcherFunc = caching.NewFileWatcher
 
-// Proxy is the core TokenProxy instance. It owns all compression layers, goroutines,
+// Proxy is the core Slimference instance. It owns all compression layers, goroutines,
 // and the HTTP server. Its lifecycle matches the TUI lifecycle: one instance per run.
 type Proxy struct {
 	config *config.Config
@@ -59,7 +59,7 @@ type Proxy struct {
 	providerEnabled [2]atomic.Bool
 	layerEnabled    [3]atomic.Bool
 
-	// Debug decision recorder - records per-request Layer 1 summaries for "tokenproxy debug last".
+	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
 
 	// TUI send function - set after TUI program is created.
@@ -335,7 +335,7 @@ func (p *Proxy) GetLayer2Cache() *summarization.SummaryCache {
 	return p.layer2.GetCache()
 }
 
-// ClearLayer2ForTesting removes Layer 2 so cmd/tokenproxy can cover GetLayer2Status when the cache is absent.
+// ClearLayer2ForTesting removes Layer 2 so cmd/slimference can cover GetLayer2Status when the cache is absent.
 func (p *Proxy) ClearLayer2ForTesting() { p.layer2 = nil }
 
 // CompressQueue returns the compression job queue (read-only access for TUI).

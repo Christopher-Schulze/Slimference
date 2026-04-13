@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-// ClaudeHookScript returns the bash hook body; tokenproxyCmd is the executable for `rewrite` (default "tokenproxy").
-func ClaudeHookScript(tokenproxyCmd string) string {
-	cmd := strings.TrimSpace(tokenproxyCmd)
+// ClaudeHookScript returns the bash hook body; slimferenceCmd is the executable for `rewrite` (default "slimference").
+func ClaudeHookScript(slimferenceCmd string) string {
+	cmd := strings.TrimSpace(slimferenceCmd)
 	if cmd == "" {
-		cmd = "tokenproxy"
+		cmd = "slimference"
 	}
 	q := bashSingleQuoted(cmd)
 	return fmt.Sprintf(`#!/usr/bin/env bash
@@ -20,7 +20,7 @@ set -euo pipefail
 INPUT=$(cat)
 CMD=$(printf '%%s' "$INPUT" | jq -r '.command // .tool_input.command // empty' 2>/dev/null || true)
 if [[ -z "${CMD:-}" ]]; then
-  echo "tokenproxy: could not read .command from hook JSON" >&2
+  echo "slimference: could not read .command from hook JSON" >&2
   exit 1
 fi
 exec %s rewrite -- $CMD
@@ -31,15 +31,15 @@ func bashSingleQuoted(s string) string {
 	return `'` + strings.ReplaceAll(s, `'`, `'"'"'`) + `'`
 }
 
-// InstallClaude writes ~/.claude/hooks/tokenproxy-rewrite.sh and merges ~/.claude/settings.json.
-// tokenproxyCmd is embedded in the script (empty = "tokenproxy").
-func InstallClaude(home string, tokenproxyCmd string) error {
+// InstallClaude writes ~/.claude/hooks/slimference-rewrite.sh and merges ~/.claude/settings.json.
+// slimferenceCmd is embedded in the script (empty = "slimference").
+func InstallClaude(home string, slimferenceCmd string) error {
 	hookDir := filepath.Join(home, ".claude", "hooks")
 	if err := os.MkdirAll(hookDir, 0755); err != nil {
 		return err
 	}
-	scriptPath := filepath.Join(hookDir, "tokenproxy-rewrite.sh")
-	if err := os.WriteFile(scriptPath, []byte(ClaudeHookScript(tokenproxyCmd)), 0755); err != nil {
+	scriptPath := filepath.Join(hookDir, "slimference-rewrite.sh")
+	if err := os.WriteFile(scriptPath, []byte(ClaudeHookScript(slimferenceCmd)), 0755); err != nil {
 		return err
 	}
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
@@ -48,7 +48,7 @@ func InstallClaude(home string, tokenproxyCmd string) error {
 
 // RemoveClaude removes the hook script and drops PreToolUse from settings when present.
 func RemoveClaude(home string) error {
-	scriptPath := filepath.Join(home, ".claude", "hooks", "tokenproxy-rewrite.sh")
+	scriptPath := filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh")
 	_ = os.Remove(scriptPath)
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	return stripClaudePreToolUse(settingsPath)

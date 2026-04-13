@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // detectProvider determines the upstream provider from the HTTP request.

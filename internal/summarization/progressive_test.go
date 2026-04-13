@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestDetermineCompressionTiers(t *testing.T) {
@@ -84,7 +84,7 @@ func TestApplyProgressiveTiers_nilTiers(t *testing.T) {
 func TestApplyProgressiveTiers_minimaxNotConfiguredVerbatim(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
-	cfg.MiniMax.APIKeyEnv = "__TOKENPROXY_NO_MINIMAX_KEY__"
+	cfg.MiniMax.APIKeyEnv = "__SLIMFERENCE_NO_MINIMAX_KEY__"
 	l := NewLayer2(&cfg)
 	body := strings.Repeat("plain ", 200)
 	msgs := []types.Message{

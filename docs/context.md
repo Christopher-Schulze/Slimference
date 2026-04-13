@@ -1,4 +1,4 @@
-# TokenProxy - Context & Worklog
+# Slimference - Context & Worklog
 
 ## Status: L1.8-L1.13 + L2.8-L2.9 Implemented (v1.2.0)
 
@@ -21,7 +21,7 @@ New in v1.2.0:
 ### What is done
 - All 13 internal packages implemented (types, config, tokens, security, compression,
   summarization, caching, analytics, resilience, sessions, proxy, tui, util)
-- cmd/tokenproxy/main.go: entry point, all CLI subcommands, proxy adapter wiring
+- cmd/slimference/main.go: entry point, all CLI subcommands, proxy adapter wiring
 - go.mod: correct module path and all direct/indirect deps declared (incl. charmbracelet)
 - go.sum: NOT yet populated (must run `go mod tidy` before first build)
 - 13 test files written covering all core packages (table-driven, t.Parallel)
@@ -36,7 +36,7 @@ New in v1.2.0:
 
 ## Architecture Summary
 
-TokenProxy is a transparent HTTP reverse proxy. Requests from LLM CLIs arrive on
+Slimference is a transparent HTTP reverse proxy. Requests from LLM CLIs arrive on
 localhost:8990, pass through a 4-layer compression pipeline, and are forwarded to
 the real upstream API (Anthropic or OpenAI). Responses stream back unmodified.
 
@@ -84,7 +84,7 @@ The proxy.Proxy struct implements all three, but the TUI never imports the proxy
 The cmd/main.go wires them together via a proxyAdapter struct.
 Reason: prevents import cycle (proxy imports tui for event delivery; tui would then
 import proxy for type access, creating a cycle).
-Files: internal/tui/model.go, cmd/tokenproxy/main.go
+Files: internal/tui/model.go, cmd/slimference/main.go
 
 ### sessions.LogEntry used directly in tui.SessionLoggerInterface
 tui.SessionLoggerInterface.Recent() returns []sessions.LogEntry directly.
@@ -119,17 +119,17 @@ File: internal/proxy/proxy.go
 
 1. Run `go mod tidy` to populate go.sum
    - Required before any `go build` or `go test`
-   - Command: `cd /Users/christopher/CODE/TokenProxy && go mod tidy`
+   - Command: `cd /Users/christopher/CODE/Slimference && go mod tidy`
 
 2. Test with real Claude Code
    - Set: `ANTHROPIC_BASE_URL=http://127.0.0.1:8990`
-   - Run: `tokenproxy` (starts TUI + proxy)
+   - Run: `slimference` (starts TUI + proxy)
    - Then use Claude Code normally; watch TUI for compression activity
 
 3. MiniMax API key required for Layer 2
    - Without it: Layer 2 is silently skipped (graceful degradation)
    - Set: `export MINIMAX_API_KEY=<your-key>`
-   - Verify: `tokenproxy test minimax`
+   - Verify: `slimference test minimax`
 
 ---
 

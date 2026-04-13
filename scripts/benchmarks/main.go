@@ -1,4 +1,4 @@
-// Command benchmarks runs go test -bench=. across TokenProxy hot-path packages
+// Command benchmarks runs go test -bench=. across Slimference hot-path packages
 // and formats the output. Useful for detecting performance regressions.
 //
 // Usage (from module root):
@@ -40,7 +40,7 @@ func main() {
 		pkgs = []string{"./internal/" + *pkg + "/..."}
 	}
 
-	fmt.Printf("TokenProxy benchmarks — benchtime=%s count=%d\n", *benchtime, *count)
+	fmt.Printf("Slimference benchmarks — benchtime=%s count=%d\n", *benchtime, *count)
 	fmt.Println(strings.Repeat("=", 60))
 
 	failed := false

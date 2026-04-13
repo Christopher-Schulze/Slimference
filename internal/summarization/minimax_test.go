@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/config"
+	"github.com/slimference/slimference/internal/config"
 	"golang.org/x/time/rate"
 )
 

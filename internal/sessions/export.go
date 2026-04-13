@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
+	"github.com/slimference/slimference/internal/analytics"
 )
 
 // SessionStats is a consolidated summary of a completed or in-progress session.
@@ -123,7 +123,7 @@ func FormatStatsTable(stats SessionStats) string {
 	}
 
 	sb.WriteString(sep + "\n")
-	sb.WriteString("  TokenProxy Session Stats\n")
+	sb.WriteString("  Slimference Session Stats\n")
 	sb.WriteString(sep + "\n")
 
 	// Session info.

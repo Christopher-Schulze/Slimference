@@ -3,7 +3,7 @@ package filter
 import (
 	"context"
 
-	"github.com/tokenproxy/tokenproxy/internal/compression"
+	"github.com/slimference/slimference/internal/compression"
 )
 
 // PipelineResult is stdout/stderr after Layer-0 processing plus token estimates for analytics.

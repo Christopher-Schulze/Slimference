@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/types"
 )
 
 // CacheEntry holds a cached HTTP response with metadata.

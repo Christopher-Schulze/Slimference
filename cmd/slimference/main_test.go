@@ -23,13 +23,13 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/tokenproxy/tokenproxy/internal/analytics"
-	"github.com/tokenproxy/tokenproxy/internal/config"
-	dbg "github.com/tokenproxy/tokenproxy/internal/debug"
-	"github.com/tokenproxy/tokenproxy/internal/filter"
-	"github.com/tokenproxy/tokenproxy/internal/proxy"
-	"github.com/tokenproxy/tokenproxy/internal/summarization"
-	"github.com/tokenproxy/tokenproxy/internal/types"
+	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/config"
+	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/filter"
+	"github.com/slimference/slimference/internal/proxy"
+	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestParseDebugPeriodArgs(t *testing.T) {
@@ -58,10 +58,10 @@ func TestParseDebugPeriodArgs(t *testing.T) {
 }
 
 // TestHandleDebugTail_limitClamped covers the limit>500 clamp (main.go:967-969).
-// Point TOKENPROXY_FILTER_DB to a non-existent file so mustOpenFilterDB returns (nil, false).
+// Point SLIMFERENCE_FILTER_DB to a non-existent file so mustOpenFilterDB returns (nil, false).
 func TestHandleDebugTail_limitClamped(t *testing.T) {
-	t.Setenv("TOKENPROXY_FILTER_DB", filepath.Join(t.TempDir(), "nonexistent.db"))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "nonexistent.db"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -79,8 +79,8 @@ func TestHandleDebugTail_limitClamped(t *testing.T) {
 
 // TestHandleDebugTail_emptyStringArg covers the `if a == "" { continue }` branch (main.go:947-948).
 func TestHandleDebugTail_emptyStringArg(t *testing.T) {
-	t.Setenv("TOKENPROXY_FILTER_DB", filepath.Join(t.TempDir(), "nonexistent.db"))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "nonexistent.db"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -143,7 +143,7 @@ func TestFormatTokensPlain64(t *testing.T) {
 }
 
 func TestLayer0PermissionCheck(t *testing.T) {
-	t.Setenv("TOKENPROXY_CONFIRM_SUDO", "")
+	t.Setenv("SLIMFERENCE_CONFIRM_SUDO", "")
 	if code, msg := layer0PermissionCheck("echo ok"); code != 0 || msg != "" {
 		t.Fatalf("allowed: got code=%d msg=%q", code, msg)
 	}
@@ -153,9 +153,9 @@ func TestLayer0PermissionCheck(t *testing.T) {
 	if code, msg := layer0PermissionCheck("sudo apt update"); code != 3 || msg == "" {
 		t.Fatalf("ask: want code 3, got %d %q", code, msg)
 	}
-	t.Setenv("TOKENPROXY_CONFIRM_SUDO", "1")
+	t.Setenv("SLIMFERENCE_CONFIRM_SUDO", "1")
 	if code, msg := layer0PermissionCheck("sudo apt update"); code != 0 || msg != "" {
-		t.Fatalf("sudo allowed with TOKENPROXY_CONFIRM_SUDO=1: got %d %q", code, msg)
+		t.Fatalf("sudo allowed with SLIMFERENCE_CONFIRM_SUDO=1: got %d %q", code, msg)
 	}
 }
 
@@ -194,7 +194,7 @@ func TestHandleSubcommand_Version(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "tokenproxy v") {
+	if !strings.Contains(out, "slimference v") {
 		t.Fatalf("stdout: %q", out)
 	}
 }
@@ -224,7 +224,7 @@ func TestHandleSubcommand_debugLast(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -253,7 +253,7 @@ func TestHandleSubcommand_debugLast(t *testing.T) {
 }
 
 func TestHandleSubcommand_debugLast_noFilterDBFile(t *testing.T) {
-	t.Setenv("TOKENPROXY_FILTER_DB", filepath.Join(t.TempDir(), "missing-filter.db"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "missing-filter.db"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -289,7 +289,7 @@ func testOpenFilterDBAndRecord(t *testing.T, commands ...string) string {
 
 func TestHandleSubcommand_debugSummary_today(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "git status")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -306,7 +306,7 @@ func TestHandleSubcommand_debugSummary_today(t *testing.T) {
 
 func TestHandleSubcommand_debugSummary_json(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "ls -la")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -331,7 +331,7 @@ func TestHandleSubcommand_debugTail_empty(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -348,7 +348,7 @@ func TestHandleSubcommand_debugTail_empty(t *testing.T) {
 
 func TestHandleSubcommand_debugTail_rowsAndJSON(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "one", "two")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
 	old := os.Stdout
 
 	r, w, _ := os.Pipe()
@@ -448,7 +448,7 @@ func TestHandleSubcommand_debugPaths(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "TokenProxy debug paths") {
+	if !strings.Contains(out, "Slimference debug paths") {
 		t.Fatalf("stdout: %q", out)
 	}
 	if !strings.Contains(out, "filter.db:") || !strings.Contains(out, "tee directory:") {
@@ -470,11 +470,11 @@ decisions_log = "/cfg/decisions.jsonl"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
 	// Unset env vars so config file values take effect.
-	t.Setenv("TOKENPROXY_FILTER_DB", "")
-	t.Setenv("TOKENPROXY_TEE_DIR", "")
-	t.Setenv("TOKENPROXY_DEBUG_DECISIONS_LOG", "")
+	t.Setenv("SLIMFERENCE_FILTER_DB", "")
+	t.Setenv("SLIMFERENCE_TEE_DIR", "")
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", "")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -507,10 +507,10 @@ decisions_log = "~/decisions.jsonl"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_CONFIG", cfgPath)
-	t.Setenv("TOKENPROXY_FILTER_DB", "/env/override-filter.db")
-	t.Setenv("TOKENPROXY_TEE_DIR", "/env/override-tee")
-	t.Setenv("TOKENPROXY_DEBUG_DECISIONS_LOG", "/env/decisions.jsonl")
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", "/env/override-filter.db")
+	t.Setenv("SLIMFERENCE_TEE_DIR", "/env/override-tee")
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", "/env/decisions.jsonl")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -521,10 +521,10 @@ decisions_log = "~/decisions.jsonl"
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "[TOKENPROXY_CONFIG]") || !strings.Contains(out, "[TOKENPROXY_FILTER_DB]") {
+	if !strings.Contains(out, "[SLIMFERENCE_CONFIG]") || !strings.Contains(out, "[SLIMFERENCE_FILTER_DB]") {
 		t.Fatalf("expected env notes in output: %q", out)
 	}
-	if !strings.Contains(out, "[TOKENPROXY_TEE_DIR]") || !strings.Contains(out, "[TOKENPROXY_DEBUG_DECISIONS_LOG]") {
+	if !strings.Contains(out, "[SLIMFERENCE_TEE_DIR]") || !strings.Contains(out, "[SLIMFERENCE_DEBUG_DECISIONS_LOG]") {
 		t.Fatalf("expected tee/decisions env notes: %q", out)
 	}
 }
@@ -535,9 +535,9 @@ func TestHandleSubcommand_doctor_smoke(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing-doctor.toml"))
-	t.Setenv("TOKENPROXY_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
-	t.Setenv("TOKENPROXY_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing-doctor.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
 	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	old := os.Stdout
@@ -549,7 +549,7 @@ func TestHandleSubcommand_doctor_smoke(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "TokenProxy Doctor") {
+	if !strings.Contains(out, "Slimference Doctor") {
 		t.Fatalf("stdout: %q", out)
 	}
 	if !strings.Contains(out, "All checks passed") {
@@ -567,7 +567,7 @@ func TestHandleSubcommand_doctor_invalidConfigExits1(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_doctor_invalidConfigExits1")
-	cmd.Env = append(os.Environ(), "TP_DOCTOR_BAD_CFG=1", "TOKENPROXY_CONFIG="+cfgPath)
+	cmd.Env = append(os.Environ(), "TP_DOCTOR_BAD_CFG=1", "SLIMFERENCE_CONFIG="+cfgPath)
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
@@ -580,9 +580,9 @@ func TestHandleSubcommand_doctor_invalidConfigExits1(t *testing.T) {
 // branches (624-626, 634-636), and the "Some checks failed" footer (652-654).
 func TestHandleSubcommand_doctor_failingChecks(t *testing.T) {
 	// Use a bad upstream URL (connection refused immediately) + no MiniMax key.
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
-	t.Setenv("TOKENPROXY_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("TOKENPROXY_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
 	// Explicitly unset MINIMAX_API_KEY so the key check fails.
 	t.Setenv("MINIMAX_API_KEY", "")
 
@@ -596,7 +596,7 @@ func TestHandleSubcommand_doctor_failingChecks(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
 
-	if !strings.Contains(out, "TokenProxy Doctor") {
+	if !strings.Contains(out, "Slimference Doctor") {
 		t.Fatalf("expected doctor header in output: %q", out)
 	}
 	// At least one FAIL line (MiniMax or upstream).
@@ -609,15 +609,15 @@ func TestHandleSubcommand_doctor_failingChecks(t *testing.T) {
 // "not found at ... (using defaults)" branch in the Config file check (main.go:604-606).
 // We override HOME so DefaultConfigPath returns a non-existent file.
 func TestHandleSubcommand_doctor_configFileMissingBranch(t *testing.T) {
-	// Point HOME at a temp dir so ~/.tokenproxy/config.toml does not exist.
+	// Point HOME at a temp dir so ~/.slimference/config.toml does not exist.
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
-	// Also set TOKENPROXY_CONFIG to point to a missing file so config.Load gets defaults.
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(fakeHome, "cfg.toml"))
+	// Also set SLIMFERENCE_CONFIG to point to a missing file so config.Load gets defaults.
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(fakeHome, "cfg.toml"))
 
 	// Use fast-failing upstreams.
-	t.Setenv("TOKENPROXY_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("TOKENPROXY_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	old := os.Stdout
@@ -629,7 +629,7 @@ func TestHandleSubcommand_doctor_configFileMissingBranch(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "TokenProxy Doctor") {
+	if !strings.Contains(out, "Slimference Doctor") {
 		t.Fatalf("expected doctor header: %q", out)
 	}
 }
@@ -638,13 +638,13 @@ func TestHandleSubcommand_doctor_configFileMissingBranch(t *testing.T) {
 // when DefaultConfigPath() resolves to an existing file.
 //
 // DefaultConfigPath calls expandHome("~") which returns the literal string "~" (because "~"
-// has no "~/" prefix), so the effective path is the relative path "~/.tokenproxy/config.toml".
+// has no "~/" prefix), so the effective path is the relative path "~/.slimference/config.toml".
 // We build that directory structure inside a temp dir and chdir into it.
 func TestHandleSubcommand_doctor_configFileExistsBranch(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Recreate the relative structure: <tmp>/~/.tokenproxy/config.toml
-	tildeTokenproxyDir := filepath.Join(tmp, "~", ".tokenproxy")
+	// Recreate the relative structure: <tmp>/~/.slimference/config.toml
+	tildeTokenproxyDir := filepath.Join(tmp, "~", ".slimference")
 	if err := os.MkdirAll(tildeTokenproxyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -652,7 +652,7 @@ func TestHandleSubcommand_doctor_configFileExistsBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// chdir so that the relative path "~/.tokenproxy/config.toml" resolves to our file.
+	// chdir so that the relative path "~/.slimference/config.toml" resolves to our file.
 	origWD, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -662,10 +662,10 @@ func TestHandleSubcommand_doctor_configFileExistsBranch(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(origWD) })
 
-	// Provide a missing TOKENPROXY_CONFIG so config.Load uses defaults (empty is fine).
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
-	t.Setenv("TOKENPROXY_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("TOKENPROXY_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	// Provide a missing SLIMFERENCE_CONFIG so config.Load uses defaults (empty is fine).
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("MINIMAX_API_KEY", "")
 
 	old := os.Stdout
@@ -677,7 +677,7 @@ func TestHandleSubcommand_doctor_configFileExistsBranch(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "TokenProxy Doctor") {
+	if !strings.Contains(out, "Slimference Doctor") {
 		t.Fatalf("expected doctor header: %q", out)
 	}
 	// The config-file-exists branch returns the resolved path - not the "not found" string.
@@ -691,7 +691,7 @@ func TestHandleSubcommand_doctor_configFileExistsBranch(t *testing.T) {
 func TestHandleSubcommand_doctor_analyticsLogDirError(t *testing.T) {
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(fakeHome, "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(fakeHome, "missing.toml"))
 
 	// Create a regular file, then set log dir to a path inside it so MkdirAll fails.
 	blocker := filepath.Join(fakeHome, "notadir")
@@ -706,9 +706,9 @@ func TestHandleSubcommand_doctor_analyticsLogDirError(t *testing.T) {
 	if err := os.WriteFile(cfgFile, []byte(cfgContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_CONFIG", cfgFile)
-	t.Setenv("TOKENPROXY_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("TOKENPROXY_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_CONFIG", cfgFile)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("MINIMAX_API_KEY", "")
 
 	old := os.Stdout
@@ -720,7 +720,7 @@ func TestHandleSubcommand_doctor_analyticsLogDirError(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "TokenProxy Doctor") {
+	if !strings.Contains(out, "Slimference Doctor") {
 		t.Fatalf("expected doctor header: %q", out)
 	}
 	// The analytics MkdirAll error should appear in FAIL output.
@@ -730,14 +730,14 @@ func TestHandleSubcommand_doctor_analyticsLogDirError(t *testing.T) {
 }
 
 func TestResolveFilterDBPath_TeeDir_env(t *testing.T) {
-	t.Setenv("TOKENPROXY_FILTER_DB", "/tmp/tokenproxy-filter-unit.db")
+	t.Setenv("SLIMFERENCE_FILTER_DB", "/tmp/slimference-filter-unit.db")
 	p, err := resolveFilterDBPath()
-	if err != nil || p != "/tmp/tokenproxy-filter-unit.db" {
+	if err != nil || p != "/tmp/slimference-filter-unit.db" {
 		t.Fatalf("filter db: err=%v p=%q", err, p)
 	}
-	t.Setenv("TOKENPROXY_TEE_DIR", "/tmp/tokenproxy-tee-unit")
+	t.Setenv("SLIMFERENCE_TEE_DIR", "/tmp/slimference-tee-unit")
 	d, err := resolveTeeDir()
-	if err != nil || d != "/tmp/tokenproxy-tee-unit" {
+	if err != nil || d != "/tmp/slimference-tee-unit" {
 		t.Fatalf("tee: err=%v d=%q", err, d)
 	}
 }
@@ -754,9 +754,9 @@ tee_dir = %q
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_CONFIG", cfgPath)
-	t.Setenv("TOKENPROXY_FILTER_DB", "")
-	t.Setenv("TOKENPROXY_TEE_DIR", "")
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", "")
+	t.Setenv("SLIMFERENCE_TEE_DIR", "")
 	p, err := resolveFilterDBPath()
 	if err != nil {
 		t.Fatalf("resolveFilterDBPath: %v", err)
@@ -788,7 +788,7 @@ func writeTestAnalyticsConfigToml(t *testing.T, logDir string) string {
 }
 
 func TestHandleSubcommand_configShow(t *testing.T) {
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing-config.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing-config.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -805,7 +805,7 @@ func TestHandleSubcommand_configShow(t *testing.T) {
 
 func TestHandleSubcommand_configShow_loadErrorExits1(t *testing.T) {
 	if os.Getenv("TP_CFG_SHOW_BAD") == "1" {
-		t.Setenv("TOKENPROXY_CONFIG", os.Getenv("TP_CFG_SHOW_BAD_FILE"))
+		t.Setenv("SLIMFERENCE_CONFIG", os.Getenv("TP_CFG_SHOW_BAD_FILE"))
 		handleSubcommand([]string{"config", "show"})
 		return
 	}
@@ -824,7 +824,7 @@ func TestHandleSubcommand_configShow_loadErrorExits1(t *testing.T) {
 }
 
 func TestHandleSubcommand_configInit_writesFile(t *testing.T) {
-	// DefaultConfigPath uses filepath.Join("~", ".tokenproxy", "config.toml"), i.e. a
+	// DefaultConfigPath uses filepath.Join("~", ".slimference", "config.toml"), i.e. a
 	// literal "~" segment — the file is created relative to the process working directory.
 	tmp := t.TempDir()
 	wd, err := os.Getwd()
@@ -845,7 +845,7 @@ func TestHandleSubcommand_configInit_writesFile(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	path := filepath.Join(tmp, "~", ".tokenproxy", "config.toml")
+	path := filepath.Join(tmp, "~", ".slimference", "config.toml")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected config at %s: %v", path, err)
 	}
@@ -876,7 +876,7 @@ func TestHandleSubcommand_configInit_secondIsNoop(t *testing.T) {
 
 func TestHandleSubcommand_stats_today_withSnapshot(t *testing.T) {
 	logDir := t.TempDir()
-	t.Setenv("TOKENPROXY_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
 
 	p, err := analytics.NewPersister(logDir)
 	if err != nil {
@@ -902,15 +902,15 @@ func TestHandleSubcommand_stats_today_withSnapshot(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "TokenProxy Stats") || !strings.Contains(out, "Messages sent:") {
+	if !strings.Contains(out, "Slimference Stats") || !strings.Contains(out, "Messages sent:") {
 		t.Fatalf("stdout: %q", out)
 	}
 }
 
 func TestHandleSubcommand_gain_today_andJSON(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "make all")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -940,7 +940,7 @@ func TestHandleSubcommand_gain_today_andJSON(t *testing.T) {
 
 func TestHandleSubcommand_stats_week_and_month(t *testing.T) {
 	logDir := t.TempDir()
-	t.Setenv("TOKENPROXY_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
 
 	p, err := analytics.NewPersister(logDir)
 	if err != nil {
@@ -966,7 +966,7 @@ func TestHandleSubcommand_stats_week_and_month(t *testing.T) {
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
 		out := buf.String()
-		if !strings.Contains(out, "TokenProxy Stats") || !strings.Contains(out, "Messages sent:") {
+		if !strings.Contains(out, "Slimference Stats") || !strings.Contains(out, "Messages sent:") {
 			t.Fatalf("stats %s: %q", period, out)
 		}
 	}
@@ -974,7 +974,7 @@ func TestHandleSubcommand_stats_week_and_month(t *testing.T) {
 
 func TestHandleSubcommand_stats_emptyLogDir_messages(t *testing.T) {
 	logDir := t.TempDir()
-	t.Setenv("TOKENPROXY_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
 
 	cases := []struct {
 		args []string
@@ -1000,8 +1000,8 @@ func TestHandleSubcommand_stats_emptyLogDir_messages(t *testing.T) {
 }
 
 func TestHandleSubcommand_debugSummary_noFilterDB(t *testing.T) {
-	t.Setenv("TOKENPROXY_FILTER_DB", filepath.Join(t.TempDir(), "missing-filter.db"))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "missing-filter.db"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -1018,8 +1018,8 @@ func TestHandleSubcommand_debugSummary_noFilterDB(t *testing.T) {
 
 func TestHandleSubcommand_debugSummary_all_plain(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "stat .")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -1036,7 +1036,7 @@ func TestHandleSubcommand_debugSummary_all_plain(t *testing.T) {
 
 func TestHandleSubcommand_stats_configLoadErrorExits1(t *testing.T) {
 	if os.Getenv("TP_STATS_BAD_CFG") == "1" {
-		t.Setenv("TOKENPROXY_CONFIG", os.Getenv("TP_STATS_BAD_CFG_FILE"))
+		t.Setenv("SLIMFERENCE_CONFIG", os.Getenv("TP_STATS_BAD_CFG_FILE"))
 		handleSubcommand([]string{"stats", "today"})
 		return
 	}
@@ -1070,8 +1070,8 @@ func TestHandleSubcommand_debugSummary_parseArgsErrorExits1(t *testing.T) {
 
 func TestHandleSubcommand_gain_csv_and_byCommand(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "npm test")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -1101,8 +1101,8 @@ func TestHandleSubcommand_gain_csv_and_byCommand(t *testing.T) {
 
 func TestHandleSubcommand_gain_csvByCommand(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "[git] git status", "[npm] npm test")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -1134,8 +1134,8 @@ func TestHandleSubcommand_gain_withProjectFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -1167,8 +1167,8 @@ gain_usd_per_million_tokens = 2.5
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -1186,8 +1186,8 @@ gain_usd_per_million_tokens = 2.5
 
 func TestHandleSubcommand_gain_noFilterDBFile(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist", "filter.db")
-	t.Setenv("TOKENPROXY_FILTER_DB", missing)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", missing)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -1212,8 +1212,8 @@ func TestHandleSubcommand_gain_emptyRunsInWindow(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -1231,8 +1231,8 @@ func TestHandleSubcommand_gain_emptyRunsInWindow(t *testing.T) {
 
 func TestHandleSubcommand_gain_periodAll(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "make test")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -1264,8 +1264,8 @@ gain_usd_per_million_tokens = 2.5
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -1283,7 +1283,7 @@ gain_usd_per_million_tokens = 2.5
 
 func TestHandleSubcommand_filter_echo_recordsRun(t *testing.T) {
 	if os.Getenv("TP_FILTER_ECHO") == "1" {
-		t.Setenv("TOKENPROXY_FILTER_DB", os.Getenv("TP_FILTER_DB"))
+		t.Setenv("SLIMFERENCE_FILTER_DB", os.Getenv("TP_FILTER_DB"))
 		handleSubcommand([]string{"filter", "--", "echo", "hello"})
 		return
 	}
@@ -1327,8 +1327,8 @@ func TestHandleSubcommand_filter_nonZeroExit_teeRecovery(t *testing.T) {
 		t.Skip("requires sh")
 	}
 	if os.Getenv("TP_FILTER_TEE_FAIL") == "1" {
-		t.Setenv("TOKENPROXY_TEE_DIR", os.Getenv("TP_FILTER_TEE_DIR"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_TEE_DIR", os.Getenv("TP_FILTER_TEE_DIR"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleSubcommand([]string{"filter", "--", "sh", "-c", "exit 7"})
 		return
 	}
@@ -1396,7 +1396,7 @@ func TestTestMiniMax_ok(t *testing.T) {
 func TestTestMiniMax_noAPIKeyExits1(t *testing.T) {
 	if os.Getenv("TP_MINIMAX_NOKEY") == "1" {
 		t.Setenv("MINIMAX_API_KEY", "")
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		cfg, err := config.Load()
 		if err != nil {
 			t.Fatal(err)
@@ -1419,9 +1419,9 @@ func TestHandleTestCmd_upstreamAndMinimax(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("TOKENPROXY_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
-	t.Setenv("TOKENPROXY_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	for _, sub := range []string{"anthropic", "openai"} {
 		old := os.Stdout
@@ -1453,7 +1453,7 @@ api_key_env = "MINIMAX_API_KEY"
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
 
 	old := os.Stdout
 	pr, pw, _ := os.Pipe()
@@ -1504,9 +1504,9 @@ func TestTestIntercept_claude(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 
-	t.Setenv("TOKENPROXY_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("TOKENPROXY_LISTEN_PORT", strconv.Itoa(port))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", strconv.Itoa(port))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -1527,7 +1527,7 @@ func TestTestIntercept_claude(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		req.Header.Set("User-Agent", "tokenproxy-test-intercept")
+		req.Header.Set("User-Agent", "slimference-test-intercept")
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer test-token")
 		resp, err := client.Do(req)
@@ -1560,9 +1560,9 @@ func TestTestIntercept_codex(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 
-	t.Setenv("TOKENPROXY_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("TOKENPROXY_LISTEN_PORT", strconv.Itoa(port))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", strconv.Itoa(port))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -1583,7 +1583,7 @@ func TestTestIntercept_codex(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		req.Header.Set("User-Agent", "tokenproxy-test-intercept")
+		req.Header.Set("User-Agent", "slimference-test-intercept")
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("x-api-key", "sk-test")
 		resp, err := client.Do(req)
@@ -1609,19 +1609,38 @@ func TestTestIntercept_codex(t *testing.T) {
 }
 
 func TestHandleSubcommand_rewrite_stdinHookJSON(t *testing.T) {
+	// Use a filterable command (git) so RewriteCommand applies a prefix and exits 0.
+	// This tests: JSON extraction from hook stdin + filter dispatch + exit 0 path.
 	if os.Getenv("TP_REWRITE_STDIN") == "1" {
 		handleSubcommand([]string{"rewrite"})
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_rewrite_stdinHookJSON")
 	cmd.Env = append(os.Environ(), "TP_REWRITE_STDIN=1")
-	cmd.Stdin = strings.NewReader(`{"command":"echo rewrite-ok"}`)
+	cmd.Stdin = strings.NewReader(`{"command":"git status"}`)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("err=%v stderr may be lost", err)
 	}
-	if strings.TrimSpace(string(out)) != "echo rewrite-ok" {
+	if strings.TrimSpace(string(out)) != "slimference filter git status" {
 		t.Fatalf("got %q", out)
+	}
+}
+
+// TestHandleSubcommand_rewrite_stdinHookJSON_NoFilter covers the exit-1 path when
+// the command read from hook JSON has no matching filter (spec+.md §4.2 exit code 1 = passthrough).
+func TestHandleSubcommand_rewrite_stdinHookJSON_NoFilter(t *testing.T) {
+	if os.Getenv("TP_REWRITE_NOFIL") == "1" {
+		handleSubcommand([]string{"rewrite"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_rewrite_stdinHookJSON_NoFilter")
+	cmd.Env = append(os.Environ(), "TP_REWRITE_NOFIL=1")
+	cmd.Stdin = strings.NewReader(`{"command":"echo rewrite-ok"}`)
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1 (no filter match), got err=%v", err)
 	}
 }
 
@@ -1690,7 +1709,7 @@ func TestHandleSubcommand_rewrite_usageTTYExits1(t *testing.T) {
 	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
 		t.Fatalf("want exit 1, got err=%v stderr=%q", err, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "usage: tokenproxy rewrite") {
+	if !strings.Contains(stderr.String(), "usage: slimference rewrite") {
 		t.Fatalf("stderr: %q", stderr.String())
 	}
 }
@@ -1755,7 +1774,7 @@ func TestHandleSubcommand_hook_installRemove_claude_and_codex(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r4)
-	if !strings.Contains(buf.String(), "Removed TokenProxy block") {
+	if !strings.Contains(buf.String(), "Removed Slimference block") {
 		t.Fatalf("remove codex: %q", buf.String())
 	}
 }
@@ -1763,7 +1782,7 @@ func TestHandleSubcommand_hook_installRemove_claude_and_codex(t *testing.T) {
 func TestHandleSubcommand_hook_verify_afterInstall(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r0, w0, _ := os.Pipe()
@@ -1797,7 +1816,7 @@ func TestMustOpenFilterDB_invalidSQLiteExits1(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestMustOpenFilterDB_invalidSQLiteExits1")
-	cmd.Env = append(os.Environ(), "TP_MUSTOPEN_BAD=1", "TOKENPROXY_FILTER_DB="+dbPath)
+	cmd.Env = append(os.Environ(), "TP_MUSTOPEN_BAD=1", "SLIMFERENCE_FILTER_DB="+dbPath)
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
@@ -1827,7 +1846,7 @@ func TestMustOpenFilterDB_statNotExistVsOther(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(blocked, 0o700) })
 
 	cmd := exec.Command(os.Args[0], "-test.run=TestMustOpenFilterDB_statNotExistVsOther")
-	cmd.Env = append(os.Environ(), "TP_MUSTOPEN_STAT=1", "TOKENPROXY_FILTER_DB="+dbPath)
+	cmd.Env = append(os.Environ(), "TP_MUSTOPEN_STAT=1", "SLIMFERENCE_FILTER_DB="+dbPath)
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
@@ -2245,12 +2264,12 @@ func TestHandleSubcommand_rewriteLayer0DenyExits2(t *testing.T) {
 
 func TestHandleSubcommand_rewriteSudoExits3(t *testing.T) {
 	if os.Getenv("TP_SUB_RW_SUDO") == "1" {
-		t.Setenv("TOKENPROXY_CONFIRM_SUDO", "")
+		t.Setenv("SLIMFERENCE_CONFIRM_SUDO", "")
 		handleSubcommand([]string{"rewrite", "sudo", "apt", "update"})
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_rewriteSudoExits3")
-	cmd.Env = append(os.Environ(), "TP_SUB_RW_SUDO=1", "TOKENPROXY_CONFIRM_SUDO=")
+	cmd.Env = append(os.Environ(), "TP_SUB_RW_SUDO=1", "SLIMFERENCE_CONFIRM_SUDO=")
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 3 {
@@ -2278,7 +2297,7 @@ func TestPrintStatsTable_smoke(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "TokenProxy Stats") {
+	if !strings.Contains(buf.String(), "Slimference Stats") {
 		t.Fatalf("output: %q", buf.String())
 	}
 }
@@ -2338,7 +2357,7 @@ func TestSetupLogging_smoke(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Logging.Level = "warn"
 	cfg.Logging.Format = "json"
-	f, err := os.CreateTemp("", "tokenproxy-log-*.log")
+	f, err := os.CreateTemp("", "slimference-log-*.log")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2412,7 +2431,7 @@ func TestHandleDebugLast_noRows(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -2428,13 +2447,13 @@ func TestHandleDebugLast_noRows(t *testing.T) {
 }
 
 // TestHandleDebugPaths_projectFiltersPresent covers the "[present]" branch (main.go:1119-1121)
-// when a .tokenproxy/filters.toml file exists in the working directory.
+// when a .slimference/filters.toml file exists in the working directory.
 func TestHandleDebugPaths_projectFiltersPresent(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(tmp, ".tokenproxy"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmp, ".slimference"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, ".tokenproxy", "filters.toml"), []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, ".slimference", "filters.toml"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	wd, err := os.Getwd()
@@ -2446,7 +2465,7 @@ func TestHandleDebugPaths_projectFiltersPresent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(wd) })
 
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -2481,7 +2500,7 @@ func TestTestUpstream_connRefusedExits1(t *testing.T) {
 func TestTestMiniMax_connRefusedExits1(t *testing.T) {
 	if os.Getenv("TP_MINIMAX_FAIL") == "1" {
 		t.Setenv("MINIMAX_API_KEY", "dummy-key")
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		cfg, err := config.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "config: %v\n", err)
@@ -2503,7 +2522,7 @@ func TestTestMiniMax_connRefusedExits1(t *testing.T) {
 // TestHandleTestCmd_configLoadErrorExits1 covers handleTestCmd config load error (main.go:471-474).
 func TestHandleTestCmd_configLoadErrorExits1(t *testing.T) {
 	if os.Getenv("TP_TESTCMD_CFG_BAD") == "1" {
-		t.Setenv("TOKENPROXY_CONFIG", os.Getenv("TP_BAD_CFG_FILE"))
+		t.Setenv("SLIMFERENCE_CONFIG", os.Getenv("TP_BAD_CFG_FILE"))
 		handleTestCmd([]string{"anthropic"})
 		return
 	}
@@ -2524,7 +2543,7 @@ func TestHandleTestCmd_configLoadErrorExits1(t *testing.T) {
 // TestHandleFilterCmd_deniedExits2 covers handleFilterCmd layer0 permission deny (main.go:274-277).
 func TestHandleFilterCmd_deniedExits2(t *testing.T) {
 	if os.Getenv("TP_FILTER_DENY") == "1" {
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleFilterCmd([]string{"rm", "-rf", "/"})
 		return
 	}
@@ -2540,13 +2559,13 @@ func TestHandleFilterCmd_deniedExits2(t *testing.T) {
 // TestHandleFilterCmd_sudoExits3 covers handleFilterCmd layer0 sudo ask path (main.go:274-277 exit 3).
 func TestHandleFilterCmd_sudoExits3(t *testing.T) {
 	if os.Getenv("TP_FILTER_SUDO") == "1" {
-		t.Setenv("TOKENPROXY_CONFIRM_SUDO", "")
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIRM_SUDO", "")
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleFilterCmd([]string{"sudo", "apt", "update"})
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleFilterCmd_sudoExits3")
-	cmd.Env = append(os.Environ(), "TP_FILTER_SUDO=1", "TOKENPROXY_CONFIRM_SUDO=")
+	cmd.Env = append(os.Environ(), "TP_FILTER_SUDO=1", "SLIMFERENCE_CONFIRM_SUDO=")
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 3 {
@@ -2576,7 +2595,7 @@ func TestHandleHookCmd_verifyNotOkExits1(t *testing.T) {
 func TestHandleHookCmd_installClaude_success(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -2595,7 +2614,7 @@ func TestHandleHookCmd_installClaude_success(t *testing.T) {
 func TestHandleHookCmd_installCodex_success(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -2614,13 +2633,13 @@ func TestHandleHookCmd_installCodex_success(t *testing.T) {
 func TestHandleHookCmd_removeClaude_success(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	// Install first so there is something to remove.
 	if err := os.MkdirAll(filepath.Join(home, ".claude", "hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".claude", "hooks", "tokenproxy-rewrite.sh"), []byte("#!/bin/sh"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh"), []byte("#!/bin/sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2641,7 +2660,7 @@ func TestHandleHookCmd_removeClaude_success(t *testing.T) {
 func TestHandleHookCmd_removeCodex_success(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -2651,7 +2670,7 @@ func TestHandleHookCmd_removeCodex_success(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "Removed TokenProxy block") {
+	if !strings.Contains(buf.String(), "Removed Slimference block") {
 		t.Fatalf("expected remove message, got: %q", buf.String())
 	}
 }
@@ -2689,7 +2708,7 @@ func TestHandleGainCmd_badPeriodExits1(t *testing.T) {
 // TestHandleDebugPaths_configLoadErrorExits1 covers handleDebugPaths config load error (main.go:1068-1071).
 func TestHandleDebugPaths_configLoadErrorExits1(t *testing.T) {
 	if os.Getenv("TP_DEBUG_PATHS_CFG_BAD") == "1" {
-		t.Setenv("TOKENPROXY_CONFIG", os.Getenv("TP_BAD_CFG_PATH"))
+		t.Setenv("SLIMFERENCE_CONFIG", os.Getenv("TP_BAD_CFG_PATH"))
 		handleSubcommand([]string{"debug", "paths"})
 		return
 	}
@@ -2707,13 +2726,12 @@ func TestHandleDebugPaths_configLoadErrorExits1(t *testing.T) {
 	}
 }
 
-// TestHandleRewriteCmd_dashDashSkip covers the `if a == "--" { continue }` branch (main.go:331-332).
-// Call handleRewriteCmd directly with "--" in args; the `--` is stripped and the remaining words
-// are joined and emitted (which calls os.Exit(0) via rewriteEmit, so we use a subprocess).
+// TestHandleRewriteCmd_dashDashSkip covers the `if a == "--" { continue }` branch.
+// Uses a filterable command so exit 0 with rewritten output is expected (spec+.md §4.2).
 func TestHandleRewriteCmd_dashDashSkip(t *testing.T) {
 	if os.Getenv("TP_RW_DASHDASH") == "1" {
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
-		handleRewriteCmd([]string{"--", "echo", "hi"})
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		handleRewriteCmd([]string{"--", "git", "status"})
 		return
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleRewriteCmd_dashDashSkip")
@@ -2722,8 +2740,25 @@ func TestHandleRewriteCmd_dashDashSkip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("want exit 0, got err=%v out=%s", err, out)
 	}
-	if strings.TrimSpace(string(out)) != "echo hi" {
-		t.Fatalf("expected 'echo hi', got %q", out)
+	if strings.TrimSpace(string(out)) != "slimference filter git status" {
+		t.Fatalf("expected 'slimference filter git status', got %q", out)
+	}
+}
+
+// TestHandleRewriteCmd_dashDashSkip_NoFilter covers the exit-1 path when "--" skips
+// the separator but the resulting command has no matching filter (spec+.md §4.2 exit 1 = passthrough).
+func TestHandleRewriteCmd_dashDashSkip_NoFilter(t *testing.T) {
+	if os.Getenv("TP_RW_DASHDASH_NF") == "1" {
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		handleRewriteCmd([]string{"--", "echo", "hi"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleRewriteCmd_dashDashSkip_NoFilter")
+	cmd.Env = append(os.Environ(), "TP_RW_DASHDASH_NF=1")
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1 (no filter), got err=%v", err)
 	}
 }
 
@@ -2734,7 +2769,7 @@ func TestHandleFilterCmd_prErrExits1(t *testing.T) {
 		t.Skip("unix-only test")
 	}
 	if os.Getenv("TP_FILTER_PRERR") == "1" {
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleFilterCmd([]string{"nonexistent-command-xyz-abc-1234"})
 		return
 	}
@@ -2755,7 +2790,7 @@ func TestHandleHookCmd_installClaude_errorExits1(t *testing.T) {
 	}
 	if os.Getenv("TP_HOOK_ICLAUDE_ERR") == "1" {
 		t.Setenv("HOME", os.Getenv("TP_HOOK_ICLAUDE_HOME"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleSubcommand([]string{"hook", "install", "claude"})
 		return
 	}
@@ -2782,7 +2817,7 @@ func TestHandleHookCmd_installCodex_errorExits1(t *testing.T) {
 	}
 	if os.Getenv("TP_HOOK_ICODEX_ERR") == "1" {
 		t.Setenv("HOME", os.Getenv("TP_HOOK_ICODEX_HOME"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleSubcommand([]string{"hook", "install", "codex"})
 		return
 	}
@@ -2806,7 +2841,7 @@ func TestHandleHookCmd_installCodex_errorExits1(t *testing.T) {
 func TestHandleHookCmd_removeClaude_errorExits1(t *testing.T) {
 	if os.Getenv("TP_HOOK_RCLAUDE_ERR") == "1" {
 		t.Setenv("HOME", os.Getenv("TP_HOOK_RCLAUDE_HOME"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleSubcommand([]string{"hook", "remove", "claude"})
 		return
 	}
@@ -2835,7 +2870,7 @@ func TestHandleHookCmd_removeCodex_errorExits1(t *testing.T) {
 	}
 	if os.Getenv("TP_HOOK_RCODEX_ERR") == "1" {
 		t.Setenv("HOME", os.Getenv("TP_HOOK_RCODEX_HOME"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleSubcommand([]string{"hook", "remove", "codex"})
 		return
 	}
@@ -2891,15 +2926,15 @@ func TestHandleConfigCmd_initMkdirErrorExits1(t *testing.T) {
 }
 
 // TestHandleGainCmd_statOtherErrorExits1 covers handleGainCmd os.Stat non-IsNotExist error (main.go:767-768).
-// Points TOKENPROXY_FILTER_DB at a file inside a mode-000 directory so os.Stat fails with
+// Points SLIMFERENCE_FILTER_DB at a file inside a mode-000 directory so os.Stat fails with
 // a permission error (not IsNotExist).
 func TestHandleGainCmd_statOtherErrorExits1(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod not applicable on windows")
 	}
 	if os.Getenv("TP_GAIN_STAT_ERR") == "1" {
-		t.Setenv("TOKENPROXY_FILTER_DB", os.Getenv("TP_GAIN_DB_PATH"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_FILTER_DB", os.Getenv("TP_GAIN_DB_PATH"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleGainCmd([]string{"today"})
 		return
 	}
@@ -3033,8 +3068,8 @@ func TestHandleDebugReplay_fullOutput(t *testing.T) {
 // (main.go:775-778) by pointing to a corrupt (non-SQLite) database file.
 func TestHandleGainCmd_queryErrorExits1(t *testing.T) {
 	if os.Getenv("TP_GAIN_QUERY_ERR") == "1" {
-		t.Setenv("TOKENPROXY_FILTER_DB", os.Getenv("TP_GAIN_CORRUPT_DB"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_FILTER_DB", os.Getenv("TP_GAIN_CORRUPT_DB"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleGainCmd([]string{"today"})
 		return
 	}
@@ -3056,8 +3091,8 @@ func TestHandleGainCmd_queryErrorExits1(t *testing.T) {
 // (main.go:915-918) by using a corrupt (non-SQLite) database file.
 func TestHandleDebugSummary_queryErrorExits1(t *testing.T) {
 	if os.Getenv("TP_DBG_SUM_QUERY_ERR") == "1" {
-		t.Setenv("TOKENPROXY_FILTER_DB", os.Getenv("TP_DBG_SUM_CORRUPT_DB"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_FILTER_DB", os.Getenv("TP_DBG_SUM_CORRUPT_DB"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleSubcommand([]string{"debug", "summary", "today"})
 		return
 	}
@@ -3079,8 +3114,8 @@ func TestHandleDebugSummary_queryErrorExits1(t *testing.T) {
 // (main.go:977-980) by using a corrupt (non-SQLite) database file.
 func TestHandleDebugTail_queryErrorExits1(t *testing.T) {
 	if os.Getenv("TP_DBG_TAIL_QUERY_ERR") == "1" {
-		t.Setenv("TOKENPROXY_FILTER_DB", os.Getenv("TP_DBG_TAIL_CORRUPT_DB"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_FILTER_DB", os.Getenv("TP_DBG_TAIL_CORRUPT_DB"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleSubcommand([]string{"debug", "tail", "5"})
 		return
 	}
@@ -3102,8 +3137,8 @@ func TestHandleDebugTail_queryErrorExits1(t *testing.T) {
 // (main.go:1037-1040) by using a corrupt (non-SQLite) database file.
 func TestHandleDebugLast_queryErrorExits1(t *testing.T) {
 	if os.Getenv("TP_DBG_LAST_QUERY_ERR") == "1" {
-		t.Setenv("TOKENPROXY_FILTER_DB", os.Getenv("TP_DBG_LAST_CORRUPT_DB"))
-		t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		t.Setenv("SLIMFERENCE_FILTER_DB", os.Getenv("TP_DBG_LAST_CORRUPT_DB"))
+		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 		handleSubcommand([]string{"debug", "last"})
 		return
 	}
@@ -3132,9 +3167,9 @@ func TestHandleTestCmd_interceptCallsTestIntercept(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
 
-	t.Setenv("TOKENPROXY_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("TOKENPROXY_LISTEN_PORT", strconv.Itoa(port))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", strconv.Itoa(port))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	done := make(chan struct{})
 	go func() {
@@ -3256,8 +3291,8 @@ func TestReadLastDecisionSummaries_invalidJSONSkipped(t *testing.T) {
 
 // TestHandleDebugLast_nArg covers the strconv.Atoi(a) && v>0 → n=v branch.
 func TestHandleDebugLast_nArg(t *testing.T) {
-	t.Setenv("TOKENPROXY_FILTER_DB", filepath.Join(t.TempDir(), "nonexistent.db"))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "nonexistent.db"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -3279,8 +3314,8 @@ func TestHandleDebugLast_withDecisionsLog(t *testing.T) {
 	if err := os.WriteFile(decisionsPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_DEBUG_DECISIONS_LOG", decisionsPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -3302,8 +3337,8 @@ func TestHandleDebugLast_withDecisionsLog_jsonOut(t *testing.T) {
 	if err := os.WriteFile(decisionsPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_DEBUG_DECISIONS_LOG", decisionsPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -3325,8 +3360,8 @@ func TestHandleDebugLast_withLayer1Breakdown(t *testing.T) {
 	if err := os.WriteFile(decisionsPath, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_DEBUG_DECISIONS_LOG", decisionsPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -3348,9 +3383,9 @@ func TestTestIntercept_codexProvider(t *testing.T) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
-	t.Setenv("TOKENPROXY_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("TOKENPROXY_LISTEN_PORT", strconv.Itoa(port))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", strconv.Itoa(port))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	done := make(chan struct{})
 	go func() {
 		handleTestCmd([]string{"intercept", "codex"})
@@ -3395,8 +3430,8 @@ func TestHandleDebugSummary_jsonOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -3419,8 +3454,8 @@ func TestHandleDebugSummary_textOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -3443,8 +3478,8 @@ func TestHandleDebugTail_textOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -3468,8 +3503,8 @@ func TestHandleDebugTail_jsonOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = db.Close()
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -3541,7 +3576,7 @@ func TestMain_noArgs(t *testing.T) {
 
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
-	os.Args = []string{"tokenproxy"}
+	os.Args = []string{"slimference"}
 
 	main()
 	if !called {
@@ -3553,7 +3588,7 @@ func TestMain_noArgs(t *testing.T) {
 func TestMain_withArgs(t *testing.T) {
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
-	os.Args = []string{"tokenproxy", "version"}
+	os.Args = []string{"slimference", "version"}
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -3564,7 +3599,7 @@ func TestMain_withArgs(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "tokenproxy v") {
+	if !strings.Contains(buf.String(), "slimference v") {
 		t.Fatalf("stdout: %q", buf.String())
 	}
 }
@@ -3576,7 +3611,7 @@ func TestRunTUI_configError(t *testing.T) {
 	if err := os.WriteFile(badCfg, []byte("this is not valid toml [[["), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_CONFIG", badCfg)
+	t.Setenv("SLIMFERENCE_CONFIG", badCfg)
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(runTUI)
@@ -3603,9 +3638,9 @@ func TestRunTUI_proxyStartError(t *testing.T) {
 	defer ln.Close()
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	t.Setenv("TOKENPROXY_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("TOKENPROXY_LISTEN_PORT", strconv.Itoa(port))
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", strconv.Itoa(port))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(runTUI)
@@ -3626,7 +3661,7 @@ func TestHandleFilterCmd_getwdError(t *testing.T) {
 	orig := osGetwd
 	defer func() { osGetwd = orig }()
 	osGetwd = func() (string, error) { return "", errors.New("getwd failed") }
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -3649,7 +3684,7 @@ func TestHandleRewriteCmd_terminalTrue(t *testing.T) {
 	orig := termIsTerminalFn
 	defer func() { termIsTerminalFn = orig }()
 	termIsTerminalFn = func(fd int) bool { return true }
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -3662,7 +3697,7 @@ func TestHandleRewriteCmd_terminalTrue(t *testing.T) {
 	if !exited || code != 1 {
 		t.Fatalf("want exit 1, got exited=%v code=%d", exited, code)
 	}
-	if !strings.Contains(buf.String(), "usage: tokenproxy rewrite") {
+	if !strings.Contains(buf.String(), "usage: slimference rewrite") {
 		t.Fatalf("stderr: %q", buf.String())
 	}
 }
@@ -3677,7 +3712,7 @@ func TestHandleRewriteCmd_stdinReadError(t *testing.T) {
 	}()
 	termIsTerminalFn = func(fd int) bool { return false }
 	readStdinAll = func() ([]byte, error) { return nil, errors.New("read failed") }
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -3721,7 +3756,7 @@ func TestHandleHookCmd_homeDirError(t *testing.T) {
 func TestHandleConfigCmd_writeFileError(t *testing.T) {
 	tmp := t.TempDir()
 	cfgPath := filepath.Join(tmp, "config.toml")
-	t.Setenv("TOKENPROXY_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
 
 	orig := osWriteFile
 	defer func() { osWriteFile = orig }()
@@ -3758,8 +3793,8 @@ func TestTestIntercept_timeout(t *testing.T) {
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	_ = ln.Close()
-	t.Setenv("TOKENPROXY_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("TOKENPROXY_LISTEN_PORT", strconv.Itoa(port))
+	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", strconv.Itoa(port))
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -3815,7 +3850,7 @@ func TestMustOpenFilterDB_invalidSQLite_inProcess(t *testing.T) {
 	if err := os.WriteFile(dbPath, []byte("not-a-sqlite-file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() { mustOpenFilterDB() })
@@ -3847,7 +3882,7 @@ func TestMustOpenFilterDB_statError_inProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(blocked, 0o700) })
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() { mustOpenFilterDB() })
@@ -3868,7 +3903,7 @@ func TestHandleGainCmd_resolvePathError(t *testing.T) {
 	orig := resolveFilterDBPathFn
 	defer func() { resolveFilterDBPathFn = orig }()
 	resolveFilterDBPathFn = func() (string, error) { return "", errors.New("path error") }
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -3889,8 +3924,8 @@ func TestHandleGainCmd_resolvePathError(t *testing.T) {
 // TestHandleGainCmd_writeGainByCommandCSVError covers the WriteGainByCommandCSV error exit.
 func TestHandleGainCmd_writeGainByCommandCSVError(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "git status")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	orig := writeGainByCommandCSV
 	defer func() { writeGainByCommandCSV = orig }()
@@ -3917,8 +3952,8 @@ func TestHandleGainCmd_writeGainByCommandCSVError(t *testing.T) {
 // TestHandleGainCmd_writeGainSummaryCSVError covers the WriteGainSummaryCSV error exit.
 func TestHandleGainCmd_writeGainSummaryCSVError(t *testing.T) {
 	dbPath := testOpenFilterDBAndRecord(t, "git status")
-	t.Setenv("TOKENPROXY_FILTER_DB", dbPath)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	orig := writeGainSummaryCSV
 	defer func() { writeGainSummaryCSV = orig }()
@@ -3957,8 +3992,8 @@ func TestHandleDebugSummary_queryError_inProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	t.Setenv("TOKENPROXY_FILTER_DB", badDB)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", badDB)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -3991,8 +4026,8 @@ func TestHandleDebugTail_queryError_inProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	t.Setenv("TOKENPROXY_FILTER_DB", badDB)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", badDB)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -4025,8 +4060,8 @@ func TestHandleDebugLast_queryError_inProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	t.Setenv("TOKENPROXY_FILTER_DB", badDB)
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_FILTER_DB", badDB)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -4060,7 +4095,7 @@ func TestHandleDebugPaths_resolveErrors(t *testing.T) {
 	resolveTeeDirFn = func() (string, error) { return "", errors.New("tee error") }
 	filterDefaultDataDirFn = func() (string, error) { return "", errors.New("data error") }
 
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -4084,7 +4119,7 @@ func TestHandleDebugPaths_configError_inProcess(t *testing.T) {
 	if err := os.WriteFile(badCfg, []byte("not valid toml [[["), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TOKENPROXY_CONFIG", badCfg)
+	t.Setenv("SLIMFERENCE_CONFIG", badCfg)
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -4150,9 +4185,9 @@ func TestProgSender_send_empty(t *testing.T) {
 // runTUI: proxy starts without error within the timeout and runTUIAfterStartFn is called.
 func TestRunTUI_proxyStartOK(t *testing.T) {
 	// Use a free port (0) so the proxy never fails with "address in use".
-	t.Setenv("TOKENPROXY_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("TOKENPROXY_LISTEN_PORT", "0")
-	t.Setenv("TOKENPROXY_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", "0")
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	origTimeout := proxyStartTimeout
 	origAfterStart := runTUIAfterStartFn
