@@ -1,0 +1,1438 @@
+// Command tokenproxy is a transparent HTTP reverse proxy that applies multi-layer
+// token compression to LLM API requests, extending effective usage limits by 2-3x.
+//
+// Usage:
+//
+//	tokenproxy                    # Start TUI + proxy
+//	tokenproxy config init        # Generate default config file
+//	tokenproxy config show        # Print resolved config
+//	tokenproxy test minimax       # Test MiniMax API connectivity
+//	tokenproxy test anthropic     # Test Anthropic reachability
+//	tokenproxy test openai        # Test OpenAI reachability
+//	tokenproxy doctor             # Run all diagnostics
+//	tokenproxy stats today        # Print today's stats
+//	tokenproxy stats week         # Print this week's stats
+//	tokenproxy gain today         # Layer-0 filter.db savings (--by-command, --csv, --project; optional USD/M rate in config)
+//	tokenproxy filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
+//	tokenproxy rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
+//	tokenproxy hook install claude # Install Claude Code / Codex hooks (v1)
+//	tokenproxy debug paths        # Show resolved config / filter.db / tee paths
+//	tokenproxy debug last         # Last Layer-0 row from filter.db (--json)
+//	tokenproxy debug summary week # Aggregate filter_runs for today|week|month|all
+//	tokenproxy debug tail 30      # Newest 30 rows (default 20, max 500, --json)
+//	tokenproxy debug replay f.jsonl # Replay session JSONL (per-request token breakdown)
+//	tokenproxy version            # Print version
+package main
+
+import (
+	"bufio"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/term"
+	"github.com/tokenproxy/tokenproxy/internal/analytics"
+	"github.com/tokenproxy/tokenproxy/internal/config"
+	dbg "github.com/tokenproxy/tokenproxy/internal/debug"
+	"github.com/tokenproxy/tokenproxy/internal/filter"
+	"github.com/tokenproxy/tokenproxy/internal/hooks"
+	"github.com/tokenproxy/tokenproxy/internal/proxy"
+	"github.com/tokenproxy/tokenproxy/internal/tui"
+	"github.com/tokenproxy/tokenproxy/internal/types"
+)
+
+const version = "1.0.0"
+
+// Injectable package-level vars for OS/driver boundaries - enables in-process error injection in tests.
+var (
+	runTUIFn             = runTUI
+	osGetwd              = os.Getwd
+	osUserHomeDir        = os.UserHomeDir
+	termIsTerminalFn     = term.IsTerminal
+	readStdinAll         = func() ([]byte, error) { return io.ReadAll(os.Stdin) }
+	osWriteFile          = os.WriteFile
+	testInterceptTimeout = 60 * time.Second
+	exitFn               = os.Exit
+	resolveFilterDBPathFn  = resolveFilterDBPath
+	resolveTeeDirFn        = resolveTeeDir
+	filterDefaultDataDirFn = filter.DefaultDataDir
+	writeGainByCommandCSV  = analytics.WriteGainByCommandCSV
+	writeGainSummaryCSV    = analytics.WriteGainSummaryCSV
+	replaySessionFn        = dbg.ReplaySession
+
+	// runTUI sub-components: injectable for test coverage of post-startup paths.
+	configLoadFn       = config.Load
+	runTUIAfterStartFn = runTUIAfterStart
+	proxyStartTimeout  = 200 * time.Millisecond
+	// runTeaProgramFn injects tea.Program.Run so tests can return immediately without a terminal.
+	runTeaProgramFn = (*tea.Program).Run
+	// tuiSendProxyEventFn injects tui.SendProxyEvent so progSender.send can be tested without a running program.
+	tuiSendProxyEventFn func(*tea.Program, types.RequestMetrics) = tui.SendProxyEvent
+	makeSignalChanFn = func() chan os.Signal {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+		return ch
+	}
+)
+
+func main() {
+	if len(os.Args) > 1 {
+		handleSubcommand(os.Args[1:])
+		return
+	}
+	runTUIFn()
+}
+
+// progSender delivers proxy request events to the BubbleTea program via a buffered channel.
+type progSender struct {
+	ch chan *tea.Program
+}
+
+func (s *progSender) send(rm types.RequestMetrics) {
+	select {
+	case prog := <-s.ch:
+		tuiSendProxyEventFn(prog, rm)
+		s.ch <- prog // put it back so the next call can use it
+	default:
+	}
+}
+
+// runTUI starts the proxy and launches the BubbleTea TUI. Blocks until quit.
+func runTUI() {
+	cfg, err := configLoadFn()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+		exitFn(1)
+		return
+	}
+
+	setupLogging(cfg)
+
+	p := proxy.New(cfg)
+
+	// Wire up TUI -> proxy send function before starting.
+	progCh := make(chan *tea.Program, 1)
+	ps := &progSender{ch: progCh}
+	p.SetTUISendFn(ps.send)
+
+	// Start proxy in background goroutine.
+	proxyErrCh := make(chan error, 1)
+	go func() {
+		if err := p.Start(); err != nil && !isServerClosed(err) {
+			proxyErrCh <- err
+		}
+	}()
+
+	// Check for startup error (give it proxyStartTimeout).
+	select {
+	case err := <-proxyErrCh:
+		fmt.Fprintf(os.Stderr, "proxy start failed: %v\n", err)
+		exitFn(1)
+		return
+	case <-time.After(proxyStartTimeout):
+		// Proxy started OK.
+	}
+
+	runTUIAfterStartFn(p, progCh)
+}
+
+// runTUIAfterStart sets up OS signal handling and runs the BubbleTea TUI.
+// Called by runTUI after the proxy has started successfully.
+func runTUIAfterStart(p *proxy.Proxy, progCh chan *tea.Program) {
+	sigCh := makeSignalChanFn()
+	done := make(chan struct{})
+	defer func() {
+		signal.Stop(sigCh)
+		close(done)
+	}()
+
+	go func() {
+		select {
+		case <-sigCh:
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = p.Shutdown(ctx)
+			exitFn(0)
+		case <-done:
+		}
+	}()
+
+	model := tui.NewModel(newProxyAdapter(p))
+	if home, err := osUserHomeDir(); err == nil {
+		claude, codex := hooks.InstalledStatus(home)
+		model.SetHookStatus(tui.HookStatus{Claude: claude, Codex: codex})
+	}
+	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	progCh <- program
+
+	if _, err := runTeaProgramFn(program); err != nil {
+		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+		exitFn(1)
+	}
+}
+
+// handleSubcommand dispatches non-TUI subcommands.
+func handleSubcommand(args []string) {
+	switch args[0] {
+	case "version":
+		fmt.Printf("tokenproxy v%s\n", version)
+
+	case "config":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: tokenproxy config <init|show>")
+			exitFn(1)
+		}
+		handleConfigCmd(args[1:])
+
+	case "test":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: tokenproxy test <minimax|anthropic|openai|intercept>")
+			exitFn(1)
+		}
+		handleTestCmd(args[1:])
+
+	case "doctor":
+		handleDoctorCmd()
+
+	case "stats":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: tokenproxy stats <today|week|month>")
+			exitFn(1)
+		}
+		handleStatsCmd(args[1:])
+
+	case "gain":
+		handleGainCmd(args[1:])
+
+	case "filter":
+		handleFilterCmd(args[1:])
+
+	case "rewrite":
+		handleRewriteCmd(args[1:])
+
+	case "hook":
+		handleHookCmd(args[1:])
+
+	case "debug":
+		handleDebugCmd(args[1:])
+
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
+		fmt.Fprintln(os.Stderr, "Run 'tokenproxy' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, hook, debug, version")
+		exitFn(1)
+	}
+}
+
+// syncPermissionDeny merges global [filter] deny_patterns with project .tokenproxy/filters.toml (cwd).
+func syncPermissionDeny(wd string) {
+	var global []string
+	if cfg, err := config.Load(); err == nil {
+		global = cfg.Filter.DenyPatterns
+	}
+	proj := filter.LoadMergedDenyPatterns(wd)
+	out := append(append([]string{}, global...), proj...)
+	filter.SetExtraDenyPatterns(out)
+}
+
+// layer0PermissionCheck implements spec+.md Layer-0 permission outcomes before running
+// or rewriting a command: deny → exit 2, ask (sudo) → exit 3, else allow (0, "").
+func layer0PermissionCheck(cmdLine string) (exitCode int, msg string) {
+	wd, _ := os.Getwd()
+	syncPermissionDeny(wd)
+	if den, why := filter.DeniedShellCommand(cmdLine); den {
+		return 2, why
+	}
+	if filter.AskRequired(cmdLine) {
+		return 3, "tokenproxy: sudo requires TOKENPROXY_CONFIRM_SUDO=1"
+	}
+	return 0, ""
+}
+
+func resolveFilterDBPath() (string, error) {
+	if p := os.Getenv("TOKENPROXY_FILTER_DB"); p != "" {
+		return p, nil
+	}
+	if cfg, err := config.Load(); err == nil {
+		if p := strings.TrimSpace(cfg.Filter.FilterDB); p != "" {
+			return filepath.Clean(config.ExpandHomePath(p)), nil
+		}
+	}
+	return filter.DefaultFilterDBPath()
+}
+
+func resolveTeeDir() (string, error) {
+	if p := os.Getenv("TOKENPROXY_TEE_DIR"); p != "" {
+		return p, nil
+	}
+	if cfg, err := config.Load(); err == nil {
+		if p := strings.TrimSpace(cfg.Filter.TeeDir); p != "" {
+			return filepath.Clean(config.ExpandHomePath(p)), nil
+		}
+	}
+	return filter.DefaultTeeDir()
+}
+
+// mustOpenFilterDB opens the resolved filter.db. Returns (nil, false) if the file is missing.
+// Exits on other failures.
+func mustOpenFilterDB() (*sql.DB, bool) {
+	path, err := resolveFilterDBPathFn()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "filter db path: %v\n", err)
+		exitFn(1)
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, false
+		}
+		fmt.Fprintf(os.Stderr, "filter db: %v\n", err)
+		exitFn(1)
+	}
+	db, err := filter.OpenDB(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "open filter db: %v\n", err)
+		exitFn(1)
+	}
+	return db, true
+}
+
+// handleFilterCmd runs Layer-0 pipeline: subprocess → ANSI strip on stdout → optional SQLite row.
+func handleFilterCmd(args []string) {
+	var argv []string
+	for _, a := range args {
+		if a == "--" {
+			continue
+		}
+		argv = append(argv, a)
+	}
+	if len(argv) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: tokenproxy filter [--] <command> [args...]")
+		exitFn(1)
+	}
+	cmdLine := strings.Join(argv, " ")
+	if code, msg := layer0PermissionCheck(cmdLine); code != 0 {
+		fmt.Fprintln(os.Stderr, msg)
+		exitFn(code)
+	}
+	wd, err := osGetwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "getwd: %v\n", err)
+		exitFn(1)
+	}
+	maxOut := config.Defaults().Filter.PassthroughMaxChars
+	if cfg, err := config.Load(); err == nil {
+		maxOut = cfg.Filter.PassthroughMaxChars
+	}
+	pr := filter.RunPipeline(context.Background(), wd, argv, maxOut)
+	_, _ = os.Stdout.Write(pr.Stdout)
+	_, _ = os.Stderr.Write(pr.Stderr)
+
+	if pr.Err != nil || pr.Code != 0 {
+		teeDir, _ := resolveTeeDir()
+		if teeDir != "" {
+			if p, err := filter.WriteTeeRecovery(teeDir, pr.RawStdout, pr.RawStderr); err == nil {
+				fmt.Fprintf(os.Stderr, "tokenproxy: saved raw output to %s\n", p)
+			}
+		}
+	}
+
+	dbPath, _ := resolveFilterDBPath()
+	if dbPath != "" && pr.Err == nil {
+		if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err == nil {
+			if db, err := filter.OpenDB(dbPath); err == nil {
+				defer db.Close()
+				label := "[" + filter.ClassifyCommand(argv) + "] " + strings.Join(argv, " ")
+				_ = filter.RecordFilterRun(db, label, wd,
+					pr.InputTokens, pr.OutputTokens, pr.SavingsPct, time.Now())
+			}
+		}
+	}
+
+	if pr.Err != nil {
+		fmt.Fprintf(os.Stderr, "filter: %v\n", pr.Err)
+		exitFn(1)
+	}
+	exitFn(pr.Code)
+}
+
+func handleRewriteCmd(args []string) {
+	rewriteEmit := func(cmdLine string) {
+		if code, msg := layer0PermissionCheck(cmdLine); code != 0 {
+			fmt.Fprintln(os.Stderr, msg)
+			exitFn(code)
+		}
+		fmt.Println(cmdLine)
+		exitFn(0)
+	}
+
+	var parts []string
+	for _, a := range args {
+		if a == "--" {
+			continue
+		}
+		parts = append(parts, a)
+	}
+	if len(parts) == 0 {
+		if termIsTerminalFn(int(os.Stdin.Fd())) {
+			fmt.Fprintln(os.Stderr, "usage: tokenproxy rewrite [--] <command words...>   (or pipe hook JSON on stdin)")
+			exitFn(1)
+		}
+		b, err := readStdinAll()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
+			exitFn(1)
+		}
+		cmd, err := filter.ExtractCommandFromHookJSON(b)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			exitFn(1)
+		}
+		rewriteEmit(cmd)
+	}
+	rewriteEmit(strings.Join(parts, " "))
+}
+
+func handleHookCmd(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: tokenproxy hook <install|remove|verify|status> ...")
+		exitFn(1)
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "home: %v\n", err)
+		exitFn(1)
+	}
+	tpCmd := ""
+	if cfg, err := config.Load(); err == nil {
+		tpCmd = strings.TrimSpace(cfg.Hooks.TokenproxyCommand)
+	}
+	switch args[0] {
+	case "install":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: tokenproxy hook install <claude|codex>")
+			exitFn(1)
+		}
+		switch args[1] {
+		case "claude":
+			if err := hooks.InstallClaude(home, tpCmd); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				exitFn(1)
+			}
+			fmt.Println("Installed Claude Code hook (~/.claude/hooks/tokenproxy-rewrite.sh).")
+		case "codex":
+			if err := hooks.InstallCodex(home, tpCmd); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				exitFn(1)
+			}
+			fmt.Println("Updated Codex AGENTS.md with TokenProxy instructions.")
+		default:
+			fmt.Fprintf(os.Stderr, "unknown install target: %s (want claude|codex)\n", args[1])
+			exitFn(1)
+		}
+	case "remove":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: tokenproxy hook remove <claude|codex>")
+			exitFn(1)
+		}
+		switch args[1] {
+		case "claude":
+			if err := hooks.RemoveClaude(home); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				exitFn(1)
+			}
+			fmt.Println("Removed Claude Code TokenProxy hook files.")
+		case "codex":
+			if err := hooks.RemoveCodex(home); err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				exitFn(1)
+			}
+			fmt.Println("Removed TokenProxy block from Codex AGENTS.md (if present).")
+		default:
+			fmt.Fprintf(os.Stderr, "unknown remove target: %s\n", args[1])
+			exitFn(1)
+		}
+	case "verify":
+		lines, ok := hooks.VerifyReport(home)
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+		if !ok {
+			exitFn(1)
+		}
+	case "status":
+		lines, _ := hooks.VerifyReport(home)
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "unknown hook subcommand: %s\n", args[0])
+		exitFn(1)
+	}
+}
+
+func handleConfigCmd(args []string) {
+	switch args[0] {
+	case "init":
+		path := config.DefaultConfigPath()
+		if _, err := os.Stat(path); err == nil {
+			fmt.Printf("Config already exists at %s\n", path)
+			fmt.Println("Delete it first if you want to regenerate defaults.")
+			exitFn(0)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "create dir: %v\n", err)
+			exitFn(1)
+		}
+		if err := osWriteFile(path, []byte(config.DefaultTOML()), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "write config: %v\n", err)
+			exitFn(1)
+		}
+		fmt.Printf("Config written to %s\n", path)
+		fmt.Println("Next: set MINIMAX_API_KEY and run 'tokenproxy doctor'")
+
+	case "show":
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+			exitFn(1)
+		}
+		data, _ := json.MarshalIndent(cfg, "", "  ")
+		fmt.Println(string(data))
+
+	default:
+		fmt.Fprintf(os.Stderr, "unknown config subcommand: %s\n", args[0])
+		exitFn(1)
+	}
+}
+
+func handleTestCmd(args []string) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+		exitFn(1)
+	}
+
+	switch args[0] {
+	case "minimax":
+		testMiniMax(cfg)
+	case "anthropic":
+		testUpstream("Anthropic", cfg.Upstream.Anthropic.BaseURL)
+	case "openai":
+		testUpstream("OpenAI", cfg.Upstream.OpenAI.BaseURL)
+	case "intercept":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: tokenproxy test intercept <claude|codex>")
+			exitFn(1)
+		}
+		testIntercept(cfg, args[1])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown test subcommand: %s\n", args[0])
+		exitFn(1)
+	}
+}
+
+func testUpstream(name, baseURL string) {
+	fmt.Printf("Testing %s connectivity to %s...\n", name, baseURL)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(baseURL)
+	if err != nil {
+		fmt.Printf("FAIL: %v\n", err)
+		exitFn(1)
+	}
+	defer resp.Body.Close()
+	fmt.Printf("OK - HTTP %d\n", resp.StatusCode)
+}
+
+func testMiniMax(cfg *config.Config) {
+	apiKey := cfg.Compression.MiniMax.APIKey()
+	if apiKey == "" {
+		fmt.Printf("FAIL: %s env var not set\n", cfg.Compression.MiniMax.APIKeyEnv)
+		exitFn(1)
+	}
+	fmt.Printf("Testing MiniMax connectivity (%s)...\n", cfg.Compression.MiniMax.BaseURL)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(strings.TrimSuffix(cfg.Compression.MiniMax.BaseURL, "/v1"))
+	if err != nil {
+		fmt.Printf("FAIL: %v\n", err)
+		exitFn(1)
+	}
+	defer resp.Body.Close()
+	fmt.Printf("OK - HTTP %d (API key present)\n", resp.StatusCode)
+}
+
+func testIntercept(cfg *config.Config, provider string) {
+	fmt.Printf("Starting intercept test for %s...\n", provider)
+	fmt.Printf("Listening on %s\n\n", cfg.ListenURL())
+
+	switch provider {
+	case "claude":
+		fmt.Println("In another terminal run:")
+		fmt.Printf("  ANTHROPIC_BASE_URL=%s claude 'say hi'\n\n", cfg.ListenURL())
+	case "codex":
+		fmt.Println("Add to ~/.codex/config.toml:")
+		fmt.Printf("  openai_base_url = \"%s\"\n", cfg.ListenURL())
+		fmt.Println("Then run: codex 'say hi' in another terminal")
+		fmt.Println()
+	}
+
+	mux := http.NewServeMux()
+	received := make(chan struct{}, 1)
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("\nRequest received from %s:\n", provider)
+		fmt.Printf("  Method: %s %s\n", r.Method, r.URL.Path)
+		fmt.Printf("  User-Agent: %s\n", r.Header.Get("User-Agent"))
+		fmt.Printf("  Content-Type: %s\n", r.Header.Get("Content-Type"))
+		if r.Header.Get("Authorization") != "" {
+			fmt.Println("  Auth: Bearer *** (present)")
+		}
+		if r.Header.Get("x-api-key") != "" {
+			fmt.Println("  x-api-key: *** (present)")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		w.Write([]byte(`{"type":"message","id":"test","content":[{"type":"text","text":"TokenProxy intercept test OK"}],"model":"test","role":"assistant","stop_reason":"end_turn"}`))
+		fmt.Println("\nPASS - proxy intercept works!")
+		select {
+		case received <- struct{}{}:
+		default:
+		}
+	})
+
+	srv := &http.Server{Addr: cfg.ListenAddr(), Handler: mux}
+	go srv.ListenAndServe()
+
+	select {
+	case <-received:
+		time.Sleep(100 * time.Millisecond)
+		srv.Shutdown(context.Background())
+	case <-time.After(testInterceptTimeout):
+		fmt.Println("FAIL - no request received within 60 seconds")
+		fmt.Println("Troubleshooting:")
+		fmt.Printf("  1. Is ANTHROPIC_BASE_URL set to %s?\n", cfg.ListenURL())
+		fmt.Printf("  2. Is the CLI configured to use %s?\n", cfg.ListenURL())
+		fmt.Println("  3. Try: curl " + cfg.ListenURL() + "/health")
+		srv.Shutdown(context.Background())
+		exitFn(1)
+	}
+}
+
+func handleDoctorCmd() {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FAIL config: %v\n", err)
+		exitFn(1)
+	}
+
+	allOK := true
+	check := func(name string, fn func() (string, bool)) {
+		msg, ok := fn()
+		symbol := "OK  "
+		if !ok {
+			symbol = "FAIL"
+			allOK = false
+		}
+		fmt.Printf("[%s] %s: %s\n", symbol, name, msg)
+	}
+
+	fmt.Println("TokenProxy Doctor")
+	fmt.Println(strings.Repeat("-", 50))
+
+	check("Config file", func() (string, bool) {
+		path := config.DefaultConfigPath()
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Sprintf("not found at %s (using defaults)", path), true
+		}
+		return path, true
+	})
+
+	check("Listen port", func() (string, bool) {
+		return fmt.Sprintf("%s (port %d)", cfg.ListenAddr(), cfg.Proxy.ListenPort), true
+	})
+
+	check("MiniMax API key", func() (string, bool) {
+		if cfg.Compression.MiniMax.APIKey() == "" {
+			return fmt.Sprintf("not set (%s env var missing) - Layer 2 disabled", cfg.Compression.MiniMax.APIKeyEnv), false
+		}
+		return "present", true
+	})
+
+	check("Anthropic upstream", func() (string, bool) {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(cfg.Upstream.Anthropic.BaseURL)
+		if err != nil {
+			return fmt.Sprintf("unreachable: %v", err), false
+		}
+		defer resp.Body.Close()
+		return fmt.Sprintf("reachable (HTTP %d)", resp.StatusCode), true
+	})
+
+	check("OpenAI upstream", func() (string, bool) {
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Get(cfg.Upstream.OpenAI.BaseURL)
+		if err != nil {
+			return fmt.Sprintf("unreachable: %v", err), false
+		}
+		defer resp.Body.Close()
+		return fmt.Sprintf("reachable (HTTP %d)", resp.StatusCode), true
+	})
+
+	check("Analytics log dir", func() (string, bool) {
+		logDir := cfg.Analytics.ResolvedLogDir()
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			return fmt.Sprintf("cannot create %s: %v", logDir, err), false
+		}
+		return logDir, true
+	})
+
+	fmt.Println(strings.Repeat("-", 50))
+	if allOK {
+		fmt.Println("All checks passed. Run 'tokenproxy' to start.")
+	} else {
+		fmt.Println("Some checks failed. See above for details.")
+	}
+}
+
+func handleStatsCmd(args []string) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+		exitFn(1)
+	}
+
+	logDir := cfg.Analytics.ResolvedLogDir()
+
+	switch args[0] {
+	case "today":
+		snapshots, err := analytics.ReadDailyStats(logDir, time.Now())
+		if err != nil || len(snapshots) == 0 {
+			fmt.Println("No stats for today yet.")
+			return
+		}
+		printStatsTable(snapshots)
+	case "week":
+		snapshots, err := analytics.ReadWeeklyStats(logDir)
+		if err != nil || len(snapshots) == 0 {
+			fmt.Println("No stats for this week.")
+			return
+		}
+		printStatsTable(snapshots)
+	case "month":
+		var allSnapshots []analytics.AnalyticsSnapshot
+		for i := 0; i < 30; i++ {
+			day := time.Now().AddDate(0, 0, -i)
+			snaps, err := analytics.ReadDailyStats(logDir, day)
+			if err == nil {
+				allSnapshots = append(allSnapshots, snaps...)
+			}
+		}
+		if len(allSnapshots) == 0 {
+			fmt.Println("No stats for this month.")
+			return
+		}
+		printStatsTable(allSnapshots)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown stats subcommand: %s\n", args[0])
+		exitFn(1)
+	}
+}
+
+type gainCLIFlags struct {
+	json      bool
+	byCommand bool
+	csv       bool
+	project   string
+}
+
+func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "--json", "-json":
+			f.json = true
+		case "--by-command":
+			f.byCommand = true
+		case "--csv":
+			f.csv = true
+		case "--project":
+			i++
+			if i >= len(args) || args[i] == "" {
+				return "", f, fmt.Errorf("--project requires a path")
+			}
+			f.project = args[i]
+		default:
+			if a == "" {
+				continue
+			}
+			if strings.HasPrefix(a, "-") {
+				return "", f, fmt.Errorf("unknown flag: %s", a)
+			}
+			if period == "" {
+				period = a
+			} else {
+				return "", f, fmt.Errorf("unexpected extra argument: %s", a)
+			}
+		}
+	}
+	if period == "" {
+		period = "today"
+	}
+	return period, f, nil
+}
+
+// handleGainCmd prints aggregates from Layer-0 filter SQLite (filter_runs).
+func handleGainCmd(args []string) {
+	period, flags, err := parseGainArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+	switch period {
+	case "today", "week", "month", "all":
+	default:
+		fmt.Fprintln(os.Stderr, "usage: tokenproxy gain [today|week|month|all] [--json] [--by-command] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or TOKENPROXY_GAIN_USD_PER_MILLION)")
+		exitFn(1)
+	}
+	path, err := resolveFilterDBPathFn()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "filter db path: %v\n", err)
+		exitFn(1)
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("No Layer-0 filter runs recorded yet (no filter.db).")
+			return
+		}
+		fmt.Fprintf(os.Stderr, "filter db: %v\n", err)
+		exitFn(1)
+	}
+	usdRate := 0.0
+	if cfg, err := config.Load(); err == nil {
+		usdRate = cfg.Analytics.GainUSDPerMillionTokens
+	}
+	rep, err := analytics.QueryFilterGainReport(path, period, time.Now(), flags.byCommand, flags.project, usdRate)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain: %v\n", err)
+		exitFn(1)
+	}
+	s := rep.FilterGainSummary
+	if flags.csv {
+		if flags.byCommand {
+			if err := writeGainByCommandCSV(os.Stdout, rep.ByCommand); err != nil {
+				fmt.Fprintf(os.Stderr, "gain: %v\n", err)
+				exitFn(1)
+			}
+			return
+		}
+		if err := writeGainSummaryCSV(os.Stdout, s); err != nil {
+			fmt.Fprintf(os.Stderr, "gain: %v\n", err)
+			exitFn(1)
+		}
+		return
+	}
+	if flags.json {
+		b, _ := analytics.FormatFilterGainReportJSON(rep)
+		fmt.Println(string(b))
+		return
+	}
+	if s.Runs == 0 {
+		fmt.Println("No Layer-0 filter runs in this window.")
+		return
+	}
+	title := "Layer 0 filter gain (" + period + ")"
+	if s.ProjectPathFilter != "" {
+		title += " — project " + s.ProjectPathFilter
+	}
+	fmt.Println(title)
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("Filter runs:            %d\n", s.Runs)
+	fmt.Printf("Input tokens (est):     %s\n", formatTokensPlain64(s.InputTokens))
+	fmt.Printf("Output tokens (est):    %s\n", formatTokensPlain64(s.OutputTokens))
+	fmt.Printf("Estimated tokens saved: %s\n", formatTokensPlain64(s.TokensSavedEst))
+	if s.USDPerMillionTokens > 0 {
+		fmt.Printf("Est. value saved (at $%.2f/M est. tokens): ~$%.4f\n", s.USDPerMillionTokens, s.SavingsUsdEst)
+	}
+	fmt.Println(strings.Repeat("-", 50))
+	if flags.byCommand && len(rep.ByCommand) > 0 {
+		fmt.Println("By command (sorted by est. saved):")
+		for _, row := range rep.ByCommand {
+			fmt.Printf("  %s\n", row.Command)
+			extra := ""
+			if row.SavingsUsdEst > 0 {
+				extra = fmt.Sprintf("  (~$%.4f)", row.SavingsUsdEst)
+			}
+			fmt.Printf("    runs %d  in %s  out %s  saved ~%s%s\n",
+				row.Runs,
+				formatTokensPlain64(row.InputTokens),
+				formatTokensPlain64(row.OutputTokens),
+				formatTokensPlain64(row.TokensSavedEst),
+				extra)
+		}
+	}
+}
+
+func handleDebugCmd(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: tokenproxy debug <paths|last|summary|tail|replay>")
+		fmt.Fprintln(os.Stderr, "  paths — show resolved config file, analytics log, filter.db, tee dir")
+		fmt.Fprintln(os.Stderr, "  last    — print last filter_runs row (optional --json)")
+		fmt.Fprintln(os.Stderr, "  summary — aggregate for today|week|month|all (default today, --json)")
+		fmt.Fprintln(os.Stderr, "  tail    — newest N rows (default 20, max 500, --json)")
+		fmt.Fprintln(os.Stderr, "  replay  — replay session JSONL (RequestSummary per-request breakdown)")
+		exitFn(1)
+	}
+	switch args[0] {
+	case "paths":
+		handleDebugPaths()
+	case "last":
+		handleDebugLast(args[1:])
+	case "summary":
+		handleDebugSummary(args[1:])
+	case "tail":
+		handleDebugTail(args[1:])
+	case "replay":
+		handleDebugReplay(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown debug subcommand: %s\n", args[0])
+		exitFn(1)
+	}
+}
+
+func parseDebugPeriodArgs(args []string) (period string, jsonOut bool, err error) {
+	for _, a := range args {
+		switch a {
+		case "--json", "-json":
+			jsonOut = true
+		default:
+			if a == "" {
+				continue
+			}
+			if strings.HasPrefix(a, "-") {
+				return "", false, fmt.Errorf("unknown flag: %s", a)
+			}
+			if period == "" {
+				period = a
+			} else {
+				return "", false, fmt.Errorf("unexpected extra argument: %s", a)
+			}
+		}
+	}
+	if period == "" {
+		period = "today"
+	}
+	return period, jsonOut, nil
+}
+
+func handleDebugSummary(extra []string) {
+	period, jsonOut, err := parseDebugPeriodArgs(extra)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+	switch period {
+	case "today", "week", "month", "all":
+	default:
+		fmt.Fprintln(os.Stderr, "usage: tokenproxy debug summary [today|week|month|all] [--json]")
+		exitFn(1)
+	}
+	db, ok := mustOpenFilterDB()
+	if !ok {
+		fmt.Println("No filter.db — no Layer-0 runs recorded yet.")
+		return
+	}
+	defer db.Close()
+	start, end, _ := analytics.FilterGainWindow(period, time.Now())
+	agg, err := filter.QueryFilterRunsAggregate(db, start, end)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "filter_runs aggregate: %v\n", err)
+		exitFn(1)
+	}
+	agg.Period = period
+	if jsonOut {
+		b, _ := json.MarshalIndent(agg, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	fmt.Printf("Layer-0 filter_runs summary (%s)\n", period)
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("runs:              %d\n", agg.Runs)
+	fmt.Printf("input_tokens:      %s\n", formatTokensPlain64(agg.InputTokens))
+	fmt.Printf("output_tokens:     %s\n", formatTokensPlain64(agg.OutputTokens))
+	fmt.Printf("est. tokens saved: %s\n", formatTokensPlain64(agg.TokensSavedEst))
+	fmt.Println(strings.Repeat("-", 50))
+}
+
+func handleDebugTail(extra []string) {
+	limit := 20
+	jsonOut := false
+	var gotLimit bool
+	for _, a := range extra {
+		switch a {
+		case "--json", "-json":
+			jsonOut = true
+		default:
+			if a == "" {
+				continue
+			}
+			if strings.HasPrefix(a, "-") {
+				fmt.Fprintf(os.Stderr, "unknown flag: %s\n", a)
+				exitFn(1)
+			}
+			if gotLimit {
+				fmt.Fprintln(os.Stderr, "usage: tokenproxy debug tail [N] [--json]   (default N=20, max 500)")
+				exitFn(1)
+			}
+			n, err := strconv.Atoi(a)
+			if err != nil || n < 1 {
+				fmt.Fprintln(os.Stderr, "usage: tokenproxy debug tail [N] [--json]   (default N=20, max 500)")
+				exitFn(1)
+			}
+			limit = n
+			gotLimit = true
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	db, ok := mustOpenFilterDB()
+	if !ok {
+		fmt.Println("No filter.db — no Layer-0 runs recorded yet.")
+		return
+	}
+	defer db.Close()
+	runs, err := filter.RecentFilterRuns(db, limit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "filter_runs: %v\n", err)
+		exitFn(1)
+	}
+	if jsonOut {
+		b, _ := json.MarshalIndent(runs, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	if len(runs) == 0 {
+		fmt.Println("No rows in filter_runs.")
+		return
+	}
+	fmt.Printf("Layer-0 filter_runs (newest %d)\n", len(runs))
+	fmt.Println(strings.Repeat("-", 50))
+	for _, r := range runs {
+		fmt.Printf("%d  %s  in=%d out=%d  %s\n",
+			r.ID, r.CreatedAt.Format(time.RFC3339), r.InputTokens, r.OutputTokens, r.Command)
+	}
+	fmt.Println(strings.Repeat("-", 50))
+}
+
+func handleDebugReplay(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: tokenproxy debug replay <session.jsonl>")
+		exitFn(1)
+	}
+	path := args[0]
+	lines, size, err := dbg.SessionFileStats(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "replay: %v\n", err)
+		exitFn(1)
+	}
+	fmt.Println("Session replay (preview)")
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("file:            %s\n", path)
+	fmt.Printf("size:            %d bytes\n", size)
+	fmt.Printf("non-empty lines: %d\n", lines)
+	fmt.Println(strings.Repeat("-", 50))
+
+	summaries, err := replaySessionFn(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "replay parse: %v\n", err)
+		exitFn(1)
+	}
+	if len(summaries) == 0 {
+		fmt.Println("No decodable request summaries found.")
+		return
+	}
+
+	var totalSaved int
+	for i, s := range summaries {
+		totalSaved += s.Tokens.Saved
+		fmt.Printf("\n#%d  %s  %s/%s\n", i+1, s.Timestamp.Format(time.RFC3339), s.Provider, s.Model)
+		fmt.Printf("    tokens:  %d -> %d  saved: %d  ratio: %.2f\n",
+			s.Tokens.Original, s.Tokens.Final, s.Tokens.Saved, s.Tokens.Ratio)
+		if len(s.LayersApplied) > 0 {
+			fmt.Printf("    layers:  %v\n", s.LayersApplied)
+		}
+		if len(s.Layer1Breakdown) > 0 {
+			fmt.Println("    layer1:")
+			for name, bd := range s.Layer1Breakdown {
+				fmt.Printf("      %-22s blocks=%d  saved=%d\n", name, bd.Blocks, bd.Saved)
+			}
+		}
+		if s.Layer2.Applied {
+			fmt.Printf("    layer2:  ratio=%.2f  anchors=%d\n", s.Layer2.CompressionRatio, s.Layer2.AnchorCount)
+		}
+	}
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("TOTAL: %d request(s)  %d tokens saved\n", len(summaries), totalSaved)
+}
+
+func handleDebugLast(extra []string) {
+	jsonOut := false
+	n := 1
+	for _, a := range extra {
+		switch a {
+		case "--json", "-json":
+			jsonOut = true
+		default:
+			if v, err := strconv.Atoi(a); err == nil && v > 0 {
+				n = v
+			}
+		}
+	}
+
+	// Try proxy decision log first (Layer 1-3 summaries from JSONL).
+	cfg, _ := config.Load()
+	if decisionsPath := strings.TrimSpace(cfg.Debug.DecisionsLog); decisionsPath != "" {
+		decisionsPath = filepath.Clean(config.ExpandHomePath(decisionsPath))
+		if summaries := readLastDecisionSummaries(decisionsPath, n); len(summaries) > 0 {
+			if jsonOut {
+				b, err := json.MarshalIndent(summaries, "", "  ")
+				if err == nil {
+					fmt.Println(string(b))
+					return
+				}
+			}
+			fmt.Printf("Last %d proxy request(s) from decision log\n", len(summaries))
+			fmt.Println(strings.Repeat("-", 50))
+			for _, s := range summaries {
+				fmt.Printf("req_id:    %s\n", s.RequestID)
+				fmt.Printf("time:      %s\n", s.Timestamp.Format(time.RFC3339))
+				fmt.Printf("provider:  %s  model: %s\n", s.Provider, s.Model)
+				fmt.Printf("tokens:    %d -> %d  saved: %d  ratio: %.2f\n",
+					s.Tokens.Original, s.Tokens.Final, s.Tokens.Saved, s.Tokens.Ratio)
+				fmt.Printf("layers:    %v\n", s.LayersApplied)
+				if len(s.Layer1Breakdown) > 0 {
+					fmt.Println("  layer1:")
+					for name, bd := range s.Layer1Breakdown {
+						fmt.Printf("    %-22s saved=%d\n", name, bd.Saved)
+					}
+				}
+				fmt.Println(strings.Repeat("-", 50))
+			}
+			return
+		}
+	}
+
+	// Fall back to Layer-0 filter_runs in SQLite.
+	db, ok := mustOpenFilterDB()
+	if !ok {
+		fmt.Println("No filter.db and no decisions_log configured. No data available.")
+		return
+	}
+	defer db.Close()
+	run, ok, err := filter.LastFilterRun(db)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "query filter_runs: %v\n", err)
+		exitFn(1)
+	}
+	if !ok {
+		fmt.Println("No rows in filter_runs.")
+		return
+	}
+	if jsonOut {
+		b, _ := json.MarshalIndent(run, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	fmt.Println("Last Layer-0 filter run")
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("id:            %d\n", run.ID)
+	fmt.Printf("command:       %s\n", run.Command)
+	fmt.Printf("project_path:  %s\n", run.ProjectPath)
+	fmt.Printf("input_tokens:  %d\n", run.InputTokens)
+	fmt.Printf("output_tokens: %d\n", run.OutputTokens)
+	fmt.Printf("savings_pct:   %.2f\n", run.SavingsPct)
+	fmt.Printf("created_at:    %s\n", run.CreatedAt.Format(time.RFC3339))
+	fmt.Println(strings.Repeat("-", 50))
+}
+
+// readLastDecisionSummaries reads the last n RequestSummaries from a decisions JSONL file.
+// Returns newest first. Returns nil if the file doesn't exist or can't be read.
+func readLastDecisionSummaries(path string, n int) []dbg.RequestSummary {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	// Collect all lines then return last n.
+	var lines []string
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	// Take last n lines.
+	start := len(lines) - n
+	if start < 0 {
+		start = 0
+	}
+	tail := lines[start:]
+
+	// Parse newest first.
+	out := make([]dbg.RequestSummary, 0, len(tail))
+	for i := len(tail) - 1; i >= 0; i-- {
+		var s dbg.RequestSummary
+		if err := json.Unmarshal([]byte(tail[i]), &s); err == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func handleDebugPaths() {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+		exitFn(1)
+	}
+	configPath := config.DefaultConfigPath()
+	configNote := "default"
+	if p := os.Getenv("TOKENPROXY_CONFIG"); p != "" {
+		configPath = p
+		configNote = "TOKENPROXY_CONFIG"
+	}
+	var filterLine, teeLine string
+	if filterDB, ferr := resolveFilterDBPathFn(); ferr != nil {
+		filterLine = fmt.Sprintf("(error: %v)", ferr)
+	} else {
+		fnote := "default"
+		if os.Getenv("TOKENPROXY_FILTER_DB") != "" {
+			fnote = "TOKENPROXY_FILTER_DB"
+		} else if strings.TrimSpace(cfg.Filter.FilterDB) != "" {
+			fnote = "[filter] filter_db"
+		}
+		filterLine = fmt.Sprintf("%s [%s]", filterDB, fnote)
+	}
+	if teeDir, terr := resolveTeeDirFn(); terr != nil {
+		teeLine = fmt.Sprintf("(error: %v)", terr)
+	} else {
+		tnote := "default"
+		if os.Getenv("TOKENPROXY_TEE_DIR") != "" {
+			tnote = "TOKENPROXY_TEE_DIR"
+		} else if strings.TrimSpace(cfg.Filter.TeeDir) != "" {
+			tnote = "[filter] tee_dir"
+		}
+		teeLine = fmt.Sprintf("%s [%s]", teeDir, tnote)
+	}
+	dataDir, derr := filterDefaultDataDirFn()
+	if derr != nil {
+		dataDir = "(error: " + derr.Error() + ")"
+	}
+	dnote := "unset"
+	if os.Getenv("TOKENPROXY_DEBUG_DECISIONS_LOG") != "" {
+		dnote = "TOKENPROXY_DEBUG_DECISIONS_LOG"
+	} else if strings.TrimSpace(cfg.Debug.DecisionsLog) != "" {
+		dnote = "[debug] decisions_log"
+	}
+	decisionsLine := "(not configured)"
+	if p := strings.TrimSpace(cfg.Debug.DecisionsLog); p != "" {
+		decisionsLine = filepath.Clean(config.ExpandHomePath(p))
+	}
+	wd, wdErr := os.Getwd()
+	projectFiltersLine := fmt.Sprintf("(getwd: %v)", wdErr)
+	if wdErr == nil {
+		pf := filter.ProjectFiltersPath(wd)
+		if _, err := os.Stat(pf); err == nil {
+			projectFiltersLine = pf + " [present]"
+		} else {
+			projectFiltersLine = pf + " [absent]"
+		}
+	}
+	fmt.Println("TokenProxy debug paths")
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("config file:      %s [%s]\n", configPath, configNote)
+	fmt.Printf("analytics log:    %s\n", cfg.Analytics.ResolvedLogDir())
+	fmt.Printf("data directory:   %s\n", dataDir)
+	fmt.Printf("filter.db:        %s\n", filterLine)
+	fmt.Printf("tee directory:    %s\n", teeLine)
+	fmt.Printf("decisions log:    %s [%s]\n", decisionsLine, dnote)
+	fmt.Printf("project filters:  %s\n", projectFiltersLine)
+	fmt.Println(strings.Repeat("-", 50))
+}
+
+func formatTokensPlain64(n int64) string {
+	if n < 0 {
+		n = 0
+	}
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fK", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+func printStatsTable(snapshots []analytics.AnalyticsSnapshot) {
+	if len(snapshots) == 0 {
+		return
+	}
+	// Aggregate.
+	var total analytics.AnalyticsSnapshot
+	total.SessionStart = snapshots[0].SessionStart
+	for _, s := range snapshots {
+		total.TotalRequests += s.TotalRequests
+		total.TotalInputTokens += s.TotalInputTokens
+		total.SavedInputTokens += s.SavedInputTokens
+		total.TotalOutputTokens += s.TotalOutputTokens
+		total.CacheHits += s.CacheHits
+		total.SecretsRedacted += s.SecretsRedacted
+		total.MiniMaxCalls += s.MiniMaxCalls
+	}
+
+	ratio := 0
+	if total.TotalInputTokens > 0 {
+		ratio = int(float64(total.SavedInputTokens) / float64(total.TotalInputTokens) * 100)
+	}
+
+	fmt.Println("TokenProxy Stats")
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("Messages sent:       %d\n", total.TotalRequests)
+	fmt.Printf("Input tokens (orig): %s\n", formatTokensPlain(total.TotalInputTokens))
+	fmt.Printf("Input tokens saved:  %s (%d%%)\n", formatTokensPlain(total.SavedInputTokens), ratio)
+	fmt.Printf("Output tokens:       %s\n", formatTokensPlain(total.TotalOutputTokens))
+	fmt.Printf("Cache hits:          %d\n", total.CacheHits)
+	fmt.Printf("MiniMax calls:       %d\n", total.MiniMaxCalls)
+	fmt.Printf("Secrets redacted:    %d\n", total.SecretsRedacted)
+	fmt.Println(strings.Repeat("-", 50))
+}
+
+func formatTokensPlain(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fK", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
+}
+
+// setupLogging configures the global slog handler based on config.
+func setupLogging(cfg *config.Config) {
+	level := slog.LevelInfo
+	switch strings.ToLower(cfg.Logging.Level) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+
+	var out *os.File
+	if cfg.Logging.File != "" {
+		f, err := os.OpenFile(cfg.Logging.File, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			out = f
+		}
+	}
+	if out == nil {
+		out = os.Stderr
+	}
+
+	var handler slog.Handler
+	opts := &slog.HandlerOptions{Level: level}
+	if cfg.Logging.Format == "json" {
+		handler = slog.NewJSONHandler(out, opts)
+	} else {
+		handler = slog.NewTextHandler(out, opts)
+	}
+	slog.SetDefault(slog.New(handler))
+}
+
+// isServerClosed returns true for the expected http.ErrServerClosed error.
+func isServerClosed(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Server closed")
+}
+
+// proxyAdapter adapts proxy.Proxy to tui.ProxyInterface to avoid import cycle.
+type proxyAdapter struct {
+	p *proxy.Proxy
+}
+
+func newProxyAdapter(p *proxy.Proxy) tui.ProxyInterface {
+	return &proxyAdapter{p: p}
+}
+
+func (a *proxyAdapter) SetProviderEnabled(prov types.Provider, enabled bool) {
+	a.p.SetProviderEnabled(prov, enabled)
+}
+func (a *proxyAdapter) SetLayerEnabled(layer int, enabled bool) {
+	a.p.SetLayerEnabled(layer, enabled)
+}
+func (a *proxyAdapter) IsProviderEnabled(prov types.Provider) bool {
+	return a.p.IsProviderEnabled(prov)
+}
+func (a *proxyAdapter) IsLayerEnabled(layer int) bool {
+	return a.p.IsLayerEnabled(layer)
+}
+func (a *proxyAdapter) FlushCaches() {
+	a.p.FlushCaches()
+}
+func (a *proxyAdapter) GetAnalytics() analytics.AnalyticsSnapshot {
+	return a.p.GetAnalytics()
+}
+func (a *proxyAdapter) GetRecentRequests(n int) []types.RequestMetrics {
+	return a.p.GetRecentRequests(n)
+}
+func (a *proxyAdapter) GetLayer2Status() tui.Layer2Status {
+	cache := a.p.GetLayer2Cache()
+	if cache == nil {
+		return tui.Layer2Status{}
+	}
+	cs := cache.Get()
+	status := tui.Layer2Status{
+		HasCache:    cs != nil,
+		Compressing: cache.Compressing.Load(),
+		QueueDepth:  len(a.p.CompressQueue()),
+	}
+	if cs != nil {
+		status.LastRun = cs.CreatedAt
+	}
+	return status
+}
+func (a *proxyAdapter) SessionLogger() tui.SessionLoggerInterface {
+	return a.p.SessionLogger() // *sessions.SessionLogger implements tui.SessionLoggerInterface
+}
+func (a *proxyAdapter) Shutdown(ctx context.Context) error {
+	return a.p.Shutdown(ctx)
+}
+func (a *proxyAdapter) Config() tui.ProxyConfigInterface {
+	return &configAdapter{cfg: a.p.Config()}
+}
+
+// configAdapter adapts config.Config to tui.ProxyConfigInterface.
+type configAdapter struct {
+	cfg *config.Config
+}
+
+func (ca *configAdapter) GetListenPort() int    { return ca.cfg.Proxy.ListenPort }
+func (ca *configAdapter) GetPrefillSpeed() int  { return ca.cfg.Usage.EstimatedPrefillSpeed }

@@ -1,0 +1,11 @@
+{
+  "name": "tokenproxy-ts-tests",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/bun": "latest"
+  }
+}

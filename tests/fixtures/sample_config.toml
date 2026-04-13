@@ -1,0 +1,23 @@
+# TokenProxy sample user configuration.
+# This is NOT the defaults file - these are user-configured values.
+
+[proxy]
+listen_port = 8990
+listen_address = "127.0.0.1"
+
+[upstream.anthropic]
+base_url = "https://api.anthropic.com"
+
+[upstream.openai]
+base_url = "https://api.openai.com"
+
+[compression]
+layer1_enabled = true
+layer2_enabled = true
+sliding_window = 4
+
+[analytics]
+gain_usd_per_million_tokens = 15.0
+
+[debug]
+decisions_log = "~/.tokenproxy/decisions.jsonl"

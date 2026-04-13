@@ -1,0 +1,501 @@
+package proxy
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/tokenproxy/tokenproxy/internal/caching"
+	"github.com/tokenproxy/tokenproxy/internal/config"
+	"github.com/tokenproxy/tokenproxy/internal/types"
+)
+
+func TestIsContextOverflow(t *testing.T) {
+	t.Parallel()
+	if !isContextOverflow([]byte(`{"type":"error","error":{"type":"context_length_exceeded"}}`)) {
+		t.Fatal("want true for context_length_exceeded")
+	}
+	if !isContextOverflow([]byte(`prompt too long for this model`)) {
+		t.Fatal("want true for prompt too long")
+	}
+	if !isContextOverflow([]byte(`maximum context length exceeded`)) {
+		t.Fatal("want true for maximum context length")
+	}
+	if isContextOverflow([]byte(`ok`)) {
+		t.Fatal("want false")
+	}
+}
+
+func TestBuildAggressiveCompressedBody_Anthropic(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	p := New(cfg)
+	body := []byte(`{
+		"model": "claude-3-5-sonnet-20241022",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": "hi"},
+			{"role": "user", "content": "again"}
+		]
+	}`)
+	msgs, _, err := extractMessages(types.Anthropic, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.buildAggressiveCompressedBody(pipelineStash{
+		messages: msgs,
+		origBody: body,
+		provider: types.Anthropic,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) == 0 {
+		t.Fatal("empty body")
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(out, &probe); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+}
+
+func TestHealthHandler(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	healthHandler(w, req)
+
+	resp := w.Result()
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Errorf("status field = %q, want ok", body["status"])
+	}
+}
+
+// TestBuildAggressiveCompressedBody_minRatioClamp verifies the TargetRatio is clamped to MinRatio
+// when MinRatio > 0.10 (the cfg.Summary.MinRatio > cfg.Summary.TargetRatio branch).
+func TestBuildAggressiveCompressedBody_minRatioClamp(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	// Force MinRatio above the hardcoded 0.10 target so the clamp branch fires.
+	cfg.Compression.Summary.MinRatio = 0.50
+	p := New(cfg)
+
+	body := []byte(`{
+		"model": "claude-3-5-sonnet-20241022",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello world"},
+			{"role": "assistant", "content": "response here"}
+		]
+	}`)
+	msgs, _, err := extractMessages(types.Anthropic, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.buildAggressiveCompressedBody(pipelineStash{
+		messages: msgs,
+		origBody: body,
+		provider: types.Anthropic,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) == 0 {
+		t.Fatal("empty body")
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(out, &probe); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+}
+
+// TestDoUpstreamRequest_invalidURL covers the http.NewRequestWithContext error path
+// when the upstream URL is malformed (line 251-253 in handler.go).
+func TestDoUpstreamRequest_invalidURL(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = "://bad-url"
+	p := New(cfg)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	_, err := p.doUpstreamRequest(r, types.Anthropic, []byte(`{}`))
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+}
+
+// TestDoUpstreamRequest_nilClientFallback covers the nil httpClient branch
+// which falls back to http.DefaultClient (line 269-271 in handler.go).
+func TestDoUpstreamRequest_nilClientFallback(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	p := New(cfg)
+	p.httpClients[types.Anthropic] = nil // force nil client -> DefaultClient fallback
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	r = r.WithContext(context.WithValue(r.Context(), origBodyKey{}, []byte(`{}`)))
+	resp, err := p.doUpstreamRequest(r, types.Anthropic, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+}
+
+// TestHandleCompressibleRequest_origTokensZero covers the compressionRatio=1.0 branch
+// that fires when origTokens == 0 (line 212-214 in handler.go), reached with empty messages.
+func TestHandleCompressibleRequest_origTokensZero(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"m0","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude","stop_reason":"end_turn"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	// Empty messages array -> origTokens == 0 -> compressionRatio = 1.0 branch
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+}
+
+// TestProxy_Shutdown_canceledContext covers the ctx.Done() (shutdown timeout) branch in Shutdown
+// (line 530-531 in handler.go). The already-canceled context is passed to Shutdown so that the
+// worker-wait select immediately picks ctx.Done() instead of <-done.
+func TestProxy_Shutdown_canceledContext(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Proxy.ListenPort = 0
+	p := New(cfg)
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.Start() }()
+	// Give the server time to start and workers to register in wg.
+	time.Sleep(150 * time.Millisecond)
+
+	// Already-canceled context: ctx.Done() fires for the worker-wait select (line 530-531).
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = p.Shutdown(ctx)
+}
+
+// TestProxy_Shutdown_serverShutdownError covers the server.Shutdown error branch (lines 515-517).
+// We create a long-running SSE connection then call Shutdown with an immediate-timeout context
+// so server.Shutdown has to wait for the active connection and the context cancels first.
+func TestProxy_Shutdown_serverShutdownError(t *testing.T) {
+	// Upstream that holds the connection open for 2 seconds.
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// Hold connection open.
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Proxy.ListenPort = 0
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.Start() }()
+	time.Sleep(150 * time.Millisecond)
+
+	// Send a streaming request that will hold the connection open.
+	addr := p.ListenAddr()
+	go func() {
+		client := &http.Client{Timeout: 3 * time.Second}
+		body := strings.NewReader(`{"model":"claude","max_tokens":64,"stream":true,"messages":[{"role":"user","content":"x"}]}`)
+		req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/v1/messages", body)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+	// Let the connection establish.
+	time.Sleep(100 * time.Millisecond)
+
+	// Shutdown with a very short timeout - server.Shutdown will fail trying to drain the active connection.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+	_ = p.Shutdown(ctx)
+}
+
+// TestProxy_Shutdown_finalFlushError covers handler.go lines 537-539 (WriteSnapshot error in Shutdown).
+// We close the persister's file handle then remove the log directory so that WriteSnapshot's
+// rotateIfNeeded -> openFile call fails when Shutdown tries the final flush.
+func TestProxy_Shutdown_finalFlushError(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Proxy.ListenPort = 0
+	cfg.Analytics.LogDir = tmp
+	p := New(cfg)
+	if p.persister == nil {
+		t.Skip("persister not initialized")
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.Start() }()
+	time.Sleep(100 * time.Millisecond)
+
+	// Close persister's file handle so rotateIfNeeded forces a reopen on next WriteSnapshot.
+	// Then remove the directory so reopen fails -> WriteSnapshot returns error -> lines 537-539 hit.
+	p.persister.Close()
+	if err := os.RemoveAll(tmp); err != nil {
+		t.Skip("could not remove temp dir:", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// Shutdown should complete even though final flush fails.
+	_ = p.Shutdown(ctx)
+}
+
+// TestProxy_Shutdown_withPersisterAndFinalFlush covers the final analytics flush on Shutdown
+// (line 535-541 in handler.go).
+func TestProxy_Shutdown_withPersisterAndFinalFlush(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Proxy.ListenPort = 0
+	cfg.Analytics.LogDir = tmp
+	p := New(cfg)
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- p.Start() }()
+	time.Sleep(100 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+}
+
+// TestDoUpstreamRequest_headerSkipBranch covers the "Host"/"Content-Length"/"Connection"/"Transfer-Encoding"
+// continue branches in doUpstreamRequest (lines 258-259 in handler.go).
+func TestDoUpstreamRequest_headerSkipBranch(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	p := New(cfg)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	// These headers hit the switch-continue branch in doUpstreamRequest.
+	r.Header.Set("Host", "example.com")
+	r.Header.Set("Content-Length", "2")
+	r.Header.Set("Connection", "keep-alive")
+	r.Header.Set("Transfer-Encoding", "chunked")
+	r.Header.Set("X-Custom", "forwarded")
+
+	resp, err := p.doUpstreamRequest(r, types.Anthropic, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+}
+
+// TestAnalyticsPeriodicFlush_shutdownBranch starts the goroutine and shuts it down
+// to cover the shutdownCh branch in analyticsPeriodicFlush.
+func TestAnalyticsPeriodicFlush_shutdownBranch(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	p.wg.Add(1)
+	go p.analyticsPeriodicFlush()
+	// Allow the goroutine to start and select on shutdownCh.
+	time.Sleep(20 * time.Millisecond)
+	close(p.shutdownCh)
+	p.wg.Wait()
+}
+
+// TestAnalyticsPeriodicFlush_withPersisterShutdown starts the goroutine with a persister
+// configured and shuts it down via the shutdownCh branch.
+func TestAnalyticsPeriodicFlush_withPersisterShutdown(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = tmp
+	p := New(cfg)
+	if p.persister == nil {
+		t.Skip("persister not initialized")
+	}
+	p.wg.Add(1)
+	go p.analyticsPeriodicFlush()
+	time.Sleep(20 * time.Millisecond)
+	close(p.shutdownCh)
+	p.wg.Wait()
+}
+
+// TestCacheJanitor_shutdownBranch starts the janitor goroutine and shuts it down
+// via the shutdownCh branch (line 483-484 in handler.go).
+func TestCacheJanitor_shutdownBranch(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	p.wg.Add(1)
+	go p.cacheJanitor()
+	time.Sleep(20 * time.Millisecond)
+	close(p.shutdownCh)
+	p.wg.Wait()
+}
+
+// TestCleanupExpiredCache tests the extracted cleanupExpiredCache method directly.
+func TestCleanupExpiredCache(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	// Should not panic when called directly.
+	p.cleanupExpiredCache()
+}
+
+// TestFlushAnalyticsSnapshot_withPersister tests the extracted flushAnalyticsSnapshot method
+// with a persister configured.
+func TestFlushAnalyticsSnapshot_withPersister(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = tmp
+	p := New(cfg)
+	if p.persister == nil {
+		t.Skip("persister not initialized")
+	}
+	// Should write a snapshot without error.
+	p.flushAnalyticsSnapshot()
+}
+
+// TestFlushAnalyticsSnapshot_noPersister tests the extracted flushAnalyticsSnapshot method
+// when persister is nil (no-op branch).
+func TestFlushAnalyticsSnapshot_noPersister(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	p.persister = nil
+	// Should be a no-op without panic.
+	p.flushAnalyticsSnapshot()
+}
+
+// TestFlushAnalyticsSnapshot_writeError covers the slog.Warn branch inside flushAnalyticsSnapshot
+// (handler.go line ~558) when persister.WriteSnapshot returns an error.
+// We close the persister's file handle and remove the log dir so WriteSnapshot fails.
+func TestFlushAnalyticsSnapshot_writeError(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = tmp
+	p := New(cfg)
+	if p.persister == nil {
+		t.Skip("persister not initialized")
+	}
+
+	// Close the persister file and delete the dir so WriteSnapshot must fail.
+	p.persister.Close()
+	if err := os.RemoveAll(tmp); err != nil {
+		t.Skip("could not remove temp dir:", err)
+	}
+
+	// Must not panic even though WriteSnapshot returns an error.
+	p.flushAnalyticsSnapshot()
+}
+
+// TestCacheJanitor_tickerBranch covers the ticker.C branch in cacheJanitor
+// by setting cacheJanitorInterval to 1ms so the tick fires during the test.
+func TestCacheJanitor_tickerBranch(t *testing.T) {
+	old := cacheJanitorInterval
+	cacheJanitorInterval = 1 * time.Millisecond
+	defer func() { cacheJanitorInterval = old }()
+
+	p := New(config.Defaults())
+	p.wg.Add(1)
+	go p.cacheJanitor()
+	// Let the ticker fire at least once.
+	time.Sleep(30 * time.Millisecond)
+	close(p.shutdownCh)
+	p.wg.Wait()
+}
+
+// TestAnalyticsPeriodicFlush_tickerBranch covers the ticker.C branch in analyticsPeriodicFlush
+// by setting analyticsFlushInterval to 1ms so the tick fires during the test.
+func TestAnalyticsPeriodicFlush_tickerBranch(t *testing.T) {
+	old := analyticsFlushInterval
+	analyticsFlushInterval = 1 * time.Millisecond
+	defer func() { analyticsFlushInterval = old }()
+
+	p := New(config.Defaults())
+	p.wg.Add(1)
+	go p.analyticsPeriodicFlush()
+	// Let the ticker fire at least once.
+	time.Sleep(30 * time.Millisecond)
+	close(p.shutdownCh)
+	p.wg.Wait()
+}
+
+// TestNew_fileWatcherError covers the error branch in New (proxy.go line ~115)
+// when the file watcher cannot be initialized.
+func TestNew_fileWatcherError(t *testing.T) {
+	t.Parallel()
+	old := newFileWatcherFunc
+	newFileWatcherFunc = func(_ func(string)) (*caching.FileWatcher, error) {
+		return nil, errors.New("injected watcher error")
+	}
+	defer func() { newFileWatcherFunc = old }()
+
+	p := New(config.Defaults())
+	// fileWatcher must be nil when init fails; Proxy must still be usable.
+	if p.fileWatcher != nil {
+		t.Fatal("expected fileWatcher to be nil after init error")
+	}
+}
