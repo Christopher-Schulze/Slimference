@@ -18,6 +18,8 @@ import (
 	"github.com/slimference/slimference/internal/config"
 )
 
+var sleepFn = time.Sleep
+
 // systemPrompt is the mandatory instruction set for MiniMax summarization.
 // It enforces a strict, deterministic output format with zero creative freedom.
 // Every rule exists because violations were observed in testing.
@@ -214,7 +216,7 @@ func (c *MiniMaxClient) Summarize(ctx context.Context, inputText string, startMs
 		}
 
 		if attempt < maxAttempts-1 {
-			time.Sleep(backoff(attempt))
+			sleepFn(backoff(attempt))
 		}
 	}
 
@@ -345,9 +347,6 @@ func similarEnough(a, b string, threshold float64) bool {
 		}
 	}
 	union := len(wordsA) + len(wordsB) - intersection
-	if union == 0 {
-		return false
-	}
 	return float64(intersection)/float64(union) >= threshold
 }
 

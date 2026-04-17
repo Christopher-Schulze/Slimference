@@ -1,6 +1,6 @@
 # Slimference - Technical Documentation
 
-Version: 1.3.8
+Version: 2.0.2
 Last updated: 2026-04-17
 
 ---
@@ -34,6 +34,7 @@ Slimference is a transparent HTTP reverse proxy written in Go that intercepts
 outgoing requests from LLM CLI tools (Claude Code, OpenAI Codex), applies
 multi-layer token compression to the conversation history, and forwards optimized
 requests to the real upstream API. Responses stream back to the CLI unmodified.
+The supported agent surface in this release is Claude Code and Codex.
 
 ### Problem
 
@@ -68,7 +69,7 @@ vs ~30 messages without the proxy. TTFT at message 30 drops from ~4s to ~1.5s.
   It never adds content the user or model did not produce.
 - Transparency: every compression decision is logged. The TUI debug view shows
   exactly what was changed and why.
-- Graceful degradation: if MiniMax is unavailable, Layer 2 is skipped.
+- Graceful degradation: if MiniMax is unavailable, new Layer 2 jobs are skipped.
   If regex extraction fails on a file, that file passes through uncompressed.
   Every layer is independently optional and hot-togglable.
 - Complete provider invisibility: the proxy is architecturally undetectable by
@@ -92,7 +93,7 @@ deterministic (<1ms). Layer 2 uses MiniMax M2.7 for semantic summarization (asyn
 pre-computed). Layer 3 caches responses.
 
 ```
-LLM Agent (Claude Code / Codex / Cursor / ...)
+LLM Agent (Claude Code / Codex)
         |
         | invokes tool (e.g. "Bash git status")
         v
@@ -227,11 +228,16 @@ are checked in order. Finally, passthrough truncation limits output to
 
 ### Hook system
 
-`slimference hook install <agent>` installs hooks for the following agents:
-`claude`, `codex`, `cursor`, `windsurf`, `continue`, `aider`, `void`, `zed`, `amp`, `goose`.
+`slimference hook install <agent>` currently supports `claude` and `codex`.
 
-Hooks generate shell scripts in `~/.slimference/hooks/` and patch agent
-settings files (e.g. `.claude/settings.json` for Claude Code).
+- Claude Code installs `~/.claude/hooks/slimference-rewrite.sh` and merges a
+  `PreToolUse` command hook into `~/.claude/settings.json` without replacing
+  unrelated user hooks.
+- Codex installs `~/.slimference/hooks/codex-pre-tool.sh` and
+  `~/.slimference/hooks/codex-post-tool.sh`, merges `PreToolUse` and
+  `PostToolUse` entries into `~/.codex/hooks.json`, patches
+  `~/.codex/config.toml`, and keeps a legacy AGENTS.md helper block for older
+  setups.
 
 ### TOML Filter DSL
 
@@ -456,11 +462,11 @@ preserved verbatim in the reconstructed message array.
 The client sends summarization requests to the MiniMax M2.7 endpoint using
 the OpenAI-compatible chat completions format. Rate-limited to 10 RPM by
 default (`rate_limit_rpm`). Connect timeout: 5s. Response timeout: 30s.
-Up to 2 retries on transient failures.
+Up to 3 retries on transient failures.
 
 The API key is read from the environment variable named by `api_key_env`
-(default: `MINIMAX_API_KEY`). If the key is not set, Layer 2 is silently
-disabled and all requests fall through to Layer 1 only.
+(default: `MINIMAX_API_KEY`). If the key is not set, Layer 2 stops scheduling
+new summarization jobs and all requests fall through to Layer 1 only.
 
 ### 4.4 Summary Cache
 
@@ -485,10 +491,19 @@ Before a summary is accepted, `CompressionValidator.Validate()` runs 5 checks:
 4. **Minimum length**: summary token estimate must be >5% of original token count.
 5. **Maximum length**: summary token estimate must be <40% of original token count.
 
-All checks use a 4-chars-per-token estimate to avoid the tiktoken call overhead.
-Checks run in order; the first failure is returned with a descriptive reason.
-If validation fails, the summary is discarded and Layer 2 is skipped for
-the current request. The proxy falls back to Layer 1 only.
+Checks use the lightweight summarization token estimator from the Go
+implementation, not tiktoken. Checks run in order; the first failure is
+returned with a descriptive reason. If validation fails, the summary is
+discarded and Layer 2 falls back to Layer 1 only.
+
+### 4.6 Strict summary mode
+
+`[compression.summary].strict = true` is the default. In strict mode:
+
+- code-like blocks are fenced before summarization so identifiers survive the
+  prompt boundary more reliably
+- validation retries include explicit preservation instructions
+- summaries are accepted only if the preservation and ratio checks pass
 
 ### 5.6 Progressive Compression (50+ message sessions)
 
@@ -531,25 +546,27 @@ HIGH-priority content verbatim while compressing LOW-priority content more aggre
 
 ## 6. Layer 3: Response Caching
 
-Layer 3 caches full API responses for identical requests (same compressed
-message array + same model + same parameters). On a cache hit, the stored
+Layer 3 caches full API responses for identical forwarded requests. The cache
+key is provider-aware and derived from the canonical JSON request body after
+whitespace and object-key ordering are normalized. On a cache hit, the stored
 response is replayed to the CLI without forwarding to the upstream API.
 
 ### LRU Cache
 
 Implementation: `internal/caching/response_cache.go`. Uses an LRU eviction
 policy with a configurable maximum entry count (default: 100) and TTL
-(default: 300s / 5 minutes). The cache is keyed by SHA256 of the serialized
-compressed request body.
+(default: 300s / 5 minutes). The cache is keyed by SHA256 of the canonical full
+request body.
 
 Thread-safe via sync.RWMutex. Read path (lookup) acquires only a read lock.
 
 ### fsnotify File Watcher
 
 `internal/caching/file_watcher.go` uses the `fsnotify` library to watch
-working directories for file changes. When a watched file is modified, the
-cache entries whose key includes that file path are invalidated. This prevents
-serving stale responses after the user edits a file.
+working directories for file changes. Dependency-like file paths are extracted
+from request bodies and stored with each cache entry. When a watched file is
+modified, entries whose tracked dependency paths match are invalidated. This
+prevents serving stale responses after the user edits a referenced file.
 
 The file watcher is optional: if initialization fails (e.g., inotify limit
 reached), a warning is logged and the proxy continues without invalidation.
@@ -776,14 +793,14 @@ Key `debug`-level events emitted per request (all include req_id):
 The TUI is built with BubbleTea (event loop) and Lipgloss (styling). It runs
 in the alternate screen buffer and updates every 500ms via a tick command.
 The proxy pushes `proxyEventMsg` to the TUI program for immediate refresh on
-each new request. Version is displayed as `SLIMFERENCE v2.0.0`.
+each new request. Version is displayed as `SLIMFERENCE v1.0.0`.
 
 ### Main view layout
 
 The main view uses a two-column layout separated by a `│` divider:
 
 ```
- SLIMFERENCE v2.0.0                              ◷ 12m 34s  :8990
+ SLIMFERENCE v1.0.0                              ◷ 12m 34s  :8990
  ────────────────────────────────────────────────────────────────
  PROVIDERS              │ SAVINGS
   ● Claude Code  [ON] ● │  35%  12.4K → 8.1K  4.3K saved
@@ -814,7 +831,7 @@ log or QUICK START onboarding panel.
 no hooks are installed - displays the two `slimference hook install` commands and
 step-by-step instructions.
 
-**Header**: `SLIMFERENCE v2.0.0` (gold, bold) aligned left, session duration and
+**Header**: `SLIMFERENCE v1.0.0` (gold, bold) aligned left, session duration and
 port right-aligned. Separated from the body by a `─` horizontal rule.
 
 **Footer**: styled keyboard hints `[c] claude · [x] codex · [1-3] layers · ...`
@@ -882,7 +899,8 @@ the QUICK START onboarding panel instead of the live log.
 
 Hook status is read once at startup via `hooks.InstalledStatus(home)`:
 - **Claude Code**: checks for `~/.claude/hooks/slimference-rewrite.sh`
-- **Codex**: checks for the `SLIMFERENCE_BEGIN` marker in `~/.codex/AGENTS.md`
+- **Codex**: checks for a coherent `~/.codex/hooks.json` install, with a legacy
+  AGENTS.md marker accepted only as a fallback signal
 
 The result is passed to the TUI via `model.SetHookStatus(tui.HookStatus{...})`
 before the BubbleTea program starts.
@@ -950,8 +968,8 @@ Generate default config: `slimference config init`
 | `base_url` | string | `"https://api.minimax.io/v1"` | MiniMax API base URL |
 | `api_key_env` | string | `"MINIMAX_API_KEY"` | Env var name holding the API key |
 | `model` | string | `"minimax-m2.7"` | Model identifier |
-| `temperature` | float | `0.1` | Summarization temperature (low = deterministic) |
-| `max_retries` | int | `2` | Retries on transient failures |
+| `temperature` | float | `0` | Summarization temperature (low = deterministic) |
+| `max_retries` | int | `3` | Retries on transient failures |
 | `connect_timeout_seconds` | int | `5` | TCP connect timeout |
 | `response_timeout_seconds` | int | `30` | Full response timeout |
 | `rate_limit_rpm` | int | `10` | Max requests per minute to MiniMax |
@@ -963,6 +981,7 @@ Generate default config: `slimference config init`
 | `target_ratio` | float | `0.20` | Target summary length as fraction of original |
 | `max_ratio` | float | `0.40` | Maximum acceptable summary length ratio |
 | `min_ratio` | float | `0.05` | Minimum acceptable summary length ratio |
+| `strict` | bool | `true` | Enable strict summary formatting and validation |
 
 ### [cache]
 
@@ -1185,14 +1204,14 @@ is saved to `~/.slimference/tee/` and a recovery hint appended to filtered outpu
 ### slimference hook install|remove|verify|status <agent>
 
 Manages shell hooks for LLM agent interception. Supported agents:
-`claude`, `codex`, `cursor`, `windsurf`, `continue`, `aider`, `void`, `zed`, `amp`, `goose`.
+`claude`, `codex`.
 
 ```bash
 slimference hook install claude    # install Claude Code hook
-slimference hook install codex     # install Codex AGENTS.md marker
-slimference hook verify claude     # SHA-256 verify installed script
+slimference hook install codex     # install Codex hooks.json + config.toml + legacy AGENTS.md helper
+slimference hook verify claude     # verify script/config coherence
 slimference hook remove claude     # uninstall
-slimference hook status            # show installed/missing for all agents
+slimference hook status            # show installed/missing for supported agents
 ```
 
 ### slimference rewrite <json>
@@ -1358,15 +1377,20 @@ Planned additions:
 - `summarization/integration_test.go`: real MiniMax call (skipped if
   `MINIMAX_API_KEY` not set)
 
-To run all tests (19 packages):
+To run the repository proof stack:
 
 ```bash
 go test ./...
 go test -race ./...   # race detector (all packages clean)
-go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
+go test -count=1 -cover ./cmd/... ./internal/...
+go run ./scripts/ci
+bun test tests/ts
 ```
 
-**Race detector status:** All 19 packages pass with `-race`. Three
+**Current proof status:** `cmd/...` and `internal/...` are at `100.0%` Go
+coverage, `go test -race ./...` is green, and `tests/ts` is green.
+
+**Race detector note:** Three
 `internal/caching` tests that interact with the OS kqueue/inotify backend
 (`TestFileWatcher_run_chmodEventIgnored`, `TestFileWatcher_run_errorsChannelClose`,
 `TestFileWatcher_scheduleDebounce_callsOnChange`) are serialized (no `t.Parallel()`)
@@ -1439,7 +1463,7 @@ github.com/slimference/slimference
     |   priority.go          HIGH/MEDIUM/LOW priority classification + SummarizationHint (L2.9)
     |
     +-- caching/
-    |   response_cache.go    LRU response cache with TTL and SHA256 key
+    |   response_cache.go    LRU response cache with canonical full-request SHA256 key
     |   file_watcher.go      fsnotify watcher for path-based cache invalidation
     |
     +-- analytics/
@@ -1496,10 +1520,10 @@ github.com/slimference/slimference
     |   builtin_format.go    F24: 20+ formatter ok-detection (prettier, gofmt, ...)
     |
     +-- hooks/
-    |   hooks.go             Install(), Remove(), Verify() for 10 LLM agent targets
-    |   claude.go            Claude Code hook script generation + settings.json patch
-    |   codex.go             Codex AGENTS.md marker injection + removal
-    |   verify.go            InstalledStatus(home): runtime presence check (Claude/Codex)
+    |   claude.go            Claude Code structured PreToolUse hook + settings.json merge/remove
+    |   codex.go             Codex hooks.json PreToolUse/PostToolUse install, config patch,
+    |                        legacy AGENTS.md helper block
+    |   verify.go            InstalledStatus(home), VerifyReport(home)
     |
     +-- proxy/
     |   proxy.go             Proxy struct, New(), Start(), Shutdown(), toggle atomics,
@@ -1652,13 +1676,14 @@ reduced. This is why the best savings require all layers running together.
 
 ## 18. Audit Baseline and Remediation Tracking
 
-The repository is currently in a parity-hardening phase whose purpose is to
-raise the implementation to the existing documentation/spec target with hard
-proof. The target documents remain the goal state.
+The repository completed the parity-hardening phase on 2026-04-17. The
+implementation now matches the documented production-readiness target with
+proof-bearing tests and release gates.
 
 Tracking artifacts:
 
 - `docs/audit-1.md` - fixed baseline audit for later comparison
+- `docs/audit-2.md` - fresh-eyes post-remediation audit
 - `docs/gap-analysis.md` - target-vs-reality matrix
 - `docs/todo/t11-audit-remediation-program.md` - sequencing and closure rules
 - `docs/todo/t12-hook-contract-hardening.md`
@@ -1667,6 +1692,4 @@ Tracking artifacts:
 - `docs/todo/t15-daemon-service-productionization.md`
 - `docs/todo/t16-proof-gates-and-release-readiness.md`
 
-These files are the execution surface for the next hardening passes. They are
-intended to end in implementation, tests, and reproducible verification rather
-than permanent planning state.
+These files now form the evidence trail for the completed remediation program.

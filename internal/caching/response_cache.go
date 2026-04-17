@@ -1,9 +1,13 @@
 package caching
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,12 +16,13 @@ import (
 
 // CacheEntry holds a cached HTTP response with metadata.
 type CacheEntry struct {
-	Response    []byte
-	Headers     map[string][]string
-	StatusCode  int
-	CreatedAt   time.Time
-	HitCount    int
-	TokensSaved int
+	Response        []byte
+	Headers         map[string][]string
+	StatusCode      int
+	CreatedAt       time.Time
+	HitCount        int
+	TokensSaved     int
+	DependencyPaths []string
 }
 
 // ResponseCache is a thread-safe, size-bounded LRU cache for identical requests.
@@ -61,6 +66,19 @@ func (c *ResponseCache) ComputeKey(messages []types.Message, model string) [32]b
 	return key
 }
 
+// ComputeRequestKey returns a deterministic SHA-256 key for the full request body.
+// The body is canonicalized so insignificant JSON whitespace/key ordering do not
+// affect cache hits. Provider is included to prevent cross-provider collisions.
+func (c *ResponseCache) ComputeRequestKey(provider types.Provider, body []byte) [32]byte {
+	h := sha256.New()
+	h.Write([]byte(provider.String()))
+	h.Write([]byte{0})
+	h.Write(canonicalizeJSON(body))
+	var key [32]byte
+	copy(key[:], h.Sum(nil))
+	return key
+}
+
 // Get returns the cache entry for key if present and not expired.
 // HitCount is incremented and the entry is promoted to most-recently-used on a hit.
 func (c *ResponseCache) Get(key [32]byte) (*CacheEntry, bool) {
@@ -97,19 +115,21 @@ func (c *ResponseCache) Set(key [32]byte, entry *CacheEntry) {
 	c.entries[key] = entry
 }
 
-// Invalidate removes all entries whose response body contains path as a substring.
-// Used to purge stale entries when a file referenced in a response changes.
+// Invalidate removes all entries whose tracked dependency paths match path.
+// Matching is path-aware: exact normalized matches work for absolute->absolute and
+// relative->relative references, and suffix matches handle relative paths stored in
+// prompts when the file watcher reports an absolute OS path.
 func (c *ResponseCache) Invalidate(path string) {
-	if path == "" {
+	normalized := normalizeDependencyPath(path)
+	if normalized == "" {
 		return
 	}
-	needle := []byte(path)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var remaining [][32]byte
 	for _, key := range c.keys {
 		entry, ok := c.entries[key]
-		if ok && bytes.Contains(entry.Response, needle) {
+		if ok && cacheEntryDependsOnPath(entry, normalized) {
 			delete(c.entries, key)
 			continue
 		}
@@ -176,4 +196,106 @@ func (c *ResponseCache) deleteKey(key [32]byte) {
 			return
 		}
 	}
+}
+
+var dependencyPathRegex = regexp.MustCompile(`(?:\.\.?/|/)?[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)+\.[A-Za-z0-9]{1,12}`)
+var jsonMarshalFn = json.Marshal
+
+// ExtractDependencyPaths returns normalized file-like paths found anywhere in the JSON body.
+// It scans string values recursively so request parameters like messages/system/tools are covered.
+func ExtractDependencyPaths(body []byte) []string {
+	var root interface{}
+	if err := json.Unmarshal(body, &root); err != nil {
+		return extractDependencyPathsFromString(string(body))
+	}
+	paths := make(map[string]struct{})
+	collectDependencyPaths(root, paths)
+	out := make([]string, 0, len(paths))
+	for path := range paths {
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func canonicalizeJSON(body []byte) []byte {
+	var root interface{}
+	if err := json.Unmarshal(body, &root); err != nil {
+		return []byte(strings.TrimSpace(string(body)))
+	}
+	data, err := jsonMarshalFn(root)
+	if err != nil {
+		return []byte(strings.TrimSpace(string(body)))
+	}
+	return data
+}
+
+func collectDependencyPaths(v interface{}, paths map[string]struct{}) {
+	switch current := v.(type) {
+	case map[string]interface{}:
+		for _, child := range current {
+			collectDependencyPaths(child, paths)
+		}
+	case []interface{}:
+		for _, child := range current {
+			collectDependencyPaths(child, paths)
+		}
+	case string:
+		for _, path := range extractDependencyPathsFromString(current) {
+			paths[path] = struct{}{}
+		}
+	}
+}
+
+func extractDependencyPathsFromString(text string) []string {
+	raw := dependencyPathRegex.FindAllString(text, -1)
+	if len(raw) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, match := range raw {
+		path := normalizeDependencyPath(match)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeDependencyPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(trimmed))
+	if cleaned == "." || cleaned == "/" {
+		return ""
+	}
+	return cleaned
+}
+
+func cacheEntryDependsOnPath(entry *CacheEntry, changedPath string) bool {
+	for _, dep := range entry.DependencyPaths {
+		normalizedDep := normalizeDependencyPath(dep)
+		if normalizedDep == "" {
+			continue
+		}
+		if normalizedDep == changedPath {
+			return true
+		}
+		if strings.HasSuffix(changedPath, "/"+normalizedDep) {
+			return true
+		}
+		if strings.HasSuffix(normalizedDep, "/"+changedPath) {
+			return true
+		}
+	}
+	return false
 }

@@ -15,6 +15,7 @@
 //	slimference gain today         # Layer-0 filter.db savings (--by-command, --csv, --project; optional USD/M rate in config)
 //	slimference filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
 //	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
+//	slimference posttool          # Compact PostToolUse hook JSON from stdin for Codex
 //	slimference hook install claude # Install Claude Code / Codex hooks (v1)
 //	slimference debug paths        # Show resolved config / filter.db / tee paths
 //	slimference debug last         # Last Layer-0 row from filter.db (--json)
@@ -42,47 +43,97 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"golang.org/x/term"
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
-	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/daemon"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/hooks"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/slogutil"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
+	"golang.org/x/term"
 )
 
 const version = "1.0.0"
 
 // Injectable package-level vars for OS/driver boundaries - enables in-process error injection in tests.
 var (
-	runTUIFn             = runTUI
-	osGetwd              = os.Getwd
-	osUserHomeDir        = os.UserHomeDir
-	termIsTerminalFn     = term.IsTerminal
-	readStdinAll         = func() ([]byte, error) { return io.ReadAll(os.Stdin) }
-	osWriteFile          = os.WriteFile
-	testInterceptTimeout = 60 * time.Second
-	exitFn               = os.Exit
+	runTUIFn               = runTUI
+	osGetwd                = os.Getwd
+	osExecutable           = os.Executable
+	osStartProcess         = os.StartProcess
+	osUserHomeDir          = os.UserHomeDir
+	termIsTerminalFn       = term.IsTerminal
+	readStdinAll           = func() ([]byte, error) { return io.ReadAll(os.Stdin) }
+	osWriteFile            = os.WriteFile
+	testInterceptTimeout   = 60 * time.Second
+	exitFn                 = os.Exit
 	resolveFilterDBPathFn  = resolveFilterDBPath
 	resolveTeeDirFn        = resolveTeeDir
 	filterDefaultDataDirFn = filter.DefaultDataDir
 	writeGainByCommandCSV  = analytics.WriteGainByCommandCSV
 	writeGainSummaryCSV    = analytics.WriteGainSummaryCSV
 	replaySessionFn        = dbg.ReplaySession
+	daemonIsRunningFn      = daemon.IsRunning
+	daemonStopFn           = daemon.StopDaemon
+	daemonInstallLaunchdFn = daemon.InstallLaunchd
+	daemonUninstallFn      = daemon.UninstallLaunchd
+	daemonFormatStatusFn   = daemon.FormatStatus
+	daemonRunFn            = daemon.RunDaemon
+	installClaudeHookFn    = hooks.InstallClaude
+	installCodexHookFn     = hooks.InstallCodex
+	removeClaudeHookFn     = hooks.RemoveClaude
+	removeCodexHookFn      = hooks.RemoveCodex
 
 	// runTUI sub-components: injectable for test coverage of post-startup paths.
 	configLoadFn       = config.Load
 	runTUIAfterStartFn = runTUIAfterStart
-	proxyStartTimeout  = 200 * time.Millisecond
+	newProxyFn         = proxy.New
+	proxyStartRunnerFn = func(p *proxy.Proxy) error { return p.Start() }
+	proxyHasListenerFn = func(p *proxy.Proxy) bool { return p.HasListener() }
+	timeAfterFn        = time.After
+	newTickerFn        = time.NewTicker
+	startProxyFn       = func(cfg *config.Config) (func(ctx context.Context) error, error) {
+		p := newProxyFn(cfg)
+		runner := proxyStartRunnerFn
+		hasListener := proxyHasListenerFn
+		after := timeAfterFn
+		newTicker := newTickerFn
+		errCh := make(chan error, 1)
+		go func() {
+			if err := runner(p); err != nil && !isServerClosed(err) {
+				errCh <- err
+			}
+		}()
+
+		deadline := after(proxyStartTimeout)
+		ticker := newTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case err := <-errCh:
+				return nil, err
+			case <-ticker.C:
+				if hasListener(p) {
+					return p.Shutdown, nil
+				}
+			case <-deadline:
+				if hasListener(p) {
+					return p.Shutdown, nil
+				}
+				return nil, fmt.Errorf("proxy start timeout after %s", proxyStartTimeout)
+			}
+		}
+	}
+	proxyStartTimeout = 200 * time.Millisecond
 	// runTeaProgramFn injects tea.Program.Run so tests can return immediately without a terminal.
 	runTeaProgramFn = (*tea.Program).Run
 	// tuiSendProxyEventFn injects tui.SendProxyEvent so progSender.send can be tested without a running program.
 	tuiSendProxyEventFn func(*tea.Program, types.RequestMetrics) = tui.SendProxyEvent
-	makeSignalChanFn = func() chan os.Signal {
+	makeSignalChanFn                                             = func() chan os.Signal {
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 		return ch
@@ -126,7 +177,7 @@ func runTUI() {
 
 	setupLogging(cfg)
 
-	p := proxy.New(cfg)
+	p := newProxyFn(cfg)
 
 	// Wire up TUI -> proxy send function before starting.
 	progCh := make(chan *tea.Program, 1)
@@ -282,6 +333,9 @@ func handleSubcommand(args []string) {
 	case "rewrite":
 		handleRewriteCmd(args[1:])
 
+	case "posttool":
+		handlePostToolCmd(args[1:])
+
 	case "hook":
 		handleHookCmd(args[1:])
 
@@ -305,7 +359,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, hook, debug, daemon, start, stop, restart, service, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, posttool, hook, debug, daemon, start, stop, restart, service, version")
 		exitFn(1)
 	}
 }
@@ -497,6 +551,62 @@ func handleRewriteCmd(args []string) {
 		return
 	}
 	rewriteEmit(strings.Join(parts, " "))
+}
+
+func handlePostToolCmd(args []string) {
+	for _, arg := range args {
+		if arg != "" && arg != "--" {
+			fmt.Fprintln(os.Stderr, "usage: slimference posttool   (pipe PostToolUse hook JSON on stdin)")
+			exitFn(1)
+		}
+	}
+	if termIsTerminalFn(int(os.Stdin.Fd())) {
+		fmt.Fprintln(os.Stderr, "usage: slimference posttool   (pipe PostToolUse hook JSON on stdin)")
+		exitFn(1)
+	}
+
+	payload, err := readStdinAll()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
+		exitFn(1)
+	}
+	commandLine, toolResponse, err := filter.ExtractPostToolPayloadFromHookJSON(payload)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+
+	wd, err := osGetwd()
+	if err != nil {
+		wd = ""
+	}
+	maxOut := config.Defaults().Filter.PassthroughMaxChars
+	if cfg, err := configLoadFn(); err == nil {
+		maxOut = cfg.Filter.PassthroughMaxChars
+	}
+
+	compacted, changed := filter.CompactCapturedOutput(wd, commandLine, toolResponse, maxOut)
+	if !changed || len(compacted) == 0 {
+		return
+	}
+
+	context := "Slimference compacted recent Bash output."
+	if commandLine != "" {
+		context = fmt.Sprintf("Slimference compacted Bash output for %q.\n%s", commandLine, compacted)
+	} else {
+		context = fmt.Sprintf("Slimference compacted Bash output.\n%s", compacted)
+	}
+
+	out := map[string]interface{}{
+		"hookSpecificOutput": map[string]interface{}{
+			"hookEventName":     "PostToolUse",
+			"additionalContext": context,
+		},
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
+		exitFn(1)
+	}
 }
 
 func handleHookCmd(args []string) {
@@ -1536,24 +1646,24 @@ type configAdapter struct {
 	cfg *config.Config
 }
 
-func (ca *configAdapter) GetListenPort() int    { return ca.cfg.Proxy.ListenPort }
-func (ca *configAdapter) GetPrefillSpeed() int  { return ca.cfg.Usage.EstimatedPrefillSpeed }
+func (ca *configAdapter) GetListenPort() int   { return ca.cfg.Proxy.ListenPort }
+func (ca *configAdapter) GetPrefillSpeed() int { return ca.cfg.Usage.EstimatedPrefillSpeed }
 
 // serviceControlAdapter implements tui.ServiceControlInterface by calling daemon package functions
 // and spawning subprocesses for hook install/remove.
 type serviceControlAdapter struct{}
 
 func (sca *serviceControlAdapter) StartDaemon() error {
-	running, existing, _ := daemon.IsRunning()
+	running, existing, _ := daemonIsRunningFn()
 	if running {
 		return fmt.Errorf("already running (PID %d, port %d)", existing.PID, existing.Port)
 	}
-	binary, err := os.Executable()
+	binary, err := osExecutable()
 	if err != nil {
 		return fmt.Errorf("executable: %w", err)
 	}
 	attrs := &os.ProcAttr{Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}}
-	proc, err := os.StartProcess(binary, []string{binary, "daemon"}, attrs)
+	proc, err := osStartProcess(binary, []string{binary, "daemon"}, attrs)
 	if err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
@@ -1562,13 +1672,13 @@ func (sca *serviceControlAdapter) StartDaemon() error {
 }
 
 func (sca *serviceControlAdapter) StopDaemon() error {
-	return daemon.StopDaemon()
+	return daemonStopFn()
 }
 
 func (sca *serviceControlAdapter) RestartDaemon() error {
-	running, _, _ := daemon.IsRunning()
+	running, _, _ := daemonIsRunningFn()
 	if running {
-		if err := daemon.StopDaemon(); err != nil {
+		if err := daemonStopFn(); err != nil {
 			return err
 		}
 	}
@@ -1576,19 +1686,19 @@ func (sca *serviceControlAdapter) RestartDaemon() error {
 }
 
 func (sca *serviceControlAdapter) InstallService() error {
-	binary, err := os.Executable()
+	binary, err := osExecutable()
 	if err != nil {
 		return fmt.Errorf("executable: %w", err)
 	}
-	return daemon.InstallLaunchd(binary)
+	return daemonInstallLaunchdFn(binary)
 }
 
 func (sca *serviceControlAdapter) UninstallService() error {
-	return daemon.UninstallLaunchd()
+	return daemonUninstallFn()
 }
 
 func (sca *serviceControlAdapter) DaemonStatus() (bool, int, int) {
-	running, pf, _ := daemon.IsRunning()
+	running, pf, _ := daemonIsRunningFn()
 	if !running || pf == nil {
 		return false, 0, 0
 	}
@@ -1596,34 +1706,34 @@ func (sca *serviceControlAdapter) DaemonStatus() (bool, int, int) {
 }
 
 func (sca *serviceControlAdapter) InstallHook(target string) error {
-	home, err := os.UserHomeDir()
+	home, err := osUserHomeDir()
 	if err != nil {
 		return fmt.Errorf("home: %w", err)
 	}
 	var tpCmd string
-	if cfg, err := config.Load(); err == nil {
+	if cfg, err := configLoadFn(); err == nil {
 		tpCmd = strings.TrimSpace(cfg.Hooks.SlimferenceCommand)
 	}
 	switch target {
 	case "claude":
-		return hooks.InstallClaude(home, tpCmd)
+		return installClaudeHookFn(home, tpCmd)
 	case "codex":
-		return hooks.InstallCodex(home, tpCmd)
+		return installCodexHookFn(home, tpCmd)
 	default:
 		return fmt.Errorf("unknown hook target: %s", target)
 	}
 }
 
 func (sca *serviceControlAdapter) RemoveHook(target string) error {
-	home, err := os.UserHomeDir()
+	home, err := osUserHomeDir()
 	if err != nil {
 		return fmt.Errorf("home: %w", err)
 	}
 	switch target {
 	case "claude":
-		return hooks.RemoveClaude(home)
+		return removeClaudeHookFn(home)
 	case "codex":
-		return hooks.RemoveCodex(home)
+		return removeCodexHookFn(home)
 	default:
 		return fmt.Errorf("unknown hook target: %s", target)
 	}
@@ -1639,22 +1749,22 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 		return 0, nil, fmt.Errorf("config load: %w", err)
 	}
 	setupLogging(cfg)
-	p := proxy.New(cfg)
-	if err := p.Start(); err != nil {
+	shutdown, err = startProxyFn(cfg)
+	if err != nil {
 		return 0, nil, fmt.Errorf("proxy start: %w", err)
 	}
-	return cfg.Proxy.ListenPort, p.Shutdown, nil
+	return cfg.Proxy.ListenPort, shutdown, nil
 }
 
 func handleDaemonCmd() {
-	if err := daemon.RunDaemon(startProxyForDaemon); err != nil {
+	if err := daemonRunFn(startProxyForDaemon); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		exitFn(1)
 	}
 }
 
 func handleStartCmd() {
-	running, existing, err := daemon.IsRunning()
+	running, existing, err := daemonIsRunningFn()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "check daemon: %v\n", err)
 		exitFn(1)
@@ -1664,7 +1774,7 @@ func handleStartCmd() {
 		exitFn(1)
 	}
 	// Fork into background via exec of self with "daemon" subcommand.
-	binary, err := os.Executable()
+	binary, err := osExecutable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "executable: %v\n", err)
 		exitFn(1)
@@ -1672,7 +1782,7 @@ func handleStartCmd() {
 	attrs := &os.ProcAttr{
 		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
 	}
-	proc, err := os.StartProcess(binary, []string{binary, "daemon"}, attrs)
+	proc, err := osStartProcess(binary, []string{binary, "daemon"}, attrs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "start daemon: %v\n", err)
 		exitFn(1)
@@ -1682,16 +1792,16 @@ func handleStartCmd() {
 }
 
 func handleStopCmd() {
-	if err := daemon.StopDaemon(); err != nil {
+	if err := daemonStopFn(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		exitFn(1)
 	}
 }
 
 func handleRestartCmd() {
-	running, _, _ := daemon.IsRunning()
+	running, _, _ := daemonIsRunningFn()
 	if running {
-		if err := daemon.StopDaemon(); err != nil {
+		if err := daemonStopFn(); err != nil {
 			fmt.Fprintf(os.Stderr, "stop: %v\n", err)
 			exitFn(1)
 		}
@@ -1706,24 +1816,24 @@ func handleServiceCmd(args []string) {
 	}
 	switch args[0] {
 	case "install":
-		binary, err := os.Executable()
+		binary, err := osExecutable()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "executable: %v\n", err)
 			exitFn(1)
 		}
-		if err := daemon.InstallLaunchd(binary); err != nil {
+		if err := daemonInstallLaunchdFn(binary); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			exitFn(1)
 		}
 		fmt.Println("Service installed. Slimference will start at login.")
 	case "uninstall":
-		if err := daemon.UninstallLaunchd(); err != nil {
+		if err := daemonUninstallFn(); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			exitFn(1)
 		}
 		fmt.Println("Service uninstalled.")
 	case "status":
-		data, err := daemon.FormatStatus()
+		data, err := daemonFormatStatusFn()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			exitFn(1)

@@ -8,44 +8,108 @@ import (
 	"strings"
 )
 
+var jsonMarshalIndentFn = json.MarshalIndent
+
 // codexMarkerBegin/End kept for backwards compatibility with old AGENTS.md installs.
 const codexMarkerBegin = "<!-- slimference:begin -->"
 const codexMarkerEnd = "<!-- slimference:end -->"
 
-// codexHookScript returns the shell script content for the Codex PostToolUse hook.
-// The hook receives JSON on stdin with tool_response containing the Bash output.
-// It pipes the output through slimference filter and returns a filtered version.
-func codexHookScript(slimferenceCmd string) string {
+// codexPreToolHookScript returns the shell script content for the Codex PreToolUse hook.
+// Codex 0.121.0 does not support updatedInput, so when a rewrite would apply we block
+// the tool call and instruct the model to rerun the command via slimference filter.
+func codexPreToolHookScript(slimferenceCmd string) string {
 	cmd := strings.TrimSpace(slimferenceCmd)
 	if cmd == "" {
 		cmd = "slimference"
 	}
-	return "#!/bin/bash\n# Slimference PostToolUse hook for Codex CLI\nset -e\nINPUT=$(cat)\nRESPONSE=$(echo \"$INPUT\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('tool_response',''))\" 2>/dev/null || echo \"\")\nif [ -z \"$RESPONSE\" ]; then exit 0; fi\nFILTERED=$(" + cmd + " filter -- \"$RESPONSE\" 2>/dev/null || echo \"$RESPONSE\")\nif [ \"$FILTERED\" = \"$RESPONSE\" ]; then exit 0; fi\nprintf '%s' \"{\\\"decision\\\":\\\"block\\\",\\\"reason\\\":\\\"\" \"$(echo \"$FILTERED\" | sed 's/\"/\\\\\"/g')\" \"\\\",\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"Output filtered by Slimference\\\"}}\"\n"
+	q := bashSingleQuoted(cmd)
+	return fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+INPUT=$(cat)
+CMD=$(printf '%%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
+if [[ -z "${CMD:-}" ]]; then
+  exit 0
+fi
+TMP_ERR=$(mktemp)
+cleanup() {
+  rm -f "$TMP_ERR"
+}
+trap cleanup EXIT
+
+set +e
+REWRITTEN=$(%s rewrite -- "$CMD" 2>"$TMP_ERR")
+STATUS=$?
+set -e
+ERR_MSG=$(cat "$TMP_ERR")
+
+case "$STATUS" in
+  0)
+    if [[ -z "${REWRITTEN:-}" || "$REWRITTEN" == "$CMD" ]]; then
+      exit 0
+    fi
+    jq -nc --arg reason "Slimference requires rerunning this command through: ${REWRITTEN}" '{decision:"block",reason:$reason}'
+    ;;
+  1)
+    exit 0
+    ;;
+  2|3)
+    if [[ -z "${ERR_MSG:-}" ]]; then
+      ERR_MSG="Slimference blocked this Bash command."
+    fi
+    jq -nc --arg reason "$ERR_MSG" '{decision:"block",reason:$reason}'
+    ;;
+  *)
+    if [[ -n "${ERR_MSG:-}" ]]; then
+      echo "$ERR_MSG" >&2
+    fi
+    exit 1
+    ;;
+esac
+`, q)
+}
+
+// codexPostToolHookScript returns the shell script content for the Codex PostToolUse hook.
+// It compacts captured tool output and returns additionalContext when that adds signal.
+func codexPostToolHookScript(slimferenceCmd string) string {
+	cmd := strings.TrimSpace(slimferenceCmd)
+	if cmd == "" {
+		cmd = "slimference"
+	}
+	q := bashSingleQuoted(cmd)
+	return fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+INPUT=$(cat)
+printf '%%s' "$INPUT" | %s posttool
+`, q)
 }
 
 // InstallCodex installs the Slimference hooks for Codex CLI.
 //
 // Writes:
-//  1. ~/.slimference/hooks/codex-post-tool.sh - PostToolUse Bash hook script
-//  2. ~/.codex/hooks.json - PostToolUse Bash hook entry
+//  1. ~/.slimference/hooks/codex-pre-tool.sh - PreToolUse Bash hook script
+//  2. ~/.slimference/hooks/codex-post-tool.sh - PostToolUse Bash hook script
+//  3. ~/.codex/hooks.json - PreToolUse/PostToolUse Bash hook entries
 //  3. ~/.codex/config.toml - adds openai_base_url + codex_hooks feature flag
 //
 // If a hooks.json already exists with Slimference entries, it is not modified.
 // If config.toml already has openai_base_url set, the value is not overwritten.
 func InstallCodex(home string, slimferenceCmd string) error {
-	// Step 1: Write hook script to ~/.slimference/hooks/
+	// Step 1: Write hook scripts to ~/.slimference/hooks/
 	hooksDir := filepath.Join(home, ".slimference", "hooks")
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
 		return fmt.Errorf("create hooks dir: %w", err)
 	}
-	scriptPath := filepath.Join(hooksDir, "codex-post-tool.sh")
-	scriptContent := codexHookScript(slimferenceCmd)
-	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+	preScriptPath := CodexPreHookScriptPath(home)
+	if err := os.WriteFile(preScriptPath, []byte(codexPreToolHookScript(slimferenceCmd)), 0755); err != nil {
+		return fmt.Errorf("write pre-tool hook script: %w", err)
+	}
+	postScriptPath := CodexHookScriptPath(home)
+	if err := os.WriteFile(postScriptPath, []byte(codexPostToolHookScript(slimferenceCmd)), 0755); err != nil {
 		return fmt.Errorf("write hook script: %w", err)
 	}
 
 	// Step 2: Write/update ~/.codex/hooks.json
-	if err := installCodexHooksJSON(home, scriptPath); err != nil {
+	if err := installCodexHooksJSONWithScripts(home, preScriptPath, postScriptPath); err != nil {
 		return fmt.Errorf("write hooks.json: %w", err)
 	}
 
@@ -61,7 +125,13 @@ func InstallCodex(home string, slimferenceCmd string) error {
 }
 
 // installCodexHooksJSON writes or merges Slimference hooks into ~/.codex/hooks.json.
+// The single scriptPath argument is kept for test compatibility and is treated as the
+// PostToolUse path; the PreToolUse path is derived from the home directory.
 func installCodexHooksJSON(home string, scriptPath string) error {
+	return installCodexHooksJSONWithScripts(home, CodexPreHookScriptPath(home), scriptPath)
+}
+
+func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScriptPath string) error {
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0755); err != nil {
 		return err
@@ -69,48 +139,33 @@ func installCodexHooksJSON(home string, scriptPath string) error {
 
 	hooksPath := filepath.Join(codexDir, "hooks.json")
 
-	// Read existing hooks.json if present.
 	existing := make(map[string]interface{})
 	if data, err := os.ReadFile(hooksPath); err == nil {
 		_ = json.Unmarshal(data, &existing)
 	}
 
-	// Check if Slimference hook already exists in PostToolUse.
-	postToolUse, _ := existing["PostToolUse"].([]interface{})
-	for _, entry := range postToolUse {
-		if m, ok := entry.(map[string]interface{}); ok {
-			hooks, _ := m["hooks"].([]interface{})
-			for _, h := range hooks {
-				if fn, ok := h.(map[string]interface{}); ok {
-					// Check both command path and statusMessage for slimference.
-					cmd, _ := fn["command"].(string)
-					msg, _ := fn["statusMessage"].(string)
-					if strings.Contains(strings.ToLower(cmd), "slimference") ||
-						strings.Contains(strings.ToLower(msg), "slimference") {
-						return nil // already installed
-					}
-				}
-			}
-		}
-	}
-
-	// Build the Slimference PostToolUse hook entry.
-	entry := map[string]interface{}{
+	existing["PreToolUse"] = mergeCodexHookEntries(existing["PreToolUse"], map[string]interface{}{
 		"matcher": "Bash",
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":          "command",
-				"command":       fmt.Sprintf("bash %s", scriptPath),
+				"command":       fmt.Sprintf("bash %s", preScriptPath),
+				"statusMessage": "Slimference rewrite guard",
+			},
+		},
+	})
+	existing["PostToolUse"] = mergeCodexHookEntries(existing["PostToolUse"], map[string]interface{}{
+		"matcher": "Bash",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":          "command",
+				"command":       fmt.Sprintf("bash %s", postScriptPath),
 				"statusMessage": "Slimference filter",
 			},
 		},
-	}
+	})
 
-	// Append to existing PostToolUse array or create new one.
-	postToolUse = append(postToolUse, entry)
-	existing["PostToolUse"] = postToolUse
-
-	data, err := json.MarshalIndent(existing, "", "  ")
+	data, err := jsonMarshalIndentFn(existing, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -189,8 +244,8 @@ func RemoveCodex(home string) error {
 	}
 
 	// Remove hook script.
-	scriptPath := filepath.Join(home, ".slimference", "hooks", "codex-post-tool.sh")
-	_ = os.Remove(scriptPath)
+	_ = os.Remove(CodexPreHookScriptPath(home))
+	_ = os.Remove(CodexHookScriptPath(home))
 
 	// Remove AGENTS.md block (legacy).
 	return removeCodexAgentsMD(home)
@@ -212,37 +267,10 @@ func removeCodexHooksJSON(home string) error {
 		return nil // not valid JSON, nothing to remove
 	}
 
-	postToolUse, _ := existing["PostToolUse"].([]interface{})
-	filtered := make([]interface{}, 0, len(postToolUse))
-	for _, entry := range postToolUse {
-		m, ok := entry.(map[string]interface{})
-		if !ok {
-			filtered = append(filtered, entry)
-			continue
-		}
-		hooks, _ := m["hooks"].([]interface{})
-		hasSlimference := false
-		for _, h := range hooks {
-			if fn, ok := h.(map[string]interface{}); ok {
-				cmd, _ := fn["command"].(string)
-				if strings.Contains(cmd, "slimference") {
-					hasSlimference = true
-					break
-				}
-			}
-		}
-		if !hasSlimference {
-			filtered = append(filtered, entry)
-		}
-	}
+	removeCodexHookEvent(existing, "PreToolUse")
+	removeCodexHookEvent(existing, "PostToolUse")
 
-	if len(filtered) == 0 {
-		delete(existing, "PostToolUse")
-	} else {
-		existing["PostToolUse"] = filtered
-	}
-
-	out, err := json.MarshalIndent(existing, "", "  ")
+	out, err := jsonMarshalIndentFn(existing, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -339,10 +367,68 @@ func CodexHookInstalled(home string) bool {
 		return false
 	}
 	content := string(data)
-	return strings.Contains(content, "slimference") || strings.Contains(content, "Slimference")
+	hasPre := strings.Contains(content, "codex-pre-tool.sh") || strings.Contains(content, "Slimference rewrite guard")
+	hasPost := strings.Contains(content, "codex-post-tool.sh") || strings.Contains(content, "Slimference filter")
+	return hasPre && hasPost
+}
+
+// CodexPreHookScriptPath returns the path to the installed Codex PreToolUse hook script.
+func CodexPreHookScriptPath(home string) string {
+	return filepath.Join(home, ".slimference", "hooks", "codex-pre-tool.sh")
 }
 
 // CodexHookScriptPath returns the path to the installed Codex hook script.
 func CodexHookScriptPath(home string) string {
 	return filepath.Join(home, ".slimference", "hooks", "codex-post-tool.sh")
+}
+
+func mergeCodexHookEntries(existing interface{}, slimferenceEntry map[string]interface{}) []interface{} {
+	entries, _ := existing.([]interface{})
+	filtered := make([]interface{}, 0, len(entries)+1)
+	for _, entry := range entries {
+		if codexEntryHasSlimferenceHook(entry) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return append(filtered, slimferenceEntry)
+}
+
+func removeCodexHookEvent(existing map[string]interface{}, eventName string) {
+	entries, _ := existing[eventName].([]interface{})
+	filtered := make([]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		if codexEntryHasSlimferenceHook(entry) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	if len(filtered) == 0 {
+		delete(existing, eventName)
+		return
+	}
+	existing[eventName] = filtered
+}
+
+func codexEntryHasSlimferenceHook(entry interface{}) bool {
+	entryMap, ok := entry.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	hooksSlice, _ := entryMap["hooks"].([]interface{})
+	for _, hook := range hooksSlice {
+		hookMap, ok := hook.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		command, _ := hookMap["command"].(string)
+		statusMessage, _ := hookMap["statusMessage"].(string)
+		if strings.Contains(command, "codex-pre-tool.sh") || strings.Contains(command, "codex-post-tool.sh") {
+			return true
+		}
+		if strings.Contains(statusMessage, "Slimference rewrite guard") || strings.Contains(statusMessage, "Slimference filter") {
+			return true
+		}
+	}
+	return false
 }

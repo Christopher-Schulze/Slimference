@@ -75,6 +75,7 @@ func TestLayer2_ShouldTriggerCompression(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.MinMessagesForCompression = 2
 	cfg.SlidingWindow = 1
+	cfg.MinTokensForLayer2 = 1
 	l := NewLayer2(&cfg)
 	short := []types.Message{msg(t, 0, "user", "a")}
 	if l.ShouldTriggerCompression(short) {
@@ -191,6 +192,7 @@ func TestLayer2_RunCompressionJob_tooFewMessages(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.MinMessagesForCompression = 20
 	cfg.SlidingWindow = 5
+	cfg.MinTokensForLayer2 = 1
 	l := NewLayer2(&cfg)
 	// Only 3 messages - compression should not trigger.
 	msgs := []types.Message{
@@ -210,6 +212,7 @@ func TestLayer2_RunCompressionJob_allAnchors(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.MinMessagesForCompression = 2
 	cfg.SlidingWindow = 1
+	cfg.MinTokensForLayer2 = 1
 	l := NewLayer2(&cfg)
 	// All messages are anchors (edit tool_use messages).
 	msgs := make([]types.Message, 5)
@@ -240,6 +243,7 @@ func TestLayer2_RunCompressionJob_incrementalExtension(t *testing.T) {
 	cfg.MiniMax.MaxRetries = 0
 	cfg.SlidingWindow = 2
 	cfg.MinMessagesForCompression = 4
+	cfg.MinTokensForLayer2 = 1
 
 	l := NewLayer2(&cfg)
 	msgs := make([]types.Message, 20)
@@ -275,6 +279,7 @@ func TestLayer2_RunCompressionJob_incrementalAlreadyCovered(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.SlidingWindow = 2
 	cfg.MinMessagesForCompression = 4
+	cfg.MinTokensForLayer2 = 1
 
 	l := NewLayer2(&cfg)
 	msgs := make([]types.Message, 20)
@@ -328,6 +333,7 @@ func TestLayer2_RunCompressionJob_deltaAllAnchors(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.SlidingWindow = 2
 	cfg.MinMessagesForCompression = 4
+	cfg.MinTokensForLayer2 = 1
 
 	l := NewLayer2(&cfg)
 
@@ -379,6 +385,7 @@ func TestLayer2_RunCompressionJob_validationFails(t *testing.T) {
 	cfg.MiniMax.MaxRetries = 0
 	cfg.SlidingWindow = 5
 	cfg.MinMessagesForCompression = 8
+	cfg.MinTokensForLayer2 = 1
 
 	l := NewLayer2(&cfg)
 	msgs := make([]types.Message, 20)
@@ -402,6 +409,7 @@ func TestLayer2_ShouldTriggerCompression_stale(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.MinMessagesForCompression = 2
 	cfg.SlidingWindow = 1
+	cfg.MinTokensForLayer2 = 1
 	l := NewLayer2(&cfg)
 
 	long := make([]types.Message, 10)
@@ -476,6 +484,7 @@ func TestLayer2_ShouldTriggerCompression_boundaryIdxZero(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.MinMessagesForCompression = 1
 	cfg.SlidingWindow = 1
+	cfg.MinTokensForLayer2 = 1
 	l := NewLayer2(&cfg)
 
 	// Two user messages back-to-back + window=1:

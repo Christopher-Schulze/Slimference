@@ -177,13 +177,15 @@ func TestResponseCache_Invalidate_bySubstring(t *testing.T) {
 	msgs2 := buildMessages(t, "user", "two")
 	k1 := cache.ComputeKey(msgs1, "m")
 	k2 := cache.ComputeKey(msgs2, "m")
-	cache.Set(k1, makeEntry(`{"file":"/proj/src/foo.go"}`))
+	entry1 := makeEntry(`{"ok":true}`)
+	entry1.DependencyPaths = []string{"src/foo.go"}
+	cache.Set(k1, entry1)
 	cache.Set(k2, makeEntry(`{"other":true}`))
 
 	cache.Invalidate("/proj/src/foo.go")
 
 	if _, ok := cache.Get(k1); ok {
-		t.Fatal("entry containing needle should be removed")
+		t.Fatal("entry with matching dependency path should be removed")
 	}
 	if _, ok := cache.Get(k2); !ok {
 		t.Fatal("entry without needle should remain")

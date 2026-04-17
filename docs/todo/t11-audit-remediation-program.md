@@ -1,6 +1,6 @@
 # T11 - Audit Remediation Program
 
-Status: open
+Status: closed
 Priority: critical
 Scope: repository-wide production-readiness lift
 
@@ -70,12 +70,12 @@ Rationale:
 
 ## Subtasks
 
-- [ ] Land T13 and add hot-path regression tests.
-- [ ] Land T12 and add install/remove/verify integration fixtures.
-- [ ] Land T14 and decide the supported Layer 2 operating modes.
-- [ ] Land T15 and prove launchd lifecycle behavior end-to-end.
-- [ ] Land T16 and make release proof reproducible from a clean checkout.
-- [ ] Re-run the deep audit and diff against `docs/audit-1.md`.
+- [x] Land T13 and add hot-path regression tests.
+- [x] Land T12 and add install/remove/verify integration fixtures.
+- [x] Land T14 and decide the supported Layer 2 operating modes.
+- [x] Land T15 and prove launchd lifecycle behavior end-to-end.
+- [x] Land T16 and make release proof reproducible from a clean checkout.
+- [x] Re-run the deep audit and diff against `docs/audit-1.md`.
 
 ---
 
@@ -94,3 +94,9 @@ Additional manual verification required:
 - Claude Code hook install -> verify -> remove on a temp home directory
 - Codex hook install -> verify -> remove on a temp home directory
 - local daemon install/uninstall on macOS without plaintext secret persistence
+
+Closure note:
+
+- completed by `docs/audit-2.md`
+- all workstreams T12-T16 are closed
+- repository proof stack is reproducible with repository-native commands

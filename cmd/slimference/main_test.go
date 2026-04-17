@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/proxy"
@@ -1752,7 +1754,8 @@ func TestHandleSubcommand_hook_installRemove_claude_and_codex(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r2)
-	if !strings.Contains(buf.String(), "Installed Codex hooks") {		t.Fatalf("install codex: %q", buf.String())
+	if !strings.Contains(buf.String(), "Installed Codex hooks") {
+		t.Fatalf("install codex: %q", buf.String())
 	}
 
 	r3, w3, _ := os.Pipe()
@@ -2282,14 +2285,14 @@ func TestPrintStatsTable_smoke(t *testing.T) {
 	os.Stdout = w
 	printStatsTable([]analytics.AnalyticsSnapshot{
 		{
-			SessionStart:     time.Now(),
-			TotalRequests:    3,
-			TotalInputTokens: 1000,
-			SavedInputTokens: 100,
+			SessionStart:      time.Now(),
+			TotalRequests:     3,
+			TotalInputTokens:  1000,
+			SavedInputTokens:  100,
 			TotalOutputTokens: 50,
-			CacheHits:        1,
-			MiniMaxCalls:     2,
-			SecretsRedacted:  0,
+			CacheHits:         1,
+			MiniMaxCalls:      2,
+			SecretsRedacted:   0,
 		},
 	})
 	_ = w.Close()
@@ -2329,7 +2332,7 @@ func TestFormatTokensPlain(t *testing.T) {
 		{1_000_000, "1.0M"},
 		{2_500_000, "2.5M"},
 	}
-		for _, tt := range tests {
+	for _, tt := range tests {
 		got := formatTokensPlain(tt.input)
 		if got != tt.want {
 			t.Errorf("formatTokensPlain(%d) = %q, want %q", tt.input, got, tt.want)
@@ -2625,7 +2628,8 @@ func TestHandleHookCmd_installCodex_success(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "Installed Codex hooks") {		t.Fatalf("expected codex install message, got: %q", buf.String())
+	if !strings.Contains(buf.String(), "Installed Codex hooks") {
+		t.Fatalf("expected codex install message, got: %q", buf.String())
 	}
 }
 
@@ -3155,7 +3159,6 @@ func TestHandleDebugLast_queryErrorExits1(t *testing.T) {
 		t.Fatalf("want exit 1, got err=%v", err)
 	}
 }
-
 
 // TestHandleTestCmd_interceptCallsTestIntercept covers the testIntercept call from handleTestCmd
 // (main.go:488) via the intercept subcommand path. Uses an ephemeral listen port.
@@ -4461,5 +4464,881 @@ func TestApplyTUIFlags(t *testing.T) {
 			t.Fatalf("port should not change for non-numeric: %d", cfg.Proxy.ListenPort)
 		}
 	})
+
+	t.Run("missing_argument_flags_ignored", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--port", "--sliding-window", "--log-level"})
+		if cfg.Proxy.ListenPort != 8080 || cfg.Compression.SlidingWindow != 20 || cfg.Logging.Level != "info" {
+			t.Fatalf("unexpected config after missing args: %+v", cfg)
+		}
+	})
+
+	t.Run("invalid_sliding_window_ignored", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--sliding-window", "0"})
+		if cfg.Compression.SlidingWindow != 20 {
+			t.Fatalf("sliding window should stay unchanged: %d", cfg.Compression.SlidingWindow)
+		}
+	})
 }
 
+func TestHandlePostToolCmd(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	origGetwd := osGetwd
+	origConfigLoad := configLoadFn
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+		osGetwd = origGetwd
+		configLoadFn = origConfigLoad
+	}()
+
+	t.Run("usage_on_unexpected_arg", func(t *testing.T) {
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handlePostToolCmd([]string{"bad"}) })
+		cleanup()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rp)
+		if !exited || code != 1 || !strings.Contains(buf.String(), "usage: slimference posttool") {
+			t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+		}
+	})
+
+	t.Run("usage_when_terminal", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return true }
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handlePostToolCmd(nil) })
+		cleanup()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rp)
+		if !exited || code != 1 || !strings.Contains(buf.String(), "usage: slimference posttool") {
+			t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+		}
+		termIsTerminalFn = origTerm
+	})
+
+	t.Run("stdin_read_error", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return false }
+		readStdinAll = func() ([]byte, error) { return nil, errors.New("read fail") }
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handlePostToolCmd(nil) })
+		cleanup()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rp)
+		if !exited || code != 1 || !strings.Contains(buf.String(), "read stdin: read fail") {
+			t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+		}
+		readStdinAll = origRead
+	})
+
+	t.Run("json_parse_error", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return false }
+		readStdinAll = func() ([]byte, error) { return []byte("{"), nil }
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handlePostToolCmd(nil) })
+		cleanup()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rp)
+		if !exited || code != 1 || !strings.Contains(buf.String(), "filter: JSON") {
+			t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+		}
+		readStdinAll = origRead
+	})
+
+	t.Run("missing_tool_response_error", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return false }
+		readStdinAll = func() ([]byte, error) { return []byte(`{"command":"git status"}`), nil }
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handlePostToolCmd([]string{"--"}) })
+		cleanup()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rp)
+		if !exited || code != 1 || !strings.Contains(buf.String(), `no string field "tool_response"`) {
+			t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+		}
+		readStdinAll = origRead
+	})
+
+	t.Run("no_change_emits_nothing", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return false }
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"command":"echo hi","tool_response":"short output"}`), nil
+		}
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 500
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "/tmp", nil }
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if buf.Len() != 0 {
+			t.Fatalf("expected no stdout when output unchanged, got %q", buf.String())
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	})
+
+	t.Run("compacted_output_emits_hook_json", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return false }
+		payload, err := json.Marshal(map[string]string{
+			"command":       "git status",
+			"tool_response": strings.Repeat("line\n", 300),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) {
+			return payload, nil
+		}
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 40
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "", errors.New("no wd") }
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, `"hookEventName":"PostToolUse"`) || !strings.Contains(out, `Slimference compacted Bash output for \"git status\"`) || !strings.Contains(out, `[slimference: truncated to 40 characters]`) {
+			t.Fatalf("unexpected stdout: %q", out)
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	})
+
+	t.Run("compacted_output_without_command_uses_generic_context", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return false }
+		payload, err := json.Marshal(map[string]string{
+			"tool_response": strings.Repeat("line\n", 300),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 40
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd([]string{"--"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, `Slimference compacted Bash output.`) || strings.Contains(out, `for \"`) {
+			t.Fatalf("unexpected stdout: %q", out)
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+	})
+
+	t.Run("encode_error_exits", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return false }
+		payload, err := json.Marshal(map[string]string{
+			"command":       "git status",
+			"tool_response": strings.Repeat("line\n", 300),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 40
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "/tmp", nil }
+
+		oldStdout := os.Stdout
+		oldStderr := os.Stderr
+		rp, wp, _ := os.Pipe()
+		_ = wp.Close()
+		errR, errW, _ := os.Pipe()
+		os.Stdout = wp
+		os.Stderr = errW
+		code, exited := captureExit(func() { handlePostToolCmd(nil) })
+		_ = errW.Close()
+		os.Stdout = oldStdout
+		os.Stderr = oldStderr
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, errR)
+		_ = rp.Close()
+		if !exited || code != 1 || !strings.Contains(buf.String(), "encode posttool output") {
+			t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	})
+}
+
+func TestHandleSubcommand_PostToolDispatch(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	origConfigLoad := configLoadFn
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+	}()
+
+	termIsTerminalFn = func(int) bool { return false }
+	payload, err := json.Marshal(map[string]string{
+		"command":       "git status",
+		"tool_response": strings.Repeat("x", 500),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readStdinAll = func() ([]byte, error) {
+		return payload, nil
+	}
+	cfg := config.Defaults()
+	cfg.Filter.PassthroughMaxChars = 20
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"posttool"})
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), `"hookEventName":"PostToolUse"`) {
+		t.Fatalf("unexpected stdout: %q", buf.String())
+	}
+}
+
+func TestHandleSubcommand_DaemonAndServiceDispatch(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origRunDaemon := daemonRunFn
+	origStop := daemonStopFn
+	origInstall := daemonInstallLaunchdFn
+	origUninstall := daemonUninstallFn
+	origFormatStatus := daemonFormatStatusFn
+	origExecutable := osExecutable
+	origStartProcess := osStartProcess
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		daemonRunFn = origRunDaemon
+		daemonStopFn = origStop
+		daemonInstallLaunchdFn = origInstall
+		daemonUninstallFn = origUninstall
+		daemonFormatStatusFn = origFormatStatus
+		osExecutable = origExecutable
+		osStartProcess = origStartProcess
+	}()
+
+	daemonRunFn = func(func() (int, func(context.Context) error, error)) error { return nil }
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	daemonStopFn = func() error { return nil }
+	daemonInstallLaunchdFn = func(string) error { return nil }
+	daemonUninstallFn = func() error { return nil }
+	daemonFormatStatusFn = func() ([]byte, error) { return []byte(`{"running":false}`), nil }
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+		return os.FindProcess(os.Getpid())
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"daemon"})
+	handleSubcommand([]string{"start"})
+	handleSubcommand([]string{"stop"})
+	handleSubcommand([]string{"restart"})
+	handleSubcommand([]string{"service", "install"})
+	handleSubcommand([]string{"service", "uninstall"})
+	handleSubcommand([]string{"service", "status"})
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Slimference daemon started.") || !strings.Contains(out, "Service installed.") || !strings.Contains(out, `"running":false`) {
+		t.Fatalf("unexpected stdout: %q", out)
+	}
+}
+
+func TestSetupLogging_FallbackTextAndInfoLevel(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Logging.Level = "info"
+	cfg.Logging.Format = "text"
+	cfg.Logging.File = filepath.Join("/no/such", "dir", "slimference.log")
+	setupLogging(cfg)
+}
+
+func TestSetupLogging_FallbackJSON(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Logging.Level = "warn"
+	cfg.Logging.Format = "json"
+	cfg.Logging.File = filepath.Join("/no/such", "dir", "slimference.log")
+	setupLogging(cfg)
+}
+
+func TestServiceControlAdapter_StartDaemon(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origExecutable := osExecutable
+	origStartProcess := osStartProcess
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		osExecutable = origExecutable
+		osStartProcess = origStartProcess
+	}()
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	started := false
+	osStartProcess = func(name string, argv []string, attr *os.ProcAttr) (*os.Process, error) {
+		started = true
+		if name != "/tmp/slimference" || len(argv) != 2 || argv[1] != "daemon" || attr == nil {
+			t.Fatalf("unexpected start args: name=%q argv=%v attr=%#v", name, argv, attr)
+		}
+		return os.FindProcess(os.Getpid())
+	}
+
+	if err := (&serviceControlAdapter{}).StartDaemon(); err != nil {
+		t.Fatalf("StartDaemon: %v", err)
+	}
+	if !started {
+		t.Fatal("expected osStartProcess to be called")
+	}
+}
+
+func TestServiceControlAdapter_StartDaemonErrors(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origExecutable := osExecutable
+	origStartProcess := osStartProcess
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		osExecutable = origExecutable
+		osStartProcess = origStartProcess
+	}()
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 42, Port: 8990}, nil
+	}
+	if err := (&serviceControlAdapter{}).StartDaemon(); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("expected already running error, got %v", err)
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	osExecutable = func() (string, error) { return "", errors.New("no executable") }
+	if err := (&serviceControlAdapter{}).StartDaemon(); err == nil || !strings.Contains(err.Error(), "executable") {
+		t.Fatalf("expected executable error, got %v", err)
+	}
+
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+		return nil, errors.New("boom")
+	}
+	if err := (&serviceControlAdapter{}).StartDaemon(); err == nil || !strings.Contains(err.Error(), "start daemon") {
+		t.Fatalf("expected start daemon error, got %v", err)
+	}
+}
+
+func TestServiceControlAdapter_StopRestartInstallUninstallAndStatus(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origStop := daemonStopFn
+	origInstall := daemonInstallLaunchdFn
+	origUninstall := daemonUninstallFn
+	origExecutable := osExecutable
+	origStartProcess := osStartProcess
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		daemonStopFn = origStop
+		daemonInstallLaunchdFn = origInstall
+		daemonUninstallFn = origUninstall
+		osExecutable = origExecutable
+		osStartProcess = origStartProcess
+	}()
+
+	stopCalls := 0
+	daemonStopFn = func() error {
+		stopCalls++
+		return nil
+	}
+	if err := (&serviceControlAdapter{}).StopDaemon(); err != nil {
+		t.Fatalf("StopDaemon: %v", err)
+	}
+
+	isRunningChecks := 0
+	startCalls := 0
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		isRunningChecks++
+		if isRunningChecks == 1 {
+			return true, &daemon.PIDFile{PID: 42, Port: 8990}, nil
+		}
+		return false, nil, nil
+	}
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+		startCalls++
+		return os.FindProcess(os.Getpid())
+	}
+	if err := (&serviceControlAdapter{}).RestartDaemon(); err != nil {
+		t.Fatalf("RestartDaemon: %v", err)
+	}
+	if stopCalls != 2 || startCalls != 1 {
+		t.Fatalf("unexpected stop/start calls: stop=%d start=%d", stopCalls, startCalls)
+	}
+
+	daemonInstallLaunchdFn = func(binary string) error {
+		if binary != "/tmp/slimference" {
+			t.Fatalf("unexpected binary: %q", binary)
+		}
+		return nil
+	}
+	if err := (&serviceControlAdapter{}).InstallService(); err != nil {
+		t.Fatalf("InstallService: %v", err)
+	}
+
+	daemonUninstallFn = func() error { return nil }
+	if err := (&serviceControlAdapter{}).UninstallService(); err != nil {
+		t.Fatalf("UninstallService: %v", err)
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 7, Port: 8123}, nil
+	}
+	running, pid, port := (&serviceControlAdapter{}).DaemonStatus()
+	if !running || pid != 7 || port != 8123 {
+		t.Fatalf("DaemonStatus: running=%v pid=%d port=%d", running, pid, port)
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	running, pid, port = (&serviceControlAdapter{}).DaemonStatus()
+	if running || pid != 0 || port != 0 {
+		t.Fatalf("DaemonStatus false case: running=%v pid=%d port=%d", running, pid, port)
+	}
+}
+
+func TestServiceControlAdapter_RestartAndInstallServiceErrors(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origStop := daemonStopFn
+	origExecutable := osExecutable
+	origInstall := daemonInstallLaunchdFn
+	origStartProcess := osStartProcess
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		daemonStopFn = origStop
+		osExecutable = origExecutable
+		daemonInstallLaunchdFn = origInstall
+		osStartProcess = origStartProcess
+	}()
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 42, Port: 8990}, nil
+	}
+	daemonStopFn = func() error { return errors.New("stop failed") }
+	if err := (&serviceControlAdapter{}).RestartDaemon(); err == nil || !strings.Contains(err.Error(), "stop failed") {
+		t.Fatalf("expected restart stop error, got %v", err)
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	startCalls := 0
+	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+		startCalls++
+		return os.FindProcess(os.Getpid())
+	}
+	if err := (&serviceControlAdapter{}).RestartDaemon(); err != nil {
+		t.Fatalf("RestartDaemon no-running path: %v", err)
+	}
+	if startCalls != 1 {
+		t.Fatalf("expected one start call, got %d", startCalls)
+	}
+
+	osExecutable = func() (string, error) { return "", errors.New("no executable") }
+	if err := (&serviceControlAdapter{}).InstallService(); err == nil || !strings.Contains(err.Error(), "executable") {
+		t.Fatalf("expected install service executable error, got %v", err)
+	}
+
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	daemonInstallLaunchdFn = func(string) error { return errors.New("install failed") }
+	if err := (&serviceControlAdapter{}).InstallService(); err == nil || !strings.Contains(err.Error(), "install failed") {
+		t.Fatalf("expected install launchd error, got %v", err)
+	}
+}
+
+func TestServiceControlAdapter_HookOperations(t *testing.T) {
+	origHome := osUserHomeDir
+	origConfigLoad := configLoadFn
+	origInstallClaude := installClaudeHookFn
+	origInstallCodex := installCodexHookFn
+	origRemoveClaude := removeClaudeHookFn
+	origRemoveCodex := removeCodexHookFn
+	defer func() {
+		osUserHomeDir = origHome
+		configLoadFn = origConfigLoad
+		installClaudeHookFn = origInstallClaude
+		installCodexHookFn = origInstallCodex
+		removeClaudeHookFn = origRemoveClaude
+		removeCodexHookFn = origRemoveCodex
+	}()
+
+	osUserHomeDir = func() (string, error) { return "/tmp/home", nil }
+	cfg := config.Defaults()
+	cfg.Hooks.SlimferenceCommand = "/custom/slimference"
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+
+	installClaudeCalled := false
+	installClaudeHookFn = func(home, cmd string) error {
+		installClaudeCalled = true
+		if home != "/tmp/home" || cmd != "/custom/slimference" {
+			t.Fatalf("unexpected claude args: home=%q cmd=%q", home, cmd)
+		}
+		return nil
+	}
+	installCodexHookFn = func(home, cmd string) error {
+		if home != "/tmp/home" || cmd != "/custom/slimference" {
+			t.Fatalf("unexpected codex args: home=%q cmd=%q", home, cmd)
+		}
+		return nil
+	}
+	if err := (&serviceControlAdapter{}).InstallHook("claude"); err != nil {
+		t.Fatalf("InstallHook claude: %v", err)
+	}
+	if !installClaudeCalled {
+		t.Fatal("expected claude installer call")
+	}
+	if err := (&serviceControlAdapter{}).InstallHook("codex"); err != nil {
+		t.Fatalf("InstallHook codex: %v", err)
+	}
+	if err := (&serviceControlAdapter{}).InstallHook("nope"); err == nil {
+		t.Fatal("expected unknown hook target error")
+	}
+
+	removeClaudeHookFn = func(home string) error {
+		if home != "/tmp/home" {
+			t.Fatalf("unexpected remove claude home: %q", home)
+		}
+		return nil
+	}
+	removeCodexHookFn = func(home string) error {
+		if home != "/tmp/home" {
+			t.Fatalf("unexpected remove codex home: %q", home)
+		}
+		return nil
+	}
+	if err := (&serviceControlAdapter{}).RemoveHook("claude"); err != nil {
+		t.Fatalf("RemoveHook claude: %v", err)
+	}
+	if err := (&serviceControlAdapter{}).RemoveHook("codex"); err != nil {
+		t.Fatalf("RemoveHook codex: %v", err)
+	}
+	if err := (&serviceControlAdapter{}).RemoveHook("nope"); err == nil {
+		t.Fatal("expected unknown remove hook target error")
+	}
+
+	osUserHomeDir = func() (string, error) { return "", errors.New("no home") }
+	if err := (&serviceControlAdapter{}).InstallHook("claude"); err == nil || !strings.Contains(err.Error(), "home") {
+		t.Fatalf("expected home error, got %v", err)
+	}
+	if err := (&serviceControlAdapter{}).RemoveHook("claude"); err == nil || !strings.Contains(err.Error(), "home") {
+		t.Fatalf("expected home error, got %v", err)
+	}
+}
+
+func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origRunDaemon := daemonRunFn
+	origStop := daemonStopFn
+	origInstall := daemonInstallLaunchdFn
+	origUninstall := daemonUninstallFn
+	origFormatStatus := daemonFormatStatusFn
+	origExecutable := osExecutable
+	origStartProcess := osStartProcess
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		daemonRunFn = origRunDaemon
+		daemonStopFn = origStop
+		daemonInstallLaunchdFn = origInstall
+		daemonUninstallFn = origUninstall
+		daemonFormatStatusFn = origFormatStatus
+		osExecutable = origExecutable
+		osStartProcess = origStartProcess
+	}()
+
+	rp, cleanup := redirectStderr()
+	daemonRunFn = func(func() (int, func(context.Context) error, error)) error {
+		return errors.New("daemon fail")
+	}
+	code, exited := captureExit(handleDaemonCmd)
+	cleanup()
+	var errBuf bytes.Buffer
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "daemon fail") {
+		t.Fatalf("handleDaemonCmd: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return false, nil, nil
+	}
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	startCalls := 0
+	osStartProcess = func(name string, argv []string, attr *os.ProcAttr) (*os.Process, error) {
+		startCalls++
+		return os.FindProcess(os.Getpid())
+	}
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleStartCmd()
+	_ = w.Close()
+	os.Stdout = oldStdout
+	if startCalls != 1 {
+		t.Fatalf("expected one start call, got %d", startCalls)
+	}
+
+	daemonStopCalls := 0
+	daemonStopFn = func() error {
+		daemonStopCalls++
+		return nil
+	}
+	handleStopCmd()
+	restartChecks := 0
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		restartChecks++
+		if restartChecks == 1 {
+			return true, &daemon.PIDFile{PID: 1, Port: 2}, nil
+		}
+		return false, nil, nil
+	}
+	handleRestartCmd()
+	if daemonStopCalls != 2 {
+		t.Fatalf("expected stop to be called twice, got %d", daemonStopCalls)
+	}
+
+	daemonInstallLaunchdFn = func(binary string) error {
+		if binary != "/tmp/slimference" {
+			t.Fatalf("unexpected install binary: %q", binary)
+		}
+		return nil
+	}
+	daemonUninstallFn = func() error { return nil }
+	daemonFormatStatusFn = func() ([]byte, error) { return []byte(`{"running":true}`), nil }
+	handleServiceCmd([]string{"install"})
+	handleServiceCmd([]string{"uninstall"})
+	oldStdout = os.Stdout
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleServiceCmd([]string{"status"})
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var outBuf bytes.Buffer
+	_, _ = io.Copy(&outBuf, r)
+	if !strings.Contains(outBuf.String(), `"running":true`) {
+		t.Fatalf("status stdout: %q", outBuf.String())
+	}
+}
+
+func TestHandleStartStopRestartAndServiceCommandErrors(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origStop := daemonStopFn
+	origInstall := daemonInstallLaunchdFn
+	origUninstall := daemonUninstallFn
+	origFormatStatus := daemonFormatStatusFn
+	origExecutable := osExecutable
+	origStartProcess := osStartProcess
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		daemonStopFn = origStop
+		daemonInstallLaunchdFn = origInstall
+		daemonUninstallFn = origUninstall
+		daemonFormatStatusFn = origFormatStatus
+		osExecutable = origExecutable
+		osStartProcess = origStartProcess
+	}()
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return false, nil, errors.New("check fail")
+	}
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(handleStartCmd)
+	cleanup()
+	var errBuf bytes.Buffer
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "check daemon") {
+		t.Fatalf("handleStartCmd check error: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 9, Port: 8990}, nil
+	}
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(handleStartCmd)
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "already running") {
+		t.Fatalf("handleStartCmd already running: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	osExecutable = func() (string, error) { return "", errors.New("no executable") }
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(handleStartCmd)
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "executable") {
+		t.Fatalf("handleStartCmd executable: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+		return nil, errors.New("spawn fail")
+	}
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(handleStartCmd)
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "start daemon") {
+		t.Fatalf("handleStartCmd spawn: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	daemonStopFn = func() error { return errors.New("stop fail") }
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(handleStopCmd)
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "stop fail") {
+		t.Fatalf("handleStopCmd: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 1, Port: 2}, nil
+	}
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(handleRestartCmd)
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "stop: stop fail") {
+		t.Fatalf("handleRestartCmd: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() { handleServiceCmd(nil) })
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "usage: slimference service") {
+		t.Fatalf("handleServiceCmd usage: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	osExecutable = func() (string, error) { return "", errors.New("no executable") }
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() { handleServiceCmd([]string{"install"}) })
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "executable") {
+		t.Fatalf("handleServiceCmd install executable: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	daemonInstallLaunchdFn = func(string) error { return errors.New("install fail") }
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() { handleServiceCmd([]string{"install"}) })
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "install fail") {
+		t.Fatalf("handleServiceCmd install fail: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	daemonUninstallFn = func() error { return errors.New("uninstall fail") }
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() { handleServiceCmd([]string{"uninstall"}) })
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "uninstall fail") {
+		t.Fatalf("handleServiceCmd uninstall fail: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	daemonFormatStatusFn = func() ([]byte, error) { return nil, errors.New("status fail") }
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() { handleServiceCmd([]string{"status"}) })
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "status fail") {
+		t.Fatalf("handleServiceCmd status fail: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() { handleServiceCmd([]string{"nope"}) })
+	cleanup()
+	errBuf.Reset()
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "unknown service command") {
+		t.Fatalf("handleServiceCmd unknown: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+}
+
+func TestStartProxyForDaemon(t *testing.T) {
+	origConfigLoad := configLoadFn
+	origStartProxyFn := startProxyFn
+	defer func() {
+		configLoadFn = origConfigLoad
+		startProxyFn = origStartProxyFn
+	}()
+
+	configLoadFn = func() (*config.Config, error) {
+		return nil, errors.New("config failed")
+	}
+	if _, _, err := startProxyForDaemon(); err == nil || !strings.Contains(err.Error(), "config load") {
+		t.Fatalf("expected config load error, got %v", err)
+	}
+
+	cfg := config.Defaults()
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+	startProxyFn = func(*config.Config) (func(context.Context) error, error) {
+		return nil, errors.New("proxy failed")
+	}
+	_, _, err := startProxyForDaemon()
+	if err == nil || !strings.Contains(err.Error(), "proxy start") {
+		t.Fatalf("expected proxy start error, got %v", err)
+	}
+
+	cfg.Proxy.ListenPort = 7777
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+	startProxyFn = func(got *config.Config) (func(context.Context) error, error) {
+		if got != cfg {
+			t.Fatal("startProxyFn should receive loaded config")
+		}
+		return func(context.Context) error { return nil }, nil
+	}
+	port, shutdown, err := startProxyForDaemon()
+	if err != nil {
+		t.Fatalf("startProxyForDaemon success: %v", err)
+	}
+	if port != cfg.Proxy.ListenPort || shutdown == nil {
+		t.Fatalf("unexpected return values: port=%d shutdown_nil=%v", port, shutdown == nil)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := shutdown(ctx); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+}

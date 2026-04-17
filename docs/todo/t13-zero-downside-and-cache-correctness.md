@@ -1,6 +1,6 @@
 # T13 - Zero-Downside and Cache Correctness
 
-Status: open
+Status: closed
 Priority: critical
 Scope: proxy hot path, request reconstruction, Layer 3 request identity, invalidation semantics
 
@@ -81,12 +81,19 @@ The chosen model must prefer correctness over cache retention.
 
 ## Subtasks
 
-- [ ] Fix the hot-path zero-downside ordering bug.
-- [ ] Add a regression test that asserts the forwarded body after negative savings.
-- [ ] Design and implement a canonical effective-request normalizer.
-- [ ] Replace the current text-only cache key with the canonical fingerprint.
-- [ ] Replace substring invalidation with a correctness-first policy.
-- [ ] Add request-identity regression tests for text, tool, image, and param deltas.
+- [x] Fix the hot-path zero-downside ordering bug.
+- [x] Add a regression test that asserts the forwarded body after negative savings.
+- [x] Design and implement a canonical effective-request normalizer.
+- [x] Replace the current text-only cache key with the canonical fingerprint.
+- [x] Replace substring invalidation with a correctness-first policy.
+- [x] Add request-identity regression tests for text, tool, image, and param deltas.
+
+Closure note:
+
+- forwarded request bodies are rebuilt only after the kept message slice is final
+- Layer 3 identity is now provider + canonical full request body
+- cache invalidation is driven by extracted dependency paths instead of response
+  substring guesses
 
 ---
 

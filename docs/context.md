@@ -1,15 +1,18 @@
 # Slimference - Context & Worklog
 
-## Active Task - 2026-04-17 - Production readiness lift planning
+## Active Task - 2026-04-17 - Production readiness remediation and proof closure
 
-Goal: create the baseline audit, gap analysis, and executable remediation
-program needed to raise the implementation to the documented/spec target
-without lowering the target documents.
+Goal: close every blocker from `docs/audit-1.md`, complete the tracked
+remediation plans, re-run the repository proof stack, and publish a fresh-eyes
+follow-up audit without lowering any target documents.
 
-Artifacts opened in this task:
+Artifacts completed in this task:
 
-- `docs/audit-1.md`
-- `docs/gap-analysis.md`
+- `docs/audit-2.md`
+- `docs/changelog.md`
+- `docs/documentation.md`
+- `docs/map.md`
+- `docs/todo.md`
 - `docs/todo/t11-audit-remediation-program.md`
 - `docs/todo/t12-hook-contract-hardening.md`
 - `docs/todo/t13-zero-downside-and-cache-correctness.md`
@@ -17,128 +20,88 @@ Artifacts opened in this task:
 - `docs/todo/t15-daemon-service-productionization.md`
 - `docs/todo/t16-proof-gates-and-release-readiness.md`
 
-Planning rules for this pass:
+Execution rules for this pass:
 
-- keep the documentation/spec level as the target
-- convert audit findings into tracked implementation work
-- sequence by correctness first, proof second
-- use `docs/audit-1.md` as the fixed comparison baseline for the next audit
+- keep `docs/audit-1.md` as the frozen baseline
+- raise code and tests to the documented target instead of lowering docs
+- only mark the remediation program complete after live proof commands pass
 
-## Status: v1.4.0 - Spec parity complete: alle identifizierten Gaps geschlossen
+## Status: v2.0.2 - Production readiness remediation complete
 
-`go test -race ./...` green (caching fsnotify race is pre-existing, not in our code).
-§17.3 rate-limit retry and §17.5 health monitoring TUI complete as of 2026-04-13.
+Core outcome:
 
----
+- zero-downside is now mechanically enforced in the proxy hot path
+- Layer 3 keys the full canonical forwarded request, not text-only slices
+- Claude Code and Codex hook flows were rebuilt around the supported contracts
+- Layer 2 now propagates caller cancellation and defaults to strict validation
+- launchd uses a dedicated `0600` env file instead of embedding MiniMax secrets
+- the coverage gate is real and the repository now proves 100% Go coverage
 
-## Current State
+Repository proof as of this task:
 
-### What is done
-- 19 internal packages fully implemented and tested
-- `internal/slogutil` - rotating JSONL log file (10 MB/5 files), wired as slog default
-- Full debug-level structured logging: hot path (req_id scoped), Layer 0 filter names
-- All data races fixed: tuiSendFn, listener, cacheJanitorInterval, fsnotify kqueue tests
-- Analytics queue sends all non-blocking (hot path can never be blocked by analytics)
-- `Proxy.Shutdown()` idempotent via `sync.Once` (safe for concurrent signal + TUI quit)
-- Graceful proxy shutdown on normal TUI quit (not just on signal)
-- `sessions.SessionLogger.trySend()` - panic-proof send to potentially-closed subscriber channels
-- `reconstructBody` error handled (was silently sending nil body to upstream)
-- `analytics/persistence.go` - json.Marshal errors surfaced (were silently producing null payloads)
-- All `go.sum` populated, binary builds and runs
-- Layer 0 hook system for Claude Code and Codex working
-- TUI dashboard: main view, stats view, debug view, all key bindings
+- `go test ./...` green
+- `go test -race ./...` green
+- `go run ./scripts/ci` green
+- `go test -count=1 -cover ./cmd/... ./internal/...` -> `100.0%`
+- `bun test tests/ts` green
 
-### Defaults (updated from original spec)
-- `logging.level = "debug"` (was "info")
-- `logging.format = "json"` (was "text")
-- `logging.file = "~/.slimference/logs/slimference.jsonl"` (was empty/stderr)
+## Completed Workstreams
 
----
+### T13 - Zero-downside and cache correctness
 
-## Architecture Summary
+- moved the negative-savings revert so the forwarded body always matches the
+  kept compression result
+- added direct regression coverage for negative-savings forwarding
+- replaced the old text-only cache key with provider + canonical full-request
+  hashing
+- replaced response-substring invalidation with dependency-path extraction from
+  the request body and path-aware invalidation
 
-Two-mode operation: Layer 0 (CLI subprocess filter) + Layers 1-3 (HTTP proxy pipeline).
+### T12 - Hook contract hardening
 
-| Layer | Name | When | Latency |
-|-------|------|------|---------|
-| 0 | Pre-Entry Filtering | CLI hook, before LLM sees output | subprocess overhead only |
-| 1 | Deterministic Compression | Every proxy request, synchronous | <1ms |
-| 2 | MiniMax Summarization | Async, pre-computed during idle | 0ms (cache hit) or skipped |
-| 3 | Response Caching | Every proxy request | <0.1ms |
+- Claude PreToolUse now emits structured `hookSpecificOutput` with
+  `updatedInput` / `permissionDecision`
+- Claude settings merge/remove became non-destructive for unrelated user hooks
+- Codex now installs `hooks.json` PreToolUse and PostToolUse hooks plus a
+  dedicated `slimference posttool` path for captured output compaction
+- Codex verify now fails on missing scripts, missing config, or inconsistent
+  installs instead of treating breakage as best-effort
 
-### Request flow (proxy hot path)
-1. `proxy.ServeHTTP` reads body, detects provider from URL path
-2. Non-compressible paths (not /v1/messages, /v1/chat/completions): passthrough
-3. Provider toggle check; if off: passthrough
-4. Secret detection scan (redact/warn/block/off)
-5. Layer 1 synchronous compression (14 sub-layers in order)
-6. Layer 2 cache lookup; apply if hit, enqueue async job if miss
-7. Anthropic prompt cache breakpoint injection
-8. `reconstructBody` rebuilds wire-format request (error => 500 to client)
-9. `doUpstreamRequest` sends to real API; context overflow retry with aggressive compression
-10. SSE stream relay byte-for-byte to CLI
-11. Response cache store (Layer 3)
-12. Non-blocking analytics event emit
+### T14 - Layer 2 strictness and cancellation
 
-### Goroutine model
+- Layer 2 work now has explicit context-aware entry points and no remaining
+  production summarization path ignores caller cancellation
+- summary validation inspects structured message content, not just markdown
+  fences
+- strict mode is now a first-class summary config surface with regression tests
 
-| Goroutine | Owner | Channel/Signal |
-|-----------|-------|---------------|
-| TUI event loop | BubbleTea | program.Send() |
-| HTTP server (one per request) | net/http | context cancellation |
-| compressionWorker | proxy.Proxy | compressQueue (cap 4) |
-| analyticsWorker | proxy.Proxy | analyticsQueue (cap 256) |
-| cacheJanitor | proxy.Proxy | shutdownCh + ticker |
-| analyticsPeriodicFlush | proxy.Proxy | shutdownCh + ticker |
-| FileWatcher event loop | caching.FileWatcher | done channel + fsnotify |
+### T15 - Daemon service productionization
 
----
+- launchd plist generation no longer embeds `MINIMAX_API_KEY`
+- install/remove now exercise real `launchctl` lifecycle steps
+- generated env files are written with `0600` permissions and are removed on
+  uninstall
 
-## Key Design Decisions
+### T16 - Proof gates and release readiness
 
-### No CGO
-Tree-sitter replaced with regex-based structure extraction. Reason: CGO adds
-build complexity, cross-compilation issues, and binary size. Regex achieves 80%+
-of token savings at zero dependency risk.
+- `scripts/ci` now passes the intended coverage threshold directly
+- package-level coverage gaps were closed to 100% across `cmd/` and `internal/`
+- extra tests cover hook payloads, daemon lifecycle, response cache helpers,
+  TUI seams, summarization edge paths, and proxy startup races
 
-### Interface-based TUI/proxy decoupling
-`tui.ProxyInterface`, `SessionLoggerInterface`, `ProxyConfigInterface` defined in tui.
-proxy.Proxy implements all three. cmd/main.go wires via proxyAdapter. Prevents
-import cycle (proxy -> tui -> proxy).
+## Verification Snapshot
 
-### Atomic toggle switches
-Provider and layer on/off state in `[2]atomic.Bool` and `[3]atomic.Bool` on Proxy.
-TUI writes atomically; hot path reads without mutex.
+Commands used for final proof:
 
-### Analytics as best-effort
-All `analyticsQueue` sends are non-blocking (`select { case: default: }`). Analytics
-must never block HTTP handlers. The queue (cap 256) has enough headroom for normal load.
+- `go test ./...`
+- `go test -race ./...`
+- `go test -count=1 -cover ./cmd/... ./internal/...`
+- `go run ./scripts/ci`
+- `bun test tests/ts`
 
-### sync.Once on Shutdown
-`Proxy.Shutdown()` uses sync.Once so concurrent callers (signal handler + TUI quit)
-are safe. The first caller does all cleanup; subsequent callers return immediately.
+Fresh-eyes review artifact:
 
-### trySend pattern in SessionLogger
-`Log()` releases the mutex before sending to subscriber channels (to avoid holding
-the lock during delivery). `Unsubscribe()` closes the channel under the mutex.
-Between Log's lock release and its send, Unsubscribe can close the channel.
-Fix: `trySend()` wraps the send with `defer recover()`.
-
----
-
-## Reliability Fixes Applied (2026-04-13)
-
-| Bug | Severity | Location | Fix |
-|-----|----------|----------|-----|
-| Send to closed channel panic | High | sessions/logger.go | trySend with recover |
-| Blocking hot path on analytics | High | proxy/handler.go | Non-blocking select on all 5 sends |
-| Double close(shutdownCh) | High | proxy/handler.go | sync.Once in Shutdown() |
-| No graceful shutdown on TUI quit | Medium | cmd/main.go | p.Shutdown() after runTeaProgramFn |
-| reconstructBody error discarded | Medium | proxy/handler.go | Error check + 500 response |
-| json.Marshal silent null payload | Low | analytics/persistence.go | Error propagated |
-| fsnotify kqueue race in tests | Medium | caching/file_watcher_test.go | Removed t.Parallel() from 3 tests |
-
----
+- `docs/audit-2.md`
 
 ## Session Log
 
@@ -148,3 +111,8 @@ Fix: `trySend()` wraps the send with `defer recover()`.
 2026-04-13 - Spec parity: §17.8 enhanced /health endpoint (full status JSON: layers, providers,
              queue depth, cache entries, version, minimax_configured). §13.3 CLI flag overrides
              (--port, --sliding-window, --no-layer1/2/3, --log-level). ResponseCache.Len() added.
+2026-04-17 - Audit baseline and remediation plans created (`docs/audit-1.md`, `docs/gap-analysis.md`,
+             `docs/todo/t11`-`t16`).
+2026-04-17 - Production-readiness remediation completed: zero-downside fix, canonical request cache
+             keys, hook contract hardening, Layer 2 strictness + cancellation, launchd secret model,
+             100% Go coverage, CI gate repair, fresh-eyes audit (`docs/audit-2.md`).

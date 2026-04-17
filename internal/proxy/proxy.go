@@ -131,7 +131,7 @@ func New(cfg *config.Config) *Proxy {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 120 * time.Second, // SSE streams can be long
-		DisableCompression:    true,               // we handle our own compression
+		DisableCompression:    true,              // we handle our own compression
 	}
 	upstreamClient := &http.Client{Transport: transport}
 	p.httpClients[types.Anthropic] = upstreamClient
@@ -373,6 +373,13 @@ func (p *Proxy) ListenAddr() string {
 		return l.Addr().String()
 	}
 	return p.config.ListenAddr()
+}
+
+// HasListener reports whether Start has successfully bound a listener.
+func (p *Proxy) HasListener() bool {
+	p.listenerMu.RLock()
+	defer p.listenerMu.RUnlock()
+	return p.listener != nil
 }
 
 // GetLayer2Cache returns the Layer 2 summary cache for TUI inspection.

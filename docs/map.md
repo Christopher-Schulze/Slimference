@@ -63,10 +63,9 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 - `internal/filter/builtin_read.go`: F06 file read (cat/head/tail + comment strip)
 - `internal/filter/builtin_compact_helpers.go`: shared label/empty-detection helpers
 - `internal/filter/project_filters.go`: LoadMergedDenyPatterns() - project + user filter merge
-- `internal/hooks/hooks.go`: Install/Remove/Verify for 10 LLM agent targets
-- `internal/hooks/claude.go`: Claude Code hook script generation + settings.json patch
-- `internal/hooks/codex.go`: Codex AGENTS.md marker injection
-- `internal/hooks/verify.go`: InstalledStatus(home) - check Claude/Codex hook presence
+- `internal/hooks/claude.go`: Claude Code PreToolUse structured contract + non-destructive settings.json merge/remove
+- `internal/hooks/codex.go`: Codex hooks.json PreToolUse/PostToolUse install, config.toml patch, legacy AGENTS.md fallback
+- `internal/hooks/verify.go`: authoritative Claude/Codex install verification
 
 ### Layer 1 - Deterministic Compression
 
@@ -90,10 +89,10 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 
 ### Layer 2 - MiniMax Summarization
 
-- `internal/summarization/layer2.go`: Layer2 coordinator
+- `internal/summarization/layer2.go`: Layer2 coordinator, strict summary formatting, context-aware compression jobs
 - `internal/summarization/minimax.go`: MiniMax M2.7 API client
 - `internal/summarization/anchor.go`: Anchor point detection (5 types)
-- `internal/summarization/validator.go`: Quality validation (5 checks)
+- `internal/summarization/validator.go`: strict quality validation over structured content blocks
 - `internal/summarization/cache.go`: SummaryCache with atomic Compressing flag
 - `internal/summarization/progressive.go`: Multi-tier compression
 - `internal/summarization/adaptive_window.go`: L2.8 complexity-driven window sizing
@@ -101,13 +100,13 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 
 ### Layer 3 - Response Caching
 
-- `internal/caching/response_cache.go`: LRU response cache with TTL and SHA256 key
-- `internal/caching/file_watcher.go`: fsnotify watcher for cache invalidation
+- `internal/caching/response_cache.go`: LRU response cache with canonical full-request SHA256 key + dependency-path invalidation
+- `internal/caching/file_watcher.go`: fsnotify watcher for dependency-path cache invalidation
 
 ### Core Proxy (HTTP Handler)
 
-- `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), toggle atomics
-- `internal/proxy/handler.go`: handleCompressibleRequest() hot path, buildLayer1Breakdown()
+- `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), toggle atomics, listener readiness state
+- `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, buildLayer1Breakdown()
 - `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction
 - `internal/proxy/streaming.go`: SSE relay, token counting from stream events
 
@@ -200,6 +199,7 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 ## Audit and Planning Artifacts
 
 - `docs/audit-1.md`: fixed production-readiness baseline for comparison against later audits
+- `docs/audit-2.md`: fresh-eyes follow-up audit after remediation closure
 - `docs/gap-analysis.md`: target-vs-reality matrix and closure conditions
 - `docs/todo/t11-audit-remediation-program.md`: program driver and sequencing
 - `docs/todo/t12-hook-contract-hardening.md`: Claude Code and Codex hook remediation plan

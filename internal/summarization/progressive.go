@@ -90,6 +90,12 @@ func DetermineCompressionTiers(totalMessages, windowSize int) []CompressionTier 
 // message array. Tier entries with TargetRatio == 1.0 are kept verbatim.
 // Compression failures for a tier are logged and that tier is kept verbatim.
 func (l *Layer2) ApplyProgressiveTiers(messages []types.Message, tiers []CompressionTier) []types.Message {
+	ctx, cancel := context.WithTimeout(context.Background(), l.jobTimeout())
+	defer cancel()
+	return l.applyProgressiveTiersWithContext(ctx, messages, tiers)
+}
+
+func (l *Layer2) applyProgressiveTiersWithContext(ctx context.Context, messages []types.Message, tiers []CompressionTier) []types.Message {
 	if len(tiers) == 0 {
 		return messages
 	}
@@ -146,7 +152,7 @@ func (l *Layer2) ApplyProgressiveTiers(messages []types.Message, tiers []Compres
 			targetTokens = 50
 		}
 
-		summary, _, err := l.chain.Summarize(context.Background(), inputText, start, end, targetTokens)
+		summary, _, err := l.chain.Summarize(ctx, inputText, start, end, targetTokens)
 		if err != nil {
 			slog.Warn("progressive tier compression failed, keeping verbatim",
 				slog.String("tier", tier.Name),

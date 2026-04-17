@@ -33,6 +33,7 @@ func TestLayer2_RunCompressionJob_storesSummary(t *testing.T) {
 	cfg.MiniMax.MaxRetries = 0
 	cfg.SlidingWindow = 5
 	cfg.MinMessagesForCompression = 8
+	cfg.MinTokensForLayer2 = 1
 
 	l := NewLayer2(&cfg)
 
@@ -71,6 +72,7 @@ func TestLayer2_RunCompressionJob_summarizeHTTPError(t *testing.T) {
 	cfg.MiniMax.MaxRetries = 0
 	cfg.SlidingWindow = 5
 	cfg.MinMessagesForCompression = 8
+	cfg.MinTokensForLayer2 = 1
 
 	l := NewLayer2(&cfg)
 	msgs := make([]types.Message, 20)
@@ -98,6 +100,7 @@ func TestLayer2_RunCompressionJob_emptyToSummarize(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.SlidingWindow = 5
 	cfg.MinMessagesForCompression = 8
+	cfg.MinTokensForLayer2 = 1
 
 	l := NewLayer2(&cfg)
 
@@ -149,6 +152,7 @@ func TestLayer2_RunCompressionJob_inputTokenCap(t *testing.T) {
 	cfg.MiniMax.MaxRetries = 0
 	cfg.SlidingWindow = 5
 	cfg.MinMessagesForCompression = 8
+	cfg.MinTokensForLayer2 = 1
 
 	l := NewLayer2(&cfg)
 

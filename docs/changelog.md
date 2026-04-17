@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.0.2 - 2026-04-17
+
+### Production Readiness Remediation Complete
+
+- Closed the full remediation program opened by `docs/audit-1.md` and
+  `docs/gap-analysis.md`.
+- Fixed the proxy hot-path zero-downside ordering bug so negative-savings
+  requests are reverted before the forwarded body is built.
+- Replaced the old Layer 3 text-only cache identity with provider-aware
+  canonical full-request hashing plus dependency-path invalidation.
+- Reworked Claude Code hooks to emit structured `hookSpecificOutput` and to
+  merge/remove `settings.json` entries without destroying unrelated hooks.
+- Reworked Codex integration around `hooks.json` PreToolUse/PostToolUse hooks
+  plus the dedicated `slimference posttool` output-compaction path. `hook verify`
+  now fails on broken Codex installs.
+- Tightened Layer 2 by propagating cancellation through production call paths,
+  enabling strict summary mode by default, and validating against structured
+  message content instead of markdown accidents.
+- Hardened the daemon/service path: launchd now sources a `0600` env file,
+  never embeds `MINIMAX_API_KEY` in the plist, and install/remove performs real
+  `launchctl` lifecycle steps.
+- Repaired the release proof stack: `scripts/ci` now enforces the intended
+  coverage threshold and the repository now reaches `100.0%` Go coverage across
+  `cmd/` and `internal/`.
+- Added the fresh-eyes follow-up review in `docs/audit-2.md` and synced
+  `docs/documentation.md`, `docs/map.md`, `docs/context.md`, and the T11-T16
+  workstream docs to the completed state.
+
 ## v2.0.1 - 2026-04-17
 
 ### Production Readiness Audit Baseline + Remediation Program

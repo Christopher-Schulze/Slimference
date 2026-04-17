@@ -1,5 +1,5 @@
 // Command coverage runs go test with coverage and optionally enforces a minimum total %.
-// Usage (from module root): go run ./scripts/coverage -- -min=100
+// Usage (from module root): go run ./scripts/coverage -min=100
 package main
 
 import (

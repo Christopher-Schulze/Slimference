@@ -43,10 +43,12 @@ type FileWatcher struct {
 	mu             sync.RWMutex
 	debounceTimers map[string]*time.Timer
 	done           chan struct{}
+	newTicker      func(time.Duration) *time.Ticker
 }
 
 // fsnotifyNewWatcher is set to fsnotify.NewWatcher; replaced in tests to inject errors.
 var fsnotifyNewWatcher = fsnotify.NewWatcher
+var newTickerFn = time.NewTicker
 
 // NewFileWatcher creates a FileWatcher that calls onChange for every changed path.
 // A background goroutine is started immediately; call Close to stop it.
@@ -67,6 +69,7 @@ func newFileWatcherWithWatcher(w fsWatcher, onChange func(string)) *FileWatcher 
 		onChange:       onChange,
 		debounceTimers: make(map[string]*time.Timer),
 		done:           make(chan struct{}),
+		newTicker:      newTickerFn,
 	}
 	go fw.run()
 	return fw
@@ -146,7 +149,7 @@ const pruneMaxAge = 10 * time.Minute
 // run is the background event loop. It reads fsnotify events, debounces them per path,
 // and periodically prunes stale watched directories.
 func (fw *FileWatcher) run() {
-	pruneTicker := time.NewTicker(pruneInterval)
+	pruneTicker := fw.newTicker(pruneInterval)
 	defer pruneTicker.Stop()
 	for {
 		select {

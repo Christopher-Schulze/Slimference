@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -182,14 +183,12 @@ func TestProxy_fileWatcherCallback(t *testing.T) {
 	}
 	defer p.fileWatcher.Close()
 
-	// Create a temp file and watch it.
-	tmpFile, err := os.CreateTemp("", "proxy-watch-test-*.txt")
-	if err != nil {
+	// Create a temp file in a dedicated test directory and watch it.
+	dir := t.TempDir()
+	name := filepath.Join(dir, "proxy-watch-test.txt")
+	if err := os.WriteFile(name, []byte("initial"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	name := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(name)
 
 	if err := p.fileWatcher.Watch(name); err != nil {
 		t.Fatalf("Watch failed: %v", err)
@@ -215,7 +214,7 @@ func TestNew_invalidCustomPattern(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Secrets.Mode = "redact"
 	cfg.Secrets.CustomPatterns = []config.CustomPattern{
-		{Name: "bad-regex", Regex: "("},        // invalid regex - hits error+continue branch
+		{Name: "bad-regex", Regex: "("},         // invalid regex - hits error+continue branch
 		{Name: "good-regex", Regex: `MYKEY\d+`}, // valid - hits append branch
 	}
 	p := New(cfg)

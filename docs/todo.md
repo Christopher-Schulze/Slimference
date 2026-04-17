@@ -69,13 +69,13 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 
 ## Testing & Tooling (verbindlich: `AGENTS.md`)
 
-- [x] **100 % Coverage (Go)** auf `cmd/`, `internal/` via `*_test.go` — erreicht (alle 18 Pakete grün)
-- [x] Coverage-Gate: Go-Tool unter **`scripts/coverage/`** — `go run ./scripts/coverage -- -min=100` implementiert + getestet
+- [x] **100 % Coverage (Go)** auf `cmd/`, `internal/` via `*_test.go` — erreicht und verifiziert
+- [x] Coverage-Gate: Go-Tool unter **`scripts/coverage/`** — `go run ./scripts/coverage -min=100` implementiert + getestet
 - [x] Benchmarks: `scripts/benchmarks/main.go` — Runner fuer `go test -bench=.` ueber compression + filter; `internal/compression/bench_test.go` (8 Benchmarks: Compress_small/medium/large/code, StripANSI, StripComments, ExtractStructure); `internal/filter/bench_test.go` (7 Benchmarks: GitStatus, BuildOutput, JSONMinify, applyLayer0, Truncate); `go run ./scripts/benchmarks -- -benchtime=3s`
 - [x] **Zusätzliche** Testsuites: **`tests/ts/`** (TypeScript) — 6 Tests mit `bun:test`: session fixture schema-Validierung (3 Tests) + CLI integration (3 Tests); alle grün
 - [x] `tests/integration/` (Go), `tests/fixtures/`: 3 Integration-Tests (`//go:build integration`) grün: CompressesLargeConversation (ratio=0.80, layers=[1]), PassthroughNonCompressiblePath, HealthEndpoint; Fixtures: `sample_session.jsonl`, `sample_config.toml`
 - [x] Tests: Stil/Qualität wie `AGENTS.md` §5
-- [ ] **`rtk-master/`**: nicht anfassen, nichts dorthin/davon verschieben (Fremdprojekt)
+- [x] **`rtk-master/`**: nicht anfassen, nichts dorthin/davon verschieben (Fremdprojekt)
 
 ---
 
@@ -361,11 +361,18 @@ This section opens the next repository-wide hardening pass. The documentation
 and spec remain the target level. The implementation must be raised until those
 claims can be proven by code, tests, and release gates.
 
-- [ ] Audit baseline written and frozen for later comparison. Detail: `docs/audit-1.md`
-- [ ] Gap matrix written and linked to executable work. Detail: `docs/gap-analysis.md`
-- [ ] T11 - Audit remediation program. Detail: `docs/todo/t11-audit-remediation-program.md`
-- [ ] T12 - Hook contract hardening for Claude Code and Codex. Detail: `docs/todo/t12-hook-contract-hardening.md`
-- [ ] T13 - Zero-downside and cache correctness. Detail: `docs/todo/t13-zero-downside-and-cache-correctness.md`
-- [ ] T14 - Layer 2 strictness and cancellation. Detail: `docs/todo/t14-layer2-strictness-and-cancellation.md`
-- [ ] T15 - Daemon service productionization. Detail: `docs/todo/t15-daemon-service-productionization.md`
-- [ ] T16 - Proof gates and release readiness. Detail: `docs/todo/t16-proof-gates-and-release-readiness.md`
+- [x] Audit baseline written and frozen for later comparison. Detail: `docs/audit-1.md`
+- [x] Gap matrix written and linked to executable work. Detail: `docs/gap-analysis.md`
+- [x] T11 - Audit remediation program. Detail: `docs/todo/t11-audit-remediation-program.md`
+- [x] T12 - Hook contract hardening for Claude Code and Codex. Detail: `docs/todo/t12-hook-contract-hardening.md`
+- [x] T13 - Zero-downside and cache correctness. Detail: `docs/todo/t13-zero-downside-and-cache-correctness.md`
+- [x] T14 - Layer 2 strictness and cancellation. Detail: `docs/todo/t14-layer2-strictness-and-cancellation.md`
+- [x] T15 - Daemon service productionization. Detail: `docs/todo/t15-daemon-service-productionization.md`
+- [x] T16 - Proof gates and release readiness. Detail: `docs/todo/t16-proof-gates-and-release-readiness.md`
+
+### Closure evidence
+- [x] Follow-up audit written. Detail: `docs/audit-2.md`
+- [x] `go run ./scripts/ci` green with real coverage enforcement
+- [x] `go test -race ./...` green
+- [x] `go test -count=1 -cover ./cmd/... ./internal/...` at `100.0%`
+- [x] `bun test tests/ts` green

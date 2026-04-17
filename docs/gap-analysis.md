@@ -2,6 +2,7 @@
 
 Date: 2026-04-17
 Policy: documentation remains the target contract
+Status: closed by `docs/audit-2.md`
 
 ---
 

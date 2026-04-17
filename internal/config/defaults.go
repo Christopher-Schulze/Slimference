@@ -39,6 +39,7 @@ func Defaults() *Config {
 				TargetRatio: 0.20,
 				MaxRatio:    0.40,
 				MinRatio:    0.05,
+				Strict:      true,
 			},
 		},
 		Cache: CacheConfig{
@@ -113,6 +114,7 @@ rate_limit_rpm = 10
 target_ratio = 0.20
 max_ratio = 0.40
 min_ratio = 0.05
+strict = true
 
 [cache]
 response_cache_max_entries = 100

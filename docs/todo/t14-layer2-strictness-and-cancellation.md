@@ -1,6 +1,6 @@
 # T14 - Layer 2 Strictness and Cancellation
 
-Status: open
+Status: closed
 Priority: high
 Scope: `internal/summarization/*`, Layer 2 policy, MiniMax integration behavior
 
@@ -81,11 +81,17 @@ This makes the trade-off explicit instead of implicit.
 
 ## Subtasks
 
-- [ ] Remove remaining `context.Background()` usage from Layer 2 execution paths.
-- [ ] Design explicit Layer 2 operating modes and config semantics.
-- [ ] Rework validator inputs to inspect structured content blocks.
-- [ ] Add regression tests for function, file, tool, and error preservation.
-- [ ] Add mode-driven tests for best-effort vs strict-verified behavior.
+- [x] Remove remaining `context.Background()` usage from Layer 2 execution paths.
+- [x] Design explicit Layer 2 operating modes and config semantics.
+- [x] Rework validator inputs to inspect structured content blocks.
+- [x] Add regression tests for function, file, tool, and error preservation.
+- [x] Add mode-driven tests for best-effort vs strict-verified behavior.
+
+Closure note:
+
+- production Layer 2 paths now accept caller contexts and honor cancellation
+- strict summary validation is exposed via `[compression.summary].strict`
+- validator checks structured paths, tool details, functions, and errors
 
 ---
 

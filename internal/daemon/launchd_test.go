@@ -1,0 +1,271 @@
+package daemon
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func withLaunchdTempDir(t *testing.T, fn func(tmp string, calls *[]string)) {
+	t.Helper()
+	withTempDir(t, func() {
+		root := filepath.Dir(expandHome(DefaultPIDDir))
+		origExpandHomeFn := expandHomeFn
+		expandHomeFn = func(path string) string {
+			if strings.HasPrefix(path, "~/") {
+				return filepath.Join(root, path[2:])
+			}
+			return path
+		}
+		t.Cleanup(func() {
+			expandHomeFn = origExpandHomeFn
+		})
+
+		tmp := expandHome(DefaultPIDDir)
+		plists := filepath.Join(tmp, "LaunchAgents")
+		if err := os.MkdirAll(plists, 0755); err != nil {
+			t.Fatalf("mkdir plist dir: %v", err)
+		}
+
+		origPlistPathFn := LaunchdPlistPathFn
+		origEnvPathFn := LaunchdEnvPathFn
+		origLaunchctlExec := launchctlExec
+		var calls []string
+
+		LaunchdPlistPathFn = func() string {
+			return filepath.Join(plists, "com.slimference.daemon.plist")
+		}
+		LaunchdEnvPathFn = func() string {
+			return filepath.Join(tmp, "launchd.env")
+		}
+		launchctlExec = func(args ...string) error {
+			calls = append(calls, strings.Join(args, " "))
+			return nil
+		}
+
+		t.Cleanup(func() {
+			LaunchdPlistPathFn = origPlistPathFn
+			LaunchdEnvPathFn = origEnvPathFn
+			launchctlExec = origLaunchctlExec
+		})
+
+		fn(tmp, &calls)
+	})
+}
+
+func TestGenerateLaunchdPlist_UsesEnvFileAndNotPlaintextSecret(t *testing.T) {
+	withLaunchdTempDir(t, func(_ string, _ *[]string) {
+		t.Setenv("MINIMAX_API_KEY", "top-secret-value")
+		plist := GenerateLaunchdPlist("/Applications/Slimference.app/Contents/MacOS/slimference")
+		if strings.Contains(plist, "top-secret-value") {
+			t.Fatal("plist must not contain plaintext MINIMAX_API_KEY")
+		}
+		if strings.Contains(plist, "<key>EnvironmentVariables</key>") {
+			t.Fatal("plist should not embed EnvironmentVariables for secrets")
+		}
+		if !strings.Contains(plist, LaunchdEnvPath()) {
+			t.Fatalf("plist must source env file, got %q", plist)
+		}
+		if !strings.Contains(plist, "/bin/sh") || !strings.Contains(plist, "exec '/Applications/Slimference.app/Contents/MacOS/slimference' daemon") {
+			t.Fatalf("plist should exec binary through shell wrapper, got %q", plist)
+		}
+	})
+}
+
+func TestWriteLaunchdEnvFile_WritesSecretWith0600(t *testing.T) {
+	withLaunchdTempDir(t, func(_ string, _ *[]string) {
+		t.Setenv("MINIMAX_API_KEY", "top-secret-value")
+		if err := writeLaunchdEnvFile(); err != nil {
+			t.Fatalf("writeLaunchdEnvFile: %v", err)
+		}
+		data, err := os.ReadFile(LaunchdEnvPath())
+		if err != nil {
+			t.Fatalf("read env file: %v", err)
+		}
+		text := string(data)
+		if !strings.Contains(text, "export MINIMAX_API_KEY='top-secret-value'") {
+			t.Fatalf("unexpected env file content: %q", text)
+		}
+		info, err := os.Stat(LaunchdEnvPath())
+		if err != nil {
+			t.Fatalf("stat env file: %v", err)
+		}
+		if info.Mode().Perm() != 0600 {
+			t.Fatalf("expected 0600 env file permissions, got %o", info.Mode().Perm())
+		}
+	})
+}
+
+func TestWriteLaunchdEnvFile_WithoutSecretStillCreatesStub(t *testing.T) {
+	withLaunchdTempDir(t, func(_ string, _ *[]string) {
+		t.Setenv("MINIMAX_API_KEY", "")
+		if err := writeLaunchdEnvFile(); err != nil {
+			t.Fatalf("writeLaunchdEnvFile: %v", err)
+		}
+		data, err := os.ReadFile(LaunchdEnvPath())
+		if err != nil {
+			t.Fatalf("read env file: %v", err)
+		}
+		if strings.Contains(string(data), "MINIMAX_API_KEY") {
+			t.Fatalf("env stub should not export missing secret: %q", string(data))
+		}
+	})
+}
+
+func TestLaunchdPathImplsUseHomeDirectory(t *testing.T) {
+	mu.Lock()
+	defer mu.Unlock()
+	origExpand := expandHomeFn
+	expandHomeFn = expandHomeImpl
+	defer func() { expandHomeFn = origExpand }()
+
+	t.Setenv("HOME", t.TempDir())
+	if !strings.Contains(launchdPlistPathImpl(), filepath.Join("Library", "LaunchAgents")) {
+		t.Fatalf("unexpected plist path: %q", launchdPlistPathImpl())
+	}
+	if !strings.Contains(launchdEnvPathImpl(), filepath.Join(".slimference", "launchd.env")) {
+		t.Fatalf("unexpected env path: %q", launchdEnvPathImpl())
+	}
+}
+
+func TestInstallLaunchd_WritesFilesAndRunsLaunchctlLifecycle(t *testing.T) {
+	withLaunchdTempDir(t, func(tmp string, calls *[]string) {
+		t.Setenv("MINIMAX_API_KEY", "installed-secret")
+		binary := filepath.Join(tmp, "slimference")
+
+		if err := InstallLaunchd(binary); err != nil {
+			t.Fatalf("InstallLaunchd: %v", err)
+		}
+
+		plistData, err := os.ReadFile(LaunchdPlistPath())
+		if err != nil {
+			t.Fatalf("read plist: %v", err)
+		}
+		if strings.Contains(string(plistData), "installed-secret") {
+			t.Fatal("plist must not contain plaintext secret")
+		}
+
+		envData, err := os.ReadFile(LaunchdEnvPath())
+		if err != nil {
+			t.Fatalf("read env file: %v", err)
+		}
+		if !strings.Contains(string(envData), "installed-secret") {
+			t.Fatalf("env file should contain secret, got %q", string(envData))
+		}
+
+		logDirInfo, err := os.Stat(expandHome("~/.slimference/logs"))
+		if err != nil {
+			t.Fatalf("stat log dir: %v", err)
+		}
+		if logDirInfo.Mode().Perm() != 0700 {
+			t.Fatalf("expected 0700 log dir permissions, got %o", logDirInfo.Mode().Perm())
+		}
+
+		want := []string{
+			"bootout " + launchdDomain() + " " + LaunchdPlistPath(),
+			"bootstrap " + launchdDomain() + " " + LaunchdPlistPath(),
+			"enable " + launchdServiceTarget(),
+			"kickstart -k " + launchdServiceTarget(),
+		}
+		if len(*calls) != len(want) {
+			t.Fatalf("launchctl calls: got %v want %v", *calls, want)
+		}
+		for i := range want {
+			if (*calls)[i] != want[i] {
+				t.Fatalf("launchctl call %d: got %q want %q", i, (*calls)[i], want[i])
+			}
+		}
+	})
+}
+
+func TestUninstallLaunchd_RemovesFilesAndBootsOut(t *testing.T) {
+	withLaunchdTempDir(t, func(_ string, calls *[]string) {
+		if err := os.WriteFile(LaunchdPlistPath(), []byte("plist"), 0644); err != nil {
+			t.Fatalf("seed plist: %v", err)
+		}
+		if err := os.WriteFile(LaunchdEnvPath(), []byte("env"), 0600); err != nil {
+			t.Fatalf("seed env file: %v", err)
+		}
+
+		if err := UninstallLaunchd(); err != nil {
+			t.Fatalf("UninstallLaunchd: %v", err)
+		}
+
+		if _, err := os.Stat(LaunchdPlistPath()); !os.IsNotExist(err) {
+			t.Fatalf("plist should be removed, stat err=%v", err)
+		}
+		if _, err := os.Stat(LaunchdEnvPath()); !os.IsNotExist(err) {
+			t.Fatalf("env file should be removed, stat err=%v", err)
+		}
+
+		want := []string{
+			"bootout " + launchdDomain() + " " + LaunchdPlistPath(),
+			"disable " + launchdServiceTarget(),
+		}
+		if len(*calls) != len(want) {
+			t.Fatalf("launchctl calls: got %v want %v", *calls, want)
+		}
+		for i := range want {
+			if (*calls)[i] != want[i] {
+				t.Fatalf("launchctl call %d: got %q want %q", i, (*calls)[i], want[i])
+			}
+		}
+	})
+}
+
+func TestInstallLaunchd_ReturnsLaunchctlError(t *testing.T) {
+	withLaunchdTempDir(t, func(tmp string, _ *[]string) {
+		origLaunchctlExec := launchctlExec
+		launchctlExec = func(args ...string) error {
+			if len(args) > 0 && args[0] == "bootstrap" {
+				return os.ErrPermission
+			}
+			return nil
+		}
+		defer func() { launchctlExec = origLaunchctlExec }()
+
+		err := InstallLaunchd(filepath.Join(tmp, "slimference"))
+		if err == nil {
+			t.Fatal("expected bootstrap error")
+		}
+	})
+}
+
+func TestUninstallLaunchd_RemoveEnvFileError(t *testing.T) {
+	withLaunchdTempDir(t, func(_ string, _ *[]string) {
+		origEnvPathFn := LaunchdEnvPathFn
+		LaunchdEnvPathFn = func() string {
+			return filepath.Join(filepath.Dir(LaunchdPlistPath()), "env-dir")
+		}
+		defer func() { LaunchdEnvPathFn = origEnvPathFn }()
+
+		if err := os.MkdirAll(LaunchdEnvPath(), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(LaunchdEnvPath(), "child"), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		err := UninstallLaunchd()
+		if err == nil || !strings.Contains(err.Error(), "remove env file") {
+			t.Fatalf("expected env file removal error, got %v", err)
+		}
+	})
+}
+
+func TestLaunchctlExecImpl(t *testing.T) {
+	tmp := t.TempDir()
+	script := filepath.Join(tmp, "launchctl")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nif [ \"$1\" = fail ]; then echo denied >&2; exit 1; fi\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+origPath)
+
+	if err := launchctlExecImpl("ok"); err != nil {
+		t.Fatalf("launchctlExecImpl success: %v", err)
+	}
+	if err := launchctlExecImpl("fail"); err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("expected stderr in error, got %v", err)
+	}
+}

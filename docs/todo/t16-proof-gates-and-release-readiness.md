@@ -1,6 +1,6 @@
 # T16 - Proof Gates and Release Readiness
 
-Status: open
+Status: closed
 Priority: high
 Scope: coverage enforcement, release verification, compatibility proof
 
@@ -64,11 +64,18 @@ Add or tighten repository-level proof commands for:
 
 ## Subtasks
 
-- [ ] Fix the `scripts/ci` coverage invocation.
-- [ ] Add tests for the coverage script argument handling.
-- [ ] Raise package coverage to the documented target.
-- [ ] Add a repeatable release verification checklist.
-- [ ] Add a follow-up audit checklist for parity proof.
+- [x] Fix the `scripts/ci` coverage invocation.
+- [x] Add tests for the coverage script argument handling.
+- [x] Raise package coverage to the documented target.
+- [x] Add a repeatable release verification checklist.
+- [x] Add a follow-up audit checklist for parity proof.
+
+Closure note:
+
+- `scripts/ci` now passes the intended `-min=100` argument directly
+- new tests lock the argument-handling failure mode
+- Go coverage for `cmd/...` + `internal/...` is now `100.0%`
+- the follow-up proof artifact is `docs/audit-2.md`
 
 ---
 

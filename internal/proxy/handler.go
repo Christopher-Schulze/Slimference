@@ -24,6 +24,9 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
+var reconstructBodyFn = reconstructBody
+var newRequestWithContextFn = http.NewRequestWithContext
+
 // newRequestID generates a short random hex request ID for debug correlation.
 func newRequestID() string {
 	b := make([]byte, 8)
@@ -62,7 +65,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// --- 2. Response cache lookup (Layer 3) ---
 	var cacheKey [32]byte
 	if p.isLayerEnabled(3) {
-		cacheKey = p.responseCache.ComputeKey(messages, model)
+		cacheKey = p.responseCache.ComputeRequestKey(provider, body)
 		if cached, ok := p.responseCache.Get(cacheKey); ok {
 			log.Debug("cache hit")
 			for k, vv := range cached.Headers {
@@ -161,19 +164,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// --- 7. Reconstruct request body ---
-	newBody, err := reconstructBody(provider, body, compressedMessages)
-	if err != nil {
-		log.Error("body reconstruction failed", "error", err)
-		p.proxyError(w, http.StatusInternalServerError, "request reconstruction failed")
-		return
-	}
-
 	compressedTokens := tokens.CountMessages(compressedMessages)
 
 	// Zero-downside guarantee (spec+.md §1): if compression expanded the output,
 	// revert to original messages so the proxy never makes things worse.
-	if origTokens > 0 && compressedTokens >= origTokens {
+	if origTokens > 0 && compressedTokens > origTokens {
 		log.Debug("compression expanded output, reverting to original",
 			"orig", origTokens, "comp", compressedTokens)
 		compressedMessages = messages
@@ -181,6 +176,14 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		appliedLayers = nil
 		layer1Savings = 0
 		layer2Savings = 0
+	}
+
+	// --- 7. Reconstruct request body ---
+	newBody, err := reconstructBodyFn(provider, body, compressedMessages)
+	if err != nil {
+		log.Error("body reconstruction failed", "error", err)
+		p.proxyError(w, http.StatusInternalServerError, "request reconstruction failed")
+		return
 	}
 
 	latencyStart := time.Now()
@@ -220,11 +223,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// --- 10. Cache successful response (Layer 3) ---
 	if p.isLayerEnabled(3) && responseBody != nil && upstreamResp.StatusCode == http.StatusOK {
 		entry := &caching.CacheEntry{
-			Response:    responseBody,
-			Headers:     make(map[string][]string),
-			StatusCode:  upstreamResp.StatusCode,
-			CreatedAt:   time.Now(),
-			TokensSaved: origTokens - compressedTokens,
+			Response:        responseBody,
+			Headers:         make(map[string][]string),
+			StatusCode:      upstreamResp.StatusCode,
+			CreatedAt:       time.Now(),
+			TokensSaved:     origTokens - compressedTokens,
+			DependencyPaths: caching.ExtractDependencyPaths(body),
 		}
 		// Copy headers for cache.
 		for k, vv := range upstreamResp.Header {
@@ -359,7 +363,7 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 
 	// buildReq creates a fresh request per attempt (body reader is consumed each time).
 	buildReq := func(b []byte) (*http.Request, error) {
-		req, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(b))
+		req, err := newRequestWithContextFn(r.Context(), r.Method, upstreamURL, bytes.NewReader(b))
 		if err != nil {
 			return nil, fmt.Errorf("build upstream request: %w", err)
 		}
@@ -433,7 +437,7 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 			default:
 			}
 			if stash, ok := r.Context().Value(pipelineStashKey{}).(pipelineStash); ok {
-				if aggBody, err := p.buildAggressiveCompressedBody(stash); err == nil && len(aggBody) > 0 {
+				if aggBody, err := p.buildAggressiveCompressedBodyContext(r.Context(), stash); err == nil && len(aggBody) > 0 {
 					slog.Warn("context overflow: retrying with aggressive compression (sliding_window=2, summary target 10%)")
 					if aggReq, err := buildReq(aggBody); err == nil {
 						resp2, err2 := client.Do(aggReq)
@@ -506,8 +510,13 @@ func isContextOverflow(body []byte) bool {
 		bytes.Contains(body, []byte("maximum context length"))
 }
 
-// buildAggressiveCompressedBody re-runs Layer 1–2 with a minimal sliding window and stronger summarization.
+// buildAggressiveCompressedBody re-runs Layer 1-2 with a minimal sliding window and stronger summarization.
 func (p *Proxy) buildAggressiveCompressedBody(stash pipelineStash) ([]byte, error) {
+	return p.buildAggressiveCompressedBodyContext(context.Background(), stash)
+}
+
+// buildAggressiveCompressedBodyContext re-runs Layer 1-2 with a minimal sliding window and stronger summarization.
+func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash pipelineStash) ([]byte, error) {
 	cfg := p.config.Compression
 	cfg.SlidingWindow = 2
 	cfg.Summary.TargetRatio = 0.10
@@ -517,12 +526,12 @@ func (p *Proxy) buildAggressiveCompressedBody(stash pipelineStash) ([]byte, erro
 	l1 := compression.NewDeterministicCompressor(&cfg)
 	l2 := summarization.NewLayer2(&cfg)
 	msgs := l1.Compress(stash.messages).Messages
-	l2.RunCompressionJob(msgs)
+	l2.RunCompressionJobContext(ctx, msgs)
 	msgs2, _, ok := l2.ApplyToMessages(msgs)
 	if !ok {
 		msgs2 = msgs
 	}
-	return reconstructBody(stash.provider, stash.origBody, msgs2)
+	return reconstructBodyFn(stash.provider, stash.origBody, msgs2)
 }
 
 // proxyError writes an error response to the client.

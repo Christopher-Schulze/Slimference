@@ -28,7 +28,7 @@ go run ./scripts/coverage/...    # sobald ein entrypoint existiert
 Konkrete Kommandozeilen:
 
 ```bash
-go run ./scripts/coverage -- -min=100            # Coverage-Gate (100%)
+go run ./scripts/coverage -min=100               # Coverage-Gate (100%)
 go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s)
 go run ./scripts/benchmarks -- -benchtime=1s     # Schneller Durchlauf
 go run ./scripts/benchmarks -- -count=3          # 3 Runden für Stabilität

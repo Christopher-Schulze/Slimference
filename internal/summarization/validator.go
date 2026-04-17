@@ -144,9 +144,8 @@ func extractFilePaths(text string) []string {
 // extractFunctionNames returns all unique function declaration strings found in text.
 // Text is extracted from code blocks only (between ``` fences).
 func extractFunctionNames(text string) []string {
-	// Extract content between code fences.
 	codeContent := extractCodeBlocks(text)
-	raw := funcNameRegex.FindAllString(codeContent, -1)
+	raw := append(funcNameRegex.FindAllString(codeContent, -1), funcNameRegex.FindAllString(text, -1)...)
 	return dedupStrings(raw)
 }
 
@@ -170,9 +169,21 @@ func joinMessages(messages []types.Message) string {
 	var sb strings.Builder
 	for _, msg := range messages {
 		for _, blk := range msg.Content {
-			if blk.Text != "" {
-				sb.WriteString(blk.Text)
-				sb.WriteByte('\n')
+			switch blk.Type {
+			case "text", "tool_result":
+				if blk.Text != "" {
+					sb.WriteString(blk.Text)
+					sb.WriteByte('\n')
+				}
+			case "tool_use":
+				if blk.ToolName != "" {
+					sb.WriteString(blk.ToolName)
+					sb.WriteByte('\n')
+				}
+				if blk.ToolInput != "" {
+					sb.WriteString(blk.ToolInput)
+					sb.WriteByte('\n')
+				}
 			}
 		}
 	}

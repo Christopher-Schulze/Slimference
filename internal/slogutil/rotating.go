@@ -7,6 +7,10 @@ import (
 	"sync"
 )
 
+var statFileFn = func(f *os.File) (os.FileInfo, error) {
+	return f.Stat()
+}
+
 const (
 	defaultMaxBytes int64 = 10 * 1024 * 1024 // 10 MB per file
 	defaultMaxFiles int   = 5                 // keep 5 rotated copies
@@ -71,7 +75,7 @@ func (rw *RotatingWriter) openOrCreate() error {
 	if err != nil {
 		return fmt.Errorf("slogutil: open %s: %w", rw.path, err)
 	}
-	info, err := f.Stat()
+	info, err := statFileFn(f)
 	if err != nil {
 		_ = f.Close()
 		return fmt.Errorf("slogutil: stat %s: %w", rw.path, err)

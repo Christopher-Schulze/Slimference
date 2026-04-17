@@ -20,10 +20,49 @@ set -euo pipefail
 INPUT=$(cat)
 CMD=$(printf '%%s' "$INPUT" | jq -r '.command // .tool_input.command // empty' 2>/dev/null || true)
 if [[ -z "${CMD:-}" ]]; then
-  echo "slimference: could not read .command from hook JSON" >&2
-  exit 1
+  exit 0
 fi
-exec %s rewrite -- $CMD
+TMP_ERR=$(mktemp)
+cleanup() {
+  rm -f "$TMP_ERR"
+}
+trap cleanup EXIT
+
+set +e
+REWRITTEN=$(%s rewrite -- "$CMD" 2>"$TMP_ERR")
+STATUS=$?
+set -e
+ERR_MSG=$(cat "$TMP_ERR")
+
+case "$STATUS" in
+  0)
+    if [[ -z "${REWRITTEN:-}" || "$REWRITTEN" == "$CMD" ]]; then
+      exit 0
+    fi
+    printf '%%s' "$INPUT" | jq -c --arg cmd "$REWRITTEN" '{hookSpecificOutput:{hookEventName:"PreToolUse",updatedInput:(.tool_input + {command:$cmd})}}'
+    ;;
+  1)
+    exit 0
+    ;;
+  2)
+    if [[ -z "${ERR_MSG:-}" ]]; then
+      ERR_MSG="Slimference blocked this command."
+    fi
+    jq -nc --arg reason "$ERR_MSG" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$reason}}'
+    ;;
+  3)
+    if [[ -z "${ERR_MSG:-}" ]]; then
+      ERR_MSG="Slimference requires confirmation before running this command."
+    fi
+    jq -nc --arg reason "$ERR_MSG" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$reason}}'
+    ;;
+  *)
+    if [[ -n "${ERR_MSG:-}" ]]; then
+      echo "$ERR_MSG" >&2
+    fi
+    exit 1
+    ;;
+esac
 `, q)
 }
 
@@ -72,17 +111,18 @@ func mergeClaudeSettings(settingsPath, scriptPath string) error {
 	if hooksObj == nil {
 		hooksObj = make(map[string]interface{})
 	}
-	hooksObj["PreToolUse"] = []interface{}{
-		map[string]interface{}{
-			"matcher": "Bash",
-			"hooks": []interface{}{
-				map[string]interface{}{
-					"type":    "command",
-					"command": "bash " + scriptPath,
-				},
+	entries, _ := hooksObj["PreToolUse"].([]interface{})
+	entries = removeClaudeSlimferenceHooks(entries, scriptPath)
+	entries = append(entries, map[string]interface{}{
+		"matcher": "Bash",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": "bash " + scriptPath,
 			},
 		},
-	}
+	})
+	hooksObj["PreToolUse"] = entries
 	root["hooks"] = hooksObj
 	out, _ := json.MarshalIndent(root, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0755); err != nil {
@@ -107,10 +147,61 @@ func stripClaudePreToolUse(settingsPath string) error {
 	if !ok {
 		return nil
 	}
-	delete(hooksObj, "PreToolUse")
+	entries, _ := hooksObj["PreToolUse"].([]interface{})
+	entries = removeClaudeSlimferenceHooks(entries, settingsPath)
+	if len(entries) == 0 {
+		delete(hooksObj, "PreToolUse")
+	} else {
+		hooksObj["PreToolUse"] = entries
+	}
 	if len(hooksObj) == 0 {
 		delete(root, "hooks")
 	}
 	out, _ := json.MarshalIndent(root, "", "  ")
 	return os.WriteFile(settingsPath, out, 0644)
+}
+
+func removeClaudeSlimferenceHooks(entries []interface{}, scriptPath string) []interface{} {
+	out := make([]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		entryMap, ok := entry.(map[string]interface{})
+		if !ok {
+			out = append(out, entry)
+			continue
+		}
+		hooksSlice, ok := entryMap["hooks"].([]interface{})
+		if !ok {
+			out = append(out, entry)
+			continue
+		}
+		filteredHooks := make([]interface{}, 0, len(hooksSlice))
+		for _, hook := range hooksSlice {
+			if isClaudeSlimferenceHook(hook, scriptPath) {
+				continue
+			}
+			filteredHooks = append(filteredHooks, hook)
+		}
+		if len(filteredHooks) == 0 {
+			continue
+		}
+		cloned := make(map[string]interface{}, len(entryMap))
+		for key, value := range entryMap {
+			cloned[key] = value
+		}
+		cloned["hooks"] = filteredHooks
+		out = append(out, cloned)
+	}
+	return out
+}
+
+func isClaudeSlimferenceHook(hook interface{}, scriptPath string) bool {
+	hookMap, ok := hook.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	command, _ := hookMap["command"].(string)
+	if command == "" {
+		return false
+	}
+	return strings.Contains(command, filepath.Base(scriptPath)) || strings.Contains(command, "slimference-rewrite.sh")
 }

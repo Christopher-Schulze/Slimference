@@ -1,6 +1,6 @@
 # T12 - Hook Contract Hardening
 
-Status: open
+Status: closed
 Priority: critical
 Scope: `internal/hooks/*`, hook-related CLI surfaces, supported agent compatibility
 
@@ -81,13 +81,20 @@ but the implementation does not yet satisfy that claim with enough rigor:
 
 ## Subtasks
 
-- [ ] Rework Claude hook script output to the structured contract.
-- [ ] Make Claude install merge-only and Claude remove ownership-aware.
-- [ ] Introduce a dedicated post-tool filtering path for Codex output.
-- [ ] Rework Codex hook generation to the real supported contract.
-- [ ] Make `hook verify` fail hard for Codex integration errors.
-- [ ] Add fixture-heavy tests for install, verify, and remove flows.
-- [ ] Add compatibility notes to `docs/documentation.md` after the code is proven.
+- [x] Rework Claude hook script output to the structured contract.
+- [x] Make Claude install merge-only and Claude remove ownership-aware.
+- [x] Introduce a dedicated post-tool filtering path for Codex output.
+- [x] Rework Codex hook generation to the real supported contract.
+- [x] Make `hook verify` fail hard for Codex integration errors.
+- [x] Add fixture-heavy tests for install, verify, and remove flows.
+- [x] Add compatibility notes to `docs/documentation.md` after the code is proven.
+
+Closure note:
+
+- Claude Code now emits `hookSpecificOutput.updatedInput` / permission decisions
+- Codex now installs `hooks.json` PreToolUse + PostToolUse hooks and uses
+  `slimference posttool` for finished tool output compaction
+- verify checks scripts, config, and runtime install coherence for both targets
 
 ---
 

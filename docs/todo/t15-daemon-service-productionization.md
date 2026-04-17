@@ -1,6 +1,6 @@
 # T15 - Daemon Service Productionization
 
-Status: open
+Status: closed
 Priority: high
 Scope: `internal/daemon/*`, service install/remove flow, local secret handling
 
@@ -66,11 +66,18 @@ must fail safely and clearly instead of pretending to be production-ready.
 
 ## Subtasks
 
-- [ ] Replace plaintext plist secret persistence with a secure model.
-- [ ] Implement real launchctl lifecycle behavior.
-- [ ] Add injectable command execution for deterministic tests.
-- [ ] Add permission/mode tests for generated files.
-- [ ] Document operational constraints and supported platforms.
+- [x] Replace plaintext plist secret persistence with a secure model.
+- [x] Implement real launchctl lifecycle behavior.
+- [x] Add injectable command execution for deterministic tests.
+- [x] Add permission/mode tests for generated files.
+- [x] Document operational constraints and supported platforms.
+
+Closure note:
+
+- launchd now sources `~/.slimference/pid/launchd.env`
+- the env file is written with `0600` permissions
+- install/remove exercises `bootout`, `bootstrap`, `enable`, `kickstart`, and
+  cleanup paths with dedicated tests
 
 ---
 

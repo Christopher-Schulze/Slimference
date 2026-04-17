@@ -127,7 +127,8 @@ func TestStripClaudePreToolUse(t *testing.T) {
 	t.Run("drops_pre_tool_use_only_hooks", func(t *testing.T) {
 		t.Parallel()
 		p := filepath.Join(t.TempDir(), "settings.json")
-		if err := os.WriteFile(p, []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash"}]}}`), 0644); err != nil {
+		raw := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/slimference-rewrite.sh"}]}]}}`
+		if err := os.WriteFile(p, []byte(raw), 0644); err != nil {
 			t.Fatal(err)
 		}
 		if err := stripClaudePreToolUse(p); err != nil {
@@ -147,7 +148,7 @@ func TestStripClaudePreToolUse(t *testing.T) {
 	t.Run("keeps_other_hook_keys", func(t *testing.T) {
 		t.Parallel()
 		p := filepath.Join(t.TempDir(), "settings.json")
-		raw := `{"hooks":{"PreToolUse":[{"matcher":"Bash"}],"Other":true}}`
+		raw := `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/slimference-rewrite.sh"}]}],"Other":true}}`
 		if err := os.WriteFile(p, []byte(raw), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -226,11 +227,14 @@ func TestRemoveCodex_unclosedMarker(t *testing.T) {
 func TestClaudeHookScript_customCommand(t *testing.T) {
 	t.Parallel()
 	s := ClaudeHookScript("/opt/bin/slimference")
-	if !strings.Contains(s, "exec '/opt/bin/slimference' rewrite") {
+	if !strings.Contains(s, "/opt/bin/slimference") || !strings.Contains(s, "rewrite -- \"$CMD\"") {
+		t.Fatalf("script:\n%s", s)
+	}
+	if !strings.Contains(s, "updatedInput") {
 		t.Fatalf("script:\n%s", s)
 	}
 	s2 := ClaudeHookScript("")
-	if !strings.Contains(s2, "exec 'slimference' rewrite") && !strings.Contains(s2, "exec slimference rewrite") {
+	if !strings.Contains(s2, "slimference") || !strings.Contains(s2, "rewrite -- \"$CMD\"") {
 		t.Fatalf("default script:\n%s", s2)
 	}
 }

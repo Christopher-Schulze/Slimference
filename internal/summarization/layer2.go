@@ -11,6 +11,7 @@ import (
 
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -93,10 +94,24 @@ func (l *Layer2) ApplyToMessages(messages []types.Message) ([]types.Message, int
 // RunCompressionJob is the async worker body. Call it from a goroutine.
 // It determines what to compress, calls MiniMax, validates the result, and stores it.
 func (l *Layer2) RunCompressionJob(messages []types.Message) {
+	ctx, cancel := context.WithTimeout(context.Background(), l.jobTimeout())
+	defer cancel()
+	l.RunCompressionJobContext(ctx, messages)
+}
+
+// RunCompressionJobContext is the async worker body with explicit cancellation.
+// Call it when a caller context should bound summarization work.
+func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.Message) {
 	minMsgs := l.cfg.MinMessagesForCompression
 	prefixEnd := compression.CompressiblePrefixEnd(messages, l.cfg.SlidingWindow)
 	if prefixEnd < minMsgs {
 		return
+	}
+	if l.cfg.MinTokensForLayer2 > 0 {
+		prefixTokens := tokens.CountMessages(messages[:prefixEnd])
+		if prefixTokens < l.cfg.MinTokensForLayer2 {
+			return
+		}
 	}
 
 	// Messages eligible for summarization are everything before the sliding window of recent exchanges.
@@ -155,11 +170,8 @@ func (l *Layer2) RunCompressionJob(messages []types.Message) {
 	}
 
 	targetTokens := computeAdaptiveTarget(origTokens, toSummarize, l.cfg.Summary.TargetRatio)
-	if targetTokens < 100 {
-		targetTokens = 100
-	}
 
-	summary, providerName, err := l.chain.Summarize(context.Background(), inputText, startIdx, boundaryIdx, targetTokens)
+	summary, providerName, err := l.chain.Summarize(ctx, inputText, startIdx, boundaryIdx, targetTokens)
 	if err != nil {
 		slog.Error("layer2 summarization failed (all providers)",
 			slog.String("error", err.Error()),
@@ -177,11 +189,13 @@ func (l *Layer2) RunCompressionJob(messages []types.Message) {
 			slog.Int("orig_tokens", origTokens),
 		)
 
-		retryInput := inputText + "\n\nIMPORTANT: Previous attempt was rejected because: " + result.FailReason +
-			". Fix this issue. Remember: bullet format, preserve ALL paths and names verbatim."
+		retryInput := inputText + "\n\nIMPORTANT: Previous attempt was rejected because: " + result.FailReason + "."
+		if l.cfg.Summary.Strict {
+			retryInput += " Fix this issue. Remember: bullet format, preserve ALL paths, function names, errors, tool details, and decisions verbatim."
+		}
 		retryTarget := targetTokens
 
-		retrySummary, retryProvider, retryErr := l.chain.Summarize(context.Background(), retryInput, startIdx, boundaryIdx, retryTarget)
+		retrySummary, retryProvider, retryErr := l.chain.Summarize(ctx, retryInput, startIdx, boundaryIdx, retryTarget)
 		if retryErr == nil {
 			retryResult := l.validator.Validate(toSummarize, retrySummary, origTokens)
 			if retryResult.Valid {
@@ -199,14 +213,6 @@ func (l *Layer2) RunCompressionJob(messages []types.Message) {
 			slog.Warn("layer2 retry request failed", "error", retryErr.Error())
 			return
 		}
-	}
-
-	if !result.Valid {
-		slog.Warn("layer2 summary failed validation",
-			slog.String("reason", result.FailReason),
-			slog.Int("orig_tokens", origTokens),
-		)
-		return
 	}
 
 	compressedTokens := estimateTokens(summary)
@@ -244,6 +250,12 @@ func (l *Layer2) ShouldTriggerCompression(messages []types.Message) bool {
 	if prefixEnd < minMsgs {
 		return false
 	}
+	if l.cfg.MinTokensForLayer2 > 0 {
+		prefixTokens := tokens.CountMessages(messages[:prefixEnd])
+		if prefixTokens < l.cfg.MinTokensForLayer2 {
+			return false
+		}
+	}
 
 	if l.cache.Compressing.Load() {
 		return false
@@ -273,11 +285,11 @@ func (l *Layer2) FormatMessagesForSummarization(messages []types.Message) string
 		for _, blk := range msg.Content {
 			switch blk.Type {
 			case "text":
-				sb.WriteString(blk.Text)
+				sb.WriteString(formatBlockForSummarization(blk.Text, l.cfg.Summary.Strict))
 			case "tool_use":
 				sb.WriteString(fmt.Sprintf("<tool_use name=%q input=%s>", blk.ToolName, blk.ToolInput))
 			case "tool_result":
-				sb.WriteString(fmt.Sprintf("<tool_result id=%q>%s</tool_result>", blk.ToolResultID, blk.Text))
+				sb.WriteString(fmt.Sprintf("<tool_result id=%q>\n%s\n</tool_result>", blk.ToolResultID, formatBlockForSummarization(blk.Text, l.cfg.Summary.Strict)))
 			}
 			sb.WriteByte('\n')
 		}
@@ -487,4 +499,43 @@ func looksLikePath(line string) bool {
 		}
 	}
 	return false
+}
+
+func formatBlockForSummarization(text string, strict bool) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return text
+	}
+	if !strict {
+		return text
+	}
+	if shouldFenceSummarizationBlock(trimmed) {
+		return "```text\n" + text + "\n```"
+	}
+	return text
+}
+
+func shouldFenceSummarizationBlock(text string) bool {
+	lines := splitLines(text)
+	if len(lines) <= 1 {
+		return looksLikeCode(text)
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if looksLikeCode(trimmed) || looksLikePath(trimmed) {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *Layer2) jobTimeout() time.Duration {
+	timeout := l.cfg.MiniMax.ConnectTimeout() + l.cfg.MiniMax.ResponseTimeout() + 5*time.Second
+	if timeout <= 0 {
+		return 35 * time.Second
+	}
+	return timeout
 }

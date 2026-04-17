@@ -14,6 +14,9 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
+var userHomeDirFn = os.UserHomeDir
+var writeFileFn = os.WriteFile
+
 // Version is the display version string.
 const Version = "2.0.0"
 
@@ -393,7 +396,7 @@ func (m *Model) copyDebugLog() string {
 		return ""
 	}
 
-	home, err := os.UserHomeDir()
+	home, err := userHomeDirFn()
 	if err != nil {
 		return ""
 	}
@@ -410,7 +413,7 @@ func (m *Model) copyDebugLog() string {
 		buf = append(buf, logger.Format(e)...)
 		buf = append(buf, '\n')
 	}
-	if err := os.WriteFile(path, buf, 0644); err != nil {
+	if err := writeFileFn(path, buf, 0644); err != nil {
 		return ""
 	}
 	return path
@@ -442,7 +445,7 @@ func (m *Model) setupSteps() []setupStep {
 		{
 			label: "Install auto-start service (launchd)",
 			check: func() bool {
-				home, _ := os.UserHomeDir()
+				home, _ := userHomeDirFn()
 				_, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", "com.slimference.daemon.plist"))
 				return err == nil
 			},
@@ -469,7 +472,7 @@ func (m *Model) executeSetupStep() {
 		return
 	}
 	// Refresh hook status after install.
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := userHomeDirFn(); err == nil {
 		claude, codex := hooks.InstalledStatus(home)
 		m.hookStatus = HookStatus{Claude: claude, Codex: codex}
 	}

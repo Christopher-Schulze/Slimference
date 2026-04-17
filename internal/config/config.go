@@ -83,17 +83,17 @@ type ProviderUpstream struct {
 
 // CompressionConfig controls the multi-layer compression pipeline.
 type CompressionConfig struct {
-	Layer1Enabled              bool           `toml:"layer1_enabled"`
-	Layer2Enabled              bool           `toml:"layer2_enabled"`
-	Layer3Enabled              bool           `toml:"layer3_enabled"`
-	SlidingWindow              int            `toml:"sliding_window"`
-	MinMessagesForCompression  int            `toml:"min_messages_for_compression"`
-	MinTokensForLayer2         int            `toml:"min_tokens_for_layer2"`
-	StructureMinTokens         int            `toml:"structure_min_tokens"`
-	StructureLanguages         []string       `toml:"structure_languages"`
-	DedupSimilarityThreshold   float64        `toml:"dedup_similarity_threshold"`
-	MiniMax                    MiniMaxConfig  `toml:"minimax"`
-	Summary                    SummaryConfig  `toml:"summary"`
+	Layer1Enabled             bool          `toml:"layer1_enabled"`
+	Layer2Enabled             bool          `toml:"layer2_enabled"`
+	Layer3Enabled             bool          `toml:"layer3_enabled"`
+	SlidingWindow             int           `toml:"sliding_window"`
+	MinMessagesForCompression int           `toml:"min_messages_for_compression"`
+	MinTokensForLayer2        int           `toml:"min_tokens_for_layer2"`
+	StructureMinTokens        int           `toml:"structure_min_tokens"`
+	StructureLanguages        []string      `toml:"structure_languages"`
+	DedupSimilarityThreshold  float64       `toml:"dedup_similarity_threshold"`
+	MiniMax                   MiniMaxConfig `toml:"minimax"`
+	Summary                   SummaryConfig `toml:"summary"`
 }
 
 // MiniMaxConfig holds settings for the MiniMax summarization API.
@@ -128,13 +128,14 @@ type SummaryConfig struct {
 	TargetRatio float64 `toml:"target_ratio"`
 	MaxRatio    float64 `toml:"max_ratio"`
 	MinRatio    float64 `toml:"min_ratio"`
+	Strict      bool    `toml:"strict"`
 }
 
 // CacheConfig controls response caching behaviour.
 type CacheConfig struct {
-	ResponseCacheMaxEntries        int `toml:"response_cache_max_entries"`
-	ResponseCacheTTLSeconds        int `toml:"response_cache_ttl_seconds"`
-	SummaryRefreshIntervalSeconds  int `toml:"summary_refresh_interval_seconds"`
+	ResponseCacheMaxEntries       int `toml:"response_cache_max_entries"`
+	ResponseCacheTTLSeconds       int `toml:"response_cache_ttl_seconds"`
+	SummaryRefreshIntervalSeconds int `toml:"summary_refresh_interval_seconds"`
 }
 
 // ResponseCacheTTL returns the TTL as a duration.
@@ -149,9 +150,9 @@ type UsageConfig struct {
 
 // SecretsConfig controls secret detection behaviour.
 type SecretsConfig struct {
-	Mode           string         `toml:"mode"` // "redact", "warn", "block", "off"
+	Mode           string          `toml:"mode"` // "redact", "warn", "block", "off"
 	CustomPatterns []CustomPattern `toml:"custom_patterns"`
-	Allowlist      []string       `toml:"allowlist"`
+	Allowlist      []string        `toml:"allowlist"`
 }
 
 // CustomPattern defines a user-provided secret detection pattern.
@@ -162,9 +163,9 @@ type CustomPattern struct {
 
 // AnalyticsConfig controls observability settings.
 type AnalyticsConfig struct {
-	Dashboard              bool   `toml:"dashboard"`
-	LogDir                 string `toml:"log_dir"`
-	DashboardRefreshSeconds int   `toml:"dashboard_refresh_seconds"`
+	Dashboard               bool   `toml:"dashboard"`
+	LogDir                  string `toml:"log_dir"`
+	DashboardRefreshSeconds int    `toml:"dashboard_refresh_seconds"`
 	// GainUSDPerMillionTokens is optional: multiply tokens_saved_est / 1e6 for rough $ (slimference gain).
 	GainUSDPerMillionTokens float64 `toml:"gain_usd_per_million_tokens"`
 }

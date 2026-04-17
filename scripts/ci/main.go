@@ -15,14 +15,8 @@ type step struct {
 	args  []string
 }
 
-func main() {
-	root, err := findModuleRoot()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ci: %v\n", err)
-		os.Exit(2)
-	}
-
-	steps := []step{
+func defaultSteps() []step {
+	return []step{
 		{
 			label: "go vet",
 			cmd:   "go",
@@ -41,9 +35,19 @@ func main() {
 		{
 			label: "coverage gate",
 			cmd:   "go",
-			args:  []string{"run", "./scripts/coverage", "--", "-min=100"},
+			args:  []string{"run", "./scripts/coverage", "-min=100"},
 		},
 	}
+}
+
+func main() {
+	root, err := findModuleRoot()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ci: %v\n", err)
+		os.Exit(2)
+	}
+
+	steps := defaultSteps()
 
 	total := len(steps)
 	for i, s := range steps {

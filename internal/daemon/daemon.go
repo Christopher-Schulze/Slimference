@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,8 @@ import (
 // DefaultPIDDir is the directory for the PID file.
 const DefaultPIDDir = "~/.slimference"
 
+const launchdLabel = "com.slimference.daemon"
+
 // PIDFile holds metadata about a running daemon instance.
 type PIDFile struct {
 	PID        int       `json:"pid"`
@@ -28,6 +31,20 @@ type PIDFile struct {
 
 // expandHomeFn is the home-expansion function, overridable in tests.
 var expandHomeFn = expandHomeImpl
+var (
+	isRunningFn    = IsRunning
+	sendSignalFn   = sendSignalImpl
+	sleepFn        = time.Sleep
+	signalNotifyFn = signal.Notify
+	signalStopFn   = signal.Stop
+	timeNow        = time.Now
+	findProcessFn  = os.FindProcess
+	resolveUnixFn  = net.ResolveUnixAddr
+	listenUnixFn   = net.ListenUnix
+	dialUnixFn     = net.DialUnix
+	chmodFn        = os.Chmod
+	marshalPIDFn   = json.MarshalIndent
+)
 
 func expandHomeImpl(path string) string {
 	if strings.HasPrefix(path, "~/") {
@@ -54,7 +71,7 @@ func WritePID(port int, configPath string) error {
 		StartedAt:  time.Now(),
 		ConfigPath: configPath,
 	}
-	data, err := json.MarshalIndent(pf, "", "  ")
+	data, err := marshalPIDFn(pf, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal pid file: %w", err)
 	}
@@ -96,7 +113,7 @@ func IsRunning() (bool, *PIDFile, error) {
 		return false, nil, nil
 	}
 	// Check if the process exists.
-	proc, err := os.FindProcess(pf.PID)
+	proc, err := findProcessFn(pf.PID)
 	if err != nil {
 		return false, pf, nil
 	}
@@ -109,9 +126,17 @@ func IsRunning() (bool, *PIDFile, error) {
 	return true, pf, nil
 }
 
+func sendSignalImpl(pid int, sig syscall.Signal) error {
+	proc, err := findProcessFn(pid)
+	if err != nil {
+		return err
+	}
+	return proc.Signal(sig)
+}
+
 // StopDaemon sends SIGTERM to the running daemon process.
 func StopDaemon() error {
-	running, pf, err := IsRunning()
+	running, pf, err := isRunningFn()
 	if err != nil {
 		return fmt.Errorf("check daemon: %w", err)
 	}
@@ -119,28 +144,27 @@ func StopDaemon() error {
 		fmt.Println("Slimference is not running.")
 		return nil
 	}
-	proc, _ := os.FindProcess(pf.PID)
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
+	if err := sendSignalFn(pf.PID, syscall.SIGTERM); err != nil {
 		return fmt.Errorf("send SIGTERM: %w", err)
 	}
 	// Wait for process to exit (up to 10 seconds).
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(200 * time.Millisecond)
-		if alive, _, _ := IsRunning(); !alive {
+	deadline := timeNow().Add(10 * time.Second)
+	for timeNow().Before(deadline) {
+		sleepFn(200 * time.Millisecond)
+		if alive, _, _ := isRunningFn(); !alive {
 			fmt.Printf("Slimference stopped (PID %d).\n", pf.PID)
 			return nil
 		}
 	}
 	// Force kill.
-	_ = proc.Signal(syscall.SIGKILL)
+	_ = sendSignalFn(pf.PID, syscall.SIGKILL)
 	fmt.Printf("Slimference force-killed (PID %d).\n", pf.PID)
 	return nil
 }
 
 // Status prints the daemon status.
 func Status() error {
-	running, pf, err := IsRunning()
+	running, pf, err := isRunningFn()
 	if err != nil {
 		return err
 	}
@@ -161,7 +185,7 @@ type ProxyLifecycle interface {
 // RunDaemon starts the proxy in background mode and waits for signals.
 func RunDaemon(startProxy func() (port int, shutdown func(ctx context.Context) error, err error)) error {
 	// Check if already running via PID file.
-	running, existing, _ := IsRunning()
+	running, existing, _ := isRunningFn()
 	if running {
 		return fmt.Errorf("slimference is already running (PID %d, port %d)", existing.PID, existing.Port)
 	}
@@ -187,7 +211,8 @@ func RunDaemon(startProxy func() (port int, shutdown func(ctx context.Context) e
 
 	// Wait for signal.
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signalNotifyFn(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signalStopFn(sigCh)
 	<-sigCh
 
 	fmt.Println("\nShutting down...")
@@ -206,11 +231,12 @@ func GenerateLaunchdPlist(binaryPath string) string {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.slimference.daemon</string>
+    <string>` + launchdLabel + `</string>
     <key>ProgramArguments</key>
     <array>
-        <string>` + binaryPath + `</string>
-        <string>daemon</string>
+        <string>/bin/sh</string>
+        <string>-lc</string>
+        <string>. ` + shellQuoteSingle(LaunchdEnvPath()) + ` &amp;&amp; exec ` + shellQuoteSingle(binaryPath) + ` daemon</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -220,11 +246,6 @@ func GenerateLaunchdPlist(binaryPath string) string {
     <string>` + expandHome("~/.slimference/logs/daemon.stdout.log") + `</string>
     <key>StandardErrorPath</key>
     <string>` + expandHome("~/.slimference/logs/daemon.stderr.log") + `</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>MINIMAX_API_KEY</key>
-        <string>` + os.Getenv("MINIMAX_API_KEY") + `</string>
-    </dict>
 </dict>
 </plist>`
 }
@@ -240,15 +261,91 @@ func launchdPlistPathImpl() string {
 // LaunchdPlistPath returns the path where the launchd plist should be installed.
 func LaunchdPlistPath() string { return LaunchdPlistPathFn() }
 
+// LaunchdEnvPathFn is overridable in tests.
+var LaunchdEnvPathFn = launchdEnvPathImpl
+
+func launchdEnvPathImpl() string {
+	return filepath.Join(expandHome(DefaultPIDDir), "launchd.env")
+}
+
+// LaunchdEnvPath returns the path where the launchd env file should be installed.
+func LaunchdEnvPath() string { return LaunchdEnvPathFn() }
+
+var launchctlExec = launchctlExecImpl
+
+func launchctlExecImpl(args ...string) error {
+	cmd := exec.Command("launchctl", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return fmt.Errorf("launchctl %s: %w", strings.Join(args, " "), err)
+		}
+		return fmt.Errorf("launchctl %s: %s", strings.Join(args, " "), msg)
+	}
+	return nil
+}
+
+func launchdDomain() string {
+	return "gui/" + itoa(os.Getuid())
+}
+
+func launchdServiceTarget() string {
+	return launchdDomain() + "/" + launchdLabel
+}
+
+func shellQuoteSingle(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func writeLaunchdEnvFile() error {
+	path := LaunchdEnvPath()
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create env dir: %w", err)
+	}
+	var content strings.Builder
+	content.WriteString("# Generated by slimference service install\n")
+	content.WriteString("# Secrets are stored here instead of the launchd plist.\n")
+	if value := os.Getenv("MINIMAX_API_KEY"); value != "" {
+		content.WriteString("export MINIMAX_API_KEY=")
+		content.WriteString(shellQuoteSingle(value))
+		content.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, []byte(content.String()), 0600); err != nil {
+		return fmt.Errorf("write env file: %w", err)
+	}
+	return nil
+}
+
 // InstallLaunchd writes the plist and loads it.
 func InstallLaunchd(binaryPath string) error {
 	plistsDir := filepath.Dir(LaunchdPlistPath())
 	if err := os.MkdirAll(plistsDir, 0755); err != nil {
 		return fmt.Errorf("create LaunchAgents dir: %w", err)
 	}
+	if err := os.MkdirAll(expandHome(DefaultPIDDir), 0700); err != nil {
+		return fmt.Errorf("create state dir: %w", err)
+	}
+	if err := os.MkdirAll(expandHome("~/.slimference/logs"), 0700); err != nil {
+		return fmt.Errorf("create log dir: %w", err)
+	}
+	if err := writeLaunchdEnvFile(); err != nil {
+		return err
+	}
 	plist := GenerateLaunchdPlist(binaryPath)
 	if err := os.WriteFile(LaunchdPlistPath(), []byte(plist), 0644); err != nil {
 		return fmt.Errorf("write plist: %w", err)
+	}
+	_ = launchctlExec("bootout", launchdDomain(), LaunchdPlistPath())
+	if err := launchctlExec("bootstrap", launchdDomain(), LaunchdPlistPath()); err != nil {
+		return err
+	}
+	if err := launchctlExec("enable", launchdServiceTarget()); err != nil {
+		return err
+	}
+	if err := launchctlExec("kickstart", "-k", launchdServiceTarget()); err != nil {
+		return err
 	}
 	fmt.Printf("Installed launchd plist to %s\n", LaunchdPlistPath())
 	return nil
@@ -256,27 +353,21 @@ func InstallLaunchd(binaryPath string) error {
 
 // UninstallLaunchd unloads and removes the plist.
 func UninstallLaunchd() error {
-	// Try to unload (ignore errors if not loaded).
-	_ = syscallExec("launchctl", "unload", LaunchdPlistPath())
+	_ = launchctlExec("bootout", launchdDomain(), LaunchdPlistPath())
+	_ = launchctlExec("disable", launchdServiceTarget())
 	if err := os.Remove(LaunchdPlistPath()); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove plist: %w", err)
+	}
+	if err := os.Remove(LaunchdEnvPath()); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove env file: %w", err)
 	}
 	fmt.Println("Removed launchd plist.")
 	return nil
 }
 
-// syscallExec is a helper for documentation; real exec happens via os/exec in main.
-func syscallExec(name string, arg ...string) error {
-	// This is a placeholder - actual execution happens in cmd/slimference/main.go
-	// using exec.Command. We keep this for the interface.
-	_ = name
-	_ = arg
-	return nil
-}
-
 // FormatStatus returns a machine-readable status JSON.
 func FormatStatus() ([]byte, error) {
-	running, pf, err := IsRunning()
+	running, pf, err := isRunningFn()
 	if err != nil {
 		return nil, err
 	}
@@ -318,29 +409,29 @@ func tryAcquireLockImpl() (func(), error) {
 		return nil, fmt.Errorf("create lock dir: %w", err)
 	}
 
-	addr, err := net.ResolveUnixAddr("unix", path)
+	addr, err := resolveUnixFn("unix", path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve lock address: %w", err)
 	}
 
-	conn, err := net.ListenUnix("unix", addr)
+	conn, err := listenUnixFn("unix", addr)
 	if err != nil {
 		// Bind failed - check if it's a stale socket or a live one.
 		// Try connecting to detect if a live process holds the lock.
-		if probeConn, dialErr := net.DialUnix("unix", nil, addr); dialErr == nil {
+		if probeConn, dialErr := dialUnixFn("unix", nil, addr); dialErr == nil {
 			probeConn.Close()
 			return nil, fmt.Errorf("slimference is already running (socket lock held: %s)", path)
 		}
 		// Stale socket (bind failed, connect failed) - remove and retry.
 		_ = os.Remove(path)
-		conn, err = net.ListenUnix("unix", addr)
+		conn, err = listenUnixFn("unix", addr)
 		if err != nil {
 			return nil, fmt.Errorf("slimference is already running (socket lock held: %s)", path)
 		}
 	}
 
 	// Set socket permissions so only the current user can access it.
-	_ = os.Chmod(path, 0600)
+	_ = chmodFn(path, 0600)
 
 	closer := func() {
 		conn.Close()
@@ -353,11 +444,11 @@ func tryAcquireLockImpl() (func(), error) {
 // Returns true if another Slimference instance is running.
 func IsLockHeld() bool {
 	path := LockPath()
-	addr, err := net.ResolveUnixAddr("unix", path)
+	addr, err := resolveUnixFn("unix", path)
 	if err != nil {
 		return false
 	}
-	conn, err := net.DialUnix("unix", nil, addr)
+	conn, err := dialUnixFn("unix", nil, addr)
 	if err != nil {
 		// Cannot connect = no one is listening = not held.
 		return false
