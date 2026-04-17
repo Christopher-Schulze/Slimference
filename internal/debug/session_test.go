@@ -119,11 +119,8 @@ func TestReplaySession_mixedLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// "not-json" -> skip, {"x":1} -> parses as empty RequestSummary (req_id=""), {"req_id":"r1"} ok, {"req_id":"r2"} ok
-	// Actually {"x":1} will unmarshal into RequestSummary{} without error, so req_id will be ""
-	// We expect 3 valid JSON objects (r1, empty from {"x":1}, r2)
-	if len(summaries) < 2 {
-		t.Fatalf("expected at least 2 summaries, got %d", len(summaries))
+	if len(summaries) != 2 {
+		t.Fatalf("expected 2 summaries, got %d", len(summaries))
 	}
 	found := map[string]bool{}
 	for _, s := range summaries {

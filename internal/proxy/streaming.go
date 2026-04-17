@@ -12,6 +12,10 @@ import (
 	"strings"
 )
 
+var errUpstreamResponseBodyTooLarge = errors.New("upstream response body too large")
+
+const maxUpstreamResponseBodySize = 10 * 1024 * 1024
+
 // ctxReader wraps an io.Reader so that Read respects context cancellation.
 // When ctx is cancelled, Read returns ctx.Err() without waiting for the underlying reader.
 type ctxReader struct {
@@ -73,7 +77,10 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 			slog.Debug("stream write error", "error", err)
 			return outputTokens
 		}
-		w.Write([]byte("\n")) //nolint:errcheck
+		if _, err := w.Write([]byte("\n")); err != nil {
+			slog.Debug("stream write error", "error", err)
+			return outputTokens
+		}
 		if canFlush {
 			flusher.Flush()
 		}
@@ -99,17 +106,21 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 func passthrough(w http.ResponseWriter, upstreamResp *http.Response) (responseBody []byte) {
 	defer upstreamResp.Body.Close()
 
-	for k, vv := range upstreamResp.Header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
-
-	body, err := io.ReadAll(io.LimitReader(upstreamResp.Body, 10*1024*1024))
+	body, err := io.ReadAll(io.LimitReader(upstreamResp.Body, maxUpstreamResponseBodySize+1))
 	if err != nil {
 		slog.Error("read upstream response", "error", err)
 		http.Error(w, "upstream read error", http.StatusBadGateway)
 		return nil
+	}
+	if len(body) > maxUpstreamResponseBodySize {
+		slog.Error("read upstream response", "error", errUpstreamResponseBodyTooLarge)
+		http.Error(w, errUpstreamResponseBodyTooLarge.Error(), http.StatusBadGateway)
+		return nil
+	}
+	for k, vv := range upstreamResp.Header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
 	}
 
 	w.WriteHeader(upstreamResp.StatusCode)

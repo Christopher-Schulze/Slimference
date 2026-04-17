@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +16,25 @@ import (
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/types"
 )
+
+type repeatingBody struct {
+	remaining int64
+}
+
+func (r *repeatingBody) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	n := len(p)
+	if int64(n) > r.remaining {
+		n = int(r.remaining)
+	}
+	for i := 0; i < n; i++ {
+		p[i] = 'x'
+	}
+	r.remaining -= int64(n)
+	return n, nil
+}
 
 func TestProxy_ProviderLayerToggles(t *testing.T) {
 	t.Parallel()
@@ -77,6 +98,19 @@ func TestReadBody(t *testing.T) {
 	b2, err2 := readBody(req2)
 	if err2 != nil || b2 != nil {
 		t.Fatalf("nil body: err=%v b=%v", err2, b2)
+	}
+}
+
+func TestReadBody_TooLarge(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Body = io.NopCloser(&repeatingBody{remaining: maxRequestBodySize + 1})
+	req.ContentLength = maxRequestBodySize + 1
+
+	body, err := readBody(req)
+	if !errors.Is(err, errRequestBodyTooLarge) {
+		t.Fatalf("expected errRequestBodyTooLarge, got body=%v err=%v", body, err)
 	}
 }
 

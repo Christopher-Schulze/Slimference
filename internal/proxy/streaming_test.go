@@ -21,14 +21,49 @@ type failReadCloser struct{}
 func (failReadCloser) Read([]byte) (int, error) { return 0, errPassthroughRead }
 func (failReadCloser) Close() error             { return nil }
 
+type repeatingReadCloser struct {
+	remaining int64
+}
+
+func (r *repeatingReadCloser) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	for i := range p {
+		p[i] = 'x'
+	}
+	r.remaining -= int64(len(p))
+	return len(p), nil
+}
+
+func (*repeatingReadCloser) Close() error { return nil }
+
 // streamFailWriter fails the first client write (exercises streamingRelay write-error path).
 type streamFailWriter struct {
 	rec *httptest.ResponseRecorder
 }
 
-func (s *streamFailWriter) Header() http.Header         { return s.rec.Header() }
-func (s *streamFailWriter) WriteHeader(code int)       { s.rec.WriteHeader(code) }
+func (s *streamFailWriter) Header() http.Header       { return s.rec.Header() }
+func (s *streamFailWriter) WriteHeader(code int)      { s.rec.WriteHeader(code) }
 func (s *streamFailWriter) Write([]byte) (int, error) { return 0, errStreamClientWrite }
+
+type streamFailSecondWriteWriter struct {
+	rec    *httptest.ResponseRecorder
+	writes int
+}
+
+func (s *streamFailSecondWriteWriter) Header() http.Header  { return s.rec.Header() }
+func (s *streamFailSecondWriteWriter) WriteHeader(code int) { s.rec.WriteHeader(code) }
+func (s *streamFailSecondWriteWriter) Write(p []byte) (int, error) {
+	s.writes++
+	if s.writes == 2 {
+		return 0, errStreamClientWrite
+	}
+	return s.rec.Write(p)
+}
 
 func TestExtractOutputTokensFromSSE_AnthropicMessageDelta(t *testing.T) {
 	t.Parallel()
@@ -225,6 +260,32 @@ func TestPassthrough_upstreamReadError(t *testing.T) {
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("code %d body %q", rec.Code, rec.Body.String())
 	}
+	if rec.Header().Get("X-Up") != "" {
+		t.Fatalf("unexpected upstream header on local error response: %q", rec.Header().Get("X-Up"))
+	}
+}
+
+func TestPassthrough_upstreamBodyTooLarge(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Up": []string{"1"}},
+		Body:       &repeatingReadCloser{remaining: maxUpstreamResponseBodySize + 1},
+	}
+	body := passthrough(rec, resp)
+	if body != nil {
+		t.Fatal("expected nil body on oversize response")
+	}
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("code %d body %q", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), errUpstreamResponseBodyTooLarge.Error()) {
+		t.Fatalf("body %q missing oversize error", rec.Body.String())
+	}
+	if rec.Header().Get("X-Up") != "" {
+		t.Fatalf("unexpected upstream header on local error response: %q", rec.Header().Get("X-Up"))
+	}
 }
 
 func TestStreamingRelay_CountsTokens(t *testing.T) {
@@ -254,6 +315,21 @@ func TestStreamingRelay_clientWriteError(t *testing.T) {
 	n := streamingRelay(context.Background(), w, resp, "anthropic")
 	if n != 0 {
 		t.Fatalf("want 0 tokens when client write fails, got %d", n)
+	}
+}
+
+func TestStreamingRelay_clientWriteErrorOnNewline(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	w := &streamFailSecondWriteWriter{rec: rec}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":7}}\n")),
+	}
+	n := streamingRelay(context.Background(), w, resp, "anthropic")
+	if n != 0 {
+		t.Fatalf("want 0 tokens when newline write fails, got %d", n)
 	}
 }
 

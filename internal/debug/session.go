@@ -56,7 +56,7 @@ func ReplaySession(path string) ([]RequestSummary, error) {
 			continue
 		}
 		var s RequestSummary
-		if json.Unmarshal([]byte(line), &s) == nil {
+		if json.Unmarshal([]byte(line), &s) == nil && s.RequestID != "" {
 			out = append(out, s)
 		}
 	}

@@ -55,6 +55,16 @@
 - Hardened Codex install/verify against silent config conflicts: conflicting
   `openai_base_url` or `codex_hooks = false` now fail fast instead of reporting
   a broken install as healthy.
+- Fixed proxy request-body handling so client bodies above 32 MiB now return
+  HTTP 413 instead of being silently truncated before forwarding.
+- Fixed non-streaming passthrough so upstream bodies above 10 MiB now fail with
+  a local 502 instead of partial replay, and local passthrough failures no
+  longer leak copied upstream success headers.
+- Tightened SSE relay write handling so a failed newline write stops streaming
+  immediately instead of continuing after a broken frame boundary.
+- Tightened decision-log readers (`ReplaySession`, `readLastDecisionSummaries`)
+  so malformed JSON is skipped, pseudo-summaries without `req_id` are ignored,
+  and scanner failures do not surface partial results.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.

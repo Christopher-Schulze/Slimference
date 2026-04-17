@@ -136,7 +136,8 @@ LLM Agent (response displayed)
 ### Request flow (step by step)
 
 1. CLI sends HTTP POST to localhost:8990
-2. `proxy.ServeHTTP` reads body (up to 32 MB), detects provider from URL path
+2. `proxy.ServeHTTP` reads body (up to 32 MB), detects provider from URL path.
+   Oversize client bodies are rejected with HTTP 413 instead of being silently truncated.
 3. For non-compressible paths (not /v1/messages or /v1/chat/completions): passthrough
 4. If provider is toggled off via TUI: passthrough without compression
 5. `handleCompressibleRequest` runs the full pipeline
@@ -672,6 +673,11 @@ The proxy MUST be architecturally undetectable by upstream providers:
 5. HTTP status codes and error bodies from upstream are passed through unchanged
 6. The proxy never modifies the `model` field or any request parameter other
    than the `messages` array
+
+For non-streaming passthrough responses, Slimference buffers up to 10 MiB from
+upstream. If the body exceeds that bound or cannot be read cleanly, Slimference
+returns a local 502 instead of replaying a truncated partial body, and it does
+not leak copied upstream success headers onto that local error.
 
 ---
 
@@ -1272,6 +1278,9 @@ slimference gain today --project /path/to/project
 ### slimference debug last [N] [--json]
 
 Shows the last N proxy request decision trees from the in-memory ring buffer.
+When a persisted decisions JSONL is used as the source, malformed or non-summary
+lines (for example JSON objects without `req_id`) are skipped instead of being
+shown as empty pseudo-requests.
 
 ```bash
 slimference debug last          # last request
@@ -1293,6 +1302,8 @@ Shows resolved paths for config file, filter.db, tee directory, decisions log.
 ### slimference debug replay <session.jsonl>
 
 Preview mode: shows statistics from a session JSONL file without replaying.
+Malformed or non-summary JSON lines are ignored; only records with a real
+`req_id` are treated as request summaries.
 
 ### slimference version
 

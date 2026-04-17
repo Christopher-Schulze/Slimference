@@ -1391,6 +1391,9 @@ func readLastDecisionSummaries(path string, n int) []dbg.RequestSummary {
 			lines = append(lines, line)
 		}
 	}
+	if err := sc.Err(); err != nil {
+		return nil
+	}
 	if len(lines) == 0 {
 		return nil
 	}
@@ -1405,7 +1408,7 @@ func readLastDecisionSummaries(path string, n int) []dbg.RequestSummary {
 	out := make([]dbg.RequestSummary, 0, len(tail))
 	for i := len(tail) - 1; i >= 0; i-- {
 		var s dbg.RequestSummary
-		if err := json.Unmarshal([]byte(tail[i]), &s); err == nil {
+		if err := json.Unmarshal([]byte(tail[i]), &s); err == nil && s.RequestID != "" {
 			out = append(out, s)
 		}
 	}

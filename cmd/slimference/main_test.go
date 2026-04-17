@@ -3292,6 +3292,39 @@ func TestReadLastDecisionSummaries_invalidJSONSkipped(t *testing.T) {
 	}
 }
 
+func TestReadLastDecisionSummaries_nonSummarySkipped(t *testing.T) {
+	t.Parallel()
+	tmp := filepath.Join(t.TempDir(), "decisions.jsonl")
+	content := `{"req_id":"req-good","ts":"2024-01-01T00:00:00Z","provider":"anthropic"}` + "\n" +
+		`{"x":1}` + "\n"
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := readLastDecisionSummaries(tmp, 5)
+	if len(got) != 1 {
+		t.Fatalf("non-summary skipped: want 1 result, got %d", len(got))
+	}
+	if got[0].RequestID != "req-good" {
+		t.Errorf("want req-good, got %s", got[0].RequestID)
+	}
+}
+
+func TestReadLastDecisionSummaries_scanErrorReturnsNil(t *testing.T) {
+	t.Parallel()
+	tmp := filepath.Join(t.TempDir(), "decisions.jsonl")
+	bigLine := make([]byte, 9*1024*1024)
+	for i := range bigLine {
+		bigLine[i] = 'x'
+	}
+	bigLine[len(bigLine)-1] = '\n'
+	if err := os.WriteFile(tmp, bigLine, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readLastDecisionSummaries(tmp, 5); got != nil {
+		t.Fatalf("scan error should return nil, got %v", got)
+	}
+}
+
 // TestHandleDebugLast_nArg covers the strconv.Atoi(a) && v>0 → n=v branch.
 func TestHandleDebugLast_nArg(t *testing.T) {
 	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "nonexistent.db"))

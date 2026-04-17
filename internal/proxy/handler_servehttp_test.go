@@ -105,3 +105,45 @@ func TestServeHTTP_readBodyFailedPassthrough(t *testing.T) {
 		t.Fatalf("body: %s", rec.Body.String())
 	}
 }
+
+func TestServeHTTP_readBodyTooLargeCompressible(t *testing.T) {
+	t.Parallel()
+
+	p := New(config.Defaults())
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.Body = io.NopCloser(&repeatingBody{remaining: maxRequestBodySize + 1})
+	req.ContentLength = maxRequestBodySize + 1
+	rec := httptest.NewRecorder()
+
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("want 413, got %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "request body too large") {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+}
+
+func TestServeHTTP_readBodyTooLargePassthrough(t *testing.T) {
+	t.Parallel()
+
+	p := New(config.Defaults())
+	req := httptest.NewRequest(http.MethodPost, "/v1/models", nil)
+	req.Body = io.NopCloser(&repeatingBody{remaining: maxRequestBodySize + 1})
+	req.ContentLength = maxRequestBodySize + 1
+	rec := httptest.NewRecorder()
+
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("want 413, got %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "request body too large") {
+		t.Fatalf("body: %s", rec.Body.String())
+	}
+}

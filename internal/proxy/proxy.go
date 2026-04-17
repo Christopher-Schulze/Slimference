@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,9 @@ import (
 
 // newFileWatcherFunc is called by New to create the file watcher; overridden in tests.
 var newFileWatcherFunc = caching.NewFileWatcher
+var errRequestBodyTooLarge = errors.New("request body too large")
+
+const maxRequestBodySize = 32 * 1024 * 1024
 
 // Version is the binary version string exposed by health/status surfaces.
 var Version = buildinfo.Version
@@ -262,6 +266,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !isCompressiblePath(r.URL.Path) {
 		body, err := readBody(r)
 		if err != nil {
+			if errors.Is(err, errRequestBodyTooLarge) {
+				p.proxyError(w, http.StatusRequestEntityTooLarge, err.Error())
+				return
+			}
 			p.proxyError(w, http.StatusBadRequest, "read body failed")
 			return
 		}
@@ -272,6 +280,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Read and stash the request body (needed for retry-on-overflow).
 	body, err := readBody(r)
 	if err != nil {
+		if errors.Is(err, errRequestBodyTooLarge) {
+			p.proxyError(w, http.StatusRequestEntityTooLarge, err.Error())
+			return
+		}
 		p.proxyError(w, http.StatusBadRequest, "read body failed")
 		return
 	}
@@ -430,5 +442,12 @@ func readBody(r *http.Request) ([]byte, error) {
 		return nil, nil
 	}
 	defer r.Body.Close()
-	return io.ReadAll(io.LimitReader(r.Body, 32*1024*1024)) // 32MB max
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodySize+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxRequestBodySize {
+		return nil, errRequestBodyTooLarge
+	}
+	return body, nil
 }

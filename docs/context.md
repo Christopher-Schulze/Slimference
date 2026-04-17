@@ -141,6 +141,17 @@ Repository proof as of this task:
 - hardened Codex install/verify so conflicting `openai_base_url` or
   `codex_hooks = false` now fail fast instead of silently leaving a broken
   install that still looks healthy
+- hardened proxy body limits: client request bodies above 32 MiB now fail with
+  HTTP 413 instead of being silently truncated in `ServeHTTP`
+- hardened passthrough response handling: non-streaming upstream bodies above
+  10 MiB now fail with a local 502 instead of partial replay, and local
+  passthrough errors no longer leak copied upstream success headers
+- fixed streaming relay newline writes so a failed second write stops the relay
+  instead of continuing after a broken SSE frame boundary
+- tightened decision-log readers (`ReplaySession`, `readLastDecisionSummaries`)
+  to skip JSON objects without `req_id` and to avoid surfacing partial results
+  after scanner failures on oversized/corrupt files
+- `go vet ./...` re-run clean as part of the deeper post-remediation forensic pass
 
 ## Verification Snapshot
 
@@ -171,3 +182,6 @@ Fresh-eyes review artifact:
              100% Go coverage, CI gate repair, fresh-eyes audit (`docs/audit-2.md`).
 2026-04-17 - Post-remediation hardening: centralized build version, stricter cache key partitioning,
              8 MiB JSONL scan buffers, complete offline savings reports, and doc/task drift cleanup.
+2026-04-17 - Deep forensic stability pass: fixed silent request/response truncation, prevented
+             passthrough header leakage on local 502s, hardened SSE newline-write failure handling,
+             and made decision-log readers reject pseudo-summaries and partial scan results.

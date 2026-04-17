@@ -106,17 +106,17 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 
 ### Core Proxy (HTTP Handler)
 
-- `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), toggle atomics, listener readiness state
+- `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), toggle atomics, listener readiness state, 32 MiB request-body hard fail
 - `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, dependency-safe Layer 3 admission, analytics shutdown drain
 - `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction
-- `internal/proxy/streaming.go`: SSE relay, token counting from stream events
+- `internal/proxy/streaming.go`: SSE relay, token counting from stream events, bounded non-streaming passthrough with safe local-502 behavior
 
 ### Analytics and Debug
 
 - `internal/analytics/collector.go`: Analytics struct, Record(), Snapshot()
 - `internal/analytics/persistence.go`: JSONL logging to ~/.slimference/analytics/
 - `internal/analytics/gain.go`: slimference gain - filter savings by period/command
-- `internal/debug/session.go`: SessionFileStats() for JSONL preview
+- `internal/debug/session.go`: SessionFileStats() for JSONL preview, ReplaySession() with non-summary skip
 - `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary
 - `internal/buildinfo/version.go`: single source of truth for CLI/TUI/health version strings
 
