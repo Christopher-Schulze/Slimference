@@ -295,3 +295,331 @@ func TestTokenize_DollarExpansion(t *testing.T) {
 		t.Fatal("$(...) must produce a shellism token")
 	}
 }
+
+// Additional tokenizer tests to cover uncovered branches.
+
+func TestTokenize_AppendRedirect(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("echo hi >> out.txt")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenRedirect && t.Value == ">>" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal(">> not parsed as redirect")
+	}
+}
+
+func TestTokenize_AndRedirect(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("cmd &> out.txt")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenRedirect && t.Value == "&>" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("&> not parsed as redirect")
+	}
+}
+
+func TestTokenize_AndAppendRedirect(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("cmd &>> out.txt")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenRedirect && t.Value == "&>>" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("&>> not parsed as redirect")
+	}
+}
+
+func TestTokenize_HeredocString(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("cmd <<< word")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenRedirect && t.Value == "<<<" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("<<< not parsed as redirect")
+	}
+}
+
+func TestTokenize_DollarBraceExpansion(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("echo ${HOME}/path")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenShellism && strings.Contains(t.Value, "${HOME}") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("${VAR} must produce a shellism token")
+	}
+}
+
+func TestTokenize_BacktickExpansion(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("echo `date`")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenShellism && strings.Contains(t.Value, "`date`") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("backtick expansion must produce a shellism token")
+	}
+}
+
+func TestTokenize_BackslashEscape(t *testing.T) {
+	t.Parallel()
+	toks := tokenize(`echo hello\ world`)
+	if len(toks) < 2 {
+		t.Fatalf("want >=2 tokens, got %d: %v", len(toks), toks)
+	}
+	// "hello world" should be a single token after escape processing
+	combined := toks[1].Value
+	if !strings.Contains(combined, "hello") {
+		t.Fatalf("escaped space not handled: %v", toks)
+	}
+}
+
+func TestTokenize_ArithmeticExpansion(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("echo $((1+2))")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenShellism && strings.Contains(t.Value, "$((1+2))") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("$((expr)) must produce a shellism token")
+	}
+}
+
+func TestTokenize_SemicolonOperator(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("a ; b")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenOperator && t.Value == ";" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("; not parsed as operator")
+	}
+}
+
+func TestTokenize_DoubleQuoteEscape(t *testing.T) {
+	t.Parallel()
+	toks := tokenize(`echo "hello \"world\""`)
+	// The escaped quote should be handled inside double quotes
+	for _, t := range toks {
+		if strings.Contains(t.Value, `hello "world"`) {
+			return
+		}
+	}
+	t.Fatalf("double-quote escape not handled: %v", toks)
+}
+
+func TestTokenize_GlobShellism(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("ls *.go")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenShellism && t.Value == "*.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("unquoted glob must be shellism")
+	}
+}
+
+func TestTokenize_SingleRedirect(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("cmd > out.txt")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenRedirect && t.Value == ">" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("> not parsed as redirect")
+	}
+}
+
+func TestTokenize_InputRedirect(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("cmd < in.txt")
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenRedirect && t.Value == "<" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("< not parsed as redirect")
+	}
+}
+
+func TestTokenize_LeadingWhitespace(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("  git status")
+	if len(toks) != 2 {
+		t.Fatalf("want 2 tokens after leading whitespace, got %d", len(toks))
+	}
+	if toks[0].Value != "git" {
+		t.Fatalf("first token should be 'git', got %q", toks[0].Value)
+	}
+}
+
+func TestTokenize_EmptyInput(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("")
+	if len(toks) != 0 {
+		t.Fatalf("empty input should produce 0 tokens, got %d", len(toks))
+	}
+}
+
+func TestTokenize_DoubleQuoteDollar(t *testing.T) {
+	t.Parallel()
+	// $ inside double quotes should trigger shellism
+	toks := tokenize(`echo "$HOME"`)
+	var found bool
+	for _, t := range toks {
+		if t.Kind == TokenShellism {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("$VAR inside double quotes must produce shellism")
+	}
+}
+
+// --- stageBaseCommand tests ---
+
+func TestStageBaseCommand_SimpleArg(t *testing.T) {
+	t.Parallel()
+	toks := tokenize("git status")
+	got := stageBaseCommand(toks)
+	if got != "git" {
+		t.Fatalf("want git, got %q", got)
+	}
+}
+
+func TestStageBaseCommand_EnvVarPrefix(t *testing.T) {
+	t.Parallel()
+	// VAR=value prefix should be skipped
+	toks := tokenize("FOO=bar git status")
+	got := stageBaseCommand(toks)
+	if got != "git" {
+		t.Fatalf("want git after env-var skip, got %q", got)
+	}
+}
+
+func TestStageBaseCommand_EnvVarWithSlash(t *testing.T) {
+	t.Parallel()
+	// PATH=/usr/bin: "PATH" has no slash/dot/minus before =, so it IS treated as env-var skip
+	// The command after it is the real command
+	toks := tokenize("PATH=/usr/bin echo hi")
+	got := stageBaseCommand(toks)
+	if got != "echo" {
+		t.Fatalf("PATH=/usr/bin is env-var skip, base should be 'echo', got %q", got)
+	}
+}
+
+func TestStageBaseCommand_PathWithSlashNotEnvVar(t *testing.T) {
+	t.Parallel()
+	// /usr/bin/git has a slash but no = so it is a regular arg (the command itself)
+	toks := tokenize("/usr/bin/git status")
+	got := stageBaseCommand(toks)
+	if got != "git" {
+		t.Fatalf("/usr/bin/git base should be 'git', got %q", got)
+	}
+}
+
+func TestStageBaseCommand_EmptyTokens(t *testing.T) {
+	t.Parallel()
+	got := stageBaseCommand(nil)
+	if got != "" {
+		t.Fatalf("empty tokens should give empty string, got %q", got)
+	}
+}
+
+func TestStageBaseCommand_NonArgOnly(t *testing.T) {
+	t.Parallel()
+	// Only operator tokens -> no base command
+	toks := tokenize("&& ||")
+	got := stageBaseCommand(toks)
+	if got != "" {
+		t.Fatalf("operator-only tokens should give empty string, got %q", got)
+	}
+}
+
+// --- RewriteCommand edge cases ---
+
+func TestRewriteCommand_OrOperator(t *testing.T) {
+	t.Parallel()
+	got, ok := RewriteCommand("git status || echo fail", nil)
+	if !ok {
+		t.Fatal("expected filter match")
+	}
+	if !strings.Contains(got, "slimference filter git status") {
+		t.Fatalf("left side must be rewritten: %q", got)
+	}
+}
+
+func TestRewriteCommand_RewritePrefix(t *testing.T) {
+	t.Parallel()
+	// "slimference rewrite" prefix should also be skipped
+	cmd := "slimference rewrite something"
+	got, ok := RewriteCommand(cmd, nil)
+	if ok {
+		t.Fatal("slimference rewrite prefix must not be rewritten")
+	}
+	if got != cmd {
+		t.Fatalf("passthrough must be exact: %q vs %q", got, cmd)
+	}
+}
+
+func TestRewriteCommand_MultipleEnvVars(t *testing.T) {
+	t.Parallel()
+	got, ok := RewriteCommand("FOO=1 BAR=2 go test ./...", nil)
+	if !ok {
+		t.Fatal("expected filter match with env-var prefix")
+	}
+	if !strings.Contains(got, "slimference filter") {
+		t.Fatalf("go test should be rewritten: %q", got)
+	}
+}
+
+func TestRewriteCommand_OnlyWhitespace(t *testing.T) {
+	t.Parallel()
+	_, ok := RewriteCommand("   ", nil)
+	if ok {
+		t.Fatal("whitespace-only must not be rewritten")
+	}
+}
+
+func TestRenderSegTokens_Empty(t *testing.T) {
+	t.Parallel()
+	got := renderSegTokens(nil)
+	if got != "" {
+		t.Fatalf("empty tokens should give empty string, got %q", got)
+	}
+}

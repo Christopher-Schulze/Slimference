@@ -37,8 +37,10 @@ type Analytics struct {
 	SecretsRedacted int
 	CompressionCalls int // MiniMax API calls
 
-	Errors     int
-	AutoRetries int
+	Errors           int
+	AutoRetries      int // total of RateLimitRetries + OverflowRetries
+	RateLimitRetries int // retries triggered by 429/529 rate-limit responses
+	OverflowRetries  int // retries triggered by context-length overflow errors
 
 	RequestLog *types.RingBuffer[types.RequestMetrics] // cap 100
 
@@ -146,6 +148,14 @@ func (a *Analytics) Record(event types.AnalyticsEvent) {
 	case types.EventLayerToggled:
 		// No counter change; reserved for future dashboard events.
 
+	case types.EventRateLimitRetry:
+		a.AutoRetries++
+		a.RateLimitRetries++
+
+	case types.EventOverflowRetry:
+		a.AutoRetries++
+		a.OverflowRetries++
+
 	default:
 		slog.Warn("analytics: unknown event type", slog.Int("type", int(event.Type)))
 	}
@@ -218,6 +228,8 @@ func (a *Analytics) Snapshot() AnalyticsSnapshot {
 		CompressionCalls:    a.CompressionCalls,
 		Errors:              a.Errors,
 		AutoRetries:         a.AutoRetries,
+		RateLimitRetries:    a.RateLimitRetries,
+		OverflowRetries:     a.OverflowRetries,
 		MiniMaxCalls:        a.MiniMaxCalls,
 		MiniMaxAvgLatencyMs: a.MiniMaxAvgLatencyMs,
 		MiniMaxFailures:     a.MiniMaxFailures,
@@ -284,8 +296,10 @@ type AnalyticsSnapshot struct {
 	SecretsRedacted  int `json:"secrets_redacted"`
 	CompressionCalls int `json:"compression_calls"`
 
-	Errors      int `json:"errors"`
-	AutoRetries int `json:"auto_retries"`
+	Errors           int `json:"errors"`
+	AutoRetries      int `json:"auto_retries"`
+	RateLimitRetries int `json:"rate_limit_retries"`
+	OverflowRetries  int `json:"overflow_retries"`
 
 	MiniMaxCalls        int     `json:"minimax_calls"`
 	MiniMaxAvgLatencyMs float64 `json:"minimax_avg_latency_ms"`

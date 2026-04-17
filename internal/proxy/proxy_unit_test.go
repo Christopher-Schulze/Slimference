@@ -268,6 +268,56 @@ func TestStart_portAlreadyInUse(t *testing.T) {
 	}
 }
 
+// TestRecoverMiddleware_panic verifies that recoverMiddleware catches a handler panic,
+// logs it, and responds with 502 Bad Gateway (no origBodyKey in context -> cannot passthrough).
+func TestRecoverMiddleware_panic(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("test-induced panic")
+	})
+
+	wrapped := p.recoverMiddleware(panicHandler)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
+	// No origBodyKey in context so the middleware returns 502.
+	wrapped.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 after panic recovery, got %d", rec.Code)
+	}
+}
+
+// TestRecoverMiddleware_panicWithBody verifies that when origBodyKey is present in context,
+// recoverMiddleware attempts passthrough rather than returning 502.
+// (Passthrough will fail to reach upstream in unit test, which is acceptable.)
+func TestRecoverMiddleware_panicWithBody(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	p := New(cfg)
+
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("test-induced panic with body")
+	})
+
+	wrapped := p.recoverMiddleware(panicHandler)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
+	body := []byte(`{"model":"claude","messages":[{"role":"user","content":"x"}]}`)
+	req = req.WithContext(context.WithValue(req.Context(), origBodyKey{}, body))
+	// Must not panic; middleware catches it and attempts passthrough.
+	wrapped.ServeHTTP(rec, req)
+	// Passthrough to upstream -> 200, or if network fails -> 502. Either way, no panic.
+}
+
 func TestProxy_ClearLayer2ForTesting_CompressQueue_SessionLogger(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
@@ -288,5 +338,35 @@ func TestProxy_ClearLayer2ForTesting_CompressQueue_SessionLogger(t *testing.T) {
 	// GetLayer2Cache returns nil after clear (covers the nil branch)
 	if p.GetLayer2Cache() != nil {
 		t.Fatal("GetLayer2Cache should be nil after ClearLayer2ForTesting")
+	}
+}
+
+func TestProxy_GetProviderHealth(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	p := New(cfg)
+
+	// No requests yet -> idle.
+	info := p.GetProviderHealth(types.Anthropic)
+	if info.Status != types.ProviderHealthIdle {
+		t.Fatalf("want idle, got %v", info.Status)
+	}
+
+	// Record some outcomes.
+	p.healthMon.record(types.Anthropic, true)
+	p.healthMon.record(types.Anthropic, true)
+	info = p.GetProviderHealth(types.Anthropic)
+	if info.Status != types.ProviderHealthHealthy {
+		t.Fatalf("want healthy, got %v", info.Status)
+	}
+}
+
+func TestProxy_Handler(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	p := New(cfg)
+	h := p.Handler()
+	if h == nil {
+		t.Fatal("Handler() should not return nil")
 	}
 }

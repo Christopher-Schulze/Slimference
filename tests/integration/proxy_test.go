@@ -31,18 +31,11 @@ func newTestProxy(t *testing.T, upstreamURL string) *proxy.Proxy {
 	return proxy.New(cfg)
 }
 
-// newTestServer creates an httptest.Server that mirrors the real server mux:
-// /health -> JSON ok; everything else -> proxy.ServeHTTP.
+// newTestServer creates an httptest.Server using the proxy's real HTTP handler,
+// which includes /health (richfield JSON) and / (proxy.ServeHTTP).
 func newTestServer(t *testing.T, p *proxy.Proxy) *httptest.Server {
 	t.Helper()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok","service":"slimference"}`))
-	})
-	mux.Handle("/", p)
-	return httptest.NewServer(mux)
+	return httptest.NewServer(p.Handler())
 }
 
 // TestProxy_CompressesLargeConversation verifies that a 15-message request
@@ -187,7 +180,8 @@ func TestProxy_PassthroughNonCompressiblePath(t *testing.T) {
 	}
 }
 
-// TestProxy_HealthEndpoint verifies that GET /health returns 200 with status ok.
+// TestProxy_HealthEndpoint verifies GET /health returns 200 with the full rich status JSON
+// from the real proxy health handler (spec §17.8).
 func TestProxy_HealthEndpoint(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -207,18 +201,52 @@ func TestProxy_HealthEndpoint(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("want 200, got %d", resp.StatusCode)
 	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type: want application/json, got %q", ct)
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
 
-	var result map[string]any
-	if err := json.Unmarshal(body, &result); err != nil {
-		t.Fatalf("parse body: %v", err)
+	var result struct {
+		Status            string          `json:"status"`
+		Service           string          `json:"service"`
+		Version           string          `json:"version"`
+		Layers            map[string]bool `json:"layers"`
+		Providers         map[string]bool `json:"providers"`
+		QueueDepth        map[string]int  `json:"queue_depth"`
+		CacheEntries      int             `json:"cache_entries"`
+		MiniMaxConfigured bool            `json:"minimax_configured"`
 	}
-	status, ok := result["status"].(string)
-	if !ok || status != "ok" {
-		t.Errorf("want status=ok, got %v", result["status"])
+	if err := json.Unmarshal(body, &result); err != nil {
+		t.Fatalf("parse body: %v (body: %s)", err, body)
+	}
+
+	if result.Status != "ok" {
+		t.Errorf("status: want ok, got %q", result.Status)
+	}
+	if result.Service != "slimference" {
+		t.Errorf("service: want slimference, got %q", result.Service)
+	}
+	// Layer 1 enabled in newTestProxy, layers 2+3 disabled.
+	if !result.Layers["1"] {
+		t.Errorf("layers[1]: want true, got %v", result.Layers["1"])
+	}
+	if result.Layers["2"] {
+		t.Errorf("layers[2]: want false, got %v", result.Layers["2"])
+	}
+	if result.Layers["3"] {
+		t.Errorf("layers[3]: want false, got %v", result.Layers["3"])
+	}
+	if !result.Providers["anthropic"] || !result.Providers["openai"] {
+		t.Errorf("providers: want both enabled, got %v", result.Providers)
+	}
+	if _, ok := result.QueueDepth["compress"]; !ok {
+		t.Error("queue_depth: missing 'compress' key")
+	}
+	if _, ok := result.QueueDepth["analytics"]; !ok {
+		t.Error("queue_depth: missing 'analytics' key")
 	}
 }

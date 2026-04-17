@@ -50,9 +50,11 @@ func TestValidator_PassesAllChecks(t *testing.T) {
 		summaryLen = 20
 	}
 	// The summary includes all file paths and function names from the original.
-	summary := "internal/proxy/handler.go and internal/config/config.go are the main files. " +
-		"processRequest handles the pipeline. validateInput checks inputs. " +
-		strings.Repeat("Summary content fills out the required length here. ", summaryLen/50+1)
+	// Format: bullet points starting with "- " as required by the validator.
+	summary := "- internal/proxy/handler.go and internal/config/config.go are the main files.\n" +
+		"- processRequest handles the pipeline.\n" +
+		"- validateInput checks inputs.\n" +
+		"- " + strings.Repeat("Summary content fills out the required length here. ", summaryLen/50+1)
 
 	result := v.Validate(msgs, summary, origTokens)
 	if !result.Valid {
@@ -68,7 +70,8 @@ func TestValidator_TooShort(t *testing.T) {
 	// 1000 tokens original -> minimum is 50 tokens (50*4=200 chars)
 	origTokens := 1000
 	// Create a summary that is only 10 tokens (~40 chars) - below the 5% threshold.
-	tinyText := strings.Repeat("x", 40)
+	// Must have "- " prefix to pass format check and hit the length check.
+	tinyText := "- " + strings.Repeat("x", 37)
 	msgs := buildValidatorMessages(t, strings.Repeat("word ", origTokens*4/5))
 
 	result := v.Validate(msgs, tinyText, origTokens)
@@ -85,10 +88,9 @@ func TestValidator_TooLong(t *testing.T) {
 	t.Parallel()
 
 	v := NewCompressionValidator()
-	origTokens := 1000
-	// 41% of 1000 tokens = 410 tokens = 1640 chars - above the 40% limit.
-	tooLongText := strings.Repeat("y", 1640)
-	msgs := buildValidatorMessages(t, strings.Repeat("word ", origTokens*4/5))
+	origTokens := 100
+	tooLongText := strings.Repeat("- word"+strings.Repeat(" ", 1), 50)
+	msgs := buildValidatorMessages(t, strings.Repeat("word ", origTokens))
 
 	result := v.Validate(msgs, tooLongText, origTokens)
 	if result.Valid {
@@ -117,8 +119,8 @@ These are the main files.`
 	msgs := buildValidatorMessages(t, originalText)
 	origTokens := len(originalText) / 4
 
-	// Summary deliberately omits all file paths.
-	summary := strings.Repeat("generic summary text ", origTokens/10)
+	// Summary deliberately omits all file paths. Must have "- " prefix to pass format check.
+	summary := "- " + strings.Repeat("generic summary text ", origTokens/10)
 
 	result := v.Validate(msgs, summary, origTokens)
 	if result.Valid {
@@ -142,8 +144,9 @@ func TestValidator_MissingFunctionNames(t *testing.T) {
 	origTokens := len(originalText) / 4
 
 	// Summary mentions no function names at all but is of the right length.
+	// Must have "- " prefix to pass format check.
 	padding := origTokens / 10 * 4
-	summary := strings.Repeat("word ", padding/5)
+	summary := "- " + strings.Repeat("word ", padding/5-1)
 
 	result := v.Validate(msgs, summary, origTokens)
 	// Should fail on function name preservation or length.
@@ -165,7 +168,7 @@ func TestValidator_ErrorPreservation_longFragment(t *testing.T) {
 	frag40 := string([]rune(matches[0])[:40])
 	msgs := buildValidatorMessages(t, original)
 	origTokens := 500
-	summary := frag40 + strings.Repeat(" word", 35)
+	summary := "- " + frag40 + strings.Repeat(" word", 33)
 	result := v.Validate(msgs, summary, origTokens)
 	if !result.Valid {
 		t.Fatalf("expected valid (error fragment preserved): %s", result.FailReason)
@@ -255,7 +258,8 @@ func TestValidator_ErrorPreservationBelow50(t *testing.T) {
 	origTokens := 500 // large enough to avoid min/max length failures
 
 	// Summary preserves none of the error strings - well below 50%.
-	summary := strings.Repeat("generic content ", 35)
+	// Must have "- " prefix to pass format check.
+	summary := "- " + strings.Repeat("generic content ", 33)
 
 	result := v.Validate(msgs, summary, origTokens)
 	if result.Valid {

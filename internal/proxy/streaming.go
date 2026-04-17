@@ -3,16 +3,50 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 )
 
+// ctxReader wraps an io.Reader so that Read respects context cancellation.
+// When ctx is cancelled, Read returns ctx.Err() without waiting for the underlying reader.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (cr *ctxReader) Read(p []byte) (n int, err error) {
+	select {
+	case <-cr.ctx.Done():
+		return 0, cr.ctx.Err()
+	default:
+	}
+	type readResult struct {
+		n   int
+		err error
+	}
+	ch := make(chan readResult, 1)
+	go func() {
+		nn, e := cr.r.Read(p)
+		ch <- readResult{nn, e}
+	}()
+	select {
+	case <-cr.ctx.Done():
+		return 0, cr.ctx.Err()
+	case res := <-ch:
+		return res.n, res.err
+	}
+}
+
 // streamingRelay copies a Server-Sent Events stream from upstream to the client.
 // It counts output tokens by parsing content delta events and returns the total.
-func streamingRelay(w http.ResponseWriter, upstreamResp *http.Response, provider string) (outputTokens int) {
+// ctx is the request context; when it is cancelled (e.g. client disconnect) the
+// relay exits early without waiting for the upstream to finish.
+func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *http.Response, provider string) (outputTokens int) {
 	defer upstreamResp.Body.Close()
 
 	// Copy all upstream response headers to client.
@@ -25,7 +59,9 @@ func streamingRelay(w http.ResponseWriter, upstreamResp *http.Response, provider
 
 	flusher, canFlush := w.(http.Flusher)
 
-	scanner := bufio.NewScanner(upstreamResp.Body)
+	// Wrap the body in a ctxReader so scanner.Scan() unblocks on context cancellation.
+	cr := &ctxReader{ctx: ctx, r: upstreamResp.Body}
+	scanner := bufio.NewScanner(cr)
 	// Allow lines up to 1MB (large tool results can appear in SSE streams).
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -46,8 +82,14 @@ func streamingRelay(w http.ResponseWriter, upstreamResp *http.Response, provider
 		outputTokens += extractOutputTokensFromSSE(line, provider)
 	}
 
-	if err := scanner.Err(); err != nil && err != io.EOF {
-		slog.Debug("stream scanner error", "error", err)
+	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			slog.Debug("stream relay stopped: client context done", "reason", err)
+		} else if errors.Is(err, bufio.ErrTooLong) {
+			slog.Warn("stream scanner: SSE line exceeded 1MB buffer limit, relay truncated")
+		} else {
+			slog.Debug("stream scanner error", "error", err)
+		}
 	}
 
 	return outputTokens

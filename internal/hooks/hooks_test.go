@@ -92,24 +92,26 @@ func TestVerifyReport_missingClaudeScript(t *testing.T) {
 func TestVerifyReport_codexFileWithoutMarker(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	agents := filepath.Join(home, ".codex", "AGENTS.md")
-	if err := os.MkdirAll(filepath.Dir(agents), 0755); err != nil {
+	// Create a hooks.json without slimference entry.
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(agents, []byte("# hello\n"), 0644); err != nil {
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+	if err := os.WriteFile(hooksPath, []byte(`{"hooks":{}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	lines, ok := VerifyReport(home)
 	if ok {
 		t.Fatal("claude script missing => ok=false")
 	}
-	var sawNoBlock bool
+	var sawNoHook bool
 	for _, ln := range lines {
-		if strings.Contains(ln, "codex") && strings.Contains(ln, "no slimference block") {
-			sawNoBlock = true
+		if strings.Contains(ln, "codex") && (strings.Contains(ln, "no slimference hook") || strings.Contains(ln, "not installed")) {
+			sawNoHook = true
 		}
 	}
-	if !sawNoBlock {
+	if !sawNoHook {
 		t.Fatalf("lines: %#v", lines)
 	}
 }
@@ -447,14 +449,13 @@ func TestInstallCodex_openFileError(t *testing.T) {
 	if err := os.MkdirAll(codexDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	// Create AGENTS.md as a directory - ReadFile on dir returns error (swallowed),
-	// prev stays empty, no marker found, then OpenFile on a dir with O_WRONLY fails.
-	agentsDir := filepath.Join(codexDir, "AGENTS.md")
-	if err := os.Mkdir(agentsDir, 0755); err != nil {
+	// Create hooks.json as a directory - writing to it should fail.
+	hooksDir := filepath.Join(codexDir, "hooks.json")
+	if err := os.Mkdir(hooksDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := InstallCodex(home, "slimference"); err == nil {
-		t.Fatal("expected OpenFile error when AGENTS.md is a directory")
+		t.Fatal("expected error when hooks.json is a directory")
 	}
 }
 
@@ -517,7 +518,7 @@ func TestMergeClaudeSettings_mkdirError(t *testing.T) {
 func TestVerifyReport_codexWithMarker(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	// Install both claude and codex so verify sees the codex marker present line.
+	// Install both claude and codex so verify sees both hooks present.
 	if err := InstallClaude(home, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -528,14 +529,14 @@ func TestVerifyReport_codexWithMarker(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ok=true, lines: %#v", lines)
 	}
-	var sawBlockPresent bool
+	var sawCodexHook bool
 	for _, ln := range lines {
-		if strings.Contains(ln, "codex") && strings.Contains(ln, "instruction block present") {
-			sawBlockPresent = true
+		if strings.Contains(ln, "codex") && (strings.Contains(ln, "sha256=") || strings.Contains(ln, "instruction block")) {
+			sawCodexHook = true
 		}
 	}
-	if !sawBlockPresent {
-		t.Fatalf("expected 'instruction block present' in lines: %#v", lines)
+	if !sawCodexHook {
+		t.Fatalf("expected codex hook in lines: %#v", lines)
 	}
 }
 
@@ -582,17 +583,451 @@ func TestInstallCodex_openFilePermissionError(t *testing.T) {
 		t.Skip("root bypasses permissions")
 	}
 	home := t.TempDir()
-	agentsDir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	agentsPath := filepath.Join(agentsDir, "AGENTS.md")
-	// Create file without codex marker but with no read/write permission.
-	if err := os.WriteFile(agentsPath, []byte("other content"), 0000); err != nil {
+	// Create hooks.json without write permission to trigger a write error.
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+	if err := os.WriteFile(hooksPath, []byte("{}"), 0000); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = os.Chmod(agentsPath, 0644) }()
+	defer func() { _ = os.Chmod(hooksPath, 0644) }()
 	if err := InstallCodex(home, "/bin/tp"); err == nil {
 		t.Fatal("expected error opening permission-denied file")
+	}
+}
+
+// --- New Codex hooks.json integration tests ---
+
+func TestInstallCodexHooksJSON_createsNew(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	scriptPath := filepath.Join(home, "script.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho hi\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installCodexHooksJSON(home, scriptPath); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "Slimference") && !strings.Contains(string(data), "slimference") {
+		t.Fatalf("hooks.json should contain slimference/Slimference: %s", data)
+	}
+	if !strings.Contains(string(data), scriptPath) {
+		t.Fatalf("hooks.json should reference script path: %s", data)
+	}
+}
+
+func TestInstallCodexHooksJSON_idempotent(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	scriptPath := filepath.Join(home, "script.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho hi\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installCodexHooksJSON(home, scriptPath); err != nil {
+		t.Fatal(err)
+	}
+	// Second install should not duplicate entries.
+	if err := installCodexHooksJSON(home, scriptPath); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := strings.Count(string(data), "Slimference filter")
+	if count != 1 {
+		t.Fatalf("expected 1 slimference entry, got %d", count)
+	}
+}
+
+func TestRemoveCodexHooksJSON_removesEntry(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	scriptPath := filepath.Join(home, "script.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho hi\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installCodexHooksJSON(home, scriptPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeCodexHooksJSON(home); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "slimference") {
+		t.Fatalf("hooks.json should not contain slimference after removal: %s", data)
+	}
+}
+
+func TestRemoveCodexHooksJSON_noFile(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := removeCodexHooksJSON(home); err != nil {
+		t.Fatalf("should not error on missing file: %v", err)
+	}
+}
+
+func TestPatchCodexConfig_addsKeys(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := patchCodexConfig(home); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "openai_base_url") {
+		t.Fatal("config should contain openai_base_url")
+	}
+	if !strings.Contains(content, "codex_hooks = true") {
+		t.Fatal("config should contain codex_hooks = true")
+	}
+}
+
+func TestPatchCodexConfig_preservesExisting(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	existing := "model = \"gpt-5\"\nopenai_base_url = \"http://custom:9999\"\n"
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := patchCodexConfig(home); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "custom:9999") {
+		t.Fatal("should preserve existing openai_base_url")
+	}
+	if !strings.Contains(content, "codex_hooks") {
+		t.Fatal("should add codex_hooks even with existing base_url")
+	}
+}
+
+func TestUnpatchCodexConfig_removesAdditions(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "model = \"gpt-5\"\n# Slimference proxy endpoint\nopenai_base_url = \"http://127.0.0.1:8990\"\ncodex_hooks = true  # Slimference: enable lifecycle hooks\n"
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := unpatchCodexConfig(home); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleaned := string(data)
+	if strings.Contains(cleaned, "openai_base_url") {
+		t.Fatalf("should remove openai_base_url: %s", cleaned)
+	}
+	if strings.Contains(cleaned, "codex_hooks") {
+		t.Fatalf("should remove codex_hooks: %s", cleaned)
+	}
+	if !strings.Contains(cleaned, "model = \"gpt-5\"") {
+		t.Fatal("should preserve existing settings")
+	}
+}
+
+func TestCodexHookInstalled(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if CodexHookInstalled(home) {
+		t.Fatal("should not be installed in empty home")
+	}
+	scriptPath := filepath.Join(home, "script.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installCodexHooksJSON(home, scriptPath); err != nil {
+		t.Fatal(err)
+	}
+	if !CodexHookInstalled(home) {
+		t.Fatal("should be installed after installCodexHooksJSON")
+	}
+}
+
+func TestCodexHookScriptPath(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	p := CodexHookScriptPath(home)
+	if !strings.HasSuffix(p, filepath.Join(".slimference", "hooks", "codex-post-tool.sh")) {
+		t.Fatalf("unexpected path: %s", p)
+	}
+}
+
+func TestInstallCodex_hooksDirMkdirError(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	// Make .slimference/hooks a file so MkdirAll fails
+	hooksDir := filepath.Join(home, ".slimference", "hooks")
+	if err := os.MkdirAll(filepath.Dir(hooksDir), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksDir, []byte("not a dir"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := InstallCodex(home, "slimference")
+	if err == nil {
+		t.Fatal("expected error when hooks dir is a file")
+	}
+}
+
+func TestRemoveCodex_fullCleanupWithAgentsMD(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	// Install first
+	if err := InstallCodex(home, "slimference"); err != nil {
+		t.Fatal(err)
+	}
+	// Verify AGENTS.md exists
+	agentsPath := filepath.Join(home, ".codex", "AGENTS.md")
+	if _, err := os.Stat(agentsPath); os.IsNotExist(err) {
+		t.Fatal("AGENTS.md should exist after install")
+	}
+	// Remove
+	if err := RemoveCodex(home); err != nil {
+		t.Fatal(err)
+	}
+	// Verify hooks.json has no slimference
+	hooksData, _ := os.ReadFile(filepath.Join(home, ".codex", "hooks.json"))
+	if strings.Contains(string(hooksData), "slimference") {
+		t.Fatal("hooks.json should not contain slimference after removal")
+	}
+	// Verify config.toml has no slimference additions
+	configData, _ := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if strings.Contains(string(configData), "openai_base_url") {
+		t.Fatal("config.toml should not have openai_base_url after removal")
+	}
+	// Verify script removed
+	scriptPath := CodexHookScriptPath(home)
+	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) {
+		t.Fatal("hook script should be removed")
+	}
+}
+
+func TestRemoveCodex_noFilesIsFine(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	// Remove on clean home should not error
+	if err := RemoveCodex(home); err != nil {
+		t.Fatalf("remove on empty home should succeed: %v", err)
+	}
+}
+
+func TestRemoveCodexAgentsMD_unclosedMarker(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := "# Instructions\n" + codexMarkerBegin + "\nsome text without end marker"
+	if err := os.WriteFile(filepath.Join(codexDir, "AGENTS.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := removeCodexAgentsMD(home)
+	if err == nil {
+		t.Fatal("expected error for unclosed marker")
+	}
+}
+
+func TestRemoveCodexAgentsMD_notExist(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	// No .codex dir at all - should succeed
+	if err := removeCodexAgentsMD(home); err != nil {
+		t.Fatalf("should succeed with no file: %v", err)
+	}
+}
+
+func TestUnpatchCodexConfig_preservesOtherContent(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := `model = "gpt-5"
+# Slimference proxy endpoint
+openai_base_url = "http://127.0.0.1:8990"
+
+[features]
+codex_hooks = true  # Slimference: enable lifecycle hooks
+`
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := unpatchCodexConfig(home); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := string(data)
+	if strings.Contains(result, "openai_base_url") {
+		t.Fatalf("openai_base_url should be removed: %s", result)
+	}
+	if strings.Contains(result, "codex_hooks") {
+		t.Fatalf("codex_hooks should be removed: %s", result)
+	}
+	if !strings.Contains(result, `model = "gpt-5"`) {
+		t.Fatalf("model should be preserved: %s", result)
+	}
+}
+
+func TestRemoveCodexHooksJSON_invalidJSON(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte("not-json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Invalid JSON should return nil (graceful)
+	if err := removeCodexHooksJSON(home); err != nil {
+		t.Fatalf("invalid JSON should be handled gracefully: %v", err)
+	}
+}
+
+func TestCodexHookInstalled_noDir(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if CodexHookInstalled(home) {
+		t.Fatal("should be false when no .codex dir exists")
+	}
+}
+
+func TestCodexHookInstalled_emptyJSON(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if CodexHookInstalled(home) {
+		t.Fatal("empty hooks.json should not report installed")
+	}
+}
+
+func TestInstallCodexAgentsMD_existingContent(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Existing content without trailing newline
+	if err := os.WriteFile(filepath.Join(codexDir, "AGENTS.md"), []byte("# My rules"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installCodexAgentsMD(home, "slimference"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), codexMarkerBegin) {
+		t.Fatal("should contain slimference marker")
+	}
+}
+
+func TestInstallCodexAgentsMD_idempotent(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := installCodexAgentsMD(home, "slimference"); err != nil {
+		t.Fatal(err)
+	}
+	if err := installCodexAgentsMD(home, "slimference"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(home, ".codex", "AGENTS.md"))
+	count := strings.Count(string(data), codexMarkerBegin)
+	if count != 1 {
+		t.Fatalf("expected 1 marker, got %d", count)
+	}
+}
+
+func TestRemoveCodex_fullCleanup(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	// Install full codex hooks.
+	if err := InstallCodex(home, "slimference"); err != nil {
+		t.Fatal(err)
+	}
+	if !CodexHookInstalled(home) {
+		t.Fatal("should be installed")
+	}
+	// Remove everything.
+	if err := RemoveCodex(home); err != nil {
+		t.Fatal(err)
+	}
+	if CodexHookInstalled(home) {
+		t.Fatal("should not be installed after remove")
+	}
+	scriptPath := CodexHookScriptPath(home)
+	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) {
+		t.Fatal("hook script should be removed")
+	}
+}
+
+func TestVerifyReport_codexLegacyUpgrade(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	// Install claude hook so ok=true.
+	if err := InstallClaude(home, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Create legacy AGENTS.md block (no hooks.json).
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	agents := filepath.Join(codexDir, "AGENTS.md")
+	if err := os.WriteFile(agents, []byte(codexMarkerBegin+"\nstuff\n"+codexMarkerEnd+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	lines, ok := VerifyReport(home)
+	if !ok {
+		t.Fatalf("claude installed, should be ok: %v", lines)
+	}
+	var sawLegacy bool
+	for _, ln := range lines {
+		if strings.Contains(ln, "codex") && strings.Contains(ln, "legacy") {
+			sawLegacy = true
+		}
+	}
+	if !sawLegacy {
+		t.Fatalf("expected legacy indicator: %v", lines)
 	}
 }

@@ -261,3 +261,86 @@ func TestResponseCache_Cleanup_skippedWhenNoTTL(t *testing.T) {
 		t.Fatal("with TTL 0, Cleanup is a no-op and entry remains valid to Get")
 	}
 }
+
+// TestResponseCache_LRU_promotion verifies that accessing an entry via Get promotes it
+// to most-recently-used, so it survives eviction while an unaccessed older entry is dropped.
+func TestResponseCache_LRU_promotion(t *testing.T) {
+	t.Parallel()
+
+	cache := NewResponseCache(2, time.Hour)
+
+	msgs0 := buildMessages(t, "user", "entry0")
+	msgs1 := buildMessages(t, "user", "entry1")
+	msgs2 := buildMessages(t, "user", "entry2")
+	k0 := cache.ComputeKey(msgs0, "m")
+	k1 := cache.ComputeKey(msgs1, "m")
+	k2 := cache.ComputeKey(msgs2, "m")
+
+	cache.Set(k0, makeEntry("body0"))
+	cache.Set(k1, makeEntry("body1"))
+
+	// Access k0 - promotes it to MRU; k1 becomes LRU.
+	if _, ok := cache.Get(k0); !ok {
+		t.Fatal("k0 should be present before eviction test")
+	}
+
+	// Adding k2 must evict k1 (LRU), not k0 (MRU).
+	cache.Set(k2, makeEntry("body2"))
+
+	if _, ok := cache.Get(k0); !ok {
+		t.Error("k0 was promoted by Get so it should survive eviction")
+	}
+	if _, ok := cache.Get(k1); ok {
+		t.Error("k1 was LRU so it should have been evicted")
+	}
+	if _, ok := cache.Get(k2); !ok {
+		t.Error("k2 is newest so it should be present")
+	}
+}
+
+// TestResponseCache_LRU_setPromotes verifies that updating an existing key via Set
+// promotes it to most-recently-used, protecting it from the next eviction.
+func TestResponseCache_LRU_setPromotes(t *testing.T) {
+	t.Parallel()
+
+	cache := NewResponseCache(2, time.Hour)
+
+	msgs0 := buildMessages(t, "user", "setprom0")
+	msgs1 := buildMessages(t, "user", "setprom1")
+	msgs2 := buildMessages(t, "user", "setprom2")
+	k0 := cache.ComputeKey(msgs0, "m")
+	k1 := cache.ComputeKey(msgs1, "m")
+	k2 := cache.ComputeKey(msgs2, "m")
+
+	cache.Set(k0, makeEntry("v1"))
+	cache.Set(k1, makeEntry("v1"))
+
+	// Re-set k0 - promotes it to MRU; k1 becomes LRU.
+	cache.Set(k0, makeEntry("v2"))
+
+	// Adding k2 must evict k1, not k0.
+	cache.Set(k2, makeEntry("v1"))
+
+	if _, ok := cache.Get(k0); !ok {
+		t.Error("k0 was promoted by Set so it should survive eviction")
+	}
+	if _, ok := cache.Get(k1); ok {
+		t.Error("k1 was LRU so it should have been evicted")
+	}
+	if _, ok := cache.Get(k2); !ok {
+		t.Error("k2 is newest and should be present")
+	}
+}
+
+func TestResponseCache_Len(t *testing.T) {
+	t.Parallel()
+	cache := NewResponseCache(10, 5*time.Minute)
+	if cache.Len() != 0 {
+		t.Fatal("empty cache should have Len()=0")
+	}
+	cache.Set([32]byte{1}, &CacheEntry{Response: []byte("a")})
+	cache.Set([32]byte{2}, &CacheEntry{Response: []byte("b")})
+	if cache.Len() != 2 {
+		t.Fatalf("expected Len()=2, got %d", cache.Len())
+	}
+}

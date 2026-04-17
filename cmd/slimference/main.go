@@ -46,9 +46,11 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/daemon"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/hooks"
 	"github.com/slimference/slimference/internal/proxy"
+	"github.com/slimference/slimference/internal/slogutil"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -88,7 +90,8 @@ var (
 )
 
 func main() {
-	if len(os.Args) > 1 {
+	proxy.Version = version
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
 		handleSubcommand(os.Args[1:])
 		return
 	}
@@ -117,6 +120,9 @@ func runTUI() {
 		exitFn(1)
 		return
 	}
+
+	// Apply CLI flag overrides (take priority over config file).
+	applyTUIFlags(cfg, os.Args[1:])
 
 	setupLogging(cfg)
 
@@ -170,6 +176,7 @@ func runTUIAfterStart(p *proxy.Proxy, progCh chan *tea.Program) {
 	}()
 
 	model := tui.NewModel(newProxyAdapter(p))
+	model.SetServiceControl(&serviceControlAdapter{})
 	if home, err := osUserHomeDir(); err == nil {
 		claude, codex := hooks.InstalledStatus(home)
 		model.SetHookStatus(tui.HookStatus{Claude: claude, Codex: codex})
@@ -180,6 +187,59 @@ func runTUIAfterStart(p *proxy.Proxy, progCh chan *tea.Program) {
 	if _, err := runTeaProgramFn(program); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		exitFn(1)
+	}
+
+	// Graceful proxy shutdown on normal TUI quit (user pressed 'q' or similar).
+	// Signal-triggered shutdowns are handled by the goroutine above; this covers the normal path.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = p.Shutdown(ctx)
+}
+
+// applyTUIFlags parses CLI flags from args and applies them as overrides to cfg.
+// Flags have priority over config file and environment variables (spec §13.3).
+// Supported flags:
+//
+//	--port <n>             Listen port override
+//	--sliding-window <n>   Layer 1 sliding window size
+//	--no-layer1            Disable Layer 1 (deterministic compression)
+//	--no-layer2            Disable Layer 2 (MiniMax summarization)
+//	--no-layer3            Disable Layer 3 (response caching)
+//	--log-level <level>    Log level: debug, info, warn, error
+func applyTUIFlags(cfg *config.Config, args []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		nextArg := func() (string, bool) {
+			if i+1 < len(args) {
+				i++
+				return args[i], true
+			}
+			return "", false
+		}
+		switch a {
+		case "--port", "-port":
+			if v, ok := nextArg(); ok {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					cfg.Proxy.ListenPort = n
+				}
+			}
+		case "--sliding-window":
+			if v, ok := nextArg(); ok {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					cfg.Compression.SlidingWindow = n
+				}
+			}
+		case "--no-layer1":
+			cfg.Compression.Layer1Enabled = false
+		case "--no-layer2":
+			cfg.Compression.Layer2Enabled = false
+		case "--no-layer3":
+			cfg.Compression.Layer3Enabled = false
+		case "--log-level":
+			if v, ok := nextArg(); ok {
+				cfg.Logging.Level = v
+			}
+		}
 	}
 }
 
@@ -228,9 +288,24 @@ func handleSubcommand(args []string) {
 	case "debug":
 		handleDebugCmd(args[1:])
 
+	case "daemon":
+		handleDaemonCmd()
+
+	case "start":
+		handleStartCmd()
+
+	case "stop":
+		handleStopCmd()
+
+	case "restart":
+		handleRestartCmd()
+
+	case "service":
+		handleServiceCmd(args[1:])
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, hook, debug, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, hook, debug, daemon, start, stop, restart, service, version")
 		exitFn(1)
 	}
 }
@@ -456,7 +531,7 @@ func handleHookCmd(args []string) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Updated Codex AGENTS.md with Slimference instructions.")
+			fmt.Println("Installed Codex hooks (~/.codex/hooks.json + config.toml + AGENTS.md).")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown install target: %s (want claude|codex)\n", args[1])
 			exitFn(1)
@@ -478,7 +553,7 @@ func handleHookCmd(args []string) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Removed Slimference block from Codex AGENTS.md (if present).")
+			fmt.Println("Removed Slimference hooks from Codex (hooks.json + config.toml + AGENTS.md).")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown remove target: %s\n", args[1])
 			exitFn(1)
@@ -1368,23 +1443,26 @@ func setupLogging(cfg *config.Config) {
 		level = slog.LevelError
 	}
 
-	var out *os.File
-	if cfg.Logging.File != "" {
-		f, err := os.OpenFile(cfg.Logging.File, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err == nil {
-			out = f
+	opts := &slog.HandlerOptions{Level: level}
+
+	// When a log file is configured, write structured JSONL there via a rotating
+	// writer (10 MB per file, keep 5 copies). This is the primary AI-readable
+	// output; all slog.Debug/Info/Warn/Error calls end up here automatically.
+	if logPath := config.ExpandHomePath(cfg.Logging.File); logPath != "" {
+		if err := os.MkdirAll(filepath.Dir(logPath), 0755); err == nil {
+			if rw, err := slogutil.New(logPath, 0, 0); err == nil {
+				slog.SetDefault(slog.New(slog.NewJSONHandler(rw, opts)))
+				return
+			}
 		}
 	}
-	if out == nil {
-		out = os.Stderr
-	}
 
+	// Fallback: stderr with the user-selected format.
 	var handler slog.Handler
-	opts := &slog.HandlerOptions{Level: level}
 	if cfg.Logging.Format == "json" {
-		handler = slog.NewJSONHandler(out, opts)
+		handler = slog.NewJSONHandler(os.Stderr, opts)
 	} else {
-		handler = slog.NewTextHandler(out, opts)
+		handler = slog.NewTextHandler(os.Stderr, opts)
 	}
 	slog.SetDefault(slog.New(handler))
 }
@@ -1440,6 +1518,9 @@ func (a *proxyAdapter) GetLayer2Status() tui.Layer2Status {
 	}
 	return status
 }
+func (a *proxyAdapter) GetProviderHealth(prov types.Provider) types.ProviderHealthInfo {
+	return a.p.GetProviderHealth(prov)
+}
 func (a *proxyAdapter) SessionLogger() tui.SessionLoggerInterface {
 	return a.p.SessionLogger() // *sessions.SessionLogger implements tui.SessionLoggerInterface
 }
@@ -1457,3 +1538,199 @@ type configAdapter struct {
 
 func (ca *configAdapter) GetListenPort() int    { return ca.cfg.Proxy.ListenPort }
 func (ca *configAdapter) GetPrefillSpeed() int  { return ca.cfg.Usage.EstimatedPrefillSpeed }
+
+// serviceControlAdapter implements tui.ServiceControlInterface by calling daemon package functions
+// and spawning subprocesses for hook install/remove.
+type serviceControlAdapter struct{}
+
+func (sca *serviceControlAdapter) StartDaemon() error {
+	running, existing, _ := daemon.IsRunning()
+	if running {
+		return fmt.Errorf("already running (PID %d, port %d)", existing.PID, existing.Port)
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("executable: %w", err)
+	}
+	attrs := &os.ProcAttr{Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}}
+	proc, err := os.StartProcess(binary, []string{binary, "daemon"}, attrs)
+	if err != nil {
+		return fmt.Errorf("start daemon: %w", err)
+	}
+	_ = proc.Release()
+	return nil
+}
+
+func (sca *serviceControlAdapter) StopDaemon() error {
+	return daemon.StopDaemon()
+}
+
+func (sca *serviceControlAdapter) RestartDaemon() error {
+	running, _, _ := daemon.IsRunning()
+	if running {
+		if err := daemon.StopDaemon(); err != nil {
+			return err
+		}
+	}
+	return sca.StartDaemon()
+}
+
+func (sca *serviceControlAdapter) InstallService() error {
+	binary, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("executable: %w", err)
+	}
+	return daemon.InstallLaunchd(binary)
+}
+
+func (sca *serviceControlAdapter) UninstallService() error {
+	return daemon.UninstallLaunchd()
+}
+
+func (sca *serviceControlAdapter) DaemonStatus() (bool, int, int) {
+	running, pf, _ := daemon.IsRunning()
+	if !running || pf == nil {
+		return false, 0, 0
+	}
+	return true, pf.PID, pf.Port
+}
+
+func (sca *serviceControlAdapter) InstallHook(target string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home: %w", err)
+	}
+	var tpCmd string
+	if cfg, err := config.Load(); err == nil {
+		tpCmd = strings.TrimSpace(cfg.Hooks.SlimferenceCommand)
+	}
+	switch target {
+	case "claude":
+		return hooks.InstallClaude(home, tpCmd)
+	case "codex":
+		return hooks.InstallCodex(home, tpCmd)
+	default:
+		return fmt.Errorf("unknown hook target: %s", target)
+	}
+}
+
+func (sca *serviceControlAdapter) RemoveHook(target string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("home: %w", err)
+	}
+	switch target {
+	case "claude":
+		return hooks.RemoveClaude(home)
+	case "codex":
+		return hooks.RemoveCodex(home)
+	default:
+		return fmt.Errorf("unknown hook target: %s", target)
+	}
+}
+
+// --- Daemon / Service commands ---
+
+// startProxyForDaemon creates and starts a proxy, returning port and shutdown.
+// Shared by handleDaemonCmd and handleStartCmd.
+func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, err error) {
+	cfg, err := configLoadFn()
+	if err != nil {
+		return 0, nil, fmt.Errorf("config load: %w", err)
+	}
+	setupLogging(cfg)
+	p := proxy.New(cfg)
+	if err := p.Start(); err != nil {
+		return 0, nil, fmt.Errorf("proxy start: %w", err)
+	}
+	return cfg.Proxy.ListenPort, p.Shutdown, nil
+}
+
+func handleDaemonCmd() {
+	if err := daemon.RunDaemon(startProxyForDaemon); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+}
+
+func handleStartCmd() {
+	running, existing, err := daemon.IsRunning()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "check daemon: %v\n", err)
+		exitFn(1)
+	}
+	if running {
+		fmt.Fprintf(os.Stderr, "already running (PID %d, port %d)\n", existing.PID, existing.Port)
+		exitFn(1)
+	}
+	// Fork into background via exec of self with "daemon" subcommand.
+	binary, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "executable: %v\n", err)
+		exitFn(1)
+	}
+	attrs := &os.ProcAttr{
+		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
+	}
+	proc, err := os.StartProcess(binary, []string{binary, "daemon"}, attrs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "start daemon: %v\n", err)
+		exitFn(1)
+	}
+	_ = proc.Release()
+	fmt.Println("Slimference daemon started.")
+}
+
+func handleStopCmd() {
+	if err := daemon.StopDaemon(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+}
+
+func handleRestartCmd() {
+	running, _, _ := daemon.IsRunning()
+	if running {
+		if err := daemon.StopDaemon(); err != nil {
+			fmt.Fprintf(os.Stderr, "stop: %v\n", err)
+			exitFn(1)
+		}
+	}
+	handleStartCmd()
+}
+
+func handleServiceCmd(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: slimference service <install|uninstall|status>")
+		exitFn(1)
+	}
+	switch args[0] {
+	case "install":
+		binary, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "executable: %v\n", err)
+			exitFn(1)
+		}
+		if err := daemon.InstallLaunchd(binary); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			exitFn(1)
+		}
+		fmt.Println("Service installed. Slimference will start at login.")
+	case "uninstall":
+		if err := daemon.UninstallLaunchd(); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			exitFn(1)
+		}
+		fmt.Println("Service uninstalled.")
+	case "status":
+		data, err := daemon.FormatStatus()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			exitFn(1)
+		}
+		fmt.Println(string(data))
+	default:
+		fmt.Fprintf(os.Stderr, "unknown service command: %s\n", args[0])
+		exitFn(1)
+	}
+}

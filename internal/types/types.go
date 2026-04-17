@@ -162,6 +162,8 @@ const (
 	EventSecretDetected
 	EventErrorOccurred
 	EventLayerToggled
+	EventRateLimitRetry // 429/529 from upstream; proxy will sleep and retry
+	EventOverflowRetry  // context-length error from upstream; proxy retries with aggressive compression
 )
 
 // AnalyticsEvent is sent from the proxy hot path to the analytics collector goroutine.
@@ -244,4 +246,23 @@ func (rb *RingBuffer[T]) Len() int {
 	rb.mu.RLock()
 	defer rb.mu.RUnlock()
 	return rb.size
+}
+
+// ProviderHealthStatus describes the health of an upstream API provider,
+// derived from actual request outcomes (no polling - see spec §16.4).
+type ProviderHealthStatus int
+
+const (
+	ProviderHealthIdle     ProviderHealthStatus = iota // no requests in 5+ minutes
+	ProviderHealthHealthy                              // recent requests succeeding
+	ProviderHealthDegraded                             // >20% error rate in recent requests
+	ProviderHealthDown                                 // last 3 consecutive requests failed
+)
+
+// ProviderHealthInfo is a point-in-time health snapshot used by the TUI.
+type ProviderHealthInfo struct {
+	Status      ProviderHealthStatus
+	LastSuccess time.Time
+	LastError   time.Time
+	ErrorRate   float64 // fraction of recent results that were errors (0.0-1.0)
 }

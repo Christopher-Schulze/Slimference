@@ -207,7 +207,7 @@ func TestApplyProgressiveTiers_allAnchorsInTier(t *testing.T) {
 
 func TestApplyProgressiveTiers_summarizeSuccess(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "test-key")
-	summaryText := strings.Repeat("S", 200)
+	summaryText := "- alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
 			http.NotFound(w, r)
@@ -244,7 +244,6 @@ func TestApplyProgressiveTiers_summarizeSuccess(t *testing.T) {
 	}
 }
 
-// TestApplyProgressiveTiers_endBeyondSlice covers the end >= len(messages) truncation (lines 106-108).
 func TestApplyProgressiveTiers_endBeyondSlice(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
@@ -253,8 +252,6 @@ func TestApplyProgressiveTiers_endBeyondSlice(t *testing.T) {
 		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "a"}}},
 		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "b"}}},
 	}
-	// end=10 > len(msgs)=2, but start=0 is valid -> end gets clamped to 1.
-	// ratio=1.0 so messages are kept verbatim.
 	tiers := []CompressionTier{
 		{Name: "window", MsgRange: [2]int{0, 10}, TargetRatio: 1.0},
 	}
@@ -268,7 +265,7 @@ func TestApplyProgressiveTiers_endBeyondSlice(t *testing.T) {
 // Some messages in a tier are anchors; the rest get summarized successfully.
 func TestApplyProgressiveTiers_summarizeWithAnchors(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "test-key")
-	summaryText := strings.Repeat("S", 200)
+	summaryText := "- alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -282,11 +279,10 @@ func TestApplyProgressiveTiers_summarizeWithAnchors(t *testing.T) {
 	cfg.MiniMax.MaxRetries = 0
 	l := NewLayer2(&cfg)
 
-	// Mix: one anchor (edit tool_use) + several non-anchor messages.
 	msgs := []types.Message{
 		{Index: 0, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "edit_file"}}},
-		{Index: 1, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: strings.Repeat("word ", 100)}}},
-		{Index: 2, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: strings.Repeat("resp ", 100)}}},
+		{Index: 1, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: strings.Repeat("hello ", 100)}}},
+		{Index: 2, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: strings.Repeat("response ", 100)}}},
 	}
 	tiers := []CompressionTier{
 		{Name: "tier-mixed", MsgRange: [2]int{0, 2}, TargetRatio: 0.3},

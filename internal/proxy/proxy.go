@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +27,9 @@ import (
 // newFileWatcherFunc is called by New to create the file watcher; overridden in tests.
 var newFileWatcherFunc = caching.NewFileWatcher
 
+// Version is the binary version string, set by cmd/main.go before calling New().
+var Version = "dev"
+
 // Proxy is the core Slimference instance. It owns all compression layers, goroutines,
 // and the HTTP server. Its lifecycle matches the TUI lifecycle: one instance per run.
 type Proxy struct {
@@ -34,6 +38,7 @@ type Proxy struct {
 	// HTTP server and upstream clients.
 	server      *http.Server
 	httpClients map[types.Provider]*http.Client
+	listenerMu  sync.RWMutex
 	listener    net.Listener
 
 	// Compression layers.
@@ -52,6 +57,7 @@ type Proxy struct {
 	compressQueue  chan types.CompressJob
 	analyticsQueue chan types.AnalyticsEvent
 	shutdownCh     chan struct{}
+	shutdownOnce   sync.Once
 	wg             sync.WaitGroup
 
 	// Runtime toggle atomics. Index 0=Anthropic, 1=OpenAI for providers.
@@ -62,8 +68,40 @@ type Proxy struct {
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
 
+	// Health monitor - tracks per-provider upstream health from actual request results (spec §17.5).
+	healthMon *healthMonitor
+
 	// TUI send function - set after TUI program is created.
+	// Protected by tuiSendMu so race detector is satisfied even though in practice
+	// SetTUISendFn is called before Start() and the goroutines launch.
+	tuiSendMu sync.RWMutex
 	tuiSendFn func(types.RequestMetrics)
+}
+
+// recoverMiddleware wraps an HTTP handler with panic recovery (spec §17.2).
+// On panic: logs the stack trace and attempts to forward the original request
+// unmodified via handlePassthrough. If the original body is unavailable (panic
+// happened before it was read), returns 502 Bad Gateway.
+func (p *Proxy) recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("handler panic recovered",
+					"error", rec,
+					"path", r.URL.Path,
+					"stack", string(debug.Stack()),
+				)
+				// Best-effort passthrough: use the body stashed in context before compression.
+				if body, ok := r.Context().Value(origBodyKey{}).([]byte); ok && body != nil {
+					provider := detectProvider(r.URL.Path, body)
+					p.handlePassthrough(w, r, provider, body)
+					return
+				}
+				http.Error(w, "proxy error: internal panic", http.StatusBadGateway)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // New creates and initializes a fully configured Proxy. It does not start listening.
@@ -140,6 +178,9 @@ func New(cfg *config.Config) *Proxy {
 	p.analytics = analytics.NewAnalytics()
 	p.sessionLogger = sessions.NewSessionLogger()
 
+	// Health monitor: tracks upstream health from actual request outcomes, no polling (spec §17.5).
+	p.healthMon = newHealthMonitor()
+
 	// Debug decision recorder (ring buffer capacity from config, default 100).
 	decisionsLog := strings.TrimSpace(cfg.Debug.DecisionsLog)
 	maxEntries := cfg.Debug.MaxEntries
@@ -160,11 +201,11 @@ func New(cfg *config.Config) *Proxy {
 
 	// HTTP server with the proxy mux.
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/health", p.healthHandler)
 	mux.HandleFunc("/", p.ServeHTTP)
 
 	p.server = &http.Server{
-		Handler:      mux,
+		Handler:      p.recoverMiddleware(mux),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 0, // no write timeout for SSE streams
 		IdleTimeout:  120 * time.Second,
@@ -175,7 +216,9 @@ func New(cfg *config.Config) *Proxy {
 
 // SetTUISendFn wires up the TUI event delivery function after the TUI program is created.
 func (p *Proxy) SetTUISendFn(fn func(types.RequestMetrics)) {
+	p.tuiSendMu.Lock()
 	p.tuiSendFn = fn
+	p.tuiSendMu.Unlock()
 }
 
 // Config returns the proxy configuration.
@@ -190,7 +233,9 @@ func (p *Proxy) Start() error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
+	p.listenerMu.Lock()
 	p.listener = ln
+	p.listenerMu.Unlock()
 
 	slog.Info("proxy listening", "addr", addr)
 
@@ -200,9 +245,9 @@ func (p *Proxy) Start() error {
 	p.wg.Add(1)
 	go p.analyticsWorker()
 	p.wg.Add(1)
-	go p.cacheJanitor()
+	go p.cacheJanitor(cacheJanitorInterval)
 	p.wg.Add(1)
-	go p.analyticsPeriodicFlush()
+	go p.analyticsPeriodicFlush(analyticsFlushInterval)
 
 	return p.server.Serve(ln)
 }
@@ -321,8 +366,11 @@ func (p *Proxy) IsLayerEnabled(layer int) bool {
 
 // ListenAddr returns the address the proxy is listening on, or "" if not started.
 func (p *Proxy) ListenAddr() string {
-	if p.listener != nil {
-		return p.listener.Addr().String()
+	p.listenerMu.RLock()
+	l := p.listener
+	p.listenerMu.RUnlock()
+	if l != nil {
+		return l.Addr().String()
 	}
 	return p.config.ListenAddr()
 }
@@ -351,6 +399,21 @@ func (p *Proxy) SessionLogger() *sessions.SessionLogger {
 // DebugRecorder returns the debug decision recorder for the "debug last" CLI command.
 func (p *Proxy) DebugRecorder() *dbg.Recorder {
 	return p.debugRecorder
+}
+
+// GetProviderHealth returns the health snapshot for the given provider,
+// derived from actual request outcomes (spec §17.5). Never pings upstream APIs.
+func (p *Proxy) GetProviderHealth(prov types.Provider) types.ProviderHealthInfo {
+	if p.healthMon == nil {
+		return types.ProviderHealthInfo{Status: types.ProviderHealthIdle}
+	}
+	return p.healthMon.getStatus(prov)
+}
+
+// Handler returns the HTTP handler for the proxy, including the /health endpoint.
+// Used by integration tests to exercise the real handler without starting a TCP listener.
+func (p *Proxy) Handler() http.Handler {
+	return p.server.Handler
 }
 
 // readBody reads and closes the request body, returning its contents.

@@ -1,5 +1,238 @@
 # Changelog
 
+## v2.0.1 - 2026-04-17
+
+### Production Readiness Audit Baseline + Remediation Program
+
+- Added `docs/audit-1.md` as the fixed production-readiness baseline for later
+  audit comparison.
+- Added `docs/gap-analysis.md` to map the remaining implementation gap against
+  the existing documentation/spec target without lowering that target.
+- Added the following tracked remediation plans under `docs/todo/`:
+  - `t11-audit-remediation-program.md`
+  - `t12-hook-contract-hardening.md`
+  - `t13-zero-downside-and-cache-correctness.md`
+  - `t14-layer2-strictness-and-cancellation.md`
+  - `t15-daemon-service-productionization.md`
+  - `t16-proof-gates-and-release-readiness.md`
+- Updated `docs/todo.md`, `docs/context.md`, `docs/map.md`, and
+  `docs/documentation.md` to link the audit baseline and the new execution
+  plans.
+
+## v2.0.0 - 2026-04-13
+
+### Full Spec Parity: spec+.md v2.0.0-draft - Claude Code + Codex CLI
+
+Complete implementation of all normative requirements in spec+.md v2.0.0-draft.
+Scope: Claude Code and Codex CLI only (Cursor, Copilot, Gemini CLI = non-goals for this release).
+
+#### Layer 0: Pre-Entry Filtering (`internal/filter/`, `internal/hooks/`)
+
+- 24 built-in filters (F01-F24) fully implemented: git, build, test, lint, search, JSON, log,
+  AWS, GitHub/GitLab CLI, PostgreSQL, .NET, Ruby, Python typecheckers, formatters.
+- 200+ `TryCompact*` functions across 18 built-in files covering 150+ command variants.
+- TOML Filter DSL (`filters_toml.go`): 8-stage pipeline (`strip_ansi`, `replace`, `match_output`,
+  `unless`, `strip_lines_matching`, `keep_lines_matching`, `truncate_lines_at`, `head_lines`,
+  `tail_lines`, `max_lines`, `on_empty`). Project-local + user-global merge with deduplication.
+- Hook system (`internal/hooks/`): `claude.go` + `codex.go` + `verify.go`. Commands:
+  `slimference hook install claude|codex`, `hook verify`, `hook remove`. SHA-256 integrity checks.
+- Tee recovery (`tee.go`): raw output saved to `~/.slimference/tee/` on failure, 20-file rotation.
+- SQLite tracking (`tracking.go`, `modernc.org/sqlite`): `filter_runs` schema, 90-day retention.
+- Permission model (`permissions.go`): deny/ask/exclude_commands exit codes 0/1/2/3.
+- `slimference gain` (`internal/analytics/gain.go`): today/week/month/all, JSON/CSV output.
+
+#### Layer 1: All 14 Deterministic Sub-Layers (`internal/compression/`)
+
+- L1.1 JSON Minification, L1.2 Comment Stripping (10 languages), L1.3 Exact + MinHash/LSH
+  near-deduplication (128 dimensions, shingle-3, Jaccard 0.85), L1.4 Regex Structure Extraction
+  (10 languages, replacing tree-sitter), L1.5 Delta Encoding (LCS unified diff), L1.6 Prompt
+  Cache Breakpoint Injection, L1.7 ANSI Strip, L1.8 Tool Classifier, L1.9 Tool Compressor,
+  L1.10 Success Short-Circuit, L1.11 Image Base64 Replacement, L1.12 Repeated Tool Collapse,
+  L1.13 Graph Pruning (file op deduplication), L1.14 Pre-Filtered Content Tagging.
+- Config renamed: `tree_sitter_*` -> `structure_*` throughout.
+
+#### Layer 2: MiniMax M2.7 Summarization (`internal/summarization/`)
+
+- Adaptive sliding window (`adaptive_window.go`): complexity-based dynamic window 3-7.
+- Tool result priority classification (`priority.go`): HIGH/MEDIUM/LOW tiering.
+- Full MiniMax client with retry (max 2), timeouts (5s connect, 30s response, 45s total).
+- Anchor detection, summary cache (30-min TTL), progressive compression tiers, validation
+  (5% min / 40% max ratio), graceful Layer 1 fallback on failure.
+
+#### Layer 3: Response Cache - True LRU Fix (`internal/caching/response_cache.go`)
+
+- **Bug fix:** `ResponseCache` was FIFO, not LRU. `Get()` now calls `promoteKey()` on hit,
+  `Set()` on existing keys also promotes. New helper `promoteKey()` moves key to MRU position.
+- New tests: `TestResponseCache_LRU_promotion`, `TestResponseCache_LRU_setPromotes`.
+
+#### SSE Streaming Robustness (`internal/proxy/streaming.go`)
+
+- `streamingRelay` now accepts `ctx context.Context` as first parameter. Client disconnect
+  detection: `select { case <-ctx.Done(): return }` at top of scan loop exits relay early
+  without blocking on upstream data.
+- Scanner overflow (`bufio.ErrTooLong`): logged at WARN level instead of DEBUG, operator-visible.
+- New tests: `TestStreamingRelay_contextCancelled`, `TestStreamingRelay_scannerOverflow`.
+
+#### Resilience (`internal/proxy/handler.go`, `internal/proxy/proxy.go`)
+
+- `recoverMiddleware`: panic recovery with stack trace logging + best-effort passthrough.
+- `doUpstreamRequest`: rate-limit retry (429/529, max 2 retries, `parseRetryAfter` up to 30s).
+- Context overflow retry: aggressive re-compress (window=2, L2 target 10%, raw fallback).
+- `EventRateLimitRetry` + `EventOverflowRetry` analytics events tracked in dashboard.
+
+#### Health Monitoring (`internal/proxy/health_monitor.go`)
+
+- 20-slot ring buffer per provider, derived from real request outcomes only (no pinging).
+- Thresholds: idle (>5 min), down (last 3 consecutive failures), degraded (>20% error rate).
+- Health dots in TUI, `/health` JSON endpoint.
+
+#### Debug & Observability (`internal/debug/`, `internal/tui/`)
+
+- Decision chain JSONL, session replay, `slimference debug last|summary|tail|paths|replay`.
+- BubbleTea TUI: 3 views (main dashboard, stats, debug log tail). Keyboard: c/x providers,
+  1-3 layers, s/d/f/q views. Provider health dots, TTFT saving display, retry breakdown.
+- Persistent analytics: JSONL to `~/.slimference/analytics/YYYY-MM-DD.jsonl`, flushed on shutdown.
+
+#### Configuration & CLI (`internal/config/`, `cmd/slimference/`)
+
+- Full TOML + environment (`SLIMFERENCE_*`) + CLI flag override hierarchy.
+- Subcommands: `filter`, `hook`, `rewrite`, `gain`, `debug`, `doctor`, `stats`, `test`, `version`.
+
+#### Test Coverage
+
+- 100% statement/branch coverage across all 18 packages.
+- New test files: `health_monitor_test.go`, `views_test.go`, LRU cache tests, SSE robustness tests.
+- Integration tests: CompressesLargeConversation (ratio=0.80), PassthroughNonCompressiblePath,
+  HealthEndpoint. TypeScript test suite (6 tests, bun:test).
+
+---
+
+## v1.4.0 - 2026-04-13
+
+### Spec Parity Complete: §17.2 Panic Recovery + §17.7 Latency Display + Retry Breakdown
+
+#### §17.2 Panic Recovery Middleware (`internal/proxy/proxy.go`)
+
+- `recoverMiddleware(next http.Handler) http.Handler` added - wraps the full HTTP mux.
+- On panic: logs error + full stack trace via `slog.Error`, then best-effort passthrough
+  of the original request unmodified (using the body stashed in context via `origBodyKey`).
+- Fallback: if body not yet stashed (panic before readBody), returns 502 Bad Gateway.
+- Wired in `New()`: `Handler: p.recoverMiddleware(mux)`.
+- Import `"runtime/debug"` added to proxy.go.
+
+#### §17.7 Latency Display in Stats View (`internal/tui/views.go`)
+
+- New "Avg Request Latency" section added to `renderStatsView`, shown after MiniMax stats.
+- Displays per-provider table: Provider | Avg ms | TTFT saved/req
+- Anthropic and OpenAI rows shown when data is available; MiniMax row shown separately.
+- `providerTTFTSaving(snap, prov, prefillSpeed) float64` helper added to compute
+  per-provider estimated TTFT improvement from `PerProvider.InputTokensSaved / Messages / prefillSpeed`.
+- Uses existing `snap.LatencyAnthropicMs` / `snap.LatencyOpenAIMs` fields (already tracked).
+
+#### Retry Breakdown (`internal/types/types.go`, `internal/analytics/collector.go`,
+  `internal/proxy/handler.go`, `internal/tui/views.go`)
+
+- Two new event types: `EventRateLimitRetry` (429/529) and `EventOverflowRetry` (context-length).
+- `Analytics` struct: `RateLimitRetries int` and `OverflowRetries int` added alongside `AutoRetries`.
+- `Record()` handles both new events: increments specific counter AND `AutoRetries`.
+- `AnalyticsSnapshot` includes `RateLimitRetries` and `OverflowRetries`; `Snapshot()` populates them.
+- `doUpstreamRequest` emits `EventRateLimitRetry` before each sleep-and-retry.
+- Context overflow path emits `EventOverflowRetry` immediately on detection.
+- Stats view resilience line: "Auto-retries: N (Nx rate-limit, Nx overflow)" when N > 0.
+
+## v1.3.9 - 2026-04-13
+
+### Spec Parity: §17.3 Rate-Limit Retry + §17.5 Provider Health TUI
+
+#### §17.3 Rate-limit retry (`internal/proxy/handler.go`)
+
+- `doUpstreamRequest` now implements a direct status-code-only retry loop (max 2 retries)
+  for 429 and 529 responses.
+- Critical fix: `resilience.Do` was replaced because it calls `io.ReadAll` on every response
+  body, which would buffer complete SSE streams in memory and break all streaming responses.
+- New direct loop: checks `resp.StatusCode` only; body is never read for 200/SSE responses.
+- `parseRetryAfter(header string) time.Duration` added: parses integer-seconds and HTTP-date
+  `Retry-After` headers, caps at 30s per spec §17.3. Falls back to exponential backoff via
+  `resilience.ExponentialBackoff`.
+- `"strconv"` import added; `resilience` import kept for `ExponentialBackoff` utility.
+
+#### §17.5 Provider health dots (`internal/types/types.go`, `internal/proxy/health_monitor.go`,
+  `internal/proxy/proxy.go`, `internal/tui/model.go`, `internal/tui/components.go`,
+  `internal/tui/views.go`, `cmd/slimference/main.go`, `internal/tui/model_test.go`)
+
+- `ProviderHealthStatus` enum and `ProviderHealthInfo` struct added to `types` package.
+- `healthMonitor` (20-slot ring buffer per provider) in new `internal/proxy/health_monitor.go`.
+  No upstream pinging - derived solely from actual request outcomes (spec §16.4).
+- Health status thresholds: idle (>5 min idle), down (last 3 consecutive failed),
+  degraded (>20% error rate), healthy (otherwise).
+- `Proxy.GetProviderHealth(prov)` added, wired to `ProxyInterface` and `proxyAdapter`.
+- TUI `renderMainView` shows colored health dots (`●`/`○`) next to each provider badge.
+- `renderHealthDot` helper in `internal/tui/components.go`.
+- `mockProxy.GetProviderHealth` added in test file.
+
+## v1.3.8 - 2026-04-13
+
+### Spec Parity: Enhanced Health Endpoint + CLI Flag Overrides
+
+#### §17.8 Enhanced `/health` endpoint (`internal/proxy/handler.go`)
+
+- `healthHandler` converted from standalone function to `(p *Proxy) healthHandler` method,
+  giving it live access to all proxy state.
+- Response now includes: `status`, `service`, `version`, `layers` (1/2/3 enabled state),
+  `providers` (anthropic/openai enabled state), `queue_depth` (compress + analytics queues),
+  `cache_entries` (live LRU count), `minimax_configured` (API key present).
+- `ResponseCache.Len() int` added to `internal/caching/response_cache.go` (read-lock guarded).
+- `var Version = "dev"` added to `internal/proxy/proxy.go`; set by `cmd/main.go` at startup
+  as `proxy.Version = version` before any other call.
+- `TestHealthHandler` updated to use method call on a real Proxy instance; asserts all new fields.
+
+#### §13.3 CLI flag overrides (`cmd/slimference/main.go`)
+
+- `main()` sets `proxy.Version = version` and routes flag args (`--`) to `runTUIFn()` instead
+  of `handleSubcommand()`.
+- `applyTUIFlags(cfg, os.Args[1:])` called in `runTUI()` after config load, before logging setup.
+- Supported flags: `--port`/`-port`, `--sliding-window`, `--no-layer1`, `--no-layer2`,
+  `--no-layer3`, `--log-level`.
+- `TestApplyTUIFlags` added with 11 parallel subtests covering all flags, combinations,
+  invalid values (zero port, non-numeric port), and unknown flags.
+
+## v1.3.7 - 2026-04-13
+
+### Reliability Audit + Rotating Debug Logger + Docs Flush
+
+#### Rotating JSONL logger (`internal/slogutil`)
+
+- New `RotatingWriter`: goroutine-safe `io.Writer` with size-based rotation (10 MB per file, 5 copies).
+- `setupLogging()` in `cmd/slimference/main.go` wires it as the `slog.Default` handler.
+- Defaults updated: `logging.level="debug"`, `logging.format="json"`, `logging.file="~/.slimference/logs/slimference.jsonl"`.
+- All existing `slog.*` calls across all packages now go to the rotating file automatically.
+
+#### Strategic debug logging
+
+- Hot path (`handleCompressibleRequest`): request-scoped logger with `req_id`, `provider`, `model`.
+  Events: `request started`, `layer1 applied` (with per-sub-layer savings), `layer2 applied`, `request_processed`.
+- Layer 0 (`filter/pipeline.go`): `layer0 exec`, `layer0 filter applied` (includes filter name), `layer0 passthrough`, `layer0 result`.
+
+#### Reliability fixes (7 bugs)
+
+| Bug | Fix |
+|-----|-----|
+| Panic: send to closed subscriber channel | `trySend()` with `recover()` in sessions/logger.go |
+| Hot path blocked by analytics queue | All 5 `analyticsQueue` sends made non-blocking |
+| Double `close(shutdownCh)` on concurrent shutdown | `sync.Once` wraps entire Shutdown() body |
+| No graceful proxy shutdown on TUI quit | `p.Shutdown(ctx)` added after `runTeaProgramFn` returns |
+| `reconstructBody` error silently discarded | Error checked; 500 returned to client on failure |
+| `json.Marshal` silent null payload in analytics | Errors propagated from WriteEvent/WriteSnapshot/writeLine |
+| fsnotify kqueue data races under `-race` | `t.Parallel()` removed from 3 caching tests that touch OS-level kqueue |
+
+#### Docs flush
+
+- `docs/documentation.md` updated to v1.3.5: new slogutil package, updated logging defaults,
+  non-blocking analytics description, idempotent Shutdown, trySend rationale, request-scoped
+  logging tables, Layer 0 debug events, race detector status.
+- `docs/context.md` rewritten to current state (was stale at v1.2.0).
+- Changelog entry added.
+
 ## v1.3.6 - 2026-04-13
 
 ### Integration Tests Fixed + TypeScript Tests + Initial Git Commit

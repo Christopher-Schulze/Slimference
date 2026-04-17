@@ -62,7 +62,7 @@ func (c *ResponseCache) ComputeKey(messages []types.Message, model string) [32]b
 }
 
 // Get returns the cache entry for key if present and not expired.
-// HitCount is incremented on a successful hit.
+// HitCount is incremented and the entry is promoted to most-recently-used on a hit.
 func (c *ResponseCache) Get(key [32]byte) (*CacheEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -75,10 +75,12 @@ func (c *ResponseCache) Get(key [32]byte) (*CacheEntry, bool) {
 		return nil, false
 	}
 	entry.HitCount++
+	c.promoteKey(key)
 	return entry, true
 }
 
-// Set stores an entry. When the cache is full, the oldest entry is evicted.
+// Set stores an entry. When the cache is full, the least-recently-used entry is evicted.
+// Updating an existing key promotes it to most-recently-used.
 func (c *ResponseCache) Set(key [32]byte, entry *CacheEntry) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -89,6 +91,8 @@ func (c *ResponseCache) Set(key [32]byte, entry *CacheEntry) {
 			delete(c.entries, oldest)
 		}
 		c.keys = append(c.keys, key)
+	} else {
+		c.promoteKey(key)
 	}
 	c.entries[key] = entry
 }
@@ -141,6 +145,25 @@ func (c *ResponseCache) Cleanup() {
 		remaining = append(remaining, key)
 	}
 	c.keys = remaining
+}
+
+// Len returns the number of entries currently in the cache.
+func (c *ResponseCache) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.entries)
+}
+
+// promoteKey moves key to the end of c.keys (most-recently-used position).
+// Must be called with c.mu held for write.
+func (c *ResponseCache) promoteKey(key [32]byte) {
+	for i, k := range c.keys {
+		if k == key {
+			c.keys = append(c.keys[:i], c.keys[i+1:]...)
+			c.keys = append(c.keys, key)
+			return
+		}
+	}
 }
 
 // deleteKey removes a single key from both the map and the ordered slice.

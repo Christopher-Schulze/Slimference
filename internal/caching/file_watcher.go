@@ -10,14 +10,34 @@ import (
 )
 
 const (
-	maxWatchedDirs  = 50
-	debounceDelay   = 100 * time.Millisecond
+	maxWatchedDirs = 50
+	debounceDelay  = 100 * time.Millisecond
 )
+
+// fsWatcher abstracts the underlying filesystem event provider for testability.
+// Production code uses realFsWatcher (wraps *fsnotify.Watcher).
+// Tests inject mockFsWatcher to avoid races with the OS kqueue/inotify backend.
+type fsWatcher interface {
+	Add(name string) error
+	Remove(name string) error
+	Close() error
+	EventsChan() <-chan fsnotify.Event
+	ErrorsChan() <-chan error
+}
+
+// realFsWatcher adapts *fsnotify.Watcher to the fsWatcher interface.
+type realFsWatcher struct{ w *fsnotify.Watcher }
+
+func (r *realFsWatcher) Add(name string) error             { return r.w.Add(name) }
+func (r *realFsWatcher) Remove(name string) error          { return r.w.Remove(name) }
+func (r *realFsWatcher) Close() error                      { return r.w.Close() }
+func (r *realFsWatcher) EventsChan() <-chan fsnotify.Event { return r.w.Events }
+func (r *realFsWatcher) ErrorsChan() <-chan error          { return r.w.Errors }
 
 // FileWatcher monitors filesystem paths and calls onChange when files change.
 // Changes are debounced per path to coalesce rapid successive events.
 type FileWatcher struct {
-	watcher        *fsnotify.Watcher
+	watcher        fsWatcher
 	trackedDirs    map[string]time.Time // dir path -> last access time
 	onChange       func(path string)
 	mu             sync.RWMutex
@@ -35,6 +55,12 @@ func NewFileWatcher(onChange func(path string)) (*FileWatcher, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newFileWatcherWithWatcher(&realFsWatcher{w: w}, onChange), nil
+}
+
+// newFileWatcherWithWatcher creates a FileWatcher with an injected fsWatcher.
+// Used in production via NewFileWatcher and in tests via mockFsWatcher.
+func newFileWatcherWithWatcher(w fsWatcher, onChange func(string)) *FileWatcher {
 	fw := &FileWatcher{
 		watcher:        w,
 		trackedDirs:    make(map[string]time.Time),
@@ -43,7 +69,7 @@ func NewFileWatcher(onChange func(path string)) (*FileWatcher, error) {
 		done:           make(chan struct{}),
 	}
 	go fw.run()
-	return fw, nil
+	return fw
 }
 
 // Watch adds path (file or directory) to the watch list.
@@ -52,8 +78,8 @@ func NewFileWatcher(onChange func(path string)) (*FileWatcher, error) {
 // Silently skips if already watched. Refuses if 50 dirs are already tracked.
 func (fw *FileWatcher) Watch(path string) error {
 	dir := filepath.Dir(path)
-	// If path itself is a directory, watch it directly.
-	if path[len(path)-1] == '/' {
+	// If path itself is a directory (trailing slash), watch it directly.
+	if len(path) > 0 && path[len(path)-1] == '/' {
 		dir = filepath.Clean(path)
 	}
 
@@ -111,14 +137,24 @@ func (fw *FileWatcher) Close() {
 	}
 }
 
-// run is the background event loop. It reads fsnotify events and debounces them
-// per path before forwarding to onChange.
+// pruneInterval is how often stale watched directories are cleaned up.
+const pruneInterval = 5 * time.Minute
+
+// pruneMaxAge is the maximum time a directory can be unaccessed before pruning.
+const pruneMaxAge = 10 * time.Minute
+
+// run is the background event loop. It reads fsnotify events, debounces them per path,
+// and periodically prunes stale watched directories.
 func (fw *FileWatcher) run() {
+	pruneTicker := time.NewTicker(pruneInterval)
+	defer pruneTicker.Stop()
 	for {
 		select {
 		case <-fw.done:
 			return
-		case event, ok := <-fw.watcher.Events:
+		case <-pruneTicker.C:
+			fw.pruneStale(pruneMaxAge)
+		case event, ok := <-fw.watcher.EventsChan():
 			if !ok {
 				return
 			}
@@ -126,7 +162,7 @@ func (fw *FileWatcher) run() {
 				continue
 			}
 			fw.scheduleDebounce(event.Name)
-		case err, ok := <-fw.watcher.Errors:
+		case err, ok := <-fw.watcher.ErrorsChan():
 			if !ok {
 				return
 			}

@@ -34,6 +34,21 @@ func renderProgressBar(s Styles, ratio float64, totalWidth int) string {
 	return bar + s.Saved.Render(label)
 }
 
+// renderHealthDot renders a small colored indicator for provider API health.
+// Status is derived from actual request outcomes - no upstream polling (spec §17.5).
+func renderHealthDot(s Styles, status types.ProviderHealthStatus) string {
+	switch status {
+	case types.ProviderHealthHealthy:
+		return s.Dot.Render("●")
+	case types.ProviderHealthDegraded:
+		return s.Warning.Render("●")
+	case types.ProviderHealthDown:
+		return s.LogError.Render("●")
+	default: // idle
+		return s.Muted.Render("○")
+	}
+}
+
 // renderProviderBadge renders a colored provider status badge.
 func renderProviderBadge(s Styles, name string, enabled bool) string {
 	if enabled {

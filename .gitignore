@@ -6,9 +6,11 @@
 # Build artifacts
 /benchmarks
 /ci
+/slimference
 /tokenproxy
 /tokenproxy.test
 /tokenproxy_test
+/utils
 
 # Coverage and test output files
 *.out

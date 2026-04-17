@@ -298,6 +298,47 @@ func TestAnalytics_AvgTTFTImprovement(t *testing.T) {
 	}
 }
 
+// TestAnalytics_Record_retryEvents verifies that EventRateLimitRetry and EventOverflowRetry
+// both increment AutoRetries and their specific counters (collector.go §17.3).
+func TestAnalytics_Record_retryEvents(t *testing.T) {
+	t.Parallel()
+
+	a := NewAnalytics()
+	a.Record(types.AnalyticsEvent{Type: types.EventRateLimitRetry, Timestamp: time.Now()})
+	if a.AutoRetries != 1 {
+		t.Errorf("AutoRetries = %d, want 1 after rate-limit retry", a.AutoRetries)
+	}
+	if a.RateLimitRetries != 1 {
+		t.Errorf("RateLimitRetries = %d, want 1", a.RateLimitRetries)
+	}
+	if a.OverflowRetries != 0 {
+		t.Errorf("OverflowRetries = %d, want 0 (only rate-limit fired)", a.OverflowRetries)
+	}
+
+	a.Record(types.AnalyticsEvent{Type: types.EventOverflowRetry, Timestamp: time.Now()})
+	if a.AutoRetries != 2 {
+		t.Errorf("AutoRetries = %d, want 2 after overflow retry", a.AutoRetries)
+	}
+	if a.OverflowRetries != 1 {
+		t.Errorf("OverflowRetries = %d, want 1", a.OverflowRetries)
+	}
+	if a.RateLimitRetries != 1 {
+		t.Errorf("RateLimitRetries = %d, want 1 (unchanged after overflow)", a.RateLimitRetries)
+	}
+
+	// Verify Snapshot carries the counters.
+	snap := a.Snapshot()
+	if snap.AutoRetries != 2 {
+		t.Errorf("snap.AutoRetries = %d, want 2", snap.AutoRetries)
+	}
+	if snap.RateLimitRetries != 1 {
+		t.Errorf("snap.RateLimitRetries = %d, want 1", snap.RateLimitRetries)
+	}
+	if snap.OverflowRetries != 1 {
+		t.Errorf("snap.OverflowRetries = %d, want 1", snap.OverflowRetries)
+	}
+}
+
 // TestAnalytics_ConcurrentRecord verifies no data race when recording from many goroutines.
 func TestAnalytics_ConcurrentRecord(t *testing.T) {
 	t.Parallel()

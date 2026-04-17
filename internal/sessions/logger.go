@@ -52,11 +52,7 @@ func (l *SessionLogger) Log(level, component, msg string, fields ...any) {
 	l.mu.Unlock()
 
 	for _, ch := range subs {
-		select {
-		case ch <- entry:
-		default:
-			// Subscriber buffer full - drop rather than block.
-		}
+		trySend(ch, entry)
 	}
 }
 
@@ -110,6 +106,17 @@ func (l *SessionLogger) Format(entry LogEntry) string {
 		sb.WriteString(fmt.Sprintf("%v", v))
 	}
 	return sb.String()
+}
+
+// trySend delivers entry to ch without blocking and without panicking if ch is closed.
+// Unsubscribe closes ch while Log may hold a stale copy - this guard prevents the panic.
+func trySend(ch chan LogEntry, entry LogEntry) {
+	defer func() { recover() }() //nolint:errcheck
+	select {
+	case ch <- entry:
+	default:
+		// Subscriber buffer full - drop rather than block.
+	}
 }
 
 // parseFields converts a flat key-value variadic slice into a map.

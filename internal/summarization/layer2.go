@@ -1,6 +1,7 @@
 package summarization
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -16,24 +17,32 @@ import (
 // summaryMaxAge is the default staleness threshold for cached summaries.
 const summaryMaxAge = 30 * time.Minute
 
-// Layer2 orchestrates asynchronous MiniMax-based compression (Layer 2).
+// Layer2 orchestrates asynchronous summarization-based compression (Layer 2).
+// It uses a FallbackChain of Summarizer providers: primary (MiniMax), then any fallbacks.
 type Layer2 struct {
 	cfg       *config.CompressionConfig
-	minimax   *MiniMaxClient
+	chain     *FallbackChain
 	cache     *SummaryCache
 	anchor    *AnchorDetector
 	validator *CompressionValidator
 }
 
-// NewLayer2 constructs a Layer2 coordinator from the supplied configuration.
 func NewLayer2(cfg *config.CompressionConfig) *Layer2 {
+	mm := NewMiniMaxClient(cfg.MiniMax)
+	chain := NewFallbackChain(mm)
 	return &Layer2{
 		cfg:       cfg,
-		minimax:   NewMiniMaxClient(cfg.MiniMax),
+		chain:     chain,
 		cache:     NewSummaryCache(),
 		anchor:    NewAnchorDetector(),
 		validator: NewCompressionValidator(),
 	}
+}
+
+// AddFallbackProvider appends a fallback summarizer to the chain.
+// Providers are tried in insertion order after the primary (MiniMax).
+func (l *Layer2) AddFallbackProvider(s Summarizer) {
+	l.chain.SetProviders(append(l.chain.Providers(), s)...)
 }
 
 // ApplyToMessages injects a cached summary in place of the messages it covers.
@@ -127,23 +136,71 @@ func (l *Layer2) RunCompressionJob(messages []types.Message) {
 	}
 
 	inputText := existingSummaryPrefix + l.FormatMessagesForSummarization(toSummarize)
+	inputText = preprocessInput(inputText)
 	origTokens := estimateTokens(inputText)
 
-	targetTokens := int(float64(origTokens) * l.cfg.Summary.TargetRatio)
+	// Cap input to prevent quality degradation on very long conversations.
+	// M2.7 has 200k context but quality drops past ~120k input tokens.
+	const maxInputTokens = 120000
+	if origTokens > maxInputTokens {
+		// Truncate from the oldest messages, keeping the most recent content.
+		maxBytes := maxInputTokens * 4
+		if len(inputText) > maxBytes {
+			inputText = inputText[len(inputText)-maxBytes:]
+			if idx := strings.Index(inputText, "\n"); idx >= 0 {
+				inputText = inputText[idx+1:]
+			}
+		}
+		origTokens = estimateTokens(inputText)
+	}
+
+	targetTokens := computeAdaptiveTarget(origTokens, toSummarize, l.cfg.Summary.TargetRatio)
 	if targetTokens < 100 {
 		targetTokens = 100
 	}
 
-	summary, err := l.minimax.Summarize(inputText, startIdx, boundaryIdx, targetTokens)
+	summary, providerName, err := l.chain.Summarize(context.Background(), inputText, startIdx, boundaryIdx, targetTokens)
 	if err != nil {
-		slog.Error("layer2 minimax summarize failed",
+		slog.Error("layer2 summarization failed (all providers)",
 			slog.String("error", err.Error()),
 			slog.Int("msg_count", len(toSummarize)),
 		)
 		return
 	}
+	slog.Debug("layer2 summarization provider", "provider", providerName)
 
 	result := l.validator.Validate(toSummarize, summary, origTokens)
+	if !result.Valid {
+		// Validation-driven retry: retry once with a targeted hint about what failed.
+		slog.Warn("layer2 summary failed validation, retrying with emphasis",
+			slog.String("reason", result.FailReason),
+			slog.Int("orig_tokens", origTokens),
+		)
+
+		retryInput := inputText + "\n\nIMPORTANT: Previous attempt was rejected because: " + result.FailReason +
+			". Fix this issue. Remember: bullet format, preserve ALL paths and names verbatim."
+		retryTarget := targetTokens
+
+		retrySummary, retryProvider, retryErr := l.chain.Summarize(context.Background(), retryInput, startIdx, boundaryIdx, retryTarget)
+		if retryErr == nil {
+			retryResult := l.validator.Validate(toSummarize, retrySummary, origTokens)
+			if retryResult.Valid {
+				summary = retrySummary
+				providerName = retryProvider
+				result = retryResult
+				slog.Debug("layer2 retry succeeded", "provider", providerName)
+			} else {
+				slog.Warn("layer2 retry also failed validation",
+					slog.String("reason", retryResult.FailReason),
+				)
+				return
+			}
+		} else {
+			slog.Warn("layer2 retry request failed", "error", retryErr.Error())
+			return
+		}
+	}
+
 	if !result.Valid {
 		slog.Warn("layer2 summary failed validation",
 			slog.String("reason", result.FailReason),
@@ -229,6 +286,37 @@ func (l *Layer2) FormatMessagesForSummarization(messages []types.Message) string
 	return sb.String()
 }
 
+// preprocessInput cleans the formatted message text before sending to the LLM.
+// It removes noise that wastes tokens and degrades summary quality:
+// - Truncates very long tool_result content (e.g. file reads) to a summary line
+// - Collapses consecutive identical tool outputs
+// - Strips "-tool.sh" noise from hook script names
+func preprocessInput(input string) string {
+	lines := strings.Split(input, "\n")
+	var cleaned []string
+	prevContent := ""
+
+	for _, line := range lines {
+		// Skip if identical to previous line (duplicate output).
+		if line == prevContent {
+			continue
+		}
+		prevContent = line
+
+		// Truncate very long lines (>2000 chars likely a file dump).
+		// Keep the first 200 chars as context.
+		if len(line) > 2000 {
+			truncated := line[:200] + "... [truncated, original " + fmt.Sprintf("%d", len(line)) + " chars]"
+			cleaned = append(cleaned, truncated)
+			continue
+		}
+
+		cleaned = append(cleaned, line)
+	}
+
+	return strings.Join(cleaned, "\n")
+}
+
 // GetCache returns the underlying SummaryCache for external inspection.
 func (l *Layer2) GetCache() *SummaryCache {
 	return l.cache
@@ -240,11 +328,163 @@ func hashMessages(messages []types.Message) [32]byte {
 	return sha256.Sum256(data)
 }
 
-// estimateTokens approximates the token count using a 4-bytes-per-token heuristic.
+// estimateTokens approximates the token count using a weighted heuristic.
+// Accounts for whitespace, CJK characters, and code-heavy content more accurately
+// than a simple bytes/4 division.
 func estimateTokens(text string) int {
-	n := len(text) / 4
-	if n < 1 && len(text) > 0 {
+	if len(text) == 0 {
+		return 0
+	}
+	tokens := 0
+	inWord := false
+	for _, r := range text {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			inWord = false
+		case r >= 0x4E00 && r <= 0x9FFF:
+			tokens++
+			inWord = false
+		case r >= 0x3040 && r <= 0x309F:
+			tokens++
+			inWord = false
+		case r >= 0x30A0 && r <= 0x30FF:
+			tokens++
+			inWord = false
+		default:
+			if !inWord {
+				tokens++
+				inWord = true
+			}
+		}
+	}
+	if tokens < 1 {
 		return 1
 	}
-	return n
+	return tokens
+}
+
+// contentDensity measures how information-dense a set of messages is.
+// Returns 0.0-1.0 where higher means more dense (code, paths, tool calls).
+func contentDensity(messages []types.Message) float64 {
+	if len(messages) == 0 {
+		return 0.5
+	}
+
+	var totalChars, codeChars, pathChars, toolChars int
+	for _, msg := range messages {
+		for _, blk := range msg.Content {
+			n := len(blk.Text)
+			totalChars += n
+			switch blk.Type {
+			case "tool_use", "tool_result":
+				toolChars += n
+			case "text":
+				for _, line := range splitLines(blk.Text) {
+					trimmed := strings.TrimSpace(line)
+					if looksLikeCode(trimmed) || looksLikePath(trimmed) {
+						codeChars += len(trimmed)
+					}
+				}
+			}
+		}
+	}
+
+	for _, msg := range messages {
+		for _, blk := range msg.Content {
+			matches := filePathRegex.FindAllString(blk.Text, -1)
+			pathChars += len(matches) * 20
+		}
+	}
+
+	if totalChars == 0 {
+		return 0.5
+	}
+
+	density := float64(codeChars+toolChars+pathChars) / float64(totalChars)
+	if density > 1.0 {
+		density = 1.0
+	}
+	return density
+}
+
+// computeAdaptiveTarget calculates target output tokens based on input size,
+// content density, and message count. Dense content (code/paths/tools) needs
+// more output tokens to preserve information; sparse prose can compress more.
+func computeAdaptiveTarget(origTokens int, messages []types.Message, baseRatio float64) int {
+	density := contentDensity(messages)
+	msgCount := len(messages)
+
+	ratio := baseRatio
+
+	if msgCount <= 5 {
+		ratio = baseRatio * 1.5
+	} else if msgCount <= 10 {
+		ratio = baseRatio * 1.25
+	}
+
+	ratio += density * 0.15
+
+	if origTokens < 1000 {
+		ratio = max(ratio, 0.40)
+	} else if origTokens < 5000 {
+		ratio = max(ratio, 0.25)
+	}
+
+	if ratio > 0.60 {
+		ratio = 0.60
+	}
+
+	target := int(float64(origTokens) * ratio)
+	return max(target, 100)
+}
+
+// splitLines splits text into lines without allocating a new slice per line.
+func splitLines(s string) []string {
+	return strings.Split(s, "\n")
+}
+
+// looksLikeCode heuristically detects code lines.
+func looksLikeCode(line string) bool {
+	if len(line) == 0 {
+		return false
+	}
+	codeIndicators := []string{
+		"func ", "func(", "var ", "const ", "type ", "import ",
+		"if ", "for ", "switch ", "case ", "return ",
+		"pub fn", "let ", "impl ", "use ", "mod ",
+		"def ", "class ", "async ",
+		"== ", "!= ", ">= ", "<= ",
+		":=", "->", "=>", "&&", "||",
+	}
+	for _, ind := range codeIndicators {
+		if strings.Contains(line, ind) {
+			return true
+		}
+	}
+	if len(line) > 0 && (line[0] == '{' || line[0] == '}' || line[0] == ')' || line[0] == ']') {
+		return true
+	}
+	if strings.HasPrefix(line, "//") || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "/*") {
+		return true
+	}
+	return false
+}
+
+// looksLikePath heuristically detects file paths.
+func looksLikePath(line string) bool {
+	if len(line) == 0 {
+		return false
+	}
+	if strings.Count(line, "/") >= 2 {
+		return true
+	}
+	if strings.Contains(line, "./") || strings.Contains(line, "../") {
+		return true
+	}
+	for _, suffix := range []string{".go", ".ts", ".rs", ".py", ".js", ".toml", ".json", ".yaml", ".md"} {
+		if strings.Contains(line, suffix) {
+			return true
+		}
+	}
+	return false
 }

@@ -5,11 +5,42 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+// mockFsWatcher is a test-only fsWatcher that owns its channels exclusively.
+// Unlike *fsnotify.Watcher, it has no OS kqueue/inotify backend goroutine,
+// making it safe to use in parallel tests with no inter-test races.
+type mockFsWatcher struct {
+	eventsCh  chan fsnotify.Event
+	errorsCh  chan error
+	addErr    error
+	removeErr error
+	closeOnce sync.Once
+}
+
+func newMockFsWatcher() *mockFsWatcher {
+	return &mockFsWatcher{
+		eventsCh: make(chan fsnotify.Event, 16),
+		errorsCh: make(chan error, 16),
+	}
+}
+
+func (m *mockFsWatcher) Add(_ string) error    { return m.addErr }
+func (m *mockFsWatcher) Remove(_ string) error { return m.removeErr }
+func (m *mockFsWatcher) Close() error {
+	m.closeOnce.Do(func() {
+		close(m.eventsCh)
+		close(m.errorsCh)
+	})
+	return nil
+}
+func (m *mockFsWatcher) EventsChan() <-chan fsnotify.Event { return m.eventsCh }
+func (m *mockFsWatcher) ErrorsChan() <-chan error          { return m.errorsCh }
 
 func TestFileWatcher_watchUnwatchClose(t *testing.T) {
 	t.Parallel()
@@ -224,7 +255,8 @@ func TestFileWatcher_maxWatchedDirs(t *testing.T) {
 // TestFileWatcher_run_chmodEventIgnored verifies that Chmod events (Op not in the mask)
 // hit the continue branch (file_watcher.go:122-123) and do not invoke onChange.
 func TestFileWatcher_run_chmodEventIgnored(t *testing.T) {
-	t.Parallel()
+	// Not parallel: interacts with OS-level kqueue/inotify backend shared across all
+	// FileWatcher instances; parallel execution triggers races in fsnotify internals.
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "chmod-test.txt")
 	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
@@ -264,17 +296,16 @@ func TestFileWatcher_run_chmodEventIgnored(t *testing.T) {
 
 // TestFileWatcher_run_errorsChannelError verifies that an error sent to watcher.Errors
 // is handled gracefully via slog.Warn (file_watcher.go:130).
+// Uses mockFsWatcher so no OS kqueue/inotify backend races with the channel send.
 func TestFileWatcher_run_errorsChannelError(t *testing.T) {
 	t.Parallel()
-	fw, err := NewFileWatcher(func(string) {})
-	if err != nil {
-		t.Fatal(err)
-	}
+	mock := newMockFsWatcher()
+	fw := newFileWatcherWithWatcher(mock, func(string) {})
 	defer fw.Close()
 
-	// Send a synthetic error into the watcher Errors channel.
+	// Send a synthetic error into the mock Errors channel.
 	select {
-	case fw.watcher.Errors <- fmt.Errorf("synthetic fsnotify error"):
+	case mock.errorsCh <- fmt.Errorf("synthetic fsnotify error"):
 	case <-time.After(time.Second):
 		t.Fatal("could not send error to watcher Errors channel")
 	}
@@ -286,20 +317,20 @@ func TestFileWatcher_run_errorsChannelError(t *testing.T) {
 
 // TestFileWatcher_run_errorsChannelClose verifies the !ok path on the Errors channel
 // (file_watcher.go:127-129) when the underlying watcher is closed without signaling done.
+// Uses mockFsWatcher to avoid races with the OS kqueue/inotify backend goroutine.
 func TestFileWatcher_run_errorsChannelClose(t *testing.T) {
 	t.Parallel()
-	fw, err := NewFileWatcher(func(string) {})
-	if err != nil {
-		t.Fatal(err)
-	}
+	mock := newMockFsWatcher()
+	fw := newFileWatcherWithWatcher(mock, func(string) {})
 
-	// Close the underlying watcher directly so both Events and Errors channels close,
-	// triggering the !ok branches in run(). Ignore the error from watcher.Close().
-	_ = fw.watcher.Close()
+	// Close mock channels directly so both EventsChan and ErrorsChan return !ok,
+	// triggering the early-return branches in run(). mockFsWatcher.Close is idempotent.
+	_ = mock.Close()
 
 	// Give run() time to detect the closed channels and exit.
 	time.Sleep(100 * time.Millisecond)
-	// Cleanup: close(done) and watcher.Close() (already closed - error ignored).
+
+	// fw.Close() closes done + calls mock.Close() again (idempotent - no panic).
 	fw.Close()
 }
 
@@ -369,7 +400,8 @@ func TestFileWatcher_pruneStale_removeError(t *testing.T) {
 // run() receives an fsnotify event -> scheduleDebounce creates a timer ->
 // timer fires -> onChange is called (covers run() L119-125 and scheduleDebounce L151-156).
 func TestFileWatcher_scheduleDebounce_callsOnChange(t *testing.T) {
-	t.Parallel()
+	// Not parallel: triggers real OS filesystem events that are delivered via the shared
+	// kqueue backend; concurrent parallel tests cause races in fsnotify internals.
 	tmp := t.TempDir()
 	f, err := os.CreateTemp(tmp, "fw-change-*.txt")
 	if err != nil {

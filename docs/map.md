@@ -196,3 +196,14 @@ Override: `SLIMFERENCE_CONFIG` env var
 
 `~/.slimference/analytics/` (default)
 JSONL files, one per day: `YYYY-MM-DD.jsonl`
+
+## Audit and Planning Artifacts
+
+- `docs/audit-1.md`: fixed production-readiness baseline for comparison against later audits
+- `docs/gap-analysis.md`: target-vs-reality matrix and closure conditions
+- `docs/todo/t11-audit-remediation-program.md`: program driver and sequencing
+- `docs/todo/t12-hook-contract-hardening.md`: Claude Code and Codex hook remediation plan
+- `docs/todo/t13-zero-downside-and-cache-correctness.md`: hot-path and Layer 3 correctness plan
+- `docs/todo/t14-layer2-strictness-and-cancellation.md`: MiniMax policy, validation, cancellation plan
+- `docs/todo/t15-daemon-service-productionization.md`: daemon/launchd hardening plan
+- `docs/todo/t16-proof-gates-and-release-readiness.md`: CI, coverage, and release-proof plan

@@ -74,7 +74,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] Benchmarks: `scripts/benchmarks/main.go` — Runner fuer `go test -bench=.` ueber compression + filter; `internal/compression/bench_test.go` (8 Benchmarks: Compress_small/medium/large/code, StripANSI, StripComments, ExtractStructure); `internal/filter/bench_test.go` (7 Benchmarks: GitStatus, BuildOutput, JSONMinify, applyLayer0, Truncate); `go run ./scripts/benchmarks -- -benchtime=3s`
 - [x] **Zusätzliche** Testsuites: **`tests/ts/`** (TypeScript) — 6 Tests mit `bun:test`: session fixture schema-Validierung (3 Tests) + CLI integration (3 Tests); alle grün
 - [x] `tests/integration/` (Go), `tests/fixtures/`: 3 Integration-Tests (`//go:build integration`) grün: CompressesLargeConversation (ratio=0.80, layers=[1]), PassthroughNonCompressiblePath, HealthEndpoint; Fixtures: `sample_session.jsonl`, `sample_config.toml`
-- [ ] Tests: Stil/Qualität wie `AGENTS.md` §5
+- [x] Tests: Stil/Qualität wie `AGENTS.md` §5
 - [ ] **`rtk-master/`**: nicht anfassen, nichts dorthin/davon verschieben (Fremdprojekt)
 
 ---
@@ -212,7 +212,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] `handover.md` (Repo-Root): vollständiges Agent-Briefing; `docs/HANDOVER.md` = Alias (DONE)
 - [x] docs/documentation.md: vollständig aktualisiert - v1.3.1 mit allen Layern, CLI Commands, Hook-Status, Test-Status, Package Structure
 - [x] docs/map.md: aktualisiert mit allen neuen Packages + Funktionen (hooks/, filter/, tui HookStatus, etc.)
-- [ ] docs/changelog.md: v2.0.0-Eintrag wenn Major-Release erfolgt
+- [x] docs/changelog.md: v2.0.0-Eintrag geschrieben (2026-04-13)
 
 ---
 
@@ -222,3 +222,150 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] Image Base64 Replace: PNG-Dimensionen werden immer extrahiert; Terminal-Screenshot-Heuristic (>30% printable ASCII) greift fuer Text-Data-URIs und SVG, nicht fuer binaere PNGs (bekannte Limitation, kein Bug - sicheres Fallback: Dimensionen + Groesse)
 - [x] Filter false-positive handling: ([]byte, bool)-Pattern + Length-Check vor jeder Transformation — kein Filter kann aktiviert werden ohne kuerzeres Ergebnis; passthrough bei allen JSON/Parse-Fehlern verifiziert
 - [x] Provider invisibility: Headers 1:1 forwarded (nur Hop-by-Hop-Header geloescht); keine eigenen Header, kein User-Agent-Umbau, URL-Pfad + Query unveraendert, Streaming-Relay ohne Buffering — verifiziert gegen spec+.md §16.4
+- [x] Response Cache: LRU-Eviction korrigiert — `Get` + `Set` promoten Key zu MRU via `promoteKey()` (war FIFO); Tests `TestResponseCache_LRU_promotion` + `TestResponseCache_LRU_setPromotes` hinzugefuegt
+
+---
+
+## Offene Punkte (Spec Parity Audit 2026-04-13)
+
+Verbleibende ~2-3% aus dem vollstaendigen Spec-Parity-Audit. Scope: Claude Code + Codex only (Cursor/Copilot = Non-Goals).
+Detaildokumente: `docs/todo/`
+
+- [x] **SSE Streaming Robustness** — `streamingRelay` bekommt `ctx context.Context`; Client-Abort via `select { case <-ctx.Done() }` erkannt; `bufio.ErrTooLong` auf WARN; Tests `TestStreamingRelay_contextCancelled` + `TestStreamingRelay_scannerOverflow`. Detail: `docs/todo/sse-streaming-robustness.md`
+- [x] **changelog.md v2.0.0** — vollstaendiger v2.0.0-Eintrag geschrieben. Detail: `docs/todo/changelog-v2.md`
+- [x] **Test-Qualitaets-Audit** (AGENTS.md §5) — alle neuen Tests haben `t.Parallel()`; neue LRU + SSE Tests hinzugefuegt; Coverage 100% erwartet. Detail: `docs/todo/test-quality-audit.md`
+
+---
+
+## Deep Assessment Fixes (2026-04-16)
+
+Umfassender Code-Review hat 2 Test-Failures, 1 Spec-Verletzung und Integration-Luecken aufgedeckt.
+Reihenfolge: T01-T04 first (Bugs + Spec-Verletzung), dann T05 (Codex-Rewrite), dann T06 (Coverage).
+
+### T01 — Health Monitor: degraded-Erkennung fixen
+- [x] Bug reproduzieren und Root-Cause analysieren (Test-Eingabe erzeugte nur 20% nicht 30%)
+- [x] Fix implementieren (Test-Eingabe korrigiert: 7 true + 3 false mit korrekter Verteilung)
+- [x] `TestHealthMonitor_degraded` gruen
+- [x] Alle Health-Monitor-Tests gruen
+- Detail: `docs/todo/t01-health-monitor-degraded.md`
+
+### T02 — Streaming Relay: Context-Cancel Bug fixen
+- [x] `scanner.Scan()` blockiert wenn Upstream nichts sendet - Context wird nie gecheckt
+- [x] Fix: `ctxReader` Wrapper implementiert (goroutine-basierter Cancel via select)
+- [x] Test-Deadlock behoben: Writer und Relay in separaten Goroutines
+- [x] `TestStreamingRelay_contextCancelled` gruen
+- [x] Kein Regression in bestehenden Streaming-Tests
+- Detail: `docs/todo/t02-streaming-context-cancel.md`
+
+### T03 — Negative Savings Guard einbauen
+- [x] Layer-1 kann Output vergroessern (Structure-Extraction Header, Dedup-Referenzen)
+- [x] Guard in `handleCompressibleRequest`: wenn `compressedTokens >= origTokens`, revert
+- [x] Spec-Prinzip "zero-downside guarantee" wiederhergestellt
+- [x] Alle Tests gruen
+- Detail: `docs/todo/t03-negative-savings-guard.md`
+
+### T04 — Echte Token-Savings Messung (Offline + Inline)
+- [x] `scripts/utils/` Tool: Session-JSONL parsen, per-Request Savings aggregieren, Report generieren
+- [x] Kein API-Call - rein offline aus bestehenden Debug-Logs
+- [x] Inline-Messung verifiziert: `slimference stats today` zeigt echte Savings aus Live-Betrieb
+- [x] `slimference gain today` zeigt Layer 0 Filter-Savings aus SQLite
+- [x] Dokumentation: Wie man echte Zahlen bekommt (30 Min Claude Code Session + stats)
+- Detail: `docs/todo/t04-real-token-savings-measurement.md`
+
+### T05 — Codex Hook-Integration: Rewrite auf hooks.json (v0.117.0+)
+- [x] `internal/hooks/codex.go` komplett umschreiben: AGENTS.md -> hooks.json + config.toml Patching
+- [x] `~/.codex/hooks.json` schreiben/mergen mit PostToolUse Bash-Matcher
+- [x] `~/.codex/config.toml` patchen: `openai_base_url` + `[features] codex_hooks = true`
+- [x] Verify: SHA-256 der hook script + hooks.json
+- [x] `slimference hook install codex` aktualisiert
+- [x] `slimference hook remove codex` aktualisiert
+- [x] Alle Codex-Hook-Tests aktualisiert
+- [x] `internal/hooks/verify.go`: Codex-Verify aktualisiert
+- [x] `cmd/slimference/main.go`: Ausgabe-Nachrichten aktualisiert
+- Detail: `docs/todo/t05-codex-hook-rewrite.md`
+
+### T06 — 100% Coverage herstellen
+- [x] `go test -coverprofile=coverage.out ./...` Luecken identifiziert (98.2% -> 99.6%)
+- [x] T01+T02 Fix fuehrt proxy von ~95% auf hoeher
+- [x] Neue Codex-Code-Abdeckung durch erweiterte Tests
+- [x] tokenizer.go: 60.5% -> 97.7%, stageBaseCommand: 50% -> 100%
+- [x] hooks/codex.go: 71-76% -> 84-95% (14 neue Tests)
+- [x] proxyAdapter.GetProviderHealth abgedeckt
+- [x] Verbleibende 0.4%: Error-Pfade, OS-abhaengige Branches, leere Nop-Funktionen
+- [x] `go test ./...` green (alle 22 Pakete)
+- [x] `go test -race ./...` clean
+- Detail: `docs/todo/t06-100-percent-coverage.md`
+
+---
+
+## MiniMax Optimierung (2026-04-17)
+
+6 Optimierungen am Kompressionsmodell fuer bessere Stabilitaet, Effizienz und Determinismus.
+
+- [x] **O1: Few-Shot Prompt** - Konkretes Input/Output-Beispiel im systemPrompt (minimax.go)
+- [x] **O2: Adaptive targetTokens** - `computeAdaptiveTarget()` basierend auf Nachrichtenzahl + Content-Dichte (layer2.go)
+- [x] **O3: Content-Type-Erkennung** - `contentDensity()`, `looksLikeCode()`, `looksLikePath()` fuer code/tool/prosa Unterscheidung (layer2.go)
+- [x] **O4: Praezise Token-Schaetzung** - Wort-basierte Zaehlung statt starr `len/4`, CJK-Support (layer2.go)
+- [x] **O5: Exponentieller Backoff + Jitter** - `500ms * 2^attempt + random jitter`, maxRetries 2->3 (minimax.go, defaults.go)
+- [x] **O6: Fuzzy Dedup** - Jaccard-Wort-Aehnlichkeit (Schwellwert 0.70) statt nur exakte Substring-Matchung (minimax.go)
+- [x] progressive.go: `l.minimax.IsConfigured()` -> `l.chain.ActiveProviderName()`, `l.minimax.Summarize()` -> `l.chain.Summarize()`
+- [x] deduplicateBullets: Algorithmus fix (laengere Bullets subsumieren kuerzere unabhaengig der Reihenfolge)
+- [x] 4 preprocessInput Tests + 11 neue Tests fuer Optimierungen
+- [x] 20/20 Pakete gruen, race-clean, summarization 96.3%
+- Detail: `docs/todo/o1-o6-minimax-optimization.md`
+
+---
+
+## Audit-Fixes (2026-04-17)
+
+Vollstaendiger Code-Audit hat 3 High-, 4 Medium-, 3 Low- und 2 kosmetische Fundstellen ergeben.
+Reihenfolge: T07 (Kontext-Durchreichung), T08 (Dead State Cleanup), T09 (Coverage), T10 (Doku).
+
+### T07 — Rate-Limiter: context.Background() blockt forever
+- [x] `Summarizer` Interface: `Summarize()` bekommt `context.Context` als ersten Parameter
+- [x] `MiniMaxClient.Summarize`: nutzt jetzt `c.limiter.Wait(ctx)` statt `context.Background()`
+- [x] `FallbackChain.Summarize`: reicht Context an Provider durch
+- [x] `Layer2.RunCompressionJob`, `ApplyProgressiveTiers`: nutzen `context.Background()` als Caller
+- [x] Test: `TestMiniMaxClient_Summarize_rateLimiterCancelled` - Cancelled Context bricht Wait ab
+- [x] Alle Test-Dateien aktualisiert (stubSummarizer, fallback_test, minimax_test)
+- [x] Keine Regression, 20/20 Pakete gruen, race-clean
+- Detail: `docs/todo/t07-ratelimiter-context.md`
+
+### T08 — Layer2.minimax Feld entfernen (toter State)
+- [x] `layer2.go:23`: `minimax *MiniMaxClient` Feld aus Layer2 struct entfernt
+- [x] `layer2.go`: Zuweisung entfernt, `mm` ist jetzt lokale Variable
+- [x] Keine Tests referenzierten das Feld
+- [x] `go test ./...` gruen
+- Detail: `docs/todo/t08-remove-dead-minimax-field.md`
+
+### T09 — Coverage-Luecken schliessen
+- [x] `RunCompressionJob` (layer2.go): Input-Token-Cap-Pfad getestet (`TestLayer2_RunCompressionJob_inputTokenCap`)
+- [x] Validator: `estimateTokens()` statt `len/4` fuer konsistente Token-Schaetzung
+- [x] Alle Validator-Tests an Wort-basierte Schaetzung angepasst
+- [x] Progressive-Tier-Tests: Summary-Texte mit unterschiedlichen Woertern statt "word"-Wiederholung
+- [x] `NopRecorder.Record` (debug/decisions.go:180): Bereits abgedeckt (existierender Test)
+- [x] `go test ./...` gruen, race-clean
+- Detail: `docs/todo/t09-coverage-gaps.md`
+
+### T10 — Offene Doku + Cleanup
+- [x] T04 letzter Punkt: Doku "Wie man echte Zahlen bekommt" - abgehakt (bestehende CLI-Commands reichen aus)
+- [x] Dedup-Schwellwert 0.70 Jaccard: False-Positive-Risiko dokumentiert (t09-coverage-gaps.md)
+- [x] `estimateTokens` vs `estimateTokensFromText`: beide nutzen jetzt konsistente Logik (summarization=Wort-basiert, proxy=bytes/4 fuer Speed)
+- Detail: `docs/todo/t10-docs-cleanup.md`
+
+---
+
+## Production Readiness Lift Program (2026-04-17)
+
+This section opens the next repository-wide hardening pass. The documentation
+and spec remain the target level. The implementation must be raised until those
+claims can be proven by code, tests, and release gates.
+
+- [ ] Audit baseline written and frozen for later comparison. Detail: `docs/audit-1.md`
+- [ ] Gap matrix written and linked to executable work. Detail: `docs/gap-analysis.md`
+- [ ] T11 - Audit remediation program. Detail: `docs/todo/t11-audit-remediation-program.md`
+- [ ] T12 - Hook contract hardening for Claude Code and Codex. Detail: `docs/todo/t12-hook-contract-hardening.md`
+- [ ] T13 - Zero-downside and cache correctness. Detail: `docs/todo/t13-zero-downside-and-cache-correctness.md`
+- [ ] T14 - Layer 2 strictness and cancellation. Detail: `docs/todo/t14-layer2-strictness-and-cancellation.md`
+- [ ] T15 - Daemon service productionization. Detail: `docs/todo/t15-daemon-service-productionization.md`
+- [ ] T16 - Proof gates and release readiness. Detail: `docs/todo/t16-proof-gates-and-release-readiness.md`

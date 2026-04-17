@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -69,9 +70,10 @@ func TestBuildAggressiveCompressedBody_Anthropic(t *testing.T) {
 func TestHealthHandler(t *testing.T) {
 	t.Parallel()
 
+	p := New(config.Defaults())
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
-	healthHandler(w, req)
+	p.healthHandler(w, req)
 
 	resp := w.Result()
 	t.Cleanup(func() { _ = resp.Body.Close() })
@@ -79,13 +81,43 @@ func TestHealthHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
 
-	var body map[string]string
+	var body struct {
+		Status            string          `json:"status"`
+		Service           string          `json:"service"`
+		Version           string          `json:"version"`
+		Layers            map[string]bool `json:"layers"`
+		Providers         map[string]bool `json:"providers"`
+		QueueDepth        map[string]int  `json:"queue_depth"`
+		CacheEntries      int             `json:"cache_entries"`
+		MiniMaxConfigured bool            `json:"minimax_configured"`
+	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body["status"] != "ok" {
-		t.Errorf("status field = %q, want ok", body["status"])
+	if body.Status != "ok" {
+		t.Errorf("status = %q, want ok", body.Status)
+	}
+	if body.Service != "slimference" {
+		t.Errorf("service = %q, want slimference", body.Service)
+	}
+	// Default config enables all three layers.
+	if !body.Layers["1"] || !body.Layers["2"] || !body.Layers["3"] {
+		t.Errorf("layers = %v, want all true (defaults)", body.Layers)
+	}
+	// Both providers should be enabled.
+	if !body.Providers["anthropic"] || !body.Providers["openai"] {
+		t.Errorf("providers = %v, want all true", body.Providers)
+	}
+	// Queue depth fields must be present.
+	if _, ok := body.QueueDepth["compress"]; !ok {
+		t.Error("queue_depth.compress missing")
+	}
+	if _, ok := body.QueueDepth["analytics"]; !ok {
+		t.Error("queue_depth.analytics missing")
 	}
 }
 
@@ -361,7 +393,7 @@ func TestAnalyticsPeriodicFlush_shutdownBranch(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
 	p.wg.Add(1)
-	go p.analyticsPeriodicFlush()
+	go p.analyticsPeriodicFlush(analyticsFlushInterval)
 	// Allow the goroutine to start and select on shutdownCh.
 	time.Sleep(20 * time.Millisecond)
 	close(p.shutdownCh)
@@ -379,7 +411,7 @@ func TestAnalyticsPeriodicFlush_withPersisterShutdown(t *testing.T) {
 		t.Skip("persister not initialized")
 	}
 	p.wg.Add(1)
-	go p.analyticsPeriodicFlush()
+	go p.analyticsPeriodicFlush(analyticsFlushInterval)
 	time.Sleep(20 * time.Millisecond)
 	close(p.shutdownCh)
 	p.wg.Wait()
@@ -391,7 +423,7 @@ func TestCacheJanitor_shutdownBranch(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
 	p.wg.Add(1)
-	go p.cacheJanitor()
+	go p.cacheJanitor(cacheJanitorInterval)
 	time.Sleep(20 * time.Millisecond)
 	close(p.shutdownCh)
 	p.wg.Wait()
@@ -452,15 +484,12 @@ func TestFlushAnalyticsSnapshot_writeError(t *testing.T) {
 }
 
 // TestCacheJanitor_tickerBranch covers the ticker.C branch in cacheJanitor
-// by setting cacheJanitorInterval to 1ms so the tick fires during the test.
+// by passing 1ms so the tick fires during the test without touching the package var.
 func TestCacheJanitor_tickerBranch(t *testing.T) {
-	old := cacheJanitorInterval
-	cacheJanitorInterval = 1 * time.Millisecond
-	defer func() { cacheJanitorInterval = old }()
-
+	t.Parallel()
 	p := New(config.Defaults())
 	p.wg.Add(1)
-	go p.cacheJanitor()
+	go p.cacheJanitor(1 * time.Millisecond)
 	// Let the ticker fire at least once.
 	time.Sleep(30 * time.Millisecond)
 	close(p.shutdownCh)
@@ -468,25 +497,116 @@ func TestCacheJanitor_tickerBranch(t *testing.T) {
 }
 
 // TestAnalyticsPeriodicFlush_tickerBranch covers the ticker.C branch in analyticsPeriodicFlush
-// by setting analyticsFlushInterval to 1ms so the tick fires during the test.
+// by passing 1ms so the tick fires during the test without touching the package var.
 func TestAnalyticsPeriodicFlush_tickerBranch(t *testing.T) {
-	old := analyticsFlushInterval
-	analyticsFlushInterval = 1 * time.Millisecond
-	defer func() { analyticsFlushInterval = old }()
-
+	t.Parallel()
 	p := New(config.Defaults())
 	p.wg.Add(1)
-	go p.analyticsPeriodicFlush()
+	go p.analyticsPeriodicFlush(1 * time.Millisecond)
 	// Let the ticker fire at least once.
 	time.Sleep(30 * time.Millisecond)
 	close(p.shutdownCh)
 	p.wg.Wait()
 }
 
+// TestParseRetryAfter verifies all branches of the parseRetryAfter helper (§17.3).
+func TestParseRetryAfter(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		header string
+		want   time.Duration
+	}{
+		{"empty", "", 0},
+		{"integer seconds small", "5", 5 * time.Second},
+		{"integer seconds cap", "60", 30 * time.Second},
+		{"integer zero", "0", 0},
+		{"invalid string", "not-a-number-or-date", 0},
+		{"http date future", time.Now().Add(10*time.Second).UTC().Format(http.TimeFormat), 0},
+		{"http date past", time.Now().Add(-5 * time.Second).UTC().Format(http.TimeFormat), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := parseRetryAfter(tt.header)
+			// For future HTTP dates we just verify it's non-negative and <= 30s.
+			if tt.name == "http date future" {
+				if got < 0 || got > 30*time.Second {
+					t.Errorf("parseRetryAfter(%q) = %v, want 0..30s", tt.header, got)
+				}
+				return
+			}
+			if got != tt.want {
+				t.Errorf("parseRetryAfter(%q) = %v, want %v", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDoUpstreamRequest_rateLimitRetry verifies that the proxy retries on 429 status,
+// then succeeds on a subsequent 200 response.
+func TestDoUpstreamRequest_rateLimitRetry(t *testing.T) {
+	t.Parallel()
+	var attempt atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempt.Add(1)
+		if n == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	p := New(cfg)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	resp, err := p.doUpstreamRequest(r, types.Anthropic, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d after retry, want 200", resp.StatusCode)
+	}
+	if attempt.Load() < 2 {
+		t.Fatalf("expected at least 2 upstream calls, got %d", attempt.Load())
+	}
+}
+
+// TestDoUpstreamRequest_rateLimitExhausted verifies that after maxRateLimitRetries
+// the final 429 response is returned to the caller.
+func TestDoUpstreamRequest_rateLimitExhausted(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	p := New(cfg)
+
+	r := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	resp, err := p.doUpstreamRequest(r, types.Anthropic, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status=%d after retries exhausted, want 429", resp.StatusCode)
+	}
+}
+
 // TestNew_fileWatcherError covers the error branch in New (proxy.go line ~115)
 // when the file watcher cannot be initialized.
+// NOT parallel: modifies the package-level newFileWatcherFunc variable.
 func TestNew_fileWatcherError(t *testing.T) {
-	t.Parallel()
 	old := newFileWatcherFunc
 	newFileWatcherFunc = func(_ func(string)) (*caching.FileWatcher, error) {
 		return nil, errors.New("injected watcher error")

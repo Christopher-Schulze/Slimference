@@ -9,16 +9,13 @@ import (
 	"strings"
 )
 
-// InstalledStatus returns whether the Claude hook script and Codex AGENTS.md block are present.
+// InstalledStatus returns whether the Claude hook script and Codex hooks are present.
 func InstalledStatus(home string) (claude, codex bool) {
 	claudeScript := filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh")
 	if _, err := os.Stat(claudeScript); err == nil {
 		claude = true
 	}
-	agents := filepath.Join(home, ".codex", "AGENTS.md")
-	if data, err := os.ReadFile(agents); err == nil {
-		codex = strings.Contains(string(data), codexMarkerBegin)
-	}
+	codex = CodexHookInstalled(home)
 	return claude, codex
 }
 
@@ -33,15 +30,34 @@ func VerifyReport(home string) (lines []string, ok bool) {
 		lines = append(lines, fmt.Sprintf("claude  %s  MISSING", claudeScript))
 		ok = false
 	}
-	agents := filepath.Join(home, ".codex", "AGENTS.md")
-	if data, err := os.ReadFile(agents); err == nil {
-		if strings.Contains(string(data), codexMarkerBegin) {
-			lines = append(lines, fmt.Sprintf("codex   %s  instruction block present", agents))
+
+	// Codex: check hooks.json for Slimference entry.
+	codexHooksPath := filepath.Join(home, ".codex", "hooks.json")
+	if data, err := os.ReadFile(codexHooksPath); err == nil {
+		if strings.Contains(string(data), "slimference") {
+			// Also verify the hook script exists.
+			scriptPath := CodexHookScriptPath(home)
+			if sb, serr := os.ReadFile(scriptPath); serr == nil {
+				sum := sha256.Sum256(sb)
+				lines = append(lines, fmt.Sprintf("codex   %s  sha256=%s", scriptPath, hex.EncodeToString(sum[:])))
+			} else {
+				lines = append(lines, fmt.Sprintf("codex   %s  hooks.json OK, script MISSING", codexHooksPath))
+			}
 		} else {
-			lines = append(lines, fmt.Sprintf("codex   %s  file exists (no slimference block)", agents))
+			lines = append(lines, fmt.Sprintf("codex   %s  file exists (no slimference hook)", codexHooksPath))
 		}
 	} else {
-		lines = append(lines, fmt.Sprintf("codex   %s  not installed (optional)", agents))
+		// Fallback: check legacy AGENTS.md marker.
+		agents := filepath.Join(home, ".codex", "AGENTS.md")
+		if data, err := os.ReadFile(agents); err == nil {
+			if strings.Contains(string(data), codexMarkerBegin) {
+				lines = append(lines, fmt.Sprintf("codex   %s  legacy instruction block (upgrade: hook install codex)", agents))
+			} else {
+				lines = append(lines, fmt.Sprintf("codex   %s  not installed", codexHooksPath))
+			}
+		} else {
+			lines = append(lines, fmt.Sprintf("codex   %s  not installed", codexHooksPath))
+		}
 	}
 	return lines, ok
 }

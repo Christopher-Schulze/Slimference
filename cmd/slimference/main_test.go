@@ -1752,8 +1752,7 @@ func TestHandleSubcommand_hook_installRemove_claude_and_codex(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r2)
-	if !strings.Contains(buf.String(), "Updated Codex AGENTS.md") {
-		t.Fatalf("install codex: %q", buf.String())
+	if !strings.Contains(buf.String(), "Installed Codex hooks") {		t.Fatalf("install codex: %q", buf.String())
 	}
 
 	r3, w3, _ := os.Pipe()
@@ -1774,7 +1773,7 @@ func TestHandleSubcommand_hook_installRemove_claude_and_codex(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r4)
-	if !strings.Contains(buf.String(), "Removed Slimference block") {
+	if !strings.Contains(buf.String(), "Removed Slimference hooks from Codex") {
 		t.Fatalf("remove codex: %q", buf.String())
 	}
 }
@@ -2387,6 +2386,8 @@ func TestProxyAdapter_smoke(t *testing.T) {
 	_ = a.GetRecentRequests(2)
 	_ = a.GetLayer2Status()
 	_ = a.SessionLogger()
+	_ = a.GetProviderHealth(types.Anthropic)
+	_ = a.GetProviderHealth(types.OpenAI)
 	if a.Config().GetListenPort() != cfg.Proxy.ListenPort {
 		t.Fatal("config adapter")
 	}
@@ -2624,8 +2625,7 @@ func TestHandleHookCmd_installCodex_success(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "Updated Codex AGENTS.md") {
-		t.Fatalf("expected codex install message, got: %q", buf.String())
+	if !strings.Contains(buf.String(), "Installed Codex hooks") {		t.Fatalf("expected codex install message, got: %q", buf.String())
 	}
 }
 
@@ -2670,7 +2670,7 @@ func TestHandleHookCmd_removeCodex_success(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "Removed Slimference block") {
+	if !strings.Contains(buf.String(), "Removed Slimference hooks from Codex") {
 		t.Fatalf("expected remove message, got: %q", buf.String())
 	}
 }
@@ -4330,5 +4330,136 @@ func TestMakeSignalChanFn_default(t *testing.T) {
 		t.Fatal("makeSignalChanFn: expected non-nil channel")
 	}
 	signal.Stop(ch)
+}
+
+// TestApplyTUIFlags verifies that CLI flags correctly override config values (spec §13.3).
+func TestApplyTUIFlags(t *testing.T) {
+	t.Parallel()
+
+	base := func() *config.Config {
+		cfg := config.Defaults()
+		cfg.Proxy.ListenPort = 8080
+		cfg.Compression.SlidingWindow = 20
+		cfg.Compression.Layer1Enabled = true
+		cfg.Compression.Layer2Enabled = true
+		cfg.Compression.Layer3Enabled = true
+		cfg.Logging.Level = "info"
+		return cfg
+	}
+
+	t.Run("port", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--port", "9999"})
+		if cfg.Proxy.ListenPort != 9999 {
+			t.Fatalf("port = %d, want 9999", cfg.Proxy.ListenPort)
+		}
+	})
+
+	t.Run("port_alias", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"-port", "7777"})
+		if cfg.Proxy.ListenPort != 7777 {
+			t.Fatalf("port = %d, want 7777", cfg.Proxy.ListenPort)
+		}
+	})
+
+	t.Run("sliding_window", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--sliding-window", "5"})
+		if cfg.Compression.SlidingWindow != 5 {
+			t.Fatalf("sliding_window = %d, want 5", cfg.Compression.SlidingWindow)
+		}
+	})
+
+	t.Run("no_layer1", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--no-layer1"})
+		if cfg.Compression.Layer1Enabled {
+			t.Fatal("expected Layer1Enabled=false")
+		}
+		if !cfg.Compression.Layer2Enabled || !cfg.Compression.Layer3Enabled {
+			t.Fatal("other layers should be unaffected")
+		}
+	})
+
+	t.Run("no_layer2", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--no-layer2"})
+		if cfg.Compression.Layer2Enabled {
+			t.Fatal("expected Layer2Enabled=false")
+		}
+		if !cfg.Compression.Layer1Enabled || !cfg.Compression.Layer3Enabled {
+			t.Fatal("other layers should be unaffected")
+		}
+	})
+
+	t.Run("no_layer3", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--no-layer3"})
+		if cfg.Compression.Layer3Enabled {
+			t.Fatal("expected Layer3Enabled=false")
+		}
+	})
+
+	t.Run("log_level", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--log-level", "debug"})
+		if cfg.Logging.Level != "debug" {
+			t.Fatalf("log level = %q, want debug", cfg.Logging.Level)
+		}
+	})
+
+	t.Run("combined_flags", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--port", "1234", "--no-layer2", "--log-level", "warn", "--sliding-window", "3"})
+		if cfg.Proxy.ListenPort != 1234 {
+			t.Fatalf("port = %d, want 1234", cfg.Proxy.ListenPort)
+		}
+		if cfg.Compression.Layer2Enabled {
+			t.Fatal("expected Layer2Enabled=false")
+		}
+		if cfg.Logging.Level != "warn" {
+			t.Fatalf("log level = %q, want warn", cfg.Logging.Level)
+		}
+		if cfg.Compression.SlidingWindow != 3 {
+			t.Fatalf("sliding_window = %d, want 3", cfg.Compression.SlidingWindow)
+		}
+	})
+
+	t.Run("unknown_flags_ignored", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		// Unknown flags must not panic or change known values.
+		applyTUIFlags(cfg, []string{"--unknown-flag", "value", "--another"})
+		if cfg.Proxy.ListenPort != 8080 {
+			t.Fatalf("port changed unexpectedly: %d", cfg.Proxy.ListenPort)
+		}
+	})
+
+	t.Run("zero_port_ignored", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--port", "0"})
+		if cfg.Proxy.ListenPort != 8080 {
+			t.Fatalf("port should not change to 0: %d", cfg.Proxy.ListenPort)
+		}
+	})
+
+	t.Run("non_numeric_port_ignored", func(t *testing.T) {
+		t.Parallel()
+		cfg := base()
+		applyTUIFlags(cfg, []string{"--port", "notanumber"})
+		if cfg.Proxy.ListenPort != 8080 {
+			t.Fatalf("port should not change for non-numeric: %d", cfg.Proxy.ListenPort)
+		}
+	})
 }
 

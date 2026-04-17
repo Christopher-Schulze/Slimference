@@ -19,18 +19,18 @@ func Defaults() *Config {
 			SlidingWindow:             5,
 			MinMessagesForCompression: 8,
 			MinTokensForLayer2:        30000,
-			StructureMinTokens:         500,
+			StructureMinTokens:        500,
 			StructureLanguages: []string{
 				"go", "typescript", "javascript", "rust", "python",
 				"c", "cpp", "java", "ruby", "shell",
 			},
-			DedupSimilarityThreshold:  0.85,
+			DedupSimilarityThreshold: 0.85,
 			MiniMax: MiniMaxConfig{
 				BaseURL:                "https://api.minimax.io/v1",
 				APIKeyEnv:              "MINIMAX_API_KEY",
 				Model:                  "minimax-m2.7",
-				Temperature:            0.1,
-				MaxRetries:             2,
+				Temperature:            0,
+				MaxRetries:             3,
 				ConnectTimeoutSeconds:  5,
 				ResponseTimeoutSeconds: 30,
 				RateLimitRPM:           10,
@@ -60,15 +60,15 @@ func Defaults() *Config {
 			GainUSDPerMillionTokens: 0,
 		},
 		Logging: LoggingConfig{
-			Level:  "info",
-			Format: "text",
-			File:   "",
+			Level:  "debug",
+			Format: "json",
+			File:   "~/.slimference/logs/slimference.jsonl",
 		},
 		Filter: FilterConfig{
 			PassthroughMaxChars: 2000,
 		},
-		Hooks:  HooksConfig{},
-		Debug:  DebugConfig{},
+		Hooks: HooksConfig{},
+		Debug: DebugConfig{},
 	}
 }
 
@@ -103,8 +103,8 @@ dedup_similarity_threshold = 0.85
 base_url = "https://api.minimax.io/v1"
 api_key_env = "MINIMAX_API_KEY"
 model = "minimax-m2.7"
-temperature = 0.1
-max_retries = 2
+temperature = 0
+max_retries = 3
 connect_timeout_seconds = 5
 response_timeout_seconds = 30
 rate_limit_rpm = 10
@@ -137,9 +137,9 @@ dashboard_refresh_seconds = 2
 # gain_usd_per_million_tokens = 3.0
 
 [logging]
-level = "info"
-format = "text"
-file = ""
+level = "debug"
+format = "json"
+file = "~/.slimference/logs/slimference.jsonl"
 
 # Layer 0 (slimference filter) — optional; SLIMFERENCE_FILTER_DB / SLIMFERENCE_TEE_DIR override when set.
 [filter]

@@ -56,7 +56,10 @@ func (p *Persister) WriteEvent(event types.AnalyticsEvent) error {
 	if err := p.rotateIfNeeded(); err != nil {
 		return err
 	}
-	raw, _ := json.Marshal(event)
+	raw, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("analytics persister: marshal event: %w", err)
+	}
 	return p.writeLine("analytics_event", raw)
 }
 
@@ -67,7 +70,10 @@ func (p *Persister) WriteSnapshot(snapshot AnalyticsSnapshot) error {
 	if err := p.rotateIfNeeded(); err != nil {
 		return err
 	}
-	raw, _ := json.Marshal(snapshot)
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return fmt.Errorf("analytics persister: marshal snapshot: %w", err)
+	}
 	return p.writeLine("session_snapshot", raw)
 }
 
@@ -163,7 +169,10 @@ func (p *Persister) writeLine(recordType string, raw json.RawMessage) error {
 		Timestamp: time.Now().UTC(),
 		Payload:   raw,
 	}
-	data, _ := json.Marshal(env)
+	data, err := json.Marshal(env)
+	if err != nil {
+		return fmt.Errorf("analytics persister: marshal envelope: %w", err)
+	}
 	data = append(data, '\n')
 	if _, err := p.currentFile.Write(data); err != nil {
 		return fmt.Errorf("analytics persister: write line: %w", err)

@@ -80,7 +80,7 @@ func TestRecorder_Aggregate(t *testing.T) {
 	})
 	r.Record(RequestSummary{
 		Layer1Breakdown: map[string]SubLayerBreakdown{
-			"ansi_strip": {Blocks: 3, Saved: 150},
+			"ansi_strip":      {Blocks: 3, Saved: 150},
 			"tool_compressor": {Blocks: 1, Saved: 500},
 		},
 	})

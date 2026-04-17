@@ -15,7 +15,7 @@ import (
 func TestLayer2_RunCompressionJob_storesSummary(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "test-key")
 
-	summaryText := strings.Repeat("S", 400) // ~100 tok; must stay within validator bounds vs input size
+	summaryText := "- alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
 			http.NotFound(w, r)
@@ -127,5 +127,47 @@ func TestLayer2_RunCompressionJob_emptyToSummarize(t *testing.T) {
 	// No summary should be stored since we returned early.
 	if cur, _ := l.cache.GetCurrent(); cur != nil {
 		t.Fatalf("expected no cached summary for all-anchor messages, got %#v", cur)
+	}
+}
+
+func TestLayer2_RunCompressionJob_inputTokenCap(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	var requestCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		bullets := "- processed large input with truncation applied\n- file src/main.go was read and analyzed\n- tests passed with 15 runs and zero failures\n- decision to refactor handler approved by user"
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":%q}}]}`, bullets)
+	}))
+	defer srv.Close()
+
+	cfg := config.Defaults().Compression
+	cfg.MiniMax.BaseURL = srv.URL
+	cfg.MiniMax.APIKeyEnv = "MINIMAX_API_KEY"
+	cfg.MiniMax.MaxRetries = 0
+	cfg.SlidingWindow = 5
+	cfg.MinMessagesForCompression = 8
+
+	l := NewLayer2(&cfg)
+
+	msgs := make([]types.Message, 20)
+	for i := range msgs {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		msgs[i] = msg(t, i, role, strings.Repeat("abcde ", 10000))
+	}
+
+	l.RunCompressionJob(msgs)
+
+	cached, _ := l.cache.GetCurrent()
+	if cached == nil {
+		t.Fatal("expected cached summary after input token cap truncation")
+	}
+	if requestCount < 1 {
+		t.Fatalf("expected at least 1 API request, got %d", requestCount)
 	}
 }

@@ -5,16 +5,19 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/compression"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tokens"
@@ -53,13 +56,15 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	_ = rawBody
 
 	model := extractModel(body)
+	// Request-scoped logger: all debug/warn/info calls inside this function carry req_id.
+	log := slog.With("req_id", reqID, "provider", provider, "model", model)
 
 	// --- 2. Response cache lookup (Layer 3) ---
 	var cacheKey [32]byte
 	if p.isLayerEnabled(3) {
 		cacheKey = p.responseCache.ComputeKey(messages, model)
 		if cached, ok := p.responseCache.Get(cacheKey); ok {
-			slog.Debug("cache hit", "provider", provider, "model", model)
+			log.Debug("cache hit")
 			for k, vv := range cached.Headers {
 				for _, v := range vv {
 					w.Header().Add(k, v)
@@ -67,7 +72,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			}
 			w.WriteHeader(cached.StatusCode)
 			w.Write(cached.Response) //nolint:errcheck
-			p.analyticsQueue <- types.AnalyticsEvent{
+			select {
+			case p.analyticsQueue <- types.AnalyticsEvent{
 				Type:        types.EventCacheHit,
 				Timestamp:   time.Now(),
 				Provider:    provider,
@@ -75,6 +81,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				TokensSaved: cached.TokensSaved,
 				CacheHit:    true,
 				Layers:      []int{3},
+			}:
+			default:
 			}
 			return
 		}
@@ -82,6 +90,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// Count original tokens before any compression.
 	origTokens := tokens.CountMessages(messages)
+	log.Debug("request started", "messages", len(messages), "orig_tokens", origTokens)
 
 	// --- 3. Secret detection ---
 	if p.secretsDetector != nil {
@@ -93,12 +102,15 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if len(detections) > 0 {
-			slog.Warn("secrets detected/redacted", "count", len(detections))
-			p.analyticsQueue <- types.AnalyticsEvent{
+			log.Warn("secrets detected/redacted", "count", len(detections))
+			select {
+			case p.analyticsQueue <- types.AnalyticsEvent{
 				Type:         types.EventSecretDetected,
 				Timestamp:    time.Now(),
 				Provider:     provider,
 				SecretsFound: len(detections),
+			}:
+			default:
 			}
 		}
 	}
@@ -121,7 +133,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			compressedMessages = result.Messages
 			layer1Savings = result.TokensSaved
 			appliedLayers = append(appliedLayers, 1)
-			slog.Debug("layer1 applied",
+			log.Debug("layer1 applied",
 				"json_saved", result.JSONSaved,
 				"dedup_saved", result.DedupSaved,
 				"structure_saved", result.StructureSaved,
@@ -137,7 +149,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			compressedMessages = newMsgs
 			layer2Savings = saved
 			appliedLayers = append(appliedLayers, 2)
-			slog.Debug("layer2 applied", "saved", saved)
+			log.Debug("layer2 applied", "saved", saved)
 		}
 	}
 
@@ -150,31 +162,54 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// --- 7. Reconstruct request body ---
-	newBody, _ := reconstructBody(provider, body, compressedMessages)
+	newBody, err := reconstructBody(provider, body, compressedMessages)
+	if err != nil {
+		log.Error("body reconstruction failed", "error", err)
+		p.proxyError(w, http.StatusInternalServerError, "request reconstruction failed")
+		return
+	}
 
 	compressedTokens := tokens.CountMessages(compressedMessages)
+
+	// Zero-downside guarantee (spec+.md §1): if compression expanded the output,
+	// revert to original messages so the proxy never makes things worse.
+	if origTokens > 0 && compressedTokens >= origTokens {
+		log.Debug("compression expanded output, reverting to original",
+			"orig", origTokens, "comp", compressedTokens)
+		compressedMessages = messages
+		compressedTokens = origTokens
+		appliedLayers = nil
+		layer1Savings = 0
+		layer2Savings = 0
+	}
+
 	latencyStart := time.Now()
 
 	// --- 8. Forward to upstream ---
 	upstreamResp, err := p.doUpstreamRequest(r, provider, newBody)
 	if err != nil {
-		slog.Error("upstream request failed", "provider", provider, "error", err)
+		p.healthMon.record(provider, false)
+		log.Error("upstream request failed", "error", err)
 		p.proxyError(w, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", err))
-		p.analyticsQueue <- types.AnalyticsEvent{
+		select {
+		case p.analyticsQueue <- types.AnalyticsEvent{
 			Type:      types.EventErrorOccurred,
 			Timestamp: time.Now(),
 			Provider:  provider,
 			Error:     err.Error(),
+		}:
+		default:
 		}
 		return
 	}
+	p.healthMon.record(provider, upstreamResp.StatusCode < 500)
 
 	// --- 9. Stream / passthrough response ---
 	var outputTokens int
 	var responseBody []byte
 
 	if isStreamingRequest(body) {
-		outputTokens = streamingRelay(w, upstreamResp, provider.String())
+		outputTokens = streamingRelay(r.Context(), w, upstreamResp, provider.String())
 	} else {
 		responseBody = passthrough(w, upstreamResp)
 		outputTokens = estimateTokensFromText(string(responseBody))
@@ -229,7 +264,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			Model:              model,
 			TotalMessages:      len(messages),
 			MessagesInWindow:   p.config.Compression.SlidingWindow,
-			MessagesCompressed: len(messages) - p.config.Compression.SlidingWindow,
+			MessagesCompressed: max(0, len(messages)-p.config.Compression.SlidingWindow),
 			LayersApplied:      appliedLayers,
 			Tokens: dbg.TokenCounts{
 				Original:    origTokens,
@@ -246,7 +281,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		p.debugRecorder.Record(summary)
 	}
 
-	p.analyticsQueue <- types.AnalyticsEvent{
+	select {
+	case p.analyticsQueue <- types.AnalyticsEvent{
 		Type:             types.EventRequestProcessed,
 		Timestamp:        time.Now(),
 		Provider:         provider,
@@ -258,13 +294,14 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		Layers:           appliedLayers,
 		LatencyMs:        proxyLatencyMs,
 		TokensSaved:      totalSaved,
+	}:
+	default:
 	}
 
-	slog.Info("request_processed",
-		"provider", provider,
-		"model", model,
+	log.Info("request_processed",
 		"input_orig", origTokens,
 		"input_comp", compressedTokens,
+		"saved", totalSaved,
 		"output", outputTokens,
 		"ratio", fmt.Sprintf("%.2f", compressionRatio),
 		"layers", appliedLayers,
@@ -295,55 +332,110 @@ func buildLayer1Breakdown(r compression.Layer1Result) map[string]dbg.SubLayerBre
 	return bd
 }
 
-// doUpstreamRequest builds and executes the upstream HTTP request with retry logic.
+// doUpstreamRequest builds and executes the upstream HTTP request.
+// Rate-limit (429) and overload (529) responses are retried with exponential backoff
+// via a direct status-code-only loop (spec §17.3) - body is never buffered for 200/SSE.
+// Context overflow (400) is handled separately with aggressive recompression (spec §17.4).
 func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body []byte) (*http.Response, error) {
 	upstreamURL := p.upstreamURL(provider, r.URL.Path, r.URL.RawQuery)
 
-	upstreamReq, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("build upstream request: %w", err)
-	}
-
-	// Copy all request headers except those that must be rewritten.
+	// Build the forwarded header set once; reused across retry attempts.
+	fwdHeaders := make(http.Header)
 	for k, vv := range r.Header {
 		switch k {
 		case "Host", "Content-Length", "Connection", "Transfer-Encoding":
 			continue
 		}
 		for _, v := range vv {
-			upstreamReq.Header.Add(k, v)
+			fwdHeaders.Add(k, v)
 		}
 	}
-	upstreamReq.Header.Set("Content-Type", "application/json")
-	upstreamReq.ContentLength = int64(len(body))
+	fwdHeaders.Set("Content-Type", "application/json")
 
 	client := p.httpClients[provider]
 	if client == nil {
 		client = http.DefaultClient
 	}
 
-	resp, err := client.Do(upstreamReq)
-	if err != nil {
-		return nil, err
+	// buildReq creates a fresh request per attempt (body reader is consumed each time).
+	buildReq := func(b []byte) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(b))
+		if err != nil {
+			return nil, fmt.Errorf("build upstream request: %w", err)
+		}
+		for k, vv := range fwdHeaders {
+			for _, v := range vv {
+				req.Header.Add(k, v)
+			}
+		}
+		req.ContentLength = int64(len(b))
+		return req, nil
 	}
 
-	// Handle context overflow (400): spec §17.4 — retry with aggressive recompression, then raw body.
+	// §17.3: direct retry loop for 429/529.
+	// Must NOT use resilience.Do here: resilience.Do calls io.ReadAll on every response body,
+	// which would buffer complete SSE streams in memory and break streaming entirely.
+	// Instead: check status code only; never touch the body for non-error responses.
+	const maxRateLimitRetries = 2
+	var (
+		resp *http.Response
+		err  error
+	)
+	for attempt := 0; attempt <= maxRateLimitRetries; attempt++ {
+		if r.Context().Err() != nil {
+			return nil, r.Context().Err()
+		}
+		req, buildErr := buildReq(body)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		resp, err = client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		isRateLimited := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == 529
+		if !isRateLimited || attempt == maxRateLimitRetries {
+			break
+		}
+		// Rate limited: body is a small JSON error - safe to discard immediately.
+		resp.Body.Close()
+		backoff := parseRetryAfter(resp.Header.Get("Retry-After"))
+		if backoff == 0 {
+			backoff = resilience.ExponentialBackoff(attempt, time.Second, 30*time.Second)
+		}
+		slog.Warn("rate limited, retrying", "attempt", attempt+1, "backoff", backoff, "status", resp.StatusCode)
+		select {
+		case p.analyticsQueue <- types.AnalyticsEvent{
+			Type:      types.EventRateLimitRetry,
+			Timestamp: time.Now(),
+			Provider:  provider,
+		}:
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+			return nil, r.Context().Err()
+		case <-time.After(backoff):
+		}
+	}
+
+	// §17.4: context overflow recovery - retry with aggressive recompression, then original body.
 	if resp.StatusCode == http.StatusBadRequest {
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		resp.Body.Close()
 		if isContextOverflow(bodyBytes) {
+			select {
+			case p.analyticsQueue <- types.AnalyticsEvent{
+				Type:      types.EventOverflowRetry,
+				Timestamp: time.Now(),
+				Provider:  provider,
+			}:
+			default:
+			}
 			if stash, ok := r.Context().Value(pipelineStashKey{}).(pipelineStash); ok {
 				if aggBody, err := p.buildAggressiveCompressedBody(stash); err == nil && len(aggBody) > 0 {
 					slog.Warn("context overflow: retrying with aggressive compression (sliding_window=2, summary target 10%)")
-					aggReq, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(aggBody))
-					if err == nil {
-						for k, vv := range upstreamReq.Header {
-							for _, v := range vv {
-								aggReq.Header.Add(k, v)
-							}
-						}
-						aggReq.Header.Set("Content-Type", "application/json")
-						aggReq.ContentLength = int64(len(aggBody))
+					if aggReq, err := buildReq(aggBody); err == nil {
 						resp2, err2 := client.Do(aggReq)
 						if err2 == nil && resp2.StatusCode != http.StatusBadRequest {
 							return resp2, nil
@@ -355,21 +447,45 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 				}
 			}
 			slog.Warn("context overflow detected, retrying with original body")
-			origReq, _ := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, bytes.NewReader(p.getOriginalBody(r)))
-			for k, vv := range upstreamReq.Header {
-				for _, v := range vv {
-					origReq.Header.Add(k, v)
-				}
+			origBody := p.getOriginalBody(r)
+			origReq, err := buildReq(origBody)
+			if err != nil {
+				return nil, fmt.Errorf("build overflow fallback request: %w", err)
 			}
-			origReq.Header.Set("Content-Type", "application/json")
-			origReq.ContentLength = int64(len(p.getOriginalBody(r)))
 			return client.Do(origReq)
 		}
-		// Reconstruct a ReadCloser for non-overflow 400s.
+		// Non-overflow 400: restore body for caller.
 		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 
 	return resp, nil
+}
+
+// parseRetryAfter parses the Retry-After response header and returns how long to wait.
+// Supports both integer-seconds and HTTP-date formats. Returns 0 if absent or unparseable.
+// Result is capped at 30 seconds per spec §17.3.
+func parseRetryAfter(header string) time.Duration {
+	if header == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(header); err == nil {
+		d := time.Duration(secs) * time.Second
+		if d > 30*time.Second {
+			d = 30 * time.Second
+		}
+		return d
+	}
+	if t, err := http.ParseTime(header); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			return 0
+		}
+		if d > 30*time.Second {
+			d = 30 * time.Second
+		}
+		return d
+	}
+	return 0
 }
 
 // getOriginalBody returns the original uncompressed body.
@@ -450,17 +566,46 @@ func (p *Proxy) handlePassthrough(w http.ResponseWriter, r *http.Request, provid
 	}
 
 	if isStreamingRequest(body) {
-		streamingRelay(w, resp, provider.String())
+		streamingRelay(r.Context(), w, resp, provider.String())
 	} else {
 		passthrough(w, resp)
 	}
 }
 
-// healthHandler responds to GET /health with a 200 JSON body.
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
+// healthHandler responds to GET /health with full proxy status JSON.
+func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
+	status := struct {
+		Status            string          `json:"status"`
+		Service           string          `json:"service"`
+		Version           string          `json:"version"`
+		Layers            map[string]bool `json:"layers"`
+		Providers         map[string]bool `json:"providers"`
+		QueueDepth        map[string]int  `json:"queue_depth"`
+		CacheEntries      int             `json:"cache_entries"`
+		MiniMaxConfigured bool            `json:"minimax_configured"`
+	}{
+		Status:  "ok",
+		Service: "slimference",
+		Version: Version,
+		Layers: map[string]bool{
+			"1": p.isLayerEnabled(1),
+			"2": p.isLayerEnabled(2),
+			"3": p.isLayerEnabled(3),
+		},
+		Providers: map[string]bool{
+			"anthropic": p.isProviderEnabled(types.Anthropic),
+			"openai":    p.isProviderEnabled(types.OpenAI),
+		},
+		QueueDepth: map[string]int{
+			"compress":  len(p.compressQueue),
+			"analytics": len(p.analyticsQueue),
+		},
+		CacheEntries:      p.responseCache.Len(),
+		MiniMaxConfigured: p.config.Compression.MiniMax.APIKey() != "",
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok","service":"slimference"}`)) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(status)
 }
 
 // compressionWorker processes CompressJob items from the queue asynchronously.
@@ -484,9 +629,12 @@ func (p *Proxy) runCompressionJob(job types.CompressJob) {
 	slog.Debug("compression job started", "messages", len(job.Messages))
 	p.layer2.RunCompressionJob(job.Messages)
 
-	p.analyticsQueue <- types.AnalyticsEvent{
+	select {
+	case p.analyticsQueue <- types.AnalyticsEvent{
 		Type:      types.EventCompressionComplete,
 		Timestamp: time.Now(),
+	}:
+	default:
 	}
 }
 
@@ -504,20 +652,24 @@ func (p *Proxy) analyticsWorker() {
 				)
 			}
 			// Fan out to TUI via program.Send if available.
-			if p.tuiSendFn != nil && event.Type == types.EventRequestProcessed {
-				rm := types.RequestMetrics{
-					Timestamp:        event.Timestamp,
-					Provider:         event.Provider,
-					Model:            event.Model,
-					InputTokensOrig:  event.InputTokensOrig,
-					InputTokensComp:  event.InputTokensComp,
-					OutputTokens:     event.OutputTokens,
-					CompressionRatio: event.CompressionRatio,
-					Layers:           event.Layers,
-					LatencyMs:        event.LatencyMs,
-					CacheHit:         event.CacheHit,
+			if event.Type == types.EventRequestProcessed {
+				p.tuiSendMu.RLock()
+				fn := p.tuiSendFn
+				p.tuiSendMu.RUnlock()
+				if fn != nil {
+					fn(types.RequestMetrics{
+						Timestamp:        event.Timestamp,
+						Provider:         event.Provider,
+						Model:            event.Model,
+						InputTokensOrig:  event.InputTokensOrig,
+						InputTokensComp:  event.InputTokensComp,
+						OutputTokens:     event.OutputTokens,
+						CompressionRatio: event.CompressionRatio,
+						Layers:           event.Layers,
+						LatencyMs:        event.LatencyMs,
+						CacheHit:         event.CacheHit,
+					})
 				}
-				p.tuiSendFn(rm)
 			}
 		case <-p.shutdownCh:
 			return
@@ -537,9 +689,10 @@ var cacheJanitorInterval = 60 * time.Second
 var analyticsFlushInterval = 5 * time.Minute
 
 // cacheJanitor periodically removes expired cache entries.
-func (p *Proxy) cacheJanitor() {
+// interval is captured at goroutine start so tests can modify the package var without a data race.
+func (p *Proxy) cacheJanitor(interval time.Duration) {
 	defer p.wg.Done()
-	ticker := time.NewTicker(cacheJanitorInterval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -562,9 +715,10 @@ func (p *Proxy) flushAnalyticsSnapshot() {
 }
 
 // analyticsPeriodicFlush writes analytics snapshots to disk every 5 minutes.
-func (p *Proxy) analyticsPeriodicFlush() {
+// interval is captured at goroutine start so tests can modify the package var without a data race.
+func (p *Proxy) analyticsPeriodicFlush(interval time.Duration) {
 	defer p.wg.Done()
-	ticker := time.NewTicker(analyticsFlushInterval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -576,41 +730,44 @@ func (p *Proxy) analyticsPeriodicFlush() {
 	}
 }
 
-// Shutdown performs a graceful shutdown of the proxy.
+// Shutdown performs a graceful shutdown of the proxy. Safe to call multiple times -
+// only the first call does work; subsequent calls return immediately.
 func (p *Proxy) Shutdown(ctx context.Context) error {
-	slog.Info("proxy shutdown initiated")
+	p.shutdownOnce.Do(func() {
+		slog.Info("proxy shutdown initiated")
 
-	if err := p.server.Shutdown(ctx); err != nil {
-		slog.Warn("server shutdown error", "error", err)
-	}
-
-	close(p.shutdownCh)
-
-	done := make(chan struct{})
-	go func() {
-		p.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		slog.Info("all workers stopped")
-	case <-ctx.Done():
-		slog.Warn("shutdown timeout, some workers may still be running")
-	}
-
-	// Final analytics flush.
-	if p.persister != nil {
-		snap := p.analytics.Snapshot()
-		if err := p.persister.WriteSnapshot(snap); err != nil {
-			slog.Warn("final analytics flush failed", "error", err)
+		if err := p.server.Shutdown(ctx); err != nil {
+			slog.Warn("server shutdown error", "error", err)
 		}
-		p.persister.Close()
-	}
 
-	if p.fileWatcher != nil {
-		p.fileWatcher.Close()
-	}
+		close(p.shutdownCh)
+
+		workersDone := make(chan struct{})
+		go func() {
+			p.wg.Wait()
+			close(workersDone)
+		}()
+
+		select {
+		case <-workersDone:
+			slog.Info("all workers stopped")
+		case <-ctx.Done():
+			slog.Warn("shutdown timeout, some workers may still be running")
+		}
+
+		// Final analytics flush.
+		if p.persister != nil {
+			snap := p.analytics.Snapshot()
+			if err := p.persister.WriteSnapshot(snap); err != nil {
+				slog.Warn("final analytics flush failed", "error", err)
+			}
+			p.persister.Close()
+		}
+
+		if p.fileWatcher != nil {
+			p.fileWatcher.Close()
+		}
+	})
 
 	return nil
 }

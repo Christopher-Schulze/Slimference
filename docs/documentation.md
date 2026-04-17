@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
-Version: 1.3.4
-Last updated: 2026-04-13
+Version: 1.3.8
+Last updated: 2026-04-17
 
 ---
 
@@ -24,6 +24,7 @@ Last updated: 2026-04-13
 15. [Testing Strategy](#15-testing-strategy)
 16. [Package Structure](#16-package-structure)
 17. [Synergy Optimizations & Cascade Effects](#17-synergy-optimizations--cascade-effects)
+18. [Audit Baseline and Remediation Tracking](#18-audit-baseline-and-remediation-tracking)
 
 ---
 
@@ -583,13 +584,17 @@ send). This prevents the hot path from ever blocking on slow MiniMax responses.
 Reads `types.AnalyticsEvent` from `analyticsQueue` and calls `analytics.Record`.
 The ring buffer and all counters in `Analytics` are protected by a single mutex
 that is only held inside `Record`. The hot path never takes this mutex; it only
-does a non-blocking channel send.
+does a **non-blocking** channel send (`select { case q <- event: default: }`).
+If the queue is full the event is silently dropped - analytics are best-effort
+and must never block HTTP handlers.
 
 ### Graceful shutdown
 
-`Proxy.Shutdown(ctx)` closes `shutdownCh` and calls `http.Server.Shutdown(ctx)`.
-All workers select on `shutdownCh` and exit their loops when it is closed.
-`sync.WaitGroup` ensures `Shutdown` blocks until all workers have exited.
+`Proxy.Shutdown(ctx)` is idempotent via `sync.Once`: calling it multiple times
+(e.g. concurrent signal + TUI quit) is safe and produces no panic. The first
+caller runs the full shutdown sequence: `server.Shutdown(ctx)`, close of `shutdownCh`,
+`wg.Wait()` with timeout, final analytics JSONL flush, `FileWatcher.Close()`.
+Subsequent callers return immediately.
 
 ---
 
@@ -732,7 +737,37 @@ slimference debug paths
 | info | Session-level aggregates | ~50-100 tokens |
 | warn/error | Problems only | ~0-50 tokens |
 
-Set via `[logging] level = "debug"` or `SLIMFERENCE_LOG_LEVEL`.
+Set via `[logging] level = "debug"` or `SLIMFERENCE_LOGGING_LEVEL`.
+
+### Request-scoped logging
+
+Every call inside `handleCompressibleRequest` uses a logger enriched with
+per-request fields:
+
+```go
+log := slog.With("req_id", reqID, "provider", provider, "model", model)
+```
+
+Key `debug`-level events emitted per request (all include req_id):
+
+| Event | Fields |
+|-------|--------|
+| `request started` | `messages`, `orig_tokens` |
+| `layer1 applied` | `json_saved`, `dedup_saved`, `structure_saved`, `total_saved` |
+| `layer2 applied` | `saved` |
+| `request_processed` | `input_orig`, `input_comp`, `saved`, `output`, `ratio`, `layers`, `latency_ms` |
+| `cache hit` | (none; req_id sufficient) |
+
+### Layer 0 filter debug logging
+
+`filter/pipeline.go` emits debug events for every filter run:
+
+| Event | Fields |
+|-------|--------|
+| `layer0 exec` | `argv0`, `exit_code`, `stdout_bytes`, `stderr_bytes` |
+| `layer0 filter applied` | `filter` (e.g. `"git_status"`), `in_bytes`, `out_bytes` |
+| `layer0 passthrough` | `in_bytes` |
+| `layer0 result` | `argv0`, `in_tokens`, `out_tokens`, `savings_pct` |
 
 ---
 
@@ -741,15 +776,57 @@ Set via `[logging] level = "debug"` or `SLIMFERENCE_LOG_LEVEL`.
 The TUI is built with BubbleTea (event loop) and Lipgloss (styling). It runs
 in the alternate screen buffer and updates every 500ms via a tick command.
 The proxy pushes `proxyEventMsg` to the TUI program for immediate refresh on
-each new request.
+each new request. Version is displayed as `SLIMFERENCE v2.0.0`.
+
+### Main view layout
+
+The main view uses a two-column layout separated by a `│` divider:
+
+```
+ SLIMFERENCE v2.0.0                              ◷ 12m 34s  :8990
+ ────────────────────────────────────────────────────────────────
+ PROVIDERS              │ SAVINGS
+  ● Claude Code  [ON] ● │  35%  12.4K → 8.1K  4.3K saved
+  ● Codex        [ON] ○ │  ████████░░░░░░  35%
+                         │  +12 msgs  ~1.2s TTFT
+ LAYERS                  │
+  [1] Deterministic ● ON │ LIVE
+      struct · delta ·   │  15:04:23  Claude  sonnet  -35%
+  [2] MiniMax       ● ON │  15:04:19  Codex   gpt-4o  hit
+  [3] Cache         ● ON │  Waiting for requests...
+      hits: 3/10          │
+                         │
+ HOOKS                   │
+  Hooks: claude ✓         │
+ ────────────────────────────────────────────────────────────────
+ [c] claude · [x] codex · [1-3] layers · [s] stats · [q] quit
+```
+
+**Left column** (32-36 chars): PROVIDERS section with health dots, LAYERS section
+with per-layer savings and subtitle (e.g. `struct · delta · dedup`), HOOKS section
+(only rendered when at least one hook is installed).
+
+**Right column** (remainder): SAVINGS section with big compression percentage,
+progress bar, and gain line (`+N msgs  ~X.Xs TTFT`). Below that: LIVE request
+log or QUICK START onboarding panel.
+
+**QUICK START panel** is shown in the right column when `TotalRequests == 0` and
+no hooks are installed - displays the two `slimference hook install` commands and
+step-by-step instructions.
+
+**Header**: `SLIMFERENCE v2.0.0` (gold, bold) aligned left, session duration and
+port right-aligned. Separated from the body by a `─` horizontal rule.
+
+**Footer**: styled keyboard hints `[c] claude · [x] codex · [1-3] layers · ...`
+using purple Key style and dim-gray separator dots. Separated by a `─` rule above.
 
 ### Views
 
 | Key | View | Content |
 |-----|------|---------|
-| (default) | Main | Live metrics: tokens saved, compression ratio, request log, layer status, hook status |
-| `s` | Stats | Detailed per-provider stats, layer savings breakdown, MiniMax latency |
-| `d` | Debug | Scrolling session log tail with level-colored output |
+| (default) | Main | Two-column: providers+layers+hooks left, savings+live right |
+| `s` | Stats | Detailed per-provider stats, layer savings breakdown, latency table |
+| `d` | Debug | Scrolling session log tail (30 entries) with level-colored output |
 
 ### Key bindings
 
@@ -768,29 +845,40 @@ each new request.
 Toggles are applied immediately via atomic.Bool writes on the Proxy struct.
 A flash message confirms the new state for 2 seconds.
 
-### Lipgloss color palette
+### Lipgloss color palette and styles
 
-- Purple (ANSI 99): borders and titles
-- Green (ANSI 78): savings and ON indicators
-- Gold (ANSI 220): main title accent
+**Colors:**
+- Purple (ANSI 99): panel titles, key hints, borders
+- Green (ANSI 78): savings, ON indicators, BigSaved
+- Green dim (ANSI 34): progress bar filled blocks
+- Gold (ANSI 220): main title, flash messages
 - Orange (ANSI 215): warnings
 - Red (ANSI 203): errors
-- Blue (ANSI 75): provider indicators
-- Cyan (ANSI 87): active border highlight
+- Blue (ANSI 75): INFO log level
+- Cyan (ANSI 87): active border highlight, highlight values
 - Grays (ANSI 240-255): secondary and muted text
 
-### Hook status indicator
+**Named styles (Styles struct):**
+- `PanelTitle`: purple bold - section headers inside panels (PROVIDERS, LAYERS, etc.)
+- `Divider`: dim gray - `│` vertical column separator
+- `HorizRule`: dim gray - `─` horizontal rule lines
+- `Key`: purple bold - keyboard hint brackets `[c]`
+- `KeySep`: dim gray - `·` dot separator between key groups
+- `BigSaved`: green bold - large compression percentage (e.g. `35%`)
+- `SetupCmd`: cyan on dark background - quick-start command blocks
+- `SetupTitle`: gold bold - QUICK START heading
 
-The main view displays a hook status line when at least one hook is installed.
-It is rendered between the provider badges and the usage section:
+### Hook status
+
+The HOOKS section in the left column is rendered only when at least one hook is
+installed. Each tool shows `✓` (green) or `-` (muted gray):
 
 ```
 Hooks: claude ✓  codex ✓
 ```
 
-Each tool shows `✓` (green) when its hook is installed, or `-` (muted gray)
-when it is not. If neither hook is installed, the line is hidden entirely to
-avoid UI noise.
+If neither hook is installed and no requests have arrived, the right column shows
+the QUICK START onboarding panel instead of the live log.
 
 Hook status is read once at startup via `hooks.InstalledStatus(home)`:
 - **Claude Code**: checks for `~/.claude/hooks/slimference-rewrite.sh`
@@ -806,6 +894,10 @@ ring buffer. New entries are pushed from the proxy hot path without blocking
 (subscriber channel buffer: 50; drops on overflow). The TUI subscribes via
 `SessionLogger.Subscribe()` and formats entries as:
 `HH:MM:SS LEVEL component: message key=value...`
+
+Sends to subscriber channels use `trySend()` which wraps the send in `recover()`.
+This prevents a panic when `Unsubscribe()` closes a channel while `Log()` still
+holds a stale reference to it from a prior lock acquisition.
 
 ---
 
@@ -906,9 +998,24 @@ Generate default config: `slimference config init`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `level` | string | `"info"` | Log level: `debug`, `info`, `warn`, `error` |
-| `format` | string | `"text"` | Log format: `text` or `json` |
-| `file` | string | `""` | Log file path; empty = stderr only |
+| `level` | string | `"debug"` | Log level: `debug`, `info`, `warn`, `error` |
+| `format` | string | `"json"` | Log format: `text` or `json` (JSONL for machine consumption) |
+| `file` | string | `"~/.slimference/logs/slimference.jsonl"` | Log file path; empty = stderr only |
+
+The log file is managed by `internal/slogutil.RotatingWriter`: 10 MB per file,
+5 rotated copies (`.1` - `.5`). Old files are renamed atomically on rotation.
+Rotation is goroutine-safe. When `file` is set, all `slog.*` calls (from all
+packages) go to the rotating JSONL file; stderr output is suppressed.
+Every log line includes `req_id`, `provider`, and `model` fields when emitted
+from the hot path, enabling per-request filtering with `jq`.
+
+```bash
+# Watch live compressed-request logs:
+tail -f ~/.slimference/logs/slimference.jsonl | jq 'select(.msg == "request_processed")'
+
+# Filter by request ID:
+jq 'select(.req_id == "a3f7c2b1d4e8f609")' ~/.slimference/logs/slimference.jsonl
+```
 
 ### Environment variable overrides
 
@@ -933,9 +1040,51 @@ Generate default config: `slimference config init`
 Starts the proxy server and the BubbleTea TUI dashboard. Blocks until the user
 presses `q` or sends SIGINT/SIGTERM.
 
+CLI flags (all optional, override config file and env vars):
+
+| Flag | Description |
+|------|-------------|
+| `--port <n>` | Listen port override |
+| `--sliding-window <n>` | Layer 1 sliding window size |
+| `--no-layer1` | Disable Layer 1 (deterministic compression) |
+| `--no-layer2` | Disable Layer 2 (MiniMax summarization) |
+| `--no-layer3` | Disable Layer 3 (response caching) |
+| `--log-level <level>` | Log level: `debug`, `info`, `warn`, `error` |
+
 ```
 slimference
+slimference --port 9000 --no-layer2
+slimference --log-level debug --sliding-window 3
 ```
+
+### GET /health
+
+Returns the current proxy status as JSON. All fields are live (not cached).
+
+```json
+{
+  "status": "ok",
+  "service": "slimference",
+  "version": "1.0.0",
+  "layers": {"1": true, "2": true, "3": false},
+  "providers": {"anthropic": true, "openai": true},
+  "queue_depth": {"compress": 0, "analytics": 0},
+  "cache_entries": 12,
+  "minimax_configured": true
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `status` | Always `"ok"` when the proxy is running |
+| `service` | Always `"slimference"` |
+| `version` | Binary version string |
+| `layers` | Live on/off state for layers 1, 2, 3 |
+| `providers` | Live on/off state for anthropic, openai |
+| `queue_depth.compress` | Items pending in the async Layer 2 compression queue |
+| `queue_depth.analytics` | Items pending in the analytics event queue |
+| `cache_entries` | Current number of entries in the Layer 3 response cache |
+| `minimax_configured` | `true` if `MINIMAX_API_KEY` is set |
 
 ### slimference config init
 
@@ -1209,13 +1358,19 @@ Planned additions:
 - `summarization/integration_test.go`: real MiniMax call (skipped if
   `MINIMAX_API_KEY` not set)
 
-To run all tests (18 packages, 100% coverage):
+To run all tests (19 packages):
 
 ```bash
 go test ./...
-go test -race ./...   # race detector
+go test -race ./...   # race detector (all packages clean)
 go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
 ```
+
+**Race detector status:** All 19 packages pass with `-race`. Three
+`internal/caching` tests that interact with the OS kqueue/inotify backend
+(`TestFileWatcher_run_chmodEventIgnored`, `TestFileWatcher_run_errorsChannelClose`,
+`TestFileWatcher_scheduleDebounce_callsOnChange`) are serialized (no `t.Parallel()`)
+because the OS-level event backend cannot be safely shared across concurrent tests.
 
 ### Test integrity rules
 
@@ -1357,11 +1512,17 @@ github.com/slimference/slimference
     +-- tui/
     |   model.go             Model, Update(), Init(), ProxyInterface, SessionLoggerInterface,
     |                        ProxyConfigInterface, Layer2Status, HookStatus, SetHookStatus()
-    |   views.go             renderMainView(), renderStatsView(), renderDebugView(),
-    |                        renderHookStatus()
-    |   styles.go            Lipgloss color palette and Styles struct
+    |   views.go             renderMainView() (two-column layout), renderStatsView(),
+    |                        renderDebugView(), renderHeader(), renderFooterBar(),
+    |                        buildLeftPanel(), buildRightPanel(), renderHookStatus()
+    |   styles.go            Lipgloss color palette and Styles struct (incl. PanelTitle,
+    |                        Divider, HorizRule, Key, KeySep, BigSaved, SetupCmd, SetupTitle)
     |   components.go        Progress bar, badges, table renderer, log line renderer
     |   keys.go              KeyMap, DefaultKeyMap(), footerHelp()
+    |
+    +-- slogutil/
+    |   rotating.go          RotatingWriter: goroutine-safe io.Writer; rotates at 10 MB,
+    |                        keeps 5 copies; used by setupLogging() as slog.Handler backend
     |
     +-- util/
         safego.go            Safe goroutine launcher with panic recovery and slog logging
@@ -1486,3 +1647,26 @@ After L0 + L1 + L2 + L3 (cache hit):            1,000 tokens (99% reduction)
 The layers are not additive - they are multiplicative. Each layer's effectiveness
 is bounded by the remaining information entropy, which previous layers have already
 reduced. This is why the best savings require all layers running together.
+
+---
+
+## 18. Audit Baseline and Remediation Tracking
+
+The repository is currently in a parity-hardening phase whose purpose is to
+raise the implementation to the existing documentation/spec target with hard
+proof. The target documents remain the goal state.
+
+Tracking artifacts:
+
+- `docs/audit-1.md` - fixed baseline audit for later comparison
+- `docs/gap-analysis.md` - target-vs-reality matrix
+- `docs/todo/t11-audit-remediation-program.md` - sequencing and closure rules
+- `docs/todo/t12-hook-contract-hardening.md`
+- `docs/todo/t13-zero-downside-and-cache-correctness.md`
+- `docs/todo/t14-layer2-strictness-and-cancellation.md`
+- `docs/todo/t15-daemon-service-productionization.md`
+- `docs/todo/t16-proof-gates-and-release-readiness.md`
+
+These files are the execution surface for the next hardening passes. They are
+intended to end in implementation, tests, and reproducible verification rather
+than permanent planning state.

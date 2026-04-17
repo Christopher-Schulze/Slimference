@@ -1,6 +1,7 @@
 package summarization
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -110,7 +111,7 @@ func (l *Layer2) ApplyProgressiveTiers(messages []types.Message, tiers []Compres
 		slice := messages[start : end+1]
 
 		// Keep verbatim if ratio is 1.0 or no client configured.
-		if tier.TargetRatio >= 1.0 || !l.minimax.IsConfigured() {
+		if tier.TargetRatio >= 1.0 || l.chain.ActiveProviderName() == "" {
 			for _, msg := range slice {
 				msg.Index = nextIndex
 				nextIndex++
@@ -145,7 +146,7 @@ func (l *Layer2) ApplyProgressiveTiers(messages []types.Message, tiers []Compres
 			targetTokens = 50
 		}
 
-		summary, err := l.minimax.Summarize(inputText, start, end, targetTokens)
+		summary, _, err := l.chain.Summarize(context.Background(), inputText, start, end, targetTokens)
 		if err != nil {
 			slog.Warn("progressive tier compression failed, keeping verbatim",
 				slog.String("tier", tier.Name),

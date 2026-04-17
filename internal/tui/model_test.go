@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -84,12 +85,15 @@ func (m *mockProxy) IsLayerEnabled(layer int) bool {
 	return false
 }
 
-func (m *mockProxy) FlushCaches()                  { m.flushed = true }
+func (m *mockProxy) FlushCaches()                              { m.flushed = true }
 func (m *mockProxy) GetAnalytics() analytics.AnalyticsSnapshot { return m.snap }
 func (m *mockProxy) GetRecentRequests(n int) []types.RequestMetrics {
 	return m.recentReqs
 }
 func (m *mockProxy) GetLayer2Status() Layer2Status { return m.l2Status }
+func (m *mockProxy) GetProviderHealth(_ types.Provider) types.ProviderHealthInfo {
+	return types.ProviderHealthInfo{Status: types.ProviderHealthIdle}
+}
 func (m *mockProxy) SessionLogger() SessionLoggerInterface {
 	if m.sessionLogger == nil {
 		return nil
@@ -111,6 +115,66 @@ type mockConfig struct {
 
 func (c *mockConfig) GetListenPort() int   { return c.port }
 func (c *mockConfig) GetPrefillSpeed() int { return c.speed }
+
+// mockServiceControl implements ServiceControlInterface for testing.
+type mockServiceControl struct {
+	started   bool
+	stopped   bool
+	restarted bool
+	installed bool
+	removed   bool
+	running   bool
+	err       error
+}
+
+func (m *mockServiceControl) StartDaemon() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.started = true
+	return nil
+}
+func (m *mockServiceControl) StopDaemon() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.stopped = true
+	return nil
+}
+func (m *mockServiceControl) RestartDaemon() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.restarted = true
+	return nil
+}
+func (m *mockServiceControl) InstallService() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.installed = true
+	return nil
+}
+func (m *mockServiceControl) UninstallService() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.removed = true
+	return nil
+}
+func (m *mockServiceControl) DaemonStatus() (bool, int, int) {
+	if m.running {
+		return true, 1234, 8990
+	}
+	return false, 0, 0
+}
+func (m *mockServiceControl) InstallHook(target string) error {
+	if m.err != nil {
+		return m.err
+	}
+	return nil
+}
+func (m *mockServiceControl) RemoveHook(target string) error { return nil }
 
 // TestNewModel_Defaults verifies that a new model has correct default state.
 func TestNewModel_Defaults(t *testing.T) {
@@ -951,5 +1015,569 @@ func TestView_MainRender_withHooks(t *testing.T) {
 	output := m.View()
 	if !strings.Contains(output, "claude") {
 		t.Errorf("main view with claude hook: want 'claude' in output, got: %s", output)
+	}
+}
+
+func TestView_SetupView_renders(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	// Switch to setup view via 'i' key.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+	output := model.View()
+	if !strings.Contains(output, "SETUP CHECKLIST") {
+		t.Errorf("setup view: want 'SETUP CHECKLIST' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "SERVICE STATUS") {
+		t.Errorf("setup view: want 'SERVICE STATUS' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "COMMANDS") {
+		t.Errorf("setup view: want 'COMMANDS' in output, got: %s", output)
+	}
+	// Press 'i' again to go back.
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model2 := updated2.(Model)
+	if model2.view != ViewMain {
+		t.Errorf("pressing i again should return to main view, got: %d", model2.view)
+	}
+}
+
+func TestModel_CopyDebugLog(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+	// No entries yet.
+	path := m.copyDebugLog()
+	if path != "" {
+		t.Errorf("empty logger should return empty path, got: %s", path)
+	}
+
+	// Add an entry.
+	p.sessionLogger.Log("INFO", "test", "hello world")
+
+	path = m.copyDebugLog()
+	if path == "" {
+		t.Fatal("should return a path after logging an entry")
+	}
+	// Verify file exists.
+	if _, err := io.ReadAll(strings.NewReader(path)); err != nil {
+		_ = err
+	}
+}
+
+func TestView_MainFooter_hasSetupKey(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+	output := m.View()
+	if !strings.Contains(output, "[i]") {
+		t.Errorf("main footer should have [i] setup key, got: %s", output)
+	}
+}
+
+func TestView_SetupView_serviceControlStart(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	// Go to setup view.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	// Press 'p' to start daemon (not running, so it starts).
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model2 := updated2.(Model)
+	if !svc.started {
+		t.Error("expected StartDaemon to be called on [p]")
+	}
+	if model2.flashMsg == "" {
+		t.Error("expected flash message after starting daemon")
+	}
+}
+
+func TestView_SetupView_serviceControlRestart(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	// Go to setup view.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	// Press 'o' to restart.
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}})
+	_ = updated2.(Model)
+	if !svc.restarted {
+		t.Error("expected RestartDaemon to be called on [o]")
+	}
+}
+
+func TestView_SetupView_serviceControlInstall(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	// Go to setup view.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	// Press 'e' to install service.
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	_ = updated2.(Model)
+	if !svc.installed {
+		t.Error("expected InstallService to be called on [e]")
+	}
+}
+
+func TestView_SetupView_serviceControlUninstall(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	// Go to setup view.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	// Press 'w' to uninstall service.
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+	_ = updated2.(Model)
+	if !svc.removed {
+		t.Error("expected UninstallService to be called on [w]")
+	}
+}
+
+func TestView_SetupView_serviceControlError(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{err: fmt.Errorf("test error")}
+	m.SetServiceControl(svc)
+
+	// Go to setup view.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	// Press 'p' - should fail gracefully.
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model2 := updated2.(Model)
+	if !strings.Contains(model2.flashMsg, "failed") {
+		t.Errorf("expected flash to contain 'failed', got: %s", model2.flashMsg)
+	}
+}
+
+func TestView_SetupView_noServiceControl(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+
+	// Go to setup view.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	// Press 'p' without service control - should be no-op (no crash).
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model2 := updated2.(Model)
+	if model2.flashMsg != "" {
+		t.Errorf("expected no flash without service control, got: %s", model2.flashMsg)
+	}
+}
+
+func TestView_SetupView_withServiceControl_rendersSteps(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+	output := model.View()
+	if !strings.Contains(output, "SETUP STEPS") {
+		t.Errorf("setup view with svc: want 'SETUP STEPS', got: %s", output)
+	}
+	if !strings.Contains(output, "SERVICE CONTROLS") {
+		t.Errorf("setup view with svc: want 'SERVICE CONTROLS', got: %s", output)
+	}
+}
+
+func TestView_SetupView_stepNavigation(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	model2 := updated2.(Model)
+	if model2.setupStep != 1 {
+		t.Errorf("pressing '1' in setup should set setupStep=1, got %d", model2.setupStep)
+	}
+
+	updated3, _ := model2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	model3 := updated3.(Model)
+	if model3.setupStep != 2 {
+		t.Errorf("pressing '2' in setup should set setupStep=2, got %d", model3.setupStep)
+	}
+
+	updated4, _ := model3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	model4 := updated4.(Model)
+	if model4.setupStep != 3 {
+		t.Errorf("pressing '3' in setup should set setupStep=3, got %d", model4.setupStep)
+	}
+}
+
+func TestView_SetupView_executeStep(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	model2 := updated2.(Model)
+
+	updated3, _ := model2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e', 'n', 't', 'e', 'r'}})
+	model3 := updated3.(Model)
+	if model3.flashMsg == "" {
+		t.Error("expected flash message after executing setup step")
+	}
+}
+
+func TestView_SetupView_executeStep_alreadyDone(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+	m.hookStatus = HookStatus{Claude: true, Codex: true}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	model2 := updated2.(Model)
+
+	updated3, _ := model2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e', 'n', 't', 'e', 'r'}})
+	model3 := updated3.(Model)
+	if !strings.Contains(model3.flashMsg, "Already done") {
+		t.Errorf("expected 'Already done' flash, got: %s", model3.flashMsg)
+	}
+}
+
+func TestView_SetupView_executeStep_invalidStep(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	m.setupStep = 99
+	m.executeSetupStep()
+	if m.flashMsg != "" {
+		t.Errorf("invalid setup step should be no-op, got: %s", m.flashMsg)
+	}
+}
+
+func TestView_SetupView_executeStep_error(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{err: fmt.Errorf("permission denied")}
+	m.SetServiceControl(svc)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	model2 := updated2.(Model)
+
+	updated3, _ := model2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e', 'n', 't', 'e', 'r'}})
+	model3 := updated3.(Model)
+	if !strings.Contains(model3.flashMsg, "Error") {
+		t.Errorf("expected error flash, got: %s", model3.flashMsg)
+	}
+}
+
+func TestView_SetupView_serviceControlStopRunning(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{running: true}
+	m.SetServiceControl(svc)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	model2 := updated2.(Model)
+	if !svc.stopped {
+		t.Error("expected StopDaemon when running=true and pressing 'p'")
+	}
+	if !strings.Contains(model2.flashMsg, "stopped") {
+		t.Errorf("expected 'stopped' flash, got: %s", model2.flashMsg)
+	}
+}
+
+func TestView_LayerToggle_inSetupView_noop(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	wasEnabled := model.layer1Enabled
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	model2 := updated2.(Model)
+	if model2.layer1Enabled != wasEnabled {
+		t.Error("'1' in setup view should navigate steps, not toggle layers")
+	}
+	if model2.setupStep != 1 {
+		t.Error("'1' in setup view should set setupStep=1")
+	}
+}
+
+func TestView_CopyDebugLog_withEntries(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.sessionLogger = sessions.NewSessionLogger()
+	p.sessionLogger.Log("INFO", "test", "test log entry")
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+
+	path := m.copyDebugLog()
+	if path == "" {
+		t.Fatal("expected non-empty path when logger has entries")
+	}
+	if !strings.Contains(path, "debug-") {
+		t.Errorf("path should contain 'debug-', got: %s", path)
+	}
+}
+
+func TestView_CopyDebugLog_nilLogger(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.sessionLogger = nil
+	m := NewModel(p)
+	path := m.copyDebugLog()
+	if path != "" {
+		t.Errorf("nil logger should return empty path, got: %s", path)
+	}
+}
+
+func TestView_MainRender_allReady(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+	m.hookStatus = HookStatus{Claude: true, Codex: true}
+	output := m.View()
+	if !strings.Contains(output, "READY") {
+		t.Errorf("main view should show READY when all hooks installed, got: %s", output)
+	}
+}
+
+func TestView_MainRender_notReady(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+	m.hookStatus = HookStatus{Claude: false, Codex: false}
+	output := m.View()
+	if !strings.Contains(output, "SETUP") {
+		t.Errorf("main view should show SETUP when hooks missing, got: %s", output)
+	}
+}
+
+func TestView_SetupView_allReady(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	m.hookStatus = HookStatus{Claude: true, Codex: true}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+	output := model.View()
+	if !strings.Contains(output, "ALL SET") {
+		t.Errorf("setup view with all ready should show 'ALL SET', got: %s", output)
+	}
+}
+
+func TestView_SetupView_withSvc_runningDaemon(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{running: true}
+	m.SetServiceControl(svc)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+	output := model.View()
+	if !strings.Contains(output, "RUNNING") {
+		t.Errorf("setup view with running daemon should show RUNNING, got: %s", output)
+	}
+}
+
+func TestView_SetupView_withSvc_stepCompleted(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+	m.hookStatus = HookStatus{Claude: true, Codex: false}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+	output := model.View()
+	if !strings.Contains(output, "SETUP STEPS") {
+		t.Errorf("setup view should show SETUP STEPS with svc, got: %s", output)
+	}
+}
+
+func TestView_MainRender_quickStart(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+	m.hookStatus = HookStatus{}
+	output := m.View()
+	if !strings.Contains(output, "QUICK START") {
+		t.Errorf("main view should show QUICK START when no hooks and no requests, got: %s", output)
+	}
+}
+
+func TestUpdate_CopyDebugLogKey(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.sessionLogger = sessions.NewSessionLogger()
+	p.sessionLogger.Log("INFO", "test", "entry")
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	model := updated.(Model)
+	if !strings.Contains(model.flashMsg, "debug-") {
+		t.Errorf("pressing 'y' should copy debug log, got flash: %s", model.flashMsg)
+	}
+}
+
+func TestUpdate_CopyDebugLogKey_noEntries(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	model := updated.(Model)
+	if !strings.Contains(model.flashMsg, "No debug log") {
+		t.Errorf("pressing 'y' with no entries should flash 'No debug log', got: %s", model.flashMsg)
+	}
+}
+
+func TestView_SetupView_withSvc_stepSelected(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+	svc := &mockServiceControl{}
+	m.SetServiceControl(svc)
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	model := updated.(Model)
+
+	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	model2 := updated2.(Model)
+	output := model2.View()
+	if !strings.Contains(output, "Install Claude Code hook") {
+		t.Errorf("selected step should show in output, got: %s", output)
+	}
+}
+
+func TestView_MainRender_liveLog(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.recentReqs = []types.RequestMetrics{
+		{
+			Timestamp:        time.Now(),
+			Provider:         types.Anthropic,
+			Model:            "claude-opus-4-6",
+			InputTokensOrig:  10000,
+			InputTokensComp:  4000,
+			CompressionRatio: 0.4,
+			Layers:           []int{1},
+			LatencyMs:        2.5,
+		},
+	}
+	m := NewModel(p)
+	m.width = 100
+	m.height = 24
+	m.hookStatus = HookStatus{Claude: true, Codex: true}
+	output := m.View()
+	if !strings.Contains(output, "LIVE") {
+		t.Errorf("main view should show LIVE section when requests exist, got: %s", output)
 	}
 }

@@ -75,6 +75,23 @@ type Styles struct {
 
 	// Flash message.
 	Flash lipgloss.Style
+
+	// Layout.
+	PanelTitle lipgloss.Style // section headers inside panels (PROVIDERS, LIVE ...)
+	Divider    lipgloss.Style // │ vertical separator between columns
+	HorizRule  lipgloss.Style // ─ horizontal separator lines
+	HeaderBar  lipgloss.Style // top header bar background feel
+
+	// Keyboard hints in footer.
+	Key    lipgloss.Style // the key letter: [c]
+	KeySep lipgloss.Style // · separator between key groups
+
+	// Big emphasis.
+	BigSaved lipgloss.Style // large % / token savings number
+
+	// Setup instructions.
+	SetupCmd   lipgloss.Style // $ slimference hook install claude
+	SetupTitle lipgloss.Style // QUICK START heading
 }
 
 // NewStyles builds the complete style set.
@@ -185,6 +202,45 @@ func NewStyles() Styles {
 			Foreground(colorDimGray),
 
 		Flash: lipgloss.NewStyle().
+			Foreground(colorGold).
+			Bold(true),
+
+		// Layout.
+		PanelTitle: lipgloss.NewStyle().
+			Foreground(colorPurple).
+			Bold(true),
+
+		Divider: lipgloss.NewStyle().
+			Foreground(colorDimGray),
+
+		HorizRule: lipgloss.NewStyle().
+			Foreground(colorDimGray),
+
+		HeaderBar: lipgloss.NewStyle().
+			Background(lipgloss.Color("236")).
+			Foreground(colorGold).
+			Bold(true),
+
+		// Keyboard hints.
+		Key: lipgloss.NewStyle().
+			Foreground(colorPurple).
+			Bold(true),
+
+		KeySep: lipgloss.NewStyle().
+			Foreground(colorDimGray),
+
+		// Big emphasis.
+		BigSaved: lipgloss.NewStyle().
+			Foreground(colorGreen).
+			Bold(true),
+
+		// Setup instructions.
+		SetupCmd: lipgloss.NewStyle().
+			Foreground(colorCyan).
+			Background(lipgloss.Color("236")).
+			Padding(0, 1),
+
+		SetupTitle: lipgloss.NewStyle().
 			Foreground(colorGold).
 			Bold(true),
 	}

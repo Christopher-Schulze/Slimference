@@ -9,6 +9,39 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
+// TestRenderHealthDot verifies that renderHealthDot returns a non-empty string
+// for every ProviderHealthStatus value without panicking.
+func TestRenderHealthDot(t *testing.T) {
+	t.Parallel()
+	s := NewStyles()
+	tests := []struct {
+		name   string
+		status types.ProviderHealthStatus
+		// wantFilled: true if we expect a filled circle (●), false for hollow (○).
+		wantFilled bool
+	}{
+		{"healthy", types.ProviderHealthHealthy, true},
+		{"degraded", types.ProviderHealthDegraded, true},
+		{"down", types.ProviderHealthDown, true},
+		{"idle", types.ProviderHealthIdle, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := renderHealthDot(s, tt.status)
+			if got == "" {
+				t.Errorf("renderHealthDot(%v) returned empty string", tt.status)
+			}
+			if tt.wantFilled && !strings.Contains(got, "●") {
+				t.Errorf("renderHealthDot(%v) = %q, want filled circle ●", tt.status, got)
+			}
+			if !tt.wantFilled && !strings.Contains(got, "○") {
+				t.Errorf("renderHealthDot(%v) = %q, want hollow circle ○", tt.status, got)
+			}
+		})
+	}
+}
+
 // TestFormatTokens verifies token count display formatting.
 func TestFormatTokens(t *testing.T) {
 	t.Parallel()

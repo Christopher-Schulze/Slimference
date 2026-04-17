@@ -135,10 +135,17 @@ func TestEstimateTokens(t *testing.T) {
 		t.Fatalf("empty: %d", estimateTokens(""))
 	}
 	if estimateTokens("abc") != 1 {
-		t.Fatalf("short non-empty: %d", estimateTokens("abc"))
+		t.Fatalf("single word: %d", estimateTokens("abc"))
 	}
-	if n := estimateTokens(strings.Repeat("x", 8)); n != 2 {
-		t.Fatalf("8 bytes: %d", n)
+	if n := estimateTokens("hello world foo"); n != 3 {
+		t.Fatalf("three words: %d", n)
+	}
+	if n := estimateTokens("  spaces   between   words  "); n != 3 {
+		t.Fatalf("spaced words: %d", n)
+	}
+	cjk := string(rune(0x4E16)) + string(rune(0x754C))
+	if n := estimateTokens(cjk); n != 2 {
+		t.Fatalf("two CJK chars = 2 tokens: %d", n)
 	}
 }
 
@@ -219,7 +226,7 @@ func TestLayer2_RunCompressionJob_allAnchors(t *testing.T) {
 // (lines 109-121) when coveredFraction >= 0.70 and newStart <= boundaryIdx.
 func TestLayer2_RunCompressionJob_incrementalExtension(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "test-key")
-	summaryText := strings.Repeat("S", 400)
+	summaryText := "- " + strings.Repeat("S", 397)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -309,7 +316,9 @@ func TestLayer2_RunCompressionJob_incrementalAlreadyCovered(t *testing.T) {
 // anchor indices 0,1,2 filter the first three delta messages.
 //
 // Setup: msgs[0..2]=edit anchors (allAnchorIndices=[0,1,2]),
-//        msgs[3..19]=regular alternating user/assistant.
+//
+//	msgs[3..19]=regular alternating user/assistant.
+//
 // With SlidingWindow=2: userIdx=[4,6,8,10,12,14,16,18], prefixEnd=16, boundaryIdx=15.
 // Cache covers 0-12: coveredFraction=12/15=0.80>=0.70, newStart=13.
 // Delta = messages[13:16] (3 elements at sub-slice indices 0,1,2).
@@ -415,6 +424,53 @@ func TestLayer2_ShouldTriggerCompression_stale(t *testing.T) {
 // TestLayer2_ShouldTriggerCompression_boundaryIdxZero covers boundaryIdx <= 0 (lines 206-208).
 // When existing != nil and fresh, but boundaryIdx <= 0 -> return true.
 // Setup: two consecutive user messages [user(0), user(1)] + window=1 -> prefixEnd=userIdx[1]=1 -> boundaryIdx=0.
+func TestPreprocessInput_truncatesLongLines(t *testing.T) {
+	t.Parallel()
+	longLine := strings.Repeat("x", 3000)
+	input := "short line\n" + longLine + "\nanother short"
+	got := preprocessInput(input)
+	if strings.Contains(got, longLine) {
+		t.Fatal("long line should be truncated")
+	}
+	if !strings.Contains(got, "short line") || !strings.Contains(got, "another short") {
+		t.Fatalf("short lines should be preserved, got: %q", got)
+	}
+	if !strings.Contains(got, "[truncated") {
+		t.Fatalf("truncation marker missing, got: %q", got)
+	}
+}
+
+func TestPreprocessInput_removesConsecutiveDupes(t *testing.T) {
+	t.Parallel()
+	input := "line A\nline A\nline A\nline B\nline B"
+	got := preprocessInput(input)
+	count := strings.Count(got, "line A")
+	if count != 1 {
+		t.Fatalf("expected 1 occurrence of 'line A' after dedup, got %d: %q", count, got)
+	}
+	countB := strings.Count(got, "line B")
+	if countB != 1 {
+		t.Fatalf("expected 1 occurrence of 'line B' after dedup, got %d: %q", countB, got)
+	}
+}
+
+func TestPreprocessInput_emptyInput(t *testing.T) {
+	t.Parallel()
+	got := preprocessInput("")
+	if got != "" {
+		t.Fatalf("empty input should produce empty output, got: %q", got)
+	}
+}
+
+func TestPreprocessInput_noChanges(t *testing.T) {
+	t.Parallel()
+	input := "line one\nline two\nline three"
+	got := preprocessInput(input)
+	if got != input {
+		t.Fatalf("clean input should be unchanged, got: %q", got)
+	}
+}
+
 func TestLayer2_ShouldTriggerCompression_boundaryIdxZero(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
@@ -438,5 +494,118 @@ func TestLayer2_ShouldTriggerCompression_boundaryIdxZero(t *testing.T) {
 	// boundaryIdx=0 <= 0 -> return true.
 	if !l.ShouldTriggerCompression(msgs) {
 		t.Fatal("boundaryIdx=0 should trigger compression")
+	}
+}
+
+func TestContentDensity_empty(t *testing.T) {
+	t.Parallel()
+	d := contentDensity(nil)
+	if d != 0.5 {
+		t.Fatalf("empty messages should return 0.5, got %f", d)
+	}
+}
+
+func TestContentDensity_proseOnly(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "Hello how are you today"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "I am fine thank you"}}},
+	}
+	d := contentDensity(msgs)
+	if d > 0.3 {
+		t.Fatalf("pure prose should have low density, got %f", d)
+	}
+}
+
+func TestContentDensity_codeHeavy(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{Index: 0, Role: "assistant", Content: []types.ContentBlock{
+			{Type: "tool_use", ToolName: "edit_file", ToolInput: `{"path":"src/main.go"}`},
+		}},
+		{Index: 1, Role: "user", Content: []types.ContentBlock{
+			{Type: "tool_result", ToolResultID: "r1", Text: "OK"},
+		}},
+		{Index: 2, Role: "assistant", Content: []types.ContentBlock{
+			{Type: "text", Text: "func handleLogin() error {\n\treturn nil\n}"},
+		}},
+	}
+	d := contentDensity(msgs)
+	if d < 0.3 {
+		t.Fatalf("code-heavy should have high density, got %f", d)
+	}
+}
+
+func TestComputeAdaptiveTarget_smallInput(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "hi"}}},
+	}
+	target := computeAdaptiveTarget(500, msgs, 0.20)
+	if target < 100 {
+		t.Fatalf("minimum target should be 100, got %d", target)
+	}
+	if target > 300 {
+		t.Fatalf("small input should not get huge target, got %d", target)
+	}
+}
+
+func TestComputeAdaptiveTarget_largeInput(t *testing.T) {
+	t.Parallel()
+	msgs := make([]types.Message, 50)
+	for i := range msgs {
+		msgs[i] = types.Message{Index: i, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: strings.Repeat("word ", 100)}}}
+	}
+	target := computeAdaptiveTarget(50000, msgs, 0.20)
+	if target < 100 {
+		t.Fatalf("target should be at least 100, got %d", target)
+	}
+	if target > 30000 {
+		t.Fatalf("large input should respect ratio cap, got %d", target)
+	}
+}
+
+func TestLooksLikeCode(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"func main() {", true},
+		{"var x int", true},
+		{"  if err != nil {", true},
+		{"Hello, how are you?", false},
+		{"", false},
+		{"// comment", true},
+		{"pub fn handler() -> Result {", true},
+		{"normal text with no code", false},
+		{"}", true},
+	}
+	for _, tc := range tests {
+		got := looksLikeCode(tc.input)
+		if got != tc.want {
+			t.Errorf("looksLikeCode(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestLooksLikePath(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"src/auth/handler.go", true},
+		{"./relative/path", true},
+		{"../parent/dir", true},
+		{"config.toml", true},
+		{"just a normal sentence", false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		got := looksLikePath(tc.input)
+		if got != tc.want {
+			t.Errorf("looksLikePath(%q) = %v, want %v", tc.input, got, tc.want)
+		}
 	}
 }

@@ -30,9 +30,32 @@ func NewCompressionValidator() *CompressionValidator {
 	return &CompressionValidator{}
 }
 
-// Validate runs five quality checks on the summary against the original messages.
-// All five must pass for the summary to be considered valid.
+// Validate runs quality checks on the summary against the original messages.
+// Checks: format compliance, file path preservation, function name preservation,
+// error string preservation, minimum/maximum length, no CoT artifacts.
 func (v *CompressionValidator) Validate(original []types.Message, summary string, origTokens int) ValidationResult {
+	// 0. Format compliance: summary must contain bullet points starting with "- ".
+	lines := strings.Split(summary, "\n")
+	bulletCount := 0
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "- ") {
+			bulletCount++
+		}
+	}
+	if bulletCount == 0 {
+		return ValidationResult{
+			Valid:      false,
+			FailReason: "format violation: no bullet points found, output must be \"- \" prefixed lines",
+		}
+	}
+
+	// 0.5. No CoT artifacts: reject if thinking blocks leaked through.
+	if strings.Contains(summary, "<think") || strings.Contains(summary, "</think") {
+		return ValidationResult{
+			Valid:      false,
+			FailReason: "format violation: chain-of-thought artifacts detected in output",
+		}
+	}
 	// 1. FilePathPreservation: >90% of paths from original must appear in summary.
 	paths := extractFilePaths(joinMessages(original))
 	if len(paths) > 0 {
@@ -93,7 +116,7 @@ func (v *CompressionValidator) Validate(original []types.Message, summary string
 	}
 
 	// 4. MinimumLength: summary must be >5% of origTokens.
-	summaryTokenEst := len(summary) / 4
+	summaryTokenEst := estimateTokens(summary)
 	if origTokens > 0 && summaryTokenEst < origTokens/20 {
 		return ValidationResult{
 			Valid:      false,

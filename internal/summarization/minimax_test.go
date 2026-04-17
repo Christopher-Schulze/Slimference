@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,20 +72,21 @@ func TestTruncate(t *testing.T) {
 
 // TestMiniMaxClient_Summarize_rateLimiterCancelled covers context cancellation for rate limiter (lines 107-109).
 func TestMiniMaxClient_Summarize_rateLimiterCancelled(t *testing.T) {
-	// No t.Parallel() - uses t.Setenv.
+	t.Setenv("MINIMAX_API_KEY_RL", "sk-test")
 	mm := config.Defaults().Compression.MiniMax
-	mm.APIKeyEnv = "MINIMAX_API_KEY_TEST_RL"
-	t.Setenv("MINIMAX_API_KEY_TEST_RL", "sk-test")
-	// Rate limit so tight that context cancellation is immediate.
-	// We override the limiter directly to simulate context cancellation.
+	mm.APIKeyEnv = "MINIMAX_API_KEY_RL"
 	c := NewMiniMaxClient(mm)
-	// Replace limiter with a zero-tokens limiter; Wait will block.
-	// Use a very slow rate and no burst so it will block - we can't easily cancel context.Background().
-	// Instead test via a cancelled context by triggering through Summarize which uses context.Background().
-	// The only reliable way is to set rate to an extremely slow value then cancel from outside.
-	// Since Summarize uses context.Background() internally, we can't cancel it from the outside.
-	// Instead, let's verify that a retryable error with maxRetries=0 breaks out (non-retryable error path).
-	_ = c
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := c.Summarize(ctx, "text", 0, 5, 100)
+	if err == nil {
+		t.Fatal("expected error when context is cancelled")
+	}
+	if !strings.Contains(err.Error(), "rate limiter cancelled") {
+		t.Fatalf("expected rate limiter cancel error, got: %v", err)
+	}
 }
 
 // TestMiniMaxClient_Summarize_nonRetryableBreak covers the non-retryable break (lines 140-141).
@@ -102,7 +104,7 @@ func TestMiniMaxClient_Summarize_nonRetryableBreak(t *testing.T) {
 	cfg.MiniMax.MaxRetries = 3 // Should not retry on 400.
 
 	c := NewMiniMaxClient(cfg.MiniMax)
-	_, err := c.Summarize("text", 0, 5, 100)
+	_, err := c.Summarize(context.Background(), "text", 0, 5, 100)
 	if err == nil {
 		t.Fatal("expected error on 400 response")
 	}
@@ -294,7 +296,7 @@ func TestMiniMaxClient_Summarize_withRetry(t *testing.T) {
 	// Override the limiter to allow instant tokens.
 	c.limiter = rate.NewLimiter(rate.Inf, 1)
 
-	result, err := c.Summarize("text", 0, 5, 100)
+	result, err := c.Summarize(context.Background(), "text", 0, 5, 100)
 	if err != nil {
 		t.Fatalf("expected success after retry, got: %v", err)
 	}
@@ -326,7 +328,7 @@ func TestMiniMaxClient_Summarize_rateLimiterBlocks(t *testing.T) {
 	mm.MaxRetries = 0
 	c := NewMiniMaxClient(mm)
 
-	result, err := c.Summarize("input text", 0, 1, 50)
+	result, err := c.Summarize(context.Background(), "input text", 0, 1, 50)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -396,8 +398,163 @@ func TestMiniMaxClient_doRequest_invalidURL(t *testing.T) {
 	}
 }
 
+// --- cleanSummaryOutput tests ---
+
+func TestCleanSummaryOutput_stripsCoT(t *testing.T) {
+	t.Parallel()
+	input := "<think\nLet me analyze this conversation...\nKey points are X and Y\n</think\n\n- File edited: main.go\n- Tests pass"
+	got := cleanSummaryOutput(input)
+	if strings.Contains(got, "<think") || strings.Contains(got, "analyze") {
+		t.Fatalf("CoT block should be stripped, got: %q", got)
+	}
+	if !strings.Contains(got, "- File edited: main.go") {
+		t.Fatalf("real content should be preserved, got: %q", got)
+	}
+}
+
+func TestCleanSummaryOutput_stripsPreamble(t *testing.T) {
+	t.Parallel()
+	input := "Here is a summary of the conversation:\n- File edited: main.go\n- Tests pass"
+	got := cleanSummaryOutput(input)
+	if strings.Contains(got, "Here is") {
+		t.Fatalf("preamble should be stripped, got: %q", got)
+	}
+}
+
+func TestCleanSummaryOutput_stripsMarkdownHeaders(t *testing.T) {
+	t.Parallel()
+	input := "## Changes\n- File edited: main.go\n### Details\n- Fixed bug"
+	got := cleanSummaryOutput(input)
+	if strings.Contains(got, "## Changes") || strings.Contains(got, "### Details") {
+		t.Fatalf("markdown headers should be stripped, got: %q", got)
+	}
+}
+
+func TestCleanSummaryOutput_collapseBlankLines(t *testing.T) {
+	t.Parallel()
+	input := "- item1\n\n\n\n- item2"
+	got := cleanSummaryOutput(input)
+	if strings.Contains(got, "\n\n\n") {
+		t.Fatalf("multiple blank lines should collapse, got: %q", got)
+	}
+}
+
+func TestCleanSummaryOutput_findsFirstBullet(t *testing.T) {
+	t.Parallel()
+	input := "Some preamble text\nMore text\n- Actual content starts here\n- More content"
+	got := cleanSummaryOutput(input)
+	if !strings.HasPrefix(got, "- Actual content") {
+		t.Fatalf("should find first bullet point, got: %q", got)
+	}
+}
+
+func TestCleanSummaryOutput_alreadyClean(t *testing.T) {
+	t.Parallel()
+	input := "- File edited: main.go\n- Tests passed: 15/15\n- Decision: use SQLite"
+	got := cleanSummaryOutput(input)
+	if got != input {
+		t.Fatalf("already-clean output should be unchanged, got: %q", got)
+	}
+}
+
+func TestCleanSummaryOutput_stripsCodeFences(t *testing.T) {
+	t.Parallel()
+	input := "```\n- File edited: main.go\n- Tests passed\n```"
+	got := cleanSummaryOutput(input)
+	if strings.Contains(got, "```") {
+		t.Fatalf("code fences should be stripped, got: %q", got)
+	}
+}
+
 // Compile-time check that we use the imports.
 var _ = context.Background
 var _ = fmt.Sprintf
 var _ = time.Now
 var _ = errors.New
+
+func TestDeduplicateBullets_exactDup(t *testing.T) {
+	t.Parallel()
+	input := "- File edited: main.go\n- File edited: main.go\n- Tests pass"
+	got := deduplicateBullets(input)
+	if strings.Count(got, "- File edited: main.go") != 1 {
+		t.Fatalf("exact duplicate should be removed, got: %q", got)
+	}
+	if !strings.Contains(got, "- Tests pass") {
+		t.Fatalf("unique bullet should remain, got: %q", got)
+	}
+}
+
+func TestDeduplicateBullets_subsume(t *testing.T) {
+	t.Parallel()
+	input := "- error in handler.go\n- error in handler.go at line 42"
+	got := deduplicateBullets(input)
+	if strings.Count(got, "- ") != 1 {
+		t.Fatalf("shorter bullet should be subsumed by longer, got: %q", got)
+	}
+}
+
+func TestDeduplicateBullets_noDuplicates(t *testing.T) {
+	t.Parallel()
+	input := "- File A\n- File B\n- File C"
+	got := deduplicateBullets(input)
+	if got != input {
+		t.Fatalf("no duplicates should be unchanged, got: %q", got)
+	}
+}
+
+func TestDeduplicateBullets_fuzzySimilar(t *testing.T) {
+	t.Parallel()
+	input := "- Edited src/auth/handler.go to add authentication validation logic for login\n- Edited src/auth/handler.go to add authentication validation logic for registration"
+	got := deduplicateBullets(input)
+	if strings.Count(got, "- ") != 1 {
+		t.Fatalf("fuzzy-similar bullets should be deduped to 1, got %d: %q", strings.Count(got, "- "), got)
+	}
+}
+
+func TestSimilarEnough_identical(t *testing.T) {
+	t.Parallel()
+	if !similarEnough("hello world foo bar", "hello world foo bar", 0.75) {
+		t.Fatal("identical strings should be similar")
+	}
+}
+
+func TestSimilarEnough_different(t *testing.T) {
+	t.Parallel()
+	if similarEnough("completely different content here", "totally unrelated other stuff today", 0.75) {
+		t.Fatal("very different strings should not be similar")
+	}
+}
+
+func TestSimilarEnough_nearDuplicate(t *testing.T) {
+	t.Parallel()
+	if !similarEnough(
+		"edited handler.go to add authentication",
+		"edited handler.go to remove authentication",
+		0.75,
+	) {
+		t.Fatal("near-duplicates should be similar enough")
+	}
+}
+
+func TestToWordSet(t *testing.T) {
+	t.Parallel()
+	set := toWordSet("a hi the to of words testing")
+	if set["a"] || set["hi"] || set["the"] || set["to"] || set["of"] {
+		t.Fatal("short words (<=4 chars) should be excluded")
+	}
+	if !set["words"] {
+		t.Fatal("'words' (5 chars) should be included")
+	}
+	if !set["testing"] {
+		t.Fatal("'testing' (7 chars) should be included")
+	}
+}
+
+func TestCleanSummaryOutput_preservesRealContent(t *testing.T) {
+	t.Parallel()
+	input := "- File edited: src/auth/handler.go\n- Tests passed: 15/15\n- Decision: use SQLite\n- Command: go test ./... ran successfully with 0 failures"
+	got := cleanSummaryOutput(input)
+	if got != input {
+		t.Fatalf("clean real content should be unchanged, got: %q", got)
+	}
+}
