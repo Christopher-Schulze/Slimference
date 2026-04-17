@@ -90,8 +90,8 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 
 ### Layer 2 - MiniMax Summarization
 
-- `internal/summarization/layer2.go`: Layer2 coordinator, strict summary formatting, context-aware compression jobs
-- `internal/summarization/minimax.go`: MiniMax M2.7 API client
+- `internal/summarization/layer2.go`: Layer2 coordinator, strict summary formatting, context-aware compression jobs, timeout-wrapped parent contexts, no post-cancel cache writes
+- `internal/summarization/minimax.go`: MiniMax M2.7 API client with request-bound HTTP contexts and cancelable retry backoff
 - `internal/summarization/anchor.go`: Anchor point detection (5 types)
 - `internal/summarization/validator.go`: strict quality validation over structured content blocks
 - `internal/summarization/cache.go`: SummaryCache with atomic Compressing flag
@@ -106,8 +106,8 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 
 ### Core Proxy (HTTP Handler)
 
-- `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), toggle atomics, listener readiness state, 32 MiB request-body hard fail
-- `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, dependency-safe Layer 3 admission, analytics shutdown drain
+- `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), worker-owned cancellation context, toggle atomics, listener readiness state, 32 MiB request-body hard fail
+- `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, context-aware overflow retry fallback, dependency-safe Layer 3 admission, analytics shutdown drain, shutdown-aware compression worker
 - `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction, safe OpenAI structured-content roundtrip without stringifying multimodal arrays
 - `internal/proxy/streaming.go`: SSE relay, token counting from stream events, 8 MiB per-line SSE cap, bounded non-streaming passthrough with safe local-502 behavior
 

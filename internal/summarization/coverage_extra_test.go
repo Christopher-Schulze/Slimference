@@ -408,10 +408,10 @@ func TestMiniMaxClient_Summarize_BackoffCapBranch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	origSleep := sleepFn
-	sleepFn = func(time.Duration) {}
+	origWait := backoffWaitFn
+	backoffWaitFn = func(context.Context, time.Duration) error { return nil }
 	defer func() {
-		sleepFn = origSleep
+		backoffWaitFn = origWait
 	}()
 
 	t.Setenv("MINIMAX_API_KEY", "test-key")

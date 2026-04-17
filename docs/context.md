@@ -162,6 +162,11 @@ Repository proof as of this task:
   of burning the full timeout window on a dead listener
 - hardened `debug.Recorder.flushJSONL` so marshal/write failures log warnings
   and do not emit corrupt placeholder lines into decisions JSONL
+- deep context hardening pass: MiniMax HTTP requests and retry backoff now honor
+  caller cancellation, Layer 2 refuses post-cancel cache writes, fallback
+  summarization stops immediately on canceled contexts, and the proxy now owns a
+  cancellable worker context so shutdown does not start new compression jobs and
+  cancels in-flight Layer 2 background work promptly
 
 ## Verification Snapshot
 
@@ -203,3 +208,7 @@ Fresh-eyes review artifact:
 2026-04-17 - Structured safety pass: recursive hook JSON extraction now traverses
              sibling keys deterministically, and Codex install preflights malformed
              hooks.json / config conflicts before any repo-managed files are written.
+2026-04-17 - Context hardening pass: MiniMax now uses request-bound HTTP contexts
+             and cancelable retry backoff, Layer 2 aborts cleanly before caching
+             on canceled work, and proxy shutdown cancels worker-owned summary
+             jobs instead of starting queued compression after shutdown begins.

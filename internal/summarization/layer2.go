@@ -94,15 +94,19 @@ func (l *Layer2) ApplyToMessages(messages []types.Message) ([]types.Message, int
 // RunCompressionJob is the async worker body. Call it from a goroutine.
 // It determines what to compress, calls MiniMax, validates the result, and stores it.
 func (l *Layer2) RunCompressionJob(messages []types.Message) {
-	ctx, cancel := context.WithTimeout(context.Background(), l.jobTimeout())
-	defer cancel()
-	l.RunCompressionJobContext(ctx, messages)
+	l.RunCompressionJobContext(context.Background(), messages)
 }
 
 // RunCompressionJobContext is the async worker body with explicit cancellation.
 // Call it when a caller context should bound summarization work.
 func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.Message) {
+	ctx, cancel := l.withJobTimeout(ctx)
+	defer cancel()
+
 	if !l.hasConfiguredProvider() {
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	minMsgs := l.cfg.MinMessagesForCompression
@@ -155,6 +159,9 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 
 	inputText := existingSummaryPrefix + l.FormatMessagesForSummarization(toSummarize)
 	inputText = preprocessInput(inputText)
+	if ctx.Err() != nil {
+		return
+	}
 	origTokens := estimateTokens(inputText)
 
 	// Cap input to prevent quality degradation on very long conversations.
@@ -176,6 +183,9 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 
 	summary, providerName, err := l.chain.Summarize(ctx, inputText, startIdx, boundaryIdx, targetTokens)
 	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		slog.Error("layer2 summarization failed (all providers)",
 			slog.String("error", err.Error()),
 			slog.Int("msg_count", len(toSummarize)),
@@ -186,6 +196,9 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 
 	result := l.validator.Validate(toSummarize, summary, origTokens)
 	if !result.Valid {
+		if ctx.Err() != nil {
+			return
+		}
 		// Validation-driven retry: retry once with a targeted hint about what failed.
 		slog.Warn("layer2 summary failed validation, retrying with emphasis",
 			slog.String("reason", result.FailReason),
@@ -200,6 +213,9 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 
 		retrySummary, retryProvider, retryErr := l.chain.Summarize(ctx, retryInput, startIdx, boundaryIdx, retryTarget)
 		if retryErr == nil {
+			if ctx.Err() != nil {
+				return
+			}
 			retryResult := l.validator.Validate(toSummarize, retrySummary, origTokens)
 			if retryResult.Valid {
 				summary = retrySummary
@@ -216,6 +232,9 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 			slog.Warn("layer2 retry request failed", "error", retryErr.Error())
 			return
 		}
+	}
+	if ctx.Err() != nil {
+		return
 	}
 
 	compressedTokens := estimateTokens(summary)
@@ -242,6 +261,13 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 		slog.Int("compressed_tokens", compressedTokens),
 		slog.Float64("ratio", ratio),
 	)
+}
+
+func (l *Layer2) withJobTimeout(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	return context.WithTimeout(parent, l.jobTimeout())
 }
 
 // ShouldTriggerCompression reports whether conditions are right to start a new

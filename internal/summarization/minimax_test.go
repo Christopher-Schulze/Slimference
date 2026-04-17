@@ -129,7 +129,7 @@ func TestMiniMaxClient_doRequest_429retryable(t *testing.T) {
 		Model:    cfg.MiniMax.Model,
 		Messages: []mmMessage{{Role: "user", Content: "hi"}},
 	}
-	_, err := c.doRequest(payload)
+	_, err := c.doRequest(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error on 429")
 	}
@@ -156,7 +156,7 @@ func TestMiniMaxClient_doRequest_nonOKNonRetryable(t *testing.T) {
 		Model:    cfg.MiniMax.Model,
 		Messages: []mmMessage{{Role: "user", Content: "hi"}},
 	}
-	_, err := c.doRequest(payload)
+	_, err := c.doRequest(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error on 401")
 	}
@@ -185,7 +185,7 @@ func TestMiniMaxClient_doRequest_malformedJSON(t *testing.T) {
 		Model:    cfg.MiniMax.Model,
 		Messages: []mmMessage{{Role: "user", Content: "hi"}},
 	}
-	_, err := c.doRequest(payload)
+	_, err := c.doRequest(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error on malformed JSON")
 	}
@@ -211,7 +211,7 @@ func TestMiniMaxClient_doRequest_emptyChoices(t *testing.T) {
 		Model:    cfg.MiniMax.Model,
 		Messages: []mmMessage{{Role: "user", Content: "hi"}},
 	}
-	_, err := c.doRequest(payload)
+	_, err := c.doRequest(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error on empty choices")
 	}
@@ -237,7 +237,7 @@ func TestMiniMaxClient_doRequest_emptyContent(t *testing.T) {
 		Model:    cfg.MiniMax.Model,
 		Messages: []mmMessage{{Role: "user", Content: "hi"}},
 	}
-	_, err := c.doRequest(payload)
+	_, err := c.doRequest(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error on empty content in choices")
 	}
@@ -260,7 +260,7 @@ func TestMiniMaxClient_doRequest_networkError(t *testing.T) {
 		Model:    cfg.MiniMax.Model,
 		Messages: []mmMessage{{Role: "user", Content: "hi"}},
 	}
-	_, err := c.doRequest(payload)
+	_, err := c.doRequest(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error on network failure")
 	}
@@ -371,7 +371,7 @@ func TestMiniMaxClient_doRequest_readBodyError(t *testing.T) {
 		Model:    cfg.MiniMax.Model,
 		Messages: []mmMessage{{Role: "user", Content: "hi"}},
 	}
-	_, err := c.doRequest(payload)
+	_, err := c.doRequest(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error on truncated response body")
 	}
@@ -392,7 +392,7 @@ func TestMiniMaxClient_doRequest_invalidURL(t *testing.T) {
 		Model:    cfg.MiniMax.Model,
 		Messages: []mmMessage{{Role: "user", Content: "hi"}},
 	}
-	_, err := c.doRequest(payload)
+	_, err := c.doRequest(context.Background(), payload)
 	if err == nil {
 		t.Fatal("expected error on invalid URL")
 	}

@@ -90,7 +90,7 @@ func DetermineCompressionTiers(totalMessages, windowSize int) []CompressionTier 
 // message array. Tier entries with TargetRatio == 1.0 are kept verbatim.
 // Compression failures for a tier are logged and that tier is kept verbatim.
 func (l *Layer2) ApplyProgressiveTiers(messages []types.Message, tiers []CompressionTier) []types.Message {
-	ctx, cancel := context.WithTimeout(context.Background(), l.jobTimeout())
+	ctx, cancel := l.withJobTimeout(context.Background())
 	defer cancel()
 	return l.applyProgressiveTiersWithContext(ctx, messages, tiers)
 }
@@ -106,6 +106,9 @@ func (l *Layer2) applyProgressiveTiersWithContext(ctx context.Context, messages 
 	for _, tier := range tiers {
 		start := tier.MsgRange[0]
 		end := tier.MsgRange[1]
+		if ctx.Err() != nil {
+			return appendVerbatimTail(result, messages, start, nextIndex)
+		}
 
 		if start >= len(messages) {
 			break
@@ -154,6 +157,9 @@ func (l *Layer2) applyProgressiveTiersWithContext(ctx context.Context, messages 
 
 		summary, _, err := l.chain.Summarize(ctx, inputText, start, end, targetTokens)
 		if err != nil {
+			if ctx.Err() != nil {
+				return appendVerbatimTail(result, messages, start, nextIndex)
+			}
 			slog.Warn("progressive tier compression failed, keeping verbatim",
 				slog.String("tier", tier.Name),
 				slog.String("error", err.Error()),
@@ -167,6 +173,9 @@ func (l *Layer2) applyProgressiveTiersWithContext(ctx context.Context, messages 
 		}
 
 		validation := l.validator.Validate(toSummarize, summary, origTokens)
+		if ctx.Err() != nil {
+			return appendVerbatimTail(result, messages, start, nextIndex)
+		}
 		if !validation.Valid {
 			slog.Warn("progressive tier summary invalid, keeping verbatim",
 				slog.String("tier", tier.Name),
@@ -221,6 +230,21 @@ func (l *Layer2) applyProgressiveTiersWithContext(ctx context.Context, messages 
 		)
 	}
 
+	return result
+}
+
+func appendVerbatimTail(result []types.Message, messages []types.Message, start, nextIndex int) []types.Message {
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(messages) {
+		return result
+	}
+	for _, msg := range messages[start:] {
+		msg.Index = nextIndex
+		nextIndex++
+		result = append(result, msg)
+	}
 	return result
 }
 

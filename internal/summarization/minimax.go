@@ -18,7 +18,16 @@ import (
 	"github.com/slimference/slimference/internal/config"
 )
 
-var sleepFn = time.Sleep
+var backoffWaitFn = func(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 // systemPrompt is the mandatory instruction set for MiniMax summarization.
 // It enforces a strict, deterministic output format with zero creative freedom.
@@ -203,12 +212,15 @@ func (c *MiniMaxClient) Summarize(ctx context.Context, inputText string, startMs
 
 	var lastErr error
 	for attempt := range maxAttempts {
-		raw, err := c.doRequest(payload)
+		raw, err := c.doRequest(ctx, payload)
 		if err == nil {
 			return cleanSummaryOutput(raw), nil
 		}
 
 		lastErr = err
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 
 		// Only retry on transient errors.
 		if !isRetryable(err) {
@@ -216,7 +228,9 @@ func (c *MiniMaxClient) Summarize(ctx context.Context, inputText string, startMs
 		}
 
 		if attempt < maxAttempts-1 {
-			sleepFn(backoff(attempt))
+			if err := backoffWaitFn(ctx, backoff(attempt)); err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -363,10 +377,16 @@ func toWordSet(s string) map[string]bool {
 }
 
 // doRequest executes a single HTTP call and returns the summary text or a typed error.
-func (c *MiniMaxClient) doRequest(payload mmRequest) (string, error) {
+func (c *MiniMaxClient) doRequest(ctx context.Context, payload mmRequest) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	body, _ := json.Marshal(payload)
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("build request: %w", err)
 	}
@@ -375,13 +395,22 @@ func (c *MiniMaxClient) doRequest(payload mmRequest) (string, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", &retryableError{cause: err}
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", fmt.Errorf("read response body: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {

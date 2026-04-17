@@ -160,12 +160,13 @@ LLM Agent (response displayed)
 | analyticsPeriodicFlush | proxy.Proxy | Writes JSONL analytics to disk every 30 min |
 
 All goroutines respect context cancellation. `Proxy.Shutdown` sends a shutdown
-signal and waits for all goroutines to exit with a sync.WaitGroup.
+signal, cancels the proxy-owned compression worker context, and waits for all
+goroutines to exit with a sync.WaitGroup.
 
 ### Key data flow invariants
 
 - The original request body is stashed in request context before compression.
-  On a 413 (context overflow) response from upstream, the original body is
+  On a 400 context-overflow response from upstream, the original body is
   replayed with aggressive compression (retry-on-overflow).
 - Provider toggle state and layer enable/disable state are stored in
   `[2]atomic.Bool` and `[3]atomic.Bool` respectively. No mutex is needed
@@ -467,6 +468,9 @@ The client sends summarization requests to the MiniMax M2.7 endpoint using
 the OpenAI-compatible chat completions format. Rate-limited to 10 RPM by
 default (`rate_limit_rpm`). Connect timeout: 5s. Response timeout: 30s.
 Up to 3 retries on transient failures.
+Requests are sent with the caller context via `http.NewRequestWithContext`, and
+retry backoff is cancelable. A canceled request stops before further MiniMax
+retries or fallback-provider work is attempted.
 
 The API key is read from the environment variable named by `api_key_env`
 (default: `MINIMAX_API_KEY`). If the key is not set, Layer 2 stops scheduling
@@ -480,6 +484,9 @@ jobs. A summary has a configurable refresh interval (default: 30 min,
 `summary_refresh_interval_seconds`).
 
 The cache is thread-safe. The proxy hot path reads from it without locking.
+Canceled Layer 2 jobs do not write new summaries into the cache, so shutdowns
+and request aborts cannot leave behind summaries produced after their parent
+context has already died.
 
 ### 4.5 Quality Validation
 
@@ -604,11 +611,15 @@ expensive background operations.
 ### compressionWorker
 
 Reads `types.CompressJob` from `compressQueue`. Each job contains the message
-array from the most recently completed request. The worker calls `layer2.RunCompressionJob`,
-which calls MiniMax, validates the summary, and stores it in `SummaryCache`.
+array from the most recently completed request. The worker calls
+`layer2.RunCompressionJobContext` under a proxy-owned worker context, which
+calls MiniMax, validates the summary, and stores it in `SummaryCache`.
 
 If the queue is full when a new job is submitted, the job is dropped (non-blocking
 send). This prevents the hot path from ever blocking on slow MiniMax responses.
+Once shutdown begins, queued compression jobs are skipped instead of being
+started late against a dying process, and any in-flight background Layer 2 work
+is canceled through the worker context.
 
 ### analyticsWorker
 

@@ -39,9 +39,15 @@ func (fc *FallbackChain) Summarize(ctx context.Context, inputText string, startM
 	if len(fc.providers) == 0 {
 		return "", "", fmt.Errorf("no summarization providers configured")
 	}
+	if ctx != nil && ctx.Err() != nil {
+		return "", "", ctx.Err()
+	}
 
 	var lastErr error
 	for _, p := range fc.providers {
+		if ctx != nil && ctx.Err() != nil {
+			return "", "", ctx.Err()
+		}
 		if p == nil {
 			continue
 		}
@@ -52,6 +58,9 @@ func (fc *FallbackChain) Summarize(ctx context.Context, inputText string, startM
 
 		summary, err := p.Summarize(ctx, inputText, startMsg, endMsg, targetTokens)
 		if err != nil {
+			if ctx != nil && ctx.Err() != nil {
+				return "", "", ctx.Err()
+			}
 			slog.Warn("summarizer failed, trying next fallback",
 				"provider", p.Name(),
 				"error", err.Error(),

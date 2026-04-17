@@ -508,6 +508,9 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 			}:
 			default:
 			}
+			if err := r.Context().Err(); err != nil {
+				return nil, err
+			}
 			if stash, ok := r.Context().Value(pipelineStashKey{}).(pipelineStash); ok {
 				if aggBody, err := p.buildAggressiveCompressedBodyContext(r.Context(), stash); err == nil && len(aggBody) > 0 {
 					slog.Warn("context overflow: retrying with aggressive compression (sliding_window=2, summary target 10%)")
@@ -520,7 +523,12 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 							resp2.Body.Close()
 						}
 					}
+				} else if ctxErr := r.Context().Err(); ctxErr != nil {
+					return nil, ctxErr
 				}
+			}
+			if err := r.Context().Err(); err != nil {
+				return nil, err
 			}
 			slog.Warn("context overflow detected, retrying with original body")
 			origBody := p.getOriginalBody(r)
@@ -584,7 +592,7 @@ func isContextOverflow(body []byte) bool {
 
 // buildAggressiveCompressedBody re-runs Layer 1-2 with a minimal sliding window and stronger summarization.
 func (p *Proxy) buildAggressiveCompressedBody(stash pipelineStash) ([]byte, error) {
-	return p.buildAggressiveCompressedBodyContext(context.Background(), stash)
+	return p.buildAggressiveCompressedBodyContext(p.compressionContext(), stash)
 }
 
 // buildAggressiveCompressedBodyContext re-runs Layer 1-2 with a minimal sliding window and stronger summarization.
@@ -604,6 +612,13 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 		msgs2 = msgs
 	}
 	return reconstructBodyFn(stash.provider, stash.origBody, msgs2)
+}
+
+func (p *Proxy) compressionContext() context.Context {
+	if p.workerCtx != nil {
+		return p.workerCtx
+	}
+	return context.Background()
 }
 
 // proxyError writes an error response to the client.
@@ -694,10 +709,15 @@ func (p *Proxy) compressionWorker() {
 	defer p.wg.Done()
 	for {
 		select {
-		case job := <-p.compressQueue:
-			p.runCompressionJob(job)
 		case <-p.shutdownCh:
 			return
+		default:
+		}
+		select {
+		case <-p.shutdownCh:
+			return
+		case job := <-p.compressQueue:
+			p.runCompressionJob(job)
 		}
 	}
 }
@@ -708,7 +728,7 @@ func (p *Proxy) runCompressionJob(job types.CompressJob) {
 	defer p.layer2.GetCache().Compressing.Store(false)
 
 	slog.Debug("compression job started", "messages", len(job.Messages))
-	p.layer2.RunCompressionJob(job.Messages)
+	p.layer2.RunCompressionJobContext(p.compressionContext(), job.Messages)
 
 	select {
 	case p.analyticsQueue <- types.AnalyticsEvent{
@@ -832,6 +852,9 @@ func (p *Proxy) analyticsPeriodicFlush(interval time.Duration) {
 func (p *Proxy) Shutdown(ctx context.Context) error {
 	p.shutdownOnce.Do(func() {
 		slog.Info("proxy shutdown initiated")
+		if p.workerCancel != nil {
+			p.workerCancel()
+		}
 
 		if err := p.server.Shutdown(ctx); err != nil {
 			slog.Warn("server shutdown error", "error", err)

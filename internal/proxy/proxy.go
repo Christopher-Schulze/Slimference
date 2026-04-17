@@ -61,6 +61,8 @@ type Proxy struct {
 	// Async pipelines.
 	compressQueue  chan types.CompressJob
 	analyticsQueue chan types.AnalyticsEvent
+	workerCtx      context.Context
+	workerCancel   context.CancelFunc
 	shutdownCh     chan struct{}
 	shutdownOnce   sync.Once
 	wg             sync.WaitGroup
@@ -111,11 +113,14 @@ func (p *Proxy) recoverMiddleware(next http.Handler) http.Handler {
 
 // New creates and initializes a fully configured Proxy. It does not start listening.
 func New(cfg *config.Config) *Proxy {
+	workerCtx, workerCancel := context.WithCancel(context.Background())
 	p := &Proxy{
 		config:         cfg,
 		httpClients:    make(map[types.Provider]*http.Client),
 		compressQueue:  make(chan types.CompressJob, 4),
 		analyticsQueue: make(chan types.AnalyticsEvent, 256),
+		workerCtx:      workerCtx,
+		workerCancel:   workerCancel,
 		shutdownCh:     make(chan struct{}),
 	}
 

@@ -79,6 +79,15 @@
   `tool_response` extraction no longer depends on Go map iteration order.
 - Hardened Codex install preflight again: malformed existing `~/.codex/hooks.json`
   now aborts install before any Slimference scripts or config are written.
+- Hardened MiniMax request lifecycle: summarization HTTP calls now use the
+  caller context directly, retry backoff is cancelable, and canceled requests
+  stop before any further retry/fallback work is attempted.
+- Hardened Layer 2 cancellation semantics: canceled jobs no longer write fresh
+  summaries into `SummaryCache`, and fallback-provider traversal stops as soon
+  as the parent context is canceled.
+- Hardened proxy shutdown further: background compression now runs under a
+  proxy-owned worker context, in-flight summarization is canceled on shutdown,
+  and queued compression jobs are skipped once shutdown begins.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.
