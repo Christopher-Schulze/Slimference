@@ -130,6 +130,12 @@ Repository proof as of this task:
   sessions no longer skew each other's latency display
 - corrected `AnalyticsSnapshot.CompressionRatio` to the saved-token fraction
   and made `SessionLogger.Format()` key ordering deterministic
+- fixed OpenAI request reconstruction so structured `content` arrays survive
+  roundtrip as arrays instead of being rewritten into stringified JSON
+- raised the SSE relay per-line cap to 8 MiB to better tolerate large
+  tool-output frames without local scanner overflow
+- tightened TUI debug-log exports to user-only permissions (`0700` export dir,
+  `0600` files)
 - tightened hook status detection: Claude now checks settings wiring when
   present, Codex prefers a coherent hooks.json+scripts+config install and only
   falls back to the legacy AGENTS marker when modern hooks are absent
@@ -191,3 +197,6 @@ Fresh-eyes review artifact:
              and made decision-log readers reject pseudo-summaries and partial scan results.
 2026-04-17 - Structured operability pass: `test intercept` now fails fast on bind errors and
              debug decision logs no longer corrupt JSONL on marshal/write failures.
+2026-04-17 - Structured deep-screen pass: OpenAI structured content now roundtrips without
+             stringification, SSE relay tolerates 8 MiB frames, and exported debug logs use
+             user-only permissions.

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
@@ -377,21 +378,28 @@ func messagesToOpenAIJSON(messages []types.Message) (json.RawMessage, error) {
 			// Use raw block if available.
 			if len(msg.Content) > 0 {
 				if rawMsg, ok := msg.Content[0].RawBlock.(OpenAIMessage); ok {
-					// Reconstruct from original, applying text changes.
+					// Reconstruct from original, applying text changes only when the
+					// original content shape was a plain JSON string. Array/object
+					// content is preserved verbatim so multimodal inputs do not degrade
+					// into stringified JSON.
 					var textContent string
 					for _, b := range msg.Content {
 						if b.Text != "" {
 							textContent = b.Text
 						}
 					}
-					rawMsg.Content, _ = json.Marshal(textContent)
 					rawMsg.Role = msg.Role
-					data, _ := json.Marshal(rawMsg)
-					var m map[string]json.RawMessage
-					_ = json.Unmarshal(data, &m)
-					wireData, _ := json.Marshal(m)
-					wireMsgs = append(wireMsgs, wireMsg{})
-					_ = json.Unmarshal(wireData, &wireMsgs[len(wireMsgs)-1])
+					trimmed := bytes.TrimSpace(rawMsg.Content)
+					if len(trimmed) == 0 || trimmed[0] == '"' {
+						rawMsg.Content = json.RawMessage(strconv.AppendQuote(nil, textContent))
+					}
+					wireMsgs = append(wireMsgs, wireMsg{
+						Role:       rawMsg.Role,
+						Content:    rawMsg.Content,
+						ToolCalls:  rawMsg.ToolCalls,
+						ToolCallID: rawMsg.ToolCallID,
+						Name:       rawMsg.Name,
+					})
 					continue
 				}
 				var parts []string

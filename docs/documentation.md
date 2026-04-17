@@ -650,6 +650,9 @@ also safe. Subsequent callers return immediately.
 - Endpoint: `/v1/chat/completions`
 - Auth: `Authorization: Bearer <token>` header passed through verbatim
 - Message format: `{"role": "user"|"assistant"|"system", "content": "..."}`
+- Structured OpenAI `content` arrays (for multimodal / rich input parts) are
+  preserved verbatim on request reconstruction so Slimference does not degrade
+  them into stringified JSON during a compression round-trip
 - Content types handled: `text`, `tool_calls`, `tool` (tool results)
 - SSE event format: `data: {"choices": [{"delta": {"content": "..."}}]}`
 - Token counting: extracted from `usage.completion_tokens` in the final chunk
@@ -678,6 +681,10 @@ For non-streaming passthrough responses, Slimference buffers up to 10 MiB from
 upstream. If the body exceeds that bound or cannot be read cleanly, Slimference
 returns a local 502 instead of replaying a truncated partial body, and it does
 not leak copied upstream success headers onto that local error.
+
+For streaming SSE responses, Slimference relays frames incrementally and allows
+individual SSE lines up to 8 MiB before failing the local relay path with a
+bounded scanner overflow warning.
 
 ---
 
@@ -884,10 +891,13 @@ using purple Key style and dim-gray separator dots. Separated by a `─` rule ab
 | `s` | Switch to stats view (toggle back to main) |
 | `d` | Switch to debug log view (toggle back to main) |
 | `f` | Flush all caches (response cache + Layer 2 summary cache) |
+| `y` | Copy recent debug log entries to `~/.slimference/exports/` |
 | `q` / `Ctrl+C` | Graceful shutdown |
 
 Toggles are applied immediately via atomic.Bool writes on the Proxy struct.
 A flash message confirms the new state for 2 seconds.
+Exported debug logs are written with user-only permissions (`0700` directory,
+`0600` files).
 
 ### Lipgloss color palette and styles
 

@@ -493,6 +493,39 @@ func TestReconstructBody_openai(t *testing.T) {
 	}
 }
 
+func TestReconstructBody_openaiArrayContentPreserved(t *testing.T) {
+	t.Parallel()
+	originalBody := []byte(`{
+		"model": "gpt-4.1",
+		"messages": [{
+			"role":"user",
+			"content":[
+				{"type":"text","text":"describe this"},
+				{"type":"input_image","image_url":{"url":"https://example.com/x.png"}}
+			]
+		}]
+	}`)
+	msgs, _, err := extractMessages(types.OpenAI, originalBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || len(msgs[0].Content) != 1 {
+		t.Fatalf("unexpected extracted messages: %#v", msgs)
+	}
+	msgs[0].Content[0].Text = "compressed-but-ignored-for-safety"
+	out, err := reconstructBody(types.OpenAI, originalBody, msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if strings.Contains(s, "compressed-but-ignored-for-safety") {
+		t.Fatalf("array content must not be replaced with a stringified rewrite: %s", s)
+	}
+	if !strings.Contains(s, `"input_image"`) || !strings.Contains(s, `"content":[`) {
+		t.Fatalf("array content must remain structured: %s", s)
+	}
+}
+
 func TestReconstructBody_invalidOriginalJSON(t *testing.T) {
 	t.Parallel()
 	_, err := reconstructBody(types.OpenAI, []byte(`{`), nil)
@@ -570,6 +603,56 @@ func TestMessagesToOpenAIJSON_rawOpenAIMessageBranch(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "updated-text") {
 		t.Fatalf("%s", raw)
+	}
+}
+
+func TestMessagesToOpenAIJSON_rawOpenAIMessageArrayContentPreserved(t *testing.T) {
+	t.Parallel()
+	orig := OpenAIMessage{
+		Role:    "user",
+		Content: json.RawMessage(`[{"type":"text","text":"hello"},{"type":"input_image","image_url":{"url":"https://example.com/x.png"}}]`),
+	}
+	msgs := []types.Message{
+		{
+			Role: "user",
+			Content: []types.ContentBlock{
+				{Type: "text", Text: "compressed-but-ignored-for-safety", RawBlock: orig},
+			},
+		},
+	}
+	raw, err := messagesToOpenAIJSON(msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if strings.Contains(s, "compressed-but-ignored-for-safety") {
+		t.Fatalf("array content must not be stringified or overwritten: %s", s)
+	}
+	if !strings.Contains(s, `"input_image"`) || !strings.Contains(s, `https://example.com/x.png`) {
+		t.Fatalf("array content must be preserved verbatim: %s", s)
+	}
+}
+
+func TestMessagesToOpenAIJSON_rawOpenAIMessageEmptyContentBecomesJSONString(t *testing.T) {
+	t.Parallel()
+	orig := OpenAIMessage{
+		Role:    "assistant",
+		Content: nil,
+	}
+	msgs := []types.Message{
+		{
+			Role: "assistant",
+			Content: []types.ContentBlock{
+				{Type: "text", Text: "filled-from-empty", RawBlock: orig},
+			},
+		},
+	}
+	raw, err := messagesToOpenAIJSON(msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"filled-from-empty"`) {
+		t.Fatalf("empty raw content should be materialized as JSON string: %s", raw)
 	}
 }
 

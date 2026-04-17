@@ -17,6 +17,7 @@ import (
 
 var userHomeDirFn = os.UserHomeDir
 var writeFileFn = os.WriteFile
+var chmodFn = os.Chmod
 var shutdownTimeout = 5 * time.Second
 
 // Version is the display version string.
@@ -405,7 +406,10 @@ func (m *Model) copyDebugLog() string {
 		return ""
 	}
 	dir := filepath.Join(home, ".slimference", "exports")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return ""
+	}
+	if err := chmodFn(dir, 0700); err != nil {
 		return ""
 	}
 
@@ -417,7 +421,10 @@ func (m *Model) copyDebugLog() string {
 		buf = append(buf, logger.Format(e)...)
 		buf = append(buf, '\n')
 	}
-	if err := writeFileFn(path, buf, 0644); err != nil {
+	if err := writeFileFn(path, buf, 0600); err != nil {
+		return ""
+	}
+	if err := chmodFn(path, 0600); err != nil {
 		return ""
 	}
 	return path

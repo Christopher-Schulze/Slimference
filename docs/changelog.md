@@ -69,6 +69,12 @@
   immediately instead of waiting out the full timeout on a dead server.
 - Hardened debug decision-log flushing so marshal/write failures log warnings
   and do not emit corrupt placeholder lines into `decisions.jsonl`.
+- Fixed OpenAI request reconstruction so structured `content` arrays remain
+  structured on roundtrip and are no longer degraded into stringified JSON.
+- Raised the SSE relay line cap from 1 MiB to 8 MiB so large tool-output
+  events are less likely to trip local scanner overflow.
+- Tightened TUI debug-log exports to user-only permissions (`0700` export
+  directory, `0600` exported files).
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.

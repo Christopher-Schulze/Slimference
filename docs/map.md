@@ -108,8 +108,8 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 
 - `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), toggle atomics, listener readiness state, 32 MiB request-body hard fail
 - `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, dependency-safe Layer 3 admission, analytics shutdown drain
-- `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction
-- `internal/proxy/streaming.go`: SSE relay, token counting from stream events, bounded non-streaming passthrough with safe local-502 behavior
+- `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction, safe OpenAI structured-content roundtrip without stringifying multimodal arrays
+- `internal/proxy/streaming.go`: SSE relay, token counting from stream events, 8 MiB per-line SSE cap, bounded non-streaming passthrough with safe local-502 behavior
 
 ### Analytics and Debug
 
@@ -118,6 +118,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 - `internal/analytics/gain.go`: slimference gain - filter savings by period/command
 - `internal/debug/session.go`: SessionFileStats() for JSONL preview, ReplaySession() with non-summary skip
 - `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary, guarded JSONL flush on marshal/write failure
+- `internal/tui/model.go`: BubbleTea model, bounded shutdown, private debug-log export (`~/.slimference/exports`, 0700/0600)
 - `internal/buildinfo/version.go`: single source of truth for CLI/TUI/health version strings
 
 ### TUI (BubbleTea + Lipgloss)

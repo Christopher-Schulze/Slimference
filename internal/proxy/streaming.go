@@ -15,6 +15,7 @@ import (
 var errUpstreamResponseBodyTooLarge = errors.New("upstream response body too large")
 
 const maxUpstreamResponseBodySize = 10 * 1024 * 1024
+const maxSSELineSize = 8 * 1024 * 1024
 
 // ctxReader wraps an io.Reader so that Read respects context cancellation.
 // When ctx is cancelled, Read returns ctx.Err() without waiting for the underlying reader.
@@ -66,8 +67,8 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 	// Wrap the body in a ctxReader so scanner.Scan() unblocks on context cancellation.
 	cr := &ctxReader{ctx: ctx, r: upstreamResp.Body}
 	scanner := bufio.NewScanner(cr)
-	// Allow lines up to 1MB (large tool results can appear in SSE streams).
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	// Allow large SSE events for big tool outputs while still keeping a hard cap.
+	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -93,7 +94,7 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			slog.Debug("stream relay stopped: client context done", "reason", err)
 		} else if errors.Is(err, bufio.ErrTooLong) {
-			slog.Warn("stream scanner: SSE line exceeded 1MB buffer limit, relay truncated")
+			slog.Warn("stream scanner: SSE line exceeded buffer limit, relay truncated", "limit_bytes", maxSSELineSize)
 		} else {
 			slog.Debug("stream scanner error", "error", err)
 		}

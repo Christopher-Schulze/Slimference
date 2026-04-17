@@ -418,13 +418,13 @@ func TestStreamingRelay_contextCancelled(t *testing.T) {
 	<-writerDone
 }
 
-// TestStreamingRelay_scannerOverflow verifies that a line exceeding the 1MB buffer
+// TestStreamingRelay_scannerOverflow verifies that a line exceeding the configured buffer
 // limit causes the relay to log a warning (via bufio.ErrTooLong) and exit cleanly.
 func TestStreamingRelay_scannerOverflow(t *testing.T) {
 	t.Parallel()
 
-	// Build a line that exceeds the 1MB scanner limit.
-	oversize := strings.Repeat("x", 1024*1024+1)
+	// Build a line that exceeds the configured scanner limit.
+	oversize := strings.Repeat("x", maxSSELineSize+1)
 	body := io.NopCloser(strings.NewReader("data: " + oversize + "\n"))
 
 	rec := httptest.NewRecorder()
