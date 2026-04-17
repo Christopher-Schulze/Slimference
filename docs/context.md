@@ -40,6 +40,10 @@ Core outcome:
   drift is being closed against the live codebase
 - offline savings reporting now includes session, decision, filter, and
   combined reports with text, JSON, and CSV output
+- file-dependent Layer 3 entries are now admitted only when invalidation is
+  really armed; otherwise Slimference prefers a safe miss over a stale hit
+- analytics shutdown now drains queued events before exit, and FileWatcher
+  close is idempotent
 
 Repository proof as of this task:
 
@@ -60,6 +64,11 @@ Repository proof as of this task:
   hashing
 - replaced response-substring invalidation with dependency-path extraction from
   the request body and path-aware invalidation
+- tightened Layer 3 admission so file-dependent responses are cached only when
+  dependency watches are actually armed; unavailable or saturated watchers now
+  force a safe cache skip instead of stale-hit risk
+- added end-to-end regression coverage for watcher-unavailable, watch-failed,
+  watch-not-armed, and live file-change invalidation paths
 
 ### T12 - Hook contract hardening
 
@@ -105,6 +114,8 @@ Repository proof as of this task:
   formats and added unit coverage for the report helpers
 - began a documentation drift cleanup across `documentation.md`, `map.md`,
   `changelog.md`, `scripts/README.md`, and legacy todo artifacts
+- hardened analytics shutdown draining and made `FileWatcher.Close()` safe to
+  call twice during cleanup-heavy paths
 
 ## Verification Snapshot
 

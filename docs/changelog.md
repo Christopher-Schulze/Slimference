@@ -31,6 +31,12 @@
   request plus normalized cache-relevant headers, skipping explicitly
   stochastic requests, and recording cache hits as normal processed requests in
   analytics/debug output.
+- Tightened file-dependent Layer 3 admission again: responses that reference
+  dependency paths are now cached only when the file watcher is available and
+  the dependency watch is actually armed. Missing watcher capacity or watch
+  errors now force a safe cache miss instead of a stale-hit risk.
+- Hardened shutdown reliability further: `analyticsWorker` now drains queued
+  events before exit, and `internal/caching.FileWatcher.Close()` is idempotent.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.

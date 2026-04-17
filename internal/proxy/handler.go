@@ -276,19 +276,46 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 10. Cache successful response (Layer 3) ---
 	if requestCacheSafe && responseBody != nil && upstreamResp.StatusCode == http.StatusOK {
-		entry := &caching.CacheEntry{
-			Response:        responseBody,
-			Headers:         make(map[string][]string),
-			StatusCode:      upstreamResp.StatusCode,
-			CreatedAt:       time.Now(),
-			TokensSaved:     origTokens - compressedTokens,
-			DependencyPaths: caching.ExtractDependencyPaths(body),
+		dependencyPaths := caching.ExtractDependencyPaths(body)
+		canCacheResponse := true
+		if len(dependencyPaths) > 0 {
+			if p.fileWatcher == nil {
+				canCacheResponse = false
+				log.Warn("skipping layer3 cache store because dependency invalidation is unavailable",
+					"dependency_paths", len(dependencyPaths))
+			} else {
+				for _, path := range dependencyPaths {
+					if err := p.fileWatcher.Watch(path); err != nil {
+						canCacheResponse = false
+						log.Warn("skipping layer3 cache store because dependency watch failed",
+							"path", path,
+							"error", err)
+						break
+					}
+					if !p.fileWatcher.IsWatching(path) {
+						canCacheResponse = false
+						log.Warn("skipping layer3 cache store because dependency watch was not armed",
+							"path", path)
+						break
+					}
+				}
+			}
 		}
-		// Copy headers for cache.
-		for k, vv := range upstreamResp.Header {
-			entry.Headers[k] = vv
+		if canCacheResponse {
+			entry := &caching.CacheEntry{
+				Response:        responseBody,
+				Headers:         make(map[string][]string),
+				StatusCode:      upstreamResp.StatusCode,
+				CreatedAt:       time.Now(),
+				TokensSaved:     origTokens - compressedTokens,
+				DependencyPaths: dependencyPaths,
+			}
+			// Copy headers for cache.
+			for k, vv := range upstreamResp.Header {
+				entry.Headers[k] = vv
+			}
+			p.responseCache.Set(cacheKey, entry)
 		}
-		p.responseCache.Set(cacheKey, entry)
 	}
 
 	// --- 11. Trigger async Layer 2 compression if needed ---
@@ -698,35 +725,51 @@ func (p *Proxy) analyticsWorker() {
 	for {
 		select {
 		case event := <-p.analyticsQueue:
-			p.analytics.Record(event)
-			if p.sessionLogger != nil {
-				p.sessionLogger.Log(
-					"INFO", "analytics",
-					fmt.Sprintf("event: %v provider=%v saved=%d", event.Type, event.Provider, event.TokensSaved),
-				)
-			}
-			// Fan out to TUI via program.Send if available.
-			if event.Type == types.EventRequestProcessed {
-				p.tuiSendMu.RLock()
-				fn := p.tuiSendFn
-				p.tuiSendMu.RUnlock()
-				if fn != nil {
-					fn(types.RequestMetrics{
-						Timestamp:        event.Timestamp,
-						Provider:         event.Provider,
-						Model:            event.Model,
-						InputTokensOrig:  event.InputTokensOrig,
-						InputTokensComp:  event.InputTokensComp,
-						OutputTokens:     event.OutputTokens,
-						CompressionRatio: event.CompressionRatio,
-						Layers:           event.Layers,
-						LatencyMs:        event.LatencyMs,
-						CacheHit:         event.CacheHit,
-					})
-				}
-			}
+			p.processAnalyticsEvent(event)
 		case <-p.shutdownCh:
+			p.drainAnalyticsQueue()
 			return
+		}
+	}
+}
+
+func (p *Proxy) drainAnalyticsQueue() {
+	for {
+		select {
+		case event := <-p.analyticsQueue:
+			p.processAnalyticsEvent(event)
+		default:
+			return
+		}
+	}
+}
+
+func (p *Proxy) processAnalyticsEvent(event types.AnalyticsEvent) {
+	p.analytics.Record(event)
+	if p.sessionLogger != nil {
+		p.sessionLogger.Log(
+			"INFO", "analytics",
+			fmt.Sprintf("event: %v provider=%v saved=%d", event.Type, event.Provider, event.TokensSaved),
+		)
+	}
+	// Fan out to TUI via program.Send if available.
+	if event.Type == types.EventRequestProcessed {
+		p.tuiSendMu.RLock()
+		fn := p.tuiSendFn
+		p.tuiSendMu.RUnlock()
+		if fn != nil {
+			fn(types.RequestMetrics{
+				Timestamp:        event.Timestamp,
+				Provider:         event.Provider,
+				Model:            event.Model,
+				InputTokensOrig:  event.InputTokensOrig,
+				InputTokensComp:  event.InputTokensComp,
+				OutputTokens:     event.OutputTokens,
+				CompressionRatio: event.CompressionRatio,
+				Layers:           event.Layers,
+				LatencyMs:        event.LatencyMs,
+				CacheHit:         event.CacheHit,
+			})
 		}
 	}
 }

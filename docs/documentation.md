@@ -570,13 +570,17 @@ Thread-safe via sync.RWMutex. Read path (lookup) acquires only a read lock.
 
 `internal/caching/file_watcher.go` uses the `fsnotify` library to watch
 working directories for file changes. Dependency-like file paths are extracted
-from request bodies and stored with each cache entry. When a watched file is
-modified, entries whose tracked dependency paths match are invalidated. This
-prevents serving stale responses after the user edits a referenced file.
+from request bodies and stored with each cache entry. Before a file-dependent
+response is cached, every referenced dependency path must be successfully
+armed in the watcher. When a watched file is modified, entries whose tracked
+dependency paths match are invalidated. This prevents serving stale responses
+after the user edits a referenced file.
 
-The file watcher is optional: if initialization fails (e.g., inotify limit
-reached), a warning is logged and the proxy continues without invalidation.
-TTL-based expiry still applies.
+The file watcher is optional: if initialization fails, if a dependency watch
+cannot be installed, or if the max watched-directory cap would prevent arming
+the dependency path, Slimference skips caching that file-dependent response
+instead of risking a stale Layer 3 hit. TTL-based expiry still applies to
+entries that were safely admitted.
 
 ---
 
@@ -609,7 +613,9 @@ The ring buffer and all counters in `Analytics` are protected by a single mutex
 that is only held inside `Record`. The hot path never takes this mutex; it only
 does a **non-blocking** channel send (`select { case q <- event: default: }`).
 If the queue is full the event is silently dropped - analytics are best-effort
-and must never block HTTP handlers.
+and must never block HTTP handlers. During shutdown, the worker drains already
+queued events before exiting so final request counters and recent-request
+history are not lost.
 
 ### Graceful shutdown
 
@@ -617,7 +623,8 @@ and must never block HTTP handlers.
 (e.g. concurrent signal + TUI quit) is safe and produces no panic. The first
 caller runs the full shutdown sequence: `server.Shutdown(ctx)`, close of `shutdownCh`,
 `wg.Wait()` with timeout, final analytics JSONL flush, `FileWatcher.Close()`.
-Subsequent callers return immediately.
+The watcher close path is itself idempotent, so repeated internal cleanup is
+also safe. Subsequent callers return immediately.
 
 ---
 

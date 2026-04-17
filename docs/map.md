@@ -102,12 +102,12 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 ### Layer 3 - Response Caching
 
 - `internal/caching/response_cache.go`: LRU response cache with canonical forwarded-request SHA256 keys, normalized cache-relevant headers, stochastic-request bypass, and dependency-path invalidation
-- `internal/caching/file_watcher.go`: fsnotify watcher for dependency-path cache invalidation
+- `internal/caching/file_watcher.go`: fsnotify watcher for dependency-path cache invalidation, armed-watch verification, idempotent close
 
 ### Core Proxy (HTTP Handler)
 
 - `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), toggle atomics, listener readiness state
-- `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, buildLayer1Breakdown()
+- `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, dependency-safe Layer 3 admission, analytics shutdown drain
 - `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction
 - `internal/proxy/streaming.go`: SSE relay, token counting from stream events
 

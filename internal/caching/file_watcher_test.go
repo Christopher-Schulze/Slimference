@@ -85,6 +85,39 @@ func TestFileWatcher_watchDirTrailingSlash(t *testing.T) {
 	}
 }
 
+func TestFileWatcher_IsWatching(t *testing.T) {
+	t.Parallel()
+
+	mw := newMockFsWatcher()
+	fw := newFileWatcherWithWatcher(mw, func(string) {})
+	defer fw.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.txt")
+	if err := fw.Watch(path); err != nil {
+		t.Fatalf("Watch error: %v", err)
+	}
+	if !fw.IsWatching(path) {
+		t.Fatal("expected file path to report watched")
+	}
+	if !fw.IsWatching(dir + "/") {
+		t.Fatal("expected directory path with trailing slash to report watched")
+	}
+	if fw.IsWatching(filepath.Join(t.TempDir(), "other.txt")) {
+		t.Fatal("expected unrelated path to report not watched")
+	}
+}
+
+func TestFileWatcher_Close_idempotent(t *testing.T) {
+	t.Parallel()
+
+	mw := newMockFsWatcher()
+	fw := newFileWatcherWithWatcher(mw, func(string) {})
+
+	fw.Close()
+	fw.Close()
+}
+
 func TestFileWatcher_pruneStale(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()

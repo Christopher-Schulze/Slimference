@@ -43,6 +43,7 @@ type FileWatcher struct {
 	mu             sync.RWMutex
 	debounceTimers map[string]*time.Timer
 	done           chan struct{}
+	closeOnce      sync.Once
 	newTicker      func(time.Duration) *time.Ticker
 }
 
@@ -108,6 +109,19 @@ func (fw *FileWatcher) Watch(path string) error {
 	return nil
 }
 
+// IsWatching reports whether path's directory is currently tracked.
+func (fw *FileWatcher) IsWatching(path string) bool {
+	dir := filepath.Dir(path)
+	if len(path) > 0 && path[len(path)-1] == '/' {
+		dir = filepath.Clean(path)
+	}
+
+	fw.mu.RLock()
+	defer fw.mu.RUnlock()
+	_, exists := fw.trackedDirs[dir]
+	return exists
+}
+
 // Unwatch removes path from the watch list (uses the parent directory).
 func (fw *FileWatcher) Unwatch(path string) {
 	dir := filepath.Dir(path)
@@ -131,13 +145,15 @@ func (fw *FileWatcher) Unwatch(path string) {
 
 // Close stops the background goroutine and releases all resources.
 func (fw *FileWatcher) Close() {
-	close(fw.done)
-	_ = fw.watcher.Close()
-	fw.mu.Lock()
-	defer fw.mu.Unlock()
-	for _, t := range fw.debounceTimers {
-		t.Stop()
-	}
+	fw.closeOnce.Do(func() {
+		close(fw.done)
+		_ = fw.watcher.Close()
+		fw.mu.Lock()
+		defer fw.mu.Unlock()
+		for _, t := range fw.debounceTimers {
+			t.Stop()
+		}
+	})
 }
 
 // pruneInterval is how often stale watched directories are cleaned up.

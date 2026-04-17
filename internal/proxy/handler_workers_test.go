@@ -142,3 +142,66 @@ func TestAnalyticsWorker_nonRequestProcessedSkipsTUI(t *testing.T) {
 	close(p.shutdownCh)
 	p.wg.Wait()
 }
+
+func TestAnalyticsWorker_drainsQueuedEventsOnShutdown(t *testing.T) {
+	p := New(config.Defaults())
+	ts := time.Now()
+
+	p.analyticsQueue <- types.AnalyticsEvent{
+		Type:             types.EventRequestProcessed,
+		Timestamp:        ts,
+		Provider:         types.OpenAI,
+		Model:            "gpt-test",
+		InputTokensOrig:  200,
+		InputTokensComp:  100,
+		OutputTokens:     30,
+		CompressionRatio: 0.5,
+		Layers:           []int{1, 3},
+		LatencyMs:        4.5,
+		CacheHit:         true,
+	}
+
+	close(p.shutdownCh)
+	p.wg.Add(1)
+	go p.analyticsWorker()
+	p.wg.Wait()
+
+	snap := p.analytics.Snapshot()
+	if snap.TotalRequests != 1 {
+		t.Fatalf("TotalRequests = %d, want 1", snap.TotalRequests)
+	}
+	if snap.CacheHits != 1 {
+		t.Fatalf("CacheHits = %d, want 1", snap.CacheHits)
+	}
+	if n := len(p.analytics.RecentRequests(10)); n != 1 {
+		t.Fatalf("recent requests = %d, want 1", n)
+	}
+}
+
+func TestDrainAnalyticsQueue_processesQueuedEvents(t *testing.T) {
+	p := New(config.Defaults())
+	ts := time.Now()
+
+	p.analyticsQueue <- types.AnalyticsEvent{
+		Type:             types.EventRequestProcessed,
+		Timestamp:        ts,
+		Provider:         types.Anthropic,
+		Model:            "claude-test",
+		InputTokensOrig:  120,
+		InputTokensComp:  60,
+		OutputTokens:     20,
+		CompressionRatio: 0.5,
+		Layers:           []int{1, 2},
+		LatencyMs:        3.2,
+	}
+
+	p.drainAnalyticsQueue()
+
+	snap := p.analytics.Snapshot()
+	if snap.TotalRequests != 1 {
+		t.Fatalf("TotalRequests = %d, want 1", snap.TotalRequests)
+	}
+	if n := len(p.analytics.RecentRequests(10)); n != 1 {
+		t.Fatalf("recent requests = %d, want 1", n)
+	}
+}
