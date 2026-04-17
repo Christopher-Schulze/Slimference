@@ -124,6 +124,9 @@ func TestSessionLogger_Format_WithFields(t *testing.T) {
 	if !strings.Contains(got, "tokens=500") {
 		t.Errorf("Format should contain tokens=500, got: %s", got)
 	}
+	if strings.Index(got, "provider=anthropic") > strings.Index(got, "tokens=500") {
+		t.Errorf("Format should render fields in deterministic key order, got: %s", got)
+	}
 }
 
 // TestSessionLogger_Subscribe_ReceivesEntries verifies that a subscriber receives logged entries.
@@ -243,15 +246,34 @@ func TestPadLevel_longLevel(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"DEBUG", "DEBUG"},  // len=5=width - return level[:5]
+		{"DEBUG", "DEBUG"}, // len=5=width - return level[:5]
 		{"ERROR", "ERROR"},
 		{"DEBUGX", "DEBUG"}, // len=6>5 - truncated
-		{"WA", "WA   "},    // len=2<5 - padded
+		{"WA", "WA   "},     // len=2<5 - padded
 	}
 	for _, tc := range tests {
 		got := padLevel(tc.input)
 		if got != tc.want {
 			t.Errorf("padLevel(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestSortedFieldKeys(t *testing.T) {
+	t.Parallel()
+
+	got := sortedFieldKeys(map[string]any{
+		"zeta":  1,
+		"alpha": 2,
+		"mid":   3,
+	})
+	want := []string{"alpha", "mid", "zeta"}
+	if len(got) != len(want) {
+		t.Fatalf("len(sortedFieldKeys) = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("sortedFieldKeys[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
 }

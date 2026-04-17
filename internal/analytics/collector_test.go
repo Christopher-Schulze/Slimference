@@ -51,6 +51,32 @@ func TestRunCollector_doneDrainsBuffered(t *testing.T) {
 	}
 }
 
+func TestRunCollector_doneWithClosedInputReturns(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan types.AnalyticsEvent, 1)
+	a := NewAnalytics()
+	done := make(chan struct{})
+	close(ch)
+	close(done)
+
+	finished := make(chan struct{})
+	go func() {
+		RunCollector(ch, a, done)
+		close(finished)
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("RunCollector did not return after done with closed input")
+	}
+
+	if a.TotalRequests != 0 {
+		t.Fatalf("TotalRequests=%d, want 0", a.TotalRequests)
+	}
+}
+
 // TestDrainInput_withEvents covers the drainInput helper directly, exercising both
 // the case-event branch (events present) and the default-return branch (empty).
 func TestDrainInput_withEvents(t *testing.T) {
@@ -73,6 +99,30 @@ func TestDrainInput_empty(t *testing.T) {
 	drainInput(ch, a)
 	if a.TotalRequests != 0 {
 		t.Fatalf("drainInput on empty: TotalRequests=%d, want 0", a.TotalRequests)
+	}
+}
+
+func TestDrainInput_closedChannelReturns(t *testing.T) {
+	t.Parallel()
+
+	ch := make(chan types.AnalyticsEvent)
+	close(ch)
+	a := NewAnalytics()
+
+	finished := make(chan struct{})
+	go func() {
+		drainInput(ch, a)
+		close(finished)
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("drainInput did not return for a closed channel")
+	}
+
+	if a.TotalRequests != 0 {
+		t.Fatalf("TotalRequests=%d, want 0", a.TotalRequests)
 	}
 }
 
@@ -109,6 +159,22 @@ func TestAnalytics_Record_layerSavingsAndOpenAILatency(t *testing.T) {
 	a2.Record(makeRequestEvent(types.OpenAI, "gpt", 200, 180, 20, false, 33, nil))
 	if a2.LatencyOpenAIMs < 32 || a2.LatencyOpenAIMs > 34 {
 		t.Fatalf("OpenAI latency avg: %v", a2.LatencyOpenAIMs)
+	}
+}
+
+func TestAnalytics_Record_providerLatencyAveragesStayPerProvider(t *testing.T) {
+	t.Parallel()
+
+	a := NewAnalytics()
+	a.Record(makeRequestEvent(types.Anthropic, "claude", 100, 80, 10, false, 10, nil))
+	a.Record(makeRequestEvent(types.OpenAI, "gpt", 100, 80, 10, false, 30, nil))
+	a.Record(makeRequestEvent(types.Anthropic, "claude", 100, 80, 10, false, 30, nil))
+
+	if a.LatencyAnthropicMs < 19.9 || a.LatencyAnthropicMs > 20.1 {
+		t.Fatalf("Anthropic latency avg = %v, want ~20", a.LatencyAnthropicMs)
+	}
+	if a.LatencyOpenAIMs < 29.9 || a.LatencyOpenAIMs > 30.1 {
+		t.Fatalf("OpenAI latency avg = %v, want ~30", a.LatencyOpenAIMs)
 	}
 }
 
@@ -253,6 +319,9 @@ func TestAnalytics_Snapshot(t *testing.T) {
 	}
 	if snap.TotalInputTokens != 500 {
 		t.Errorf("snap.TotalInputTokens = %d, want 500", snap.TotalInputTokens)
+	}
+	if snap.CompressionRatio < 0.19 || snap.CompressionRatio > 0.21 {
+		t.Errorf("snap.CompressionRatio = %f, want ~0.2 saved fraction", snap.CompressionRatio)
 	}
 }
 

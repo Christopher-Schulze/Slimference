@@ -44,6 +44,10 @@ Core outcome:
   really armed; otherwise Slimference prefers a safe miss over a stale hit
 - analytics shutdown now drains queued events before exit, and FileWatcher
   close is idempotent
+- analytics collector now handles closed drain channels safely, keeps true
+  per-provider latency averages, and reports the saved-token ratio correctly
+- session log formatting is now deterministic across runs for cleaner exports
+  and diffable operator artifacts
 
 Repository proof as of this task:
 
@@ -116,6 +120,12 @@ Repository proof as of this task:
   `changelog.md`, `scripts/README.md`, and legacy todo artifacts
 - hardened analytics shutdown draining and made `FileWatcher.Close()` safe to
   call twice during cleanup-heavy paths
+- fixed `analytics.drainInput()` so a closed channel cannot loop forever or
+  record zero-value phantom events during shutdown
+- corrected per-provider latency running averages so mixed Anthropic/OpenAI
+  sessions no longer skew each other's latency display
+- corrected `AnalyticsSnapshot.CompressionRatio` to the saved-token fraction
+  and made `SessionLogger.Format()` key ordering deterministic
 
 ## Verification Snapshot
 

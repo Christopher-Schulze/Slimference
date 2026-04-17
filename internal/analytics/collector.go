@@ -22,10 +22,10 @@ type Analytics struct {
 
 	SessionStart time.Time
 
-	TotalRequests      int
-	TotalInputTokens   int // original, before compression
-	TotalOutputTokens  int
-	SavedInputTokens   int // total original - total compressed
+	TotalRequests     int
+	TotalInputTokens  int // original, before compression
+	TotalOutputTokens int
+	SavedInputTokens  int // total original - total compressed
 
 	Layer1Savings int
 	Layer2Savings int
@@ -34,7 +34,7 @@ type Analytics struct {
 	CacheHits   int
 	CacheMisses int
 
-	SecretsRedacted int
+	SecretsRedacted  int
 	CompressionCalls int // MiniMax API calls
 
 	Errors           int
@@ -74,6 +74,8 @@ func (a *Analytics) Record(event types.AnalyticsEvent) {
 		a.TotalRequests++
 		a.TotalInputTokens += event.InputTokensOrig
 		a.TotalOutputTokens += event.OutputTokens
+		ps := a.providerStats(event.Provider)
+		ps.Messages++
 		saved := event.InputTokensOrig - event.InputTokensComp
 		if saved > 0 {
 			a.SavedInputTokens += saved
@@ -97,14 +99,12 @@ func (a *Analytics) Record(event types.AnalyticsEvent) {
 		if event.LatencyMs > 0 {
 			switch event.Provider {
 			case types.Anthropic:
-				a.LatencyAnthropicMs = updateRunningAvg(a.LatencyAnthropicMs, event.LatencyMs, a.TotalRequests)
+				a.LatencyAnthropicMs = updateRunningAvg(a.LatencyAnthropicMs, event.LatencyMs, ps.Messages)
 			case types.OpenAI:
-				a.LatencyOpenAIMs = updateRunningAvg(a.LatencyOpenAIMs, event.LatencyMs, a.TotalRequests)
+				a.LatencyOpenAIMs = updateRunningAvg(a.LatencyOpenAIMs, event.LatencyMs, ps.Messages)
 			}
 		}
 		// Per-provider stats.
-		ps := a.providerStats(event.Provider)
-		ps.Messages++
 		ps.InputTokensOrig += event.InputTokensOrig
 		if saved > 0 {
 			ps.InputTokensSaved += saved
@@ -211,7 +211,7 @@ func (a *Analytics) Snapshot() AnalyticsSnapshot {
 	}
 	compressionRatio := 0.0
 	if a.TotalInputTokens > 0 {
-		compressionRatio = float64(a.TotalInputTokens-a.SavedInputTokens) / float64(a.TotalInputTokens)
+		compressionRatio = float64(a.SavedInputTokens) / float64(a.TotalInputTokens)
 	}
 	return AnalyticsSnapshot{
 		SessionStart:        a.SessionStart,
@@ -251,7 +251,10 @@ func (a *Analytics) RecentRequests(n int) []types.RequestMetrics {
 func drainInput(input <-chan types.AnalyticsEvent, a *Analytics) {
 	for {
 		select {
-		case event := <-input:
+		case event, ok := <-input:
+			if !ok {
+				return
+			}
 			a.Record(event)
 		default:
 			return

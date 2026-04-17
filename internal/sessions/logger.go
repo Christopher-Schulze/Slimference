@@ -3,6 +3,7 @@ package sessions
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -99,13 +100,27 @@ func (l *SessionLogger) Format(entry LogEntry) string {
 	sb.WriteString(": ")
 	sb.WriteString(entry.Message)
 
-	for k, v := range entry.Fields {
+	keys := sortedFieldKeys(entry.Fields)
+	for _, k := range keys {
+		v := entry.Fields[k]
 		sb.WriteByte(' ')
 		sb.WriteString(k)
 		sb.WriteByte('=')
 		sb.WriteString(fmt.Sprintf("%v", v))
 	}
 	return sb.String()
+}
+
+func sortedFieldKeys(fields map[string]any) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // trySend delivers entry to ch without blocking and without panicking if ch is closed.

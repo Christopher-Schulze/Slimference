@@ -37,6 +37,13 @@
   errors now force a safe cache miss instead of a stale-hit risk.
 - Hardened shutdown reliability further: `analyticsWorker` now drains queued
   events before exit, and `internal/caching.FileWatcher.Close()` is idempotent.
+- Fixed an analytics collector shutdown bug: draining a closed event channel can
+  no longer loop forever or emit zero-value phantom events.
+- Fixed analytics math so per-provider latency averages are computed from each
+  provider's own request count, not the global mixed-provider total.
+- Corrected `AnalyticsSnapshot.CompressionRatio` to report the saved-token
+  fraction and made session-log field rendering deterministic for stable
+  exports and diffs.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.
