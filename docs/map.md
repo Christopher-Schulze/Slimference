@@ -117,7 +117,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 - `internal/analytics/persistence.go`: JSONL logging to ~/.slimference/analytics/
 - `internal/analytics/gain.go`: slimference gain - filter savings by period/command
 - `internal/debug/session.go`: SessionFileStats() for JSONL preview, ReplaySession() with non-summary skip
-- `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary
+- `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary, guarded JSONL flush on marshal/write failure
 - `internal/buildinfo/version.go`: single source of truth for CLI/TUI/health version strings
 
 ### TUI (BubbleTea + Lipgloss)

@@ -744,6 +744,9 @@ Every proxy request is recorded as a `RequestSummary` in an in-memory ring buffe
 
 The ring buffer can be flushed to a JSONL file by setting `decisions_log` in
 `[debug]` config or `SLIMFERENCE_DEBUG_DECISIONS_LOG` env var.
+If a summary cannot be marshaled or written safely, Slimference skips that
+append and logs a warning instead of emitting a corrupt placeholder line into
+the decisions log.
 
 ### CLI commands
 
@@ -1177,6 +1180,8 @@ slimference test openai
 Starts a minimal HTTP listener on the configured port and waits for the
 specified CLI to send a request. Prints request details on receipt.
 Useful for verifying that the CLI is correctly pointing at the proxy.
+If the local listener cannot bind (for example because the port is already in
+use), the command fails immediately instead of hanging until the timeout.
 
 ```
 # Terminal 1:

@@ -65,6 +65,10 @@
 - Tightened decision-log readers (`ReplaySession`, `readLastDecisionSummaries`)
   so malformed JSON is skipped, pseudo-summaries without `req_id` are ignored,
   and scanner failures do not surface partial results.
+- Fixed `slimference test intercept` so listener bind failures now abort
+  immediately instead of waiting out the full timeout on a dead server.
+- Hardened debug decision-log flushing so marshal/write failures log warnings
+  and do not emit corrupt placeholder lines into `decisions.jsonl`.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.

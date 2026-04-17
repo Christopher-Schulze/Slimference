@@ -61,32 +61,33 @@ var version = buildinfo.Version
 
 // Injectable package-level vars for OS/driver boundaries - enables in-process error injection in tests.
 var (
-	runTUIFn               = runTUI
-	osGetwd                = os.Getwd
-	osExecutable           = os.Executable
-	osStartProcess         = os.StartProcess
-	osUserHomeDir          = os.UserHomeDir
-	termIsTerminalFn       = term.IsTerminal
-	readStdinAll           = func() ([]byte, error) { return io.ReadAll(os.Stdin) }
-	osWriteFile            = os.WriteFile
-	testInterceptTimeout   = 60 * time.Second
-	exitFn                 = os.Exit
-	resolveFilterDBPathFn  = resolveFilterDBPath
-	resolveTeeDirFn        = resolveTeeDir
-	filterDefaultDataDirFn = filter.DefaultDataDir
-	writeGainByCommandCSV  = analytics.WriteGainByCommandCSV
-	writeGainSummaryCSV    = analytics.WriteGainSummaryCSV
-	replaySessionFn        = dbg.ReplaySession
-	daemonIsRunningFn      = daemon.IsRunning
-	daemonStopFn           = daemon.StopDaemon
-	daemonInstallLaunchdFn = daemon.InstallLaunchd
-	daemonUninstallFn      = daemon.UninstallLaunchd
-	daemonFormatStatusFn   = daemon.FormatStatus
-	daemonRunFn            = daemon.RunDaemon
-	installClaudeHookFn    = hooks.InstallClaude
-	installCodexHookFn     = hooks.InstallCodex
-	removeClaudeHookFn     = hooks.RemoveClaude
-	removeCodexHookFn      = hooks.RemoveCodex
+	runTUIFn                     = runTUI
+	osGetwd                      = os.Getwd
+	osExecutable                 = os.Executable
+	osStartProcess               = os.StartProcess
+	osUserHomeDir                = os.UserHomeDir
+	termIsTerminalFn             = term.IsTerminal
+	readStdinAll                 = func() ([]byte, error) { return io.ReadAll(os.Stdin) }
+	osWriteFile                  = os.WriteFile
+	testInterceptTimeout         = 60 * time.Second
+	testInterceptShutdownTimeout = 5 * time.Second
+	exitFn                       = os.Exit
+	resolveFilterDBPathFn        = resolveFilterDBPath
+	resolveTeeDirFn              = resolveTeeDir
+	filterDefaultDataDirFn       = filter.DefaultDataDir
+	writeGainByCommandCSV        = analytics.WriteGainByCommandCSV
+	writeGainSummaryCSV          = analytics.WriteGainSummaryCSV
+	replaySessionFn              = dbg.ReplaySession
+	daemonIsRunningFn            = daemon.IsRunning
+	daemonStopFn                 = daemon.StopDaemon
+	daemonInstallLaunchdFn       = daemon.InstallLaunchd
+	daemonUninstallFn            = daemon.UninstallLaunchd
+	daemonFormatStatusFn         = daemon.FormatStatus
+	daemonRunFn                  = daemon.RunDaemon
+	installClaudeHookFn          = hooks.InstallClaude
+	installCodexHookFn           = hooks.InstallCodex
+	removeClaudeHookFn           = hooks.RemoveClaude
+	removeCodexHookFn            = hooks.RemoveCodex
 
 	// runTUI sub-components: injectable for test coverage of post-startup paths.
 	configLoadFn       = config.Load
@@ -818,19 +819,33 @@ func testIntercept(cfg *config.Config, provider string) {
 	})
 
 	srv := &http.Server{Addr: cfg.ListenAddr(), Handler: mux}
-	go srv.ListenAndServe()
+	serveErrCh := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serveErrCh <- err
+		}
+	}()
+
+	shutdown := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), testInterceptShutdownTimeout)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}
 
 	select {
+	case err := <-serveErrCh:
+		fmt.Printf("FAIL - intercept server failed to start: %v\n", err)
+		exitFn(1)
 	case <-received:
 		time.Sleep(100 * time.Millisecond)
-		srv.Shutdown(context.Background())
+		shutdown()
 	case <-time.After(testInterceptTimeout):
 		fmt.Println("FAIL - no request received within 60 seconds")
 		fmt.Println("Troubleshooting:")
 		fmt.Printf("  1. Is ANTHROPIC_BASE_URL set to %s?\n", cfg.ListenURL())
 		fmt.Printf("  2. Is the CLI configured to use %s?\n", cfg.ListenURL())
 		fmt.Println("  3. Try: curl " + cfg.ListenURL() + "/health")
-		srv.Shutdown(context.Background())
+		shutdown()
 		exitFn(1)
 	}
 }

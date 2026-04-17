@@ -152,6 +152,10 @@ Repository proof as of this task:
   to skip JSON objects without `req_id` and to avoid surfacing partial results
   after scanner failures on oversized/corrupt files
 - `go vet ./...` re-run clean as part of the deeper post-remediation forensic pass
+- hardened `slimference test intercept` so bind failures now fail fast instead
+  of burning the full timeout window on a dead listener
+- hardened `debug.Recorder.flushJSONL` so marshal/write failures log warnings
+  and do not emit corrupt placeholder lines into decisions JSONL
 
 ## Verification Snapshot
 
@@ -185,3 +189,5 @@ Fresh-eyes review artifact:
 2026-04-17 - Deep forensic stability pass: fixed silent request/response truncation, prevented
              passthrough header leakage on local 502s, hardened SSE newline-write failure handling,
              and made decision-log readers reject pseudo-summaries and partial scan results.
+2026-04-17 - Structured operability pass: `test intercept` now fails fast on bind errors and
+             debug decision logs no longer corrupt JSONL on marshal/write failures.

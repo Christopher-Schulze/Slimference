@@ -1,6 +1,8 @@
 package debug
 
 import (
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -165,6 +167,44 @@ func TestFlushJSONL_UnwritablePath(t *testing.T) {
 	r := NewRecorder(5, "/dev/null/nonexistent/decisions.jsonl")
 	// Should not panic even with an unwritable path
 	r.Record(RequestSummary{RequestID: "no-panic"})
+}
+
+func TestRecorder_FlushJSONL_MarshalErrorSkipsWrite(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	r := NewRecorder(5, path)
+
+	r.Record(RequestSummary{
+		RequestID:      "req-nan",
+		ProxyLatencyMs: math.NaN(),
+	})
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("marshal failure should not create decisions log, stat err=%v", err)
+	}
+}
+
+func TestRecorder_FlushJSONL_WriteError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "decisions.jsonl")
+	r := NewRecorder(5, path)
+	r.writeLineFn = func(_ *os.File, _ []byte) error {
+		return errors.New("write failed")
+	}
+
+	r.Record(RequestSummary{RequestID: "req-write-error"})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected decisions log file to exist: %v", err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("write failure should leave empty file, got %q", string(data))
+	}
 }
 
 func contains(s, sub string) bool {
