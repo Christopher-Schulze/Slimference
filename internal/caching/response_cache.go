@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"net/http"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,10 +72,21 @@ func (c *ResponseCache) ComputeKey(messages []types.Message, model string) [32]b
 // The body is canonicalized so insignificant JSON whitespace/key ordering do not
 // affect cache hits. Provider is included to prevent cross-provider collisions.
 func (c *ResponseCache) ComputeRequestKey(provider types.Provider, body []byte) [32]byte {
+	return c.ComputeRequestKeyWithHeaders(provider, body, nil)
+}
+
+// ComputeRequestKeyWithHeaders returns a deterministic SHA-256 key for the effective request.
+// The key covers provider, canonical JSON body, and semantically relevant request headers so
+// cross-account or version/beta requests cannot alias each other in the response cache.
+func (c *ResponseCache) ComputeRequestKeyWithHeaders(provider types.Provider, body []byte, headers http.Header) [32]byte {
 	h := sha256.New()
 	h.Write([]byte(provider.String()))
 	h.Write([]byte{0})
 	h.Write(canonicalizeJSON(body))
+	if headerBytes := canonicalizeCacheHeaders(headers); len(headerBytes) > 0 {
+		h.Write([]byte{0})
+		h.Write(headerBytes)
+	}
 	var key [32]byte
 	copy(key[:], h.Sum(nil))
 	return key
@@ -218,6 +231,31 @@ func ExtractDependencyPaths(body []byte) []string {
 	return out
 }
 
+// IsRequestCacheSafe reports whether a request body is safe to serve from the response cache
+// without changing expected model behavior. Explicit stochastic settings disable Layer 3.
+func IsRequestCacheSafe(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	var root map[string]interface{}
+	if err := json.Unmarshal(body, &root); err != nil {
+		return false
+	}
+	if truthyBool(root["stream"]) {
+		return false
+	}
+	if n, ok := numericValue(root["n"]); ok && n > 1 {
+		return false
+	}
+	if temp, ok := numericValue(root["temperature"]); ok && temp > 0 {
+		return false
+	}
+	if topP, ok := numericValue(root["top_p"]); ok && topP > 0 && topP < 1 {
+		return false
+	}
+	return true
+}
+
 func canonicalizeJSON(body []byte) []byte {
 	var root interface{}
 	if err := json.Unmarshal(body, &root); err != nil {
@@ -298,4 +336,120 @@ func cacheEntryDependsOnPath(entry *CacheEntry, changedPath string) bool {
 		}
 	}
 	return false
+}
+
+func canonicalizeCacheHeaders(headers http.Header) []byte {
+	if len(headers) == 0 {
+		return nil
+	}
+	canonical := make(map[string][]string)
+	for name, values := range headers {
+		key := strings.ToLower(strings.TrimSpace(name))
+		if !cacheRelevantHeader(key) {
+			continue
+		}
+		normalized := normalizeCacheHeaderValues(key, values)
+		if len(normalized) == 0 {
+			continue
+		}
+		canonical[key] = normalized
+	}
+	if len(canonical) == 0 {
+		return nil
+	}
+	data, err := jsonMarshalFn(canonical)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func cacheRelevantHeader(name string) bool {
+	switch name {
+	case "authorization", "x-api-key", "anthropic-version", "anthropic-beta", "openai-organization", "openai-project", "openai-beta":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeCacheHeaderValues(name string, values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if name == "anthropic-beta" || name == "openai-beta" {
+			for _, part := range strings.Split(trimmed, ",") {
+				token := strings.TrimSpace(part)
+				if token != "" {
+					normalized = append(normalized, token)
+				}
+			}
+			continue
+		}
+		if cacheSensitiveHeader(name) {
+			sum := sha256.Sum256([]byte(trimmed))
+			normalized = append(normalized, "sha256:"+hexDigest(sum))
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
+func cacheSensitiveHeader(name string) bool {
+	switch name {
+	case "authorization", "x-api-key":
+		return true
+	default:
+		return false
+	}
+}
+
+func hexDigest(sum [32]byte) string {
+	const hex = "0123456789abcdef"
+	out := make([]byte, 64)
+	for i, b := range sum {
+		out[i*2] = hex[b>>4]
+		out[i*2+1] = hex[b&0x0f]
+	}
+	return string(out)
+}
+
+func truthyBool(v interface{}) bool {
+	switch current := v.(type) {
+	case bool:
+		return current
+	case string:
+		return strings.EqualFold(strings.TrimSpace(current), "true")
+	default:
+		return false
+	}
+}
+
+func numericValue(v interface{}) (float64, bool) {
+	switch current := v.(type) {
+	case float64:
+		return current, true
+	case float32:
+		return float64(current), true
+	case int:
+		return float64(current), true
+	case int64:
+		return float64(current), true
+	case json.Number:
+		f, err := current.Float64()
+		if err == nil {
+			return f, true
+		}
+	case string:
+		f, err := strconv.ParseFloat(strings.TrimSpace(current), 64)
+		if err == nil {
+			return f, true
+		}
+	}
+	return 0, false
 }

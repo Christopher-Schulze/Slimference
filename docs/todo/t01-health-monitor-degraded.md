@@ -112,10 +112,10 @@ Den Schwellwert von `> 0.20` auf `>= 0.20` aendern. Aber das aendert die Spec-Se
 
 ## Sub-Tasks
 
-- [ ] Test-Eingabe in `TestHealthMonitor_degraded` korrigieren (echte 30% erzeugen)
-- [ ] Alle Health-Monitor-Tests gruen
-- [ ] `go test -race ./internal/proxy/...` clean
-- [ ] Kommentar im Test korrigieren (7+3=10, 3 errors = 30% MUSS stimmen)
+- [x] Test-Eingabe in `TestHealthMonitor_degraded` korrigieren (echte 30% erzeugen)
+- [x] Alle Health-Monitor-Tests gruen
+- [x] `go test -race ./internal/proxy/...` clean
+- [x] Kommentar im Test korrigieren (7+3=10, 3 errors = 30% MUSS stimmen)
 
 ## Verification
 

@@ -36,11 +36,11 @@ grep -rn 'l\.minimax' internal/summarization/*.go | grep -v '_test.go'
 
 ## Acceptance Criteria
 
-- [ ] Layer2 struct hat kein `minimax` Feld mehr
-- [ ] `NewLayer2` erzeugt `mm` nur als lokale Variable fuer `NewFallbackChain(mm)`
-- [ ] `go build ./...` kompiliert
-- [ ] `go test ./internal/summarization/` gruen
-- [ ] `go vet ./...` clean
+- [x] Layer2 struct hat kein `minimax` Feld mehr
+- [x] `NewLayer2` erzeugt `mm` nur als lokale Variable fuer `NewFallbackChain(mm)`
+- [x] `go build ./...` kompiliert
+- [x] `go test ./internal/summarization/` gruen
+- [x] `go vet ./...` clean
 
 ## Affected Files
 

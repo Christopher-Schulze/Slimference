@@ -102,6 +102,9 @@ func (l *Layer2) RunCompressionJob(messages []types.Message) {
 // RunCompressionJobContext is the async worker body with explicit cancellation.
 // Call it when a caller context should bound summarization work.
 func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.Message) {
+	if !l.hasConfiguredProvider() {
+		return
+	}
 	minMsgs := l.cfg.MinMessagesForCompression
 	prefixEnd := compression.CompressiblePrefixEnd(messages, l.cfg.SlidingWindow)
 	if prefixEnd < minMsgs {
@@ -245,6 +248,9 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 // compression job. Returns false if compression is already in progress or the
 // existing summary is still fresh and covers enough of the conversation.
 func (l *Layer2) ShouldTriggerCompression(messages []types.Message) bool {
+	if !l.hasConfiguredProvider() {
+		return false
+	}
 	minMsgs := l.cfg.MinMessagesForCompression
 	prefixEnd := compression.CompressiblePrefixEnd(messages, l.cfg.SlidingWindow)
 	if prefixEnd < minMsgs {
@@ -274,6 +280,10 @@ func (l *Layer2) ShouldTriggerCompression(messages []types.Message) bool {
 	}
 	coveredFraction := float64(existingRange[1]) / float64(boundaryIdx)
 	return coveredFraction < 0.70
+}
+
+func (l *Layer2) hasConfiguredProvider() bool {
+	return l.chain != nil && l.chain.ActiveProviderName() != ""
 }
 
 // FormatMessagesForSummarization renders messages as readable plain text for MiniMax.

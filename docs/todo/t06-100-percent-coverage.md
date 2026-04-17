@@ -1,6 +1,6 @@
 # T06 - 100% Coverage herstellen
 
-**Status:** done (98.9%, remaining 1.1% in new codex functions + exported-only functions)
+**Status:** done (100.0% on `cmd/...` + `internal/...`)
 **Priority:** medium
 **Files:** Alle `internal/` und `cmd/` Packages
 
@@ -61,27 +61,27 @@ Zeigt genau welche Funktionen/Zeilen nicht abgedeckt sind.
 
 #### internal/proxy (nach T01+T02)
 
-- [ ] `TestHealthMonitor_degraded` fix -> erhoht Coverage
-- [ ] `TestStreamingRelay_contextCancelled` fix -> erhoht Coverage
-- [ ] `buildAggressiveCompressedBody` Error-Pfade
-- [ ] `parseRetryAfter` Edge-Cases (HTTP-date Format)
-- [ ] `isContextOverflow` alle Pattern-Varianten
-- [ ] Error-Pfade in `doUpstreamRequest` (429 retry exhaustion, etc.)
+- [x] `TestHealthMonitor_degraded` fix -> erhoht Coverage
+- [x] `TestStreamingRelay_contextCancelled` fix -> erhoht Coverage
+- [x] `buildAggressiveCompressedBody` Error-Pfade
+- [x] `parseRetryAfter` Edge-Cases (HTTP-date Format)
+- [x] `isContextOverflow` alle Pattern-Varianten
+- [x] Error-Pfade in `doUpstreamRequest` (429 retry exhaustion, etc.)
 
 #### internal/slogutil (95.1%)
 
-- [ ] `RotatingWriter` Rotation-Trigger (max size reached)
-- [ ] Backup-File Rotation (.1 through .5)
-- [ ] Concurrent write + rotation race
-- [ ] Error-Pfade: permission denied, disk full
+- [x] `RotatingWriter` Rotation-Trigger (max size reached)
+- [x] Backup-File Rotation (.1 through .5)
+- [x] Concurrent write + rotation race
+- [x] Error-Pfade: permission denied, disk full
 
 #### internal/tui (98.6%)
 
-- [ ] `renderMainView` Edge-Cases (zero requests, zero width)
-- [ ] `renderStatsView` mit leeren Per-Provider-Daten
-- [ ] Key-Handler Edge-Cases
-- [ ] Flash-Message Expiry
-- [ ] HookStatus Rendering (none installed, partial install)
+- [x] `renderMainView` Edge-Cases (zero requests, zero width)
+- [x] `renderStatsView` mit leeren Per-Provider-Daten
+- [x] Key-Handler Edge-Cases
+- [x] Flash-Message Expiry
+- [x] HookStatus Rendering (none installed, partial install)
 
 ### Phase 4: Verify
 
@@ -96,15 +96,15 @@ go test -race ./...
 
 ## Sub-Tasks
 
-- [ ] T01+T02 fixen (Voraussetzung)
-- [ ] Coverage-Report erstellen und Luecken identifizieren
-- [ ] `internal/proxy` fehlende Branches + Error-Pfade abdecken
-- [ ] `internal/slogutil` fehlende Branches abdecken
-- [ ] `internal/tui` fehlende Branches abdecken
-- [ ] `cmd/slimference` falls unter 100%
-- [ ] Final: 100% auf allen produktiven Packages
-- [ ] `go test -race ./...` clean
-- [ ] Coverage-Report archivieren
+- [x] T01+T02 fixen (Voraussetzung)
+- [x] Coverage-Report erstellen und Luecken identifizieren
+- [x] `internal/proxy` fehlende Branches + Error-Pfade abdecken
+- [x] `internal/slogutil` fehlende Branches abdecken
+- [x] `internal/tui` fehlende Branches abdecken
+- [x] `cmd/slimference` falls unter 100%
+- [x] Final: 100% auf allen produktiven Packages
+- [x] `go test -race ./...` clean
+- [x] Coverage-Report archivieren
 
 ## Verification
 

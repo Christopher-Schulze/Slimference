@@ -33,4 +33,10 @@ go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s)
 go run ./scripts/benchmarks -- -benchtime=1s     # Schneller Durchlauf
 go run ./scripts/benchmarks -- -count=3          # 3 Runden für Stabilität
 go run ./scripts/benchmarks -- -pkg=compression  # Nur compression-Paket
+go run ./scripts/utils session-report ~/.slimference/analytics/2026-04-17.jsonl
+go run ./scripts/utils decision-report ~/.slimference/logs/decisions.jsonl --json
+go run ./scripts/utils filter-report ~/.slimference/filter.db --csv
+go run ./scripts/utils combined-report ~/.slimference/analytics/2026-04-17.jsonl \
+  ~/.slimference/logs/decisions.jsonl \
+  ~/.slimference/filter.db
 ```

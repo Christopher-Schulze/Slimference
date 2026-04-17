@@ -190,7 +190,7 @@ func readSnapshots(path string) ([]AnalyticsSnapshot, error) {
 
 	var snapshots []AnalyticsSnapshot
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1<<20), 1<<20) // 1 MiB per line
+	scanner.Buffer(make([]byte, 1<<20), 8<<20) // 8 MiB per line
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++

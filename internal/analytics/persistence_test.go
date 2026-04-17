@@ -179,8 +179,8 @@ func TestPersister_rotateIfNeeded_logError(t *testing.T) {
 
 func TestReadWeeklyStats_scanError(t *testing.T) {
 	dir := t.TempDir()
-	// Write a line longer than the 1 MiB scanner buffer to trigger scan error.
-	bigLine := make([]byte, 2*1024*1024)
+	// Write a line above the 8 MiB scanner limit to trigger scan error.
+	bigLine := make([]byte, 9*1024*1024)
 	for i := range bigLine {
 		bigLine[i] = 'x'
 	}

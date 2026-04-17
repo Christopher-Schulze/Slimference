@@ -41,6 +41,6 @@ Beide sind intentional verschieden (verschiedene Use-Cases) aber das sollte doku
 
 ## Acceptance Criteria
 
-- [ ] T04 Anleitung in docs/documentation.md ergaenzt
-- [ ] Dedup-Strategie und Schwellwert dokumentiert
-- [ ] Token-Schaetzungs-Funktionen in map.md dokumentiert
+- [x] T04 Anleitung in docs/documentation.md ergaenzt
+- [x] Dedup-Strategie und Schwellwert dokumentiert
+- [x] Token-Schaetzungs-Funktionen in map.md dokumentiert

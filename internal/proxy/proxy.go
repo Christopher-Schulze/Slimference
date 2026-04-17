@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/buildinfo"
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/config"
@@ -27,8 +28,8 @@ import (
 // newFileWatcherFunc is called by New to create the file watcher; overridden in tests.
 var newFileWatcherFunc = caching.NewFileWatcher
 
-// Version is the binary version string, set by cmd/main.go before calling New().
-var Version = "dev"
+// Version is the binary version string exposed by health/status surfaces.
+var Version = buildinfo.Version
 
 // Proxy is the core Slimference instance. It owns all compression layers, goroutines,
 // and the HTTP server. Its lifecycle matches the TUI lifecycle: one instance per run.

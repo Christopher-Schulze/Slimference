@@ -68,117 +68,83 @@ ist aktuell NICHT moeglich ueber den Hook** (anders als bei Claude Code).
 3. **Command Rewrite:** Nicht unterstuetzt - es gibt kein `updatedInput` das Codex tatsaechlich anwendet
 4. **PreToolUse firet nur fuer Bash-Tool**, nicht fuer Edit/Write/MCP/etc.
 
-### Fazit fuer Layer 0
+### Finale Umsetzung
 
-Der **PreToolUse Hook kann Commands blocken (deny)**, aber er kann sie **nicht umschreiben**.
-Das bedeutet fuer Layer 0:
+Der finale Slimference-Modus fuer Codex ist ein **Hybrid aus PreToolUse und
+PostToolUse**, angepasst an den realen Codex-Contract:
 
-**Option A (empfohlen): PostToolUse-Filterung**
-- PreToolUse: pass through (exit 0, kein output)
-- Codex fuehrt Command aus
-- PostToolUse Hook: kriegt `tool_response` (den Command-Output)
-- Hook kann den Output **ersetzen** indem er `continue: false` returned und
-  den ersetzten Text als Feedback gibt
-- Codex nimmt den Feedback-Text als "ersetzten Tool-Output"
+- **PreToolUse** ruft `slimference rewrite -- "$CMD"` auf.
+- Wenn Slimference den Command nur durchlassen wuerde, returned der Hook nichts
+  und Codex fuehrt normal aus.
+- Wenn Slimference den Command blocken muss, returned der Hook einen
+  `decision:"block"`-Payload mit Grund.
+- Wenn Slimference einen Rewrite empfehlen wuerde, blockt der Hook den
+  Original-Command und gibt eine klare Rerun-Anweisung fuer den umgeschriebenen
+  Command zurueck. Das ist kein natives `updatedInput`, aber der sicherste
+  verfuegbare Downside-Minimizer fuer die aktuelle Codex-Hook-Flaeche.
+- **PostToolUse** ruft `slimference posttool` auf und liefert bei Nutzen
+  `hookSpecificOutput.additionalContext`, also kompaktierte Bash-Resultate als
+  zusaetzlichen Kontext statt eines riskanten Output-Replacements.
 
-**Option B: PreToolUse Deny + slimference filter als Ersatz**
-- PreToolUse: deny + reason = "Run: slimference filter <command>"
-- Codex zeigt dem User die deny-Nachricht
-- Model muss dann selbst "slimference filter <command>" aufrufen
-- ~70-85% Adoption (Model folgt dem Hinweis meistens)
-- Schlechter als Option A weil das Model den Hinweis ignorieren kann
+Damit erreicht Codex:
+- sichere Command-Blocks fuer deny/ask/rewrite-Faelle
+- Output-Kompaktierung nach der Tool-Ausfuehrung
+- Proxy-Routing fuer Layer 1-3 ueber `openai_base_url`
 
-**Option C: Hybrid (best of both)**
-- `slimference hook install codex` schreibt PostToolUse-Hook fuer Layer 0
-- Proxy (Layer 1-3) via `openai_base_url` in config.toml
-- Layer 0 = PostToolUse Output-Filterung
-- Layer 1-3 = Proxy-Kompression
-
-### Entscheidung: Option A/C (PostToolUse-basiert)
-
-PostToolUse Hook kann den Bash-Output ersetzen:
-```json
-{
-  "decision": "block",
-  "reason": "[git status] 3 modified, 1 staged, 2 untracked",
-  "hookSpecificOutput": {
-    "hookEventName": "PostToolUse",
-    "additionalContext": "Output filtered by Slimference"
-  }
-}
-```
-
-Wenn `decision: "block"` + `continue: false` returned wird, ersetzt Codex den Tool-Output
-mit dem reason-Text. Das Model bekommt den gefilterten Output.
-
-**Einschraenkung:** `PostToolUse` kann Side-Effects nicht rueckgaengig machen (das Command
-wurde bereits ausgefuehrt). Aber das ist bei Layer 0 kein Problem - wir wollen den Output
-filtern, nicht die Ausfuehrung verhindern.
+Nicht erreicht wird weiterhin ein natives Codex-`updatedInput`-Rewrite. Diese
+Grenze ist Codex-seitig, nicht Slimference-seitig.
 
 ## Implementation Plan
 
 ### 1. hooks/codex.go: Komplett-Umschreibung
 
 ```go
-// InstallCodexHooks installs the Slimference hooks for Codex CLI.
+// InstallCodex installs the Slimference hooks for Codex CLI.
 //
 // Writes:
-//   1. ~/.codex/hooks.json - PostToolUse Bash hook
-//   2. ~/.codex/config.toml - openai_base_url + codex_hooks feature flag (merge, nicht overwrite)
-//
-// PostToolUse (nicht PreToolUse) weil:
-// - PreToolUse kann Commands nur deny, nicht rewrite
-// - PostToolUse kann tool_response ersetzen via decision:block + reason
-// - Layer 0 filtert OUTPUT, nicht die Command-Ausfuehrung
+//   1. ~/.slimference/hooks/codex-pre-tool.sh
+//   2. ~/.slimference/hooks/codex-post-tool.sh
+//   3. ~/.codex/hooks.json - PreToolUse + PostToolUse Bash hook entries
+//   4. ~/.codex/config.toml - openai_base_url + codex_hooks feature flag (merge, nicht overwrite)
 
-func InstallCodexHooks(home string) error
-func RemoveCodexHooks(home string) error
-func VerifyCodexHooks(home string) (bool, string, error)
+func InstallCodex(home string, slimferenceCmd string) error
+func RemoveCodex(home string) error
 func CodexHookInstalled(home string) bool
 ```
 
 ### 2. Hook-Script
 
-Der PostToolUse-Hook ruft `slimference filter-post` auf (neuer Subcommand oder erweiterter rewrite-Pfad):
+Der PreToolUse-Hook ruft `slimference rewrite`, der PostToolUse-Hook
+`slimference posttool` auf:
 
 ```bash
 #!/bin/bash
-# ~/.slimference/hooks/codex-post-tool.sh
-# Reads PostToolUse JSON from stdin, filters tool_response, outputs replacement
-slimference rewrite --post-tool-use
-```
+# ~/.slimference/hooks/codex-pre-tool.sh
+slimference rewrite -- "$CMD"
 
-Oder direkter: der Hook-Command ist `slimference rewrite --post-tool-use`.
+# ~/.slimference/hooks/codex-post-tool.sh
+slimference posttool
+```
 
 ### 3. config.toml Patching
 
 ```go
-// PatchCodexConfig merges Slimference settings into ~/.codex/config.toml
-// without overwriting existing user settings.
-//
-// Adds:
-//   openai_base_url = "http://127.0.0.1:8990"
-//   [features]
-//   codex_hooks = true
-//
-// Preserves all existing config values.
-
-func PatchCodexConfig(home string, proxyAddr string) error
-func UnpatchCodexConfig(home string) error
+// patchCodexConfig only adds missing keys and never overwrites an existing
+// openai_base_url value.
 ```
 
-### 4. slimference rewrite --post-tool-use
+### 4. slimference posttool
 
-Erweiterter `rewrite` Subcommand der auch PostToolUse-JSON verarbeiten kann:
+Dedizierter Subcommand fuer Codex PostToolUse:
 - Input: PostToolUse JSON mit `tool_response` Feld
 - Filter: `tool_response` durch `RunPipeline` schicken
-- Output: `{"decision":"block","reason":"<filtered_output>"}` oder exit 0 (passthrough)
+- Output: `hookSpecificOutput.additionalContext` oder exit 0 (passthrough)
 
 ### 5. verify.go Aktualisierung
 
-- Codex: Check `~/.codex/hooks.json` exists + SHA-256
+- Codex: Check `~/.codex/hooks.json` exists und enthaelt PreToolUse + PostToolUse
 - Check `~/.codex/config.toml` hat `openai_base_url` und `codex_hooks = true`
-- Check `~/.slimference/hooks/codex-post-tool.sh` exists
+- Check `~/.slimference/hooks/codex-pre-tool.sh` und `codex-post-tool.sh` existieren
 
 ### 6. Tests
 
@@ -186,18 +152,31 @@ Erweiterter `rewrite` Subcommand der auch PostToolUse-JSON verarbeiten kann:
 - `TestRemoveCodexHooks`: verify cleanup
 - `TestVerifyCodexHooks`: verify detection
 - `TestPatchCodexConfig`: verify merge (bestehende Settings erhalten)
-- `TestPostToolUseFilter`: verify JSON-input -> filtered JSON-output
+- `TestHandlePostToolCmd_*`: verify JSON-input -> `additionalContext` output
 
 ## Sub-Tasks
 
-- [ ] `internal/hooks/codex.go` umschreiben: AGENTS.md -> hooks.json + config.toml
-- [ ] `slimference rewrite --post-tool-use` Pfad hinzufuegen
-- [ ] `internal/hooks/verify.go`: Codex-Verify aktualisieren
-- [ ] `cmd/slimference/main.go`: hook install/remove/verify fuer Codex aktualisieren
-- [ ] config.toml Patching: merge bestehender Config (nicht overwrite)
-- [ ] Tests: alle Codex-Hook-Tests umschreiben
-- [ ] `docs/documentation.md`: Codex-Setup-Sektion aktualisieren
-- [ ] Manuelles Testing: `slimference hook install codex` + Codex nutzen
+- [x] `internal/hooks/codex.go` umschreiben: AGENTS.md -> hooks.json + config.toml
+- [x] `slimference posttool` Pfad fuer PostToolUse hinzufuegen
+- [x] `internal/hooks/verify.go`: Codex-Verify aktualisieren
+- [x] `cmd/slimference/main.go`: hook install/remove/verify fuer Codex aktualisieren
+- [x] config.toml Patching: merge bestehender Config (nicht overwrite)
+- [x] Tests: alle Codex-Hook-Tests umschreiben
+- [x] `docs/documentation.md`: Codex-Setup-Sektion aktualisieren
+
+## Resolved Questions
+
+- `slimference hook install codex` setzt `openai_base_url` automatisch, aber nur
+  wenn noch kein Eintrag vorhanden ist.
+- Eine bestehende `openai_base_url` wird nicht ueberschrieben; Slimference
+  merged nur fehlende Keys in `~/.codex/config.toml`.
+- Codex bekommt zwei Hooks: PreToolUse fuer Rewrite/Block-Entscheidungen und
+  PostToolUse fuer Output-Kompaktierung via `slimference posttool`.
+
+## Deferred
+
+Kein manueller Live-Codex-Lauf in diesem Pass. Der Nutzer wollte explizit
+keine Live- oder Smoke-Tests aus diesem Projektlauf heraus.
 
 ## Files Affected
 
@@ -228,8 +207,5 @@ slimference hook status        # Shows codex not installed
 
 ## Open Questions
 
-- [ ] Soll `slimference hook install codex` automatisch `openai_base_url` setzen,
-      oder soll der User das manuell machen? (Empfehlung: automatisch, da Teil der Integration)
-- [ ] Was passiert wenn `~/.codex/config.toml` bereits `openai_base_url` hat mit anderem Wert?
-      (Empfehlung: warnen + nicht overwrite)
-- [ ] PostToolUse `decision: "block"` ersetzt den Output wirklich? Manuelles Testing noetig.
+Keine offenen Codefragen mehr. Offene Live-Verifikation bleibt bewusst ausserhalb
+dieses Passes.

@@ -44,6 +44,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/buildinfo"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
@@ -56,7 +57,7 @@ import (
 	"golang.org/x/term"
 )
 
-const version = "1.0.0"
+var version = buildinfo.Version
 
 // Injectable package-level vars for OS/driver boundaries - enables in-process error injection in tests.
 var (
@@ -1383,7 +1384,7 @@ func readLastDecisionSummaries(path string, n int) []dbg.RequestSummary {
 	// Collect all lines then return last n.
 	var lines []string
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line != "" {

@@ -24,6 +24,22 @@
 - Repaired the release proof stack: `scripts/ci` now enforces the intended
   coverage threshold and the repository now reaches `100.0%` Go coverage across
   `cmd/` and `internal/`.
+- Centralized the binary/TUI/health version string in `internal/buildinfo` so
+  `slimference version`, the TUI header, and `/health` all report the same
+  current release value.
+- Hardened Layer 3 further by keying cache entries on the effective forwarded
+  request plus normalized cache-relevant headers, skipping explicitly
+  stochastic requests, and recording cache hits as normal processed requests in
+  analytics/debug output.
+- Tightened the offline savings toolchain in `scripts/utils`: real
+  `session-report`, `decision-report`, `filter-report`, and `combined-report`
+  outputs now exist with text, JSON, and CSV formats.
+- Raised JSONL scan limits in analytics/debug/reporting readers from the old
+  1-2 MiB defaults to 8 MiB so large decision/session lines fail less often in
+  production logs.
+- Synced `docs/documentation.md`, `docs/map.md`, `docs/context.md`, and the
+  legacy T01-T10 todo artifacts to the current implementation state so current
+  docs no longer describe stale hook/version/reporting behavior.
 - Added the fresh-eyes follow-up review in `docs/audit-2.md` and synced
   `docs/documentation.md`, `docs/map.md`, `docs/context.md`, and the T11-T16
   workstream docs to the completed state.

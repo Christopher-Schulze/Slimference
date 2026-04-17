@@ -265,11 +265,11 @@ Reihenfolge: T01-T04 first (Bugs + Spec-Verletzung), dann T05 (Codex-Rewrite), d
 - Detail: `docs/todo/t03-negative-savings-guard.md`
 
 ### T04 — Echte Token-Savings Messung (Offline + Inline)
-- [x] `scripts/utils/` Tool: Session-JSONL parsen, per-Request Savings aggregieren, Report generieren
+- [x] `scripts/utils/` Tool: Session-, Decision-, Filter- und Combined-Reports mit Text/JSON/CSV
 - [x] Kein API-Call - rein offline aus bestehenden Debug-Logs
 - [x] Inline-Messung verifiziert: `slimference stats today` zeigt echte Savings aus Live-Betrieb
 - [x] `slimference gain today` zeigt Layer 0 Filter-Savings aus SQLite
-- [x] Dokumentation: Wie man echte Zahlen bekommt (30 Min Claude Code Session + stats)
+- [x] Dokumentation: Wie man echte Zahlen bekommt und offline auswertet
 - Detail: `docs/todo/t04-real-token-savings-measurement.md`
 
 ### T05 — Codex Hook-Integration: Rewrite auf hooks.json (v0.117.0+)

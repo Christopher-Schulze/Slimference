@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/buildinfo"
 	"github.com/slimference/slimference/internal/hooks"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
@@ -18,7 +19,7 @@ var userHomeDirFn = os.UserHomeDir
 var writeFileFn = os.WriteFile
 
 // Version is the display version string.
-const Version = "2.0.0"
+var Version = buildinfo.Version
 
 // ViewMode selects which view is rendered.
 type ViewMode int

@@ -62,35 +62,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// Request-scoped logger: all debug/warn/info calls inside this function carry req_id.
 	log := slog.With("req_id", reqID, "provider", provider, "model", model)
 
-	// --- 2. Response cache lookup (Layer 3) ---
-	var cacheKey [32]byte
-	if p.isLayerEnabled(3) {
-		cacheKey = p.responseCache.ComputeRequestKey(provider, body)
-		if cached, ok := p.responseCache.Get(cacheKey); ok {
-			log.Debug("cache hit")
-			for k, vv := range cached.Headers {
-				for _, v := range vv {
-					w.Header().Add(k, v)
-				}
-			}
-			w.WriteHeader(cached.StatusCode)
-			w.Write(cached.Response) //nolint:errcheck
-			select {
-			case p.analyticsQueue <- types.AnalyticsEvent{
-				Type:        types.EventCacheHit,
-				Timestamp:   time.Now(),
-				Provider:    provider,
-				Model:       model,
-				TokensSaved: cached.TokensSaved,
-				CacheHit:    true,
-				Layers:      []int{3},
-			}:
-			default:
-			}
-			return
-		}
-	}
-
 	// Count original tokens before any compression.
 	origTokens := tokens.CountMessages(messages)
 	log.Debug("request started", "messages", len(messages), "orig_tokens", origTokens)
@@ -186,9 +157,92 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	totalSaved := origTokens - compressedTokens
+	compressionRatio := 1.0
+	if origTokens > 0 {
+		compressionRatio = float64(compressedTokens) / float64(origTokens)
+	}
+
+	// --- 8. Response cache lookup (Layer 3) ---
+	var cacheKey [32]byte
+	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(newBody)
+	if requestCacheSafe {
+		cacheKey = p.responseCache.ComputeRequestKeyWithHeaders(provider, newBody, r.Header)
+		if cached, ok := p.responseCache.Get(cacheKey); ok {
+			log.Debug("cache hit")
+			for k, vv := range cached.Headers {
+				for _, v := range vv {
+					w.Header().Add(k, v)
+				}
+			}
+			w.WriteHeader(cached.StatusCode)
+			w.Write(cached.Response) //nolint:errcheck
+
+			cacheLayers := append(append([]int{}, appliedLayers...), 3)
+			cacheLatencyMs := float64(time.Since(start).Microseconds()) / 1000.0
+			outputTokens := estimateTokensFromText(string(cached.Response))
+
+			if p.debugRecorder != nil {
+				summary := dbg.RequestSummary{
+					RequestID:          reqID,
+					Timestamp:          start,
+					Provider:           provider.String(),
+					Model:              model,
+					TotalMessages:      len(messages),
+					MessagesInWindow:   p.config.Compression.SlidingWindow,
+					MessagesCompressed: max(0, len(messages)-p.config.Compression.SlidingWindow),
+					LayersApplied:      cacheLayers,
+					Tokens: dbg.TokenCounts{
+						Original:    origTokens,
+						AfterLayer1: origTokens - layer1Savings,
+						AfterLayer2: origTokens - layer1Savings - layer2Savings,
+						Final:       compressedTokens,
+						Saved:       totalSaved,
+						Ratio:       compressionRatio,
+					},
+					Layer1Breakdown: layer1Breakdown,
+					CacheHit:        true,
+					ProxyLatencyMs:  cacheLatencyMs,
+				}
+				p.debugRecorder.Record(summary)
+			}
+
+			select {
+			case p.analyticsQueue <- types.AnalyticsEvent{
+				Type:             types.EventRequestProcessed,
+				Timestamp:        time.Now(),
+				Provider:         provider,
+				Model:            model,
+				InputTokensOrig:  origTokens,
+				InputTokensComp:  compressedTokens,
+				OutputTokens:     outputTokens,
+				CompressionRatio: compressionRatio,
+				Layers:           cacheLayers,
+				LatencyMs:        cacheLatencyMs,
+				CacheHit:         true,
+				TokensSaved:      totalSaved,
+			}:
+			default:
+			}
+
+			log.Info("request_processed",
+				"input_orig", origTokens,
+				"input_comp", compressedTokens,
+				"saved", totalSaved,
+				"output", outputTokens,
+				"ratio", fmt.Sprintf("%.2f", compressionRatio),
+				"layers", cacheLayers,
+				"cache_hit", true,
+				"latency_ms", fmt.Sprintf("%.2f", cacheLatencyMs),
+				"proxy_overhead_ms", fmt.Sprintf("%.2f", cacheLatencyMs),
+			)
+			return
+		}
+	}
+
 	latencyStart := time.Now()
 
-	// --- 8. Forward to upstream ---
+	// --- 9. Forward to upstream ---
 	upstreamResp, err := p.doUpstreamRequest(r, provider, newBody)
 	if err != nil {
 		p.healthMon.record(provider, false)
@@ -221,7 +275,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	proxyLatencyMs := float64(time.Since(latencyStart).Microseconds()) / 1000.0
 
 	// --- 10. Cache successful response (Layer 3) ---
-	if p.isLayerEnabled(3) && responseBody != nil && upstreamResp.StatusCode == http.StatusOK {
+	if requestCacheSafe && responseBody != nil && upstreamResp.StatusCode == http.StatusOK {
 		entry := &caching.CacheEntry{
 			Response:        responseBody,
 			Headers:         make(map[string][]string),
@@ -246,16 +300,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	totalSaved := origTokens - compressedTokens
-
 	// --- 12. Analytics ---
-	var compressionRatio float64
-	if origTokens > 0 {
-		compressionRatio = float64(compressedTokens) / float64(origTokens)
-	} else {
-		compressionRatio = 1.0
-	}
-
 	_ = layer1Savings
 	_ = layer2Savings
 

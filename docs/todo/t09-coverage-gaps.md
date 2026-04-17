@@ -57,7 +57,7 @@
 
 ## Acceptance Criteria
 
-- [ ] `RunCompressionJob` Input-Token-Cap Pfad getestet
-- [ ] `NopRecorder.Record` trivial getestet
-- [ ] `go test ./...` gruen
-- [ ] `go test -race ./...` clean
+- [x] `RunCompressionJob` Input-Token-Cap Pfad getestet
+- [x] `NopRecorder.Record` trivial getestet
+- [x] `go test ./...` gruen
+- [x] `go test -race ./...` clean

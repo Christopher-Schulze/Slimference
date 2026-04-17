@@ -83,12 +83,12 @@ aber nicht konsistent.
 
 ## Sub-Tasks
 
-- [ ] Guard in `handleCompressibleRequest` einfuegen (nach compressedTokens-Berechnung)
-- [ ] Test: negative savings -> revert to original
-- [ ] Test: positive savings -> compression applied normally
-- [ ] Edge case: origTokens=0 -> kein Guard (avoid div-by-zero)
-- [ ] `go test -race ./internal/proxy/...` clean
-- [ ] `go test ./...` clean
+- [x] Guard in `handleCompressibleRequest` einfuegen (nach compressedTokens-Berechnung)
+- [x] Test: negative savings -> revert to original
+- [x] Test: positive savings -> compression applied normally
+- [x] Edge case: origTokens=0 -> kein Guard (avoid div-by-zero)
+- [x] `go test -race ./internal/proxy/...` clean
+- [x] `go test ./...` clean
 
 ## Verification
 

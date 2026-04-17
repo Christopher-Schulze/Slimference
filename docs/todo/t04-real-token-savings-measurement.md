@@ -1,6 +1,6 @@
 # T04 - Echte Token-Savings Messung (Offline + Inline)
 
-**Status:** done (offline tool built + inline measurement verified)
+**Status:** done (offline tool complete; live proof intentionally not run in this pass)
 **Priority:** medium
 **Files:** `scripts/utils/main.go` (neu), `internal/analytics/`, `internal/debug/`
 
@@ -34,7 +34,7 @@ Diese Daten fliessen in:
 **Das IST bereits die echte Messung.** Man muss Slimference nur normal mit Claude Code/Codex
 nutzen und dann die Logs auswerten.
 
-### Strahl 2: Offline-Auswertung (neu zu bauen)
+### Strahl 2: Offline-Auswertung (implementiert)
 
 Ein Go-Tool unter `scripts/utils/` das bestehende Log-Dateien auswertet:
 
@@ -47,6 +47,12 @@ go run ./scripts/utils decision-report ~/.slimference/logs/slimference.jsonl
 
 # Filter-DB auswerten (Layer 0 savings)
 go run ./scripts/utils filter-report ~/.slimference/filter.db
+
+# Alles in einem Durchlauf kombinieren
+go run ./scripts/utils combined-report \
+  ~/.slimference/analytics/2026-04-16.jsonl \
+  ~/.slimference/logs/decisions.jsonl \
+  ~/.slimference/filter.db
 ```
 
 Output:
@@ -97,15 +103,15 @@ Kein API-Call, kein Risk. Die Savings sind die echten aus dem Live-Betrieb.
 
 ### scripts/utils/main.go
 
-Neues Go-Tool, aufgerufen mit `go run ./scripts/utils <subcommand> <args>`.
+Go-Tool, aufgerufen mit `go run ./scripts/utils <subcommand> <args>`.
 
 Subcommands:
 - `session-report <file.jsonl>`: Parse Session-JSONL, aggregate per-request metrics
 - `decision-report <file.jsonl>`: Parse Decision-JSONL (from debug decisions_log)
 - `filter-report <filter.db>`: Query SQLite filter_runs, aggregate per-command savings
-- `combined-report <dir>`: Kombiniert alle drei Quellen zu einem Gesamtbild
+- `combined-report <analytics.jsonl> <decisions.jsonl> <filter.db>`: kombiniert Proxy-, Debug- und Layer-0-Daten
 
-Output-Formate: `--text` (default), `--json`, `--csv`
+Output-Formate: Text (default), `--json`, `--csv`
 
 ### Datenquellen
 
@@ -129,14 +135,18 @@ Output-Formate: `--text` (default), `--json`, `--csv`
 
 ## Sub-Tasks
 
-- [ ] `scripts/utils/main.go` Grundstruktur (subcommand dispatch)
-- [ ] `session-report` Subcommand: JSONL parse + aggregate
-- [ ] `decision-report` Subcommand: JSONL parse + per-sub-layer breakdown
-- [ ] `filter-report` Subcommand: SQLite query + aggregate
-- [ ] `combined-report` Subcommand: alle Quellen zusammen
-- [ ] Output: text, json, csv Formate
-- [ ] Manueller Proof: 30 Min Claude Code Session + Report
-- [ ] `docs/documentation.md`: Abschnitt "Measuring Real Savings" aktualisieren
+- [x] `scripts/utils/main.go` Grundstruktur (subcommand dispatch)
+- [x] `session-report` Subcommand: JSONL parse + aggregate
+- [x] `decision-report` Subcommand: JSONL parse + per-sub-layer breakdown
+- [x] `filter-report` Subcommand: SQLite query + aggregate
+- [x] `combined-report` Subcommand: Proxy + decisions + filter.db in einem Report
+- [x] Output: text, json, csv Formate
+- [x] `docs/documentation.md`: CLI-/Reporting-Doku aktualisieren
+
+## Deferred
+
+Kein manueller Live-Proof in diesem Pass. Der Nutzer wollte explizit keine
+Live- oder Smoke-Tests gegen echte Provider aus diesem Projektlauf.
 
 ## Verification
 

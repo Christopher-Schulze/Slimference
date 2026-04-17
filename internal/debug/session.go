@@ -27,7 +27,7 @@ func SessionFileStats(path string) (nonEmptyLines int, size int64, err error) {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
-	sc.Buffer(buf, 1024*1024)
+	sc.Buffer(buf, 8*1024*1024)
 	for sc.Scan() {
 		if strings.TrimSpace(sc.Text()) != "" {
 			nonEmptyLines++
@@ -49,7 +49,7 @@ func ReplaySession(path string) ([]RequestSummary, error) {
 	defer f.Close()
 	var out []RequestSummary
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {

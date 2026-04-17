@@ -13,6 +13,7 @@
 ```
 types        <- (all packages)
 config       <- (all packages except types/util)
+buildinfo    <- cmd, proxy, tui
 tokens       <- types
 security     <- types
 compression  <- types, config, tokens
@@ -100,7 +101,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 
 ### Layer 3 - Response Caching
 
-- `internal/caching/response_cache.go`: LRU response cache with canonical full-request SHA256 key + dependency-path invalidation
+- `internal/caching/response_cache.go`: LRU response cache with canonical forwarded-request SHA256 keys, normalized cache-relevant headers, stochastic-request bypass, and dependency-path invalidation
 - `internal/caching/file_watcher.go`: fsnotify watcher for dependency-path cache invalidation
 
 ### Core Proxy (HTTP Handler)
@@ -117,6 +118,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 - `internal/analytics/gain.go`: slimference gain - filter savings by period/command
 - `internal/debug/session.go`: SessionFileStats() for JSONL preview
 - `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary
+- `internal/buildinfo/version.go`: single source of truth for CLI/TUI/health version strings
 
 ### TUI (BubbleTea + Lipgloss)
 
@@ -207,3 +209,4 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 - `docs/todo/t14-layer2-strictness-and-cancellation.md`: MiniMax policy, validation, cancellation plan
 - `docs/todo/t15-daemon-service-productionization.md`: daemon/launchd hardening plan
 - `docs/todo/t16-proof-gates-and-release-readiness.md`: CI, coverage, and release-proof plan
+- `scripts/utils/main.go`: offline session/decision/filter/combined reporting with text/JSON/CSV output

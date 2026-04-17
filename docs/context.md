@@ -36,6 +36,10 @@ Core outcome:
 - Layer 2 now propagates caller cancellation and defaults to strict validation
 - launchd uses a dedicated `0600` env file instead of embedding MiniMax secrets
 - the coverage gate is real and the repository now proves 100% Go coverage
+- version strings are now sourced centrally and the remaining documentation
+  drift is being closed against the live codebase
+- offline savings reporting now includes session, decision, filter, and
+  combined reports with text, JSON, and CSV output
 
 Repository proof as of this task:
 
@@ -89,6 +93,19 @@ Repository proof as of this task:
 - extra tests cover hook payloads, daemon lifecycle, response cache helpers,
   TUI seams, summarization edge paths, and proxy startup races
 
+### Post-remediation hardening pass
+
+- introduced `internal/buildinfo.Version` as the single source for CLI, proxy,
+  and TUI version strings
+- moved Layer 3 cache keys to the effective forwarded body plus normalized
+  cache-relevant headers and disabled caching for explicitly stochastic requests
+- expanded analytics/debug/reporting scanner buffers to 8 MiB for large JSONL
+  records
+- completed `scripts/utils` reporting with `combined-report` plus JSON/CSV
+  formats and added unit coverage for the report helpers
+- began a documentation drift cleanup across `documentation.md`, `map.md`,
+  `changelog.md`, `scripts/README.md`, and legacy todo artifacts
+
 ## Verification Snapshot
 
 Commands used for final proof:
@@ -116,3 +133,5 @@ Fresh-eyes review artifact:
 2026-04-17 - Production-readiness remediation completed: zero-downside fix, canonical request cache
              keys, hook contract hardening, Layer 2 strictness + cancellation, launchd secret model,
              100% Go coverage, CI gate repair, fresh-eyes audit (`docs/audit-2.md`).
+2026-04-17 - Post-remediation hardening: centralized build version, stricter cache key partitioning,
+             8 MiB JSONL scan buffers, complete offline savings reports, and doc/task drift cleanup.

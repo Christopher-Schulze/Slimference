@@ -547,16 +547,22 @@ HIGH-priority content verbatim while compressing LOW-priority content more aggre
 ## 6. Layer 3: Response Caching
 
 Layer 3 caches full API responses for identical forwarded requests. The cache
-key is provider-aware and derived from the canonical JSON request body after
-whitespace and object-key ordering are normalized. On a cache hit, the stored
-response is replayed to the CLI without forwarding to the upstream API.
+key is provider-aware and derived from the canonical forwarded JSON request
+body after whitespace and object-key ordering are normalized. Semantically
+relevant headers (`Authorization`, `x-api-key`, provider version/beta headers,
+organization/project headers) are folded into the key in normalized form, with
+secret-bearing values hashed before storage. Explicitly stochastic requests
+(`stream=true`, `temperature>0`, `0<top_p<1`, `n>1`) are not cached. On a cache
+hit, the stored response is replayed to the CLI without forwarding to the
+upstream API, but the request is still accounted for in analytics and debug
+summaries as a processed cache hit.
 
 ### LRU Cache
 
 Implementation: `internal/caching/response_cache.go`. Uses an LRU eviction
 policy with a configurable maximum entry count (default: 100) and TTL
-(default: 300s / 5 minutes). The cache is keyed by SHA256 of the canonical full
-request body.
+(default: 300s / 5 minutes). The cache is keyed by SHA256 of the effective
+forwarded request plus the normalized cache-relevant headers.
 
 Thread-safe via sync.RWMutex. Read path (lookup) acquires only a read lock.
 
@@ -793,14 +799,16 @@ Key `debug`-level events emitted per request (all include req_id):
 The TUI is built with BubbleTea (event loop) and Lipgloss (styling). It runs
 in the alternate screen buffer and updates every 500ms via a tick command.
 The proxy pushes `proxyEventMsg` to the TUI program for immediate refresh on
-each new request. Version is displayed as `SLIMFERENCE v1.0.0`.
+each new request. Version is displayed as `SLIMFERENCE v2.0.2` and is sourced
+from `internal/buildinfo.Version`, which also feeds the CLI and `/health`
+endpoint.
 
 ### Main view layout
 
 The main view uses a two-column layout separated by a `│` divider:
 
 ```
- SLIMFERENCE v1.0.0                              ◷ 12m 34s  :8990
+ SLIMFERENCE v2.0.2                              ◷ 12m 34s  :8990
  ────────────────────────────────────────────────────────────────
  PROVIDERS              │ SAVINGS
   ● Claude Code  [ON] ● │  35%  12.4K → 8.1K  4.3K saved
@@ -831,7 +839,7 @@ log or QUICK START onboarding panel.
 no hooks are installed - displays the two `slimference hook install` commands and
 step-by-step instructions.
 
-**Header**: `SLIMFERENCE v1.0.0` (gold, bold) aligned left, session duration and
+**Header**: `SLIMFERENCE v2.0.2` (gold, bold) aligned left, session duration and
 port right-aligned. Separated from the body by a `─` horizontal rule.
 
 **Footer**: styled keyboard hints `[c] claude · [x] codex · [1-3] layers · ...`
@@ -1084,7 +1092,7 @@ Returns the current proxy status as JSON. All fields are live (not cached).
 {
   "status": "ok",
   "service": "slimference",
-  "version": "1.0.0",
+  "version": "2.0.2",
   "layers": {"1": true, "2": true, "3": false},
   "providers": {"anthropic": true, "openai": true},
   "queue_depth": {"compress": 0, "analytics": 0},
@@ -1201,16 +1209,25 @@ slimference filter -- go test ./...
 Exit code propagated from the subprocess. On subprocess failure, raw output
 is saved to `~/.slimference/tee/` and a recovery hint appended to filtered output.
 
-### slimference hook install|remove|verify|status <agent>
+### slimference hook install|remove <agent>
 
 Manages shell hooks for LLM agent interception. Supported agents:
 `claude`, `codex`.
 
 ```bash
-slimference hook install claude    # install Claude Code hook
-slimference hook install codex     # install Codex hooks.json + config.toml + legacy AGENTS.md helper
-slimference hook verify claude     # verify script/config coherence
-slimference hook remove claude     # uninstall
+slimference hook install claude    # install Claude Code PreToolUse hook
+slimference hook install codex     # install Codex PreToolUse + PostToolUse hooks and patch config.toml
+slimference hook remove claude     # uninstall one target
+slimference hook remove codex
+```
+
+### slimference hook verify|status
+
+Manages shell hooks for LLM agent interception. Supported agents:
+`claude`, `codex`.
+
+```bash
+slimference hook verify            # verify installed hook files and config coherence
 slimference hook status            # show installed/missing for supported agents
 ```
 
@@ -1220,6 +1237,16 @@ JSON stdin hook path: reads JSON tool invocation from stdin, applies command
 rewriting rules, prints rewritten JSON or deny response.
 
 Exit codes: 0=allow, 1=usage+JSON, 2=deny, 3=sudo-ask.
+
+### slimference posttool
+
+Reads a Codex PostToolUse hook payload from stdin, compacts captured Bash
+output, and emits `hookSpecificOutput.additionalContext` when the compacted
+form adds signal.
+
+```bash
+cat posttool.json | slimference posttool
+```
 
 ### slimference gain <today|week|month|all>
 
@@ -1263,8 +1290,28 @@ Prints the version string.
 
 ```
 slimference version
-# slimference v1.0.0
+# slimference v2.0.2
 ```
+
+### Offline savings reports (`scripts/utils`)
+
+Offline reporting helpers under `scripts/utils/` aggregate persisted savings
+data without talking to any provider:
+
+```bash
+go run ./scripts/utils session-report ~/.slimference/analytics/2026-04-17.jsonl
+go run ./scripts/utils decision-report ~/.slimference/logs/decisions.jsonl --json
+go run ./scripts/utils filter-report ~/.slimference/filter.db --csv
+go run ./scripts/utils combined-report ~/.slimference/analytics/2026-04-17.jsonl \
+  ~/.slimference/logs/decisions.jsonl \
+  ~/.slimference/filter.db
+```
+
+`session-report` reads analytics JSONL, `decision-report` reads debug
+`RequestSummary` JSONL, `filter-report` queries Layer 0 SQLite tracking, and
+`combined-report` merges proxy savings with estimated Layer 0 savings into one
+offline view. Each subcommand supports plain text by default plus `--json` and
+`--csv`.
 
 ---
 
@@ -1309,18 +1356,25 @@ disabled but the proxy will still run.
 ### Step 5: Configure Claude Code
 
 ```bash
+./slimference hook install claude
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8990
 ```
 
-Add this to your shell profile so it persists across terminal sessions.
-When Claude Code starts, it will send all API requests through the proxy.
+The hook installs Claude's PreToolUse rewrite script. Add the base URL export
+to your shell profile so it persists across terminal sessions. When Claude Code
+starts, it will send all API requests through the proxy.
 
 ### Step 6: Configure OpenAI Codex
 
-Add to `~/.codex/config.toml`:
-```toml
-openai_base_url = "http://127.0.0.1:8990"
+```bash
+./slimference hook install codex
 ```
+
+This writes Codex `PreToolUse` and `PostToolUse` entries into
+`~/.codex/hooks.json`, patches `~/.codex/config.toml` with
+`openai_base_url = "http://127.0.0.1:8990"` and `codex_hooks = true` if those
+keys are not already present, and keeps a legacy `AGENTS.md` fallback block for
+older Codex versions.
 
 ### Step 7: Start the proxy
 
@@ -1605,10 +1659,12 @@ single-line compact representations. The same git status always produces the
 same compact string. The same successful build always produces `[tool] ok`.
 
 **Impact on Layer 3 (Response Cache):**
-The SHA256 cache key is computed from the compressed message body. With L0
-pre-filtering, a "build succeeded, same files" request produces the same
-key across multiple invocations, increasing cache hit rate from roughly 5%
-to 30-40% in typical coding sessions.
+The SHA256 cache key is computed from the effective forwarded request body plus
+cache-relevant headers. With L0 pre-filtering, a "build succeeded, same files,
+same account/project context" request produces the same key across multiple
+invocations, increasing cache hit rate from roughly 5% to 30-40% in typical
+coding sessions while still partitioning requests by auth/project/version
+context.
 
 ### 17.3 MiniMax Input Reduction
 

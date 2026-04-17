@@ -55,13 +55,12 @@ func TestSessionFileStats_openError(t *testing.T) {
 	}
 }
 
-// TestSessionFileStats_scanError verifies the scanner.Err() error path via a line > 1 MB.
+// TestSessionFileStats_scanError verifies the scanner.Err() path via a line above the 8 MiB scanner limit.
 func TestSessionFileStats_scanError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bigline.jsonl")
-	// Line exceeding 1 MB scanner buffer triggers bufio.Scanner: token too long
-	bigLine := make([]byte, 2*1024*1024)
+	bigLine := make([]byte, 9*1024*1024)
 	for i := range bigLine {
 		bigLine[i] = 'x'
 	}
@@ -161,12 +160,12 @@ func TestReplaySession_nonExistentFile(t *testing.T) {
 	}
 }
 
-// TestReplaySession_scanError verifies scanner.Err() error path via a line > 2 MB.
+// TestReplaySession_scanError verifies scanner.Err() via a line above the 8 MiB scanner limit.
 func TestReplaySession_scanError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bigline.jsonl")
-	bigLine := make([]byte, 3*1024*1024)
+	bigLine := make([]byte, 9*1024*1024)
 	for i := range bigLine {
 		bigLine[i] = 'x'
 	}

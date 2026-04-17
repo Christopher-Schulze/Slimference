@@ -111,11 +111,11 @@ Komplexer, erfordert groessere Refactoring.
 
 ## Sub-Tasks
 
-- [ ] `ctxReader` implementieren
-- [ ] `streamingRelay` anpassen: ctxReader statt raw body
-- [ ] `TestStreamingRelay_contextCancelled` gruen
-- [ ] Alle existierenden Streaming-Tests gruen (kein Regression)
-- [ ] `go test -race ./internal/proxy/...` clean
+- [x] `ctxReader` implementieren
+- [x] `streamingRelay` anpassen: ctxReader statt raw body
+- [x] `TestStreamingRelay_contextCancelled` gruen
+- [x] Alle existierenden Streaming-Tests gruen (kein Regression)
+- [x] `go test -race ./internal/proxy/...` clean
 
 ## Verification
 
