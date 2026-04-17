@@ -11,12 +11,53 @@ import (
 
 // InstalledStatus returns whether the Claude hook script and Codex hooks are present.
 func InstalledStatus(home string) (claude, codex bool) {
-	claudeScript := filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh")
-	if _, err := os.Stat(claudeScript); err == nil {
-		claude = true
-	}
-	codex = CodexHookInstalled(home)
+	claude = claudeHookInstalled(home)
+	codex = codexStatusInstalled(home)
 	return claude, codex
+}
+
+func claudeHookInstalled(home string) bool {
+	claudeScript := filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh")
+	if _, err := os.Stat(claudeScript); err != nil {
+		return false
+	}
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+	return strings.Contains(string(data), "slimference-rewrite.sh")
+}
+
+func codexStatusInstalled(home string) bool {
+	if codexCoherentInstall(home) {
+		return true
+	}
+	agents := filepath.Join(home, ".codex", "AGENTS.md")
+	data, err := os.ReadFile(agents)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), codexMarkerBegin)
+}
+
+func codexCoherentInstall(home string) bool {
+	if !CodexHookInstalled(home) {
+		return false
+	}
+	if _, err := os.Stat(CodexPreHookScriptPath(home)); err != nil {
+		return false
+	}
+	if _, err := os.Stat(CodexHookScriptPath(home)); err != nil {
+		return false
+	}
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return false
+	}
+	content := string(configData)
+	return strings.Contains(content, "openai_base_url") && strings.Contains(content, "codex_hooks = true")
 }
 
 // VerifyReport lists hook files and SHA-256 hashes. ok is false when a hook installation

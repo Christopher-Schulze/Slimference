@@ -44,6 +44,11 @@
 - Corrected `AnalyticsSnapshot.CompressionRatio` to report the saved-token
   fraction and made session-log field rendering deterministic for stable
   exports and diffs.
+- Tightened hook status detection so the TUI prefers coherent Claude/Codex
+  installs over loose file presence and only uses the legacy Codex AGENTS
+  marker as a fallback signal.
+- Bounded TUI quit shutdown with a timeout context so `q` / `Ctrl+C` cannot
+  hang forever if an underlying shutdown path stalls.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.

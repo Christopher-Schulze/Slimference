@@ -17,6 +17,7 @@ import (
 
 var userHomeDirFn = os.UserHomeDir
 var writeFileFn = os.WriteFile
+var shutdownTimeout = 5 * time.Second
 
 // Version is the display version string.
 var Version = buildinfo.Version
@@ -314,7 +315,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, flashTimer(3 * time.Second)
 
 		case "q", "ctrl+c":
-			m.proxy.Shutdown(context.Background())
+			ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
+			_ = m.proxy.Shutdown(ctx)
 			return m, tea.Quit
 		}
 

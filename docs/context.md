@@ -48,6 +48,10 @@ Core outcome:
   per-provider latency averages, and reports the saved-token ratio correctly
 - session log formatting is now deterministic across runs for cleaner exports
   and diffable operator artifacts
+- hook status now reflects coherent installs more accurately instead of only
+  loose file presence, reducing false "installed" states in the TUI
+- TUI quit now uses a bounded shutdown context so a stuck shutdown path cannot
+  hang the UI indefinitely
 
 Repository proof as of this task:
 
@@ -126,6 +130,11 @@ Repository proof as of this task:
   sessions no longer skew each other's latency display
 - corrected `AnalyticsSnapshot.CompressionRatio` to the saved-token fraction
   and made `SessionLogger.Format()` key ordering deterministic
+- tightened hook status detection: Claude now checks settings wiring when
+  present, Codex prefers a coherent hooks.json+scripts+config install and only
+  falls back to the legacy AGENTS marker when modern hooks are absent
+- changed TUI `q` / `Ctrl+C` shutdown to a timed context to reduce UI hang risk
+  under pathological shutdown behavior
 
 ## Verification Snapshot
 
