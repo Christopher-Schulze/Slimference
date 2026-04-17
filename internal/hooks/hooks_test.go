@@ -699,7 +699,7 @@ func TestPatchCodexConfig_addsKeys(t *testing.T) {
 	}
 }
 
-func TestPatchCodexConfig_preservesExisting(t *testing.T) {
+func TestPatchCodexConfig_conflictingBaseURLReturnsError(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	codexDir := filepath.Join(home, ".codex")
@@ -710,19 +710,59 @@ func TestPatchCodexConfig_preservesExisting(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0644); err != nil {
 		t.Fatal(err)
 	}
+	err := patchCodexConfig(home)
+	if err == nil || !strings.Contains(err.Error(), "conflicting openai_base_url") {
+		t.Fatalf("expected conflicting openai_base_url error, got %v", err)
+	}
+}
+
+func TestPatchCodexConfig_conflictingDisabledHooksReturnsError(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	existing := "openai_base_url = \"http://127.0.0.1:8990\"\ncodex_hooks = false\n"
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := patchCodexConfig(home)
+	if err == nil || !strings.Contains(err.Error(), "conflicting codex_hooks=false") {
+		t.Fatalf("expected conflicting codex_hooks=false error, got %v", err)
+	}
+}
+
+func TestPatchCodexConfig_existingSlimferenceConfigRemainsValid(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	existing := "openai_base_url = \"http://localhost:8990/v1\"\n[features]\ncodex_hooks = true\n"
+	configPath := filepath.Join(codexDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := patchCodexConfig(home); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "custom:9999") {
-		t.Fatal("should preserve existing openai_base_url")
+	if strings.Count(content, "openai_base_url") != 1 {
+		t.Fatalf("openai_base_url should not be duplicated: %s", content)
 	}
-	if !strings.Contains(content, "codex_hooks") {
-		t.Fatal("should add codex_hooks even with existing base_url")
+	if strings.Count(content, "codex_hooks") != 1 {
+		t.Fatalf("codex_hooks should not be duplicated: %s", content)
 	}
 }
 
@@ -1041,6 +1081,70 @@ func TestCollectFeaturesSection(t *testing.T) {
 	}
 }
 
+func TestParseCodexConfigState(t *testing.T) {
+	t.Parallel()
+
+	state := parseCodexConfigState("openai_base_url = \"http://127.0.0.1:8990\" # keep\ncodex_hooks = true\n")
+	if !state.HasOpenAIBaseURL || state.OpenAIBaseURL != "http://127.0.0.1:8990" {
+		t.Fatalf("unexpected base url state: %#v", state)
+	}
+	if state.CodexHooks == nil || !*state.CodexHooks {
+		t.Fatalf("expected codex_hooks=true, got %#v", state)
+	}
+
+	state = parseCodexConfigState("openai_base_url = broken\ncodex_hooks = false\n")
+	if !state.HasOpenAIBaseURL || state.OpenAIBaseURL != "" {
+		t.Fatalf("broken quoted base url should still mark presence without parsed value: %#v", state)
+	}
+	if state.CodexHooks == nil || *state.CodexHooks {
+		t.Fatalf("expected codex_hooks=false, got %#v", state)
+	}
+
+	state = parseCodexConfigState("note without equals\ncodex_hooks = maybe\n")
+	if state.CodexHooks != nil {
+		t.Fatalf("invalid codex_hooks value should not parse: %#v", state)
+	}
+}
+
+func TestStripCodexConfigInlineComment(t *testing.T) {
+	t.Parallel()
+
+	if got := stripCodexConfigInlineComment(`openai_base_url = "http://127.0.0.1:8990#frag" # trailing`); got != `openai_base_url = "http://127.0.0.1:8990#frag"` {
+		t.Fatalf("unexpected inline comment stripping: %q", got)
+	}
+	if got := stripCodexConfigInlineComment(`codex_hooks = true # trailing`); got != `codex_hooks = true` {
+		t.Fatalf("unexpected boolean comment stripping: %q", got)
+	}
+	if got := stripCodexConfigInlineComment(`openai_base_url = "http://127.0.0.1:8990\"quoted" # trailing`); got != `openai_base_url = "http://127.0.0.1:8990\"quoted"` {
+		t.Fatalf("unexpected escaped quote handling: %q", got)
+	}
+	if got := stripCodexConfigInlineComment(`openai_base_url = "http://127.0.0.1:8990"`); got != `openai_base_url = "http://127.0.0.1:8990"` {
+		t.Fatalf("unexpected no-comment handling: %q", got)
+	}
+}
+
+func TestIsSlimferenceCodexBaseURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		raw  string
+		want bool
+	}{
+		{raw: "http://127.0.0.1:8990", want: true},
+		{raw: "http://localhost:8990/v1", want: true},
+		{raw: "http://127.0.0.1:8990/other", want: false},
+		{raw: "http://example.com:8990", want: false},
+		{raw: "http://127.0.0.1:9000", want: false},
+		{raw: "://bad-url", want: false},
+	}
+
+	for _, tc := range tests {
+		if got := isSlimferenceCodexBaseURL(tc.raw); got != tc.want {
+			t.Fatalf("isSlimferenceCodexBaseURL(%q) = %v, want %v", tc.raw, got, tc.want)
+		}
+	}
+}
+
 func TestCodexHookInstalled_noDir(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -1154,5 +1258,41 @@ func TestVerifyReport_codexLegacyUpgrade(t *testing.T) {
 	}
 	if !sawLegacy {
 		t.Fatalf("expected legacy indicator: %v", lines)
+	}
+}
+
+func TestVerifyReport_codexConfigConflict(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(CodexPreHookScriptPath(home)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CodexPreHookScriptPath(home), []byte("#!/bin/sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(CodexHookScriptPath(home), []byte("#!/bin/sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hooksJSON := `{
+  "PreToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-pre-tool.sh","statusMessage":"Slimference rewrite guard"}]}],
+  "PostToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-post-tool.sh","statusMessage":"Slimference filter"}]}]
+}`
+	if err := os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), []byte(hooksJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte("openai_base_url = \"http://example.com\"\ncodex_hooks = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lines, ok := VerifyReport(home)
+	if ok {
+		t.Fatal("verify should fail on config conflict")
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), "config conflict") {
+		t.Fatalf("expected config conflict report, got %v", lines)
 	}
 }

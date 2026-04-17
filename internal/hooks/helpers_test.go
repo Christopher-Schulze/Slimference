@@ -153,7 +153,7 @@ func TestPatchAndUnpatchCodexConfig(t *testing.T) {
 	}
 }
 
-func TestPatchCodexConfig_PreservesExistingOpenAIBaseURL(t *testing.T) {
+func TestPatchCodexConfig_ConflictingOpenAIBaseURLReturnsError(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -165,16 +165,9 @@ func TestPatchCodexConfig_PreservesExistingOpenAIBaseURL(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(raw), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := patchCodexConfig(home); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	if strings.Count(text, "openai_base_url") != 1 || !strings.Contains(text, "http://example.com") {
-		t.Fatalf("existing openai_base_url should be preserved: %s", text)
+	err := patchCodexConfig(home)
+	if err == nil || !strings.Contains(err.Error(), "conflicting openai_base_url") {
+		t.Fatalf("expected conflicting openai_base_url error, got %v", err)
 	}
 }
 

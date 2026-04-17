@@ -65,8 +65,8 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 - `internal/filter/builtin_compact_helpers.go`: shared label/empty-detection helpers
 - `internal/filter/project_filters.go`: LoadMergedDenyPatterns() - project + user filter merge
 - `internal/hooks/claude.go`: Claude Code PreToolUse structured contract + non-destructive settings.json merge/remove
-- `internal/hooks/codex.go`: Codex hooks.json PreToolUse/PostToolUse install, config.toml patch, legacy AGENTS.md fallback
-- `internal/hooks/verify.go`: authoritative Claude/Codex install verification
+- `internal/hooks/codex.go`: Codex hooks.json PreToolUse/PostToolUse install, conflict-safe config.toml patch/remove, legacy AGENTS.md fallback
+- `internal/hooks/verify.go`: authoritative Claude/Codex install verification against coherent scripts + config state
 
 ### Layer 1 - Deterministic Compression
 

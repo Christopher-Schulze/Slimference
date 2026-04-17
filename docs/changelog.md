@@ -52,6 +52,9 @@
 - Fixed Codex uninstall config cleanup so `hook remove codex` removes only
   Slimference-managed lines, preserves unrelated user `codex_hooks` and other
   `[features]` entries, and still cleans up the legacy single-flag section.
+- Hardened Codex install/verify against silent config conflicts: conflicting
+  `openai_base_url` or `codex_hooks = false` now fail fast instead of reporting
+  a broken install as healthy.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.

@@ -3,14 +3,17 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 var jsonMarshalIndentFn = json.MarshalIndent
 
 const slimferenceCodexHooksLine = "codex_hooks = true  # Slimference: enable lifecycle hooks"
+const slimferenceCodexBaseURL = "http://127.0.0.1:8990"
 
 // codexMarkerBegin/End kept for backwards compatibility with old AGENTS.md installs.
 const codexMarkerBegin = "<!-- slimference:begin -->"
@@ -185,16 +188,24 @@ func patchCodexConfig(home string) error {
 	configPath := filepath.Join(codexDir, "config.toml")
 	data, _ := os.ReadFile(configPath)
 	content := string(data)
+	state := parseCodexConfigState(content)
+
+	if state.HasOpenAIBaseURL && !isSlimferenceCodexBaseURL(state.OpenAIBaseURL) {
+		return fmt.Errorf("conflicting openai_base_url in config.toml: %q", state.OpenAIBaseURL)
+	}
+	if state.CodexHooks != nil && !*state.CodexHooks {
+		return fmt.Errorf("conflicting codex_hooks=false in config.toml")
+	}
 
 	var additions []string
 
 	// Add openai_base_url only if not already present.
-	if !strings.Contains(content, "openai_base_url") {
-		additions = append(additions, "\n# Slimference proxy endpoint\nopenai_base_url = \"http://127.0.0.1:8990\"\n")
+	if !state.HasOpenAIBaseURL {
+		additions = append(additions, "\n# Slimference proxy endpoint\nopenai_base_url = "+strconv.Quote(slimferenceCodexBaseURL)+"\n")
 	}
 
 	// Add codex_hooks feature flag only if not already present.
-	if !strings.Contains(content, "codex_hooks") {
+	if state.CodexHooks == nil {
 		if strings.Contains(content, "[features]") {
 			// Insert after [features] line
 			content = strings.Replace(content, "[features]", "[features]\n"+slimferenceCodexHooksLine, 1)
@@ -457,4 +468,85 @@ func collectFeaturesSection(lines []string, headerIndex int) (nextIndex int, ski
 		entries++
 	}
 	return nextIndex, entries == 0
+}
+
+type codexConfigState struct {
+	HasOpenAIBaseURL bool
+	OpenAIBaseURL    string
+	CodexHooks       *bool
+}
+
+func parseCodexConfigState(content string) codexConfigState {
+	lines := strings.Split(content, "\n")
+	state := codexConfigState{}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		withoutComment := stripCodexConfigInlineComment(trimmed)
+		key, value, ok := strings.Cut(withoutComment, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		switch key {
+		case "openai_base_url":
+			state.HasOpenAIBaseURL = true
+			if unquoted, err := strconv.Unquote(value); err == nil {
+				state.OpenAIBaseURL = unquoted
+			}
+		case "codex_hooks":
+			if parsed, err := strconv.ParseBool(value); err == nil {
+				parsedCopy := parsed
+				state.CodexHooks = &parsedCopy
+			}
+		}
+	}
+	return state
+}
+
+func stripCodexConfigInlineComment(s string) string {
+	inQuote := false
+	escaped := false
+	for i, r := range s {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch r {
+		case '\\':
+			if inQuote {
+				escaped = true
+			}
+		case '"':
+			inQuote = !inQuote
+		case '#':
+			if !inQuote {
+				return strings.TrimSpace(s[:i])
+			}
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+func isSlimferenceCodexBaseURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host != "127.0.0.1" && host != "localhost" {
+		return false
+	}
+	if u.Port() != "8990" {
+		return false
+	}
+	switch strings.TrimRight(u.EscapedPath(), "/") {
+	case "", "/v1":
+		return true
+	default:
+		return false
+	}
 }

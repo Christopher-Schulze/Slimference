@@ -138,6 +138,9 @@ Repository proof as of this task:
 - fixed Codex uninstall cleanup so `hook remove codex` only removes
   Slimference-managed config lines and preserves unrelated user-owned
   `codex_hooks` or other `[features]` entries
+- hardened Codex install/verify so conflicting `openai_base_url` or
+  `codex_hooks = false` now fail fast instead of silently leaving a broken
+  install that still looks healthy
 
 ## Verification Snapshot
 

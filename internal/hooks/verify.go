@@ -56,8 +56,8 @@ func codexCoherentInstall(home string) bool {
 	if err != nil {
 		return false
 	}
-	content := string(configData)
-	return strings.Contains(content, "openai_base_url") && strings.Contains(content, "codex_hooks = true")
+	state := parseCodexConfigState(string(configData))
+	return codexConfigOperational(state)
 }
 
 // VerifyReport lists hook files and SHA-256 hashes. ok is false when a hook installation
@@ -98,12 +98,14 @@ func VerifyReport(home string) (lines []string, ok bool) {
 				ok = false
 			}
 			if configData, cerr := os.ReadFile(configPath); cerr == nil {
-				content := string(configData)
-				hasBaseURL := strings.Contains(content, "openai_base_url")
-				hasHooksFlag := strings.Contains(content, "codex_hooks = true")
-				if hasBaseURL && hasHooksFlag {
+				state := parseCodexConfigState(string(configData))
+				switch codexConfigStatus(state) {
+				case "ok":
 					lines = append(lines, fmt.Sprintf("codex   %s  config OK", configPath))
-				} else {
+				case "conflict":
+					lines = append(lines, fmt.Sprintf("codex   %s  config conflict", configPath))
+					ok = false
+				default:
 					lines = append(lines, fmt.Sprintf("codex   %s  config incomplete", configPath))
 					ok = false
 				}
@@ -131,4 +133,18 @@ func VerifyReport(home string) (lines []string, ok bool) {
 		}
 	}
 	return lines, ok
+}
+
+func codexConfigOperational(state codexConfigState) bool {
+	return codexConfigStatus(state) == "ok"
+}
+
+func codexConfigStatus(state codexConfigState) string {
+	if !state.HasOpenAIBaseURL || state.CodexHooks == nil {
+		return "incomplete"
+	}
+	if !isSlimferenceCodexBaseURL(state.OpenAIBaseURL) || !*state.CodexHooks {
+		return "conflict"
+	}
+	return "ok"
 }

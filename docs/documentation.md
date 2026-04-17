@@ -237,8 +237,10 @@ are checked in order. Finally, passthrough truncation limits output to
   `~/.slimference/hooks/codex-post-tool.sh`, merges `PreToolUse` and
   `PostToolUse` entries into `~/.codex/hooks.json`, patches
   `~/.codex/config.toml`, and keeps a legacy AGENTS.md helper block for older
-  setups. Removal is conservative: Slimference-managed config lines are removed
-  without stripping unrelated user `codex_hooks` or other `[features]` entries.
+  setups. Installation now fails fast on conflicting Codex config instead of
+  silently leaving a broken setup behind. Removal is conservative:
+  Slimference-managed config lines are removed without stripping unrelated user
+  `codex_hooks` or other `[features]` entries.
 
 ### TOML Filter DSL
 
@@ -1382,7 +1384,9 @@ This writes Codex `PreToolUse` and `PostToolUse` entries into
 `~/.codex/hooks.json`, patches `~/.codex/config.toml` with
 `openai_base_url = "http://127.0.0.1:8990"` and `codex_hooks = true` if those
 keys are not already present, and keeps a legacy `AGENTS.md` fallback block for
-older Codex versions. `slimference hook remove codex` removes only
+older Codex versions. If `config.toml` already contains a conflicting
+`openai_base_url` or `codex_hooks = false`, install fails explicitly instead of
+pretending success. `slimference hook remove codex` removes only
 Slimference-managed config additions and preserves unrelated user-owned
 `[features]` entries.
 
