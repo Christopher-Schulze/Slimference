@@ -10,6 +10,8 @@ import (
 
 var jsonMarshalIndentFn = json.MarshalIndent
 
+const slimferenceCodexHooksLine = "codex_hooks = true  # Slimference: enable lifecycle hooks"
+
 // codexMarkerBegin/End kept for backwards compatibility with old AGENTS.md installs.
 const codexMarkerBegin = "<!-- slimference:begin -->"
 const codexMarkerEnd = "<!-- slimference:end -->"
@@ -195,9 +197,9 @@ func patchCodexConfig(home string) error {
 	if !strings.Contains(content, "codex_hooks") {
 		if strings.Contains(content, "[features]") {
 			// Insert after [features] line
-			content = strings.Replace(content, "[features]", "[features]\ncodex_hooks = true  # Slimference: enable lifecycle hooks", 1)
+			content = strings.Replace(content, "[features]", "[features]\n"+slimferenceCodexHooksLine, 1)
 		} else {
-			additions = append(additions, "\n[features]\ncodex_hooks = true  # Slimference: enable lifecycle hooks\n")
+			additions = append(additions, "\n[features]\n"+slimferenceCodexHooksLine+"\n")
 		}
 	}
 
@@ -287,30 +289,7 @@ func unpatchCodexConfig(home string) error {
 		}
 		return err
 	}
-	content := string(data)
-
-	// Remove Slimference comment lines and openai_base_url line.
-	lines := strings.Split(content, "\n")
-	var cleaned []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "# Slimference") {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "openai_base_url") && strings.Contains(trimmed, "8990") {
-			continue
-		}
-		if trimmed == "codex_hooks = true" || strings.HasPrefix(trimmed, "codex_hooks = true") {
-			continue
-		}
-		cleaned = append(cleaned, line)
-	}
-
-	result := strings.Join(cleaned, "\n")
-	// Clean up empty [features] section.
-	result = strings.Replace(result, "[features]\n\n", "", 1)
-	result = strings.Replace(result, "[features]\n", "", 1)
-
+	result := cleanCodexConfigAfterSlimference(string(data))
 	return os.WriteFile(configPath, []byte(result), 0644)
 }
 
@@ -431,4 +410,51 @@ func codexEntryHasSlimferenceHook(entry interface{}) bool {
 		}
 	}
 	return false
+}
+
+func cleanCodexConfigAfterSlimference(content string) string {
+	lines := strings.Split(content, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "# Slimference") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "openai_base_url") && strings.Contains(trimmed, "8990") {
+			continue
+		}
+		if trimmed == slimferenceCodexHooksLine {
+			continue
+		}
+		if trimmed == "[features]" {
+			next, skip := collectFeaturesSection(lines, i)
+			if skip {
+				i = next - 1
+				continue
+			}
+		}
+		cleaned = append(cleaned, line)
+	}
+	return strings.Join(cleaned, "\n")
+}
+
+func collectFeaturesSection(lines []string, headerIndex int) (nextIndex int, skip bool) {
+	nextIndex = len(lines)
+	entries := 0
+	for i := headerIndex + 1; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			nextIndex = i
+			break
+		}
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if trimmed == "codex_hooks = true" {
+			continue
+		}
+		entries++
+	}
+	return nextIndex, entries == 0
 }

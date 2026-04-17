@@ -135,6 +135,9 @@ Repository proof as of this task:
   falls back to the legacy AGENTS marker when modern hooks are absent
 - changed TUI `q` / `Ctrl+C` shutdown to a timed context to reduce UI hang risk
   under pathological shutdown behavior
+- fixed Codex uninstall cleanup so `hook remove codex` only removes
+  Slimference-managed config lines and preserves unrelated user-owned
+  `codex_hooks` or other `[features]` entries
 
 ## Verification Snapshot
 

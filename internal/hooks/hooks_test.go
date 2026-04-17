@@ -904,6 +904,85 @@ codex_hooks = true  # Slimference: enable lifecycle hooks
 	}
 }
 
+func TestUnpatchCodexConfig_preservesUserManagedFeatures(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := `model = "gpt-5"
+# Slimference proxy endpoint
+openai_base_url = "http://127.0.0.1:8990"
+
+[features]
+codex_hooks = true
+other = true
+`
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := unpatchCodexConfig(home); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := string(data)
+	if strings.Contains(result, "openai_base_url") {
+		t.Fatalf("openai_base_url should be removed: %s", result)
+	}
+	if !strings.Contains(result, "[features]") {
+		t.Fatalf("[features] should be preserved when user-managed entries remain: %s", result)
+	}
+	if !strings.Contains(result, "codex_hooks = true") {
+		t.Fatalf("user-managed codex_hooks should be preserved: %s", result)
+	}
+	if !strings.Contains(result, "other = true") {
+		t.Fatalf("other feature should be preserved: %s", result)
+	}
+}
+
+func TestUnpatchCodexConfig_removesLegacySingleHookFeaturesSection(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := `model = "gpt-5"
+[features]
+codex_hooks = true
+`
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := unpatchCodexConfig(home); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := string(data)
+	if strings.Contains(result, "[features]") {
+		t.Fatalf("empty legacy features section should be removed: %s", result)
+	}
+	if strings.Contains(result, "codex_hooks = true") {
+		t.Fatalf("legacy codex_hooks line should be removed when it is the only feature: %s", result)
+	}
+	if !strings.Contains(result, `model = "gpt-5"`) {
+		t.Fatalf("model should be preserved: %s", result)
+	}
+}
+
 func TestRemoveCodexHooksJSON_invalidJSON(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -917,6 +996,48 @@ func TestRemoveCodexHooksJSON_invalidJSON(t *testing.T) {
 	// Invalid JSON should return nil (graceful)
 	if err := removeCodexHooksJSON(home); err != nil {
 		t.Fatalf("invalid JSON should be handled gracefully: %v", err)
+	}
+}
+
+func TestCollectFeaturesSection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		lines    []string
+		wantNext int
+		wantSkip bool
+	}{
+		{
+			name:     "legacy_only_until_next_section",
+			lines:    []string{"[features]", "codex_hooks = true", "[other]"},
+			wantNext: 2,
+			wantSkip: true,
+		},
+		{
+			name:     "user_entries_keep_section",
+			lines:    []string{"[features]", "other = true", "[other]"},
+			wantNext: 2,
+			wantSkip: false,
+		},
+		{
+			name:     "comments_and_blank_are_ignored",
+			lines:    []string{"[features]", "# note", "", "codex_hooks = true"},
+			wantNext: 4,
+			wantSkip: true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotNext, gotSkip := collectFeaturesSection(tc.lines, 0)
+			if gotNext != tc.wantNext || gotSkip != tc.wantSkip {
+				t.Fatalf("collectFeaturesSection(%q) = (%d, %v), want (%d, %v)", tc.lines, gotNext, gotSkip, tc.wantNext, tc.wantSkip)
+			}
+		})
 	}
 }
 

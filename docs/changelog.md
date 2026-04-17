@@ -49,6 +49,9 @@
   marker as a fallback signal.
 - Bounded TUI quit shutdown with a timeout context so `q` / `Ctrl+C` cannot
   hang forever if an underlying shutdown path stalls.
+- Fixed Codex uninstall config cleanup so `hook remove codex` removes only
+  Slimference-managed lines, preserves unrelated user `codex_hooks` and other
+  `[features]` entries, and still cleans up the legacy single-flag section.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.
