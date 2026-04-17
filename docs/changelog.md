@@ -75,6 +75,10 @@
   events are less likely to trip local scanner overflow.
 - Tightened TUI debug-log exports to user-only permissions (`0700` export
   directory, `0600` exported files).
+- Made recursive hook JSON key lookup deterministic so nested `command` /
+  `tool_response` extraction no longer depends on Go map iteration order.
+- Hardened Codex install preflight again: malformed existing `~/.codex/hooks.json`
+  now aborts install before any Slimference scripts or config are written.
 - Tightened the offline savings toolchain in `scripts/utils`: real
   `session-report`, `decision-report`, `filter-report`, and `combined-report`
   outputs now exist with text, JSON, and CSV formats.

@@ -650,6 +650,46 @@ func TestInstallCodexHooksJSON_idempotent(t *testing.T) {
 	}
 }
 
+func TestInstallCodexHooksJSON_invalidExistingJSONFailsWithoutOverwrite(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+	if err := os.WriteFile(hooksPath, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(home, "script.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho hi\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := installCodexHooksJSON(home, scriptPath)
+	if err == nil || !strings.Contains(err.Error(), "parse hooks.json") {
+		t.Fatalf("expected parse hooks.json error, got %v", err)
+	}
+	data, readErr := os.ReadFile(hooksPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "{" {
+		t.Fatalf("invalid hooks.json must be preserved, got %q", string(data))
+	}
+}
+
+func TestInstallCodexHooksJSONWithScripts_MkdirError(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".codex"), []byte("blocker"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := installCodexHooksJSONWithScripts(home, "/tmp/pre.sh", "/tmp/post.sh")
+	if err == nil {
+		t.Fatal("expected mkdir error for .codex blocker file")
+	}
+}
+
 func TestRemoveCodexHooksJSON_removesEntry(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -735,6 +775,73 @@ func TestPatchCodexConfig_conflictingDisabledHooksReturnsError(t *testing.T) {
 	}
 }
 
+func TestInstallCodex_preflightConflictDoesNotWriteScripts(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte("openai_base_url = \"http://example.com\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := InstallCodex(home, "slimference")
+	if err == nil || !strings.Contains(err.Error(), "conflicting openai_base_url") {
+		t.Fatalf("expected conflicting openai_base_url error, got %v", err)
+	}
+	if _, statErr := os.Stat(CodexPreHookScriptPath(home)); !os.IsNotExist(statErr) {
+		t.Fatalf("pre-hook script should not be created on preflight failure, stat err=%v", statErr)
+	}
+	if _, statErr := os.Stat(CodexHookScriptPath(home)); !os.IsNotExist(statErr) {
+		t.Fatalf("post-hook script should not be created on preflight failure, stat err=%v", statErr)
+	}
+}
+
+func TestInstallCodex_preflightInvalidHooksJSONDoesNotWriteScripts(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+	if err := os.WriteFile(hooksPath, []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := InstallCodex(home, "slimference")
+	if err == nil || !strings.Contains(err.Error(), "parse hooks.json") {
+		t.Fatalf("expected parse hooks.json error, got %v", err)
+	}
+	if _, statErr := os.Stat(CodexPreHookScriptPath(home)); !os.IsNotExist(statErr) {
+		t.Fatalf("pre-hook script should not be created on invalid hooks.json, stat err=%v", statErr)
+	}
+	if _, statErr := os.Stat(CodexHookScriptPath(home)); !os.IsNotExist(statErr) {
+		t.Fatalf("post-hook script should not be created on invalid hooks.json, stat err=%v", statErr)
+	}
+	data, readErr := os.ReadFile(hooksPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != "{" {
+		t.Fatalf("invalid hooks.json must be preserved, got %q", string(data))
+	}
+}
+
+func TestInstallCodex_agentsFallbackErrorIsIgnored(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	agentsPath := filepath.Join(home, ".codex", "AGENTS.md")
+	if err := os.MkdirAll(agentsPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := InstallCodex(home, "slimference"); err != nil {
+		t.Fatalf("modern Codex install should succeed even when legacy AGENTS fallback fails: %v", err)
+	}
+	if !CodexHookInstalled(home) {
+		t.Fatal("modern hooks.json install should still succeed when AGENTS fallback fails")
+	}
+}
+
 func TestPatchCodexConfig_existingSlimferenceConfigRemainsValid(t *testing.T) {
 	t.Parallel()
 
@@ -763,6 +870,35 @@ func TestPatchCodexConfig_existingSlimferenceConfigRemainsValid(t *testing.T) {
 	}
 	if strings.Count(content, "codex_hooks") != 1 {
 		t.Fatalf("codex_hooks should not be duplicated: %s", content)
+	}
+}
+
+func TestReadExistingCodexHooksJSON_emptyFile(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	hooksPath := filepath.Join(home, ".codex", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := readExistingCodexHooksJSON(hooksPath)
+	if err == nil || !strings.Contains(err.Error(), "empty file") {
+		t.Fatalf("expected empty file parse error, got %v", err)
+	}
+}
+
+func TestReadExistingCodexHooksJSON_readError(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	hooksPath := filepath.Join(home, ".codex", "hooks.json")
+	if err := os.MkdirAll(hooksPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := readExistingCodexHooksJSON(hooksPath)
+	if err == nil {
+		t.Fatal("expected read error when hooks.json path is a directory")
 	}
 }
 

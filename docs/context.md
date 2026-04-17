@@ -200,3 +200,6 @@ Fresh-eyes review artifact:
 2026-04-17 - Structured deep-screen pass: OpenAI structured content now roundtrips without
              stringification, SSE relay tolerates 8 MiB frames, and exported debug logs use
              user-only permissions.
+2026-04-17 - Structured safety pass: recursive hook JSON extraction now traverses
+             sibling keys deterministically, and Codex install preflights malformed
+             hooks.json / config conflicts before any repo-managed files are written.

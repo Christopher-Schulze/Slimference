@@ -1411,7 +1411,8 @@ This writes Codex `PreToolUse` and `PostToolUse` entries into
 `openai_base_url = "http://127.0.0.1:8990"` and `codex_hooks = true` if those
 keys are not already present, and keeps a legacy `AGENTS.md` fallback block for
 older Codex versions. If `config.toml` already contains a conflicting
-`openai_base_url` or `codex_hooks = false`, install fails explicitly instead of
+`openai_base_url` or `codex_hooks = false`, or if `~/.codex/hooks.json` is
+malformed, install fails explicitly before mutating user files instead of
 pretending success. `slimference hook remove codex` removes only
 Slimference-managed config additions and preserves unrelated user-owned
 `[features]` entries.

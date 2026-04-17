@@ -85,8 +85,8 @@ func TestInstallCodex_InstallHooksJSONError(t *testing.T) {
 		t.Fatalf("write blocker: %v", err)
 	}
 	err := InstallCodex(home, "slimference")
-	if err == nil || !strings.Contains(err.Error(), "write hooks.json") {
-		t.Fatalf("expected hooks.json error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "hooks.json") {
+		t.Fatalf("expected hooks.json path error, got %v", err)
 	}
 }
 
@@ -100,8 +100,8 @@ func TestInstallCodex_PatchConfigError(t *testing.T) {
 		t.Fatalf("mkdir config path: %v", err)
 	}
 	err := InstallCodex(home, "slimference")
-	if err == nil || !strings.Contains(err.Error(), "patch config.toml") {
-		t.Fatalf("expected patch config error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "config.toml") {
+		t.Fatalf("expected config.toml path error, got %v", err)
 	}
 }
 

@@ -99,6 +99,10 @@ printf '%%s' "$INPUT" | %s posttool
 // If a hooks.json already exists with Slimference entries, it is not modified.
 // If config.toml already has openai_base_url set, the value is not overwritten.
 func InstallCodex(home string, slimferenceCmd string) error {
+	if err := validateCodexInstallPreconditions(home); err != nil {
+		return err
+	}
+
 	// Step 1: Write hook scripts to ~/.slimference/hooks/
 	hooksDir := filepath.Join(home, ".slimference", "hooks")
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
@@ -144,9 +148,9 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 
 	hooksPath := filepath.Join(codexDir, "hooks.json")
 
-	existing := make(map[string]interface{})
-	if data, err := os.ReadFile(hooksPath); err == nil {
-		_ = json.Unmarshal(data, &existing)
+	existing, err := readExistingCodexHooksJSON(hooksPath)
+	if err != nil {
+		return err
 	}
 
 	existing["PreToolUse"] = mergeCodexHookEntries(existing["PreToolUse"], map[string]interface{}{
@@ -177,6 +181,50 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 	return os.WriteFile(hooksPath, append(data, '\n'), 0644)
 }
 
+func validateCodexInstallPreconditions(home string) error {
+	hooksPath := filepath.Join(home, ".codex", "hooks.json")
+	if _, err := readExistingCodexHooksJSON(hooksPath); err != nil {
+		return err
+	}
+	return validateCodexConfig(filepath.Join(home, ".codex", "config.toml"))
+}
+
+func readExistingCodexHooksJSON(hooksPath string) (map[string]interface{}, error) {
+	existing := make(map[string]interface{})
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return existing, nil
+		}
+		return nil, err
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, fmt.Errorf("parse hooks.json: empty file")
+	}
+	if err := json.Unmarshal(data, &existing); err != nil {
+		return nil, fmt.Errorf("parse hooks.json: %w", err)
+	}
+	return existing, nil
+}
+
+func validateCodexConfig(configPath string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	state := parseCodexConfigState(string(data))
+	if state.HasOpenAIBaseURL && !isSlimferenceCodexBaseURL(state.OpenAIBaseURL) {
+		return fmt.Errorf("conflicting openai_base_url in config.toml: %q", state.OpenAIBaseURL)
+	}
+	if state.CodexHooks != nil && !*state.CodexHooks {
+		return fmt.Errorf("conflicting codex_hooks=false in config.toml")
+	}
+	return nil
+}
+
 // patchCodexConfig merges Slimference settings into ~/.codex/config.toml.
 // Only adds keys that don't already exist.
 func patchCodexConfig(home string) error {
@@ -188,14 +236,10 @@ func patchCodexConfig(home string) error {
 	configPath := filepath.Join(codexDir, "config.toml")
 	data, _ := os.ReadFile(configPath)
 	content := string(data)
+	if err := validateCodexConfig(configPath); err != nil {
+		return err
+	}
 	state := parseCodexConfigState(content)
-
-	if state.HasOpenAIBaseURL && !isSlimferenceCodexBaseURL(state.OpenAIBaseURL) {
-		return fmt.Errorf("conflicting openai_base_url in config.toml: %q", state.OpenAIBaseURL)
-	}
-	if state.CodexHooks != nil && !*state.CodexHooks {
-		return fmt.Errorf("conflicting codex_hooks=false in config.toml")
-	}
 
 	var additions []string
 

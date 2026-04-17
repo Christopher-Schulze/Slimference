@@ -65,6 +65,20 @@ func TestFindStringForKey_direct(t *testing.T) {
 	}
 }
 
+func TestFindStringForKey_deterministicSiblingTraversal(t *testing.T) {
+	t.Parallel()
+	for range 50 {
+		v := map[string]interface{}{
+			"z": map[string]interface{}{"command": "z-last"},
+			"a": map[string]interface{}{"command": "a-first"},
+		}
+		s, ok := findStringForKey(v, "command")
+		if !ok || s != "a-first" {
+			t.Fatalf("deterministic traversal failed: got %q ok=%v", s, ok)
+		}
+	}
+}
+
 // --- RewriteCommand tests (spec+.md §4.2) ---
 
 func TestRewriteCommand_SimpleGit(t *testing.T) {

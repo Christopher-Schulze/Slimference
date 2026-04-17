@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -237,8 +238,13 @@ func findStringForKey(v interface{}, key string) (string, bool) {
 		if s, ok := t[key].(string); ok && s != "" {
 			return s, true
 		}
-		for _, vv := range t {
-			if s, ok := findStringForKey(vv, key); ok {
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if s, ok := findStringForKey(t[k], key); ok {
 				return s, true
 			}
 		}
