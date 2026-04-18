@@ -61,8 +61,10 @@ func defaultsRaw() *Config {
 					{MsgCountLE: 120, Threshold: 0.55},
 					{MsgCountLE: 1_000_000, Threshold: 0.40},
 				},
-				OverflowSlidingWindow: 2,
-				OverflowTargetRatio:   0.10,
+				OverflowSlidingWindow:      2,
+				OverflowTargetRatio:        0.10,
+				StructureInWindow:          false,
+				StructureInWindowMinTokens: 1500,
 			},
 		},
 		Cache: CacheConfig{
@@ -169,6 +171,13 @@ threshold = 0.55
 [[compression.tuning.incremental_staircase]]
 msg_count_le = 1000000
 threshold = 0.40
+
+# T24: allow Layer 1 structure extraction on large tool_result blocks even
+# when they fall inside the sliding window. Conservative default: off.
+# When enabled, only tool_result blocks above structure_in_window_min_tokens
+# and not on the last message are eligible.
+structure_in_window = false
+structure_in_window_min_tokens = 1500
 
 [cache]
 response_cache_max_entries = 100

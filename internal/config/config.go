@@ -123,6 +123,16 @@ type TuningConfig struct {
 	// OverflowTargetRatio is the aggressive summary target ratio used during
 	// overflow recover. Default 0.10.
 	OverflowTargetRatio float64 `toml:"overflow_target_ratio"`
+	// StructureInWindow enables Layer 1 structure extraction (signature-only
+	// compression) for tool_result blocks inside the sliding window. Default
+	// false. When enabled, large code blocks older than the most recent
+	// message can have their bodies elided once they exceed
+	// StructureInWindowMinTokens.
+	StructureInWindow bool `toml:"structure_in_window"`
+	// StructureInWindowMinTokens is the minimum estimated token count for an
+	// in-window tool_result block to be eligible for structure extraction.
+	// Default 1500 (conservative: half of a typical file read).
+	StructureInWindowMinTokens int `toml:"structure_in_window_min_tokens"`
 }
 
 // StaircaseStep is one tier of a conversation-size-keyed threshold staircase.

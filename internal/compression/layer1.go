@@ -61,6 +61,19 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 
 	prefixEnd := CompressiblePrefixEnd(messages, c.cfg.SlidingWindow)
 	if prefixEnd <= 0 {
+		// T24: even when the compressible prefix is empty, in-window
+		// structure extraction (opt-in) can still compress large tool
+		// outputs in the middle of the conversation.
+		if c.cfg.Tuning.StructureInWindow && len(messages) >= 2 {
+			out := make([]types.Message, len(messages))
+			copy(out, messages)
+			saved := c.structureInWindowPass(out, 0)
+			if saved > 0 {
+				result.StructureSaved = saved
+				result.TokensSaved = saved
+				result.Messages = out
+			}
+		}
 		return result
 	}
 
@@ -85,6 +98,14 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 	// Cross-message optimizations (L1.12 and L1.13)
 	result.RepeatedCollapseSaved = c.toolCallIndex.CollapseRepeated(out, prefixEnd)
 	result.GraphPruningSaved = c.fileOpGraph.PruneRedundant(out, prefixEnd)
+
+	// T24: opt-in in-window structure extraction. Walks the tail of the
+	// sliding window (excluding the very last message) and signatures large
+	// tool_result blocks. Disabled by default; safety invariants are
+	// enforced inside shouldStructureInWindow.
+	if c.cfg.Tuning.StructureInWindow && prefixEnd < len(out)-1 {
+		result.StructureSaved += c.structureInWindowPass(out, prefixEnd)
+	}
 
 	result.TokensSaved = result.JSONSaved + result.CommentSaved + result.StructureSaved + result.DeltaSaved +
 		result.DedupSaved + result.ANSISaved + result.SuccessShortSaved +
