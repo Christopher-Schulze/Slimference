@@ -208,6 +208,45 @@ func TestValidate_InvalidSecretsMode(t *testing.T) {
 	}
 }
 
+// TestValidate_InvalidTuning verifies the new [compression.tuning] range
+// checks (T22) reject out-of-range values.
+func TestValidate_InvalidTuning(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		apply func(c *Config)
+	}{
+		{"incremental_overlap_threshold negative", func(c *Config) {
+			c.Compression.Tuning.IncrementalOverlapThreshold = -0.1
+		}},
+		{"incremental_overlap_threshold too high", func(c *Config) {
+			c.Compression.Tuning.IncrementalOverlapThreshold = 1.1
+		}},
+		{"overflow_sliding_window zero", func(c *Config) {
+			c.Compression.Tuning.OverflowSlidingWindow = 0
+		}},
+		{"overflow_target_ratio negative", func(c *Config) {
+			c.Compression.Tuning.OverflowTargetRatio = -0.5
+		}},
+		{"overflow_target_ratio too high", func(c *Config) {
+			c.Compression.Tuning.OverflowTargetRatio = 1.5
+		}},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Defaults()
+			tc.apply(cfg)
+			if err := validate(cfg); err == nil {
+				t.Errorf("validate() expected error for %s, got nil", tc.name)
+			}
+		})
+	}
+}
+
 // TestListenURL verifies the ListenURL helper formats the full URL.
 func TestListenURL(t *testing.T) {
 	t.Parallel()

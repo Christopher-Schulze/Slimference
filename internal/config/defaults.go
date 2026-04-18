@@ -41,6 +41,11 @@ func Defaults() *Config {
 				MinRatio:    0.05,
 				Strict:      true,
 			},
+			Tuning: TuningConfig{
+				IncrementalOverlapThreshold: 0.70,
+				OverflowSlidingWindow:       2,
+				OverflowTargetRatio:         0.10,
+			},
 		},
 		Cache: CacheConfig{
 			ResponseCacheMaxEntries:       100,
@@ -115,6 +120,17 @@ target_ratio = 0.20
 max_ratio = 0.40
 min_ratio = 0.05
 strict = true
+
+[compression.tuning]
+# Incremental-summary overlap threshold: if an existing summary covers at
+# least this fraction of the compressible range, do an incremental update
+# instead of a full rebuild.
+incremental_overlap_threshold = 0.70
+# Aggressive sliding window used only when upstream reports a context
+# overflow (spec+.md §17.4).
+overflow_sliding_window = 2
+# Aggressive summary target ratio for the overflow recover path.
+overflow_target_ratio = 0.10
 
 [cache]
 response_cache_max_entries = 100

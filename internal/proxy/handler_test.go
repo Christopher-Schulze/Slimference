@@ -257,6 +257,30 @@ func TestBuildAggressiveCompressedBody_enqueuesAsyncJob(t *testing.T) {
 	}
 }
 
+// TestAggressiveTuningHelpers_defaults asserts the tuning fallbacks fire when
+// the legacy config did not set them (T22).
+func TestAggressiveTuningHelpers_defaults(t *testing.T) {
+	t.Parallel()
+	if got := aggressiveSlidingWindow(0); got != 2 {
+		t.Errorf("aggressiveSlidingWindow(0) = %d, want 2", got)
+	}
+	if got := aggressiveSlidingWindow(-5); got != 2 {
+		t.Errorf("aggressiveSlidingWindow(-5) = %d, want 2", got)
+	}
+	if got := aggressiveSlidingWindow(3); got != 3 {
+		t.Errorf("aggressiveSlidingWindow(3) = %d, want 3", got)
+	}
+	if got := aggressiveTargetRatio(0); got != 0.10 {
+		t.Errorf("aggressiveTargetRatio(0) = %v, want 0.10", got)
+	}
+	if got := aggressiveTargetRatio(-0.2); got != 0.10 {
+		t.Errorf("aggressiveTargetRatio(-0.2) = %v, want 0.10", got)
+	}
+	if got := aggressiveTargetRatio(0.25); got != 0.25 {
+		t.Errorf("aggressiveTargetRatio(0.25) = %v, want 0.25", got)
+	}
+}
+
 // TestBuildAggressiveCompressedBody_asyncQueueFullFallsThrough verifies the
 // default case of the non-blocking select fires when the queue is already
 // full - the recover path must still return successfully.

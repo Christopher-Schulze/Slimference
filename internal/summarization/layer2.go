@@ -139,7 +139,7 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 	existingSummaryPrefix := ""
 	if existing != nil && existingRange[1] > 0 {
 		coveredFraction := float64(existingRange[1]) / float64(boundaryIdx)
-		if coveredFraction >= 0.70 {
+		if coveredFraction >= l.incrementalOverlapThreshold() {
 			// Only compress the delta since the last covered message.
 			newStart := existingRange[1] + 1
 			if newStart <= boundaryIdx {
@@ -299,17 +299,28 @@ func (l *Layer2) ShouldTriggerCompression(messages []types.Message) bool {
 
 	_, existingRange := l.cache.GetCurrent()
 
-	// Trigger if less than 70% of the compressible range is already covered.
+	// Trigger if the existing summary covers less than the configured
+	// incremental-overlap threshold of the compressible range.
 	boundaryIdx := prefixEnd - 1
 	if boundaryIdx <= 0 {
 		return true
 	}
 	coveredFraction := float64(existingRange[1]) / float64(boundaryIdx)
-	return coveredFraction < 0.70
+	return coveredFraction < l.incrementalOverlapThreshold()
 }
 
 func (l *Layer2) hasConfiguredProvider() bool {
 	return l.chain != nil && l.chain.ActiveProviderName() != ""
+}
+
+// incrementalOverlapThreshold reads the configured tuning knob, falling back
+// to 0.70 if the config was loaded with a zero value (legacy configs).
+func (l *Layer2) incrementalOverlapThreshold() float64 {
+	v := l.cfg.Tuning.IncrementalOverlapThreshold
+	if v <= 0 {
+		return 0.70
+	}
+	return v
 }
 
 // FormatMessagesForSummarization renders messages as readable plain text for MiniMax.

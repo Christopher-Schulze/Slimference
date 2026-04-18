@@ -117,6 +117,24 @@ func TestLayer2_GetCache(t *testing.T) {
 	}
 }
 
+// TestLayer2_incrementalOverlapThresholdDefault verifies the fallback to the
+// historical 0.70 when a legacy config did not specify the tuning knob (T22).
+func TestLayer2_incrementalOverlapThresholdDefault(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	cfg.Tuning.IncrementalOverlapThreshold = 0
+	l := NewLayer2(&cfg)
+	if got := l.incrementalOverlapThreshold(); got != 0.70 {
+		t.Fatalf("expected fallback 0.70 when tuning is 0, got %v", got)
+	}
+
+	cfg.Tuning.IncrementalOverlapThreshold = 0.55
+	l = NewLayer2(&cfg)
+	if got := l.incrementalOverlapThreshold(); got != 0.55 {
+		t.Fatalf("expected configured 0.55, got %v", got)
+	}
+}
+
 func TestHashMessages(t *testing.T) {
 	t.Parallel()
 	a := hashMessages(nil)

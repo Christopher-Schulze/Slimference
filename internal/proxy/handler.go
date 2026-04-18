@@ -695,8 +695,8 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 		return nil, err
 	}
 	cfg := p.config.Compression
-	cfg.SlidingWindow = 2
-	cfg.Summary.TargetRatio = 0.10
+	cfg.SlidingWindow = aggressiveSlidingWindow(cfg.Tuning.OverflowSlidingWindow)
+	cfg.Summary.TargetRatio = aggressiveTargetRatio(cfg.Tuning.OverflowTargetRatio)
 	if cfg.Summary.TargetRatio < cfg.Summary.MinRatio {
 		cfg.Summary.TargetRatio = cfg.Summary.MinRatio
 	}
@@ -722,6 +722,24 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 	}
 
 	return reconstructBodyFn(stash.provider, stash.origBody, msgs)
+}
+
+// aggressiveSlidingWindow returns the configured overflow sliding window,
+// defaulting to 2 when the tuning block is empty (legacy configs).
+func aggressiveSlidingWindow(v int) int {
+	if v < 1 {
+		return 2
+	}
+	return v
+}
+
+// aggressiveTargetRatio returns the configured overflow target ratio,
+// defaulting to 0.10 when the tuning block is empty.
+func aggressiveTargetRatio(v float64) float64 {
+	if v <= 0 {
+		return 0.10
+	}
+	return v
 }
 
 func (p *Proxy) compressionContext() context.Context {

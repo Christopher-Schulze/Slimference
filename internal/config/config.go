@@ -94,6 +94,28 @@ type CompressionConfig struct {
 	DedupSimilarityThreshold  float64       `toml:"dedup_similarity_threshold"`
 	MiniMax                   MiniMaxConfig `toml:"minimax"`
 	Summary                   SummaryConfig `toml:"summary"`
+	Tuning                    TuningConfig  `toml:"tuning"`
+}
+
+// TuningConfig centralises behaviour-visible numerical knobs that would
+// otherwise be scattered as literals across compression and summarization
+// hot paths. Every knob has a safe default; overrides live in config.toml
+// under [compression.tuning].
+//
+// Implementation-detail thresholds (e.g. MiniMax bullet-dedup fuzzy Jaccard
+// at 0.70) are intentionally not exposed here - they do not change observable
+// behaviour in a way operators would tune.
+type TuningConfig struct {
+	// IncrementalOverlapThreshold is the fraction of the compressible range
+	// that must already be covered by an existing summary to qualify for an
+	// incremental update instead of a full rebuild. Default 0.70.
+	IncrementalOverlapThreshold float64 `toml:"incremental_overlap_threshold"`
+	// OverflowSlidingWindow is the aggressive sliding window used when the
+	// upstream reports a context overflow (spec+.md §17.4). Default 2.
+	OverflowSlidingWindow int `toml:"overflow_sliding_window"`
+	// OverflowTargetRatio is the aggressive summary target ratio used during
+	// overflow recover. Default 0.10.
+	OverflowTargetRatio float64 `toml:"overflow_target_ratio"`
 }
 
 // MiniMaxConfig holds settings for the MiniMax summarization API.
@@ -275,6 +297,16 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Compression.DedupSimilarityThreshold < 0 || cfg.Compression.DedupSimilarityThreshold > 1 {
 		return fmt.Errorf("compression.dedup_similarity_threshold must be 0.0-1.0")
+	}
+	t := cfg.Compression.Tuning
+	if t.IncrementalOverlapThreshold < 0 || t.IncrementalOverlapThreshold > 1 {
+		return fmt.Errorf("compression.tuning.incremental_overlap_threshold must be 0.0-1.0")
+	}
+	if t.OverflowSlidingWindow < 1 {
+		return fmt.Errorf("compression.tuning.overflow_sliding_window must be >= 1")
+	}
+	if t.OverflowTargetRatio < 0 || t.OverflowTargetRatio > 1 {
+		return fmt.Errorf("compression.tuning.overflow_target_ratio must be 0.0-1.0")
 	}
 	mode := cfg.Secrets.Mode
 	if mode != "redact" && mode != "warn" && mode != "block" && mode != "off" {
