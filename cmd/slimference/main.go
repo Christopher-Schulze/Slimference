@@ -345,7 +345,7 @@ func handleSubcommand(args []string) {
 		handleDebugCmd(args[1:])
 
 	case "daemon":
-		handleDaemonCmd()
+		handleDaemonCmd(args[1:])
 
 	case "start":
 		handleStartCmd()
@@ -1775,12 +1775,136 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 	return cfg.Proxy.ListenPort, shutdown, nil
 }
 
-func handleDaemonCmd() {
-	if err := daemonRunFn(startProxyForDaemon); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+func handleDaemonCmd(args []string) {
+	if len(args) == 0 {
+		if err := daemonRunFn(startProxyForDaemon); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			exitFn(1)
+		}
+		return
+	}
+	switch args[0] {
+	case "logs":
+		handleDaemonLogsCmd(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown daemon subcommand: %s\n", args[0])
+		fmt.Fprintln(os.Stderr, "Usage: slimference daemon [logs [--path | --stream=stdout|stderr | --since=<dur> | --lines=<N>]]")
 		exitFn(1)
 	}
 }
+
+// handleDaemonLogsCmd implements `slimference daemon logs [flags]`.
+// T30: exposes the launchd-managed stdout/stderr logs without the user
+// needing to remember the file paths.
+//
+// Flags:
+//
+//	--path                    print the log file paths and exit
+//	--stream=stdout|stderr|both  default: both
+//	--lines=<N>               default: 200
+//	--since=<duration>        e.g. 10m, 2h - drops older lines
+func handleDaemonLogsCmd(args []string) {
+	flags := parseDaemonLogsFlags(args)
+	if flags.err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", flags.err)
+		exitFn(1)
+		return
+	}
+	stdoutPath := daemonStdoutLogPathFn()
+	stderrPath := daemonStderrLogPathFn()
+
+	if flags.showPath {
+		fmt.Printf("stdout: %s\nstderr: %s\n", stdoutPath, stderrPath)
+		return
+	}
+
+	var cutoff time.Time
+	if flags.since > 0 {
+		cutoff = time.Now().Add(-flags.since)
+	}
+
+	print := func(label, path string) {
+		lines, err := daemonReadRecentLogLinesFn(path, flags.lines, cutoff)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "read %s log: %v\n", label, err)
+			return
+		}
+		if len(lines) == 0 {
+			fmt.Fprintf(os.Stderr, "no %s lines (path=%s)\n", label, path)
+			return
+		}
+		fmt.Printf("=== %s: %s (%d lines) ===\n", label, path, len(lines))
+		for _, line := range lines {
+			fmt.Println(line)
+		}
+	}
+
+	switch flags.stream {
+	case "stdout":
+		print("stdout", stdoutPath)
+	case "stderr":
+		print("stderr", stderrPath)
+	default:
+		print("stdout", stdoutPath)
+		print("stderr", stderrPath)
+	}
+}
+
+type daemonLogsFlags struct {
+	showPath bool
+	stream   string
+	lines    int
+	since    time.Duration
+	err      error
+}
+
+func parseDaemonLogsFlags(args []string) daemonLogsFlags {
+	f := daemonLogsFlags{stream: "both", lines: 200}
+	for _, a := range args {
+		switch {
+		case a == "":
+			continue
+		case a == "--path":
+			f.showPath = true
+		case strings.HasPrefix(a, "--stream="):
+			v := strings.TrimPrefix(a, "--stream=")
+			if v != "stdout" && v != "stderr" && v != "both" {
+				f.err = fmt.Errorf("--stream must be stdout|stderr|both, got %q", v)
+				return f
+			}
+			f.stream = v
+		case strings.HasPrefix(a, "--lines="):
+			v := strings.TrimPrefix(a, "--lines=")
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				f.err = fmt.Errorf("--lines must be a positive integer, got %q", v)
+				return f
+			}
+			f.lines = n
+		case strings.HasPrefix(a, "--since="):
+			v := strings.TrimPrefix(a, "--since=")
+			d, err := time.ParseDuration(v)
+			if err != nil || d <= 0 {
+				f.err = fmt.Errorf("--since must be a positive duration, got %q", v)
+				return f
+			}
+			f.since = d
+		default:
+			f.err = fmt.Errorf("unknown flag: %s", a)
+			return f
+		}
+	}
+	return f
+}
+
+// daemonStdoutLogPathFn / daemonStderrLogPathFn / daemonReadRecentLogLinesFn
+// are overridable in tests so the CLI can be exercised without touching the
+// real launchd log files.
+var (
+	daemonStdoutLogPathFn       = daemon.LaunchdStdoutLogPath
+	daemonStderrLogPathFn       = daemon.LaunchdStderrLogPath
+	daemonReadRecentLogLinesFn  = daemon.ReadRecentLogLines
+)
 
 func handleStartCmd() {
 	running, existing, err := daemonIsRunningFn()

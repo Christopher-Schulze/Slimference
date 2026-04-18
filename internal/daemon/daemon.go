@@ -261,6 +261,89 @@ func launchdPlistPathImpl() string {
 // LaunchdPlistPath returns the path where the launchd plist should be installed.
 func LaunchdPlistPath() string { return LaunchdPlistPathFn() }
 
+// LaunchdStdoutLogPath returns the absolute path to the launchd stdout log.
+func LaunchdStdoutLogPath() string {
+	return expandHome("~/.slimference/logs/daemon.stdout.log")
+}
+
+// LaunchdStderrLogPath returns the absolute path to the launchd stderr log.
+func LaunchdStderrLogPath() string {
+	return expandHome("~/.slimference/logs/daemon.stderr.log")
+}
+
+// ReadRecentLogLines reads the last n lines of a log file and returns them
+// in chronological order. The `since` filter, when non-zero, drops lines
+// whose parsed ISO-8601 timestamp (if any) is older than the cutoff; lines
+// without a recognisable timestamp pass through unchanged. Missing or empty
+// files return nil, nil.
+func ReadRecentLogLines(path string, n int, since time.Time) ([]string, error) {
+	data, err := osReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if !since.IsZero() {
+		lines = filterSinceLogLines(lines, since)
+	}
+	if n > 0 && len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines, nil
+}
+
+// osReadFile is overridable in tests.
+var osReadFile = func(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}
+
+// filterSinceLogLines drops lines whose embedded time field is older than
+// the cutoff. Lines without a detectable timestamp are kept (conservative).
+// Supports the slog JSON `"time":"..."` field and a leading RFC3339 prefix.
+func filterSinceLogLines(lines []string, cutoff time.Time) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		ts, ok := extractLogLineTime(line)
+		if ok && ts.Before(cutoff) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// extractLogLineTime returns the timestamp found in a structured (slog-json)
+// or prefixed log line. Returns zero,false if no timestamp is recognisable.
+func extractLogLineTime(line string) (time.Time, bool) {
+	// slog JSON: "time":"2026-04-18T12:34:56.789Z"
+	if idx := strings.Index(line, `"time":"`); idx >= 0 {
+		start := idx + len(`"time":"`)
+		end := strings.IndexByte(line[start:], '"')
+		if end > 0 {
+			if t, err := time.Parse(time.RFC3339Nano, line[start:start+end]); err == nil {
+				return t, true
+			}
+		}
+	}
+	// Leading RFC3339 (or Nano) prefix: "2026-04-18T12:34:56Z ...".
+	// time.RFC3339Nano accepts both nano-precision and plain RFC3339 inputs,
+	// so a single parse attempt covers both shapes.
+	if len(line) >= 20 {
+		space := strings.IndexByte(line, ' ')
+		if space > 0 {
+			if t, err := time.Parse(time.RFC3339Nano, line[:space]); err == nil {
+				return t, true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
 // LaunchdEnvPathFn is overridable in tests.
 var LaunchdEnvPathFn = launchdEnvPathImpl
 

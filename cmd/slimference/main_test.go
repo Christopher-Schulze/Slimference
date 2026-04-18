@@ -5112,7 +5112,7 @@ func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
 	daemonRunFn = func(func() (int, func(context.Context) error, error)) error {
 		return errors.New("daemon fail")
 	}
-	code, exited := captureExit(handleDaemonCmd)
+	code, exited := captureExit(func() { handleDaemonCmd(nil) })
 	cleanup()
 	var errBuf bytes.Buffer
 	_, _ = io.Copy(&errBuf, rp)
@@ -5373,5 +5373,340 @@ func TestStartProxyForDaemon(t *testing.T) {
 	defer cancel()
 	if err := shutdown(ctx); err != nil {
 		t.Fatalf("shutdown: %v", err)
+	}
+}
+
+// TestParseDaemonLogsFlags covers every parser branch of `daemon logs` args.
+func TestParseDaemonLogsFlags(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		args    []string
+		wantErr bool
+		check   func(t *testing.T, f daemonLogsFlags)
+	}{
+		{
+			name: "defaults",
+			args: nil,
+			check: func(t *testing.T, f daemonLogsFlags) {
+				if f.stream != "both" || f.lines != 200 || f.showPath || f.since != 0 {
+					t.Fatalf("unexpected defaults: %+v", f)
+				}
+			},
+		},
+		{
+			name: "empty string skipped",
+			args: []string{""},
+			check: func(t *testing.T, f daemonLogsFlags) {
+				if f.stream != "both" {
+					t.Fatalf("empty arg changed state: %+v", f)
+				}
+			},
+		},
+		{
+			name: "show path",
+			args: []string{"--path"},
+			check: func(t *testing.T, f daemonLogsFlags) {
+				if !f.showPath {
+					t.Fatal("--path must set showPath")
+				}
+			},
+		},
+		{
+			name: "stream stdout",
+			args: []string{"--stream=stdout"},
+			check: func(t *testing.T, f daemonLogsFlags) {
+				if f.stream != "stdout" {
+					t.Fatalf("stream: %s", f.stream)
+				}
+			},
+		},
+		{
+			name: "stream stderr",
+			args: []string{"--stream=stderr"},
+			check: func(t *testing.T, f daemonLogsFlags) {
+				if f.stream != "stderr" {
+					t.Fatal("stream must be stderr")
+				}
+			},
+		},
+		{
+			name: "lines override",
+			args: []string{"--lines=50"},
+			check: func(t *testing.T, f daemonLogsFlags) {
+				if f.lines != 50 {
+					t.Fatalf("lines: %d", f.lines)
+				}
+			},
+		},
+		{
+			name: "since override",
+			args: []string{"--since=10m"},
+			check: func(t *testing.T, f daemonLogsFlags) {
+				if f.since <= 0 {
+					t.Fatal("since must be positive")
+				}
+			},
+		},
+		{name: "bad stream", args: []string{"--stream=other"}, wantErr: true},
+		{name: "bad lines", args: []string{"--lines=zero"}, wantErr: true},
+		{name: "negative lines", args: []string{"--lines=-3"}, wantErr: true},
+		{name: "bad since", args: []string{"--since=never"}, wantErr: true},
+		{name: "zero since", args: []string{"--since=0s"}, wantErr: true},
+		{name: "unknown flag", args: []string{"--nope"}, wantErr: true},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := parseDaemonLogsFlags(tc.args)
+			if tc.wantErr {
+				if f.err == nil {
+					t.Fatalf("expected error, got flags=%+v", f)
+				}
+				return
+			}
+			if f.err != nil {
+				t.Fatalf("unexpected error: %v", f.err)
+			}
+			if tc.check != nil {
+				tc.check(t, f)
+			}
+		})
+	}
+}
+
+// TestHandleDaemonLogsCmd_paths prints stdout+stderr paths with --path.
+func TestHandleDaemonLogsCmd_paths(t *testing.T) {
+	origStdout := daemonStdoutLogPathFn
+	origStderr := daemonStderrLogPathFn
+	t.Cleanup(func() {
+		daemonStdoutLogPathFn = origStdout
+		daemonStderrLogPathFn = origStderr
+	})
+	daemonStdoutLogPathFn = func() string { return "/tmp/test-stdout.log" }
+	daemonStderrLogPathFn = func() string { return "/tmp/test-stderr.log" }
+
+	origOut := os.Stdout
+	rp, wp, _ := os.Pipe()
+	os.Stdout = wp
+	handleDaemonLogsCmd([]string{"--path"})
+	_ = wp.Close()
+	os.Stdout = origOut
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	out := buf.String()
+	if !strings.Contains(out, "/tmp/test-stdout.log") || !strings.Contains(out, "/tmp/test-stderr.log") {
+		t.Fatalf("missing paths: %q", out)
+	}
+}
+
+// TestHandleDaemonLogsCmd_badFlag exits non-zero when parse fails.
+func TestHandleDaemonLogsCmd_badFlag(t *testing.T) {
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { handleDaemonLogsCmd([]string{"--nope"}) })
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "unknown flag") {
+		t.Fatalf("expected exit 1 with unknown flag, got code=%d exited=%v err=%q", code, exited, buf.String())
+	}
+}
+
+// TestHandleDaemonLogsCmd_printsLines prints stdout + stderr log content.
+func TestHandleDaemonLogsCmd_printsLines(t *testing.T) {
+	origStdout := daemonStdoutLogPathFn
+	origStderr := daemonStderrLogPathFn
+	origRead := daemonReadRecentLogLinesFn
+	t.Cleanup(func() {
+		daemonStdoutLogPathFn = origStdout
+		daemonStderrLogPathFn = origStderr
+		daemonReadRecentLogLinesFn = origRead
+	})
+	daemonStdoutLogPathFn = func() string { return "/tmp/a.log" }
+	daemonStderrLogPathFn = func() string { return "/tmp/b.log" }
+	daemonReadRecentLogLinesFn = func(path string, n int, since time.Time) ([]string, error) {
+		if path == "/tmp/a.log" {
+			return []string{"stdout line"}, nil
+		}
+		return []string{"stderr line"}, nil
+	}
+
+	origOut := os.Stdout
+	rp, wp, _ := os.Pipe()
+	os.Stdout = wp
+	handleDaemonLogsCmd(nil)
+	_ = wp.Close()
+	os.Stdout = origOut
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	out := buf.String()
+	if !strings.Contains(out, "stdout line") || !strings.Contains(out, "stderr line") {
+		t.Fatalf("missing expected lines: %q", out)
+	}
+}
+
+// TestHandleDaemonLogsCmd_streamFilter routes to exactly one stream.
+func TestHandleDaemonLogsCmd_streamFilter(t *testing.T) {
+	origStdout := daemonStdoutLogPathFn
+	origStderr := daemonStderrLogPathFn
+	origRead := daemonReadRecentLogLinesFn
+	t.Cleanup(func() {
+		daemonStdoutLogPathFn = origStdout
+		daemonStderrLogPathFn = origStderr
+		daemonReadRecentLogLinesFn = origRead
+	})
+	daemonStdoutLogPathFn = func() string { return "/tmp/a.log" }
+	daemonStderrLogPathFn = func() string { return "/tmp/b.log" }
+	daemonReadRecentLogLinesFn = func(path string, n int, since time.Time) ([]string, error) {
+		return []string{path}, nil
+	}
+
+	// stream=stderr should only read /tmp/b.log
+	origOut := os.Stdout
+	rp, wp, _ := os.Pipe()
+	os.Stdout = wp
+	handleDaemonLogsCmd([]string{"--stream=stderr"})
+	_ = wp.Close()
+	os.Stdout = origOut
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	out := buf.String()
+	if strings.Contains(out, "/tmp/a.log") {
+		t.Fatalf("stderr stream must not print stdout path: %q", out)
+	}
+	if !strings.Contains(out, "/tmp/b.log") {
+		t.Fatalf("stderr stream missing: %q", out)
+	}
+}
+
+// TestHandleDaemonLogsCmd_sinceFilter passes the cutoff into the reader.
+func TestHandleDaemonLogsCmd_sinceFilter(t *testing.T) {
+	origRead := daemonReadRecentLogLinesFn
+	t.Cleanup(func() { daemonReadRecentLogLinesFn = origRead })
+	var gotSince time.Time
+	daemonReadRecentLogLinesFn = func(path string, n int, since time.Time) ([]string, error) {
+		gotSince = since
+		return []string{"ok"}, nil
+	}
+	origOut := os.Stdout
+	_, wp, _ := os.Pipe()
+	os.Stdout = wp
+	handleDaemonLogsCmd([]string{"--since=1h", "--stream=stdout"})
+	_ = wp.Close()
+	os.Stdout = origOut
+	if gotSince.IsZero() {
+		t.Fatal("--since must propagate a cutoff into the reader")
+	}
+}
+
+// TestHandleDaemonLogsCmd_readError prints a warning but does not exit.
+func TestHandleDaemonLogsCmd_readError(t *testing.T) {
+	origRead := daemonReadRecentLogLinesFn
+	t.Cleanup(func() { daemonReadRecentLogLinesFn = origRead })
+	daemonReadRecentLogLinesFn = func(path string, n int, since time.Time) ([]string, error) {
+		return nil, errors.New("boom")
+	}
+
+	rp, cleanup := redirectStderr()
+	origOut := os.Stdout
+	_, wp, _ := os.Pipe()
+	os.Stdout = wp
+	handleDaemonLogsCmd([]string{"--stream=stdout"})
+	_ = wp.Close()
+	os.Stdout = origOut
+	cleanup()
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !strings.Contains(buf.String(), "boom") {
+		t.Fatalf("expected boom error surfaced to stderr, got %q", buf.String())
+	}
+}
+
+// TestHandleDaemonLogsCmd_emptyLog surfaces the no-lines hint on stderr.
+func TestHandleDaemonLogsCmd_emptyLog(t *testing.T) {
+	origRead := daemonReadRecentLogLinesFn
+	t.Cleanup(func() { daemonReadRecentLogLinesFn = origRead })
+	daemonReadRecentLogLinesFn = func(path string, n int, since time.Time) ([]string, error) {
+		return nil, nil
+	}
+
+	rp, cleanup := redirectStderr()
+	origOut := os.Stdout
+	_, wp, _ := os.Pipe()
+	os.Stdout = wp
+	handleDaemonLogsCmd([]string{"--stream=stdout"})
+	_ = wp.Close()
+	os.Stdout = origOut
+	cleanup()
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !strings.Contains(buf.String(), "no stdout lines") {
+		t.Fatalf("expected 'no stdout lines' hint, got %q", buf.String())
+	}
+}
+
+// TestHandleDaemonCmd_logsDispatch covers the dispatch into
+// handleDaemonLogsCmd from the outer daemon handler.
+func TestHandleDaemonCmd_logsDispatch(t *testing.T) {
+	origStdout := daemonStdoutLogPathFn
+	origStderr := daemonStderrLogPathFn
+	t.Cleanup(func() {
+		daemonStdoutLogPathFn = origStdout
+		daemonStderrLogPathFn = origStderr
+	})
+	daemonStdoutLogPathFn = func() string { return "/tmp/x.log" }
+	daemonStderrLogPathFn = func() string { return "/tmp/y.log" }
+
+	origOut := os.Stdout
+	rp, wp, _ := os.Pipe()
+	os.Stdout = wp
+	handleDaemonCmd([]string{"logs", "--path"})
+	_ = wp.Close()
+	os.Stdout = origOut
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !strings.Contains(buf.String(), "/tmp/x.log") {
+		t.Fatalf("dispatched handler output missing: %q", buf.String())
+	}
+}
+
+// TestHandleDaemonCmd_noArgsSuccess covers the zero-args happy path.
+func TestHandleDaemonCmd_noArgsSuccess(t *testing.T) {
+	origRun := daemonRunFn
+	t.Cleanup(func() { daemonRunFn = origRun })
+	daemonRunFn = func(start func() (int, func(context.Context) error, error)) error {
+		return nil
+	}
+	// Must not call exitFn.
+	done := make(chan struct{})
+	go func() {
+		handleDaemonCmd(nil)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("handleDaemonCmd did not return on success")
+	}
+}
+
+// TestHandleDaemonCmd_unknownSub fails cleanly on an unknown subcommand.
+func TestHandleDaemonCmd_unknownSub(t *testing.T) {
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { handleDaemonCmd([]string{"nope"}) })
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "unknown daemon subcommand") {
+		t.Fatalf("expected exit 1 with unknown subcommand, got code=%d exited=%v err=%q", code, exited, buf.String())
 	}
 }
