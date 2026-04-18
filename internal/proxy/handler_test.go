@@ -50,7 +50,7 @@ func TestBuildAggressiveCompressedBody_Anthropic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := p.buildAggressiveCompressedBody(pipelineStash{
+	out, err := p.buildAggressiveCompressedBodyContext(context.Background(), pipelineStash{
 		messages: msgs,
 		origBody: body,
 		provider: types.Anthropic,
@@ -142,7 +142,7 @@ func TestBuildAggressiveCompressedBody_minRatioClamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := p.buildAggressiveCompressedBody(pipelineStash{
+	out, err := p.buildAggressiveCompressedBodyContext(context.Background(), pipelineStash{
 		messages: msgs,
 		origBody: body,
 		provider: types.Anthropic,

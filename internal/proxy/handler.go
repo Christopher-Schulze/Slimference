@@ -327,10 +327,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// --- 12. Analytics ---
-	_ = layer1Savings
-	_ = layer2Savings
-
 	// --- Debug decision recording ---
 	if p.debugRecorder != nil {
 		summary := dbg.RequestSummary{
@@ -588,11 +584,6 @@ func isContextOverflow(body []byte) bool {
 	return bytes.Contains(body, []byte("context_length_exceeded")) ||
 		bytes.Contains(body, []byte("prompt too long")) ||
 		bytes.Contains(body, []byte("maximum context length"))
-}
-
-// buildAggressiveCompressedBody re-runs Layer 1-2 with a minimal sliding window and stronger summarization.
-func (p *Proxy) buildAggressiveCompressedBody(stash pipelineStash) ([]byte, error) {
-	return p.buildAggressiveCompressedBodyContext(p.compressionContext(), stash)
 }
 
 // buildAggressiveCompressedBodyContext re-runs Layer 1-2 with a minimal sliding window and stronger summarization.
