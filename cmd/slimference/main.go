@@ -921,6 +921,21 @@ func handleDoctorCmd() {
 		return logDir, true
 	})
 
+	// T33: surface hook CLI drift as part of doctor output.
+	reports := hookDetectDriftFn(context.Background())
+	for _, r := range reports {
+		ok := r.Status == hooks.DriftOK || !r.BinaryFound
+		label := fmt.Sprintf("%s CLI drift", r.CLI)
+		msg := fmt.Sprintf("status=%s", r.Status)
+		if r.BinaryFound {
+			msg += fmt.Sprintf(" version=%s supported=[%s, %s]", r.VersionParsed, r.MinSupported, r.MaxTested)
+		}
+		if r.Notes != "" {
+			msg += " - " + r.Notes
+		}
+		check(label, func() (string, bool) { return msg, ok })
+	}
+
 	fmt.Println(strings.Repeat("-", 50))
 	if allOK {
 		fmt.Println("All checks passed. Run 'slimference' to start.")
@@ -928,6 +943,10 @@ func handleDoctorCmd() {
 		fmt.Println("Some checks failed. See above for details.")
 	}
 }
+
+// hookDetectDriftFn is overridable in tests so doctor can be exercised
+// without probing real CLIs.
+var hookDetectDriftFn = hooks.DetectDrift
 
 func handleStatsCmd(args []string) {
 	cfg, err := config.Load()
