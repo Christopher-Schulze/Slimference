@@ -114,16 +114,18 @@ func (a *Analytics) Record(event types.AnalyticsEvent) {
 		}
 		// Ring buffer.
 		a.RequestLog.Push(types.RequestMetrics{
-			Timestamp:        event.Timestamp,
-			Provider:         event.Provider,
-			Model:            event.Model,
-			InputTokensOrig:  event.InputTokensOrig,
-			InputTokensComp:  event.InputTokensComp,
-			OutputTokens:     event.OutputTokens,
-			CompressionRatio: event.CompressionRatio,
-			Layers:           event.Layers,
-			LatencyMs:        event.LatencyMs,
-			CacheHit:         event.CacheHit,
+			Timestamp:         event.Timestamp,
+			Provider:          event.Provider,
+			Model:             event.Model,
+			InputTokensOrig:   event.InputTokensOrig,
+			InputTokensComp:   event.InputTokensComp,
+			OutputTokens:      event.OutputTokens,
+			CompressionRatio:  event.CompressionRatio,
+			Layers:            event.Layers,
+			LatencyMs:         event.LatencyMs,
+			CacheHit:          event.CacheHit,
+			CacheReadTokens:   event.CacheReadTokens,
+			CacheCreateTokens: event.CacheCreateTokens,
 		})
 
 	case types.EventCacheHit:

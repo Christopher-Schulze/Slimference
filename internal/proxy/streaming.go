@@ -51,7 +51,27 @@ func (cr *ctxReader) Read(p []byte) (n int, err error) {
 // It counts output tokens by parsing content delta events and returns the total.
 // ctx is the request context; when it is cancelled (e.g. client disconnect) the
 // relay exits early without waiting for the upstream to finish.
+//
+// See streamingRelayWithUsage for a variant that also extracts provider-side
+// prompt-cache usage. This thin wrapper keeps the existing call sites and
+// tests unchanged.
 func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *http.Response, provider string) (outputTokens int) {
+	outputTokens, _ = streamingRelayWithUsage(ctx, w, upstreamResp, provider)
+	return outputTokens
+}
+
+// cacheUsage captures provider-reported prompt-cache accounting for a single
+// request. Only Anthropic populates these fields today; OpenAI has no
+// equivalent usage field.
+type cacheUsage struct {
+	ReadTokens   int
+	CreateTokens int
+}
+
+// streamingRelayWithUsage is streamingRelay augmented with prompt-cache usage
+// extraction. Returns the scanned output token count alongside the cache
+// usage. T23: prompt-cache observability.
+func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstreamResp *http.Response, provider string) (outputTokens int, usage cacheUsage) {
 	defer upstreamResp.Body.Close()
 
 	// Copy all upstream response headers to client.
@@ -76,11 +96,11 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 		// Write to client immediately.
 		if _, err := w.Write(line); err != nil {
 			slog.Debug("stream write error", "error", err)
-			return outputTokens
+			return outputTokens, usage
 		}
 		if _, err := w.Write([]byte("\n")); err != nil {
 			slog.Debug("stream write error", "error", err)
-			return outputTokens
+			return outputTokens, usage
 		}
 		if canFlush {
 			flusher.Flush()
@@ -88,6 +108,12 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 
 		// Count output tokens from SSE data events.
 		outputTokens += extractOutputTokensFromSSE(line, provider)
+		if provider == "anthropic" {
+			if r, c := extractAnthropicCacheUsage(line); r > 0 || c > 0 {
+				usage.ReadTokens += r
+				usage.CreateTokens += c
+			}
+		}
 	}
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
@@ -100,7 +126,67 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 		}
 	}
 
-	return outputTokens
+	return outputTokens, usage
+}
+
+// extractAnthropicCacheUsage parses a single SSE line and returns any
+// prompt-cache read/create token counts reported by Anthropic. Fields are
+// surfaced on the message_start event (initial usage) and the message_delta
+// event (running totals). Zero is returned for lines without usage data.
+func extractAnthropicCacheUsage(line []byte) (read, create int) {
+	if !bytes.HasPrefix(line, []byte("data: ")) {
+		return 0, 0
+	}
+	data := line[6:]
+	if bytes.Equal(data, []byte("[DONE]")) {
+		return 0, 0
+	}
+	var ev struct {
+		Type    string `json:"type"`
+		Message *struct {
+			Usage *struct {
+				CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+				CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+			} `json:"usage,omitempty"`
+		} `json:"message,omitempty"`
+		Usage *struct {
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		} `json:"usage,omitempty"`
+	}
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return 0, 0
+	}
+	if ev.Message != nil && ev.Message.Usage != nil {
+		read += ev.Message.Usage.CacheReadInputTokens
+		create += ev.Message.Usage.CacheCreationInputTokens
+	}
+	if ev.Usage != nil {
+		read += ev.Usage.CacheReadInputTokens
+		create += ev.Usage.CacheCreationInputTokens
+	}
+	return read, create
+}
+
+// extractAnthropicCacheUsageFromBody parses a non-streaming JSON response
+// body and returns the provider-reported cache usage. Zero on failure.
+func extractAnthropicCacheUsageFromBody(body []byte) cacheUsage {
+	if len(body) == 0 {
+		return cacheUsage{}
+	}
+	var resp struct {
+		Usage *struct {
+			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		} `json:"usage,omitempty"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || resp.Usage == nil {
+		return cacheUsage{}
+	}
+	return cacheUsage{
+		ReadTokens:   resp.Usage.CacheReadInputTokens,
+		CreateTokens: resp.Usage.CacheCreationInputTokens,
+	}
 }
 
 // passthrough copies a non-streaming response body from upstream to the client.

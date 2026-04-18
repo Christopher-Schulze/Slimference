@@ -276,12 +276,16 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// --- 9. Stream / passthrough response ---
 	var outputTokens int
 	var responseBody []byte
+	var upstreamCacheUsage cacheUsage
 
 	if isStreamingRequest(body) {
-		outputTokens = streamingRelay(r.Context(), w, upstreamResp, provider.String())
+		outputTokens, upstreamCacheUsage = streamingRelayWithUsage(r.Context(), w, upstreamResp, provider.String())
 	} else {
 		responseBody = passthrough(w, upstreamResp)
 		outputTokens = estimateTokensFromText(string(responseBody))
+		if provider == types.Anthropic {
+			upstreamCacheUsage = extractAnthropicCacheUsageFromBody(responseBody)
+		}
 	}
 
 	proxyLatencyMs := float64(time.Since(latencyStart).Microseconds()) / 1000.0
@@ -372,17 +376,19 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	select {
 	case p.analyticsQueue <- types.AnalyticsEvent{
-		Type:             types.EventRequestProcessed,
-		Timestamp:        time.Now(),
-		Provider:         provider,
-		Model:            model,
-		InputTokensOrig:  origTokens,
-		InputTokensComp:  compressedTokens,
-		OutputTokens:     outputTokens,
-		CompressionRatio: compressionRatio,
-		Layers:           appliedLayers,
-		LatencyMs:        proxyLatencyMs,
-		TokensSaved:      totalSaved,
+		Type:              types.EventRequestProcessed,
+		Timestamp:         time.Now(),
+		Provider:          provider,
+		Model:             model,
+		InputTokensOrig:   origTokens,
+		InputTokensComp:   compressedTokens,
+		OutputTokens:      outputTokens,
+		CompressionRatio:  compressionRatio,
+		Layers:            appliedLayers,
+		LatencyMs:         proxyLatencyMs,
+		TokensSaved:       totalSaved,
+		CacheReadTokens:   upstreamCacheUsage.ReadTokens,
+		CacheCreateTokens: upstreamCacheUsage.CreateTokens,
 	}:
 	default:
 	}

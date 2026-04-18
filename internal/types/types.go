@@ -182,20 +182,30 @@ type AnalyticsEvent struct {
 	SecretsFound     int
 	TokensSaved      int
 	Error            string
+	// CacheReadTokens is the number of upstream-cached (prompt-cache-hit)
+	// input tokens reported by the provider for this request. Anthropic
+	// surfaces this via usage.cache_read_input_tokens; OpenAI does not
+	// yet expose an equivalent. Zero when absent.
+	CacheReadTokens int
+	// CacheCreateTokens is the number of tokens newly cached by this
+	// request (Anthropic usage.cache_creation_input_tokens).
+	CacheCreateTokens int
 }
 
 // RequestMetrics records per-request statistics kept in the ring buffer.
 type RequestMetrics struct {
-	Timestamp        time.Time
-	Provider         Provider
-	Model            string
-	InputTokensOrig  int
-	InputTokensComp  int
-	OutputTokens     int
-	CompressionRatio float64
-	Layers           []int
-	LatencyMs        float64
-	CacheHit         bool
+	Timestamp         time.Time
+	Provider          Provider
+	Model             string
+	InputTokensOrig   int
+	InputTokensComp   int
+	OutputTokens      int
+	CompressionRatio  float64
+	Layers            []int
+	LatencyMs         float64
+	CacheHit          bool
+	CacheReadTokens   int
+	CacheCreateTokens int
 }
 
 // RingBuffer is a generic fixed-capacity circular buffer, safe for concurrent use.
