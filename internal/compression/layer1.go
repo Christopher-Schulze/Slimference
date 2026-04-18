@@ -212,21 +212,24 @@ func (c *DeterministicCompressor) compressMessage(
 				}
 			}
 
-			// L1.5: Delta encoding
-			filepath := extractFilepathFromToolResult(block)
-			if filepath != "" {
-				if delta, prevIdx, hasDelta := c.fileTracker.GetDelta(filepath, text); hasDelta {
+			// L1.5 / T29: Delta encoding across tool calls. The key is a
+			// generalised tool-call identity (filepath when present, else
+			// tool_name|topic) so repeated `git status`, `grep <pattern>`
+			// or `ls <dir>` invocations also benefit.
+			toolKey := ExtractToolCallKey(block)
+			if toolKey != "" {
+				if delta, prevIdx, hasDelta := c.fileTracker.GetDelta(toolKey, text); hasDelta {
 					deltaSaved += len(text) - len(delta)
-					header := formatDeltaHeader(filepath, prevIdx, msgIdx)
+					header := formatDeltaHeader(toolKey, prevIdx, msgIdx)
 					text = header + delta
 					textTransformed = true
 					slog.Debug("delta applied",
-						slog.String("path", filepath),
+						slog.String("key", toolKey),
 						slog.Int("prev_msg_idx", prevIdx),
 						slog.Int("msg_idx", msgIdx),
 					)
 				}
-				c.fileTracker.RecordVersion(filepath, block.Text, msgIdx)
+				c.fileTracker.RecordVersion(toolKey, block.Text, msgIdx)
 			}
 		}
 
