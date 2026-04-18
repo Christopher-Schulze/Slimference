@@ -30,7 +30,7 @@ func TestExtractAnthropicCacheUsage(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			r, c := extractAnthropicCacheUsage([]byte(tc.line))
+			r, c, _ := extractAnthropicCacheUsage([]byte(tc.line))
 			if r != tc.wantRead || c != tc.wantCreate {
 				t.Errorf("got read=%d create=%d, want read=%d create=%d", r, c, tc.wantRead, tc.wantCreate)
 			}
@@ -65,6 +65,23 @@ func TestExtractAnthropicCacheUsageFromBody(t *testing.T) {
 	}
 }
 
+// TestExtractAnthropicCacheUsage_InputTokens returns the provider-reported
+// input_token total alongside cache fields.
+func TestExtractAnthropicCacheUsage_InputTokens(t *testing.T) {
+	t.Parallel()
+	line := `data: {"type":"message_start","message":{"usage":{"input_tokens":1234,"cache_read_input_tokens":5,"cache_creation_input_tokens":7}}}`
+	_, _, in := extractAnthropicCacheUsage([]byte(line))
+	if in != 1234 {
+		t.Fatalf("input_tokens: %d", in)
+	}
+	// message_delta variant with larger input_tokens.
+	line2 := `data: {"type":"message_delta","usage":{"input_tokens":5000}}`
+	_, _, in2 := extractAnthropicCacheUsage([]byte(line2))
+	if in2 != 5000 {
+		t.Fatalf("delta input_tokens: %d", in2)
+	}
+}
+
 // TestStreamingRelayWithUsage_AggregatesAnthropicCacheFields exercises the
 // cache-usage path in the streaming relay itself so the branch is hit during
 // a real scan loop.
@@ -93,6 +110,30 @@ func TestStreamingRelayWithUsage_AggregatesAnthropicCacheFields(t *testing.T) {
 	_, usage := streamingRelayWithUsage(context.Background(), rec, resp, "anthropic")
 	if usage.ReadTokens != 150 || usage.CreateTokens != 25 {
 		t.Fatalf("expected aggregated usage (150, 25), got %+v", usage)
+	}
+}
+
+// TestStreamingRelayWithUsage_InputTokensMaxWins keeps the larger of two
+// input_tokens readings across events.
+func TestStreamingRelayWithUsage_InputTokensMaxWins(t *testing.T) {
+	t.Parallel()
+	sse := strings.Join([]string{
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":100}}}`,
+		``,
+		`data: {"type":"message_delta","usage":{"input_tokens":500,"output_tokens":1}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       readCloser(sse),
+	}
+	rec := httptest.NewRecorder()
+	_, usage := streamingRelayWithUsage(context.Background(), rec, resp, "anthropic")
+	if usage.InputTokens != 500 {
+		t.Fatalf("expected max input_tokens=500, got %d", usage.InputTokens)
 	}
 }
 

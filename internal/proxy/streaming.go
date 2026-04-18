@@ -66,6 +66,10 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 type cacheUsage struct {
 	ReadTokens   int
 	CreateTokens int
+	// InputTokens is the provider-reported total input token count. Used
+	// by T28 to self-calibrate the per-provider tokenizer. Zero when
+	// absent.
+	InputTokens int
 }
 
 // streamingRelayWithUsage is streamingRelay augmented with prompt-cache usage
@@ -109,9 +113,12 @@ func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstrea
 		// Count output tokens from SSE data events.
 		outputTokens += extractOutputTokensFromSSE(line, provider)
 		if provider == "anthropic" {
-			if r, c := extractAnthropicCacheUsage(line); r > 0 || c > 0 {
+			if r, c, in := extractAnthropicCacheUsage(line); r > 0 || c > 0 || in > 0 {
 				usage.ReadTokens += r
 				usage.CreateTokens += c
+				if in > usage.InputTokens {
+					usage.InputTokens = in
+				}
 			}
 		}
 	}
@@ -130,52 +137,63 @@ func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstrea
 }
 
 // extractAnthropicCacheUsage parses a single SSE line and returns any
-// prompt-cache read/create token counts reported by Anthropic. Fields are
-// surfaced on the message_start event (initial usage) and the message_delta
-// event (running totals). Zero is returned for lines without usage data.
-func extractAnthropicCacheUsage(line []byte) (read, create int) {
+// prompt-cache read/create token counts reported by Anthropic alongside
+// the total input_tokens (used by T28 for tokenizer self-calibration).
+// Fields are surfaced on message_start (initial usage) and message_delta
+// (running totals). Zero is returned for lines without usage data.
+func extractAnthropicCacheUsage(line []byte) (read, create, input int) {
 	if !bytes.HasPrefix(line, []byte("data: ")) {
-		return 0, 0
+		return 0, 0, 0
 	}
 	data := line[6:]
 	if bytes.Equal(data, []byte("[DONE]")) {
-		return 0, 0
+		return 0, 0, 0
 	}
 	var ev struct {
 		Type    string `json:"type"`
 		Message *struct {
 			Usage *struct {
+				InputTokens              int `json:"input_tokens"`
 				CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 				CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 			} `json:"usage,omitempty"`
 		} `json:"message,omitempty"`
 		Usage *struct {
+			InputTokens              int `json:"input_tokens"`
 			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"usage,omitempty"`
 	}
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return 0, 0
+		return 0, 0, 0
 	}
 	if ev.Message != nil && ev.Message.Usage != nil {
 		read += ev.Message.Usage.CacheReadInputTokens
 		create += ev.Message.Usage.CacheCreationInputTokens
+		if ev.Message.Usage.InputTokens > input {
+			input = ev.Message.Usage.InputTokens
+		}
 	}
 	if ev.Usage != nil {
 		read += ev.Usage.CacheReadInputTokens
 		create += ev.Usage.CacheCreationInputTokens
+		if ev.Usage.InputTokens > input {
+			input = ev.Usage.InputTokens
+		}
 	}
-	return read, create
+	return read, create, input
 }
 
 // extractAnthropicCacheUsageFromBody parses a non-streaming JSON response
-// body and returns the provider-reported cache usage. Zero on failure.
+// body and returns the provider-reported cache usage + input_tokens. Zero
+// on failure.
 func extractAnthropicCacheUsageFromBody(body []byte) cacheUsage {
 	if len(body) == 0 {
 		return cacheUsage{}
 	}
 	var resp struct {
 		Usage *struct {
+			InputTokens              int `json:"input_tokens"`
 			CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 			CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		} `json:"usage,omitempty"`
@@ -186,6 +204,7 @@ func extractAnthropicCacheUsageFromBody(body []byte) cacheUsage {
 	return cacheUsage{
 		ReadTokens:   resp.Usage.CacheReadInputTokens,
 		CreateTokens: resp.Usage.CacheCreationInputTokens,
+		InputTokens:  resp.Usage.InputTokens,
 	}
 }
 
