@@ -150,6 +150,9 @@ func applyLayer0Filters(workDir string, argv []string, stdout []byte) ([]byte, s
 	if out, ok := TryCompactPythonTraceback(stdout); ok {
 		return out, "python_traceback"
 	}
+	if out, ok := TryCompactTerraformPlan(argv, stdout); ok {
+		return out, "terraform_plan"
+	}
 	if out, ok := TryCompactJSONMinify(stdout); ok {
 		return out, "json_minify"
 	}
