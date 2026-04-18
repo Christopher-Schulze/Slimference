@@ -86,10 +86,40 @@ func uniqueFilterPaths(wd string) []string {
 		seen[p] = true
 		out = append(out, p)
 	}
-	add(ProjectFiltersPath(wd))
+	// Project-local filters are gated by the trust model to prevent
+	// repository-committed filters.toml from acting as a prompt-injection
+	// vector against Claude Code or Codex. User-scoped filters under
+	// ~/.slimference/ are trusted by definition (operator-owned).
+	if p := ProjectFiltersPath(wd); p != "" {
+		if projectFilterAllowed(p) {
+			add(p)
+		}
+	}
 	add(UserFiltersPath())
 	return out
 }
+
+// projectFilterAllowed reports whether the project filter file at path is
+// permitted to contribute to the merged filter set. Missing files are
+// "allowed" (there's nothing to load). Existing files must either have a
+// matching entry in the trust store or be overridden via the
+// SLIMFERENCE_TRUST_PROJECT_FILTERS=1 env var.
+func projectFilterAllowed(path string) bool {
+	status, _, err := evaluateTrustFn(path)
+	if err != nil {
+		return false
+	}
+	switch status {
+	case TrustStatusTrusted, TrustStatusEnvOverride, TrustStatusMissing:
+		return true
+	default:
+		return false
+	}
+}
+
+// evaluateTrustFn is overridable in tests so filter loading can be
+// exercised without reading the on-disk trust store.
+var evaluateTrustFn = EvaluateTrust
 
 // LoadMergedDenyPatterns returns deny_patterns from project and user filters.toml (deduped paths).
 func LoadMergedDenyPatterns(wd string) []string {

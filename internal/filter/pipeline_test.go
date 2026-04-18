@@ -82,7 +82,7 @@ replace = [{ pattern = ".*", replacement = "TOML_RAN" }]
 }
 
 func TestApplyLayer0AfterANSI_tomlWhenBuiltinNoMatch(t *testing.T) {
-	t.Parallel()
+	t.Setenv("SLIMFERENCE_TRUST_PROJECT_FILTERS", "1")
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)

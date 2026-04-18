@@ -7,7 +7,7 @@ import (
 )
 
 func TestLoadMergedDenyPatterns_dedupe(t *testing.T) {
-	t.Parallel()
+	t.Setenv("SLIMFERENCE_TRUST_PROJECT_FILTERS", "1")
 	tmp := t.TempDir()
 	// same path if wd is home — use subdir for project
 	proj := filepath.Join(tmp, "repo")
@@ -25,7 +25,7 @@ func TestLoadMergedDenyPatterns_dedupe(t *testing.T) {
 }
 
 func TestFirstMatchingTOMLRule_andApply(t *testing.T) {
-	t.Parallel()
+	t.Setenv("SLIMFERENCE_TRUST_PROJECT_FILTERS", "1")
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestCompileLineRegexes_badPattern(t *testing.T) {
 
 // TestFirstMatchingTOMLRule_emptyMatchCommand covers the TrimSpace=="" continue.
 func TestFirstMatchingTOMLRule_emptyMatchCommand(t *testing.T) {
-	t.Parallel()
+	t.Setenv("SLIMFERENCE_TRUST_PROJECT_FILTERS", "1")
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
@@ -253,7 +253,7 @@ func TestUniqueFilterPaths_deduplication(t *testing.T) {
 
 // TestFirstMatchingTOMLRule_invalidRegex covers the regexp.Compile error path (skip and continue).
 func TestFirstMatchingTOMLRule_invalidRegex(t *testing.T) {
-	t.Parallel()
+	t.Setenv("SLIMFERENCE_TRUST_PROJECT_FILTERS", "1")
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".slimference"), 0755); err != nil {
 		t.Fatal(err)
