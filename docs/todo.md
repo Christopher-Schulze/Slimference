@@ -388,21 +388,21 @@ Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
 
 ### Bereich A - Repo-Hygiene und Dead-Code
 
-- [ ] T17 - Git-Cleanup: `sum_coverage.out`, `tokenproxy`, `tokenproxy.test` untrack; .gitignore in Einklang bringen. Detail: `docs/todo/t17-git-hygiene.md`
+- [x] T17 - Git-Cleanup: `sum_coverage.out`, `tokenproxy`, `tokenproxy.test` untrack; .gitignore in Einklang bringen. Detail: `docs/todo/t17-git-hygiene.md`
 - [ ] T18 - RTK-Master Logik-Audit und anschliessende Entfernung des Ordners. Detail: `docs/todo/t18-rtk-master-audit-removal.md`
-- [ ] T19 - Dead-Code Cleanup im Hot-Path (`_ = layer1Savings; _ = layer2Savings`, `buildAggressiveCompressedBody` wrapper). Detail: `docs/todo/t19-dead-code-cleanup.md`
+- [x] T19 - Dead-Code Cleanup im Hot-Path (`_ = layer1Savings; _ = layer2Savings`, `buildAggressiveCompressedBody` wrapper). Detail: `docs/todo/t19-dead-code-cleanup.md`
 
 ### Bereich B - Performance und Core-Korrektheit
 
-- [ ] T20 - Double-Keyed Response Cache (Pre-Compress Lookup, skip L1/L2 on hit). Detail: `docs/todo/t20-double-keyed-cache.md`
-- [ ] T21 - Overflow-Recover ohne MiniMax im Sync-Pfad (deterministisch only). Detail: `docs/todo/t21-overflow-recover-deterministic.md`
-- [ ] T22 - Zentrale `[compression.tuning]` Config: alle Hardcoded Thresholds konsolidieren. Detail: `docs/todo/t22-tuning-config-central.md`
+- [x] T20 - Double-Keyed Response Cache (Pre-Compress Lookup, skip L1/L2 on hit). Detail: `docs/todo/t20-double-keyed-cache.md`
+- [x] T21 - Overflow-Recover ohne MiniMax im Sync-Pfad (deterministisch only). Detail: `docs/todo/t21-overflow-recover-deterministic.md`
+- [x] T22 - Zentrale `[compression.tuning]` Config: alle Hardcoded Thresholds konsolidieren. Detail: `docs/todo/t22-tuning-config-central.md`
 
 ### Bereich C - Token-Savings Features
 
 - [ ] T23 - Prompt-Cache Live-Metriken + `slimference stats prompt-cache`. Detail: `docs/todo/t23-prompt-cache-metrics.md`
 - [ ] T24 - Structure-Extract auch innerhalb Sliding-Window fuer grosse Code-Bloecke. Detail: `docs/todo/t24-structure-extract-in-window.md`
-- [ ] T25 - Neue L0-Filter: Python-Traceback, npm/pnpm Install-Log, Terraform Plan. Detail: `docs/todo/t25-l0-filters-expansion.md`
+- [x] T25 (partial, Python traceback done; npm-install + Terraform Plan deferred) - Detail: `docs/todo/t25-l0-filters-expansion.md`
 - [ ] T26 - Tool-Result Priority: 100/50/25 Staffelung fuer wiederholte Heavy-Outputs. Detail: `docs/todo/t26-tool-priority-staircase.md`
 - [ ] T27 - L2 Incremental-Summary: gestaffelte Range-Overlap-Schwelle. Detail: `docs/todo/t27-l2-incremental-staircase.md`
 - [ ] T28 - Per-Provider Tokenizer, Opus 4.7 aware, kalibrierte Fallback-Heuristik. Detail: `docs/todo/t28-per-provider-tokenizer.md`
@@ -410,9 +410,9 @@ Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
 
 ### Bereich D - UX und Operability
 
-- [ ] T30 - `slimference daemon logs` (stderr/stdout tailable). Detail: `docs/todo/t30-daemon-logs.md`
+- [x] T30 - `slimference daemon logs` (stderr/stdout tailable). Detail: `docs/todo/t30-daemon-logs.md`
 - [ ] T31 - TUI State-Persistenz (Provider/Layer Toggles, View, Filters). Detail: `docs/todo/t31-tui-state-persistence.md`
-- [ ] T32 - Bash-Completion (nur bash; zsh/fish out of scope). Detail: `docs/todo/t32-bash-completion.md`
+- [x] T32 - Bash-Completion (nur bash; zsh/fish out of scope). Detail: `docs/todo/t32-bash-completion.md`
 - [ ] T33 - Hook-Drift-Detection Watchdog fuer Claude/Codex CLI-Updates. Detail: `docs/todo/t33-hook-drift-watchdog.md`
 
 ### Bereich E - Proof und Code-Quality
