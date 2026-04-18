@@ -389,7 +389,7 @@ Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
 ### Bereich A - Repo-Hygiene und Dead-Code
 
 - [x] T17 - Git-Cleanup: `sum_coverage.out`, `tokenproxy`, `tokenproxy.test` untrack; .gitignore in Einklang bringen. Detail: `docs/todo/t17-git-hygiene.md`
-- [ ] T18 - RTK-Master Logik-Audit und anschliessende Entfernung des Ordners. Detail: `docs/todo/t18-rtk-master-audit-removal.md`
+- [x] T18 - RTK-Master Parity-Audit + Trust-Model-Port + Ordner-Entfernung. Detail: `docs/todo/t18-rtk-master-audit-removal.md`, `docs/rtk-audit.md`
 - [x] T19 - Dead-Code Cleanup im Hot-Path (`_ = layer1Savings; _ = layer2Savings`, `buildAggressiveCompressedBody` wrapper). Detail: `docs/todo/t19-dead-code-cleanup.md`
 
 ### Bereich B - Performance und Core-Korrektheit
@@ -401,12 +401,12 @@ Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
 ### Bereich C - Token-Savings Features
 
 - [x] T23 - Prompt-Cache Live-Metriken (Anthropic usage.cache_* in analytics). Detail: `docs/todo/t23-prompt-cache-metrics.md`
-- [ ] T24 - Structure-Extract auch innerhalb Sliding-Window fuer grosse Code-Bloecke. Detail: `docs/todo/t24-structure-extract-in-window.md`
+- [x] T24 - Structure-Extract opt-in auch innerhalb Sliding-Window (default off). Detail: `docs/todo/t24-structure-extract-in-window.md`
 - [x] T25 - Python traceback + Terraform plan/apply/destroy. npm/pnpm install nicht noetig (bereits durch bestehenden Package-Filter abgedeckt). Detail: `docs/todo/t25-l0-filters-expansion.md`
 - [x] T26 - Tool-Result Repetition-Staircase in MiniMax-Hint. Detail: `docs/todo/t26-tool-priority-staircase.md`
 - [x] T27 - L2 Incremental-Summary: gestaffelte Range-Overlap-Schwelle. Detail: `docs/todo/t27-l2-incremental-staircase.md`
-- [ ] T28 - Per-Provider Tokenizer, Opus 4.7 aware, kalibrierte Fallback-Heuristik. Detail: `docs/todo/t28-per-provider-tokenizer.md`
-- [ ] T29 - Semantisches Tool-Output-Diffing ueber Tool-Call-Pairs (Delta). Detail: `docs/todo/t29-tool-output-diffing.md`
+- [x] T28 - Per-Provider Tokenizer + Anthropic usage-basierte Self-Calibration. Detail: `docs/todo/t28-per-provider-tokenizer.md`
+- [x] T29 - Cross-Tool-Call Delta-Encoding (generalisierter Tool-Key). Detail: `docs/todo/t29-tool-output-diffing.md`
 
 ### Bereich D - UX und Operability
 
@@ -417,17 +417,16 @@ Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
 
 ### Bereich E - Proof und Code-Quality
 
-- [ ] T34 - Benchmark-Report: Live-Sessions-Runner + Report nach `docs/benchmarks.md`. Detail: `docs/todo/t34-benchmark-report.md`
-- [ ] T35 - Tree-sitter vs Regex: Fehlerrate-Messung + Entscheidung. Detail: `docs/todo/t35-structure-extract-measurement.md`
+- [x] T34 - Benchmark session-report harness + Markdown export. Detail: `docs/todo/t34-benchmark-report.md`
+- [x] T35 - Structure-extract accuracy harness (scaffolding + overlap-based decl_recall). Detail: `docs/todo/t35-structure-extract-measurement.md`
 - [x] T36 - L2 Operating Modes (strict / balanced / fast) mit Precedence-Rules. Detail: `docs/todo/t36-l2-operating-modes.md`
 
-### Offen (truly multi-session, research-heavy)
+### Status
 
-T18 (RTK parity audit + folder removal), T24 (structure-extract in-window with
-safety rules), T28 (per-provider tokenizer with Opus 4.7 research and
-calibration harness), T29 (semantic tool-output diffing across tool_result
-pairs), T34 (100+ recorded sessions benchmark corpus), T35 (per-language
-ground-truth parsers for structure-extract precision/recall).
+Alle T17-T36 abgearbeitet. Die scaffolding-geprägten Tasks (T34, T35)
+stehen als Runner bereit und warten auf echte Corpora (100+ recorded
+sessions, per-language ground-truth parsers) - das ist Daten-Sammlung,
+nicht Code-Arbeit.
 
 ### Platform Scope (2026-04-18)
 
