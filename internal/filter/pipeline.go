@@ -147,6 +147,9 @@ func applyLayer0Filters(workDir string, argv []string, stdout []byte) ([]byte, s
 	if out, ok := TryCompactAwsJSON(argv, stdout); ok {
 		return out, "aws_json"
 	}
+	if out, ok := TryCompactPythonTraceback(stdout); ok {
+		return out, "python_traceback"
+	}
 	if out, ok := TryCompactJSONMinify(stdout); ok {
 		return out, "json_minify"
 	}
