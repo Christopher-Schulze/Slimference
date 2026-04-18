@@ -73,10 +73,9 @@ func ApplyLoopNudge(messages []types.Message) ([]types.Message, int) {
 	if alreadyContainsLoopNudge(messages) {
 		return messages, 0
 	}
+	// DetectLoop succeeded, so at least LoopDetectionMinStreak user text
+	// messages exist and lastUserMsgIdx is guaranteed non-negative.
 	lastUser := lastUserMsgIdx(messages)
-	if lastUser < 0 {
-		return messages, 0
-	}
 	// Deep-copy the target message to avoid mutating caller-owned slices.
 	out := make([]types.Message, len(messages))
 	copy(out, messages)
@@ -150,7 +149,9 @@ func wordSet(s string) map[string]struct{} {
 	return out
 }
 
-// jaccard returns the Jaccard similarity between two sets.
+// jaccard returns the Jaccard similarity between two sets. Both sets must
+// be non-empty; an empty set short-circuits to 0.0 because any set unioned
+// with itself keeps len >= 1 so union is always positive in the hot path.
 func jaccard(a, b map[string]struct{}) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
@@ -162,9 +163,6 @@ func jaccard(a, b map[string]struct{}) float64 {
 		}
 	}
 	union := len(a) + len(b) - intersection
-	if union == 0 {
-		return 0
-	}
 	return float64(intersection) / float64(union)
 }
 

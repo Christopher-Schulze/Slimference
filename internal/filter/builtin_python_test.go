@@ -166,9 +166,10 @@ func TestLooksLikeExceptionLine(t *testing.T) {
 		{"", false},
 		{"no colon here", false},
 		{":leading colon", false},
-		{"lower_case: bad", false},          // lowercase first letter
-		{"Bad name!: bad", false},            // invalid character
-		{"V: bad", true},                     // single uppercase letter is valid
+		{"lower_case: bad", false}, // lowercase first letter
+		{"Bad name!: bad", false},  // invalid character
+		{"V: bad", true},           // single uppercase letter is valid
+		{"Error42: bad", true},     // digit in name (exercises `r >= '0' && r <= '9'` branch)
 	}
 	for _, tc := range cases {
 		tc := tc

@@ -21,30 +21,8 @@ func TestApplyLoopNudge_deepCopyPreservesOriginal(t *testing.T) {
 	}
 }
 
-// TestApplyLoopNudge_prependsWhenNoTextBlock covers the insertion-at-front
-// branch when the final user message has only non-text blocks.
-func TestApplyLoopNudge_prependsWhenNoTextBlock(t *testing.T) {
-	t.Parallel()
-	text := "please run the benchmark script from scripts benchmarks"
-	userAll := func(idx int, tail string) types.Message {
-		return types.Message{Index: idx, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: text + " " + tail}}}
-	}
-	// To reach a loop we need user text blocks... but we also need the
-	// LAST user turn to have NO text block so the fallback branch fires.
-	msgs := []types.Message{
-		userAll(0, "a"), userAll(1, "a"), userAll(2, "b"), userAll(3, "c"),
-	}
-	// Swap last message's content to tool_result only.
-	msgs[3].Content = []types.ContentBlock{{Type: "tool_result", ToolName: "x", Text: "foo"}}
-	out, saved := ApplyLoopNudge(msgs)
-	if saved == 0 {
-		// loop requires 4 user-text messages; removing one may break detection
-		t.Skip("fixture does not satisfy loop threshold; nothing to assert")
-	}
-	if !strings.Contains(out[3].Content[0].Text, LoopNudgeMarker) {
-		t.Fatalf("nudge must be prepended as first block: %+v", out[3].Content)
-	}
-}
+// The fallback-when-no-text-block case is canonically covered by
+// TestApplyLoopNudge_fallbackLastUserNoText in loop_detect_test.go.
 
 // TestCollectUserTexts_skipsShortText covers the `> 10` filter.
 func TestCollectUserTexts_skipsShortText(t *testing.T) {

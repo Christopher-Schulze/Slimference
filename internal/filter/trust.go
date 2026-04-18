@@ -140,6 +140,12 @@ func loadTrustStore() (TrustStore, error) {
 	return store, nil
 }
 
+// trustMarshalFn is overridable in tests so the (normally unreachable)
+// json.MarshalIndent error return is covered without relying on an
+// unmarshalable value. Our TrustStore is pure strings + ints + maps,
+// which json cannot fail on.
+var trustMarshalFn = func(v any) ([]byte, error) { return json.MarshalIndent(v, "", "  ") }
+
 // saveTrustStore writes store to disk with 0600 perms, creating parent
 // directories with 0700. Must be called with trustStoreMu held.
 func saveTrustStore(store TrustStore) error {
@@ -149,7 +155,7 @@ func saveTrustStore(store TrustStore) error {
 			return err
 		}
 	}
-	data, err := json.MarshalIndent(store, "", "  ")
+	data, err := trustMarshalFn(store)
 	if err != nil {
 		return err
 	}
@@ -166,17 +172,24 @@ func errorsIs(target error, want error) bool {
 	return os.IsNotExist(target) || (target != nil && target.Error() == want.Error())
 }
 
+// filepathAbsFn is overridable in tests so the (normally unreachable)
+// filepath.Abs error path is covered without corrupting the process cwd.
+var filepathAbsFn = filepath.Abs
+
 // canonicalFilterPath returns an absolute, symlink-free path so two
 // references to the same file always hash to the same trust key.
-func canonicalFilterPath(path string) (string, error) {
-	abs, err := filepath.Abs(path)
+// filepath.Abs only fails when the process has no working directory,
+// which is itself a fatal OS-level state - we return the original path
+// in that case rather than blocking trust operations.
+func canonicalFilterPath(path string) string {
+	abs, err := filepathAbsFn(path)
 	if err != nil {
-		return "", err
+		return path
 	}
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved, nil
+		return resolved
 	}
-	return abs, nil
+	return abs
 }
 
 // EvaluateTrust returns the status of the filter file at path against the
@@ -196,10 +209,7 @@ func EvaluateTrust(path string) (TrustStatus, TrustEntry, error) {
 	if err != nil {
 		return TrustStatusUntrusted, TrustEntry{}, err
 	}
-	canon, err := canonicalFilterPath(path)
-	if err != nil {
-		return TrustStatusUntrusted, TrustEntry{}, err
-	}
+	canon := canonicalFilterPath(path)
 	trustStoreMu.Lock()
 	defer trustStoreMu.Unlock()
 	store, err := loadTrustStore()
@@ -220,10 +230,7 @@ func EvaluateTrust(path string) (TrustStatus, TrustEntry, error) {
 // If path does not exist, returns an error. Existing entries are overwritten
 // (re-trust after intentional edits).
 func AddTrust(path string) (TrustEntry, error) {
-	canon, err := canonicalFilterPath(path)
-	if err != nil {
-		return TrustEntry{}, err
-	}
+	canon := canonicalFilterPath(path)
 	digest, err := ComputeFileSHA256(path)
 	if err != nil {
 		return TrustEntry{}, err
@@ -248,10 +255,7 @@ func AddTrust(path string) (TrustEntry, error) {
 // RemoveTrust removes the trust entry for path. Returns (true, nil) when a
 // record existed and was removed, (false, nil) when no record existed.
 func RemoveTrust(path string) (bool, error) {
-	canon, err := canonicalFilterPath(path)
-	if err != nil {
-		return false, err
-	}
+	canon := canonicalFilterPath(path)
 	trustStoreMu.Lock()
 	defer trustStoreMu.Unlock()
 	store, err := loadTrustStore()

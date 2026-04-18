@@ -103,9 +103,9 @@ func RewriteCommand(cmd string, excluded []string) (string, bool) {
 	if len(cur) > 0 {
 		segs = append(segs, compoundSeg{toks: cur, operator: ""})
 	}
-	if len(segs) == 0 {
-		return cmd, false
-	}
+	// segs is guaranteed non-empty here: toks was verified non-empty above,
+	// so either an operator token pushed an initial segment or the trailing
+	// cur was non-empty.
 
 	// Rewrite each compound segment.
 	var parts []string

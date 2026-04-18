@@ -29,10 +29,9 @@ func (c *DeterministicCompressor) structurePreviewPass(messages []types.Message,
 			if !ok {
 				continue
 			}
+			// StructurePreview's contract guarantees preview is strictly
+			// shorter whenever ok==true, so delta is always > 0 here.
 			delta := len(block.Text) - len(preview)
-			if delta <= 0 {
-				continue
-			}
 			blocks[bi].Text = preview
 			saved += delta
 			slog.Debug("structure_preview applied",

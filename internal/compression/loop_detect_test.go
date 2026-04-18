@@ -128,6 +128,38 @@ func TestApplyLoopNudge_noUserMessage(t *testing.T) {
 	}
 }
 
+// TestApplyLoopNudge_fallbackLastUserNoText covers the `textIdx < 0` branch.
+// Loop IS detected via earlier user text messages, but the FINAL user
+// message has no text block so the nudge is prepended as a fresh block.
+func TestApplyLoopNudge_fallbackLastUserNoText(t *testing.T) {
+	t.Parallel()
+	text := "tune the compression pipeline for better latency on large inputs"
+	msgs := []types.Message{
+		userMsg(0, text),
+		userMsg(1, text),
+		userMsg(2, text),
+		userMsg(3, text),
+		{
+			Index: 4, Role: "user",
+			Content: []types.ContentBlock{{Type: "tool_result", ToolName: "Bash", Text: "output"}},
+		},
+	}
+	out, saved := ApplyLoopNudge(msgs)
+	if saved == 0 {
+		t.Fatal("expected loop detection across the first 4 user texts")
+	}
+	last := out[4]
+	if len(last.Content) != 2 {
+		t.Fatalf("expected 2 content blocks, got %d", len(last.Content))
+	}
+	if !strings.Contains(last.Content[0].Text, LoopNudgeMarker) {
+		t.Fatalf("nudge must be the first block: %+v", last.Content)
+	}
+	if last.Content[1].Type != "tool_result" {
+		t.Fatal("original tool_result must be preserved")
+	}
+}
+
 func TestApplyLoopNudge_fallbackWhenNoTextBlock(t *testing.T) {
 	t.Parallel()
 	text := "make sure the layer 1 path never allocates inside the hot loop"

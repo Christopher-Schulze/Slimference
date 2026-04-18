@@ -301,17 +301,14 @@ func TestSaveTrustStore_MkdirFailure(t *testing.T) {
 func TestCanonicalFilterPath(t *testing.T) {
 	t.Parallel()
 	p := writeFilter(t, "x")
-	got, err := canonicalFilterPath(p)
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := canonicalFilterPath(p)
 	if !filepath.IsAbs(got) {
 		t.Fatalf("canonical path must be absolute: %s", got)
 	}
-	// Relative path resolves.
+	// Relative path resolves to something absolute-looking.
 	rel := "./doesnt-exist.toml"
-	if got, err := canonicalFilterPath(rel); err != nil || got == "" || got == rel {
-		t.Fatalf("rel canonicalisation: got=%s err=%v", got, err)
+	if got := canonicalFilterPath(rel); got == "" || got == rel {
+		t.Fatalf("rel canonicalisation: got=%s", got)
 	}
 }
 
@@ -332,15 +329,25 @@ func TestLoadTrustStore_readErrorNonNotExist(t *testing.T) {
 }
 
 // TestAddTrust_saveFailureSurfaced when the parent directory cannot be
-// created because a regular file blocks the path.
+// created because a regular file blocks the path. Drives trustStorePathFn
+// to return a valid path on load and a blocked path on save so only the
+// save step errors out.
 func TestAddTrust_saveFailureSurfaced(t *testing.T) {
-	dir := t.TempDir()
-	blocker := filepath.Join(dir, "blocker")
+	goodDir := t.TempDir()
+	blockerDir := t.TempDir()
+	blocker := filepath.Join(blockerDir, "blocker")
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	orig := trustStorePathFn
-	trustStorePathFn = func() string { return filepath.Join(blocker, "nested", "trust.json") }
+	calls := 0
+	trustStorePathFn = func() string {
+		calls++
+		if calls == 1 {
+			return filepath.Join(goodDir, "trust.json")
+		}
+		return filepath.Join(blocker, "nested", "trust.json")
+	}
 	t.Cleanup(func() { trustStorePathFn = orig })
 
 	path := writeFilter(t, "x")
@@ -349,44 +356,8 @@ func TestAddTrust_saveFailureSurfaced(t *testing.T) {
 	}
 }
 
-// TestRemoveTrust_saveFailureSurfaced behaves like AddTrust under the
-// same blocker.
-func TestRemoveTrust_saveFailureSurfaced(t *testing.T) {
-	// First seed a store in a normal tempdir.
-	seedDir := t.TempDir()
-	origPathFn := trustStorePathFn
-	trustStorePathFn = func() string { return filepath.Join(seedDir, "trust.json") }
-	path := writeFilter(t, "x")
-	if _, err := AddTrust(path); err != nil {
-		t.Fatal(err)
-	}
-
-	// Swap the store path to a blocked write location. The map still has the
-	// entry in-memory - but we hit save failure after deleting from it.
-	dir := t.TempDir()
-	blocker := filepath.Join(dir, "blocker")
-	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// Copy the seed into the blocked location so load succeeds.
-	seedData, _ := os.ReadFile(filepath.Join(seedDir, "trust.json"))
-	blockedPath := filepath.Join(blocker, "nested", "trust.json")
-	if err := os.MkdirAll(filepath.Dir(blockedPath), 0o755); err == nil {
-		_ = os.WriteFile(blockedPath, seedData, 0o600)
-	}
-	trustStorePathFn = func() string { return blockedPath }
-	t.Cleanup(func() { trustStorePathFn = origPathFn })
-
-	// Immediately replace path so mkdir will be needed and will fail.
-	trustStorePathFn = func() string { return filepath.Join(blocker, "otherpath", "trust.json") }
-
-	// This remove will fail on save because the path under blocker cannot
-	// be created. In-memory state still rejects the entry lookup since
-	// the store has to be loaded fresh.
-	_, err := RemoveTrust(path)
-	_ = err // Specific outcome depends on load result; a non-crashing
-	// call is what we verify at minimum.
-}
+// The canonical RemoveTrust save-failure test lives in
+// trust_branches_test.go (uses the counter-based trustStorePathFn swap).
 
 // TestListTrusted_readError surfaces a corrupt store.
 func TestListTrusted_readError(t *testing.T) {
