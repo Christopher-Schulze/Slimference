@@ -14,6 +14,7 @@ import (
 
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -156,6 +157,139 @@ func TestBuildAggressiveCompressedBody_minRatioClamp(t *testing.T) {
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(out, &probe); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
+	}
+}
+
+// TestBuildAggressiveCompressedBody_contextCancelled ensures the ctx.Err()
+// early-return branch fires when the caller's context is already dead.
+func TestBuildAggressiveCompressedBody_contextCancelled(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := p.buildAggressiveCompressedBodyContext(ctx, pipelineStash{
+		messages: nil,
+		origBody: []byte(`{}`),
+		provider: types.Anthropic,
+	})
+	if err == nil {
+		t.Fatal("want error from cancelled context, got nil")
+	}
+}
+
+// TestBuildAggressiveCompressedBody_appliesCachedSummary verifies the
+// read-only Layer 2 apply branch when a cached summary covers the messages.
+func TestBuildAggressiveCompressedBody_appliesCachedSummary(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	// Seed an existing Layer 2 summary that covers indices 0..1.
+	p.layer2.GetCache().Store(&summarization.CachedSummary{
+		Summary:          "stashed summary",
+		CoveredRange:     [2]int{0, 1},
+		OriginalTokens:   20,
+		CompressedTokens: 5,
+		CreatedAt:        time.Now(),
+	})
+
+	body := []byte(`{
+		"model": "claude-3-5-sonnet-20241022",
+		"max_tokens": 64,
+		"messages": [
+			{"role": "user", "content": "first"},
+			{"role": "assistant", "content": "second"},
+			{"role": "user", "content": "tail"}
+		]
+	}`)
+	msgs, _, err := extractMessages(types.Anthropic, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.buildAggressiveCompressedBodyContext(context.Background(), pipelineStash{
+		messages: msgs,
+		origBody: body,
+		provider: types.Anthropic,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "Conversation summary covering messages") {
+		t.Fatalf("expected synthetic summary injected into forwarded body; got %s", out)
+	}
+}
+
+// TestBuildAggressiveCompressedBody_enqueuesAsyncJob verifies that when
+// ShouldTriggerCompression is true, the overflow recover path enqueues a
+// fresh async Layer 2 job instead of calling MiniMax synchronously.
+func TestBuildAggressiveCompressedBody_enqueuesAsyncJob(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	cfg := config.Defaults()
+	cfg.Compression.Summary.MinRatio = 0.01
+	cfg.Compression.MinMessagesForCompression = 3
+	cfg.Compression.SlidingWindow = 2
+	cfg.Compression.MinTokensForLayer2 = 0
+	p := New(cfg)
+
+	// Build a stash with enough messages to pass ShouldTriggerCompression.
+	stash := pipelineStash{
+		messages: []types.Message{
+			{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "one"}}},
+			{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "two"}}},
+			{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "three"}}},
+			{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "four"}}},
+			{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "five"}}},
+			{Index: 5, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "six"}}},
+			{Index: 6, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "seven"}}},
+		},
+		origBody: []byte(`{"model":"claude-3-5-sonnet-20241022","max_tokens":32,"messages":[]}`),
+		provider: types.Anthropic,
+	}
+
+	_, err := p.buildAggressiveCompressedBodyContext(context.Background(), stash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// At least one job must have landed on the compression queue.
+	select {
+	case <-p.compressQueue:
+		// ok
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected async compression job to be enqueued on overflow recover")
+	}
+}
+
+// TestBuildAggressiveCompressedBody_asyncQueueFullFallsThrough verifies the
+// default case of the non-blocking select fires when the queue is already
+// full - the recover path must still return successfully.
+func TestBuildAggressiveCompressedBody_asyncQueueFullFallsThrough(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	cfg := config.Defaults()
+	cfg.Compression.Summary.MinRatio = 0.01
+	cfg.Compression.MinMessagesForCompression = 3
+	cfg.Compression.SlidingWindow = 2
+	cfg.Compression.MinTokensForLayer2 = 0
+	p := New(cfg)
+
+	// Fill the compression queue so the default branch has to fire.
+	for i := 0; i < cap(p.compressQueue); i++ {
+		p.compressQueue <- types.CompressJob{Timestamp: time.Now()}
+	}
+
+	stash := pipelineStash{
+		messages: []types.Message{
+			{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "one"}}},
+			{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "two"}}},
+			{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "three"}}},
+			{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "four"}}},
+			{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "five"}}},
+			{Index: 5, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "six"}}},
+			{Index: 6, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "seven"}}},
+		},
+		origBody: []byte(`{"model":"claude-3-5-sonnet-20241022","max_tokens":32,"messages":[]}`),
+		provider: types.Anthropic,
+	}
+
+	if _, err := p.buildAggressiveCompressedBodyContext(context.Background(), stash); err != nil {
+		t.Fatalf("recover path must still succeed with full queue: %v", err)
 	}
 }
 

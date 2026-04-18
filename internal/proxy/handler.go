@@ -19,7 +19,6 @@ import (
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -586,8 +585,16 @@ func isContextOverflow(body []byte) bool {
 		bytes.Contains(body, []byte("maximum context length"))
 }
 
-// buildAggressiveCompressedBodyContext re-runs Layer 1-2 with a minimal sliding window and stronger summarization.
+// buildAggressiveCompressedBodyContext re-runs Layer 1 with a minimal sliding
+// window, applies any already-cached Layer 2 summary read-only, and enqueues
+// a fresh async Layer 2 job so the next request benefits from an updated
+// summary. Spec+.md §17.4: the overflow recover path must be bounded by local
+// CPU - no synchronous MiniMax call is permitted here, because a hanging
+// provider would hang the user-facing recover.
 func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash pipelineStash) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	cfg := p.config.Compression
 	cfg.SlidingWindow = 2
 	cfg.Summary.TargetRatio = 0.10
@@ -595,14 +602,27 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 		cfg.Summary.TargetRatio = cfg.Summary.MinRatio
 	}
 	l1 := compression.NewDeterministicCompressor(&cfg)
-	l2 := summarization.NewLayer2(&cfg)
 	msgs := l1.Compress(stash.messages).Messages
-	l2.RunCompressionJobContext(ctx, msgs)
-	msgs2, _, ok := l2.ApplyToMessages(msgs)
-	if !ok {
-		msgs2 = msgs
+
+	// Read-only Layer 2 pass: consume any existing cached summary. Never call
+	// MiniMax synchronously - that is exactly what this path must not do.
+	if p.layer2 != nil {
+		if applied, _, ok := p.layer2.ApplyToMessages(msgs); ok {
+			msgs = applied
+		}
 	}
-	return reconstructBodyFn(stash.provider, stash.origBody, msgs2)
+
+	// Enqueue a non-blocking async Layer 2 job so the next request benefits
+	// from an up-to-date summary. Drop silently if the queue is full - we
+	// already responded.
+	if p.isLayerEnabled(2) && p.layer2 != nil && p.layer2.ShouldTriggerCompression(stash.messages) {
+		select {
+		case p.compressQueue <- types.CompressJob{Messages: stash.messages, Timestamp: time.Now()}:
+		default:
+		}
+	}
+
+	return reconstructBodyFn(stash.provider, stash.origBody, msgs)
 }
 
 func (p *Proxy) compressionContext() context.Context {
