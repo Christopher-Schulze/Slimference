@@ -123,6 +123,13 @@ func SummarizationHint(messages []types.Message) string {
 	}
 	sb.WriteString("MEDIUM priority items: preserve key facts, may paraphrase.\n")
 
+	// T26: add repetition guidance for repeated tool calls. Silent when no
+	// tool call appears more than once.
+	if hint := RepetitionHint(messages); hint != "" {
+		sb.WriteString("\n")
+		sb.WriteString(hint)
+	}
+
 	return sb.String()
 }
 
