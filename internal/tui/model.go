@@ -157,9 +157,12 @@ func (m *Model) SetServiceControl(svc ServiceControlInterface) {
 	m.svc = svc
 }
 
-// NewModel creates a TUI model wired to the given proxy.
+// NewModel creates a TUI model wired to the given proxy. If a persisted
+// state file exists (T31) it is re-applied so the user's last toggle and
+// view choices survive restarts; corrupt or missing files silently fall
+// back to proxy-derived defaults.
 func NewModel(proxy ProxyInterface) Model {
-	return Model{
+	m := Model{
 		proxy:         proxy,
 		keys:          DefaultKeyMap(),
 		styles:        NewStyles(),
@@ -173,6 +176,10 @@ func NewModel(proxy ProxyInterface) Model {
 		width:         80,
 		height:        24,
 	}
+	if state, err := LoadPersistedState(); err == nil && state != nil {
+		applyPersistedState(&m, *state)
+	}
+	return m
 }
 
 // Init starts the tick timer and returns the initial command.
@@ -319,7 +326,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 			defer cancel()
 			_ = m.proxy.Shutdown(ctx)
+			_ = SavePersistedState(stateFromModel(&m))
 			return m, tea.Quit
+
+		case "ctrl+s":
+			// Explicit "save preferences now" without quitting.
+			if err := SavePersistedState(stateFromModel(&m)); err == nil {
+				m.flashMsg = "preferences saved"
+			} else {
+				m.flashMsg = "save failed: " + err.Error()
+			}
+			m.flashExpiry = time.Now().Add(3 * time.Second)
+			return m, flashTimer(3 * time.Second)
 		}
 
 	case tickMsg:
