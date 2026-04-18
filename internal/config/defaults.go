@@ -43,8 +43,13 @@ func Defaults() *Config {
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,
-				OverflowSlidingWindow:       2,
-				OverflowTargetRatio:         0.10,
+				IncrementalStaircase: []StaircaseStep{
+					{MsgCountLE: 60, Threshold: 0.70},
+					{MsgCountLE: 120, Threshold: 0.55},
+					{MsgCountLE: 1_000_000, Threshold: 0.40},
+				},
+				OverflowSlidingWindow: 2,
+				OverflowTargetRatio:   0.10,
 			},
 		},
 		Cache: CacheConfig{
@@ -124,13 +129,27 @@ strict = true
 [compression.tuning]
 # Incremental-summary overlap threshold: if an existing summary covers at
 # least this fraction of the compressible range, do an incremental update
-# instead of a full rebuild.
+# instead of a full rebuild. Used only when incremental_staircase is empty.
 incremental_overlap_threshold = 0.70
 # Aggressive sliding window used only when upstream reports a context
 # overflow (spec+.md §17.4).
 overflow_sliding_window = 2
 # Aggressive summary target ratio for the overflow recover path.
 overflow_target_ratio = 0.10
+
+# Conversation-size-keyed staircase of incremental-overlap thresholds. The
+# first step whose msg_count_le is >= the current conversation length wins.
+# Long conversations benefit from a lower threshold: a full rebuild costs
+# proportionally more work while incremental updates remain cheap.
+[[compression.tuning.incremental_staircase]]
+msg_count_le = 60
+threshold = 0.70
+[[compression.tuning.incremental_staircase]]
+msg_count_le = 120
+threshold = 0.55
+[[compression.tuning.incremental_staircase]]
+msg_count_le = 1000000
+threshold = 0.40
 
 [cache]
 response_cache_max_entries = 100

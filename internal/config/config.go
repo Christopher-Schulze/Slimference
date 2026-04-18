@@ -106,16 +106,31 @@ type CompressionConfig struct {
 // at 0.70) are intentionally not exposed here - they do not change observable
 // behaviour in a way operators would tune.
 type TuningConfig struct {
-	// IncrementalOverlapThreshold is the fraction of the compressible range
-	// that must already be covered by an existing summary to qualify for an
-	// incremental update instead of a full rebuild. Default 0.70.
+	// IncrementalOverlapThreshold is the fallback fraction of the compressible
+	// range that must already be covered by an existing summary to qualify
+	// for an incremental update instead of a full rebuild. Used whenever the
+	// IncrementalStaircase is empty. Default 0.70.
 	IncrementalOverlapThreshold float64 `toml:"incremental_overlap_threshold"`
+	// IncrementalStaircase is a staircase of thresholds keyed by conversation
+	// size. The first step whose `msg_count_le` is >= the current conversation
+	// length wins. Long conversations pay a proportionally larger cost for
+	// full rebuilds, so a lower threshold is reasonable. If empty, the scalar
+	// IncrementalOverlapThreshold is used uniformly. See T27.
+	IncrementalStaircase []StaircaseStep `toml:"incremental_staircase"`
 	// OverflowSlidingWindow is the aggressive sliding window used when the
 	// upstream reports a context overflow (spec+.md §17.4). Default 2.
 	OverflowSlidingWindow int `toml:"overflow_sliding_window"`
 	// OverflowTargetRatio is the aggressive summary target ratio used during
 	// overflow recover. Default 0.10.
 	OverflowTargetRatio float64 `toml:"overflow_target_ratio"`
+}
+
+// StaircaseStep is one tier of a conversation-size-keyed threshold staircase.
+// Steps are consulted in the configured order; the first step whose
+// MsgCountLE is >= the conversation length wins.
+type StaircaseStep struct {
+	MsgCountLE int     `toml:"msg_count_le"`
+	Threshold  float64 `toml:"threshold"`
 }
 
 // MiniMaxConfig holds settings for the MiniMax summarization API.
@@ -301,6 +316,19 @@ func validate(cfg *Config) error {
 	t := cfg.Compression.Tuning
 	if t.IncrementalOverlapThreshold < 0 || t.IncrementalOverlapThreshold > 1 {
 		return fmt.Errorf("compression.tuning.incremental_overlap_threshold must be 0.0-1.0")
+	}
+	prevLE := -1
+	for i, step := range t.IncrementalStaircase {
+		if step.Threshold < 0 || step.Threshold > 1 {
+			return fmt.Errorf("compression.tuning.incremental_staircase[%d].threshold must be 0.0-1.0", i)
+		}
+		if step.MsgCountLE <= 0 {
+			return fmt.Errorf("compression.tuning.incremental_staircase[%d].msg_count_le must be > 0", i)
+		}
+		if step.MsgCountLE <= prevLE {
+			return fmt.Errorf("compression.tuning.incremental_staircase[%d].msg_count_le must be strictly increasing", i)
+		}
+		prevLE = step.MsgCountLE
 	}
 	if t.OverflowSlidingWindow < 1 {
 		return fmt.Errorf("compression.tuning.overflow_sliding_window must be >= 1")

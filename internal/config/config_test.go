@@ -232,6 +232,22 @@ func TestValidate_InvalidTuning(t *testing.T) {
 		{"overflow_target_ratio too high", func(c *Config) {
 			c.Compression.Tuning.OverflowTargetRatio = 1.5
 		}},
+		{"staircase threshold out of range", func(c *Config) {
+			c.Compression.Tuning.IncrementalStaircase = []StaircaseStep{
+				{MsgCountLE: 60, Threshold: 1.5},
+			}
+		}},
+		{"staircase msg_count_le zero", func(c *Config) {
+			c.Compression.Tuning.IncrementalStaircase = []StaircaseStep{
+				{MsgCountLE: 0, Threshold: 0.5},
+			}
+		}},
+		{"staircase msg_count_le not strictly increasing", func(c *Config) {
+			c.Compression.Tuning.IncrementalStaircase = []StaircaseStep{
+				{MsgCountLE: 60, Threshold: 0.7},
+				{MsgCountLE: 60, Threshold: 0.5},
+			}
+		}},
 	}
 
 	for _, tc := range tests {

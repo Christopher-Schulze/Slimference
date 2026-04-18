@@ -139,7 +139,7 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 	existingSummaryPrefix := ""
 	if existing != nil && existingRange[1] > 0 {
 		coveredFraction := float64(existingRange[1]) / float64(boundaryIdx)
-		if coveredFraction >= l.incrementalOverlapThreshold() {
+		if coveredFraction >= l.incrementalOverlapThreshold(len(messages)) {
 			// Only compress the delta since the last covered message.
 			newStart := existingRange[1] + 1
 			if newStart <= boundaryIdx {
@@ -306,16 +306,26 @@ func (l *Layer2) ShouldTriggerCompression(messages []types.Message) bool {
 		return true
 	}
 	coveredFraction := float64(existingRange[1]) / float64(boundaryIdx)
-	return coveredFraction < l.incrementalOverlapThreshold()
+	return coveredFraction < l.incrementalOverlapThreshold(len(messages))
 }
 
 func (l *Layer2) hasConfiguredProvider() bool {
 	return l.chain != nil && l.chain.ActiveProviderName() != ""
 }
 
-// incrementalOverlapThreshold reads the configured tuning knob, falling back
-// to 0.70 if the config was loaded with a zero value (legacy configs).
-func (l *Layer2) incrementalOverlapThreshold() float64 {
+// incrementalOverlapThreshold reads the configured tuning knob. If a
+// conversation-size-keyed staircase is configured, it is consulted first
+// (first matching step wins). Otherwise the scalar fallback is used. Zero
+// values fall back to the historical 0.70 for legacy configs.
+func (l *Layer2) incrementalOverlapThreshold(msgCount int) float64 {
+	for _, step := range l.cfg.Tuning.IncrementalStaircase {
+		if msgCount <= step.MsgCountLE {
+			if step.Threshold <= 0 {
+				return 0.70
+			}
+			return step.Threshold
+		}
+	}
 	v := l.cfg.Tuning.IncrementalOverlapThreshold
 	if v <= 0 {
 		return 0.70

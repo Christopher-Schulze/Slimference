@@ -117,21 +117,68 @@ func TestLayer2_GetCache(t *testing.T) {
 	}
 }
 
-// TestLayer2_incrementalOverlapThresholdDefault verifies the fallback to the
-// historical 0.70 when a legacy config did not specify the tuning knob (T22).
+// TestLayer2_incrementalOverlapThresholdDefault verifies the scalar fallback
+// is used when no staircase is configured and zero means "use historical 0.70".
 func TestLayer2_incrementalOverlapThresholdDefault(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
 	cfg.Tuning.IncrementalOverlapThreshold = 0
+	cfg.Tuning.IncrementalStaircase = nil
 	l := NewLayer2(&cfg)
-	if got := l.incrementalOverlapThreshold(); got != 0.70 {
-		t.Fatalf("expected fallback 0.70 when tuning is 0, got %v", got)
+	if got := l.incrementalOverlapThreshold(10); got != 0.70 {
+		t.Fatalf("expected fallback 0.70 when tuning is 0 and staircase empty, got %v", got)
 	}
 
 	cfg.Tuning.IncrementalOverlapThreshold = 0.55
 	l = NewLayer2(&cfg)
-	if got := l.incrementalOverlapThreshold(); got != 0.55 {
+	if got := l.incrementalOverlapThreshold(10); got != 0.55 {
 		t.Fatalf("expected configured 0.55, got %v", got)
+	}
+}
+
+// TestLayer2_incrementalOverlapThresholdStaircase verifies the T27 staircase:
+// the first step whose msg_count_le is >= the current conversation length
+// wins, and small/medium/large conversations pick different thresholds.
+func TestLayer2_incrementalOverlapThresholdStaircase(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	cfg.Tuning.IncrementalOverlapThreshold = 0.99 // fallback must not be reached
+	cfg.Tuning.IncrementalStaircase = []config.StaircaseStep{
+		{MsgCountLE: 60, Threshold: 0.70},
+		{MsgCountLE: 120, Threshold: 0.55},
+		{MsgCountLE: 1_000_000, Threshold: 0.40},
+	}
+	l := NewLayer2(&cfg)
+
+	cases := []struct {
+		msgCount int
+		want     float64
+	}{
+		{msgCount: 10, want: 0.70},
+		{msgCount: 60, want: 0.70},
+		{msgCount: 90, want: 0.55},
+		{msgCount: 120, want: 0.55},
+		{msgCount: 500, want: 0.40},
+		{msgCount: 2_000_000, want: 0.99}, // beyond last step -> scalar fallback
+	}
+	for _, tc := range cases {
+		if got := l.incrementalOverlapThreshold(tc.msgCount); got != tc.want {
+			t.Errorf("msgCount=%d: got %v, want %v", tc.msgCount, got, tc.want)
+		}
+	}
+}
+
+// TestLayer2_incrementalOverlapThresholdStaircaseZeroStep verifies the
+// defensive fallback when a configured step has threshold 0.
+func TestLayer2_incrementalOverlapThresholdStaircaseZeroStep(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	cfg.Tuning.IncrementalStaircase = []config.StaircaseStep{
+		{MsgCountLE: 60, Threshold: 0},
+	}
+	l := NewLayer2(&cfg)
+	if got := l.incrementalOverlapThreshold(10); got != 0.70 {
+		t.Fatalf("zero step must fall back to 0.70, got %v", got)
 	}
 }
 
