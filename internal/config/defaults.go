@@ -65,6 +65,8 @@ func defaultsRaw() *Config {
 				OverflowTargetRatio:        0.10,
 				StructureInWindow:          false,
 				StructureInWindowMinTokens: 1500,
+				LoopDetection:              false,
+				StructurePreview:           false,
 			},
 		},
 		Cache: CacheConfig{
@@ -178,6 +180,15 @@ threshold = 0.40
 # and not on the last message are eligible.
 structure_in_window = false
 structure_in_window_min_tokens = 1500
+
+# T37: detect retry loops (>=4 consecutive user turns with >=0.75 Jaccard
+# word similarity) and prepend a short nudge to the final user message so
+# the model can break out. Default off.
+loop_detection = false
+
+# T38: replace large tool_result blocks (>=4 KB) with a shape-aware
+# preview (JSON / paths / ASCII table) when strictly shorter. Default off.
+structure_preview = false
 
 [cache]
 response_cache_max_entries = 100

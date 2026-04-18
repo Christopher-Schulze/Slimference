@@ -24,6 +24,10 @@ type Layer1Result struct {
 	ImageSaved            int
 	RepeatedCollapseSaved int
 	GraphPruningSaved     int
+	// PreviewSaved is T38: shape-aware preview of large tool_result blocks.
+	PreviewSaved int
+	// LoopNudgeSaved is T37: injected retry-loop nudge estimate.
+	LoopNudgeSaved int
 }
 
 // DeterministicCompressor runs Layer 1 sub-layers deterministically and synchronously.
@@ -57,6 +61,16 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 
 	if len(messages) == 0 {
 		return result
+	}
+
+	// T37 loop nudge runs first so any downstream compression sees the
+	// nudged text. Opt-in via [compression.tuning] loop_detection.
+	if c.cfg.Tuning.LoopDetection {
+		if newMsgs, saved := ApplyLoopNudge(messages); saved > 0 {
+			messages = newMsgs
+			result.LoopNudgeSaved = saved
+			result.Messages = messages
+		}
 	}
 
 	prefixEnd := CompressiblePrefixEnd(messages, c.cfg.SlidingWindow)
@@ -99,6 +113,12 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 	result.RepeatedCollapseSaved = c.toolCallIndex.CollapseRepeated(out, prefixEnd)
 	result.GraphPruningSaved = c.fileOpGraph.PruneRedundant(out, prefixEnd)
 
+	// T38 structure-aware preview. Runs after main sub-layers so preview
+	// only fires when no other transformation replaced the raw text.
+	if c.cfg.Tuning.StructurePreview {
+		result.PreviewSaved = c.structurePreviewPass(out, prefixEnd)
+	}
+
 	// T24: opt-in in-window structure extraction. Walks the tail of the
 	// sliding window (excluding the very last message) and signatures large
 	// tool_result blocks. Disabled by default; safety invariants are
@@ -110,7 +130,8 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 	result.TokensSaved = result.JSONSaved + result.CommentSaved + result.StructureSaved + result.DeltaSaved +
 		result.DedupSaved + result.ANSISaved + result.SuccessShortSaved +
 		result.ToolCompressorSaved + result.ImageSaved +
-		result.RepeatedCollapseSaved + result.GraphPruningSaved
+		result.RepeatedCollapseSaved + result.GraphPruningSaved +
+		result.PreviewSaved + result.LoopNudgeSaved
 	result.Messages = out
 
 	if result.TokensSaved > 0 {

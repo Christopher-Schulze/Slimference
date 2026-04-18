@@ -133,6 +133,15 @@ type TuningConfig struct {
 	// in-window tool_result block to be eligible for structure extraction.
 	// Default 1500 (conservative: half of a typical file read).
 	StructureInWindowMinTokens int `toml:"structure_in_window_min_tokens"`
+	// LoopDetection enables T37: when 4+ consecutive user messages share
+	// >=0.75 Jaccard word similarity, a synthetic nudge is prepended to
+	// the final user message so the model can break out of a retry loop.
+	// Default false (opt-in).
+	LoopDetection bool `toml:"loop_detection"`
+	// StructurePreview enables T38: large tool_result blocks (>=4 KB) with
+	// JSON / path-list / ASCII-table shape are replaced with a compact,
+	// shape-aware preview when strictly shorter. Default false (opt-in).
+	StructurePreview bool `toml:"structure_preview"`
 }
 
 // StaircaseStep is one tier of a conversation-size-keyed threshold staircase.
