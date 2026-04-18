@@ -451,6 +451,38 @@ func TestApplyEnvOverrides_InvalidGainFloat(t *testing.T) {
 }
 
 // TestLoad_ValidateFails covers the validate error path in Load().
+// TestLoad_InvalidMode surfaces the ApplyL2OperatingMode error from Load().
+func TestLoad_InvalidMode(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "config-*.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprint(f, "[compression.summary]\nmode = \"turbo\"\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	t.Setenv("SLIMFERENCE_CONFIG", f.Name())
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "strict|balanced|fast") {
+		t.Fatalf("Load() must reject unknown mode, got err=%v", err)
+	}
+}
+
+// TestLoad_EnvOverridesMode selects fast mode via SLIMFERENCE_L2_MODE.
+func TestLoad_EnvOverridesMode(t *testing.T) {
+	t.Setenv("SLIMFERENCE_CONFIG", "/nonexistent/config.toml")
+	t.Setenv("SLIMFERENCE_L2_MODE", "fast")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Compression.Summary.Mode != ModeFast {
+		t.Fatalf("env override must switch mode, got %q", cfg.Compression.Summary.Mode)
+	}
+	if cfg.Compression.Summary.TargetRatio != 0.30 {
+		t.Fatalf("fast profile target ratio: %v", cfg.Compression.Summary.TargetRatio)
+	}
+}
+
 func TestLoad_ValidateFails(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "config-*.toml")
 	if err != nil {

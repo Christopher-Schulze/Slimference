@@ -1,7 +1,19 @@
 package config
 
 // Defaults returns a Config populated with sensible production defaults.
+// SummaryConfig is then passed through ApplyL2OperatingMode so its numeric
+// fields reflect the default "balanced" profile without forcing every
+// caller to run the mode resolver themselves.
 func Defaults() *Config {
+	cfg := defaultsRaw()
+	_ = ApplyL2OperatingMode(&cfg.Compression.Summary, cfg.Compression.Summary.Mode)
+	return cfg
+}
+
+// defaultsRaw returns the pre-mode-applied defaults. Separated from Defaults
+// so Load() can decode TOML over an unresolved shell and resolve the mode
+// only after env overrides have been applied.
+func defaultsRaw() *Config {
 	return &Config{
 		Proxy: ProxyConfig{
 			ListenAddress: "127.0.0.1",
@@ -36,10 +48,11 @@ func Defaults() *Config {
 				RateLimitRPM:           10,
 			},
 			Summary: SummaryConfig{
-				TargetRatio: 0.20,
-				MaxRatio:    0.40,
-				MinRatio:    0.05,
-				Strict:      true,
+				// Mode=balanced is the default operating profile. The
+				// numeric fields stay zero so ApplyL2OperatingMode can
+				// fill them from the profile without pretending they
+				// were operator-set. TOML/env values override after.
+				Mode: ModeBalanced,
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,
@@ -121,10 +134,16 @@ response_timeout_seconds = 30
 rate_limit_rpm = 10
 
 [compression.summary]
-target_ratio = 0.20
-max_ratio = 0.40
-min_ratio = 0.05
-strict = true
+# Operating mode: strict | balanced | fast. Selecting a mode configures
+# target_ratio / max_ratio / min_ratio / strict as a coherent bundle. Any
+# numeric field explicitly set below still overrides the profile.
+# Env override: SLIMFERENCE_L2_MODE.
+mode = "balanced"
+# Explicit overrides (optional; leave unset to inherit from mode).
+# target_ratio = 0.20
+# max_ratio = 0.40
+# min_ratio = 0.05
+# strict = true
 
 [compression.tuning]
 # Incremental-summary overlap threshold: if an existing summary covers at

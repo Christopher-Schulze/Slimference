@@ -161,7 +161,18 @@ func (m MiniMaxConfig) ResponseTimeout() time.Duration {
 }
 
 // SummaryConfig controls quality thresholds for MiniMax summaries.
+//
+// Mode (T36) selects a coherent operating profile on top of which the
+// individual knobs (TargetRatio / MaxRatio / MinRatio / Strict) act as
+// explicit overrides. Precedence: Mode sets the profile first, then any
+// non-zero individual knob overrides its field. This resolves the
+// "correctness vs aggressiveness vs latency" tension documented in
+// docs/gap-analysis.md.
 type SummaryConfig struct {
+	// Mode is one of "strict" | "balanced" | "fast" | "" (backwards-compat:
+	// empty means "respect the individual knobs only"). Env override:
+	// SLIMFERENCE_L2_MODE.
+	Mode        string  `toml:"mode"`
 	TargetRatio float64 `toml:"target_ratio"`
 	MaxRatio    float64 `toml:"max_ratio"`
 	MinRatio    float64 `toml:"min_ratio"`
@@ -227,7 +238,7 @@ func DefaultConfigPath() string {
 // Load reads and validates the configuration. It applies file -> env -> flag precedence.
 // Missing config file is not an error; defaults are applied.
 func Load() (*Config, error) {
-	cfg := Defaults()
+	cfg := defaultsRaw()
 
 	path := DefaultConfigPath()
 	if p := os.Getenv("SLIMFERENCE_CONFIG"); p != "" {
@@ -241,6 +252,14 @@ func Load() (*Config, error) {
 	}
 
 	applyEnvOverrides(cfg)
+
+	// T36: apply the selected Layer 2 operating mode. This fills any numeric
+	// summary fields that the TOML or env did not explicitly set, giving the
+	// mode profile the role of "coherent default bundle". Explicit positive
+	// overrides from TOML/env win.
+	if err := ApplyL2OperatingMode(&cfg.Compression.Summary, cfg.Compression.Summary.Mode); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
 
 	if err := validate(cfg); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
@@ -294,6 +313,9 @@ func applyEnvOverrides(cfg *Config) {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.Analytics.GainUSDPerMillionTokens = f
 		}
+	}
+	if v := os.Getenv("SLIMFERENCE_L2_MODE"); v != "" {
+		cfg.Compression.Summary.Mode = v
 	}
 	if v := os.Getenv("SLIMFERENCE_MINIMAX_API_KEY"); v != "" {
 		// Store directly in env var that MiniMaxConfig.APIKey() reads
