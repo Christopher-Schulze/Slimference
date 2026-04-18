@@ -29,21 +29,34 @@ type CacheEntry struct {
 
 // ResponseCache is a thread-safe, size-bounded LRU cache for identical requests.
 // Entries are keyed by a SHA-256 hash of the request content.
+//
+// Two-stage lookup (T20):
+//   - Stage A (pre-compression): origToCompressed maps the hash of the
+//     original request body to the authoritative Stage B key. A Stage A hit
+//     lets the caller skip the entire compression pipeline on repeated
+//     identical requests.
+//   - Stage B (post-compression): entries keyed on the canonical compressed
+//     body remain the single source of truth. Stage A is purely a pointer.
+//
+// Pointer lifetime: Stage A entries are pruned whenever their target Stage B
+// entry is deleted (eviction, invalidation, TTL cleanup).
 type ResponseCache struct {
-	mu      sync.RWMutex
-	entries map[[32]byte]*CacheEntry
-	maxSize int
-	ttl     time.Duration
-	keys    [][32]byte // insertion-order for LRU eviction
+	mu               sync.RWMutex
+	entries          map[[32]byte]*CacheEntry
+	origToCompressed map[[32]byte][32]byte
+	maxSize          int
+	ttl              time.Duration
+	keys             [][32]byte // insertion-order for LRU eviction
 }
 
 // NewResponseCache creates a ResponseCache with the given capacity and TTL.
 func NewResponseCache(maxSize int, ttl time.Duration) *ResponseCache {
 	return &ResponseCache{
-		entries: make(map[[32]byte]*CacheEntry, maxSize),
-		maxSize: maxSize,
-		ttl:     ttl,
-		keys:    make([][32]byte, 0, maxSize),
+		entries:          make(map[[32]byte]*CacheEntry, maxSize),
+		origToCompressed: make(map[[32]byte][32]byte, maxSize),
+		maxSize:          maxSize,
+		ttl:              ttl,
+		keys:             make([][32]byte, 0, maxSize),
 	}
 }
 
@@ -110,6 +123,45 @@ func (c *ResponseCache) Get(key [32]byte) (*CacheEntry, bool) {
 	return entry, true
 }
 
+// GetByOriginal resolves the original-body pointer (Stage A) to the
+// authoritative compressed entry (Stage B). It returns the entry and its
+// Stage B key so the caller can refresh analytics using the stable id.
+// A miss at either stage returns (nil, zero, false).
+func (c *ResponseCache) GetByOriginal(origKey [32]byte) (*CacheEntry, [32]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	compKey, ok := c.origToCompressed[origKey]
+	if !ok {
+		return nil, [32]byte{}, false
+	}
+	entry, ok := c.entries[compKey]
+	if !ok {
+		// Orphan pointer: drop and report miss.
+		delete(c.origToCompressed, origKey)
+		return nil, [32]byte{}, false
+	}
+	if c.ttl > 0 && time.Since(entry.CreatedAt) > c.ttl {
+		c.deleteKey(compKey)
+		return nil, [32]byte{}, false
+	}
+	entry.HitCount++
+	c.promoteKey(compKey)
+	return entry, compKey, true
+}
+
+// RegisterOriginalPointer registers a Stage A pointer origKey -> compKey.
+// Safe to call after a Stage B Set so repeated identical requests can skip
+// the compression pipeline on the next lookup.
+func (c *ResponseCache) RegisterOriginalPointer(origKey, compKey [32]byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.entries[compKey]; !ok {
+		// No Stage B entry to point at; skip silently.
+		return
+	}
+	c.origToCompressed[origKey] = compKey
+}
+
 // Set stores an entry. When the cache is full, the least-recently-used entry is evicted.
 // Updating an existing key promotes it to most-recently-used.
 func (c *ResponseCache) Set(key [32]byte, entry *CacheEntry) {
@@ -120,6 +172,7 @@ func (c *ResponseCache) Set(key [32]byte, entry *CacheEntry) {
 			oldest := c.keys[0]
 			c.keys = c.keys[1:]
 			delete(c.entries, oldest)
+			c.prunePointersTo(oldest)
 		}
 		c.keys = append(c.keys, key)
 	} else {
@@ -144,6 +197,7 @@ func (c *ResponseCache) Invalidate(path string) {
 		entry, ok := c.entries[key]
 		if ok && cacheEntryDependsOnPath(entry, normalized) {
 			delete(c.entries, key)
+			c.prunePointersTo(key)
 			continue
 		}
 		remaining = append(remaining, key)
@@ -156,6 +210,7 @@ func (c *ResponseCache) Flush() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries = make(map[[32]byte]*CacheEntry, c.maxSize)
+	c.origToCompressed = make(map[[32]byte][32]byte, c.maxSize)
 	c.keys = c.keys[:0]
 }
 
@@ -173,6 +228,7 @@ func (c *ResponseCache) Cleanup() {
 		entry, ok := c.entries[key]
 		if ok && now.Sub(entry.CreatedAt) > c.ttl {
 			delete(c.entries, key)
+			c.prunePointersTo(key)
 			continue
 		}
 		remaining = append(remaining, key)
@@ -199,14 +255,26 @@ func (c *ResponseCache) promoteKey(key [32]byte) {
 	}
 }
 
-// deleteKey removes a single key from both the map and the ordered slice.
+// deleteKey removes a single key from both the map and the ordered slice
+// and prunes any Stage A pointers referencing it.
 // Must be called with c.mu held for write.
 func (c *ResponseCache) deleteKey(key [32]byte) {
 	delete(c.entries, key)
+	c.prunePointersTo(key)
 	for i, k := range c.keys {
 		if k == key {
 			c.keys = append(c.keys[:i], c.keys[i+1:]...)
 			return
+		}
+	}
+}
+
+// prunePointersTo removes every Stage A pointer that targets compKey.
+// Must be called with c.mu held for write.
+func (c *ResponseCache) prunePointersTo(compKey [32]byte) {
+	for orig, target := range c.origToCompressed {
+		if target == compKey {
+			delete(c.origToCompressed, orig)
 		}
 	}
 }

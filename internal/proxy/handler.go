@@ -94,6 +94,19 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		provider: provider,
 	}))
 
+	// --- 3.5 Stage A cache pre-check (T20) ---
+	// If an identical original request already produced a cached upstream
+	// response, serve it without running Layer 1 or Layer 2 at all.
+	var stageACacheKey [32]byte
+	stageAEnabled := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(body)
+	if stageAEnabled {
+		stageACacheKey = p.responseCache.ComputeRequestKeyWithHeaders(provider, body, r.Header)
+		if cached, _, ok := p.responseCache.GetByOriginal(stageACacheKey); ok {
+			p.serveStageACacheHit(w, cached, reqID, start, provider, model, len(messages), origTokens, log)
+			return
+		}
+	}
+
 	compressedMessages := messages
 	var layer1Savings, layer2Savings int
 	appliedLayers := make([]int, 0, 3)
@@ -314,6 +327,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				entry.Headers[k] = vv
 			}
 			p.responseCache.Set(cacheKey, entry)
+			// Register the Stage A pointer (T20) so the next identical
+			// original request can skip the compression pipeline entirely.
+			if stageAEnabled {
+				p.responseCache.RegisterOriginalPointer(stageACacheKey, cacheKey)
+			}
 		}
 	}
 
@@ -378,6 +396,87 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		"layers", appliedLayers,
 		"latency_ms", fmt.Sprintf("%.2f", proxyLatencyMs),
 		"proxy_overhead_ms", fmt.Sprintf("%.2f", float64(time.Since(start).Microseconds())/1000.0),
+	)
+}
+
+// serveStageACacheHit writes a cached response for a Stage A hit (pre-compression).
+// The entire compression pipeline is skipped; only Layer 3 is reported as applied.
+// Spec: T20, double-keyed cache.
+func (p *Proxy) serveStageACacheHit(
+	w http.ResponseWriter,
+	cached *caching.CacheEntry,
+	reqID string,
+	start time.Time,
+	provider types.Provider,
+	model string,
+	totalMessages int,
+	origTokens int,
+	log *slog.Logger,
+) {
+	for k, vv := range cached.Headers {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(cached.StatusCode)
+	_, _ = w.Write(cached.Response)
+
+	latencyMs := float64(time.Since(start).Microseconds()) / 1000.0
+	outputTokens := estimateTokensFromText(string(cached.Response))
+
+	if p.debugRecorder != nil {
+		summary := dbg.RequestSummary{
+			RequestID:          reqID,
+			Timestamp:          start,
+			Provider:           provider.String(),
+			Model:              model,
+			TotalMessages:      totalMessages,
+			MessagesInWindow:   p.config.Compression.SlidingWindow,
+			MessagesCompressed: 0,
+			LayersApplied:      []int{3},
+			Tokens: dbg.TokenCounts{
+				Original:    origTokens,
+				AfterLayer1: origTokens,
+				AfterLayer2: origTokens,
+				Final:       origTokens,
+				Saved:       0,
+				Ratio:       1.0,
+			},
+			CacheHit:       true,
+			ProxyLatencyMs: latencyMs,
+		}
+		p.debugRecorder.Record(summary)
+	}
+
+	select {
+	case p.analyticsQueue <- types.AnalyticsEvent{
+		Type:             types.EventRequestProcessed,
+		Timestamp:        time.Now(),
+		Provider:         provider,
+		Model:            model,
+		InputTokensOrig:  origTokens,
+		InputTokensComp:  origTokens,
+		OutputTokens:     outputTokens,
+		CompressionRatio: 1.0,
+		Layers:           []int{3},
+		LatencyMs:        latencyMs,
+		CacheHit:         true,
+		TokensSaved:      0,
+	}:
+	default:
+	}
+
+	log.Info("request_processed",
+		"input_orig", origTokens,
+		"input_comp", origTokens,
+		"saved", 0,
+		"output", outputTokens,
+		"ratio", "1.00",
+		"layers", []int{3},
+		"cache_hit", true,
+		"cache_stage", "A",
+		"latency_ms", fmt.Sprintf("%.2f", latencyMs),
+		"proxy_overhead_ms", fmt.Sprintf("%.2f", latencyMs),
 	)
 }
 
