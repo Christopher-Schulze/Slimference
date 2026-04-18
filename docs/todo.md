@@ -400,26 +400,34 @@ Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
 
 ### Bereich C - Token-Savings Features
 
-- [ ] T23 - Prompt-Cache Live-Metriken + `slimference stats prompt-cache`. Detail: `docs/todo/t23-prompt-cache-metrics.md`
+- [x] T23 - Prompt-Cache Live-Metriken (Anthropic usage.cache_* in analytics). Detail: `docs/todo/t23-prompt-cache-metrics.md`
 - [ ] T24 - Structure-Extract auch innerhalb Sliding-Window fuer grosse Code-Bloecke. Detail: `docs/todo/t24-structure-extract-in-window.md`
-- [x] T25 (partial, Python traceback done; npm-install + Terraform Plan deferred) - Detail: `docs/todo/t25-l0-filters-expansion.md`
-- [ ] T26 - Tool-Result Priority: 100/50/25 Staffelung fuer wiederholte Heavy-Outputs. Detail: `docs/todo/t26-tool-priority-staircase.md`
-- [ ] T27 - L2 Incremental-Summary: gestaffelte Range-Overlap-Schwelle. Detail: `docs/todo/t27-l2-incremental-staircase.md`
+- [x] T25 - Python traceback + Terraform plan/apply/destroy. npm/pnpm install nicht noetig (bereits durch bestehenden Package-Filter abgedeckt). Detail: `docs/todo/t25-l0-filters-expansion.md`
+- [x] T26 - Tool-Result Repetition-Staircase in MiniMax-Hint. Detail: `docs/todo/t26-tool-priority-staircase.md`
+- [x] T27 - L2 Incremental-Summary: gestaffelte Range-Overlap-Schwelle. Detail: `docs/todo/t27-l2-incremental-staircase.md`
 - [ ] T28 - Per-Provider Tokenizer, Opus 4.7 aware, kalibrierte Fallback-Heuristik. Detail: `docs/todo/t28-per-provider-tokenizer.md`
 - [ ] T29 - Semantisches Tool-Output-Diffing ueber Tool-Call-Pairs (Delta). Detail: `docs/todo/t29-tool-output-diffing.md`
 
 ### Bereich D - UX und Operability
 
 - [x] T30 - `slimference daemon logs` (stderr/stdout tailable). Detail: `docs/todo/t30-daemon-logs.md`
-- [ ] T31 - TUI State-Persistenz (Provider/Layer Toggles, View, Filters). Detail: `docs/todo/t31-tui-state-persistence.md`
+- [x] T31 - TUI State-Persistenz (Provider/Layer Toggles, View). Detail: `docs/todo/t31-tui-state-persistence.md`
 - [x] T32 - Bash-Completion (nur bash; zsh/fish out of scope). Detail: `docs/todo/t32-bash-completion.md`
-- [ ] T33 - Hook-Drift-Detection Watchdog fuer Claude/Codex CLI-Updates. Detail: `docs/todo/t33-hook-drift-watchdog.md`
+- [x] T33 - Hook-Drift-Detection Watchdog fuer Claude/Codex CLI-Updates. Detail: `docs/todo/t33-hook-drift-watchdog.md`
 
 ### Bereich E - Proof und Code-Quality
 
 - [ ] T34 - Benchmark-Report: Live-Sessions-Runner + Report nach `docs/benchmarks.md`. Detail: `docs/todo/t34-benchmark-report.md`
 - [ ] T35 - Tree-sitter vs Regex: Fehlerrate-Messung + Entscheidung. Detail: `docs/todo/t35-structure-extract-measurement.md`
-- [ ] T36 - L2 Operating Modes (strict / balanced / fast) mit Precedence-Rules. Detail: `docs/todo/t36-l2-operating-modes.md`
+- [x] T36 - L2 Operating Modes (strict / balanced / fast) mit Precedence-Rules. Detail: `docs/todo/t36-l2-operating-modes.md`
+
+### Offen (truly multi-session, research-heavy)
+
+T18 (RTK parity audit + folder removal), T24 (structure-extract in-window with
+safety rules), T28 (per-provider tokenizer with Opus 4.7 research and
+calibration harness), T29 (semantic tool-output diffing across tool_result
+pairs), T34 (100+ recorded sessions benchmark corpus), T35 (per-language
+ground-truth parsers for structure-extract precision/recall).
 
 ### Platform Scope (2026-04-18)
 
