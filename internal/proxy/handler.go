@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/compression"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/tokens"
@@ -212,9 +214,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 						Saved:       totalSaved,
 						Ratio:       compressionRatio,
 					},
-					Layer1Breakdown: layer1Breakdown,
-					CacheHit:        true,
-					ProxyLatencyMs:  cacheLatencyMs,
+					Layer1Breakdown:   layer1Breakdown,
+					CacheHit:          true,
+					CacheReadTokens:   0,
+					CacheCreateTokens: 0,
+					ProxyLatencyMs:    cacheLatencyMs,
 				}
 				p.debugRecorder.Record(summary)
 			}
@@ -374,9 +378,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				Saved:       totalSaved,
 				Ratio:       compressionRatio,
 			},
-			Layer1Breakdown: layer1Breakdown,
-			CacheHit:        false,
-			ProxyLatencyMs:  proxyLatencyMs,
+			Layer1Breakdown:   layer1Breakdown,
+			CacheHit:          false,
+			CacheReadTokens:   upstreamCacheUsage.ReadTokens,
+			CacheCreateTokens: upstreamCacheUsage.CreateTokens,
+			ProxyLatencyMs:    proxyLatencyMs,
 		}
 		p.debugRecorder.Record(summary)
 	}
@@ -455,8 +461,10 @@ func (p *Proxy) serveStageACacheHit(
 				Saved:       0,
 				Ratio:       1.0,
 			},
-			CacheHit:       true,
-			ProxyLatencyMs: latencyMs,
+			CacheHit:          true,
+			CacheReadTokens:   0,
+			CacheCreateTokens: 0,
+			ProxyLatencyMs:    latencyMs,
 		}
 		p.debugRecorder.Record(summary)
 	}
@@ -913,6 +921,9 @@ func (p *Proxy) processAnalyticsEvent(event types.AnalyticsEvent) {
 			fmt.Sprintf("event: %v provider=%v saved=%d", event.Type, event.Provider, event.TokensSaved),
 		)
 	}
+	if event.Type == types.EventRequestProcessed || event.Type == types.EventOverflowRetry {
+		p.maybeCaptureCheckpoint(event)
+	}
 	// Fan out to TUI via program.Send if available.
 	if event.Type == types.EventRequestProcessed {
 		p.tuiSendMu.RLock()
@@ -1048,5 +1059,10 @@ func (p *Proxy) FlushCaches() {
 	p.responseCache.Flush()
 	p.layer1.Reset()
 	p.layer2.GetCache().Invalidate()
+	if home, err := os.UserHomeDir(); err == nil {
+		if err := readcache.Clear(readcache.DefaultDir(home)); err != nil {
+			slog.Warn("read cache flush failed", "error", err)
+		}
+	}
 	slog.Info("all caches flushed")
 }

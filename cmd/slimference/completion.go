@@ -70,7 +70,7 @@ _slimference() {
             ;;
         hook)
             if [ "$cword" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "install remove verify" -- "$cur") )
+                COMPREPLY=( $(compgen -W "install remove verify status check-upstream" -- "$cur") )
             elif [ "$cword" -eq 3 ]; then
                 case "${COMP_WORDS[2]}" in
                     install|remove) COMPREPLY=( $(compgen -W "claude codex" -- "$cur") ) ;;
@@ -104,7 +104,16 @@ _slimference() {
                 COMPREPLY=( $(compgen -W "bash" -- "$cur") )
             fi
             ;;
-        stats|gain)
+        stats)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "$periods prompt-cache" -- "$cur") )
+            elif [ "${COMP_WORDS[2]}" = "prompt-cache" ]; then
+                COMPREPLY=( $(compgen -W "$periods --json --csv" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -W "$periods" -- "$cur") )
+            fi
+            ;;
+        gain)
             COMPREPLY=( $(compgen -W "$periods $period_flags --project" -- "$cur") )
             ;;
     esac

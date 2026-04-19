@@ -31,6 +31,7 @@ import (
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -3663,32 +3664,40 @@ func TestRunTUI_configError(t *testing.T) {
 	}
 }
 
-// TestRunTUI_proxyStartError covers runTUI past config load: proxy setup, goroutine start,
-// and the "proxy start failed" exit when the listen port is already in use.
-func TestRunTUI_proxyStartError(t *testing.T) {
-	// Bind the port the proxy will try to use; this makes p.Start() fail immediately.
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	port := ln.Addr().(*net.TCPAddr).Port
-
+// TestRunTUI_attachMode verifies that the default `slimference` command constructs
+// a monitor proxy and forwards it into runTUIAfterStart without trying to bind a port.
+func TestRunTUI_attachMode(t *testing.T) {
 	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("SLIMFERENCE_LISTEN_PORT", strconv.Itoa(port))
+	t.Setenv("SLIMFERENCE_LISTEN_PORT", "8990")
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
-	rp, cleanup := redirectStderr()
-	code, exited := captureExit(runTUI)
-	cleanup()
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, rp)
+	origNewRemote := newRemoteProxyFn
+	origAfterStart := runTUIAfterStartFn
+	defer func() {
+		newRemoteProxyFn = origNewRemote
+		runTUIAfterStartFn = origAfterStart
+	}()
 
-	if !exited || code != 1 {
-		t.Fatalf("want exit 1, got exited=%v code=%d stderr=%q", exited, code, buf.String())
+	stub := &testTUIProxy{}
+	newRemoteProxyFn = func(cfg *config.Config) tui.ProxyInterface {
+		if cfg.Proxy.ListenPort != 8990 {
+			t.Fatalf("listen port = %d", cfg.Proxy.ListenPort)
+		}
+		return stub
 	}
-	if !strings.Contains(buf.String(), "proxy start failed") {
-		t.Fatalf("stderr: %q", buf.String())
+
+	called := false
+	runTUIAfterStartFn = func(p tui.ProxyInterface) {
+		called = true
+		if p != stub {
+			t.Fatal("runTUIAfterStartFn received wrong proxy interface")
+		}
+	}
+
+	runTUI()
+
+	if !called {
+		t.Fatal("runTUIAfterStartFn was not called")
 	}
 }
 
@@ -4217,41 +4226,31 @@ func TestProgSender_send_empty(t *testing.T) {
 	}
 }
 
-// TestRunTUI_proxyStartOK covers the case <-time.After(proxyStartTimeout) branch in
-// runTUI: proxy starts without error within the timeout and runTUIAfterStartFn is called.
-func TestRunTUI_proxyStartOK(t *testing.T) {
-	// Use a free port (0) so the proxy never fails with "address in use".
-	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("SLIMFERENCE_LISTEN_PORT", "0")
-	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+type testTUIProxy struct {
+	shutdownCalls int
+}
 
-	origTimeout := proxyStartTimeout
-	origAfterStart := runTUIAfterStartFn
-	defer func() {
-		proxyStartTimeout = origTimeout
-		runTUIAfterStartFn = origAfterStart
-	}()
-	proxyStartTimeout = 50 * time.Millisecond
-
-	afterStartCalled := make(chan *proxy.Proxy, 1)
-	runTUIAfterStartFn = func(p *proxy.Proxy, _ chan *tea.Program) {
-		afterStartCalled <- p
-	}
-
-	runTUI()
-
-	select {
-	case p := <-afterStartCalled:
-		if p == nil {
-			t.Fatal("runTUIAfterStartFn received nil proxy")
-		}
-		// Shut down the proxy the goroutine started; ignore errors.
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		defer cancel()
-		_ = p.Shutdown(ctx)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout: runTUIAfterStartFn never called")
-	}
+func (p *testTUIProxy) SetProviderEnabled(types.Provider, bool) {}
+func (p *testTUIProxy) SetLayerEnabled(int, bool)               {}
+func (p *testTUIProxy) IsProviderEnabled(types.Provider) bool   { return true }
+func (p *testTUIProxy) IsLayerEnabled(int) bool                 { return true }
+func (p *testTUIProxy) FlushCaches()                            {}
+func (p *testTUIProxy) GetAnalytics() analytics.AnalyticsSnapshot {
+	return analytics.AnalyticsSnapshot{}
+}
+func (p *testTUIProxy) GetRecentRequests(int) []types.RequestMetrics { return nil }
+func (p *testTUIProxy) GetLayer2Status() tui.Layer2Status            { return tui.Layer2Status{} }
+func (p *testTUIProxy) GetReadCacheStatus() tui.ReadCacheStatus      { return tui.ReadCacheStatus{} }
+func (p *testTUIProxy) GetProviderHealth(types.Provider) types.ProviderHealthInfo {
+	return types.ProviderHealthInfo{Status: types.ProviderHealthIdle}
+}
+func (p *testTUIProxy) SessionLogger() tui.SessionLoggerInterface { return nil }
+func (p *testTUIProxy) Shutdown(context.Context) error {
+	p.shutdownCalls++
+	return nil
+}
+func (p *testTUIProxy) Config() tui.ProxyConfigInterface {
+	return &configAdapter{cfg: config.Defaults()}
 }
 
 // TestRunTUIAfterStart_tuiError covers runTUIAfterStart when program.Run() returns an error:
@@ -4273,16 +4272,11 @@ func TestRunTUIAfterStart_tuiError(t *testing.T) {
 		return nil, errors.New("fake TUI error")
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		t.Skip("config unavailable:", err)
-	}
-	p := proxy.New(cfg)
-	progCh := make(chan *tea.Program, 1)
+	p := &testTUIProxy{}
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
-		runTUIAfterStart(p, progCh)
+		runTUIAfterStart(p)
 	})
 	cleanup()
 	var buf bytes.Buffer
@@ -4326,18 +4320,13 @@ func TestRunTUIAfterStart_signalPath(t *testing.T) {
 		return nil, nil
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		t.Skip("config unavailable:", err)
-	}
-	p := proxy.New(cfg)
-	progCh := make(chan *tea.Program, 1)
+	p := &testTUIProxy{}
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		runTUIAfterStart(p, progCh)
+		runTUIAfterStart(p)
 	}()
 
 	// Give runTUIAfterStart time to reach program.Run (and the signal goroutine to start).
@@ -4827,22 +4816,22 @@ func TestSetupLogging_FallbackJSON(t *testing.T) {
 func TestServiceControlAdapter_StartDaemon(t *testing.T) {
 	origIsRunning := daemonIsRunningFn
 	origExecutable := osExecutable
-	origStartProcess := osStartProcess
+	origStartDetached := startDetachedDaemonFn
 	defer func() {
 		daemonIsRunningFn = origIsRunning
 		osExecutable = origExecutable
-		osStartProcess = origStartProcess
+		startDetachedDaemonFn = origStartDetached
 	}()
 
 	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	started := false
-	osStartProcess = func(name string, argv []string, attr *os.ProcAttr) (*os.Process, error) {
+	startDetachedDaemonFn = func(binary string) error {
 		started = true
-		if name != "/tmp/slimference" || len(argv) != 2 || argv[1] != "daemon" || attr == nil {
-			t.Fatalf("unexpected start args: name=%q argv=%v attr=%#v", name, argv, attr)
+		if binary != "/tmp/slimference" {
+			t.Fatalf("unexpected binary: %q", binary)
 		}
-		return os.FindProcess(os.Getpid())
+		return nil
 	}
 
 	if err := (&serviceControlAdapter{}).StartDaemon(); err != nil {
@@ -4856,11 +4845,11 @@ func TestServiceControlAdapter_StartDaemon(t *testing.T) {
 func TestServiceControlAdapter_StartDaemonErrors(t *testing.T) {
 	origIsRunning := daemonIsRunningFn
 	origExecutable := osExecutable
-	origStartProcess := osStartProcess
+	origStartDetached := startDetachedDaemonFn
 	defer func() {
 		daemonIsRunningFn = origIsRunning
 		osExecutable = origExecutable
-		osStartProcess = origStartProcess
+		startDetachedDaemonFn = origStartDetached
 	}()
 
 	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
@@ -4877,8 +4866,8 @@ func TestServiceControlAdapter_StartDaemonErrors(t *testing.T) {
 	}
 
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
-	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
-		return nil, errors.New("boom")
+	startDetachedDaemonFn = func(string) error {
+		return errors.New("boom")
 	}
 	if err := (&serviceControlAdapter{}).StartDaemon(); err == nil || !strings.Contains(err.Error(), "start daemon") {
 		t.Fatalf("expected start daemon error, got %v", err)
@@ -4891,14 +4880,14 @@ func TestServiceControlAdapter_StopRestartInstallUninstallAndStatus(t *testing.T
 	origInstall := daemonInstallLaunchdFn
 	origUninstall := daemonUninstallFn
 	origExecutable := osExecutable
-	origStartProcess := osStartProcess
+	origStartDetached := startDetachedDaemonFn
 	defer func() {
 		daemonIsRunningFn = origIsRunning
 		daemonStopFn = origStop
 		daemonInstallLaunchdFn = origInstall
 		daemonUninstallFn = origUninstall
 		osExecutable = origExecutable
-		osStartProcess = origStartProcess
+		startDetachedDaemonFn = origStartDetached
 	}()
 
 	stopCalls := 0
@@ -4920,9 +4909,9 @@ func TestServiceControlAdapter_StopRestartInstallUninstallAndStatus(t *testing.T
 		return false, nil, nil
 	}
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
-	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+	startDetachedDaemonFn = func(string) error {
 		startCalls++
-		return os.FindProcess(os.Getpid())
+		return nil
 	}
 	if err := (&serviceControlAdapter{}).RestartDaemon(); err != nil {
 		t.Fatalf("RestartDaemon: %v", err)
@@ -4966,13 +4955,13 @@ func TestServiceControlAdapter_RestartAndInstallServiceErrors(t *testing.T) {
 	origStop := daemonStopFn
 	origExecutable := osExecutable
 	origInstall := daemonInstallLaunchdFn
-	origStartProcess := osStartProcess
+	origStartDetached := startDetachedDaemonFn
 	defer func() {
 		daemonIsRunningFn = origIsRunning
 		daemonStopFn = origStop
 		osExecutable = origExecutable
 		daemonInstallLaunchdFn = origInstall
-		osStartProcess = origStartProcess
+		startDetachedDaemonFn = origStartDetached
 	}()
 
 	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
@@ -4986,9 +4975,9 @@ func TestServiceControlAdapter_RestartAndInstallServiceErrors(t *testing.T) {
 	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	startCalls := 0
-	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+	startDetachedDaemonFn = func(string) error {
 		startCalls++
-		return os.FindProcess(os.Getpid())
+		return nil
 	}
 	if err := (&serviceControlAdapter{}).RestartDaemon(); err != nil {
 		t.Fatalf("RestartDaemon no-running path: %v", err)
@@ -5125,9 +5114,12 @@ func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
 	}
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	startCalls := 0
-	osStartProcess = func(name string, argv []string, attr *os.ProcAttr) (*os.Process, error) {
+	startDetachedDaemonFn = func(binary string) error {
 		startCalls++
-		return os.FindProcess(os.Getpid())
+		if binary != "/tmp/slimference" {
+			t.Fatalf("unexpected start binary: %q", binary)
+		}
+		return nil
 	}
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
@@ -5188,7 +5180,7 @@ func TestHandleStartStopRestartAndServiceCommandErrors(t *testing.T) {
 	origUninstall := daemonUninstallFn
 	origFormatStatus := daemonFormatStatusFn
 	origExecutable := osExecutable
-	origStartProcess := osStartProcess
+	origStartDetached := startDetachedDaemonFn
 	defer func() {
 		daemonIsRunningFn = origIsRunning
 		daemonStopFn = origStop
@@ -5196,7 +5188,7 @@ func TestHandleStartStopRestartAndServiceCommandErrors(t *testing.T) {
 		daemonUninstallFn = origUninstall
 		daemonFormatStatusFn = origFormatStatus
 		osExecutable = origExecutable
-		osStartProcess = origStartProcess
+		startDetachedDaemonFn = origStartDetached
 	}()
 
 	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
@@ -5235,8 +5227,8 @@ func TestHandleStartStopRestartAndServiceCommandErrors(t *testing.T) {
 	}
 
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
-	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
-		return nil, errors.New("spawn fail")
+	startDetachedDaemonFn = func(string) error {
+		return errors.New("spawn fail")
 	}
 	rp, cleanup = redirectStderr()
 	code, exited = captureExit(handleStartCmd)
@@ -5331,10 +5323,20 @@ func TestHandleStartStopRestartAndServiceCommandErrors(t *testing.T) {
 
 func TestStartProxyForDaemon(t *testing.T) {
 	origConfigLoad := configLoadFn
-	origStartProxyFn := startProxyFn
+	origNewProxy := newProxyFn
+	origRunner := proxyStartRunnerFn
+	origHasListener := proxyHasListenerFn
+	origAfter := timeAfterFn
+	origTicker := newTickerFn
+	origLoadState := loadTUIStateFn
 	defer func() {
 		configLoadFn = origConfigLoad
-		startProxyFn = origStartProxyFn
+		newProxyFn = origNewProxy
+		proxyStartRunnerFn = origRunner
+		proxyHasListenerFn = origHasListener
+		timeAfterFn = origAfter
+		newTickerFn = origTicker
+		loadTUIStateFn = origLoadState
 	}()
 
 	configLoadFn = func() (*config.Config, error) {
@@ -5346,9 +5348,16 @@ func TestStartProxyForDaemon(t *testing.T) {
 
 	cfg := config.Defaults()
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
-	startProxyFn = func(*config.Config) (func(context.Context) error, error) {
-		return nil, errors.New("proxy failed")
+	loadTUIStateFn = func() (*tui.PersistedState, error) { return nil, nil }
+	newProxyFn = func(*config.Config) *proxy.Proxy { return proxy.New(cfg) }
+	proxyStartRunnerFn = func(*proxy.Proxy) error { return errors.New("proxy failed") }
+	proxyHasListenerFn = func(*proxy.Proxy) bool { return false }
+	timeAfterFn = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time)
+		go func() { ch <- time.Now() }()
+		return ch
 	}
+	newTickerFn = func(time.Duration) *time.Ticker { return time.NewTicker(time.Hour) }
 	_, _, err := startProxyForDaemon()
 	if err == nil || !strings.Contains(err.Error(), "proxy start") {
 		t.Fatalf("expected proxy start error, got %v", err)
@@ -5356,12 +5365,16 @@ func TestStartProxyForDaemon(t *testing.T) {
 
 	cfg.Proxy.ListenPort = 7777
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
-	startProxyFn = func(got *config.Config) (func(context.Context) error, error) {
+	var gotProxy *proxy.Proxy
+	newProxyFn = func(got *config.Config) *proxy.Proxy {
 		if got != cfg {
-			t.Fatal("startProxyFn should receive loaded config")
+			t.Fatal("newProxyFn should receive loaded config")
 		}
-		return func(context.Context) error { return nil }, nil
+		gotProxy = proxy.New(got)
+		return gotProxy
 	}
+	proxyStartRunnerFn = func(*proxy.Proxy) error { return nil }
+	proxyHasListenerFn = func(p *proxy.Proxy) bool { return p == gotProxy }
 	port, shutdown, err := startProxyForDaemon()
 	if err != nil {
 		t.Fatalf("startProxyForDaemon success: %v", err)
@@ -5373,6 +5386,125 @@ func TestStartProxyForDaemon(t *testing.T) {
 	defer cancel()
 	if err := shutdown(ctx); err != nil {
 		t.Fatalf("shutdown: %v", err)
+	}
+
+	proxyHasListenerFn = func(*proxy.Proxy) bool { return false }
+	_, _, err = startProxyForDaemon()
+	if err == nil || !strings.Contains(err.Error(), "timeout after") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+}
+
+func TestApplyPersistedRuntimeState(t *testing.T) {
+	origLoadState := loadTUIStateFn
+	defer func() { loadTUIStateFn = origLoadState }()
+
+	cfg := config.Defaults()
+	p := proxy.New(cfg)
+
+	loadTUIStateFn = func() (*tui.PersistedState, error) {
+		return &tui.PersistedState{
+			ClaudeEnabled: false,
+			CodexEnabled:  true,
+			Layer1Enabled: false,
+			Layer2Enabled: true,
+			Layer3Enabled: false,
+		}, nil
+	}
+	applyPersistedRuntimeState(p)
+
+	if p.IsProviderEnabled(types.Anthropic) {
+		t.Fatal("claude should be disabled from persisted state")
+	}
+	if p.IsLayerEnabled(1) || p.IsLayerEnabled(3) {
+		t.Fatal("layer 1 and 3 should be disabled from persisted state")
+	}
+
+	loadTUIStateFn = func() (*tui.PersistedState, error) { return nil, errors.New("boom") }
+	applyPersistedRuntimeState(p)
+}
+
+func TestStartDetachedDaemon(t *testing.T) {
+	origMkdirAll := osMkdirAll
+	origOpenFile := osOpenFile
+	origStartProcess := osStartProcess
+	origStdout := daemonStdoutLogPathFn
+	origStderr := daemonStderrLogPathFn
+	defer func() {
+		osMkdirAll = origMkdirAll
+		osOpenFile = origOpenFile
+		osStartProcess = origStartProcess
+		daemonStdoutLogPathFn = origStdout
+		daemonStderrLogPathFn = origStderr
+	}()
+
+	tmp := t.TempDir()
+	daemonStdoutLogPathFn = func() string { return filepath.Join(tmp, "daemon.stdout.log") }
+	daemonStderrLogPathFn = func() string { return filepath.Join(tmp, "daemon.stderr.log") }
+
+	osMkdirAll = func(string, os.FileMode) error { return errors.New("mkdir fail") }
+	if err := startDetachedDaemon("/tmp/slimference"); err == nil || !strings.Contains(err.Error(), "create log dir") {
+		t.Fatalf("expected mkdir failure, got %v", err)
+	}
+
+	osMkdirAll = func(string, os.FileMode) error { return nil }
+	openCalls := 0
+	osOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		openCalls++
+		if openCalls == 1 {
+			return nil, errors.New("stdin fail")
+		}
+		return os.OpenFile(name, flag|os.O_CREATE, perm)
+	}
+	if err := startDetachedDaemon("/tmp/slimference"); err == nil || !strings.Contains(err.Error(), "open stdin") {
+		t.Fatalf("expected stdin failure, got %v", err)
+	}
+
+	openCalls = 0
+	osOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		openCalls++
+		if strings.Contains(name, "stdout") {
+			return nil, errors.New("stdout fail")
+		}
+		return os.OpenFile(name, flag|os.O_CREATE, perm)
+	}
+	if err := startDetachedDaemon("/tmp/slimference"); err == nil || !strings.Contains(err.Error(), "open stdout log") {
+		t.Fatalf("expected stdout failure, got %v", err)
+	}
+
+	openCalls = 0
+	osOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		openCalls++
+		if strings.Contains(name, "stderr") {
+			return nil, errors.New("stderr fail")
+		}
+		return os.OpenFile(name, flag|os.O_CREATE, perm)
+	}
+	if err := startDetachedDaemon("/tmp/slimference"); err == nil || !strings.Contains(err.Error(), "open stderr log") {
+		t.Fatalf("expected stderr failure, got %v", err)
+	}
+
+	osOpenFile = os.OpenFile
+	started := false
+	osStartProcess = func(name string, argv []string, attr *os.ProcAttr) (*os.Process, error) {
+		started = true
+		if name != "/tmp/slimference" || len(argv) != 2 || argv[1] != "daemon" || attr == nil || attr.Sys == nil {
+			t.Fatalf("unexpected daemon spawn: name=%q argv=%v attr=%#v", name, argv, attr)
+		}
+		return os.FindProcess(os.Getpid())
+	}
+	if err := startDetachedDaemon("/tmp/slimference"); err != nil {
+		t.Fatalf("startDetachedDaemon: %v", err)
+	}
+	if !started {
+		t.Fatal("expected daemon spawn to run")
+	}
+
+	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+		return nil, errors.New("spawn fail")
+	}
+	if err := startDetachedDaemon("/tmp/slimference"); err == nil || !strings.Contains(err.Error(), "spawn fail") {
+		t.Fatalf("expected spawn failure, got %v", err)
 	}
 }
 

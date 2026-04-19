@@ -66,6 +66,20 @@ esac
 `, q)
 }
 
+// ClaudeReadHookScript returns the bash hook body for Claude Read PreToolUse hooks.
+func ClaudeReadHookScript(slimferenceCmd string) string {
+	cmd := strings.TrimSpace(slimferenceCmd)
+	if cmd == "" {
+		cmd = "slimference"
+	}
+	q := bashSingleQuoted(cmd)
+	return fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+INPUT=$(cat)
+printf '%%s' "$INPUT" | %s readhook
+`, q)
+}
+
 func bashSingleQuoted(s string) string {
 	return `'` + strings.ReplaceAll(s, `'`, `'"'"'`) + `'`
 }
@@ -81,19 +95,25 @@ func InstallClaude(home string, slimferenceCmd string) error {
 	if err := os.WriteFile(scriptPath, []byte(ClaudeHookScript(slimferenceCmd)), 0755); err != nil {
 		return err
 	}
+	readScriptPath := filepath.Join(hookDir, "slimference-read-cache.sh")
+	if err := os.WriteFile(readScriptPath, []byte(ClaudeReadHookScript(slimferenceCmd)), 0755); err != nil {
+		return err
+	}
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	return mergeClaudeSettings(settingsPath, scriptPath)
+	return mergeClaudeSettings(settingsPath, scriptPath, readScriptPath)
 }
 
 // RemoveClaude removes the hook script and drops PreToolUse from settings when present.
 func RemoveClaude(home string) error {
 	scriptPath := filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh")
 	_ = os.Remove(scriptPath)
+	readScriptPath := filepath.Join(home, ".claude", "hooks", "slimference-read-cache.sh")
+	_ = os.Remove(readScriptPath)
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	return stripClaudePreToolUse(settingsPath)
 }
 
-func mergeClaudeSettings(settingsPath, scriptPath string) error {
+func mergeClaudeSettings(settingsPath, scriptPath, readScriptPath string) error {
 	var root map[string]interface{}
 	data, err := os.ReadFile(settingsPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -113,12 +133,22 @@ func mergeClaudeSettings(settingsPath, scriptPath string) error {
 	}
 	entries, _ := hooksObj["PreToolUse"].([]interface{})
 	entries = removeClaudeSlimferenceHooks(entries, scriptPath)
+	entries = removeClaudeSlimferenceHooks(entries, readScriptPath)
 	entries = append(entries, map[string]interface{}{
 		"matcher": "Bash",
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":    "command",
 				"command": "bash " + scriptPath,
+			},
+		},
+	})
+	entries = append(entries, map[string]interface{}{
+		"matcher": "Read",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": "bash " + readScriptPath,
 			},
 		},
 	})
@@ -148,7 +178,8 @@ func stripClaudePreToolUse(settingsPath string) error {
 		return nil
 	}
 	entries, _ := hooksObj["PreToolUse"].([]interface{})
-	entries = removeClaudeSlimferenceHooks(entries, settingsPath)
+	entries = removeClaudeSlimferenceHooks(entries, filepath.Join(filepath.Dir(settingsPath), "hooks", "slimference-rewrite.sh"))
+	entries = removeClaudeSlimferenceHooks(entries, filepath.Join(filepath.Dir(settingsPath), "hooks", "slimference-read-cache.sh"))
 	if len(entries) == 0 {
 		delete(hooksObj, "PreToolUse")
 	} else {

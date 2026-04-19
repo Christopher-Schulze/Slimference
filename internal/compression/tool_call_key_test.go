@@ -128,6 +128,111 @@ func TestExtractToolCallKey_emptyLineFallback(t *testing.T) {
 	}
 }
 
+func TestExtractToolCallKeyWithIndex_UsesResolvedToolInput(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{
+			Index: 0,
+			Role:  "assistant",
+			Content: []types.ContentBlock{
+				{Type: "tool_use", ToolName: "Bash", ToolInput: `{"command":"git status"}`, ToolUseID: "call-1"},
+			},
+		},
+	}
+	block := types.ContentBlock{
+		Type:         "tool_result",
+		Text:         "On branch main\nnothing to commit",
+		ToolResultID: "call-1",
+	}
+	if got := ExtractToolCallKeyWithIndex(block, buildToolUseIndex(msgs, len(msgs))); got != "tool:bash|git status" {
+		t.Fatalf("key: %q", got)
+	}
+}
+
+func TestExtractToolCallKeyWithIndex_PrefersResolvedPath(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{
+			Index: 0,
+			Role:  "assistant",
+			Content: []types.ContentBlock{
+				{Type: "tool_use", ToolName: "Read", ToolInput: `{"path":"pkg/file.go"}`, ToolUseID: "call-2"},
+			},
+		},
+	}
+	block := types.ContentBlock{
+		Type:         "tool_result",
+		Text:         "package main",
+		ToolResultID: "call-2",
+	}
+	if got := ExtractToolCallKeyWithIndex(block, buildToolUseIndex(msgs, len(msgs))); got != "file:pkg/file.go" {
+		t.Fatalf("key: %q", got)
+	}
+}
+
+func TestBuildToolUseIndex_ZeroLimit(t *testing.T) {
+	t.Parallel()
+	if got := buildToolUseIndex([]types.Message{{}}, 0); got != nil {
+		t.Fatalf("zero limit must return nil, got %#v", got)
+	}
+}
+
+func TestBuildToolUseIndex_ClampsAndSkipsNonToolUse(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{
+			Index: 0,
+			Role:  "assistant",
+			Content: []types.ContentBlock{
+				{Type: "text", Text: "ignore"},
+				{Type: "tool_use", ToolName: "Read", ToolInput: `{"path":"a.go"}`, ToolUseID: "use-1"},
+				{Type: "tool_use", ToolName: "Read", ToolInput: `{"path":"b.go"}`},
+			},
+		},
+	}
+	index := buildToolUseIndex(msgs, 99)
+	if len(index) != 1 {
+		t.Fatalf("expected exactly one indexed tool_use, got %#v", index)
+	}
+	use := index["use-1"]
+	if use.name != "Read" || use.input != `{"path":"a.go"}` || use.msgIdx != 0 {
+		t.Fatalf("unexpected indexed tool_use: %#v", use)
+	}
+}
+
+func TestResolveToolUseInfo_UsesToolUseIDFallback(t *testing.T) {
+	t.Parallel()
+	toolUses := map[string]toolUseInfo{
+		"use-2": {name: "Bash", input: `{"command":"pwd"}`, msgIdx: 4},
+	}
+	use, ok := resolveToolUseInfo(types.ContentBlock{ToolUseID: "use-2"}, toolUses)
+	if !ok {
+		t.Fatal("expected ToolUseID fallback to resolve")
+	}
+	if use.name != "Bash" || use.input != `{"command":"pwd"}` || use.msgIdx != 4 {
+		t.Fatalf("unexpected tool use info: %#v", use)
+	}
+}
+
+func TestResolveToolUseInfo_MissingCases(t *testing.T) {
+	t.Parallel()
+	if _, ok := resolveToolUseInfo(types.ContentBlock{ToolResultID: "missing"}, nil); ok {
+		t.Fatal("nil index must not resolve")
+	}
+	if _, ok := resolveToolUseInfo(types.ContentBlock{}, map[string]toolUseInfo{}); ok {
+		t.Fatal("empty block with empty map must not resolve")
+	}
+	if _, ok := resolveToolUseInfo(types.ContentBlock{}, map[string]toolUseInfo{"x": {name: "bash"}}); ok {
+		t.Fatal("empty block with populated map must not resolve")
+	}
+	if _, ok := resolveToolUseInfo(types.ContentBlock{ToolResultID: "missing"}, map[string]toolUseInfo{}); ok {
+		t.Fatal("unknown id must not resolve")
+	}
+	if _, ok := resolveToolUseInfo(types.ContentBlock{ToolResultID: "missing"}, map[string]toolUseInfo{"known": {name: "bash"}}); ok {
+		t.Fatal("unknown id in populated map must not resolve")
+	}
+}
+
 // TestTopicFromToolInput_noKnownKeys covers the "no known key matched" path.
 func TestTopicFromToolInput_noKnownKeys(t *testing.T) {
 	t.Parallel()

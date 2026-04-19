@@ -1,6 +1,6 @@
 # T28 - Per-Provider Tokenizer (Opus 4.7 Aware, Calibrated Fallback)
 
-Status: open
+Status: done
 Priority: high
 Scope: internal/tokens, internal/compression, internal/summarization,
        internal/proxy (usage reconciliation)
@@ -91,12 +91,12 @@ ship the numbers in config.
 
 ## Subtasks
 
-- [ ] Design `Tokenizer` interface and wire call sites.
-- [ ] Implement OpenAI per-model selector.
-- [ ] Research Opus 4.7 tokenizer availability; port or calibrate.
-- [ ] Build calibration harness under `scripts/utils/`.
-- [ ] Implement usage-based self-calibration loop.
-- [ ] Tests and docs.
+- [x] Design `Tokenizer` interface and wire call sites.
+- [x] Implement OpenAI per-model selector.
+- [x] Research Opus 4.7 tokenizer availability; port or calibrate.
+- [x] Build calibration harness under `scripts/utils/`.
+- [x] Implement usage-based self-calibration loop.
+- [x] Tests and docs.
 
 ## Acceptance Criteria
 

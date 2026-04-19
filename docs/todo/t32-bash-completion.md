@@ -1,6 +1,6 @@
 # T32 - Bash Completion
 
-Status: open
+Status: done
 Priority: low
 Scope: cmd/slimference, scripts/utils
 
@@ -61,11 +61,11 @@ are typed by hand.
 
 ## Subtasks
 
-- [ ] Centralize command tree.
-- [ ] Implement bash completion emitter.
-- [ ] Wire `slimference completion bash` subcommand.
-- [ ] Golden-file test and smoke test.
-- [ ] Docs section.
+- [x] Centralize command tree.
+- [x] Implement bash completion emitter.
+- [x] Wire `slimference completion bash` subcommand.
+- [x] Golden-file test and smoke test.
+- [x] Docs section.
 
 ## Acceptance Criteria
 

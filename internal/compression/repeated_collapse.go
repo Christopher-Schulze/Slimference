@@ -2,7 +2,6 @@ package compression
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -44,26 +43,7 @@ func (idx *ToolCallIndex) CollapseRepeated(messages []types.Message, prefixEnd i
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	// First pass: build a map from tool_use_id -> (tool_name, tool_input)
-	// so we can correlate tool_result blocks with their originating tool_use.
-	type toolUseInfo struct {
-		name  string
-		input string
-		msgIdx int
-	}
-	toolUses := make(map[string]toolUseInfo) // tool_use_id -> info
-
-	for i := 0; i < prefixEnd; i++ {
-		for _, block := range messages[i].Content {
-			if block.Type == "tool_use" && block.ToolUseID != "" {
-				toolUses[block.ToolUseID] = toolUseInfo{
-					name:   block.ToolName,
-					input:  block.ToolInput,
-					msgIdx: i,
-				}
-			}
-		}
-	}
+	toolUses := buildToolUseIndex(messages, prefixEnd)
 
 	// Second pass: for each tool_result, look up its tool_use and check for repeats.
 	saved := 0
@@ -76,17 +56,16 @@ func (idx *ToolCallIndex) CollapseRepeated(messages []types.Message, prefixEnd i
 			if block.Type != "tool_result" {
 				continue
 			}
-			// Look up the originating tool_use
-			toolUseID := block.ToolResultID
-			if toolUseID == "" {
-				toolUseID = block.ToolUseID
-			}
-			use, ok := toolUses[toolUseID]
-			if !ok {
+			use, useOK := resolveToolUseInfo(block, toolUses)
+			callKey := ExtractToolCallKeyWithIndex(block, toolUses)
+			if !useOK && callKey == "" {
 				continue
 			}
 
-			callHash := hashToolCall(use.name, use.input)
+			callHash := hashToolCallKey(callKey)
+			if useOK {
+				callHash = hashToolCall(use.name, use.input)
+			}
 			resultHash := sha256.Sum256([]byte(block.Text))
 
 			first, exists := idx.callFirst[callHash]
@@ -108,7 +87,11 @@ func (idx *ToolCallIndex) CollapseRepeated(messages []types.Message, prefixEnd i
 
 			// Identical call + result: collapse only when replacement is shorter
 			orig := block.Text
-			replacement := fmt.Sprintf("[Identical to %s result in message %d]", use.name, first)
+			label := "tool"
+			if useOK && use.name != "" {
+				label = use.name
+			}
+			replacement := fmt.Sprintf("[Identical to %s result in message %d]", label, first)
 			if len(replacement) >= len(orig) {
 				continue // no byte savings
 			}
@@ -129,19 +112,9 @@ func (idx *ToolCallIndex) CollapseRepeated(messages []types.Message, prefixEnd i
 func hashToolCall(name, input string) [32]byte {
 	// Normalize input JSON for stable comparison
 	normalized := normalizeJSON(input)
-	return sha256.Sum256([]byte(strings.ToLower(name) + "|" + normalized))
+	return hashToolCallKey(strings.ToLower(name) + "|" + normalized)
 }
 
-// normalizeJSON re-encodes JSON to ensure stable key ordering for hash comparison.
-func normalizeJSON(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return s
-	}
-	var v interface{}
-	if err := json.Unmarshal([]byte(s), &v); err != nil {
-		return s
-	}
-	b, _ := json.Marshal(v)
-	return string(b)
+func hashToolCallKey(key string) [32]byte {
+	return sha256.Sum256([]byte(key))
 }

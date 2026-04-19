@@ -89,6 +89,104 @@ func renderLayerLine(s Styles, num int, name string, enabled bool, saved int, ex
 	)
 }
 
+func renderViewTabs(s Styles, current ViewMode) string {
+	tabs := []struct {
+		mode  ViewMode
+		label string
+	}{
+		{mode: ViewMain, label: "Dashboard"},
+		{mode: ViewStats, label: "Stats"},
+		{mode: ViewDebug, label: "Debug"},
+		{mode: ViewSetup, label: "Setup"},
+	}
+	parts := make([]string, 0, len(tabs))
+	for _, tab := range tabs {
+		label := " " + tab.label + " "
+		if tab.mode == current {
+			parts = append(parts, s.TabActive.Render(label))
+			continue
+		}
+		parts = append(parts, s.TabIdle.Render(label))
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderSetupStepRow(s Styles, index int, label string, done bool, selected bool) string {
+	number := s.StepIndex.Render(fmt.Sprintf("[%d]", index+1))
+	switch {
+	case done:
+		return " " + s.StepDone.Render("✓") + "  " + number + "  " + s.Dim.Render(label)
+	case selected:
+		return " " + s.StepCursor.Render("▶") + "  " + number + "  " + s.StepCursor.Render(label)
+	default:
+		return " " + s.Muted.Render("○") + "  " + number + "  " + s.StepIdle.Render(label)
+	}
+}
+
+func renderMenuRow(s Styles, width int, selected bool, label string, state string) string {
+	if width < 12 {
+		width = 12
+	}
+	marker := s.MenuMeta.Render("○")
+	labelStyle := s.MenuIdle
+	stateStyle := s.MenuMeta
+	if selected {
+		marker = s.MenuOn.Render("▶")
+		labelStyle = s.MenuActive
+		stateStyle = s.MenuActive
+	}
+	left := marker + " " + labelStyle.Render(label)
+	if state == "" {
+		return padRight(left, width)
+	}
+	right := stateStyle.Render(state)
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	row := left + strings.Repeat(" ", gap) + right
+	if selected {
+		return s.MenuActive.Width(width).Render(row)
+	}
+	return padRight(row, width)
+}
+
+func renderShortcutRow(s Styles, items ...string) string {
+	rendered := make([]string, 0, len(items))
+	for _, item := range items {
+		rendered = append(rendered, s.Shortcut.Render(item))
+	}
+	return strings.Join(rendered, " ")
+}
+
+func renderInfoCard(style lipgloss.Style, title string, body []string) string {
+	lines := []string{title, ""}
+	lines = append(lines, body...)
+	return style.Render(strings.Join(lines, "\n"))
+}
+
+func renderMetricLine(s Styles, key string, value string) string {
+	return " " + s.MetricKey.Render(key) + "  " + s.MetricVal.Render(value)
+}
+
+func renderMetricPair(s Styles, leftKey string, leftValue string, rightKey string, rightValue string, width int) string {
+	left := renderMetricLine(s, leftKey, leftValue)
+	right := renderMetricLine(s, rightKey, rightValue)
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 2 {
+		gap = 2
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+func renderKPIRow(s Styles, items ...string) string {
+	pills := make([]string, 0, len(items))
+	for _, item := range items {
+		pills = append(pills, s.TabIdle.Render(" "+item+" "))
+	}
+	return strings.Join(pills, " ")
+}
+
 // renderRequestLogLine renders a single row in the live request log.
 func renderRequestLogLine(s Styles, rm types.RequestMetrics) string {
 	ts := rm.Timestamp.Format("15:04:05")

@@ -24,6 +24,7 @@ type mockProxy struct {
 	snap           analytics.AnalyticsSnapshot
 	recentReqs     []types.RequestMetrics
 	l2Status       Layer2Status
+	readStatus     ReadCacheStatus
 	sessionLogger  *sessions.SessionLogger
 	flushed        bool
 	shutdownCalled bool
@@ -91,6 +92,9 @@ func (m *mockProxy) GetRecentRequests(n int) []types.RequestMetrics {
 	return m.recentReqs
 }
 func (m *mockProxy) GetLayer2Status() Layer2Status { return m.l2Status }
+func (m *mockProxy) GetReadCacheStatus() ReadCacheStatus {
+	return m.readStatus
+}
 func (m *mockProxy) GetProviderHealth(_ types.Provider) types.ProviderHealthInfo {
 	return types.ProviderHealthInfo{Status: types.ProviderHealthIdle}
 }

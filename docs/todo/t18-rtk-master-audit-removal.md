@@ -1,6 +1,6 @@
 # T18 - RTK-Master Logic Audit and Folder Removal
 
-Status: open
+Status: done
 Priority: medium
 Scope: rtk-master/ folder, cross-reference with internal/filter, internal/compression
 
@@ -66,10 +66,10 @@ For each "subset" or "missing" entry:
 
 ## Subtasks
 
-- [ ] WP1 parity matrix checked in as `docs/rtk-parity.md`.
-- [ ] WP2 gap list resolved: either ported or written-off with reason.
-- [ ] Fixtures from RTK copied where valuable.
-- [ ] `git rm -r rtk-master/` + `.gitignore` update + changelog entry.
+- [x] WP1 parity matrix checked in as `docs/rtk-parity.md`.
+- [x] WP2 gap list resolved: either ported or written-off with reason.
+- [x] Fixtures from RTK copied where valuable.
+- [x] `git rm -r rtk-master/` + `.gitignore` update + changelog entry.
 
 ## Acceptance Criteria
 

@@ -11,7 +11,7 @@
 //	slimference test openai        # Test OpenAI reachability
 //	slimference doctor             # Run all diagnostics
 //	slimference stats today        # Print today's stats
-//	slimference stats week         # Print this week's stats
+//	slimference stats prompt-cache week --json # Prompt-cache report
 //	slimference gain today         # Layer-0 filter.db savings (--by-command, --csv, --project; optional USD/M rate in config)
 //	slimference filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
 //	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
@@ -51,7 +51,9 @@ import (
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/hooks"
 	"github.com/slimference/slimference/internal/proxy"
+	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/slogutil"
+	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
 	"golang.org/x/term"
@@ -65,6 +67,8 @@ var (
 	osGetwd                      = os.Getwd
 	osExecutable                 = os.Executable
 	osStartProcess               = os.StartProcess
+	osOpenFile                   = os.OpenFile
+	osMkdirAll                   = os.MkdirAll
 	osUserHomeDir                = os.UserHomeDir
 	termIsTerminalFn             = term.IsTerminal
 	readStdinAll                 = func() ([]byte, error) { return io.ReadAll(os.Stdin) }
@@ -88,10 +92,12 @@ var (
 	installCodexHookFn           = hooks.InstallCodex
 	removeClaudeHookFn           = hooks.RemoveClaude
 	removeCodexHookFn            = hooks.RemoveCodex
+	loadTUIStateFn               = tui.LoadPersistedState
 
 	// runTUI sub-components: injectable for test coverage of post-startup paths.
 	configLoadFn       = config.Load
 	runTUIAfterStartFn = runTUIAfterStart
+	newRemoteProxyFn   = func(cfg *config.Config) tui.ProxyInterface { return newRemoteProxyAdapter(cfg) }
 	newProxyFn         = proxy.New
 	proxyStartRunnerFn = func(p *proxy.Proxy) error { return p.Start() }
 	proxyHasListenerFn = func(p *proxy.Proxy) bool { return p.HasListener() }
@@ -134,8 +140,9 @@ var (
 	// runTeaProgramFn injects tea.Program.Run so tests can return immediately without a terminal.
 	runTeaProgramFn = (*tea.Program).Run
 	// tuiSendProxyEventFn injects tui.SendProxyEvent so progSender.send can be tested without a running program.
-	tuiSendProxyEventFn func(*tea.Program, types.RequestMetrics) = tui.SendProxyEvent
-	makeSignalChanFn                                             = func() chan os.Signal {
+	tuiSendProxyEventFn   func(*tea.Program, types.RequestMetrics) = tui.SendProxyEvent
+	startDetachedDaemonFn                                          = startDetachedDaemon
+	makeSignalChanFn                                               = func() chan os.Signal {
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 		return ch
@@ -178,38 +185,12 @@ func runTUI() {
 	applyTUIFlags(cfg, os.Args[1:])
 
 	setupLogging(cfg)
-
-	p := newProxyFn(cfg)
-
-	// Wire up TUI -> proxy send function before starting.
-	progCh := make(chan *tea.Program, 1)
-	ps := &progSender{ch: progCh}
-	p.SetTUISendFn(ps.send)
-
-	// Start proxy in background goroutine.
-	proxyErrCh := make(chan error, 1)
-	go func() {
-		if err := p.Start(); err != nil && !isServerClosed(err) {
-			proxyErrCh <- err
-		}
-	}()
-
-	// Check for startup error (give it proxyStartTimeout).
-	select {
-	case err := <-proxyErrCh:
-		fmt.Fprintf(os.Stderr, "proxy start failed: %v\n", err)
-		exitFn(1)
-		return
-	case <-time.After(proxyStartTimeout):
-		// Proxy started OK.
-	}
-
-	runTUIAfterStartFn(p, progCh)
+	runTUIAfterStartFn(newRemoteProxyFn(cfg))
 }
 
 // runTUIAfterStart sets up OS signal handling and runs the BubbleTea TUI.
 // Called by runTUI after the proxy has started successfully.
-func runTUIAfterStart(p *proxy.Proxy, progCh chan *tea.Program) {
+func runTUIAfterStart(p tui.ProxyInterface) {
 	sigCh := makeSignalChanFn()
 	done := make(chan struct{})
 	defer func() {
@@ -228,14 +209,13 @@ func runTUIAfterStart(p *proxy.Proxy, progCh chan *tea.Program) {
 		}
 	}()
 
-	model := tui.NewModel(newProxyAdapter(p))
+	model := tui.NewModel(p)
 	model.SetServiceControl(&serviceControlAdapter{})
 	if home, err := osUserHomeDir(); err == nil {
 		claude, codex := hooks.InstalledStatus(home)
 		model.SetHookStatus(tui.HookStatus{Claude: claude, Codex: codex})
 	}
 	program := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
-	progCh <- program
 
 	if _, err := runTeaProgramFn(program); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
@@ -321,7 +301,7 @@ func handleSubcommand(args []string) {
 
 	case "stats":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: slimference stats <today|week|month>")
+			fmt.Fprintln(os.Stderr, "usage: slimference stats <today|week|month|prompt-cache [today|week|month|all] [--json|--csv]>")
 			exitFn(1)
 		}
 		handleStatsCmd(args[1:])
@@ -335,8 +315,17 @@ func handleSubcommand(args []string) {
 	case "rewrite":
 		handleRewriteCmd(args[1:])
 
+	case "readhook":
+		handleReadHookCmd(args[1:])
+
 	case "posttool":
 		handlePostToolCmd(args[1:])
+
+	case "checkpoint":
+		handleCheckpointCmd(args[1:])
+
+	case "expand":
+		handleExpandCmd(args[1:])
 
 	case "hook":
 		handleHookCmd(args[1:])
@@ -367,7 +356,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, posttool, hook, debug, daemon, start, stop, restart, service, completion, trust, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, completion, trust, version")
 		exitFn(1)
 	}
 }
@@ -578,7 +567,7 @@ func handlePostToolCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
 		exitFn(1)
 	}
-	commandLine, toolResponse, err := filter.ExtractPostToolPayloadFromHookJSON(payload)
+	details, err := filter.ExtractPostToolDetailsFromHookJSON(payload)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		exitFn(1)
@@ -593,14 +582,38 @@ func handlePostToolCmd(args []string) {
 		maxOut = cfg.Filter.PassthroughMaxChars
 	}
 
-	compacted, changed := filter.CompactCapturedOutput(wd, commandLine, toolResponse, maxOut)
+	compacted, changed := filter.CompactCapturedOutput(wd, details.CommandLine, details.ToolResponse, maxOut)
+	if home, err := osUserHomeDir(); err == nil {
+		entry, archiveErr := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
+			ToolName:  details.ToolName,
+			ToolUseID: details.ToolUseID,
+			SessionID: details.SessionID,
+			Command:   details.CommandLine,
+			Output:    details.ToolResponse,
+			Preview:   string(compacted),
+		})
+		if archiveErr == nil && entry != nil {
+			out := map[string]interface{}{
+				"hookSpecificOutput": map[string]interface{}{
+					"hookEventName":     "PostToolUse",
+					"additionalContext": toolarchive.RenderContext(*entry),
+				},
+			}
+			if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+				fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
+				exitFn(1)
+			}
+			return
+		}
+	}
+
 	if !changed || len(compacted) == 0 {
 		return
 	}
 
 	context := "Slimference compacted recent Bash output."
-	if commandLine != "" {
-		context = fmt.Sprintf("Slimference compacted Bash output for %q.\n%s", commandLine, compacted)
+	if details.CommandLine != "" {
+		context = fmt.Sprintf("Slimference compacted Bash output for %q.\n%s", details.CommandLine, compacted)
 	} else {
 		context = fmt.Sprintf("Slimference compacted Bash output.\n%s", compacted)
 	}
@@ -617,9 +630,74 @@ func handlePostToolCmd(args []string) {
 	}
 }
 
+func handleReadHookCmd(args []string) {
+	mode := "claude"
+	for _, arg := range args {
+		switch arg {
+		case "", "--":
+		case "claude":
+			mode = "claude"
+		case "codex":
+			mode = "codex"
+		default:
+			fmt.Fprintln(os.Stderr, "usage: slimference readhook [claude|codex]   (pipe Read hook JSON on stdin)")
+			exitFn(1)
+		}
+	}
+	if termIsTerminalFn(int(os.Stdin.Fd())) {
+		fmt.Fprintln(os.Stderr, "usage: slimference readhook [claude|codex]   (pipe Read hook JSON on stdin)")
+		exitFn(1)
+	}
+
+	payload, err := readStdinAll()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
+		exitFn(1)
+	}
+	req, err := readcache.ExtractRequest(payload)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+
+	home, err := osUserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "home: %v\n", err)
+		exitFn(1)
+	}
+	decision, err := readcache.Evaluate(readcache.DefaultDir(home), req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "readhook: %v\n", err)
+		exitFn(1)
+	}
+	if decision.Type != readcache.DecisionBlock {
+		return
+	}
+
+	var out map[string]interface{}
+	if mode == "codex" {
+		out = map[string]interface{}{
+			"decision": "block",
+			"reason":   decision.Reason,
+		}
+	} else {
+		out = map[string]interface{}{
+			"hookSpecificOutput": map[string]interface{}{
+				"hookEventName":            "PreToolUse",
+				"permissionDecision":       "deny",
+				"permissionDecisionReason": decision.Reason,
+			},
+		}
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "encode readhook output: %v\n", err)
+		exitFn(1)
+	}
+}
+
 func handleHookCmd(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: slimference hook <install|remove|verify|status> ...")
+		fmt.Fprintln(os.Stderr, "usage: slimference hook <install|remove|verify|status|check-upstream> ...")
 		exitFn(1)
 	}
 	home, err := osUserHomeDir()
@@ -688,6 +766,14 @@ func handleHookCmd(args []string) {
 		lines, _ := hooks.VerifyReport(home)
 		for _, l := range lines {
 			fmt.Println(l)
+		}
+	case "check-upstream":
+		reports := hookDetectDriftFn(context.Background())
+		fmt.Print(hooks.FormatDriftReports(reports))
+		for _, r := range reports {
+			if r.BinaryFound && r.Status != hooks.DriftOK {
+				exitFn(1)
+			}
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown hook subcommand: %s\n", args[0])
@@ -959,6 +1045,11 @@ func handleStatsCmd(args []string) {
 	}
 
 	logDir := cfg.Analytics.ResolvedLogDir()
+
+	if args[0] == "prompt-cache" {
+		handlePromptCacheStatsCmd(logDir, args[1:])
+		return
+	}
 
 	switch args[0] {
 	case "today":
@@ -1672,6 +1763,18 @@ func (a *proxyAdapter) GetLayer2Status() tui.Layer2Status {
 	}
 	return status
 }
+func (a *proxyAdapter) GetReadCacheStatus() tui.ReadCacheStatus {
+	status := a.p.AdminStatusSnapshot().ReadCache
+	return tui.ReadCacheStatus{
+		Evaluations:     status.Evaluations,
+		Allows:          status.Allows,
+		Blocks:          status.Blocks,
+		UnchangedBlocks: status.UnchangedBlocks,
+		DeltaBlocks:     status.DeltaBlocks,
+		Sessions:        status.Sessions,
+		TrackedFiles:    status.TrackedFiles,
+	}
+}
 func (a *proxyAdapter) GetProviderHealth(prov types.Provider) types.ProviderHealthInfo {
 	return a.p.GetProviderHealth(prov)
 }
@@ -1706,12 +1809,9 @@ func (sca *serviceControlAdapter) StartDaemon() error {
 	if err != nil {
 		return fmt.Errorf("executable: %w", err)
 	}
-	attrs := &os.ProcAttr{Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}}
-	proc, err := osStartProcess(binary, []string{binary, "daemon"}, attrs)
-	if err != nil {
+	if err := startDetachedDaemonFn(binary); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
-	_ = proc.Release()
 	return nil
 }
 
@@ -1783,6 +1883,41 @@ func (sca *serviceControlAdapter) RemoveHook(target string) error {
 	}
 }
 
+func startDetachedDaemon(binary string) error {
+	logDir := filepath.Dir(daemonStdoutLogPathFn())
+	if err := osMkdirAll(logDir, 0o700); err != nil {
+		return fmt.Errorf("create log dir: %w", err)
+	}
+
+	stdinFile, err := osOpenFile(os.DevNull, os.O_RDONLY, 0)
+	if err != nil {
+		return fmt.Errorf("open stdin: %w", err)
+	}
+	defer stdinFile.Close()
+
+	stdoutFile, err := osOpenFile(daemonStdoutLogPathFn(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open stdout log: %w", err)
+	}
+	defer stdoutFile.Close()
+
+	stderrFile, err := osOpenFile(daemonStderrLogPathFn(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open stderr log: %w", err)
+	}
+	defer stderrFile.Close()
+
+	attrs := &os.ProcAttr{
+		Files: []*os.File{stdinFile, stdoutFile, stderrFile},
+		Sys:   &syscall.SysProcAttr{Setsid: true},
+	}
+	proc, err := osStartProcess(binary, []string{binary, "daemon"}, attrs)
+	if err != nil {
+		return err
+	}
+	return proc.Release()
+}
+
 // --- Daemon / Service commands ---
 
 // startProxyForDaemon creates and starts a proxy, returning port and shutdown.
@@ -1793,11 +1928,51 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 		return 0, nil, fmt.Errorf("config load: %w", err)
 	}
 	setupLogging(cfg)
-	shutdown, err = startProxyFn(cfg)
-	if err != nil {
-		return 0, nil, fmt.Errorf("proxy start: %w", err)
+	p := newProxyFn(cfg)
+	applyPersistedRuntimeState(p)
+
+	runner := proxyStartRunnerFn
+	hasListener := proxyHasListenerFn
+	after := timeAfterFn
+	newTicker := newTickerFn
+	errCh := make(chan error, 1)
+	go func() {
+		if err := runner(p); err != nil && !isServerClosed(err) {
+			errCh <- err
+		}
+	}()
+
+	deadline := after(proxyStartTimeout)
+	ticker := newTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-errCh:
+			return 0, nil, fmt.Errorf("proxy start: %w", err)
+		case <-ticker.C:
+			if hasListener(p) {
+				return cfg.Proxy.ListenPort, p.Shutdown, nil
+			}
+		case <-deadline:
+			if hasListener(p) {
+				return cfg.Proxy.ListenPort, p.Shutdown, nil
+			}
+			return 0, nil, fmt.Errorf("proxy start: timeout after %s", proxyStartTimeout)
+		}
 	}
-	return cfg.Proxy.ListenPort, shutdown, nil
+}
+
+func applyPersistedRuntimeState(p *proxy.Proxy) {
+	state, err := loadTUIStateFn()
+	if err != nil || state == nil {
+		return
+	}
+	p.SetProviderEnabled(types.Anthropic, state.ClaudeEnabled)
+	p.SetProviderEnabled(types.OpenAI, state.CodexEnabled)
+	p.SetLayerEnabled(1, state.Layer1Enabled)
+	p.SetLayerEnabled(2, state.Layer2Enabled)
+	p.SetLayerEnabled(3, state.Layer3Enabled)
 }
 
 func handleDaemonCmd(args []string) {
@@ -1926,9 +2101,9 @@ func parseDaemonLogsFlags(args []string) daemonLogsFlags {
 // are overridable in tests so the CLI can be exercised without touching the
 // real launchd log files.
 var (
-	daemonStdoutLogPathFn       = daemon.LaunchdStdoutLogPath
-	daemonStderrLogPathFn       = daemon.LaunchdStderrLogPath
-	daemonReadRecentLogLinesFn  = daemon.ReadRecentLogLines
+	daemonStdoutLogPathFn      = daemon.LaunchdStdoutLogPath
+	daemonStderrLogPathFn      = daemon.LaunchdStderrLogPath
+	daemonReadRecentLogLinesFn = daemon.ReadRecentLogLines
 )
 
 func handleStartCmd() {
@@ -1947,15 +2122,10 @@ func handleStartCmd() {
 		fmt.Fprintf(os.Stderr, "executable: %v\n", err)
 		exitFn(1)
 	}
-	attrs := &os.ProcAttr{
-		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-	}
-	proc, err := osStartProcess(binary, []string{binary, "daemon"}, attrs)
-	if err != nil {
+	if err := startDetachedDaemonFn(binary); err != nil {
 		fmt.Fprintf(os.Stderr, "start daemon: %v\n", err)
 		exitFn(1)
 	}
-	_ = proc.Release()
 	fmt.Println("Slimference daemon started.")
 }
 

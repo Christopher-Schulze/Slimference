@@ -1,9 +1,13 @@
 # T22 - Central `[compression.tuning]` Config Block
 
-Status: open
+Status: done
 Priority: medium
 Scope: internal/config, internal/compression, internal/summarization,
        internal/proxy/handler.go, spec+.md
+
+Implementation note: the operator-facing tuning knobs are centralized under
+`[compression.tuning]` and inventoried in `docs/tuning-inventory.md`. A few
+pure implementation-detail literals remain intentionally hardcoded.
 
 ---
 
@@ -76,11 +80,11 @@ Cover at minimum:
 
 ## Subtasks
 
-- [ ] Write `docs/tuning-inventory.md`.
-- [ ] Extend `Config` + `defaults.go` + validation.
-- [ ] Replace literals with config reads.
-- [ ] Add override tests per knob.
-- [ ] Update `spec+.md` compression tuning section.
+- [x] Write `docs/tuning-inventory.md`.
+- [x] Extend `Config` + `defaults.go` + validation.
+- [x] Replace literals with config reads.
+- [x] Add override tests per knob.
+- [x] Update `spec+.md` compression tuning section.
 
 ## Acceptance Criteria
 

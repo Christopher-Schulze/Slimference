@@ -226,6 +226,7 @@ func TestCompress_FileDeltaSecondVersion(t *testing.T) {
 	cfg := defaultTestCfg(1)
 	cfg.StructureMinTokens = 10000
 	cfg.StructureLanguages = []string{}
+	cfg.DedupSimilarityThreshold = 2.0
 	c := NewDeterministicCompressor(cfg)
 	v1 := strings.Repeat("same line\n", 30) + "line thirty\n"
 	v2 := strings.Repeat("same line\n", 30) + "line CHANGED\n"
@@ -250,6 +251,105 @@ func TestCompress_FileDeltaSecondVersion(t *testing.T) {
 	got := result.Messages[2].Content[0].Text
 	if !strings.HasPrefix(got, "[Delta from message") {
 		t.Fatalf("want delta header, got %q", got)
+	}
+}
+
+func TestCompress_ToolResultDeltaUsesResolvedToolCallKey(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	cfg.StructureMinTokens = 10000
+	cfg.StructureLanguages = []string{}
+	cfg.DedupSimilarityThreshold = 2.0
+	c := NewDeterministicCompressor(cfg)
+	var stable strings.Builder
+	stable.WriteString("On branch main\n")
+	for i := 0; i < 24; i++ {
+		stable.WriteString(fmt.Sprintf(" M pkg/file-%02d.go\n", i))
+	}
+	v1 := stable.String() + "?? tmp.txt\n"
+	v2 := stable.String() + " M pkg/other.go\n?? tmp.txt\n"
+	msgs := []types.Message{
+		buildMessage(t, 0, "assistant", types.ContentBlock{
+			Type:      "tool_use",
+			ToolName:  "Bash",
+			ToolInput: `{"command":"git status"}`,
+			ToolUseID: "use-1",
+		}),
+		buildMessage(t, 1, "user", types.ContentBlock{
+			Type:         "tool_result",
+			Text:         v1,
+			ToolResultID: "use-1",
+		}),
+		buildMessage(t, 2, "assistant", types.ContentBlock{
+			Type:      "tool_use",
+			ToolName:  "Bash",
+			ToolInput: `{"command":"git status"}`,
+			ToolUseID: "use-2",
+		}),
+		buildMessage(t, 3, "user", types.ContentBlock{
+			Type:         "tool_result",
+			Text:         v2,
+			ToolResultID: "use-2",
+		}),
+		buildMessage(t, 4, "assistant", textBlock("done")),
+		buildMessage(t, 5, "user", textBlock("latest")),
+	}
+
+	result := c.Compress(msgs)
+	if result.DeltaSaved <= 0 {
+		t.Fatalf("DeltaSaved=%d want > 0", result.DeltaSaved)
+	}
+	got := result.Messages[3].Content[0].Text
+	if !strings.Contains(got, "tool:bash|git status") {
+		t.Fatalf("delta header must use resolved tool key, got %q", got)
+	}
+}
+
+func TestCompress_DeltaTracksNormalizedCommentStrippedSource(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	cfg.StructureMinTokens = 10000
+	cfg.StructureLanguages = []string{}
+	cfg.DedupSimilarityThreshold = 2.0
+	c := NewDeterministicCompressor(cfg)
+
+	var comments strings.Builder
+	for i := 0; i < 40; i++ {
+		comments.WriteString("// noisy comment line that should be stripped\n")
+	}
+	var body strings.Builder
+	body.WriteString("package main\n\nfunc main() {\n")
+	for i := 0; i < 200; i++ {
+		body.WriteString(fmt.Sprintf("\tprintln(\"stable-%02d\")\n", i))
+	}
+	body.WriteString("}\n")
+	v1 := comments.String() + body.String()
+	v2 := comments.String() + strings.Replace(body.String(), "}\n", "\tprintln(\"delta\")\n}\n", 1)
+	msgs := []types.Message{
+		buildMessage(t, 0, "user", types.ContentBlock{
+			Type:         "tool_result",
+			Text:         v1,
+			ToolInput:    `{"path":"pkg/main.go"}`,
+		}),
+		buildMessage(t, 1, "assistant", textBlock("done once")),
+		buildMessage(t, 2, "user", types.ContentBlock{
+			Type:         "tool_result",
+			Text:         v2,
+			ToolInput:    `{"path":"pkg/main.go"}`,
+		}),
+		buildMessage(t, 3, "assistant", textBlock("done twice")),
+		buildMessage(t, 4, "user", textBlock("latest")),
+	}
+
+	result := c.Compress(msgs)
+	if result.CommentSaved <= 0 {
+		t.Fatalf("CommentSaved=%d want > 0", result.CommentSaved)
+	}
+	if result.DeltaSaved <= 0 {
+		t.Fatalf("DeltaSaved=%d want > 0 after comment stripping", result.DeltaSaved)
+	}
+	if !strings.HasPrefix(result.Messages[2].Content[0].Text, "[Delta from message") {
+		t.Fatalf("want delta header, got %q", result.Messages[2].Content[0].Text)
 	}
 }
 

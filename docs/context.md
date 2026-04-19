@@ -130,6 +130,8 @@ Repository proof as of this task:
   sessions no longer skew each other's latency display
 - corrected `AnalyticsSnapshot.CompressionRatio` to the saved-token fraction
   and made `SessionLogger.Format()` key ordering deterministic
+- fixed `analytics.WritePromptCacheCSV()` so CSV flush failures are surfaced
+  immediately instead of being hidden behind deferred writer flushing
 - fixed OpenAI request reconstruction so structured `content` arrays survive
   roundtrip as arrays instead of being rewritten into stringified JSON
 - raised the SSE relay per-line cap to 8 MiB to better tolerate large
@@ -212,3 +214,52 @@ Fresh-eyes review artifact:
              and cancelable retry backoff, Layer 2 aborts cleanly before caching
              on canceled work, and proxy shutdown cancels worker-owned summary
              jobs instead of starting queued compression after shutdown begins.
+2026-04-19 - Foreign-repo extraction pass started from `repos/token-optimizer`.
+             Added tracking task `docs/todo/t37-read-hook-cache-delta.md` and
+             began Phase 1 implementation: new `internal/readcache` package,
+             hidden `slimference readhook` entry point, and Claude `Read`
+             PreToolUse hook wiring for unchanged-read blocking plus bounded
+             delta replies on small full-file re-reads.
+2026-04-19 - Repo-wide TODO closure pass: synchronized every stale T17-T36
+             task file to its real shipped state, added prompt-cache live
+             metrics end-to-end (`stats prompt-cache`, TUI panel, analytics
+             snapshot fields, debug summary fields), exposed
+             `slimference hook check-upstream`, and checked in the missing
+             evidence documents `docs/benchmarks.md`,
+             `docs/structure-extract-accuracy.md`,
+             `docs/tuning-inventory.md`, `docs/rtk-parity.md`, and
+             `docs/delta-encoding-audit.md`.
+2026-04-19 - T37 completed: Codex now installs a matching `Read` hook,
+             `slimference readhook` emits Claude or Codex block payloads,
+             read-cache metrics are persisted and exposed via admin/TUI, and
+             `FlushCaches()` now clears `~/.slimference/read-cache/`.
+             Verification: `go test ./internal/readcache ./internal/hooks ./internal/proxy ./internal/tui ./cmd/slimference`
+             and `go test ./...`.
+2026-04-19 - Canonical-doc sync pass: updated `docs/documentation.md` and
+             `docs/map.md` to reflect the real daemon-plus-monitor runtime,
+             Setup/service controls, prompt-cache CLI/reporting, admin attach
+             surface, and persisted read-cache state. Added matching
+             changelog entry for the 2026-04-19 closure pass.
+2026-04-19 - T39/T40 implementation pass: removed the now-empty `repos/`
+             directory, added deterministic checkpoints under
+             `~/.slimference/checkpoints/`, added large-result archives under
+             `~/.slimference/tool-archive/`, exposed `slimference checkpoint
+             capture|list|restore|stats` and `slimference expand`, wired archive
+             eligibility into `slimference posttool`, and surfaced checkpoint
+             and archive status through admin and TUI. Verification:
+             `go test ./cmd/slimference ./internal/checkpoints
+             ./internal/toolarchive ./internal/proxy ./internal/tui` and
+             `go test ./...`.
+2026-04-19 - Final gate-closure pass: eliminated the last hooks/proxy/TUI
+             edge-path coverage gaps, corrected `WritePromptCacheCSV()` to
+             surface flush failures, tightened setup-wizard semantics when no
+             service control is wired, and re-verified the full proof stack:
+             `go test ./...`, `bun test tests/ts`, and
+             `go run ./scripts/ci` all green with `100.0%` total Go coverage.
+2026-04-19 - TUI operator-console polish: rebuilt the BubbleTea dashboard
+             around a selectable control surface with arrow-key-first
+             navigation, moved daemon/autostart management into Dashboard,
+             refreshed the Lipgloss palette to a darker operator-console look,
+             and drove `internal/tui` back to `100.0%` coverage before
+             re-running `go test ./...`, `bun test tests/ts`, and
+             `go run ./scripts/ci` successfully.

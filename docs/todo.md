@@ -382,9 +382,10 @@ claims can be proven by code, tests, and release gates.
 ## Post-Release Hardening Program (2026-04-18)
 
 Ergebnis des Deep Reality-Check am 2026-04-18. Referenz: Reviewer-Bericht + audit-2.
-Alle Tasks T17-T36 sind neu und offen. Reihenfolge: A (Hygiene) -> B (Performance) ->
-C (Token-Savings) -> D (UX) -> E (Proof & Quality). A ist Voraussetzung fuer sauberes
-Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
+Die Tasks T17-T36 wurden als Hardening-Programm angelegt und inzwischen abgearbeitet.
+Reihenfolge: A (Hygiene) -> B (Performance) -> C (Token-Savings) -> D (UX) -> E (Proof & Quality).
+A war Voraussetzung fuer sauberes Arbeiten, B+C lieferten die materiellen Gewinne,
+D+E schlossen Produkt und Beweisfuehrung.
 
 ### Bereich A - Repo-Hygiene und Dead-Code
 
@@ -407,6 +408,8 @@ Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
 - [x] T27 - L2 Incremental-Summary: gestaffelte Range-Overlap-Schwelle. Detail: `docs/todo/t27-l2-incremental-staircase.md`
 - [x] T28 - Per-Provider Tokenizer + Anthropic usage-basierte Self-Calibration. Detail: `docs/todo/t28-per-provider-tokenizer.md`
 - [x] T29 - Cross-Tool-Call Delta-Encoding (generalisierter Tool-Key). Detail: `docs/todo/t29-tool-output-diffing.md`
+- [x] T37 - Claude/Codex `Read` Hook Cache + Delta aus `repos/token-optimizer` integriert; `internal/readcache`, `slimference readhook`, Claude+Codex `Read` matcher, Flush-Hygiene und Admin/TUI-Metriken gelandet. Detail: `docs/todo/t37-read-hook-cache-delta.md`
+- [x] T40 - Large tool-result archive plus explicit `slimference expand`, extracted from `repos/token-optimizer` and integrated through the existing PostTool path instead of a parallel sidecar. Detail: `docs/todo/t40-tool-archive-expand.md`
 
 ### Bereich D - UX und Operability
 
@@ -414,21 +417,31 @@ Arbeiten, B+C sind die materiellen Gewinne, D+E schliessen das Produkt.
 - [x] T31 - TUI State-Persistenz (Provider/Layer Toggles, View). Detail: `docs/todo/t31-tui-state-persistence.md`
 - [x] T32 - Bash-Completion (nur bash; zsh/fish out of scope). Detail: `docs/todo/t32-bash-completion.md`
 - [x] T33 - Hook-Drift-Detection Watchdog fuer Claude/Codex CLI-Updates. Detail: `docs/todo/t33-hook-drift-watchdog.md`
+- [x] T39 - Smart Compaction with progressive checkpoints and best-checkpoint restore, extracted from `repos/token-optimizer` but kept out of the proxy hot path. Detail: `docs/todo/t39-smart-compaction-checkpoints.md`
 
 ### Bereich E - Proof und Code-Quality
 
 - [x] T34 - Benchmark session-report harness + Markdown export. Detail: `docs/todo/t34-benchmark-report.md`
 - [x] T35 - Structure-extract accuracy harness (scaffolding + overlap-based decl_recall). Detail: `docs/todo/t35-structure-extract-measurement.md`
 - [x] T36 - L2 Operating Modes (strict / balanced / fast) mit Precedence-Rules. Detail: `docs/todo/t36-l2-operating-modes.md`
+- [x] T39 - Progressive checkpoint capture and ranked restore for session continuity, extracted from `repos/token-optimizer` with deterministic summaries and no hot-path proxy coupling. Detail: `docs/todo/t39-smart-compaction-checkpoints.md`
+- [x] T40 - Large tool-result archive and explicit `expand` retrieval, extracted from `repos/token-optimizer` and wired into Slimference's existing PostTool command surface. Detail: `docs/todo/t40-tool-archive-expand.md`
 
 ### Status
 
-Alle T17-T36 abgearbeitet. Die scaffolding-geprägten Tasks (T34, T35)
-stehen als Runner bereit und warten auf echte Corpora (100+ recorded
-sessions, per-language ground-truth parsers) - das ist Daten-Sammlung,
-nicht Code-Arbeit.
+Alle T17-T36 abgearbeitet. Die datenabhaengigen Tasks T34 und T35 haben jetzt
+checked-in Evidence-Dokumente (`docs/benchmarks.md`,
+`docs/structure-extract-accuracy.md`), bleiben aber inhaltlich offen fuer
+spaetere groessere Corpora und parser-backed ground truth. Das ist ab hier
+Datensammlung, nicht fehlende Kernimplementierung.
 
 ### Platform Scope (2026-04-18)
 
 macOS only. Kein Linux-Daemon, keine zsh/fish-Completion. Wird nicht mehr als Gap gefuehrt.
 
+---
+
+## Foreign Repo Extraction Queue (2026-04-19)
+
+- [x] T39 - Smart Compaction / progressive checkpoints / ranked restore, extracted from `repos/token-optimizer` with strict separation from the proxy fast path. Detail: `docs/todo/t39-smart-compaction-checkpoints.md`
+- [x] T40 - Large tool-result archive + explicit `expand`, extracted from `repos/token-optimizer` and shaped around Slimference's existing `posttool` path. Detail: `docs/todo/t40-tool-archive-expand.md`

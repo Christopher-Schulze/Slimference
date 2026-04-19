@@ -7,6 +7,12 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
+type toolUseInfo struct {
+	name   string
+	input  string
+	msgIdx int
+}
+
 // ExtractToolCallKey returns a stable string key identifying a tool_result
 // block for delta encoding and cross-message deduplication. The key prefers
 // an explicit file path (suitable for Read/Edit/Write results) and falls
@@ -18,18 +24,72 @@ import (
 // filepath (e.g. `git status`, `grep <pattern>`, `ls <dir>`) so repeated
 // invocations against the same target can be delta-encoded.
 func ExtractToolCallKey(block types.ContentBlock) string {
-	if fp := extractFilepathFromToolResult(block); fp != "" {
+	return ExtractToolCallKeyWithIndex(block, nil)
+}
+
+// ExtractToolCallKeyWithIndex resolves a stable key for a block using an
+// optional tool_use index. This lets tool_result blocks inherit the original
+// tool name + arguments from their corresponding tool_use call instead of
+// falling back to the first line of output.
+func ExtractToolCallKeyWithIndex(block types.ContentBlock, toolUses map[string]toolUseInfo) string {
+	resolved := block
+	if use, ok := resolveToolUseInfo(block, toolUses); ok {
+		resolved.ToolName = use.name
+		resolved.ToolInput = use.input
+	}
+	if fp := extractFilepathFromToolResult(resolved); fp != "" {
 		return "file:" + fp
 	}
-	name := strings.ToLower(strings.TrimSpace(block.ToolName))
+	name := strings.ToLower(strings.TrimSpace(resolved.ToolName))
 	if name == "" {
 		return ""
 	}
-	topic := extractToolCallTopic(block)
+	topic := extractToolCallTopic(resolved)
 	if topic == "" {
 		return "tool:" + name
 	}
 	return "tool:" + name + "|" + topic
+}
+
+func buildToolUseIndex(messages []types.Message, limit int) map[string]toolUseInfo {
+	if limit <= 0 {
+		return nil
+	}
+	if limit > len(messages) {
+		limit = len(messages)
+	}
+	index := make(map[string]toolUseInfo)
+	for i := 0; i < limit; i++ {
+		for _, block := range messages[i].Content {
+			if block.Type != "tool_use" || block.ToolUseID == "" {
+				continue
+			}
+			index[block.ToolUseID] = toolUseInfo{
+				name:   block.ToolName,
+				input:  block.ToolInput,
+				msgIdx: i,
+			}
+		}
+	}
+	return index
+}
+
+func resolveToolUseInfo(block types.ContentBlock, toolUses map[string]toolUseInfo) (toolUseInfo, bool) {
+	if len(toolUses) == 0 {
+		return toolUseInfo{}, false
+	}
+	id := block.ToolResultID
+	if id == "" {
+		id = block.ToolUseID
+	}
+	if id == "" {
+		return toolUseInfo{}, false
+	}
+	use, ok := toolUses[id]
+	if !ok {
+		return toolUseInfo{}, false
+	}
+	return use, true
 }
 
 // extractToolCallTopic picks a stable short signature from the tool
@@ -69,6 +129,21 @@ func topicFromToolInput(toolInput string) string {
 		}
 	}
 	return ""
+}
+
+// normalizeJSON re-encodes JSON to ensure stable key ordering for hash
+// comparison. Invalid input is returned unchanged.
+func normalizeJSON(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	var v interface{}
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		return s
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 // truncateRunes returns s limited to n runes (never breaks a multibyte

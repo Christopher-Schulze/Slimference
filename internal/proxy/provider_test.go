@@ -563,6 +563,95 @@ func TestExtractOpenAIMessages_toolRoleAndArrayContent(t *testing.T) {
 	}
 }
 
+func TestExtractOpenAIMessages_toolCallsBecomeToolUseBlocks(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`[
+		{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"bash","arguments":"{\"command\":\"git status\"}"}}]},
+		{"role":"tool","content":"git output","tool_call_id":"call_1"}
+	]`)
+	msgs, _, err := extractOpenAIMessages(raw, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("len=%d", len(msgs))
+	}
+	if len(msgs[0].Content) < 2 {
+		t.Fatalf("assistant tool call should create placeholder + tool_use blocks: %#v", msgs[0].Content)
+	}
+	var found bool
+	for _, block := range msgs[0].Content {
+		if block.Type == "tool_use" {
+			found = true
+			if block.ToolUseID != "call_1" || block.ToolName != "bash" {
+				t.Fatalf("tool_use block: %#v", block)
+			}
+			if !strings.Contains(block.ToolInput, "git status") {
+				t.Fatalf("tool input missing command: %#v", block)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("assistant tool call should expose tool_use block: %#v", msgs[0].Content)
+	}
+	if msgs[1].Content[0].ToolResultID != "call_1" {
+		t.Fatalf("tool result id: %#v", msgs[1].Content[0])
+	}
+}
+
+func TestParseOpenAIToolCalls_MalformedJSON(t *testing.T) {
+	t.Parallel()
+	if got := parseOpenAIToolCalls(json.RawMessage(`[{`)); got != nil {
+		t.Fatalf("malformed tool_calls must return nil, got %#v", got)
+	}
+}
+
+func TestParseOpenAIToolCalls_SkipsIncompleteEntries(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`[
+		{"id":"","type":"function","function":{"name":"bash","arguments":"{}"}},
+		{"id":"call_2","type":"function","function":{"name":"","arguments":"{}"}},
+		{"id":"call_3","type":"function","function":{"name":"bash","arguments":"{\"command\":\"pwd\"}"}}
+	]`)
+	got := parseOpenAIToolCalls(raw)
+	if len(got) != 1 {
+		t.Fatalf("expected one valid tool call, got %#v", got)
+	}
+	if got[0].ToolUseID != "call_3" || got[0].ToolName != "bash" {
+		t.Fatalf("unexpected parsed tool call: %#v", got[0])
+	}
+}
+
+func TestReconstructBody_openaiToolCallsPreservedWhenContentEmpty(t *testing.T) {
+	t.Parallel()
+	originalBody := []byte(`{
+		"model":"gpt-4o",
+		"messages":[
+			{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"bash","arguments":"{\"command\":\"git status\"}"}}]},
+			{"role":"tool","content":"raw output","tool_call_id":"call_1"}
+		]
+	}`)
+	msgs, _, err := extractMessages(types.OpenAI, originalBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("len=%d", len(msgs))
+	}
+	msgs[1].Content[0].Text = "compact output"
+	out, err := reconstructBody(types.OpenAI, originalBody, msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, `"tool_calls"`) || !strings.Contains(s, `"call_1"`) {
+		t.Fatalf("tool_calls must survive roundtrip: %s", s)
+	}
+	if !strings.Contains(s, `"compact output"`) {
+		t.Fatalf("tool result rewrite missing: %s", s)
+	}
+}
+
 func TestMessagesToOpenAIJSON_toolRole(t *testing.T) {
 	t.Parallel()
 	msgs := []types.Message{

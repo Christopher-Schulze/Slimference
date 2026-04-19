@@ -212,6 +212,10 @@ func New(cfg *config.Config) *Proxy {
 	// HTTP server with the proxy mux.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", p.healthHandler)
+	mux.HandleFunc(AdminStatusPath, p.adminStatusHandler)
+	mux.HandleFunc(AdminProviderPath, p.adminProviderHandler)
+	mux.HandleFunc(AdminLayerPath, p.adminLayerHandler)
+	mux.HandleFunc(AdminFlushPath, p.adminFlushHandler)
 	mux.HandleFunc("/", p.ServeHTTP)
 
 	p.server = &http.Server{

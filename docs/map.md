@@ -6,7 +6,7 @@
 
 ## Entry Point
 
-`cmd/slimference/main.go` -> `proxy.New(cfg)` + `tui.NewModel(adapter)` + `tea.NewProgram()`
+`cmd/slimference/main.go` -> `newRemoteProxyAdapter(cfg)` + `tui.NewModel(adapter)` + `tea.NewProgram()`
 
 ## Dependency Graph (simplified)
 
@@ -25,9 +25,12 @@ sessions     <- types
 debug        <- (stdlib only)
 filter       <- types, compression (StripANSICodes, StripComments, LanguageFromPath)
 hooks        <- (stdlib only)
-proxy        <- types, config, compression, summarization, caching, analytics, security, sessions, resilience, debug
+readcache    <- (stdlib only)
+checkpoints  <- analytics, debug, sessions, types
+toolarchive  <- (stdlib only)
+proxy        <- types, config, compression, summarization, caching, analytics, security, sessions, resilience, debug, checkpoints
 tui          <- types, analytics, sessions (via interface)
-cmd          <- proxy, tui, config, analytics, filter, hooks, debug
+cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints, toolarchive
 ```
 
 ## Key Files
@@ -64,6 +67,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 - `internal/filter/builtin_read.go`: F06 file read (cat/head/tail + comment strip)
 - `internal/filter/builtin_compact_helpers.go`: shared label/empty-detection helpers
 - `internal/filter/project_filters.go`: LoadMergedDenyPatterns() - project + user filter merge
+- `internal/filter/posttool_details.go`: PostToolUse payload extraction with optional `tool_name`, `tool_use_id`, and `session_id`
 - `internal/hooks/claude.go`: Claude Code PreToolUse structured contract + non-destructive settings.json merge/remove
 - `internal/hooks/codex.go`: Codex hooks.json PreToolUse/PostToolUse install, fail-fast preflight for malformed hooks/config conflicts, conflict-safe config.toml patch/remove, legacy AGENTS.md fallback
 - `internal/hooks/verify.go`: authoritative Claude/Codex install verification against coherent scripts + config state
@@ -110,24 +114,29 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 - `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, context-aware overflow retry fallback, dependency-safe Layer 3 admission, analytics shutdown drain, shutdown-aware compression worker
 - `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction, safe OpenAI structured-content roundtrip without stringifying multimodal arrays
 - `internal/proxy/streaming.go`: SSE relay, token counting from stream events, 8 MiB per-line SSE cap, bounded non-streaming passthrough with safe local-502 behavior
+- `internal/proxy/admin.go`: daemon-admin HTTP surface for TUI attach mode, live status snapshot, provider/layer toggles, cache flush endpoint, read-cache, checkpoint, tool-archive, and Layer 2 status export
+- `internal/proxy/checkpoints.go`: async checkpoint capture bridge from analytics events into `internal/checkpoints`
+- `internal/checkpoints/checkpoints.go`: deterministic checkpoint store, trigger policy, ranked restore, persisted stats
+- `internal/toolarchive/toolarchive.go`: local archive store, `slim://archive/*` references, bounded retrieval, persisted stats
 
 ### Analytics and Debug
 
 - `internal/analytics/collector.go`: Analytics struct, Record(), Snapshot()
+- `internal/analytics/prompt_cache.go`: persisted prompt-cache report reader and CSV/JSON export helpers for `stats prompt-cache`
 - `internal/analytics/persistence.go`: JSONL logging to ~/.slimference/analytics/
 - `internal/analytics/gain.go`: slimference gain - filter savings by period/command
 - `internal/debug/session.go`: SessionFileStats() for JSONL preview, ReplaySession() with non-summary skip
 - `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary, guarded JSONL flush on marshal/write failure
-- `internal/tui/model.go`: BubbleTea model, bounded shutdown, private debug-log export (`~/.slimference/exports`, 0700/0600)
+- `internal/tui/model.go`: BubbleTea model, arrow-first operator-console navigation, selectable dashboard/debug/setup actions, bounded shutdown, private debug-log export (`~/.slimference/exports`, 0700/0600)
 - `internal/buildinfo/version.go`: single source of truth for CLI/TUI/health version strings
 
 ### TUI (BubbleTea + Lipgloss)
 
 - `internal/tui/model.go`: Model, Update(), Init(), ProxyInterface, SessionLoggerInterface, HookStatus, SetHookStatus()
-- `internal/tui/views.go`: renderMainView(), renderStatsView(), renderDebugView(), renderHookStatus()
-- `internal/tui/styles.go`: Lipgloss color palette
-- `internal/tui/components.go`: Progress bar, badges, table renderer, log line renderer
-- `internal/tui/keys.go`: KeyMap, DefaultKeyMap(), footerHelp()
+- `internal/tui/views.go`: renderMainView(), renderStatsView(), renderDebugView(), renderSetupView(), renderHookStatus(), operator-console dashboard layout
+- `internal/tui/styles.go`: Lipgloss operator-console palette (dark surfaces, cyan focus, green savings)
+- `internal/tui/components.go`: Progress bar, badges, table renderer, log line renderer, selectable menu rows, compact KPI helpers
+- `internal/tui/keys.go`: KeyMap, DefaultKeyMap(), footerHelp() with arrow-key-first navigation hints
 
 ### Supporting Packages
 
@@ -138,6 +147,9 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug
 - `internal/security/patterns.go` + `secrets.go`: Secret detection and redaction
 - `internal/resilience/retry.go` + `health.go` + `latency.go`: HTTP resilience
 - `internal/sessions/logger.go` + `export.go`: Session log ring buffer
+- `internal/readcache/*.go`: session-scoped read-cache state, decision accounting, persisted stats under `~/.slimference/read-cache/`
+- `internal/checkpoints/checkpoints.go`: deterministic checkpoint state and ranked restore under `~/.slimference/checkpoints/`
+- `internal/toolarchive/toolarchive.go`: bounded large-result archive under `~/.slimference/tool-archive/`
 - `internal/util/safego.go`: Safe goroutine launch with panic recovery
 
 ## Interface Boundaries
@@ -153,6 +165,10 @@ FlushCaches()
 GetAnalytics() analytics.AnalyticsSnapshot
 GetRecentRequests(int) []types.RequestMetrics
 GetLayer2Status() tui.Layer2Status
+GetReadCacheStatus() tui.ReadCacheStatus
+GetCheckpointStatus() tui.CheckpointStatus
+GetToolArchiveStatus() tui.ToolArchiveStatus
+GetProviderHealth(types.Provider) types.ProviderHealthInfo
 SessionLogger() tui.SessionLoggerInterface
 Shutdown(context.Context) error
 Config() tui.ProxyConfigInterface
@@ -210,4 +226,7 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 - `docs/todo/t14-layer2-strictness-and-cancellation.md`: MiniMax policy, validation, cancellation plan
 - `docs/todo/t15-daemon-service-productionization.md`: daemon/launchd hardening plan
 - `docs/todo/t16-proof-gates-and-release-readiness.md`: CI, coverage, and release-proof plan
+- `cmd/slimference/remote_proxy.go`: TUI attach adapter backed by the daemon admin API and file-backed session-log view
+- `cmd/slimference/checkpoint_cmd.go`: `checkpoint` and `expand` CLI commands
+- `cmd/slimference/prompt_cache_stats.go`: `stats prompt-cache` CLI
 - `scripts/utils/main.go`: offline session/decision/filter/combined reporting with text/JSON/CSV output

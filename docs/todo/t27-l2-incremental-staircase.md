@@ -1,6 +1,6 @@
 # T27 - Layer 2 Incremental-Summary Tiered Thresholds
 
-Status: open
+Status: done
 Priority: medium
 Scope: internal/summarization/layer2.go, internal/summarization/cache.go,
        internal/config (tuning)
@@ -71,11 +71,11 @@ Each tier's threshold is configurable under `[compression.tuning] incremental_st
 
 ## Subtasks
 
-- [ ] Staircase helper + tests.
-- [ ] Layer 2 integration.
-- [ ] Config schema and defaults.
-- [ ] Decision-log reason strings include tier.
-- [ ] Regression tests on canonical sizes.
+- [x] Staircase helper + tests.
+- [x] Layer 2 integration.
+- [x] Config schema and defaults.
+- [x] Decision-log reason strings include tier.
+- [x] Regression tests on canonical sizes.
 
 ## Acceptance Criteria
 

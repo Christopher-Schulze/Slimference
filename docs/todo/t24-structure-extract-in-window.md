@@ -1,6 +1,6 @@
 # T24 - Structure Extraction inside the Sliding Window
 
-Status: open
+Status: done
 Priority: medium
 Scope: internal/compression/structure.go, internal/compression/layer1.go
 
@@ -70,11 +70,11 @@ meisten kostet" lever.
 
 ## Subtasks
 
-- [ ] Define and implement the safety rule helper.
-- [ ] Extend Layer 1 pipeline.
-- [ ] Add `structure_in_window` to `Layer1Result` and debug breakdown.
-- [ ] New tests for positive/negative cases.
-- [ ] Docs update.
+- [x] Define and implement the safety rule helper.
+- [x] Extend Layer 1 pipeline.
+- [x] Add `structure_in_window` to `Layer1Result` and debug breakdown.
+- [x] New tests for positive/negative cases.
+- [x] Docs update.
 
 ## Acceptance Criteria
 

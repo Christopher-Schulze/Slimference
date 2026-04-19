@@ -233,7 +233,7 @@ func TestInstallCodexHooksJSONWithScripts_MarshalError(t *testing.T) {
 		jsonMarshalIndentFn = orig
 	}()
 
-	err := installCodexHooksJSONWithScripts(t.TempDir(), "/tmp/pre.sh", "/tmp/post.sh")
+	err := installCodexHooksJSONWithScripts(t.TempDir(), "/tmp/pre.sh", "/tmp/post.sh", "/tmp/read.sh")
 	if err == nil || !strings.Contains(err.Error(), "marshal boom") {
 		t.Fatalf("expected marshal error, got %v", err)
 	}

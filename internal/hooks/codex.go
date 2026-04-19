@@ -88,13 +88,27 @@ printf '%%s' "$INPUT" | %s posttool
 `, q)
 }
 
+func codexReadToolHookScript(slimferenceCmd string) string {
+	cmd := strings.TrimSpace(slimferenceCmd)
+	if cmd == "" {
+		cmd = "slimference"
+	}
+	q := bashSingleQuoted(cmd)
+	return fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+INPUT=$(cat)
+printf '%%s' "$INPUT" | %s readhook codex
+`, q)
+}
+
 // InstallCodex installs the Slimference hooks for Codex CLI.
 //
 // Writes:
 //  1. ~/.slimference/hooks/codex-pre-tool.sh - PreToolUse Bash hook script
 //  2. ~/.slimference/hooks/codex-post-tool.sh - PostToolUse Bash hook script
-//  3. ~/.codex/hooks.json - PreToolUse/PostToolUse Bash hook entries
-//  3. ~/.codex/config.toml - adds openai_base_url + codex_hooks feature flag
+//  3. ~/.slimference/hooks/codex-read-tool.sh - PreToolUse Read hook script
+//  4. ~/.codex/hooks.json - PreToolUse/PostToolUse hook entries
+//  5. ~/.codex/config.toml - adds openai_base_url + codex_hooks feature flag
 //
 // If a hooks.json already exists with Slimference entries, it is not modified.
 // If config.toml already has openai_base_url set, the value is not overwritten.
@@ -116,9 +130,13 @@ func InstallCodex(home string, slimferenceCmd string) error {
 	if err := os.WriteFile(postScriptPath, []byte(codexPostToolHookScript(slimferenceCmd)), 0755); err != nil {
 		return fmt.Errorf("write hook script: %w", err)
 	}
+	readScriptPath := CodexReadHookScriptPath(home)
+	if err := os.WriteFile(readScriptPath, []byte(codexReadToolHookScript(slimferenceCmd)), 0755); err != nil {
+		return fmt.Errorf("write read-tool hook script: %w", err)
+	}
 
 	// Step 2: Write/update ~/.codex/hooks.json
-	if err := installCodexHooksJSONWithScripts(home, preScriptPath, postScriptPath); err != nil {
+	if err := installCodexHooksJSONWithScripts(home, preScriptPath, postScriptPath, readScriptPath); err != nil {
 		return fmt.Errorf("write hooks.json: %w", err)
 	}
 
@@ -137,10 +155,10 @@ func InstallCodex(home string, slimferenceCmd string) error {
 // The single scriptPath argument is kept for test compatibility and is treated as the
 // PostToolUse path; the PreToolUse path is derived from the home directory.
 func installCodexHooksJSON(home string, scriptPath string) error {
-	return installCodexHooksJSONWithScripts(home, CodexPreHookScriptPath(home), scriptPath)
+	return installCodexHooksJSONWithScripts(home, CodexPreHookScriptPath(home), scriptPath, CodexReadHookScriptPath(home))
 }
 
-func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScriptPath string) error {
+func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScriptPath string, readScriptPath string) error {
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0755); err != nil {
 		return err
@@ -153,16 +171,28 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 		return err
 	}
 
-	existing["PreToolUse"] = mergeCodexHookEntries(existing["PreToolUse"], map[string]interface{}{
-		"matcher": "Bash",
-		"hooks": []interface{}{
-			map[string]interface{}{
-				"type":          "command",
-				"command":       fmt.Sprintf("bash %s", preScriptPath),
-				"statusMessage": "Slimference rewrite guard",
+	existing["PreToolUse"] = mergeCodexHookEntries(existing["PreToolUse"],
+		map[string]interface{}{
+			"matcher": "Bash",
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"type":          "command",
+					"command":       fmt.Sprintf("bash %s", preScriptPath),
+					"statusMessage": "Slimference rewrite guard",
+				},
 			},
 		},
-	})
+		map[string]interface{}{
+			"matcher": "Read",
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"type":          "command",
+					"command":       fmt.Sprintf("bash %s", readScriptPath),
+					"statusMessage": "Slimference read cache",
+				},
+			},
+		},
+	)
 	existing["PostToolUse"] = mergeCodexHookEntries(existing["PostToolUse"], map[string]interface{}{
 		"matcher": "Bash",
 		"hooks": []interface{}{
@@ -303,6 +333,7 @@ func RemoveCodex(home string) error {
 	// Remove hook script.
 	_ = os.Remove(CodexPreHookScriptPath(home))
 	_ = os.Remove(CodexHookScriptPath(home))
+	_ = os.Remove(CodexReadHookScriptPath(home))
 
 	// Remove AGENTS.md block (legacy).
 	return removeCodexAgentsMD(home)
@@ -403,7 +434,8 @@ func CodexHookInstalled(home string) bool {
 	content := string(data)
 	hasPre := strings.Contains(content, "codex-pre-tool.sh") || strings.Contains(content, "Slimference rewrite guard")
 	hasPost := strings.Contains(content, "codex-post-tool.sh") || strings.Contains(content, "Slimference filter")
-	return hasPre && hasPost
+	hasRead := strings.Contains(content, "codex-read-tool.sh") || strings.Contains(content, "Slimference read cache")
+	return hasPre && hasPost && hasRead
 }
 
 // CodexPreHookScriptPath returns the path to the installed Codex PreToolUse hook script.
@@ -416,16 +448,23 @@ func CodexHookScriptPath(home string) string {
 	return filepath.Join(home, ".slimference", "hooks", "codex-post-tool.sh")
 }
 
-func mergeCodexHookEntries(existing interface{}, slimferenceEntry map[string]interface{}) []interface{} {
+func CodexReadHookScriptPath(home string) string {
+	return filepath.Join(home, ".slimference", "hooks", "codex-read-tool.sh")
+}
+
+func mergeCodexHookEntries(existing interface{}, slimferenceEntries ...map[string]interface{}) []interface{} {
 	entries, _ := existing.([]interface{})
-	filtered := make([]interface{}, 0, len(entries)+1)
+	filtered := make([]interface{}, 0, len(entries)+len(slimferenceEntries))
 	for _, entry := range entries {
 		if codexEntryHasSlimferenceHook(entry) {
 			continue
 		}
 		filtered = append(filtered, entry)
 	}
-	return append(filtered, slimferenceEntry)
+	for _, entry := range slimferenceEntries {
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 func removeCodexHookEvent(existing map[string]interface{}, eventName string) {
@@ -457,10 +496,10 @@ func codexEntryHasSlimferenceHook(entry interface{}) bool {
 		}
 		command, _ := hookMap["command"].(string)
 		statusMessage, _ := hookMap["statusMessage"].(string)
-		if strings.Contains(command, "codex-pre-tool.sh") || strings.Contains(command, "codex-post-tool.sh") {
+		if strings.Contains(command, "codex-pre-tool.sh") || strings.Contains(command, "codex-post-tool.sh") || strings.Contains(command, "codex-read-tool.sh") {
 			return true
 		}
-		if strings.Contains(statusMessage, "Slimference rewrite guard") || strings.Contains(statusMessage, "Slimference filter") {
+		if strings.Contains(statusMessage, "Slimference rewrite guard") || strings.Contains(statusMessage, "Slimference filter") || strings.Contains(statusMessage, "Slimference read cache") {
 			return true
 		}
 	}

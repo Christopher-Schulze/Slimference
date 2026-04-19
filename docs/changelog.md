@@ -1,5 +1,68 @@
 # Changelog
 
+## Unreleased
+
+### 2026-04-19 - TUI Operator Console Polish
+
+- Reworked the BubbleTea dashboard from a hotkey-led status board into a more
+  explicit operator console with a selectable `CONTROL SURFACE`, `FLOW`,
+  `TRAFFIC`, `PROVIDER MAP`, and action-detail cards.
+- Made arrow-key plus `Enter` navigation the primary interaction model across
+  Dashboard, Stats, Debug, and Setup. Compatibility shortcuts remain, but the
+  visible UI no longer depends on letter mnemonics for normal operation.
+- Moved daemon lifecycle and auto-start management into the Dashboard action
+  surface, leaving Setup as an installation/status view instead of a mixed
+  control panel.
+- Refreshed the Lipgloss styling to a darker operator-console palette with
+  cyan focus, stronger cards, clearer metrics, and less legacy hotkey visual
+  noise.
+- Added deterministic TUI coverage for the new action model, render helpers,
+  compatibility branches, and operator-state views; `internal/tui` now sits at
+  `100.0%` coverage and the full proof stack remains green.
+
+### 2026-04-19 - Final Coverage Closure and Gate Proof
+
+- Closed the remaining `internal/hooks`, `internal/proxy`, and `internal/tui`
+  edge-path gaps so `go run ./scripts/ci` now passes again at a real
+  `100.0%` Go coverage gate instead of stopping at `99.9%`.
+- Added final deterministic regression coverage for hook-install write
+  failures, hook coherence checks, checkpoint/read-cache flush failure paths,
+  prompt-cache dashboard rendering, and setup-wizard navigation edge cases.
+- Fixed `internal/analytics.WritePromptCacheCSV` so CSV flush errors are no
+  longer silently lost behind a deferred writer flush.
+- Tightened TUI setup-step semantics: when no service-control adapter is wired,
+  the setup wizard now exposes no executable steps instead of manufacturing a
+  pseudo-selection over unavailable actions.
+
+### 2026-04-19 - Daemon Monitor and Repo-Analysis Closure Sync
+
+- Synced the canonical documentation to the actual daemon-plus-monitor runtime:
+  `docs/documentation.md` now describes `slimference start`, the attach-mode
+  TUI, Setup view navigation, daemon/service controls, `daemon logs`,
+  `stats prompt-cache`, and the hidden `readhook` path.
+- Synced `docs/map.md` to the real code layout by adding the attach adapter
+  (`cmd/slimference/remote_proxy.go`), daemon admin surface
+  (`internal/proxy/admin.go`), prompt-cache reporting
+  (`internal/analytics/prompt_cache.go`), and persisted read-cache state.
+- Recorded the 2026-04-19 closure pass in `docs/context.md` so the prompt-cache,
+  read-cache, hook drift, and daemon-monitor workstream now has one continuous
+  evidence trail.
+
+### 2026-04-19 - Continuity Checkpoints and Tool Archive
+
+- Added `internal/checkpoints` as a deterministic continuity layer that saves
+  ranked checkpoint artifacts under `~/.slimference/checkpoints/` without
+  coupling the capture path into the request hot path.
+- Added `slimference checkpoint capture|list|restore|stats` so checkpoint
+  creation and restore are explicit operator tools.
+- Added `internal/toolarchive` and `slimference expand <id>` for local recovery
+  of archived large tool results via `slim://archive/<id>` references.
+- Extended `slimference posttool` so large outputs with real hook metadata are
+  archived with a bounded preview, while the previous compaction-only behavior
+  remains the fallback path.
+- Extended daemon admin / TUI status with checkpoint and tool-archive activity
+  so continuity and archive health remain visible in attach mode.
+
 ## v2.0.2 - 2026-04-17
 
 ### Production Readiness Remediation Complete

@@ -1,6 +1,6 @@
 # T30 - `slimference daemon logs` Command (macOS launchd)
 
-Status: open
+Status: done
 Priority: low
 Scope: cmd/slimference, internal/daemon
 
@@ -56,11 +56,11 @@ path by hand.
 
 ## Subtasks
 
-- [ ] Implement `LogFilePath()` helper.
-- [ ] Implement `tailFile` with fsnotify re-open handling.
-- [ ] Wire `daemon logs` CLI with flags.
-- [ ] Tests on temp files + integration.
-- [ ] Document command in `docs/documentation.md` CLI section.
+- [x] Implement `LogFilePath()` helper.
+- [x] Implement `tailFile` with fsnotify re-open handling.
+- [x] Wire `daemon logs` CLI with flags.
+- [x] Tests on temp files + integration.
+- [x] Document command in `docs/documentation.md` CLI section.
 
 ## Acceptance Criteria
 

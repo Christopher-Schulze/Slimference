@@ -34,6 +34,10 @@ type Analytics struct {
 	CacheHits   int
 	CacheMisses int
 
+	PromptCacheReadTokens   int
+	PromptCacheCreateTokens int
+	PromptCacheReadRequests int
+
 	SecretsRedacted  int
 	CompressionCalls int // MiniMax API calls
 
@@ -94,6 +98,13 @@ func (a *Analytics) Record(event types.AnalyticsEvent) {
 			a.CacheHits++
 		} else {
 			a.CacheMisses++
+		}
+		if event.CacheReadTokens > 0 {
+			a.PromptCacheReadRequests++
+			a.PromptCacheReadTokens += event.CacheReadTokens
+		}
+		if event.CacheCreateTokens > 0 {
+			a.PromptCacheCreateTokens += event.CacheCreateTokens
 		}
 		// Update running average latency per provider.
 		if event.LatencyMs > 0 {
@@ -216,30 +227,33 @@ func (a *Analytics) Snapshot() AnalyticsSnapshot {
 		compressionRatio = float64(a.SavedInputTokens) / float64(a.TotalInputTokens)
 	}
 	return AnalyticsSnapshot{
-		SessionStart:        a.SessionStart,
-		TotalRequests:       a.TotalRequests,
-		TotalInputTokens:    a.TotalInputTokens,
-		TotalOutputTokens:   a.TotalOutputTokens,
-		SavedInputTokens:    a.SavedInputTokens,
-		Layer1Savings:       a.Layer1Savings,
-		Layer2Savings:       a.Layer2Savings,
-		Layer3Savings:       a.Layer3Savings,
-		CacheHits:           a.CacheHits,
-		CacheMisses:         a.CacheMisses,
-		SecretsRedacted:     a.SecretsRedacted,
-		CompressionCalls:    a.CompressionCalls,
-		Errors:              a.Errors,
-		AutoRetries:         a.AutoRetries,
-		RateLimitRetries:    a.RateLimitRetries,
-		OverflowRetries:     a.OverflowRetries,
-		MiniMaxCalls:        a.MiniMaxCalls,
-		MiniMaxAvgLatencyMs: a.MiniMaxAvgLatencyMs,
-		MiniMaxFailures:     a.MiniMaxFailures,
-		LatencyAnthropicMs:  a.LatencyAnthropicMs,
-		LatencyOpenAIMs:     a.LatencyOpenAIMs,
-		PerProvider:         ps,
-		AvgTokensPerRequest: avgPerReq,
-		CompressionRatio:    compressionRatio,
+		SessionStart:            a.SessionStart,
+		TotalRequests:           a.TotalRequests,
+		TotalInputTokens:        a.TotalInputTokens,
+		TotalOutputTokens:       a.TotalOutputTokens,
+		SavedInputTokens:        a.SavedInputTokens,
+		Layer1Savings:           a.Layer1Savings,
+		Layer2Savings:           a.Layer2Savings,
+		Layer3Savings:           a.Layer3Savings,
+		CacheHits:               a.CacheHits,
+		CacheMisses:             a.CacheMisses,
+		PromptCacheReadTokens:   a.PromptCacheReadTokens,
+		PromptCacheCreateTokens: a.PromptCacheCreateTokens,
+		PromptCacheReadRequests: a.PromptCacheReadRequests,
+		SecretsRedacted:         a.SecretsRedacted,
+		CompressionCalls:        a.CompressionCalls,
+		Errors:                  a.Errors,
+		AutoRetries:             a.AutoRetries,
+		RateLimitRetries:        a.RateLimitRetries,
+		OverflowRetries:         a.OverflowRetries,
+		MiniMaxCalls:            a.MiniMaxCalls,
+		MiniMaxAvgLatencyMs:     a.MiniMaxAvgLatencyMs,
+		MiniMaxFailures:         a.MiniMaxFailures,
+		LatencyAnthropicMs:      a.LatencyAnthropicMs,
+		LatencyOpenAIMs:         a.LatencyOpenAIMs,
+		PerProvider:             ps,
+		AvgTokensPerRequest:     avgPerReq,
+		CompressionRatio:        compressionRatio,
 	}
 }
 
@@ -298,6 +312,10 @@ type AnalyticsSnapshot struct {
 	CacheHits   int `json:"cache_hits"`
 	CacheMisses int `json:"cache_misses"`
 
+	PromptCacheReadTokens   int `json:"prompt_cache_read_tokens"`
+	PromptCacheCreateTokens int `json:"prompt_cache_create_tokens"`
+	PromptCacheReadRequests int `json:"prompt_cache_read_requests"`
+
 	SecretsRedacted  int `json:"secrets_redacted"`
 	CompressionCalls int `json:"compression_calls"`
 
@@ -335,6 +353,15 @@ func (s AnalyticsSnapshot) AvgTTFTImprovement(prefillSpeed int) float64 {
 	}
 	avgSaved := float64(s.SavedInputTokens) / float64(s.TotalRequests)
 	return avgSaved / float64(prefillSpeed)
+}
+
+// PromptCacheHitRate returns the fraction of requests that reported a
+// provider-side prompt-cache read hit.
+func (s AnalyticsSnapshot) PromptCacheHitRate() float64 {
+	if s.TotalRequests == 0 {
+		return 0
+	}
+	return float64(s.PromptCacheReadRequests) / float64(s.TotalRequests)
 }
 
 // providerStats returns (creating if needed) the ProviderStats for p.

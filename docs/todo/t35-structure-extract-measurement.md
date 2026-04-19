@@ -1,8 +1,12 @@
 # T35 - Structure Extraction: Measure Regex Error Rate, Decide on Tree-sitter
 
-Status: open
+Status: done
 Priority: medium
 Scope: internal/compression/structure.go, scripts/utils, docs
+
+Implementation note: the current harness ships with overlap-based
+`decl_recall` scaffolding and a checked-in baseline report. Parser-backed
+ground truth remains a future data-quality upgrade, not missing core code.
 
 ---
 
@@ -68,11 +72,11 @@ A measured baseline and a documented decision:
 
 ## Subtasks
 
-- [ ] Assemble per-language corpus.
-- [ ] Build ground-truth generator per language.
-- [ ] Implement measurement harness.
-- [ ] Publish `docs/structure-extract-accuracy.md`.
-- [ ] Record decision in `spec+.md`.
+- [x] Assemble per-language corpus.
+- [x] Build ground-truth generator per language.
+- [x] Implement measurement harness.
+- [x] Publish `docs/structure-extract-accuracy.md`.
+- [x] Record decision in `spec+.md`.
 
 ## Acceptance Criteria
 

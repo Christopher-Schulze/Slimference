@@ -93,10 +93,11 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 
 	out := make([]types.Message, len(messages))
 	copy(out, messages)
+	toolUses := buildToolUseIndex(messages, len(messages))
 
 	for i := 0; i < prefixEnd; i++ {
 		msg := out[i]
-		msg, js, ds, cs, ss, ds2, as, sc, ts, ims := c.compressMessage(msg, i, prefixEnd)
+		msg, js, ds, cs, ss, ds2, as, sc, ts, ims := c.compressMessage(msg, i, prefixEnd, toolUses)
 		out[i] = msg
 		result.JSONSaved += js
 		result.DedupSaved += ds
@@ -158,7 +159,7 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 // → regex structure → delta → classifier → tool compressor → success short-circuit → image.
 // L1.12 (repeated collapse) and L1.13 (graph pruning) run cross-message after this loop.
 func (c *DeterministicCompressor) compressMessage(
-	msg types.Message, msgIdx, prefixEnd int,
+	msg types.Message, msgIdx, prefixEnd int, toolUses map[string]toolUseInfo,
 ) (out types.Message, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved int) {
 	out = msg
 	newContent := make([]types.ContentBlock, len(msg.Content))
@@ -258,10 +259,11 @@ func (c *DeterministicCompressor) compressMessage(
 			// generalised tool-call identity (filepath when present, else
 			// tool_name|topic) so repeated `git status`, `grep <pattern>`
 			// or `ls <dir>` invocations also benefit.
-			toolKey := ExtractToolCallKey(block)
+			deltaSource := text
+			toolKey := ExtractToolCallKeyWithIndex(block, toolUses)
 			if toolKey != "" {
-				if delta, prevIdx, hasDelta := c.fileTracker.GetDelta(toolKey, text); hasDelta {
-					deltaSaved += len(text) - len(delta)
+				if delta, prevIdx, hasDelta := c.fileTracker.GetDelta(toolKey, deltaSource); hasDelta {
+					deltaSaved += len(deltaSource) - len(delta)
 					header := formatDeltaHeader(toolKey, prevIdx, msgIdx)
 					text = header + delta
 					textTransformed = true
@@ -271,7 +273,7 @@ func (c *DeterministicCompressor) compressMessage(
 						slog.Int("msg_idx", msgIdx),
 					)
 				}
-				c.fileTracker.RecordVersion(toolKey, block.Text, msgIdx)
+				c.fileTracker.RecordVersion(toolKey, deltaSource, msgIdx)
 			}
 		}
 

@@ -1,6 +1,6 @@
 # T25 - Layer 0 Filter Expansion: Python Traceback, npm/pnpm Install, Terraform Plan
 
-Status: open
+Status: done
 Priority: medium
 Scope: internal/filter, internal/filter/testdata, spec+.md §4
 
@@ -83,11 +83,11 @@ Each filter registered in `dispatch.go` with sensible command matchers.
 
 ## Subtasks
 
-- [ ] Implement + test Python traceback filter.
-- [ ] Implement + test npm/pnpm/yarn/bun install filter.
-- [ ] Implement + test Terraform plan/apply filter.
-- [ ] Register filters in dispatch and wire testdata.
-- [ ] Update spec and documentation filter lists.
+- [x] Implement + test Python traceback filter.
+- [x] Implement + test npm/pnpm/yarn/bun install filter.
+- [x] Implement + test Terraform plan/apply filter.
+- [x] Register filters in dispatch and wire testdata.
+- [x] Update spec and documentation filter lists.
 
 ## Acceptance Criteria
 

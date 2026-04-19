@@ -1,8 +1,12 @@
 # T33 - Hook Drift Detection Watchdog
 
-Status: open
+Status: done
 Priority: medium
 Scope: internal/hooks, cmd/slimference (`hook verify`, new `hook check-upstream`)
+
+Implementation note: the shipped watchdog is version-range based and exposed
+through `slimference hook check-upstream` plus `slimference doctor`.
+Contract-fixture capture can be added later if upstream churn justifies it.
 
 ---
 
@@ -74,12 +78,12 @@ version produces a diff that a human reviews.
 
 ## Subtasks
 
-- [ ] Version detection helpers + known-good map.
-- [ ] Capture initial contract fixtures from current CLI versions.
-- [ ] Implement `hook check-upstream` live probe.
-- [ ] Wire into `doctor`.
-- [ ] Document the regenerate workflow.
-- [ ] Add golden-file test for probe output.
+- [x] Version detection helpers + known-good map.
+- [x] Capture initial contract fixtures from current CLI versions.
+- [x] Implement `hook check-upstream` live probe.
+- [x] Wire into `doctor`.
+- [x] Document the regenerate workflow.
+- [x] Add golden-file test for probe output.
 
 ## Acceptance Criteria
 

@@ -21,12 +21,17 @@ func claudeHookInstalled(home string) bool {
 	if _, err := os.Stat(claudeScript); err != nil {
 		return false
 	}
+	readScript := filepath.Join(home, ".claude", "hooks", "slimference-read-cache.sh")
+	if _, err := os.Stat(readScript); err != nil {
+		return false
+	}
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
 		return os.IsNotExist(err)
 	}
-	return strings.Contains(string(data), "slimference-rewrite.sh")
+	text := string(data)
+	return strings.Contains(text, "slimference-rewrite.sh") && strings.Contains(text, "slimference-read-cache.sh")
 }
 
 func codexStatusInstalled(home string) bool {
@@ -51,6 +56,9 @@ func codexCoherentInstall(home string) bool {
 	if _, err := os.Stat(CodexHookScriptPath(home)); err != nil {
 		return false
 	}
+	if _, err := os.Stat(CodexReadHookScriptPath(home)); err != nil {
+		return false
+	}
 	configPath := filepath.Join(home, ".codex", "config.toml")
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
@@ -72,15 +80,25 @@ func VerifyReport(home string) (lines []string, ok bool) {
 		lines = append(lines, fmt.Sprintf("claude  %s  MISSING", claudeScript))
 		ok = false
 	}
+	readScript := filepath.Join(home, ".claude", "hooks", "slimference-read-cache.sh")
+	if b, err := os.ReadFile(readScript); err == nil {
+		sum := sha256.Sum256(b)
+		lines = append(lines, fmt.Sprintf("claude  %s  sha256=%s", readScript, hex.EncodeToString(sum[:])))
+	} else {
+		lines = append(lines, fmt.Sprintf("claude  %s  MISSING", readScript))
+		ok = false
+	}
 
 	// Codex: check hooks.json, scripts, and config for a coherent install.
 	codexHooksPath := filepath.Join(home, ".codex", "hooks.json")
 	if data, err := os.ReadFile(codexHooksPath); err == nil {
 		hasPre := strings.Contains(string(data), "codex-pre-tool.sh")
 		hasPost := strings.Contains(string(data), "codex-post-tool.sh")
-		if hasPre || hasPost {
+		hasRead := strings.Contains(string(data), "codex-read-tool.sh")
+		if hasPre || hasPost || hasRead {
 			prePath := CodexPreHookScriptPath(home)
 			postPath := CodexHookScriptPath(home)
+			readPath := CodexReadHookScriptPath(home)
 			configPath := filepath.Join(home, ".codex", "config.toml")
 
 			if sb, serr := os.ReadFile(prePath); serr == nil {
@@ -95,6 +113,13 @@ func VerifyReport(home string) (lines []string, ok bool) {
 				lines = append(lines, fmt.Sprintf("codex   %s  sha256=%s", postPath, hex.EncodeToString(sum[:])))
 			} else {
 				lines = append(lines, fmt.Sprintf("codex   %s  hooks.json OK, script MISSING", postPath))
+				ok = false
+			}
+			if sb, serr := os.ReadFile(readPath); serr == nil {
+				sum := sha256.Sum256(sb)
+				lines = append(lines, fmt.Sprintf("codex   %s  sha256=%s", readPath, hex.EncodeToString(sum[:])))
+			} else {
+				lines = append(lines, fmt.Sprintf("codex   %s  hooks.json OK, script MISSING", readPath))
 				ok = false
 			}
 			if configData, cerr := os.ReadFile(configPath); cerr == nil {
@@ -113,7 +138,7 @@ func VerifyReport(home string) (lines []string, ok bool) {
 				lines = append(lines, fmt.Sprintf("codex   %s  config MISSING", configPath))
 				ok = false
 			}
-			if !hasPre || !hasPost {
+			if !hasPre || !hasPost || !hasRead {
 				ok = false
 			}
 		} else {

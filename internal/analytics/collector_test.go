@@ -433,3 +433,27 @@ func TestAnalytics_ConcurrentRecord(t *testing.T) {
 		t.Errorf("TotalRequests = %d, want %d after concurrent records", a.TotalRequests, total)
 	}
 }
+
+func TestAnalytics_PromptCacheFields(t *testing.T) {
+	t.Parallel()
+
+	a := NewAnalytics()
+	ev := makeRequestEvent(types.Anthropic, "claude", 1000, 800, 100, false, 0, nil)
+	ev.CacheReadTokens = 250
+	ev.CacheCreateTokens = 80
+	a.Record(ev)
+
+	snap := a.Snapshot()
+	if snap.PromptCacheReadTokens != 250 {
+		t.Fatalf("PromptCacheReadTokens=%d", snap.PromptCacheReadTokens)
+	}
+	if snap.PromptCacheCreateTokens != 80 {
+		t.Fatalf("PromptCacheCreateTokens=%d", snap.PromptCacheCreateTokens)
+	}
+	if snap.PromptCacheReadRequests != 1 {
+		t.Fatalf("PromptCacheReadRequests=%d", snap.PromptCacheReadRequests)
+	}
+	if snap.PromptCacheHitRate() != 1 {
+		t.Fatalf("PromptCacheHitRate=%v", snap.PromptCacheHitRate())
+	}
+}

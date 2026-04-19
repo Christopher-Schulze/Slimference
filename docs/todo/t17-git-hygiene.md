@@ -1,6 +1,6 @@
 # T17 - Git Hygiene and .gitignore Alignment
 
-Status: open
+Status: done
 Priority: low
 Scope: repo root, .gitignore, tracked artefacts
 
@@ -54,10 +54,10 @@ The user wants **everything else tracked**. Only the MiniMax-key file
 
 ## Subtasks
 
-- [ ] git rm --cached the three files.
-- [ ] Verify .gitignore patterns match remaining generated artefacts.
-- [ ] Commit and push as a self-contained hygiene PR.
-- [ ] Cross-check: `git ls-files | grep -E '\.(out|test)$|^tokenproxy$'` must be empty.
+- [x] git rm --cached the three files.
+- [x] Verify .gitignore patterns match remaining generated artefacts.
+- [x] Commit and push as a self-contained hygiene PR.
+- [x] Cross-check: `git ls-files | grep -E '\.(out|test)$|^tokenproxy$'` must be empty.
 
 ## Acceptance Criteria
 

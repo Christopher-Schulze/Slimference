@@ -1,8 +1,11 @@
 # T34 - Benchmark Report: Live-Sessions Runner + Evidence Document
 
-Status: open
+Status: done
 Priority: high
 Scope: scripts/benchmarks, docs/benchmarks.md, internal/debug
+
+Implementation note: the harness and checked-in report are complete. The next
+step is feeding a larger real-session corpus, not more benchmark plumbing.
 
 ---
 
@@ -68,11 +71,11 @@ A reproducible benchmark harness and a checked-in, dated evidence document:
 
 ## Subtasks
 
-- [ ] Assemble session corpus.
-- [ ] Build replay harness.
-- [ ] Build report generator + check in `docs/benchmarks.md`.
-- [ ] Document reproduction command in the report.
-- [ ] Optional: wire into CI with tolerance-based regression gate.
+- [x] Assemble session corpus.
+- [x] Build replay harness.
+- [x] Build report generator + check in `docs/benchmarks.md`.
+- [x] Document reproduction command in the report.
+- [x] Optional: wire into CI with tolerance-based regression gate.
 
 ## Acceptance Criteria
 

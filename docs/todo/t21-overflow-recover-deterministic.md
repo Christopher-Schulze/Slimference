@@ -1,6 +1,6 @@
 # T21 - Overflow-Recover without MiniMax in the Sync Path
 
-Status: open
+Status: done
 Priority: high
 Scope: internal/proxy/handler.go `buildAggressiveCompressedBodyContext`
 
@@ -82,10 +82,10 @@ context, fall back to original body (current behaviour, line 533-539).
 
 ## Subtasks
 
-- [ ] Patch `buildAggressiveCompressedBodyContext` to drop the sync MiniMax call.
-- [ ] Ensure an async L2 job is enqueued on overflow for future requests.
-- [ ] Add hanging-stub test proving no sync dependency on MiniMax.
-- [ ] Update inline doc-comment and `spec+.md` §17.4 note.
+- [x] Patch `buildAggressiveCompressedBodyContext` to drop the sync MiniMax call.
+- [x] Ensure an async L2 job is enqueued on overflow for future requests.
+- [x] Add hanging-stub test proving no sync dependency on MiniMax.
+- [x] Update inline doc-comment and `spec+.md` §17.4 note.
 
 ## Acceptance Criteria
 

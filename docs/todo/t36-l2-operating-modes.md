@@ -1,6 +1,6 @@
 # T36 - Layer 2 Operating Modes (strict / balanced / fast)
 
-Status: open
+Status: done
 Priority: high
 Scope: internal/summarization, internal/config, internal/proxy,
        spec+.md §6, docs/documentation.md
@@ -86,11 +86,11 @@ Mode is set via:
 
 ## Subtasks
 
-- [ ] Define modes and `applyOperatingMode`.
-- [ ] Wire through config / env / TUI.
-- [ ] Write precedence table in spec and docs.
-- [ ] Per-mode and override-order tests.
-- [ ] Migrate existing tests to the named default (balanced).
+- [x] Define modes and `applyOperatingMode`.
+- [x] Wire through config / env / TUI.
+- [x] Write precedence table in spec and docs.
+- [x] Per-mode and override-order tests.
+- [x] Migrate existing tests to the named default (balanced).
 
 ## Acceptance Criteria
 

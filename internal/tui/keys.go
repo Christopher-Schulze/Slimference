@@ -9,6 +9,11 @@ type KeyMap struct {
 	ToggleLayer1 key.Binding
 	ToggleLayer2 key.Binding
 	ToggleLayer3 key.Binding
+	PrevView     key.Binding
+	NextView     key.Binding
+	CursorUp     key.Binding
+	CursorDown   key.Binding
+	Execute      key.Binding
 	ViewStats    key.Binding
 	ViewDebug    key.Binding
 	FlushCaches  key.Binding
@@ -38,6 +43,26 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("3"),
 			key.WithHelp("3", "toggle Layer 3"),
 		),
+		PrevView: key.NewBinding(
+			key.WithKeys("left", "h"),
+			key.WithHelp("←", "previous view"),
+		),
+		NextView: key.NewBinding(
+			key.WithKeys("right", "l"),
+			key.WithHelp("→", "next view"),
+		),
+		CursorUp: key.NewBinding(
+			key.WithKeys("up", "k"),
+			key.WithHelp("↑", "move up"),
+		),
+		CursorDown: key.NewBinding(
+			key.WithKeys("down", "j"),
+			key.WithHelp("↓", "move down"),
+		),
+		Execute: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "execute"),
+		),
 		ViewStats: key.NewBinding(
 			key.WithKeys("s"),
 			key.WithHelp("s", "stats view"),
@@ -59,5 +84,5 @@ func DefaultKeyMap() KeyMap {
 
 // footerHelp returns the compact help string shown in the footer.
 func (km KeyMap) footerHelp() string {
-	return "[c] claude  [x] codex  [1-3] layers  [s] stats  [d] debug  [f] flush  [q] quit"
+	return "[←/→] views  [↑/↓] move  [enter] execute  [c/x] providers  [1-3] layers  [f] flush  [q] quit"
 }

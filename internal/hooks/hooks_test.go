@@ -19,16 +19,12 @@ func TestInstalledStatus_noneInstalled(t *testing.T) {
 func TestInstalledStatus_claudeOnly(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	scriptDir := filepath.Join(home, ".claude", "hooks")
-	if err := os.MkdirAll(scriptDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(scriptDir, "slimference-rewrite.sh"), []byte("#!/bin/sh"), 0644); err != nil {
+	if err := InstallClaude(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
 	claude, codex := InstalledStatus(home)
 	if !claude {
-		t.Fatal("want claude=true after script created")
+		t.Fatal("want claude=true after InstallClaude")
 	}
 	if codex {
 		t.Fatal("want codex=false when AGENTS.md absent")
@@ -53,15 +49,9 @@ func TestInstalledStatus_codexOnly(t *testing.T) {
 func TestInstalledStatus_both(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	// Install claude script.
-	scriptDir := filepath.Join(home, ".claude", "hooks")
-	if err := os.MkdirAll(scriptDir, 0755); err != nil {
+	if err := InstallClaude(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(scriptDir, "slimference-rewrite.sh"), []byte("#!/bin/sh"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	// Install codex block.
 	if err := InstallCodex(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
@@ -257,6 +247,10 @@ func TestInstallRemoveClaude(t *testing.T) {
 	if _, err := os.Stat(p); err != nil {
 		t.Fatal(err)
 	}
+	readPath := filepath.Join(home, ".claude", "hooks", "slimference-read-cache.sh")
+	if _, err := os.Stat(readPath); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -269,6 +263,9 @@ func TestInstallRemoveClaude(t *testing.T) {
 	}
 	if _, err := os.Stat(p); !os.IsNotExist(err) {
 		t.Fatal("script should be removed")
+	}
+	if _, err := os.Stat(readPath); !os.IsNotExist(err) {
+		t.Fatal("read script should be removed")
 	}
 }
 
@@ -422,7 +419,7 @@ func TestMergeClaudeSettings_readFileError(t *testing.T) {
 	}
 	// Use a directory as settingsPath - reading a dir is a non-ENOENT error.
 	dirPath := t.TempDir()
-	if err := mergeClaudeSettings(dirPath, "/some/script.sh"); err == nil {
+	if err := mergeClaudeSettings(dirPath, "/some/script.sh", "/some/read.sh"); err == nil {
 		t.Fatal("expected ReadFile error when settingsPath is a directory")
 	}
 }
@@ -513,7 +510,7 @@ func TestMergeClaudeSettings_mkdirError(t *testing.T) {
 	settingsPath := filepath.Join(blocked, "sub", "settings.json")
 	// ReadFile returns IsNotExist (path component "sub" doesn't exist) -> proceeds.
 	// MkdirAll("blocked/sub", 0755) -> fails (blocked is 0555 = no write).
-	err := mergeClaudeSettings(settingsPath, "script.sh")
+	err := mergeClaudeSettings(settingsPath, "script.sh", "read.sh")
 	if err == nil {
 		t.Fatal("expected error when MkdirAll fails due to read-only parent")
 	}
@@ -556,7 +553,7 @@ func TestMergeClaudeSettings_readError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.Chmod(p, 0644) }()
-	if err := mergeClaudeSettings(p, "/bin/tp"); err == nil {
+	if err := mergeClaudeSettings(p, "/bin/tp", "/bin/read"); err == nil {
 		t.Fatal("expected error reading permission-denied file")
 	}
 }
@@ -684,7 +681,7 @@ func TestInstallCodexHooksJSONWithScripts_MkdirError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".codex"), []byte("blocker"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := installCodexHooksJSONWithScripts(home, "/tmp/pre.sh", "/tmp/post.sh")
+	err := installCodexHooksJSONWithScripts(home, "/tmp/pre.sh", "/tmp/post.sh", "/tmp/read.sh")
 	if err == nil {
 		t.Fatal("expected mkdir error for .codex blocker file")
 	}
@@ -1413,8 +1410,14 @@ func TestVerifyReport_codexConfigConflict(t *testing.T) {
 	if err := os.WriteFile(CodexHookScriptPath(home), []byte("#!/bin/sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(CodexReadHookScriptPath(home), []byte("#!/bin/sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	hooksJSON := `{
-  "PreToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-pre-tool.sh","statusMessage":"Slimference rewrite guard"}]}],
+  "PreToolUse": [
+    {"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-pre-tool.sh","statusMessage":"Slimference rewrite guard"}]},
+    {"matcher":"Read","hooks":[{"type":"command","command":"bash /tmp/codex-read-tool.sh","statusMessage":"Slimference read cache"}]}
+  ],
   "PostToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-post-tool.sh","statusMessage":"Slimference filter"}]}]
 }`
 	if err := os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), []byte(hooksJSON), 0o644); err != nil {

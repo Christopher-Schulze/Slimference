@@ -67,6 +67,15 @@ type OpenAIMessage struct {
 	Name       string          `json:"name,omitempty"`
 }
 
+type openAIToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 // anthropicContentBlock mirrors the JSON structure for Anthropic content blocks.
 type anthropicContentBlock struct {
 	Type         string          `json:"type"`
@@ -232,6 +241,12 @@ func extractOpenAIMessages(messagesRaw json.RawMessage, extra map[string]json.Ra
 			}
 			msg.Content = []types.ContentBlock{cb}
 		}
+		if len(rm.ToolCalls) > 0 {
+			if len(msg.Content) == 0 {
+				msg.Content = []types.ContentBlock{{Type: "text", RawBlock: rm}}
+			}
+			msg.Content = append(msg.Content, parseOpenAIToolCalls(rm.ToolCalls)...)
+		}
 		// Tool result role.
 		if rm.Role == "tool" {
 			if len(msg.Content) > 0 {
@@ -242,6 +257,26 @@ func extractOpenAIMessages(messagesRaw json.RawMessage, extra map[string]json.Ra
 		messages = append(messages, msg)
 	}
 	return messages, extra, nil
+}
+
+func parseOpenAIToolCalls(raw json.RawMessage) []types.ContentBlock {
+	var calls []openAIToolCall
+	if err := json.Unmarshal(raw, &calls); err != nil {
+		return nil
+	}
+	blocks := make([]types.ContentBlock, 0, len(calls))
+	for _, call := range calls {
+		if call.ID == "" || call.Function.Name == "" {
+			continue
+		}
+		blocks = append(blocks, types.ContentBlock{
+			Type:      "tool_use",
+			ToolUseID: call.ID,
+			ToolName:  call.Function.Name,
+			ToolInput: call.Function.Arguments,
+		})
+	}
+	return blocks
 }
 
 // reconstructBody rebuilds the wire-format request body with compressed messages.

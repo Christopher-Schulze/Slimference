@@ -93,7 +93,7 @@ func TestInstallCodexHooksJSONWithScripts_ReplacesExistingSlimferenceEntries(t *
 		t.Fatal(err)
 	}
 
-	if err := installCodexHooksJSONWithScripts(home, "/new/codex-pre-tool.sh", "/new/codex-post-tool.sh"); err != nil {
+	if err := installCodexHooksJSONWithScripts(home, "/new/codex-pre-tool.sh", "/new/codex-post-tool.sh", "/new/codex-read-tool.sh"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -105,7 +105,7 @@ func TestInstallCodexHooksJSONWithScripts_ReplacesExistingSlimferenceEntries(t *
 	if strings.Contains(text, "/old/codex-pre-tool.sh") {
 		t.Fatalf("old slimference entry should be replaced: %s", text)
 	}
-	if !strings.Contains(text, "/new/codex-pre-tool.sh") || !strings.Contains(text, "/new/codex-post-tool.sh") {
+	if !strings.Contains(text, "/new/codex-pre-tool.sh") || !strings.Contains(text, "/new/codex-post-tool.sh") || !strings.Contains(text, "/new/codex-read-tool.sh") {
 		t.Fatalf("new scripts missing: %s", text)
 	}
 	if !strings.Contains(text, "/keep.sh") {

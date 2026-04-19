@@ -45,6 +45,9 @@ type ProxyInterface interface {
 	GetAnalytics() analytics.AnalyticsSnapshot
 	GetRecentRequests(n int) []types.RequestMetrics
 	GetLayer2Status() Layer2Status
+	GetReadCacheStatus() ReadCacheStatus
+	GetCheckpointStatus() CheckpointStatus
+	GetToolArchiveStatus() ToolArchiveStatus
 	GetProviderHealth(prov types.Provider) types.ProviderHealthInfo
 	SessionLogger() SessionLoggerInterface
 	Shutdown(ctx context.Context) error
@@ -69,6 +72,36 @@ type Layer2Status struct {
 	Compressing bool
 	LastRun     time.Time
 	QueueDepth  int
+}
+
+type ReadCacheStatus struct {
+	Evaluations     int
+	Allows          int
+	Blocks          int
+	UnchangedBlocks int
+	DeltaBlocks     int
+	Sessions        int
+	TrackedFiles    int
+}
+
+type CheckpointStatus struct {
+	Count       int
+	Captures    int
+	Restores    int
+	Bytes       int64
+	LastCapture time.Time
+	LastRestore time.Time
+	LastTrigger string
+}
+
+type ToolArchiveStatus struct {
+	Count        int
+	Archived     int
+	Expanded     int
+	BytesRaw     int64
+	BytesStored  int64
+	LastArchived time.Time
+	LastExpanded time.Time
 }
 
 // SessionLoggerInterface exposes minimal session logger methods needed by the TUI.
@@ -131,7 +164,10 @@ type Model struct {
 	layer3Enabled bool
 
 	// Current view.
-	view ViewMode
+	view        ViewMode
+	mainCursor  int
+	statsCursor int
+	debugCursor int
 
 	// Live data.
 	latestSnap analytics.AnalyticsSnapshot
@@ -145,6 +181,7 @@ type Model struct {
 
 	// Setup wizard state.
 	setupStep   int    // current wizard step (0=overview, 1..N=individual steps)
+	setupCursor int    // selected setup row for arrow navigation (0-indexed)
 	setupAction string // pending action description
 
 	// Flash message.
@@ -196,11 +233,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			m.claudeEnabled = !m.claudeEnabled
 			m.proxy.SetProviderEnabled(types.Anthropic, m.claudeEnabled)
+			m.persistStateBestEffort()
 			m.setFlash(fmt.Sprintf("Claude Code: %s", onOff(m.claudeEnabled)))
 
 		case "x":
 			m.codexEnabled = !m.codexEnabled
 			m.proxy.SetProviderEnabled(types.OpenAI, m.codexEnabled)
+			m.persistStateBestEffort()
 			m.setFlash(fmt.Sprintf("Codex: %s", onOff(m.codexEnabled)))
 
 		case "s":
@@ -209,6 +248,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.view = ViewStats
 			}
+			m.persistStateBestEffort()
 
 		case "d":
 			if m.view == ViewDebug {
@@ -216,6 +256,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.view = ViewDebug
 			}
+			m.persistStateBestEffort()
 
 		case "i":
 			if m.view == ViewSetup {
@@ -223,41 +264,109 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.setupStep = 0
 			} else {
 				m.view = ViewSetup
-				m.setupStep = 0
+				m.enterSetupView()
 			}
+			m.persistStateBestEffort()
 
 		case "1":
 			if m.view == ViewSetup {
-				m.setupStep = 1
+				m.selectSetupStep(0)
+				m.persistStateBestEffort()
 				return m, nil
 			}
 			m.layer1Enabled = !m.layer1Enabled
 			m.proxy.SetLayerEnabled(1, m.layer1Enabled)
+			m.persistStateBestEffort()
 			m.setFlash(fmt.Sprintf("Layer 1: %s", onOff(m.layer1Enabled)))
 
 		case "2":
 			if m.view == ViewSetup {
-				m.setupStep = 2
+				m.selectSetupStep(1)
+				m.persistStateBestEffort()
 				return m, nil
 			}
 			m.layer2Enabled = !m.layer2Enabled
 			m.proxy.SetLayerEnabled(2, m.layer2Enabled)
+			m.persistStateBestEffort()
 			m.setFlash(fmt.Sprintf("Layer 2: %s", onOff(m.layer2Enabled)))
 
 		case "3":
 			if m.view == ViewSetup {
-				m.setupStep = 3
+				m.selectSetupStep(2)
+				m.persistStateBestEffort()
 				return m, nil
 			}
 			m.layer3Enabled = !m.layer3Enabled
 			m.proxy.SetLayerEnabled(3, m.layer3Enabled)
+			m.persistStateBestEffort()
 			m.setFlash(fmt.Sprintf("Layer 3: %s", onOff(m.layer3Enabled)))
 
 		case "enter":
+			if m.view == ViewMain {
+				return m, m.executeMainSelection()
+			}
+			if m.view == ViewDebug {
+				return m, m.executeDebugSelection()
+			}
 			if m.view == ViewSetup && m.svc != nil {
+				m.syncSetupSelection()
 				m.executeSetupStep()
 				return m, flashTimer(3 * time.Second)
 			}
+
+		case "up", "k":
+			if m.view == ViewMain {
+				m.moveMainCursor(-1)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+			if m.view == ViewStats {
+				m.moveStatsCursor(-1)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+			if m.view == ViewDebug {
+				m.moveDebugCursor(-1)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+			if m.view == ViewSetup && m.svc != nil {
+				m.moveSetupCursor(-1)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+
+		case "down", "j":
+			if m.view == ViewMain {
+				m.moveMainCursor(1)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+			if m.view == ViewStats {
+				m.moveStatsCursor(1)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+			if m.view == ViewDebug {
+				m.moveDebugCursor(1)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+			if m.view == ViewSetup && m.svc != nil {
+				m.moveSetupCursor(1)
+				m.persistStateBestEffort()
+				return m, nil
+			}
+
+		case "left", "h":
+			m.moveViewCursor(-1)
+			m.persistStateBestEffort()
+			return m, nil
+
+		case "right", "l":
+			m.moveViewCursor(1)
+			m.persistStateBestEffort()
+			return m, nil
 
 		case "p":
 			if m.view == ViewSetup && m.svc != nil {
@@ -275,6 +384,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.setFlash("Daemon started")
 					}
 				}
+				m.persistStateBestEffort()
 				return m, flashTimer(3 * time.Second)
 			}
 
@@ -285,6 +395,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.setFlash("Daemon restarted")
 				}
+				m.persistStateBestEffort()
 				return m, flashTimer(3 * time.Second)
 			}
 
@@ -295,6 +406,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.setFlash("Service installed (auto-start enabled)")
 				}
+				m.persistStateBestEffort()
 				return m, flashTimer(3 * time.Second)
 			}
 
@@ -305,6 +417,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.setFlash("Service uninstalled")
 				}
+				m.persistStateBestEffort()
 				return m, flashTimer(3 * time.Second)
 			}
 
@@ -385,6 +498,10 @@ func (m *Model) setFlash(msg string) {
 	m.flashExpiry = time.Now().Add(2 * time.Second)
 }
 
+func (m *Model) persistStateBestEffort() {
+	_ = SavePersistedState(stateFromModel(m))
+}
+
 // tickCmd returns a command that sends a tickMsg after 500ms.
 func tickCmd() tea.Cmd {
 	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
@@ -456,8 +573,242 @@ type setupStep struct {
 	confirm string               // "Press Enter to <confirm>"
 }
 
+type dashboardAction struct {
+	group       string
+	id          string
+	label       string
+	description string
+	state       string
+}
+
+func (m *Model) autoStartInstalled() bool {
+	home, err := userHomeDirFn()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(home, "Library", "LaunchAgents", "com.slimference.daemon.plist"))
+	return err == nil
+}
+
+func (m *Model) dashboardActions() []dashboardAction {
+	actions := make([]dashboardAction, 0, 9)
+	if m.svc != nil {
+		running, pid, port := m.svc.DaemonStatus()
+		daemonLabel := "Start daemon"
+		daemonState := fmt.Sprintf("idle · :%d", m.proxy.Config().GetListenPort())
+		daemonDescription := "Run Slimference permanently in the background."
+		if running {
+			daemonLabel = "Stop daemon"
+			daemonState = fmt.Sprintf("PID %d · :%d", pid, port)
+			daemonDescription = "Stop the background proxy cleanly."
+		}
+		actions = append(actions,
+			dashboardAction{
+				group:       "Operations",
+				id:          "daemon",
+				label:       daemonLabel,
+				description: daemonDescription,
+				state:       daemonState,
+			},
+			dashboardAction{
+				group:       "Operations",
+				id:          "restart",
+				label:       "Restart daemon",
+				description: "Recycle the background service without leaving monitor mode.",
+				state:       "safe restart",
+			},
+		)
+		autoLabel := "Enable auto-start"
+		autoState := "disabled"
+		autoDesc := "Install the launchd service so Slimference starts automatically."
+		if m.autoStartInstalled() {
+			autoLabel = "Disable auto-start"
+			autoState = "enabled"
+			autoDesc = "Remove the launchd service and return to manual startup."
+		}
+		actions = append(actions, dashboardAction{
+			group:       "Operations",
+			id:          "autostart",
+			label:       autoLabel,
+			description: autoDesc,
+			state:       autoState,
+		})
+	}
+	actions = append(actions,
+		dashboardAction{
+			group:       "Providers",
+			id:          "claude",
+			label:       "Claude Code",
+			description: "Toggle Anthropic traffic through the Slimference proxy pipeline.",
+			state:       onOff(m.claudeEnabled),
+		},
+		dashboardAction{
+			group:       "Providers",
+			id:          "codex",
+			label:       "Codex",
+			description: "Toggle OpenAI Codex traffic through the Slimference proxy pipeline.",
+			state:       onOff(m.codexEnabled),
+		},
+		dashboardAction{
+			group:       "Compression",
+			id:          "layer1",
+			label:       "Layer 1 deterministic",
+			description: "Regex, dedup, delta, tool compression, and prompt-breakpoint shaping.",
+			state:       onOff(m.layer1Enabled),
+		},
+		dashboardAction{
+			group:       "Compression",
+			id:          "layer2",
+			label:       "Layer 2 MiniMax",
+			description: "Async semantic compression and summary cache reuse.",
+			state:       onOff(m.layer2Enabled),
+		},
+		dashboardAction{
+			group:       "Compression",
+			id:          "layer3",
+			label:       "Layer 3 cache",
+			description: "Forward-request response cache with dependency invalidation.",
+			state:       onOff(m.layer3Enabled),
+		},
+		dashboardAction{
+			group:       "Maintenance",
+			id:          "flush",
+			label:       "Flush caches",
+			description: "Clear response, summary, and read-cache state.",
+			state:       "clear",
+		},
+	)
+	return actions
+}
+
+func clampIndex(current int, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	if current < 0 {
+		return 0
+	}
+	if current >= total {
+		return total - 1
+	}
+	return current
+}
+
+func (m *Model) moveMainCursor(delta int) {
+	actions := m.dashboardActions()
+	m.mainCursor = clampIndex(m.mainCursor+delta, len(actions))
+}
+
+func (m *Model) moveStatsCursor(delta int) {
+	const totalCards = 11
+	m.statsCursor = clampIndex(m.statsCursor+delta, totalCards)
+}
+
+func (m *Model) debugActions() []dashboardAction {
+	return []dashboardAction{
+		{
+			group:       "Actions",
+			id:          "copy_log",
+			label:       "Export debug log",
+			description: "Write the visible log stream to ~/.slimference/exports/ for later inspection.",
+			state:       "write file",
+		},
+	}
+}
+
+func (m *Model) moveDebugCursor(delta int) {
+	actions := m.debugActions()
+	m.debugCursor = clampIndex(m.debugCursor+delta, len(actions))
+}
+
+func (m *Model) executeMainSelection() tea.Cmd {
+	actions := m.dashboardActions()
+	m.mainCursor = clampIndex(m.mainCursor, len(actions))
+	item := actions[m.mainCursor]
+	switch item.id {
+	case "daemon":
+		running, _, _ := m.svc.DaemonStatus()
+		if running {
+			if err := m.svc.StopDaemon(); err != nil {
+				m.setFlash("Stop failed: " + err.Error())
+			} else {
+				m.setFlash("Daemon stopped")
+			}
+		} else {
+			if err := m.svc.StartDaemon(); err != nil {
+				m.setFlash("Start failed: " + err.Error())
+			} else {
+				m.setFlash("Daemon started")
+			}
+		}
+	case "restart":
+		if err := m.svc.RestartDaemon(); err != nil {
+			m.setFlash("Restart failed: " + err.Error())
+		} else {
+			m.setFlash("Daemon restarted")
+		}
+	case "autostart":
+		if m.autoStartInstalled() {
+			if err := m.svc.UninstallService(); err != nil {
+				m.setFlash("Disable auto-start failed: " + err.Error())
+			} else {
+				m.setFlash("Auto-start disabled")
+			}
+		} else {
+			if err := m.svc.InstallService(); err != nil {
+				m.setFlash("Enable auto-start failed: " + err.Error())
+			} else {
+				m.setFlash("Auto-start enabled")
+			}
+		}
+	case "claude":
+		m.claudeEnabled = !m.claudeEnabled
+		m.proxy.SetProviderEnabled(types.Anthropic, m.claudeEnabled)
+		m.setFlash(fmt.Sprintf("Claude Code: %s", onOff(m.claudeEnabled)))
+	case "codex":
+		m.codexEnabled = !m.codexEnabled
+		m.proxy.SetProviderEnabled(types.OpenAI, m.codexEnabled)
+		m.setFlash(fmt.Sprintf("Codex: %s", onOff(m.codexEnabled)))
+	case "layer1":
+		m.layer1Enabled = !m.layer1Enabled
+		m.proxy.SetLayerEnabled(1, m.layer1Enabled)
+		m.setFlash(fmt.Sprintf("Layer 1: %s", onOff(m.layer1Enabled)))
+	case "layer2":
+		m.layer2Enabled = !m.layer2Enabled
+		m.proxy.SetLayerEnabled(2, m.layer2Enabled)
+		m.setFlash(fmt.Sprintf("Layer 2: %s", onOff(m.layer2Enabled)))
+	case "layer3":
+		m.layer3Enabled = !m.layer3Enabled
+		m.proxy.SetLayerEnabled(3, m.layer3Enabled)
+		m.setFlash(fmt.Sprintf("Layer 3: %s", onOff(m.layer3Enabled)))
+	case "flush":
+		m.proxy.FlushCaches()
+		m.setFlash("All caches flushed")
+	}
+	m.persistStateBestEffort()
+	return flashTimer(3 * time.Second)
+}
+
+func (m *Model) executeDebugSelection() tea.Cmd {
+	actions := m.debugActions()
+	m.debugCursor = clampIndex(m.debugCursor, len(actions))
+	switch actions[m.debugCursor].id {
+	case "copy_log":
+		path := m.copyDebugLog()
+		if path != "" {
+			m.setFlash("Debug log copied to " + path)
+		} else {
+			m.setFlash("No debug log entries to copy")
+		}
+	}
+	return flashTimer(3 * time.Second)
+}
+
 // setupSteps returns the ordered list of wizard steps.
 func (m *Model) setupSteps() []setupStep {
+	if m.svc == nil {
+		return nil
+	}
 	steps := []setupStep{
 		{
 			label:   "Install Claude Code hook",
@@ -506,4 +857,79 @@ func (m *Model) executeSetupStep() {
 		m.hookStatus = HookStatus{Claude: claude, Codex: codex}
 	}
 	m.setFlash("Done: " + step.label)
+}
+
+func (m *Model) enterSetupView() {
+	m.setupStep = 0
+	m.setupCursor = 0
+	if m.svc == nil {
+		return
+	}
+	steps := m.setupSteps()
+	for i, step := range steps {
+		if !step.check() {
+			m.selectSetupStep(i)
+			return
+		}
+	}
+	if len(steps) > 0 {
+		m.selectSetupStep(0)
+	}
+}
+
+func (m *Model) selectSetupStep(index int) {
+	steps := m.setupSteps()
+	if len(steps) == 0 {
+		m.setupCursor = 0
+		m.setupStep = 0
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(steps) {
+		index = len(steps) - 1
+	}
+	m.setupCursor = index
+	m.setupStep = index + 1
+	m.setupAction = steps[index].confirm
+}
+
+func (m *Model) moveSetupCursor(delta int) {
+	steps := m.setupSteps()
+	if len(steps) == 0 {
+		return
+	}
+	next := m.setupCursor + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(steps) {
+		next = len(steps) - 1
+	}
+	m.selectSetupStep(next)
+}
+
+func (m *Model) syncSetupSelection() {
+	if m.svc == nil {
+		m.setupStep = 0
+		return
+	}
+	m.selectSetupStep(m.setupCursor)
+}
+
+func (m *Model) moveViewCursor(delta int) {
+	next := int(m.view) + delta
+	if next < int(ViewMain) {
+		next = int(ViewSetup)
+	}
+	if next > int(ViewSetup) {
+		next = int(ViewMain)
+	}
+	m.view = ViewMode(next)
+	if m.view == ViewSetup {
+		m.enterSetupView()
+		return
+	}
+	m.setupStep = 0
 }

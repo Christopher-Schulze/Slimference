@@ -25,8 +25,9 @@ func TestHandleCompletionCmd_bashPrintsScript(t *testing.T) {
 		"_slimference()",
 		"complete -F _slimference slimference",
 		"config test doctor stats gain",
-		"install remove verify",
+		"install remove verify status check-upstream",
 		"claude codex",
+		"prompt-cache",
 		"paths last summary tail replay",
 		"--path --stream=stdout",
 	} {

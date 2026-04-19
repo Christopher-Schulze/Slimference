@@ -1,6 +1,6 @@
 # T29 - Semantic Tool-Output Diffing (Cross Tool-Call Delta)
 
-Status: open
+Status: done
 Priority: high
 Scope: internal/compression (delta encoding extension), internal/summarization
 
@@ -88,12 +88,12 @@ same information as the full output at a fraction of the tokens.
 
 ## Subtasks
 
-- [ ] Audit current delta scope.
-- [ ] Implement cross-message delta on `tool_result`.
-- [ ] Define textual delta format and document it.
-- [ ] Add safety guards.
-- [ ] Tests on realistic fixtures.
-- [ ] Docs updates.
+- [x] Audit current delta scope.
+- [x] Implement cross-message delta on `tool_result`.
+- [x] Define textual delta format and document it.
+- [x] Add safety guards.
+- [x] Tests on realistic fixtures.
+- [x] Docs updates.
 
 ## Acceptance Criteria
 

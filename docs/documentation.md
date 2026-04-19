@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 2.0.2
-Last updated: 2026-04-17
+Last updated: 2026-04-19
 
 ---
 
@@ -232,15 +232,17 @@ are checked in order. Finally, passthrough truncation limits output to
 
 `slimference hook install <agent>` currently supports `claude` and `codex`.
 
-- Claude Code installs `~/.claude/hooks/slimference-rewrite.sh` and merges a
-  `PreToolUse` command hook into `~/.claude/settings.json` without replacing
+- Claude Code installs `~/.claude/hooks/slimference-rewrite.sh` and
+  `~/.claude/hooks/slimference-read-cache.sh`, then merges matching `Bash` and
+  `Read` `PreToolUse` hooks into `~/.claude/settings.json` without replacing
   unrelated user hooks.
-- Codex installs `~/.slimference/hooks/codex-pre-tool.sh` and
-  `~/.slimference/hooks/codex-post-tool.sh`, merges `PreToolUse` and
-  `PostToolUse` entries into `~/.codex/hooks.json`, patches
-  `~/.codex/config.toml`, and keeps a legacy AGENTS.md helper block for older
-  setups. Installation now fails fast on conflicting Codex config instead of
-  silently leaving a broken setup behind. Removal is conservative:
+- Codex installs `~/.slimference/hooks/codex-pre-tool.sh`,
+  `~/.slimference/hooks/codex-post-tool.sh`, and
+  `~/.slimference/hooks/codex-read-tool.sh`, merges matching `PreToolUse`
+  (`Bash` and `Read`) and `PostToolUse` entries into `~/.codex/hooks.json`,
+  patches `~/.codex/config.toml`, and keeps a legacy AGENTS.md helper block
+  for older setups. Installation now fails fast on conflicting Codex config
+  instead of silently leaving a broken setup behind. Removal is conservative:
   Slimference-managed config lines are removed without stripping unrelated user
   `codex_hooks` or other `[features]` entries.
 
@@ -842,68 +844,88 @@ endpoint.
 
 ### Main view layout
 
-The main view uses a two-column layout separated by a `│` divider:
+The TUI acts as an operator console for the background daemon. `slimference start`
+launches the daemon, and plain `slimference` opens the BubbleTea window and
+attaches over the local admin API.
+
+The dashboard is built as a two-column operator surface:
 
 ```
- SLIMFERENCE v2.0.2                              ◷ 12m 34s  :8990
- ────────────────────────────────────────────────────────────────
- PROVIDERS              │ SAVINGS
-  ● Claude Code  [ON] ● │  35%  12.4K → 8.1K  4.3K saved
-  ● Codex        [ON] ○ │  ████████░░░░░░  35%
-                         │  +12 msgs  ~1.2s TTFT
- LAYERS                  │
-  [1] Deterministic ● ON │ LIVE
-      struct · delta ·   │  15:04:23  Claude  sonnet  -35%
-  [2] MiniMax       ● ON │  15:04:19  Codex   gpt-4o  hit
-  [3] Cache         ● ON │  Waiting for requests...
-      hits: 3/10          │
-                         │
- HOOKS                   │
-  Hooks: claude ✓         │
- ────────────────────────────────────────────────────────────────
- [c] claude · [x] codex · [1-3] layers · [s] stats · [q] quit
+ SLIMFERENCE v2.0.2                         daemon live · PID 56725 · :8990  ◷ 12m
+ Dashboard  Stats  Debug  Setup
+ ────────────────────────────────────────────────────────────────────────────────
+ CONTROL SURFACE          │ FLOW
+  ▶ Start/stop daemon     │  35%  12.4K → 8.1K  4.3K saved
+  ○ Restart daemon        │  ████████░░░░░░░░░░  35%
+  ○ Enable auto-start     │  +12 msgs  ~1.2s TTFT
+  ○ Claude Code           │
+  ○ Codex                 │ TRAFFIC
+  ○ Layer 1 deterministic │  Requests/min  4.2   Input/s  128.0
+  ○ Layer 2 MiniMax       │  Saved/s       44.0  Output   3.1K
+  ○ Layer 3 cache         │
+  ○ Flush caches          │ PROVIDER MAP
+                           │  Claude Code  14 req · 4.0K saved · 220ms
+ AGENT HEALTH              │  Codex         7 req · 1.9K saved · 180ms
+  ● Claude Code [ON] ○     │
+  ● Codex       [ON] ●     │ LIVE
+                           │  15:04:23  anthrop  sonnet  1.2K -> -35% ...
+ BACKGROUND                │
+  [1] Deterministic  ON    │
+  [2] MiniMax        ON    │
+  [3] Cache          ON    │
+ ────────────────────────────────────────────────────────────────────────────────
+ [←/→] views · [↑/↓] select · [enter] apply · [i] setup · [q] quit
 ```
 
-**Left column** (32-36 chars): PROVIDERS section with health dots, LAYERS section
-with per-layer savings and subtitle (e.g. `struct · delta · dedup`), HOOKS section
-(only rendered when at least one hook is installed).
+**Left column**: setup status, the selectable `CONTROL SURFACE`, the currently
+selected action description, provider health, background layer status, and
+optional read-cache / checkpoint / tool-archive summaries when activity exists.
 
-**Right column** (remainder): SAVINGS section with big compression percentage,
-progress bar, and gain line (`+N msgs  ~X.Xs TTFT`). Below that: LIVE request
-log or QUICK START onboarding panel.
+**Right column**: flow summary, traffic metrics, provider mapping, and either a
+`LIVE` request stream or a `QUICK START` onboarding block.
 
-**QUICK START panel** is shown in the right column when `TotalRequests == 0` and
-no hooks are installed - displays the two `slimference hook install` commands and
-step-by-step instructions.
+**QUICK START panel** is shown when no requests have been observed and no hooks
+are installed. It highlights the two `slimference hook install` commands and
+the first-use flow.
 
-**Header**: `SLIMFERENCE v2.0.2` (gold, bold) aligned left, session duration and
-port right-aligned. Separated from the body by a `─` horizontal rule.
+**Header**: `SLIMFERENCE v2.0.2` aligned left, daemon state / PID / port aligned
+right, plus current session duration.
 
-**Footer**: styled keyboard hints `[c] claude · [x] codex · [1-3] layers · ...`
-using purple Key style and dim-gray separator dots. Separated by a `─` rule above.
+**Footer**: the visible UI is arrow-first. The footer only teaches view
+switching, selection, execution, setup, and quit. Older direct toggle keys are
+kept as compatibility shortcuts, not as the primary interaction model.
 
 ### Views
 
 | Key | View | Content |
 |-----|------|---------|
-| (default) | Main | Two-column: providers+layers+hooks left, savings+live right |
-| `s` | Stats | Detailed per-provider stats, layer savings breakdown, latency table |
-| `d` | Debug | Scrolling session log tail (30 entries) with level-colored output |
+| (default) | Dashboard | Operator console with selectable daemon/provider/layer/cache actions, health, savings, flow, traffic, provider map, and live activity |
+| `s` | Stats | Detailed card-based metrics for session, savings, read cache, checkpoints, tool archive, prompt cache, latency, and resilience |
+| `d` | Debug | Log-stream view with a selectable export action |
+| `i` | Setup | Install checklist and status surface for hooks plus auto-start readiness; service operations themselves are controlled from Dashboard |
 
 ### Key bindings
 
+Primary interaction is arrow-key navigation plus `Enter`:
+
 | Key | Action |
 |-----|--------|
-| `c` | Toggle Claude Code (Anthropic) compression on/off |
-| `x` | Toggle Codex (OpenAI) compression on/off |
-| `1` | Toggle Layer 1 on/off |
-| `2` | Toggle Layer 2 on/off |
-| `3` | Toggle Layer 3 on/off |
-| `s` | Switch to stats view (toggle back to main) |
-| `d` | Switch to debug log view (toggle back to main) |
-| `f` | Flush all caches (response cache + Layer 2 summary cache) |
+| `←` / `→` (`h` / `l`) | Move between Dashboard, Stats, Debug, Setup |
+| `↑` / `↓` (`k` / `j`) | Move inside the current view's selectable surface |
+| `Enter` | Execute the selected Dashboard / Debug / Setup action |
+| `i` | Jump directly to Setup |
+| `q` / `Ctrl+C` | Close the TUI; the daemon keeps running |
+
+Compatibility shortcuts still exist for power users and tests:
+
+| Key | Compatibility action |
+|-----|----------------------|
+| `c` / `x` | Toggle Claude Code / Codex |
+| `1` / `2` / `3` | Toggle Layer 1 / 2 / 3, or select setup step 1 / 2 / 3 inside Setup |
+| `s` / `d` | Jump directly to Stats / Debug |
+| `f` | Flush response, summary, and read-cache state |
 | `y` | Copy recent debug log entries to `~/.slimference/exports/` |
-| `q` / `Ctrl+C` | Graceful shutdown |
+| `p` / `o` / `e` / `w` | Legacy daemon/service actions while focused on Setup |
 
 Toggles are applied immediately via atomic.Bool writes on the Proxy struct.
 A flash message confirms the new state for 2 seconds.
@@ -912,26 +934,31 @@ Exported debug logs are written with user-only permissions (`0700` directory,
 
 ### Lipgloss color palette and styles
 
-**Colors:**
-- Purple (ANSI 99): panel titles, key hints, borders
-- Green (ANSI 78): savings, ON indicators, BigSaved
-- Green dim (ANSI 34): progress bar filled blocks
-- Gold (ANSI 220): main title, flash messages
-- Orange (ANSI 215): warnings
-- Red (ANSI 203): errors
-- Blue (ANSI 75): INFO log level
-- Cyan (ANSI 87): active border highlight, highlight values
-- Grays (ANSI 240-255): secondary and muted text
+The visual direction is an operator console rather than a hotkey cheat-sheet:
+dark steel surfaces, cyan focus, green savings, restrained amber warnings, and
+high-contrast white data values.
 
-**Named styles (Styles struct):**
-- `PanelTitle`: purple bold - section headers inside panels (PROVIDERS, LAYERS, etc.)
-- `Divider`: dim gray - `│` vertical column separator
+**Colors:**
+- Accent cyan (ANSI 81): active borders, active tabs, focus states
+- Green (ANSI 78): savings, healthy/on indicators
+- Dim green (ANSI 42): progress-fill blocks
+- Gold (ANSI 221): title and flash emphasis
+- Orange (ANSI 215): warnings and degraded states
+- Red (ANSI 203): errors
+- Blue (ANSI 111): info/provider accents
+- Dark surfaces (ANSI 234-238): panel and card backgrounds
+- Neutral whites/grays (ANSI 240-255): body text, metadata, dividers
+
+**Named styles (selected):**
+- `PanelTitle`: accent cyan bold - section headers
+- `Card` / `CardActive`: dark operator cards with passive/active borders
+- `MenuActive`: selected action row
+- `MetricKey` / `MetricVal`: compact KPI labels and values
+- `Divider`: dim gray - `│` column separator
 - `HorizRule`: dim gray - `─` horizontal rule lines
-- `Key`: purple bold - keyboard hint brackets `[c]`
-- `KeySep`: dim gray - `·` dot separator between key groups
-- `BigSaved`: green bold - large compression percentage (e.g. `35%`)
-- `SetupCmd`: cyan on dark background - quick-start command blocks
-- `SetupTitle`: gold bold - QUICK START heading
+- `Key`: accent cyan bold - footer navigation hints
+- `BigSaved`: green bold - large compression percentage
+- `SetupCmd`: accent cyan on dark background - onboarding command blocks
 
 ### Hook status
 
@@ -943,10 +970,11 @@ Hooks: claude ✓  codex ✓
 ```
 
 If neither hook is installed and no requests have arrived, the right column shows
-the QUICK START onboarding panel instead of the live log.
+the QUICK START onboarding panel instead of the live activity stream.
 
 Hook status is read once at startup via `hooks.InstalledStatus(home)`:
-- **Claude Code**: checks for `~/.claude/hooks/slimference-rewrite.sh`
+- **Claude Code**: checks for a coherent install including the rewrite and
+  read-cache scripts
 - **Codex**: checks for a coherent `~/.codex/hooks.json` install, with a legacy
   AGENTS.md marker accepted only as a fallback signal
 
@@ -1104,8 +1132,9 @@ jq 'select(.req_id == "a3f7c2b1d4e8f609")' ~/.slimference/logs/slimference.jsonl
 
 ### slimference (no arguments)
 
-Starts the proxy server and the BubbleTea TUI dashboard. Blocks until the user
-presses `q` or sends SIGINT/SIGTERM.
+Opens the BubbleTea TUI dashboard and attaches it to the background daemon over
+the local admin API. The TUI is the operator console; it does not bind the
+proxy listener itself.
 
 CLI flags (all optional, override config file and env vars):
 
@@ -1238,6 +1267,18 @@ slimference stats week
 slimference stats month
 ```
 
+### slimference stats prompt-cache [today|week|month|all] [--json|--csv]
+
+Aggregates provider-reported prompt-cache activity from persisted analytics
+JSONL. Reports cache read hits, cache create tokens, estimated read-token
+savings, and hit rate.
+
+```bash
+slimference stats prompt-cache today
+slimference stats prompt-cache week --json
+slimference stats prompt-cache all --csv
+```
+
 ### slimference filter -- <cmd> [args...]
 
 Runs a subprocess and applies Layer 0 filters to stdout. Used internally by
@@ -1263,7 +1304,7 @@ slimference hook remove claude     # uninstall one target
 slimference hook remove codex
 ```
 
-### slimference hook verify|status
+### slimference hook verify|status|check-upstream
 
 Manages shell hooks for LLM agent interception. Supported agents:
 `claude`, `codex`.
@@ -1271,6 +1312,7 @@ Manages shell hooks for LLM agent interception. Supported agents:
 ```bash
 slimference hook verify            # verify installed hook files and config coherence
 slimference hook status            # show installed/missing for supported agents
+slimference hook check-upstream    # check installed CLI versions against known-good hook ranges
 ```
 
 ### slimference rewrite <json>
@@ -1284,10 +1326,51 @@ Exit codes: 0=allow, 1=usage+JSON, 2=deny, 3=sudo-ask.
 
 Reads a Codex PostToolUse hook payload from stdin, compacts captured Bash
 output, and emits `hookSpecificOutput.additionalContext` when the compacted
-form adds signal.
+form adds signal. When the payload includes real tool metadata and the output
+is large enough, Slimference archives the full result locally, emits only a
+bounded preview, and includes a `slim://archive/<id>` reference plus the
+matching `slimference expand <id>` command.
 
 ```bash
 cat posttool.json | slimference posttool
+```
+
+### slimference checkpoint capture|list|restore|stats
+
+Manages deterministic continuity checkpoints under
+`~/.slimference/checkpoints/`.
+
+```bash
+slimference checkpoint capture
+slimference checkpoint list
+slimference checkpoint restore
+slimference checkpoint restore 20260419-120000-pressure-openai
+slimference checkpoint stats
+```
+
+The auto-capture policy currently reacts to overflow, pressure, fill, and
+low-savings signals from the asynchronous analytics path. It does not run
+inside the request hot path.
+
+### slimference expand <id>
+
+Expands a previously archived large tool result from
+`~/.slimference/tool-archive/`.
+
+```bash
+slimference expand tool-1
+slimference expand slim://archive/tool-1
+```
+
+### slimference readhook [claude|codex]
+
+Internal helper for Claude/Codex `Read` hooks. Reads the tool payload from
+stdin, consults the per-session read cache, and may block unchanged duplicate
+reads or return a bounded delta summary instead of allowing a full re-read.
+
+```bash
+cat read-hook.json | slimference readhook
+cat read-hook.json | slimference readhook codex
 ```
 
 ### slimference gain <today|week|month|all>
@@ -1340,6 +1423,36 @@ slimference version
 # slimference v2.0.2
 ```
 
+### slimference start|stop|restart
+
+Controls the background proxy daemon directly.
+
+```bash
+slimference start
+slimference stop
+slimference restart
+```
+
+### slimference service install|uninstall|status
+
+Manages the launchd auto-start entry on macOS.
+
+```bash
+slimference service install
+slimference service uninstall
+slimference service status
+```
+
+### slimference daemon logs [--path | --stream=stdout|stderr | --since=<dur> | --lines=<N>]
+
+Reads the current daemon stdout/stderr log files without opening the TUI.
+
+```bash
+slimference daemon logs --lines=100
+slimference daemon logs --stream=stderr --since=10m
+slimference daemon logs --path
+```
+
 ### Offline savings reports (`scripts/utils`)
 
 Offline reporting helpers under `scripts/utils/` aggregate persisted savings
@@ -1366,7 +1479,7 @@ offline view. Each subcommand supports plain text by default plus `--json` and
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.25 or later
 - A MiniMax API key (for Layer 2; optional but recommended)
 
 ### Step 1: Build
@@ -1407,9 +1520,9 @@ disabled but the proxy will still run.
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8990
 ```
 
-The hook installs Claude's PreToolUse rewrite script. Add the base URL export
-to your shell profile so it persists across terminal sessions. When Claude Code
-starts, it will send all API requests through the proxy.
+The install adds both the rewrite hook and the read-cache hook. Add the base
+URL export to your shell profile so it persists across terminal sessions. When
+Claude Code starts, it will send all API requests through the proxy.
 
 ### Step 6: Configure OpenAI Codex
 
@@ -1417,8 +1530,8 @@ starts, it will send all API requests through the proxy.
 ./slimference hook install codex
 ```
 
-This writes Codex `PreToolUse` and `PostToolUse` entries into
-`~/.codex/hooks.json`, patches `~/.codex/config.toml` with
+This writes Codex `PreToolUse` (`Bash` and `Read`) and `PostToolUse` entries
+into `~/.codex/hooks.json`, patches `~/.codex/config.toml` with
 `openai_base_url = "http://127.0.0.1:8990"` and `codex_hooks = true` if those
 keys are not already present, and keeps a legacy `AGENTS.md` fallback block for
 older Codex versions. If `config.toml` already contains a conflicting
@@ -1428,14 +1541,23 @@ pretending success. `slimference hook remove codex` removes only
 Slimference-managed config additions and preserves unrelated user-owned
 `[features]` entries.
 
-### Step 7: Start the proxy
+### Step 7: Start the daemon
+
+```bash
+./slimference start
+```
+
+This starts the background proxy and log collector.
+
+### Step 8: Open the monitor
 
 ```bash
 ./slimference
 ```
 
-The TUI dashboard opens. Start using Claude Code or Codex normally.
-Watch the token savings counter climb.
+The TUI dashboard opens and attaches to the running daemon. Start using Claude
+Code or Codex normally. Close the TUI with `q` whenever you want; the daemon
+keeps running, logging, and collecting analytics in the background.
 
 ### Verify interception
 
@@ -1591,6 +1713,9 @@ github.com/slimference/slimference
     |   decisions.go         Recorder ring buffer, DecisionEntry, RequestSummary types,
     |                        Last(), Aggregate(), flushJSONL()
     |
+    +-- checkpoints/
+    |   checkpoints.go       Deterministic continuity checkpoints, ranked restore, persisted stats
+    |
     +-- filter/
     |   engine.go            RunCommand(), EstimateTokensFromBytes()
     |   pipeline.go          RunPipeline(): ANSI strip + filter dispatch + truncation
@@ -1630,6 +1755,9 @@ github.com/slimference/slimference
     |   codex.go             Codex hooks.json PreToolUse/PostToolUse install, config patch,
     |                        legacy AGENTS.md helper block
     |   verify.go            InstalledStatus(home), VerifyReport(home)
+    |
+    +-- toolarchive/
+    |   toolarchive.go       Large tool-result archive store, stats, `slim://archive/*`, expand support
     |
     +-- proxy/
     |   proxy.go             Proxy struct, New(), Start(), Shutdown(), toggle atomics,

@@ -1,6 +1,6 @@
 # T31 - TUI State Persistence Across Restarts
 
-Status: open
+Status: done
 Priority: low
 Scope: internal/tui, internal/config (state file)
 
@@ -60,11 +60,11 @@ repeatedly toggling back to the same configuration.
 
 ## Subtasks
 
-- [ ] Define `TUIState` and JSON encoding.
-- [ ] Hook load on init, save on quit / `ctrl+s`.
-- [ ] Apply toggles to proxy after load.
-- [ ] Tests: roundtrip, corrupt file, forward-compat.
-- [ ] Document in `docs/documentation.md` TUI section.
+- [x] Define `TUIState` and JSON encoding.
+- [x] Hook load on init, save on quit / `ctrl+s`.
+- [x] Apply toggles to proxy after load.
+- [x] Tests: roundtrip, corrupt file, forward-compat.
+- [x] Document in `docs/documentation.md` TUI section.
 
 ## Acceptance Criteria
 

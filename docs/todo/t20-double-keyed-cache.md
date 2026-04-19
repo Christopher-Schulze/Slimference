@@ -1,6 +1,6 @@
 # T20 - Double-Keyed Response Cache (Pre-Compress Lookup)
 
-Status: open
+Status: done
 Priority: high
 Scope: internal/caching, internal/proxy/handler.go
 
@@ -78,12 +78,12 @@ or invalidated Stage B entry, fall through to the normal pipeline.
 
 ## Subtasks
 
-- [ ] Design Stage A key normalization (document in code doc-comment).
-- [ ] Add pointer map + promote/evict logic.
-- [ ] Wire Stage A lookup into `handleCompressibleRequest`.
-- [ ] Add metric `cache.stage_a_hit` / `cache.stage_b_hit` / `cache.miss`.
-- [ ] Add tests for: same-input hit, different-input miss, invalidated hit.
-- [ ] Update `docs/documentation.md` (Layer 3 section) to describe the
+- [x] Design Stage A key normalization (document in code doc-comment).
+- [x] Add pointer map + promote/evict logic.
+- [x] Wire Stage A lookup into `handleCompressibleRequest`.
+- [x] Add metric `cache.stage_a_hit` / `cache.stage_b_hit` / `cache.miss`.
+- [x] Add tests for: same-input hit, different-input miss, invalidated hit.
+- [x] Update `docs/documentation.md` (Layer 3 section) to describe the
       two-stage model.
 
 ## Acceptance Criteria

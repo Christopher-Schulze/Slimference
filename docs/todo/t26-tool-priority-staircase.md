@@ -1,6 +1,6 @@
 # T26 - Tool-Result Priority Staircase for Repeated Heavy Outputs
 
-Status: open
+Status: done
 Priority: medium
 Scope: internal/summarization/priority.go, internal/compression (tool classifier),
        internal/config (tuning)
@@ -72,11 +72,11 @@ stay readable).
 
 ## Subtasks
 
-- [ ] Build repetition detector.
-- [ ] Implement staircase factor application in priority-aware compressor.
-- [ ] Wire config.
-- [ ] Add unit and integration tests.
-- [ ] Document in `spec+.md` §6.
+- [x] Build repetition detector.
+- [x] Implement staircase factor application in priority-aware compressor.
+- [x] Wire config.
+- [x] Add unit and integration tests.
+- [x] Document in `spec+.md` §6.
 
 ## Acceptance Criteria
 

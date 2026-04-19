@@ -1,6 +1,6 @@
 # T23 - Prompt-Cache Live Metrics and `stats prompt-cache`
 
-Status: open
+Status: done
 Priority: high
 Scope: internal/analytics, internal/proxy, internal/tui, cmd/slimference
 
@@ -73,12 +73,12 @@ flying partially blind on savings.
 
 ## Subtasks
 
-- [ ] Parse Anthropic usage fields in passthrough + streaming.
-- [ ] Extend analytics event + storage.
-- [ ] Implement `stats prompt-cache` CLI.
-- [ ] Add TUI panel with live gauge.
-- [ ] Extend debug summary + JSONL fields.
-- [ ] Tests cover: response with cache_read, without, malformed body.
+- [x] Parse Anthropic usage fields in passthrough + streaming.
+- [x] Extend analytics event + storage.
+- [x] Implement `stats prompt-cache` CLI.
+- [x] Add TUI panel with live gauge.
+- [x] Extend debug summary + JSONL fields.
+- [x] Tests cover: response with cache_read, without, malformed body.
 
 ## Acceptance Criteria
 

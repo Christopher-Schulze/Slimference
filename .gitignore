@@ -19,5 +19,6 @@
 # IDE
 .idea/
 .vscode/
+AGENTS.md
 rtk-master/
 repos/

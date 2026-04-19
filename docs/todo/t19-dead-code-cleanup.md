@@ -1,6 +1,6 @@
 # T19 - Dead-Code Cleanup in the Proxy Hot Path
 
-Status: open
+Status: done
 Priority: low
 Scope: internal/proxy/handler.go
 
@@ -50,10 +50,10 @@ file's intent slightly misleading.
 
 ## Subtasks
 
-- [ ] Remove blank `_ =` assignments.
-- [ ] Delete `buildAggressiveCompressedBody`.
-- [ ] Port the two test call-sites to the context variant.
-- [ ] `go vet ./...` and `go test -race -count=1 ./...` green.
+- [x] Remove blank `_ =` assignments.
+- [x] Delete `buildAggressiveCompressedBody`.
+- [x] Port the two test call-sites to the context variant.
+- [x] `go vet ./...` and `go test -race -count=1 ./...` green.
 
 ## Acceptance Criteria
 

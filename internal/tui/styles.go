@@ -4,32 +4,33 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 // Palette defines the color scheme for the Slimference dashboard.
-// We use a dark terminal palette with purple accent, green for savings,
-// and subtle grays for secondary information.
+// The direction is a dense operator console: dark steel surfaces, cyan focus,
+// lime savings, and restrained amber warnings.
 var (
 	// Accent colors.
-	colorPurple    = lipgloss.Color("99")   // main accent - border/title
-	colorGreen     = lipgloss.Color("78")   // good/savings/on
-	colorGreenDim  = lipgloss.Color("34")   // dimmer green for bars
-	colorOrange    = lipgloss.Color("215")  // warning
-	colorRed       = lipgloss.Color("203")  // error
-	colorBlue      = lipgloss.Color("75")   // info/provider indicator
-	colorCyan      = lipgloss.Color("87")   // highlight
-	colorGold      = lipgloss.Color("220")  // title/warm accent
+	colorAccent     = lipgloss.Color("81")  // focus and active borders
+	colorGreen      = lipgloss.Color("78")  // good/savings/on
+	colorGreenDim   = lipgloss.Color("42")  // dimmer green for bars
+	colorOrange     = lipgloss.Color("215") // warning
+	colorRed        = lipgloss.Color("203") // error
+	colorBlue       = lipgloss.Color("111") // info/provider indicator
+	colorGold       = lipgloss.Color("221") // title/warm accent
 
 	// Neutral palette.
 	colorWhite    = lipgloss.Color("255")
 	colorDimWhite = lipgloss.Color("250")
 	colorGray     = lipgloss.Color("244")
 	colorDimGray  = lipgloss.Color("240")
-	colorDark     = lipgloss.Color("235")
+	colorDark     = lipgloss.Color("234")
+	colorPanel    = lipgloss.Color("236")
+	colorPanelAlt = lipgloss.Color("238")
 )
 
 // Styles are the pre-built lipgloss styles used throughout the TUI.
 type Styles struct {
 	// Container.
-	Border        lipgloss.Style
-	BorderActive  lipgloss.Style
+	Border       lipgloss.Style
+	BorderActive lipgloss.Style
 
 	// Typography.
 	Title         lipgloss.Style
@@ -40,10 +41,10 @@ type Styles struct {
 	Muted         lipgloss.Style
 
 	// Status indicators.
-	OnBadge   lipgloss.Style
-	OffBadge  lipgloss.Style
-	Dot       lipgloss.Style
-	DotOff    lipgloss.Style
+	OnBadge  lipgloss.Style
+	OffBadge lipgloss.Style
+	Dot      lipgloss.Style
+	DotOff   lipgloss.Style
 
 	// Data emphasis.
 	Saved     lipgloss.Style
@@ -52,9 +53,9 @@ type Styles struct {
 	Error     lipgloss.Style
 
 	// Table elements.
-	TableHeader  lipgloss.Style
-	TableCell    lipgloss.Style
-	TableBorder  lipgloss.Style
+	TableHeader lipgloss.Style
+	TableCell   lipgloss.Style
+	TableBorder lipgloss.Style
 
 	// Progress bar.
 	BarFilled lipgloss.Style
@@ -92,6 +93,26 @@ type Styles struct {
 	// Setup instructions.
 	SetupCmd   lipgloss.Style // $ slimference hook install claude
 	SetupTitle lipgloss.Style // QUICK START heading
+	Card       lipgloss.Style
+	CardActive lipgloss.Style
+	TabActive  lipgloss.Style
+	TabIdle    lipgloss.Style
+	BannerGood lipgloss.Style
+	BannerWarn lipgloss.Style
+	StepDone   lipgloss.Style
+	StepCursor lipgloss.Style
+	StepIdle   lipgloss.Style
+	StepIndex  lipgloss.Style
+	Shortcut   lipgloss.Style
+	MenuGroup  lipgloss.Style
+	MenuIdle   lipgloss.Style
+	MenuActive lipgloss.Style
+	MenuMeta   lipgloss.Style
+	MenuOn     lipgloss.Style
+	MenuOff    lipgloss.Style
+	MenuWarn   lipgloss.Style
+	MetricKey  lipgloss.Style
+	MetricVal  lipgloss.Style
 }
 
 // NewStyles builds the complete style set.
@@ -99,17 +120,19 @@ func NewStyles() Styles {
 	return Styles{
 		Border: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPurple).
+			BorderForeground(colorPanelAlt).
+			Background(colorDark).
 			Padding(0, 1),
 
 		BorderActive: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorCyan).
+			BorderForeground(colorAccent).
+			Background(colorDark).
 			Padding(0, 1),
 
 		Title: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(colorGold),
+			Foreground(colorWhite),
 
 		Subtitle: lipgloss.NewStyle().
 			Bold(true).
@@ -146,7 +169,7 @@ func NewStyles() Styles {
 			Bold(true),
 
 		Highlight: lipgloss.NewStyle().
-			Foreground(colorCyan),
+			Foreground(colorAccent),
 
 		Warning: lipgloss.NewStyle().
 			Foreground(colorOrange),
@@ -195,7 +218,7 @@ func NewStyles() Styles {
 			Foreground(colorDimGray),
 
 		FooterKey: lipgloss.NewStyle().
-			Foreground(colorPurple).
+			Foreground(colorAccent).
 			Bold(true),
 
 		FooterDesc: lipgloss.NewStyle().
@@ -207,7 +230,7 @@ func NewStyles() Styles {
 
 		// Layout.
 		PanelTitle: lipgloss.NewStyle().
-			Foreground(colorPurple).
+			Foreground(colorAccent).
 			Bold(true),
 
 		Divider: lipgloss.NewStyle().
@@ -217,13 +240,13 @@ func NewStyles() Styles {
 			Foreground(colorDimGray),
 
 		HeaderBar: lipgloss.NewStyle().
-			Background(lipgloss.Color("236")).
-			Foreground(colorGold).
+			Background(colorPanel).
+			Foreground(colorWhite).
 			Bold(true),
 
 		// Keyboard hints.
 		Key: lipgloss.NewStyle().
-			Foreground(colorPurple).
+			Foreground(colorAccent).
 			Bold(true),
 
 		KeySep: lipgloss.NewStyle().
@@ -236,12 +259,103 @@ func NewStyles() Styles {
 
 		// Setup instructions.
 		SetupCmd: lipgloss.NewStyle().
-			Foreground(colorCyan).
-			Background(lipgloss.Color("236")).
+			Foreground(colorAccent).
+			Background(colorPanel).
 			Padding(0, 1),
 
 		SetupTitle: lipgloss.NewStyle().
 			Foreground(colorGold).
+			Bold(true),
+
+		Card: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorPanelAlt).
+			Background(colorPanel).
+			Padding(0, 1),
+
+		CardActive: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorAccent).
+			Background(colorDark).
+			Padding(0, 1),
+
+		TabActive: lipgloss.NewStyle().
+			Foreground(colorDark).
+			Background(colorAccent).
+			Bold(true).
+			Padding(0, 1),
+
+		TabIdle: lipgloss.NewStyle().
+			Foreground(colorDimWhite).
+			Background(colorPanel).
+			Padding(0, 1),
+
+		BannerGood: lipgloss.NewStyle().
+			Foreground(colorDark).
+			Background(colorGreen).
+			Bold(true).
+			Padding(0, 1),
+
+		BannerWarn: lipgloss.NewStyle().
+			Foreground(colorDark).
+			Background(colorOrange).
+			Bold(true).
+			Padding(0, 1),
+
+		StepDone: lipgloss.NewStyle().
+			Foreground(colorGreen).
+			Bold(true),
+
+		StepCursor: lipgloss.NewStyle().
+			Foreground(colorDark).
+			Background(colorAccent).
+			Bold(true).
+			Padding(0, 1),
+
+		StepIdle: lipgloss.NewStyle().
+			Foreground(colorDimWhite),
+
+		StepIndex: lipgloss.NewStyle().
+			Foreground(colorGray).
+			Bold(true),
+
+		Shortcut: lipgloss.NewStyle().
+			Foreground(colorAccent).
+			Background(colorPanel).
+			Padding(0, 1),
+
+		MenuGroup: lipgloss.NewStyle().
+			Foreground(colorGray).
+			Bold(true),
+
+		MenuIdle: lipgloss.NewStyle().
+			Foreground(colorDimWhite),
+
+		MenuActive: lipgloss.NewStyle().
+			Foreground(colorWhite).
+			Background(colorPanelAlt).
+			Bold(true).
+			Padding(0, 1),
+
+		MenuMeta: lipgloss.NewStyle().
+			Foreground(colorDimGray),
+
+		MenuOn: lipgloss.NewStyle().
+			Foreground(colorGreen).
+			Bold(true),
+
+		MenuOff: lipgloss.NewStyle().
+			Foreground(colorDimGray),
+
+		MenuWarn: lipgloss.NewStyle().
+			Foreground(colorOrange).
+			Bold(true),
+
+		MetricKey: lipgloss.NewStyle().
+			Foreground(colorGray),
+
+		MetricVal: lipgloss.NewStyle().
+			Foreground(colorWhite).
 			Bold(true),
 	}
 }

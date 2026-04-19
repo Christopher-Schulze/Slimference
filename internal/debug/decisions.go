@@ -76,6 +76,8 @@ type RequestSummary struct {
 	Layer1Breakdown    map[string]SubLayerBreakdown `json:"layer1_breakdown"`
 	Layer2             Layer2Summary                `json:"layer2"`
 	CacheHit           bool                         `json:"cache_hit"`
+	CacheReadTokens    int                          `json:"cache_read_tokens"`
+	CacheCreateTokens  int                          `json:"cache_create_tokens"`
 	SecretsRedacted    int                          `json:"secrets_redacted"`
 	ProxyLatencyMs     float64                      `json:"proxy_latency_ms"`
 	Entries            []DecisionEntry              `json:"entries,omitempty"` // only with --trace
