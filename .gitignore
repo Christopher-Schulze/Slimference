@@ -22,3 +22,9 @@
 AGENTS.md
 rtk-master/
 repos/
+
+# Stray tilde directories created by test runs that encountered a literal "~"
+# in a path before expandHome was fixed. Real HOME subdirs must never live
+# inside the repo tree.
+~/
+**/~/
