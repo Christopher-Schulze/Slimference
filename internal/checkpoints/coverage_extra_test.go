@@ -333,7 +333,9 @@ func TestCheckpointCaptureAndRestoreAdditionalBranches(t *testing.T) {
 }
 
 func TestCheckpointRenderingAndScoringHelpers(t *testing.T) {
-	t.Parallel()
+	// Intentionally NOT t.Parallel: mutates package-level
+	// estimateModelWindowFn. Running in parallel with other tests in this
+	// package raced under -race; see the later restore of origEstimate.
 
 	now := time.Date(2026, 4, 19, 12, 34, 56, 0, time.UTC)
 	reqs := make([]types.RequestMetrics, 8)

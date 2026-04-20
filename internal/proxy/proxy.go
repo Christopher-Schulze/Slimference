@@ -309,24 +309,6 @@ func (p *Proxy) AnalyticsQueueStats() AnalyticsQueueStats {
 	}
 }
 
-// noteAnalyticsDrop is called from each non-blocking send site's `default`
-// branch. It increments the drop counter and emits at most one slog.Warn per
-// analyticsWarnIntervalNs nanoseconds across all send sites.
-func (p *Proxy) noteAnalyticsDrop() {
-	p.analyticsDropped.Add(1)
-	now := time.Now().UnixNano()
-	last := p.analyticsLastWarn.Load()
-	if now-last >= analyticsWarnIntervalNs &&
-		p.analyticsLastWarn.CompareAndSwap(last, now) {
-		slog.Warn("analytics_queue_full",
-			"event", "analytics_drop",
-			"dropped_total", p.analyticsDropped.Load(),
-			"capacity", cap(p.analyticsQueue),
-			"depth", len(p.analyticsQueue),
-		)
-	}
-}
-
 // Start binds the listener and begins serving. It is non-blocking; call from a goroutine.
 func (p *Proxy) Start() error {
 	addr := p.config.ListenAddr()

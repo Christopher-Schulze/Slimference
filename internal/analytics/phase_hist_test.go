@@ -122,6 +122,28 @@ func TestPipelineHistograms_SnapshotOrder(t *testing.T) {
 	}
 }
 
+func TestNewPhaseHistogram_ZeroWindowDefaults(t *testing.T) {
+	h := NewPhaseHistogram("x", 0)
+	if len(h.ring) != 200 {
+		t.Fatalf("zero window: ring len = %d, want 200", len(h.ring))
+	}
+	h2 := NewPhaseHistogram("x", -1)
+	if len(h2.ring) != 200 {
+		t.Fatalf("negative window: ring len = %d, want 200", len(h2.ring))
+	}
+}
+
+func TestPercentile_SingleSampleAndEmpty(t *testing.T) {
+	// Empty input returns zero.
+	if got := percentile(nil, 0.5); got != 0 {
+		t.Errorf("empty percentile = %d, want 0", got)
+	}
+	// Single-sample input: any p returns that sample.
+	if got := percentile([]int64{42}, 0.9); got != 42 {
+		t.Errorf("single p90 = %d, want 42", got)
+	}
+}
+
 func BenchmarkPhaseHistogram_Record(b *testing.B) {
 	h := NewPhaseHistogram("x", 200)
 	d := 500 * time.Microsecond

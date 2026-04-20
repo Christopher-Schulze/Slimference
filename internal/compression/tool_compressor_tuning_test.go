@@ -59,6 +59,25 @@ func TestSetToolCompressorTuning_ConcurrentReadsSafe(t *testing.T) {
 	<-done
 }
 
+func TestSetToolCompressorTuning_AllExplicitValuesRetained(t *testing.T) {
+	t.Cleanup(func() { SetToolCompressorTuning(DefaultToolCompressorTuning()) })
+	SetToolCompressorTuning(ToolCompressorTuning{
+		AggressiveAfterMultiplier: 4,
+		GitModerateDiffLimit:      99,
+		TestMaxFailureLines:       77,
+	})
+	cur := currentToolTuning()
+	if cur.AggressiveAfterMultiplier != 4 {
+		t.Errorf("multiplier = %d", cur.AggressiveAfterMultiplier)
+	}
+	if cur.GitModerateDiffLimit != 99 {
+		t.Errorf("git limit = %d", cur.GitModerateDiffLimit)
+	}
+	if cur.TestMaxFailureLines != 77 {
+		t.Errorf("test limit = %d", cur.TestMaxFailureLines)
+	}
+}
+
 func TestT61_DefaultTuningMatchesPreT61Constants(t *testing.T) {
 	t.Cleanup(func() { SetToolCompressorTuning(DefaultToolCompressorTuning()) })
 	// Legacy callers that never call SetToolCompressorTuning must see the
