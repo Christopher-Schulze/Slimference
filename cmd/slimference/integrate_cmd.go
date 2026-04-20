@@ -172,13 +172,18 @@ func runIntegrateEmergencyOff(opts integrate.Options, extra integrateExtra) {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("codex hook remove: %v", err))
 		}
 	}
-	// Best-effort daemon stop; errors non-fatal.
+	// Best-effort daemon stop + launchd plist uninstall; errors non-fatal.
+	// emergency-off is the panic button: we do everything we can to undo
+	// side effects even if individual steps complain.
 	if !opts.DryRun {
 		if err := daemonStopFn(); err != nil {
 			rep.Errors = append(rep.Errors,
 				fmt.Sprintf("daemon stop: %v (continue)", err))
 		}
-		_ = daemonUninstallFn
+		if err := daemonUninstallFn(); err != nil {
+			rep.Errors = append(rep.Errors,
+				fmt.Sprintf("launchd uninstall: %v (continue)", err))
+		}
 	}
 	if extra.JSON {
 		emitJSON(rep)

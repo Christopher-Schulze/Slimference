@@ -1019,7 +1019,12 @@ var shutdownDumpWriterFn = defaultShutdownDumpWriter
 // times - only the first call does work; subsequent calls return nil. On
 // timeout Shutdown returns ErrShutdownTimeout so process-level callers can
 // translate the outcome into a distinct exit code (T60).
+// Nil ctx is tolerated and replaced with context.Background so operator-
+// scripts that call Shutdown(nil) never crash.
 func (p *Proxy) Shutdown(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var result error
 	p.shutdownOnce.Do(func() {
 		result = p.doShutdown(ctx)
@@ -1033,11 +1038,18 @@ func (p *Proxy) doShutdown(ctx context.Context) error {
 		p.workerCancel()
 	}
 
-	if err := p.server.Shutdown(ctx); err != nil {
-		slog.Warn("server shutdown error", "error", err)
+	// server may be nil when Shutdown is called on a freshly New'd Proxy
+	// that never Start()ed. Tolerate that so unit tests and the integrate
+	// adapter-smoke path do not panic.
+	if p.server != nil {
+		if err := p.server.Shutdown(ctx); err != nil {
+			slog.Warn("server shutdown error", "error", err)
+		}
 	}
 
-	close(p.shutdownCh)
+	if p.shutdownCh != nil {
+		close(p.shutdownCh)
+	}
 
 	workersDone := make(chan struct{})
 	go func() {

@@ -59,6 +59,22 @@ func TestSetToolCompressorTuning_ConcurrentReadsSafe(t *testing.T) {
 	<-done
 }
 
+func TestSetToolCompressorTuning_NegativeValuesFallBackToDefaults(t *testing.T) {
+	t.Cleanup(func() { SetToolCompressorTuning(DefaultToolCompressorTuning()) })
+	// Negative values are invalid like zeros - must fall back to defaults.
+	SetToolCompressorTuning(ToolCompressorTuning{
+		AggressiveAfterMultiplier: -1,
+		GitModerateDiffLimit:      -99,
+		TestMaxFailureLines:       -5,
+	})
+	cur := currentToolTuning()
+	if cur.AggressiveAfterMultiplier != 2 ||
+		cur.GitModerateDiffLimit != 60 ||
+		cur.TestMaxFailureLines != 40 {
+		t.Fatalf("negative values not clamped: %+v", cur)
+	}
+}
+
 func TestSetToolCompressorTuning_AllExplicitValuesRetained(t *testing.T) {
 	t.Cleanup(func() { SetToolCompressorTuning(DefaultToolCompressorTuning()) })
 	SetToolCompressorTuning(ToolCompressorTuning{

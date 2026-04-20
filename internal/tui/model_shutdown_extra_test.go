@@ -20,7 +20,9 @@ func (p *shutdownCtxProxy) Shutdown(ctx context.Context) error {
 }
 
 func TestUpdate_CtrlC_UsesTimedShutdownContext(t *testing.T) {
-	t.Parallel()
+	// Intentionally NOT t.Parallel: mutates package-level shutdownTimeout
+	// which TestUpdate_CtrlC reads concurrently. Running in parallel races
+	// under -race. The test is fast (<50 ms) so serialising is harmless.
 
 	orig := shutdownTimeout
 	shutdownTimeout = 250 * time.Millisecond
