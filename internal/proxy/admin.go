@@ -79,6 +79,7 @@ type AdminStatus struct {
 	ProviderHealth    map[string]types.ProviderHealthInfo `json:"provider_health"`
 	AnalyticsQueue    AnalyticsQueueStats                 `json:"analytics_queue"`
 	PromptCache       PromptCacheStats                    `json:"prompt_cache"`
+	Pipeline          []analytics.PhaseSnapshot           `json:"pipeline"`
 }
 
 // PromptCacheStats reports cumulative prompt-cache breakpoint telemetry (T45).
@@ -185,6 +186,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		PromptCache: PromptCacheStats{
 			BreakpointsInjectedTotal: compression.PromptCacheBreakpointsInjected(),
 		},
+		Pipeline: p.pipelineHist.Snapshot(),
 	}
 }
 

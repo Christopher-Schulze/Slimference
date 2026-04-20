@@ -74,6 +74,11 @@ type Proxy struct {
 	analyticsDropped  atomic.Int64
 	analyticsLastWarn atomic.Int64 // unix-nano of last drop warn, for 1/min rate limit
 
+	// Pipeline phase histograms (T58). Per-phase p50/p95/avg/max on a
+	// 200-sample rolling window so TUI + /admin/status can surface
+	// which layer is responsible for latency.
+	pipelineHist *analytics.PipelineHistograms
+
 	// Runtime toggle atomics. Index 0=Anthropic, 1=OpenAI for providers.
 	// Index 0=Layer1, 1=Layer2, 2=Layer3 for layers.
 	providerEnabled [2]atomic.Bool
@@ -129,6 +134,7 @@ func New(cfg *config.Config) *Proxy {
 		workerCtx:      workerCtx,
 		workerCancel:   workerCancel,
 		shutdownCh:     make(chan struct{}),
+		pipelineHist:   analytics.NewPipelineHistograms(),
 	}
 
 	// Default all toggles to enabled.

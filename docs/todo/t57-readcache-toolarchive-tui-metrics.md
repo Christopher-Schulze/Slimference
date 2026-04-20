@@ -1,5 +1,37 @@
 # T57 - Read-Cache + Tool-Archive TUI-Live-Metriken
 
+Status: closed (largely already implemented; remaining items rolled into stretch)
+Priority: n/a
+
+## 2026-04-20 Closure Note
+
+Code verification revealed that the bulk of this task is already live:
+
+- `internal/readcache/stats.go::Snapshot()` returns the full stats struct.
+- `internal/toolarchive/toolarchive.go::Snapshot()` returns counts + bytes.
+- `/admin/status` already exposes `read_cache` and `tool_archive` blocks
+  (`internal/proxy/admin.go` `AdminReadCacheStatus` + `AdminToolArchiveStatus`).
+- `internal/tui/model.go` has `GetReadCacheStatus()` and
+  `GetToolArchiveStatus()`; `views.go` renders both in the dashboard view.
+
+What's left unimplemented (carried forward as stretch, not blocking):
+
+1. Explicit `hit_rate` field derived from Blocks/(Blocks+Allows) - currently
+   TUI computes it inline; a computed field on the admin surface would make
+   monitoring tools cheaper.
+2. `bytes_cap` awareness and colour thresholds (amber at 80%, red at 95%).
+   Requires wiring a cap source into the stats; non-trivial because the
+   cap lives on the ToolArchive config side.
+3. `evictions_total` counter - the readcache currently does not evict;
+   sessions accumulate. If/when eviction is added this counter moves too.
+
+Closed as largely-done. Reopen with a smaller spec if any of the three
+stretch items gains concrete motivation from operator feedback.
+
+---
+
+# Original specification below (kept for historical reference)
+
 Status: todo
 Priority: P2
 Scope: `internal/readcache/`, `internal/toolarchive/`, `internal/tui/`, `internal/admin/`

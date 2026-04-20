@@ -479,8 +479,8 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 - [ ] T54 - `min_tokens_for_layer2` Revaluation (30k -> 15k + Latency-Budget-Guard + EMA). Detail: `docs/todo/t54-min-tokens-layer2-reevaluation.md`
 - [x] T55 - Structure-Preview (T38) Default-On: default `structure_preview = true` in defaults.go + DefaultTOML. Reversibility via tool-archive stays as a stretch goal. Detail: `docs/todo/t55-structure-preview-default-on.md`
 - [!] T56 - SPEC PREMISE INACCURATE - T37 already implements Jaccard word-set similarity (see internal/compression/loop_detect.go). TASK closed as no-op. Detail: `docs/todo/t56-loop-detection-jaccard-upgrade.md`
-- [ ] T57 - Read-Cache + Tool-Archive TUI-Live-Metriken (hit-rate, bytes, evictions). Detail: `docs/todo/t57-readcache-toolarchive-tui-metrics.md`
-- [ ] T58 - TUI TTFT-Breakdown pro Layer (p50/p95 + token-saving-% pro Phase). Detail: `docs/todo/t58-tui-ttft-breakdown.md`
+- [!] T57 - SPEC LARGELY ALREADY IMPLEMENTED - ReadCache + ToolArchive exposed via /admin/status and rendered in TUI views.go. TASK closed; remaining stretch items (explicit hit_rate field, bytes_cap colour thresholds, evictions counter) noted in closure note. Detail: `docs/todo/t57-readcache-toolarchive-tui-metrics.md`
+- [x] T58 - Phase histograms (L1/L2/L3/upstream/total) with p50/p95/avg/max via rolling 200-sample window; exposed on /admin/status.pipeline. Benchmark: 15 ns/op per Record. TUI rendering stays as stretch. Detail: `docs/todo/t58-tui-ttft-breakdown.md`
 - [ ] T59 - Secrets-Detector Per-Session-Override + Allowlist-Session-TOML (hot-reload, max 1h). Detail: `docs/todo/t59-secrets-detector-session-override.md`
 - [x] T60 - Shutdown-Timeout Guard auf `wg.Wait()` (pprof-Dump + ErrShutdownTimeout; headless maps to exit 6). Detail: `docs/todo/t60-shutdown-timeout-guard.md`
 - [ ] T61 - Tuning-Config Durchreichen fuer `tool_compressor` RTK-Heuristiken (per-tool overrides). Detail: `docs/todo/t61-tool-compressor-tuning-config.md`

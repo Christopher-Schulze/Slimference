@@ -117,7 +117,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// --- 4. Layer 1: Deterministic compression ---
 	var layer1Breakdown map[string]dbg.SubLayerBreakdown
 	if p.isLayerEnabled(1) && p.isProviderEnabled(provider) {
+		l1Start := time.Now()
 		result := p.layer1.Compress(messages)
+		p.pipelineHist.L1.Record(time.Since(l1Start))
 		if result.TokensSaved > 0 {
 			compressedMessages = result.Messages
 			layer1Savings = result.TokensSaved
@@ -134,12 +136,14 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 5. Layer 2: MiniMax summary ---
 	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) {
+		l2Start := time.Now()
 		if newMsgs, saved, applied := p.layer2.ApplyToMessages(compressedMessages); applied {
 			compressedMessages = newMsgs
 			layer2Savings = saved
 			appliedLayers = append(appliedLayers, 2)
 			log.Debug("layer2 applied", "saved", saved)
 		}
+		p.pipelineHist.L2.Record(time.Since(l2Start))
 	}
 
 	// --- 6. Prompt cache breakpoints (Anthropic only) ---
@@ -255,10 +259,13 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	latencyStart := time.Now()
+	upstreamStart := latencyStart
 
 	// --- 9. Forward to upstream ---
 	upstreamResp, err := p.doUpstreamRequest(r, provider, newBody)
 	if err != nil {
+		p.pipelineHist.Upstream.Record(time.Since(upstreamStart))
+		p.pipelineHist.Total.Record(time.Since(start))
 		p.healthMon.record(provider, false)
 		log.Error("upstream request failed", "error", err)
 		p.proxyError(w, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", err))
@@ -270,6 +277,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
+	p.pipelineHist.Upstream.Record(time.Since(upstreamStart))
 	p.healthMon.record(provider, upstreamResp.StatusCode < 500)
 
 	// --- 9. Stream / passthrough response ---
@@ -295,6 +303,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	proxyLatencyMs := float64(time.Since(latencyStart).Microseconds()) / 1000.0
+	p.pipelineHist.Total.Record(time.Since(start))
 
 	// --- 10. Cache successful response (Layer 3) ---
 	if requestCacheSafe && responseBody != nil && upstreamResp.StatusCode == http.StatusOK {
