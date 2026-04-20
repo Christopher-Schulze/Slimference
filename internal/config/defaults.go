@@ -73,6 +73,11 @@ func defaultsRaw() *Config {
 					{MsgCountLE: 40, Threshold: 0.82},
 					{MsgCountLE: 1_000_000, Threshold: 0.78},
 				},
+				ToolCompressor: ToolCompressorTuning{
+					AggressiveAfterMultiplier: 2,
+					GitModerateDiffLimit:      60,
+					TestMaxFailureLines:       40,
+				},
 			},
 		},
 		Cache: CacheConfig{

@@ -68,6 +68,16 @@ type ProxyConfig struct {
 	ListenAddress string `toml:"listen_address"`
 	ListenPort    int    `toml:"listen_port"`
 	IPv6          bool   `toml:"ipv6"`
+	// AnthropicVersions lists the `anthropic-version` header values for
+	// which the full Layer 1 / Layer 2 pipeline is trusted. Requests
+	// carrying an unknown version downgrade to conservative mode (T62).
+	// An empty list means "trust everything" for backwards compatibility.
+	AnthropicVersions []string `toml:"anthropic_versions"`
+	// AnthropicUnknownBehavior decides how unknown-version requests are
+	// handled: "conservative" skips L1+L2, "passthrough" runs no
+	// compression at all, "full" trusts the unknown version. Default
+	// "conservative". Case-insensitive; empty string means default.
+	AnthropicUnknownBehavior string `toml:"anthropic_unknown_behavior"`
 }
 
 // UpstreamConfig holds upstream API base URLs.
@@ -150,6 +160,28 @@ type TuningConfig struct {
 	// wins; an empty staircase falls back to the scalar
 	// Compression.DedupSimilarityThreshold. See T53.
 	DedupStaircase []StaircaseStep `toml:"dedup_staircase"`
+	// ToolCompressor holds the RTK-derived heuristic knobs that used to
+	// live as local `const` declarations inside
+	// internal/compression/tool_compressor.go. Exposing them via config
+	// unblocks data-driven tuning without a rebuild. See T61.
+	ToolCompressor ToolCompressorTuning `toml:"tool_compressor"`
+}
+
+// ToolCompressorTuning bundles RTK-style heuristic thresholds for the
+// type-aware tool-output compressor. Zero values fall back to the
+// compile-time defaults so legacy configs keep byte-equal behaviour.
+type ToolCompressorTuning struct {
+	// AggressiveAfterMultiplier controls when a message is considered
+	// "old enough" for aggressive (more lossy) compression. Age is the
+	// distance to the compressible boundary; the message switches to
+	// aggressive when age > multiplier * slidingWindow. Default 2.
+	AggressiveAfterMultiplier int `toml:"aggressive_after_multiplier"`
+	// GitModerateDiffLimit caps the number of diff lines retained when
+	// compressing git output in non-aggressive mode. Default 60.
+	GitModerateDiffLimit int `toml:"git_moderate_diff_limit"`
+	// TestMaxFailureLines caps how many lines around a test failure are
+	// preserved in moderate compression. Default 40.
+	TestMaxFailureLines int `toml:"test_max_failure_lines"`
 }
 
 // StaircaseStep is one tier of a conversation-size-keyed threshold staircase.

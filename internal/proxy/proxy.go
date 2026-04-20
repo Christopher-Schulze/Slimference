@@ -163,6 +163,14 @@ func New(cfg *config.Config) *Proxy {
 	// Layer 1: Deterministic compressor.
 	p.layer1 = compression.NewDeterministicCompressor(&cfg.Compression)
 
+	// T61: install tool-compressor heuristic tuning from config so the
+	// package-global atomic reflects the user's overrides.
+	compression.SetToolCompressorTuning(compression.ToolCompressorTuning{
+		AggressiveAfterMultiplier: cfg.Compression.Tuning.ToolCompressor.AggressiveAfterMultiplier,
+		GitModerateDiffLimit:      cfg.Compression.Tuning.ToolCompressor.GitModerateDiffLimit,
+		TestMaxFailureLines:       cfg.Compression.Tuning.ToolCompressor.TestMaxFailureLines,
+	})
+
 	// Layer 2: MiniMax summarizer.
 	p.layer2 = summarization.NewLayer2(&cfg.Compression)
 

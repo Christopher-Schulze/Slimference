@@ -80,6 +80,14 @@ type AdminStatus struct {
 	AnalyticsQueue    AnalyticsQueueStats                 `json:"analytics_queue"`
 	PromptCache       PromptCacheStats                    `json:"prompt_cache"`
 	Pipeline          []analytics.PhaseSnapshot           `json:"pipeline"`
+	AnthropicVersion  AnthropicVersionStats               `json:"anthropic_version"`
+}
+
+// AnthropicVersionStats reports T62 version-negotiation telemetry.
+type AnthropicVersionStats struct {
+	SupportedVersions []string `json:"supported_versions"`
+	UnknownBehavior   string   `json:"unknown_behavior"`
+	UnknownSeenTotal  int64    `json:"unknown_seen_total"`
 }
 
 // PromptCacheStats reports cumulative prompt-cache breakpoint telemetry (T45).
@@ -187,6 +195,11 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			BreakpointsInjectedTotal: compression.PromptCacheBreakpointsInjected(),
 		},
 		Pipeline: p.pipelineHist.Snapshot(),
+		AnthropicVersion: AnthropicVersionStats{
+			SupportedVersions: p.config.Proxy.AnthropicVersions,
+			UnknownBehavior:   p.config.Proxy.AnthropicUnknownBehavior,
+			UnknownSeenTotal:  AnthropicUnknownVersionCount(),
+		},
 	}
 }
 

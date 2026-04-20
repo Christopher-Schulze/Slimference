@@ -4,19 +4,78 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/slimference/slimference/internal/types"
 )
 
+// ToolCompressorTuning holds the externally-configurable thresholds used by
+// the type-aware tool-output compressor. Mirrors config.ToolCompressorTuning
+// but lives in the compression package to avoid a config-import cycle in the
+// filter functions. See T61.
+type ToolCompressorTuning struct {
+	AggressiveAfterMultiplier int
+	GitModerateDiffLimit      int
+	TestMaxFailureLines       int
+}
+
+// DefaultToolCompressorTuning returns the compile-time defaults used when no
+// configuration has been supplied. These match the pre-T61 hardcoded values.
+func DefaultToolCompressorTuning() ToolCompressorTuning {
+	return ToolCompressorTuning{
+		AggressiveAfterMultiplier: 2,
+		GitModerateDiffLimit:      60,
+		TestMaxFailureLines:       40,
+	}
+}
+
+// toolCompressorTuning is the package-global active tuning. Reads are
+// atomic; writes happen only in SetToolCompressorTuning from proxy init,
+// so races are benign, but the atomic keeps `go test -race` silent.
+var toolCompressorTuning atomic.Pointer[ToolCompressorTuning]
+
+// init installs the defaults so zero-configured call sites keep working.
+func init() {
+	def := DefaultToolCompressorTuning()
+	toolCompressorTuning.Store(&def)
+}
+
+// SetToolCompressorTuning installs a new tuning. Zero-valued fields fall
+// back to the compile-time defaults so callers can override just the knobs
+// they care about without re-typing the rest.
+func SetToolCompressorTuning(t ToolCompressorTuning) {
+	def := DefaultToolCompressorTuning()
+	if t.AggressiveAfterMultiplier <= 0 {
+		t.AggressiveAfterMultiplier = def.AggressiveAfterMultiplier
+	}
+	if t.GitModerateDiffLimit <= 0 {
+		t.GitModerateDiffLimit = def.GitModerateDiffLimit
+	}
+	if t.TestMaxFailureLines <= 0 {
+		t.TestMaxFailureLines = def.TestMaxFailureLines
+	}
+	toolCompressorTuning.Store(&t)
+}
+
+// currentToolTuning returns the active tuning. Guaranteed non-nil.
+func currentToolTuning() ToolCompressorTuning {
+	if t := toolCompressorTuning.Load(); t != nil {
+		return *t
+	}
+	return DefaultToolCompressorTuning()
+}
+
 // compressToolOutput applies type-specific compression to old tool_result content.
 // messageAge is the distance from the message to the compressible boundary:
 // age 1 = newest compressible message, higher = older.
-// aggressive mode activates when messageAge > 2 * slidingWindow.
+// aggressive mode activates when messageAge > AggressiveAfterMultiplier *
+// slidingWindow.
 func compressToolOutput(toolType types.ToolResultType, content string, messageAge, slidingWindow int) string {
 	if content == "" {
 		return content
 	}
-	aggressive := messageAge > 2*slidingWindow
+	t := currentToolTuning()
+	aggressive := messageAge > t.AggressiveAfterMultiplier*slidingWindow
 	switch toolType {
 	case types.ToolTypeGitOutput:
 		return filterGitCompact(content, aggressive)
@@ -44,7 +103,7 @@ func filterGitCompact(content string, aggressive bool) string {
 	var header, stats, fileSummary, diffLines []string
 	var diffCount int
 
-	const moderateDiffLimit = 60
+	moderateDiffLimit := currentToolTuning().GitModerateDiffLimit
 
 	for _, line := range lines {
 		stripped := strings.TrimRight(line, "\r")
@@ -109,7 +168,7 @@ func filterTestCompact(content string, aggressive bool) string {
 	var failures, summary []string
 	var inFailure bool
 	failureLineCount := 0
-	const maxFailureLines = 40
+	maxFailureLines := currentToolTuning().TestMaxFailureLines
 
 	for _, line := range lines {
 		stripped := strings.TrimRight(line, "\r")

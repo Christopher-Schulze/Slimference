@@ -483,9 +483,9 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 - [x] T58 - Phase histograms (L1/L2/L3/upstream/total) with p50/p95/avg/max via rolling 200-sample window; exposed on /admin/status.pipeline. Benchmark: 15 ns/op per Record. TUI rendering stays as stretch. Detail: `docs/todo/t58-tui-ttft-breakdown.md`
 - [ ] T59 - Secrets-Detector Per-Session-Override + Allowlist-Session-TOML (hot-reload, max 1h). Detail: `docs/todo/t59-secrets-detector-session-override.md`
 - [x] T60 - Shutdown-Timeout Guard auf `wg.Wait()` (pprof-Dump + ErrShutdownTimeout; headless maps to exit 6). Detail: `docs/todo/t60-shutdown-timeout-guard.md`
-- [ ] T61 - Tuning-Config Durchreichen fuer `tool_compressor` RTK-Heuristiken (per-tool overrides). Detail: `docs/todo/t61-tool-compressor-tuning-config.md`
-- [ ] T62 - Anthropic-Version-Header Negotiation + Conservative-Mode-Fallback (whitelist, warn-once). Detail: `docs/todo/t62-anthropic-version-negotiation.md`
-- [ ] T63 - Tee-Recovery Exit-Code-Matrix in `spec+.md` dokumentieren + Timeout-Guard. Detail: `docs/todo/t63-tee-recovery-exit-code-matrix.md`
+- [x] T61 - Tool-compressor RTK heuristics now config-exposed via `[compression.tuning.tool_compressor]` (aggressive_after_multiplier, git_moderate_diff_limit, test_max_failure_lines). Per-tool overrides map stays as a stretch for future field evidence. Detail: `docs/todo/t61-tool-compressor-tuning-config.md`
+- [x] T62 - Anthropic-Version-Header Negotiation + Conservative-Mode-Fallback. Unknown versions downgrade L1+L2 to passthrough-style by default; configurable via `[proxy] anthropic_versions / anthropic_unknown_behavior`. Counter + rate-limited warn + admin surface. Detail: `docs/todo/t62-anthropic-version-negotiation.md`
+- [x] T63 - Layer-0 exit-code matrix documented in `docs/layer0-exit-codes.md` + regression tests pin child-exit propagation, start-failure code, empty-argv safety. `command_timeout_seconds` knob remains future work noted in the doc. Detail: `docs/todo/t63-tee-recovery-exit-code-matrix.md`
 - [x] T64 - TUI Keybindings single-source + auto-generated `docs/tui-keybindings.md` with drift-check test. Error-modal Esc hardening + help overlay bleiben Stretch. Detail: `docs/todo/t64-tui-keybindings-and-error-modal.md`
 
 ### Reihenfolge

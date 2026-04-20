@@ -67,6 +67,23 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// Request-scoped logger: all debug/warn/info calls inside this function carry req_id.
 	log := slog.With("req_id", reqID, "provider", provider, "model", model)
 
+	// T62: Anthropic-version negotiation. Unknown versions downgrade to
+	// conservative / passthrough so an upstream schema drift never causes
+	// mis-compression. For non-Anthropic providers the call is a no-op.
+	pipelineMode := PipelineFull
+	if provider == types.Anthropic {
+		pipelineMode = ClassifyAnthropicVersion(
+			r.Header.Get("anthropic-version"),
+			&p.config.Proxy,
+		)
+		if pipelineMode != PipelineFull {
+			log.Warn("pipeline_mode_downgrade",
+				"mode", pipelineMode.String(),
+				"header", r.Header.Get("anthropic-version"),
+			)
+		}
+	}
+
 	// Count original tokens before any compression.
 	origTokens := tokens.CountMessages(messages)
 	log.Debug("request started", "messages", len(messages), "orig_tokens", origTokens)
@@ -116,7 +133,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 4. Layer 1: Deterministic compression ---
 	var layer1Breakdown map[string]dbg.SubLayerBreakdown
-	if p.isLayerEnabled(1) && p.isProviderEnabled(provider) {
+	if p.isLayerEnabled(1) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull {
 		l1Start := time.Now()
 		result := p.layer1.Compress(messages)
 		p.pipelineHist.L1.Record(time.Since(l1Start))
@@ -135,7 +152,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// --- 5. Layer 2: MiniMax summary ---
-	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) {
+	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull {
 		l2Start := time.Now()
 		if newMsgs, saved, applied := p.layer2.ApplyToMessages(compressedMessages); applied {
 			compressedMessages = newMsgs
