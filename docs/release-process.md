@@ -38,21 +38,33 @@ participate in Homebrew signing later.)
 
 ## 5. Build the artefacts
 
+Default build ships only the primary target (macOS on Apple M-series).
+Other platforms stay supported via `--targets`:
+
 ```bash
+# Default: darwin/arm64 only.
 go run ./scripts/release --version v<version>
+
+# Every supported platform (darwin + linux, arm64 + amd64):
+go run ./scripts/release --version v<version> --targets=all
+
+# Hand-picked subset:
+go run ./scripts/release --version v<version> --targets=darwin/arm64,linux/amd64
 ```
 
 The script:
 
 1. Cleans `dist/` and re-creates it.
-2. Builds four targets (darwin arm64/amd64, linux arm64/amd64) with
-   `-trimpath` and `-ldflags "-s -w -X main.version=... -X main.commit=..."`.
-3. Copies `LICENSE`, `README.md`, `docs/layer0-exit-codes.md` into
+2. Resolves `--targets` (selector: `primary`, `all`, or
+   comma-separated `os/arch` list). Default selector = `primary`.
+3. Builds each selected target with `-trimpath` and
+   `-ldflags "-s -w -X buildinfo.Version=... -X main.commit=..."`.
+4. Copies `LICENSE`, `README.md`, `docs/layer0-exit-codes.md` into
    each bundle directory.
-4. Copies `scripts/service/linux/slimference.service` into the Linux
-   bundles.
-5. Packs each bundle into `dist/slimference_<version>_<os>_<arch>.tar.gz`.
-6. Writes `dist/SHA256SUMS`.
+5. Copies `scripts/service/linux/slimference.service` into the Linux
+   bundles (when selected).
+6. Packs each bundle into `dist/slimference_<version>_<os>_<arch>.tar.gz`.
+7. Writes `dist/SHA256SUMS`.
 
 Smoke-test one archive:
 

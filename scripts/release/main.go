@@ -35,18 +35,61 @@ type target struct {
 	arch string
 }
 
-var targets = []target{
-	{"darwin", "arm64"},
+// allTargets is the full matrix of platforms the release script CAN build.
+// Kept as a complete list so cross-platform support stays available; the
+// default --targets selection ships only the primary target (macOS on
+// M-series Apple silicon).
+var allTargets = []target{
+	{"darwin", "arm64"}, // primary, default build target
 	{"darwin", "amd64"},
 	{"linux", "arm64"},
 	{"linux", "amd64"},
+}
+
+// defaultTargetSelector names the default build matrix. "primary" emits only
+// darwin_arm64 (the supported macOS-on-M-series build). "all" emits every
+// target in allTargets. Any comma-separated list of `os/arch` pairs is also
+// accepted, e.g. "darwin/arm64,linux/amd64".
+const defaultTargetSelector = "primary"
+
+func resolveTargets(selector string) ([]target, error) {
+	switch selector {
+	case "primary", "":
+		return []target{{"darwin", "arm64"}}, nil
+	case "all":
+		return allTargets, nil
+	}
+	var out []target
+	for _, spec := range strings.Split(selector, ",") {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
+		}
+		parts := strings.Split(spec, "/")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid target %q (want os/arch)", spec)
+		}
+		out = append(out, target{parts[0], parts[1]})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("empty --targets list")
+	}
+	return out, nil
 }
 
 func main() {
 	version := flag.String("version", "", "release tag, e.g. v2.1.0 (required)")
 	dryRun := flag.Bool("dry-run", false, "print commands instead of executing them")
 	outDir := flag.String("out", "dist", "output directory")
+	targetsFlag := flag.String("targets", defaultTargetSelector,
+		`target selector: "primary" (darwin/arm64 only, default), "all" (every supported target), or a comma-separated list like "darwin/arm64,linux/amd64"`)
 	flag.Parse()
+
+	targets, err := resolveTargets(*targetsFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "targets: %v\n", err)
+		os.Exit(2)
+	}
 
 	if *version == "" {
 		fmt.Fprintln(os.Stderr, "--version is required (e.g. v2.1.0)")
@@ -54,9 +97,9 @@ func main() {
 	}
 	ver := strings.TrimPrefix(*version, "v")
 
-	commit, err := gitCommit()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "git commit lookup failed: %v\n", err)
+	commit, cerr := gitCommit()
+	if cerr != nil {
+		fmt.Fprintf(os.Stderr, "git commit lookup failed: %v\n", cerr)
 		os.Exit(1)
 	}
 

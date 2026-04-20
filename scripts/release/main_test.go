@@ -160,6 +160,58 @@ func TestWriteSHA256Sums_MissingFileErrors(t *testing.T) {
 	}
 }
 
+func TestResolveTargets_Default(t *testing.T) {
+	ts, err := resolveTargets("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 1 || ts[0].os != "darwin" || ts[0].arch != "arm64" {
+		t.Fatalf("default targets = %+v, want [darwin/arm64]", ts)
+	}
+}
+
+func TestResolveTargets_Primary(t *testing.T) {
+	ts, err := resolveTargets("primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 1 || ts[0].os != "darwin" || ts[0].arch != "arm64" {
+		t.Fatalf("primary = %+v", ts)
+	}
+}
+
+func TestResolveTargets_All(t *testing.T) {
+	ts, err := resolveTargets("all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != len(allTargets) {
+		t.Fatalf("all = %d, want %d", len(ts), len(allTargets))
+	}
+}
+
+func TestResolveTargets_Custom(t *testing.T) {
+	ts, err := resolveTargets("darwin/arm64,linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 2 {
+		t.Fatalf("custom = %d, want 2", len(ts))
+	}
+	if ts[1].os != "linux" || ts[1].arch != "amd64" {
+		t.Fatalf("second target = %+v", ts[1])
+	}
+}
+
+func TestResolveTargets_InvalidSpec(t *testing.T) {
+	if _, err := resolveTargets("weird-format"); err == nil {
+		t.Fatal("expected error on missing slash")
+	}
+	if _, err := resolveTargets(","); err == nil {
+		t.Fatal("expected error on empty list")
+	}
+}
+
 func keysOf(m map[string][]byte) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
