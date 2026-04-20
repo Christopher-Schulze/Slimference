@@ -41,28 +41,35 @@ func defaultSteps() []step {
 }
 
 func main() {
+	os.Exit(run(defaultSteps(), os.Stdout, os.Stderr))
+}
+
+// run executes the given steps with the supplied IO streams and returns the
+// process exit code. Split out of main so unit tests can drive the runner
+// without actually calling os.Exit. The caller provides the steps so tests
+// can run with mocked cheap commands.
+func run(steps []step, stdout, stderr *os.File) int {
 	root, err := findModuleRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ci: %v\n", err)
-		os.Exit(2)
+		fmt.Fprintf(stderr, "ci: %v\n", err)
+		return 2
 	}
-
-	steps := defaultSteps()
 
 	total := len(steps)
 	for i, s := range steps {
-		fmt.Printf("[%d/%d] %s\n", i+1, total, s.label)
+		fmt.Fprintf(stdout, "[%d/%d] %s\n", i+1, total, s.label)
 		c := exec.Command(s.cmd, s.args...)
 		c.Dir = root
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
+		c.Stdout = stdout
+		c.Stderr = stderr
 		if err := c.Run(); err != nil {
-			fmt.Printf("\nFAIL: step %d/%d (%s)\n", i+1, total, s.label)
-			os.Exit(1)
+			fmt.Fprintf(stdout, "\nFAIL: step %d/%d (%s)\n", i+1, total, s.label)
+			return 1
 		}
 	}
 
-	fmt.Printf("\nPASS: all %d steps completed\n", total)
+	fmt.Fprintf(stdout, "\nPASS: all %d steps completed\n", total)
+	return 0
 }
 
 func findModuleRoot() (string, error) {

@@ -13,14 +13,23 @@ import (
 )
 
 func main() {
-	minPct := flag.Float64("min", 0, "if >0, exit 1 when total coverage is below this percent (e.g. 100)")
-	keep := flag.Bool("keep", false, "do not delete the generated coverage profile")
-	flag.Parse()
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// run is the testable entry point: separated from main so unit tests drive
+// it without os.Exit. Returns the process exit code.
+func run(args []string, stdout, stderr *os.File) int {
+	fs := flag.NewFlagSet("coverage", flag.ContinueOnError)
+	minPct := fs.Float64("min", 0, "if >0, exit 1 when total coverage is below this percent (e.g. 100)")
+	keep := fs.Bool("keep", false, "do not delete the generated coverage profile")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
 
 	root, err := findModuleRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "coverage: %v\n", err)
-		os.Exit(2)
+		fmt.Fprintf(stderr, "coverage: %v\n", err)
+		return 2
 	}
 
 	prof := filepath.Join(root, "coverage.out")
@@ -36,31 +45,32 @@ func main() {
 		"./internal/...",
 	)
 	testCmd.Dir = root
-	testCmd.Stdout = os.Stdout
-	testCmd.Stderr = os.Stderr
+	testCmd.Stdout = stdout
+	testCmd.Stderr = stderr
 	if err := testCmd.Run(); err != nil {
-		os.Exit(1)
+		return 1
 	}
 
 	coverCmd := exec.Command("go", "tool", "cover", "-func="+prof)
 	coverCmd.Dir = root
 	out, err := coverCmd.Output()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "coverage: go tool cover: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "coverage: go tool cover: %v\n", err)
+		return 1
 	}
 
 	total, ok := parseTotalPercent(string(out))
 	if !ok {
-		fmt.Fprintf(os.Stderr, "coverage: could not parse total from cover -func output\n")
-		os.Exit(1)
+		fmt.Fprintf(stderr, "coverage: could not parse total from cover -func output\n")
+		return 1
 	}
-	fmt.Printf("total coverage (statements): %.1f%%\n", total)
+	fmt.Fprintf(stdout, "total coverage (statements): %.1f%%\n", total)
 
 	if *minPct > 0 && total+1e-9 < *minPct {
-		fmt.Fprintf(os.Stderr, "coverage: %.1f%% < required %.1f%%\n", total, *minPct)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "coverage: %.1f%% < required %.1f%%\n", total, *minPct)
+		return 1
 	}
+	return 0
 }
 
 var totalLine = regexp.MustCompile(`total:\s+\(statements\)\s+([\d.]+)%`)
