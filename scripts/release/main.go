@@ -85,8 +85,13 @@ func main() {
 			"GOOS="+t.os,
 			"GOARCH="+t.arch,
 		)
-		ldflags := fmt.Sprintf("-s -w -X main.version=%s -X main.commit=%s",
-			ver, commit)
+		// Inject both the buildinfo.Version package-level var (the real
+		// source of truth read by `slimference --version` / doctor) and a
+		// main.commit symbol for diagnostic builds. main.version is also
+		// set for backwards compat with older code that read it directly.
+		ldflags := fmt.Sprintf(
+			"-s -w -X github.com/slimference/slimference/internal/buildinfo.Version=%s -X main.version=%s -X main.commit=%s",
+			ver, ver, commit)
 		args := []string{"build", "-trimpath",
 			"-ldflags", ldflags,
 			"-o", binPath,
