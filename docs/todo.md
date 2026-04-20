@@ -464,7 +464,7 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 
 ### Bereich G - Token-Savings und Release-Pipeline (P1)
 
-- [ ] T45 - Multi-Breakpoint Prompt-Cache (4 statt 1, system + tools + early + late). Detail: `docs/todo/t45-multi-breakpoint-prompt-cache.md`
+- [x] T45 - Multi-Breakpoint Prompt-Cache: spread-even Placement ueber stable prefix (up to 4 breakpoints), counter + admin surface. System-prompt/tools-array breakpoints bleiben Stretch (braucht body-level refactor). Detail: `docs/todo/t45-multi-breakpoint-prompt-cache.md`
 - [x] T46 - `--config <path>` Flag + XDG-Compliance (flag > env > XDG > legacy, LoadWithOptions + LoadInfo, doctor reports source). Detail: `docs/todo/t46-config-flag-and-xdg.md`
 - [ ] T47 - Binary-Release-Pipeline (Cross-Build, SHA256SUMS, Minisign, Homebrew-Tap). Detail: `docs/todo/t47-binary-release-pipeline.md`
 - [ ] T48 - Linux systemd Service Template + Install-Doku (user-scope + system-scope). Detail: `docs/todo/t48-linux-systemd-service.md`

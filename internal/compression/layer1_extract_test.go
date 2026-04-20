@@ -224,21 +224,27 @@ func TestOptimizeCacheBreakpoints_allEmptyContent(t *testing.T) {
 	}
 }
 
-// TestOptimizeCacheBreakpoints_boundaryExceedsLen verifies the len(candidates)==0 path
-// that is reached when stableBoundary > len(messages): the candidates loop never executes
-// because i starts at stableBoundary-1 which is >= len(result).
+// TestOptimizeCacheBreakpoints_boundaryExceedsLen verifies that when
+// stableBoundary > len(messages) the placement is capped at len(messages):
+// the eligible set is clamped and a breakpoint is still placed on the one
+// actual stable message. T45 corrected the pre-existing behaviour that
+// silently did nothing in this case.
 func TestOptimizeCacheBreakpoints_boundaryExceedsLen(t *testing.T) {
 	t.Parallel()
 	big := strings.Repeat("x", 5000) // > minStablePrefixTokens * charsPerToken
 	msgs := []types.Message{
 		{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: big}}},
 	}
-	// stableBoundary=100 >> len(msgs)=1 → candidates loop: i=99 >= 1 → no iterations
+	// stableBoundary=100 >> len(msgs)=1; clamped to 1 eligible -> 1 breakpoint.
 	out := OptimizeCacheBreakpoints(msgs, 100)
+	got := 0
 	for _, b := range out[0].Content {
 		if b.CacheControl != nil {
-			t.Error("expected no breakpoints when candidates is empty (boundary > len)")
+			got++
 		}
+	}
+	if got != 1 {
+		t.Errorf("breakpoints = %d, want 1 (clamped to eligible count)", got)
 	}
 }
 

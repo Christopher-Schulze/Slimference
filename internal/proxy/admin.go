@@ -8,6 +8,7 @@ import (
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/checkpoints"
+	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/types"
@@ -77,6 +78,12 @@ type AdminStatus struct {
 	ToolArchive       AdminToolArchiveStatus              `json:"tool_archive"`
 	ProviderHealth    map[string]types.ProviderHealthInfo `json:"provider_health"`
 	AnalyticsQueue    AnalyticsQueueStats                 `json:"analytics_queue"`
+	PromptCache       PromptCacheStats                    `json:"prompt_cache"`
+}
+
+// PromptCacheStats reports cumulative prompt-cache breakpoint telemetry (T45).
+type PromptCacheStats struct {
+	BreakpointsInjectedTotal int64 `json:"breakpoints_injected_total"`
 }
 
 type AdminToggleProviderRequest struct {
@@ -175,6 +182,9 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			"openai":    p.GetProviderHealth(types.OpenAI),
 		},
 		AnalyticsQueue: p.AnalyticsQueueStats(),
+		PromptCache: PromptCacheStats{
+			BreakpointsInjectedTotal: compression.PromptCacheBreakpointsInjected(),
+		},
 	}
 }
 

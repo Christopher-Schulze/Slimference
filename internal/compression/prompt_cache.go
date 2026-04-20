@@ -1,22 +1,48 @@
 package compression
 
 import (
+	"sync/atomic"
+
 	"github.com/slimference/slimference/internal/types"
 )
 
 const (
-	maxCacheBreakpoints    = 4
-	minStablePrefixTokens  = 1024
+	maxCacheBreakpoints = 4
+	minStablePrefixTokens = 1024
 	// Rough estimate: 4 characters per token (conservative).
 	charsPerToken = 4
 )
 
-// OptimizeCacheBreakpoints injects Anthropic prompt cache breakpoints into messages.
-// It places cache_control: {type: "ephemeral"} on the last content block of the last
-// stable message (index < stableBoundary). A maximum of maxCacheBreakpoints are injected
-// across the full message list, and only when the stable prefix is >= 1024 estimated tokens.
+// promptCacheBreakpointsInjected counts total breakpoints injected across all
+// Compress calls. Exposed via PromptCacheBreakpointsInjected() for the admin
+// surface. Reset via ResetPromptCacheBreakpointsCounter() in tests.
+var promptCacheBreakpointsInjected atomic.Int64
+
+// PromptCacheBreakpointsInjected returns the cumulative count of cache
+// breakpoints injected since process start.
+func PromptCacheBreakpointsInjected() int64 {
+	return promptCacheBreakpointsInjected.Load()
+}
+
+// ResetPromptCacheBreakpointsCounter zeroes the counter. Test-only helper.
+func ResetPromptCacheBreakpointsCounter() {
+	promptCacheBreakpointsInjected.Store(0)
+}
+
+// OptimizeCacheBreakpoints injects Anthropic prompt cache breakpoints into
+// messages. It places `cache_control: {type: "ephemeral"}` on the last content
+// block of up to maxCacheBreakpoints messages inside the stable prefix
+// (index < stableBoundary). Breakpoints are **spread evenly** across the
+// stable prefix (T45) rather than clustered at the tail, which produces
+// overlapping cache layers at multiple depths: a small edit near the tail
+// still hits the earlier layers, and a large prefix change only invalidates
+// the layers it spans.
 //
-// messages is modified by value - the caller receives a new slice with the injected markers.
+// Only runs when the stable prefix is >= minStablePrefixTokens estimated
+// tokens - below that the caching overhead outweighs the win.
+//
+// messages is never mutated; a shallow slice copy + per-touched-message
+// deep content copy is returned.
 func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []types.Message {
 	if len(messages) == 0 || stableBoundary <= 0 {
 		return messages
@@ -34,43 +60,57 @@ func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []ty
 		return messages
 	}
 
-	// Work on a shallow copy of the slice so we do not mutate the caller's slice header.
+	// Collect indices of messages with content within the stable prefix.
+	// Only these can carry a breakpoint.
+	eligible := make([]int, 0, stableBoundary)
+	for i := 0; i < stableBoundary && i < len(messages); i++ {
+		if len(messages[i].Content) > 0 {
+			eligible = append(eligible, i)
+		}
+	}
+	if len(eligible) == 0 {
+		return messages
+	}
+
+	// T45: spread-evenly placement.
+	// If we have up to maxCacheBreakpoints eligible messages, mark them all.
+	// Otherwise, pick maxCacheBreakpoints positions evenly across eligible:
+	// segment k (1..N) ends at eligible[floor(len*k/N) - 1].
+	pickCount := maxCacheBreakpoints
+	if pickCount > len(eligible) {
+		pickCount = len(eligible)
+	}
+	selected := make(map[int]struct{}, pickCount)
+	for k := 1; k <= pickCount; k++ {
+		idx := (len(eligible)*k)/pickCount - 1
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(eligible) {
+			idx = len(eligible) - 1
+		}
+		selected[eligible[idx]] = struct{}{}
+	}
+
+	// Work on a shallow copy of the slice so we do not mutate the caller's
+	// slice header.
 	result := make([]types.Message, len(messages))
 	copy(result, messages)
 
-	// Find candidate injection points: last content block of each message in the stable
-	// prefix. We inject from the end backwards, up to maxCacheBreakpoints.
-	type candidate struct {
-		msgIdx   int
-		blockIdx int
-	}
-
-	var candidates []candidate
-	for i := stableBoundary - 1; i >= 0 && i < len(result); i-- {
-		if len(result[i].Content) == 0 {
-			continue
-		}
-		candidates = append(candidates, candidate{msgIdx: i, blockIdx: len(result[i].Content) - 1})
-		if len(candidates) >= maxCacheBreakpoints {
-			break
-		}
-	}
-
-	if len(candidates) == 0 {
-		return result
-	}
-
-	// Apply breakpoints. Each message that needs modification gets its content slice deep-copied
-	// so we do not mutate the original message's content array.
 	ephemeral := &types.CacheControl{Type: "ephemeral"}
-
-	for _, c := range candidates {
-		msg := result[c.msgIdx]
+	injected := 0
+	for msgIdx := range selected {
+		msg := result[msgIdx]
 		newContent := make([]types.ContentBlock, len(msg.Content))
 		copy(newContent, msg.Content)
-		newContent[c.blockIdx].CacheControl = ephemeral
+		lastIdx := len(newContent) - 1
+		newContent[lastIdx].CacheControl = ephemeral
 		msg.Content = newContent
-		result[c.msgIdx] = msg
+		result[msgIdx] = msg
+		injected++
+	}
+	if injected > 0 {
+		promptCacheBreakpointsInjected.Add(int64(injected))
 	}
 
 	return result
