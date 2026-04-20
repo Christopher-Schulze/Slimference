@@ -17,6 +17,7 @@ type KeyMap struct {
 	ViewStats    key.Binding
 	ViewDebug    key.Binding
 	FlushCaches  key.Binding
+	ToggleBypass key.Binding
 	Quit         key.Binding
 }
 
@@ -75,6 +76,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("f"),
 			key.WithHelp("f", "flush caches"),
 		),
+		ToggleBypass: key.NewBinding(
+			key.WithKeys("b", "B"),
+			key.WithHelp("b", "toggle bypass"),
+		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),
 			key.WithHelp("q", "quit"),
@@ -84,7 +89,7 @@ func DefaultKeyMap() KeyMap {
 
 // footerHelp returns the compact help string shown in the footer.
 func (km KeyMap) footerHelp() string {
-	return "[←/→] views  [↑/↓] move  [enter] execute  [c/x] providers  [1-3] layers  [f] flush  [q] quit"
+	return "[←/→] views  [↑/↓] move  [enter] execute  [c/x] providers  [1-3] layers  [f] flush  [b] bypass  [q] quit"
 }
 
 // bindingSpec names a binding and references the KeyMap field.
@@ -112,6 +117,7 @@ func (km KeyMap) orderedBindings() []bindingSpec {
 		{"Layers", km.ToggleLayer2},
 		{"Layers", km.ToggleLayer3},
 		{"Actions", km.FlushCaches},
+		{"Actions", km.ToggleBypass},
 		{"Actions", km.Quit},
 	}
 }

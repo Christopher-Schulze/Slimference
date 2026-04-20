@@ -93,6 +93,34 @@ func TestT66_ConfigDefaultCodexBaseURL(t *testing.T) {
 	}
 }
 
+func TestT66_UserAgentCodexRoutesToChatGPTEvenWithGenericPath(t *testing.T) {
+	// Codex via openai_base_url hits /v1/responses. Without UA inspection
+	// we would route this to api.openai.com and 401 the OAuth token.
+	cases := []struct {
+		path string
+		ua   string
+		want types.Provider
+	}{
+		// Path alone is ambiguous; UA decides.
+		{"/v1/responses", "codex/0.121.0 (rust)", types.CodexChatGPT},
+		{"/v1/responses", "Codex-Native/0.121", types.CodexChatGPT},
+		// Explicit chat/completions from plain OpenAI client.
+		{"/v1/chat/completions", "openai-python/1.25.0", types.OpenAI},
+		// Claude UA preserved.
+		{"/v1/messages", "claude-code/2.1.114", types.Anthropic},
+		// Empty UA falls back to path/body heuristic.
+		{"/v1/chat/completions", "", types.OpenAI},
+		// Backend-api path still wins regardless of UA (path is the
+		// strongest signal).
+		{"/backend-api/codex/responses", "curl/8.4", types.CodexChatGPT},
+	}
+	for _, tc := range cases {
+		if got := detectProviderWithUA(tc.path, nil, tc.ua); got != tc.want {
+			t.Errorf("path=%q ua=%q: got %v, want %v", tc.path, tc.ua, got, tc.want)
+		}
+	}
+}
+
 func TestT66_EnvOverrideForCodex(t *testing.T) {
 	t.Setenv("SLIMFERENCE_UPSTREAM_CODEX_CHATGPT_BASE_URL", "https://example.test")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

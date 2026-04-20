@@ -262,6 +262,32 @@ func (a *remoteProxyAdapter) Config() tui.ProxyConfigInterface {
 	return &configAdapter{cfg: a.cfg}
 }
 
+// Bypass queries the running daemon's admin endpoint. Returns false if the
+// daemon is unreachable - the caller treats "unknown" as "not bypassing".
+func (a *remoteProxyAdapter) Bypass() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.status.Bypass
+}
+
+// SetBypass pushes the new state through the admin endpoint. Failures are
+// logged but not propagated: the TUI renders the outcome on the next tick
+// via Bypass().
+func (a *remoteProxyAdapter) SetBypass(enabled bool) {
+	body, _ := json.Marshal(proxy.AdminBypassRequest{Enabled: enabled})
+	req, err := http.NewRequest(http.MethodPost,
+		"http://"+a.cfg.ListenAddr()+proxy.AdminBypassPath,
+		bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
+}
+
 type fileSessionLogger struct {
 	path string
 }

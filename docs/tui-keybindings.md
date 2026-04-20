@@ -18,4 +18,5 @@ run the generator or rerun the TUI key tests to regenerate.
 | Layers | `2` | toggle Layer 2 |
 | Layers | `3` | toggle Layer 3 |
 | Actions | `f` | flush caches |
+| Actions | `b, B` | toggle bypass |
 | Actions | `q, ctrl+c` | quit |

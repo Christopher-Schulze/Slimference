@@ -455,7 +455,8 @@ func UninstallLaunchd() error {
 	return nil
 }
 
-// FormatStatus returns a machine-readable status JSON.
+// FormatStatus returns a machine-readable status JSON. Augmented for T68
+// with KeepAlive / restart telemetry pulled from `launchctl list`.
 func FormatStatus() ([]byte, error) {
 	running, pf, err := isRunningFn()
 	if err != nil {
@@ -468,8 +469,60 @@ func FormatStatus() ([]byte, error) {
 		status["pid"] = pf.PID
 		status["port"] = pf.Port
 		status["started_at"] = pf.StartedAt.Format(time.RFC3339)
+		if !pf.StartedAt.IsZero() {
+			status["uptime_seconds"] = int(time.Since(pf.StartedAt).Seconds())
+		}
+	}
+	if info, err := launchctlInspect(launchdLabel); err == nil {
+		status["launchd_label"] = launchdLabel
+		status["launchd_last_exit_status"] = info.LastExitStatus
+		status["launchd_pid_seen"] = info.PID
+		status["launchd_keepalive"] = "Crashed=true, SuccessfulExit=false"
 	}
 	return json.MarshalIndent(status, "", "  ")
+}
+
+// launchctlSnapshot captures the subset of `launchctl list <label>` output
+// that is useful for operator reporting.
+type launchctlSnapshot struct {
+	PID            int
+	LastExitStatus int
+}
+
+// launchctlInspectFn is overridable in tests.
+var launchctlInspectFn = launchctlInspectImpl
+
+func launchctlInspect(label string) (launchctlSnapshot, error) {
+	return launchctlInspectFn(label)
+}
+
+func launchctlInspectImpl(label string) (launchctlSnapshot, error) {
+	out, err := exec.Command("launchctl", "list", label).Output()
+	if err != nil {
+		return launchctlSnapshot{}, err
+	}
+	return parseLaunchctlList(string(out)), nil
+}
+
+// parseLaunchctlList pulls "PID" and "LastExitStatus" keys from the plist
+// fragment emitted by `launchctl list <label>`. Values default to 0 when
+// missing or unparseable.
+func parseLaunchctlList(text string) launchctlSnapshot {
+	s := launchctlSnapshot{}
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "\"PID\" = ") {
+			v := strings.TrimSuffix(strings.TrimPrefix(line, "\"PID\" = "), ";")
+			n, _ := strconv.Atoi(v)
+			s.PID = n
+		}
+		if strings.HasPrefix(line, "\"LastExitStatus\" = ") {
+			v := strings.TrimSuffix(strings.TrimPrefix(line, "\"LastExitStatus\" = "), ";")
+			n, _ := strconv.Atoi(v)
+			s.LastExitStatus = n
+		}
+	}
+	return s
 }
 
 // itoa is a minimal int-to-string converter.

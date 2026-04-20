@@ -400,6 +400,10 @@ func (p *testTUIProxy) Config() tui.ProxyConfigInterface {
 	return &configAdapter{cfg: config.Defaults()}
 }
 
+// Bypass / SetBypass satisfy the T67 additions to tui.ProxyInterface.
+func (p *testTUIProxy) Bypass() bool         { return false }
+func (p *testTUIProxy) SetBypass(bool)       {}
+
 func TestHandlePostToolCmd(t *testing.T) {
 	origTerm := termIsTerminalFn
 	origRead := readStdinAll

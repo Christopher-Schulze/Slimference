@@ -118,7 +118,7 @@ func (p *Proxy) recoverMiddleware(next http.Handler) http.Handler {
 				)
 				// Best-effort passthrough: use the body stashed in context before compression.
 				if body, ok := r.Context().Value(origBodyKey{}).([]byte); ok && body != nil {
-					provider := detectProvider(r.URL.Path, body)
+					provider := detectProviderWithUA(r.URL.Path, body, r.Header.Get("User-Agent"))
 					p.handlePassthrough(w, r, provider, body)
 					return
 				}
@@ -346,8 +346,10 @@ func (p *Proxy) Start() error {
 
 // ServeHTTP is the main HTTP handler for all incoming requests.
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Detect provider from URL path.
-	provider := detectProvider(r.URL.Path, nil)
+	// Detect provider from URL path + UA. UA disambiguates Codex (which
+	// sends /v1/responses through openai_base_url) from generic OpenAI.
+	userAgent := r.Header.Get("User-Agent")
+	provider := detectProviderWithUA(r.URL.Path, nil, userAgent)
 
 	// Fast passthrough for non-compress-eligible paths.
 	if !isCompressiblePath(r.URL.Path) {
@@ -376,7 +378,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Re-detect provider with body available.
-	provider = detectProvider(r.URL.Path, body)
+	provider = detectProviderWithUA(r.URL.Path, body, userAgent)
 
 	// If this provider is toggled off: passthrough without compression.
 	if !p.isProviderEnabled(provider) {

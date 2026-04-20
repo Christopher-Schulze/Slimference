@@ -14,15 +14,32 @@ import (
 // detectProvider determines the upstream provider from the HTTP request.
 // T66: Codex CLI (ChatGPT subscription product) posts to /backend-api/codex/*
 // against chatgpt.com - we recognise that path prefix FIRST so it takes
-// precedence over the generic OpenAI fallback.
+// precedence over the generic OpenAI fallback. When the path is ambiguous
+// (Codex also sends /v1/responses through openai_base_url), the
+// User-Agent header disambiguates: Codex's native UA contains "codex",
+// Claude Code's UA contains "claude-code".
 func detectProvider(path string, body []byte) types.Provider {
-	if strings.HasPrefix(path, "/backend-api/codex/") ||
-		strings.Contains(path, "/backend-api/codex/") {
+	return detectProviderWithUA(path, body, "")
+}
+
+// detectProviderWithUA is the UA-aware variant used on the hot path. The
+// public detectProvider wraps it with an empty UA for tests that don't care.
+func detectProviderWithUA(path string, body []byte, userAgent string) types.Provider {
+	if strings.Contains(path, "/backend-api/codex/") {
 		return types.CodexChatGPT
 	}
 	if strings.Contains(path, "/messages") {
 		return types.Anthropic
 	}
+
+	// UA disambiguation before the generic /chat/completions match so that
+	// a Codex request through openai_base_url (which Codex sends to
+	// /v1/responses) routes to chatgpt.com, not api.openai.com.
+	uaLower := strings.ToLower(userAgent)
+	if strings.Contains(uaLower, "codex") {
+		return types.CodexChatGPT
+	}
+
 	if strings.Contains(path, "/chat/completions") {
 		return types.OpenAI
 	}

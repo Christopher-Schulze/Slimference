@@ -30,7 +30,12 @@ type mockProxy struct {
 	shutdownCalled bool
 	listenPort     int
 	prefillSpeed   int
+	bypass         bool
 }
+
+// Bypass + SetBypass satisfy the T67 additions to ProxyInterface.
+func (m *mockProxy) Bypass() bool           { return m.bypass }
+func (m *mockProxy) SetBypass(enabled bool) { m.bypass = enabled }
 
 func newMockProxy() *mockProxy {
 	return &mockProxy{

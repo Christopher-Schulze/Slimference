@@ -3,6 +3,7 @@ package daemon
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestT68_KeepAliveCrashedOnly pins the T68 contract: launchd restarts on
@@ -54,5 +55,70 @@ func TestT68_RunAtLoadStillTrue(t *testing.T) {
 	if !strings.Contains(plist,
 		"<key>RunAtLoad</key>\n    <true/>") {
 		t.Fatal("RunAtLoad must stay true")
+	}
+}
+
+// TestT68_ParseLaunchctlList_ExtractsFields confirms the parser picks up
+// PID + LastExitStatus from a realistic launchctl-list fragment.
+func TestT68_ParseLaunchctlList_ExtractsFields(t *testing.T) {
+	fixture := `{
+	"LimitLoadToSessionType" = "Aqua";
+	"Label" = "com.slimference.daemon";
+	"OnDemand" = false;
+	"LastExitStatus" = 256;
+	"PID" = 54321;
+	"TimeOut" = 30;
+};
+`
+	s := parseLaunchctlList(fixture)
+	if s.PID != 54321 {
+		t.Fatalf("PID = %d", s.PID)
+	}
+	if s.LastExitStatus != 256 {
+		t.Fatalf("LastExitStatus = %d", s.LastExitStatus)
+	}
+}
+
+// TestT68_ParseLaunchctlList_MissingFieldsReturnZero covers the "daemon not
+// loaded" edge case where the output is empty.
+func TestT68_ParseLaunchctlList_MissingFieldsReturnZero(t *testing.T) {
+	s := parseLaunchctlList("")
+	if s.PID != 0 || s.LastExitStatus != 0 {
+		t.Fatalf("expected zero snapshot, got %+v", s)
+	}
+}
+
+// TestT68_FormatStatus_IncludesUptimeAndLaunchd confirms the JSON status
+// surface grew the T68 fields when launchctl inspection succeeds.
+func TestT68_FormatStatus_IncludesUptimeAndLaunchd(t *testing.T) {
+	origIsRunning := isRunningFn
+	defer func() { isRunningFn = origIsRunning }()
+	isRunningFn = func() (bool, *PIDFile, error) {
+		return true, &PIDFile{
+			PID:       1234,
+			Port:      8990,
+			StartedAt: time.Now().Add(-5 * time.Minute),
+		}, nil
+	}
+
+	origLaunchctl := launchctlInspectFn
+	defer func() { launchctlInspectFn = origLaunchctl }()
+	launchctlInspectFn = func(label string) (launchctlSnapshot, error) {
+		return launchctlSnapshot{PID: 1234, LastExitStatus: 0}, nil
+	}
+
+	raw, err := FormatStatus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, substr := range []string{
+		`"uptime_seconds":`,
+		`"launchd_label": "com.slimference.daemon"`,
+		`"launchd_keepalive": "Crashed=true, SuccessfulExit=false"`,
+	} {
+		if !strings.Contains(s, substr) {
+			t.Errorf("status missing %q:\n%s", substr, s)
+		}
 	}
 }

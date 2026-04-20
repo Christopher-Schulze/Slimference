@@ -50,6 +50,7 @@ import (
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/hooks"
+	"github.com/slimference/slimference/internal/integrate"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/slogutil"
@@ -1206,11 +1207,90 @@ func handleDoctorCmd() {
 		check(label, func() (string, bool) { return msg, ok })
 	}
 
+	// T69: integration fallback checks. These surface the common
+	// "something is wired but the daemon is unreachable" states operators
+	// need to triage before running real traffic.
+	fmt.Println()
+	fmt.Println("Integration / Fallbacks:")
+	renderIntegrationChecks(check)
+
 	fmt.Println(strings.Repeat("-", 50))
 	if allOK {
 		fmt.Println("All checks passed. Run 'slimference' to start.")
 	} else {
 		fmt.Println("Some checks failed. See above for details.")
+	}
+}
+
+// renderIntegrationChecks emits the T69 integration status block inside
+// `doctor`. These are informational - every state is reported as OK with
+// the actual wiring status in the message, because "not wired" is a valid
+// operator choice, not a doctor failure. The only hard failure is "HOME
+// unresolvable" which indicates a fundamentally broken environment.
+func renderIntegrationChecks(check func(string, func() (string, bool))) {
+	home, err := osUserHomeDir()
+	if err != nil {
+		check("integrate", func() (string, bool) {
+			return fmt.Sprintf("cannot resolve HOME: %v", err), false
+		})
+		return
+	}
+	rep := integrateStatusFn(integrateOptions{HomeDir: home})
+	check("Claude Code integration", func() (string, bool) {
+		return fmt.Sprintf("%s (%s)", rep.Claude.State, rep.Claude.BinaryPath), true
+	})
+	check("Codex integration", func() (string, bool) {
+		return fmt.Sprintf("%s (%s)", rep.Codex.State, rep.Codex.BinaryPath), true
+	})
+	check("Daemon reachable", func() (string, bool) {
+		if rep.Daemon.Running {
+			return fmt.Sprintf("running (pid %d)", rep.Daemon.PID), true
+		}
+		return "not running - start via `slimference service install` or `slimference --no-tui`", true
+	})
+	check("launchd plist", func() (string, bool) {
+		path := daemonPlistPathFn()
+		if _, err := os.Stat(path); err == nil {
+			return path, true
+		}
+		return "not installed (ok if you prefer manual start)", true
+	})
+}
+
+// Injectable shims so doctor tests can bypass the real detect probes.
+var (
+	integrateStatusFn    = defaultIntegrateStatus
+	daemonPlistPathFn    = daemon.LaunchdPlistPath
+	integrateNotInstalled = "not_installed"
+	integrateFullyWired   = "fully_wired"
+)
+
+type integrateOptions struct {
+	HomeDir string
+}
+
+type integrateReportClient struct {
+	State      string
+	BinaryPath string
+}
+
+type integrateReportDaemon struct {
+	Running bool
+	PID     int
+}
+
+type integrateReport struct {
+	Claude integrateReportClient
+	Codex  integrateReportClient
+	Daemon integrateReportDaemon
+}
+
+func defaultIntegrateStatus(opts integrateOptions) integrateReport {
+	r := integrate.Status(integrate.Options{HomeDir: opts.HomeDir})
+	return integrateReport{
+		Claude: integrateReportClient{State: r.Claude.State.String(), BinaryPath: r.Claude.BinaryPath},
+		Codex:  integrateReportClient{State: r.Codex.State.String(), BinaryPath: r.Codex.BinaryPath},
+		Daemon: integrateReportDaemon{Running: r.Daemon.Running, PID: r.Daemon.PID},
 	}
 }
 
@@ -1968,6 +2048,8 @@ func (a *proxyAdapter) Shutdown(ctx context.Context) error {
 func (a *proxyAdapter) Config() tui.ProxyConfigInterface {
 	return &configAdapter{cfg: a.p.Config()}
 }
+func (a *proxyAdapter) Bypass() bool             { return a.p.Bypass() }
+func (a *proxyAdapter) SetBypass(enabled bool)   { a.p.SetBypass(enabled) }
 
 // configAdapter adapts config.Config to tui.ProxyConfigInterface.
 type configAdapter struct {

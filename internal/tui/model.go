@@ -52,6 +52,9 @@ type ProxyInterface interface {
 	SessionLogger() SessionLoggerInterface
 	Shutdown(ctx context.Context) error
 	Config() ProxyConfigInterface
+	// T67: bypass flag. Bypass() reports state, SetBypass toggles.
+	Bypass() bool
+	SetBypass(enabled bool)
 }
 
 // HookStatus records which LLM agent hooks are currently installed.
@@ -425,6 +428,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.proxy.FlushCaches()
 			m.setFlash("All caches flushed")
 			return m, flashTimer(2 * time.Second)
+
+		case "b", "B":
+			// T67: master bypass toggle. Flip the flag and echo a flash
+			// so the operator has visual confirmation that the change
+			// landed on the running daemon.
+			next := !m.proxy.Bypass()
+			m.proxy.SetBypass(next)
+			if next {
+				m.setFlash("Bypass: ON  (proxy forwards traffic unmodified)")
+			} else {
+				m.setFlash("Bypass: OFF  (compression layers active)")
+			}
+			return m, flashTimer(3 * time.Second)
 
 		case "y":
 			path := m.copyDebugLog()

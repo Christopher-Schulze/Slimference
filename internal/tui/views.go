@@ -566,6 +566,8 @@ func renderHookStatus(s Styles, h HookStatus) string {
 }
 
 // renderHeader renders the title bar with version, session duration and port.
+// T67: inserts a "BYPASS" badge when the master bypass is active so the
+// operator never forgets that compression is off.
 func (m *Model) renderHeader(innerWidth int) string {
 	s := m.styles
 	title := s.Title.Render("SLIMFERENCE v" + Version)
@@ -578,7 +580,12 @@ func (m *Model) renderHeader(innerWidth int) string {
 			status = s.MenuWarn.Render(fmt.Sprintf("daemon idle · :%d", m.proxy.Config().GetListenPort()))
 		}
 	}
-	right := status + "  " + s.Muted.Render(fmt.Sprintf(":%d", m.proxy.Config().GetListenPort())) +
+	bypassBadge := ""
+	if m.proxy.Bypass() {
+		bypassBadge = s.MenuWarn.Render("⚠ BYPASS ") + "  "
+	}
+	right := bypassBadge + status + "  " +
+		s.Muted.Render(fmt.Sprintf(":%d", m.proxy.Config().GetListenPort())) +
 		"  " + s.Dim.Render("◷ "+renderSessionDuration(m.sessionStart))
 	pad := innerWidth - lipgloss.Width(title) - lipgloss.Width(right) - 1
 	if pad < 1 {
