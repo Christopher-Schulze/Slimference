@@ -30,7 +30,10 @@ func defaultsRaw() *Config {
 			Layer3Enabled:             true,
 			SlidingWindow:             5,
 			MinMessagesForCompression: 8,
-			MinTokensForLayer2:        30000,
+			MinTokensForLayer2:                15000,
+			Layer2LatencyBudgetMs:             0, // 0 = guard off (opt-in)
+			Layer2LatencyProjectionMultiplier: 1.2,
+			Layer2LatencyEMAAlpha:             0.2,
 			StructureMinTokens:        500,
 			StructureLanguages: []string{
 				"go", "typescript", "javascript", "rust", "python",
@@ -133,7 +136,12 @@ layer2_enabled = true
 layer3_enabled = true
 sliding_window = 5
 min_messages_for_compression = 8
-min_tokens_for_layer2 = 30000
+min_tokens_for_layer2 = 15000
+# T54: optional latency guard. Non-zero to activate. Skips L2 when
+# EMA-based projection would exceed the budget (ms).
+layer2_latency_budget_ms = 0
+layer2_latency_projection_multiplier = 1.2
+layer2_latency_ema_alpha = 0.2
 structure_min_tokens = 500
 structure_languages = ["go", "typescript", "javascript", "rust", "python", "c", "cpp", "java", "ruby", "shell"]
 dedup_similarity_threshold = 0.85

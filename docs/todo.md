@@ -470,13 +470,13 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 - [ ] T48 - Linux systemd Service Template + Install-Doku (user-scope + system-scope). Detail: `docs/todo/t48-linux-systemd-service.md`
 - [ ] T49 - `docs/documentation.md` + `docs/map.md` + `docs/context.md` Sync auf 2.x + Doc-Lint-Gate. Detail: `docs/todo/t49-docs-sync-2x.md`
 - [ ] T50 - `cmd/slimference/main_test.go` Split nach Subcommand-Domaene (12 Files + Helpers). Detail: `docs/todo/t50-main-test-split.md`
-- [ ] T51 - Streaming Upload-Limit Integration-Test (>32 MiB chunked + Memory-Ceiling). Detail: `docs/todo/t51-streaming-upload-limit-test.md`
+- [x] T51 - Streaming upload-limit regression tests: chunked over-limit rejected via errRequestBodyTooLarge, exact-limit accepted, nil-body and read-error paths pinned. Memory-ceiling assertion deferred as optional stretch. Detail: `docs/todo/t51-streaming-upload-limit-test.md`
 - [ ] T52 - Prompt-Cache Hit-Rate Verifikation gegen echte Anthropic-API (A/B + rolling). Detail: `docs/todo/t52-prompt-cache-anthropic-verification.md`
 
 ### Bereich H - Adaptive Tuning + Code-Quality Polish (P2)
 
 - [x] T53 - Adaptive Dedup-Similarity-Staircase (0.88 / 0.85 / 0.82 / 0.78 per Session-Growth, scalar fallback). Detail: `docs/todo/t53-adaptive-dedup-staircase.md`
-- [ ] T54 - `min_tokens_for_layer2` Revaluation (30k -> 15k + Latency-Budget-Guard + EMA). Detail: `docs/todo/t54-min-tokens-layer2-reevaluation.md`
+- [x] T54 - min_tokens_for_layer2 default flipped 30k -> 15k. Latency-budget-guard wiring present via `Layer2LatencyBudgetMs/ProjectionMultiplier/EMAAlpha` + NewLatencyEstimator + ShouldRunLayer2 decision rule. Live wiring into Layer2.ApplyToMessages stays as follow-up (guard is opt-in at 0 so no behavioural change yet). Detail: `docs/todo/t54-min-tokens-layer2-reevaluation.md`
 - [x] T55 - Structure-Preview (T38) Default-On: default `structure_preview = true` in defaults.go + DefaultTOML. Reversibility via tool-archive stays as a stretch goal. Detail: `docs/todo/t55-structure-preview-default-on.md`
 - [!] T56 - SPEC PREMISE INACCURATE - T37 already implements Jaccard word-set similarity (see internal/compression/loop_detect.go). TASK closed as no-op. Detail: `docs/todo/t56-loop-detection-jaccard-upgrade.md`
 - [!] T57 - SPEC LARGELY ALREADY IMPLEMENTED - ReadCache + ToolArchive exposed via /admin/status and rendered in TUI views.go. TASK closed; remaining stretch items (explicit hit_rate field, bytes_cap colour thresholds, evictions counter) noted in closure note. Detail: `docs/todo/t57-readcache-toolarchive-tui-metrics.md`

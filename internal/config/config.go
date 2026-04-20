@@ -99,6 +99,18 @@ type CompressionConfig struct {
 	SlidingWindow             int           `toml:"sliding_window"`
 	MinMessagesForCompression int           `toml:"min_messages_for_compression"`
 	MinTokensForLayer2        int           `toml:"min_tokens_for_layer2"`
+	// Layer2LatencyBudgetMs (T54) caps the per-request time Slimference is
+	// willing to spend on Layer 2. If the EMA of past MiniMax latencies
+	// multiplied by Layer2LatencyProjectionMultiplier exceeds this budget,
+	// L2 is skipped for the current request even if other preconditions
+	// are met. 0 disables the guard (legacy behaviour). Default 0.
+	Layer2LatencyBudgetMs int `toml:"layer2_latency_budget_ms"`
+	// Layer2LatencyProjectionMultiplier is the safety margin applied to the
+	// EMA when computing the projection. Default 1.2.
+	Layer2LatencyProjectionMultiplier float64 `toml:"layer2_latency_projection_multiplier"`
+	// Layer2LatencyEMAAlpha is the exponential-moving-average weight on
+	// new observations. Default 0.2.
+	Layer2LatencyEMAAlpha float64 `toml:"layer2_latency_ema_alpha"`
 	StructureMinTokens        int           `toml:"structure_min_tokens"`
 	StructureLanguages        []string      `toml:"structure_languages"`
 	DedupSimilarityThreshold  float64       `toml:"dedup_similarity_threshold"`
