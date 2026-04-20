@@ -236,6 +236,7 @@ func New(cfg *config.Config) *Proxy {
 	mux.HandleFunc(AdminStatusPath, p.adminStatusHandler)
 	mux.HandleFunc(AdminProviderPath, p.adminProviderHandler)
 	mux.HandleFunc(AdminLayerPath, p.adminLayerHandler)
+	mux.HandleFunc(AdminSecuritySuspendPath, p.adminSecuritySuspendHandler)
 	mux.HandleFunc(AdminFlushPath, p.adminFlushHandler)
 	mux.HandleFunc("/", p.ServeHTTP)
 

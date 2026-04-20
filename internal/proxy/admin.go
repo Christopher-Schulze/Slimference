@@ -15,12 +15,29 @@ import (
 )
 
 const (
-	AdminBasePath     = "/_slimference/admin"
-	AdminStatusPath   = AdminBasePath + "/status"
-	AdminProviderPath = AdminBasePath + "/provider"
-	AdminLayerPath    = AdminBasePath + "/layer"
-	AdminFlushPath    = AdminBasePath + "/flush"
+	AdminBasePath           = "/_slimference/admin"
+	AdminStatusPath         = AdminBasePath + "/status"
+	AdminProviderPath       = AdminBasePath + "/provider"
+	AdminLayerPath          = AdminBasePath + "/layer"
+	AdminFlushPath          = AdminBasePath + "/flush"
+	AdminSecuritySuspendPath = AdminBasePath + "/security/suspend"
 )
+
+// AdminSecuritySuspendRequest is the JSON payload for the suspend endpoint
+// (T59). SuspendSeconds <= 0 clears the suspension; values > MaxSuspendSeconds
+// are clamped server-side via security.Detector.SuspendUntil.
+type AdminSecuritySuspendRequest struct {
+	SuspendSeconds int `json:"suspend_seconds"`
+}
+
+// AdminSecuritySuspendResponse echoes the resulting state so the client can
+// confirm the effective deadline (which may differ from the requested one
+// due to server-side clamping).
+type AdminSecuritySuspendResponse struct {
+	Active       bool  `json:"active"`
+	UntilUnixSec int64 `json:"until_unix_sec,omitempty"`
+	Mode         string `json:"mode"`
+}
 
 type AdminLayer2Status struct {
 	HasCache    bool      `json:"has_cache"`
@@ -106,7 +123,8 @@ type AdminToggleLayerRequest struct {
 }
 
 type adminActionResponse struct {
-	OK bool `json:"ok"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
 }
 
 func (p *Proxy) adminStatusSnapshot() AdminStatus {
@@ -226,6 +244,58 @@ func (p *Proxy) adminStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeAdminJSON(w, http.StatusOK, p.adminStatusSnapshot())
+}
+
+// adminSecuritySuspendHandler implements the T59 per-session override.
+// GET returns the current state. POST with {suspend_seconds: N} sets or
+// clears the suspension (N <= 0 clears). Server-side clamping ensures the
+// detector can never be suspended past security.MaxSuspendDuration.
+func (p *Proxy) adminSecuritySuspendHandler(w http.ResponseWriter, r *http.Request) {
+	if p.secretsDetector == nil {
+		writeAdminJSON(w, http.StatusServiceUnavailable, adminActionResponse{
+			OK:    false,
+			Error: "secrets detector not configured",
+		})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		active, until := p.secretsDetector.SuspendState()
+		resp := AdminSecuritySuspendResponse{
+			Active: active,
+			Mode:   p.secretsDetector.Mode(),
+		}
+		if active {
+			resp.UntilUnixSec = until.Unix()
+		}
+		writeAdminJSON(w, http.StatusOK, resp)
+	case http.MethodPost:
+		var req AdminSecuritySuspendRequest
+		if !decodeAdminJSON(r, &req) {
+			writeAdminJSON(w, http.StatusBadRequest, adminActionResponse{
+				OK: false, Error: "invalid JSON payload",
+			})
+			return
+		}
+		var effective time.Time
+		if req.SuspendSeconds <= 0 {
+			effective = p.secretsDetector.SuspendUntil(time.Time{})
+		} else {
+			effective = p.secretsDetector.SuspendUntil(
+				time.Now().Add(time.Duration(req.SuspendSeconds) * time.Second))
+		}
+		active, _ := p.secretsDetector.SuspendState()
+		resp := AdminSecuritySuspendResponse{
+			Active: active,
+			Mode:   p.secretsDetector.Mode(),
+		}
+		if active {
+			resp.UntilUnixSec = effective.Unix()
+		}
+		writeAdminJSON(w, http.StatusOK, resp)
+	default:
+		writeAdminJSON(w, http.StatusMethodNotAllowed, adminActionResponse{OK: false})
+	}
 }
 
 func (p *Proxy) adminProviderHandler(w http.ResponseWriter, r *http.Request) {

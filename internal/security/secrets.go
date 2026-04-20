@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/slimference/slimference/internal/types"
 )
@@ -22,7 +24,56 @@ type Detector struct {
 	mode           string // "redact" | "warn" | "block" | "off"
 	customPatterns []SecretPattern
 	allowlist      []string
+
+	// suspendUntilNano (T59) is a per-process override that temporarily
+	// treats the detector as if mode=="off" until the wall-clock time
+	// expires. Updated via SuspendUntil, read on every ScanMessages call.
+	suspendUntilNano atomic.Int64
 }
+
+// MaxSuspendDuration caps how long a detector can be suspended per
+// SuspendUntil call. Keeps operators from accidentally disabling
+// redaction indefinitely via the admin endpoint.
+const MaxSuspendDuration = time.Hour
+
+// SuspendUntil temporarily disables all secret detection until the given
+// wall-clock time. Times in the past clear the suspension. Durations
+// longer than MaxSuspendDuration are clamped down so an operator who asks
+// for 24h still gets only an hour.
+func (d *Detector) SuspendUntil(until time.Time) time.Time {
+	now := time.Now()
+	if until.Before(now) {
+		d.suspendUntilNano.Store(0)
+		return time.Time{}
+	}
+	maxUntil := now.Add(MaxSuspendDuration)
+	if until.After(maxUntil) {
+		until = maxUntil
+	}
+	d.suspendUntilNano.Store(until.UnixNano())
+	return until
+}
+
+// SuspendState reports the current suspension status. active=false means
+// the detector is operating normally; the `until` value is the wall-clock
+// deadline when active=true and time.Time{} otherwise.
+func (d *Detector) SuspendState() (active bool, until time.Time) {
+	ns := d.suspendUntilNano.Load()
+	if ns == 0 {
+		return false, time.Time{}
+	}
+	t := time.Unix(0, ns)
+	if time.Now().After(t) {
+		// Expired: lazily clear so subsequent reads are cheap.
+		d.suspendUntilNano.Store(0)
+		return false, time.Time{}
+	}
+	return true, t
+}
+
+// Mode returns the configured detection mode ("off", "warn", "redact",
+// "block"). Exposed for admin surfaces.
+func (d *Detector) Mode() string { return d.mode }
 
 // NewDetector constructs a Detector with the given mode, custom patterns, and allowlist.
 // custom patterns are appended after DefaultPatterns.
@@ -62,6 +113,10 @@ func NewDetector(mode string, custom []SecretPattern, allowlist []string) *Detec
 //   - "block":  returns nil messages and a non-nil error if any secret is found.
 func (d *Detector) ScanMessages(messages []types.Message) ([]types.Message, []Detection, error) {
 	if d.mode == "off" {
+		return messages, nil, nil
+	}
+	// T59: temporary session-suspend overrides the configured mode.
+	if active, _ := d.SuspendState(); active {
 		return messages, nil, nil
 	}
 
