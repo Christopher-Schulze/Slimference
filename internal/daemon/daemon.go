@@ -241,7 +241,14 @@ func GenerateLaunchdPlist(binaryPath string) string {
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>2</integer>
     <key>StandardOutPath</key>
     <string>` + expandHome("~/.slimference/logs/daemon.stdout.log") + `</string>
     <key>StandardErrorPath</key>

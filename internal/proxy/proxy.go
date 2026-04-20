@@ -84,6 +84,12 @@ type Proxy struct {
 	providerEnabled [3]atomic.Bool
 	layerEnabled    [3]atomic.Bool
 
+	// Bypass (T67) short-circuits every isLayerEnabled / isProviderEnabled
+	// check when set, producing a transparent passthrough relay. Hot-
+	// reloadable via admin POST /admin/bypass and the `B` TUI hotkey;
+	// persisted alongside other toggles.
+	bypassMode atomic.Bool
+
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
 
@@ -239,6 +245,7 @@ func New(cfg *config.Config) *Proxy {
 	mux.HandleFunc(AdminProviderPath, p.adminProviderHandler)
 	mux.HandleFunc(AdminLayerPath, p.adminLayerHandler)
 	mux.HandleFunc(AdminSecuritySuspendPath, p.adminSecuritySuspendHandler)
+	mux.HandleFunc(AdminBypassPath, p.adminBypassHandler)
 	mux.HandleFunc(AdminFlushPath, p.adminFlushHandler)
 	mux.HandleFunc("/", p.ServeHTTP)
 
@@ -442,13 +449,26 @@ func (p *Proxy) SetLayerEnabled(layer int, enabled bool) {
 }
 
 func (p *Proxy) isProviderEnabled(prov types.Provider) bool {
+	if p.bypassMode.Load() {
+		return false
+	}
 	if int(prov) < len(p.providerEnabled) {
 		return p.providerEnabled[prov].Load()
 	}
 	return false
 }
 
+// SetBypass toggles the T67 master bypass. While on, every request is
+// forwarded byte-equal without passing through Layer 1/2/3.
+func (p *Proxy) SetBypass(enabled bool) { p.bypassMode.Store(enabled) }
+
+// Bypass reports the current master-bypass state.
+func (p *Proxy) Bypass() bool { return p.bypassMode.Load() }
+
 func (p *Proxy) isLayerEnabled(layer int) bool {
+	if p.bypassMode.Load() {
+		return false
+	}
 	if layer >= 1 && layer <= len(p.layerEnabled) {
 		return p.layerEnabled[layer-1].Load()
 	}

@@ -28,6 +28,8 @@ SUBCOMMANDS:
   debug        Decision-chain JSONL tools (paths|last|summary|tail|replay)
   service      Daemon lifecycle (install|uninstall|start|stop|status|logs)
   daemon       Run as a long-lived daemon (invoked by launchd/systemd)
+  integrate    Wire Claude Code and Codex to this proxy (status|install|remove|emergency-off)
+  bypass       Toggle the master bypass flag (on|off|status)
   config       Config file tools (init|show)
   test         Upstream connectivity tests (minimax|anthropic|openai|intercept)
   completion   Emit shell completion script (bash)
@@ -187,6 +189,40 @@ Emit a bash completion script. Pipe to your completion dir.
 		return `slimference trust <subcmd>
 
 Tools around the trust model ported from RTK. See docs/rtk-parity.md.
+`
+	case "integrate":
+		return `slimference integrate <status|install|remove|emergency-off> [flags]
+
+Wire Claude Code and Codex to run through this proxy. Install writes
+ANTHROPIC_BASE_URL into your shell rc and openai_base_url +
+chatgpt_base_url into ~/.codex/config.toml, installs both hooks, and
+reports the resulting state. Every edit uses a fenced marker block so
+re-running install is a no-op and remove is exact.
+
+Flags:
+  --dry-run            Print intended writes without touching anything.
+  --client <name>      Narrow to claude | codex | daemon | all (default all).
+  --json               Emit machine-readable JSON.
+  --no-hook            Skip hook install/remove (config only).
+  --proxy-url <url>    Override http://127.0.0.1:8990.
+  --force              Re-apply blocks even if already present (self-heal).
+
+Verbs:
+  status           Report per-client wiring state.
+  install          Idempotent wire-up.
+  remove           Clean tear-down (undo install).
+  emergency-off    Panic button: unwire everything + stop the daemon.
+
+See docs/integration.md for the failure-mode matrix.
+`
+	case "bypass":
+		return `slimference bypass <on|off|status>
+
+Toggle the master bypass flag on the running daemon. When on, the proxy
+keeps accepting connections but forwards traffic byte-equal with zero
+compression - useful when a request feels off and you want to rule
+Slimference out instantly without uninstalling anything. Hot-reload;
+no shell or client restart needed. Requires the daemon to be running.
 `
 	case "version":
 		return fmt.Sprintf("slimference v%s\n", version)

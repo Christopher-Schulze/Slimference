@@ -516,6 +516,9 @@ func handleSubcommand(args []string) {
 	case "integrate":
 		handleIntegrateCmd(args[1:])
 
+	case "bypass":
+		handleBypassCmd(args[1:])
+
 	case "completion":
 		handleCompletionCmd(args[1:])
 
@@ -2325,6 +2328,48 @@ func handleRestartCmd() {
 	handleStartCmd()
 }
 
+// postInstallHealthProbeTimeout bounds the health probe in seconds. Test-
+// injectable.
+var postInstallHealthProbeTimeout = 10 * time.Second
+
+// healthProbeFn is the injectable probe used by post-install. Production
+// uses net/http against the proxy's /admin/health endpoint. Tests replace
+// this to short-circuit.
+var healthProbeFn = defaultHealthProbe
+
+func defaultHealthProbe(url string, timeout time.Duration) (ok bool, status string) {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 1 * time.Second}
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return true, strings.TrimSpace(string(body))
+			}
+			return false, fmt.Sprintf("http %d", resp.StatusCode)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false, "timeout waiting for daemon"
+}
+
+// runPostInstallHealthProbe polls the daemon health endpoint after a
+// `service install` so the user gets immediate feedback on whether the
+// daemon actually started or is looping under launchd KeepAlive.
+func runPostInstallHealthProbe() {
+	url := "http://127.0.0.1:8990/admin/health"
+	ok, status := healthProbeFn(url, postInstallHealthProbeTimeout)
+	if ok {
+		fmt.Printf("Health probe: ok (%s)\n", status)
+		return
+	}
+	fmt.Printf("Health probe: degraded (%s)\n", status)
+	fmt.Println("  → check `slimference service status` and the log file")
+	fmt.Println("    at ~/.slimference/logs/daemon.stderr.log")
+}
+
 func handleServiceCmd(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: slimference service <install|uninstall|status>")
@@ -2342,6 +2387,9 @@ func handleServiceCmd(args []string) {
 			exitFn(1)
 		}
 		fmt.Println("Service installed. Slimference will start at login.")
+		// T68: post-install health probe so the user sees whether launchd
+		// successfully started the binary without having to check manually.
+		runPostInstallHealthProbe()
 	case "uninstall":
 		if err := daemonUninstallFn(); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)

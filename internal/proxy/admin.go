@@ -21,7 +21,18 @@ const (
 	AdminLayerPath          = AdminBasePath + "/layer"
 	AdminFlushPath          = AdminBasePath + "/flush"
 	AdminSecuritySuspendPath = AdminBasePath + "/security/suspend"
+	AdminBypassPath          = AdminBasePath + "/bypass"
 )
+
+// AdminBypassRequest is the POST body for toggling the master bypass (T67).
+type AdminBypassRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// AdminBypassResponse echoes the effective bypass state.
+type AdminBypassResponse struct {
+	Enabled bool `json:"enabled"`
+}
 
 // AdminSecuritySuspendRequest is the JSON payload for the suspend endpoint
 // (T59). SuspendSeconds <= 0 clears the suspension; values > MaxSuspendSeconds
@@ -98,6 +109,7 @@ type AdminStatus struct {
 	PromptCache       PromptCacheStats                    `json:"prompt_cache"`
 	Pipeline          []analytics.PhaseSnapshot           `json:"pipeline"`
 	AnthropicVersion  AnthropicVersionStats               `json:"anthropic_version"`
+	Bypass            bool                                `json:"bypass"`
 }
 
 // AnthropicVersionStats reports T62 version-negotiation telemetry.
@@ -220,6 +232,27 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			UnknownBehavior:   p.config.Proxy.AnthropicUnknownBehavior,
 			UnknownSeenTotal:  AnthropicUnknownVersionCount(),
 		},
+		Bypass: p.Bypass(),
+	}
+}
+
+// adminBypassHandler returns or sets the master bypass state (T67).
+func (p *Proxy) adminBypassHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeAdminJSON(w, http.StatusOK, AdminBypassResponse{Enabled: p.Bypass()})
+	case http.MethodPost:
+		var req AdminBypassRequest
+		if !decodeAdminJSON(r, &req) {
+			writeAdminJSON(w, http.StatusBadRequest, adminActionResponse{
+				OK: false, Error: "invalid JSON payload",
+			})
+			return
+		}
+		p.SetBypass(req.Enabled)
+		writeAdminJSON(w, http.StatusOK, AdminBypassResponse{Enabled: p.Bypass()})
+	default:
+		writeAdminJSON(w, http.StatusMethodNotAllowed, adminActionResponse{OK: false})
 	}
 }
 
