@@ -1,0 +1,389 @@
+package main
+
+import (
+	"bytes"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+func TestHandleSubcommand_doctor_smoke(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing-doctor.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Slimference Doctor") {
+		t.Fatalf("stdout: %q", out)
+	}
+	if !strings.Contains(out, "All checks passed") {
+		t.Fatalf("expected success footer: %q", out)
+	}
+}
+
+func TestHandleSubcommand_doctor_invalidConfigExits1(t *testing.T) {
+	if os.Getenv("TP_DOCTOR_BAD_CFG") == "1" {
+		handleSubcommand([]string{"doctor"})
+		return
+	}
+	cfgPath := filepath.Join(t.TempDir(), "bad.toml")
+	if err := os.WriteFile(cfgPath, []byte("this is not valid toml [[["), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_doctor_invalidConfigExits1")
+	cmd.Env = append(os.Environ(), "TP_DOCTOR_BAD_CFG=1", "SLIMFERENCE_CONFIG="+cfgPath)
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1, got err=%v", err)
+	}
+}
+
+// TestHandleSubcommand_doctor_failingChecks covers the check() closure !ok branch
+// (main.go:592-595), the MiniMax key-missing branch (615-617), the upstream-unreachable
+// branches (624-626, 634-636), and the "Some checks failed" footer (652-654).
+func TestHandleSubcommand_doctor_failingChecks(t *testing.T) {
+
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+
+	t.Setenv("MINIMAX_API_KEY", "")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+
+	if !strings.Contains(out, "Slimference Doctor") {
+		t.Fatalf("expected doctor header in output: %q", out)
+	}
+
+	if !strings.Contains(out, "FAIL") {
+		t.Fatalf("expected at least one FAIL in output: %q", out)
+	}
+}
+
+// TestHandleSubcommand_doctor_configFileMissingBranch covers the
+// "not found at ... (using defaults)" branch in the Config file check (main.go:604-606).
+// We override HOME so DefaultConfigPath returns a non-existent file.
+func TestHandleSubcommand_doctor_configFileMissingBranch(t *testing.T) {
+
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(fakeHome, "cfg.toml"))
+
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Slimference Doctor") {
+		t.Fatalf("expected doctor header: %q", out)
+	}
+}
+
+// TestHandleSubcommand_doctor_configFileExistsBranch covers main.go:607 (return path, true)
+// when DefaultConfigPath() resolves to an existing file.
+//
+// DefaultConfigPath calls expandHome("~") which returns the literal string "~" (because "~"
+// has no "~/" prefix), so the effective path is the relative path "~/.slimference/config.toml".
+// We build that directory structure inside a temp dir and chdir into it.
+func TestHandleSubcommand_doctor_configFileExistsBranch(t *testing.T) {
+	tmp := t.TempDir()
+
+	tildeSlimferenceDir := filepath.Join(tmp, "~", ".slimference")
+	if err := os.MkdirAll(tildeSlimferenceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tildeSlimferenceDir, "config.toml"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWD) })
+
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Slimference Doctor") {
+		t.Fatalf("expected doctor header: %q", out)
+	}
+
+	if strings.Contains(out, "not found") {
+		t.Fatalf("expected config-found output (got not-found): %q", out)
+	}
+}
+
+// TestHandleSubcommand_doctor_analyticsLogDirError covers main.go:643-645
+// when os.MkdirAll for the analytics log dir fails.
+func TestHandleSubcommand_doctor_analyticsLogDirError(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(fakeHome, "missing.toml"))
+
+	blocker := filepath.Join(fakeHome, "notadir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logDirPath := filepath.Join(blocker, "subdir")
+
+	cfgContent := "[analytics]\nlog_dir = \"" + logDirPath + "\"\n"
+	cfgFile := filepath.Join(fakeHome, "test.toml")
+	if err := os.WriteFile(cfgFile, []byte(cfgContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgFile)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Slimference Doctor") {
+		t.Fatalf("expected doctor header: %q", out)
+	}
+
+	if !strings.Contains(out, "cannot create") {
+		t.Fatalf("expected MkdirAll error in output: %q", out)
+	}
+}
+
+func TestHandleSubcommand_configShow(t *testing.T) {
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing-config.toml"))
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"config", "show"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, `"Proxy"`) || !strings.Contains(out, `"ListenPort"`) {
+		t.Fatalf("stdout: %q", out)
+	}
+}
+
+func TestHandleSubcommand_configShow_loadErrorExits1(t *testing.T) {
+	if os.Getenv("TP_CFG_SHOW_BAD") == "1" {
+		t.Setenv("SLIMFERENCE_CONFIG", os.Getenv("TP_CFG_SHOW_BAD_FILE"))
+		handleSubcommand([]string{"config", "show"})
+		return
+	}
+	tmp := t.TempDir()
+	badPath := filepath.Join(tmp, "bad.toml")
+	if err := os.WriteFile(badPath, []byte("this is not valid toml [[["), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configShow_loadErrorExits1")
+	cmd.Env = append(os.Environ(), "TP_CFG_SHOW_BAD=1", "TP_CFG_SHOW_BAD_FILE="+badPath)
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1, got err=%v", err)
+	}
+}
+
+func TestHandleSubcommand_configInit_writesFile(t *testing.T) {
+
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	t.Setenv("SLIMFERENCE_CONFIG", "")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"config", "init"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	path := filepath.Join(xdg, "slimference", "config.toml")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected config at %s: %v", path, err)
+	}
+	if !strings.Contains(out, "Config written") {
+		t.Fatalf("stdout: %q", out)
+	}
+}
+
+func TestHandleSubcommand_configInit_secondIsNoop(t *testing.T) {
+	if os.Getenv("TP_CFG_INIT_TWICE") == "1" {
+		_ = os.Chdir(os.Getenv("TP_CFG_INIT_HOME"))
+		handleSubcommand([]string{"config", "init"})
+		handleSubcommand([]string{"config", "init"})
+		return
+	}
+	tmp := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configInit_secondIsNoop")
+	cmd.Env = append(os.Environ(), "TP_CFG_INIT_TWICE=1", "TP_CFG_INIT_HOME="+tmp)
+	cmd.Dir = tmp
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("want exit 0: %v out=%s", err, out)
+	}
+	if !strings.Contains(string(out), "already exists") {
+		t.Fatalf("output: %s", out)
+	}
+}
+
+func TestHandleSubcommand_configUnknownExits1(t *testing.T) {
+	if os.Getenv("TP_SUB_CFG_BAD") == "1" {
+		handleSubcommand([]string{"config", "not-a-subcommand"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configUnknownExits1")
+	cmd.Env = append(os.Environ(), "TP_SUB_CFG_BAD=1")
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1, got err=%v", err)
+	}
+}
+
+func TestHandleSubcommand_configUnknownSubcommandExits1(t *testing.T) {
+	if os.Getenv("TP_CFG_UNKNOWN_SUB") == "1" {
+		handleSubcommand([]string{"config", "nope"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configUnknownSubcommandExits1")
+	cmd.Env = append(os.Environ(), "TP_CFG_UNKNOWN_SUB=1")
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1, got err=%v", err)
+	}
+}
+
+func TestHandleSubcommand_configUsageExits1(t *testing.T) {
+	if os.Getenv("TP_SUB_CONFIG_USAGE") == "1" {
+		handleSubcommand([]string{"config"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleSubcommand_configUsageExits1")
+	cmd.Env = append(os.Environ(), "TP_SUB_CONFIG_USAGE=1")
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1, got err=%v", err)
+	}
+}
+
+// TestHandleConfigCmd_initMkdirErrorExits1 covers handleConfigCmd "init" MkdirAll error (main.go:443-446).
+// Arrange HOME so DefaultConfigPath resolves into a read-only directory that blocks mkdir.
+func TestHandleConfigCmd_initMkdirErrorExits1(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod not applicable on windows")
+	}
+	if os.Getenv("TP_CFG_INIT_MKDIR_ERR") == "1" {
+
+		handleSubcommand([]string{"config", "init"})
+		return
+	}
+	tmp := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(tmp, "slimference"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleConfigCmd_initMkdirErrorExits1")
+	cmd.Env = append(os.Environ(),
+		"TP_CFG_INIT_MKDIR_ERR=1",
+		"XDG_CONFIG_HOME="+tmp,
+		"SLIMFERENCE_CONFIG=",
+	)
+	err := cmd.Run()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("want exit 1, got err=%v", err)
+	}
+}
+
+// TestHandleConfigCmd_writeFileError covers the os.WriteFile error exit in handleConfigCmd (main.go:460-463).
+func TestHandleConfigCmd_writeFileError(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "config.toml")
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+
+	orig := osWriteFile
+	defer func() { osWriteFile = orig }()
+	osWriteFile = func(name string, data []byte, perm os.FileMode) error {
+		return errors.New("write failed")
+	}
+
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() {
+		handleSubcommand([]string{"config", "init"})
+	})
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+
+	if !exited || code != 1 {
+		t.Fatalf("want exit 1, got exited=%v code=%d", exited, code)
+	}
+	if !strings.Contains(buf.String(), "write config") {
+		t.Fatalf("stderr: %q", buf.String())
+	}
+}
