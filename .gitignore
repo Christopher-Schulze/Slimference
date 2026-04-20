@@ -28,3 +28,4 @@ repos/
 # inside the repo tree.
 ~/
 **/~/
+/dist/

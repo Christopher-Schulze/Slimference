@@ -1,0 +1,40 @@
+# Homebrew formula template for slimference. Drop this into a
+# `slimference/homebrew-tap` repo as `Formula/slimference.rb` and
+# fill in VERSION + each SHA from dist/SHA256SUMS before each release.
+
+class Slimference < Formula
+  desc "Claude/Codex token-optimising proxy"
+  homepage "https://github.com/slimference/slimference"
+  version "VERSION"
+  license "see the project repository"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/slimference/slimference/releases/download/vVERSION/slimference_VERSION_darwin_arm64.tar.gz"
+      sha256 "DARWIN_ARM64_SHA256"
+    else
+      url "https://github.com/slimference/slimference/releases/download/vVERSION/slimference_VERSION_darwin_amd64.tar.gz"
+      sha256 "DARWIN_AMD64_SHA256"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/slimference/slimference/releases/download/vVERSION/slimference_VERSION_linux_arm64.tar.gz"
+      sha256 "LINUX_ARM64_SHA256"
+    else
+      url "https://github.com/slimference/slimference/releases/download/vVERSION/slimference_VERSION_linux_amd64.tar.gz"
+      sha256 "LINUX_AMD64_SHA256"
+    end
+  end
+
+  def install
+    bin.install "slimference"
+    doc.install "README.md" if File.exist?("README.md")
+    doc.install "layer0-exit-codes.md" if File.exist?("layer0-exit-codes.md")
+  end
+
+  test do
+    assert_match "slimference v", shell_output("#{bin}/slimference --version")
+  end
+end

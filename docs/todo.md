@@ -466,8 +466,8 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 
 - [x] T45 - Multi-Breakpoint Prompt-Cache: spread-even Placement ueber stable prefix (up to 4 breakpoints), counter + admin surface. System-prompt/tools-array breakpoints bleiben Stretch (braucht body-level refactor). Detail: `docs/todo/t45-multi-breakpoint-prompt-cache.md`
 - [x] T46 - `--config <path>` Flag + XDG-Compliance (flag > env > XDG > legacy, LoadWithOptions + LoadInfo, doctor reports source). Detail: `docs/todo/t46-config-flag-and-xdg.md`
-- [ ] T47 - Binary-Release-Pipeline (Cross-Build, SHA256SUMS, Minisign, Homebrew-Tap). Detail: `docs/todo/t47-binary-release-pipeline.md`
-- [ ] T48 - Linux systemd Service Template + Install-Doku (user-scope + system-scope). Detail: `docs/todo/t48-linux-systemd-service.md`
+- [x] T47 - Binary-Release-Pipeline: scripts/release/main.go cross-builds darwin/linux arm64+amd64, writes SHA256SUMS, bundles LICENSE+README+docs, ships Homebrew formula template and docs/release-process.md. Minisign integration documented but not automated (manual step). GitHub Actions workflow deferred (user-operated release). Detail: `docs/todo/t47-binary-release-pipeline.md`
+- [x] T48 - Linux systemd Service: scripts/service/linux/slimference.service hardened user-unit, install.sh idempotent installer, Dockerfile distroless image, docs/deploy/linux-systemd.md walk-through. `slimference service install` on Linux stays as follow-up (current `service` subcommand is macOS-only; the systemd installer covers the Linux path today). Detail: `docs/todo/t48-linux-systemd-service.md`
 - [ ] T49 - `docs/documentation.md` + `docs/map.md` + `docs/context.md` Sync auf 2.x + Doc-Lint-Gate. Detail: `docs/todo/t49-docs-sync-2x.md`
 - [ ] T50 - `cmd/slimference/main_test.go` Split nach Subcommand-Domaene (12 Files + Helpers). Detail: `docs/todo/t50-main-test-split.md`
 - [x] T51 - Streaming upload-limit regression tests: chunked over-limit rejected via errRequestBodyTooLarge, exact-limit accepted, nil-body and read-error paths pinned. Memory-ceiling assertion deferred as optional stretch. Detail: `docs/todo/t51-streaming-upload-limit-test.md`
