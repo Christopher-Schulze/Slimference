@@ -478,7 +478,7 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 - [x] T53 - Adaptive Dedup-Similarity-Staircase (0.88 / 0.85 / 0.82 / 0.78 per Session-Growth, scalar fallback). Detail: `docs/todo/t53-adaptive-dedup-staircase.md`
 - [ ] T54 - `min_tokens_for_layer2` Revaluation (30k -> 15k + Latency-Budget-Guard + EMA). Detail: `docs/todo/t54-min-tokens-layer2-reevaluation.md`
 - [x] T55 - Structure-Preview (T38) Default-On: default `structure_preview = true` in defaults.go + DefaultTOML. Reversibility via tool-archive stays as a stretch goal. Detail: `docs/todo/t55-structure-preview-default-on.md`
-- [ ] T56 - Loop-Detection (T37) Regex -> Jaccard-Word-Similarity-Upgrade. Detail: `docs/todo/t56-loop-detection-jaccard-upgrade.md`
+- [!] T56 - SPEC PREMISE INACCURATE - T37 already implements Jaccard word-set similarity (see internal/compression/loop_detect.go). TASK closed as no-op. Detail: `docs/todo/t56-loop-detection-jaccard-upgrade.md`
 - [ ] T57 - Read-Cache + Tool-Archive TUI-Live-Metriken (hit-rate, bytes, evictions). Detail: `docs/todo/t57-readcache-toolarchive-tui-metrics.md`
 - [ ] T58 - TUI TTFT-Breakdown pro Layer (p50/p95 + token-saving-% pro Phase). Detail: `docs/todo/t58-tui-ttft-breakdown.md`
 - [ ] T59 - Secrets-Detector Per-Session-Override + Allowlist-Session-TOML (hot-reload, max 1h). Detail: `docs/todo/t59-secrets-detector-session-override.md`
@@ -486,7 +486,7 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 - [ ] T61 - Tuning-Config Durchreichen fuer `tool_compressor` RTK-Heuristiken (per-tool overrides). Detail: `docs/todo/t61-tool-compressor-tuning-config.md`
 - [ ] T62 - Anthropic-Version-Header Negotiation + Conservative-Mode-Fallback (whitelist, warn-once). Detail: `docs/todo/t62-anthropic-version-negotiation.md`
 - [ ] T63 - Tee-Recovery Exit-Code-Matrix in `spec+.md` dokumentieren + Timeout-Guard. Detail: `docs/todo/t63-tee-recovery-exit-code-matrix.md`
-- [ ] T64 - TUI Keybindings + Error-Modal Esc-Path Haerten + auto-generiertes `docs/tui-keybindings.md`. Detail: `docs/todo/t64-tui-keybindings-and-error-modal.md`
+- [x] T64 - TUI Keybindings single-source + auto-generated `docs/tui-keybindings.md` with drift-check test. Error-modal Esc hardening + help overlay bleiben Stretch. Detail: `docs/todo/t64-tui-keybindings-and-error-modal.md`
 
 ### Reihenfolge
 

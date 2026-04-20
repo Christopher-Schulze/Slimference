@@ -86,3 +86,74 @@ func DefaultKeyMap() KeyMap {
 func (km KeyMap) footerHelp() string {
 	return "[←/→] views  [↑/↓] move  [enter] execute  [c/x] providers  [1-3] layers  [f] flush  [q] quit"
 }
+
+// bindingSpec names a binding and references the KeyMap field.
+type bindingSpec struct {
+	name    string
+	binding key.Binding
+}
+
+// orderedBindings returns bindings in the canonical order used by the
+// rendered help / markdown table. New bindings should be appended to the
+// slice - not inserted in the middle - so external docs and golden test
+// outputs stay stable.
+func (km KeyMap) orderedBindings() []bindingSpec {
+	return []bindingSpec{
+		{"Navigation", km.PrevView},
+		{"Navigation", km.NextView},
+		{"Navigation", km.CursorUp},
+		{"Navigation", km.CursorDown},
+		{"Navigation", km.Execute},
+		{"Views", km.ViewStats},
+		{"Views", km.ViewDebug},
+		{"Providers", km.ToggleClaude},
+		{"Providers", km.ToggleCodex},
+		{"Layers", km.ToggleLayer1},
+		{"Layers", km.ToggleLayer2},
+		{"Layers", km.ToggleLayer3},
+		{"Actions", km.FlushCaches},
+		{"Actions", km.Quit},
+	}
+}
+
+// RenderKeybindingsMarkdown returns a Markdown table describing every
+// keybinding. Used to generate `docs/tui-keybindings.md` from code so the
+// documentation cannot drift. T64.
+func (km KeyMap) RenderKeybindingsMarkdown() string {
+	var sb = stringBuilder{}
+	sb.Write("# Slimference TUI Keybindings\n\n")
+	sb.Write("Auto-generated from `internal/tui/keys.go`. Do not edit by hand;\n")
+	sb.Write("run the generator or rerun the TUI key tests to regenerate.\n\n")
+	sb.Write("| Category | Keys | Description |\n")
+	sb.Write("|----------|------|-------------|\n")
+	for _, spec := range km.orderedBindings() {
+		keys := joinKeys(spec.binding.Keys())
+		help := spec.binding.Help().Desc
+		sb.Write("| ")
+		sb.Write(spec.name)
+		sb.Write(" | `")
+		sb.Write(keys)
+		sb.Write("` | ")
+		sb.Write(help)
+		sb.Write(" |\n")
+	}
+	return sb.String()
+}
+
+// small helpers - kept local to avoid pulling strings.Join/Builder into the
+// hot-path file and to make the generator output byte-stable.
+type stringBuilder struct{ b []byte }
+
+func (s *stringBuilder) Write(x string) { s.b = append(s.b, x...) }
+func (s *stringBuilder) String() string { return string(s.b) }
+
+func joinKeys(keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	out := keys[0]
+	for _, k := range keys[1:] {
+		out += ", " + k
+	}
+	return out
+}

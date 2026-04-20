@@ -1,5 +1,30 @@
 # T56 - Loop-Detection (T37) Regex → Jaccard-Word-Similarity-Upgrade
 
+Status: closed (spec premise inaccurate)
+Priority: n/a
+
+## 2026-04-20 Closure Note
+
+Code verification in `internal/compression/loop_detect.go` revealed that
+T37 **already implements Jaccard word-set similarity** (functions
+`wordSet` and `jaccard`, threshold `LoopDetectionThreshold = 0.75`,
+streak `LoopDetectionMinStreak = 4`). The spec's "regex-only" premise
+was wrong.
+
+What could still be added (tracked separately if anyone wants it):
+
+1. Config-exposed threshold + min-streak (currently constants).
+2. Stop-word filter (currently every whitespace-split token counts).
+3. Per-session opt-out via config.
+
+None of those are high-leverage enough to keep T56 open as a blocker.
+Closed as no-op; fold improvements into a dedicated future task when
+field evidence motivates them.
+
+---
+
+# Original specification below (kept for historical reference)
+
 Status: todo
 Priority: P2
 Scope: `internal/compression/loop_detection.go` (or wherever T37 landed), `internal/compression/dedup_minhash.go`, `internal/analytics/`
