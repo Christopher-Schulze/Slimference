@@ -3604,12 +3604,18 @@ func redirectStderr() (r *os.File, cleanup func()) {
 	}
 }
 
-// TestMain_noArgs covers the `runTUIFn()` branch in main() (main.go:75).
+// TestMain_noArgs covers the `runTUIFn()` branch in main() on a TTY.
 func TestMain_noArgs(t *testing.T) {
 	orig := runTUIFn
 	defer func() { runTUIFn = orig }()
 	called := false
 	runTUIFn = func() { called = true }
+
+	// On non-TTY main() now refuses to start the TUI (T43 discover-help path).
+	// The test must pretend to be a TTY so the original code path is exercised.
+	origTerm := termIsTerminalFn
+	defer func() { termIsTerminalFn = origTerm }()
+	termIsTerminalFn = func(int) bool { return true }
 
 	origArgs := os.Args
 	defer func() { os.Args = origArgs }()
@@ -3618,6 +3624,107 @@ func TestMain_noArgs(t *testing.T) {
 	main()
 	if !called {
 		t.Fatal("runTUIFn was not called")
+	}
+}
+
+// TestMain_noTTYEmitsHelp covers the T43 non-TTY guard: running with no args on
+// a non-TTY must print help, exit 2, and never call runTUIFn.
+func TestMain_noTTYEmitsHelp(t *testing.T) {
+	origTerm := termIsTerminalFn
+	defer func() { termIsTerminalFn = origTerm }()
+	termIsTerminalFn = func(int) bool { return false }
+
+	origRunTUI := runTUIFn
+	defer func() { runTUIFn = origRunTUI }()
+	runTUIFn = func() { t.Fatal("runTUIFn must not fire on non-TTY") }
+
+	origExit := exitFn
+	defer func() { exitFn = origExit }()
+	var exitCode int
+	exitFn = func(code int) { exitCode = code }
+
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+	os.Args = []string{"slimference"}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+	main()
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+
+	if exitCode != 2 {
+		t.Fatalf("exitCode = %d, want 2", exitCode)
+	}
+	if !strings.Contains(buf.String(), "SUBCOMMANDS") {
+		t.Fatalf("help banner missing: %q", buf.String())
+	}
+}
+
+// TestMain_helpFlag covers --help early dispatch.
+func TestMain_helpFlag(t *testing.T) {
+	origRunTUI := runTUIFn
+	defer func() { runTUIFn = origRunTUI }()
+	runTUIFn = func() { t.Fatal("runTUIFn must not fire on --help") }
+
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+	os.Args = []string{"slimference", "--help"}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+	main()
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+
+	if !strings.Contains(buf.String(), "SUBCOMMANDS") {
+		t.Fatalf("--help banner missing: %q", buf.String())
+	}
+}
+
+// TestMain_versionFlag covers --version early dispatch.
+func TestMain_versionFlag(t *testing.T) {
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+	os.Args = []string{"slimference", "-V"}
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = old }()
+	main()
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+
+	if !strings.HasPrefix(buf.String(), "slimference v") {
+		t.Fatalf("version banner wrong: %q", buf.String())
+	}
+}
+
+// TestMain_noTuiFlag covers --no-tui early dispatch to runHeadlessFn.
+func TestMain_noTuiFlag(t *testing.T) {
+	origFn := runHeadlessFn
+	defer func() { runHeadlessFn = origFn }()
+	called := false
+	runHeadlessFn = func(args []string) { called = true }
+
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+	os.Args = []string{"slimference", "--no-tui"}
+
+	main()
+	if !called {
+		t.Fatal("runHeadlessFn was not called")
 	}
 }
 

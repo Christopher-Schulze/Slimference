@@ -445,3 +445,67 @@ macOS only. Kein Linux-Daemon, keine zsh/fish-Completion. Wird nicht mehr als Ga
 
 - [x] T39 - Smart Compaction / progressive checkpoints / ranked restore, extracted from `repos/token-optimizer` with strict separation from the proxy fast path. Detail: `docs/todo/t39-smart-compaction-checkpoints.md`
 - [x] T40 - Large tool-result archive + explicit `expand`, extracted from `repos/token-optimizer` and shaped around Slimference's existing `posttool` path. Detail: `docs/todo/t40-tool-archive-expand.md`
+
+---
+
+## Post-2.0 Production-Readiness Program (2026-04-20)
+
+Ergebnis des Deep Reality-Check am 2026-04-20. Referenz: Claude-Code-Audit
+Response 2026-04-20 + `docs/audit-2.md`. Priorisierung: P0 (Release-Blocker
+fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
+(Post-1.0 Polish). Alle Detail-Files unter `docs/todo/tNN-<slug>.md`.
+
+### Bereich F - Silent-Failure-Hardening + Erstkontakt-UX (P0)
+
+- [!] T41 - SPEC PREMISE INACCURATE - extractMessages returns 400 BadRequest on parse error, not silent-drop. Real round-trip fidelity issue is folded into T62 (Anthropic-Version-Negotiation). TASK closed as no-op. Detail: `docs/todo/t41-extract-messages-hardening.md`
+- [x] T42 - Analytics-Queue Overflow Visibility (rate-limited warn + counter + TUI + admin). Detail: `docs/todo/t42-analytics-queue-overflow-visibility.md`
+- [x] T43 - CLI `--help`, Subcommand-Help, Onboarding Discovery (no TUI on non-TTY). Detail: `docs/todo/t43-cli-help-and-onboarding.md`
+- [x] T44 - Headless Foreground Mode `--no-tui` / `--headless` (basic signal traps + exit codes; log-format/log-file/systemd-integration = T48). Detail: `docs/todo/t44-headless-foreground-mode.md`
+
+### Bereich G - Token-Savings und Release-Pipeline (P1)
+
+- [ ] T45 - Multi-Breakpoint Prompt-Cache (4 statt 1, system + tools + early + late). Detail: `docs/todo/t45-multi-breakpoint-prompt-cache.md`
+- [ ] T46 - `--config <path>` Flag + XDG-Compliance (flag > env > XDG > legacy). Detail: `docs/todo/t46-config-flag-and-xdg.md`
+- [ ] T47 - Binary-Release-Pipeline (Cross-Build, SHA256SUMS, Minisign, Homebrew-Tap). Detail: `docs/todo/t47-binary-release-pipeline.md`
+- [ ] T48 - Linux systemd Service Template + Install-Doku (user-scope + system-scope). Detail: `docs/todo/t48-linux-systemd-service.md`
+- [ ] T49 - `docs/documentation.md` + `docs/map.md` + `docs/context.md` Sync auf 2.x + Doc-Lint-Gate. Detail: `docs/todo/t49-docs-sync-2x.md`
+- [ ] T50 - `cmd/slimference/main_test.go` Split nach Subcommand-Domaene (12 Files + Helpers). Detail: `docs/todo/t50-main-test-split.md`
+- [ ] T51 - Streaming Upload-Limit Integration-Test (>32 MiB chunked + Memory-Ceiling). Detail: `docs/todo/t51-streaming-upload-limit-test.md`
+- [ ] T52 - Prompt-Cache Hit-Rate Verifikation gegen echte Anthropic-API (A/B + rolling). Detail: `docs/todo/t52-prompt-cache-anthropic-verification.md`
+
+### Bereich H - Adaptive Tuning + Code-Quality Polish (P2)
+
+- [ ] T53 - Adaptive Dedup-Similarity-Staircase (0.88 -> 0.78 per Session-Growth). Detail: `docs/todo/t53-adaptive-dedup-staircase.md`
+- [ ] T54 - `min_tokens_for_layer2` Revaluation (30k -> 15k + Latency-Budget-Guard + EMA). Detail: `docs/todo/t54-min-tokens-layer2-reevaluation.md`
+- [ ] T55 - Structure-Preview (T38) Default-On + Reversible via Tool-Archive. Detail: `docs/todo/t55-structure-preview-default-on.md`
+- [ ] T56 - Loop-Detection (T37) Regex -> Jaccard-Word-Similarity-Upgrade. Detail: `docs/todo/t56-loop-detection-jaccard-upgrade.md`
+- [ ] T57 - Read-Cache + Tool-Archive TUI-Live-Metriken (hit-rate, bytes, evictions). Detail: `docs/todo/t57-readcache-toolarchive-tui-metrics.md`
+- [ ] T58 - TUI TTFT-Breakdown pro Layer (p50/p95 + token-saving-% pro Phase). Detail: `docs/todo/t58-tui-ttft-breakdown.md`
+- [ ] T59 - Secrets-Detector Per-Session-Override + Allowlist-Session-TOML (hot-reload, max 1h). Detail: `docs/todo/t59-secrets-detector-session-override.md`
+- [ ] T60 - Shutdown-Timeout Guard auf `wg.Wait()` (pprof-Dump + Exit-Code 6). Detail: `docs/todo/t60-shutdown-timeout-guard.md`
+- [ ] T61 - Tuning-Config Durchreichen fuer `tool_compressor` RTK-Heuristiken (per-tool overrides). Detail: `docs/todo/t61-tool-compressor-tuning-config.md`
+- [ ] T62 - Anthropic-Version-Header Negotiation + Conservative-Mode-Fallback (whitelist, warn-once). Detail: `docs/todo/t62-anthropic-version-negotiation.md`
+- [ ] T63 - Tee-Recovery Exit-Code-Matrix in `spec+.md` dokumentieren + Timeout-Guard. Detail: `docs/todo/t63-tee-recovery-exit-code-matrix.md`
+- [ ] T64 - TUI Keybindings + Error-Modal Esc-Path Haerten + auto-generiertes `docs/tui-keybindings.md`. Detail: `docs/todo/t64-tui-keybindings-and-error-modal.md`
+
+### Reihenfolge
+
+P0 (T41-T44) zuerst - ohne die ist der Erstkontakt kaputt und Silent-Failures
+verfaelschen jede Messung. P1 (T45-T52) liefert GA-Release: Token-Gewinn +
+Distribution + Doku. P2 (T53-T64) ist Polish nach Release-Tag.
+
+### Abhaengigkeiten
+
+- T44 (Headless) ist Voraussetzung fuer T48 (systemd Service).
+- T43 (Help) + T46 (Config-Flag) gemeinsam refactor-freundlich planen.
+- T60 (Shutdown-Timeout) Voraussetzung fuer T44 (Headless-Exit-Code-Taxonomie).
+- T45 (Multi-Breakpoint) und T52 (Anthropic-Verify) gehoeren im Release gepaart.
+- T49 (Docs-Sync) als letzter Schritt, nachdem T41-T48 gelandet sind.
+
+### Out-of-Scope (bewusst nicht adressiert)
+
+- Windows-Support in jeder Form.
+- zsh / fish Completion (bleibt macOS+bash per 2026-04-18-Entscheidung).
+- Prometheus-Exposition und Metriken-Pull (separater Release-Track).
+- Embedding-basierte Similarity-Checks.
+- Auto-Tuning / Reinforcement-gesteuerte Threshold-Wahl.

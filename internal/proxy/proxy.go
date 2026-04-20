@@ -67,6 +67,13 @@ type Proxy struct {
 	shutdownOnce   sync.Once
 	wg             sync.WaitGroup
 
+	// Analytics queue telemetry (T42). Counters are updated via trySendAnalytics
+	// so every non-blocking send site is instrumented uniformly. Tests pause the
+	// rate-limited warn via analyticsWarnClock.
+	analyticsEnqueued atomic.Int64
+	analyticsDropped  atomic.Int64
+	analyticsLastWarn atomic.Int64 // unix-nano of last drop warn, for 1/min rate limit
+
 	// Runtime toggle atomics. Index 0=Anthropic, 1=OpenAI for providers.
 	// Index 0=Layer1, 1=Layer2, 2=Layer3 for layers.
 	providerEnabled [2]atomic.Bool
@@ -238,6 +245,71 @@ func (p *Proxy) SetTUISendFn(fn func(types.RequestMetrics)) {
 // Config returns the proxy configuration.
 func (p *Proxy) Config() *config.Config {
 	return p.config
+}
+
+// analyticsWarnIntervalNs is the minimum gap between "analytics_queue_full"
+// warn log emissions. Tests may override by writing directly.
+var analyticsWarnIntervalNs int64 = int64(time.Minute)
+
+// trySendAnalytics sends ev on analyticsQueue non-blocking and records the
+// outcome atomically. On drop, it emits a rate-limited slog.Warn so operators
+// can distinguish a stuck collector from a healthy burst. All non-blocking
+// analytics send sites must route through this helper to keep counters honest.
+func (p *Proxy) trySendAnalytics(ev types.AnalyticsEvent) {
+	select {
+	case p.analyticsQueue <- ev:
+		p.analyticsEnqueued.Add(1)
+	default:
+		p.analyticsDropped.Add(1)
+		now := time.Now().UnixNano()
+		last := p.analyticsLastWarn.Load()
+		if now-last >= analyticsWarnIntervalNs &&
+			p.analyticsLastWarn.CompareAndSwap(last, now) {
+			slog.Warn("analytics_queue_full",
+				"event", "analytics_drop",
+				"dropped_total", p.analyticsDropped.Load(),
+				"capacity", cap(p.analyticsQueue),
+				"depth", len(p.analyticsQueue),
+			)
+		}
+	}
+}
+
+// AnalyticsQueueStats returns a snapshot of analytics queue telemetry.
+// Safe for concurrent use; values are consistent at read time.
+type AnalyticsQueueStats struct {
+	Capacity      int   `json:"capacity"`
+	Depth         int   `json:"depth"`
+	EnqueuedTotal int64 `json:"enqueued_total"`
+	DroppedTotal  int64 `json:"dropped_total"`
+}
+
+// AnalyticsQueueStats reports current analytics queue telemetry.
+func (p *Proxy) AnalyticsQueueStats() AnalyticsQueueStats {
+	return AnalyticsQueueStats{
+		Capacity:      cap(p.analyticsQueue),
+		Depth:         len(p.analyticsQueue),
+		EnqueuedTotal: p.analyticsEnqueued.Load(),
+		DroppedTotal:  p.analyticsDropped.Load(),
+	}
+}
+
+// noteAnalyticsDrop is called from each non-blocking send site's `default`
+// branch. It increments the drop counter and emits at most one slog.Warn per
+// analyticsWarnIntervalNs nanoseconds across all send sites.
+func (p *Proxy) noteAnalyticsDrop() {
+	p.analyticsDropped.Add(1)
+	now := time.Now().UnixNano()
+	last := p.analyticsLastWarn.Load()
+	if now-last >= analyticsWarnIntervalNs &&
+		p.analyticsLastWarn.CompareAndSwap(last, now) {
+		slog.Warn("analytics_queue_full",
+			"event", "analytics_drop",
+			"dropped_total", p.analyticsDropped.Load(),
+			"capacity", cap(p.analyticsQueue),
+			"depth", len(p.analyticsQueue),
+		)
+	}
 }
 
 // Start binds the listener and begins serving. It is non-blocking; call from a goroutine.

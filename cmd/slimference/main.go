@@ -151,12 +151,128 @@ var (
 
 func main() {
 	proxy.Version = version
-	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
-		handleSubcommand(os.Args[1:])
+	args := os.Args[1:]
+
+	// Early dispatch: help and version must never try to open the TUI.
+	if wantsHelp(args) {
+		printHelp(args)
 		return
 	}
+	if wantsVersion(args) {
+		fmt.Printf("slimference v%s\n", version)
+		return
+	}
+
+	// Explicit headless / non-TTY foreground mode (T44).
+	if wantsHeadless(args) {
+		runHeadlessFn(args)
+		return
+	}
+
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		handleSubcommand(args)
+		return
+	}
+
+	// No args: on a non-TTY we refuse to launch the TUI and emit help with exit 2
+	// so Docker / systemd / CI paths surface a clear signal instead of a TTY error.
+	if len(args) == 0 && !termIsTerminalFn(int(os.Stdout.Fd())) {
+		fmt.Fprintln(os.Stderr, "slimference: no TTY detected. Use --no-tui for headless mode or --help.")
+		printHelp(nil)
+		exitFn(2)
+		return
+	}
+
 	runTUIFn()
 }
+
+// wantsHelp reports whether args contain a help flag or the bare 'help' subcommand.
+func wantsHelp(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "--help", "-h", "help":
+		return true
+	}
+	return false
+}
+
+// wantsVersion reports whether args explicitly ask for the version banner.
+// The 'version' subcommand is handled by handleSubcommand.
+func wantsVersion(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "--version", "-V":
+		return true
+	}
+	return false
+}
+
+// wantsHeadless reports whether args request the headless foreground proxy mode.
+// Scans for --no-tui / --headless; stops at '--' argument terminator or at a
+// known subcommand token so flags buried inside subcommand args do not flip the
+// top-level mode. Env override SLIMFERENCE_HEADLESS=1 also counts.
+func wantsHeadless(args []string) bool {
+	if os.Getenv("SLIMFERENCE_HEADLESS") == "1" {
+		return true
+	}
+	knownSubcommands := map[string]bool{
+		"version": true, "config": true, "test": true, "doctor": true,
+		"stats": true, "gain": true, "filter": true, "rewrite": true,
+		"readhook": true, "posttool": true, "checkpoint": true, "expand": true,
+		"hook": true, "debug": true, "daemon": true, "start": true, "stop": true,
+		"restart": true, "service": true, "completion": true, "trust": true,
+		"help": true,
+	}
+	// Flags that consume the next token as a value; their value must not be
+	// mistaken for a subcommand.
+	flagWithValue := map[string]bool{
+		"--port": true, "-port": true, "--sliding-window": true,
+		"--log-level": true, "--log-format": true, "--log-file": true,
+		"--color": true, "--config": true,
+	}
+	skipNext := false
+	for _, a := range args {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if a == "--" {
+			return false
+		}
+		if a == "--no-tui" || a == "--headless" {
+			return true
+		}
+		if flagWithValue[a] {
+			skipNext = true
+			continue
+		}
+		if knownSubcommands[a] {
+			return false
+		}
+	}
+	return false
+}
+
+// printHelp writes usage information to stdout. topic selects top-level or
+// subcommand help. Nil / empty args prints the top-level banner.
+func printHelp(args []string) {
+	topic := ""
+	if len(args) >= 2 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
+		topic = args[1]
+	}
+	if topic == "" {
+		fmt.Fprint(os.Stdout, helpTopLevel())
+		return
+	}
+	fmt.Fprint(os.Stdout, helpForSubcommand(topic))
+}
+
+// Injected for tests.
+var runHeadlessFn = runHeadless
 
 // progSender delivers proxy request events to the BubbleTea program via a buffered channel.
 type progSender struct {

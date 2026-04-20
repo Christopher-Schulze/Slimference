@@ -76,6 +76,7 @@ type AdminStatus struct {
 	Checkpoints       AdminCheckpointStatus               `json:"checkpoints"`
 	ToolArchive       AdminToolArchiveStatus              `json:"tool_archive"`
 	ProviderHealth    map[string]types.ProviderHealthInfo `json:"provider_health"`
+	AnalyticsQueue    AnalyticsQueueStats                 `json:"analytics_queue"`
 }
 
 type AdminToggleProviderRequest struct {
@@ -173,6 +174,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			"anthropic": p.GetProviderHealth(types.Anthropic),
 			"openai":    p.GetProviderHealth(types.OpenAI),
 		},
+		AnalyticsQueue: p.AnalyticsQueueStats(),
 	}
 }
 

@@ -78,15 +78,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 		if len(detections) > 0 {
 			log.Warn("secrets detected/redacted", "count", len(detections))
-			select {
-			case p.analyticsQueue <- types.AnalyticsEvent{
+			p.trySendAnalytics(types.AnalyticsEvent{
 				Type:         types.EventSecretDetected,
 				Timestamp:    time.Now(),
 				Provider:     provider,
 				SecretsFound: len(detections),
-			}:
-			default:
-			}
+			})
 		}
 	}
 
@@ -223,8 +220,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				p.debugRecorder.Record(summary)
 			}
 
-			select {
-			case p.analyticsQueue <- types.AnalyticsEvent{
+			p.trySendAnalytics(types.AnalyticsEvent{
 				Type:             types.EventRequestProcessed,
 				Timestamp:        time.Now(),
 				Provider:         provider,
@@ -237,9 +233,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				LatencyMs:        cacheLatencyMs,
 				CacheHit:         true,
 				TokensSaved:      totalSaved,
-			}:
-			default:
-			}
+			})
 
 			log.Info("request_processed",
 				"input_orig", origTokens,
@@ -264,15 +258,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		p.healthMon.record(provider, false)
 		log.Error("upstream request failed", "error", err)
 		p.proxyError(w, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", err))
-		select {
-		case p.analyticsQueue <- types.AnalyticsEvent{
+		p.trySendAnalytics(types.AnalyticsEvent{
 			Type:      types.EventErrorOccurred,
 			Timestamp: time.Now(),
 			Provider:  provider,
 			Error:     err.Error(),
-		}:
-		default:
-		}
+		})
 		return
 	}
 	p.healthMon.record(provider, upstreamResp.StatusCode < 500)
@@ -387,8 +378,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		p.debugRecorder.Record(summary)
 	}
 
-	select {
-	case p.analyticsQueue <- types.AnalyticsEvent{
+	p.trySendAnalytics(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,
 		Timestamp:         time.Now(),
 		Provider:          provider,
@@ -402,9 +392,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		TokensSaved:       totalSaved,
 		CacheReadTokens:   upstreamCacheUsage.ReadTokens,
 		CacheCreateTokens: upstreamCacheUsage.CreateTokens,
-	}:
-	default:
-	}
+	})
 
 	log.Info("request_processed",
 		"input_orig", origTokens,
@@ -469,8 +457,7 @@ func (p *Proxy) serveStageACacheHit(
 		p.debugRecorder.Record(summary)
 	}
 
-	select {
-	case p.analyticsQueue <- types.AnalyticsEvent{
+	p.trySendAnalytics(types.AnalyticsEvent{
 		Type:             types.EventRequestProcessed,
 		Timestamp:        time.Now(),
 		Provider:         provider,
@@ -483,9 +470,7 @@ func (p *Proxy) serveStageACacheHit(
 		LatencyMs:        latencyMs,
 		CacheHit:         true,
 		TokensSaved:      0,
-	}:
-	default:
-	}
+	})
 
 	log.Info("request_processed",
 		"input_orig", origTokens,
@@ -595,14 +580,11 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 			backoff = resilience.ExponentialBackoff(attempt, time.Second, 30*time.Second)
 		}
 		slog.Warn("rate limited, retrying", "attempt", attempt+1, "backoff", backoff, "status", resp.StatusCode)
-		select {
-		case p.analyticsQueue <- types.AnalyticsEvent{
+		p.trySendAnalytics(types.AnalyticsEvent{
 			Type:      types.EventRateLimitRetry,
 			Timestamp: time.Now(),
 			Provider:  provider,
-		}:
-		default:
-		}
+		})
 		select {
 		case <-r.Context().Done():
 			return nil, r.Context().Err()
@@ -615,14 +597,11 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 		resp.Body.Close()
 		if isContextOverflow(bodyBytes) {
-			select {
-			case p.analyticsQueue <- types.AnalyticsEvent{
+			p.trySendAnalytics(types.AnalyticsEvent{
 				Type:      types.EventOverflowRetry,
 				Timestamp: time.Now(),
 				Provider:  provider,
-			}:
-			default:
-			}
+			})
 			if err := r.Context().Err(); err != nil {
 				return nil, err
 			}
@@ -879,13 +858,10 @@ func (p *Proxy) runCompressionJob(job types.CompressJob) {
 	slog.Debug("compression job started", "messages", len(job.Messages))
 	p.layer2.RunCompressionJobContext(p.compressionContext(), job.Messages)
 
-	select {
-	case p.analyticsQueue <- types.AnalyticsEvent{
+	p.trySendAnalytics(types.AnalyticsEvent{
 		Type:      types.EventCompressionComplete,
 		Timestamp: time.Now(),
-	}:
-	default:
-	}
+	})
 }
 
 // analyticsWorker reads from analyticsQueue and records events.
