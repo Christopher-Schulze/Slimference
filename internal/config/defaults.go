@@ -66,7 +66,13 @@ func defaultsRaw() *Config {
 				StructureInWindow:          false,
 				StructureInWindowMinTokens: 1500,
 				LoopDetection:              false,
-				StructurePreview:           false,
+				StructurePreview:           true,
+				DedupStaircase: []StaircaseStep{
+					{MsgCountLE: 10, Threshold: 0.88},
+					{MsgCountLE: 20, Threshold: 0.85},
+					{MsgCountLE: 40, Threshold: 0.82},
+					{MsgCountLE: 1_000_000, Threshold: 0.78},
+				},
 			},
 		},
 		Cache: CacheConfig{
@@ -187,8 +193,9 @@ structure_in_window_min_tokens = 1500
 loop_detection = false
 
 # T38: replace large tool_result blocks (>=4 KB) with a shape-aware
-# preview (JSON / paths / ASCII table) when strictly shorter. Default off.
-structure_preview = false
+# preview (JSON / paths / ASCII table) when strictly shorter. Default on
+# (T55); set to false to restore the pre-2.1 pass-through behaviour.
+structure_preview = true
 
 [cache]
 response_cache_max_entries = 100

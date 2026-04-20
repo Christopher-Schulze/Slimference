@@ -475,9 +475,9 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 
 ### Bereich H - Adaptive Tuning + Code-Quality Polish (P2)
 
-- [ ] T53 - Adaptive Dedup-Similarity-Staircase (0.88 -> 0.78 per Session-Growth). Detail: `docs/todo/t53-adaptive-dedup-staircase.md`
+- [x] T53 - Adaptive Dedup-Similarity-Staircase (0.88 / 0.85 / 0.82 / 0.78 per Session-Growth, scalar fallback). Detail: `docs/todo/t53-adaptive-dedup-staircase.md`
 - [ ] T54 - `min_tokens_for_layer2` Revaluation (30k -> 15k + Latency-Budget-Guard + EMA). Detail: `docs/todo/t54-min-tokens-layer2-reevaluation.md`
-- [ ] T55 - Structure-Preview (T38) Default-On + Reversible via Tool-Archive. Detail: `docs/todo/t55-structure-preview-default-on.md`
+- [x] T55 - Structure-Preview (T38) Default-On: default `structure_preview = true` in defaults.go + DefaultTOML. Reversibility via tool-archive stays as a stretch goal. Detail: `docs/todo/t55-structure-preview-default-on.md`
 - [ ] T56 - Loop-Detection (T37) Regex -> Jaccard-Word-Similarity-Upgrade. Detail: `docs/todo/t56-loop-detection-jaccard-upgrade.md`
 - [ ] T57 - Read-Cache + Tool-Archive TUI-Live-Metriken (hit-rate, bytes, evictions). Detail: `docs/todo/t57-readcache-toolarchive-tui-metrics.md`
 - [ ] T58 - TUI TTFT-Breakdown pro Layer (p50/p95 + token-saving-% pro Phase). Detail: `docs/todo/t58-tui-ttft-breakdown.md`

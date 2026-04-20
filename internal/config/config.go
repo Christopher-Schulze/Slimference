@@ -140,8 +140,16 @@ type TuningConfig struct {
 	LoopDetection bool `toml:"loop_detection"`
 	// StructurePreview enables T38: large tool_result blocks (>=4 KB) with
 	// JSON / path-list / ASCII-table shape are replaced with a compact,
-	// shape-aware preview when strictly shorter. Default false (opt-in).
+	// shape-aware preview when strictly shorter. Default true (T55);
+	// set to false to restore pass-through behaviour.
 	StructurePreview bool `toml:"structure_preview"`
+	// DedupStaircase lowers the MinHash/LSH Jaccard threshold as the
+	// conversation grows. Long sessions accumulate more near-duplicate tool
+	// output; a relaxed threshold catches it without false collapses on
+	// short sessions. The first step whose msg_count_le is >= len(messages)
+	// wins; an empty staircase falls back to the scalar
+	// Compression.DedupSimilarityThreshold. See T53.
+	DedupStaircase []StaircaseStep `toml:"dedup_staircase"`
 }
 
 // StaircaseStep is one tier of a conversation-size-keyed threshold staircase.

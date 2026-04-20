@@ -38,6 +38,26 @@ type DeterministicCompressor struct {
 	structExtractor *StructureExtractor
 	toolCallIndex   *ToolCallIndex
 	fileOpGraph     *FileOpGraph
+	// activeDedupThreshold holds the staircase-resolved dedup similarity
+	// threshold for the current Compress() call. Computed once per call
+	// so every compressMessage invocation uses the same value.
+	activeDedupThreshold float64
+}
+
+// resolveDedupThreshold applies the T53 staircase: the first step whose
+// MsgCountLE covers msgCount wins. Zero / invalid entries fall back to the
+// scalar Compression.DedupSimilarityThreshold so legacy configs keep their
+// behaviour byte-equal.
+func (c *DeterministicCompressor) resolveDedupThreshold(msgCount int) float64 {
+	for _, step := range c.cfg.Tuning.DedupStaircase {
+		if msgCount <= step.MsgCountLE {
+			if step.Threshold <= 0 || step.Threshold > 1 {
+				return c.cfg.DedupSimilarityThreshold
+			}
+			return step.Threshold
+		}
+	}
+	return c.cfg.DedupSimilarityThreshold
 }
 
 // NewDeterministicCompressor returns a fully initialized DeterministicCompressor.
@@ -62,6 +82,12 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 	if len(messages) == 0 {
 		return result
 	}
+
+	// T53: resolve the dedup similarity threshold once per call. The
+	// staircase lowers the threshold for longer conversations, where
+	// near-duplicates accumulate naturally (retry build output, repeated
+	// log tails, etc.). An empty staircase keeps the scalar fallback.
+	c.activeDedupThreshold = c.resolveDedupThreshold(len(messages))
 
 	// T37 loop nudge runs first so any downstream compression sees the
 	// nudged text. Opt-in via [compression.tuning] loop_detection.
@@ -226,7 +252,14 @@ func (c *DeterministicCompressor) compressMessage(
 		}
 
 		// L1.3: Dedup before structure / delta (spec order).
-		exactDupe, nearDupe, firstIdx := c.contentIndex.CheckAndRecord(text, msgIdx, c.cfg.DedupSimilarityThreshold)
+		// T53: activeDedupThreshold is staircase-resolved once per Compress().
+		// Fall back to the scalar threshold for direct compressMessage calls
+		// (tests) that bypass Compress().
+		threshold := c.activeDedupThreshold
+		if threshold <= 0 {
+			threshold = c.cfg.DedupSimilarityThreshold
+		}
+		exactDupe, nearDupe, firstIdx := c.contentIndex.CheckAndRecord(text, msgIdx, threshold)
 		textTransformed := false // tracks whether delta/structure already rewrote text
 		if exactDupe {
 			dedupSaved += len(text)
