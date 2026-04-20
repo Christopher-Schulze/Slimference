@@ -187,8 +187,9 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			"3": p.isLayerEnabled(3),
 		},
 		Providers: map[string]bool{
-			"anthropic": p.isProviderEnabled(types.Anthropic),
-			"openai":    p.isProviderEnabled(types.OpenAI),
+			"anthropic":     p.isProviderEnabled(types.Anthropic),
+			"openai":        p.isProviderEnabled(types.OpenAI),
+			"codex_chatgpt": p.isProviderEnabled(types.CodexChatGPT),
 		},
 		QueueDepth: map[string]int{
 			"compress":  len(p.compressQueue),
@@ -205,8 +206,9 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		Checkpoints:       checkpointStatus,
 		ToolArchive:       toolArchiveStatus,
 		ProviderHealth: map[string]types.ProviderHealthInfo{
-			"anthropic": p.GetProviderHealth(types.Anthropic),
-			"openai":    p.GetProviderHealth(types.OpenAI),
+			"anthropic":     p.GetProviderHealth(types.Anthropic),
+			"openai":        p.GetProviderHealth(types.OpenAI),
+			"codex_chatgpt": p.GetProviderHealth(types.CodexChatGPT),
 		},
 		AnalyticsQueue: p.AnalyticsQueueStats(),
 		PromptCache: PromptCacheStats{
@@ -313,6 +315,8 @@ func (p *Proxy) adminProviderHandler(w http.ResponseWriter, r *http.Request) {
 		p.SetProviderEnabled(types.Anthropic, req.Enabled)
 	case "openai":
 		p.SetProviderEnabled(types.OpenAI, req.Enabled)
+	case "codex_chatgpt":
+		p.SetProviderEnabled(types.CodexChatGPT, req.Enabled)
 	default:
 		writeAdminJSON(w, http.StatusBadRequest, adminActionResponse{OK: false})
 		return

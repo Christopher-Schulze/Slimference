@@ -12,7 +12,14 @@ import (
 )
 
 // detectProvider determines the upstream provider from the HTTP request.
+// T66: Codex CLI (ChatGPT subscription product) posts to /backend-api/codex/*
+// against chatgpt.com - we recognise that path prefix FIRST so it takes
+// precedence over the generic OpenAI fallback.
 func detectProvider(path string, body []byte) types.Provider {
+	if strings.HasPrefix(path, "/backend-api/codex/") ||
+		strings.Contains(path, "/backend-api/codex/") {
+		return types.CodexChatGPT
+	}
 	if strings.Contains(path, "/messages") {
 		return types.Anthropic
 	}

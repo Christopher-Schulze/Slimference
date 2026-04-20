@@ -21,8 +21,9 @@ func defaultsRaw() *Config {
 			IPv6:          false,
 		},
 		Upstream: UpstreamConfig{
-			Anthropic: ProviderUpstream{BaseURL: "https://api.anthropic.com"},
-			OpenAI:    ProviderUpstream{BaseURL: "https://api.openai.com"},
+			Anthropic:    ProviderUpstream{BaseURL: "https://api.anthropic.com"},
+			OpenAI:       ProviderUpstream{BaseURL: "https://api.openai.com"},
+			CodexChatGPT: ProviderUpstream{BaseURL: "https://chatgpt.com"},
 		},
 		Compression: CompressionConfig{
 			Layer1Enabled:             true,

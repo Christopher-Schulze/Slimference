@@ -82,8 +82,9 @@ type ProxyConfig struct {
 
 // UpstreamConfig holds upstream API base URLs.
 type UpstreamConfig struct {
-	Anthropic ProviderUpstream `toml:"anthropic"`
-	OpenAI    ProviderUpstream `toml:"openai"`
+	Anthropic    ProviderUpstream `toml:"anthropic"`
+	OpenAI       ProviderUpstream `toml:"openai"`
+	CodexChatGPT ProviderUpstream `toml:"codex_chatgpt"`
 }
 
 // ProviderUpstream holds the base URL for a single upstream provider.
@@ -454,6 +455,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL"); v != "" {
 		cfg.Upstream.OpenAI.BaseURL = v
+	}
+	if v := os.Getenv("SLIMFERENCE_UPSTREAM_CODEX_CHATGPT_BASE_URL"); v != "" {
+		cfg.Upstream.CodexChatGPT.BaseURL = v
 	}
 	if v := envInt("SLIMFERENCE_COMPRESSION_SLIDING_WINDOW"); v > 0 {
 		cfg.Compression.SlidingWindow = v

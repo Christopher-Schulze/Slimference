@@ -12,6 +12,11 @@ type Provider int
 const (
 	Anthropic Provider = iota
 	OpenAI
+	// CodexChatGPT is OpenAI's Codex CLI (the ChatGPT-subscription product).
+	// Traffic hits chatgpt.com/backend-api/codex/* rather than api.openai.com,
+	// so it needs separate routing even though the body format is OpenAI-flavoured.
+	// See T66.
+	CodexChatGPT
 )
 
 func (p Provider) String() string {
@@ -20,6 +25,8 @@ func (p Provider) String() string {
 		return "anthropic"
 	case OpenAI:
 		return "openai"
+	case CodexChatGPT:
+		return "codex_chatgpt"
 	default:
 		return "unknown"
 	}

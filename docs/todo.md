@@ -509,3 +509,40 @@ Distribution + Doku. P2 (T53-T64) ist Polish nach Release-Tag.
 - Prometheus-Exposition und Metriken-Pull (separater Release-Track).
 - Embedding-basierte Similarity-Checks.
 - Auto-Tuning / Reinforcement-gesteuerte Threshold-Wahl.
+
+---
+
+## Full-Package Integration Program (2026-04-20)
+
+User directive: "ich will das volle paket... es muss halt wirklich absolut
+funktioneiren". Research confirmed Codex supports `openai_base_url` +
+`chatgpt_base_url` in config.toml - direct equivalent of ANTHROPIC_BASE_URL,
+so both clients can be transparently proxied without MITM or binary patching.
+
+Sequenz zwingend: T66 vor T65 (proxy muss Codex-Traffic erst routen koennen,
+bevor der Installer Codex auf den Proxy zeigen laesst). T67/T68/T69 danach.
+
+### Bereich J - End-to-End Integration (P0 vor naechstem Release)
+
+- [x] T65 - Auto-Integration Installer: `slimference integrate status|install|remove|emergency-off` wire Claude Code (ANTHROPIC_BASE_URL via shell-rc) + Codex (openai_base_url + chatgpt_base_url in config.toml) + hooks; fence-marker-based idempotent edits with backup-on-first-write, dry-run mode. launchd plist install stays in `service install` subcommand (unchanged). Detail: `docs/todo/t65-auto-integration-installer.md`
+- [x] T66 - Codex Upstream Routing: `types.CodexChatGPT` provider, detectProvider recognises `/backend-api/codex/` prefix, upstreamURL routes to `https://chatgpt.com` (configurable via `[upstream.codex_chatgpt]` + SLIMFERENCE_UPSTREAM_CODEX_CHATGPT_BASE_URL), Bearer-Token/User-Agent preserved, admin surface exposes the new provider toggle. TLS-fingerprint mimicry (uTLS) remains Phase-2 stretch. Detail: `docs/todo/t66-codex-upstream-routing.md`
+- [ ] T67 - TUI Master Bypass + Integration Panel: atomic bypass flag + `B` hotkey + confirm-modal, integration status panel mit per-client wired/absent/error badges, persisted bypass state across restarts, `/admin/bypass` endpoint. Detail: `docs/todo/t67-tui-master-switch-integration.md`
+- [ ] T68 - launchd KeepAlive + Health Probe: plist mit KeepAlive{Crashed=true, SuccessfulExit=false} + ThrottleInterval=2, post-install health check, service status reports restart-count + uptime. Detail: `docs/todo/t68-launchd-keepalive.md`
+- [ ] T69 - Safe Fallback Architecture + Emergency Off: `slimference integrate emergency-off`, `slimference bypass on|off`, documented failure-mode matrix in `docs/integration.md`, doctor reports failure-mode conditions. Detail: `docs/todo/t69-safe-fallback-architecture.md`
+
+### Reihenfolge
+
+T66 -> T65 -> T68 -> T67 -> T69. T66 ist Voraussetzung fuer T65 weil Codex
+bei aktivierten Integrations-Konfig sonst in Slimference laufen wuerde ohne
+dass Slimference das Traffic-Format kennt. T68 vor T67 weil die TUI
+Integration-Badges aus dem daemon-state lesen und daemon KeepAlive/Health
+schon da sein muss.
+
+### Explicit non-goals
+
+- HTTPS MITM fuer Codex: nicht noetig weil `openai_base_url` plain HTTP auf
+  localhost akzeptiert.
+- CA-Installation in macOS Keychain: nicht noetig.
+- Codex-Binary patchen: nicht noetig.
+- TLS-fingerprint-mimicry (uTLS): Phase 2 only-if Cloudflare-WAF in Phase 1
+  anschlaegt.

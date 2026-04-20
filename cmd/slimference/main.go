@@ -513,6 +513,9 @@ func handleSubcommand(args []string) {
 	case "service":
 		handleServiceCmd(args[1:])
 
+	case "integrate":
+		handleIntegrateCmd(args[1:])
+
 	case "completion":
 		handleCompletionCmd(args[1:])
 

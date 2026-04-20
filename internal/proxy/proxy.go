@@ -79,9 +79,9 @@ type Proxy struct {
 	// which layer is responsible for latency.
 	pipelineHist *analytics.PipelineHistograms
 
-	// Runtime toggle atomics. Index 0=Anthropic, 1=OpenAI for providers.
+	// Runtime toggle atomics. Index 0=Anthropic, 1=OpenAI, 2=CodexChatGPT.
 	// Index 0=Layer1, 1=Layer2, 2=Layer3 for layers.
-	providerEnabled [2]atomic.Bool
+	providerEnabled [3]atomic.Bool
 	layerEnabled    [3]atomic.Bool
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
@@ -140,6 +140,7 @@ func New(cfg *config.Config) *Proxy {
 	// Default all toggles to enabled.
 	p.providerEnabled[types.Anthropic].Store(true)
 	p.providerEnabled[types.OpenAI].Store(true)
+	p.providerEnabled[types.CodexChatGPT].Store(true)
 	p.layerEnabled[0].Store(cfg.Compression.Layer1Enabled)
 	p.layerEnabled[1].Store(cfg.Compression.Layer2Enabled)
 	p.layerEnabled[2].Store(cfg.Compression.Layer3Enabled)
@@ -159,6 +160,7 @@ func New(cfg *config.Config) *Proxy {
 	upstreamClient := &http.Client{Transport: transport}
 	p.httpClients[types.Anthropic] = upstreamClient
 	p.httpClients[types.OpenAI] = upstreamClient
+	p.httpClients[types.CodexChatGPT] = upstreamClient
 
 	// Layer 1: Deterministic compressor.
 	p.layer1 = compression.NewDeterministicCompressor(&cfg.Compression)
@@ -398,6 +400,9 @@ func isCompressiblePath(path string) bool {
 }
 
 // upstreamURL constructs the full upstream URL for the given provider.
+// T66: CodexChatGPT routes to chatgpt.com (or chatgpt_base_url override) so
+// Codex's /backend-api/codex/* paths hit the real ChatGPT backend rather
+// than api.openai.com (which would 404 the Codex-specific routes).
 func (p *Proxy) upstreamURL(provider types.Provider, path, rawQuery string) string {
 	var base string
 	switch provider {
@@ -405,6 +410,11 @@ func (p *Proxy) upstreamURL(provider types.Provider, path, rawQuery string) stri
 		base = strings.TrimSuffix(p.config.Upstream.Anthropic.BaseURL, "/")
 	case types.OpenAI:
 		base = strings.TrimSuffix(p.config.Upstream.OpenAI.BaseURL, "/")
+	case types.CodexChatGPT:
+		base = strings.TrimSuffix(p.config.Upstream.CodexChatGPT.BaseURL, "/")
+		if base == "" {
+			base = "https://chatgpt.com"
+		}
 	default:
 		base = "https://api.anthropic.com"
 	}
