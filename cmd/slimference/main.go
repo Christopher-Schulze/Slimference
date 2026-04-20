@@ -95,7 +95,12 @@ var (
 	loadTUIStateFn               = tui.LoadPersistedState
 
 	// runTUI sub-components: injectable for test coverage of post-startup paths.
-	configLoadFn       = config.Load
+	configLoadFn = func() (*config.Config, error) {
+		cfg, _, err := config.LoadWithOptions(config.LoadOptions{
+			ExplicitPath: explicitConfigPath,
+		})
+		return cfg, err
+	}
 	runTUIAfterStartFn = runTUIAfterStart
 	newRemoteProxyFn   = func(cfg *config.Config) tui.ProxyInterface { return newRemoteProxyAdapter(cfg) }
 	newProxyFn         = proxy.New
@@ -161,6 +166,16 @@ func main() {
 	if wantsVersion(args) {
 		fmt.Printf("slimference v%s\n", version)
 		return
+	}
+
+	// --config <path> is a global flag honoured by every code path that calls
+	// configLoadFn. We parse it here, stash it in a package-level variable
+	// that configLoadFn consults, and strip it from args so downstream
+	// subcommand parsers do not see it.
+	if p, rest := extractConfigFlag(args); p != "" {
+		explicitConfigPath = p
+		args = rest
+		os.Args = append([]string{os.Args[0]}, rest...)
 	}
 
 	// Explicit headless / non-TTY foreground mode (T44).
@@ -273,6 +288,40 @@ func printHelp(args []string) {
 
 // Injected for tests.
 var runHeadlessFn = runHeadless
+
+// explicitConfigPath mirrors the value of the top-level --config flag once
+// main() has parsed it. Empty when the flag was not used. The default
+// configLoadFn closure in main_vars consults this on each Load call so every
+// subcommand, the TUI, and headless mode honour the same override.
+var explicitConfigPath string
+
+// extractConfigFlag scans args for "--config <path>" or "--config=<path>"
+// and returns the path plus the argument slice with the flag removed.
+// Unknown / absent flag yields ("", args).
+func extractConfigFlag(args []string) (string, []string) {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--config" {
+			if i+1 < len(args) {
+				p := args[i+1]
+				out = append(out, args[i+2:]...)
+				return p, out
+			}
+			// Trailing --config with no value: leave as-is so downstream
+			// parsing can emit a proper error.
+			out = append(out, args[i:]...)
+			return "", out
+		}
+		if strings.HasPrefix(a, "--config=") {
+			p := strings.TrimPrefix(a, "--config=")
+			out = append(out, args[i+1:]...)
+			return p, out
+		}
+		out = append(out, a)
+	}
+	return "", out
+}
 
 // progSender delivers proxy request events to the BubbleTea program via a buffered channel.
 type progSender struct {
@@ -900,7 +949,16 @@ func handleHookCmd(args []string) {
 func handleConfigCmd(args []string) {
 	switch args[0] {
 	case "init":
-		path := config.DefaultConfigPath()
+		// Respect --config / SLIMFERENCE_CONFIG / XDG precedence for init too
+		// so users initialising a profile at a custom path actually hit that
+		// path. When no existing file is found we write to XDG by default.
+		path := explicitConfigPath
+		if path == "" {
+			path = os.Getenv("SLIMFERENCE_CONFIG")
+		}
+		if path == "" {
+			path = config.XDGConfigPath()
+		}
 		if _, err := os.Stat(path); err == nil {
 			fmt.Printf("Config already exists at %s\n", path)
 			fmt.Println("Delete it first if you want to regenerate defaults.")
@@ -1080,11 +1138,12 @@ func handleDoctorCmd() {
 	fmt.Println(strings.Repeat("-", 50))
 
 	check("Config file", func() (string, bool) {
-		path := config.DefaultConfigPath()
-		if _, err := os.Stat(path); err != nil {
-			return fmt.Sprintf("not found at %s (using defaults)", path), true
+		info := config.ResolveConfigPath(config.LoadOptions{ExplicitPath: explicitConfigPath})
+		if info.ResolvedPath == "" {
+			return fmt.Sprintf("no file found, using defaults (checked: %s)",
+				strings.Join(info.Checked, ", ")), true
 		}
-		return path, true
+		return fmt.Sprintf("%s (source=%s)", info.ResolvedPath, info.Source), true
 	})
 
 	check("Listen port", func() (string, bool) {

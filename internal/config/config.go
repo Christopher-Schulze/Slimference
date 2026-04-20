@@ -249,24 +249,126 @@ type LoggingConfig struct {
 	File   string `toml:"file"`   // empty = stderr only
 }
 
-// DefaultConfigPath returns the default path to the config file.
+// DefaultConfigPath returns the legacy default path to the config file.
+// Kept for backwards compatibility; new code should use ResolveConfigPath to
+// honour the full flag/env/XDG precedence chain.
 func DefaultConfigPath() string {
 	return filepath.Join(expandHome("~"), ".slimference", "config.toml")
 }
 
-// Load reads and validates the configuration. It applies file -> env -> flag precedence.
-// Missing config file is not an error; defaults are applied.
-func Load() (*Config, error) {
-	cfg := defaultsRaw()
+// XDGConfigPath returns the XDG-Base-Dir-compliant config path:
+// $XDG_CONFIG_HOME/slimference/config.toml, or
+// $HOME/.config/slimference/config.toml if XDG_CONFIG_HOME is unset.
+func XDGConfigPath() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "slimference", "config.toml")
+	}
+	return filepath.Join(expandHome("~"), ".config", "slimference", "config.toml")
+}
 
-	path := DefaultConfigPath()
-	if p := os.Getenv("SLIMFERENCE_CONFIG"); p != "" {
-		path = p
+// LoadOptions carries caller-supplied overrides for config resolution.
+// Zero value is valid and triggers the default precedence:
+//
+//	flag  (LoadOptions.ExplicitPath)
+//	env   (SLIMFERENCE_CONFIG)
+//	xdg   ($XDG_CONFIG_HOME/slimference/config.toml)
+//	legacy (~/.slimference/config.toml)
+//	defaults (no file)
+type LoadOptions struct {
+	// ExplicitPath, if non-empty, is the absolute/relative path to the
+	// config file. Typically sourced from a --config CLI flag. Overrides
+	// every other source; a non-existent explicit path is a hard error.
+	ExplicitPath string
+	// AllowLegacyWarn suppresses the deprecation warning on the ~/.slimference
+	// path when true. Tests use this to keep log output deterministic.
+	AllowLegacyWarn bool
+}
+
+// LoadInfo describes which config source was ultimately used. Exposed via
+// `slimference doctor` and admin surfaces so operators can tell at a glance
+// whether a file was read and from where.
+type LoadInfo struct {
+	// ResolvedPath is the path that was actually read. Empty when no file
+	// existed and built-in defaults were used.
+	ResolvedPath string
+	// Source is one of "flag", "env", "xdg", "legacy", or "defaults".
+	Source string
+	// Checked lists every candidate path inspected, in precedence order, for
+	// diagnostic output.
+	Checked []string
+}
+
+// ResolveConfigPath walks the precedence chain and returns the first
+// existing path plus metadata describing which slot matched. When no file
+// exists the returned path is empty and Source == "defaults".
+func ResolveConfigPath(opts LoadOptions) LoadInfo {
+	info := LoadInfo{}
+
+	add := func(label, p string) (string, string, bool) {
+		info.Checked = append(info.Checked, label+"="+p)
+		if p == "" {
+			return "", "", false
+		}
+		if _, err := os.Stat(p); err == nil {
+			return p, label, true
+		}
+		return "", "", false
 	}
 
-	if _, err := os.Stat(path); err == nil {
-		if _, err := toml.DecodeFile(path, cfg); err != nil {
-			return nil, fmt.Errorf("parse config %s: %w", path, err)
+	// flag
+	if opts.ExplicitPath != "" {
+		if p, lbl, ok := add("flag", opts.ExplicitPath); ok {
+			info.ResolvedPath, info.Source = p, lbl
+			return info
+		}
+		// Explicit flag that does not exist is NOT silently ignored; caller
+		// handles the empty ResolvedPath + Source=="flag_missing".
+		info.Source = "flag_missing"
+		info.ResolvedPath = opts.ExplicitPath
+		return info
+	}
+	// env
+	if p, lbl, ok := add("env", os.Getenv("SLIMFERENCE_CONFIG")); ok {
+		info.ResolvedPath, info.Source = p, lbl
+		return info
+	}
+	// xdg
+	if p, lbl, ok := add("xdg", XDGConfigPath()); ok {
+		info.ResolvedPath, info.Source = p, lbl
+		return info
+	}
+	// legacy
+	if p, lbl, ok := add("legacy", DefaultConfigPath()); ok {
+		info.ResolvedPath, info.Source = p, lbl
+		return info
+	}
+	info.Source = "defaults"
+	return info
+}
+
+// Load reads and validates the configuration using the default precedence
+// (env / xdg / legacy / defaults). It is preserved for callers that do not
+// need LoadInfo; new code should prefer LoadWithOptions.
+func Load() (*Config, error) {
+	cfg, _, err := LoadWithOptions(LoadOptions{})
+	return cfg, err
+}
+
+// LoadWithOptions is the full-fidelity loader. It applies the precedence
+// chain, runs env overrides, applies the L2 operating mode, and validates
+// the resulting Config. The returned LoadInfo identifies which source was
+// used so callers can surface that to users.
+func LoadWithOptions(opts LoadOptions) (*Config, LoadInfo, error) {
+	cfg := defaultsRaw()
+	info := ResolveConfigPath(opts)
+
+	if info.Source == "flag_missing" {
+		return nil, info, fmt.Errorf("config file not found: %s", info.ResolvedPath)
+	}
+
+	if info.ResolvedPath != "" {
+		if _, err := toml.DecodeFile(info.ResolvedPath, cfg); err != nil {
+			return nil, info, fmt.Errorf("parse config %s: %w", info.ResolvedPath, err)
 		}
 	}
 
@@ -277,14 +379,14 @@ func Load() (*Config, error) {
 	// mode profile the role of "coherent default bundle". Explicit positive
 	// overrides from TOML/env win.
 	if err := ApplyL2OperatingMode(&cfg.Compression.Summary, cfg.Compression.Summary.Mode); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+		return nil, info, fmt.Errorf("invalid config: %w", err)
 	}
 
 	if err := validate(cfg); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+		return nil, info, fmt.Errorf("invalid config: %w", err)
 	}
 
-	return cfg, nil
+	return cfg, info, nil
 }
 
 // applyEnvOverrides reads SLIMFERENCE_* environment variables and overlays them on cfg.
@@ -408,8 +510,16 @@ func ExpandHomePath(path string) string {
 // userHomeDirFunc is set to os.UserHomeDir; replaced in tests to inject errors.
 var userHomeDirFunc = os.UserHomeDir
 
-// expandHome expands a leading ~ to the user home directory.
+// expandHome expands a leading ~ to the user home directory. Accepts bare "~"
+// as well as "~/...". Returns the input unchanged if home lookup fails.
 func expandHome(path string) string {
+	if path == "~" {
+		home, err := userHomeDirFunc()
+		if err != nil {
+			return path
+		}
+		return home
+	}
 	if strings.HasPrefix(path, "~/") {
 		home, err := userHomeDirFunc()
 		if err != nil {

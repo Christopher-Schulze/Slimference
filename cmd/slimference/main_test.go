@@ -827,17 +827,13 @@ func TestHandleSubcommand_configShow_loadErrorExits1(t *testing.T) {
 }
 
 func TestHandleSubcommand_configInit_writesFile(t *testing.T) {
-	// DefaultConfigPath uses filepath.Join("~", ".slimference", "config.toml"), i.e. a
-	// literal "~" segment — the file is created relative to the process working directory.
-	tmp := t.TempDir()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(wd) })
+	// T46: config init now writes to the XDG default path unless --config or
+	// SLIMFERENCE_CONFIG overrides it. Point XDG_CONFIG_HOME at a temp dir so
+	// the test writes into an isolated tree and asserts the XDG location.
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	// Ensure any ambient SLIMFERENCE_CONFIG does not win over XDG.
+	t.Setenv("SLIMFERENCE_CONFIG", "")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -848,7 +844,7 @@ func TestHandleSubcommand_configInit_writesFile(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	path := filepath.Join(tmp, "~", ".slimference", "config.toml")
+	path := filepath.Join(xdg, "slimference", "config.toml")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected config at %s: %v", path, err)
 	}
@@ -2906,23 +2902,23 @@ func TestHandleConfigCmd_initMkdirErrorExits1(t *testing.T) {
 		t.Skip("chmod not applicable on windows")
 	}
 	if os.Getenv("TP_CFG_INIT_MKDIR_ERR") == "1" {
-		// We need DefaultConfigPath() to point inside a read-only directory.
-		// DefaultConfigPath() uses os.UserHomeDir() via ~ expansion, but os.Chdir
-		// to a dir with a read-only "~" subdir makes filepath.Join("~", ...) resolve literally.
-		_ = os.Chdir(os.Getenv("TP_CFG_INIT_MKDIR_DIR"))
+		// Subprocess: XDG_CONFIG_HOME points at a dir where "slimference" is
+		// a file (not a dir), forcing MkdirAll to fail with ENOTDIR.
 		handleSubcommand([]string{"config", "init"})
 		return
 	}
 	tmp := t.TempDir()
-	// "~" resolved literally when cwd has a read-only "~" dir.
-	tildePath := filepath.Join(tmp, "~")
-	if err := os.Mkdir(tildePath, 0o555); err != nil {
+	// Create a file (not a dir) at $XDG_CONFIG_HOME/slimference so MkdirAll
+	// fails with "not a directory".
+	if err := os.WriteFile(filepath.Join(tmp, "slimference"), []byte{}, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(tildePath, 0o755) })
 	cmd := exec.Command(os.Args[0], "-test.run=TestHandleConfigCmd_initMkdirErrorExits1")
-	cmd.Env = append(os.Environ(), "TP_CFG_INIT_MKDIR_ERR=1", "TP_CFG_INIT_MKDIR_DIR="+tmp)
-	cmd.Dir = tmp
+	cmd.Env = append(os.Environ(),
+		"TP_CFG_INIT_MKDIR_ERR=1",
+		"XDG_CONFIG_HOME="+tmp,
+		"SLIMFERENCE_CONFIG=",
+	)
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 1 {

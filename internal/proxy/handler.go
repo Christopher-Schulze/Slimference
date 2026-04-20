@@ -6,11 +6,15 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"time"
 
@@ -975,49 +979,99 @@ func (p *Proxy) analyticsPeriodicFlush(interval time.Duration) {
 	}
 }
 
-// Shutdown performs a graceful shutdown of the proxy. Safe to call multiple times -
-// only the first call does work; subsequent calls return immediately.
+// ErrShutdownTimeout is returned by Shutdown when ctx was cancelled before
+// every worker goroutine finished. When this happens a goroutine pprof dump
+// is written to ~/.slimference/shutdown-hang-<ts>.pprof (best-effort) and
+// callers may translate the error to a dedicated process exit code.
+var ErrShutdownTimeout = errors.New("shutdown timeout exceeded")
+
+// shutdownDumpWriterFn is overridden in tests to capture the pprof dump
+// without touching the user filesystem.
+var shutdownDumpWriterFn = defaultShutdownDumpWriter
+
+// Shutdown performs a graceful shutdown of the proxy. Safe to call multiple
+// times - only the first call does work; subsequent calls return nil. On
+// timeout Shutdown returns ErrShutdownTimeout so process-level callers can
+// translate the outcome into a distinct exit code (T60).
 func (p *Proxy) Shutdown(ctx context.Context) error {
+	var result error
 	p.shutdownOnce.Do(func() {
-		slog.Info("proxy shutdown initiated")
-		if p.workerCancel != nil {
-			p.workerCancel()
-		}
-
-		if err := p.server.Shutdown(ctx); err != nil {
-			slog.Warn("server shutdown error", "error", err)
-		}
-
-		close(p.shutdownCh)
-
-		workersDone := make(chan struct{})
-		go func() {
-			p.wg.Wait()
-			close(workersDone)
-		}()
-
-		select {
-		case <-workersDone:
-			slog.Info("all workers stopped")
-		case <-ctx.Done():
-			slog.Warn("shutdown timeout, some workers may still be running")
-		}
-
-		// Final analytics flush.
-		if p.persister != nil {
-			snap := p.analytics.Snapshot()
-			if err := p.persister.WriteSnapshot(snap); err != nil {
-				slog.Warn("final analytics flush failed", "error", err)
-			}
-			p.persister.Close()
-		}
-
-		if p.fileWatcher != nil {
-			p.fileWatcher.Close()
-		}
+		result = p.doShutdown(ctx)
 	})
+	return result
+}
 
-	return nil
+func (p *Proxy) doShutdown(ctx context.Context) error {
+	slog.Info("proxy shutdown initiated")
+	if p.workerCancel != nil {
+		p.workerCancel()
+	}
+
+	if err := p.server.Shutdown(ctx); err != nil {
+		slog.Warn("server shutdown error", "error", err)
+	}
+
+	close(p.shutdownCh)
+
+	workersDone := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(workersDone)
+	}()
+
+	var result error
+	select {
+	case <-workersDone:
+		slog.Info("all workers stopped")
+	case <-ctx.Done():
+		dumpPath, dumpErr := shutdownDumpWriterFn()
+		slog.Warn("shutdown timeout, some workers may still be running",
+			"goroutines", runtime.NumGoroutine(),
+			"dump_path", dumpPath,
+			"dump_err", dumpErr,
+		)
+		result = ErrShutdownTimeout
+	}
+
+	// Final analytics flush.
+	if p.persister != nil {
+		snap := p.analytics.Snapshot()
+		if err := p.persister.WriteSnapshot(snap); err != nil {
+			slog.Warn("final analytics flush failed", "error", err)
+		}
+		p.persister.Close()
+	}
+
+	if p.fileWatcher != nil {
+		p.fileWatcher.Close()
+	}
+	return result
+}
+
+// defaultShutdownDumpWriter writes a goroutine pprof dump to a stable path
+// under the user's state dir. Best-effort: any filesystem error is reported
+// back and logged by the caller, never propagated as a shutdown failure.
+func defaultShutdownDumpWriter() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".slimference")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("shutdown-hang-%s.pprof",
+		time.Now().UTC().Format("20060102T150405"))
+	path := filepath.Join(dir, name)
+	f, err := os.Create(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if err := pprof.Lookup("goroutine").WriteTo(f, 1); err != nil {
+		return path, err
+	}
+	return path, nil
 }
 
 // GetAnalytics returns a snapshot of the current analytics state.

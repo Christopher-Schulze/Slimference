@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/proxy"
 )
 
@@ -26,7 +26,11 @@ var (
 //	0 clean shutdown on signal or normal exit
 //	1 config load / proxy boot error
 //	2 flag parse error (handled by caller)
-//	6 shutdown exceeded shutdownTimeoutHL
+//	6 shutdown exceeded shutdownTimeoutHL (T60)
+//
+// The returned function from startProxyFn IS the proxy's Shutdown method
+// (see startProxyFn in main.go). runHeadless treats it accordingly: it waits
+// on a signal, then calls that function with a deadline context.
 func runHeadless(args []string) {
 	cfg, err := configLoadFn()
 	if err != nil {
@@ -43,55 +47,34 @@ func runHeadless(args []string) {
 		"pid", os.Getpid(),
 	)
 
-	run, err := startProxyFn(cfg)
+	shutdownFn, err := startProxyFn(cfg)
 	if err != nil {
 		slog.Error("proxy start failed", "err", err)
 		exitFn(1)
 		return
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	sigCh := make(chan os.Signal, 1)
 	signalNotifyFn(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signalStopFn(sigCh)
 
-	errCh := make(chan error, 1)
-	go func() { errCh <- run(ctx) }()
+	sig := <-sigCh
+	slog.Info("signal received", "signal", sig.String())
 
-	select {
-	case sig := <-sigCh:
-		slog.Info("signal received", "signal", sig.String())
-		cancel()
-	case err := <-errCh:
-		if err != nil {
-			slog.Error("proxy exited", "err", err)
-			exitFn(1)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeoutHL)
+	defer cancel()
+	if err := shutdownFn(ctx); err != nil {
+		if errors.Is(err, proxy.ErrShutdownTimeout) {
+			slog.Error("shutdown timeout exceeded",
+				"timeout", shutdownTimeoutHL.String(),
+			)
+			exitFn(6)
 			return
 		}
+		slog.Error("shutdown error", "err", err)
+		exitFn(1)
+		return
 	}
-
-	shutdownDone := make(chan struct{})
-	go func() {
-		// Drain the runner; it must return when ctx is cancelled.
-		<-errCh
-		close(shutdownDone)
-	}()
-
-	select {
-	case <-shutdownDone:
-		slog.Info("shutdown clean")
-		exitFn(0)
-	case <-time.After(shutdownTimeoutHL):
-		slog.Error("shutdown timeout exceeded",
-			"timeout", shutdownTimeoutHL.String(),
-		)
-		exitFn(6)
-	}
+	slog.Info("shutdown clean")
+	exitFn(0)
 }
-
-// Helper for tests: exposes a minimal config so tests can assemble a proxy
-// without the full startProxyFn plumbing.
-var _ = (*config.Config)(nil)
-var _ = proxy.Version

@@ -465,7 +465,7 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 ### Bereich G - Token-Savings und Release-Pipeline (P1)
 
 - [ ] T45 - Multi-Breakpoint Prompt-Cache (4 statt 1, system + tools + early + late). Detail: `docs/todo/t45-multi-breakpoint-prompt-cache.md`
-- [ ] T46 - `--config <path>` Flag + XDG-Compliance (flag > env > XDG > legacy). Detail: `docs/todo/t46-config-flag-and-xdg.md`
+- [x] T46 - `--config <path>` Flag + XDG-Compliance (flag > env > XDG > legacy, LoadWithOptions + LoadInfo, doctor reports source). Detail: `docs/todo/t46-config-flag-and-xdg.md`
 - [ ] T47 - Binary-Release-Pipeline (Cross-Build, SHA256SUMS, Minisign, Homebrew-Tap). Detail: `docs/todo/t47-binary-release-pipeline.md`
 - [ ] T48 - Linux systemd Service Template + Install-Doku (user-scope + system-scope). Detail: `docs/todo/t48-linux-systemd-service.md`
 - [ ] T49 - `docs/documentation.md` + `docs/map.md` + `docs/context.md` Sync auf 2.x + Doc-Lint-Gate. Detail: `docs/todo/t49-docs-sync-2x.md`
@@ -482,7 +482,7 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 - [ ] T57 - Read-Cache + Tool-Archive TUI-Live-Metriken (hit-rate, bytes, evictions). Detail: `docs/todo/t57-readcache-toolarchive-tui-metrics.md`
 - [ ] T58 - TUI TTFT-Breakdown pro Layer (p50/p95 + token-saving-% pro Phase). Detail: `docs/todo/t58-tui-ttft-breakdown.md`
 - [ ] T59 - Secrets-Detector Per-Session-Override + Allowlist-Session-TOML (hot-reload, max 1h). Detail: `docs/todo/t59-secrets-detector-session-override.md`
-- [ ] T60 - Shutdown-Timeout Guard auf `wg.Wait()` (pprof-Dump + Exit-Code 6). Detail: `docs/todo/t60-shutdown-timeout-guard.md`
+- [x] T60 - Shutdown-Timeout Guard auf `wg.Wait()` (pprof-Dump + ErrShutdownTimeout; headless maps to exit 6). Detail: `docs/todo/t60-shutdown-timeout-guard.md`
 - [ ] T61 - Tuning-Config Durchreichen fuer `tool_compressor` RTK-Heuristiken (per-tool overrides). Detail: `docs/todo/t61-tool-compressor-tuning-config.md`
 - [ ] T62 - Anthropic-Version-Header Negotiation + Conservative-Mode-Fallback (whitelist, warn-once). Detail: `docs/todo/t62-anthropic-version-negotiation.md`
 - [ ] T63 - Tee-Recovery Exit-Code-Matrix in `spec+.md` dokumentieren + Timeout-Guard. Detail: `docs/todo/t63-tee-recovery-exit-code-matrix.md`

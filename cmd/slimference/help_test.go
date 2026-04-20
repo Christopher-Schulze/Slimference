@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -124,11 +125,27 @@ func TestHelpForSubcommandUnknownFallsBack(t *testing.T) {
 }
 
 func TestPrintHelpDispatch(t *testing.T) {
-	t.Parallel()
-	// Ensure printHelp does not panic on the various forms and pulls from the
-	// appropriate source.
+	// Intentionally NOT t.Parallel: this test writes to os.Stdout which is
+	// shared state; other tests in this package redirect os.Stdout via
+	// os.Pipe and a data race would be reported by -race.
+	// Capture stdout so test output stays clean.
+	orig := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	defer func() { os.Stdout = orig; _ = r.Close() }()
+
 	printHelp(nil)
 	printHelp([]string{"--help"})
 	printHelp([]string{"help", "doctor"})
 	printHelp([]string{"-h", "filter"})
+
+	_ = w.Close()
+	// Drain the pipe to avoid buffer-full goroutine leaks.
+	buf := make([]byte, 8192)
+	for {
+		n, err := r.Read(buf)
+		if n == 0 || err != nil {
+			break
+		}
+	}
 }
