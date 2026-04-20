@@ -1,7 +1,12 @@
 # Slimference - Technical Documentation
 
-Version: 2.0.2
-Last updated: 2026-04-19
+Version: 2.1.0-dev
+Last updated: 2026-04-20
+
+> **Post-2.0 features (T41-T64)**: skip ahead to
+> [Appendix P](#appendix-p-post-20-features) for a focused summary of the
+> onboarding UX, distribution, adaptive tuning and observability work
+> that landed on top of the 2.0 snapshot below.
 
 ---
 
@@ -1929,3 +1934,125 @@ Tracking artifacts:
 - `docs/todo/t16-proof-gates-and-release-readiness.md`
 
 These files now form the evidence trail for the completed remediation program.
+
+---
+
+## Appendix P - Post-2.0 Features
+
+Tracks T41-T64, the production-readiness program landed on top of the 2.0
+snapshot documented above. Each entry links to the task file for full
+design history; this appendix is the quick reference.
+
+### Onboarding and UX
+
+- **T43 CLI help + onboarding** (`cmd/slimference/help.go`):
+  `--help` / `-h` / `help [subcmd]` and `--version` / `-V` early-dispatch
+  before any TUI path. Running with no args on a non-TTY prints the help
+  banner and exits 2 instead of crashing on `/dev/tty`. Every subcommand
+  has dedicated help text.
+- **T44 Headless foreground** (`cmd/slimference/headless.go`):
+  `--no-tui` / `--headless` / `SLIMFERENCE_HEADLESS=1` route into
+  `runHeadless` which runs the proxy with SIGINT/SIGTERM traps and a
+  strict exit-code taxonomy: 0 clean, 1 boot fail, 6 shutdown timeout.
+- **T46 Config flag + XDG resolution** (`internal/config/config.go`):
+  `LoadOptions` + `LoadInfo` + `ResolveConfigPath` produce a
+  flag > env > XDG > legacy > defaults precedence chain. `slimference
+  --config <path>` parses globally and feeds every subcommand.
+  `doctor` reports the resolved path plus source.
+- **T64 TUI keybindings** (`internal/tui/keys.go`):
+  `RenderKeybindingsMarkdown` generates `docs/tui-keybindings.md` from
+  the same source of truth the TUI reads. Drift-check test fails when
+  the two diverge.
+
+### Distribution
+
+- **T47 Release pipeline** (`scripts/release/`):
+  Go cross-build script covers darwin+linux arm64+amd64 with `-trimpath`
+  and ldflags-injected version/commit. Emits `dist/SHA256SUMS` next to
+  archives. Homebrew formula template in
+  `scripts/release/Formula.slimference.rb.template`. Full cut process in
+  `docs/release-process.md`.
+- **T48 Linux systemd service** (`scripts/service/linux/`):
+  Hardened user-scoped unit (NoNewPrivileges, ProtectSystem=strict,
+  ReadWritePaths scoped to `~/.slimference` + `~/.config/slimference`),
+  idempotent `install.sh`, distroless Dockerfile. Walk-through in
+  `docs/deploy/linux-systemd.md`.
+
+### Token-savings tuning
+
+- **T45 Multi-breakpoint prompt cache**
+  (`internal/compression/prompt_cache.go`):
+  Placement switched from "last 4 tail messages" to spread-even at
+  25/50/75/100 percent depths of the stable prefix. Atomic counter
+  `promptCacheBreakpointsInjected` exposed via
+  `/admin/status.prompt_cache`.
+- **T53 Adaptive dedup staircase**
+  (`internal/compression/layer1.go` + `dedup_staircase`):
+  Jaccard threshold lowered as conversations grow
+  (0.88 -> 0.85 -> 0.82 -> 0.78). Staircase in
+  `[compression.tuning.dedup_staircase]`; empty staircase falls back to
+  scalar `Compression.DedupSimilarityThreshold`.
+- **T54 L2 latency-budget estimator**
+  (`internal/summarization/latency_estimator.go`):
+  `NewLatencyEstimator` + EMA + `ShouldRunLayer2` decision rule.
+  `min_tokens_for_layer2` default flipped 30k -> 15k. Latency guard is
+  opt-in via `layer2_latency_budget_ms`; 0 means off.
+- **T55 Structure-preview default-on**: `structure_preview` default flipped
+  from `false` to `true`; override by setting to `false`.
+- **T61 Tool-compressor tuning knobs**
+  (`internal/compression/tool_compressor.go`): `[compression.tuning.
+  tool_compressor]` exposes `aggressive_after_multiplier`,
+  `git_moderate_diff_limit`, `test_max_failure_lines`. Atomic
+  installation via `SetToolCompressorTuning`.
+
+### Observability
+
+- **T42 Analytics-queue drop visibility**
+  (`internal/proxy/proxy.go::trySendAnalytics`): atomic counters +
+  rate-limited `analytics_queue_full` warn (1/min) + admin surface
+  under `/admin/status.analytics_queue`.
+- **T58 Pipeline phase histograms**
+  (`internal/analytics/phase_hist.go`): 200-sample rolling ring per
+  phase (L1 / L2 / L3 / upstream / total) with p50/p95/avg/max.
+  Benchmark: 15 ns/op per `Record`. Snapshot in
+  `/admin/status.pipeline`.
+- **T60 Shutdown-timeout guard** (`internal/proxy/handler.go`):
+  `Proxy.Shutdown(ctx)` returns `ErrShutdownTimeout` on ctx cancel,
+  writes a goroutine pprof dump to
+  `~/.slimference/shutdown-hang-<ts>.pprof`. Headless mode maps the
+  error to exit 6.
+
+### Hardening
+
+- **T51 Streaming upload-limit tests**
+  (`internal/proxy/upload_limit_test.go`): chunked-over-limit rejected
+  via `errRequestBodyTooLarge`, exact-limit accepted, nil-body and
+  read-error paths pinned.
+- **T62 Anthropic-version negotiation**
+  (`internal/proxy/version_negotiation.go`): unknown
+  `anthropic-version` downgrades to `PipelineConservative` (skip L1+L2)
+  by default; `[proxy] anthropic_versions` whitelists trusted values;
+  `anthropic_unknown_behavior` picks conservative / passthrough / full.
+  Folds in the T41 round-trip-fidelity concern by ensuring unknown
+  formats pass through unchanged.
+- **T63 Layer-0 exit-code matrix** (`docs/layer0-exit-codes.md`): full
+  propagation table (clean / child-nonzero / filter-error / start-fail
+  / signals) pinned by regression tests in
+  `internal/filter/exit_code_matrix_test.go`.
+
+### Closed as no-op
+
+- **T41** extractMessages union-type hardening - premise inaccurate; the
+  handler already surfaces parse errors as 400 BadRequest. Genuine
+  round-trip concern folded into T62.
+- **T56** Loop-detection Jaccard upgrade - T37 already implements
+  word-set Jaccard (see `internal/compression/loop_detect.go`).
+- **T57** ReadCache + ToolArchive TUI metrics - already exposed via
+  admin surface and rendered in TUI; closure note lists remaining
+  stretch items.
+
+### Still open
+
+T49 (docs-sync beyond this appendix), T50 (main_test.go split), T52
+(live Anthropic cache-verify harness - requires real API credentials),
+T59 (secrets session override).

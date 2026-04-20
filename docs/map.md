@@ -230,3 +230,38 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 - `cmd/slimference/checkpoint_cmd.go`: `checkpoint` and `expand` CLI commands
 - `cmd/slimference/prompt_cache_stats.go`: `stats prompt-cache` CLI
 - `scripts/utils/main.go`: offline session/decision/filter/combined reporting with text/JSON/CSV output
+
+## Post-2.0 Additions (T41-T64)
+
+### New or significantly extended packages
+
+| Area                                 | Path / symbol                                         | Task |
+|--------------------------------------|-------------------------------------------------------|------|
+| Top-level help + version dispatch    | `cmd/slimference/help.go`                             | T43  |
+| Headless foreground runner           | `cmd/slimference/headless.go`                         | T44  |
+| `--config` flag parser               | `cmd/slimference/main.go::extractConfigFlag`          | T46  |
+| LoadWithOptions / LoadInfo           | `internal/config/config.go::LoadWithOptions`          | T46  |
+| XDG config path resolver             | `internal/config/config.go::XDGConfigPath`            | T46  |
+| Analytics-queue counters             | `internal/proxy/proxy.go::trySendAnalytics`           | T42  |
+| Shutdown-timeout guard + pprof dump  | `internal/proxy/handler.go::Shutdown`                 | T60  |
+| Pipeline phase histograms            | `internal/analytics/phase_hist.go`                    | T58  |
+| Anthropic-version negotiation        | `internal/proxy/version_negotiation.go`               | T62  |
+| Multi-breakpoint prompt cache        | `internal/compression/prompt_cache.go`                | T45  |
+| Dedup-similarity staircase           | `internal/compression/layer1.go::resolveDedupThreshold` | T53 |
+| Tool-compressor tuning knobs         | `internal/compression/tool_compressor.go::SetToolCompressorTuning` | T61 |
+| L2 latency estimator + decision rule | `internal/summarization/latency_estimator.go`         | T54  |
+| Layer-0 exit-code matrix doc         | `docs/layer0-exit-codes.md`                           | T63  |
+| Release pipeline                     | `scripts/release/main.go`                             | T47  |
+| Linux systemd service                | `scripts/service/linux/slimference.service`           | T48  |
+| Distroless Dockerfile                | `scripts/service/docker/Dockerfile`                   | T48  |
+| TUI keybindings generator            | `internal/tui/keys.go::RenderKeybindingsMarkdown`     | T64  |
+
+### Admin surface additions (`/admin/status`)
+
+| JSON key            | Shape                           | Task |
+|---------------------|---------------------------------|------|
+| `analytics_queue`   | capacity / depth / totals       | T42  |
+| `prompt_cache`      | breakpoints injected total      | T45  |
+| `pipeline`          | phase snapshots (p50/p95/max)   | T58  |
+| `anthropic_version` | supported / behavior / unknown  | T62  |
+
