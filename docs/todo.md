@@ -633,7 +633,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 - [ ] T79 - Daemon visibility surface: native macOS menubar (or headless `slimference watch`) so launchd-running daemons aren't invisible. Detail: `docs/todo/t79-daemon-visibility-menubar.md`
 - [ ] T80 - Unified `slimference savings [today|week|month]` collapsing `gain` + `stats` + cache hits into one canonical view in tokens and EUR/USD. Detail: `docs/todo/t80-unified-savings-command.md`
-- [ ] T81 - Bypass granularity: `--duration=5m`, `--next-request`, plus per-tool / per-route bypass. Detail: `docs/todo/t81-bypass-granularity.md`
+- [!] T81 - Duration-bounded bypass landed (`SetBypassFor`, `BypassExpiresAt`, lazy auto-revert, telemetry counter). `--next-request`, per-tool / per-route, CLI / admin / TUI surface deferred. Detail: `docs/todo/t81-bypass-granularity.md`
 - [ ] T82 - `slimference compress-preview` CLI: dry-run shows what the proxy would do to a request body without sending. Detail: `docs/todo/t82-compression-preview-cli.md`
 
 ### Phase O - Stability hardening (P1)

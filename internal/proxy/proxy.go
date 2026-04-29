@@ -91,6 +91,14 @@ type Proxy struct {
 	// reloadable via admin POST /admin/bypass and the `B` TUI hotkey;
 	// persisted alongside other toggles.
 	bypassMode atomic.Bool
+	// bypassExpiryNano is the unix-nano deadline for a duration-bounded
+	// bypass (T81). Zero means "no expiry"; non-zero means bypass auto-
+	// reverts when time.Now().UnixNano() >= the stored value. Read on
+	// every bypass check so revert is lazy and lock-free.
+	bypassExpiryNano atomic.Int64
+	// bypassAutoRevertCount counts how many lazy auto-reverts have fired
+	// for /admin/status.bypass observability. T81.
+	bypassAutoRevertCount atomic.Int64
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
@@ -488,7 +496,9 @@ func (p *Proxy) SetLayerEnabled(layer int, enabled bool) {
 }
 
 func (p *Proxy) isProviderEnabled(prov types.Provider) bool {
-	if p.bypassMode.Load() {
+	// T81: route through Bypass() so a duration-bounded bypass auto-
+	// reverts at the deadline rather than sticking until next admin call.
+	if p.Bypass() {
 		return false
 	}
 	if int(prov) < len(p.providerEnabled) {
@@ -498,14 +508,71 @@ func (p *Proxy) isProviderEnabled(prov types.Provider) bool {
 }
 
 // SetBypass toggles the T67 master bypass. While on, every request is
-// forwarded byte-equal without passing through Layer 1/2/3.
-func (p *Proxy) SetBypass(enabled bool) { p.bypassMode.Store(enabled) }
+// forwarded byte-equal without passing through Layer 1/2/3. Setting
+// false also clears any T81 duration-bounded bypass timer.
+func (p *Proxy) SetBypass(enabled bool) {
+	p.bypassMode.Store(enabled)
+	if !enabled {
+		p.bypassExpiryNano.Store(0)
+	}
+}
 
-// Bypass reports the current master-bypass state.
-func (p *Proxy) Bypass() bool { return p.bypassMode.Load() }
+// SetBypassFor enables bypass with an automatic revert after d. T81. A
+// non-positive duration is treated as "until explicitly cleared".
+func (p *Proxy) SetBypassFor(d time.Duration) {
+	p.bypassMode.Store(true)
+	if d <= 0 {
+		p.bypassExpiryNano.Store(0)
+		return
+	}
+	p.bypassExpiryNano.Store(time.Now().Add(d).UnixNano())
+}
+
+// BypassExpiresAt returns the duration-bounded bypass deadline (zero
+// time when none is set or bypass is off). T81.
+func (p *Proxy) BypassExpiresAt() time.Time {
+	if !p.bypassMode.Load() {
+		return time.Time{}
+	}
+	v := p.bypassExpiryNano.Load()
+	if v == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, v).UTC()
+}
+
+// BypassAutoRevertCount returns the cumulative count of lazy
+// auto-reverts since process start. T81 telemetry.
+func (p *Proxy) BypassAutoRevertCount() int64 {
+	return p.bypassAutoRevertCount.Load()
+}
+
+// Bypass reports the current master-bypass state and lazily reverts a
+// duration-bounded bypass whose deadline has passed. Lock-free: a stale
+// expiry just means a single extra reverted check, never an incorrect
+// "still on" reading after the deadline.
+func (p *Proxy) Bypass() bool {
+	if !p.bypassMode.Load() {
+		return false
+	}
+	expiry := p.bypassExpiryNano.Load()
+	if expiry == 0 {
+		return true
+	}
+	if time.Now().UnixNano() < expiry {
+		return true
+	}
+	if p.bypassMode.CompareAndSwap(true, false) {
+		p.bypassExpiryNano.Store(0)
+		p.bypassAutoRevertCount.Add(1)
+	}
+	return false
+}
 
 func (p *Proxy) isLayerEnabled(layer int) bool {
-	if p.bypassMode.Load() {
+	// T81: route through Bypass() so duration-bounded bypass auto-
+	// reverts on next read after the deadline.
+	if p.Bypass() {
 		return false
 	}
 	if layer >= 1 && layer <= len(p.layerEnabled) {
