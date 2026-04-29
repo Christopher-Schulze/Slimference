@@ -22,6 +22,7 @@ import (
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/quality"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/summarization"
@@ -91,6 +92,14 @@ type Proxy struct {
 	// reloadable via admin POST /admin/bypass and the `B` TUI hotkey;
 	// persisted alongside other toggles.
 	bypassMode atomic.Bool
+	// Quality signals (T77). Re-read detector tracks repeated tool-key
+	// observations within a short window; cache-miss spike detector
+	// flags rolling prompt-cache regressions; net-savings keeps the
+	// "saved minus invalidation cost" running total. All three are
+	// exposed via /admin/status.quality.
+	qualityReRead       *quality.ReReadDetector
+	qualityCacheSpike   *quality.CacheMissSpikeDetector
+	qualityNetSavings   *quality.NetSavings
 	// bypassExpiryNano is the unix-nano deadline for a duration-bounded
 	// bypass (T81). Zero means "no expiry"; non-zero means bypass auto-
 	// reverts when time.Now().UnixNano() >= the stored value. Read on
@@ -150,7 +159,10 @@ func New(cfg *config.Config) *Proxy {
 		workerCtx:      workerCtx,
 		workerCancel:   workerCancel,
 		shutdownCh:     make(chan struct{}),
-		pipelineHist:   analytics.NewPipelineHistograms(),
+		pipelineHist:      analytics.NewPipelineHistograms(),
+		qualityReRead:     quality.NewReReadDetector(10),
+		qualityCacheSpike: quality.NewCacheMissSpikeDetector(50, 0.25),
+		qualityNetSavings: quality.NewNetSavings(),
 	}
 
 	// Default all toggles to enabled.
@@ -545,6 +557,53 @@ func (p *Proxy) BypassExpiresAt() time.Time {
 // auto-reverts since process start. T81 telemetry.
 func (p *Proxy) BypassAutoRevertCount() int64 {
 	return p.bypassAutoRevertCount.Load()
+}
+
+// observeQuality feeds a finalized RequestSummary into the T77 quality
+// detectors so /admin/status.quality reflects shipped traffic.
+func (p *Proxy) observeQuality(summary dbg.RequestSummary) {
+	if p.qualityCacheSpike != nil {
+		p.qualityCacheSpike.Observe(summary.CacheHit)
+	}
+	if p.qualityNetSavings != nil {
+		p.qualityNetSavings.RecordSaved(summary.Tokens.Saved)
+	}
+}
+
+// QualitySnapshot returns the current quality-signal snapshot for
+// /admin/status.quality (T77).
+func (p *Proxy) QualitySnapshot() quality.QualitySnapshot {
+	return quality.QualitySnapshot{
+		ReRead:         p.qualityReRead.Stats(),
+		CacheMissSpike: p.qualityCacheSpike.Stats(),
+		NetSavings:     p.qualityNetSavings.Stats(),
+	}
+}
+
+// ObserveQualityToolKey is the proxy-side hook for the re-read
+// detector. Called when a tool_use block is observed during request
+// processing. Empty session or key are no-ops.
+func (p *Proxy) ObserveQualityToolKey(sessionID, toolKey string) {
+	p.qualityReRead.Observe(sessionID, toolKey)
+}
+
+// ObserveQualityCacheHit feeds prompt-cache hit/miss outcomes into the
+// rolling spike detector so /admin/status.quality.cache_miss_spike
+// reflects recent traffic.
+func (p *Proxy) ObserveQualityCacheHit(hit bool) {
+	p.qualityCacheSpike.Observe(hit)
+}
+
+// ObserveQualitySavings logs saved tokens for the cumulative net-savings
+// counter. Pass 0 to skip.
+func (p *Proxy) ObserveQualitySavings(saved int) {
+	p.qualityNetSavings.RecordSaved(saved)
+}
+
+// ObserveQualityInvalidation logs the estimated cost of a cache
+// invalidation triggered by a compression-config change.
+func (p *Proxy) ObserveQualityInvalidation(cost int) {
+	p.qualityNetSavings.RecordInvalidation(cost)
 }
 
 // Bypass reports the current master-bypass state and lazily reverts a

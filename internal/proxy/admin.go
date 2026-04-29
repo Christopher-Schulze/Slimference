@@ -11,6 +11,7 @@ import (
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/quality"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/types"
@@ -149,6 +150,7 @@ type AdminStatus struct {
 	Pipeline          []analytics.PhaseSnapshot           `json:"pipeline"`
 	AnthropicVersion  AnthropicVersionStats               `json:"anthropic_version"`
 	Bypass            bool                                `json:"bypass"`
+	Quality           quality.QualitySnapshot             `json:"quality"`
 }
 
 // AnthropicVersionStats reports T62 version-negotiation telemetry.
@@ -289,7 +291,8 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			UnknownBehavior:   p.config.Proxy.AnthropicUnknownBehavior,
 			UnknownSeenTotal:  AnthropicUnknownVersionCount(),
 		},
-		Bypass: p.Bypass(),
+		Bypass:  p.Bypass(),
+		Quality: p.QualitySnapshot(),
 	}
 }
 

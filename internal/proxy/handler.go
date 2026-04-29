@@ -253,6 +253,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					ProxyLatencyMs:    cacheLatencyMs,
 				}
 				p.debugRecorder.Record(summary)
+		p.observeQuality(summary)
 			}
 
 			p.trySendAnalytics(types.AnalyticsEvent{
@@ -416,6 +417,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			ProxyLatencyMs:    proxyLatencyMs,
 		}
 		p.debugRecorder.Record(summary)
+		p.observeQuality(summary)
 	}
 
 	p.trySendAnalytics(types.AnalyticsEvent{
@@ -495,6 +497,7 @@ func (p *Proxy) serveStageACacheHit(
 			ProxyLatencyMs:    latencyMs,
 		}
 		p.debugRecorder.Record(summary)
+		p.observeQuality(summary)
 	}
 
 	p.trySendAnalytics(types.AnalyticsEvent{
