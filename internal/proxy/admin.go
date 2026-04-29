@@ -7,13 +7,24 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/compression"
-	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/types"
 )
+
+func adminCacheAgeFrom(h caching.AgeHistogram) AdminCacheAgeStatus {
+	return AdminCacheAgeStatus{
+		Count: h.Count,
+		P50Ms: h.P50Ms,
+		P95Ms: h.P95Ms,
+		P99Ms: h.P99Ms,
+		MaxMs: h.MaxMs,
+	}
+}
 
 const (
 	AdminBasePath           = "/_slimference/admin"
@@ -91,6 +102,15 @@ type AdminToolArchiveStatus struct {
 // AdminContentArchiveStatus reports T76 reversibility-archive telemetry:
 // how many lossy Layer 1 mutations were archived, expanded, re-injected,
 // and how much disk the archive holds.
+// AdminCacheAgeStatus exposes T102 response-cache age histogram.
+type AdminCacheAgeStatus struct {
+	Count int   `json:"count"`
+	P50Ms int64 `json:"p50_ms"`
+	P95Ms int64 `json:"p95_ms"`
+	P99Ms int64 `json:"p99_ms"`
+	MaxMs int64 `json:"max_ms"`
+}
+
 type AdminContentArchiveStatus struct {
 	Count          int       `json:"count"`
 	Archived       int       `json:"archived"`
@@ -122,6 +142,7 @@ type AdminStatus struct {
 	Checkpoints       AdminCheckpointStatus               `json:"checkpoints"`
 	ToolArchive       AdminToolArchiveStatus              `json:"tool_archive"`
 	ContentArchive    AdminContentArchiveStatus           `json:"content_archive"`
+	CacheAge          AdminCacheAgeStatus                 `json:"cache_age"`
 	ProviderHealth    map[string]types.ProviderHealthInfo `json:"provider_health"`
 	AnalyticsQueue    AnalyticsQueueStats                 `json:"analytics_queue"`
 	PromptCache       PromptCacheStats                    `json:"prompt_cache"`
@@ -252,6 +273,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		Checkpoints:       checkpointStatus,
 		ToolArchive:       toolArchiveStatus,
 		ContentArchive:    contentArchiveStatus,
+		CacheAge:          adminCacheAgeFrom(p.responseCache.AgeSnapshot()),
 		ProviderHealth: map[string]types.ProviderHealthInfo{
 			"anthropic":     p.GetProviderHealth(types.Anthropic),
 			"openai":        p.GetProviderHealth(types.OpenAI),

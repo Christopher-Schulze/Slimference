@@ -1,6 +1,6 @@
 # TASK 106: Batched filter-DB writes
 
-Status: todo
+Status: closed - spec premise inaccurate, no-op
 Priority: P2
 Scope: `internal/filter/`, `internal/daemon/`
 Driver: Every Layer 0 filter run commits to `filter.db` synchronously. On tool-heavy sessions (`git status` x N) this is the per-event bottleneck. Batched inserts via channel + periodic flush remove the bottleneck without sacrificing data integrity.
@@ -53,3 +53,22 @@ If the channel fills (slow disk), the producer falls back to a synchronous inser
 ```
 go test ./internal/filter/...
 ```
+
+## Closure Notes (2026-04-30)
+
+Audit of the actual write pattern:
+
+- `slimference filter <cmd>` is a fresh subprocess per filtered tool
+  call. Each invocation: opens filter.db, writes one row,
+  closes the DB. There is no long-running process accumulating writes
+  in a single connection.
+- The proxy / daemon never calls `RecordFilterRun` directly; only the
+  one-shot `filter` and `posttool` subcommands do.
+- A buffered channel + periodic flush would only reduce fsyncs *within*
+  one subprocess, but each subprocess writes exactly one row.
+- Cross-process batching would require IPC and a long-running
+  consumer process, which is far outside the task scope.
+
+Closed as no-op. If a future change moves filter recording into the
+long-running daemon (e.g. via a hook handler that loops), this task
+should be reopened with the corrected premise.

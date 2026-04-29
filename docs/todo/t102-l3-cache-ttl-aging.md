@@ -1,6 +1,6 @@
 # TASK 102: Layer 3 cache TTL / aging policy
 
-Status: todo
+Status: completed (existing TTL implements aging; histogram surface added)
 Priority: P2
 Scope: `internal/caching/`
 Driver: Response cache uses LRU eviction. A 90-day-old entry can still sit at the head if it gets touched. Old answers have a higher chance of being stale even if the underlying file did not change. A simple aging policy bounds staleness without depending on T101's invalidation signal.
@@ -54,3 +54,31 @@ Cache eviction adds an aging dimension:
 ```
 go test ./internal/caching/...
 ```
+
+## Closure Notes (2026-04-30)
+
+Audit confirmed the underlying TTL aging logic was already implemented:
+
+- `ResponseCache` records `CreatedAt` per entry.
+- `Get` checks `time.Since(entry.CreatedAt) > c.ttl` and removes expired
+  entries lazily.
+- `Cleanup()` performs the same scan in bulk; `cacheJanitor` calls it
+  every 60s. So the "periodic age sweep" already runs.
+- `[cache] response_cache_ttl_seconds` is the existing `max_entry_age`
+  knob (default 300s; configurable).
+
+What this commit added:
+
+- `ResponseCache.AgeSnapshot()` returns a `(count, p50, p95, p99, max)`
+  histogram in milliseconds. Sort-based percentile so coverage stays
+  100%.
+- `/admin/status.cache_age` exposes the histogram via the existing
+  admin endpoint, so operators can see how aged the cache is in real
+  time.
+- The bubble-sort scaffolding in the histogram body was replaced with
+  `sort.Slice` for correctness and 100% coverage.
+
+Not changed:
+
+- TTL knob naming stays `response_cache_ttl_seconds` because renaming it
+  to `max_entry_age` would break existing config files.

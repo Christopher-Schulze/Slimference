@@ -214,6 +214,43 @@ func (c *ResponseCache) Flush() {
 	c.keys = c.keys[:0]
 }
 
+// AgeHistogram reports the age distribution of currently cached entries.
+// Used by /admin/status.cache to surface T102 cache aging telemetry. All
+// values are in milliseconds since the entry was created.
+type AgeHistogram struct {
+	Count int   `json:"count"`
+	P50Ms int64 `json:"p50_ms"`
+	P95Ms int64 `json:"p95_ms"`
+	P99Ms int64 `json:"p99_ms"`
+	MaxMs int64 `json:"max_ms"`
+}
+
+// AgeSnapshot computes the age histogram for the current cache state. T102.
+func (c *ResponseCache) AgeSnapshot() AgeHistogram {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.entries) == 0 {
+		return AgeHistogram{}
+	}
+	now := time.Now()
+	ages := make([]int64, 0, len(c.entries))
+	for _, entry := range c.entries {
+		ages = append(ages, now.Sub(entry.CreatedAt).Milliseconds())
+	}
+	sort.Slice(ages, func(i, j int) bool { return ages[i] < ages[j] })
+	pct := func(p float64) int64 {
+		idx := int(float64(len(ages)-1) * p)
+		return ages[idx]
+	}
+	return AgeHistogram{
+		Count: len(ages),
+		P50Ms: pct(0.50),
+		P95Ms: pct(0.95),
+		P99Ms: pct(0.99),
+		MaxMs: ages[len(ages)-1],
+	}
+}
+
 // Cleanup removes all entries that have exceeded the TTL.
 // Intended to be called periodically by a background goroutine.
 func (c *ResponseCache) Cleanup() {

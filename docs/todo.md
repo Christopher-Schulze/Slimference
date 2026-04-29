@@ -672,7 +672,7 @@ API calls in default CI, mutating the operator's live Codex install.
 ### Phase T - Layer 3 improvements (P2)
 
 - [ ] T101 - Cache invalidation when referenced files change (mtime-hash component in cache key). Detail: `docs/todo/t101-l3-cache-invalidation-code-change.md`
-- [ ] T102 - Cache TTL / aging policy beyond LRU. Detail: `docs/todo/t102-l3-cache-ttl-aging.md`
+- [x] T102 - Cache TTL aging: existing TTL + 60s janitor already enforces aging; added `/admin/status.cache_age` histogram (count / p50 / p95 / p99 / max in ms). Detail: `docs/todo/t102-l3-cache-ttl-aging.md`
 
 ### Phase U - Layer 4 (new layer, P1)
 
@@ -682,7 +682,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 - [ ] T104 - Goroutine fan-out across independent L1 sub-layers (ANSI-strip, image-replace, comment-strip, etc.) on the hot path. Detail: `docs/todo/t104-l1-sublayer-fan-out.md`
 - [ ] T105 - Token-estimator self-calibration default-on across all providers, extended from T28's per-provider scaffolding. Detail: `docs/todo/t105-token-estimator-self-calibration-default.md`
-- [ ] T106 - Batched filter-DB writes (channel + periodic flush) instead of per-run sync commits. Detail: `docs/todo/t106-batched-filter-db-writes.md`
+- [!] T106 - SPEC PREMISE INACCURATE: filter writes are one-shot per subprocess; no long-lived connection accumulates rows. Cross-process batching would need IPC, far outside scope. Closed as no-op. Detail: `docs/todo/t106-batched-filter-db-writes.md`
 - [ ] T107 - Conversation-scoped dedup hash cache so long sessions don't re-shingle every request. Detail: `docs/todo/t107-conversation-scoped-dedup-cache.md`
 - [ ] T108 - Streaming compression for long tool outputs: chunked L1 during the tool run instead of whole-body after. Detail: `docs/todo/t108-streaming-compression.md`
 
