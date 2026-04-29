@@ -603,3 +603,106 @@ wired into the active local setup.
   `/backend-api/codex/*` are potential compression paths, known Codex
   `messages`/Responses `input` bodies are compressed, and unknown shapes
   passthrough without 400.
+
+---
+
+## Strategic Improvement Program (2026-04-30)
+
+Output of the 2026-04-30 repository-wide concept review. Each entry has a
+detail file under `docs/todo/`. The phases are sequenced by impact unlock:
+**Phase L (T76-T77)** is the foundation — reversibility-by-default plus a
+quality calibration loop unblock every later "default-on / aggressive" mode
+because they let the system measure when compression hurts and recover from
+it. **Phase M+ runs in parallel** once Phase L is in place.
+
+Out of scope for this program (intentionally not adressed):
+Windows support, zsh/fish completion, Prometheus exposition, embedding-based
+similarity, auto-tuning by RL, public marketing claims, automated live paid
+API calls in default CI, mutating the operator's live Codex install.
+
+### Phase L - Reversibility foundation (P0)
+
+- [ ] T76 - Reversibility by default for lossy L1 operations (archive every lossy mutation, opportunistic re-injection, unblocks T74 default-on, T98, T103, T77). Detail: `docs/todo/t76-reversibility-by-default.md`
+- [ ] T77 - Quality calibration loop: re-read counter + prompt-cache-miss spike alert + downstream "compression hurts" signal. Detail: `docs/todo/t77-quality-calibration-loop.md`
+
+### Phase M - Concept levers (P0/P1)
+
+- [ ] T78 - Provider server-state exploitation: use OpenAI Responses `previous_response_id` and ChatGPT-Backend conversation IDs to skip resending compressible context. Detail: `docs/todo/t78-provider-server-state.md`
+
+### Phase N - UX visibility and ergonomics (P1)
+
+- [ ] T79 - Daemon visibility surface: native macOS menubar (or headless `slimference watch`) so launchd-running daemons aren't invisible. Detail: `docs/todo/t79-daemon-visibility-menubar.md`
+- [ ] T80 - Unified `slimference savings [today|week|month]` collapsing `gain` + `stats` + cache hits into one canonical view in tokens and EUR/USD. Detail: `docs/todo/t80-unified-savings-command.md`
+- [ ] T81 - Bypass granularity: `--duration=5m`, `--next-request`, plus per-tool / per-route bypass. Detail: `docs/todo/t81-bypass-granularity.md`
+- [ ] T82 - `slimference compress-preview` CLI: dry-run shows what the proxy would do to a request body without sending. Detail: `docs/todo/t82-compression-preview-cli.md`
+
+### Phase O - Stability hardening (P1)
+
+- [ ] T83 - Provider degradation visibility: surface MiniMax / fallback degradation as user-visible status, not silent disable. Detail: `docs/todo/t83-provider-degradation-visibility.md`
+- [ ] T84 - SQLite WAL periodic checkpoint for filter.db / analytics / readcache. Detail: `docs/todo/t84-sqlite-wal-checkpoint.md`
+- [ ] T85 - Graceful drain on launchd restart: finish in-flight streaming connections before exit. Detail: `docs/todo/t85-graceful-drain-on-restart.md`
+
+### Phase P - MiniMax determinism and prompt hygiene (P1/P2)
+
+- [ ] T86 - Configurable + versioned compression system prompt with hot-reload and `prompt_version` telemetry field. Detail: `docs/todo/t86-configurable-system-prompt.md`
+- [ ] T87 - Multi-stack few-shot examples (Go / Python / TS) with rotation to remove Go-bias from current single example. Detail: `docs/todo/t87-multi-stack-few-shot-examples.md`
+- [ ] T88 - Seed-aware request building + provider capability map (`supports_seed`) so non-deterministic providers fail closed. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
+- [ ] T89 - Robust CoT stripping: `<think>`, `<thinking>`, `<reasoning>` and other reasoner-tag families with whitelist for legitimate tags. Detail: `docs/todo/t89-robust-cot-stripping.md`
+- [ ] T90 - Partial-repair pass on validator failure (cheap second call to fix only the offending lines) instead of all-or-nothing reject. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
+- [ ] T91 - `min_completion_tokens` (or equivalent) to reduce false validator rejects from premature stops. Detail: `docs/todo/t91-min-completion-tokens.md`
+- [ ] T92 - Per-bullet lineage markers `[msg:N,M]` so summaries stay reverse-traceable to original messages. Detail: `docs/todo/t92-per-bullet-lineage-markers.md`
+
+### Phase Q - Layer 0 improvements (P2)
+
+- [ ] T93 - Cross-session pattern mining: marker `git status (see msg #N)` from run #3 onward when output is unchanged. Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
+- [ ] T94 - Streaming-aware Layer 0 filter for `tail -f`, `docker logs --follow`, long-running test runners. Detail: `docs/todo/t94-l0-streaming-filter.md`
+- [ ] T95 - Tokenizer-aware Layer 0 budgets so Codex (`o200k`) and Claude (`claude-3` tokenizer family) get different truncation thresholds. Detail: `docs/todo/t95-l0-tokenizer-aware-budgets.md`
+
+### Phase R - Layer 1 improvements (P1/P2)
+
+- [ ] T96 - Conversation-level dedup with stable hash references across messages, not just intra-message. Detail: `docs/todo/t96-l1-conversation-level-dedup.md`
+- [ ] T97 - Hybrid structure extraction: regex first, tree-sitter on confidence-fail, for templates and embedded DSLs. Detail: `docs/todo/t97-l1-hybrid-structure-extraction.md`
+- [ ] T98 - Comment-strip whitelist for `// SAFETY:`, `// TODO(critical):`, license headers, and other semantic comments. Detail: `docs/todo/t98-l1-comment-strip-whitelist.md`
+
+### Phase S - Layer 2 improvements (P2)
+
+- [ ] T99 - Mid-exchange summarization with `still in progress` marker for exchanges that exceed budget mid-flight. Detail: `docs/todo/t99-l2-mid-exchange-summary.md`
+- [ ] T100 - Cross-direction pipeline coordinator so L1 can skip aggressive work that L2 will subsume. Detail: `docs/todo/t100-l2-cross-direction-coordinator.md`
+
+### Phase T - Layer 3 improvements (P2)
+
+- [ ] T101 - Cache invalidation when referenced files change (mtime-hash component in cache key). Detail: `docs/todo/t101-l3-cache-invalidation-code-change.md`
+- [ ] T102 - Cache TTL / aging policy beyond LRU. Detail: `docs/todo/t102-l3-cache-ttl-aging.md`
+
+### Phase U - Layer 4 (new layer, P1)
+
+- [ ] T103 - Tool-Definition Pruning: strip unused tool schemas after N idle turns, lazy-reload on demand. New compression axis. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
+
+### Phase V - Algorithmic and efficiency (P2)
+
+- [ ] T104 - Goroutine fan-out across independent L1 sub-layers (ANSI-strip, image-replace, comment-strip, etc.) on the hot path. Detail: `docs/todo/t104-l1-sublayer-fan-out.md`
+- [ ] T105 - Token-estimator self-calibration default-on across all providers, extended from T28's per-provider scaffolding. Detail: `docs/todo/t105-token-estimator-self-calibration-default.md`
+- [ ] T106 - Batched filter-DB writes (channel + periodic flush) instead of per-run sync commits. Detail: `docs/todo/t106-batched-filter-db-writes.md`
+- [ ] T107 - Conversation-scoped dedup hash cache so long sessions don't re-shingle every request. Detail: `docs/todo/t107-conversation-scoped-dedup-cache.md`
+- [ ] T108 - Streaming compression for long tool outputs: chunked L1 during the tool run instead of whole-body after. Detail: `docs/todo/t108-streaming-compression.md`
+
+### Sequencing notes
+
+- T76 -> T77 -> everything else. Both are preconditions for safely shipping
+  any "default-on aggressive" mode and for trusting any tuning data.
+- T78 must land alongside T101 because both touch upstream-state semantics.
+- T86 -> T87 -> T88 -> T89 -> T90 -> T91 -> T92 is the natural order inside
+  Phase P; each builds on the last.
+- T103 (Tool-Definition Pruning) requires T76 because tool-schema removal
+  must be reversible.
+- T100 must come after T76 because the L1/L2 coordinator only buys real
+  savings when it can also skip-and-archive instead of skip-and-lose.
+
+### Out of scope (deliberately not added)
+
+- Anything touching the operator's live Codex install (still blocked, see
+  T71 / T75).
+- Windows support, zsh / fish completion (decided 2026-04-18).
+- Embedding-based similarity, RL-driven auto-tuning (separate research
+  track if and when warranted).
+- Public marketing claims; live paid API calls in default CI.
