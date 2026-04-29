@@ -2,8 +2,39 @@ package compression
 
 import (
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+// commentWhitelistPatterns marks comment lines that must survive the
+// stripper because they carry semantic weight (safety invariants, license
+// headers, critical TODOs). T98. Patterns are case-sensitive where the
+// convention is conventional all-caps, case-insensitive where the
+// surrounding word can vary.
+var commentWhitelistPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`\bSAFETY:`),
+	regexp.MustCompile(`\bINVARIANT:`),
+	regexp.MustCompile(`\bTODO\(critical\):`),
+	regexp.MustCompile(`\bFIXME\(critical\):`),
+	regexp.MustCompile(`\bHACK\(critical\):`),
+	regexp.MustCompile(`\bCopyright\b`),
+	regexp.MustCompile(`\bSPDX-License-Identifier\b`),
+	regexp.MustCompile(`\bAll rights reserved\b`),
+	regexp.MustCompile(`\bLicensed under\b`),
+}
+
+// isWhitelistedComment reports whether a raw line carries content the
+// whitelist mandates be preserved verbatim by the comment stripper.
+// T98. Used by every per-language strip function as the first check
+// before standard stripping logic runs.
+func isWhitelistedComment(line string) bool {
+	for _, re := range commentWhitelistPatterns {
+		if re.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
 
 // StripComments removes comments and normalizes whitespace from code.
 // Conservative: lines that look ambiguous (complex strings, heredocs) pass through unchanged.
@@ -45,6 +76,17 @@ func stripCStyleComments(code string) string {
 
 	for _, line := range lines {
 		if inBlockComment {
+			// T98: a multi-line block comment containing a whitelisted
+			// marker (e.g. license header) is preserved verbatim until
+			// its terminator on the current line.
+			if isWhitelistedComment(line) {
+				if end := strings.Index(line, "*/"); end != -1 {
+					inBlockComment = false
+				}
+				result = append(result, line)
+				consecutiveBlanks = 0
+				continue
+			}
 			end := strings.Index(line, "*/")
 			if end == -1 {
 				// Still inside block comment - skip line.
@@ -53,6 +95,14 @@ func stripCStyleComments(code string) string {
 			// Block comment ends on this line - keep remainder.
 			inBlockComment = false
 			line = line[end+2:]
+		}
+
+		// T98: preserve the original line whenever it carries a
+		// semantic-comment marker (SAFETY: / Copyright / etc.).
+		if isWhitelistedComment(line) {
+			result = append(result, line)
+			consecutiveBlanks = 0
+			continue
 		}
 
 		stripped := stripCStyleLine(line, &inBlockComment)
@@ -142,6 +192,13 @@ func stripPythonComments(code string) string {
 	consecutiveBlanks := 0
 
 	for _, line := range lines {
+		// T98: whitelist runs before stripping so semantic Python /
+		// shell comments (license, SAFETY, …) survive intact.
+		if isWhitelistedComment(line) {
+			result = append(result, line)
+			consecutiveBlanks = 0
+			continue
+		}
 		stripped := stripHashLine(line)
 		trimmed := strings.TrimSpace(stripped)
 		if trimmed == "" {
@@ -264,6 +321,12 @@ func stripHashComments(code string) string {
 	consecutiveBlanks := 0
 
 	for _, line := range lines {
+		// T98: preserve semantic shell / Ruby / yaml / toml comments.
+		if isWhitelistedComment(line) {
+			result = append(result, line)
+			consecutiveBlanks = 0
+			continue
+		}
 		stripped := stripHashLine(line)
 		trimmed := strings.TrimSpace(stripped)
 		if trimmed == "" {

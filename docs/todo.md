@@ -662,7 +662,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 - [ ] T96 - Conversation-level dedup with stable hash references across messages, not just intra-message. Detail: `docs/todo/t96-l1-conversation-level-dedup.md`
 - [ ] T97 - Hybrid structure extraction: regex first, tree-sitter on confidence-fail, for templates and embedded DSLs. Detail: `docs/todo/t97-l1-hybrid-structure-extraction.md`
-- [ ] T98 - Comment-strip whitelist for `// SAFETY:`, `// TODO(critical):`, license headers, and other semantic comments. Detail: `docs/todo/t98-l1-comment-strip-whitelist.md`
+- [x] T98 - Comment-strip whitelist preserves SAFETY / INVARIANT / TODO(critical) / FIXME(critical) / HACK(critical) / Copyright / SPDX / Licensed-under / All-rights-reserved across C-style, hash, and Python strippers. Multi-line license blocks preserved. Config knob deferred. Detail: `docs/todo/t98-l1-comment-strip-whitelist.md`
 
 ### Phase S - Layer 2 improvements (P2)
 

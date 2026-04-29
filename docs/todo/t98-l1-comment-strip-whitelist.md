@@ -1,6 +1,6 @@
 # TASK 98: Comment-strip whitelist for semantic comments
 
-Status: todo
+Status: completed (config knob deferred)
 Priority: P2
 Scope: `internal/compression/comment_strip.go`
 Driver: Comment-strip removes ALL comments. License headers, `// SAFETY:` invariants, `// TODO(critical):` blockers, structured doc-comments are valuable signal that the agent needs. Stripping them is correct on aggregate but produces avoidable failures on the long tail.
