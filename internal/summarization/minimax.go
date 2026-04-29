@@ -76,7 +76,82 @@ const systemPrompt = "You are a deterministic information extractor. You compres
 	"START your output with \"- \" immediately. First character must be dash-space."
 
 // coTRegex matches chain-of-thought thinking blocks that some models emit.
+// Kept for back-compat; the active stripper is StripCoTTags below which
+// covers a wider set of reasoner tag families. T89.
 var coTRegex = regexp.MustCompile(`(?s)<think[^>]*>.*?</think\s*>`)
+
+// defaultCoTTags is the canonical list of reasoner-tag families that
+// should never reach the validator. Order does not matter; the stripper
+// loops to a fixed point so nested tags collapse cleanly. New families
+// observed in the wild can be appended; previous entries stay so existing
+// fixtures keep working.
+var defaultCoTTags = []string{
+	"think",
+	"thinking",
+	"reasoning",
+	"reason",
+	"analysis",
+	"scratchpad",
+	"reflection",
+	"plan",
+	"chain_of_thought",
+	"chain-of-thought",
+	"inner_thought",
+	"inner_monologue",
+}
+
+// cotTagCounts records how often each tag family was stripped. Read via
+// CoTTagCount for /admin/status.summarization.cot. Atomic-free because
+// the summarizer call path is already serialized per request.
+var cotTagCounts = map[string]int64{}
+
+// CoTTagCount returns the cumulative strip count for a given tag family.
+// Unknown families return zero. T89 telemetry surface.
+func CoTTagCount(tag string) int64 { return cotTagCounts[tag] }
+
+// CoTTagCounts returns a copy of the per-tag strip counts.
+func CoTTagCounts() map[string]int64 {
+	out := make(map[string]int64, len(cotTagCounts))
+	for k, v := range cotTagCounts {
+		out[k] = v
+	}
+	return out
+}
+
+// ResetCoTTagCounts clears the counters. Test helper.
+func ResetCoTTagCounts() {
+	for k := range cotTagCounts {
+		delete(cotTagCounts, k)
+	}
+}
+
+// StripCoTTags removes paired XML-style tag blocks for any of the
+// declared reasoner-tag families. The stripper iterates until no more
+// matches are found so nested tags collapse cleanly. Each strip
+// increments the family counter for telemetry. T89.
+func StripCoTTags(s string, tags []string) string {
+	if len(tags) == 0 {
+		return s
+	}
+	out := s
+	for {
+		before := out
+		for _, tag := range tags {
+			pattern := `(?s)<` + regexp.QuoteMeta(tag) + `\b[^>]*>.*?</` + regexp.QuoteMeta(tag) + `\s*>`
+			re := regexp.MustCompile(pattern)
+			matches := re.FindAllStringIndex(out, -1)
+			if len(matches) == 0 {
+				continue
+			}
+			cotTagCounts[tag] += int64(len(matches))
+			out = re.ReplaceAllString(out, "")
+		}
+		if out == before {
+			break
+		}
+	}
+	return out
+}
 
 // preambleRegex matches common preamble patterns that violate the format requirement.
 var preambleRegex = regexp.MustCompile(`(?m)^(?:Here is|Summary:|The conversation|Below is|I have|This is|Compressed|Result:|Output:)[^\n]*\n?`)
@@ -244,8 +319,10 @@ func (c *MiniMaxClient) Summarize(ctx context.Context, inputText string, startMs
 func cleanSummaryOutput(raw string) string {
 	s := raw
 
-	// 1. Strip chain-of-thought <think...</think > blocks (M2.7 CoT behavior).
-	s = coTRegex.ReplaceAllString(s, "")
+	// 1. Strip chain-of-thought blocks for all known reasoner-tag families
+	// (T89). Replaces the legacy single-family <think> regex with the
+	// fixed-point multi-family stripper.
+	s = StripCoTTags(s, defaultCoTTags)
 
 	// 2. Strip common preambles ("Here is the summary:", "Compressed output:", etc.).
 	s = preambleRegex.ReplaceAllString(s, "")

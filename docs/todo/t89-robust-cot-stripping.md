@@ -1,6 +1,6 @@
 # TASK 89: Robust CoT stripping for varied reasoner-tag families
 
-Status: todo
+Status: completed (config knob deferred)
 Priority: P2
 Scope: `internal/summarization/minimax.go`
 Driver: `coTRegex` only matches `<think>...</think>`. Newer reasoner families emit `<reasoning>`, `<thinking>`, `<analysis>`, `<scratchpad>`. None of these are stripped today, polluting summaries with chain-of-thought and reducing effective token-budget headroom.
@@ -53,3 +53,29 @@ The current regex `(?s)<think[^>]*>.*?</think\s*>` strips one tag family. Other 
 ```
 go test ./internal/summarization/...
 ```
+
+## Closure Notes (2026-04-30)
+
+Landed:
+
+- `StripCoTTags(s, tags)` is the new canonical stripper. Iterates to a
+  fixed point so nested tag families collapse cleanly.
+- `defaultCoTTags` ships the 12-family canonical set: `think`,
+  `thinking`, `reasoning`, `reason`, `analysis`, `scratchpad`,
+  `reflection`, `plan`, `chain_of_thought`, `chain-of-thought`,
+  `inner_thought`, `inner_monologue`. Tags can be appended; existing
+  fixtures keep working.
+- Per-tag counters via `CoTTagCounts()` / `CoTTagCount(tag)` for future
+  `/admin/status.summarization.cot` exposure.
+- `cleanSummaryOutput` now calls `StripCoTTags(s, defaultCoTTags)`
+  instead of the legacy single-family regex.
+- 100% coverage; race tests green.
+
+Deferred (small follow-up):
+
+- Config knob `[summarization.cot] strip_tags` + `keep_tags` whitelist.
+  The default list already covers the families seen in the wild;
+  configurability becomes valuable when T86 (configurable system
+  prompt) lands and operators need version-pinned strip behaviour.
+- `/admin/status.summarization.cot` endpoint surface (counters exist,
+  just not exposed yet).

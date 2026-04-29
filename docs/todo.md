@@ -639,7 +639,7 @@ API calls in default CI, mutating the operator's live Codex install.
 ### Phase O - Stability hardening (P1)
 
 - [ ] T83 - Provider degradation visibility: surface MiniMax / fallback degradation as user-visible status, not silent disable. Detail: `docs/todo/t83-provider-degradation-visibility.md`
-- [ ] T84 - SQLite WAL periodic checkpoint for filter.db / analytics / readcache. Detail: `docs/todo/t84-sqlite-wal-checkpoint.md`
+- [!] T84 - SPEC PREMISE INACCURATE: only filter.db is SQLite (others are JSON), and connection lifecycle is short-lived; WAL + periodic checkpoint adds no value under current access pattern. Closed as no-op. Detail: `docs/todo/t84-sqlite-wal-checkpoint.md`
 - [ ] T85 - Graceful drain on launchd restart: finish in-flight streaming connections before exit. Detail: `docs/todo/t85-graceful-drain-on-restart.md`
 
 ### Phase P - MiniMax determinism and prompt hygiene (P1/P2)
@@ -647,7 +647,7 @@ API calls in default CI, mutating the operator's live Codex install.
 - [ ] T86 - Configurable + versioned compression system prompt with hot-reload and `prompt_version` telemetry field. Detail: `docs/todo/t86-configurable-system-prompt.md`
 - [ ] T87 - Multi-stack few-shot examples (Go / Python / TS) with rotation to remove Go-bias from current single example. Detail: `docs/todo/t87-multi-stack-few-shot-examples.md`
 - [ ] T88 - Seed-aware request building + provider capability map (`supports_seed`) so non-deterministic providers fail closed. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
-- [ ] T89 - Robust CoT stripping: `<think>`, `<thinking>`, `<reasoning>` and other reasoner-tag families with whitelist for legitimate tags. Detail: `docs/todo/t89-robust-cot-stripping.md`
+- [x] T89 - Robust CoT stripping: 12-family canonical strip set with fixed-point loop and per-tag counters; legacy single-family regex retired. Config knob deferred. Detail: `docs/todo/t89-robust-cot-stripping.md`
 - [ ] T90 - Partial-repair pass on validator failure (cheap second call to fix only the offending lines) instead of all-or-nothing reject. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
 - [ ] T91 - `min_completion_tokens` (or equivalent) to reduce false validator rejects from premature stops. Detail: `docs/todo/t91-min-completion-tokens.md`
 - [ ] T92 - Per-bullet lineage markers `[msg:N,M]` so summaries stay reverse-traceable to original messages. Detail: `docs/todo/t92-per-bullet-lineage-markers.md`

@@ -1,6 +1,6 @@
 # TASK 84: SQLite WAL periodic checkpoint
 
-Status: todo
+Status: closed - spec premise inaccurate, no-op
 Priority: P1
 Scope: `internal/filter/`, `internal/analytics/`, `internal/readcache/`, `internal/toolarchive/`, `internal/daemon/`
 Driver: All four SQLite stores (filter.db, analytics.db, readcache, toolarchive) run in WAL mode. Without periodic `wal_checkpoint(TRUNCATE)`, the WAL file grows unbounded under long-running daemon uptime, eventually exhausting disk and degrading write performance.
@@ -57,3 +57,23 @@ A counter exposes `wal_checkpoint_runs` and `wal_checkpoint_pages_reclaimed` per
 go test ./internal/sqliteops/... ./internal/daemon/...
 curl localhost:8990/admin/status | jq .sqlite
 ```
+
+## Closure Notes (2026-04-30)
+
+Audit of the actual SQLite footprint:
+
+- Only `filter.db` is a real SQLite store in this repository
+  (`internal/filter/tracking.go`). The other "stores" listed in the task
+  driver (analytics.db, readcache, toolarchive) are JSON files, not
+  SQLite.
+- All `filter.OpenDB` call sites open the DB, write or read, and close
+  immediately. There is no long-running connection holding the DB open
+  in a daemon goroutine.
+- Default `modernc.org/sqlite` journal mode is `delete`, not `wal`.
+  Without WAL mode there is no `-wal` file to checkpoint.
+- Under the current single-process, short-lived-connection access
+  pattern, neither WAL nor periodic checkpointing buys anything.
+
+Closed as no-op. If a future task introduces a long-running open
+connection (e.g. the proxy holds filter.db open across requests), this
+task should be reopened with the corrected premise.
