@@ -139,7 +139,13 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	var layer1Breakdown map[string]dbg.SubLayerBreakdown
 	if p.isLayerEnabled(1) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull {
 		l1Start := time.Now()
-		result := p.layer1.Compress(messages)
+		// T76: thread the request id as the session scope so any archive
+		// entry produced by lossy sub-layers carries a correlatable id.
+		// Compressor must be serialized per call internally; the proxy
+		// holds a single instance so concurrent compresses are gated by
+		// HTTP serve goroutine count - acceptable trade-off for v1; the
+		// archive id is timestamped so collisions are practically zero.
+		result := p.layer1.CompressWithSession(reqID, messages)
 		p.pipelineHist.L1.Record(time.Since(l1Start))
 		if result.TokensSaved > 0 {
 			compressedMessages = result.Messages

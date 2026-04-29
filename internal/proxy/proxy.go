@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/contentarchive"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/sessions"
@@ -170,6 +172,20 @@ func New(cfg *config.Config) *Proxy {
 
 	// Layer 1: Deterministic compressor.
 	p.layer1 = compression.NewDeterministicCompressor(&cfg.Compression)
+
+	// T76: wire the content-archive recorder so lossy Layer 1 sub-layers
+	// archive original content before mutation. This is the safety net
+	// that lets aggressive defaults (T74 default-on, T100 coordinator,
+	// T103 tool pruning) ship without being lossy. Best-effort: if home
+	// is unavailable, the compressor falls back to no archiving and
+	// continues to compress as before.
+	if home, err := os.UserHomeDir(); err == nil {
+		recorder := compression.NewDiskRecorder(
+			contentarchive.DefaultDir(home),
+			contentarchive.Limits{},
+		)
+		p.layer1.WithRecorder(recorder)
+	}
 
 	// T61: install tool-compressor heuristic tuning from config so the
 	// package-global atomic reflects the user's overrides.

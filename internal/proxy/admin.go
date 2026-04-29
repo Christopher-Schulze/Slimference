@@ -10,6 +10,7 @@ import (
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/readcache"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -87,6 +88,22 @@ type AdminToolArchiveStatus struct {
 	LastExpanded time.Time `json:"last_expanded"`
 }
 
+// AdminContentArchiveStatus reports T76 reversibility-archive telemetry:
+// how many lossy Layer 1 mutations were archived, expanded, re-injected,
+// and how much disk the archive holds.
+type AdminContentArchiveStatus struct {
+	Count          int       `json:"count"`
+	Archived       int       `json:"archived"`
+	Expanded       int       `json:"expanded"`
+	ReInjectCount  int       `json:"re_inject_count"`
+	Evictions      int       `json:"evictions"`
+	BytesRaw       int64     `json:"bytes_raw"`
+	BytesStored    int64     `json:"bytes_stored"`
+	LastArchived   time.Time `json:"last_archived"`
+	LastExpanded   time.Time `json:"last_expanded"`
+	LastReInjected time.Time `json:"last_re_injected"`
+}
+
 type AdminStatus struct {
 	Status            string                              `json:"status"`
 	Service           string                              `json:"service"`
@@ -104,6 +121,7 @@ type AdminStatus struct {
 	ReadCache         AdminReadCacheStatus                `json:"read_cache"`
 	Checkpoints       AdminCheckpointStatus               `json:"checkpoints"`
 	ToolArchive       AdminToolArchiveStatus              `json:"tool_archive"`
+	ContentArchive    AdminContentArchiveStatus           `json:"content_archive"`
 	ProviderHealth    map[string]types.ProviderHealthInfo `json:"provider_health"`
 	AnalyticsQueue    AnalyticsQueueStats                 `json:"analytics_queue"`
 	PromptCache       PromptCacheStats                    `json:"prompt_cache"`
@@ -153,6 +171,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 	readStatus := AdminReadCacheStatus{}
 	checkpointStatus := AdminCheckpointStatus{}
 	toolArchiveStatus := AdminToolArchiveStatus{}
+	contentArchiveStatus := AdminContentArchiveStatus{}
 	if home, err := os.UserHomeDir(); err == nil {
 		if stats, err := readcache.Snapshot(readcache.DefaultDir(home)); err == nil {
 			readStatus = AdminReadCacheStatus{
@@ -187,6 +206,21 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 				LastExpanded: stats.LastExpanded,
 			}
 		}
+		if stats, err := contentarchive.LoadStats(contentarchive.DefaultDir(home)); err == nil {
+			snap, _ := contentarchive.Snapshot(contentarchive.DefaultDir(home))
+			contentArchiveStatus = AdminContentArchiveStatus{
+				Count:          snap.Count,
+				Archived:       stats.Archived,
+				Expanded:       stats.Expanded,
+				ReInjectCount:  stats.ReInjectCount,
+				Evictions:      stats.Evictions,
+				BytesRaw:       snap.BytesRaw,
+				BytesStored:    snap.BytesStored,
+				LastArchived:   stats.LastArchived,
+				LastExpanded:   stats.LastExpanded,
+				LastReInjected: stats.LastReInjected,
+			}
+		}
 	}
 
 	return AdminStatus{
@@ -217,6 +251,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		ReadCache:         readStatus,
 		Checkpoints:       checkpointStatus,
 		ToolArchive:       toolArchiveStatus,
+		ContentArchive:    contentArchiveStatus,
 		ProviderHealth: map[string]types.ProviderHealthInfo{
 			"anthropic":     p.GetProviderHealth(types.Anthropic),
 			"openai":        p.GetProviderHealth(types.OpenAI),

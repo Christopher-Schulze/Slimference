@@ -1,6 +1,6 @@
 # TASK 76: Reversibility-by-default for lossy Layer 1 operations
 
-Status: todo
+Status: partial - WP1 / WP2(coarse) / WP4 / WP5 done; WP2(per-sub-layer) and WP3 deferred
 Priority: P0
 Scope: `internal/compression/`, `internal/toolarchive/`, `internal/proxy/handler.go`, `internal/types/types.go`, `cmd/slimference/checkpoint_cmd.go`
 Driver: T74 had to flip `structure_preview` back to default-off because preview-time content cannot be recovered. The same risk applies to dedup, comment-strip, JSON-compact, repeated-collapse, image-replace, and structure-extract. Without an archive layer behind every lossy operation, no aggressive mode can be safely default-on, no quality calibration loop is possible, and tool-definition pruning (T103) cannot be built.
@@ -70,3 +70,50 @@ go test ./internal/contentarchive/... ./internal/compression/... ./internal/prox
 go run ./scripts/ci
 slimference expand local-archive://<id>
 ```
+
+## Closure Notes (2026-04-30)
+
+Landed in this pass:
+
+- New `internal/contentarchive` package mirrors the `toolarchive` shape but
+  archives lossy *content* mutations rather than tool outputs. Storage at
+  `~/.slimference/content-archive/`, gzip + JSON metadata, eviction by
+  `MaxEntries` / `MaxBytes` (defaults 5000 / 64 MiB), 100% covered.
+- `MutationRecorder` interface, `NoopRecorder`, `DiskRecorder`, and an
+  `archiveOriginal` helper on the deterministic compressor. Recorder is
+  wired in `proxy.New` so production traffic archives by default.
+- `types.ContentBlock.ArchiveID` field plus `CompressWithSession` to scope
+  archive entries to the per-request session id.
+- `compressMessage` archives once per block at the end, when any non-ANSI
+  mutation occurred; `preview_pass` archives per block when the preview
+  fires.
+- `slimference expand <id>` now retrieves both tool-archive and
+  content-archive entries, with toolarchive tried first for back-compat.
+- `/admin/status.content_archive` exposes
+  `count / archived / expanded / re_inject_count / evictions /
+   bytes_raw / bytes_stored / last_*`.
+- `structure_preview` ships **default on** (T74 default-off contract was
+  scoped to "until preview is reversible"; T76 satisfies that condition).
+  T76 regression tests pin the new default in both the Go struct and the
+  generated TOML template.
+- Full proof stack green: `go run ./scripts/ci` PASS at 100.0% coverage,
+  `go test -race ./...` green, `bun test tests/ts` green,
+  integration tests green.
+
+Deferred to follow-up tasks (kept out of scope here so the foundation can
+land cleanly):
+
+- **WP2 per-sub-layer attribution.** The current end-of-block archive
+  records a single entry per mutated block tagged `sub_layer="layer1"`.
+  For full audit visibility, `comment_strip`, `dedup`, `structure_extract`,
+  `delta`, `tool_compressor`, `success_short_circuit`, `image_replace`,
+  `repeated_collapse`, and `graph_pruning` should each archive
+  individually with their own subLayer tag. Tracked as T76-followup-A.
+- **WP3 opportunistic re-injection.** The `contentarchive.RecordReInject`
+  helper and the `re_inject_count` counter exist, but the proxy does not
+  yet detect archive-id references in upstream responses and re-inject
+  the archived bytes in the next request. Tracked as T76-followup-B.
+- **Integration test for end-to-end reversibility flow.** Today the
+  contract is unit-tested per layer; an integration test that simulates
+  "model asks about archived block -> re-injection happens" needs WP3
+  first.

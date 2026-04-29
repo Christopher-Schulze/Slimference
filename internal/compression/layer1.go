@@ -42,6 +42,16 @@ type DeterministicCompressor struct {
 	// threshold for the current Compress() call. Computed once per call
 	// so every compressMessage invocation uses the same value.
 	activeDedupThreshold float64
+	// activeSessionID scopes archive entries for the current Compress()
+	// invocation. Set at the top of CompressWithSession so per-call value
+	// flows through compressMessage and the cross-message passes without
+	// racy concurrent mutation: callers must hold one compressor per
+	// in-flight session, or serialize their CompressWithSession calls.
+	activeSessionID string
+	// recorder archives original block content before lossy sub-layers
+	// mutate it. Optional; nil means "no archiving" and every helper
+	// short-circuits cheaply. T76.
+	recorder MutationRecorder
 }
 
 // resolveDedupThreshold applies the T53 staircase: the first step whose
@@ -72,9 +82,24 @@ func NewDeterministicCompressor(cfg *config.CompressionConfig) *DeterministicCom
 	}
 }
 
-// Compress applies Layer 1 to messages that fall outside the sliding window of recent
-// user exchanges. See CompressiblePrefixEnd for the exact boundary.
+// Compress applies Layer 1 to messages that fall outside the sliding window
+// of recent user exchanges. Equivalent to CompressWithSession with an empty
+// sessionID; archive entries written during this call are not session-tagged.
+// See CompressiblePrefixEnd for the exact boundary.
 func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Result {
+	return c.CompressWithSession("", messages)
+}
+
+// CompressWithSession is the session-aware Compress entry point. The
+// sessionID is stamped on every archive entry produced during this call so
+// the proxy can later filter or attribute by session. Callers that share a
+// single compressor across concurrent requests MUST serialize calls or use
+// per-session compressors; the active session id is held on the receiver
+// for the duration of the call.
+func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages []types.Message) Layer1Result {
+	c.activeSessionID = sessionID
+	defer func() { c.activeSessionID = "" }()
+
 	result := Layer1Result{
 		Messages: messages,
 	}
@@ -352,6 +377,17 @@ func (c *DeterministicCompressor) compressMessage(
 		}
 
 		if len(text) < originalLen || text != block.Text {
+			// T76: archive the original block text before stamping the
+			// mutated value so the proxy can re-inject the original on
+			// reference detection. ANSI strip alone is treated as
+			// non-lossy (no archive) because it is a pure normalisation
+			// of escape codes; archiving only fires when content beyond
+			// ANSI was modified.
+			if !ansiOnlyChange(origText, text) {
+				if id := c.archiveOriginal(msgIdx, bi, "layer1", origText); id != "" {
+					newContent[bi].ArchiveID = id
+				}
+			}
 			newContent[bi].Text = text
 		}
 	}
@@ -359,6 +395,15 @@ func (c *DeterministicCompressor) compressMessage(
 	out.Content = newContent
 	out.Metadata = msg.Metadata
 	return out, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved
+}
+
+// ansiOnlyChange reports whether the only difference between original and
+// final is ANSI escape removal. ANSI strip is lossless for the model's
+// understanding (the rendered text is identical) so it does not deserve
+// an archive entry.
+func ansiOnlyChange(original, final string) bool {
+	stripped := StripANSICodes(original)
+	return stripped == final
 }
 
 // Reset resets all stateful sub-components. Call on cache flush.

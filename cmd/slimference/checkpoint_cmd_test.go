@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/toolarchive"
 )
 
@@ -83,6 +84,60 @@ func TestHandleExpandCmd_PrintsArchivedBody(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	if !strings.Contains(buf.String(), "line") {
 		t.Fatalf("expand output=%q", buf.String())
+	}
+}
+
+func TestHandleExpandCmd_FallsBackToContentArchive(t *testing.T) {
+	origHome := osUserHomeDir
+	origStdout := os.Stdout
+	defer func() {
+		osUserHomeDir = origHome
+		os.Stdout = origStdout
+	}()
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	// Toolarchive holds nothing; contentarchive holds the requested entry.
+	original := strings.Repeat("// archived comment line that is long enough\n", 8)
+	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
+		SessionID:    "sess-content",
+		MessageIndex: 1,
+		BlockIndex:   0,
+		SubLayer:     "comment_strip",
+		Original:     original,
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil {
+		t.Fatalf("contentarchive put: entry=%#v err=%v", entry, err)
+	}
+
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleExpandCmd([]string{entry.ID})
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "archived comment line") {
+		t.Fatalf("content-archive expand output=%q", buf.String())
+	}
+}
+
+func TestHandleExpandCmd_NotFoundExitsOne(t *testing.T) {
+	origHome := osUserHomeDir
+	origExit := exitFn
+	defer func() {
+		osUserHomeDir = origHome
+		exitFn = origExit
+	}()
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	exits := []int{}
+	exitFn = func(code int) { exits = append(exits, code) }
+
+	handleExpandCmd([]string{"missing-id-xyz"})
+	if len(exits) == 0 || exits[0] == 0 {
+		t.Fatalf("expected non-zero exit, got %v", exits)
 	}
 }
 

@@ -32,6 +32,13 @@ func (c *DeterministicCompressor) structurePreviewPass(messages []types.Message,
 			// StructurePreview's contract guarantees preview is strictly
 			// shorter whenever ok==true, so delta is always > 0 here.
 			delta := len(block.Text) - len(preview)
+			// T76: archive the original before lossy preview mutation so
+			// the model can recover via opportunistic re-injection or
+			// `slimference expand`. Best-effort; archive failure must not
+			// block compression.
+			if id := c.archiveOriginal(i, bi, "preview_pass", block.Text); id != "" {
+				blocks[bi].ArchiveID = id
+			}
 			blocks[bi].Text = preview
 			saved += delta
 			slog.Debug("structure_preview applied",

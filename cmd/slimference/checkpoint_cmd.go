@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/slimference/slimference/internal/checkpoints"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/toolarchive"
 )
 
@@ -80,7 +81,17 @@ func handleExpandCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "home: %v\n", err)
 		exitFn(1)
 	}
-	_, body, err := toolarchive.Expand(toolarchive.DefaultDir(home), args[0])
+	// T76: archive ids may belong to either toolarchive (large tool
+	// outputs) or contentarchive (lossy Layer 1 mutations). Try both.
+	// Tool archive is checked first for backward compatibility.
+	if _, body, err := toolarchive.Expand(toolarchive.DefaultDir(home), args[0]); err == nil {
+		if _, werr := os.Stdout.Write(body); werr != nil {
+			fmt.Fprintf(os.Stderr, "expand write: %v\n", werr)
+			exitFn(1)
+		}
+		return
+	}
+	_, body, err := contentarchive.Get(contentarchive.DefaultDir(home), args[0])
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Fprintln(os.Stderr, "archive entry not found")

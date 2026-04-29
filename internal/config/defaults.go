@@ -70,7 +70,7 @@ func defaultsRaw() *Config {
 				StructureInWindow:          false,
 				StructureInWindowMinTokens: 1500,
 				LoopDetection:              false,
-				StructurePreview:           false,
+				StructurePreview:           true,
 				DedupStaircase: []StaircaseStep{
 					{MsgCountLE: 10, Threshold: 0.88},
 					{MsgCountLE: 20, Threshold: 0.85},
@@ -207,9 +207,10 @@ structure_in_window_min_tokens = 1500
 loop_detection = false
 
 # T38: replace large tool_result blocks (>=4 KB) with a shape-aware
-# preview (JSON / paths / ASCII table) when strictly shorter. Default off
-# (T74) until preview recovery is fully reversible via local archive.
-structure_preview = false
+# preview (JSON / paths / ASCII table) when strictly shorter. Default on
+# (T76): every preview mutation is archived via the content-archive
+# recorder so the original is recoverable through "slimference expand".
+structure_preview = true
 
 [cache]
 response_cache_max_entries = 100

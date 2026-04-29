@@ -92,6 +92,12 @@ type ContentBlock struct {
 	ImageSource  interface{}   `json:"image_source,omitempty"` // preserved raw for passthrough
 	RawBlock     interface{}   `json:"raw_block,omitempty"`    // original parsed block for passthrough
 	CacheControl *CacheControl `json:"cache_control,omitempty"`
+	// ArchiveID is set when a lossy Layer 1 sub-layer mutated this block. It
+	// references an internal/contentarchive entry that holds the original
+	// bytes so the proxy can opportunistically re-inject content if the
+	// model later asks about it. Empty means "not archived" (either the
+	// block is intact or archiving was disabled). T76.
+	ArchiveID string `json:"archive_id,omitempty"`
 }
 
 // CacheControl enables Anthropic prompt caching on a content block.

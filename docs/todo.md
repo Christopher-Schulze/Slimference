@@ -622,7 +622,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase L - Reversibility foundation (P0)
 
-- [ ] T76 - Reversibility by default for lossy L1 operations (archive every lossy mutation, opportunistic re-injection, unblocks T74 default-on, T98, T103, T77). Detail: `docs/todo/t76-reversibility-by-default.md`
+- [!] T76 - Reversibility by default: WP1 archive package + WP2(coarse) end-of-block + preview_pass archiving + WP4 expand + WP5 structure_preview default-on safety landed; WP2(per-sub-layer) and WP3 (opportunistic re-injection) deferred. Detail: `docs/todo/t76-reversibility-by-default.md`
 - [ ] T77 - Quality calibration loop: re-read counter + prompt-cache-miss spike alert + downstream "compression hurts" signal. Detail: `docs/todo/t77-quality-calibration-loop.md`
 
 ### Phase M - Concept levers (P0/P1)
