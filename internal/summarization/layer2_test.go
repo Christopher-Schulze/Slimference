@@ -1,6 +1,7 @@
 package summarization
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -465,6 +466,66 @@ func TestLayer2_RunCompressionJob_validationFails(t *testing.T) {
 	l.RunCompressionJob(msgs)
 	if cur, _ := l.cache.GetCurrent(); cur != nil {
 		t.Fatalf("expected no cache when validation fails, got %#v", cur)
+	}
+}
+
+func TestLayer2_RunCompressionJob_repairBypassesRetry(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	// Return a summary using `* ` bullets (validator rejects the format
+	// because bulletCount of `- ` lines = 0). The deterministic repair
+	// normalises `* ` to `- ` so the second validate passes; this test
+	// asserts the second validate succeeds without an extra API round
+	// trip (calls stays at 1).
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		var bullets strings.Builder
+		for i := 0; i < 30; i++ {
+			bullets.WriteString("* extracted fact about the corpus item number ")
+			bullets.WriteString(strings.Repeat("x", 5))
+			bullets.WriteString("\n")
+		}
+		body, err := json.Marshal(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]string{
+					"role":    "assistant",
+					"content": bullets.String(),
+				},
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	cfg := config.Defaults().Compression
+	cfg.MiniMax.BaseURL = srv.URL
+	cfg.MiniMax.APIKeyEnv = "MINIMAX_API_KEY"
+	cfg.MiniMax.MaxRetries = 0
+	cfg.SlidingWindow = 5
+	cfg.MinMessagesForCompression = 8
+	cfg.MinTokensForLayer2 = 1
+
+	l := NewLayer2(&cfg)
+	msgs := make([]types.Message, 20)
+	for i := range msgs {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		// Plain prose, no paths / functions / errors, so only the format
+		// check fires before repair. Long enough that 30 short bullets
+		// stay below the 40% length cap.
+		msgs[i] = msg(t, i, role, strings.Repeat("word ", 200))
+	}
+
+	l.RunCompressionJob(msgs)
+	if calls != 1 {
+		t.Fatalf("repair should bypass retry; expected 1 upstream call, got %d", calls)
 	}
 }
 

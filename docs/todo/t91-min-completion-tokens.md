@@ -1,6 +1,6 @@
 # TASK 91: Min-completion-tokens to reduce false validator rejects
 
-Status: todo
+Status: deferred - blocked on T88 capability map
 Priority: P2
 Scope: `internal/summarization/minimax.go`, `internal/types/`, `internal/config/`
 Driver: `MaxTokens=targetTokens` is a cap. The model can stop early mid-bullet when budget is tight, producing a truncated output that the validator rejects. Several providers expose a min-completion-tokens or stop-condition parameter that prevents premature stops.
@@ -54,3 +54,15 @@ The repair path (T90) and the validator path keep working as today; this just re
 ```
 go test ./internal/summarization/...
 ```
+
+## Closure Notes (2026-04-30)
+
+Deferred until T88 (provider capability map) lands. Sending
+`min_completion_tokens` to a provider that does not support the field
+would cause a 4xx, breaking the very flow this task is meant to help.
+The capability map is the right gate for "when supported".
+
+T90 (partial-repair on validator failure) is a parallel mitigation that
+covers most premature-stop cases without needing per-provider
+capability knowledge; consider landing T90 first as the immediate
+quality lever.

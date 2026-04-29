@@ -1,6 +1,6 @@
 # TASK 90: Partial-repair on validator failure
 
-Status: todo
+Status: completed (deterministic only; model-driven repair deferred)
 Priority: P2
 Scope: `internal/summarization/validator.go`, `internal/summarization/minimax.go`, `internal/proxy/handler.go`
 Driver: When the validator rejects a MiniMax output (preamble, missing dash prefix, format violation), Slimference falls back to the raw, uncompressed body. If 90% of bullets are correct and one line violates, all of the work is wasted. A single cheap repair call recovers most of the savings.
@@ -57,3 +57,32 @@ Each step has counters so the operator can see how often each path fires.
 ```
 go test ./internal/summarization/...
 ```
+
+## Closure Notes (2026-04-30)
+
+Landed:
+
+- New `RepairSummary(s)` deterministic repair with three transformations:
+  markdown header strip, alternative bullet style normalisation
+  (`*` and `1.` -> `- `), and leading non-bullet preamble trim.
+- Per-class counters via `RepairCounts()` /
+  `ResetRepairCounts()` for the three repair classes plus a
+  `deterministicTotal`.
+- Layer 2 wires the repair into the validator-fail path: when the
+  initial summary fails validation, repair runs first; if revalidate
+  passes, the path skips the API-cost retry. Otherwise the existing
+  retry path runs unchanged.
+- Test `TestLayer2_RunCompressionJob_repairBypassesRetry` proves a
+  `* `-bullet response causes exactly one upstream call (initial),
+  with the deterministic repair restoring `- ` format and re-validating
+  successfully.
+- 100% coverage; CI green.
+
+Deferred:
+
+- Model-driven repair pass (a short MiniMax call with "fix only the
+  offending lines"). The deterministic pass already covers preamble,
+  format, and header issues; model repair would help only on
+  preservation-check failures (paths/functions/errors) which require
+  semantic understanding. Add when evidence shows the deterministic
+  pass leaves a meaningful residual.

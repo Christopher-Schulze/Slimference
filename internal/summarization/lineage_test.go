@@ -6,7 +6,7 @@ import (
 )
 
 func TestHasLineageMarker(t *testing.T) {
-	t.Parallel()
+
 	cases := []struct {
 		line string
 		want bool
@@ -27,7 +27,7 @@ func TestHasLineageMarker(t *testing.T) {
 }
 
 func TestStripLineageMarker(t *testing.T) {
-	t.Parallel()
+
 	cases := []struct {
 		in, want string
 	}{
@@ -44,7 +44,7 @@ func TestStripLineageMarker(t *testing.T) {
 }
 
 func TestRecordLineageStats_TracksRate(t *testing.T) {
-	t.Parallel()
+
 	ResetLineageMarkerStats()
 	summary := strings.Join([]string{
 		"- bullet without marker",
@@ -68,7 +68,7 @@ func TestRecordLineageStats_TracksRate(t *testing.T) {
 }
 
 func TestLineageMarkerRate_EmptyReturnsZero(t *testing.T) {
-	t.Parallel()
+
 	ResetLineageMarkerStats()
 	if got := LineageMarkerRate(); got != 0 {
 		t.Fatalf("empty rate must be 0, got %f", got)
@@ -76,7 +76,7 @@ func TestLineageMarkerRate_EmptyReturnsZero(t *testing.T) {
 }
 
 func TestSystemPromptIncludesLineageInstruction(t *testing.T) {
-	t.Parallel()
+
 	if !strings.Contains(systemPrompt, "[msg:") {
 		t.Fatal("system prompt must instruct the model to emit [msg:N] markers")
 	}

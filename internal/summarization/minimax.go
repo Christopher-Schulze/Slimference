@@ -421,9 +421,9 @@ func cleanSummaryOutput(raw string) string {
 	// 7. Deduplicate near-identical bullet points.
 	s = deduplicateBullets(s)
 
-	// 8. T92 telemetry: record per-bullet lineage-marker presence so the
-	// operator can monitor prompt compliance over time.
-	RecordLineageStats(s)
+	// T92 telemetry (RecordLineageStats) is called by Layer 2 only on
+	// summaries that passed validation, so the per-bullet marker rate
+	// reflects shipped output rather than every cleaned candidate.
 
 	return s
 }

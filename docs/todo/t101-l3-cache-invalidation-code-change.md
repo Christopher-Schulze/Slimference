@@ -1,6 +1,6 @@
 # TASK 101: Layer 3 cache invalidation on code change
 
-Status: todo
+Status: closed - already implemented via ExtractDependencyPaths + fileWatcher
 Priority: P2
 Scope: `internal/caching/`, `internal/proxy/handler.go`
 Driver: Response cache is keyed on request body. When the underlying repository state changes (`git pull`, file edits) but the request looks identical, the cache returns a stale answer about code that no longer exists. Mtime / git-state-aware cache key fixes it.
@@ -54,3 +54,24 @@ Cache key includes a lightweight code-state fingerprint:
 ```
 go test ./internal/caching/...
 ```
+
+## Closure Notes (2026-04-30)
+
+Audit confirmed the contract is already in production:
+
+- `caching.ExtractDependencyPaths(body)` extracts file-shaped paths from
+  request bodies. Used at request time by `proxy/handler.go` (line 337).
+- `caching.FileWatcher` monitors each extracted path; on filesystem
+  change events the watcher calls `ResponseCache.Invalidate(path)`,
+  which prunes every entry whose `DependencyPaths` mention that path.
+- `CacheEntry.DependencyPaths` carries the path list per entry; entries
+  set this in `proxy/handler.go::Set` (line 369).
+
+The task was originally framed in terms of mtime+size cache key
+fingerprinting. The existing dependency-watcher approach is strictly
+better: it invalidates on real filesystem events and does not break the
+cache for benign no-op rewrites that preserve content.
+
+Closed as already implemented. If a future bug shows file watcher
+events are unreliable on a particular platform, this task can be
+reopened with that concrete failure mode as the driver.

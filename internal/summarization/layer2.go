@@ -199,6 +199,18 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 		if ctx.Err() != nil {
 			return
 		}
+		// T90: try deterministic repair before paying an API round-trip
+		// for a retry. Most validator rejects come from preamble or
+		// alternative bullet styles which a small local rewrite can fix.
+		if repaired, changed := RepairSummary(summary); changed {
+			repairResult := l.validator.Validate(toSummarize, repaired, origTokens)
+			if repairResult.Valid {
+				summary = repaired
+				result = repairResult
+				slog.Debug("layer2 deterministic repair succeeded")
+				goto applySummary
+			}
+		}
 		// Validation-driven retry: retry once with a targeted hint about what failed.
 		slog.Warn("layer2 summary failed validation, retrying with emphasis",
 			slog.String("reason", result.FailReason),
@@ -233,9 +245,13 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 			return
 		}
 	}
+applySummary:
 	if ctx.Err() != nil {
 		return
 	}
+	// T92 telemetry: record per-bullet lineage-marker presence on the
+	// validated, accepted summary. Captures shipped output only.
+	RecordLineageStats(summary)
 
 	compressedTokens := estimateTokens(summary)
 	ratio := 0.0

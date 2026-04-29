@@ -648,8 +648,8 @@ API calls in default CI, mutating the operator's live Codex install.
 - [ ] T87 - Multi-stack few-shot examples (Go / Python / TS) with rotation to remove Go-bias from current single example. Detail: `docs/todo/t87-multi-stack-few-shot-examples.md`
 - [ ] T88 - Seed-aware request building + provider capability map (`supports_seed`) so non-deterministic providers fail closed. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
 - [x] T89 - Robust CoT stripping: 12-family canonical strip set with fixed-point loop and per-tag counters; legacy single-family regex retired. Config knob deferred. Detail: `docs/todo/t89-robust-cot-stripping.md`
-- [ ] T90 - Partial-repair pass on validator failure (cheap second call to fix only the offending lines) instead of all-or-nothing reject. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
-- [ ] T91 - `min_completion_tokens` (or equivalent) to reduce false validator rejects from premature stops. Detail: `docs/todo/t91-min-completion-tokens.md`
+- [x] T90 - Deterministic repair (header strip / `*`+`1.` -> `- ` normalisation / preamble trim) runs before retry path; bypasses API round-trip when format-only failures can be fixed locally. Model-driven repair deferred. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
+- [!] T91 - DEFERRED until T88 capability map lands (sending the field to a non-supporting provider would 4xx). T90 partial-repair covers most premature-stop cases without per-provider knowledge. Detail: `docs/todo/t91-min-completion-tokens.md`
 - [x] T92 - Per-bullet lineage markers landed: prompt requests `[msg:N,M]`, validator tolerates them, helpers + counters expose marker-presence rate. T76 WP3 consumer deferred. Detail: `docs/todo/t92-per-bullet-lineage-markers.md`
 
 ### Phase Q - Layer 0 improvements (P2)
@@ -671,7 +671,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase T - Layer 3 improvements (P2)
 
-- [ ] T101 - Cache invalidation when referenced files change (mtime-hash component in cache key). Detail: `docs/todo/t101-l3-cache-invalidation-code-change.md`
+- [!] T101 - ALREADY IMPLEMENTED: `caching.ExtractDependencyPaths` + `FileWatcher` already invalidate cache entries on real filesystem changes; the dependency-watcher approach supersedes the mtime-hash key proposal. Closed as no-op. Detail: `docs/todo/t101-l3-cache-invalidation-code-change.md`
 - [x] T102 - Cache TTL aging: existing TTL + 60s janitor already enforces aging; added `/admin/status.cache_age` histogram (count / p50 / p95 / p99 / max in ms). Detail: `docs/todo/t102-l3-cache-ttl-aging.md`
 
 ### Phase U - Layer 4 (new layer, P1)
