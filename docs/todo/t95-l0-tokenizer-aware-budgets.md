@@ -1,6 +1,6 @@
 # TASK 95: Tokenizer-aware Layer 0 budgets
 
-Status: todo
+Status: deferred - filter subprocess has no provider context today; per-call provider hint requires hook-install plumbing
 Priority: P2
 Scope: `internal/filter/`, `internal/tokens/`, `internal/config/`
 Driver: Layer 0 truncation thresholds (`passthrough_max_chars`, lint-violation cap) are character-based. Codex (`o200k`) and Claude tokenizers count differently. Same character budget produces very different token costs.
@@ -51,3 +51,26 @@ Layer 0 truncation budgets are tokenizer-aware:
 ```
 go test ./internal/filter/... ./internal/tokens/...
 ```
+
+## Closure Notes (2026-04-30)
+
+`slimference filter <cmd>` runs as a one-shot subprocess invoked by
+hooks. It has no live provider context: it does not know whether the
+calling agent will route the result to Claude, OpenAI, or Codex.
+
+Adding tokenizer-aware budgets cleanly therefore requires either:
+
+1. A new `--provider` flag on `slimference filter`, set per-hook at
+   install time so the right value reaches each subprocess. Touches
+   `internal/integrate/`, every hook script template, and
+   `cmd/slimference/main.go`.
+2. A `SLIMFERENCE_TARGET_PROVIDER` env var that the hooks export. Same
+   distribution problem.
+
+Option 1 is the cleaner long-term path but is a significant install
+matrix change. Until measured evidence shows the existing rune-based
+budget materially over- or under-trims for any specific provider, the
+extra complexity is not justified.
+
+Closed as deferred. Re-open if a Codex corpus measurement shows the
+default budget is wrong for Codex's tokenizer by more than ~15%.

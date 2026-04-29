@@ -656,7 +656,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 - [ ] T93 - Cross-session pattern mining: marker `git status (see msg #N)` from run #3 onward when output is unchanged. Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
 - [ ] T94 - Streaming-aware Layer 0 filter for `tail -f`, `docker logs --follow`, long-running test runners. Detail: `docs/todo/t94-l0-streaming-filter.md`
-- [ ] T95 - Tokenizer-aware Layer 0 budgets so Codex (`o200k`) and Claude (`claude-3` tokenizer family) get different truncation thresholds. Detail: `docs/todo/t95-l0-tokenizer-aware-budgets.md`
+- [!] T95 - DEFERRED: filter subprocess has no live provider context; cleanest path needs hook-install plumbing for `--provider` or env var. Re-open when evidence shows the rune budget is wrong for a specific provider by more than ~15%. Detail: `docs/todo/t95-l0-tokenizer-aware-budgets.md`
 
 ### Phase R - Layer 1 improvements (P1/P2)
 
