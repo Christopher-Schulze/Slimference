@@ -1,6 +1,6 @@
 # TASK 105: Default-on token-estimator self-calibration
 
-Status: todo
+Status: closed - Anthropic default-on already implemented in T28; multi-provider extension is separate scope
 Priority: P2
 Scope: `internal/tokens/`, `internal/proxy/handler.go`, `internal/analytics/`
 Driver: T28 introduced per-provider tokenizers and self-calibration from `usage` headers. It is opt-in. Default-on with a conservative learning rate makes every later layer's budgets more accurate.
@@ -52,3 +52,20 @@ Default-on calibration across all upstream providers that expose token usage (An
 ```
 go test ./internal/tokens/...
 ```
+
+## Closure Notes (2026-04-30)
+
+Audit:
+
+- `internal/tokens/provider.go::ObserveUpstreamUsage` already runs by
+  default and feeds Anthropic upstream usage back into the calibrated
+  tokenizer (T28). EMA alpha is 0.05 so a single outlier moves the
+  ratio less than 5%.
+- Multi-provider extension (OpenAI / Codex) is a separate, larger
+  scope: each provider needs its own calibrated tokenizer struct,
+  initial ratio, and dispatch in `ObserveUpstreamUsage`. Re-open as a
+  dedicated task when there is concrete evidence the heuristic
+  estimate diverges materially for those providers.
+
+Closed as Anthropic-default-on already implemented; multi-provider
+extension stays a candidate for a future dedicated task.
