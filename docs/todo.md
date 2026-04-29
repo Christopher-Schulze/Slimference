@@ -477,7 +477,7 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 
 - [x] T53 - Adaptive Dedup-Similarity-Staircase (0.88 / 0.85 / 0.82 / 0.78 per Session-Growth, scalar fallback). Detail: `docs/todo/t53-adaptive-dedup-staircase.md`
 - [x] T54 - min_tokens_for_layer2 default flipped 30k -> 15k. Latency-budget-guard wiring present via `Layer2LatencyBudgetMs/ProjectionMultiplier/EMAAlpha` + NewLatencyEstimator + ShouldRunLayer2 decision rule. Live wiring into Layer2.ApplyToMessages stays as follow-up (guard is opt-in at 0 so no behavioural change yet). Detail: `docs/todo/t54-min-tokens-layer2-reevaluation.md`
-- [x] T55 - Structure-Preview (T38) Default-On: default `structure_preview = true` in defaults.go + DefaultTOML. Reversibility via tool-archive stays as a stretch goal. Detail: `docs/todo/t55-structure-preview-default-on.md`
+- [x] T55 - Structure-Preview (T38) Default-On: default-on rollout was implemented, then superseded by T74's safety fallback because preview recovery is not yet fully reversible. Current default is `structure_preview = false`; opt-in remains available. Detail: `docs/todo/t55-structure-preview-default-on.md`
 - [!] T56 - SPEC PREMISE INACCURATE - T37 already implements Jaccard word-set similarity (see internal/compression/loop_detect.go). TASK closed as no-op. Detail: `docs/todo/t56-loop-detection-jaccard-upgrade.md`
 - [!] T57 - SPEC LARGELY ALREADY IMPLEMENTED - ReadCache + ToolArchive exposed via /admin/status and rendered in TUI views.go. TASK closed; remaining stretch items (explicit hit_rate field, bytes_cap colour thresholds, evictions counter) noted in closure note. Detail: `docs/todo/t57-readcache-toolarchive-tui-metrics.md`
 - [x] T58 - Phase histograms (L1/L2/L3/upstream/total) with p50/p95/avg/max via rolling 200-sample window; exposed on /admin/status.pipeline. Benchmark: 15 ns/op per Record. TUI rendering stays as stretch. Detail: `docs/todo/t58-tui-ttft-breakdown.md`
@@ -557,27 +557,29 @@ integration tests are green, and T70 has restored the release gate to a real
 path on the live machine. Current live
 Codex state: `codex-cli 0.125.0`, hooks partially installed, no
 `openai_base_url` / `chatgpt_base_url` block in `~/.codex/config.toml`, daemon
-offline. Priority order below is strict: prove the gate, then make Codex wiring
-single-source, then add actual Codex request-shape compression, then harden
-safety and evidence.
+offline. Live Codex wiring is intentionally not required for T73: the code path
+must be production-ready, but the operator's active Codex installation must not
+be mutated unless explicitly requested.
 
 ### Bereich K - Release Truth + Codex First-Class Finish (P0/P1)
 
 - [x] T70 - Release gate truth and coverage closure: repaired the live `go run ./scripts/ci` failure (`99.4% < 100.0%` -> `100.0%`), updated task proof docs, and made release status machine-verifiable again. Detail: `docs/todo/t70-release-gate-truth-and-coverage.md`
 - [ ] T71 - Codex CLI live E2E certification: on the current Codex CLI, prove install/status/hooks/daemon/proxy/request flow end-to-end and document the exact local recovery path. Detail: `docs/todo/t71-codex-cli-live-e2e-certification.md`
 - [x] T72 - Codex integration single owner and hook drift repair: unified `hook install codex` with `integrate install --client codex`, ensured both write `openai_base_url` + `chatgpt_base_url`, verify pre/post/read hooks, and close stale hook drift. Detail: `docs/todo/t72-codex-integration-single-owner.md`
-- [ ] T73 - Codex request-shape compression support: extend the proxy beyond passthrough routing so Codex `/v1/responses` and `/backend-api/codex/*` shapes are safely extractable, reconstructable, and compressible with zero-downside fallback. Detail: `docs/todo/t73-codex-request-shape-compression.md`
-- [ ] T74 - Structure-preview reversible safety: either archive every default-on preview with `slimference expand` recovery or turn the default off until reversibility is proven. Detail: `docs/todo/t74-structure-preview-reversible-safety.md`
-- [ ] T75 - Codex evidence corpus and savings telemetry: build a small real Codex session corpus, attribute savings by layer, and replace fixture-only claims with repeatable Codex-specific proof. Detail: `docs/todo/t75-codex-evidence-corpus-and-telemetry.md`
+- [x] T73 - Codex request-shape compression support: extended the proxy beyond passthrough routing so Codex `/v1/responses` and `/backend-api/codex/*` shapes are safely extractable, reconstructable, and compressible with zero-downside fallback, without live-wiring the user's Codex install. Detail: `docs/todo/t73-codex-request-shape-compression.md`
+- [x] T74 - Structure-preview reversible safety: chose the safe fallback and turned `structure_preview` default off until archive-backed recovery is implemented; opt-in behavior remains available. Detail: `docs/todo/t74-structure-preview-reversible-safety.md`
+- [!] T75 - Codex evidence corpus and savings telemetry: offline reporting path, corpus metadata schema (`tests/fixtures/codex/codex-metadata.json`, schema_version=1), and CI-enforced regression gate (`scripts/benchmarks codex-smoke-gate` wired as final step of `scripts/ci`) are all implemented. Real 10-20 live Codex session capture remains blocked until the operator explicitly allows live Codex use. Detail: `docs/todo/t75-codex-evidence-corpus-and-telemetry.md`
 
 ### Reihenfolge
 
-T70 -> T72 -> T71 -> T73 -> T74 -> T75. T70 comes first because no release is
-real while the repository-native gate fails. T72 comes before T71 because the
-installer must be single-source before live certification. T73 is separate from
-T71 because today Codex routing can pass traffic through, but Layer 1-3 request
-compression are not proven for Codex request bodies. T74 is a safety blocker if
-structure preview stays default-on. T75 turns the working path into evidence.
+T70 -> T72 -> T73 -> T74 -> T75 -> T71. T70 comes first because no release is
+real while the repository-native gate fails. T72 comes before T73 because the
+installer must be single-source before the Codex path is called ready. T73 does
+not require live Codex wiring; it proves the code path with fixtures and stub
+upstreams. T74 closed the default-on lossy preview risk by making structure
+preview opt-in again. T75 turns the working path into evidence. T71 is the optional live-machine
+certification step and stays blocked until the operator explicitly wants Codex
+wired into the active local setup.
 
 ### Audit facts that opened this program
 
@@ -594,11 +596,10 @@ structure preview stays default-on. T75 turns the working path into evidence.
   `partially_wired`: hooks installed, config not wired, daemon unreachable.
 - `~/.codex/hooks.json` currently has Codex PreToolUse/PostToolUse Bash hooks
   but no Read hook entry, while current code can generate a read hook.
-- `internal/hooks/codex.go` and `internal/integrate/codex_toml.go` are competing
-  Codex config writers; the hook installer still only owns the older
-  `openai_base_url` path while the integration installer owns both
-  `openai_base_url` and `chatgpt_base_url`.
-- `isCompressiblePath` only marks `/v1/messages` and `/v1/chat/completions` as
-  compressible; Codex `/v1/responses` and `/backend-api/codex/*` currently route
-  as passthrough paths unless Layer 0 hooks reduce output before it enters the
-  conversation.
+- T72 closed the competing-writer issue: `hook install codex` now routes through
+  the same integration-owned Codex config writer as `integrate install --client
+  codex`.
+- T73 closed the proxy-side Codex compression gap: `/v1/responses` and
+  `/backend-api/codex/*` are potential compression paths, known Codex
+  `messages`/Responses `input` bodies are compressed, and unknown shapes
+  passthrough without 400.

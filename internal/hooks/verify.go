@@ -84,11 +84,14 @@ func InspectCodexHooks(home string) CodexHookState {
 		text := string(data)
 		state.HooksJSONExists = true
 		state.PreEntry = strings.Contains(text, "codex-pre-tool.sh") ||
-			strings.Contains(text, "Slimference rewrite guard")
+			strings.Contains(text, "Slimference rewrite guard") ||
+			strings.Contains(text, "Local rewrite guard")
 		state.PostEntry = strings.Contains(text, "codex-post-tool.sh") ||
-			strings.Contains(text, "Slimference filter")
+			strings.Contains(text, "Slimference filter") ||
+			strings.Contains(text, "Local output filter")
 		state.ReadEntry = strings.Contains(text, "codex-read-tool.sh") ||
-			strings.Contains(text, "Slimference read cache")
+			strings.Contains(text, "Slimference read cache") ||
+			strings.Contains(text, "Local read cache")
 	}
 	state.PreScript, state.PreExecutable = executableFileExists(CodexPreHookScriptPath(home))
 	state.PostScript, state.PostExecutable = executableFileExists(CodexHookScriptPath(home))

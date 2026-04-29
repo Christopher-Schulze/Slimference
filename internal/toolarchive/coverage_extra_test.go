@@ -102,7 +102,7 @@ func TestToolArchiveFallbackIDListRenderAndPreview(t *testing.T) {
 	}
 
 	rendered := RenderContext(*second)
-	for _, want := range []string{"Slimference archived large tool output", "slim://archive/tool-xyz", "slimference expand tool-xyz", "Preview:"} {
+	for _, want := range []string{"Large tool output archived locally", "local-archive://tool-xyz", "Archive ID: tool-xyz", "Preview:"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("RenderContext missing %q in %q", want, rendered)
 		}

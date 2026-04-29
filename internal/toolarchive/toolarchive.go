@@ -102,7 +102,7 @@ func Archive(dir string, input Input) (*Entry, error) {
 
 	entry := &Entry{
 		ID:         id,
-		URI:        "slim://archive/" + id,
+		URI:        "local-archive://" + id,
 		CreatedAt:  time.Now().UTC(),
 		ToolName:   strings.TrimSpace(input.ToolName),
 		ToolUseID:  strings.TrimSpace(input.ToolUseID),
@@ -246,13 +246,13 @@ func Snapshot(dir string) (Stats, error) {
 }
 
 func RenderContext(entry Entry) string {
-	base := "Slimference archived large tool output."
+	base := "Large tool output archived locally."
 	if entry.Command != "" {
-		base = fmt.Sprintf("Slimference archived large tool output for %q.", entry.Command)
+		base = fmt.Sprintf("Large tool output archived locally for %q.", entry.Command)
 	}
 	return base + "\n" +
 		fmt.Sprintf("Reference: %s\n", entry.URI) +
-		fmt.Sprintf("Expand locally: slimference expand %s\n", entry.ID) +
+		fmt.Sprintf("Archive ID: %s\n", entry.ID) +
 		"Preview:\n" + entry.Preview
 }
 
@@ -264,7 +264,7 @@ func DefaultPreview(output string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}
-	return text[:limit] + fmt.Sprintf("\n[slimference: archived preview, full output available via expand]")
+	return text[:limit] + fmt.Sprintf("\n[archived preview, full output available via local expand]")
 }
 
 func entriesDir(dir string) string {
@@ -335,6 +335,7 @@ func loadEntry(dir string, id string) (*Entry, error) {
 func normalizeID(raw string) string {
 	raw = strings.TrimSpace(raw)
 	raw = strings.TrimPrefix(raw, "slim://archive/")
+	raw = strings.TrimPrefix(raw, "local-archive://")
 	return sanitizeID(raw)
 }
 

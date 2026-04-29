@@ -52,14 +52,14 @@ case "$STATUS" in
     if [[ -z "${REWRITTEN:-}" || "$REWRITTEN" == "$CMD" ]]; then
       exit 0
     fi
-    jq -nc --arg reason "Slimference requires rerunning this command through: ${REWRITTEN}" '{decision:"block",reason:$reason}'
+    jq -nc --arg reason "Rerun this command through the local output filter: ${REWRITTEN}" '{decision:"block",reason:$reason}'
     ;;
   1)
     exit 0
     ;;
   2|3)
     if [[ -z "${ERR_MSG:-}" ]]; then
-      ERR_MSG="Slimference blocked this Bash command."
+      ERR_MSG="Local policy blocked this Bash command."
     fi
     jq -nc --arg reason "$ERR_MSG" '{decision:"block",reason:$reason}'
     ;;
@@ -171,7 +171,7 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 				map[string]interface{}{
 					"type":          "command",
 					"command":       fmt.Sprintf("bash %s", preScriptPath),
-					"statusMessage": "Slimference rewrite guard",
+					"statusMessage": "Local rewrite guard",
 				},
 			},
 		},
@@ -181,7 +181,7 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 				map[string]interface{}{
 					"type":          "command",
 					"command":       fmt.Sprintf("bash %s", readScriptPath),
-					"statusMessage": "Slimference read cache",
+					"statusMessage": "Local read cache",
 				},
 			},
 		},
@@ -192,7 +192,7 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 			map[string]interface{}{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", postScriptPath),
-				"statusMessage": "Slimference filter",
+				"statusMessage": "Local output filter",
 			},
 		},
 	})
@@ -420,9 +420,9 @@ func CodexHookInstalled(home string) bool {
 		return false
 	}
 	content := string(data)
-	hasPre := strings.Contains(content, "codex-pre-tool.sh") || strings.Contains(content, "Slimference rewrite guard")
-	hasPost := strings.Contains(content, "codex-post-tool.sh") || strings.Contains(content, "Slimference filter")
-	hasRead := strings.Contains(content, "codex-read-tool.sh") || strings.Contains(content, "Slimference read cache")
+	hasPre := strings.Contains(content, "codex-pre-tool.sh") || strings.Contains(content, "Slimference rewrite guard") || strings.Contains(content, "Local rewrite guard")
+	hasPost := strings.Contains(content, "codex-post-tool.sh") || strings.Contains(content, "Slimference filter") || strings.Contains(content, "Local output filter")
+	hasRead := strings.Contains(content, "codex-read-tool.sh") || strings.Contains(content, "Slimference read cache") || strings.Contains(content, "Local read cache")
 	return hasPre && hasPost && hasRead
 }
 
@@ -487,7 +487,8 @@ func codexEntryHasSlimferenceHook(entry interface{}) bool {
 		if strings.Contains(command, "codex-pre-tool.sh") || strings.Contains(command, "codex-post-tool.sh") || strings.Contains(command, "codex-read-tool.sh") {
 			return true
 		}
-		if strings.Contains(statusMessage, "Slimference rewrite guard") || strings.Contains(statusMessage, "Slimference filter") || strings.Contains(statusMessage, "Slimference read cache") {
+		if strings.Contains(statusMessage, "Slimference rewrite guard") || strings.Contains(statusMessage, "Slimference filter") || strings.Contains(statusMessage, "Slimference read cache") ||
+			strings.Contains(statusMessage, "Local rewrite guard") || strings.Contains(statusMessage, "Local output filter") || strings.Contains(statusMessage, "Local read cache") {
 			return true
 		}
 	}

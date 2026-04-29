@@ -576,7 +576,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
 		out := buf.String()
-		if !strings.Contains(out, `"hookEventName":"PostToolUse"`) || !strings.Contains(out, `Slimference compacted Bash output for \"git status\"`) || !strings.Contains(out, `[slimference: truncated to 40 characters]`) {
+		if !strings.Contains(out, `"hookEventName":"PostToolUse"`) || !strings.Contains(out, `Bash output for \"git status\" was compacted locally`) || !strings.Contains(out, `[output truncated to 40 characters]`) {
 			t.Fatalf("unexpected stdout: %q", out)
 		}
 		readStdinAll = origRead
@@ -605,7 +605,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
 		out := buf.String()
-		if !strings.Contains(out, `Slimference compacted Bash output.`) || strings.Contains(out, `for \"`) {
+		if !strings.Contains(out, `Bash output was compacted locally.`) || strings.Contains(out, `for \"`) {
 			t.Fatalf("unexpected stdout: %q", out)
 		}
 		readStdinAll = origRead

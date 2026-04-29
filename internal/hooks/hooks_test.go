@@ -645,9 +645,9 @@ func TestInstallCodexHooksJSON_idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	count := strings.Count(string(data), "Slimference filter")
+	count := strings.Count(string(data), "Local output filter")
 	if count != 1 {
-		t.Fatalf("expected 1 slimference entry, got %d", count)
+		t.Fatalf("expected 1 local output filter entry, got %d", count)
 	}
 }
 

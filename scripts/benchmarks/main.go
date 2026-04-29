@@ -52,6 +52,29 @@ func main() {
 		os.Exit(sessionReportFromPath(path, format))
 	}
 
+	// T75 codex-smoke-gate subcommand: aggregate a Codex evidence corpus
+	// directory and assert it still meets the regression baseline declared
+	// in `codex-metadata.json`. Exits non-zero on any miss so it can run as
+	// a hard step inside `scripts/ci`.
+	if len(os.Args) > 1 && os.Args[1] == "codex-smoke-gate" {
+		var dir string
+		for _, a := range os.Args[2:] {
+			if strings.HasPrefix(a, "--") {
+				fmt.Fprintf(os.Stderr, "unknown flag %q\n", a)
+				os.Exit(2)
+			}
+			if dir != "" {
+				fmt.Fprintln(os.Stderr, "codex-smoke-gate takes a single directory")
+				os.Exit(2)
+			}
+			dir = a
+		}
+		if dir == "" {
+			dir = filepath.Join("tests", "fixtures", "codex")
+		}
+		os.Exit(codexSmokeGate(dir, os.Stdout, os.Stderr))
+	}
+
 	benchtime := flag.String("benchtime", "3s", "benchmark duration per benchmark (go -benchtime)")
 	count := flag.Int("count", 1, "number of benchmark rounds (go -count)")
 	pkg := flag.String("pkg", "", "restrict to a single package name (e.g. compression, filter)")

@@ -26,16 +26,16 @@ func defaultsRaw() *Config {
 			CodexChatGPT: ProviderUpstream{BaseURL: "https://chatgpt.com"},
 		},
 		Compression: CompressionConfig{
-			Layer1Enabled:             true,
-			Layer2Enabled:             true,
-			Layer3Enabled:             true,
-			SlidingWindow:             5,
-			MinMessagesForCompression: 8,
+			Layer1Enabled:                     true,
+			Layer2Enabled:                     true,
+			Layer3Enabled:                     true,
+			SlidingWindow:                     5,
+			MinMessagesForCompression:         8,
 			MinTokensForLayer2:                15000,
 			Layer2LatencyBudgetMs:             0, // 0 = guard off (opt-in)
 			Layer2LatencyProjectionMultiplier: 1.2,
 			Layer2LatencyEMAAlpha:             0.2,
-			StructureMinTokens:        500,
+			StructureMinTokens:                500,
 			StructureLanguages: []string{
 				"go", "typescript", "javascript", "rust", "python",
 				"c", "cpp", "java", "ruby", "shell",
@@ -70,7 +70,7 @@ func defaultsRaw() *Config {
 				StructureInWindow:          false,
 				StructureInWindowMinTokens: 1500,
 				LoopDetection:              false,
-				StructurePreview:           true,
+				StructurePreview:           false,
 				DedupStaircase: []StaircaseStep{
 					{MsgCountLE: 10, Threshold: 0.88},
 					{MsgCountLE: 20, Threshold: 0.85},
@@ -207,9 +207,9 @@ structure_in_window_min_tokens = 1500
 loop_detection = false
 
 # T38: replace large tool_result blocks (>=4 KB) with a shape-aware
-# preview (JSON / paths / ASCII table) when strictly shorter. Default on
-# (T55); set to false to restore the pre-2.1 pass-through behaviour.
-structure_preview = true
+# preview (JSON / paths / ASCII table) when strictly shorter. Default off
+# (T74) until preview recovery is fully reversible via local archive.
+structure_preview = false
 
 [cache]
 response_cache_max_entries = 100

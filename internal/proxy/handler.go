@@ -62,6 +62,10 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_ = rawBody
+	if len(messages) == 0 {
+		p.handlePassthrough(w, r, provider, body)
+		return
+	}
 
 	model := extractModel(body)
 	// Request-scoped logger: all debug/warn/info calls inside this function carry req_id.

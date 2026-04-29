@@ -51,10 +51,62 @@ Markdown export:
 | Layer 2 saved | 1260 |
 | Cache hits | 0 |
 
+## Codex Smoke Corpus
+
+Commands:
+
+```bash
+go run ./scripts/benchmarks session-report tests/fixtures/codex
+go run ./scripts/benchmarks session-report --markdown tests/fixtures/codex
+go run ./scripts/benchmarks codex-smoke-gate tests/fixtures/codex
+```
+
+This is a checked-in smoke corpus for the Codex reporting path. It proves the
+reporting harness can aggregate a Codex directory, provider split, Codex route
+split, and per-layer savings. It is not a live Codex production corpus.
+
+`tests/fixtures/codex/codex-metadata.json` is the single source of truth for
+the corpus: it declares the provenance (scrubbing, Codex version, captured
+date, scenarios) and the `regression_gate` baseline. `session-report` renders
+the metadata block in front of the numbers when the path is a directory, and
+`codex-smoke-gate` enforces the baseline. The gate is wired as the last step
+of `go run ./scripts/ci`, so any unexpected change in the smoke fixture fails
+the local CI gate before review.
+
+When live Codex capture is approved, the same metadata schema applies: replace
+the synthetic fixtures and update the `regression_gate` to a value drawn from
+the real corpus, not from intuition.
+
+| Metric | Value |
+| --- | --- |
+| Requests | 2 |
+| Original tokens | 5600 |
+| Final tokens | 2400 |
+| Saved tokens | 3200 |
+| Savings ratio | 57.14% |
+| Layer 0 saved | 200 |
+| Layer 1 saved | 1700 |
+| Layer 2 saved | 1000 |
+| Layer 3 saved | 300 |
+| Cache hits | 1 |
+| Prompt cache read tokens | 300 |
+| Prompt cache create tokens | 120 |
+
+| Provider | Requests |
+| --- | ---: |
+| codex_chatgpt | 2 |
+
+| Codex route | Requests |
+| --- | ---: |
+| /backend-api/codex/responses | 1 |
+| /v1/responses | 1 |
+
 ## Scope and Limits
 
 - This is the repository's checked-in fixture baseline, not yet a 100-session
   production corpus.
+- The Codex smoke corpus is fixture-scale and exists to keep the reporting path
+  executable until live Codex capture is explicitly allowed.
 - The harness is real and reproducible today.
 - The next evidence upgrade is data, not core code: add a larger recorded
   session corpus and rerun the same command.

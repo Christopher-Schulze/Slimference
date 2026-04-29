@@ -119,7 +119,35 @@ real HTTPS to `https://chatgpt.com` upstream with the same bearer token
 and user-agent Codex would have sent directly.
 
 From Cloudflare's / OpenAI's perspective the request volume is unchanged;
-only the request *content* is smaller after compression.
+the request path, query, authorization, cookies, and user-agent are forwarded
+as Codex sent them, except for normal upstream authority handling. Slimference
+does not add an identifying upstream header. Only the request *content* is
+smaller after compression.
+
+Codex request-body compression is code-ready without requiring live local
+Codex wiring: `/v1/responses` and `/backend-api/codex/*` are accepted as
+potential Codex compression paths, but only recognised conversation shapes
+enter Layer 1-3. Unknown Codex backend bodies are forwarded byte-for-byte
+instead of being rejected or rewritten.
+
+To reproduce the checked-in Codex reporting smoke corpus without touching
+your live Codex installation:
+
+```bash
+go run ./scripts/benchmarks session-report tests/fixtures/codex
+go run ./scripts/benchmarks session-report --markdown tests/fixtures/codex
+go run ./scripts/benchmarks codex-smoke-gate tests/fixtures/codex
+```
+
+`tests/fixtures/codex/codex-metadata.json` declares the corpus provenance
+(scrubbing method, Codex version, hooks/layers exercised, scenarios) and the
+regression baseline that `codex-smoke-gate` enforces. The same gate runs as
+the final step of `go run ./scripts/ci`, so any drift in the smoke fixture
+fails the local CI gate.
+
+That smoke corpus proves the reporting and gating path on synthetic data. It
+is not a real Codex production corpus; a real 10-20 session capture still
+requires explicit permission to run live Codex.
 
 ## Bypass semantics - the three off-switches
 

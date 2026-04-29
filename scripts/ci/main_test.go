@@ -11,13 +11,21 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 	t.Parallel()
 
 	steps := defaultSteps()
-	if len(steps) != 4 {
+	if len(steps) != 5 {
 		t.Fatalf("unexpected step count: %d", len(steps))
 	}
 
-	want := []string{"run", "./scripts/coverage", "-min=100"}
-	if !reflect.DeepEqual(steps[3].args, want) {
-		t.Fatalf("coverage gate args: got %v want %v", steps[3].args, want)
+	wantCoverage := []string{"run", "./scripts/coverage", "-min=100"}
+	if !reflect.DeepEqual(steps[3].args, wantCoverage) {
+		t.Fatalf("coverage gate args: got %v want %v", steps[3].args, wantCoverage)
+	}
+
+	wantCodexGate := []string{"run", "./scripts/benchmarks", "codex-smoke-gate", "tests/fixtures/codex"}
+	if !reflect.DeepEqual(steps[4].args, wantCodexGate) {
+		t.Fatalf("codex smoke gate args: got %v want %v", steps[4].args, wantCodexGate)
+	}
+	if steps[4].label != "codex smoke gate" {
+		t.Fatalf("codex smoke gate label: got %q want %q", steps[4].label, "codex smoke gate")
 	}
 }
 

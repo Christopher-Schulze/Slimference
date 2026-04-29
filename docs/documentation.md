@@ -258,12 +258,13 @@ RTK-inspired heuristics now live in
 `SetToolCompressorTuning` installs these at proxy boot; zero/negative
 fields fall back to the compile-time defaults.
 
-### Structure preview default-on (T55)
+### Structure preview (T38 / T74)
 
-`[compression.tuning] structure_preview = true` is the 2.3 default.
-Oversized tool_result blocks with JSON / path-list / ASCII-table
-shape are replaced with a compact, shape-aware preview when strictly
-shorter.
+`[compression.tuning] structure_preview = false` is the default. The
+preview pass remains available as an opt-in, but it is not default-on until
+each preview has local archive recovery. Oversized tool_result blocks with
+JSON / path-list / ASCII-table shape can be replaced with a compact,
+shape-aware preview when strictly shorter.
 
 ---
 
@@ -389,7 +390,42 @@ Config: `[upstream.*] base_url`:
 All headers flow through verbatim except `Host` (rewritten to upstream
 authority). `Authorization`, `User-Agent`, `OpenAI-Beta`, and `Cookie`
 are preserved so Cloudflare + upstream see the same identity they
-always see from this user.
+always see from this user. The proxy does not add an upstream-identifying
+header.
+
+### Codex request-body compression (T73)
+
+Codex support is not only routing. Known Codex request shapes now enter
+the same Layer 1-3 compression path:
+
+- OpenAI-style `messages` bodies are parsed through the existing OpenAI
+  normalizer.
+- Responses-style `input` arrays map `message`, `function_call`, and
+  `function_call_output` items into `types.Message`.
+- `/v1/responses` is considered compressible only after User-Agent/body
+  detection classifies it as `CodexChatGPT`; generic OpenAI Responses
+  traffic remains passthrough.
+- `/backend-api/codex/*` is a potential Codex compression path, but unknown
+  body shapes return to byte-equal passthrough.
+- Rebuild preserves body-level fields such as `conversation_id`, `metadata`,
+  `stream`, and `store`, plus auth/session headers in the forwarded request.
+
+### Codex evidence corpus and regression gate (T75)
+
+`tests/fixtures/codex/` is the checked-in Codex evidence corpus directory:
+synthetic request fixtures used by the proxy compression tests, a
+`session-smoke.jsonl` log used by the reporting path, and a single
+`codex-metadata.json` (schema_version=1) declaring the corpus provenance
+(scrubbing method, Codex version, hooks/layers, scenarios) and a
+`regression_gate` baseline.
+
+`go run ./scripts/benchmarks codex-smoke-gate <dir>` aggregates the corpus
+and asserts the baseline (min request count, min savings ratio, per-layer
+min saved tokens, provider/route counts). It is wired as the final step of
+`go run ./scripts/ci` so the smoke fixture cannot regress without failing
+local CI. The synthetic numbers in this corpus are a regression backstop,
+not a Codex savings claim; real claims still need a 10-20 session live
+corpus that is intentionally not captured until the operator allows it.
 
 ### Anthropic version negotiation (T62)
 
@@ -729,7 +765,7 @@ dedup_similarity_threshold           = 0.85               # scalar fallback
 
   [compression.tuning]
   loop_detection    = false                  # T37
-  structure_preview = true                   # T55 (was false)
+  structure_preview = false                  # T74 safety default
   incremental_staircase = [ ... ]            # T27
   dedup_staircase = [                        # T53
     { msg_count_le = 10,       threshold = 0.88 },

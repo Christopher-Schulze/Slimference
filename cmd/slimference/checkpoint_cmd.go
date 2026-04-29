@@ -72,7 +72,7 @@ func handleCheckpointCmd(args []string) {
 
 func handleExpandCmd(args []string) {
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-		fmt.Fprintln(os.Stderr, "usage: slimference expand <archive-id|slim://archive/<id>>")
+		fmt.Fprintln(os.Stderr, "usage: slimference expand <archive-id|local-archive://<id>>")
 		exitFn(1)
 	}
 	home, err := osUserHomeDir()

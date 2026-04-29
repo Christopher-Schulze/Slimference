@@ -1,6 +1,6 @@
 # T55 - Structure-Preview (T38) Default-On nach Beta-Phase
 
-Status: todo
+Status: superseded by T74
 Priority: P2
 Scope: `internal/compression/`, `internal/config/`, `docs/tuning-inventory.md`, `docs/benchmarks.md`
 Driver: post-v2 production-readiness audit (2026-04-20)
@@ -24,18 +24,19 @@ analytics snapshots of opted-in users shows:
 - Zero user complaints on the `Read`/`Grep` flows (the most common
   large-result tools).
 
-Conclusion: switch default to on with a prominent opt-out. This is the
-cheapest remaining win on the L1 pipeline.
+Conclusion at the time: switch default to on with a prominent opt-out. T74
+superseded that rollout because archive-backed reversibility was not complete.
 
 ## Current State
 
-- `structure_preview = false` by default.
-- Behaviour is fully implemented, tested, documented.
+- `structure_preview = false` by default again after T74.
+- Behaviour is fully implemented, tested, documented, and remains opt-in.
 - No measurement on what users lose when it triggers.
 
 ## Target State
 
-- Default `structure_preview = true` starting v2.1.0.
+- Default `structure_preview = true` starting v2.1.0. Superseded by T74:
+  default is off until reversible preview recovery lands.
 - Loud opt-out via `SLIMFERENCE_STRUCTURE_PREVIEW=false` + config
   field.
 - Preview records a **reversible hint**: each preview references the
@@ -109,7 +110,7 @@ On preview generation:
 
 ## Subtasks
 
-- [ ] Flip default in config.
+- [x] Flip default in config. Superseded by T74 safety rollback.
 - [ ] Wire tool-archive integration for reversibility.
 - [ ] Add `opt_out_tools` config.
 - [ ] Telemetry counters + expand-rate.

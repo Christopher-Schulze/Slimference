@@ -15,6 +15,8 @@ func TestIsCompressiblePath(t *testing.T) {
 	}{
 		{"/v1/messages", true},
 		{"/v1/chat/completions", true},
+		{"/v1/responses", true},
+		{"/backend-api/codex/responses", true},
 		{"/v1/messages/", true},
 		{"/v1/chat/completions/", true},
 		{"/v1/messages/batches", false},
@@ -46,5 +48,28 @@ func TestUpstreamURL(t *testing.T) {
 	want := "https://api.anthropic.com/v1/messages?x=1"
 	if u3 != want {
 		t.Fatalf("unknown provider default base: got %q want %q", u3, want)
+	}
+}
+
+func TestIsProviderCompressiblePath(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		provider types.Provider
+		path     string
+		want     bool
+	}{
+		{types.Anthropic, "/v1/messages", true},
+		{types.Anthropic, "/v1/responses", false},
+		{types.OpenAI, "/v1/chat/completions", true},
+		{types.OpenAI, "/v1/responses", false},
+		{types.CodexChatGPT, "/v1/responses", true},
+		{types.CodexChatGPT, "/backend-api/codex/responses", true},
+		{types.CodexChatGPT, "/v1/chat/completions", false},
+		{types.Provider(99), "/v1/messages", false},
+	}
+	for _, tc := range tests {
+		if got := isProviderCompressiblePath(tc.provider, tc.path); got != tc.want {
+			t.Errorf("%v %q: got %v want %v", tc.provider, tc.path, got, tc.want)
+		}
 	}
 }

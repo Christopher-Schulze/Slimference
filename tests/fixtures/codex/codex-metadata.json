@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "corpus_name": "codex-smoke",
+  "description": "Synthetic Codex smoke corpus that keeps the Codex reporting and regression path executable in CI without touching the operator's live Codex installation. Replace this with scrubbed live sessions only after the operator explicitly enables live Codex capture.",
+  "scrubbed": true,
+  "redaction_method": "manual_synthetic",
+  "captured_at": "2026-04-29",
+  "request_fixtures": [
+    {
+      "file": "v1-responses-input.json",
+      "route": "/v1/responses",
+      "shape": "responses_input",
+      "notes": "Mixed messages, function_call, function_call_output. Used by internal/proxy compression tests."
+    },
+    {
+      "file": "backend-api-codex-responses.json",
+      "route": "/backend-api/codex/responses",
+      "shape": "responses_input",
+      "notes": "Backend-api Codex variant, streaming flag set."
+    }
+  ],
+  "session_fixtures": [
+    {
+      "file": "session-smoke.jsonl",
+      "codex_version": "synthetic-fixture",
+      "client": "codex-cli-fixture",
+      "hooks_enabled": ["pre_tool", "post_tool", "read"],
+      "layers_enabled": [0, 1, 2, 3],
+      "request_count": 2,
+      "scenarios": [
+        "v1_responses_with_layer0_and_cache",
+        "backend_api_with_layer2_summary"
+      ]
+    }
+  ],
+  "regression_gate": {
+    "min_requests": 2,
+    "min_savings_ratio": 0.4,
+    "min_layer1_saved": 1,
+    "min_layer2_saved": 1,
+    "min_layer3_saved": 1,
+    "providers": {
+      "codex_chatgpt": 2
+    },
+    "routes": {
+      "/v1/responses": 1,
+      "/backend-api/codex/responses": 1
+    }
+  }
+}

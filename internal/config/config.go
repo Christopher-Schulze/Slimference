@@ -94,12 +94,12 @@ type ProviderUpstream struct {
 
 // CompressionConfig controls the multi-layer compression pipeline.
 type CompressionConfig struct {
-	Layer1Enabled             bool          `toml:"layer1_enabled"`
-	Layer2Enabled             bool          `toml:"layer2_enabled"`
-	Layer3Enabled             bool          `toml:"layer3_enabled"`
-	SlidingWindow             int           `toml:"sliding_window"`
-	MinMessagesForCompression int           `toml:"min_messages_for_compression"`
-	MinTokensForLayer2        int           `toml:"min_tokens_for_layer2"`
+	Layer1Enabled             bool `toml:"layer1_enabled"`
+	Layer2Enabled             bool `toml:"layer2_enabled"`
+	Layer3Enabled             bool `toml:"layer3_enabled"`
+	SlidingWindow             int  `toml:"sliding_window"`
+	MinMessagesForCompression int  `toml:"min_messages_for_compression"`
+	MinTokensForLayer2        int  `toml:"min_tokens_for_layer2"`
 	// Layer2LatencyBudgetMs (T54) caps the per-request time Slimference is
 	// willing to spend on Layer 2. If the EMA of past MiniMax latencies
 	// multiplied by Layer2LatencyProjectionMultiplier exceeds this budget,
@@ -111,13 +111,13 @@ type CompressionConfig struct {
 	Layer2LatencyProjectionMultiplier float64 `toml:"layer2_latency_projection_multiplier"`
 	// Layer2LatencyEMAAlpha is the exponential-moving-average weight on
 	// new observations. Default 0.2.
-	Layer2LatencyEMAAlpha float64 `toml:"layer2_latency_ema_alpha"`
-	StructureMinTokens        int           `toml:"structure_min_tokens"`
-	StructureLanguages        []string      `toml:"structure_languages"`
-	DedupSimilarityThreshold  float64       `toml:"dedup_similarity_threshold"`
-	MiniMax                   MiniMaxConfig `toml:"minimax"`
-	Summary                   SummaryConfig `toml:"summary"`
-	Tuning                    TuningConfig  `toml:"tuning"`
+	Layer2LatencyEMAAlpha    float64       `toml:"layer2_latency_ema_alpha"`
+	StructureMinTokens       int           `toml:"structure_min_tokens"`
+	StructureLanguages       []string      `toml:"structure_languages"`
+	DedupSimilarityThreshold float64       `toml:"dedup_similarity_threshold"`
+	MiniMax                  MiniMaxConfig `toml:"minimax"`
+	Summary                  SummaryConfig `toml:"summary"`
+	Tuning                   TuningConfig  `toml:"tuning"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
@@ -163,8 +163,8 @@ type TuningConfig struct {
 	LoopDetection bool `toml:"loop_detection"`
 	// StructurePreview enables T38: large tool_result blocks (>=4 KB) with
 	// JSON / path-list / ASCII-table shape are replaced with a compact,
-	// shape-aware preview when strictly shorter. Default true (T55);
-	// set to false to restore pass-through behaviour.
+	// shape-aware preview when strictly shorter. Default false (T74) until
+	// preview recovery is fully reversible via local archive.
 	StructurePreview bool `toml:"structure_preview"`
 	// DedupStaircase lowers the MinHash/LSH Jaccard threshold as the
 	// conversation grows. Long sessions accumulate more near-duplicate tool

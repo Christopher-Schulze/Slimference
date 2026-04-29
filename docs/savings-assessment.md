@@ -84,6 +84,38 @@ large 15-message conversation reaches the upstream with a shorter body than the
 original request. That is weaker than a large benchmark corpus, but stronger
 than unit-only evidence.
 
+### Codex smoke corpus (synthetic, not a savings claim)
+
+The Codex reporting path has a checked-in smoke corpus:
+
+```bash
+go run ./scripts/benchmarks session-report tests/fixtures/codex
+go run ./scripts/benchmarks codex-smoke-gate tests/fixtures/codex
+```
+
+What it does prove:
+
+- the reporting harness aggregates a Codex directory
+- provider split, Codex route split, and Layer 0/1/2/3 attribution work for
+  `codex_chatgpt`
+- a regression-gate baseline declared in
+  `tests/fixtures/codex/codex-metadata.json` is enforced as part of
+  `go run ./scripts/ci`, so the path stays executable
+
+What it explicitly does not prove:
+
+- median real-Codex savings
+- distribution across short / medium / long Codex sessions
+- per-layer or per-route savings on real Codex traffic
+
+The `57.14%` saved tokens, the `Layer 0/1/2/3` split, and the cache-hit ratio
+shown by the smoke corpus are properties of the synthetic fixture. They are
+useful to keep the reporting path honest, not to make Codex savings claims.
+
+A real corpus still requires 10-20 scrubbed live Codex sessions, which cannot
+be captured until live-wiring the operator's Codex install is explicitly
+allowed.
+
 ---
 
 ## Where The Savings Come From
@@ -212,11 +244,16 @@ The main gap is evidence quality, not necessarily missing compression logic:
 
 - no checked-in 100-session benchmark corpus
 - checked-in `docs/benchmarks.md` exists now, but it is still fixture-scale evidence rather than a large real-session corpus
+- Codex has a synthetic smoke corpus, route-aware reporting, a metadata schema
+  (`tests/fixtures/codex/codex-metadata.json`) and a CI-enforced regression
+  gate (`scripts/benchmarks codex-smoke-gate`), but not yet the required real
+  scrubbed 10-20 session corpus
 - no clear distribution view across short / medium / long sessions
 - no hard public split between savings from L0, L1, L2, L3 across a real corpus
 
 That means the repo may already be strong, but it cannot yet prove the strong
-claims at production-marketing level.
+claims at production-marketing level. The smoke corpus is a regression
+backstop, not a savings claim.
 
 ---
 

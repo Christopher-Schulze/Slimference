@@ -804,11 +804,11 @@ func handlePostToolCmd(args []string) {
 		return
 	}
 
-	context := "Slimference compacted recent Bash output."
+	context := "Recent Bash output was compacted locally."
 	if details.CommandLine != "" {
-		context = fmt.Sprintf("Slimference compacted Bash output for %q.\n%s", details.CommandLine, compacted)
+		context = fmt.Sprintf("Bash output for %q was compacted locally.\n%s", details.CommandLine, compacted)
 	} else {
-		context = fmt.Sprintf("Slimference compacted Bash output.\n%s", compacted)
+		context = fmt.Sprintf("Bash output was compacted locally.\n%s", compacted)
 	}
 
 	out := map[string]interface{}{

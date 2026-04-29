@@ -380,6 +380,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Re-detect provider with body available.
 	provider = detectProviderWithUA(r.URL.Path, body, userAgent)
 
+	if !isProviderCompressiblePath(provider, r.URL.Path) {
+		p.handlePassthrough(w, r, provider, body)
+		return
+	}
+
 	// If this provider is toggled off: passthrough without compression.
 	if !p.isProviderEnabled(provider) {
 		p.handlePassthrough(w, r, provider, body)
@@ -395,17 +400,33 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // isCompressiblePath returns true for the endpoints that support message compression.
 func isCompressiblePath(path string) bool {
+	clean := strings.TrimSuffix(path, "/")
 	// Anthropic: POST /v1/messages (not /v1/messages/batches)
-	if path == "/v1/messages" {
+	if clean == "/v1/messages" {
 		return true
 	}
 	// OpenAI: POST /v1/chat/completions
-	if path == "/v1/chat/completions" {
+	if clean == "/v1/chat/completions" {
 		return true
 	}
-	// Also handle paths with leading slash variations.
+	// Codex: these paths may carry Responses API conversation input. The
+	// provider-specific gate below keeps generic OpenAI /v1/responses traffic
+	// passthrough unless UA/body detection proves it is Codex.
+	return clean == "/v1/responses" || strings.HasPrefix(clean, "/backend-api/codex/")
+}
+
+func isProviderCompressiblePath(provider types.Provider, path string) bool {
 	clean := strings.TrimSuffix(path, "/")
-	return clean == "/v1/messages" || clean == "/v1/chat/completions"
+	switch provider {
+	case types.Anthropic:
+		return clean == "/v1/messages"
+	case types.OpenAI:
+		return clean == "/v1/chat/completions"
+	case types.CodexChatGPT:
+		return clean == "/v1/responses" || strings.HasPrefix(clean, "/backend-api/codex/")
+	default:
+		return false
+	}
 }
 
 // upstreamURL constructs the full upstream URL for the given provider.

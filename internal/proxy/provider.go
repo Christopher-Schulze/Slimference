@@ -59,11 +59,11 @@ func detectProviderWithUA(path string, body []byte, userAgent string) types.Prov
 
 // AnthropicRequest is the wire format for Anthropic Messages API.
 type AnthropicRequest struct {
-	Model     string              `json:"model"`
-	Messages  []AnthropicMessage  `json:"messages"`
-	System    json.RawMessage     `json:"system,omitempty"`
-	MaxTokens int                 `json:"max_tokens"`
-	Stream    bool                `json:"stream,omitempty"`
+	Model     string             `json:"model"`
+	Messages  []AnthropicMessage `json:"messages"`
+	System    json.RawMessage    `json:"system,omitempty"`
+	MaxTokens int                `json:"max_tokens"`
+	Stream    bool               `json:"stream,omitempty"`
 	// All other fields preserved via Extra.
 	extra map[string]json.RawMessage
 }
@@ -100,6 +100,12 @@ type openAIToolCall struct {
 	} `json:"function"`
 }
 
+type codexInputItemRaw struct {
+	Fields    map[string]json.RawMessage
+	TextPath  string
+	TextIndex int
+}
+
 // anthropicContentBlock mirrors the JSON structure for Anthropic content blocks.
 type anthropicContentBlock struct {
 	Type         string          `json:"type"`
@@ -116,12 +122,16 @@ type anthropicContentBlock struct {
 }
 
 // extractMessages converts a raw request body into normalized internal Messages.
-// It handles both Anthropic and OpenAI wire formats.
+// It handles Anthropic, OpenAI, and Codex wire formats.
 func extractMessages(provider types.Provider, body []byte) ([]types.Message, map[string]json.RawMessage, error) {
 	// Parse as generic map first to preserve all extra fields.
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, nil, fmt.Errorf("unmarshal body: %w", err)
+	}
+
+	if provider == types.CodexChatGPT {
+		return extractCodexMessages(raw)
 	}
 
 	messagesRaw, ok := raw["messages"]
@@ -159,6 +169,190 @@ func extractAnthropicMessages(messagesRaw json.RawMessage, extra map[string]json
 		messages = append(messages, msg)
 	}
 	return messages, extra, nil
+}
+
+func extractCodexMessages(raw map[string]json.RawMessage) ([]types.Message, map[string]json.RawMessage, error) {
+	if messagesRaw, ok := raw["messages"]; ok {
+		return extractOpenAIMessages(messagesRaw, raw)
+	}
+
+	inputRaw, ok := raw["input"]
+	if !ok {
+		return nil, raw, nil
+	}
+	return extractCodexInputMessages(inputRaw, raw)
+}
+
+func extractCodexInputMessages(inputRaw json.RawMessage, extra map[string]json.RawMessage) ([]types.Message, map[string]json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(inputRaw)
+	if len(trimmed) == 0 {
+		return nil, extra, nil
+	}
+	if trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(inputRaw, &text); err != nil {
+			return nil, extra, fmt.Errorf("unmarshal codex input string: %w", err)
+		}
+		return []types.Message{{
+			Index:   0,
+			Role:    "user",
+			Content: []types.ContentBlock{{Type: "text", Text: text}},
+		}}, extra, nil
+	}
+
+	var items []json.RawMessage
+	if err := json.Unmarshal(inputRaw, &items); err != nil {
+		return nil, extra, fmt.Errorf("unmarshal codex input items: %w", err)
+	}
+
+	messages := make([]types.Message, 0, len(items))
+	for i, itemRaw := range items {
+		msg, ok, err := codexInputItemToMessage(i, itemRaw)
+		if err != nil {
+			return nil, extra, err
+		}
+		if !ok {
+			return nil, extra, nil
+		}
+		messages = append(messages, msg)
+	}
+	if len(messages) == 0 {
+		return nil, extra, nil
+	}
+	return messages, extra, nil
+}
+
+func codexInputItemToMessage(index int, itemRaw json.RawMessage) (types.Message, bool, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(itemRaw, &fields); err != nil {
+		return types.Message{}, false, fmt.Errorf("unmarshal codex input item %d: %w", index, err)
+	}
+
+	itemType := rawJSONString(fields["type"])
+	role := rawJSONString(fields["role"])
+	if role == "" {
+		role = codexRoleForInputType(itemType)
+	}
+	if role == "" {
+		return types.Message{}, false, nil
+	}
+
+	raw := codexInputItemRaw{Fields: fields, TextIndex: -1}
+	msg := types.Message{Index: index, Role: role}
+
+	switch itemType {
+	case "function_call":
+		msg.Content = []types.ContentBlock{{
+			Type:      "tool_use",
+			ToolUseID: firstNonEmpty(rawJSONString(fields["call_id"]), rawJSONString(fields["id"])),
+			ToolName:  rawJSONString(fields["name"]),
+			ToolInput: rawJSONText(fields["arguments"]),
+			RawBlock:  raw,
+		}}
+		return msg, true, nil
+	case "function_call_output":
+		raw.TextPath = "output"
+		msg.Role = "tool"
+		msg.Content = []types.ContentBlock{{
+			Type:         "tool_result",
+			Text:         rawJSONText(fields["output"]),
+			ToolResultID: firstNonEmpty(rawJSONString(fields["call_id"]), rawJSONString(fields["id"])),
+			RawBlock:     raw,
+		}}
+		return msg, true, nil
+	}
+
+	if contentRaw, ok := fields["content"]; ok {
+		text, textPath, textIndex := codexTextFromContent(contentRaw)
+		if textPath == "" {
+			return types.Message{}, false, nil
+		}
+		raw.TextPath = textPath
+		raw.TextIndex = textIndex
+		msg.Content = []types.ContentBlock{{Type: "text", Text: text, RawBlock: raw}}
+		return msg, true, nil
+	}
+
+	return types.Message{}, false, nil
+}
+
+func codexRoleForInputType(itemType string) string {
+	switch itemType {
+	case "", "message":
+		return "user"
+	case "function_call":
+		return "assistant"
+	case "function_call_output":
+		return "tool"
+	default:
+		return ""
+	}
+}
+
+func codexTextFromContent(raw json.RawMessage) (text string, textPath string, textIndex int) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return "", "", -1
+	}
+	if trimmed[0] == '"' {
+		return rawJSONString(raw), "content_string", -1
+	}
+
+	var parts []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return string(raw), "", -1
+	}
+
+	var texts []string
+	rewriteIndex := -1
+	for i, part := range parts {
+		partType := rawJSONString(part["type"])
+		switch partType {
+		case "input_text", "output_text", "text":
+			if s := rawJSONString(part["text"]); s != "" {
+				texts = append(texts, s)
+				if rewriteIndex == -1 {
+					rewriteIndex = i
+				} else {
+					rewriteIndex = -2
+				}
+			}
+		}
+	}
+	if rewriteIndex >= 0 && len(texts) == 1 {
+		return texts[0], "content_part_text", rewriteIndex
+	}
+	return strings.Join(texts, "\n"), "", -1
+}
+
+func rawJSONString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return s
+}
+
+func rawJSONText(raw json.RawMessage) string {
+	if s := rawJSONString(raw); s != "" {
+		return s
+	}
+	if len(raw) == 0 {
+		return ""
+	}
+	return string(raw)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func parseAnthropicContent(raw json.RawMessage) ([]types.ContentBlock, error) {
@@ -317,6 +511,16 @@ func reconstructBody(provider types.Provider, originalBody []byte, compressed []
 	case types.OpenAI:
 		msgs, _ := messagesToOpenAIJSON(compressed)
 		raw["messages"] = msgs
+	case types.CodexChatGPT:
+		if _, ok := raw["messages"]; ok {
+			msgs, _ := messagesToOpenAIJSON(compressed)
+			raw["messages"] = msgs
+			break
+		}
+		if _, ok := raw["input"]; ok {
+			input, _ := messagesToCodexInputJSON(raw["input"], compressed)
+			raw["input"] = input
+		}
 	}
 
 	return json.Marshal(raw)
@@ -334,6 +538,87 @@ func messagesToAnthropicJSON(messages []types.Message) (json.RawMessage, error) 
 		wireMsgs = append(wireMsgs, wireMsg{Role: msg.Role, Content: content})
 	}
 	return json.Marshal(wireMsgs)
+}
+
+func messagesToCodexInputJSON(originalInput json.RawMessage, messages []types.Message) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(originalInput)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		if len(messages) == 0 {
+			return originalInput, nil
+		}
+		return json.Marshal(messages[0].TextContent())
+	}
+
+	items := make([]json.RawMessage, 0, len(messages))
+	for _, msg := range messages {
+		rawItem, ok := firstCodexInputRaw(msg)
+		if !ok {
+			continue
+		}
+		item, err := codexMessageToInputItem(msg, rawItem)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if len(items) == 0 {
+		return originalInput, nil
+	}
+	return json.Marshal(items)
+}
+
+func firstCodexInputRaw(msg types.Message) (codexInputItemRaw, bool) {
+	for _, block := range msg.Content {
+		if raw, ok := block.RawBlock.(codexInputItemRaw); ok {
+			return raw, true
+		}
+	}
+	return codexInputItemRaw{}, false
+}
+
+func codexMessageToInputItem(msg types.Message, raw codexInputItemRaw) (json.RawMessage, error) {
+	fields := cloneRawMap(raw.Fields)
+	text := msg.TextContent()
+	if text == "" {
+		for _, block := range msg.Content {
+			if block.Type == "tool_result" && block.Text != "" {
+				text = block.Text
+				break
+			}
+		}
+	}
+
+	switch raw.TextPath {
+	case "content_string":
+		data, _ := json.Marshal(text)
+		fields["content"] = data
+	case "content_part_text":
+		var parts []map[string]json.RawMessage
+		if err := json.Unmarshal(fields["content"], &parts); err != nil {
+			return nil, err
+		}
+		if raw.TextIndex >= 0 && raw.TextIndex < len(parts) {
+			data, _ := json.Marshal(text)
+			parts[raw.TextIndex]["text"] = data
+			content, _ := json.Marshal(parts)
+			fields["content"] = content
+		}
+	case "output":
+		data, _ := json.Marshal(text)
+		fields["output"] = data
+	}
+
+	return json.Marshal(fields)
+}
+
+func cloneRawMap(in map[string]json.RawMessage) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(in))
+	for key, value := range in {
+		copied := make([]byte, len(value))
+		copy(copied, value)
+		out[key] = copied
+	}
+	return out
 }
 
 func contentBlocksToAnthropicJSON(blocks []types.ContentBlock) (json.RawMessage, error) {

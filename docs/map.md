@@ -112,12 +112,12 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 
 - `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), worker-owned cancellation context, toggle atomics, listener readiness state, 32 MiB request-body hard fail
 - `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, context-aware overflow retry fallback, dependency-safe Layer 3 admission, analytics shutdown drain, shutdown-aware compression worker
-- `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction, safe OpenAI structured-content roundtrip without stringifying multimodal arrays
+- `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction, safe OpenAI structured-content roundtrip without stringifying multimodal arrays, Codex `/v1/responses` and `/backend-api/codex/*` request-shape normalization
 - `internal/proxy/streaming.go`: SSE relay, token counting from stream events, 8 MiB per-line SSE cap, bounded non-streaming passthrough with safe local-502 behavior
 - `internal/proxy/admin.go`: daemon-admin HTTP surface for TUI attach mode, live status snapshot, provider/layer toggles, cache flush endpoint, read-cache, checkpoint, tool-archive, and Layer 2 status export
 - `internal/proxy/checkpoints.go`: async checkpoint capture bridge from analytics events into `internal/checkpoints`
 - `internal/checkpoints/checkpoints.go`: deterministic checkpoint store, trigger policy, ranked restore, persisted stats
-- `internal/toolarchive/toolarchive.go`: local archive store, `slim://archive/*` references, bounded retrieval, persisted stats
+- `internal/toolarchive/toolarchive.go`: local archive store, `local-archive://*` references, bounded retrieval, persisted stats
 
 ### Analytics and Debug
 
@@ -255,6 +255,9 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 | Linux systemd service                | `scripts/service/linux/slimference.service`           | T48  |
 | Distroless Dockerfile                | `scripts/service/docker/Dockerfile`                   | T48  |
 | TUI keybindings generator            | `internal/tui/keys.go::RenderKeybindingsMarkdown`     | T64  |
+| Codex corpus metadata + smoke gate   | `scripts/benchmarks/corpus_metadata.go`               | T75  |
+| Codex smoke gate fixture + schema    | `tests/fixtures/codex/codex-metadata.json`            | T75  |
+| Codex smoke gate ci step             | `scripts/ci/main.go::defaultSteps[4]`                 | T75  |
 
 ### Admin surface additions (`/admin/status`)
 
@@ -264,4 +267,3 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 | `prompt_cache`      | breakpoints injected total      | T45  |
 | `pipeline`          | phase snapshots (p50/p95/max)   | T58  |
 | `anthropic_version` | supported / behavior / unknown  | T62  |
-

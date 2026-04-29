@@ -1,0 +1,74 @@
+{
+  "model": "gpt-5-codex",
+  "conversation_id": "conv_redacted",
+  "metadata": {
+    "client": "codex-cli",
+    "session": "sess_redacted"
+  },
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "Check the repository status and summarize only the meaningful changes."
+        }
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_1",
+      "name": "shell",
+      "arguments": "{\"command\":\"git status --short\"}"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "I will inspect the working tree."
+        }
+      ]
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_1",
+      "output": "{\n  \"files\": [\n    { \"path\": \"internal/proxy/provider.go\", \"state\": \"modified\" },\n    { \"path\": \"internal/proxy/proxy.go\", \"state\": \"modified\" },\n    { \"path\": \"docs/todo/t73-codex-request-shape-compression.md\", \"state\": \"modified\" }\n  ],\n  \"summary\": \"3 files changed\",\n  \"details\": {\n    \"branch\": \"main\",\n    \"clean\": false,\n    \"repeat\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n  }\n}"
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "Now check tests."
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_2",
+      "name": "shell",
+      "arguments": "{\"command\":\"go test ./internal/proxy\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_2",
+      "output": "ok  github.com/slimference/slimference/internal/proxy  0.041s\nPASS\n"
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Proxy tests passed."
+    },
+    {
+      "type": "message",
+      "role": "user",
+      "content": "Keep the final answer short."
+    },
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": "Understood."
+    }
+  ],
+  "stream": false,
+  "store": false
+}

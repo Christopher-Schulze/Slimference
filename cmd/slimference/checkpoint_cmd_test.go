@@ -128,7 +128,7 @@ func TestHandlePostToolCmd_ArchivesLargeOutputWhenMetadataPresent(t *testing.T) 
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "slim://archive/tool-1") || !strings.Contains(out, "slimference expand tool-1") {
+	if !strings.Contains(out, "local-archive://tool-1") || !strings.Contains(out, "Archive ID: tool-1") {
 		t.Fatalf("posttool output=%q", out)
 	}
 	if _, err := os.Stat(filepath.Join(toolarchive.DefaultDir(home), "entries", "tool-1.json")); err != nil {

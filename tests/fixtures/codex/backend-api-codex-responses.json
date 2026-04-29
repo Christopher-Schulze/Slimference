@@ -1,0 +1,23 @@
+{
+  "model": "gpt-5-codex",
+  "conversation_id": "conv_backend_redacted",
+  "input": [
+    {
+      "type": "message",
+      "role": "user",
+      "content": "Run a quick build check."
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_backend_1",
+      "name": "shell",
+      "arguments": "{\"command\":\"go test ./...\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_backend_1",
+      "output": "ok  github.com/slimference/slimference/internal/proxy  0.041s\nok  github.com/slimference/slimference/internal/filter  0.037s\nPASS\n"
+    }
+  ],
+  "stream": true
+}
