@@ -32,7 +32,64 @@ var backoffWaitFn = func(ctx context.Context, delay time.Duration) error {
 // systemPrompt is the mandatory instruction set for MiniMax summarization.
 // It enforces a strict, deterministic output format with zero creative freedom.
 // Every rule exists because violations were observed in testing.
-const systemPrompt = "You are a deterministic information extractor. You compress AI coding session transcripts into structured reference summaries. You never think, reason, or explain. You only extract and condense facts.\n\n" +
+// Multi-stack few-shot examples (T87). The base prompt body is identical
+// across stacks; only the trailing EXAMPLE INPUT / CORRECT OUTPUT block
+// rotates so the model is primed with stack-appropriate idioms. Picked
+// per request from buildSystemPrompt + pickExampleLang.
+const exampleGo = "EXAMPLE INPUT:\n" +
+	"[USER msg 0]\nI need to add auth to the API. Let me check the current handler.\n---\n" +
+	"[ASSISTANT msg 1]\n<tool_use name=\"read_file\" input={\"path\":\"src/auth/handler.go\"}>\n---\n" +
+	"[USER msg 2]\n<tool_result id=\"r1\">package auth\n\nfunc HandleLogin(w http.ResponseWriter, r *http.Request) {\n    // TODO: validate token\n    w.WriteHeader(200)\n}</tool_result>\n---\n" +
+	"[ASSISTANT msg 3]\nThe HandleLogin function in src/auth/handler.go needs token validation added.\n---\n" +
+	"[USER msg 4]\nGo ahead. Also run `go test ./src/auth/...` after.\n---\n" +
+	"[ASSISTANT msg 5]\n<tool_use name=\"edit_file\" input={\"path\":\"src/auth/handler.go\"}>\n---\n" +
+	"[USER msg 6]\n<tool_result id=\"r2\">OK</tool_result>\n---\n" +
+	"[ASSISTANT msg 7]\n<tool_use name=\"bash\" input={\"command\":\"go test ./src/auth/...\"}>\n---\n" +
+	"[USER msg 8]\n<tool_result id=\"r3\">ok  github.com/app/auth   0.012s\nPASS</tool_result>\n---\n\n" +
+	"CORRECT OUTPUT FOR ABOVE INPUT:\n" +
+	"- User requested auth addition to API, checked src/auth/handler.go [msg:0,1]\n" +
+	"- src/auth/handler.go contains HandleLogin() - needs token validation [msg:2,3]\n" +
+	"- edit_file applied to src/auth/handler.go (added token validation) [msg:5,6]\n" +
+	"- Decision: add token validation to HandleLogin() -> approved and implemented [msg:3,4]\n" +
+	"- go test ./src/auth/... passed (0.012s) [msg:7,8]\n\n"
+
+const examplePython = "EXAMPLE INPUT:\n" +
+	"[USER msg 0]\nNeed to add auth to the FastAPI service. Look at the current login handler.\n---\n" +
+	"[ASSISTANT msg 1]\n<tool_use name=\"read_file\" input={\"path\":\"app/auth/handler.py\"}>\n---\n" +
+	"[USER msg 2]\n<tool_result id=\"r1\">def handle_login(request):\n    # TODO: validate token\n    return Response(200)</tool_result>\n---\n" +
+	"[ASSISTANT msg 3]\napp/auth/handler.py:handle_login() needs token validation.\n---\n" +
+	"[USER msg 4]\nGo. Then run `pytest app/auth/`.\n---\n" +
+	"[ASSISTANT msg 5]\n<tool_use name=\"edit_file\" input={\"path\":\"app/auth/handler.py\"}>\n---\n" +
+	"[USER msg 6]\n<tool_result id=\"r2\">OK</tool_result>\n---\n" +
+	"[ASSISTANT msg 7]\n<tool_use name=\"bash\" input={\"command\":\"pytest app/auth/\"}>\n---\n" +
+	"[USER msg 8]\n<tool_result id=\"r3\">==== 12 passed in 0.34s ====</tool_result>\n---\n\n" +
+	"CORRECT OUTPUT FOR ABOVE INPUT:\n" +
+	"- User requested auth addition to FastAPI, checked app/auth/handler.py [msg:0,1]\n" +
+	"- app/auth/handler.py contains handle_login() - needs token validation [msg:2,3]\n" +
+	"- edit_file applied to app/auth/handler.py (added token validation) [msg:5,6]\n" +
+	"- Decision: add token validation to handle_login() -> approved and implemented [msg:3,4]\n" +
+	"- pytest app/auth/ passed (12 tests, 0.34s) [msg:7,8]\n\n"
+
+const exampleTS = "EXAMPLE INPUT:\n" +
+	"[USER msg 0]\nAdd auth to the Express API. Open the current login handler.\n---\n" +
+	"[ASSISTANT msg 1]\n<tool_use name=\"read_file\" input={\"path\":\"src/auth/handler.ts\"}>\n---\n" +
+	"[USER msg 2]\n<tool_result id=\"r1\">export function handleLogin(req: Request, res: Response) {\n  // TODO: validate token\n  return res.status(200).send();\n}</tool_result>\n---\n" +
+	"[ASSISTANT msg 3]\nsrc/auth/handler.ts:handleLogin() needs token validation.\n---\n" +
+	"[USER msg 4]\nGo. Then run `npm test --prefix src/auth`.\n---\n" +
+	"[ASSISTANT msg 5]\n<tool_use name=\"edit_file\" input={\"path\":\"src/auth/handler.ts\"}>\n---\n" +
+	"[USER msg 6]\n<tool_result id=\"r2\">OK</tool_result>\n---\n" +
+	"[ASSISTANT msg 7]\n<tool_use name=\"bash\" input={\"command\":\"npm test --prefix src/auth\"}>\n---\n" +
+	"[USER msg 8]\n<tool_result id=\"r3\">Tests:       8 passed, 8 total\nTime:        0.842 s</tool_result>\n---\n\n" +
+	"CORRECT OUTPUT FOR ABOVE INPUT:\n" +
+	"- User requested auth addition to Express API, checked src/auth/handler.ts [msg:0,1]\n" +
+	"- src/auth/handler.ts contains handleLogin() - needs token validation [msg:2,3]\n" +
+	"- edit_file applied to src/auth/handler.ts (added token validation) [msg:5,6]\n" +
+	"- Decision: add token validation to handleLogin() -> approved and implemented [msg:3,4]\n" +
+	"- npm test --prefix src/auth passed (8 tests, 0.842s) [msg:7,8]\n\n"
+
+// systemPromptHeader is the stack-agnostic body of the prompt. T87 stack
+// examples are appended at request time via buildSystemPrompt.
+const systemPromptHeader = "You are a deterministic information extractor. You compress AI coding session transcripts into structured reference summaries. You never think, reason, or explain. You only extract and condense facts.\n\n" +
 	"MANDATORY OUTPUT FORMAT:\n" +
 	"- One fact per line, prefixed with a dash: \"- \"\n" +
 	"- No other format is acceptable. No paragraphs. No prose. No sections.\n\n" +
@@ -57,28 +114,117 @@ const systemPrompt = "You are a deterministic information extractor. You compres
 	"- No meta-commentary about the compression process.\n" +
 	"- No \"...\" ellipsis to skip content - extract the actual facts.\n" +
 	"- No redundant rephrasing - use original terms exactly.\n\n" +
-	"EXAMPLE INPUT:\n" +
-	"[USER msg 0]\nI need to add auth to the API. Let me check the current handler.\n---\n" +
-	"[ASSISTANT msg 1]\n<tool_use name=\"read_file\" input={\"path\":\"src/auth/handler.go\"}>\n---\n" +
-	"[USER msg 2]\n<tool_result id=\"r1\">package auth\n\nfunc HandleLogin(w http.ResponseWriter, r *http.Request) {\n    // TODO: validate token\n    w.WriteHeader(200)\n}</tool_result>\n---\n" +
-	"[ASSISTANT msg 3]\nThe HandleLogin function in src/auth/handler.go needs token validation added.\n---\n" +
-	"[USER msg 4]\nGo ahead. Also run `go test ./src/auth/...` after.\n---\n" +
-	"[ASSISTANT msg 5]\n<tool_use name=\"edit_file\" input={\"path\":\"src/auth/handler.go\"}>\n---\n" +
-	"[USER msg 6]\n<tool_result id=\"r2\">OK</tool_result>\n---\n" +
-	"[ASSISTANT msg 7]\n<tool_use name=\"bash\" input={\"command\":\"go test ./src/auth/...\"}>\n---\n" +
-	"[USER msg 8]\n<tool_result id=\"r3\">ok  github.com/app/auth   0.012s\nPASS</tool_result>\n---\n\n" +
 	"LINEAGE MARKERS (T92, mandatory):\n" +
 	"- End every bullet with a marker [msg:N] or [msg:N,M,...] where N/M are\n" +
 	"  the message indices (from the [USER msg N] / [ASSISTANT msg N]\n" +
 	"  headers) the bullet was extracted from. The marker is REQUIRED so\n" +
-	"  the proxy can reverse-trace facts back to original messages.\n\n" +
-	"CORRECT OUTPUT FOR ABOVE INPUT:\n" +
-	"- User requested auth addition to API, checked src/auth/handler.go [msg:0,1]\n" +
-	"- src/auth/handler.go contains HandleLogin() - needs token validation [msg:2,3]\n" +
-	"- edit_file applied to src/auth/handler.go (added token validation) [msg:5,6]\n" +
-	"- Decision: add token validation to HandleLogin() -> approved and implemented [msg:3,4]\n" +
-	"- go test ./src/auth/... passed (0.012s) [msg:7,8]\n\n" +
-	"START your output with \"- \" immediately. First character must be dash-space."
+	"  the proxy can reverse-trace facts back to original messages.\n\n"
+
+// systemPromptFooter is the trailing instruction appended after the
+// stack-specific example block. T87.
+const systemPromptFooter = "START your output with \"- \" immediately. First character must be dash-space."
+
+// systemPrompt is the legacy default-stack prompt kept as a compile-time
+// fallback when buildSystemPrompt is not invoked (e.g. legacy tests). T87.
+var systemPrompt = systemPromptHeader + exampleGo + systemPromptFooter
+
+// examplePromptCounters records which stack examples were chosen so the
+// operator can monitor per-language distribution. T87.
+var examplePromptCounters = map[string]int64{}
+
+// ExamplePromptCount returns the cumulative pick count for a stack tag.
+// Unknown tags return zero. T87.
+func ExamplePromptCount(lang string) int64 { return examplePromptCounters[lang] }
+
+// ExamplePromptCounts returns a copy of the per-stack pick counters.
+func ExamplePromptCounts() map[string]int64 {
+	out := make(map[string]int64, len(examplePromptCounters))
+	for k, v := range examplePromptCounters {
+		out[k] = v
+	}
+	return out
+}
+
+// ResetExamplePromptCounts clears the picker counters. Test helper.
+func ResetExamplePromptCounts() {
+	for k := range examplePromptCounters {
+		delete(examplePromptCounters, k)
+	}
+}
+
+// pickExampleLang scans the input transcript for cheap signals (file
+// extensions, language-specific tokens) and returns one of "go",
+// "python", or "ts". Defaults to "go" on tie or empty signals to
+// preserve the previous prompt behaviour. T87.
+func pickExampleLang(input string) string {
+	scores := map[string]int{"go": 0, "python": 0, "ts": 0}
+	low := strings.ToLower(input)
+
+	// File-extension signals carry the most weight.
+	for _, sig := range []struct {
+		needle string
+		lang   string
+		weight int
+	}{
+		{".go", "go", 3},
+		{".py", "python", 3},
+		{".ts", "ts", 3},
+		{".tsx", "ts", 3},
+		{".jsx", "ts", 2},
+		{".js", "ts", 2},
+		{".rs", "go", 0}, // rust falls back to Go style for now
+	} {
+		scores[sig.lang] += strings.Count(low, sig.needle) * sig.weight
+	}
+
+	// Tool-name signals.
+	for _, sig := range []struct {
+		needle string
+		lang   string
+		weight int
+	}{
+		{"go test", "go", 2},
+		{"go build", "go", 2},
+		{"package main", "go", 2},
+		{"pytest", "python", 2},
+		{"def ", "python", 2},
+		{"import os", "python", 1},
+		{"npm test", "ts", 2},
+		{"npm run", "ts", 1},
+		{"yarn ", "ts", 1},
+		{"pnpm ", "ts", 1},
+		{"tsc ", "ts", 1},
+		{"function ", "ts", 1},
+	} {
+		scores[sig.lang] += strings.Count(low, sig.needle) * sig.weight
+	}
+
+	best := "go"
+	bestScore := scores["go"]
+	for _, lang := range []string{"python", "ts"} {
+		if scores[lang] > bestScore {
+			best = lang
+			bestScore = scores[lang]
+		}
+	}
+	return best
+}
+
+// buildSystemPrompt returns the system prompt with the stack-appropriate
+// few-shot example. The picker output is also recorded for telemetry so
+// the operator can see the distribution of stack examples used. T87.
+func buildSystemPrompt(input string) string {
+	lang := pickExampleLang(input)
+	examplePromptCounters[lang]++
+	example := exampleGo
+	switch lang {
+	case "python":
+		example = examplePython
+	case "ts":
+		example = exampleTS
+	}
+	return systemPromptHeader + example + systemPromptFooter
+}
 
 // coTRegex matches chain-of-thought thinking blocks that some models emit.
 // Kept for back-compat; the active stripper is StripCoTTags below which
@@ -329,10 +475,12 @@ func (c *MiniMaxClient) Summarize(ctx context.Context, inputText string, startMs
 	)
 
 	// Force temperature to 0 regardless of config for deterministic output.
+	// T87: system prompt is built per request with the stack-appropriate
+	// few-shot example so non-Go sessions are not primed with Go idioms.
 	payload := mmRequest{
 		Model: c.model,
 		Messages: []mmMessage{
-			{Role: "system", Content: systemPrompt},
+			{Role: "system", Content: buildSystemPrompt(inputText)},
 			{Role: "user", Content: userContent},
 		},
 		MaxTokens:        targetTokens,

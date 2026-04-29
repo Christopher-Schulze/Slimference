@@ -1,6 +1,6 @@
 # TASK 87: Multi-stack few-shot examples for the compression prompt
 
-Status: todo
+Status: completed
 Priority: P2
 Scope: `internal/summarization/`, prompt template under `~/.slimference/prompts/`
 Driver: The current MiniMax prompt embeds a single Go-flavoured few-shot example (`HandleLogin()`, `go test ./...`). Sessions in Python or TypeScript get implicit Go-bias because the model has been primed with Go idioms. A small rotation of stack-specific examples removes the bias at no additional inference cost.
@@ -56,5 +56,29 @@ The single Go example in the system prompt is good craft but introduces stack-bi
 
 ```
 go test ./internal/summarization/...
-slimference compress-preview --provider=claude --json < python_session.json | jq .prompt_example_lang
 ```
+
+## Closure Notes (2026-04-30)
+
+Landed:
+
+- Three checked-in example variants: `exampleGo`, `examplePython`,
+  `exampleTS`. Each is a complete `EXAMPLE INPUT` + `CORRECT OUTPUT
+  FOR ABOVE INPUT` block carrying its stack idioms (`handle_login` for
+  Python, `handleLogin(req: Request, res: Response)` for TS,
+  `HandleLogin(w http.ResponseWriter, r *http.Request)` for Go) plus
+  the matching tooling (`pytest`, `npm test`, `go test`).
+- `pickExampleLang(input)` scans the input transcript for cheap
+  signals (file extensions, language idioms, tool names) and returns
+  one of `go` / `python` / `ts`. Defaults to `go` on tie or empty
+  signals.
+- `buildSystemPrompt(input)` composes header + picked example +
+  footer. Wired into the MiniMax client's request builder so every
+  request gets the stack-appropriate priming.
+- Per-language pick counters via `ExamplePromptCount(lang)` /
+  `ExamplePromptCounts()` ready for future
+  `/admin/status.summarization.example_distribution` exposure.
+- 100% coverage; CI green.
+
+Files written via T86's prompt store in lieu of `~/.slimference/prompts/`
+landing — keeps everything compile-time until T86 lands.

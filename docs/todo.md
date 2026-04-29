@@ -645,7 +645,7 @@ API calls in default CI, mutating the operator's live Codex install.
 ### Phase P - MiniMax determinism and prompt hygiene (P1/P2)
 
 - [ ] T86 - Configurable + versioned compression system prompt with hot-reload and `prompt_version` telemetry field. Detail: `docs/todo/t86-configurable-system-prompt.md`
-- [ ] T87 - Multi-stack few-shot examples (Go / Python / TS) with rotation to remove Go-bias from current single example. Detail: `docs/todo/t87-multi-stack-few-shot-examples.md`
+- [x] T87 - Multi-stack few-shot examples landed: Go / Python / TS variants with input-detection picker, telemetry counters, default to Go on ambiguity. Detail: `docs/todo/t87-multi-stack-few-shot-examples.md`
 - [ ] T88 - Seed-aware request building + provider capability map (`supports_seed`) so non-deterministic providers fail closed. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
 - [x] T89 - Robust CoT stripping: 12-family canonical strip set with fixed-point loop and per-tag counters; legacy single-family regex retired. Config knob deferred. Detail: `docs/todo/t89-robust-cot-stripping.md`
 - [x] T90 - Deterministic repair (header strip / `*`+`1.` -> `- ` normalisation / preamble trim) runs before retry path; bypasses API round-trip when format-only failures can be fixed locally. Model-driven repair deferred. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
