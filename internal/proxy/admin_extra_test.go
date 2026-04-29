@@ -84,6 +84,23 @@ func TestAdminProviderHandler_AnthropicSuccess(t *testing.T) {
 	}
 }
 
+func TestAdminProviderHandler_CodexSuccess(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+
+	body := []byte(`{"provider":"codex_chatgpt","enabled":false}`)
+	req := httptest.NewRequest(http.MethodPost, AdminProviderPath, bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	p.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status code: %d", rec.Code)
+	}
+	if p.IsProviderEnabled(types.CodexChatGPT) {
+		t.Fatal("codex_chatgpt provider should be disabled")
+	}
+}
+
 func TestAdminProviderHandler_WrongMethod(t *testing.T) {
 	cfg := config.Defaults()
 	p := New(cfg)

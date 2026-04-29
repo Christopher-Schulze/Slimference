@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	maxCacheBreakpoints = 4
+	maxCacheBreakpoints   = 4
 	minStablePrefixTokens = 1024
 	// Rough estimate: 4 characters per token (conservative).
 	charsPerToken = 4
@@ -68,9 +68,6 @@ func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []ty
 			eligible = append(eligible, i)
 		}
 	}
-	if len(eligible) == 0 {
-		return messages
-	}
 
 	// T45: spread-evenly placement.
 	// If we have up to maxCacheBreakpoints eligible messages, mark them all.
@@ -83,12 +80,6 @@ func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []ty
 	selected := make(map[int]struct{}, pickCount)
 	for k := 1; k <= pickCount; k++ {
 		idx := (len(eligible)*k)/pickCount - 1
-		if idx < 0 {
-			idx = 0
-		}
-		if idx >= len(eligible) {
-			idx = len(eligible) - 1
-		}
 		selected[eligible[idx]] = struct{}{}
 	}
 

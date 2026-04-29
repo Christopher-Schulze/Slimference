@@ -68,10 +68,10 @@ type ClientStatus struct {
 
 // DaemonStatus describes the state of the launchd service on macOS.
 type DaemonStatus struct {
-	Installed bool   `json:"installed"`
-	Running   bool   `json:"running"`
-	PID       int    `json:"pid,omitempty"`
-	Health    string `json:"health,omitempty"`
+	Installed bool     `json:"installed"`
+	Running   bool     `json:"running"`
+	PID       int      `json:"pid,omitempty"`
+	Health    string   `json:"health,omitempty"`
 	Details   []string `json:"details"`
 }
 
@@ -131,7 +131,6 @@ func backupOnce(src string) (string, error) {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
-		return "", err
 	}
 	dst := fmt.Sprintf("%s.slim-backup-%s", src,
 		time.Now().UTC().Format("20060102T150405"))
@@ -147,13 +146,24 @@ func backupOnce(src string) (string, error) {
 
 // writeAtomic writes data to path through a temp file + rename, preserving
 // the destination's mode when it already exists.
+type atomicTempFile interface {
+	Name() string
+	Write([]byte) (int, error)
+	Chmod(os.FileMode) error
+	Close() error
+}
+
+var createTempFileFn = func(dir, pattern string) (atomicTempFile, error) {
+	return os.CreateTemp(dir, pattern)
+}
+
 func writeAtomic(path string, data []byte, defaultMode os.FileMode) error {
 	mode := defaultMode
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode() & os.ModePerm
 	}
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".slim-*")
+	tmp, err := createTempFileFn(dir, ".slim-*")
 	if err != nil {
 		return err
 	}
@@ -197,6 +207,7 @@ func splitBlock(content string) (before, block, after string, exists bool) {
 //   - content with no existing block: appends a separator + block at end.
 //   - content with existing block: replaces in place, preserving before/after.
 //   - empty body: removes the block.
+//
 // Output always ends in exactly one newline when non-empty so successive
 // calls are bit-identical (idempotent round-trip).
 func replaceOrAppendBlock(content, body string) string {

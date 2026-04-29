@@ -118,6 +118,29 @@ func TestHandleSubcommand_doctor_configFileMissingBranch(t *testing.T) {
 	}
 }
 
+func TestHandleSubcommand_doctor_defaultsConfigBranch(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(fakeHome, ".config"))
+	t.Setenv("SLIMFERENCE_CONFIG", "")
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "no file found, using defaults") {
+		t.Fatalf("expected defaults config branch: %q", out)
+	}
+}
+
 // TestHandleSubcommand_doctor_configFileExistsBranch covers main.go:607 (return path, true)
 // when DefaultConfigPath() resolves to an existing file.
 //

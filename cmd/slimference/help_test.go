@@ -68,8 +68,11 @@ func TestWantsHeadless(t *testing.T) {
 		{"headless", []string{"--headless"}, "", true},
 		{"env only", nil, "1", true},
 		{"stopped by subcommand", []string{"doctor", "--no-tui"}, "", false},
+		{"stopped by integrate subcommand", []string{"integrate", "status", "--no-tui"}, "", false},
+		{"stopped by bypass subcommand", []string{"bypass", "status", "--headless"}, "", false},
 		{"multiple flags before subcommand", []string{"--log-level", "debug", "--no-tui"}, "", true},
 		{"port only, no headless", []string{"--port", "9000"}, "", false},
+		{"terminator stops scan", []string{"--", "--no-tui"}, "", false},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -100,7 +103,7 @@ func TestHelpForSubcommandKnown(t *testing.T) {
 	t.Parallel()
 	topics := []string{"doctor", "filter", "hook", "rewrite", "posttool", "readhook",
 		"expand", "checkpoint", "gain", "stats", "debug", "service", "daemon",
-		"config", "test", "completion", "trust", "version"}
+		"config", "test", "completion", "trust", "integrate", "bypass", "version"}
 	for _, topic := range topics {
 		topic := topic
 		t.Run(topic, func(t *testing.T) {

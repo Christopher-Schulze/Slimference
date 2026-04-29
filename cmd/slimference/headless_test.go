@@ -137,3 +137,24 @@ func TestRunHeadless_StartFailureExit1(t *testing.T) {
 		t.Fatalf("exit code = %d, want 1", *code)
 	}
 }
+
+func TestRunHeadless_ConfigLoadFailureExit1(t *testing.T) {
+	code := new(int)
+	*code = -1
+
+	origExit := exitFn
+	exitFn = func(c int) { *code = c; panic(exitSentinel{}) }
+	t.Cleanup(func() { exitFn = origExit })
+
+	origCfg := configLoadFn
+	configLoadFn = func() (*config.Config, error) {
+		return nil, errors.New("bad config")
+	}
+	t.Cleanup(func() { configLoadFn = origCfg })
+
+	defer recoverExit(t)
+	runHeadless(nil)
+	if *code != 1 {
+		t.Fatalf("exit code = %d, want 1", *code)
+	}
+}

@@ -31,9 +31,9 @@ func (f ShellFlavor) String() string {
 
 // RCFile describes an rc file target picked by the detector.
 type RCFile struct {
-	Path    string
-	Flavor  ShellFlavor
-	Exists  bool
+	Path   string
+	Flavor ShellFlavor
+	Exists bool
 }
 
 // DetectRCFile picks the best-match rc file for the current user. Priority:
@@ -142,9 +142,7 @@ func WriteRCBlock(path string, flavor ShellFlavor, proxyURL string) (WriteEvent,
 			return WriteEvent{}, err
 		}
 	} else {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return WriteEvent{}, err
-		}
+		_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	}
 
 	newContent := replaceOrAppendBlock(content, body)

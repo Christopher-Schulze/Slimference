@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -35,6 +37,13 @@ func TestShutdown_CleanNoError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := p.Shutdown(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestShutdown_NilContextIsBackground(t *testing.T) {
+	p := shutdownTestProxy(t)
+	if err := p.Shutdown(nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -138,6 +147,44 @@ func TestDefaultShutdownDumpWriter_RoundTrip(t *testing.T) {
 	want := home
 	if !pathHasPrefix(path, want) {
 		t.Fatalf("path = %q, want prefix %q", path, want)
+	}
+}
+
+func TestDefaultShutdownDumpWriter_MkdirError(t *testing.T) {
+	homeFile := filepath.Join(t.TempDir(), "home-file")
+	if err := os.WriteFile(homeFile, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeFile)
+	if path, err := defaultShutdownDumpWriter(); err == nil || path != "" {
+		t.Fatalf("expected mkdir error with empty path, got path=%q err=%v", path, err)
+	}
+}
+
+func TestDefaultShutdownDumpWriter_HomeError(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	if path, err := defaultShutdownDumpWriter(); err == nil || path != "" {
+		t.Fatalf("expected home error with empty path, got path=%q err=%v", path, err)
+	}
+}
+
+func TestDefaultShutdownDumpWriter_CreateError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permissions")
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".slimference")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	t.Setenv("HOME", home)
+	if path, err := defaultShutdownDumpWriter(); err == nil || path != "" {
+		t.Fatalf("expected create error with empty path, got path=%q err=%v", path, err)
 	}
 }
 

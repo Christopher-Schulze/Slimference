@@ -129,6 +129,35 @@ func TestHandleBypassCmd_OnUnreachableExits1(t *testing.T) {
 	}
 }
 
+func TestHandleBypassCmd_OffUnreachableExits1(t *testing.T) {
+	origURL := bypassProxyURL
+	bypassProxyURL = "http://127.0.0.1:1"
+	defer func() { bypassProxyURL = origURL }()
+	origExit := exitFn
+	defer func() { exitFn = origExit }()
+	var code int
+	exitFn = func(c int) { code = c; panic(exitSentinel{}) }
+	defer func() { _ = recover() }()
+	handleBypassCmd([]string{"off"})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 on unreachable daemon", code)
+	}
+}
+
+func TestHandleBypassCmd_StatusOffOutput(t *testing.T) {
+	state := false
+	srv := stubBypassAdminServer(t, &state)
+	defer srv.Close()
+	origURL := bypassProxyURL
+	bypassProxyURL = srv.URL
+	defer func() { bypassProxyURL = origURL }()
+
+	out := captureStdoutBypass(t, func() { handleBypassCmd([]string{"status"}) })
+	if !strings.Contains(out, "bypass: off") {
+		t.Fatalf("status output: %q", out)
+	}
+}
+
 func TestPostBypass_ErrorPath(t *testing.T) {
 	origClient := bypassHTTPClient
 	defer func() { bypassHTTPClient = origClient }()
@@ -165,6 +194,19 @@ func TestGetBypass_ErrorPath(t *testing.T) {
 	}
 	if _, ok := getBypass(); ok {
 		t.Fatal("expected ok=false on transport error")
+	}
+}
+
+func TestGetBypass_Non200Status(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	origURL := bypassProxyURL
+	bypassProxyURL = srv.URL
+	defer func() { bypassProxyURL = origURL }()
+	if _, ok := getBypass(); ok {
+		t.Fatal("non-200 should yield ok=false")
 	}
 }
 

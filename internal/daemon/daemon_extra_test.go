@@ -190,6 +190,31 @@ func TestLaunchctlExecImpl_EmptyStdErr(t *testing.T) {
 	}
 }
 
+func TestLaunchctlInspectImpl_UsesLaunchctlOutput(t *testing.T) {
+	tmp := t.TempDir()
+	script := filepath.Join(tmp, "launchctl")
+	body := `#!/bin/sh
+cat <<'EOF'
+{
+    "PID" = 4321;
+    "LastExitStatus" = 7;
+}
+EOF
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatalf("write launchctl stub: %v", err)
+	}
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	snap, err := launchctlInspectImpl("com.slimference.daemon")
+	if err != nil {
+		t.Fatalf("launchctlInspectImpl: %v", err)
+	}
+	if snap.PID != 4321 || snap.LastExitStatus != 7 {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+}
+
 func TestWriteLaunchdEnvFile_CreateDirError(t *testing.T) {
 	withLaunchdTempDir(t, func(tmp string, _ *[]string) {
 		blocker := filepath.Join(tmp, "env-blocker")

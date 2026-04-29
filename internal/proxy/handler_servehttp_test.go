@@ -68,6 +68,37 @@ func TestServeHTTP_passthroughProviderDisabled(t *testing.T) {
 	}
 }
 
+func TestServeHTTP_UnknownAnthropicVersionDowngradesPipeline(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Proxy.AnthropicVersions = []string{"2023-06-01"}
+	cfg.Proxy.AnthropicUnknownBehavior = "passthrough"
+	p := New(cfg)
+
+	body := `{"model":"claude","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-version", "2099-01-01")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if AnthropicUnknownVersionCount() == 0 {
+		t.Fatal("unknown version counter did not increment")
+	}
+}
+
 func TestServeHTTP_readBodyFailedCompressible(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())

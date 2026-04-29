@@ -78,6 +78,23 @@ func TestResolveConfigPath_XDGWins(t *testing.T) {
 	}
 }
 
+func TestResolveConfigPath_LegacyWinsAfterMissingXDG(t *testing.T) {
+	home := t.TempDir()
+	p := writeConfigFixture(t, filepath.Join(home, ".slimference"), "config.toml", "9004")
+
+	t.Setenv("SLIMFERENCE_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing-xdg"))
+	t.Setenv("HOME", home)
+
+	info := ResolveConfigPath(LoadOptions{})
+	if info.Source != "legacy" {
+		t.Fatalf("source = %q, want legacy", info.Source)
+	}
+	if info.ResolvedPath != p {
+		t.Fatalf("resolved = %q, want %q", info.ResolvedPath, p)
+	}
+}
+
 func TestResolveConfigPath_DefaultsFallback(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CONFIG", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "no-xdg"))

@@ -214,7 +214,7 @@ func TestValidate_InvalidTuning(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		name  string
 		apply func(c *Config)
 	}{
 		{"incremental_overlap_threshold negative", func(c *Config) {
@@ -320,9 +320,9 @@ func TestApplyEnvOverrides_DebugFields(t *testing.T) {
 func TestMiniMaxConfig_helpers(t *testing.T) {
 	t.Setenv("TP_TEST_MINIMAX_KEY", "k9-secret")
 	m := MiniMaxConfig{
-		APIKeyEnv:               "TP_TEST_MINIMAX_KEY",
-		ConnectTimeoutSeconds:   7,
-		ResponseTimeoutSeconds:  42,
+		APIKeyEnv:              "TP_TEST_MINIMAX_KEY",
+		ConnectTimeoutSeconds:  7,
+		ResponseTimeoutSeconds: 42,
 	}
 	if got := m.APIKey(); got != "k9-secret" {
 		t.Fatalf("APIKey: %q", got)
@@ -421,6 +421,7 @@ func TestValidate_GainUSDNegative(t *testing.T) {
 func TestApplyEnvOverrides_UpstreamAndCompression(t *testing.T) {
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "https://custom.anthropic.com")
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "https://custom.openai.com")
+	t.Setenv("SLIMFERENCE_UPSTREAM_CODEX_CHATGPT_BASE_URL", "https://custom.chatgpt.com")
 	t.Setenv("SLIMFERENCE_COMPRESSION_SLIDING_WINDOW", "10")
 	t.Setenv("SLIMFERENCE_LOGGING_LEVEL", "debug")
 	cfg := Defaults()
@@ -430,6 +431,9 @@ func TestApplyEnvOverrides_UpstreamAndCompression(t *testing.T) {
 	}
 	if cfg.Upstream.OpenAI.BaseURL != "https://custom.openai.com" {
 		t.Errorf("OpenAI URL: %q", cfg.Upstream.OpenAI.BaseURL)
+	}
+	if cfg.Upstream.CodexChatGPT.BaseURL != "https://custom.chatgpt.com" {
+		t.Errorf("Codex ChatGPT URL: %q", cfg.Upstream.CodexChatGPT.BaseURL)
 	}
 	if cfg.Compression.SlidingWindow != 10 {
 		t.Errorf("SlidingWindow: %d", cfg.Compression.SlidingWindow)
@@ -546,6 +550,16 @@ func TestExpandHome(t *testing.T) {
 	}
 }
 
+func TestExpandHome_BareTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := expandHome("~"); got != home {
+		t.Fatalf("bare tilde = %q, want %q", got, home)
+	}
+}
+
 // TestExpandHome_homeDirError covers the os.UserHomeDir error path in expandHome.
 func TestExpandHome_homeDirError(t *testing.T) {
 	// Not parallel: mutates package-level var userHomeDirFunc.
@@ -557,5 +571,15 @@ func TestExpandHome_homeDirError(t *testing.T) {
 	got := expandHome("~/myfile.txt")
 	if got != "~/myfile.txt" {
 		t.Errorf("want path unchanged on error, got %q", got)
+	}
+}
+
+func TestExpandHome_BareTildeHomeDirError(t *testing.T) {
+	old := userHomeDirFunc
+	userHomeDirFunc = func() (string, error) { return "", errors.New("no home") }
+	defer func() { userHomeDirFunc = old }()
+
+	if got := expandHome("~"); got != "~" {
+		t.Fatalf("want bare tilde unchanged on error, got %q", got)
 	}
 }

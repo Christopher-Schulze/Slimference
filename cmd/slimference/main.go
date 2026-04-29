@@ -240,7 +240,8 @@ func wantsHeadless(args []string) bool {
 		"stats": true, "gain": true, "filter": true, "rewrite": true,
 		"readhook": true, "posttool": true, "checkpoint": true, "expand": true,
 		"hook": true, "debug": true, "daemon": true, "start": true, "stop": true,
-		"restart": true, "service": true, "completion": true, "trust": true,
+		"restart": true, "service": true, "integrate": true, "bypass": true,
+		"completion": true, "trust": true,
 		"help": true,
 	}
 	// Flags that consume the next token as a value; their value must not be
@@ -1259,8 +1260,8 @@ func renderIntegrationChecks(check func(string, func() (string, bool))) {
 
 // Injectable shims so doctor tests can bypass the real detect probes.
 var (
-	integrateStatusFn    = defaultIntegrateStatus
-	daemonPlistPathFn    = daemon.LaunchdPlistPath
+	integrateStatusFn     = defaultIntegrateStatus
+	daemonPlistPathFn     = daemon.LaunchdPlistPath
 	integrateNotInstalled = "not_installed"
 	integrateFullyWired   = "fully_wired"
 )
@@ -2048,8 +2049,8 @@ func (a *proxyAdapter) Shutdown(ctx context.Context) error {
 func (a *proxyAdapter) Config() tui.ProxyConfigInterface {
 	return &configAdapter{cfg: a.p.Config()}
 }
-func (a *proxyAdapter) Bypass() bool             { return a.p.Bypass() }
-func (a *proxyAdapter) SetBypass(enabled bool)   { a.p.SetBypass(enabled) }
+func (a *proxyAdapter) Bypass() bool           { return a.p.Bypass() }
+func (a *proxyAdapter) SetBypass(enabled bool) { a.p.SetBypass(enabled) }
 
 // configAdapter adapts config.Config to tui.ProxyConfigInterface.
 type configAdapter struct {

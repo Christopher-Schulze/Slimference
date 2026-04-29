@@ -1,6 +1,7 @@
 package integrate
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -8,12 +9,57 @@ import (
 	"testing"
 )
 
+type failingAtomicTempFile struct {
+	name     string
+	writeErr error
+	chmodErr error
+	closeErr error
+}
+
+func (f *failingAtomicTempFile) Name() string { return f.name }
+func (f *failingAtomicTempFile) Write([]byte) (int, error) {
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	return 1, nil
+}
+func (f *failingAtomicTempFile) Chmod(os.FileMode) error { return f.chmodErr }
+func (f *failingAtomicTempFile) Close() error            { return f.closeErr }
+
 // TestWriteAtomic_ParentMissingReturnsError covers the create-temp error path.
 func TestWriteAtomic_ParentMissingReturnsError(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "no-such-subdir", "file")
 	err := writeAtomic(target, []byte("x"), 0o644)
 	if err == nil {
 		t.Fatal("expected error on missing parent dir")
+	}
+}
+
+func TestWriteAtomic_TempFileOperationErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		file *failingAtomicTempFile
+	}{
+		{name: "write", file: &failingAtomicTempFile{writeErr: errors.New("write boom")}},
+		{name: "chmod", file: &failingAtomicTempFile{chmodErr: errors.New("chmod boom")}},
+		{name: "close", file: &failingAtomicTempFile{closeErr: errors.New("close boom")}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tc.file.name = filepath.Join(dir, ".slim-test")
+			if err := os.WriteFile(tc.file.name, []byte("tmp"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			orig := createTempFileFn
+			createTempFileFn = func(string, string) (atomicTempFile, error) {
+				return tc.file, nil
+			}
+			t.Cleanup(func() { createTempFileFn = orig })
+			if err := writeAtomic(filepath.Join(dir, "target"), []byte("x"), 0o644); err == nil {
+				t.Fatalf("expected %s error", tc.name)
+			}
+		})
 	}
 }
 

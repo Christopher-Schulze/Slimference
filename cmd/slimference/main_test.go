@@ -341,6 +341,50 @@ func TestMain_noTuiFlag(t *testing.T) {
 	}
 }
 
+func TestMain_GlobalConfigFlagIsExtractedBeforeHeadless(t *testing.T) {
+	origFn := runHeadlessFn
+	origConfig := explicitConfigPath
+	defer func() {
+		runHeadlessFn = origFn
+		explicitConfigPath = origConfig
+	}()
+	var gotArgs []string
+	runHeadlessFn = func(args []string) { gotArgs = append([]string{}, args...) }
+
+	origArgs := os.Args
+	defer func() { os.Args = origArgs }()
+	cfgPath := filepath.Join(t.TempDir(), "config.toml")
+	os.Args = []string{"slimference", "--config", cfgPath, "--no-tui"}
+
+	main()
+	if explicitConfigPath != cfgPath {
+		t.Fatalf("explicitConfigPath = %q, want %q", explicitConfigPath, cfgPath)
+	}
+	if len(gotArgs) != 1 || gotArgs[0] != "--no-tui" {
+		t.Fatalf("headless args = %v", gotArgs)
+	}
+}
+
+func TestHandleSubcommand_IntegrateAndBypassDispatch(t *testing.T) {
+	isolateIntegrateEnv(t)
+	captureIntegrate(t, func() {
+		handleSubcommand([]string{"integrate", "status"})
+	})
+
+	state := false
+	srv := stubBypassAdminServer(t, &state)
+	defer srv.Close()
+	origURL := bypassProxyURL
+	bypassProxyURL = srv.URL
+	defer func() { bypassProxyURL = origURL }()
+	out := captureStdoutBypass(t, func() {
+		handleSubcommand([]string{"bypass", "status"})
+	})
+	if !strings.Contains(out, "bypass: off") {
+		t.Fatalf("bypass dispatch output: %q", out)
+	}
+}
+
 // TestMain_withArgs covers the handleSubcommand branch in main() (main.go:71-74).
 func TestMain_withArgs(t *testing.T) {
 	origArgs := os.Args
@@ -401,8 +445,8 @@ func (p *testTUIProxy) Config() tui.ProxyConfigInterface {
 }
 
 // Bypass / SetBypass satisfy the T67 additions to tui.ProxyInterface.
-func (p *testTUIProxy) Bypass() bool         { return false }
-func (p *testTUIProxy) SetBypass(bool)       {}
+func (p *testTUIProxy) Bypass() bool   { return false }
+func (p *testTUIProxy) SetBypass(bool) {}
 
 func TestHandlePostToolCmd(t *testing.T) {
 	origTerm := termIsTerminalFn

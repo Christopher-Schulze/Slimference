@@ -34,13 +34,13 @@ func toolResultBlock(text string) types.ContentBlock {
 // defaultTestCfg returns a CompressionConfig with a sliding window of 2 for testing.
 func defaultTestCfg(slidingWindow int) *config.CompressionConfig {
 	return &config.CompressionConfig{
-		SlidingWindow:            slidingWindow,
+		SlidingWindow:             slidingWindow,
 		MinMessagesForCompression: 1,
-		MinTokensForLayer2:       30000,
-		StructureMinTokens:       500,
-		StructureLanguages:       []string{"go", "typescript", "python"},
-		DedupSimilarityThreshold: 0.85,
-		Layer1Enabled:            true,
+		MinTokensForLayer2:        30000,
+		StructureMinTokens:        500,
+		StructureLanguages:        []string{"go", "typescript", "python"},
+		DedupSimilarityThreshold:  0.85,
+		Layer1Enabled:             true,
 	}
 }
 
@@ -327,15 +327,15 @@ func TestCompress_DeltaTracksNormalizedCommentStrippedSource(t *testing.T) {
 	v2 := comments.String() + strings.Replace(body.String(), "}\n", "\tprintln(\"delta\")\n}\n", 1)
 	msgs := []types.Message{
 		buildMessage(t, 0, "user", types.ContentBlock{
-			Type:         "tool_result",
-			Text:         v1,
-			ToolInput:    `{"path":"pkg/main.go"}`,
+			Type:      "tool_result",
+			Text:      v1,
+			ToolInput: `{"path":"pkg/main.go"}`,
 		}),
 		buildMessage(t, 1, "assistant", textBlock("done once")),
 		buildMessage(t, 2, "user", types.ContentBlock{
-			Type:         "tool_result",
-			Text:         v2,
-			ToolInput:    `{"path":"pkg/main.go"}`,
+			Type:      "tool_result",
+			Text:      v2,
+			ToolInput: `{"path":"pkg/main.go"}`,
 		}),
 		buildMessage(t, 3, "assistant", textBlock("done twice")),
 		buildMessage(t, 4, "user", textBlock("latest")),
@@ -595,6 +595,26 @@ func TestCompress_GitDiffToolCompressor(t *testing.T) {
 	result := c.Compress(msgs)
 	if result.ToolCompressorSaved <= 0 {
 		t.Errorf("git diff tool result: expected ToolCompressorSaved > 0, got %d", result.ToolCompressorSaved)
+	}
+}
+
+func TestCompressMessage_UsesScalarDedupThresholdFallback(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	cfg.DedupSimilarityThreshold = 0.5
+	c := NewDeterministicCompressor(cfg)
+	msg := buildMessage(t, 0, "user", types.ContentBlock{
+		Type: "tool_result",
+		Text: strings.Repeat("same words ", 80),
+	})
+	_, _, _, _, _, _, _, _, _, _ = c.compressMessage(msg, 0, 2, nil)
+	dupe := buildMessage(t, 1, "user", types.ContentBlock{
+		Type: "tool_result",
+		Text: strings.Repeat("same words ", 80),
+	})
+	_, _, dedupSaved, _, _, _, _, _, _, _ := c.compressMessage(dupe, 1, 2, nil)
+	if dedupSaved <= 0 {
+		t.Fatalf("dedup fallback did not trigger, saved=%d", dedupSaved)
 	}
 }
 

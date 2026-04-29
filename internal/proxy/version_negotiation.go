@@ -109,9 +109,7 @@ func emitUnknownVersionWarn(header string) {
 	if now-last < versionWarnIntervalNs {
 		return
 	}
-	if !lastUnknownVersionWarnNs.CompareAndSwap(last, now) {
-		return
-	}
+	lastUnknownVersionWarnNs.Store(now)
 	slog.Warn("anthropic_version_unknown",
 		"event", "anthropic_version_unknown",
 		"header", header,

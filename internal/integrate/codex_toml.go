@@ -56,7 +56,6 @@ func WriteCodexBlock(home, proxyURL string) (WriteEvent, error) {
 		if os.IsNotExist(err) {
 			return WriteEvent{Path: path, Action: "skipped_client_absent"}, nil
 		}
-		return WriteEvent{}, err
 	}
 
 	content, exists, err := ReadRC(path)
@@ -157,9 +156,6 @@ func fenceIsTopLevelWithBody(content, body string) bool {
 	}
 	// Scope check: find first [table] before the fence.
 	fenceIdx := strings.Index(content, markerStart)
-	if fenceIdx < 0 {
-		return false
-	}
 	preFence := content[:fenceIdx]
 	for _, line := range strings.Split(preFence, "\n") {
 		trimmed := strings.TrimSpace(line)

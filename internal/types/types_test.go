@@ -7,8 +7,8 @@ import (
 
 func TestProviderString(t *testing.T) {
 	t.Parallel()
-	if Anthropic.String() != "anthropic" || OpenAI.String() != "openai" {
-		t.Fatalf("anthropic=%q openai=%q", Anthropic.String(), OpenAI.String())
+	if Anthropic.String() != "anthropic" || OpenAI.String() != "openai" || CodexChatGPT.String() != "codex_chatgpt" {
+		t.Fatalf("anthropic=%q openai=%q codex=%q", Anthropic.String(), OpenAI.String(), CodexChatGPT.String())
 	}
 	if Provider(99).String() != "unknown" {
 		t.Fatalf("got %q", Provider(99).String())

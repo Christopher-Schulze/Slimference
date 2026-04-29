@@ -546,3 +546,59 @@ schon da sein muss.
 - Codex-Binary patchen: nicht noetig.
 - TLS-fingerprint-mimicry (uTLS): Phase 2 only-if Cloudflare-WAF in Phase 1
   anschlaegt.
+
+---
+
+## Codex CLI Finish-Line Program (2026-04-29)
+
+Result of the April 29 deep audit. Core Go tests, race tests, TS tests, and
+integration tests are green, and T70 has restored the release gate to a real
+`100.0%` Go coverage proof. Codex is not yet proven as a perfect first-class
+path on the live machine. Current live
+Codex state: `codex-cli 0.125.0`, hooks partially installed, no
+`openai_base_url` / `chatgpt_base_url` block in `~/.codex/config.toml`, daemon
+offline. Priority order below is strict: prove the gate, then make Codex wiring
+single-source, then add actual Codex request-shape compression, then harden
+safety and evidence.
+
+### Bereich K - Release Truth + Codex First-Class Finish (P0/P1)
+
+- [x] T70 - Release gate truth and coverage closure: repaired the live `go run ./scripts/ci` failure (`99.4% < 100.0%` -> `100.0%`), updated task proof docs, and made release status machine-verifiable again. Detail: `docs/todo/t70-release-gate-truth-and-coverage.md`
+- [ ] T71 - Codex CLI live E2E certification: on the current Codex CLI, prove install/status/hooks/daemon/proxy/request flow end-to-end and document the exact local recovery path. Detail: `docs/todo/t71-codex-cli-live-e2e-certification.md`
+- [ ] T72 - Codex integration single owner and hook drift repair: unify `hook install codex` with `integrate install --client codex`, ensure both write `openai_base_url` + `chatgpt_base_url`, verify pre/post/read hooks, and close stale hook drift. Detail: `docs/todo/t72-codex-integration-single-owner.md`
+- [ ] T73 - Codex request-shape compression support: extend the proxy beyond passthrough routing so Codex `/v1/responses` and `/backend-api/codex/*` shapes are safely extractable, reconstructable, and compressible with zero-downside fallback. Detail: `docs/todo/t73-codex-request-shape-compression.md`
+- [ ] T74 - Structure-preview reversible safety: either archive every default-on preview with `slimference expand` recovery or turn the default off until reversibility is proven. Detail: `docs/todo/t74-structure-preview-reversible-safety.md`
+- [ ] T75 - Codex evidence corpus and savings telemetry: build a small real Codex session corpus, attribute savings by layer, and replace fixture-only claims with repeatable Codex-specific proof. Detail: `docs/todo/t75-codex-evidence-corpus-and-telemetry.md`
+
+### Reihenfolge
+
+T70 -> T72 -> T71 -> T73 -> T74 -> T75. T70 comes first because no release is
+real while the repository-native gate fails. T72 comes before T71 because the
+installer must be single-source before live certification. T73 is separate from
+T71 because today Codex routing can pass traffic through, but Layer 1-3 request
+compression are not proven for Codex request bodies. T74 is a safety blocker if
+structure preview stays default-on. T75 turns the working path into evidence.
+
+### Audit facts that opened this program
+
+- `go test ./...`, `go test -race ./...`, `bun test tests/ts`, and
+  `go test -tags=integration ./tests/integration` are green.
+- Initial audit found `go run ./scripts/ci` failing at the coverage gate:
+  total statements `99.4%`, required `100.0%`.
+- T70 closure re-ran the full proof stack on 2026-04-29:
+  `go run ./scripts/coverage -min=100`, `go run ./scripts/ci`,
+  `go test ./...`, `go test -race ./...`, `bun test tests/ts`, and
+  `go test -tags=integration ./tests/integration` all passed.
+- Local Codex is installed at `/Users/christopher/.npm-global/bin/codex`
+  (`codex-cli 0.125.0`), but `integrate status --client codex` reports
+  `partially_wired`: hooks installed, config not wired, daemon unreachable.
+- `~/.codex/hooks.json` currently has Codex PreToolUse/PostToolUse Bash hooks
+  but no Read hook entry, while current code can generate a read hook.
+- `internal/hooks/codex.go` and `internal/integrate/codex_toml.go` are competing
+  Codex config writers; the hook installer still only owns the older
+  `openai_base_url` path while the integration installer owns both
+  `openai_base_url` and `chatgpt_base_url`.
+- `isCompressiblePath` only marks `/v1/messages` and `/v1/chat/completions` as
+  compressible; Codex `/v1/responses` and `/backend-api/codex/*` currently route
+  as passthrough paths unless Layer 0 hooks reduce output before it enters the
+  conversation.

@@ -94,6 +94,16 @@ func TestSetToolCompressorTuning_AllExplicitValuesRetained(t *testing.T) {
 	}
 }
 
+func TestCurrentToolTuning_NilPointerFallsBackToDefault(t *testing.T) {
+	t.Cleanup(func() { SetToolCompressorTuning(DefaultToolCompressorTuning()) })
+	toolCompressorTuning.Store(nil)
+	cur := currentToolTuning()
+	def := DefaultToolCompressorTuning()
+	if cur != def {
+		t.Fatalf("nil pointer fallback = %+v, want %+v", cur, def)
+	}
+}
+
 func TestT61_DefaultTuningMatchesPreT61Constants(t *testing.T) {
 	t.Cleanup(func() { SetToolCompressorTuning(DefaultToolCompressorTuning()) })
 	// Legacy callers that never call SetToolCompressorTuning must see the

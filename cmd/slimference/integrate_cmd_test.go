@@ -348,6 +348,28 @@ func TestRunIntegrateEmergencyOff_DaemonStopErrorCaptured(t *testing.T) {
 	}
 }
 
+func TestRunIntegrateEmergencyOff_HookErrorsCaptured(t *testing.T) {
+	isolateIntegrateEnv(t)
+	removeClaudeHookFn = func(string) error { return &errString{"emergency-rm-claude"} }
+	removeCodexHookFn = func(string) error { return &errString{"emergency-rm-codex"} }
+	origStop := daemonStopFn
+	origUninstall := daemonUninstallFn
+	defer func() {
+		daemonStopFn = origStop
+		daemonUninstallFn = origUninstall
+	}()
+	daemonStopFn = func() error { return nil }
+	daemonUninstallFn = func() error { return nil }
+
+	_, stderr := captureIntegrate(t, func() {
+		handleIntegrateCmd([]string{"emergency-off"})
+	})
+	if !strings.Contains(stderr, "emergency-rm-claude") ||
+		!strings.Contains(stderr, "emergency-rm-codex") {
+		t.Fatalf("stderr missing hook errors: %q", stderr)
+	}
+}
+
 // TestRunIntegrateEmergencyOff_CallsUninstallOnSuccess ensures that when
 // both daemon-stop and launchd-uninstall succeed, the emergency-off path
 // actually fires both.

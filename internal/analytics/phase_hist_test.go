@@ -26,6 +26,22 @@ func TestPhaseHistogram_ZeroDurationDropped(t *testing.T) {
 	}
 }
 
+func TestPhaseHistogram_RingWrapsExactlyAtCapacity(t *testing.T) {
+	h := NewPhaseHistogram("x", 2)
+	h.Record(1 * time.Millisecond)
+	h.Record(2 * time.Millisecond)
+	s := h.Snapshot()
+	if s.Count != 2 {
+		t.Fatalf("count = %d, want 2", s.Count)
+	}
+	if s.SampleSize != 2 {
+		t.Fatalf("sample size = %d, want 2", s.SampleSize)
+	}
+	if s.P50Ms < 1.4 || s.P50Ms > 1.6 {
+		t.Fatalf("p50 = %v, want interpolated 1.5", s.P50Ms)
+	}
+}
+
 func TestPhaseHistogram_CumulativeCounters(t *testing.T) {
 	h := NewPhaseHistogram("x", 10)
 	h.Record(1 * time.Millisecond)
@@ -40,6 +56,17 @@ func TestPhaseHistogram_CumulativeCounters(t *testing.T) {
 	}
 	if s.MaxMs != 3.0 {
 		t.Fatalf("max = %v, want 3.0", s.MaxMs)
+	}
+}
+
+func TestPhaseHistogram_SnapshotCountWithoutPopulatedRing(t *testing.T) {
+	h := NewPhaseHistogram("x", 2)
+	h.count = 1
+	h.totalNs = int64(time.Millisecond)
+	h.maxNs = int64(time.Millisecond)
+	s := h.Snapshot()
+	if s.Count != 1 || s.SampleSize != 0 {
+		t.Fatalf("snapshot = %+v", s)
 	}
 }
 

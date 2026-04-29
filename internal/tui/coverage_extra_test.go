@@ -72,6 +72,22 @@ func TestRenderHeader_IncludesPortAndDuration(t *testing.T) {
 	}
 }
 
+func TestRenderHeader_IncludesBypassBadge(t *testing.T) {
+	proxy := newMockProxy()
+	proxy.bypass = true
+	model := NewModel(proxy)
+	got := model.renderHeader(80)
+	if !strings.Contains(got, "BYPASS") {
+		t.Fatalf("bypass badge missing: %q", got)
+	}
+}
+
+func TestJoinKeysEmpty(t *testing.T) {
+	if got := joinKeys(nil); got != "" {
+		t.Fatalf("empty joinKeys = %q", got)
+	}
+}
+
 func TestModel_CopyDebugLog_HomeAndWriteErrors(t *testing.T) {
 	proxy := newMockProxy()
 	proxy.sessionLogger.Log("INFO", "test", "hello")
@@ -119,6 +135,23 @@ func TestUpdate_SetupServiceErrorBranches(t *testing.T) {
 		if !strings.Contains(got.flashMsg, tc.wantSubstr) {
 			t.Fatalf("key %q flash = %q, want %q", string(tc.key), got.flashMsg, tc.wantSubstr)
 		}
+	}
+}
+
+func TestUpdate_BypassToggleOnAndOff(t *testing.T) {
+	proxy := newMockProxy()
+	model := NewModel(proxy)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	model = updated.(Model)
+	if !proxy.bypass || !strings.Contains(model.flashMsg, "Bypass: ON") {
+		t.Fatalf("after first toggle bypass=%v flash=%q", proxy.bypass, model.flashMsg)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'B'}})
+	model = updated.(Model)
+	if proxy.bypass || !strings.Contains(model.flashMsg, "Bypass: OFF") {
+		t.Fatalf("after second toggle bypass=%v flash=%q", proxy.bypass, model.flashMsg)
 	}
 }
 

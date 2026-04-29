@@ -1106,9 +1106,7 @@ func defaultShutdownDumpWriter() (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	if err := pprof.Lookup("goroutine").WriteTo(f, 1); err != nil {
-		return path, err
-	}
+	_ = pprof.Lookup("goroutine").WriteTo(f, 1)
 	return path, nil
 }
 
