@@ -646,7 +646,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 - [ ] T86 - Configurable + versioned compression system prompt with hot-reload and `prompt_version` telemetry field. Detail: `docs/todo/t86-configurable-system-prompt.md`
 - [x] T87 - Multi-stack few-shot examples landed: Go / Python / TS variants with input-detection picker, telemetry counters, default to Go on ambiguity. Detail: `docs/todo/t87-multi-stack-few-shot-examples.md`
-- [ ] T88 - Seed-aware request building + provider capability map (`supports_seed`) so non-deterministic providers fail closed. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
+- [!] T88 - Capability struct + per-provider registry (Anthropic / OpenAI / Codex) landed in `internal/types/provider_caps.go`; unblocks T91 + T78 wiring. Seed request-builder wiring + doctor warning deferred. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
 - [x] T89 - Robust CoT stripping: 12-family canonical strip set with fixed-point loop and per-tag counters; legacy single-family regex retired. Config knob deferred. Detail: `docs/todo/t89-robust-cot-stripping.md`
 - [x] T90 - Deterministic repair (header strip / `*`+`1.` -> `- ` normalisation / preamble trim) runs before retry path; bypasses API round-trip when format-only failures can be fixed locally. Model-driven repair deferred. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
 - [!] T91 - DEFERRED until T88 capability map lands (sending the field to a non-supporting provider would 4xx). T90 partial-repair covers most premature-stop cases without per-provider knowledge. Detail: `docs/todo/t91-min-completion-tokens.md`

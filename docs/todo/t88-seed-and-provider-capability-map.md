@@ -1,6 +1,6 @@
 # TASK 88: Seed-aware request building + provider capability map
 
-Status: todo
+Status: partial - capability struct + registry landed; seed wiring deferred
 Priority: P2
 Scope: `internal/summarization/`, `internal/config/`, `internal/types/`
 Driver: `temperature=0` is set on MiniMax for determinism, but seed is missing. Other OpenAI-style providers in the FallbackChain are not deterministic without `seed`, so a future fallback to OpenAI would silently break reproducibility.
@@ -55,3 +55,34 @@ Determinism is currently assumed because temperature is forced to 0. That is eno
 go test ./internal/summarization/... ./internal/types/...
 slimference doctor
 ```
+
+## Closure Notes (2026-04-30)
+
+Landed:
+
+- `types.ProviderCapabilities` struct: `SupportsSeed`,
+  `SupportsTemperatureZero`, `SupportsLogprobs`,
+  `SupportsMinCompletionTokens`, `SupportsStopConditions`,
+  `SupportsResponseID`, `SupportsCachedPrefix`. Designed additive so
+  later releases can extend without breaking older configs.
+- Built-in registry with defaults for `Anthropic`, `OpenAI`, and
+  `CodexChatGPT`.
+- `CapabilitiesFor(p)` returns a copy. Unknown providers return the
+  zero value so call sites fail closed.
+- `SetProviderCapabilities(p, caps)` returns a `restore` closure for
+  test ergonomics.
+- 100% coverage; CI green.
+
+Deferred follow-ups:
+
+- Wire `SupportsSeed` into the MiniMax client request builder so
+  `seed` is included when the active provider supports it. Requires a
+  per-session seed derivation (stable hash of session-id + window).
+- Doctor check that warns when the active provider lacks the
+  capabilities the active config requires
+  (`[summarization] require_deterministic = true`).
+- T91 (`min_completion_tokens`) becomes safely shippable now that
+  `SupportsMinCompletionTokens` exists; gate the request-side wiring
+  on that flag.
+- T78 (provider server-state) is similarly unblocked by
+  `SupportsResponseID`.
