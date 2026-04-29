@@ -526,6 +526,10 @@ func TestVerifyReport_codexWithMarker(t *testing.T) {
 	if err := InstallCodex(home, ""); err != nil {
 		t.Fatal(err)
 	}
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	if err := os.WriteFile(configPath, []byte("openai_base_url = \"http://127.0.0.1:8990\"\nchatgpt_base_url = \"http://127.0.0.1:8990\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	lines, ok := VerifyReport(home)
 	if !ok {
 		t.Fatalf("expected ok=true, lines: %#v", lines)
@@ -783,14 +787,14 @@ func TestInstallCodex_preflightConflictDoesNotWriteScripts(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := InstallCodex(home, "slimference")
-	if err == nil || !strings.Contains(err.Error(), "conflicting openai_base_url") {
-		t.Fatalf("expected conflicting openai_base_url error, got %v", err)
+	if err != nil {
+		t.Fatalf("hook install should not validate config.toml anymore, got %v", err)
 	}
-	if _, statErr := os.Stat(CodexPreHookScriptPath(home)); !os.IsNotExist(statErr) {
-		t.Fatalf("pre-hook script should not be created on preflight failure, stat err=%v", statErr)
+	if _, statErr := os.Stat(CodexPreHookScriptPath(home)); statErr != nil {
+		t.Fatalf("pre-hook script should be created independently of config.toml, stat err=%v", statErr)
 	}
-	if _, statErr := os.Stat(CodexHookScriptPath(home)); !os.IsNotExist(statErr) {
-		t.Fatalf("post-hook script should not be created on preflight failure, stat err=%v", statErr)
+	if _, statErr := os.Stat(CodexHookScriptPath(home)); statErr != nil {
+		t.Fatalf("post-hook script should be created independently of config.toml, stat err=%v", statErr)
 	}
 }
 

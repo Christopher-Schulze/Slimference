@@ -241,6 +241,14 @@ func TestHandleHookCmd_installCodex_success(t *testing.T) {
 	if !strings.Contains(buf.String(), "Installed Codex hooks") {
 		t.Fatalf("expected codex install message, got: %q", buf.String())
 	}
+	configData, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatalf("read codex config: %v", err)
+	}
+	configText := string(configData)
+	if !strings.Contains(configText, "openai_base_url") || !strings.Contains(configText, "chatgpt_base_url") {
+		t.Fatalf("hook install codex should write complete codex config block: %s", configText)
+	}
 }
 
 // TestHandleHookCmd_removeClaude_success covers hooks.RemoveClaude success path (main.go:404).
@@ -285,6 +293,39 @@ func TestHandleHookCmd_removeCodex_success(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	if !strings.Contains(buf.String(), "Removed Slimference hooks from Codex") {
 		t.Fatalf("expected remove message, got: %q", buf.String())
+	}
+}
+
+func TestInstallCodexIntegrationHook_ConfigError(t *testing.T) {
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(codexDir, "config.toml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := installCodexIntegrationHook(home, "slimference")
+	if err == nil || !strings.Contains(err.Error(), "codex config") {
+		t.Fatalf("expected codex config error, got %v", err)
+	}
+}
+
+func TestRemoveCodexIntegrationHook_ConfigError(t *testing.T) {
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(codexDir, "config.toml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := removeCodexIntegrationHook(home)
+	if err == nil || !strings.Contains(err.Error(), "codex config remove") {
+		t.Fatalf("expected codex config remove error, got %v", err)
 	}
 }
 

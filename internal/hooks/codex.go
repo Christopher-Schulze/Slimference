@@ -108,10 +108,8 @@ printf '%%s' "$INPUT" | %s readhook codex
 //  2. ~/.slimference/hooks/codex-post-tool.sh - PostToolUse Bash hook script
 //  3. ~/.slimference/hooks/codex-read-tool.sh - PreToolUse Read hook script
 //  4. ~/.codex/hooks.json - PreToolUse/PostToolUse hook entries
-//  5. ~/.codex/config.toml - adds openai_base_url + codex_hooks feature flag
 //
 // If a hooks.json already exists with Slimference entries, it is not modified.
-// If config.toml already has openai_base_url set, the value is not overwritten.
 func InstallCodex(home string, slimferenceCmd string) error {
 	if err := validateCodexInstallPreconditions(home); err != nil {
 		return err
@@ -140,12 +138,7 @@ func InstallCodex(home string, slimferenceCmd string) error {
 		return fmt.Errorf("write hooks.json: %w", err)
 	}
 
-	// Step 3: Patch ~/.codex/config.toml
-	if err := patchCodexConfig(home); err != nil {
-		return fmt.Errorf("patch config.toml: %w", err)
-	}
-
-	// Step 4: Also keep AGENTS.md block for backwards compat with older Codex versions
+	// Step 3: Also keep AGENTS.md block for backwards compat with older Codex versions
 	_ = installCodexAgentsMD(home, slimferenceCmd)
 
 	return nil
@@ -216,7 +209,7 @@ func validateCodexInstallPreconditions(home string) error {
 	if _, err := readExistingCodexHooksJSON(hooksPath); err != nil {
 		return err
 	}
-	return validateCodexConfig(filepath.Join(home, ".codex", "config.toml"))
+	return nil
 }
 
 func readExistingCodexHooksJSON(hooksPath string) (map[string]interface{}, error) {
@@ -322,11 +315,6 @@ func installCodexAgentsMD(home string, slimferenceCmd string) error {
 func RemoveCodex(home string) error {
 	// Remove hooks.json Slimference entry.
 	if err := removeCodexHooksJSON(home); err != nil {
-		return err
-	}
-
-	// Remove config.toml Slimference additions.
-	if err := unpatchCodexConfig(home); err != nil {
 		return err
 	}
 
@@ -554,9 +542,11 @@ func collectFeaturesSection(lines []string, headerIndex int) (nextIndex int, ski
 }
 
 type codexConfigState struct {
-	HasOpenAIBaseURL bool
-	OpenAIBaseURL    string
-	CodexHooks       *bool
+	HasOpenAIBaseURL  bool
+	OpenAIBaseURL     string
+	HasChatGPTBaseURL bool
+	ChatGPTBaseURL    string
+	CodexHooks        *bool
 }
 
 func parseCodexConfigState(content string) codexConfigState {
@@ -579,6 +569,11 @@ func parseCodexConfigState(content string) codexConfigState {
 			state.HasOpenAIBaseURL = true
 			if unquoted, err := strconv.Unquote(value); err == nil {
 				state.OpenAIBaseURL = unquoted
+			}
+		case "chatgpt_base_url":
+			state.HasChatGPTBaseURL = true
+			if unquoted, err := strconv.Unquote(value); err == nil {
+				state.ChatGPTBaseURL = unquoted
 			}
 		case "codex_hooks":
 			if parsed, err := strconv.ParseBool(value); err == nil {

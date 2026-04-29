@@ -9,6 +9,20 @@ import (
 	"strings"
 )
 
+// CodexHookState describes every Slimference-owned Codex hook artifact.
+type CodexHookState struct {
+	HooksJSONExists bool
+	PreEntry        bool
+	PostEntry       bool
+	ReadEntry       bool
+	PreScript       bool
+	PostScript      bool
+	ReadScript      bool
+	PreExecutable   bool
+	PostExecutable  bool
+	ReadExecutable  bool
+}
+
 // InstalledStatus returns whether the Claude hook script and Codex hooks are present.
 func InstalledStatus(home string) (claude, codex bool) {
 	claude = claudeHookInstalled(home)
@@ -47,16 +61,8 @@ func codexStatusInstalled(home string) bool {
 }
 
 func codexCoherentInstall(home string) bool {
-	if !CodexHookInstalled(home) {
-		return false
-	}
-	if _, err := os.Stat(CodexPreHookScriptPath(home)); err != nil {
-		return false
-	}
-	if _, err := os.Stat(CodexHookScriptPath(home)); err != nil {
-		return false
-	}
-	if _, err := os.Stat(CodexReadHookScriptPath(home)); err != nil {
+	hookState := InspectCodexHooks(home)
+	if !hookState.Complete() {
 		return false
 	}
 	configPath := filepath.Join(home, ".codex", "config.toml")
@@ -64,8 +70,46 @@ func codexCoherentInstall(home string) bool {
 	if err != nil {
 		return false
 	}
-	state := parseCodexConfigState(string(configData))
-	return codexConfigOperational(state)
+	configState := parseCodexConfigState(string(configData))
+	return codexConfigOperational(configState)
+}
+
+// InspectCodexHooks checks hooks.json plus the three expected executable
+// script files. It does not inspect config.toml; config ownership lives in
+// internal/integrate.
+func InspectCodexHooks(home string) CodexHookState {
+	state := CodexHookState{}
+	codexHooksPath := filepath.Join(home, ".codex", "hooks.json")
+	if data, err := os.ReadFile(codexHooksPath); err == nil {
+		text := string(data)
+		state.HooksJSONExists = true
+		state.PreEntry = strings.Contains(text, "codex-pre-tool.sh") ||
+			strings.Contains(text, "Slimference rewrite guard")
+		state.PostEntry = strings.Contains(text, "codex-post-tool.sh") ||
+			strings.Contains(text, "Slimference filter")
+		state.ReadEntry = strings.Contains(text, "codex-read-tool.sh") ||
+			strings.Contains(text, "Slimference read cache")
+	}
+	state.PreScript, state.PreExecutable = executableFileExists(CodexPreHookScriptPath(home))
+	state.PostScript, state.PostExecutable = executableFileExists(CodexHookScriptPath(home))
+	state.ReadScript, state.ReadExecutable = executableFileExists(CodexReadHookScriptPath(home))
+	return state
+}
+
+// Complete reports whether every expected Codex hook entry and script exists.
+func (s CodexHookState) Complete() bool {
+	return s.HooksJSONExists &&
+		s.PreEntry && s.PostEntry && s.ReadEntry &&
+		s.PreScript && s.PostScript && s.ReadScript &&
+		s.PreExecutable && s.PostExecutable && s.ReadExecutable
+}
+
+func executableFileExists(path string) (exists bool, executable bool) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false, false
+	}
+	return true, info.Mode().Perm()&0o111 != 0
 }
 
 // VerifyReport lists hook files and SHA-256 hashes. ok is false when a hook installation
@@ -89,35 +133,56 @@ func VerifyReport(home string) (lines []string, ok bool) {
 		ok = false
 	}
 
-	// Codex: check hooks.json, scripts, and config for a coherent install.
+	codexLines, codexOK := VerifyCodexReport(home)
+	lines = append(lines, codexLines...)
+	codexState := InspectCodexHooks(home)
+	if codexState.PreEntry || codexState.PostEntry || codexState.ReadEntry {
+		ok = ok && codexOK
+	}
+	return lines, ok
+}
+
+// VerifyCodexReport lists only Codex hook artifacts and config status.
+func VerifyCodexReport(home string) (lines []string, ok bool) {
+	ok = true
 	codexHooksPath := filepath.Join(home, ".codex", "hooks.json")
-	if data, err := os.ReadFile(codexHooksPath); err == nil {
-		hasPre := strings.Contains(string(data), "codex-pre-tool.sh")
-		hasPost := strings.Contains(string(data), "codex-post-tool.sh")
-		hasRead := strings.Contains(string(data), "codex-read-tool.sh")
+	if _, err := os.ReadFile(codexHooksPath); err == nil {
+		state := InspectCodexHooks(home)
+		hasPre := state.PreEntry
+		hasPost := state.PostEntry
+		hasRead := state.ReadEntry
 		if hasPre || hasPost || hasRead {
 			prePath := CodexPreHookScriptPath(home)
 			postPath := CodexHookScriptPath(home)
 			readPath := CodexReadHookScriptPath(home)
 			configPath := filepath.Join(home, ".codex", "config.toml")
 
-			if sb, serr := os.ReadFile(prePath); serr == nil {
+			if sb, serr := os.ReadFile(prePath); serr == nil && state.PreExecutable {
 				sum := sha256.Sum256(sb)
 				lines = append(lines, fmt.Sprintf("codex   %s  sha256=%s", prePath, hex.EncodeToString(sum[:])))
+			} else if state.PreScript {
+				lines = append(lines, fmt.Sprintf("codex   %s  script NOT_EXECUTABLE", prePath))
+				ok = false
 			} else {
 				lines = append(lines, fmt.Sprintf("codex   %s  hooks.json OK, script MISSING", prePath))
 				ok = false
 			}
-			if sb, serr := os.ReadFile(postPath); serr == nil {
+			if sb, serr := os.ReadFile(postPath); serr == nil && state.PostExecutable {
 				sum := sha256.Sum256(sb)
 				lines = append(lines, fmt.Sprintf("codex   %s  sha256=%s", postPath, hex.EncodeToString(sum[:])))
+			} else if state.PostScript {
+				lines = append(lines, fmt.Sprintf("codex   %s  script NOT_EXECUTABLE", postPath))
+				ok = false
 			} else {
 				lines = append(lines, fmt.Sprintf("codex   %s  hooks.json OK, script MISSING", postPath))
 				ok = false
 			}
-			if sb, serr := os.ReadFile(readPath); serr == nil {
+			if sb, serr := os.ReadFile(readPath); serr == nil && state.ReadExecutable {
 				sum := sha256.Sum256(sb)
 				lines = append(lines, fmt.Sprintf("codex   %s  sha256=%s", readPath, hex.EncodeToString(sum[:])))
+			} else if state.ReadScript {
+				lines = append(lines, fmt.Sprintf("codex   %s  script NOT_EXECUTABLE", readPath))
+				ok = false
 			} else {
 				lines = append(lines, fmt.Sprintf("codex   %s  hooks.json OK, script MISSING", readPath))
 				ok = false
@@ -141,23 +206,19 @@ func VerifyReport(home string) (lines []string, ok bool) {
 			if !hasPre || !hasPost || !hasRead {
 				ok = false
 			}
-		} else {
-			lines = append(lines, fmt.Sprintf("codex   %s  file exists (no slimference hook)", codexHooksPath))
+			return lines, ok
 		}
-	} else {
-		// Fallback: check legacy AGENTS.md marker.
-		agents := filepath.Join(home, ".codex", "AGENTS.md")
-		if data, err := os.ReadFile(agents); err == nil {
-			if strings.Contains(string(data), codexMarkerBegin) {
-				lines = append(lines, fmt.Sprintf("codex   %s  legacy instruction block (upgrade: hook install codex)", agents))
-			} else {
-				lines = append(lines, fmt.Sprintf("codex   %s  not installed", codexHooksPath))
-			}
-		} else {
-			lines = append(lines, fmt.Sprintf("codex   %s  not installed", codexHooksPath))
-		}
+		lines = append(lines, fmt.Sprintf("codex   %s  file exists (no slimference hook)", codexHooksPath))
+		return lines, false
 	}
-	return lines, ok
+
+	agents := filepath.Join(home, ".codex", "AGENTS.md")
+	if data, err := os.ReadFile(agents); err == nil && strings.Contains(string(data), codexMarkerBegin) {
+		lines = append(lines, fmt.Sprintf("codex   %s  legacy instruction block (upgrade: hook install codex)", agents))
+		return lines, false
+	}
+	lines = append(lines, fmt.Sprintf("codex   %s  not installed", codexHooksPath))
+	return lines, false
 }
 
 func codexConfigOperational(state codexConfigState) bool {
@@ -165,11 +226,13 @@ func codexConfigOperational(state codexConfigState) bool {
 }
 
 func codexConfigStatus(state codexConfigState) string {
-	if !state.HasOpenAIBaseURL || state.CodexHooks == nil {
-		return "incomplete"
-	}
-	if !isSlimferenceCodexBaseURL(state.OpenAIBaseURL) || !*state.CodexHooks {
+	if (state.HasOpenAIBaseURL && !isSlimferenceCodexBaseURL(state.OpenAIBaseURL)) ||
+		(state.HasChatGPTBaseURL && !isSlimferenceCodexBaseURL(state.ChatGPTBaseURL)) ||
+		(state.CodexHooks != nil && !*state.CodexHooks) {
 		return "conflict"
+	}
+	if !state.HasOpenAIBaseURL || !state.HasChatGPTBaseURL {
+		return "incomplete"
 	}
 	return "ok"
 }

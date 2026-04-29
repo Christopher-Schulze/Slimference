@@ -90,7 +90,7 @@ func TestInstallCodex_InstallHooksJSONError(t *testing.T) {
 	}
 }
 
-func TestInstallCodex_PatchConfigError(t *testing.T) {
+func TestInstallCodex_IgnoresConfigPath(t *testing.T) {
 	home := t.TempDir()
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
@@ -100,8 +100,8 @@ func TestInstallCodex_PatchConfigError(t *testing.T) {
 		t.Fatalf("mkdir config path: %v", err)
 	}
 	err := InstallCodex(home, "slimference")
-	if err == nil || !strings.Contains(err.Error(), "config.toml") {
-		t.Fatalf("expected config.toml path error, got %v", err)
+	if err != nil {
+		t.Fatalf("hook install should not touch config.toml, got %v", err)
 	}
 }
 
@@ -150,7 +150,7 @@ func TestRemoveCodex_PropagatesHooksJSONError(t *testing.T) {
 	}
 }
 
-func TestRemoveCodex_PropagatesConfigError(t *testing.T) {
+func TestRemoveCodex_IgnoresConfigPath(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
 		t.Fatalf("mkdir codex dir: %v", err)
@@ -162,8 +162,8 @@ func TestRemoveCodex_PropagatesConfigError(t *testing.T) {
 		t.Fatalf("mkdir config path: %v", err)
 	}
 	err := RemoveCodex(home)
-	if err == nil {
-		t.Fatal("expected removeCodex config error")
+	if err != nil {
+		t.Fatalf("hook remove should not touch config.toml, got %v", err)
 	}
 }
 
@@ -293,5 +293,56 @@ func TestVerifyReport_CodexConfigIncomplete(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(lines, "\n"), "config incomplete") {
 		t.Fatalf("unexpected verify output: %v", lines)
+	}
+}
+
+func TestVerifyCodexReport_FileExistsWithoutSlimferenceHook(t *testing.T) {
+	home := t.TempDir()
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(`{"PreToolUse":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines, ok := VerifyCodexReport(home)
+	if ok {
+		t.Fatal("codex target verify should fail when hooks.json lacks Slimference hooks")
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), "file exists (no slimference hook)") {
+		t.Fatalf("unexpected verify output: %v", lines)
+	}
+}
+
+func TestVerifyCodexReport_NotExecutableScripts(t *testing.T) {
+	home := t.TempDir()
+	prePath := CodexPreHookScriptPath(home)
+	postPath := CodexHookScriptPath(home)
+	readPath := CodexReadHookScriptPath(home)
+	if err := os.MkdirAll(filepath.Dir(prePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{prePath, postPath, readPath} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hooksJSON := `{"PreToolUse":[{"hooks":[{"command":"bash ` + prePath + `"}]},{"hooks":[{"command":"bash ` + readPath + `"}]}],"PostToolUse":[{"hooks":[{"command":"bash ` + postPath + `"}]}]}`
+	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(hooksJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte("openai_base_url = \"http://127.0.0.1:8990\"\nchatgpt_base_url = \"http://127.0.0.1:8990\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lines, ok := VerifyCodexReport(home)
+	if ok {
+		t.Fatal("codex target verify should fail when scripts are not executable")
+	}
+	if strings.Count(strings.Join(lines, "\n"), "script NOT_EXECUTABLE") != 3 {
+		t.Fatalf("expected all scripts not executable, got %v", lines)
 	}
 }

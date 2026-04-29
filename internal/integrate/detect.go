@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/slimference/slimference/internal/hooks"
 )
 
 // binaryOnPath returns the first PATH entry that contains `name`, or "".
@@ -94,10 +96,9 @@ func DetectCodex(home string) ClientStatus {
 	s.ConfigPath = configPath
 	configExists := fileExists(configPath)
 
-	codexBlockPresent := HasCodexBlock(home)
-
-	hookScript := filepath.Join(home, ".slimference", "hooks", "codex-post-tool.sh")
-	hookPresent := fileExists(hookScript)
+	configComplete := HasCompleteCodexBlock(home, ProxyURL)
+	hookState := hooks.InspectCodexHooks(home)
+	hookPresent := hookState.Complete()
 
 	if binPath == "" {
 		s.State = ClientNotInstalled
@@ -110,19 +111,20 @@ func DetectCodex(home string) ClientStatus {
 	if hookPresent {
 		s.Details = append(s.Details, "hooks: installed")
 	} else {
-		s.Details = append(s.Details, "hooks: missing")
+		s.Details = append(s.Details, "hooks: partial/missing")
+		appendCodexHookDetails(&s, hookState)
 	}
-	if codexBlockPresent {
-		s.Details = append(s.Details, "config.toml: wired")
+	if configComplete {
+		s.Details = append(s.Details, "config.toml: wired (openai_base_url + chatgpt_base_url)")
 	} else {
-		s.Details = append(s.Details, "config.toml: not wired")
+		s.Details = append(s.Details, "config.toml: not wired/incomplete")
 	}
 
 	wired := 0
 	if hookPresent {
 		wired++
 	}
-	if codexBlockPresent {
+	if configComplete {
 		wired++
 	}
 	switch wired {
@@ -134,6 +136,30 @@ func DetectCodex(home string) ClientStatus {
 		s.State = ClientPartiallyWired
 	}
 	return s
+}
+
+func appendCodexHookDetails(s *ClientStatus, state hooks.CodexHookState) {
+	if !state.HooksJSONExists {
+		s.Details = append(s.Details, "hooks.json: missing")
+	}
+	if !state.PreEntry {
+		s.Details = append(s.Details, "PreToolUse Bash hook: missing")
+	}
+	if !state.PostEntry {
+		s.Details = append(s.Details, "PostToolUse Bash hook: missing")
+	}
+	if !state.ReadEntry {
+		s.Details = append(s.Details, "PreToolUse Read hook: missing")
+	}
+	if !state.PreScript || !state.PreExecutable {
+		s.Details = append(s.Details, "codex-pre-tool.sh: missing/not executable")
+	}
+	if !state.PostScript || !state.PostExecutable {
+		s.Details = append(s.Details, "codex-post-tool.sh: missing/not executable")
+	}
+	if !state.ReadScript || !state.ReadExecutable {
+		s.Details = append(s.Details, "codex-read-tool.sh: missing/not executable")
+	}
 }
 
 // DetectDaemon probes the proxy health endpoint and returns the running

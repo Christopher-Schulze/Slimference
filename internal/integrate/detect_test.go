@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/slimference/slimference/internal/hooks"
 )
 
 func TestShellFlavor_String(t *testing.T) {
@@ -88,11 +90,9 @@ func TestDetectCodex_FullyWired(t *testing.T) {
 	if _, err := WriteCodexBlock(home, ProxyURL); err != nil {
 		t.Fatal(err)
 	}
-	// Wire the hooks directory (detect.go probes for codex-post-tool.sh).
-	hookDir := filepath.Join(home, ".slimference", "hooks")
-	_ = os.MkdirAll(hookDir, 0o755)
-	_ = os.WriteFile(filepath.Join(hookDir, "codex-post-tool.sh"),
-		[]byte("#!/bin/sh\n"), 0o755)
+	if err := hooks.InstallCodex(home, "slimference"); err != nil {
+		t.Fatal(err)
+	}
 
 	s := DetectCodex(home)
 	if s.State != ClientFullyWired {

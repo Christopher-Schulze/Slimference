@@ -90,9 +90,9 @@ var (
 	daemonFormatStatusFn         = daemon.FormatStatus
 	daemonRunFn                  = daemon.RunDaemon
 	installClaudeHookFn          = hooks.InstallClaude
-	installCodexHookFn           = hooks.InstallCodex
+	installCodexHookFn           = installCodexIntegrationHook
 	removeClaudeHookFn           = hooks.RemoveClaude
-	removeCodexHookFn            = hooks.RemoveCodex
+	removeCodexHookFn            = removeCodexIntegrationHook
 	loadTUIStateFn               = tui.LoadPersistedState
 
 	// runTUI sub-components: injectable for test coverage of post-startup paths.
@@ -154,6 +154,26 @@ var (
 		return ch
 	}
 )
+
+func installCodexIntegrationHook(home string, slimferenceCmd string) error {
+	if err := hooks.InstallCodex(home, slimferenceCmd); err != nil {
+		return err
+	}
+	if _, err := integrate.WriteCodexBlock(home, integrate.ProxyURL); err != nil {
+		return fmt.Errorf("codex config: %w", err)
+	}
+	return nil
+}
+
+func removeCodexIntegrationHook(home string) error {
+	if err := hooks.RemoveCodex(home); err != nil {
+		return err
+	}
+	if _, err := integrate.RemoveCodexBlock(home); err != nil {
+		return fmt.Errorf("codex config remove: %w", err)
+	}
+	return nil
+}
 
 func main() {
 	proxy.Version = version
@@ -896,11 +916,11 @@ func handleHookCmd(args []string) {
 			}
 			fmt.Println("Installed Claude Code hook (~/.claude/hooks/slimference-rewrite.sh).")
 		case "codex":
-			if err := hooks.InstallCodex(home, tpCmd); err != nil {
+			if err := installCodexHookFn(home, tpCmd); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Installed Codex hooks (~/.codex/hooks.json + config.toml + AGENTS.md).")
+			fmt.Println("Installed Codex hooks and config (~/.codex/hooks.json + config.toml + AGENTS.md).")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown install target: %s (want claude|codex)\n", args[1])
 			exitFn(1)
@@ -918,7 +938,7 @@ func handleHookCmd(args []string) {
 			}
 			fmt.Println("Removed Claude Code Slimference hook files.")
 		case "codex":
-			if err := hooks.RemoveCodex(home); err != nil {
+			if err := removeCodexHookFn(home); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
@@ -929,6 +949,9 @@ func handleHookCmd(args []string) {
 		}
 	case "verify":
 		lines, ok := hooks.VerifyReport(home)
+		if len(args) >= 2 && args[1] == "codex" {
+			lines, ok = hooks.VerifyCodexReport(home)
+		}
 		for _, l := range lines {
 			fmt.Println(l)
 		}
@@ -937,6 +960,9 @@ func handleHookCmd(args []string) {
 		}
 	case "status":
 		lines, _ := hooks.VerifyReport(home)
+		if len(args) >= 2 && args[1] == "codex" {
+			lines, _ = hooks.VerifyCodexReport(home)
+		}
 		for _, l := range lines {
 			fmt.Println(l)
 		}

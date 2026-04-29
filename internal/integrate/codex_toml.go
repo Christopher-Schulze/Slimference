@@ -287,3 +287,14 @@ func HasCodexBlock(home string) bool {
 	_, _, _, has := splitBlock(content)
 	return has
 }
+
+// HasCompleteCodexBlock reports whether config.toml contains the current
+// Slimference-owned Codex block with both required base URLs.
+func HasCompleteCodexBlock(home, proxyURL string) bool {
+	content, exists, err := ReadRC(CodexConfigPath(home))
+	if !exists || err != nil {
+		return false
+	}
+	return fenceIsTopLevelWithBody(content, codexBlockBody(proxyURL)) &&
+		!hasConflictingKeyOutsideFence(content)
+}

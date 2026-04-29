@@ -267,6 +267,12 @@ func TestHandleIntegrateCmd_JSONRemove(t *testing.T) {
 // Report.Errors list, not crash.
 func TestRunIntegrateInstall_HookErrorsCaptured(t *testing.T) {
 	home := isolateIntegrateEnv(t)
+	origClaude := installClaudeHookFn
+	origCodex := installCodexHookFn
+	t.Cleanup(func() {
+		installClaudeHookFn = origClaude
+		installCodexHookFn = origCodex
+	})
 	installClaudeHookFn = func(string, string) error { return &errString{"claude-broken"} }
 	installCodexHookFn = func(string, string) error { return &errString{"codex-broken"} }
 
@@ -287,6 +293,8 @@ func TestRunIntegrateInstall_HookErrorsCaptured(t *testing.T) {
 // the JSON path.
 func TestRunIntegrateInstall_JSONOutputHookErrors(t *testing.T) {
 	isolateIntegrateEnv(t)
+	origCodex := installCodexHookFn
+	t.Cleanup(func() { installCodexHookFn = origCodex })
 	installCodexHookFn = func(string, string) error { return &errString{"codex-fail"} }
 	stdout, _ := captureIntegrate(t, func() {
 		handleIntegrateCmd([]string{"install", "--client=codex", "--json"})
@@ -312,6 +320,12 @@ func TestRunIntegrateRemove_JSONOutput(t *testing.T) {
 // are not fatal.
 func TestRunIntegrateRemove_HookErrorsCaptured(t *testing.T) {
 	isolateIntegrateEnv(t)
+	origClaude := removeClaudeHookFn
+	origCodex := removeCodexHookFn
+	t.Cleanup(func() {
+		removeClaudeHookFn = origClaude
+		removeCodexHookFn = origCodex
+	})
 	removeClaudeHookFn = func(string) error { return &errString{"rm-claude-boom"} }
 	removeCodexHookFn = func(string) error { return &errString{"rm-codex-boom"} }
 
@@ -350,11 +364,15 @@ func TestRunIntegrateEmergencyOff_DaemonStopErrorCaptured(t *testing.T) {
 
 func TestRunIntegrateEmergencyOff_HookErrorsCaptured(t *testing.T) {
 	isolateIntegrateEnv(t)
+	origClaude := removeClaudeHookFn
+	origCodex := removeCodexHookFn
 	removeClaudeHookFn = func(string) error { return &errString{"emergency-rm-claude"} }
 	removeCodexHookFn = func(string) error { return &errString{"emergency-rm-codex"} }
 	origStop := daemonStopFn
 	origUninstall := daemonUninstallFn
 	defer func() {
+		removeClaudeHookFn = origClaude
+		removeCodexHookFn = origCodex
 		daemonStopFn = origStop
 		daemonUninstallFn = origUninstall
 	}()

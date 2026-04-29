@@ -20,15 +20,15 @@ func TestInstallAndVerifyEdgeCoverage(t *testing.T) {
 	if err := InstallCodex(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
-	if !codexCoherentInstall(home) {
-		t.Fatal("codex install should be coherent")
+	if !InspectCodexHooks(home).Complete() {
+		t.Fatal("codex hooks should be complete")
 	}
 
 	if err := os.Remove(CodexHookScriptPath(home)); err != nil {
 		t.Fatal(err)
 	}
-	if codexCoherentInstall(home) {
-		t.Fatal("codex install should become incoherent when post script is removed")
+	if InspectCodexHooks(home).Complete() {
+		t.Fatal("codex hooks should become incomplete when post script is removed")
 	}
 
 	settingsPath := filepath.Join(home, ".claude", "settings.json")

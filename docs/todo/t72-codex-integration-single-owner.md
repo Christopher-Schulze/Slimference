@@ -1,6 +1,6 @@
 # T72 - Codex Integration Single Owner and Hook Drift Repair
 
-Status: todo
+Status: done
 Priority: P0
 Scope: `internal/hooks/codex.go`, `internal/integrate/codex_toml.go`, `internal/integrate/detect.go`, `cmd/slimference/{hook,integrate}_cmd.go`, `docs/integration.md`
 Driver: Deep audit found two competing Codex config writers and partial live hook state.
@@ -78,14 +78,14 @@ There is one canonical Codex integration implementation:
 
 ## Acceptance Criteria
 
-- [ ] `hook install codex` and `integrate install --client codex` produce the
+- [x] `hook install codex` and `integrate install --client codex` produce the
       same final Codex config and hook state.
-- [ ] `DetectCodex` reports partial state when any expected hook or base URL is
+- [x] `DetectCodex` reports partial state when any expected hook or base URL is
       missing.
-- [ ] `hook verify codex` fails when the Read hook is absent.
-- [ ] Old partial installs migrate cleanly with `--force`.
-- [ ] Remove/emergency-off cleanly remove all Slimference-owned Codex artifacts.
-- [ ] `go test -race ./internal/hooks/... ./internal/integrate/... ./cmd/slimference/...` green.
+- [x] `hook verify codex` fails when the Read hook is absent.
+- [x] Old partial installs migrate cleanly with `--force`.
+- [x] Remove/emergency-off cleanly remove all Slimference-owned Codex artifacts.
+- [x] `go test -race ./internal/hooks/... ./internal/integrate/... ./cmd/slimference/...` green.
 
 ## Out of Scope
 
@@ -101,3 +101,24 @@ slimference integrate install --client codex --dry-run --json
 slimference hook verify codex
 slimference integrate remove --client codex --dry-run --json
 ```
+
+## Notes
+
+- 2026-04-29: Started implementation. Initial code read confirms the split:
+  `internal/hooks/codex.go` still patches `config.toml` with legacy
+  `openai_base_url` + `codex_hooks`, while `internal/integrate/codex_toml.go`
+  owns the current fenced `openai_base_url` + `chatgpt_base_url` block.
+- 2026-04-29: Completed. `internal/hooks` now owns only hook scripts and
+  `hooks.json`; `cmd/slimference` wires Codex hooks through
+  `installCodexIntegrationHook` / `removeCodexIntegrationHook`, which call
+  the canonical `internal/integrate` Codex block writer/remover. Detection now
+  requires the complete fenced config plus executable PreToolUse Bash,
+  PostToolUse Bash, and PreToolUse Read hook artifacts. `hook verify codex`
+  now verifies only Codex, instead of failing on unrelated missing Claude
+  hooks.
+- Validation passed:
+  `go test -race ./internal/hooks/... ./internal/integrate/... ./cmd/slimference/...`;
+  temp-home `go run ./cmd/slimference hook install codex`;
+  temp-home `go run ./cmd/slimference hook verify codex`;
+  temp-home `go run ./cmd/slimference integrate install --client codex --dry-run --json`;
+  temp-home `go run ./cmd/slimference integrate remove --client codex --dry-run --json`.

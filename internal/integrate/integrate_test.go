@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/slimference/slimference/internal/hooks"
 )
 
 func TestReplaceOrAppendBlock_AppendsWhenMissing(t *testing.T) {
@@ -961,6 +963,9 @@ func TestStatusDetectsWiredFakeClients(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := WriteCodexBlock(home, ProxyURL); err != nil {
+		t.Fatal(err)
+	}
+	if err := hooks.InstallCodex(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
 
