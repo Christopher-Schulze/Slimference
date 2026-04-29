@@ -67,12 +67,17 @@ const systemPrompt = "You are a deterministic information extractor. You compres
 	"[USER msg 6]\n<tool_result id=\"r2\">OK</tool_result>\n---\n" +
 	"[ASSISTANT msg 7]\n<tool_use name=\"bash\" input={\"command\":\"go test ./src/auth/...\"}>\n---\n" +
 	"[USER msg 8]\n<tool_result id=\"r3\">ok  github.com/app/auth   0.012s\nPASS</tool_result>\n---\n\n" +
+	"LINEAGE MARKERS (T92, mandatory):\n" +
+	"- End every bullet with a marker [msg:N] or [msg:N,M,...] where N/M are\n" +
+	"  the message indices (from the [USER msg N] / [ASSISTANT msg N]\n" +
+	"  headers) the bullet was extracted from. The marker is REQUIRED so\n" +
+	"  the proxy can reverse-trace facts back to original messages.\n\n" +
 	"CORRECT OUTPUT FOR ABOVE INPUT:\n" +
-	"- User requested auth addition to API, checked src/auth/handler.go\n" +
-	"- src/auth/handler.go contains HandleLogin() - needs token validation\n" +
-	"- edit_file applied to src/auth/handler.go (added token validation)\n" +
-	"- Decision: add token validation to HandleLogin() -> approved and implemented\n" +
-	"- go test ./src/auth/... passed (0.012s)\n\n" +
+	"- User requested auth addition to API, checked src/auth/handler.go [msg:0,1]\n" +
+	"- src/auth/handler.go contains HandleLogin() - needs token validation [msg:2,3]\n" +
+	"- edit_file applied to src/auth/handler.go (added token validation) [msg:5,6]\n" +
+	"- Decision: add token validation to HandleLogin() -> approved and implemented [msg:3,4]\n" +
+	"- go test ./src/auth/... passed (0.012s) [msg:7,8]\n\n" +
 	"START your output with \"- \" immediately. First character must be dash-space."
 
 // coTRegex matches chain-of-thought thinking blocks that some models emit.
@@ -123,6 +128,68 @@ func ResetCoTTagCounts() {
 	for k := range cotTagCounts {
 		delete(cotTagCounts, k)
 	}
+}
+
+// lineageMarkerRegex matches [msg:N] or [msg:N,M,...] markers appended to
+// a bullet line. T92.
+var lineageMarkerRegex = regexp.MustCompile(`\s*\[msg:\d+(?:,\d+)*\]\s*$`)
+
+// hasLineageMarker reports whether a bullet line carries a [msg:...]
+// suffix marker. T92.
+func hasLineageMarker(line string) bool {
+	return lineageMarkerRegex.MatchString(line)
+}
+
+// StripLineageMarker returns the bullet text with any trailing [msg:...]
+// marker removed. Used by human-facing display layers; the on-the-wire
+// summary keeps the marker so the model + future T76 WP3 re-injection
+// can use it. T92.
+func StripLineageMarker(line string) string {
+	return lineageMarkerRegex.ReplaceAllString(line, "")
+}
+
+// lineageBulletStats accumulates per-summary bullet-marker presence
+// rates so the operator can monitor prompt compliance. T92.
+type lineageBulletStats struct {
+	totalBullets   int64
+	markedBullets  int64
+}
+
+var lineageStats lineageBulletStats
+
+// RecordLineageStats inspects a cleaned summary and updates the rolling
+// marker-presence counters. Called from cleanSummaryOutput so every
+// successful summary pass is measured.
+func RecordLineageStats(summary string) {
+	for _, line := range strings.Split(summary, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "- ") {
+			continue
+		}
+		lineageStats.totalBullets++
+		if hasLineageMarker(trimmed) {
+			lineageStats.markedBullets++
+		}
+	}
+}
+
+// LineageMarkerRate returns the cumulative ratio of bullets that carried
+// a [msg:...] marker, or 0 when no bullets have been observed yet. T92.
+func LineageMarkerRate() float64 {
+	if lineageStats.totalBullets == 0 {
+		return 0
+	}
+	return float64(lineageStats.markedBullets) / float64(lineageStats.totalBullets)
+}
+
+// LineageMarkerCounts returns the raw (marked, total) bullet counters.
+func LineageMarkerCounts() (marked, total int64) {
+	return lineageStats.markedBullets, lineageStats.totalBullets
+}
+
+// ResetLineageMarkerStats clears the counters. Test helper.
+func ResetLineageMarkerStats() {
+	lineageStats = lineageBulletStats{}
 }
 
 // StripCoTTags removes paired XML-style tag blocks for any of the
@@ -353,6 +420,10 @@ func cleanSummaryOutput(raw string) string {
 
 	// 7. Deduplicate near-identical bullet points.
 	s = deduplicateBullets(s)
+
+	// 8. T92 telemetry: record per-bullet lineage-marker presence so the
+	// operator can monitor prompt compliance over time.
+	RecordLineageStats(s)
 
 	return s
 }

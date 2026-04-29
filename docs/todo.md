@@ -650,7 +650,7 @@ API calls in default CI, mutating the operator's live Codex install.
 - [x] T89 - Robust CoT stripping: 12-family canonical strip set with fixed-point loop and per-tag counters; legacy single-family regex retired. Config knob deferred. Detail: `docs/todo/t89-robust-cot-stripping.md`
 - [ ] T90 - Partial-repair pass on validator failure (cheap second call to fix only the offending lines) instead of all-or-nothing reject. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
 - [ ] T91 - `min_completion_tokens` (or equivalent) to reduce false validator rejects from premature stops. Detail: `docs/todo/t91-min-completion-tokens.md`
-- [ ] T92 - Per-bullet lineage markers `[msg:N,M]` so summaries stay reverse-traceable to original messages. Detail: `docs/todo/t92-per-bullet-lineage-markers.md`
+- [x] T92 - Per-bullet lineage markers landed: prompt requests `[msg:N,M]`, validator tolerates them, helpers + counters expose marker-presence rate. T76 WP3 consumer deferred. Detail: `docs/todo/t92-per-bullet-lineage-markers.md`
 
 ### Phase Q - Layer 0 improvements (P2)
 

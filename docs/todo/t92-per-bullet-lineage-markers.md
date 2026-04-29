@@ -1,6 +1,6 @@
 # TASK 92: Per-bullet lineage markers
 
-Status: todo
+Status: completed (T76 WP3 re-injection consumer deferred)
 Priority: P2
 Scope: `internal/summarization/minimax.go`, `internal/summarization/validator.go`
 Driver: After Layer 2 summarisation, bullets lose their connection to the original messages. If the model later asks "what did the user say in message 7?", Slimference cannot re-inject the original. T76 archive layer needs a back-reference path; lineage markers provide it.
@@ -54,3 +54,30 @@ Format example:
 ```
 go test ./internal/summarization/...
 ```
+
+## Closure Notes (2026-04-30)
+
+Landed:
+
+- System prompt instructs the model to end every bullet with
+  `[msg:N]` or `[msg:N,M,...]`. The example block now demonstrates the
+  marker format on every bullet so the few-shot signal is unambiguous.
+- `hasLineageMarker(line)` and `StripLineageMarker(line)` helpers cover
+  detection and human-display stripping.
+- `RecordLineageStats(summary)` is called at the end of
+  `cleanSummaryOutput` so every successful summary feeds the
+  `lineage_marker_rate` telemetry. `LineageMarkerCounts()` and
+  `LineageMarkerRate()` expose the values; `ResetLineageMarkerStats()`
+  is the test helper.
+- Validator already tolerates trailing content (it only checks for the
+  `- ` prefix), so no validator change was required.
+
+Deferred:
+
+- T76 WP3 (opportunistic re-injection) is the consumer of these markers.
+  Until WP3 lands, markers are recorded in the summary but nothing reads
+  them at the proxy level. The marker stays in the on-the-wire summary
+  so the model itself can use it ("see msg #3 above") without proxy
+  involvement.
+- `/admin/status.summarization.lineage` endpoint surface (counters
+  exist, just not yet exposed).
