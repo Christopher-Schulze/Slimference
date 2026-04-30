@@ -166,7 +166,7 @@ func TestPostBypass_ErrorPath(t *testing.T) {
 			return nil, errors.New("boom")
 		}),
 	}
-	if postBypass(true) {
+	if postBypass(AdminBypassPayload{Enabled: true}) {
 		t.Fatal("postBypass should return false on transport error")
 	}
 }
@@ -179,7 +179,7 @@ func TestPostBypass_Non200Status(t *testing.T) {
 	origURL := bypassProxyURL
 	bypassProxyURL = srv.URL
 	defer func() { bypassProxyURL = origURL }()
-	if postBypass(true) {
+	if postBypass(AdminBypassPayload{Enabled: true}) {
 		t.Fatal("non-200 should yield false")
 	}
 }

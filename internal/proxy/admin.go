@@ -40,14 +40,23 @@ const (
 	AdminBypassPath          = AdminBasePath + "/bypass"
 )
 
-// AdminBypassRequest is the POST body for toggling the master bypass (T67).
+// AdminBypassRequest is the POST body for toggling the master bypass
+// (T67) and its T81 scoped extensions.
 type AdminBypassRequest struct {
 	Enabled bool `json:"enabled"`
+	// DurationSeconds (T81): when > 0 and Enabled=true, bypass auto-
+	// reverts after this many seconds.
+	DurationSeconds int `json:"duration_seconds,omitempty"`
+	// NextRequests (T81): when > 0 and Enabled=true, bypass auto-
+	// reverts after this many requests have flowed through.
+	NextRequests int `json:"next_requests,omitempty"`
 }
 
 // AdminBypassResponse echoes the effective bypass state.
 type AdminBypassResponse struct {
-	Enabled bool `json:"enabled"`
+	Enabled           bool  `json:"enabled"`
+	ExpiresAtUnix     int64 `json:"expires_at_unix,omitempty"`
+	NextRequestBudget int64 `json:"next_request_budget,omitempty"`
 }
 
 // AdminSecuritySuspendRequest is the JSON payload for the suspend endpoint
@@ -450,11 +459,17 @@ func bypassExpiresUnix(p *Proxy) int64 {
 	return 0
 }
 
-// adminBypassHandler returns or sets the master bypass state (T67).
+// adminBypassHandler returns or sets the master bypass state (T67),
+// honouring T81 duration / next-request scoping when the body sets
+// the corresponding fields.
 func (p *Proxy) adminBypassHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeAdminJSON(w, http.StatusOK, AdminBypassResponse{Enabled: p.Bypass()})
+		writeAdminJSON(w, http.StatusOK, AdminBypassResponse{
+			Enabled:           p.Bypass(),
+			ExpiresAtUnix:     bypassExpiresUnix(p),
+			NextRequestBudget: p.BypassNextRequestCount(),
+		})
 	case http.MethodPost:
 		var req AdminBypassRequest
 		if !decodeAdminJSON(r, &req) {
@@ -463,8 +478,19 @@ func (p *Proxy) adminBypassHandler(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		p.SetBypass(req.Enabled)
-		writeAdminJSON(w, http.StatusOK, AdminBypassResponse{Enabled: p.Bypass()})
+		switch {
+		case req.Enabled && req.NextRequests > 0:
+			p.SetBypassForNextRequests(req.NextRequests)
+		case req.Enabled && req.DurationSeconds > 0:
+			p.SetBypassFor(time.Duration(req.DurationSeconds) * time.Second)
+		default:
+			p.SetBypass(req.Enabled)
+		}
+		writeAdminJSON(w, http.StatusOK, AdminBypassResponse{
+			Enabled:           p.Bypass(),
+			ExpiresAtUnix:     bypassExpiresUnix(p),
+			NextRequestBudget: p.BypassNextRequestCount(),
+		})
 	default:
 		writeAdminJSON(w, http.StatusMethodNotAllowed, adminActionResponse{OK: false})
 	}

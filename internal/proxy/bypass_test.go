@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -102,6 +103,39 @@ func TestAdminBypass_InvalidJSON400(t *testing.T) {
 	p.adminBypassHandler(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+func TestAdminBypass_PostWithDuration(t *testing.T) {
+	p := New(config.Defaults())
+	body := `{"enabled":true,"duration_seconds":30}`
+	req := httptest.NewRequest(http.MethodPost, AdminBypassPath,
+		bytes.NewReader([]byte(body)))
+	rec := httptest.NewRecorder()
+	p.adminBypassHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	if !p.Bypass() {
+		t.Fatal("bypass must be on")
+	}
+	if p.BypassExpiresAt().IsZero() {
+		t.Fatal("expected non-zero deadline")
+	}
+}
+
+func TestAdminBypass_PostWithNextRequests(t *testing.T) {
+	p := New(config.Defaults())
+	body := `{"enabled":true,"next_requests":4}`
+	req := httptest.NewRequest(http.MethodPost, AdminBypassPath,
+		bytes.NewReader([]byte(body)))
+	rec := httptest.NewRecorder()
+	p.adminBypassHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d", rec.Code)
+	}
+	if p.BypassNextRequestCount() != 4 {
+		t.Fatalf("expected budget 4, got %d", p.BypassNextRequestCount())
 	}
 }
 
