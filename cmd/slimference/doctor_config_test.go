@@ -123,6 +123,93 @@ enable_seed = false
 	}
 }
 
+// TestHandleSubcommand_doctor_OutboundRedaction_Off covers the T109
+// FAIL branch when the operator has disabled outbound redaction.
+func TestHandleSubcommand_doctor_OutboundRedaction_Off(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
+	body := []byte(`[compression.summary]
+outbound_redaction = "off"
+`)
+	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "L2 outbound redaction") || !strings.Contains(out, "OFF") {
+		t.Fatalf("expected outbound redaction OFF FAIL line, got: %s", out)
+	}
+}
+
+// TestHandleSubcommand_doctor_OutboundRedaction_Strict covers the T109
+// strict-mode reporting branch.
+func TestHandleSubcommand_doctor_OutboundRedaction_Strict(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
+	body := []byte(`[compression.summary]
+outbound_redaction = "strict"
+`)
+	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "L2 outbound redaction") || !strings.Contains(out, "strict") {
+		t.Fatalf("expected outbound redaction strict line, got: %s", out)
+	}
+}
+
+// TestHandleSubcommand_doctor_OutboundRedaction_Unknown covers the
+// fallback warning when an unrecognised mode is configured.
+func TestHandleSubcommand_doctor_OutboundRedaction_Unknown(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
+	body := []byte(`[compression.summary]
+outbound_redaction = "novel-mode"
+`)
+	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "L2 outbound redaction") || !strings.Contains(out, "unknown mode") {
+		t.Fatalf("expected outbound redaction unknown-mode line, got: %s", out)
+	}
+}
+
 // TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOn covers
 // the success branch of the T88 determinism gate.
 func TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOn(t *testing.T) {

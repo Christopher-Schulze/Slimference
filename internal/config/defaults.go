@@ -57,6 +57,10 @@ func defaultsRaw() *Config {
 				// fill them from the profile without pretending they
 				// were operator-set. TOML/env values override after.
 				Mode: ModeBalanced,
+				// T109: outbound redaction default-on. Operators that
+				// truly want raw outbound must set this to "off"
+				// explicitly; doctor warns when they do.
+				OutboundRedaction: "default",
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,

@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -26,6 +29,18 @@ type Layer2 struct {
 	cache     *SummaryCache
 	anchor    *AnchorDetector
 	validator *CompressionValidator
+	// redactor (T109) sanitises every outbound message slice before it
+	// reaches the FallbackChain. Always non-nil; under
+	// outbound_redaction=off it is a deep-copy passthrough.
+	redactor *Redactor
+	// Cumulative redaction counters (T109). Surfaced via
+	// RedactionCounters() and the proxy admin status handler so
+	// operators can see what gets stripped from L2 traffic over time.
+	redSecrets atomic.Int64
+	redPaths   atomic.Int64
+	redHeaders atomic.Int64
+	redJSON    atomic.Int64
+	redInputs  atomic.Int64
 }
 
 func NewLayer2(cfg *config.CompressionConfig) *Layer2 {
@@ -45,7 +60,81 @@ func NewLayer2(cfg *config.CompressionConfig) *Layer2 {
 		cache:     NewSummaryCache(),
 		anchor:    NewAnchorDetector(),
 		validator: NewCompressionValidator(),
+		redactor:  buildRedactor(cfg),
 	}
+}
+
+// buildRedactor constructs a fresh Redactor from cfg. Extracted so test
+// helpers can build one without paying for the rest of NewLayer2.
+func buildRedactor(cfg *config.CompressionConfig) *Redactor {
+	mode := cfg.Summary.OutboundRedaction
+	if mode == "" {
+		mode = RedactionModeDefault
+	}
+	home, _ := os.UserHomeDir()
+	// Reuse the inbound detector pattern set so we don't ship divergent
+	// secret inventories between proxy ingress and L2 egress.
+	det := security.NewDetector("redact", nil, nil)
+	return NewRedactor(RedactOptions{
+		Mode:           mode,
+		HomeDir:        home,
+		Detector:       det,
+		DropToolInputs: cfg.Summary.OutboundDropToolInputs,
+	})
+}
+
+// RedactionCounters reports the cumulative outbound-redaction
+// telemetry. T109. Snapshotted atomically so the surface is consistent
+// across concurrent reads.
+type RedactionCounters struct {
+	Secrets  int64  `json:"secrets_redacted"`
+	Paths    int64  `json:"paths_normalised"`
+	Headers  int64  `json:"headers_stripped"`
+	JSONKeys int64  `json:"json_keys_redacted"`
+	Inputs   int64  `json:"tool_inputs_dropped"`
+	Mode     string `json:"mode"`
+}
+
+// RedactionCounters returns a snapshot of the per-stage redaction
+// counters. Reads are lock-free; values may drift slightly across
+// fields under heavy contention but are always individually consistent.
+func (l *Layer2) RedactionCounters() RedactionCounters {
+	mode := ""
+	if l.redactor != nil {
+		mode = l.redactor.opts.Mode
+	}
+	return RedactionCounters{
+		Secrets:  l.redSecrets.Load(),
+		Paths:    l.redPaths.Load(),
+		Headers:  l.redHeaders.Load(),
+		JSONKeys: l.redJSON.Load(),
+		Inputs:   l.redInputs.Load(),
+		Mode:     mode,
+	}
+}
+
+// recordRedactionStats accumulates RedactStats into the per-Layer2
+// atomic counters. Safe for concurrent use.
+func (l *Layer2) recordRedactionStats(s RedactStats) {
+	l.redSecrets.Add(int64(s.SecretsRedacted))
+	l.redPaths.Add(int64(s.PathsNormalised))
+	l.redHeaders.Add(int64(s.HeadersStripped))
+	l.redJSON.Add(int64(s.JSONKeyRedacted))
+	l.redInputs.Add(int64(s.ToolInputsDropped))
+}
+
+// applyOutboundRedaction is the single entry point both summarisation
+// paths use to sanitise messages before the FallbackChain sees them.
+// Returns the redacted slice and accumulates stats into the receiver.
+// When the redactor is nil (defensive) or running in off-mode the slice
+// is returned as-is.
+func (l *Layer2) applyOutboundRedaction(messages []types.Message) []types.Message {
+	if l.redactor == nil {
+		return messages
+	}
+	redacted, stats := l.redactor.Redact(messages)
+	l.recordRedactionStats(stats)
+	return redacted
 }
 
 // ApplyMidExchange runs the T99 mid-exchange rewrite using the live
@@ -61,7 +150,13 @@ func (l *Layer2) ApplyMidExchange(ctx context.Context, messages []types.Message,
 	if !ok {
 		return messages, 0, false
 	}
-	body := renderRangeForSummarization(messages, pt.Start, pt.End)
+	// T109: outbound redaction on the mid-exchange range. We redact a
+	// scoped sub-slice so the splice math (Start/End indices) remains
+	// referentially valid against the *original* `messages` arg the
+	// downstream `applyMidExchangeWith` re-indexes against. The renderer
+	// only reads from the redacted copy.
+	redactedRange := l.applyOutboundRedaction(append([]types.Message(nil), messages[pt.Start:pt.End+1]...))
+	body := renderRangeForSummarization(redactedRange, 0, len(redactedRange)-1)
 	// renderRangeForSummarization always returns non-empty here:
 	// DetectMidExchangePoint only fires when the cumulative Text in
 	// the range exceeds the threshold, so at least one block has
@@ -200,6 +295,12 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 	if len(toSummarize) == 0 {
 		return
 	}
+
+	// T109: outbound redaction. Sanitise the slice before any of the
+	// downstream rendering or chain calls can read it. The receiver's
+	// counters accumulate across calls so /admin/status and
+	// `slimference doctor` can surface what's been stripped over time.
+	toSummarize = l.applyOutboundRedaction(toSummarize)
 
 	inputText := existingSummaryPrefix + l.FormatMessagesForSummarization(toSummarize)
 	inputText = preprocessInput(inputText)

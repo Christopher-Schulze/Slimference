@@ -312,6 +312,16 @@ type SummaryConfig struct {
 	// SupportsSeed are skipped. Default off so legacy MiniMax-only
 	// chains keep working.
 	RequireDeterministic bool `toml:"require_deterministic"`
+	// OutboundRedaction (T109) controls how aggressively outbound
+	// summarisation input is sanitised before leaving the proxy. One of
+	// "off", "default", "strict". Empty defaults to "default". Under
+	// "strict", tool_input bodies are dropped entirely and an
+	// additional structural JSON sweep runs on tool_result text.
+	OutboundRedaction string `toml:"outbound_redaction"`
+	// OutboundDropToolInputs forces tool_input dropping independently of
+	// the OutboundRedaction mode. Useful for operators that want
+	// default-mode redaction plus the strictest tool_input handling.
+	OutboundDropToolInputs bool `toml:"outbound_drop_tool_inputs"`
 }
 
 // CacheConfig controls response caching behaviour.

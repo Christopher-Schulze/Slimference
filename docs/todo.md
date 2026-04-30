@@ -713,3 +713,88 @@ API calls in default CI, mutating the operator's live Codex install.
 - Embedding-based similarity, RL-driven auto-tuning (separate research
   track if and when warranted).
 - Public marketing claims; live paid API calls in default CI.
+
+---
+
+## Audit-Driven Mitigation Program (2026-04-30)
+
+Output of the 2026-04-30 deep code audit (see chat transcript, agent
+findings + savings reality check). Each entry has a detail file under
+`docs/todo/`. Goal: turn every concrete weakness into either a complete
+mitigation or, where the mechanism is sound, an outright strength.
+
+The headline movements:
+
+- L2 hardened from "ships everything to MiniMax by default" to "redacted +
+  default-off + trust-labelled" via T109/T121.
+- L2 cache fixed from "global singleton with cross-session leakage" to
+  "session-keyed multi-slot with disk persistence" via T110.
+- L2 anchor correctness gap closed via T111 (anchors survive ApplyToMessages).
+- Adaptive window goes from dead code to wired hot-path lever via T112.
+- Codex hook moves from "block-rerun" workaround to transparent rewrite
+  via T113.
+- Tokenizer cold-start error bounded to ±5% via T114.
+- Substring-grep failure detection replaced with structured per-tool
+  parsers via T115.
+- Loop nudge stops reporting fictitious savings; honest measurement +
+  optional subtractive migration via T116.
+- Log filtering stops being limited to docker/kubectl, generic shape
+  detector via T117.
+- Synthetic-only corpus replaced with real-session corpus + CI gate via
+  T118.
+- Layer 0 empty-only stubs (~70% of leaves today) drop to ≤30% via T119
+  (the largest unrealised lever in the project).
+- Filter dispatch hardened against panics + per-filter observability via
+  T120.
+
+### Phase W - Data policy + L2 trust foundation (P0)
+
+- [x] T109 - 2026-04-30: outbound redaction shipped. `Redactor` in `internal/summarization/redact.go` runs structural-first (HTTP auth headers + JSON credential keys), then pattern-based (security detector reuse), then path normalisation (`<HOME>` / `<TMP>`); strict mode adds full tool_input drop + recursive JSON sweep. Wired into `Layer2.RunCompressionJobContext` + `Layer2.ApplyMidExchange`. Default `[compression.summary] outbound_redaction = "default"`. Telemetry surfaces via `/admin/status.layer2.redaction` and `Layer2.RedactionCounters()`. `slimference doctor` adds an "L2 outbound redaction" check that FAILs on `off`. 100% coverage, race-clean. Detail: `docs/todo/t109-l2-outbound-redaction.md`
+- [ ] T121 - Layer 2 default-off + opt-in flow + provider trust labelling. Detail: `docs/todo/t121-l2-default-off-and-trust-labels.md`
+
+### Phase X - L2 correctness fixes (P0)
+
+- [ ] T110 - Layer 2 cache: session-keyed multi-slot replacement. Detail: `docs/todo/t110-l2-cache-session-keyed.md`
+- [ ] T111 - Layer 2 anchor verbatim re-injection in ApplyToMessages. Detail: `docs/todo/t111-l2-anchor-reinjection.md`
+
+### Phase Y - Realised levers + measurement (P0/P1)
+
+- [ ] T118 - Live coding session corpus + savings reality gate. Detail: `docs/todo/t118-live-corpus-and-savings-gate.md`
+- [ ] T119 - Layer 0 stub-to-compactor uplift (~145 leaves -> real compactors); split into T119a..T119h. Detail: `docs/todo/t119-l0-stub-to-compactor-uplift.md`
+- [ ] T112 - Adaptive sliding window hot-path activation + measurement. Detail: `docs/todo/t112-adaptive-window-activation.md`
+
+### Phase Z - Robustness, parsers, observability (P1/P2)
+
+- [ ] T113 - Codex hook transparent rewrite path (drop block-rerun fallback). Detail: `docs/todo/t113-codex-transparent-rewrite.md`
+- [ ] T115 - Build / test failure detection: structured parsers replace substring heuristic. Detail: `docs/todo/t115-build-test-failure-structured-parsers.md`
+- [ ] T117 - Generic log filtering with source auto-detection. Detail: `docs/todo/t117-generic-log-filtering.md`
+- [ ] T120 - Filter dispatch panic recovery + per-filter observability. Detail: `docs/todo/t120-filter-panic-recovery-observability.md`
+- [ ] T114 - Anthropic tokenizer cold-start corpus calibration. Detail: `docs/todo/t114-tokenizer-cold-start-corpus.md`
+- [ ] T116 - Loop nudge: measurement-driven migration to subtractive form. Detail: `docs/todo/t116-loop-nudge-subtractive-migration.md`
+
+### Sequencing notes (Audit Mitigation)
+
+- T109 -> T121 -> T110 -> T111 is the correct L2 order: redaction first
+  (so default-on flip is safe), default-off + opt-in second (so the
+  flip is operator-explicit), cache fix third (so multi-session
+  correctness holds), anchor fix fourth (so summaries are honest).
+- T118 unlocks every other regression claim: without it, every "saves
+  X%" number is a guess.
+- T119 is the largest single-task lever in this program. Sub-tasks
+  T119a-h are designed to ship independently so the empty-only-stub
+  ratio drops monotonically.
+- T120 unblocks T119 measurement: per-filter observability is the
+  only way to verify the new parsers actually fire and save bytes
+  proportional to expectation.
+- T112 only ships behind a flag until T118 corpus exists to measure
+  it; flag-on becomes the default after a soak window.
+- T115 + T117 are independent of the L2 program and can run in parallel
+  with W/X.
+- T116 is intentionally last - it requires real-traffic data the
+  measurement infrastructure (T118) provides.
+
+### Out of scope (Audit Mitigation Program)
+
+- Removing MiniMax as a provider entirely (operator may have a relationship; T121 makes it explicit-opt-in instead).
+- Cross-machine corpus distribution beyond the maintainer's own scrubbed sessions (T118 stays repo-local).
+- Auto-detect-and-rewrite of the operator's existing config to flip defaults (T121 preserves explicit prior opt-in; only fresh installs see the new default).

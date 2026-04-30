@@ -1323,6 +1323,25 @@ func handleDoctorCmd() {
 			summarization.PromptVersion()), true
 	})
 
+	// T109: outbound redaction status for Layer 2. Off-mode is a
+	// data-policy red flag worth surfacing prominently.
+	check("L2 outbound redaction", func() (string, bool) {
+		mode := cfg.Compression.Summary.OutboundRedaction
+		if mode == "" {
+			mode = summarization.RedactionModeDefault
+		}
+		switch mode {
+		case summarization.RedactionModeOff:
+			return "OFF - L2 ships raw conversation prefixes to MiniMax (set [compression.summary] outbound_redaction = \"default\" to enable)", false
+		case summarization.RedactionModeStrict:
+			return "strict (secrets + paths + headers + JSON sweep + tool_input drop)", true
+		case summarization.RedactionModeDefault:
+			return "default (secrets + paths + auth headers + JSON keys)", true
+		default:
+			return fmt.Sprintf("unknown mode %q - falling back to default semantics", mode), false
+		}
+	})
+
 	check("Content archive", func() (string, bool) {
 		home, err := osUserHomeDir()
 		if err != nil {

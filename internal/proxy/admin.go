@@ -80,6 +80,9 @@ type AdminLayer2Status struct {
 	Compressing bool      `json:"compressing"`
 	LastRun     time.Time `json:"last_run"`
 	QueueDepth  int       `json:"queue_depth"`
+	// Redaction (T109) reports cumulative outbound-redaction counters
+	// so operators can see what was stripped from Layer 2 traffic.
+	Redaction summarization.RedactionCounters `json:"redaction"`
 }
 
 type AdminReadCacheStatus struct {
@@ -266,6 +269,8 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			layer2.HasCache = true
 			layer2.LastRun = cs.CreatedAt
 		}
+		// T109: snapshot the per-stage outbound-redaction counters.
+		layer2.Redaction = p.layer2.RedactionCounters()
 	}
 	readStatus := AdminReadCacheStatus{}
 	checkpointStatus := AdminCheckpointStatus{}
