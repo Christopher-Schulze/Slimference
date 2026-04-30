@@ -41,7 +41,7 @@ Layer 2 gains a "mid-exchange" mode that summarises content within the in-flight
 - [x] Marker reflects the in-progress nature so the model interprets correctly (`[in-progress summary, anchor=msg #N]`).
 - [x] Coverage 100%; race tests green.
 - [ ] **Tracked as T99b**: Live MiniMax-driven summary content (currently the stub emits "completed steps summarized" plus an anchor; a real summary needs a MiniMax round-trip wired through `summarization.Layer2` rather than the local `ApplyMidExchange` shortcut).
-- [ ] **Tracked as T99c**: Replacement on exchange completion does not double-charge. Stub today simply runs again on the next request and re-collapses; needs an idempotency check that recognises an already-collapsed range.
+- [x] T99c (2026-04-30): re-collapse idempotency shipped via `IsMidExchangeMarker` short-circuit in `DetectMidExchangePoint`.
 
 ## Out of Scope
 

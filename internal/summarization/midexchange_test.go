@@ -305,6 +305,50 @@ func TestDetectMidExchangePoint_BelowThresholdAfterCycle(t *testing.T) {
 	}
 }
 
+// TestApplyMidExchange_Idempotent verifies T99c: applying twice does
+// not re-collapse the already-summarized range.
+func TestApplyMidExchange_Idempotent(t *testing.T) {
+	t.Parallel()
+	longOutput := strings.Repeat("x ", 5000)
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "start"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Bash"}}},
+		{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "tool_result", Text: longOutput}}},
+		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "analysis"}}},
+		{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: strings.Repeat("x ", 5000)}}},
+		{Index: 5, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Read"}}},
+		{Index: 6, Role: "user", Content: []types.ContentBlock{{Type: "tool_result", Text: "file content"}}},
+	}
+	first, _, applied := ApplyMidExchange(msgs, 100)
+	if !applied {
+		t.Fatal("first apply must succeed")
+	}
+	second, saved2, applied2 := ApplyMidExchange(first, 100)
+	if applied2 {
+		t.Fatalf("second apply must NOT collapse again: saved=%d", saved2)
+	}
+	if len(second) != len(first) {
+		t.Fatalf("second apply changed length: %d vs %d", len(second), len(first))
+	}
+}
+
+// TestIsMidExchangeMarker covers the marker recognition helper.
+func TestIsMidExchangeMarker(t *testing.T) {
+	t.Parallel()
+	marker := types.Message{Content: []types.ContentBlock{{Type: "text", Text: FormatMidExchangeSummary("x", 7)}}}
+	if !IsMidExchangeMarker(marker) {
+		t.Fatal("synthetic marker must be detected")
+	}
+	plain := types.Message{Content: []types.ContentBlock{{Type: "text", Text: "regular content"}}}
+	if IsMidExchangeMarker(plain) {
+		t.Fatal("plain content must not match")
+	}
+	nonText := types.Message{Content: []types.ContentBlock{{Type: "tool_use", Text: FormatMidExchangeSummary("x", 7)}}}
+	if IsMidExchangeMarker(nonText) {
+		t.Fatal("non-text block must not match even with marker text")
+	}
+}
+
 // TestApplyMidExchange_SavedClamp covers the saved < 0 clamp branch.
 // Uses short messages so the synthetic summary (15 tokens) is longer than
 // the replaced range, forcing the clamp to zero.

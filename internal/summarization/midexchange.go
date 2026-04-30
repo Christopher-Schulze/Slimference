@@ -2,9 +2,28 @@ package summarization
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/slimference/slimference/internal/types"
 )
+
+// midExchangeMarker is the leading tag that ApplyMidExchange stamps on
+// every synthetic block it produces. DetectMidExchangePoint uses it to
+// recognise an already-collapsed range and skip re-collapsing it (T99c
+// idempotency). Keep in sync with FormatMidExchangeSummary.
+const midExchangeMarker = "[in-progress summary, anchor=msg #"
+
+// IsMidExchangeMarker reports whether a message is a synthetic
+// mid-exchange summary produced by ApplyMidExchange. Used to keep
+// DetectMidExchangePoint idempotent across consecutive requests.
+func IsMidExchangeMarker(msg types.Message) bool {
+	for _, b := range msg.Content {
+		if b.Type == "text" && strings.HasPrefix(b.Text, midExchangeMarker) {
+			return true
+		}
+	}
+	return false
+}
 
 // MidExchangePoint describes a summarizable range within the current
 // in-flight exchange. T99.
@@ -31,6 +50,14 @@ func DetectMidExchangePoint(messages []types.Message, threshold int) (MidExchang
 	exchangeStart := lastExchangeStart(messages)
 	if exchangeStart < 0 {
 		return MidExchangePoint{}, false
+	}
+
+	// T99c idempotency: if the exchange already contains a synthetic
+	// mid-exchange marker, do not collapse again.
+	for i := exchangeStart; i < len(messages); i++ {
+		if IsMidExchangeMarker(messages[i]) {
+			return MidExchangePoint{}, false
+		}
 	}
 
 	lastCycleEnd := -1
@@ -160,5 +187,5 @@ func ApplyMidExchange(messages []types.Message, threshold int) ([]types.Message,
 // mid-exchange replacement. The anchor tag tells the model the
 // content is an in-progress summary, not a final one.
 func FormatMidExchangeSummary(summaryText string, anchorMsgIdx int) string {
-	return "[in-progress summary, anchor=msg #" + strconv.Itoa(anchorMsgIdx) + "]\n" + summaryText
+	return midExchangeMarker + strconv.Itoa(anchorMsgIdx) + "]\n" + summaryText
 }
