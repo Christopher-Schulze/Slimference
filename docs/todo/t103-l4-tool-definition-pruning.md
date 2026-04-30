@@ -53,7 +53,7 @@ Layer 4 (Tool-Definition Pruning) runs after L1 and before final body assembly:
 - [x] No regression on tools that are always used (fail-open for unseen tools).
 - [x] Counters surface in `/admin/status.tool_prune`.
 - [x] Coverage 100%; race tests green.
-- [ ] **Tracked as T103b** (separate task): Reattach path reattaches transparently on first use after pruning. Conceptually the model cannot invoke a pruned tool because it doesn't see it in `tools[]`; reattach therefore needs either heuristic re-injection (next request mentions the tool by name in user prompt) or upstream 4xx-on-unknown-tool detection. Design ambiguity is the reason this is split out, not test debt.
+- [x] T103b (2026-04-30): heuristic-mention reattach path shipped (`UsageTracker.RememberPrunedDef` + `MentionedTools` + `ReattachToolDefinitions`). Upstream 4xx-on-unknown-tool detection remains a design alternative; reopen as T103d only if heuristic reattach proves too eager in real traffic.
 - [ ] **Tracked as T103c** (separate task): T77 quality signals show no spike in re-read rate after L4 enables. Requires a soak window with the flag on against real traffic; not measurable in unit tests.
 
 ## Out of Scope

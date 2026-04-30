@@ -253,6 +253,24 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 7.5 Tool-definition pruning (T103, Layer 4, default off) ---
 	if p.config.Compression.Tuning.ToolPruneEnabled && p.toolPrune != nil && reqID != "" {
+		// T103b: reattach previously-pruned tool definitions when the
+		// current message text mentions a pruned tool by name. Runs
+		// before the prune decision so a freshly reattached tool also
+		// shows up in the active list and survives the next idle
+		// check.
+		if mentions := messageMentionsAnyPrunedTool(messages, p.toolPrune, reqID); len(mentions) > 0 {
+			defs := p.toolPrune.LookupPrunedDefs(reqID, mentions)
+			if reattached, n, err := toolprune.ReattachToolDefinitions(newBody, provider, defs); err == nil && n > 0 {
+				newBody = reattached
+				for range n {
+					p.toolPrune.MarkReattached()
+				}
+				log.Debug("tool-prune reattached",
+					"count", n,
+					"tools", mentions,
+				)
+			}
+		}
 		if toolNames := toolprune.ExtractToolNames(newBody, provider); len(toolNames) > 0 {
 			p.toolPrune.ObserveTurn(reqID, extractUsedToolNames(messages))
 			decision := p.toolPrune.Decide(reqID, toolNames, 1)
@@ -266,6 +284,13 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					if savedEst > 0 {
 						newBody = prunedBody
 						p.toolPrune.MarkPruned(savedEst)
+						// T103b: cache pruned defs so a future turn
+						// that mentions the tool name can reattach
+						// them. The map iteration order is fine
+						// because each (name, def) pair is independent.
+						for name, def := range removed {
+							p.toolPrune.RememberPrunedDef(reqID, name, def)
+						}
 						log.Debug("tool-prune applied",
 							"pruned", len(removed),
 							"saved_est", savedEst,
@@ -1293,6 +1318,29 @@ func (p *Proxy) FlushCaches() {
 		}
 	}
 	slog.Info("all caches flushed")
+}
+
+// messageMentionsAnyPrunedTool flushes the per-session pruned-tools
+// cache for any tool the current request's message text mentions. Used
+// by T103b to decide which previously-pruned tool definitions to
+// reattach. Returns the list of mentioned tool names (deduplicated).
+func messageMentionsAnyPrunedTool(messages []types.Message, tracker *toolprune.UsageTracker, sessionID string) []string {
+	if tracker == nil || sessionID == "" {
+		return nil
+	}
+	candidates := tracker.PrunedToolNames(sessionID)
+	if len(candidates) == 0 {
+		return nil
+	}
+	var text string
+	for _, msg := range messages {
+		for _, b := range msg.Content {
+			if b.Text != "" {
+				text += b.Text + "\n"
+			}
+		}
+	}
+	return toolprune.MentionedTools(text, candidates)
 }
 
 // extractUsedToolNames returns the distinct tool names from tool_use

@@ -7,6 +7,7 @@
 package toolprune
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 )
@@ -28,6 +29,10 @@ type sessionUsage struct {
 	turn         int
 	lastSeen     map[string]int
 	lastActivity time.Time
+	// prunedDefs caches the JSON bodies of tool definitions that were
+	// pruned from this session so a follow-up turn that mentions the
+	// tool name can reattach the original definition. T103b.
+	prunedDefs map[string]json.RawMessage
 }
 
 // NewUsageTracker returns a tracker with the supplied idle threshold
@@ -109,6 +114,83 @@ func (u *UsageTracker) MarkReattached() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.reattachTotal++
+}
+
+// RememberPrunedDef caches the original JSON definition of a tool that
+// was just pruned from the session's request body so a future turn can
+// reattach it. Empty session id, name, or def is a no-op. T103b.
+func (u *UsageTracker) RememberPrunedDef(sessionID, toolName string, def json.RawMessage) {
+	if sessionID == "" || toolName == "" || len(def) == 0 {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	st, ok := u.sessions[sessionID]
+	if !ok {
+		if len(u.sessions) >= u.maxSessions {
+			u.evictOldestLocked()
+		}
+		st = &sessionUsage{
+			lastSeen:   make(map[string]int),
+			prunedDefs: make(map[string]json.RawMessage),
+		}
+		u.sessions[sessionID] = st
+	}
+	if st.prunedDefs == nil {
+		st.prunedDefs = make(map[string]json.RawMessage)
+	}
+	clone := make(json.RawMessage, len(def))
+	copy(clone, def)
+	st.prunedDefs[toolName] = clone
+	st.lastActivity = time.Now()
+}
+
+// PrunedToolNames returns the list of tool names with cached pruned
+// definitions for the given session. Used by callers to feed the
+// reattach detector. T103b.
+func (u *UsageTracker) PrunedToolNames(sessionID string) []string {
+	if sessionID == "" {
+		return nil
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	st, ok := u.sessions[sessionID]
+	if !ok || len(st.prunedDefs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(st.prunedDefs))
+	for n := range st.prunedDefs {
+		out = append(out, n)
+	}
+	return out
+}
+
+// LookupPrunedDefs returns the previously-pruned definitions for the
+// supplied tool names. Tools without a cached definition are simply
+// omitted from the returned map. The returned definitions are removed
+// from the cache so a subsequent request does not re-attach them
+// twice. T103b.
+func (u *UsageTracker) LookupPrunedDefs(sessionID string, names []string) map[string]json.RawMessage {
+	if sessionID == "" || len(names) == 0 {
+		return nil
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	st, ok := u.sessions[sessionID]
+	if !ok || len(st.prunedDefs) == 0 {
+		return nil
+	}
+	out := make(map[string]json.RawMessage, len(names))
+	for _, n := range names {
+		if def, has := st.prunedDefs[n]; has {
+			out[n] = def
+			delete(st.prunedDefs, n)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Forget drops state for one session. Called when a session ends or

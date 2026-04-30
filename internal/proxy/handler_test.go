@@ -877,6 +877,55 @@ func TestHandleCompressibleRequest_ToolPrunePrunesIdle(t *testing.T) {
 	}
 }
 
+// TestHandleCompressibleRequest_T103b_ReattachOnMention covers the
+// T103b reattach path: a tool that was previously cached as pruned
+// is reattached when the next request mentions its name. T103b.
+func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	// Override request id generation so the test can pre-seed the
+	// tracker under a known session key.
+	const fixedID = "test-reattach-session"
+	prev := newRequestIDFn
+	newRequestIDFn = func() string { return fixedID }
+	t.Cleanup(func() { newRequestIDFn = prev })
+
+	p.toolPrune.RememberPrunedDef(
+		fixedID,
+		"Bash",
+		[]byte(`{"name":"Bash","description":"run shell"}`),
+	)
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"Read","description":"read"}],"messages":[{"role":"user","content":"please use Bash to list files"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if got := p.toolPrune.Snapshot().ReattachTotal; got != 1 {
+		t.Fatalf("reattach counter: %d want 1", got)
+	}
+}
+
 // TestHandleCompressibleRequest_MidExchangeEnabled covers the T99 mid-exchange
 // summary wire-in path in the handler.
 func TestHandleCompressibleRequest_MidExchangeEnabled(t *testing.T) {
