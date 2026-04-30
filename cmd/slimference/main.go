@@ -46,6 +46,7 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/buildinfo"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
@@ -55,6 +56,7 @@ import (
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/repetition"
 	"github.com/slimference/slimference/internal/slogutil"
+	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
@@ -1281,6 +1283,39 @@ func handleDoctorCmd() {
 		}
 		check(label, func() (string, bool) { return msg, ok })
 	}
+
+	for _, prov := range []types.Provider{types.Anthropic, types.OpenAI, types.CodexChatGPT} {
+		prov := prov
+		check("Provider caps: "+prov.String(), func() (string, bool) {
+			caps := types.CapabilitiesFor(prov)
+			return fmt.Sprintf("seed=%v min_tokens=%v response_id=%v cached_prefix=%v",
+				caps.SupportsSeed, caps.SupportsMinCompletionTokens,
+				caps.SupportsResponseID, caps.SupportsCachedPrefix), true
+		})
+	}
+
+	check("Prompt override", func() (string, bool) {
+		if cfg.Compression.PromptOverridePath == "" {
+			return "default (no override path configured)", true
+		}
+		return fmt.Sprintf("%s (active version: %s)",
+			cfg.Compression.PromptOverridePath,
+			summarization.PromptVersion()), true
+	})
+
+	check("Content archive", func() (string, bool) {
+		home, err := osUserHomeDir()
+		if err != nil {
+			return "home dir unavailable", false
+		}
+		dir := contentarchive.DefaultDir(home)
+		stats, err := contentarchive.LoadStats(dir)
+		if err != nil {
+			return fmt.Sprintf("unreadable: %v", err), false
+		}
+		return fmt.Sprintf("%s - archived %d, expanded %d, re-injects %d",
+			dir, stats.Archived, stats.Expanded, stats.ReInjectCount), true
+	})
 
 	// T69: integration fallback checks. These surface the common
 	// "something is wired but the daemon is unreachable" states operators

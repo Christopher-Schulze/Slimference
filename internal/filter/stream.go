@@ -67,7 +67,6 @@ func RunStreamingPipeline(ctx context.Context, argv []string, out io.Writer, opt
 	go pump.run(ctx, stdout)
 
 	waitErr := cmd.Wait()
-	pump.close()
 	pump.wait()
 
 	return interpretExitError(waitErr)

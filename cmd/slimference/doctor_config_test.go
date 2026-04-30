@@ -231,6 +231,113 @@ func TestHandleSubcommand_doctor_analyticsLogDirError(t *testing.T) {
 	}
 }
 
+// TestHandleSubcommand_doctor_homeDirError covers the "home dir unavailable"
+// branch in the Content archive doctor check.
+func TestHandleSubcommand_doctor_homeDirError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	prev := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return "", errors.New("no home") }
+	t.Cleanup(func() { osUserHomeDir = prev })
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "home dir unavailable") {
+		t.Fatalf("expected home dir unavailable, got: %q", out)
+	}
+}
+
+// TestHandleSubcommand_doctor_archiveUnreadable covers the LoadStats error
+// branch in the Content archive doctor check by writing malformed stats.json.
+func TestHandleSubcommand_doctor_archiveUnreadable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	fakeHome := t.TempDir()
+	archiveDir := filepath.Join(fakeHome, ".slimference", "content-archive")
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(archiveDir, "stats.json"), []byte("not-json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(fakeHome, "missing.toml"))
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "unreadable:") {
+		t.Fatalf("expected unreadable in output: %q", out)
+	}
+}
+
+// TestHandleSubcommand_doctor_promptOverrideConfigured covers the configured
+// branch of the Prompt override doctor check.
+func TestHandleSubcommand_doctor_promptOverrideConfigured(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	fakeHome := t.TempDir()
+	overridePath := filepath.Join(fakeHome, "override.txt")
+	if err := os.WriteFile(overridePath, []byte("# version: vX-doctor\n\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgFile := filepath.Join(fakeHome, "test.toml")
+	cfgContent := "[compression]\nprompt_override_path = \"" + overridePath + "\"\n"
+	if err := os.WriteFile(cfgFile, []byte(cfgContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SLIMFERENCE_CONFIG", cfgFile)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "active version:") || !strings.Contains(out, "override.txt") {
+		t.Fatalf("expected configured override path in output: %q", out)
+	}
+}
+
 func TestHandleSubcommand_configShow(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing-config.toml"))
 	old := os.Stdout
