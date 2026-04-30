@@ -108,6 +108,11 @@ type Proxy struct {
 	// bypassAutoRevertCount counts how many lazy auto-reverts have fired
 	// for /admin/status.bypass observability. T81.
 	bypassAutoRevertCount atomic.Int64
+	// bypassNextRequestCount tracks how many remaining requests should
+	// bypass before auto-reverting. T81: `slimference bypass on
+	// --next-request[=N]` sets this; each matched request decrements
+	// it. When it reaches zero, bypass turns off.
+	bypassNextRequestCount atomic.Int64
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
@@ -539,6 +544,43 @@ func (p *Proxy) SetBypassFor(d time.Duration) {
 	}
 	p.bypassExpiryNano.Store(time.Now().Add(d).UnixNano())
 }
+
+// SetBypassForNextRequests enables bypass and auto-reverts after the
+// next n matched requests. n <= 0 is treated as 1. T81.
+func (p *Proxy) SetBypassForNextRequests(n int) {
+	if n <= 0 {
+		n = 1
+	}
+	p.bypassMode.Store(true)
+	p.bypassExpiryNano.Store(0)
+	p.bypassNextRequestCount.Store(int64(n))
+}
+
+// ConsumeBypassRequest decrements the per-request bypass counter when
+// it is active and clears bypass once the budget reaches zero. Called
+// by the proxy at the end of each request that flowed through the
+// bypass path. Returns true when this call was the one that flipped
+// bypass off.
+func (p *Proxy) ConsumeBypassRequest() bool {
+	if !p.bypassMode.Load() {
+		return false
+	}
+	remaining := p.bypassNextRequestCount.Load()
+	if remaining <= 0 {
+		return false
+	}
+	if p.bypassNextRequestCount.Add(-1) <= 0 {
+		p.bypassMode.Store(false)
+		p.bypassExpiryNano.Store(0)
+		p.bypassAutoRevertCount.Add(1)
+		return true
+	}
+	return false
+}
+
+// BypassNextRequestCount exposes the remaining per-request bypass
+// budget for telemetry / TUI surfaces.
+func (p *Proxy) BypassNextRequestCount() int64 { return p.bypassNextRequestCount.Load() }
 
 // BypassExpiresAt returns the duration-bounded bypass deadline (zero
 // time when none is set or bypass is off). T81.

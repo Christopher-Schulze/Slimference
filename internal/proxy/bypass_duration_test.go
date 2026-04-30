@@ -70,6 +70,63 @@ func TestBypassExpiresAt_OffWhenBypassOff(t *testing.T) {
 	}
 }
 
+func TestSetBypassForNextRequests_ConsumeFlipsOff(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	p.SetBypassForNextRequests(2)
+	if !p.Bypass() {
+		t.Fatal("bypass must be on after SetBypassForNextRequests")
+	}
+	if p.BypassNextRequestCount() != 2 {
+		t.Fatalf("counter: %d", p.BypassNextRequestCount())
+	}
+	if flipped := p.ConsumeBypassRequest(); flipped {
+		t.Fatal("first consume should not flip yet")
+	}
+	if !p.Bypass() {
+		t.Fatal("bypass should still be on after one consume")
+	}
+	if flipped := p.ConsumeBypassRequest(); !flipped {
+		t.Fatal("second consume must flip bypass off")
+	}
+	if p.Bypass() {
+		t.Fatal("bypass must be off after final consume")
+	}
+}
+
+func TestSetBypassForNextRequests_ZeroTreatedAsOne(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	p.SetBypassForNextRequests(0)
+	if p.BypassNextRequestCount() != 1 {
+		t.Fatalf("expected 1, got %d", p.BypassNextRequestCount())
+	}
+	p.SetBypassForNextRequests(-3)
+	if p.BypassNextRequestCount() != 1 {
+		t.Fatalf("expected 1, got %d", p.BypassNextRequestCount())
+	}
+}
+
+func TestConsumeBypassRequest_NoOpWhenOff(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	if p.ConsumeBypassRequest() {
+		t.Fatal("consume on inactive bypass must not flip")
+	}
+}
+
+func TestConsumeBypassRequest_NoOpWhenNoCounter(t *testing.T) {
+	t.Parallel()
+	p := New(config.Defaults())
+	p.SetBypassFor(time.Hour)
+	if p.ConsumeBypassRequest() {
+		t.Fatal("consume on duration-only bypass must not flip")
+	}
+	if !p.Bypass() {
+		t.Fatal("bypass should still be on")
+	}
+}
+
 func TestBypass_NeverOnReturnsFalse(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
