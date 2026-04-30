@@ -452,6 +452,13 @@ type mmRequest struct {
 	Model            string      `json:"model"`
 	Messages         []mmMessage `json:"messages"`
 	MaxTokens        int         `json:"max_tokens"`
+	// MinTokens caps the lower bound on completion length. Only sent
+	// when the active provider's capability map advertises support
+	// (T91 + T88) so non-supporting providers never see the field.
+	MinTokens        int         `json:"min_tokens,omitempty"`
+	// Seed pins the RNG for greedy reproducibility on providers that
+	// support it (T88). Omitted when the capability flag is off.
+	Seed             int         `json:"seed,omitempty"`
 	Temperature      float64     `json:"temperature"`
 	TopP             float64     `json:"top_p"`
 	FrequencyPenalty float64     `json:"frequency_penalty"`
@@ -474,6 +481,24 @@ type mmChoice struct {
 	Message mmMessage `json:"message"`
 }
 
+// computeStableSeed derives a deterministic seed from the request
+// inputs so retries within the same call replay byte-for-byte. T88.
+func computeStableSeed(model string, startMsg, endMsg int, input string) int {
+	h := uint64(1469598103934665603) // FNV-64 offset
+	mix := func(s string) {
+		for i := 0; i < len(s); i++ {
+			h ^= uint64(s[i])
+			h *= 1099511628211
+		}
+	}
+	mix(model)
+	mix(fmt.Sprintf("%d-%d", startMsg, endMsg))
+	mix(input)
+	// Cap to int32 range so providers that store seed as int32 stay
+	// happy.
+	return int(h & 0x7fffffff)
+}
+
 // MiniMaxClient calls the MiniMax M2.7 API for abstractive summarization.
 type MiniMaxClient struct {
 	baseURL     string
@@ -483,7 +508,28 @@ type MiniMaxClient struct {
 	maxRetries  int
 	httpClient  *http.Client
 	limiter     *rate.Limiter
+	// caps gates optional request fields (seed, min_tokens, ...) per
+	// provider so a non-supporting upstream never sees an unknown
+	// parameter. T88 + T91. Defaults are conservative: zero-value
+	// struct = no optional fields sent.
+	caps capProvider
 }
+
+// capProvider is the narrow capability surface MiniMaxClient consumes.
+// Decoupled from internal/types to avoid an import cycle and to let
+// tests inject custom capability profiles.
+type capProvider struct {
+	SupportsSeed                bool
+	SupportsMinCompletionTokens bool
+}
+
+// SetCapabilities overrides the capability profile for this client.
+// Intended for test injection and for runtime upgrades when a provider
+// rolls out a new field. T88 + T91.
+func (c *MiniMaxClient) SetCapabilities(caps capProvider) { c.caps = caps }
+
+// Capabilities returns the active capability profile.
+func (c *MiniMaxClient) Capabilities() capProvider { return c.caps }
 
 // NewMiniMaxClient builds a MiniMaxClient from the supplied configuration.
 func NewMiniMaxClient(cfg config.MiniMaxConfig) *MiniMaxClient {
@@ -557,6 +603,22 @@ func (c *MiniMaxClient) Summarize(ctx context.Context, inputText string, startMs
 		TopP:             1.0,
 		FrequencyPenalty: 0,
 		Stream:           false,
+	}
+	// T91: send min_tokens only when the active capability map says the
+	// provider supports it. 70% of target floor avoids premature stops
+	// without forcing the model to ramble.
+	if c.caps.SupportsMinCompletionTokens {
+		min := targetTokens * 7 / 10
+		if min < 32 {
+			min = 32
+		}
+		payload.MinTokens = min
+	}
+	// T88: seed-aware request building for greedy reproducibility on
+	// providers that honour the field. Stable hash over the request
+	// content so retries within the same call replay deterministically.
+	if c.caps.SupportsSeed {
+		payload.Seed = computeStableSeed(c.model, startMsg, endMsg, inputText)
 	}
 
 	backoff := func(attempt int) time.Duration {

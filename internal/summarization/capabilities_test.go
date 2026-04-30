@@ -1,0 +1,165 @@
+package summarization
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/slimference/slimference/internal/config"
+)
+
+// newMockMiniMaxServer is a tiny fixture for capability tests: it
+// captures the request body via the given handler and returns the
+// supplied response payload. Caller is responsible for srv.Close().
+func newMockMiniMaxServer(t *testing.T, handler func(body []byte) []byte) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		resp := handler(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(resp)
+	}))
+}
+
+// defaultMiniMaxConfig builds a baseline MiniMaxConfig pointed at the
+// mock server URL.
+func defaultMiniMaxConfig(baseURL string) config.MiniMaxConfig {
+	return config.MiniMaxConfig{
+		BaseURL:                baseURL,
+		APIKeyEnv:              "MINIMAX_API_KEY",
+		Model:                  "test-model",
+		Temperature:            0,
+		MaxRetries:             0,
+		ConnectTimeoutSeconds:  2,
+		ResponseTimeoutSeconds: 4,
+		RateLimitRPM:           120,
+	}
+}
+
+func TestComputeStableSeed_Deterministic(t *testing.T) {
+	a := computeStableSeed("m1", 0, 5, "hello world")
+	b := computeStableSeed("m1", 0, 5, "hello world")
+	if a != b {
+		t.Fatalf("seed must be deterministic: %d vs %d", a, b)
+	}
+}
+
+func TestComputeStableSeed_DifferentInputs(t *testing.T) {
+	a := computeStableSeed("m1", 0, 5, "hello")
+	b := computeStableSeed("m1", 0, 5, "world")
+	if a == b {
+		t.Fatalf("different inputs must yield different seeds: %d", a)
+	}
+}
+
+func TestComputeStableSeed_PositiveBounded(t *testing.T) {
+	for _, in := range []string{"", "a", strings.Repeat("x", 4096), "z\x00\xffÿ中文"} {
+		seed := computeStableSeed("m", 1, 2, in)
+		if seed < 0 {
+			t.Fatalf("seed must be non-negative, got %d for %q", seed, in)
+		}
+	}
+}
+
+func TestSummarize_PayloadIncludesMinAndSeedWhenSupported(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	captured := make(chan []byte, 1)
+	srv := newMockMiniMaxServer(t, func(body []byte) []byte {
+		select {
+		case captured <- body:
+		default:
+		}
+		return []byte(`{"choices":[{"message":{"role":"assistant","content":"- fact one [msg:0]\n- fact two [msg:1]\n- fact three [msg:2]\n- fact four [msg:3]\n- fact five [msg:4]"}}]}`)
+	})
+	defer srv.Close()
+
+	cfg := defaultMiniMaxConfig(srv.URL)
+	cfg.MaxRetries = 0
+	client := NewMiniMaxClient(cfg)
+	client.SetCapabilities(capProvider{SupportsSeed: true, SupportsMinCompletionTokens: true})
+
+	out, err := client.Summarize(t.Context(), "input transcript text", 0, 5, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty summary")
+	}
+	body := <-captured
+	if !bytes_contains(body, "min_tokens") {
+		t.Fatalf("min_tokens missing: %s", string(body))
+	}
+	if !bytes_contains(body, "seed") {
+		t.Fatalf("seed missing: %s", string(body))
+	}
+}
+
+func TestSummarize_PayloadOmitsOptionalsByDefault(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	captured := make(chan []byte, 1)
+	srv := newMockMiniMaxServer(t, func(body []byte) []byte {
+		select {
+		case captured <- body:
+		default:
+		}
+		return []byte(`{"choices":[{"message":{"role":"assistant","content":"- fact one [msg:0]\n- fact two [msg:1]\n- fact three [msg:2]\n- fact four [msg:3]\n- fact five [msg:4]"}}]}`)
+	})
+	defer srv.Close()
+
+	cfg := defaultMiniMaxConfig(srv.URL)
+	cfg.MaxRetries = 0
+	client := NewMiniMaxClient(cfg)
+	// caps left at zero value -> no optional fields
+
+	if _, err := client.Summarize(t.Context(), "input transcript text", 0, 5, 200); err != nil {
+		t.Fatal(err)
+	}
+	body := <-captured
+	if bytes_contains(body, "min_tokens") || bytes_contains(body, `"seed":`) {
+		t.Fatalf("optional fields leaked into default payload: %s", string(body))
+	}
+}
+
+func TestSummarize_MinTokensFloorClamped(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	captured := make(chan []byte, 1)
+	srv := newMockMiniMaxServer(t, func(body []byte) []byte {
+		select {
+		case captured <- body:
+		default:
+		}
+		return []byte(`{"choices":[{"message":{"role":"assistant","content":"- a [msg:0]\n- b [msg:1]\n- c [msg:2]\n- d [msg:3]\n- e [msg:4]"}}]}`)
+	})
+	defer srv.Close()
+
+	cfg := defaultMiniMaxConfig(srv.URL)
+	cfg.MaxRetries = 0
+	client := NewMiniMaxClient(cfg)
+	client.SetCapabilities(capProvider{SupportsMinCompletionTokens: true})
+	// Tiny target -> floor clamp at 32.
+	if _, err := client.Summarize(t.Context(), "input", 0, 1, 10); err != nil {
+		t.Fatal(err)
+	}
+	body := <-captured
+	if !bytes_contains(body, `"min_tokens":32`) {
+		t.Fatalf("expected min_tokens=32 floor, got: %s", string(body))
+	}
+}
+
+func bytes_contains(haystack []byte, needle string) bool {
+	return strings.Contains(string(haystack), needle)
+}
+
+func TestSetCapabilities_RoundTrip(t *testing.T) {
+	c := &MiniMaxClient{}
+	if got := c.Capabilities(); got.SupportsSeed || got.SupportsMinCompletionTokens {
+		t.Fatalf("default caps must be all-false: %+v", got)
+	}
+	c.SetCapabilities(capProvider{SupportsSeed: true, SupportsMinCompletionTokens: true})
+	if got := c.Capabilities(); !got.SupportsSeed || !got.SupportsMinCompletionTokens {
+		t.Fatalf("override did not stick: %+v", got)
+	}
+}
