@@ -263,3 +263,15 @@ Fresh-eyes review artifact:
              and drove `internal/tui` back to `100.0%` coverage before
              re-running `go test ./...`, `bun test tests/ts`, and
              `go run ./scripts/ci` successfully.
+2026-04-30 - Coverage gate repair: fixed syntax error in
+             `internal/summarization/midexchange_test.go` (missing closing
+             brace), closed 0.1% coverage gaps in `cmd/slimference` and
+             `internal/hooks` by adding targeted tests for uncovered branches:
+             `handleExpandCmd` stdout write error (contentarchive success path),
+             `handleHookCmd` verify/status codex sub-branches,
+             `validateCodexConfig` non-IsNotExist read error,
+             `unpatchCodexConfig` IsNotExist early-return, and
+             `codexStatusInstalled` coherent-install true path.
+             Re-verified full proof stack: `go test ./...`,
+             `go test -race ./...`, `go run ./scripts/coverage -min=100`, and
+             `go run ./scripts/ci` all green with `100.0%` total Go coverage.

@@ -1,6 +1,6 @@
 # TASK 99: Layer 2 mid-exchange summarization
 
-Status: deferred - see docs/todo.md for closure rationale
+Status: SHIPPED 2026-04-30 (deterministic stub, default off). Live MiniMax-driven summary path tracked as T99b.
 Priority: P2
 Scope: `internal/summarization/`, `internal/compression/exchange_window.go`, `internal/proxy/handler.go`
 Driver: Sliding-window granularity is per-exchange. If the current in-flight exchange already exceeds budget (e.g. a 20k-token tool result), Layer 2 cannot help because its window does not cover in-progress exchanges. Mid-exchange summarisation with a "still in progress" marker covers the gap.
@@ -37,10 +37,11 @@ Layer 2 gains a "mid-exchange" mode that summarises content within the in-flight
 
 ## Acceptance Criteria
 
-- [ ] Long in-flight exchanges produce mid-summary entries when over the threshold.
-- [ ] Marker reflects the in-progress nature so the model interprets correctly.
-- [ ] Replacement on completion does not double-charge.
-- [ ] Coverage 100%; race tests green.
+- [x] Long in-flight exchanges produce mid-summary entries when over the threshold.
+- [x] Marker reflects the in-progress nature so the model interprets correctly (`[in-progress summary, anchor=msg #N]`).
+- [x] Coverage 100%; race tests green.
+- [ ] **Tracked as T99b**: Live MiniMax-driven summary content (currently the stub emits "completed steps summarized" plus an anchor; a real summary needs a MiniMax round-trip wired through `summarization.Layer2` rather than the local `ApplyMidExchange` shortcut).
+- [ ] **Tracked as T99c**: Replacement on exchange completion does not double-charge. Stub today simply runs again on the next request and re-collapses; needs an idempotency check that recognises an already-collapsed range.
 
 ## Out of Scope
 

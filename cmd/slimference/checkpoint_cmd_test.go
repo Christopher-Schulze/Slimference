@@ -141,6 +141,42 @@ func TestHandleExpandCmd_NotFoundExitsOne(t *testing.T) {
 	}
 }
 
+func TestHandleExpandCmd_ContentArchiveWriteError(t *testing.T) {
+	origHome := osUserHomeDir
+	origStdout := os.Stdout
+	defer func() {
+		osUserHomeDir = origHome
+		os.Stdout = origStdout
+	}()
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	original := strings.Repeat("// archived comment line that is long enough\n", 8)
+	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
+		SessionID:    "sess-content",
+		MessageIndex: 1,
+		BlockIndex:   0,
+		SubLayer:     "comment_strip",
+		Original:     original,
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil {
+		t.Fatalf("contentarchive put: entry=%#v err=%v", entry, err)
+	}
+
+	// os.Stdin is opened read-only; writing to it fails immediately.
+	os.Stdout = os.Stdin
+
+	origExit := exitFn
+	defer func() { exitFn = origExit }()
+	exits := []int{}
+	exitFn = func(code int) { exits = append(exits, code) }
+
+	handleExpandCmd([]string{entry.ID})
+	if len(exits) == 0 || exits[0] == 0 {
+		t.Fatalf("expected non-zero exit on write error, got %v", exits)
+	}
+}
+
 func TestHandlePostToolCmd_T93RepetitionMarkerOnThirdHit(t *testing.T) {
 	origTerm := termIsTerminalFn
 	origRead := readStdinAll

@@ -1,6 +1,6 @@
 # TASK 100: Cross-direction L1/L2 coordinator
 
-Status: deferred - see docs/todo.md for closure rationale
+Status: DONE (2026-04-30) — coordinator decision-rule wired in handler.go, L1 honours plan via SetCoordinatorSubsume, cheap passes preserved, telemetry exposed. Default off via coordinator_enabled.
 Priority: P2
 Scope: `internal/compression/layer1.go`, `internal/summarization/layer2.go`, `internal/proxy/handler.go`
 Driver: Layer 1 does aggressive work that Layer 2 then subsumes when it summarises the same exchanges. The two layers do not coordinate. A coordinator that knows L2 is about to summarise an exchange can skip the L1 spend on that exchange.
@@ -40,11 +40,11 @@ The decision uses the L2 window plan as input: if the exchange is in the to-be-s
 
 ## Acceptance Criteria
 
-- [ ] L2 produces a plan before L1 runs.
-- [ ] L1 honours the plan and skips heavy sub-layers on summarised exchanges.
-- [ ] Cheap passes always run.
-- [ ] No quality regression measured by T77 signals.
-- [ ] Coverage 100%; race tests green.
+- [x] L2 produces a plan before L1 runs (handler.go:154-157 checks conditions).
+- [x] L1 honours the plan and skips heavy sub-layers on summarised exchanges.
+- [x] Cheap passes always run (ANSI strip, JSON compact).
+- [x] Coverage 100%; race tests green.
+- [ ] **Tracked as T100b** (separate task): No quality regression measured by T77 signals. Requires a soak window with the flag on against real traffic; not measurable in unit tests.
 
 ## Out of Scope
 

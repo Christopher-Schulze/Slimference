@@ -460,6 +460,51 @@ sub-layers on the prefix that Layer 2 will summarise. Cheap passes
 validates the trade-off. Skipped-block counter at
 `/admin/status.coordinator.skipped_total`.
 
+### L1 message-level fan-out (T104)
+
+`[compression.tuning] coordinator_parallel` runs `compressMessage`
+concurrently per message in the compressible prefix, bounded by
+`runtime.GOMAXPROCS(0)`. The `archiveOriginal` recorder is mutex-
+protected and the `coordinator_skipped` counter is atomic so the
+hot path stays race-clean. Default off until benchmarks show
+real-body wins. Note: shipped at message granularity, not the
+spec's stage-partitioned sub-layer concurrency; reopens as T104b
+if message-level granularity turns out to be the wrong knob.
+
+### Mid-exchange summary (T99)
+
+`[compression.tuning] mid_exchange_enabled` activates an
+in-progress summary block when the current exchange exceeds
+`mid_exchange_threshold_tokens` (default 10000). Detection looks
+for completed tool-use cycles (`assistant[tool_use]` ->
+`user[tool_result]` -> `assistant`) inside the live exchange and
+collapses the range to `[in-progress summary, anchor=msg #N]`.
+Today the summary content is a deterministic placeholder; a live
+MiniMax-driven content path is tracked as T99b. Default off.
+
+### Layer 4 tool-definition pruning (T103)
+
+`[compression.tuning] tool_prune_enabled` activates the per-session
+tool-usage tracker + body-rewrite pass. Tool definitions idle
+beyond the threshold are removed from `tools[]` for Anthropic
+(`tools[].name`) and OpenAI / CodexChatGPT (`tools[].function.name`
+or top-level `tools[].name`). Telemetry at
+`/admin/status.tool_prune.{sessions,pruned_total,reattach_total,
+tokens_saved_sum}`. Default off. Forward-path-only in this
+release: if the model invokes a pruned tool, the upstream sees the
+reduced `tools[]`. Reattach (T103b) is tracked separately.
+
+### Posttool cross-session repetition marker (T93)
+
+The `slimference posttool` hook records each `(session_id,
+tool_name, command, output)` tuple in `~/.slimference/repetition.db`.
+On the third (and later) occurrence, the captured output is
+replaced with `[tool output identical to msg #N (seen M times)]`
+before the archive write. Counters at
+`/admin/status.repetition`. The `slimference filter` subprocess
+case is intentionally skipped because no `session_id` is available
+there (would need extra hook plumbing).
+
 ### Configurable system prompt (T86 + T87 + T92)
 
 `[compression] prompt_override_path` points at a file whose contents

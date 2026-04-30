@@ -462,3 +462,46 @@ func TestHandleHookCmd_homeDirError(t *testing.T) {
 		t.Fatalf("stderr: %q", buf.String())
 	}
 }
+
+// TestHandleSubcommand_hook_verify_codex covers the verify codex branch (main.go:1002-1004).
+func TestHandleSubcommand_hook_verify_codex(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+
+	// Pre-install codex hooks so verify returns ok=true and does not exit.
+	handleSubcommand([]string{"hook", "install", "codex"})
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"hook", "verify", "codex"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if out == "" {
+		t.Fatal("expected hook verify codex lines")
+	}
+}
+
+// TestHandleSubcommand_hook_status_codex covers the status codex branch (main.go:1013-1015).
+func TestHandleSubcommand_hook_status_codex(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"hook", "status", "codex"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if out == "" {
+		t.Fatal("expected hook status codex lines")
+	}
+}

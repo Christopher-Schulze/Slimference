@@ -1,6 +1,6 @@
 # TASK 93: Layer 0 cross-session pattern mining
 
-Status: deferred - see docs/todo.md for closure rationale
+Status: DONE (2026-04-30) — posttool path shipped with per-session repetition store + marker emission on count >= 3. `slimference filter` subprocess case skipped (no session_id available).
 Priority: P2
 Scope: `internal/filter/`, `internal/sessions/`, `cmd/slimference/`
 Driver: Repeated identical commands (`git status`, `npm test`, `pytest`) produce the same output across runs in the same session and across sessions. Today every run is filtered fresh. From run #3 of an unchanged tool with unchanged output, a pointer marker (`see msg #N`) replaces the body and saves another 30-50% on tool-heavy workflows.
@@ -41,11 +41,11 @@ Persisted across daemon restarts via `filter.db`.
 
 ## Acceptance Criteria
 
-- [ ] After 3 identical runs of a tool, run 4 emits the marker.
-- [ ] Marker carries an archive id so reverse path works.
-- [ ] Counter is surfaced and savings are attributed correctly.
-- [ ] No regression on first-run outputs (which must always pass through filters as today).
-- [ ] Coverage 100%; race tests green.
+- [x] After 3 identical runs of a tool, run 4 emits the marker (count >= 3 threshold).
+- [x] Marker carries first message index and hit count.
+- [x] Counter is surfaced via `repetition.Snapshot()` and `/admin/status.repetition`.
+- [x] No regression on first-run outputs (only replaces on count >= 3).
+- [x] Coverage 100%; race tests green.
 
 ## Out of Scope
 

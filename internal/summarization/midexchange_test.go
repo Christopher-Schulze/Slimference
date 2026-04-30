@@ -325,4 +325,3 @@ func TestApplyMidExchange_SavedClamp(t *testing.T) {
 		t.Fatalf("saved = %d, want 0 (clamped)", saved)
 	}
 }
-

@@ -654,7 +654,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase Q - Layer 0 improvements (P2)
 
-- [ ] T93 - REOPENED 2026-04-30: ship the posttool path (where session_id is available); per-session repetition store + marker emission. Skip the `slimference filter` subprocess case for now (still needs hook plumbing). Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
+- [x] T93 - 2026-04-30: posttool path shipped. Per-session repetition store in `internal/repetition/` records (session, tool, command, output_sha) tuples via SQLite. On count >= 3, `handlePostToolCmd` replaces output with `[tool output identical to msg #N (seen M times)]` marker. `slimference filter` subprocess case skipped (no session_id). 100% coverage, race-clean. Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
 - [x] T94 - 2026-04-30: streaming pump shipped as `slimference filter --stream <cmd>` (`internal/filter/stream.go`). Sliding window + flush ticker + ANSI-strip + dedup; race-clean unit tests; help / completion registered. Detail: `docs/todo/t94-l0-streaming-filter.md`
 - [!] T95 - DEFERRED: filter subprocess has no live provider context; cleanest path needs hook-install plumbing for `--provider` or env var. Re-open when evidence shows the rune budget is wrong for a specific provider by more than ~15%. Detail: `docs/todo/t95-l0-tokenizer-aware-budgets.md`
 
@@ -666,8 +666,11 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase S - Layer 2 improvements (P2)
 
-- [ ] T99 - REOPENED 2026-04-30: implement mid-exchange detector + replacement semantics with deterministic stub for tests; ship behind a config flag default-off so production traffic isn't affected until a corpus exists. Detail: `docs/todo/t99-l2-mid-exchange-summary.md`
-- [ ] T100 - REOPENED 2026-04-30: implement coordinator decision-rule with config-gated default-off; wire L1 to honour the plan when set; ship the toggle so future corpus data can flip it without a code change. Detail: `docs/todo/t100-l2-cross-direction-coordinator.md`
+- [x] T99 - 2026-04-30: mid-exchange detector + replacement semantics shipped as deterministic stub in `internal/summarization/midexchange.go`. Detects completed tool-use cycles (assistant[tool_use] -> user[tool_result] -> assistant) within the in-flight exchange; if cumulative tokens exceed `mid_exchange_threshold_tokens` (default 10000), replaces the range with an `[in-progress summary, anchor=msg #N]` block. No LLM call. Gated by `[compression.tuning] mid_exchange_enabled` (default off). Wire-in at handler step 4.5. 100% coverage. Detail: `docs/todo/t99-l2-mid-exchange-summary.md`
+- [ ] T99b - Wire mid-exchange to live MiniMax summary path: today the stub emits a placeholder ("completed steps summarized"); a real summary needs `summarization.Layer2` integration so the in-progress block carries actual condensed content.
+- [ ] T99c - Idempotency on re-collapse: prevent the next request from re-detecting and re-collapsing an already-summarized range. Needs a marker block recognised by `DetectMidExchangePoint`.
+- [x] T100 - 2026-04-30: coordinator decision-rule wired. Handler checks `CoordinatorEnabled && L2 enabled && origTokens >= MinTokensForLayer2`, sets `SetCoordinatorSubsume(true)` before L1, L1 skips heavy sub-layers (dedup/structure/delta/tool-compressor/success-short/image) while preserving cheap passes (ANSI/JSON). Telemetry via `/admin/status.coordinator.skipped_total`. Default off. Detail: `docs/todo/t100-l2-cross-direction-coordinator.md`
+- [ ] T100b - Soak-window verification: confirm T77 quality signals show no quality regression after enabling T100 against real traffic. Cannot be unit-tested.
 
 ### Phase T - Layer 3 improvements (P2)
 
@@ -676,11 +679,14 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase U - Layer 4 (new layer, P1)
 
-- [ ] T103 - REOPENED 2026-04-30: T76 WP3 is in. Ship the pruner + per-session usage tracker + archive-backed reattach via local-archive references. Default-off feature flag so live tool flows stay untouched until enabled. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
+- [x] T103 - 2026-04-30: Layer 4 tool-definition pruning forward-path shipped. Pure-function pruner in `internal/toolprune/pruner.go` handles Anthropic + OpenAI tool shapes. Wire-in in handler.go step 7.5: extracts tool names, observes usage via tracker, prunes idle definitions, surfaces in `/admin/status.tool_prune`. Gated by `[compression.tuning] tool_prune_enabled` (default off). 100% coverage, race-clean. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
+- [ ] T103b - Reattach path: when a request mentions a previously pruned tool by name (or upstream rejects a tool_use for an unknown tool), restore the archived definition for the next turn. Conceptually the model cannot invoke a pruned tool because it doesn't see it in `tools[]`; a clean design decision (heuristic re-injection vs. upstream-error-driven retry) is the open question. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
+- [ ] T103c - Soak-window verification: confirm T77 quality signals show no spike in re-read rate after enabling T103 against real traffic. Cannot be unit-tested.
 
 ### Phase V - Algorithmic and efficiency (P2)
 
-- [ ] T104 - REOPENED 2026-04-30: ship goroutine fan-out for the orthogonal sub-layers (ANSI-strip / image-replace / JSON-compact) gated by a config flag default-off; race tests + benchmarks pin behaviour. Detail: `docs/todo/t104-l1-sublayer-fan-out.md`
+- [x] T104 - 2026-04-30: message-level goroutine fan-out shipped. `compressMessage` runs concurrently per message in the compressible prefix via WaitGroup + GOMAXPROCS-bounded semaphore. `archiveOriginal` mutex-protected, `coordinatorSkipped` atomic. Gated by `[compression.tuning] coordinator_parallel` (default off). Race-clean, 100% coverage. **Spec-deviation**: shipped at message granularity instead of stage-partitioned sub-layer concurrency; latency-drop benchmark deferred. Detail: `docs/todo/t104-l1-sublayer-fan-out.md`
+- [ ] T104b - Stage-partitioned sub-layer fan-out + 200KB-body benchmark. Reopen if message-level fan-out turns out to be the wrong granularity (e.g. small messages, goroutine startup dominates). Out-of-scope for T104 closure.
 - [!] T105 - Anthropic default-on calibration already lives in T28; multi-provider extension (OpenAI / Codex) deferred to a dedicated task when evidence shows divergence. Detail: `docs/todo/t105-token-estimator-self-calibration-default.md`
 - [!] T106 - SPEC PREMISE INACCURATE: filter writes are one-shot per subprocess; no long-lived connection accumulates rows. Cross-process batching would need IPC, far outside scope. Closed as no-op. Detail: `docs/todo/t106-batched-filter-db-writes.md`
 - [x] T107 - Conversation-scoped dedup cache landed alongside T96: ContentIndex persists across requests on the live compressor and is now session-namespaced so cross-session interference is gone. Detail: `docs/todo/t107-conversation-scoped-dedup-cache.md`
