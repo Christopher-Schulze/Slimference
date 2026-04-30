@@ -80,6 +80,8 @@ type RequestSummary struct {
 	CacheCreateTokens  int                          `json:"cache_create_tokens"`
 	SecretsRedacted    int                          `json:"secrets_redacted"`
 	ProxyLatencyMs     float64                      `json:"proxy_latency_ms"`
+	ReReadCount        int                          `json:"re_read_count"`     // T77
+	NetSavedTokens     int                          `json:"net_saved_tokens"`  // T77
 	Entries            []DecisionEntry              `json:"entries,omitempty"` // only with --trace
 }
 

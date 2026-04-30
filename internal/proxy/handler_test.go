@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -680,7 +683,7 @@ func TestParseRetryAfter(t *testing.T) {
 		{"integer seconds cap", "60", 30 * time.Second},
 		{"integer zero", "0", 0},
 		{"invalid string", "not-a-number-or-date", 0},
-		{"http date future", time.Now().Add(10*time.Second).UTC().Format(http.TimeFormat), 0},
+		{"http date future", time.Now().Add(10 * time.Second).UTC().Format(http.TimeFormat), 0},
 		{"http date past", time.Now().Add(-5 * time.Second).UTC().Format(http.TimeFormat), 0},
 	}
 	for _, tt := range tests {
@@ -775,5 +778,136 @@ func TestNew_fileWatcherError(t *testing.T) {
 	// fileWatcher must be nil when init fails; Proxy must still be usable.
 	if p.fileWatcher != nil {
 		t.Fatal("expected fileWatcher to be nil after init error")
+	}
+}
+
+func TestHandleCompressibleRequest_ToolPruneEnabled(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"done"}],"model":"claude","stop_reason":"end_turn"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"Read","description":"read file"},{"name":"Bash","description":"run command"}],"messages":[{"role":"user","content":[{"type":"tool_result","text":"output"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.Sessions != 1 {
+		t.Fatalf("toolPrune sessions: %d want 1", snap.Sessions)
+	}
+}
+
+func TestHandleCompressibleRequest_ToolPrunePrunesIdle(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]json.RawMessage
+		bodyBytes, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(bodyBytes, &reqBody)
+		var tools []struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(reqBody["tools"], &tools)
+		toolCount := len(tools)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		resp := fmt.Sprintf(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"done-%d"}],"model":"claude","stop_reason":"end_turn"}`, toolCount)
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	fixedSession := "fixed-toolprune-session"
+	origNewReqID := newRequestIDFn
+	newRequestIDFn = func() string { return fixedSession }
+	defer func() { newRequestIDFn = origNewReqID }()
+
+	p.toolPrune = toolprune.NewUsageTracker(2)
+	for i := 0; i < 3; i++ {
+		p.toolPrune.ObserveTurn(fixedSession, []string{"Read", "Bash", "Write"})
+	}
+	for i := 0; i < 5; i++ {
+		p.toolPrune.ObserveTurn(fixedSession, []string{"Read"})
+	}
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"Read","description":"read file"},{"name":"Bash","description":"run command"},{"name":"Write","description":"write file"}],"messages":[{"role":"user","content":[{"type":"tool_result","text":"output"}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+
+	if !strings.Contains(rec.Body.String(), "done-1") {
+		t.Fatalf("expected only 1 tool (Read kept, Bash/Write pruned), got: %s", rec.Body.String())
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.PrunedTotal == 0 {
+		t.Fatal("expected pruned tools")
+	}
+}
+
+// TestHandleCompressibleRequest_MidExchangeEnabled covers the T99 mid-exchange
+// summary wire-in path in the handler.
+func TestHandleCompressibleRequest_MidExchangeEnabled(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"done"}],"model":"claude","stop_reason":"end_turn"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Tuning.MidExchangeEnabled = true
+	cfg.Compression.Tuning.MidExchangeThresholdTokens = 100
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	longOutput := strings.Repeat("x ", 500)
+	body := fmt.Sprintf(`{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"start"},{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]},{"role":"user","content":[{"type":"tool_result","content":"%s"}]},{"role":"assistant","content":"analysis"},{"role":"user","content":[{"type":"tool_result","content":"ok"}]}]}`, longOutput)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
 	}
 }

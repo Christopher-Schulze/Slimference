@@ -25,12 +25,15 @@ import (
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
+	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tokens"
+	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
 )
 
 var reconstructBodyFn = reconstructBody
 var newRequestWithContextFn = http.NewRequestWithContext
+var newRequestIDFn = newRequestID
 
 // newRequestID generates a short random hex request ID for debug correlation.
 func newRequestID() string {
@@ -52,7 +55,7 @@ type pipelineStashKey struct{}
 // This is the hot path: called for every POST /v1/messages and POST /v1/chat/completions.
 func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request, provider types.Provider, body []byte) {
 	start := time.Now()
-	reqID := newRequestID()
+	reqID := newRequestIDFn()
 
 	// --- 1. Extract messages ---
 	messages, rawBody, err := extractMessages(provider, body)
@@ -94,6 +97,20 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// unreadable archive entry leaves the marker in place so the model
 	// still sees a stable reference rather than silently failing.
 	messages = p.reinjectArchivedContent(messages)
+
+	// T77: observe tool-use blocks for the re-read detector.
+	reReadCount := 0
+	if p.qualityReRead != nil {
+		for _, msg := range messages {
+			for _, block := range msg.Content {
+				if block.Type == "tool_use" && block.ToolName != "" {
+					if p.qualityReRead.Observe(reqID, block.ToolName) {
+						reReadCount++
+					}
+				}
+			}
+		}
+	}
 
 	// Count original tokens before any compression.
 	origTokens := tokens.CountMessages(messages)
@@ -172,6 +189,16 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		layer1Breakdown = buildLayer1Breakdown(result)
 	}
 
+	// --- 4.5 Mid-exchange summary (T99, default off) ---
+	if p.config.Compression.Tuning.MidExchangeEnabled && pipelineMode == PipelineFull {
+		if newMsgs, saved, applied := summarization.ApplyMidExchange(compressedMessages, p.config.Compression.Tuning.MidExchangeThresholdTokens); applied {
+			compressedMessages = newMsgs
+			layer2Savings += saved
+			appliedLayers = append(appliedLayers, 2)
+			log.Debug("mid_exchange applied", "saved", saved)
+		}
+	}
+
 	// --- 5. Layer 2: MiniMax summary ---
 	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull {
 		l2Start := time.Now()
@@ -220,6 +247,31 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		compressionRatio = float64(compressedTokens) / float64(origTokens)
 	}
 
+	// --- 7.5 Tool-definition pruning (T103, Layer 4, default off) ---
+	if p.config.Compression.Tuning.ToolPruneEnabled && p.toolPrune != nil && reqID != "" {
+		if toolNames := toolprune.ExtractToolNames(newBody, provider); len(toolNames) > 0 {
+			p.toolPrune.ObserveTurn(reqID, extractUsedToolNames(messages))
+			decision := p.toolPrune.Decide(reqID, toolNames, 1)
+			if len(decision.Pruned) > 0 {
+				toPrune := make(map[string]bool, len(decision.Pruned))
+				for _, n := range decision.Pruned {
+					toPrune[n] = true
+				}
+				if prunedBody, removed, err := toolprune.PruneToolDefinitions(newBody, provider, toPrune); err == nil && len(removed) > 0 {
+					savedEst := estimateTokensFromText(string(newBody)) - estimateTokensFromText(string(prunedBody))
+					if savedEst > 0 {
+						newBody = prunedBody
+						p.toolPrune.MarkPruned(savedEst)
+						log.Debug("tool-prune applied",
+							"pruned", len(removed),
+							"saved_est", savedEst,
+						)
+					}
+				}
+			}
+		}
+	}
+
 	// --- 8. Response cache lookup (Layer 3) ---
 	var cacheKey [32]byte
 	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(newBody)
@@ -262,9 +314,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					CacheReadTokens:   0,
 					CacheCreateTokens: 0,
 					ProxyLatencyMs:    cacheLatencyMs,
+					ReReadCount:       reReadCount,
+					NetSavedTokens:    totalSaved,
 				}
 				p.debugRecorder.Record(summary)
-		p.observeQuality(summary)
+				p.observeQuality(summary)
 			}
 
 			p.trySendAnalytics(types.AnalyticsEvent{
@@ -465,6 +519,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			CacheReadTokens:   upstreamCacheUsage.ReadTokens,
 			CacheCreateTokens: upstreamCacheUsage.CreateTokens,
 			ProxyLatencyMs:    proxyLatencyMs,
+			ReReadCount:       reReadCount,
+			NetSavedTokens:    totalSaved,
 		}
 		p.debugRecorder.Record(summary)
 		p.observeQuality(summary)
@@ -545,6 +601,8 @@ func (p *Proxy) serveStageACacheHit(
 			CacheReadTokens:   0,
 			CacheCreateTokens: 0,
 			ProxyLatencyMs:    latencyMs,
+			ReReadCount:       0,
+			NetSavedTokens:    0,
 		}
 		p.debugRecorder.Record(summary)
 		p.observeQuality(summary)
@@ -1214,4 +1272,22 @@ func (p *Proxy) FlushCaches() {
 		}
 	}
 	slog.Info("all caches flushed")
+}
+
+// extractUsedToolNames returns the distinct tool names from tool_use
+// blocks in the message list. Used by T103 to feed the usage tracker.
+func extractUsedToolNames(messages []types.Message) []string {
+	seen := make(map[string]bool)
+	var names []string
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type == "tool_use" && block.ToolName != "" {
+				if !seen[block.ToolName] {
+					seen[block.ToolName] = true
+					names = append(names, block.ToolName)
+				}
+			}
+		}
+	}
+	return names
 }

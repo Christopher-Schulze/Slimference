@@ -7,6 +7,7 @@ import (
 
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/repetition"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestAdminStatusSnapshot_RepetitionPopulated(t *testing.T) {
@@ -136,5 +137,37 @@ func TestRepetitionSnapshot_EmptyDB(t *testing.T) {
 	}
 	if stats.Rows != 0 {
 		t.Fatalf("empty rows: %d", stats.Rows)
+	}
+}
+
+func TestExtractUsedToolNames(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{Content: []types.ContentBlock{
+			{Type: "tool_use", ToolName: "Read"},
+			{Type: "text", Text: "hello"},
+		}},
+		{Content: []types.ContentBlock{
+			{Type: "tool_use", ToolName: "Bash"},
+		}},
+		{Content: []types.ContentBlock{
+			{Type: "tool_use", ToolName: "Read"},
+		}},
+	}
+	names := extractUsedToolNames(msgs)
+	if len(names) != 2 || names[0] != "Read" || names[1] != "Bash" {
+		t.Fatalf("got %v", names)
+	}
+}
+
+func TestExtractUsedToolNames_Empty(t *testing.T) {
+	t.Parallel()
+	names := extractUsedToolNames(nil)
+	if len(names) != 0 {
+		t.Fatalf("expected empty, got %v", names)
+	}
+	names = extractUsedToolNames([]types.Message{})
+	if len(names) != 0 {
+		t.Fatalf("expected empty, got %v", names)
 	}
 }

@@ -192,6 +192,20 @@ type TuningConfig struct {
 	// until benchmark evidence shows the sequential pipeline is the
 	// bottleneck on real bodies.
 	CoordinatorParallel bool `toml:"coordinator_parallel"`
+	// ToolPruneEnabled (T103) gates Layer 4 tool-definition pruning:
+	// when on, tool definitions idle for more than
+	// ToolPruneIdleThresholdTurns are removed from the request body
+	// and archived for transparent reattachment. Default off.
+	ToolPruneEnabled bool `toml:"tool_prune_enabled"`
+	// MidExchangeEnabled (T99) gates Layer 2 mid-exchange summarization:
+	// when on, long in-flight exchanges exceeding the token threshold
+	// produce an in-progress summary. Default off until a corpus
+	// validates the trade-off.
+	MidExchangeEnabled bool `toml:"mid_exchange_enabled"`
+	// MidExchangeThresholdTokens is the token budget above which an
+	// in-flight exchange is considered for mid-exchange summarization.
+	// Default 10000.
+	MidExchangeThresholdTokens int `toml:"mid_exchange_threshold_tokens"`
 	// DedupStaircase lowers the MinHash/LSH Jaccard threshold as the
 	// conversation grows. Long sessions accumulate more near-duplicate tool
 	// output; a relaxed threshold catches it without false collapses on
@@ -574,6 +588,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Filter.PassthroughMaxChars < 0 {
 		return fmt.Errorf("filter.passthrough_max_chars must be >= 0, got %d", cfg.Filter.PassthroughMaxChars)
+	}
+	if cfg.Compression.Tuning.MidExchangeThresholdTokens < 0 {
+		return fmt.Errorf("compression.tuning.mid_exchange_threshold_tokens must be >= 0, got %d", cfg.Compression.Tuning.MidExchangeThresholdTokens)
 	}
 	if cfg.Analytics.GainUSDPerMillionTokens < 0 {
 		return fmt.Errorf("analytics.gain_usd_per_million_tokens must be >= 0, got %v", cfg.Analytics.GainUSDPerMillionTokens)

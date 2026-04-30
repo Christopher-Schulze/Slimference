@@ -77,6 +77,7 @@ func defaultsRaw() *Config {
 					{MsgCountLE: 40, Threshold: 0.82},
 					{MsgCountLE: 1_000_000, Threshold: 0.78},
 				},
+				MidExchangeThresholdTokens: 10000,
 				ToolCompressor: ToolCompressorTuning{
 					AggressiveAfterMultiplier: 2,
 					GitModerateDiffLimit:      60,
@@ -221,6 +222,29 @@ loop_detection = false
 # (T76): every preview mutation is archived via the content-archive
 # recorder so the original is recoverable through "slimference expand".
 structure_preview = true
+
+# T100: cross-direction coordinator. When on and Layer 2 is enabled,
+# Layer 1 skips heavy sub-layers on the prefix that L2 will summarise.
+# Cheap passes (ANSI strip, JSON compact) always run. Default off.
+coordinator_enabled = false
+
+# T104: goroutine fan-out across independent L1 sub-layers. When on,
+# messages in the compressible prefix are processed concurrently
+# (bounded by GOMAXPROCS). Default off until benchmark evidence
+# justifies the overhead on real bodies.
+coordinator_parallel = false
+
+# T103: Layer 4 tool-definition pruning. When on, tool definitions
+# idle for more than the threshold are removed from the request
+# body and archived for reattachment. Default off.
+tool_prune_enabled = false
+
+# T99: Layer 2 mid-exchange summarization. When on, long in-flight
+# exchanges exceeding the token threshold produce an in-progress
+# summary. Default off until a corpus validates the trade-off.
+mid_exchange_enabled = false
+# Token threshold for mid-exchange summarization (default 10000).
+mid_exchange_threshold_tokens = 10000
 
 [cache]
 response_cache_max_entries = 100
