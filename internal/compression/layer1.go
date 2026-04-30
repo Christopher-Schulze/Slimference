@@ -284,7 +284,11 @@ func (c *DeterministicCompressor) compressMessage(
 		if threshold <= 0 {
 			threshold = c.cfg.DedupSimilarityThreshold
 		}
-		exactDupe, nearDupe, firstIdx := c.contentIndex.CheckAndRecord(text, msgIdx, threshold)
+		// T96/T107: per-session namespace prevents cross-session false-
+		// positive duplicate references. activeSessionID is empty when
+		// callers use the legacy Compress() entry point; in that case
+		// the global namespace is used, preserving historical behaviour.
+		exactDupe, nearDupe, firstIdx := c.contentIndex.CheckAndRecordForSession(c.activeSessionID, text, msgIdx, threshold)
 		textTransformed := false // tracks whether delta/structure already rewrote text
 		if exactDupe {
 			dedupSaved += len(text)

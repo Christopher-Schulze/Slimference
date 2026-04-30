@@ -9,8 +9,9 @@ import (
 const minCharsForNearDedup = 120
 
 type nearEntry struct {
-	idx int
-	sig [minHashDim]uint64
+	idx     int
+	session string
+	sig     [minHashDim]uint64
 }
 
 // ContentIndex tracks SHA256 exact matches and MinHash signatures for near-duplicate detection.
@@ -28,10 +29,25 @@ func NewContentIndex() *ContentIndex {
 }
 
 // CheckAndRecord checks exact and near-duplicates, then records new content.
-// Thread-safe. exactDupe/nearDupe indicate which case matched; firstIdx is the earlier message index.
+// Thread-safe. exactDupe/nearDupe indicate which case matched; firstIdx is
+// the earlier message index. Equivalent to CheckAndRecordForSession with
+// an empty session id (global namespace).
 func (ci *ContentIndex) CheckAndRecord(text string, msgIdx int, similarityThreshold float64) (exactDupe, nearDupe bool, firstIdx int) {
+	return ci.CheckAndRecordForSession("", text, msgIdx, similarityThreshold)
+}
+
+// CheckAndRecordForSession is the session-aware variant of
+// CheckAndRecord. T96/T107: when sessionID is non-empty, the SHA256 key
+// and MinHash near-entries are namespaced so two sessions seeing the
+// same text do not produce false-positive cross-session references
+// (which would yield invalid `[Duplicate of message N]` markers because
+// N belongs to the other session). Empty sessionID preserves the
+// historical global-namespace behaviour for callers that have no
+// session context.
+func (ci *ContentIndex) CheckAndRecordForSession(sessionID, text string, msgIdx int, similarityThreshold float64) (exactDupe, nearDupe bool, firstIdx int) {
 	normalized := normalizeForHash(text)
-	hash := sha256.Sum256([]byte(normalized))
+	keyed := sessionID + "\x00" + normalized
+	hash := sha256.Sum256([]byte(keyed))
 
 	ci.mu.Lock()
 	defer ci.mu.Unlock()
@@ -41,9 +57,9 @@ func (ci *ContentIndex) CheckAndRecord(text string, msgIdx int, similarityThresh
 	}
 
 	if len(normalized) >= minCharsForNearDedup && similarityThreshold > 0 {
-		sig := minHashSignatureFromText(normalized)
+		sig := minHashSignatureFromText(keyed)
 		for _, e := range ci.near {
-			if e.idx == msgIdx {
+			if e.idx == msgIdx || e.session != sessionID {
 				continue
 			}
 			if minHashJaccardEstimate(sig, e.sig) >= similarityThreshold {
@@ -54,8 +70,8 @@ func (ci *ContentIndex) CheckAndRecord(text string, msgIdx int, similarityThresh
 
 	ci.exact[hash] = msgIdx
 	if len(normalized) >= minCharsForNearDedup {
-		sig := minHashSignatureFromText(normalized)
-		ci.near = append(ci.near, nearEntry{idx: msgIdx, sig: sig})
+		sig := minHashSignatureFromText(keyed)
+		ci.near = append(ci.near, nearEntry{idx: msgIdx, session: sessionID, sig: sig})
 	}
 	return false, false, -1
 }
