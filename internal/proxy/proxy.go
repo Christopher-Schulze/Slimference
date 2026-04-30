@@ -220,6 +220,18 @@ func New(cfg *config.Config) *Proxy {
 		TestMaxFailureLines:       cfg.Compression.Tuning.ToolCompressor.TestMaxFailureLines,
 	})
 
+	// T86: load the optional prompt-override file once at startup so
+	// the operator can iterate on the system prompt without rebuilding.
+	// Best-effort: a missing or unreadable file logs a warning and
+	// keeps the compile-time default.
+	if path := cfg.Compression.PromptOverridePath; path != "" {
+		if version, err := summarization.LoadPromptOverrideFromPath(path); err != nil {
+			slog.Warn("prompt override load failed", "path", path, "error", err)
+		} else {
+			slog.Info("prompt override loaded", "path", path, "version", version)
+		}
+	}
+
 	// Layer 2: MiniMax summarizer.
 	p.layer2 = summarization.NewLayer2(&cfg.Compression)
 

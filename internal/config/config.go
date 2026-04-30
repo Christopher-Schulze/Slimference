@@ -122,6 +122,12 @@ type CompressionConfig struct {
 	MiniMax                  MiniMaxConfig `toml:"minimax"`
 	Summary                  SummaryConfig `toml:"summary"`
 	Tuning                   TuningConfig  `toml:"tuning"`
+	// PromptOverridePath (T86) points at a file whose contents replace
+	// the compiled-in MiniMax system prompt header. Empty disables the
+	// override. The file's first non-empty line may carry a
+	// `# version: <tag>` annotation that is recorded in
+	// /admin/status.summarization.active_prompt_version.
+	PromptOverridePath string `toml:"prompt_override_path"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
