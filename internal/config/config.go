@@ -206,6 +206,16 @@ type TuningConfig struct {
 	// in-flight exchange is considered for mid-exchange summarization.
 	// Default 10000.
 	MidExchangeThresholdTokens int `toml:"mid_exchange_threshold_tokens"`
+	// StreamingCompressionEnabled (T108) gates the chunked Layer 1
+	// pipeline (ANSI strip / line dedup / repeated-line collapse) for
+	// large bodies. The pipeline lives in
+	// `internal/compression/streaming.go` and is exposed today as a
+	// standalone API; live wire-in into the request hot-path is a
+	// follow-up. Default off.
+	StreamingCompressionEnabled bool `toml:"streaming_compression_enabled"`
+	// StreamingWindowLines is the rolling de-dup window the chunked
+	// pipeline uses (default 500).
+	StreamingWindowLines int `toml:"streaming_window_lines"`
 	// DedupStaircase lowers the MinHash/LSH Jaccard threshold as the
 	// conversation grows. Long sessions accumulate more near-duplicate tool
 	// output; a relaxed threshold catches it without false collapses on

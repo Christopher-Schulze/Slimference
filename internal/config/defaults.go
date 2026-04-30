@@ -251,6 +251,14 @@ mid_exchange_enabled = false
 # Token threshold for mid-exchange summarization (default 10000).
 mid_exchange_threshold_tokens = 10000
 
+# T108: chunked Layer 1 pipeline (ANSI strip + line dedup +
+# repeated-line collapse) with bounded memory. The standalone API
+# lives in internal/compression/streaming.go; live wire-in into
+# the request path is a follow-up. Default off.
+streaming_compression_enabled = false
+# Rolling de-dup window the chunked pipeline uses (default 500).
+streaming_window_lines = 500
+
 [cache]
 response_cache_max_entries = 100
 response_cache_ttl_seconds = 300
