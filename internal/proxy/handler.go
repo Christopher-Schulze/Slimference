@@ -21,6 +21,7 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/compression"
+	"github.com/slimference/slimference/internal/contentarchive"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/resilience"
@@ -424,6 +425,23 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		upstreamResp.StatusCode == http.StatusOK {
 		if id := extractResponseID(provider, responseBody); id != "" {
 			p.serverState.Set(serverStateKey, id)
+		}
+	}
+
+	// --- 9c. T76c: opportunistic archive re-injection signal. When the
+	// upstream response echoes a `local-archive://<id>` URI, count it
+	// so /admin/status.content_archive.re_inject_count reflects the
+	// model's actual reach into archived content. The next request
+	// will re-expand the URI through reinjectArchivedContent.
+	if responseBody != nil && upstreamResp.StatusCode == http.StatusOK {
+		if ids := extractArchiveIDs(string(responseBody)); len(ids) > 0 {
+			home, err := os.UserHomeDir()
+			if err == nil {
+				dir := contentarchive.DefaultDir(home)
+				for range ids {
+					contentarchive.RecordReInject(dir)
+				}
+			}
 		}
 	}
 

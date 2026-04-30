@@ -623,7 +623,7 @@ API calls in default CI, mutating the operator's live Codex install.
 ### Phase L - Reversibility foundation (P0)
 
 - [!] T76 - Reversibility by default: WP1 archive package + WP2(coarse + per-sub-layer attribution shipped 2026-04-30) + WP4 expand + WP5 structure_preview default-on landed. WP3 (opportunistic re-injection) tracked as T76c. Detail: `docs/todo/t76-reversibility-by-default.md`
-- [ ] T76c - Opportunistic archive re-injection: detect `local-archive://<id>` references in upstream response / SSE chunks and re-inject the archived bytes in the next request. Counter `re_inject_count` already exists; wiring fehlt.
+- [x] T76c - 2026-04-30: opportunistic re-injection signal shipped. Non-streaming upstream responses are scanned for `local-archive://<id>` URIs; each match bumps `contentarchive.RecordReInject` so `/admin/status.content_archive.re_inject_count` reflects the model's actual reach. Expansion on the next request is already handled by the existing `reinjectArchivedContent` pass. SSE re-injection deferred (separate streaming-tap concern, tracked alongside T108).
 - [x] T77 - 2026-04-30: quality calibration loop shipped. Re-read detector + cache-miss-spike detector + net-savings tracker live in `internal/quality/`, surface via `/admin/status.quality`, render in TUI Stats view "QUALITY SIGNALS (T77)" card, exposed via `slimference quality [--json] [--url]` CLI. `RequestSummary` carries `re_read_count` + `net_saved_tokens` (committed earlier in 0a736fe). 100% coverage. Detail: `docs/todo/t77-quality-calibration-loop.md`
 
 ### Phase M - Concept levers (P0/P1)
