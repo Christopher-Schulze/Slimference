@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -620,28 +621,13 @@ func (c *DeterministicCompressor) structureLangAllowed(lang string) bool {
 }
 
 func formatDupeReference(firstIdx, currentIdx int) string {
-	return "[Duplicate of message " + itoa(firstIdx) + " - omitted at message " + itoa(currentIdx) + "]"
+	return "[Duplicate of message " + strconv.Itoa(firstIdx) + " - omitted at message " + strconv.Itoa(currentIdx) + "]"
 }
 
 func formatNearDupeReference(firstIdx, currentIdx int) string {
-	return "[Near-duplicate of message " + itoa(firstIdx) + " - omitted at message " + itoa(currentIdx) + "]"
+	return "[Near-duplicate of message " + strconv.Itoa(firstIdx) + " - omitted at message " + strconv.Itoa(currentIdx) + "]"
 }
 
 func formatDeltaHeader(filepath string, prevIdx, currentIdx int) string {
-	return "[Delta from message " + itoa(prevIdx) + " to " + itoa(currentIdx) + " for " + filepath + "]\n"
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	if n < 0 {
-		return "-" + itoa(-n)
-	}
-	digits := make([]byte, 0, 10)
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return "[Delta from message " + strconv.Itoa(prevIdx) + " to " + strconv.Itoa(currentIdx) + " for " + filepath + "]\n"
 }

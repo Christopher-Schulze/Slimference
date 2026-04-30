@@ -193,21 +193,6 @@ func TestIndentedNote(t *testing.T) {
 	}
 }
 
-// TestItoa covers the local int-to-string helper on zero, positive and
-// negative inputs.
-func TestItoa(t *testing.T) {
-	t.Parallel()
-	if itoa(0) != "0" {
-		t.Fatal("zero")
-	}
-	if itoa(42) != "42" {
-		t.Fatal("42")
-	}
-	if itoa(-17) != "-17" {
-		t.Fatal("-17")
-	}
-}
-
 // TestTryCompactPythonTraceback_endsWithBlankLine covers the
 // findTracebackEnd branch where a blank line after the exception ends the
 // block.

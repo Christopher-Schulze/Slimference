@@ -2,6 +2,7 @@ package summarization
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
@@ -107,7 +108,7 @@ func SummarizationHint(messages []types.Message) string {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString(itoa(idx))
+			sb.WriteString(strconv.Itoa(idx))
 		}
 		sb.WriteString("\n")
 	}
@@ -117,7 +118,7 @@ func SummarizationHint(messages []types.Message) string {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString(itoa(idx))
+			sb.WriteString(strconv.Itoa(idx))
 		}
 		sb.WriteString("\n")
 	}

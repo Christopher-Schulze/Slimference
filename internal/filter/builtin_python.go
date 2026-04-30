@@ -3,6 +3,7 @@ package filter
 import (
 	"bytes"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -232,31 +233,7 @@ func indentedNote(count int) string {
 	if count == 1 {
 		return "  [... 1 library frame elided]"
 	}
-	return "  [... " + itoa(count) + " library frames elided]"
-}
-
-// itoa is a minimal non-allocating alternative to strconv.Itoa for the
-// traceback elision note. Keeps the import surface of this file tight.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
+	return "  [... " + strconv.Itoa(count) + " library frames elided]"
 }
 
 // bytesHasPythonTraceback is a package-private helper used by tests to assert

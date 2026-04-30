@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
@@ -113,7 +114,7 @@ func formatLoopNudge(streak int) string {
 	var sb strings.Builder
 	sb.WriteString(LoopNudgeMarker)
 	sb.WriteString(" Detected ")
-	sb.WriteString(itoaLoop(streak))
+	sb.WriteString(strconv.Itoa(streak))
 	sb.WriteString(" near-identical consecutive user turns. The current approach is probably stuck in a retry loop. ")
 	sb.WriteString("Consider: restate the problem with a concrete example, try a different angle, or ask for a smaller sub-step first.")
 	return sb.String()
@@ -186,27 +187,4 @@ func alreadyContainsLoopNudge(messages []types.Message) bool {
 		}
 	}
 	return false
-}
-
-// itoaLoop is a tiny non-allocating int-to-string helper.
-func itoaLoop(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }

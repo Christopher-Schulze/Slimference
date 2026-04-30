@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -111,7 +112,7 @@ func TestPreviewPaths_windowsStyle(t *testing.T) {
 	var sb strings.Builder
 	for i := 0; i < 400; i++ {
 		sb.WriteString("C:\\users\\alice\\project\\nested\\deep\\file_")
-		sb.WriteString(itoaLoop(i))
+		sb.WriteString(strconv.Itoa(i))
 		sb.WriteString(".txt\n")
 	}
 	out, ok := StructurePreview(sb.String())

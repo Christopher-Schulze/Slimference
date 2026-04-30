@@ -235,16 +235,3 @@ func TestFormatLoopNudge(t *testing.T) {
 		t.Fatalf("missing streak: %s", s)
 	}
 }
-
-func TestItoaLoop(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		in   int
-		want string
-	}{{0, "0"}, {7, "7"}, {-3, "-3"}, {123, "123"}}
-	for _, tc := range cases {
-		if got := itoaLoop(tc.in); got != tc.want {
-			t.Errorf("itoaLoop(%d) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
@@ -252,7 +253,7 @@ func appendVerbatimTail(result []types.Message, messages []types.Message, start,
 func ratioStr(r float64) string {
 	pct := int(r * 100)
 	var sb strings.Builder
-	sb.WriteString(itoa(pct))
+	sb.WriteString(strconv.Itoa(pct))
 	sb.WriteByte('%')
 	return sb.String()
 }

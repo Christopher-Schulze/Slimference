@@ -2,6 +2,7 @@ package summarization
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
@@ -246,29 +247,6 @@ func percentStr(ratio float64) string {
 	if pct < 10 {
 		s = "0"
 	}
-	s += itoa(pct) + "%"
+	s += strconv.Itoa(pct) + "%"
 	return s
-}
-
-// itoa is a minimal int-to-string converter avoiding fmt import.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	buf := [20]byte{}
-	pos := len(buf)
-	for n > 0 {
-		pos--
-		buf[pos] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		pos--
-		buf[pos] = '-'
-	}
-	return string(buf[pos:])
 }

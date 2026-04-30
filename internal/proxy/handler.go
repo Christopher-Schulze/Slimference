@@ -465,10 +465,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		if ids := extractArchiveIDs(string(responseBody)); len(ids) > 0 {
 			home, err := os.UserHomeDir()
 			if err == nil {
-				dir := contentarchive.DefaultDir(home)
-				for range ids {
-					contentarchive.RecordReInject(dir)
-				}
+				contentarchive.RecordReInjectBatch(contentarchive.DefaultDir(home), len(ids))
 			}
 		}
 	}

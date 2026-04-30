@@ -3,6 +3,7 @@ package summarization
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
@@ -140,13 +141,13 @@ func RepetitionHint(messages []types.Message) string {
 		sb.WriteString("- ")
 		sb.WriteString(g.key)
 		sb.WriteString(" appears ")
-		sb.WriteString(itoa(len(g.indices)))
+		sb.WriteString(strconv.Itoa(len(g.indices)))
 		sb.WriteString("x (messages ")
 		for i, idx := range g.indices {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString(itoa(idx))
+			sb.WriteString(strconv.Itoa(idx))
 			sb.WriteString(describeDiscount(i))
 		}
 		sb.WriteString(")\n")

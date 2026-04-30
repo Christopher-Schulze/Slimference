@@ -155,17 +155,6 @@ func TestSignatureOnly_noBrace(t *testing.T) {
 	}
 }
 
-// TestItoa_negative verifies the negative-number branch of itoa.
-func TestItoa_negative(t *testing.T) {
-	t.Parallel()
-	if got := itoa(-7); got != "-7" {
-		t.Errorf("itoa(-7) = %q, want \"-7\"", got)
-	}
-	if got := itoa(-42); got != "-42" {
-		t.Errorf("itoa(-42) = %q, want \"-42\"", got)
-	}
-}
-
 // TestExtractFilepathFromToolResult_extended covers non-string and empty-string values.
 func TestExtractFilepathFromToolResult_extended(t *testing.T) {
 	t.Parallel()
@@ -191,7 +180,7 @@ func TestOptimizeCacheBreakpoints_emptyContentMessage(t *testing.T) {
 	t.Parallel()
 	big := strings.Repeat("x", 5000) // > minStablePrefixTokens
 	msgs := []types.Message{
-		{Role: "user", Content: nil},           // no content → skipped
+		{Role: "user", Content: nil}, // no content → skipped
 		{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: big}}},
 	}
 	out := OptimizeCacheBreakpoints(msgs, 2)

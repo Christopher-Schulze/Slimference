@@ -215,33 +215,6 @@ func TestTrimToLen_shorter(t *testing.T) {
 	}
 }
 
-// TestItoa_negative covers the negative number branch in itoa.
-func TestItoa_negative(t *testing.T) {
-	t.Parallel()
-	got := itoa(-42)
-	if got != "-42" {
-		t.Errorf("itoa(-42) = %q, want %q", got, "-42")
-	}
-}
-
-// TestItoa_zero covers the n==0 early return in itoa.
-func TestItoa_zero(t *testing.T) {
-	t.Parallel()
-	got := itoa(0)
-	if got != "0" {
-		t.Errorf("itoa(0) = %q, want %q", got, "0")
-	}
-}
-
-// TestItoa_positive covers a normal positive number in itoa.
-func TestItoa_positive(t *testing.T) {
-	t.Parallel()
-	got := itoa(123)
-	if got != "123" {
-		t.Errorf("itoa(123) = %q, want %q", got, "123")
-	}
-}
-
 // TestValidator_ErrorPreservationBelow50 covers the error preservation < 50% failure branch.
 func TestValidator_ErrorPreservationBelow50(t *testing.T) {
 	t.Parallel()

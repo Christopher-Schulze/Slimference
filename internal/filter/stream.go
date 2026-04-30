@@ -15,10 +15,10 @@ import (
 
 // StreamOptions configures the streaming-aware Layer 0 filter. T94.
 type StreamOptions struct {
-	WindowLines     int           // sliding window for dedup; default 200
-	FlushInterval   time.Duration // periodic flush; default 2s
-	StripANSI       bool          // strip ANSI escape codes
-	DedupConsecutive bool         // collapse consecutive identical lines
+	WindowLines      int           // sliding window for dedup; default 200
+	FlushInterval    time.Duration // periodic flush; default 2s
+	StripANSI        bool          // strip ANSI escape codes
+	DedupConsecutive bool          // collapse consecutive identical lines
 }
 
 // streamDefaults applies sensible fallbacks when caller leaves zero
@@ -66,8 +66,14 @@ func RunStreamingPipeline(ctx context.Context, argv []string, out io.Writer, opt
 	pump := newStreamPump(out, opts)
 	go pump.run(ctx, stdout)
 
-	waitErr := cmd.Wait()
+	// pump.wait() must finish BEFORE cmd.Wait(): cmd.Wait closes the
+	// stdout pipe right after the subprocess exits, and any reader
+	// still scanning the pipe at that point gets a short-read /
+	// EBADF and drops buffered output. By waiting for the pump to
+	// drain to EOF first, we guarantee scanner has consumed every
+	// byte before the OS rugs the pipe out from under it.
 	pump.wait()
+	waitErr := cmd.Wait()
 
 	return interpretExitError(waitErr)
 }
@@ -98,22 +104,31 @@ type streamPump struct {
 	repeat  int
 	pending []string
 	done    chan struct{}
+	started chan struct{}
 	wg      sync.WaitGroup
 }
 
 func newStreamPump(out io.Writer, opts StreamOptions) *streamPump {
 	opts.streamDefaults()
 	return &streamPump{
-		out:  out,
-		opts: opts,
-		done: make(chan struct{}),
+		out:     out,
+		opts:    opts,
+		done:    make(chan struct{}),
+		started: make(chan struct{}),
 	}
 }
 
 // run reads from r line-by-line and feeds the dedup/window logic.
 // Periodic flushes happen on FlushInterval; final flush on EOF.
+//
+// wg.Add(1) runs synchronously at the top of run() and `started` is
+// closed immediately after, so that a caller invoking p.wait() before
+// the goroutine has actually executed still blocks correctly. Without
+// the started gate, wait() would hit wg.Wait() with counter=0 and
+// return immediately, dropping output from a fast-exiting subprocess.
 func (p *streamPump) run(ctx context.Context, r io.Reader) {
 	p.wg.Add(1)
+	close(p.started)
 	defer p.wg.Done()
 
 	scanner := bufio.NewScanner(r)
@@ -214,5 +229,10 @@ func (p *streamPump) close() {
 
 // wait blocks until the pump goroutine has finished its final flush.
 func (p *streamPump) wait() {
+	// Wait for run() to have entered + executed wg.Add(1) before
+	// blocking on Wait. Otherwise a fast subprocess can finish before
+	// the runtime schedules the run goroutine, leaving wg counter at
+	// zero and dropping any buffered output.
+	<-p.started
 	p.wg.Wait()
 }

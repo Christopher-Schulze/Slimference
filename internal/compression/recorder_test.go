@@ -3,6 +3,7 @@ package compression
 import (
 	"errors"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
@@ -11,9 +12,9 @@ import (
 )
 
 type stubRecorder struct {
-	calls   []contentarchive.Input
-	id      string
-	err     error
+	calls []contentarchive.Input
+	id    string
+	err   error
 }
 
 func (s *stubRecorder) Record(input contentarchive.Input) (string, error) {
@@ -158,7 +159,7 @@ func TestCompressWithSession_PropagatesSessionID(t *testing.T) {
 
 	body := `{"items":[`
 	for i := 0; i < 200; i++ {
-		body += `{"k":"v","value":"line` + itoa(i) + `"},`
+		body += `{"k":"v","value":"line` + strconv.Itoa(i) + `"},`
 	}
 	body += `{"k":"v"}]}`
 	msgs := []types.Message{
@@ -194,7 +195,7 @@ func TestPreviewPass_StampsArchiveIDWhenRecorderActive(t *testing.T) {
 	// Build a JSON-shaped tool_result that StructurePreview will compress.
 	body := `{"items":[`
 	for i := 0; i < 200; i++ {
-		body += `{"k":"v","value":"line` + itoa(i) + `"},`
+		body += `{"k":"v","value":"line` + strconv.Itoa(i) + `"},`
 	}
 	body += `{"k":"v"}]}`
 	msgs := []types.Message{{

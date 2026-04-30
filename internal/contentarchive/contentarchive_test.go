@@ -406,6 +406,32 @@ func TestRecordReInject(t *testing.T) {
 	}
 }
 
+func TestRecordReInjectBatch_NoOpOnZero(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Put(dir, sampleInput(), Limits{}); err != nil {
+		t.Fatal(err)
+	}
+	stats0, _ := LoadStats(dir)
+	RecordReInjectBatch(dir, 0)
+	RecordReInjectBatch(dir, -5)
+	statsAfter, _ := LoadStats(dir)
+	if statsAfter.ReInjectCount != stats0.ReInjectCount {
+		t.Fatalf("zero/negative count must be no-op: %+v vs %+v", statsAfter, stats0)
+	}
+}
+
+func TestRecordReInjectBatch_AdvancesByN(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Put(dir, sampleInput(), Limits{}); err != nil {
+		t.Fatal(err)
+	}
+	RecordReInjectBatch(dir, 3)
+	stats, _ := LoadStats(dir)
+	if stats.ReInjectCount != 3 {
+		t.Fatalf("expected 3, got %d", stats.ReInjectCount)
+	}
+}
+
 func TestRecordReInject_LoadErrorSilent(t *testing.T) {
 
 	dir := t.TempDir()

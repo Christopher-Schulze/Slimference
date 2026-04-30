@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func largeJSONPayload() string {
 			sb.WriteString(",")
 		}
 		sb.WriteString(`"k`)
-		sb.WriteString(itoaLoop(i))
+		sb.WriteString(strconv.Itoa(i))
 		sb.WriteString(`":"`)
 		sb.WriteString(strings.Repeat("v", 200))
 		sb.WriteString(`"`)

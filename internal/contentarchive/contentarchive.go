@@ -22,12 +22,12 @@ import (
 )
 
 const (
-	statsFilename       = "stats.json"
-	defaultMaxEntries   = 5000
-	defaultMaxBytes     = int64(64 * 1024 * 1024)
-	previewByteLimit    = 600
-	uriScheme           = "local-archive://"
-	legacyURIScheme     = "slim://archive/"
+	statsFilename     = "stats.json"
+	defaultMaxEntries = 5000
+	defaultMaxBytes   = int64(64 * 1024 * 1024)
+	previewByteLimit  = 600
+	uriScheme         = "local-archive://"
+	legacyURIScheme   = "slim://archive/"
 )
 
 // Indirection points for tests so error paths can be exercised without
@@ -232,11 +232,21 @@ func Get(dir string, rawID string) (*Entry, []byte, error) {
 // effort: errors are silently swallowed because telemetry must never block
 // the hot path.
 func RecordReInject(dir string) {
+	RecordReInjectBatch(dir, 1)
+}
+
+// RecordReInjectBatch advances the re-injection counter by n in a single
+// read/write so callers that detect multiple URIs in one response do
+// not pay N file-I/O round trips.
+func RecordReInjectBatch(dir string, n int) {
+	if n <= 0 {
+		return
+	}
 	stats, err := LoadStats(dir)
 	if err != nil {
 		return
 	}
-	stats.ReInjectCount++
+	stats.ReInjectCount += n
 	stats.LastReInjected = time.Now().UTC()
 	_ = SaveStats(dir, stats)
 }

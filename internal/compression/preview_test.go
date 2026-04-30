@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestStructurePreview_json(t *testing.T) {
 			sb.WriteString(",")
 		}
 		sb.WriteString(`"k`)
-		sb.WriteString(itoaLoop(i))
+		sb.WriteString(strconv.Itoa(i))
 		sb.WriteString(`":"`)
 		sb.WriteString(strings.Repeat("v", 200))
 		sb.WriteString(`"`)
@@ -49,7 +50,7 @@ func TestStructurePreview_jsonArray(t *testing.T) {
 			sb.WriteString(",")
 		}
 		sb.WriteString(`{"id":`)
-		sb.WriteString(itoaLoop(i))
+		sb.WriteString(strconv.Itoa(i))
 		sb.WriteString(`,"data":"`)
 		sb.WriteString(strings.Repeat("x", 100))
 		sb.WriteString(`"}`)
@@ -73,7 +74,7 @@ func TestStructurePreview_paths(t *testing.T) {
 	for i := 0; i < 400; i++ {
 		sb.WriteString(dirs[i%len(dirs)])
 		sb.WriteString("/nested/deep/file_with_a_fairly_long_name_")
-		sb.WriteString(itoaLoop(i))
+		sb.WriteString(strconv.Itoa(i))
 		sb.WriteString(".go\n")
 	}
 	in := sb.String()

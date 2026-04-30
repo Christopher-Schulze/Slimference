@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestDetectOutputShape_jsonSampleTruncation(t *testing.T) {
 			sb.WriteString(",")
 		}
 		sb.WriteString("{\"a\":")
-		sb.WriteString(itoaLoop(i))
+		sb.WriteString(strconv.Itoa(i))
 		sb.WriteString(",\"pad\":\"")
 		sb.WriteString(strings.Repeat("p", 60))
 		sb.WriteString("\"}")
@@ -126,7 +127,7 @@ func TestPreviewJSON_outputExceedsCap(t *testing.T) {
 		}
 		sb.WriteString("\"")
 		sb.WriteString(strings.Repeat("k", 40))
-		sb.WriteString(itoaLoop(i))
+		sb.WriteString(strconv.Itoa(i))
 		sb.WriteString("\":\"")
 		sb.WriteString(strings.Repeat("v", 60))
 		sb.WriteString("\"")
@@ -185,8 +186,8 @@ func TestPreviewPaths_dirSortTiebreak(t *testing.T) {
 	var sb strings.Builder
 	// Equal counts for /z/ and /a/, /a/ must come first alphabetically.
 	for i := 0; i < 150; i++ {
-		sb.WriteString("/z/deep/path/file_" + itoaLoop(i) + ".go\n")
-		sb.WriteString("/a/deep/path/file_" + itoaLoop(i) + ".go\n")
+		sb.WriteString("/z/deep/path/file_" + strconv.Itoa(i) + ".go\n")
+		sb.WriteString("/a/deep/path/file_" + strconv.Itoa(i) + ".go\n")
 	}
 	out, ok := previewPaths(sb.String())
 	if !ok {
@@ -208,7 +209,7 @@ func TestPreviewPaths_moreThan10Dirs(t *testing.T) {
 	// preview of only the top 10 still triggers the ellipsis.
 	for i := 0; i < 25; i++ {
 		for j := 0; j < 10; j++ {
-			sb.WriteString("/dir_" + itoaLoop(i) + "/nested/deep/file_with_a_fairly_long_name_" + itoaLoop(j) + ".go\n")
+			sb.WriteString("/dir_" + strconv.Itoa(i) + "/nested/deep/file_with_a_fairly_long_name_" + strconv.Itoa(j) + ".go\n")
 		}
 	}
 	in := sb.String()
@@ -239,9 +240,9 @@ func TestPreviewPaths_outputCappedAt1500(t *testing.T) {
 	// 10 dirs are kept, but make dir names very long so the preview
 	// balloons. 10 lines of 200+ chars each = 2000+ chars.
 	for i := 0; i < 10; i++ {
-		bigDir := strings.Repeat("name_segment_", 20) + itoaLoop(i)
+		bigDir := strings.Repeat("name_segment_", 20) + strconv.Itoa(i)
 		for j := 0; j < 5; j++ {
-			sb.WriteString("/" + bigDir + "/file_" + itoaLoop(j) + ".go\n")
+			sb.WriteString("/" + bigDir + "/file_" + strconv.Itoa(j) + ".go\n")
 		}
 	}
 	in := sb.String()
