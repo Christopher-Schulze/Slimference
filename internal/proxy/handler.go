@@ -88,6 +88,13 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// T76 WP3: opportunistic re-injection. If any message text references
+	// a local-archive URI, expand the archived content back into the
+	// message before further processing. Best-effort: a missing or
+	// unreadable archive entry leaves the marker in place so the model
+	// still sees a stable reference rather than silently failing.
+	messages = p.reinjectArchivedContent(messages)
+
 	// Count original tokens before any compression.
 	origTokens := tokens.CountMessages(messages)
 	log.Debug("request started", "messages", len(messages), "orig_tokens", origTokens)
