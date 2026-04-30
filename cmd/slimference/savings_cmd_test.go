@@ -361,6 +361,32 @@ func TestComputeSavings_FilterDBPresent(t *testing.T) {
 	_ = computeSavings(cfg, "today", "", time.Now())
 }
 
+func TestHandleSubcommand_SavingsDispatch(t *testing.T) {
+	origStdout := os.Stdout
+	origCfg := configLoadFn
+	origPath := resolveFilterDBPathFn
+	defer func() {
+		os.Stdout = origStdout
+		configLoadFn = origCfg
+		resolveFilterDBPathFn = origPath
+	}()
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such.db", nil }
+
+	rp, wp, _ := os.Pipe()
+	os.Stdout = wp
+	handleSubcommand([]string{"savings", "today"})
+	_ = wp.Close()
+	os.Stdout = origStdout
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !strings.Contains(buf.String(), "Slimference savings") {
+		t.Fatalf("dispatcher savings output: %q", buf.String())
+	}
+}
+
 func TestComputeSavings_AllPeriodsAggregateHistorical(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
