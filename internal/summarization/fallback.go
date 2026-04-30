@@ -13,12 +13,51 @@ type Summarizer interface {
 	Summarize(ctx context.Context, inputText string, startMsg, endMsg, targetTokens int) (string, error)
 }
 
+// CapabilityProvider is an optional capability surface a Summarizer can
+// expose. The FallbackChain consults it when require_deterministic is
+// on so providers that don't advertise greedy decoding + seed support
+// are skipped instead of producing non-reproducible summaries (T88).
+type CapabilityProvider interface {
+	Capabilities() capProvider
+}
+
 // FallbackChain tries multiple Summarizer providers in priority order.
 // If the primary provider fails (error or unconfigured), it falls back to the next.
 // If all providers fail, it returns the last error.
 type FallbackChain struct {
-	mu        sync.RWMutex
-	providers []Summarizer
+	mu                   sync.RWMutex
+	providers            []Summarizer
+	requireDeterministic bool
+}
+
+// SetRequireDeterministic toggles strict-determinism filtering for the
+// chain. When on, providers whose CapabilityProvider does not advertise
+// `SupportsTemperatureZero=true && SupportsSeed=true` are skipped.
+// Providers without a CapabilityProvider implementation are treated as
+// non-deterministic and skipped under strict mode. T88.
+func (fc *FallbackChain) SetRequireDeterministic(on bool) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	fc.requireDeterministic = on
+}
+
+// RequireDeterministic returns the current strict-determinism flag.
+func (fc *FallbackChain) RequireDeterministic() bool {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+	return fc.requireDeterministic
+}
+
+// IsDeterministic reports whether p meets the strict-determinism bar
+// (greedy decoding + seed). Providers without CapabilityProvider count
+// as non-deterministic. T88.
+func IsDeterministic(p Summarizer) bool {
+	cp, ok := p.(CapabilityProvider)
+	if !ok {
+		return false
+	}
+	caps := cp.Capabilities()
+	return caps.SupportsTemperatureZero && caps.SupportsSeed
 }
 
 // NewFallbackChain creates a chain with the given providers in priority order.
@@ -53,6 +92,11 @@ func (fc *FallbackChain) Summarize(ctx context.Context, inputText string, startM
 		}
 		if !p.IsConfigured() {
 			slog.Debug("summarizer not configured, skipping", "provider", p.Name())
+			continue
+		}
+		if fc.requireDeterministic && !IsDeterministic(p) {
+			slog.Debug("summarizer skipped under require_deterministic",
+				"provider", p.Name())
 			continue
 		}
 

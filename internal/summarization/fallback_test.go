@@ -215,3 +215,86 @@ func TestMiniMaxClient_implementsSummarizer(t *testing.T) {
 	cfg := config.Defaults().Compression
 	var _ Summarizer = NewMiniMaxClient(cfg.MiniMax)
 }
+
+// determStub implements Summarizer + CapabilityProvider with a
+// configurable capability profile so the require_deterministic gate
+// can be exercised without booting a real MiniMax client. T88.
+type determStub struct {
+	stubSummarizer
+	caps capProvider
+}
+
+func (d *determStub) Capabilities() capProvider { return d.caps }
+
+func TestFallbackChain_RequireDeterministic_RoundTrip(t *testing.T) {
+	t.Parallel()
+	chain := NewFallbackChain()
+	if chain.RequireDeterministic() {
+		t.Fatal("default must be off")
+	}
+	chain.SetRequireDeterministic(true)
+	if !chain.RequireDeterministic() {
+		t.Fatal("toggle did not stick")
+	}
+}
+
+func TestIsDeterministic_NoCapabilityProvider(t *testing.T) {
+	t.Parallel()
+	plain := &stubSummarizer{name: "plain", configured: true}
+	if IsDeterministic(plain) {
+		t.Fatal("provider without CapabilityProvider must count as non-deterministic")
+	}
+}
+
+func TestIsDeterministic_NeedsBothLevers(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		caps capProvider
+		want bool
+	}{
+		{"both", capProvider{SupportsSeed: true, SupportsTemperatureZero: true}, true},
+		{"seed only", capProvider{SupportsSeed: true}, false},
+		{"temp only", capProvider{SupportsTemperatureZero: true}, false},
+		{"neither", capProvider{}, false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := &determStub{stubSummarizer: stubSummarizer{name: "d", configured: true}, caps: tc.caps}
+			if got := IsDeterministic(d); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFallbackChain_RequireDeterministic_SkipsIncapable(t *testing.T) {
+	t.Parallel()
+	weak := &determStub{stubSummarizer: stubSummarizer{name: "weak", configured: true, result: "x"}, caps: capProvider{}}
+	strong := &determStub{stubSummarizer: stubSummarizer{name: "strong", configured: true, result: "- determ summary line\n"}, caps: capProvider{SupportsSeed: true, SupportsTemperatureZero: true}}
+	chain := NewFallbackChain(weak, strong)
+	chain.SetRequireDeterministic(true)
+	_, name, err := chain.Summarize(context.Background(), "in", 0, 5, 100)
+	if err != nil {
+		t.Fatalf("strict deterministic chain must still succeed: %v", err)
+	}
+	if name != "strong" {
+		t.Fatalf("expected strong, got %s", name)
+	}
+	if weak.callCount != 0 {
+		t.Fatalf("weak must be skipped, calls=%d", weak.callCount)
+	}
+}
+
+func TestFallbackChain_RequireDeterministic_AllSkipped(t *testing.T) {
+	t.Parallel()
+	weak1 := &determStub{stubSummarizer: stubSummarizer{name: "w1", configured: true}, caps: capProvider{}}
+	weak2 := &determStub{stubSummarizer: stubSummarizer{name: "w2", configured: true}, caps: capProvider{SupportsSeed: true}}
+	chain := NewFallbackChain(weak1, weak2)
+	chain.SetRequireDeterministic(true)
+	if _, _, err := chain.Summarize(context.Background(), "in", 0, 5, 100); err == nil {
+		t.Fatal("expected error when all providers skipped")
+	}
+}

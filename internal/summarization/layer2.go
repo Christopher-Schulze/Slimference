@@ -30,11 +30,15 @@ type Layer2 struct {
 
 func NewLayer2(cfg *config.CompressionConfig) *Layer2 {
 	mm := NewMiniMaxClient(cfg.MiniMax)
+	// MiniMax is reliably greedy at temperature=0; mark the capability
+	// so require_deterministic gates can evaluate it correctly. T88.
 	mm.SetCapabilities(capProvider{
 		SupportsSeed:                cfg.MiniMax.EnableSeed,
 		SupportsMinCompletionTokens: cfg.MiniMax.EnableMinTokens,
+		SupportsTemperatureZero:     true,
 	})
 	chain := NewFallbackChain(mm)
+	chain.SetRequireDeterministic(cfg.Summary.RequireDeterministic)
 	return &Layer2{
 		cfg:       cfg,
 		chain:     chain,

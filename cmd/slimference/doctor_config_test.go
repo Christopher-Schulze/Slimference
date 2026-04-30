@@ -90,6 +90,70 @@ func TestHandleSubcommand_doctor_failingChecks(t *testing.T) {
 	}
 }
 
+// TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOff covers
+// the T88 doctor warning when require_deterministic is on but
+// enable_seed is off (main.go::handleDoctorCmd Determinism gate
+// branch FAIL).
+func TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOff(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
+	body := []byte(`[compression.summary]
+require_deterministic = true
+[compression.minimax]
+enable_seed = false
+`)
+	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Determinism gate") || !strings.Contains(out, "MiniMax will be skipped") {
+		t.Fatalf("expected determinism gate FAIL line, got: %s", out)
+	}
+}
+
+// TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOn covers
+// the success branch of the T88 determinism gate.
+func TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOn(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
+	body := []byte(`[compression.summary]
+require_deterministic = true
+[compression.minimax]
+enable_seed = true
+`)
+	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Determinism gate") || !strings.Contains(out, "temperature=0 + seed") {
+		t.Fatalf("expected determinism gate OK line, got: %s", out)
+	}
+}
+
 // TestHandleSubcommand_doctor_configFileMissingBranch covers the
 // "not found at ... (using defaults)" branch in the Config file check (main.go:604-606).
 // We override HOME so DefaultConfigPath returns a non-existent file.

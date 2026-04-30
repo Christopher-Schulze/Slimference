@@ -521,6 +521,10 @@ type MiniMaxClient struct {
 type capProvider struct {
 	SupportsSeed                bool
 	SupportsMinCompletionTokens bool
+	// SupportsTemperatureZero records whether the provider is reliably
+	// greedy at temperature=0. Read by the FallbackChain when
+	// require_deterministic is on. T88 follow-up.
+	SupportsTemperatureZero bool
 }
 
 // SetCapabilities overrides the capability profile for this client.

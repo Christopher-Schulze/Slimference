@@ -1,6 +1,6 @@
 # TASK 88: Seed-aware request building + provider capability map
 
-Status: partial - capability struct + registry landed; seed wiring deferred
+Status: SHIPPED 2026-04-30 — capability struct + registry + seed/min_tokens wiring + require_deterministic chain skip + doctor warning all live.
 Priority: P2
 Scope: `internal/summarization/`, `internal/config/`, `internal/types/`
 Driver: `temperature=0` is set on MiniMax for determinism, but seed is missing. Other OpenAI-style providers in the FallbackChain are not deterministic without `seed`, so a future fallback to OpenAI would silently break reproducibility.
@@ -38,11 +38,11 @@ Determinism is currently assumed because temperature is forced to 0. That is eno
 
 ## Acceptance Criteria
 
-- [ ] Capability map is the only place that declares per-provider determinism levers.
-- [ ] Seed is set per-session for providers that support it.
-- [ ] `require_deterministic=true` causes the chain to skip incapable providers.
-- [ ] `slimference doctor` warns when the active provider lacks required levers.
-- [ ] Coverage 100%; race tests green.
+- [x] Capability map is the only place that declares per-provider determinism levers (`internal/types/provider_caps.go`).
+- [x] Seed is set per-session for providers that support it (T91 + T88 wire-up commit `eec9ec6`).
+- [x] `require_deterministic=true` causes the chain to skip incapable providers (`FallbackChain.SetRequireDeterministic`, `IsDeterministic`).
+- [x] `slimference doctor` warns when the active provider lacks required levers (Determinism gate check).
+- [x] Coverage 100%; race tests green.
 
 ## Out of Scope
 

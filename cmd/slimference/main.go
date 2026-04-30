@@ -1297,6 +1297,20 @@ func handleDoctorCmd() {
 		})
 	}
 
+	check("Determinism gate", func() (string, bool) {
+		if !cfg.Compression.Summary.RequireDeterministic {
+			return "off (no strict-determinism check)", true
+		}
+		// Strict mode: MiniMax is the only deterministic provider in
+		// the chain today. Warn loudly when EnableSeed is off because
+		// the MiniMax client will not emit `seed` and a future
+		// fallback would silently break reproducibility.
+		if !cfg.Compression.MiniMax.EnableSeed {
+			return "require_deterministic=on but [compression.minimax] enable_seed=false - MiniMax will be skipped", false
+		}
+		return "on (MiniMax: temperature=0 + seed)", true
+	})
+
 	check("Prompt override", func() (string, bool) {
 		if cfg.Compression.PromptOverridePath == "" {
 			return "default (no override path configured)", true

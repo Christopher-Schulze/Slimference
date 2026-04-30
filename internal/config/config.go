@@ -296,6 +296,12 @@ type SummaryConfig struct {
 	MaxRatio    float64 `toml:"max_ratio"`
 	MinRatio    float64 `toml:"min_ratio"`
 	Strict      bool    `toml:"strict"`
+	// RequireDeterministic (T88) gates the FallbackChain on
+	// strict-determinism capabilities. When on, providers whose
+	// capability map does not advertise SupportsTemperatureZero +
+	// SupportsSeed are skipped. Default off so legacy MiniMax-only
+	// chains keep working.
+	RequireDeterministic bool `toml:"require_deterministic"`
 }
 
 // CacheConfig controls response caching behaviour.

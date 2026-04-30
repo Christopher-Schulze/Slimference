@@ -179,6 +179,11 @@ mode = "balanced"
 # max_ratio = 0.40
 # min_ratio = 0.05
 # strict = true
+# T88: require_deterministic skips chain providers that do not advertise
+# both temperature=0 + seed support. Default off; turn on (alongside
+# [compression.minimax] enable_seed = true) before adding a second
+# OpenAI-style fallback whose determinism is unverified.
+require_deterministic = false
 
 [compression.tuning]
 # Incremental-summary overlap threshold: if an existing summary covers at
