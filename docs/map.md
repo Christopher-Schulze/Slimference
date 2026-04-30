@@ -259,11 +259,48 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 | Codex smoke gate fixture + schema    | `tests/fixtures/codex/codex-metadata.json`            | T75  |
 | Codex smoke gate ci step             | `scripts/ci/main.go::defaultSteps[4]`                 | T75  |
 
+## Strategic Improvement Program Additions (T76-T108)
+
+### New or extended packages
+
+| Area                                  | Path / symbol                                          | Task |
+|---------------------------------------|--------------------------------------------------------|------|
+| Reversibility content archive         | `internal/contentarchive/`                             | T76  |
+| MutationRecorder + DiskRecorder       | `internal/compression/recorder.go`                     | T76  |
+| Opportunistic re-injection            | `internal/proxy/reinject.go`                           | T76 WP3 |
+| Quality calibration signals           | `internal/quality/`                                    | T77  |
+| Provider response-state store         | `internal/sessions/response_state.go`                  | T78  |
+| `slimference watch` live ticker       | `cmd/slimference/watch_cmd.go`                         | T79  |
+| Unified `slimference savings`         | `cmd/slimference/savings_cmd.go`                       | T80  |
+| Duration + next-request bypass        | `internal/proxy/proxy.go::SetBypassFor*`               | T81  |
+| `slimference compress-preview`        | `cmd/slimference/preview_cmd.go` + `internal/proxy/preview.go` | T82  |
+| Provider degradation composite flag   | `internal/proxy/health_monitor.go::anyDegraded`        | T83  |
+| Drain-timeout knob                    | `internal/proxy/handler.go::applyDrainTimeout`         | T85  |
+| Configurable system prompt            | `internal/summarization/minimax.go::LoadPromptOverrideFromPath` | T86 |
+| Multi-stack few-shot picker           | `internal/summarization/minimax.go::pickExampleLang`   | T87  |
+| Provider capability registry          | `internal/types/provider_caps.go`                      | T88  |
+| 12-family CoT stripper                | `internal/summarization/minimax.go::StripCoTTags`      | T89  |
+| Deterministic summary repair          | `internal/summarization/repair.go`                     | T90  |
+| Lineage markers + telemetry           | `internal/summarization/minimax.go::RecordLineageStats`| T92  |
+| Posttool repetition store             | `internal/repetition/`                                 | T93  |
+| Streaming Layer-0 filter pump         | `internal/filter/stream.go`                            | T94  |
+| Per-session ContentIndex namespace    | `internal/compression/dedup.go::CheckAndRecordForSession` | T96/T107 |
+| Comment-strip whitelist               | `internal/compression/comment_strip.go::isWhitelistedComment` | T98 |
+| L1/L2 cross-direction coordinator     | `internal/compression/layer1.go::SetCoordinatorSubsume`| T100 |
+| Cache age histogram                   | `internal/caching/response_cache.go::AgeSnapshot`      | T102 |
+| Tool-definition usage tracker         | `internal/toolprune/`                                  | T103 |
+
 ### Admin surface additions (`/admin/status`)
 
-| JSON key            | Shape                           | Task |
-|---------------------|---------------------------------|------|
-| `analytics_queue`   | capacity / depth / totals       | T42  |
-| `prompt_cache`      | breakpoints injected total      | T45  |
-| `pipeline`          | phase snapshots (p50/p95/max)   | T58  |
-| `anthropic_version` | supported / behavior / unknown  | T62  |
+| JSON key                  | Shape                                          | Task |
+|---------------------------|------------------------------------------------|------|
+| `analytics_queue`         | capacity / depth / totals                      | T42  |
+| `prompt_cache`            | breakpoints injected total                     | T45  |
+| `pipeline`                | phase snapshots (p50/p95/max)                  | T58  |
+| `anthropic_version`       | supported / behavior / unknown                 | T62  |
+| `content_archive`         | entries / bytes / re_inject_count / evictions  | T76  |
+| `quality`                 | reread / cache_miss_spike / net_savings        | T77  |
+| `cache_age`               | count / p50 / p95 / p99 / max ms               | T102 |
+| `summarization`           | prompt version / examples / CoT / lineage / repair | T86/T87/T89/T90/T92 |
+| `coordinator`             | enabled flag + skipped_total                   | T100 |
+| `any_provider_degraded`   | composite degradation flag                     | T83  |

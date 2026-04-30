@@ -410,6 +410,55 @@ the same Layer 1-3 compression path:
 - Rebuild preserves body-level fields such as `conversation_id`, `metadata`,
   `stream`, and `store`, plus auth/session headers in the forwarded request.
 
+### Reversibility-by-default (T76)
+
+Layer 1 archives original block content via `internal/contentarchive`
+before any lossy mutation; the rewritten block carries an `archive_id`
+reference and the proxy opportunistically re-injects archived content
+when a follow-up request quotes a `local-archive://<id>` URI. T76
+lets `structure_preview` ship default-on (T74 risk closed) and
+unblocks T100 cross-direction coordinator + T103 tool-definition
+pruning. Telemetry: `/admin/status.content_archive`.
+
+### Quality calibration loop (T77)
+
+Three lightweight signals run alongside existing analytics, none of
+them require an LLM round-trip: a per-session re-read detector, a
+rolling prompt-cache hit-ratio drop alarm, and a net-savings tally
+that subtracts an estimate of cache-invalidation cost from raw
+savings. Surfaced via `/admin/status.quality`.
+
+### Cross-direction L1/L2 coordinator (T100)
+
+`[compression.tuning] coordinator_enabled` lets Layer 1 skip heavy
+sub-layers on the prefix that Layer 2 will summarise. Cheap passes
+(ANSI strip, JSON compact) always run. Default off until corpus data
+validates the trade-off. Skipped-block counter at
+`/admin/status.coordinator.skipped_total`.
+
+### Configurable system prompt (T86 + T87 + T92)
+
+`[compression] prompt_override_path` points at a file whose contents
+replace the compile-time MiniMax system-prompt header. Optional
+`# version: <tag>` line is recorded in
+`/admin/status.summarization.active_prompt_version`. The few-shot
+example block rotates per request (Go / Python / TypeScript) based
+on the input transcript (T87). Every bullet must end with a
+`[msg:N]` lineage marker (T92); compliance rate is exposed at
+`/admin/status.summarization.lineage_marker_rate`.
+
+### Robust CoT stripping + deterministic repair (T89 + T90)
+
+`StripCoTTags` removes the canonical 12-family reasoner-tag set
+(`<think>`, `<thinking>`, `<reasoning>`, `<reason>`, `<analysis>`,
+`<scratchpad>`, `<reflection>`, `<plan>`,
+`<chain_of_thought>` / `<chain-of-thought>`, `<inner_thought>`,
+`<inner_monologue>`) at fixed-point. When the validator rejects a
+summary, deterministic repair (header strip, `*` / `1.` -> `- `
+normalisation, preamble trim) runs before paying for a retry call.
+Counters at `/admin/status.summarization.cot_tag_counts` and
+`.repair_*_total`.
+
 ### Codex evidence corpus and regression gate (T75)
 
 `tests/fixtures/codex/` is the checked-in Codex evidence corpus directory:
@@ -861,6 +910,10 @@ slimference help [subcommand]
 | `hook`        | install, remove, verify, status, check-upstream (manual hook mgmt).    |
 | `gain`        | Report Layer-0 filter savings (today/week/month/all; --json / --csv).  |
 | `stats`       | Analytics snapshots (today/week/month/prompt-cache).                   |
+| `savings`     | Unified savings view (L0 + L1/2 + L3) per period; --json / --csv (T80).|
+| `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |
+| `watch`       | Live ticker against /admin/status; Ctrl-C to stop (T79).               |
+| `filter --stream` | Streaming-aware Layer-0 wrapper for `tail -f` style inputs (T94).  |
 | `debug`       | paths, last, summary, tail, replay.                                    |
 | `config`      | init, show.                                                            |
 | `test`        | minimax, anthropic, openai, intercept.                                 |
