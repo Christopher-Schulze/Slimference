@@ -12,6 +12,7 @@ import (
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/quality"
+	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/types"
@@ -152,6 +153,8 @@ type AdminStatus struct {
 	Bypass            bool                                `json:"bypass"`
 	Quality           quality.QualitySnapshot             `json:"quality"`
 	AnyDegraded       bool                                `json:"any_provider_degraded"`
+	Summarization     SummarizationTelemetry              `json:"summarization"`
+	Coordinator       CoordinatorStats                    `json:"coordinator"`
 }
 
 // AnthropicVersionStats reports T62 version-negotiation telemetry.
@@ -164,6 +167,29 @@ type AnthropicVersionStats struct {
 // PromptCacheStats reports cumulative prompt-cache breakpoint telemetry (T45).
 type PromptCacheStats struct {
 	BreakpointsInjectedTotal int64 `json:"breakpoints_injected_total"`
+}
+
+// SummarizationTelemetry exposes the in-memory counters from
+// internal/summarization. T87/T89/T92 wired into one block so the
+// operator can see per-stack picker distribution, CoT-strip activity,
+// and per-bullet lineage-marker compliance in a single GET.
+type SummarizationTelemetry struct {
+	ActivePromptVersion       string           `json:"active_prompt_version"`
+	ExamplePromptDistribution map[string]int64 `json:"example_prompt_distribution"`
+	CoTTagCounts              map[string]int64 `json:"cot_tag_counts"`
+	LineageMarkerRate         float64          `json:"lineage_marker_rate"`
+	LineageMarkerMarked       int64            `json:"lineage_marker_marked"`
+	LineageMarkerTotal        int64            `json:"lineage_marker_total"`
+	RepairDeterministic       int64            `json:"repair_deterministic_total"`
+	RepairBulletNormalised    int64            `json:"repair_bullet_normalised_total"`
+	RepairPreambleTrimmed     int64            `json:"repair_preamble_trimmed_total"`
+	RepairHeaderStripped      int64            `json:"repair_header_stripped_total"`
+}
+
+// CoordinatorStats exposes T100 coordinator skip counters.
+type CoordinatorStats struct {
+	Enabled    bool `json:"enabled"`
+	SkippedTotal int  `json:"skipped_total"`
 }
 
 type AdminToggleProviderRequest struct {
@@ -299,6 +325,26 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		},
 		Bypass:  p.Bypass(),
 		Quality: p.QualitySnapshot(),
+		Summarization: func() SummarizationTelemetry {
+			marked, total := summarization.LineageMarkerCounts()
+			detTotal, normalised, preamble, headers := summarization.RepairCounts()
+			return SummarizationTelemetry{
+				ActivePromptVersion:       summarization.PromptVersion(),
+				ExamplePromptDistribution: summarization.ExamplePromptCounts(),
+				CoTTagCounts:              summarization.CoTTagCounts(),
+				LineageMarkerRate:         summarization.LineageMarkerRate(),
+				LineageMarkerMarked:       marked,
+				LineageMarkerTotal:        total,
+				RepairDeterministic:       detTotal,
+				RepairBulletNormalised:    normalised,
+				RepairPreambleTrimmed:     preamble,
+				RepairHeaderStripped:      headers,
+			}
+		}(),
+		Coordinator: CoordinatorStats{
+			Enabled:      p.config.Compression.Tuning.CoordinatorEnabled,
+			SkippedTotal: p.layer1.CoordinatorSkipped(),
+		},
 	}
 }
 
