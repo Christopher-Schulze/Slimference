@@ -317,22 +317,30 @@ func (c *DeterministicCompressor) compressMessage(
 		text := StripANSICodes(origText)
 		if len(text) < len(origText) {
 			ansiSaved += len(origText) - len(text)
+			// ansi_strip is intentionally NOT recorded in
+			// appliedSubLayers because it is treated as a
+			// non-lossy normalisation by ansiOnlyChange below.
 		}
 
 		// L1.1/L1.2: JSON compact OR comment strip (mutually exclusive).
 		// Skipped for pre-filtered content (already compact, mangling risk).
 		jsonCompacted := false
+		// T76b: pre-stage attribution carries forward into the post-dedup
+		// stage's appliedSubLayers slice via this temporary list.
+		var earlySubLayers []string
 		if !preFiltered {
 			if compacted, saved := compactJSONContent(text); saved > 0 {
 				text = compacted
 				jsonSaved += saved
 				jsonCompacted = true
+				earlySubLayers = append(earlySubLayers, "json_compact")
 			} else {
 				lang := c.detectLanguage(block, text)
 				if lang != "" {
 					if stripped := StripComments(text, lang); len(stripped) < len(text) {
 						commentSaved += len(text) - len(stripped)
 						text = stripped
+						earlySubLayers = append(earlySubLayers, "comment_strip")
 						slog.Debug("comment_strip applied",
 							slog.String("lang", lang),
 							slog.Int("msg_idx", msgIdx),
@@ -375,14 +383,21 @@ func (c *DeterministicCompressor) compressMessage(
 		// the global namespace is used, preserving historical behaviour.
 		exactDupe, nearDupe, firstIdx := c.contentIndex.CheckAndRecordForSession(c.activeSessionID, text, msgIdx, threshold)
 		textTransformed := false // tracks whether delta/structure already rewrote text
+		// T76b: track which sub-layers actually mutated this block so the
+		// archive entry's sub_layer tag identifies the culprit (or the
+		// chain) instead of the generic "layer1". Carries forward the
+		// json_compact / comment_strip attribution from the early stage.
+		appliedSubLayers := append([]string(nil), earlySubLayers...)
 		if exactDupe {
 			dedupSaved += len(text)
 			text = formatDupeReference(firstIdx, msgIdx)
 			msg.Metadata.WasDeduped = true
+			appliedSubLayers = append(appliedSubLayers, "dedup")
 		} else if nearDupe {
 			dedupSaved += len(text)
 			text = formatNearDupeReference(firstIdx, msgIdx)
 			msg.Metadata.WasDeduped = true
+			appliedSubLayers = append(appliedSubLayers, "dedup")
 		} else if !jsonCompacted && !preFiltered {
 			// L1.4: Structure extraction (skipped for pre-filtered content).
 			lang := c.detectLanguage(block, text)
@@ -394,6 +409,7 @@ func (c *DeterministicCompressor) compressMessage(
 						text = summary
 						textTransformed = true
 						msg.Metadata.WasStructured = true
+						appliedSubLayers = append(appliedSubLayers, "structure_extract")
 						slog.Debug("structure_extract applied",
 							slog.String("lang", lang),
 							slog.Int("msg_idx", msgIdx),
@@ -414,6 +430,7 @@ func (c *DeterministicCompressor) compressMessage(
 					header := formatDeltaHeader(toolKey, prevIdx, msgIdx)
 					text = header + delta
 					textTransformed = true
+					appliedSubLayers = append(appliedSubLayers, "delta")
 					slog.Debug("delta applied",
 						slog.String("key", toolKey),
 						slog.Int("prev_msg_idx", prevIdx),
@@ -434,6 +451,7 @@ func (c *DeterministicCompressor) compressMessage(
 				if compressed := compressToolOutput(toolType, text, messageAge, c.cfg.SlidingWindow); len(compressed) < len(text) {
 					toolSaved += len(text) - len(compressed)
 					text = compressed
+					appliedSubLayers = append(appliedSubLayers, "tool_compressor")
 					slog.Debug("tool_compressor applied",
 						slog.Int("tool_type", int(toolType)),
 						slog.Int("msg_idx", msgIdx),
@@ -447,6 +465,7 @@ func (c *DeterministicCompressor) compressMessage(
 		if t2, ok := MaybeSuccessShortCircuit(text); ok {
 			successShortSaved += len(text) - len(t2)
 			text = t2
+			appliedSubLayers = append(appliedSubLayers, "success_short_circuit")
 		}
 
 		// L1.11: Inline base64 image data in tool_result text
@@ -462,6 +481,7 @@ func (c *DeterministicCompressor) compressMessage(
 			if imgSaved > 0 {
 				text = updated.Text
 				imageSaved += imgSaved
+				appliedSubLayers = append(appliedSubLayers, "image_replace")
 			}
 		}
 
@@ -473,7 +493,13 @@ func (c *DeterministicCompressor) compressMessage(
 			// of escape codes; archiving only fires when content beyond
 			// ANSI was modified.
 			if !ansiOnlyChange(origText, text) {
-				if id := c.archiveOriginal(msgIdx, bi, "layer1", origText); id != "" {
+				// T76b: emit a comma-joined sub_layer tag listing every
+				// pass that actually mutated this block. Falls back to
+				// "layer1" if nothing tagged itself (preserves coarse
+				// attribution from before T76b for unattributed paths
+				// like comment_strip / json_compact done above).
+				tag := joinSubLayers(appliedSubLayers)
+				if id := c.archiveOriginal(msgIdx, bi, tag, origText); id != "" {
 					newContent[bi].ArchiveID = id
 				}
 			}
@@ -493,6 +519,25 @@ func (c *DeterministicCompressor) compressMessage(
 func ansiOnlyChange(original, final string) bool {
 	stripped := StripANSICodes(original)
 	return stripped == final
+}
+
+// joinSubLayers returns a comma-joined sub_layer tag for the archive
+// entry (T76b). Empty input falls back to "layer1" to preserve the
+// coarse attribution behaviour from before T76b for paths that do
+// not list themselves (e.g. early ANSI-only-then-coordinator-skip
+// hand-offs).
+func joinSubLayers(layers []string) string {
+	if len(layers) == 0 {
+		return "layer1"
+	}
+	if len(layers) == 1 {
+		return layers[0]
+	}
+	out := layers[0]
+	for _, l := range layers[1:] {
+		out += "," + l
+	}
+	return out
 }
 
 // Reset resets all stateful sub-components. Call on cache flush.

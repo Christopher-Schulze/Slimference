@@ -1,6 +1,6 @@
 # TASK 76: Reversibility-by-default for lossy Layer 1 operations
 
-Status: partial - WP1 / WP2(coarse) / WP4 / WP5 done; WP2(per-sub-layer) and WP3 deferred
+Status: partial - WP1 / WP2(coarse + per-sub-layer attribution) / WP4 / WP5 done; WP3 (opportunistic re-injection) tracked as T76c
 Priority: P0
 Scope: `internal/compression/`, `internal/toolarchive/`, `internal/proxy/handler.go`, `internal/types/types.go`, `cmd/slimference/checkpoint_cmd.go`
 Driver: T74 had to flip `structure_preview` back to default-off because preview-time content cannot be recovered. The same risk applies to dedup, comment-strip, JSON-compact, repeated-collapse, image-replace, and structure-extract. Without an archive layer behind every lossy operation, no aggressive mode can be safely default-on, no quality calibration loop is possible, and tool-definition pruning (T103) cannot be built.
