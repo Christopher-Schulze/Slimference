@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -114,6 +115,18 @@ type Proxy struct {
 	// --next-request[=N]` sets this; each matched request decrements
 	// it. When it reaches zero, bypass turns off.
 	bypassNextRequestCount atomic.Int64
+	// bypassToolsMu / bypassTools (T81 follow-up): per-tool bypass set.
+	// When a request's last user-turn tool_result names a bypassed tool,
+	// the request is forwarded byte-equal. Empty set means the per-tool
+	// gate is off; the global bypass overrides this set.
+	bypassToolsMu sync.RWMutex
+	bypassTools   map[string]struct{}
+	// bypassRoutesMu / bypassRoutes (T81 follow-up): per-route bypass set.
+	// Matched against r.URL.Path with exact equality so an operator can
+	// disable compression on `/v1/messages` while leaving `/v1/chat/
+	// completions` compressed (e.g. for staged rollouts).
+	bypassRoutesMu sync.RWMutex
+	bypassRoutes   map[string]struct{}
 	// toolPrune holds the per-session tool-usage tracker (T103). Always
 	// constructed; the actual prune-decision wiring is gated by
 	// [compression.tuning] tool_prune_enabled.
@@ -454,11 +467,56 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// T81 follow-up: per-route bypass. The path-equality check is
+	// cheap enough to run before message extraction so we save the
+	// compression CPU on routes the operator has explicitly carved
+	// out (e.g. for staged rollouts).
+	if p.IsRouteBypassed(r.URL.Path) {
+		p.handlePassthrough(w, r, provider, body)
+		return
+	}
+
+	// T81 follow-up: per-tool bypass. Route through passthrough when
+	// the request's last user turn carries a tool_result whose tool
+	// is in the bypass set. Cheap byte-scan that avoids parsing the
+	// full body when the set is empty.
+	if p.hasBypassedTool(body) {
+		p.handlePassthrough(w, r, provider, body)
+		return
+	}
+
 	// Attach original body to context for retry-on-overflow fallback.
 	ctx := context.WithValue(r.Context(), origBodyKey{}, body)
 	r = r.WithContext(ctx)
 
 	p.handleCompressibleRequest(w, r, provider, body)
+}
+
+// hasBypassedTool reports whether the request body references a tool
+// from the per-tool bypass set. Returns false fast when the set is
+// empty so the hot-path overhead is one map-load. T81 follow-up.
+func (p *Proxy) hasBypassedTool(body []byte) bool {
+	p.bypassToolsMu.RLock()
+	if len(p.bypassTools) == 0 {
+		p.bypassToolsMu.RUnlock()
+		return false
+	}
+	tools := make([]string, 0, len(p.bypassTools))
+	for t := range p.bypassTools {
+		tools = append(tools, t)
+	}
+	p.bypassToolsMu.RUnlock()
+	bodyStr := string(body)
+	for _, tool := range tools {
+		// Both Anthropic (`"name":"X"`) and OpenAI/Codex
+		// (`"function":{"name":"X"}` or top-level `"name":"X"`)
+		// shapes carry the tool name as `"name":"<tool>"` in JSON.
+		needle := `"name":"` + tool + `"`
+		if strings.Contains(bodyStr, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // isCompressiblePath returns true for the endpoints that support message compression.
@@ -621,6 +679,98 @@ func (p *Proxy) BypassExpiresAt() time.Time {
 // auto-reverts since process start. T81 telemetry.
 func (p *Proxy) BypassAutoRevertCount() int64 {
 	return p.bypassAutoRevertCount.Load()
+}
+
+// SetBypassedTools replaces the per-tool bypass set. An empty list
+// disables the per-tool gate. T81 follow-up.
+func (p *Proxy) SetBypassedTools(tools []string) {
+	p.bypassToolsMu.Lock()
+	defer p.bypassToolsMu.Unlock()
+	if len(tools) == 0 {
+		p.bypassTools = nil
+		return
+	}
+	p.bypassTools = make(map[string]struct{}, len(tools))
+	for _, t := range tools {
+		if t == "" {
+			continue
+		}
+		p.bypassTools[t] = struct{}{}
+	}
+}
+
+// BypassedTools returns the current per-tool bypass set as a sorted
+// slice. T81 follow-up telemetry.
+func (p *Proxy) BypassedTools() []string {
+	p.bypassToolsMu.RLock()
+	defer p.bypassToolsMu.RUnlock()
+	if len(p.bypassTools) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(p.bypassTools))
+	for t := range p.bypassTools {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// IsToolBypassed reports whether the named tool is in the per-tool
+// bypass set. T81 follow-up.
+func (p *Proxy) IsToolBypassed(toolName string) bool {
+	if toolName == "" {
+		return false
+	}
+	p.bypassToolsMu.RLock()
+	defer p.bypassToolsMu.RUnlock()
+	_, ok := p.bypassTools[toolName]
+	return ok
+}
+
+// SetBypassedRoutes replaces the per-route bypass set. An empty list
+// disables the per-route gate. T81 follow-up.
+func (p *Proxy) SetBypassedRoutes(routes []string) {
+	p.bypassRoutesMu.Lock()
+	defer p.bypassRoutesMu.Unlock()
+	if len(routes) == 0 {
+		p.bypassRoutes = nil
+		return
+	}
+	p.bypassRoutes = make(map[string]struct{}, len(routes))
+	for _, r := range routes {
+		if r == "" {
+			continue
+		}
+		p.bypassRoutes[r] = struct{}{}
+	}
+}
+
+// BypassedRoutes returns the current per-route bypass set as a sorted
+// slice. T81 follow-up telemetry.
+func (p *Proxy) BypassedRoutes() []string {
+	p.bypassRoutesMu.RLock()
+	defer p.bypassRoutesMu.RUnlock()
+	if len(p.bypassRoutes) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(p.bypassRoutes))
+	for r := range p.bypassRoutes {
+		out = append(out, r)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// IsRouteBypassed reports whether the request path is in the per-route
+// bypass set. T81 follow-up.
+func (p *Proxy) IsRouteBypassed(path string) bool {
+	if path == "" {
+		return false
+	}
+	p.bypassRoutesMu.RLock()
+	defer p.bypassRoutesMu.RUnlock()
+	_, ok := p.bypassRoutes[path]
+	return ok
 }
 
 // observeQuality feeds a finalized RequestSummary into the T77 quality

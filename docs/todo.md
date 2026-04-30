@@ -634,7 +634,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 - [x] T79 - 2026-04-30: headless `slimference watch` shipped (`cmd/slimference/watch_cmd.go`) - polls `/admin/status` at `--interval`, prints compact savings + provider state. Native macOS menubar deferred. Detail: `docs/todo/t79-daemon-visibility-menubar.md`
 - [x] T80 - 2026-04-30: `slimference savings [today|week|month|all]` shipped (`cmd/slimference/savings_cmd.go`) - aggregates filter.db + analytics + cache savings; text / `--json` / `--csv`. Detail: `docs/todo/t80-unified-savings-command.md`
-- [!] T81 - Duration-bounded bypass landed (`SetBypassFor`, `BypassExpiresAt`, lazy auto-revert, telemetry counter, `--next-request[=N]`). Per-tool / per-route surface deferred. Detail: `docs/todo/t81-bypass-granularity.md`
+- [x] T81 - 2026-04-30: bypass granularity complete. Duration-bounded (`SetBypassFor`, lazy auto-revert), `--next-request[=N]`, **per-route** (`SetBypassedRoutes`, exact path match in `ServeHTTP`), and **per-tool** (`SetBypassedTools`, name-substring scan on the body before compression). Detail: `docs/todo/t81-bypass-granularity.md`
 - [x] T82 - 2026-04-30: `slimference compress-preview` shipped (`cmd/slimference/preview_cmd.go`) - reads body, runs L0/L1 with nop summarizer, prints rewritten body / diff / JSON envelope. Detail: `docs/todo/t82-compression-preview-cli.md`
 
 ### Phase O - Stability hardening (P1)

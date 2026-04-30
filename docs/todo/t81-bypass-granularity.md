@@ -1,6 +1,6 @@
 # TASK 81: Bypass granularity
 
-Status: partial - duration-bounded landed; per-tool / per-route / next-request deferred
+Status: SHIPPED 2026-04-30 — duration-bounded + next-request + per-route + per-tool bypass scopes all live.
 Priority: P1
 Scope: `internal/proxy/proxy.go`, `cmd/slimference/`, `internal/tui/`, `internal/admin/` (admin endpoint)
 Driver: Today bypass is binary. Real debugging needs "skip compression for the next request" or "for the next 5 minutes" or "for this tool only". Otherwise the operator has to flip global bypass and remember to flip it back.
