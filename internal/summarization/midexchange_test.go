@@ -1,11 +1,16 @@
 package summarization
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/types"
 )
+
+var errBoom = errors.New("boom")
 
 func TestDetectMidExchangePoint_BelowThreshold(t *testing.T) {
 	t.Parallel()
@@ -303,6 +308,163 @@ func TestDetectMidExchangePoint_BelowThresholdAfterCycle(t *testing.T) {
 	if ok {
 		t.Fatal("should not detect when tokens are below threshold")
 	}
+}
+
+// TestRenderRangeForSummarization covers all branches of the helper
+// (T99b live-summary plumbing).
+func TestRenderRangeForSummarization(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{Content: []types.ContentBlock{{Type: "text", Text: "first"}}},
+		{Content: []types.ContentBlock{{Type: "text", Text: "second"}, {Type: "text", Text: "third"}}},
+		{Content: []types.ContentBlock{{Type: "text", Text: ""}}},
+	}
+	got := renderRangeForSummarization(msgs, 0, 1)
+	if !strings.Contains(got, "first") || !strings.Contains(got, "second") || !strings.Contains(got, "third") {
+		t.Fatalf("rendered range: %q", got)
+	}
+	if renderRangeForSummarization(msgs, -1, 1) != "" {
+		t.Fatal("negative start must yield empty")
+	}
+	if renderRangeForSummarization(msgs, 1, 0) != "" {
+		t.Fatal("end < start must yield empty")
+	}
+	if renderRangeForSummarization(msgs, 0, 99) != "" {
+		t.Fatal("end out of range must yield empty")
+	}
+	if renderRangeForSummarization([]types.Message{{Content: []types.ContentBlock{{Type: "text", Text: ""}}}}, 0, 0) != "" {
+		t.Fatal("only-empty-text must yield empty")
+	}
+}
+
+// fakeSummarizer implements Summarizer for the T99b live-path tests.
+type fakeSummarizer struct {
+	name       string
+	configured bool
+	out        string
+	err        error
+}
+
+func (f *fakeSummarizer) Name() string                                                   { return f.name }
+func (f *fakeSummarizer) IsConfigured() bool                                             { return f.configured }
+func (f *fakeSummarizer) Summarize(_ context.Context, _ string, _, _, _ int) (string, error) { return f.out, f.err }
+
+// TestLayer2_ApplyMidExchange_LiveSummary covers the happy path where
+// the FallbackChain returns a non-empty summary that replaces the stub
+// body. T99b.
+func TestLayer2_ApplyMidExchange_LiveSummary(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	l := NewLayer2(&cfg)
+	l.chain.SetProviders(&fakeSummarizer{
+		name:       "fake",
+		configured: true,
+		out:        "- live summary bullet [msg:0]",
+	})
+
+	longOutput := strings.Repeat("x ", 5000)
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "start"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Bash"}}},
+		{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "tool_result", Text: longOutput}}},
+		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "analysis"}}},
+		{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: strings.Repeat("x ", 5000)}}},
+		{Index: 5, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Read"}}},
+		{Index: 6, Role: "user", Content: []types.ContentBlock{{Type: "tool_result", Text: "f"}}},
+	}
+	out, _, applied := l.ApplyMidExchange(context.Background(), msgs, 100)
+	if !applied {
+		t.Fatal("live path must apply")
+	}
+	found := false
+	for _, m := range out {
+		for _, b := range m.Content {
+			if strings.Contains(b.Text, "live summary bullet") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected live summary text in output: %+v", out)
+	}
+}
+
+// TestLayer2_ApplyMidExchange_FallsBackOnError covers the path where
+// the chain errors out, forcing the stub fallback. T99b.
+func TestLayer2_ApplyMidExchange_FallsBackOnError(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	l := NewLayer2(&cfg)
+	l.chain.SetProviders(&fakeSummarizer{
+		name:       "fake",
+		configured: true,
+		err:        errBoom,
+	})
+
+	out, _, applied := l.ApplyMidExchange(context.Background(), midExchangeTestMessages(), 100)
+	if !applied {
+		t.Fatal("fallback path must still apply")
+	}
+	gotMarker := false
+	for _, m := range out {
+		for _, b := range m.Content {
+			if strings.Contains(b.Text, "completed steps summarized") {
+				gotMarker = true
+			}
+		}
+	}
+	if !gotMarker {
+		t.Fatalf("expected stub fallback body in output messages")
+	}
+}
+
+// TestLayer2_ApplyMidExchange_NoDetect verifies the early-out when no
+// summarizable range exists.
+func TestLayer2_ApplyMidExchange_NoDetect(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	l := NewLayer2(&cfg)
+	msgs := []types.Message{{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "x"}}}}
+	out, _, applied := l.ApplyMidExchange(context.Background(), msgs, 100)
+	if applied || len(out) != 1 {
+		t.Fatalf("no-detect must short-circuit, got applied=%v len=%d", applied, len(out))
+	}
+}
+
+// TestLayer2_ApplyMidExchange_NilChain covers the path where Layer2
+// has no chain (defensive: chain is always non-nil after NewLayer2;
+// hand-build a Layer2 to exercise the branch).
+func TestLayer2_ApplyMidExchange_NilChain(t *testing.T) {
+	t.Parallel()
+	l := &Layer2{}
+	_, _, applied := l.ApplyMidExchange(context.Background(), midExchangeTestMessages(), 100)
+	if !applied {
+		t.Fatal("nil-chain fallback must still apply via stub")
+	}
+}
+
+// midExchangeTestMessages returns a 7-message exchange that always
+// fires the mid-exchange detector (last user message starts a new
+// exchange; an earlier completed tool-use cycle exists with enough
+// tokens to exceed the threshold). T99b.
+func midExchangeTestMessages() []types.Message {
+	longOutput := strings.Repeat("x ", 5000)
+	return []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "start"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Bash"}}},
+		{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "tool_result", Text: longOutput}}},
+		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "analysis"}}},
+		{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: strings.Repeat("x ", 5000)}}},
+		{Index: 5, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Read"}}},
+		{Index: 6, Role: "user", Content: []types.ContentBlock{{Type: "tool_result", Text: "file content"}}},
+	}
+}
+
+func blockTextAt(msgs []types.Message, idx int) string {
+	if idx < 0 || idx >= len(msgs) || len(msgs[idx].Content) == 0 {
+		return ""
+	}
+	return msgs[idx].Content[0].Text
 }
 
 // TestApplyMidExchange_Idempotent verifies T99c: applying twice does

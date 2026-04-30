@@ -141,6 +141,13 @@ func estimateMsgTokens(msg types.Message) int {
 // in-progress summary message. This is a deterministic stub: no LLM call is
 // made; the summary text is generated locally. Returns (newMessages, tokensSaved, applied).
 func ApplyMidExchange(messages []types.Message, threshold int) ([]types.Message, int, bool) {
+	return applyMidExchangeWith(messages, threshold, "completed steps summarized")
+}
+
+// applyMidExchangeWith performs the rewrite using the supplied summary
+// body string. Shared by the deterministic stub and the live-summarizer
+// path so the splice / re-indexing / token-clamp logic stays identical.
+func applyMidExchangeWith(messages []types.Message, threshold int, summaryBody string) ([]types.Message, int, bool) {
 	pt, ok := DetectMidExchangePoint(messages, threshold)
 	if !ok {
 		return messages, 0, false
@@ -151,7 +158,7 @@ func ApplyMidExchange(messages []types.Message, threshold int) ([]types.Message,
 		origTokens += estimateMsgTokens(messages[i])
 	}
 
-	summaryText := FormatMidExchangeSummary("completed steps summarized", pt.Start)
+	summaryText := FormatMidExchangeSummary(summaryBody, pt.Start)
 	summaryTokens := len(summaryText) / 4
 
 	synthetic := types.Message{
@@ -181,6 +188,31 @@ func ApplyMidExchange(messages []types.Message, threshold int) ([]types.Message,
 		saved = 0
 	}
 	return result, saved, true
+}
+
+// renderRangeForSummarization concatenates the message text in the
+// summarizable range so the FallbackChain has a single string to feed
+// to the live MiniMax summary path. Pure helper. T99b.
+func renderRangeForSummarization(messages []types.Message, start, end int) string {
+	if start < 0 || end < start || end >= len(messages) {
+		return ""
+	}
+	var parts []string
+	for i := start; i <= end; i++ {
+		for _, b := range messages[i].Content {
+			if b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	out := parts[0]
+	for _, p := range parts[1:] {
+		out += "\n" + p
+	}
+	return out
 }
 
 // FormatMidExchangeSummary produces the tagged summary text for a

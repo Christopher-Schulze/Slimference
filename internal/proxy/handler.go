@@ -26,7 +26,6 @@ import (
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
@@ -191,8 +190,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// --- 4.5 Mid-exchange summary (T99, default off) ---
-	if p.config.Compression.Tuning.MidExchangeEnabled && pipelineMode == PipelineFull {
-		if newMsgs, saved, applied := summarization.ApplyMidExchange(compressedMessages, p.config.Compression.Tuning.MidExchangeThresholdTokens); applied {
+	if p.config.Compression.Tuning.MidExchangeEnabled && pipelineMode == PipelineFull && p.layer2 != nil {
+		// T99b: live summary path via Layer2.ApplyMidExchange; falls
+		// back internally to the deterministic stub when the chain
+		// has no provider or the call errors out.
+		newMsgs, saved, applied := p.layer2.ApplyMidExchange(r.Context(), compressedMessages, p.config.Compression.Tuning.MidExchangeThresholdTokens)
+		if applied {
 			compressedMessages = newMsgs
 			layer2Savings += saved
 			appliedLayers = append(appliedLayers, 2)

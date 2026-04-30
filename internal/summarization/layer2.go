@@ -48,6 +48,42 @@ func NewLayer2(cfg *config.CompressionConfig) *Layer2 {
 	}
 }
 
+// ApplyMidExchange runs the T99 mid-exchange rewrite using the live
+// FallbackChain for the summary body. Falls back to the deterministic
+// stub when the chain has no configured provider, returns an error,
+// or hands back an empty string. T99b.
+//
+// `targetTokens` is computed from the threshold so the chain knows how
+// much budget the in-progress summary may consume; the local splice
+// then applies its own length clamp.
+func (l *Layer2) ApplyMidExchange(ctx context.Context, messages []types.Message, threshold int) ([]types.Message, int, bool) {
+	pt, ok := DetectMidExchangePoint(messages, threshold)
+	if !ok {
+		return messages, 0, false
+	}
+	body := renderRangeForSummarization(messages, pt.Start, pt.End)
+	// renderRangeForSummarization always returns non-empty here:
+	// DetectMidExchangePoint only fires when the cumulative Text in
+	// the range exceeds the threshold, so at least one block has
+	// non-empty text. No defensive branch needed.
+	target := threshold / 5
+	if target < 64 {
+		target = 64
+	}
+	if l.chain == nil {
+		return ApplyMidExchange(messages, threshold)
+	}
+	summary, _, err := l.chain.Summarize(ctx, body, pt.Start, pt.End, target)
+	if err != nil || strings.TrimSpace(summary) == "" {
+		slog.Debug("mid_exchange live summary fell back to stub",
+			slog.Int("start", pt.Start),
+			slog.Int("end", pt.End),
+		)
+		return ApplyMidExchange(messages, threshold)
+	}
+	return applyMidExchangeWith(messages, threshold, summary)
+}
+
 // AddFallbackProvider appends a fallback summarizer to the chain.
 // Providers are tried in insertion order after the primary (MiniMax).
 func (l *Layer2) AddFallbackProvider(s Summarizer) {
