@@ -112,6 +112,13 @@ func TestReadPreviewInput_File(t *testing.T) {
 	}
 }
 
+func TestRenderPreviewDiff_LongerNew(t *testing.T) {
+	got := renderPreviewDiff([]byte("only-orig"), []byte("first\nsecond\nthird"))
+	if !strings.Contains(got, "+ first") || !strings.Contains(got, "+ third") {
+		t.Fatalf("longer-new diff missing inserts:\n%s", got)
+	}
+}
+
 func TestRenderPreviewDiff(t *testing.T) {
 
 	got := renderPreviewDiff([]byte("a\nshared\nold"), []byte("a\nshared\nnew"))

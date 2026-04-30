@@ -638,16 +638,33 @@ func mustOpenFilterDB() (*sql.DB, bool) {
 
 // handleFilterCmd runs Layer-0 pipeline: subprocess → ANSI strip on stdout → optional SQLite row.
 func handleFilterCmd(args []string) {
+	streamMode := false
 	var argv []string
 	for _, a := range args {
 		if a == "--" {
 			continue
 		}
+		if a == "--stream" {
+			streamMode = true
+			continue
+		}
 		argv = append(argv, a)
 	}
 	if len(argv) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: slimference filter [--] <command> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: slimference filter [--stream] [--] <command> [args...]")
 		exitFn(1)
+	}
+	if streamMode {
+		// T94 streaming-aware Layer 0: tail-friendly pump that emits
+		// compacted lines as they arrive instead of waiting for exit.
+		opts := filter.StreamOptions{StripANSI: true, DedupConsecutive: true}
+		code, err := filter.RunStreamingPipeline(context.Background(), argv, os.Stdout, opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "stream filter: %v\n", err)
+			exitFn(1)
+		}
+		exitFn(code)
+		return
 	}
 	cmdLine := strings.Join(argv, " ")
 	if code, msg := layer0PermissionCheck(cmdLine); code != 0 {
