@@ -78,6 +78,10 @@ type ProxyConfig struct {
 	// compression at all, "full" trusts the unknown version. Default
 	// "conservative". Case-insensitive; empty string means default.
 	AnthropicUnknownBehavior string `toml:"anthropic_unknown_behavior"`
+	// DrainTimeoutSeconds caps how long Shutdown waits for in-flight
+	// requests to finish before forcing exit. Zero means "rely on the
+	// caller-provided context only" (legacy behaviour). T85.
+	DrainTimeoutSeconds int `toml:"drain_timeout_seconds"`
 }
 
 // UpstreamConfig holds upstream API base URLs.

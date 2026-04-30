@@ -1035,19 +1035,39 @@ var ErrShutdownTimeout = errors.New("shutdown timeout exceeded")
 // without touching the user filesystem.
 var shutdownDumpWriterFn = defaultShutdownDumpWriter
 
+// applyDrainTimeout wraps ctx with a deadline drawn from
+// `[proxy] drain_timeout_seconds` when the caller's context has no
+// deadline. Returns the (possibly wrapped) context and a cancel func.
+// T85: turns the operator-config drain knob into a hard ceiling so a
+// hung request cannot block exit indefinitely even when the caller
+// passed context.Background().
+func (p *Proxy) applyDrainTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if p.config == nil || p.config.Proxy.DrainTimeoutSeconds <= 0 {
+		return ctx, func() {}
+	}
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, time.Duration(p.config.Proxy.DrainTimeoutSeconds)*time.Second)
+}
+
 // Shutdown performs a graceful shutdown of the proxy. Safe to call multiple
 // times - only the first call does work; subsequent calls return nil. On
 // timeout Shutdown returns ErrShutdownTimeout so process-level callers can
 // translate the outcome into a distinct exit code (T60).
 // Nil ctx is tolerated and replaced with context.Background so operator-
-// scripts that call Shutdown(nil) never crash.
+// scripts that call Shutdown(nil) never crash. T85 caps no-deadline calls
+// at `[proxy] drain_timeout_seconds` when set so a stuck connection
+// cannot block exit indefinitely.
 func (p *Proxy) Shutdown(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	wrapped, cancel := p.applyDrainTimeout(ctx)
+	defer cancel()
 	var result error
 	p.shutdownOnce.Do(func() {
-		result = p.doShutdown(ctx)
+		result = p.doShutdown(wrapped)
 	})
 	return result
 }
