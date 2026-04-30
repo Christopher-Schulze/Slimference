@@ -151,6 +151,7 @@ type AdminStatus struct {
 	AnthropicVersion  AnthropicVersionStats               `json:"anthropic_version"`
 	Bypass            bool                                `json:"bypass"`
 	Quality           quality.QualitySnapshot             `json:"quality"`
+	AnyDegraded       bool                                `json:"any_provider_degraded"`
 }
 
 // AnthropicVersionStats reports T62 version-negotiation telemetry.
@@ -281,6 +282,11 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			"openai":        p.GetProviderHealth(types.OpenAI),
 			"codex_chatgpt": p.GetProviderHealth(types.CodexChatGPT),
 		},
+		// T83 surfaces a single composite degradation flag so callers
+		// (slimference watch, TUI, future menubar) can render a status
+		// banner without computing the worst-of across providers
+		// themselves.
+		AnyDegraded: p.AnyProviderDegraded(),
 		AnalyticsQueue: p.AnalyticsQueueStats(),
 		PromptCache: PromptCacheStats{
 			BreakpointsInjectedTotal: compression.PromptCacheBreakpointsInjected(),

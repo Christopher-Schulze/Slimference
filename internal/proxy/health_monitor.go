@@ -27,10 +27,28 @@ type providerRing struct {
 func newHealthMonitor() *healthMonitor {
 	return &healthMonitor{
 		results: map[types.Provider]*providerRing{
-			types.Anthropic: {},
-			types.OpenAI:    {},
+			types.Anthropic:    {},
+			types.OpenAI:       {},
+			types.CodexChatGPT: {},
 		},
 	}
+}
+
+// anyDegraded reports whether at least one provider's current status
+// is degraded or down. T83 visibility helper.
+func (h *healthMonitor) anyDegraded() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for prov := range h.results {
+		// We have to release the read lock to call getStatus which
+		// takes its own RLock; same lock is reentrant for RWMutex
+		// readers so the nested RLock is safe.
+		info := h.getStatusLocked(prov)
+		if info.Status == types.ProviderHealthDegraded || info.Status == types.ProviderHealthDown {
+			return true
+		}
+	}
+	return false
 }
 
 // record adds a request outcome for the given provider.
@@ -63,6 +81,13 @@ func (h *healthMonitor) record(prov types.Provider, success bool) {
 func (h *healthMonitor) getStatus(prov types.Provider) types.ProviderHealthInfo {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	return h.getStatusLocked(prov)
+}
+
+// getStatusLocked is getStatus without taking the lock. The caller must
+// already hold h.mu (read or write). Used by helpers like anyDegraded
+// that take the lock once and call into multiple per-provider lookups.
+func (h *healthMonitor) getStatusLocked(prov types.Provider) types.ProviderHealthInfo {
 	r, ok := h.results[prov]
 	if !ok || r.count == 0 {
 		return types.ProviderHealthInfo{Status: types.ProviderHealthIdle}

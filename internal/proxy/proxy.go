@@ -703,6 +703,17 @@ func (p *Proxy) GetProviderHealth(prov types.Provider) types.ProviderHealthInfo 
 	return p.healthMon.getStatus(prov)
 }
 
+// AnyProviderDegraded reports whether at least one tracked provider is
+// currently `degraded` or `down`. Surfaced via /admin/status.any_provider_degraded
+// so future TUI / menubar surfaces can render a single banner instead
+// of computing the worst-of across providers themselves. T83.
+func (p *Proxy) AnyProviderDegraded() bool {
+	if p.healthMon == nil {
+		return false
+	}
+	return p.healthMon.anyDegraded()
+}
+
 // Handler returns the HTTP handler for the proxy, including the /health endpoint.
 // Used by integration tests to exercise the real handler without starting a TCP listener.
 func (p *Proxy) Handler() http.Handler {
