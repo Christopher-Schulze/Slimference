@@ -47,6 +47,17 @@ func TestRun_EmptyStepsReturnsZero(t *testing.T) {
 	}
 }
 
+// TestRun_InternalGofmtStepInvoked covers the in-pipeline gofmt
+// branch (cmd == "internal:gofmt-check"). Runs against the real
+// checkout, which is required to be gofmt-clean.
+func TestRun_InternalGofmtStepInvoked(t *testing.T) {
+	steps := []step{{label: "gofmt", cmd: "internal:gofmt-check"}}
+	code := run(steps, devNull(t), devNull(t))
+	if code != 0 {
+		t.Fatalf("clean checkout must pass gofmt step: exit=%d", code)
+	}
+}
+
 func devNull(t *testing.T) *os.File {
 	t.Helper()
 	f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)

@@ -3,10 +3,12 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 type step struct {
@@ -17,6 +19,10 @@ type step struct {
 
 func defaultSteps() []step {
 	return []step{
+		{
+			label: "gofmt",
+			cmd:   "internal:gofmt-check",
+		},
 		{
 			label: "go vet",
 			cmd:   "go",
@@ -63,6 +69,16 @@ func run(steps []step, stdout, stderr *os.File) int {
 	total := len(steps)
 	for i, s := range steps {
 		fmt.Fprintf(stdout, "[%d/%d] %s\n", i+1, total, s.label)
+		// Internal steps run inline so we don't fork an extra
+		// `gofmt`-check binary just to keep the CI pipeline gating
+		// consistent. New internal steps register here.
+		if s.cmd == "internal:gofmt-check" {
+			if err := runGofmtCheck(root, stdout); err != nil {
+				fmt.Fprintf(stdout, "\nFAIL: step %d/%d (%s): %v\n", i+1, total, s.label, err)
+				return 1
+			}
+			continue
+		}
 		c := exec.Command(s.cmd, s.args...)
 		c.Dir = root
 		c.Stdout = stdout
@@ -92,4 +108,29 @@ func findModuleRoot() (string, error) {
 		}
 		dir = parent
 	}
+}
+
+// runGofmtCheck runs `gofmt -l` against the supervised dirs (cmd,
+// internal, scripts) and fails when any file would be reformatted.
+// rtk-master is intentionally excluded because it is a vendored
+// upstream copy.
+func runGofmtCheck(root string, stdout *os.File) error {
+	c := exec.Command("gofmt", "-l", "./cmd", "./internal", "./scripts")
+	c.Dir = root
+	var out bytes.Buffer
+	c.Stdout = &out
+	c.Stderr = &out
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("gofmt run: %w (output: %s)", err, out.String())
+	}
+	drift := strings.TrimSpace(out.String())
+	if drift == "" {
+		fmt.Fprintln(stdout, "gofmt: clean")
+		return nil
+	}
+	fmt.Fprintln(stdout, "gofmt drift:")
+	for _, line := range strings.Split(drift, "\n") {
+		fmt.Fprintln(stdout, "  "+line)
+	}
+	return fmt.Errorf("gofmt drift in %d file(s); run `gofmt -w`", len(strings.Split(drift, "\n")))
 }
