@@ -53,6 +53,7 @@ import (
 	"github.com/slimference/slimference/internal/integrate"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/readcache"
+	"github.com/slimference/slimference/internal/repetition"
 	"github.com/slimference/slimference/internal/slogutil"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/tui"
@@ -785,6 +786,27 @@ func handlePostToolCmd(args []string) {
 	}
 
 	compacted, changed := filter.CompactCapturedOutput(wd, details.CommandLine, details.ToolResponse, maxOut)
+
+	// T93 cross-session pattern mining: when the same (session, tool,
+	// command, output) tuple has been observed multiple times, replace
+	// the captured output with a marker pointing at the first message.
+	// Best-effort: storage errors leave the original behaviour intact.
+	if home, err := osUserHomeDir(); err == nil && details.SessionID != "" {
+		if repDB, repErr := repetition.Open(repetition.DefaultPath(home)); repErr == nil {
+			count, firstMsg, _ := repetition.Record(repDB, repetition.Key{
+				SessionID: details.SessionID,
+				ToolName:  details.ToolName,
+				Command:   details.CommandLine,
+				Output:    details.ToolResponse,
+			}, 0)
+			_ = repDB.Close()
+			if count >= 3 {
+				compacted = []byte(repetition.Marker(details.ToolName, firstMsg, count))
+				changed = true
+			}
+		}
+	}
+
 	if home, err := osUserHomeDir(); err == nil {
 		entry, archiveErr := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
 			ToolName:  details.ToolName,

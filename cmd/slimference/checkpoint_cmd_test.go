@@ -141,6 +141,72 @@ func TestHandleExpandCmd_NotFoundExitsOne(t *testing.T) {
 	}
 }
 
+func TestHandlePostToolCmd_T93RepetitionMarkerOnThirdHit(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	origHome := osUserHomeDir
+	origConfigLoad := configLoadFn
+	origStdout := os.Stdout
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+		osUserHomeDir = origHome
+		configLoadFn = origConfigLoad
+		os.Stdout = origStdout
+	}()
+
+	home := t.TempDir()
+	termIsTerminalFn = func(int) bool { return false }
+	osUserHomeDir = func() (string, error) { return home, nil }
+	cfg := config.Defaults()
+	cfg.Filter.PassthroughMaxChars = 40
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+
+	for i := 0; i < 3; i++ {
+		payload, err := json.Marshal(map[string]string{
+			"session_id":    "sess-rep",
+			"tool_name":     "Bash",
+			"tool_use_id":   "tool-rep-" + itoaT93(i),
+			"command":       "git status",
+			"tool_response": strings.Repeat("identical-line\n", 200),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = origStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if i == 2 {
+			// Third hit should emit the T93 repetition marker via the
+			// archive's preview / additionalContext.
+			if !strings.Contains(out, "identical to msg") {
+				t.Fatalf("hit %d output missing repetition marker:\n%s", i, out)
+			}
+		}
+	}
+}
+
+func itoaT93(i int) string {
+	if i < 0 {
+		return "-" + itoaT93(-i)
+	}
+	if i == 0 {
+		return "0"
+	}
+	digits := make([]byte, 0, 8)
+	for i > 0 {
+		digits = append([]byte{byte('0' + i%10)}, digits...)
+		i /= 10
+	}
+	return string(digits)
+}
+
 func TestHandlePostToolCmd_ArchivesLargeOutputWhenMetadataPresent(t *testing.T) {
 	origTerm := termIsTerminalFn
 	origRead := readStdinAll
