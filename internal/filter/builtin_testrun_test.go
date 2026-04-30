@@ -862,7 +862,6 @@ func TestTryCompactTestrun_missingBranches(t *testing.T) {
 		t.Fatal("go test -json: tiny stream should not compact (output >= input)")
 	}
 
-
 	// TryCompactNpmRunTest: wrong argv[1] or argv[2] (L497-499)
 	if _, ok := TryCompactNpmRunTest([]string{"npm", "exec", "test"}, []byte("")); ok {
 		t.Fatal("npm exec test: should not match (not 'run test')")
@@ -1088,4 +1087,3 @@ func TestTestToolLabel_switchCases(t *testing.T) {
 		}
 	}
 }
-

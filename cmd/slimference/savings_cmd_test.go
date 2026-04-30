@@ -119,18 +119,18 @@ func TestAccumulateSnapshots_NegativeSavedClamped(t *testing.T) {
 func TestFormatSavingsText(t *testing.T) {
 
 	s := SavingsSummary{
-		Period:           "today",
-		Project:          "/tmp/proj",
-		Layer0Runs:       3,
+		Period:            "today",
+		Project:           "/tmp/proj",
+		Layer0Runs:        3,
 		Layer0SavedTokens: 100,
-		ProxyRequests:    5,
-		ProxyOrigTokens:  1000,
-		ProxyCompTokens:  600,
-		ProxySavedTokens: 400,
-		CacheHits:        1,
-		TotalSavedTokens: 500,
-		USDPerMillion:    5,
-		TotalSavedUSD:    0.0025,
+		ProxyRequests:     5,
+		ProxyOrigTokens:   1000,
+		ProxyCompTokens:   600,
+		ProxySavedTokens:  400,
+		CacheHits:         1,
+		TotalSavedTokens:  500,
+		USDPerMillion:     5,
+		TotalSavedUSD:     0.0025,
 	}
 	got := formatSavingsText(s)
 	for _, want := range []string{"Slimference savings (today)", "/tmp/proj", "Layer 0 filter runs:", "Total tokens saved:", "$0.0025"} {

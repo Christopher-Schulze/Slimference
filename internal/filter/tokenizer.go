@@ -8,10 +8,10 @@ type TokenKind int
 
 const (
 	TokenArg      TokenKind = iota // regular argument or bare word
-	TokenOperator                   // && || ;
-	TokenPipe                       // |
-	TokenRedirect                   // > >> 2>&1 &> < << <<<
-	TokenShellism                   // * ? $var ${var} $( ) $(( )) backticks
+	TokenOperator                  // && || ;
+	TokenPipe                      // |
+	TokenRedirect                  // > >> 2>&1 &> < << <<<
+	TokenShellism                  // * ? $var ${var} $( ) $(( )) backticks
 )
 
 // ParsedToken is one token produced by tokenize.

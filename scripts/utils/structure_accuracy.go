@@ -40,20 +40,20 @@ type structureAccuracyRow struct {
 }
 
 var languageByExt = map[string]string{
-	".go":  "go",
-	".py":  "python",
-	".rs":  "rust",
-	".ts":  "typescript",
-	".tsx": "typescript",
-	".js":  "javascript",
-	".jsx": "javascript",
-	".rb":  "ruby",
+	".go":   "go",
+	".py":   "python",
+	".rs":   "rust",
+	".ts":   "typescript",
+	".tsx":  "typescript",
+	".js":   "javascript",
+	".jsx":  "javascript",
+	".rb":   "ruby",
 	".java": "java",
-	".c":   "c",
-	".h":   "c",
-	".cpp": "cpp",
-	".hpp": "cpp",
-	".sh":  "shell",
+	".c":    "c",
+	".h":    "c",
+	".cpp":  "cpp",
+	".hpp":  "cpp",
+	".sh":   "shell",
 }
 
 // measureStructureAccuracyDir walks root and returns one row per supported

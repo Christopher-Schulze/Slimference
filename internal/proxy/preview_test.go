@@ -76,11 +76,11 @@ func TestPreviewCompress_CompressionFires(t *testing.T) {
 func buildPreviewAnthropicBody(t *testing.T, toolResultText string) []byte {
 	t.Helper()
 	type contentBlock struct {
-		Type       string `json:"type"`
-		Text       string `json:"text,omitempty"`
-		ToolUseID  string `json:"tool_use_id,omitempty"`
-		Content    string `json:"content,omitempty"`
-		ToolName   string `json:"tool_name,omitempty"`
+		Type      string `json:"type"`
+		Text      string `json:"text,omitempty"`
+		ToolUseID string `json:"tool_use_id,omitempty"`
+		Content   string `json:"content,omitempty"`
+		ToolName  string `json:"tool_name,omitempty"`
 	}
 	type message struct {
 		Role    string         `json:"role"`

@@ -497,9 +497,11 @@ func (*blobInjectConn) Prepare(_ string) (driver.Stmt, error) { return &blobInje
 func (*blobInjectConn) Close() error                          { return nil }
 func (*blobInjectConn) Begin() (driver.Tx, error)             { return nil, errors.New("no tx") }
 
-func (*blobInjectStmt) Close() error                                { return nil }
-func (*blobInjectStmt) NumInput() int                               { return -1 }
-func (*blobInjectStmt) Exec(_ []driver.Value) (driver.Result, error) { return nil, errors.New("no exec") }
+func (*blobInjectStmt) Close() error  { return nil }
+func (*blobInjectStmt) NumInput() int { return -1 }
+func (*blobInjectStmt) Exec(_ []driver.Value) (driver.Result, error) {
+	return nil, errors.New("no exec")
+}
 func (*blobInjectStmt) Query(_ []driver.Value) (driver.Rows, error) { return &blobInjectRows{}, nil }
 
 func (*blobInjectRows) Columns() []string { return []string{"command", "cnt", "itok", "otok", "saved"} }

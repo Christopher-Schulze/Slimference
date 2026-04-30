@@ -41,8 +41,8 @@ func AdaptiveWindowSize(messages []types.Message, baseWindow int) int {
 // computeComplexityScore returns a 0.0-1.0 complexity score for the given messages.
 //
 // Score = 0.3 * normalize(UniqueFilePaths, 1, 15)
-//       + 0.4 * AnchorDensity
-//       + 0.3 * normalize(ToolCallDiversity, 1, 8)
+//   - 0.4 * AnchorDensity
+//   - 0.3 * normalize(ToolCallDiversity, 1, 8)
 func computeComplexityScore(msgs []types.Message) float64 {
 	if len(msgs) == 0 {
 		return 0.5

@@ -34,18 +34,18 @@ type MatchOutputRule struct {
 
 // FilterRule is one [filters.NAME] block (spec+.md §4.5 eight-stage pipeline).
 type FilterRule struct {
-	Description          string            `toml:"description"`
-	MatchCommand         string            `toml:"match_command"`
-	StripANSI            bool              `toml:"strip_ansi"`
-	Replace              []ReplacePair     `toml:"replace"`
-	MatchOutput          []MatchOutputRule `toml:"match_output"`
-	StripLinesMatching   []string          `toml:"strip_lines_matching"`
-	KeepLinesMatching    []string          `toml:"keep_lines_matching"`
-	TruncateLinesAt      int               `toml:"truncate_lines_at"`
-	HeadLines            int               `toml:"head_lines"`
-	TailLines            int               `toml:"tail_lines"`
-	MaxLines             int               `toml:"max_lines"`
-	OnEmpty              string            `toml:"on_empty"`
+	Description        string            `toml:"description"`
+	MatchCommand       string            `toml:"match_command"`
+	StripANSI          bool              `toml:"strip_ansi"`
+	Replace            []ReplacePair     `toml:"replace"`
+	MatchOutput        []MatchOutputRule `toml:"match_output"`
+	StripLinesMatching []string          `toml:"strip_lines_matching"`
+	KeepLinesMatching  []string          `toml:"keep_lines_matching"`
+	TruncateLinesAt    int               `toml:"truncate_lines_at"`
+	HeadLines          int               `toml:"head_lines"`
+	TailLines          int               `toml:"tail_lines"`
+	MaxLines           int               `toml:"max_lines"`
+	OnEmpty            string            `toml:"on_empty"`
 }
 
 // UserFiltersPath returns ~/.slimference/filters.toml.

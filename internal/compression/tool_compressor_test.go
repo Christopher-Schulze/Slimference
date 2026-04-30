@@ -576,4 +576,3 @@ func TestFilterLogCompact_NoSavingsGuard(t *testing.T) {
 		t.Errorf("no-savings log: want original content, got %q", got)
 	}
 }
-

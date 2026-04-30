@@ -17,9 +17,9 @@ type healthMonitor struct {
 
 // providerRing is a fixed-capacity ring buffer of request outcomes for one provider.
 type providerRing struct {
-	buf         [20]bool  // true = success, false = error
-	head        int       // next write position
-	count       int       // entries stored, capped at 20
+	buf         [20]bool // true = success, false = error
+	head        int      // next write position
+	count       int      // entries stored, capped at 20
 	lastSuccess time.Time
 	lastError   time.Time
 }

@@ -218,8 +218,8 @@ func TestExtractFileOp_ReadTool(t *testing.T) {
 func TestExtractFileOp_UnknownTool_NoPath(t *testing.T) {
 	t.Parallel()
 	block := types.ContentBlock{
-		Type:     "tool_use",
-		ToolName: "Bash",
+		Type:      "tool_use",
+		ToolName:  "Bash",
 		ToolInput: `{"cmd": "ls"}`,
 	}
 	path, _, _ := extractFileOp(block)

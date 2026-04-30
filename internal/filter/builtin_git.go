@@ -155,7 +155,7 @@ func TryCompactGitDiff(argv []string, stdout []byte) ([]byte, bool) {
 // compactGitDiff strips context lines from a unified diff, keeping +/- lines and hunk headers.
 func compactGitDiff(s string) string {
 	type fileDiff struct {
-		path    string   // "x"
+		path    string // "x"
 		added   int
 		removed int
 		hunks   []string // @@ + changed lines only

@@ -17,16 +17,16 @@ import (
 // trip and would defeat the "no upstream" contract of the preview.
 // Layer 3 (response cache) is irrelevant before a request is sent.
 type PreviewResult struct {
-	Provider          types.Provider              `json:"provider"`
-	ProviderString    string                      `json:"provider_string"`
-	Compressed        bool                        `json:"compressed"`
-	OrigTokens        int                         `json:"original_tokens"`
-	CompressedTokens  int                         `json:"compressed_tokens"`
-	SavedTokens       int                         `json:"saved_tokens"`
-	SavingsRatio      float64                     `json:"savings_ratio"`
-	Layer1Breakdown   map[string]int              `json:"layer1_breakdown"`
-	OriginalBody      json.RawMessage             `json:"original_body,omitempty"`
-	RewrittenBody     json.RawMessage             `json:"rewritten_body,omitempty"`
+	Provider         types.Provider  `json:"provider"`
+	ProviderString   string          `json:"provider_string"`
+	Compressed       bool            `json:"compressed"`
+	OrigTokens       int             `json:"original_tokens"`
+	CompressedTokens int             `json:"compressed_tokens"`
+	SavedTokens      int             `json:"saved_tokens"`
+	SavingsRatio     float64         `json:"savings_ratio"`
+	Layer1Breakdown  map[string]int  `json:"layer1_breakdown"`
+	OriginalBody     json.RawMessage `json:"original_body,omitempty"`
+	RewrittenBody    json.RawMessage `json:"rewritten_body,omitempty"`
 }
 
 // PreviewCompress runs the deterministic Layer 1 pipeline on the

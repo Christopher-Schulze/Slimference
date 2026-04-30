@@ -26,9 +26,9 @@ func TestReReadDetector_Observe_HitInWindow(t *testing.T) {
 func TestReReadDetector_OutsideWindowMisses(t *testing.T) {
 	t.Parallel()
 	d := NewReReadDetector(2)
-	d.Observe("s1", "k1") // turn 1
-	d.Observe("s1", "k2") // turn 2
-	d.Observe("s1", "k1") // turn 3, prev=1, distance=2 == window -> hit
+	d.Observe("s1", "k1")      // turn 1
+	d.Observe("s1", "k2")      // turn 2
+	d.Observe("s1", "k1")      // turn 3, prev=1, distance=2 == window -> hit
 	d.Observe("s1", "filler1") // turn 4
 	d.Observe("s1", "filler2") // turn 5
 	if d.Observe("s1", "k1") { // turn 6, prev=3, distance=3 > 2 -> miss

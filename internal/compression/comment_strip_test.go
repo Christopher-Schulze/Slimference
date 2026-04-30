@@ -198,21 +198,21 @@ func TestStripComments_MultipleBlankLinesNormalized(t *testing.T) {
 func TestLanguageFromPath(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{
-		"pkg/foo.go":          "go",
-		"app.tsx":             "typescript",
-		"x.jsx":               "javascript",
-		"b.mjs":               "javascript",
-		"lib.rs":              "rust",
-		"a.py":                "python",
-		"style.scss":          "css",
-		"page.html":           "html",
-		"legacy.htm":          "html",
-		"cfg.yaml":            "yaml",
-		"deploy.yml":          "yaml",
-		"config.toml":         "toml",
-		"src/main.cpp":        "cpp",
-		"Bean.java":           "java",
-		"file.unknownext":     "",
+		"pkg/foo.go":      "go",
+		"app.tsx":         "typescript",
+		"x.jsx":           "javascript",
+		"b.mjs":           "javascript",
+		"lib.rs":          "rust",
+		"a.py":            "python",
+		"style.scss":      "css",
+		"page.html":       "html",
+		"legacy.htm":      "html",
+		"cfg.yaml":        "yaml",
+		"deploy.yml":      "yaml",
+		"config.toml":     "toml",
+		"src/main.cpp":    "cpp",
+		"Bean.java":       "java",
+		"file.unknownext": "",
 	}
 	for path, want := range tests {
 		if got := LanguageFromPath(path); got != want {

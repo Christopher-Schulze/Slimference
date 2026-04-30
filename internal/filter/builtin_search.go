@@ -9,9 +9,9 @@ import (
 // ---- F10: search results grouping ----
 
 const (
-	maxMatchesPerFile  = 20  // lines shown per file before "[+N more]"
-	maxFilesShown      = 30  // files shown before "[+N more files]"
-	minLinesForGrouped = 4   // only group if output is at least this many lines
+	maxMatchesPerFile  = 20 // lines shown per file before "[+N more]"
+	maxFilesShown      = 30 // files shown before "[+N more files]"
+	minLinesForGrouped = 4  // only group if output is at least this many lines
 )
 
 // groupSearchResults groups grep/rg/fd style "file:line:content" output by file.

@@ -16,12 +16,12 @@ import (
 
 // FilterGainSummary aggregates rows from filter_runs (Layer 0 SQLite tracking).
 type FilterGainSummary struct {
-	Period      string `json:"period"`
-	StartUnix   int64  `json:"start_unix"`
-	EndUnix     int64  `json:"end_unix"`
-	Runs        int64  `json:"runs"`
-	InputTokens int64  `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	Period       string `json:"period"`
+	StartUnix    int64  `json:"start_unix"`
+	EndUnix      int64  `json:"end_unix"`
+	Runs         int64  `json:"runs"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
 	// TokensSavedEst sums max(0, input_tokens-output_tokens) per run (byte/4 estimates).
 	TokensSavedEst int64 `json:"tokens_saved_est"`
 	// ProjectPathFilter is the normalized --project filter path, if any.
@@ -34,11 +34,11 @@ type FilterGainSummary struct {
 
 // FilterGainByCommandRow is one command label (as stored) with aggregates for the window.
 type FilterGainByCommandRow struct {
-	Command        string `json:"command"`
-	Runs           int64  `json:"runs"`
-	InputTokens    int64  `json:"input_tokens"`
-	OutputTokens   int64  `json:"output_tokens"`
-	TokensSavedEst int64  `json:"tokens_saved_est"`
+	Command        string  `json:"command"`
+	Runs           int64   `json:"runs"`
+	InputTokens    int64   `json:"input_tokens"`
+	OutputTokens   int64   `json:"output_tokens"`
+	TokensSavedEst int64   `json:"tokens_saved_est"`
 	SavingsUsdEst  float64 `json:"savings_usd_est,omitempty"`
 }
 

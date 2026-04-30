@@ -287,7 +287,7 @@ func filterLintCompact(content string, aggressive bool) string {
 // filterLogCompact reduces log output: deduplicates repeated lines, applies line limits.
 func filterLogCompact(content string, aggressive bool) string {
 	lines := strings.Split(content, "\n")
-	seen := make(map[string]int)  // normalized line -> first occurrence index
+	seen := make(map[string]int) // normalized line -> first occurrence index
 	var deduplicated []string
 	repeatCounts := make(map[int]int) // index in deduplicated -> repeat count
 

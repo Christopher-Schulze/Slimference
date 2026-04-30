@@ -241,8 +241,8 @@ func (u *UsageTracker) evictOldestLocked() {
 // PruneDecision describes the result of a single prune evaluation:
 // which tools to keep, which to drop, and why.
 type PruneDecision struct {
-	Keep    []string
-	Pruned  []string
+	Keep   []string
+	Pruned []string
 }
 
 // Decide returns a PruneDecision for the supplied tool list given the

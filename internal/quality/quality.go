@@ -37,7 +37,7 @@ type ReReadDetector struct {
 }
 
 type sessionState struct {
-	turn       int
+	turn        int
 	keyLastSeen map[string]int
 }
 
@@ -326,9 +326,9 @@ type NetSavingsStats struct {
 // QualitySnapshot bundles all three signals so admin endpoints can emit
 // one canonical block.
 type QualitySnapshot struct {
-	ReRead        ReReadStats         `json:"reread"`
+	ReRead         ReReadStats         `json:"reread"`
 	CacheMissSpike CacheMissSpikeStats `json:"cache_miss_spike"`
-	NetSavings    NetSavingsStats     `json:"net_savings"`
+	NetSavings     NetSavingsStats     `json:"net_savings"`
 }
 
 func maxZeroUnix(t time.Time) int64 {

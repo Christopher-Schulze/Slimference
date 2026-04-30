@@ -10,9 +10,9 @@ import (
 // SecretPattern describes a named regex-based secret detection rule with an optional
 // minimum Shannon entropy threshold. Patterns with MinEntropy == 0 match on regex alone.
 type SecretPattern struct {
-	Name        string
-	Regex       *regexp.Regexp
-	MinEntropy  float64
+	Name       string
+	Regex      *regexp.Regexp
+	MinEntropy float64
 }
 
 // DefaultPatterns is the built-in set of secret detection rules applied to all messages

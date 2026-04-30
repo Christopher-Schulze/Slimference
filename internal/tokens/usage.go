@@ -9,9 +9,9 @@ import (
 
 // ProviderUsage tracks per-provider compression statistics.
 type ProviderUsage struct {
-	Messages   int
+	Messages    int
 	TokensSaved int
-	AvgRatio   float64
+	AvgRatio    float64
 }
 
 // UsageTracker aggregates token usage and compression statistics across requests.

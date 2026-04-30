@@ -256,8 +256,8 @@ func TestTryCompactSearchOutput_guards(t *testing.T) {
 func TestSearchToolName(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		argv  []string
-		want  string
+		argv []string
+		want string
 	}{
 		// empty argv → default "search"
 		{[]string{}, "search"},

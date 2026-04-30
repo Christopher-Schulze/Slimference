@@ -345,9 +345,11 @@ type fakeSummarizer struct {
 	err        error
 }
 
-func (f *fakeSummarizer) Name() string                                                   { return f.name }
-func (f *fakeSummarizer) IsConfigured() bool                                             { return f.configured }
-func (f *fakeSummarizer) Summarize(_ context.Context, _ string, _, _, _ int) (string, error) { return f.out, f.err }
+func (f *fakeSummarizer) Name() string       { return f.name }
+func (f *fakeSummarizer) IsConfigured() bool { return f.configured }
+func (f *fakeSummarizer) Summarize(_ context.Context, _ string, _, _, _ int) (string, error) {
+	return f.out, f.err
+}
 
 // TestLayer2_ApplyMidExchange_LiveSummary covers the happy path where
 // the FallbackChain returns a non-empty summary that replaces the stub

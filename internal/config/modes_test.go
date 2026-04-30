@@ -43,11 +43,11 @@ func TestApplyL2OperatingMode_unknownRejected(t *testing.T) {
 func TestApplyL2OperatingMode_profiles(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		mode        string
-		wantStrict  bool
-		wantTarget  float64
-		wantMax     float64
-		wantMin     float64
+		mode       string
+		wantStrict bool
+		wantTarget float64
+		wantMax    float64
+		wantMin    float64
 	}{
 		{ModeStrict, true, 0.15, 0.30, 0.05},
 		{ModeBalanced, true, 0.20, 0.40, 0.05},

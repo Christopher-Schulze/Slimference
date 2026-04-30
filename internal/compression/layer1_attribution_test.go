@@ -152,4 +152,3 @@ func tagListOf(calls []contentarchive.Input) string {
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
 }
-

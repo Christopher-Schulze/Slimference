@@ -8,13 +8,13 @@ import "github.com/charmbracelet/lipgloss"
 // lime savings, and restrained amber warnings.
 var (
 	// Accent colors.
-	colorAccent     = lipgloss.Color("81")  // focus and active borders
-	colorGreen      = lipgloss.Color("78")  // good/savings/on
-	colorGreenDim   = lipgloss.Color("42")  // dimmer green for bars
-	colorOrange     = lipgloss.Color("215") // warning
-	colorRed        = lipgloss.Color("203") // error
-	colorBlue       = lipgloss.Color("111") // info/provider indicator
-	colorGold       = lipgloss.Color("221") // title/warm accent
+	colorAccent   = lipgloss.Color("81")  // focus and active borders
+	colorGreen    = lipgloss.Color("78")  // good/savings/on
+	colorGreenDim = lipgloss.Color("42")  // dimmer green for bars
+	colorOrange   = lipgloss.Color("215") // warning
+	colorRed      = lipgloss.Color("203") // error
+	colorBlue     = lipgloss.Color("111") // info/provider indicator
+	colorGold     = lipgloss.Color("221") // title/warm accent
 
 	// Neutral palette.
 	colorWhite    = lipgloss.Color("255")

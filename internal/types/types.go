@@ -36,7 +36,7 @@ func (p Provider) String() string {
 type AnchorType int
 
 const (
-	AnchorNone     AnchorType = iota
+	AnchorNone      AnchorType = iota
 	AnchorEdit                 // contains file edit/write tool use
 	AnchorError                // contains error trace or failure
 	AnchorDecision             // user confirmed or rejected a plan
@@ -119,10 +119,10 @@ type MessageMetadata struct {
 
 // Message is the internal normalized message representation used throughout the pipeline.
 type Message struct {
-	Index    int              `json:"index"`
-	Role     string           `json:"role"` // "user", "assistant", "system", "tool"
-	Content  []ContentBlock   `json:"content"`
-	Metadata MessageMetadata  `json:"metadata"`
+	Index    int             `json:"index"`
+	Role     string          `json:"role"` // "user", "assistant", "system", "tool"
+	Content  []ContentBlock  `json:"content"`
+	Metadata MessageMetadata `json:"metadata"`
 }
 
 // TextContent returns all text content blocks concatenated.
@@ -169,7 +169,7 @@ type CompressJob struct {
 type EventType int
 
 const (
-	EventRequestProcessed  EventType = iota
+	EventRequestProcessed EventType = iota
 	EventCacheHit
 	EventCompressionComplete
 	EventSecretDetected

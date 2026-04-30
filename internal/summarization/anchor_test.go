@@ -48,8 +48,8 @@ func TestAnchorDetector_EditTool(t *testing.T) {
 
 	d := NewAnchorDetector()
 	tests := []struct {
-		name     string
-		toolName string
+		name       string
+		toolName   string
 		wantAnchor bool
 	}{
 		{"edit tool", "edit_file", true},
@@ -79,23 +79,23 @@ func TestAnchorDetector_ErrorContent(t *testing.T) {
 
 	d := NewAnchorDetector()
 	tests := []struct {
-		name    string
-		text    string
+		name     string
+		text     string
 		isAnchor bool
 	}{
 		{
-			name:    "error prefix",
-			text:    "error: connection refused\nat main.go:42\nat runtime.go:100",
+			name:     "error prefix",
+			text:     "error: connection refused\nat main.go:42\nat runtime.go:100",
 			isAnchor: true,
 		},
 		{
-			name:    "panic message",
-			text:    "panic: runtime error: index out of range",
+			name:     "panic message",
+			text:     "panic: runtime error: index out of range",
 			isAnchor: true,
 		},
 		{
-			name:    "normal assistant message",
-			text:    "I have updated the file as requested.",
+			name:     "normal assistant message",
+			text:     "I have updated the file as requested.",
 			isAnchor: false,
 		},
 	}

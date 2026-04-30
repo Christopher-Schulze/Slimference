@@ -133,13 +133,12 @@ func TestClassifyToolResult(t *testing.T) {
 			got := classifyToolResult(tc.toolName, tc.content)
 			if got != tc.want {
 				snip := tc.content
-			if len(snip) > 40 {
-				snip = snip[:40]
-			}
-			t.Errorf("classifyToolResult(%q, %q) = %d, want %d",
+				if len(snip) > 40 {
+					snip = snip[:40]
+				}
+				t.Errorf("classifyToolResult(%q, %q) = %d, want %d",
 					tc.toolName, snip, got, tc.want)
 			}
 		})
 	}
 }
-

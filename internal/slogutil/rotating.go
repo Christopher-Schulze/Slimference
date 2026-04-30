@@ -13,7 +13,7 @@ var statFileFn = func(f *os.File) (os.FileInfo, error) {
 
 const (
 	defaultMaxBytes int64 = 10 * 1024 * 1024 // 10 MB per file
-	defaultMaxFiles int   = 5                 // keep 5 rotated copies
+	defaultMaxFiles int   = 5                // keep 5 rotated copies
 )
 
 // RotatingWriter is an io.Writer backed by a file that rotates when it exceeds

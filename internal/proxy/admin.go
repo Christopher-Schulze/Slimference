@@ -31,11 +31,11 @@ func adminCacheAgeFrom(h caching.AgeHistogram) AdminCacheAgeStatus {
 }
 
 const (
-	AdminBasePath           = "/_slimference/admin"
-	AdminStatusPath         = AdminBasePath + "/status"
-	AdminProviderPath       = AdminBasePath + "/provider"
-	AdminLayerPath          = AdminBasePath + "/layer"
-	AdminFlushPath          = AdminBasePath + "/flush"
+	AdminBasePath            = "/_slimference/admin"
+	AdminStatusPath          = AdminBasePath + "/status"
+	AdminProviderPath        = AdminBasePath + "/provider"
+	AdminLayerPath           = AdminBasePath + "/layer"
+	AdminFlushPath           = AdminBasePath + "/flush"
 	AdminSecuritySuspendPath = AdminBasePath + "/security/suspend"
 	AdminBypassPath          = AdminBasePath + "/bypass"
 )
@@ -70,8 +70,8 @@ type AdminSecuritySuspendRequest struct {
 // confirm the effective deadline (which may differ from the requested one
 // due to server-side clamping).
 type AdminSecuritySuspendResponse struct {
-	Active       bool  `json:"active"`
-	UntilUnixSec int64 `json:"until_unix_sec,omitempty"`
+	Active       bool   `json:"active"`
+	UntilUnixSec int64  `json:"until_unix_sec,omitempty"`
 	Mode         string `json:"mode"`
 }
 
@@ -83,13 +83,13 @@ type AdminLayer2Status struct {
 }
 
 type AdminReadCacheStatus struct {
-	Evaluations     int     `json:"evaluations"`
-	Allows          int     `json:"allows"`
-	Blocks          int     `json:"blocks"`
-	UnchangedBlocks int     `json:"unchanged_blocks"`
-	DeltaBlocks     int     `json:"delta_blocks"`
-	Sessions        int     `json:"sessions"`
-	TrackedFiles    int     `json:"tracked_files"`
+	Evaluations     int `json:"evaluations"`
+	Allows          int `json:"allows"`
+	Blocks          int `json:"blocks"`
+	UnchangedBlocks int `json:"unchanged_blocks"`
+	DeltaBlocks     int `json:"delta_blocks"`
+	Sessions        int `json:"sessions"`
+	TrackedFiles    int `json:"tracked_files"`
 	// HitRate is Blocks / (Blocks + Allows), or 0 when no decisions
 	// have been recorded. Surfaced as a derived field so monitoring
 	// tools don't have to recompute it. T57 stretch.
@@ -207,7 +207,7 @@ type SummarizationTelemetry struct {
 
 // CoordinatorStats exposes T100 coordinator skip counters.
 type CoordinatorStats struct {
-	Enabled    bool `json:"enabled"`
+	Enabled      bool `json:"enabled"`
 	SkippedTotal int  `json:"skipped_total"`
 }
 
@@ -235,10 +235,10 @@ type ServerStateStats struct {
 
 // BypassStats exposes T81 bypass-state telemetry beyond the bare bool.
 type BypassStats struct {
-	Enabled            bool  `json:"enabled"`
-	ExpiresAtUnix      int64 `json:"expires_at_unix"`
-	NextRequestBudget  int64 `json:"next_request_budget"`
-	AutoRevertCount    int64 `json:"auto_revert_count"`
+	Enabled           bool  `json:"enabled"`
+	ExpiresAtUnix     int64 `json:"expires_at_unix"`
+	NextRequestBudget int64 `json:"next_request_budget"`
+	AutoRevertCount   int64 `json:"auto_revert_count"`
 }
 
 type AdminToggleProviderRequest struct {
@@ -380,7 +380,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		// (slimference watch, TUI, future menubar) can render a status
 		// banner without computing the worst-of across providers
 		// themselves.
-		AnyDegraded: p.AnyProviderDegraded(),
+		AnyDegraded:    p.AnyProviderDegraded(),
 		AnalyticsQueue: p.AnalyticsQueueStats(),
 		PromptCache: PromptCacheStats{
 			BreakpointsInjectedTotal: compression.PromptCacheBreakpointsInjected(),

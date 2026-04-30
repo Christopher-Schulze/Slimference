@@ -340,9 +340,9 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 		},
 		// aws JSON strip
 		{
-			name: "aws JSON strip ResponseMetadata",
-			argv: []string{"aws", "s3", "ls"},
-			stdout: []byte(`{"ResponseMetadata":{"HTTPStatusCode":200,"RequestId":"abc-123","RetryAttempts":0},"Contents":[{"Key":"file.txt","Size":1024}]}`),
+			name:         "aws JSON strip ResponseMetadata",
+			argv:         []string{"aws", "s3", "ls"},
+			stdout:       []byte(`{"ResponseMetadata":{"HTTPStatusCode":200,"RequestId":"abc-123","RetryAttempts":0},"Contents":[{"Key":"file.txt","Size":1024}]}`),
 			wantContains: "Contents",
 			wantAbsent:   "ResponseMetadata",
 		},

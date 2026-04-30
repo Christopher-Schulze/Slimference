@@ -61,9 +61,9 @@ func TestTarGzDir_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string][]byte{
-		"a.txt":        []byte("alpha"),
-		"sub/b.txt":    []byte("bravo"),
-		"sub/c/c.bin":  []byte{0x00, 0x01, 0x02},
+		"a.txt":       []byte("alpha"),
+		"sub/b.txt":   []byte("bravo"),
+		"sub/c/c.bin": []byte{0x00, 0x01, 0x02},
 	}
 	for rel, data := range files {
 		abs := filepath.Join(bundle, rel)

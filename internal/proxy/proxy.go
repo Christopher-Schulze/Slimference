@@ -99,9 +99,9 @@ type Proxy struct {
 	// flags rolling prompt-cache regressions; net-savings keeps the
 	// "saved minus invalidation cost" running total. All three are
 	// exposed via /admin/status.quality.
-	qualityReRead       *quality.ReReadDetector
-	qualityCacheSpike   *quality.CacheMissSpikeDetector
-	qualityNetSavings   *quality.NetSavings
+	qualityReRead     *quality.ReReadDetector
+	qualityCacheSpike *quality.CacheMissSpikeDetector
+	qualityNetSavings *quality.NetSavings
 	// bypassExpiryNano is the unix-nano deadline for a duration-bounded
 	// bypass (T81). Zero means "no expiry"; non-zero means bypass auto-
 	// reverts when time.Now().UnixNano() >= the stored value. Read on
@@ -178,13 +178,13 @@ func (p *Proxy) recoverMiddleware(next http.Handler) http.Handler {
 func New(cfg *config.Config) *Proxy {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	p := &Proxy{
-		config:         cfg,
-		httpClients:    make(map[types.Provider]*http.Client),
-		compressQueue:  make(chan types.CompressJob, 4),
-		analyticsQueue: make(chan types.AnalyticsEvent, 256),
-		workerCtx:      workerCtx,
-		workerCancel:   workerCancel,
-		shutdownCh:     make(chan struct{}),
+		config:            cfg,
+		httpClients:       make(map[types.Provider]*http.Client),
+		compressQueue:     make(chan types.CompressJob, 4),
+		analyticsQueue:    make(chan types.AnalyticsEvent, 256),
+		workerCtx:         workerCtx,
+		workerCancel:      workerCancel,
+		shutdownCh:        make(chan struct{}),
 		pipelineHist:      analytics.NewPipelineHistograms(),
 		qualityReRead:     quality.NewReReadDetector(10),
 		qualityCacheSpike: quality.NewCacheMissSpikeDetector(50, 0.25),

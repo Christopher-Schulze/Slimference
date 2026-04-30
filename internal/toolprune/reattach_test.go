@@ -183,9 +183,9 @@ func TestUsageTracker_PrunedDefRoundTrip(t *testing.T) {
 func TestUsageTracker_PrunedDef_EdgeCases(t *testing.T) {
 	t.Parallel()
 	u := NewUsageTracker(20)
-	u.RememberPrunedDef("", "Bash", []byte(`{}`))           // empty session -> no-op
-	u.RememberPrunedDef("s", "", []byte(`{}`))              // empty name -> no-op
-	u.RememberPrunedDef("s", "Bash", nil)                   // empty def -> no-op
+	u.RememberPrunedDef("", "Bash", []byte(`{}`)) // empty session -> no-op
+	u.RememberPrunedDef("s", "", []byte(`{}`))    // empty name -> no-op
+	u.RememberPrunedDef("s", "Bash", nil)         // empty def -> no-op
 	if u.PrunedToolNames("") != nil {
 		t.Fatal("empty session returns nil")
 	}

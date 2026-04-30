@@ -102,15 +102,15 @@ func fetchAdminStatus(ctx context.Context, client *http.Client, url string) ([]b
 // Stays narrow on purpose so the JSON contract changes are unlikely to
 // break the operator's display surface.
 type watchView struct {
-	Bypass            bool                       `json:"bypass"`
-	AnyDegraded       bool                       `json:"any_provider_degraded"`
-	Layers            map[string]bool            `json:"layers"`
-	CacheEntries      int                        `json:"cache_entries"`
-	AnalyticsQueue    map[string]any             `json:"analytics_queue"`
-	Quality           map[string]any             `json:"quality"`
-	ProviderHealth    map[string]map[string]any  `json:"provider_health"`
-	RecentRequests    []map[string]any           `json:"recent_requests"`
-	Pipeline          []map[string]any           `json:"pipeline"`
+	Bypass         bool                      `json:"bypass"`
+	AnyDegraded    bool                      `json:"any_provider_degraded"`
+	Layers         map[string]bool           `json:"layers"`
+	CacheEntries   int                       `json:"cache_entries"`
+	AnalyticsQueue map[string]any            `json:"analytics_queue"`
+	Quality        map[string]any            `json:"quality"`
+	ProviderHealth map[string]map[string]any `json:"provider_health"`
+	RecentRequests []map[string]any          `json:"recent_requests"`
+	Pipeline       []map[string]any          `json:"pipeline"`
 }
 
 // renderWatchTick formats a single sample for the operator. Shows

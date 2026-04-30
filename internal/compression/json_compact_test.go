@@ -10,11 +10,11 @@ func TestCompactJSONContent(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		input          string
-		wantSavedGT    int    // savings must be strictly greater than this value
-		wantUnchanged  bool   // true if the function should return the original text
-		wantContains   string // non-empty: result must contain this substring
+		name          string
+		input         string
+		wantSavedGT   int    // savings must be strictly greater than this value
+		wantUnchanged bool   // true if the function should return the original text
+		wantContains  string // non-empty: result must contain this substring
 	}{
 		{
 			name: "valid JSON with whitespace",

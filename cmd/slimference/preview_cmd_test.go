@@ -133,12 +133,12 @@ func TestRenderPreviewDiff(t *testing.T) {
 func TestRenderPreviewText(t *testing.T) {
 
 	res := proxy.PreviewResult{
-		ProviderString:    "anthropic",
-		OrigTokens:        100,
-		CompressedTokens:  60,
-		SavedTokens:       40,
-		SavingsRatio:      0.4,
-		Layer1Breakdown:   map[string]int{"json": 10, "ansi": 5},
+		ProviderString:   "anthropic",
+		OrigTokens:       100,
+		CompressedTokens: 60,
+		SavedTokens:      40,
+		SavingsRatio:     0.4,
+		Layer1Breakdown:  map[string]int{"json": 10, "ansi": 5},
 	}
 	out := renderPreviewText(res, false)
 	for _, want := range []string{"compress-preview", "anthropic", "Original tokens", "json", "ansi"} {

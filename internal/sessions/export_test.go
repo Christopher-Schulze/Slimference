@@ -26,12 +26,12 @@ func TestAggregateFromSnapshots_Single(t *testing.T) {
 	now := time.Now()
 	snaps := []analytics.AnalyticsSnapshot{
 		{
-			SessionStart:    now,
-			TotalRequests:   50,
-			TotalInputTokens: 500000,
-			SavedInputTokens: 300000,
+			SessionStart:      now,
+			TotalRequests:     50,
+			TotalInputTokens:  500000,
+			SavedInputTokens:  300000,
 			TotalOutputTokens: 50000,
-			CacheHits:       10,
+			CacheHits:         10,
 		},
 	}
 
@@ -59,10 +59,10 @@ func TestAggregateFromSnapshots_CompressionPct(t *testing.T) {
 	t.Parallel()
 	snaps := []analytics.AnalyticsSnapshot{
 		{
-			SessionStart:    time.Now(),
+			SessionStart:     time.Now(),
 			TotalInputTokens: 1000,
 			SavedInputTokens: 600,
-			TotalRequests:   10,
+			TotalRequests:    10,
 		},
 	}
 
@@ -80,8 +80,8 @@ func TestAggregateFromSnapshots_ExtraMessages(t *testing.T) {
 	t.Parallel()
 	snaps := []analytics.AnalyticsSnapshot{
 		{
-			SessionStart:    time.Now(),
-			TotalRequests:   10,
+			SessionStart:     time.Now(),
+			TotalRequests:    10,
 			TotalInputTokens: 10000,
 			SavedInputTokens: 5000,
 		},

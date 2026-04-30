@@ -366,8 +366,8 @@ func StripLineageMarker(line string) string {
 // lineageBulletStats accumulates per-summary bullet-marker presence
 // rates so the operator can monitor prompt compliance. T92.
 type lineageBulletStats struct {
-	totalBullets   int64
-	markedBullets  int64
+	totalBullets  int64
+	markedBullets int64
 }
 
 var lineageStats lineageBulletStats
@@ -449,20 +449,20 @@ var multiBlankLineRegex = regexp.MustCompile(`\n{3,}`)
 
 // mmRequest is the OpenAI-compatible chat completion request body.
 type mmRequest struct {
-	Model            string      `json:"model"`
-	Messages         []mmMessage `json:"messages"`
-	MaxTokens        int         `json:"max_tokens"`
+	Model     string      `json:"model"`
+	Messages  []mmMessage `json:"messages"`
+	MaxTokens int         `json:"max_tokens"`
 	// MinTokens caps the lower bound on completion length. Only sent
 	// when the active provider's capability map advertises support
 	// (T91 + T88) so non-supporting providers never see the field.
-	MinTokens        int         `json:"min_tokens,omitempty"`
+	MinTokens int `json:"min_tokens,omitempty"`
 	// Seed pins the RNG for greedy reproducibility on providers that
 	// support it (T88). Omitted when the capability flag is off.
-	Seed             int         `json:"seed,omitempty"`
-	Temperature      float64     `json:"temperature"`
-	TopP             float64     `json:"top_p"`
-	FrequencyPenalty float64     `json:"frequency_penalty"`
-	Stream           bool        `json:"stream"`
+	Seed             int     `json:"seed,omitempty"`
+	Temperature      float64 `json:"temperature"`
+	TopP             float64 `json:"top_p"`
+	FrequencyPenalty float64 `json:"frequency_penalty"`
+	Stream           bool    `json:"stream"`
 }
 
 // mmMessage is a single role/content pair used in the chat completion API.

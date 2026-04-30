@@ -18,15 +18,15 @@ const corpusMetadataFilename = "codex-metadata.json"
 // corpus (Codex version, scrubbing method, scenarios) and lets
 // `codex-smoke-gate` enforce a regression baseline against it.
 type CorpusMetadata struct {
-	SchemaVersion    int                    `json:"schema_version"`
-	CorpusName       string                 `json:"corpus_name"`
-	Description      string                 `json:"description"`
-	Scrubbed         bool                   `json:"scrubbed"`
-	RedactionMethod  string                 `json:"redaction_method"`
-	CapturedAt       string                 `json:"captured_at"`
-	RequestFixtures  []RequestFixtureEntry  `json:"request_fixtures"`
-	SessionFixtures  []SessionFixtureEntry  `json:"session_fixtures"`
-	RegressionGate   *RegressionGate        `json:"regression_gate"`
+	SchemaVersion   int                   `json:"schema_version"`
+	CorpusName      string                `json:"corpus_name"`
+	Description     string                `json:"description"`
+	Scrubbed        bool                  `json:"scrubbed"`
+	RedactionMethod string                `json:"redaction_method"`
+	CapturedAt      string                `json:"captured_at"`
+	RequestFixtures []RequestFixtureEntry `json:"request_fixtures"`
+	SessionFixtures []SessionFixtureEntry `json:"session_fixtures"`
+	RegressionGate  *RegressionGate       `json:"regression_gate"`
 }
 
 type RequestFixtureEntry struct {
@@ -37,13 +37,13 @@ type RequestFixtureEntry struct {
 }
 
 type SessionFixtureEntry struct {
-	File         string   `json:"file"`
-	CodexVersion string   `json:"codex_version"`
-	Client       string   `json:"client"`
-	HooksEnabled []string `json:"hooks_enabled"`
-	LayersEnabled []int   `json:"layers_enabled"`
-	RequestCount int      `json:"request_count"`
-	Scenarios    []string `json:"scenarios"`
+	File          string   `json:"file"`
+	CodexVersion  string   `json:"codex_version"`
+	Client        string   `json:"client"`
+	HooksEnabled  []string `json:"hooks_enabled"`
+	LayersEnabled []int    `json:"layers_enabled"`
+	RequestCount  int      `json:"request_count"`
+	Scenarios     []string `json:"scenarios"`
 }
 
 type RegressionGate struct {
