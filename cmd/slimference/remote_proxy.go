@@ -223,6 +223,7 @@ func (a *remoteProxyAdapter) GetReadCacheStatus() tui.ReadCacheStatus {
 		DeltaBlocks:     a.status.ReadCache.DeltaBlocks,
 		Sessions:        a.status.ReadCache.Sessions,
 		TrackedFiles:    a.status.ReadCache.TrackedFiles,
+		HitRate:         a.status.ReadCache.HitRate,
 	}
 }
 

@@ -401,6 +401,30 @@ func TestView_StatsRender(t *testing.T) {
 	}
 }
 
+// TestView_StatsRender_LowReadHitRate covers the renderStatsView
+// branch where the read-cache hit rate falls below the warn threshold
+// (T57 stretch). Sets the rate explicitly via the ReadCacheStatus
+// fields so the amber styling branch is exercised.
+func TestView_StatsRender_LowReadHitRate(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.readStatus = ReadCacheStatus{
+		Evaluations: 100,
+		Allows:      80,
+		Blocks:      5,
+		HitRate:     0.05,
+	}
+	m := NewModel(p)
+	m.view = ViewStats
+	m.width = 120
+	m.height = 40
+
+	output := m.View()
+	if !strings.Contains(output, "Hit rate:") {
+		t.Fatalf("hit rate line missing: %s", output)
+	}
+}
+
 // TestView_StatsRender_QualitySpike covers the renderStatsView branch
 // where the cache-miss spike marker flips to ACTIVE (T77 visibility).
 func TestView_StatsRender_QualitySpike(t *testing.T) {

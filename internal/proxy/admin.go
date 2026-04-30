@@ -83,13 +83,17 @@ type AdminLayer2Status struct {
 }
 
 type AdminReadCacheStatus struct {
-	Evaluations     int `json:"evaluations"`
-	Allows          int `json:"allows"`
-	Blocks          int `json:"blocks"`
-	UnchangedBlocks int `json:"unchanged_blocks"`
-	DeltaBlocks     int `json:"delta_blocks"`
-	Sessions        int `json:"sessions"`
-	TrackedFiles    int `json:"tracked_files"`
+	Evaluations     int     `json:"evaluations"`
+	Allows          int     `json:"allows"`
+	Blocks          int     `json:"blocks"`
+	UnchangedBlocks int     `json:"unchanged_blocks"`
+	DeltaBlocks     int     `json:"delta_blocks"`
+	Sessions        int     `json:"sessions"`
+	TrackedFiles    int     `json:"tracked_files"`
+	// HitRate is Blocks / (Blocks + Allows), or 0 when no decisions
+	// have been recorded. Surfaced as a derived field so monitoring
+	// tools don't have to recompute it. T57 stretch.
+	HitRate float64 `json:"hit_rate"`
 }
 
 type AdminCheckpointStatus struct {
@@ -283,6 +287,10 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		if stats, err := readcache.Snapshot(readcache.DefaultDir(home)); err == nil {
+			rate := 0.0
+			if total := stats.Blocks + stats.Allows; total > 0 {
+				rate = float64(stats.Blocks) / float64(total)
+			}
 			readStatus = AdminReadCacheStatus{
 				Evaluations:     stats.Evaluations,
 				Allows:          stats.Allows,
@@ -291,6 +299,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 				DeltaBlocks:     stats.DeltaBlocks,
 				Sessions:        stats.Sessions,
 				TrackedFiles:    stats.TrackedFiles,
+				HitRate:         rate,
 			}
 		}
 		if stats, err := checkpoints.Snapshot(checkpoints.DefaultDir(home)); err == nil {

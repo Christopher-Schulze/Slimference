@@ -128,10 +128,16 @@ func (m *Model) renderStatsView() string {
 	appendCard("SAVINGS", []string{renderTable(s, headers, rows, []int{20, 12, 12, 8})})
 
 	readCache := m.proxy.GetReadCacheStatus()
+	hitRateLine := fmt.Sprintf("  Hit rate:         %.1f%%", readCache.HitRate*100)
+	hitRateStyle := s.Saved
+	if readCache.HitRate < 0.40 && readCache.Blocks+readCache.Allows > 10 {
+		hitRateStyle = s.Highlight
+	}
 	appendCard("READ CACHE", []string{
 		s.Normal.Render(fmt.Sprintf("  Evaluations:      %d", readCache.Evaluations)),
 		s.Normal.Render(fmt.Sprintf("  Blocks:           %d (%d unchanged, %d delta)", readCache.Blocks, readCache.UnchangedBlocks, readCache.DeltaBlocks)),
 		s.Normal.Render(fmt.Sprintf("  Allows:           %d", readCache.Allows)),
+		hitRateStyle.Render(hitRateLine),
 		s.Normal.Render(fmt.Sprintf("  Tracked files:    %d across %d sessions", readCache.TrackedFiles, readCache.Sessions)),
 	})
 

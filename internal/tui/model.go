@@ -86,6 +86,7 @@ type ReadCacheStatus struct {
 	DeltaBlocks     int
 	Sessions        int
 	TrackedFiles    int
+	HitRate         float64 // Blocks / (Blocks + Allows). T57 stretch.
 }
 
 type CheckpointStatus struct {

@@ -16,17 +16,20 @@ Code verification revealed that the bulk of this task is already live:
 
 What's left unimplemented (carried forward as stretch, not blocking):
 
-1. Explicit `hit_rate` field derived from Blocks/(Blocks+Allows) - currently
-   TUI computes it inline; a computed field on the admin surface would make
-   monitoring tools cheaper.
+1. ~~Explicit `hit_rate` field derived from Blocks/(Blocks+Allows)~~
+   **Shipped 2026-04-30**: `AdminReadCacheStatus.HitRate` derived field;
+   TUI Stats view renders a dedicated "Hit rate" line that flips to the
+   warn style (`s.Highlight`) when the rate drops below 40 % once at
+   least 10 decisions have been recorded.
 2. `bytes_cap` awareness and colour thresholds (amber at 80%, red at 95%).
    Requires wiring a cap source into the stats; non-trivial because the
-   cap lives on the ToolArchive config side.
+   cap lives on the ToolArchive config side. Still deferred.
 3. `evictions_total` counter - the readcache currently does not evict;
    sessions accumulate. If/when eviction is added this counter moves too.
+   Still deferred.
 
-Closed as largely-done. Reopen with a smaller spec if any of the three
-stretch items gains concrete motivation from operator feedback.
+Closed as largely-done. Stretch items 2 + 3 reopen if a real cap is
+introduced or operator feedback shows the missing colour cues bite.
 
 ---
 

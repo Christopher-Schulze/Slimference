@@ -2177,6 +2177,7 @@ func (a *proxyAdapter) GetReadCacheStatus() tui.ReadCacheStatus {
 		DeltaBlocks:     status.DeltaBlocks,
 		Sessions:        status.Sessions,
 		TrackedFiles:    status.TrackedFiles,
+		HitRate:         status.HitRate,
 	}
 }
 func (a *proxyAdapter) GetProviderHealth(prov types.Provider) types.ProviderHealthInfo {
