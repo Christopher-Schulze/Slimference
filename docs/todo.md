@@ -649,13 +649,13 @@ API calls in default CI, mutating the operator's live Codex install.
 - [!] T88 - Capability struct + per-provider registry (Anthropic / OpenAI / Codex) landed in `internal/types/provider_caps.go`; unblocks T91 + T78 wiring. Seed request-builder wiring + doctor warning deferred. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
 - [x] T89 - Robust CoT stripping: 12-family canonical strip set with fixed-point loop and per-tag counters; legacy single-family regex retired. Config knob deferred. Detail: `docs/todo/t89-robust-cot-stripping.md`
 - [x] T90 - Deterministic repair (header strip / `*`+`1.` -> `- ` normalisation / preamble trim) runs before retry path; bypasses API round-trip when format-only failures can be fixed locally. Model-driven repair deferred. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
-- [ ] T91 - REOPENED 2026-04-30: T88 capability map is in; wire `min_completion_tokens` request-side, gated by `SupportsMinCompletionTokens` so non-supporting providers stay untouched. Detail: `docs/todo/t91-min-completion-tokens.md`
+- [x] T91 - 2026-04-30: MiniMax client honours `[compression.minimax] enable_seed` / `enable_min_tokens` via `SetCapabilities` from `NewLayer2`. Both default off until live verification. Detail: `docs/todo/t91-min-completion-tokens.md`
 - [x] T92 - Per-bullet lineage markers landed: prompt requests `[msg:N,M]`, validator tolerates them, helpers + counters expose marker-presence rate. T76 WP3 consumer deferred. Detail: `docs/todo/t92-per-bullet-lineage-markers.md`
 
 ### Phase Q - Layer 0 improvements (P2)
 
 - [ ] T93 - REOPENED 2026-04-30: ship the posttool path (where session_id is available); per-session repetition store + marker emission. Skip the `slimference filter` subprocess case for now (still needs hook plumbing). Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
-- [ ] T94 - REOPENED 2026-04-30: implement the streaming pump as `slimference filter --stream <cmd>` opt-in subcommand with synthetic stream-generator unit tests. No live external testing required. Detail: `docs/todo/t94-l0-streaming-filter.md`
+- [x] T94 - 2026-04-30: streaming pump shipped as `slimference filter --stream <cmd>` (`internal/filter/stream.go`). Sliding window + flush ticker + ANSI-strip + dedup; race-clean unit tests; help / completion registered. Detail: `docs/todo/t94-l0-streaming-filter.md`
 - [!] T95 - DEFERRED: filter subprocess has no live provider context; cleanest path needs hook-install plumbing for `--provider` or env var. Re-open when evidence shows the rune budget is wrong for a specific provider by more than ~15%. Detail: `docs/todo/t95-l0-tokenizer-aware-budgets.md`
 
 ### Phase R - Layer 1 improvements (P1/P2)

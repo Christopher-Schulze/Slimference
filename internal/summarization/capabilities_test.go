@@ -163,3 +163,47 @@ func TestSetCapabilities_RoundTrip(t *testing.T) {
 		t.Fatalf("override did not stick: %+v", got)
 	}
 }
+
+// TestNewLayer2_WiresMiniMaxCapabilities asserts T91: NewLayer2 propagates
+// `[compression.minimax] enable_seed` / `enable_min_tokens` to the MiniMax
+// client through SetCapabilities, defaulting both off.
+func TestNewLayer2_WiresMiniMaxCapabilities(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default off", func(t *testing.T) {
+		t.Parallel()
+		full := config.Defaults()
+		layer := NewLayer2(&full.Compression)
+		mm := primaryMiniMax(t, layer)
+		got := mm.Capabilities()
+		if got.SupportsSeed || got.SupportsMinCompletionTokens {
+			t.Fatalf("defaults must be off, got %+v", got)
+		}
+	})
+
+	t.Run("flags propagate", func(t *testing.T) {
+		t.Parallel()
+		full := config.Defaults()
+		full.Compression.MiniMax.EnableSeed = true
+		full.Compression.MiniMax.EnableMinTokens = true
+		layer := NewLayer2(&full.Compression)
+		mm := primaryMiniMax(t, layer)
+		got := mm.Capabilities()
+		if !got.SupportsSeed || !got.SupportsMinCompletionTokens {
+			t.Fatalf("flags not propagated: %+v", got)
+		}
+	})
+}
+
+func primaryMiniMax(t *testing.T, layer *Layer2) *MiniMaxClient {
+	t.Helper()
+	providers := layer.chain.Providers()
+	if len(providers) == 0 {
+		t.Fatal("chain has no providers")
+	}
+	mm, ok := providers[0].(*MiniMaxClient)
+	if !ok {
+		t.Fatalf("primary is not *MiniMaxClient: %T", providers[0])
+	}
+	return mm
+}

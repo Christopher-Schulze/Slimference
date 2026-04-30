@@ -236,6 +236,13 @@ type MiniMaxConfig struct {
 	ConnectTimeoutSeconds  int     `toml:"connect_timeout_seconds"`
 	ResponseTimeoutSeconds int     `toml:"response_timeout_seconds"`
 	RateLimitRPM           int     `toml:"rate_limit_rpm"`
+	// EnableMinTokens emits the `min_tokens` request field (T91). Off by
+	// default because MiniMax's contract for this field is not publicly
+	// documented; flip after live verification.
+	EnableMinTokens bool `toml:"enable_min_tokens"`
+	// EnableSeed emits the `seed` request field for stable summaries (T91).
+	// Off by default to keep the wire shape unchanged until opt-in.
+	EnableSeed bool `toml:"enable_seed"`
 }
 
 // APIKey resolves the MiniMax API key from the configured environment variable.

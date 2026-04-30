@@ -156,6 +156,11 @@ max_retries = 3
 connect_timeout_seconds = 5
 response_timeout_seconds = 30
 rate_limit_rpm = 10
+# T91: emit seed for deterministic summaries; off until verified live.
+enable_seed = false
+# T91: emit min_tokens to lift the lower bound of the completion length.
+# Off by default because the field is not publicly documented for MiniMax.
+enable_min_tokens = false
 
 [compression.summary]
 # Operating mode: strict | balanced | fast. Selecting a mode configures

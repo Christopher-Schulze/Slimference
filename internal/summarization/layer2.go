@@ -30,6 +30,10 @@ type Layer2 struct {
 
 func NewLayer2(cfg *config.CompressionConfig) *Layer2 {
 	mm := NewMiniMaxClient(cfg.MiniMax)
+	mm.SetCapabilities(capProvider{
+		SupportsSeed:                cfg.MiniMax.EnableSeed,
+		SupportsMinCompletionTokens: cfg.MiniMax.EnableMinTokens,
+	})
 	chain := NewFallbackChain(mm)
 	return &Layer2{
 		cfg:       cfg,
