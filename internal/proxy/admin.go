@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -12,8 +13,9 @@ import (
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/quality"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/readcache"
+	"github.com/slimference/slimference/internal/repetition"
+	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -151,10 +153,14 @@ type AdminStatus struct {
 	Pipeline          []analytics.PhaseSnapshot           `json:"pipeline"`
 	AnthropicVersion  AnthropicVersionStats               `json:"anthropic_version"`
 	Bypass            bool                                `json:"bypass"`
+	BypassDetail      BypassStats                         `json:"bypass_detail"`
 	Quality           quality.QualitySnapshot             `json:"quality"`
 	AnyDegraded       bool                                `json:"any_provider_degraded"`
 	Summarization     SummarizationTelemetry              `json:"summarization"`
 	Coordinator       CoordinatorStats                    `json:"coordinator"`
+	Repetition        RepetitionStats                     `json:"repetition"`
+	ToolPrune         ToolPruneStats                      `json:"tool_prune"`
+	ServerState       ServerStateStats                    `json:"server_state"`
 }
 
 // AnthropicVersionStats reports T62 version-negotiation telemetry.
@@ -192,6 +198,35 @@ type CoordinatorStats struct {
 	SkippedTotal int  `json:"skipped_total"`
 }
 
+// RepetitionStats exposes T93 posttool repetition store snapshot.
+type RepetitionStats struct {
+	Rows           int64 `json:"rows"`
+	UniqueSessions int64 `json:"unique_sessions"`
+	MaxHitCount    int64 `json:"max_hit_count"`
+}
+
+// ToolPruneStats exposes T103 tool-pruning usage tracker snapshot.
+type ToolPruneStats struct {
+	Sessions       int   `json:"sessions"`
+	PrunedTotal    int64 `json:"pruned_total"`
+	ReattachTotal  int64 `json:"reattach_total"`
+	TokensSavedSum int64 `json:"tokens_saved_sum"`
+}
+
+// ServerStateStats exposes T78 per-session response-id store snapshot.
+type ServerStateStats struct {
+	Sessions  int   `json:"sessions"`
+	SkipTotal int64 `json:"skip_total"`
+}
+
+// BypassStats exposes T81 bypass-state telemetry beyond the bare bool.
+type BypassStats struct {
+	Enabled            bool  `json:"enabled"`
+	ExpiresAtUnix      int64 `json:"expires_at_unix"`
+	NextRequestBudget  int64 `json:"next_request_budget"`
+	AutoRevertCount    int64 `json:"auto_revert_count"`
+}
+
 type AdminToggleProviderRequest struct {
 	Provider string `json:"provider"`
 	Enabled  bool   `json:"enabled"`
@@ -222,6 +257,20 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 	checkpointStatus := AdminCheckpointStatus{}
 	toolArchiveStatus := AdminToolArchiveStatus{}
 	contentArchiveStatus := AdminContentArchiveStatus{}
+	repetitionStatus := RepetitionStats{}
+	if home, err := os.UserHomeDir(); err == nil {
+		// T93: read the repetition store snapshot if the file exists.
+		if db, err := openRepetitionDB(home); err == nil && db != nil {
+			defer func() { _ = db.Close() }()
+			if s, err := repetitionSnapshot(db); err == nil {
+				repetitionStatus = RepetitionStats{
+					Rows:           s.Rows,
+					UniqueSessions: s.UniqueSessions,
+					MaxHitCount:    s.MaxHitCount,
+				}
+			}
+		}
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		if stats, err := readcache.Snapshot(readcache.DefaultDir(home)); err == nil {
 			readStatus = AdminReadCacheStatus{
@@ -323,7 +372,13 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			UnknownBehavior:   p.config.Proxy.AnthropicUnknownBehavior,
 			UnknownSeenTotal:  AnthropicUnknownVersionCount(),
 		},
-		Bypass:  p.Bypass(),
+		Bypass: p.Bypass(),
+		BypassDetail: BypassStats{
+			Enabled:           p.Bypass(),
+			ExpiresAtUnix:     bypassExpiresUnix(p),
+			NextRequestBudget: p.BypassNextRequestCount(),
+			AutoRevertCount:   p.BypassAutoRevertCount(),
+		},
 		Quality: p.QualitySnapshot(),
 		Summarization: func() SummarizationTelemetry {
 			marked, total := summarization.LineageMarkerCounts()
@@ -345,7 +400,54 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			Enabled:      p.config.Compression.Tuning.CoordinatorEnabled,
 			SkippedTotal: p.layer1.CoordinatorSkipped(),
 		},
+		Repetition: repetitionStatus,
+		ToolPrune: func() ToolPruneStats {
+			if p.toolPrune == nil {
+				return ToolPruneStats{}
+			}
+			s := p.toolPrune.Snapshot()
+			return ToolPruneStats{
+				Sessions:       s.Sessions,
+				PrunedTotal:    s.PrunedTotal,
+				ReattachTotal:  s.ReattachTotal,
+				TokensSavedSum: s.TokensSavedSum,
+			}
+		}(),
+		ServerState: func() ServerStateStats {
+			if p.serverState == nil {
+				return ServerStateStats{}
+			}
+			s := p.serverState.Snapshot()
+			return ServerStateStats{
+				Sessions:  s.Sessions,
+				SkipTotal: s.SkipTotal,
+			}
+		}(),
 	}
+}
+
+// openRepetitionDB returns the repetition.db connection if the file
+// exists, else (nil, nil). Errors are surfaced for the caller to log.
+func openRepetitionDB(home string) (*sql.DB, error) {
+	path := repetition.DefaultPath(home)
+	if _, err := os.Stat(path); err != nil {
+		return nil, nil
+	}
+	return repetition.Open(path)
+}
+
+// repetitionSnapshot is a thin wrapper to keep the import surface tidy.
+func repetitionSnapshot(db *sql.DB) (repetition.Stats, error) {
+	return repetition.Snapshot(db)
+}
+
+// bypassExpiresUnix returns the unix-second deadline of any active
+// duration-bounded bypass; zero when none.
+func bypassExpiresUnix(p *Proxy) int64 {
+	if t := p.BypassExpiresAt(); !t.IsZero() {
+		return t.Unix()
+	}
+	return 0
 }
 
 // adminBypassHandler returns or sets the master bypass state (T67).

@@ -26,6 +26,7 @@ import (
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -113,6 +114,13 @@ type Proxy struct {
 	// --next-request[=N]` sets this; each matched request decrements
 	// it. When it reaches zero, bypass turns off.
 	bypassNextRequestCount atomic.Int64
+	// toolPrune holds the per-session tool-usage tracker (T103). Always
+	// constructed; the actual prune-decision wiring is gated by
+	// [compression.tuning] tool_prune_enabled.
+	toolPrune *toolprune.UsageTracker
+	// serverState holds the T78 per-session response-id store. Always
+	// constructed; live wiring is gated by [proxy] server_state_enabled.
+	serverState *sessions.ResponseStateStore
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
@@ -168,6 +176,8 @@ func New(cfg *config.Config) *Proxy {
 		qualityReRead:     quality.NewReReadDetector(10),
 		qualityCacheSpike: quality.NewCacheMissSpikeDetector(50, 0.25),
 		qualityNetSavings: quality.NewNetSavings(),
+		toolPrune:         toolprune.NewUsageTracker(20),
+		serverState:       sessions.NewResponseStateStore(1024),
 	}
 
 	// Default all toggles to enabled.
