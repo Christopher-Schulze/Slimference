@@ -15,7 +15,7 @@ import (
 )
 
 func TestParseWatchArgs_Defaults(t *testing.T) {
-	t.Parallel()
+
 	f, err := parseWatchArgs(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestParseWatchArgs_Defaults(t *testing.T) {
 }
 
 func TestParseWatchArgs_AllFlags(t *testing.T) {
-	t.Parallel()
+
 	f, err := parseWatchArgs([]string{"--once", "--interval", "5", "--endpoint", "http://1.2.3.4:8990"})
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestParseWatchArgs_AllFlags(t *testing.T) {
 }
 
 func TestParseWatchArgs_Errors(t *testing.T) {
-	t.Parallel()
+
 	cases := [][]string{
 		{"--unknown"},
 		{"--interval"},
@@ -54,7 +54,7 @@ func TestParseWatchArgs_Errors(t *testing.T) {
 }
 
 func TestParseWatchArgs_EmptySkipped(t *testing.T) {
-	t.Parallel()
+
 	f, err := parseWatchArgs([]string{"", "--once", ""})
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestParseWatchArgs_EmptySkipped(t *testing.T) {
 }
 
 func TestParsePositiveSeconds(t *testing.T) {
-	t.Parallel()
+
 	if n, err := parsePositiveSeconds("3"); err != nil || n != 3 {
 		t.Fatalf("3 -> %d %v", n, err)
 	}
@@ -78,7 +78,7 @@ func TestParsePositiveSeconds(t *testing.T) {
 }
 
 func TestWatchAdminEndpoint_DefaultPort(t *testing.T) {
-	t.Parallel()
+
 	url := watchAdminEndpoint(nil, "")
 	if !strings.Contains(url, "127.0.0.1:8990") {
 		t.Fatalf("default endpoint missing port: %s", url)
@@ -86,7 +86,7 @@ func TestWatchAdminEndpoint_DefaultPort(t *testing.T) {
 }
 
 func TestWatchAdminEndpoint_ConfigPort(t *testing.T) {
-	t.Parallel()
+
 	cfg := config.Defaults()
 	cfg.Proxy.ListenPort = 9999
 	url := watchAdminEndpoint(cfg, "")
@@ -96,7 +96,7 @@ func TestWatchAdminEndpoint_ConfigPort(t *testing.T) {
 }
 
 func TestWatchAdminEndpoint_OverrideTrimsTrailingSlash(t *testing.T) {
-	t.Parallel()
+
 	url := watchAdminEndpoint(nil, "http://example/")
 	if strings.Contains(url, "//_") {
 		t.Fatalf("double slash not handled: %s", url)
@@ -107,7 +107,7 @@ func TestWatchAdminEndpoint_OverrideTrimsTrailingSlash(t *testing.T) {
 }
 
 func TestFetchAdminStatus_Success(t *testing.T) {
-	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -125,7 +125,7 @@ func TestFetchAdminStatus_Success(t *testing.T) {
 }
 
 func TestFetchAdminStatus_NonOK(t *testing.T) {
-	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusInternalServerError)
 	}))
@@ -136,21 +136,21 @@ func TestFetchAdminStatus_NonOK(t *testing.T) {
 }
 
 func TestFetchAdminStatus_NetworkError(t *testing.T) {
-	t.Parallel()
+
 	if _, err := fetchAdminStatus(context.Background(), &http.Client{Timeout: time.Millisecond}, "http://127.0.0.1:1/x"); err == nil {
 		t.Fatal("expected network error")
 	}
 }
 
 func TestFetchAdminStatus_BadURL(t *testing.T) {
-	t.Parallel()
+
 	if _, err := fetchAdminStatus(context.Background(), &http.Client{}, "::not a url"); err == nil {
 		t.Fatal("expected request creation error")
 	}
 }
 
 func TestRenderWatchTick_HappyPath(t *testing.T) {
-	t.Parallel()
+
 	body := []byte(`{
 		"bypass": false,
 		"any_provider_degraded": true,
@@ -168,7 +168,7 @@ func TestRenderWatchTick_HappyPath(t *testing.T) {
 }
 
 func TestRenderWatchTick_Bypass(t *testing.T) {
-	t.Parallel()
+
 	body := []byte(`{"bypass": true, "layers": {}}`)
 	got := renderWatchTick(time.Now(), body)
 	if !strings.Contains(got, "BYPASS ON") {
@@ -177,7 +177,7 @@ func TestRenderWatchTick_Bypass(t *testing.T) {
 }
 
 func TestRenderWatchTick_BadJSON(t *testing.T) {
-	t.Parallel()
+
 	got := renderWatchTick(time.Now(), []byte("not json"))
 	if !strings.Contains(got, "parse error") {
 		t.Fatalf("expected parse error: %s", got)
@@ -249,7 +249,7 @@ func TestHandleWatchCmd_ConfigError(t *testing.T) {
 }
 
 func TestRunWatchLoop_TicksUntilCancel(t *testing.T) {
-	t.Parallel()
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

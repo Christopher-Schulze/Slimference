@@ -13,7 +13,7 @@ import (
 )
 
 func TestParseSavingsArgs_Defaults(t *testing.T) {
-	t.Parallel()
+
 	period, flags, err := parseSavingsArgs(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -27,7 +27,7 @@ func TestParseSavingsArgs_Defaults(t *testing.T) {
 }
 
 func TestParseSavingsArgs_AllFlags(t *testing.T) {
-	t.Parallel()
+
 	period, flags, err := parseSavingsArgs([]string{"week", "--json", "--csv", "--project", "/tmp/proj"})
 	if err != nil {
 		t.Fatal(err)
@@ -41,28 +41,28 @@ func TestParseSavingsArgs_AllFlags(t *testing.T) {
 }
 
 func TestParseSavingsArgs_UnknownFlag(t *testing.T) {
-	t.Parallel()
+
 	if _, _, err := parseSavingsArgs([]string{"--unknown"}); err == nil {
 		t.Fatal("unknown flag must error")
 	}
 }
 
 func TestParseSavingsArgs_ProjectMissing(t *testing.T) {
-	t.Parallel()
+
 	if _, _, err := parseSavingsArgs([]string{"--project"}); err == nil {
 		t.Fatal("missing project value must error")
 	}
 }
 
 func TestParseSavingsArgs_DoublePeriod(t *testing.T) {
-	t.Parallel()
+
 	if _, _, err := parseSavingsArgs([]string{"today", "week"}); err == nil {
 		t.Fatal("two periods must error")
 	}
 }
 
 func TestParseSavingsArgs_EmptyArgsSkipped(t *testing.T) {
-	t.Parallel()
+
 	period, _, err := parseSavingsArgs([]string{"", "today", ""})
 	if err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestParseSavingsArgs_EmptyArgsSkipped(t *testing.T) {
 }
 
 func TestComputeSavings_NoData(t *testing.T) {
-	t.Parallel()
+
 	cfg := config.Defaults()
 	cfg.Analytics.LogDir = t.TempDir()
 	cfg.Analytics.GainUSDPerMillionTokens = 5
@@ -88,7 +88,7 @@ func TestComputeSavings_NoData(t *testing.T) {
 }
 
 func TestAccumulateSnapshots(t *testing.T) {
-	t.Parallel()
+
 	out := SavingsSummary{}
 	accumulateSnapshots(&out, []analytics.AnalyticsSnapshot{
 		{TotalRequests: 5, TotalInputTokens: 1000, SavedInputTokens: 300, CacheHits: 1},
@@ -106,7 +106,7 @@ func TestAccumulateSnapshots(t *testing.T) {
 }
 
 func TestAccumulateSnapshots_NegativeSavedClamped(t *testing.T) {
-	t.Parallel()
+
 	out := SavingsSummary{}
 	accumulateSnapshots(&out, []analytics.AnalyticsSnapshot{
 		{TotalRequests: 1, TotalInputTokens: 100, SavedInputTokens: 200},
@@ -117,7 +117,7 @@ func TestAccumulateSnapshots_NegativeSavedClamped(t *testing.T) {
 }
 
 func TestFormatSavingsText(t *testing.T) {
-	t.Parallel()
+
 	s := SavingsSummary{
 		Period:           "today",
 		Project:          "/tmp/proj",
@@ -141,7 +141,7 @@ func TestFormatSavingsText(t *testing.T) {
 }
 
 func TestFormatSavingsText_NoUSD(t *testing.T) {
-	t.Parallel()
+
 	s := SavingsSummary{Period: "week", TotalSavedTokens: 12}
 	got := formatSavingsText(s)
 	if strings.Contains(got, "$") {
@@ -150,7 +150,7 @@ func TestFormatSavingsText_NoUSD(t *testing.T) {
 }
 
 func TestFormatSavingsCSV(t *testing.T) {
-	t.Parallel()
+
 	s := SavingsSummary{Period: "today", Layer0Runs: 1, TotalSavedTokens: 100, USDPerMillion: 5, TotalSavedUSD: 0.5}
 	got := formatSavingsCSV(s)
 	if !strings.Contains(got, "period,project") || !strings.Contains(got, "today,") {
@@ -309,7 +309,7 @@ func TestHandleSavingsCmd_CSV(t *testing.T) {
 }
 
 func TestComputeSavings_WithSnapshots(t *testing.T) {
-	t.Parallel()
+
 	cfg := config.Defaults()
 	logDir := t.TempDir()
 	cfg.Analytics.LogDir = logDir
@@ -335,7 +335,7 @@ func TestComputeSavings_WithSnapshots(t *testing.T) {
 }
 
 func TestComputeSavings_FilterPathError(t *testing.T) {
-	t.Parallel()
+
 	cfg := config.Defaults()
 	cfg.Analytics.LogDir = t.TempDir()
 	prevPath := resolveFilterDBPathFn
@@ -345,7 +345,7 @@ func TestComputeSavings_FilterPathError(t *testing.T) {
 }
 
 func TestComputeSavings_FilterDBPresent(t *testing.T) {
-	t.Parallel()
+
 	cfg := config.Defaults()
 	cfg.Analytics.LogDir = t.TempDir()
 	prevPath := resolveFilterDBPathFn
@@ -388,7 +388,7 @@ func TestHandleSubcommand_SavingsDispatch(t *testing.T) {
 }
 
 func TestComputeSavings_AllPeriodsAggregateHistorical(t *testing.T) {
-	t.Parallel()
+
 	cfg := config.Defaults()
 	logDir := t.TempDir()
 	cfg.Analytics.LogDir = logDir

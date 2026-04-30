@@ -13,7 +13,7 @@ import (
 )
 
 func TestParsePreviewArgs_Default(t *testing.T) {
-	t.Parallel()
+
 	f, err := parsePreviewArgs(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestParsePreviewArgs_Default(t *testing.T) {
 }
 
 func TestParsePreviewArgs_AllFlags(t *testing.T) {
-	t.Parallel()
+
 	f, err := parsePreviewArgs([]string{"--json", "--diff", "--provider", "openai", "--path", "/x", "/tmp/body.json"})
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestParsePreviewArgs_AllFlags(t *testing.T) {
 }
 
 func TestParsePreviewArgs_Errors(t *testing.T) {
-	t.Parallel()
+
 	cases := [][]string{
 		{"--unknown"},
 		{"--provider"},
@@ -50,7 +50,7 @@ func TestParsePreviewArgs_Errors(t *testing.T) {
 }
 
 func TestParsePreviewArgs_EmptySkipped(t *testing.T) {
-	t.Parallel()
+
 	f, err := parsePreviewArgs([]string{"", "/tmp/in.json", ""})
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestParsePreviewArgs_EmptySkipped(t *testing.T) {
 }
 
 func TestProviderFromString(t *testing.T) {
-	t.Parallel()
+
 	cases := map[string]types.Provider{
 		"anthropic":     types.Anthropic,
 		"openai":        types.OpenAI,
@@ -97,7 +97,7 @@ func TestReadPreviewInput_Stdin(t *testing.T) {
 }
 
 func TestReadPreviewInput_File(t *testing.T) {
-	t.Parallel()
+
 	dir := t.TempDir()
 	path := dir + "/body.json"
 	if err := os.WriteFile(path, []byte("file body"), 0o600); err != nil {
@@ -113,7 +113,7 @@ func TestReadPreviewInput_File(t *testing.T) {
 }
 
 func TestRenderPreviewDiff(t *testing.T) {
-	t.Parallel()
+
 	got := renderPreviewDiff([]byte("a\nshared\nold"), []byte("a\nshared\nnew"))
 	if !strings.Contains(got, "- old") || !strings.Contains(got, "+ new") {
 		t.Fatalf("diff missing markers:\n%s", got)
@@ -124,7 +124,7 @@ func TestRenderPreviewDiff(t *testing.T) {
 }
 
 func TestRenderPreviewText(t *testing.T) {
-	t.Parallel()
+
 	res := proxy.PreviewResult{
 		ProviderString:    "anthropic",
 		OrigTokens:        100,
@@ -142,7 +142,7 @@ func TestRenderPreviewText(t *testing.T) {
 }
 
 func TestRenderPreviewText_WithDiff(t *testing.T) {
-	t.Parallel()
+
 	res := proxy.PreviewResult{
 		ProviderString:  "openai",
 		OriginalBody:    []byte("orig"),
