@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -128,6 +129,68 @@ const systemPromptFooter = "START your output with \"- \" immediately. First cha
 // fallback when buildSystemPrompt is not invoked (e.g. legacy tests). T87.
 var systemPrompt = systemPromptHeader + exampleGo + systemPromptFooter
 
+// promptOverrideBody, when non-empty, replaces systemPromptHeader at
+// request time. T86 lets operators iterate on the prompt without
+// recompiling: load a file once at startup, set this var, and every
+// subsequent buildSystemPrompt call uses the file content.
+var promptOverrideBody string
+
+// promptOverrideVersion is the version tag parsed from the first
+// `# version: ...` line of the prompt file. Recorded in RequestSummary
+// so analytics can be sliced by prompt revision.
+var promptOverrideVersion string
+
+// SetPromptOverride sets a custom prompt body + version. Empty body
+// reverts to the compile-time default. T86.
+func SetPromptOverride(body, version string) {
+	promptOverrideBody = body
+	promptOverrideVersion = version
+}
+
+// PromptVersion returns the active prompt version tag, or "default"
+// when no override is configured. T86.
+func PromptVersion() string {
+	if promptOverrideVersion == "" {
+		return "default"
+	}
+	return promptOverrideVersion
+}
+
+// LoadPromptOverrideFromPath reads path and configures the active
+// prompt. The file's first non-empty line may carry a
+// `# version: <tag>` annotation; the rest is treated as the prompt
+// body. Returns the parsed version tag (or "" when none was set) and
+// any IO error. Caller can pass the returned version through to
+// telemetry. T86.
+func LoadPromptOverrideFromPath(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	body, version := parsePromptDocument(string(data))
+	SetPromptOverride(body, version)
+	return version, nil
+}
+
+func parsePromptDocument(s string) (body, version string) {
+	lines := strings.Split(s, "\n")
+	skip := 0
+	for i, ln := range lines {
+		trim := strings.TrimSpace(ln)
+		if trim == "" {
+			skip = i + 1
+			continue
+		}
+		if strings.HasPrefix(trim, "# version:") {
+			version = strings.TrimSpace(strings.TrimPrefix(trim, "# version:"))
+			skip = i + 1
+			continue
+		}
+		break
+	}
+	return strings.Join(lines[skip:], "\n"), version
+}
+
 // examplePromptCounters records which stack examples were chosen so the
 // operator can monitor per-language distribution. T87.
 var examplePromptCounters = map[string]int64{}
@@ -211,8 +274,10 @@ func pickExampleLang(input string) string {
 }
 
 // buildSystemPrompt returns the system prompt with the stack-appropriate
-// few-shot example. The picker output is also recorded for telemetry so
-// the operator can see the distribution of stack examples used. T87.
+// few-shot example. The picker output is recorded for telemetry. T87.
+// When a T86 prompt override is configured, the override body replaces
+// the header so operators can iterate without recompiling; the example
+// + footer stay so telemetry-gated counters still fire.
 func buildSystemPrompt(input string) string {
 	lang := pickExampleLang(input)
 	examplePromptCounters[lang]++
@@ -223,7 +288,11 @@ func buildSystemPrompt(input string) string {
 	case "ts":
 		example = exampleTS
 	}
-	return systemPromptHeader + example + systemPromptFooter
+	header := systemPromptHeader
+	if promptOverrideBody != "" {
+		header = promptOverrideBody
+	}
+	return header + example + systemPromptFooter
 }
 
 // coTRegex matches chain-of-thought thinking blocks that some models emit.
