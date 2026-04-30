@@ -1,6 +1,6 @@
 # TASK 100: Cross-direction L1/L2 coordinator
 
-Status: todo
+Status: deferred - see docs/todo.md for closure rationale
 Priority: P2
 Scope: `internal/compression/layer1.go`, `internal/summarization/layer2.go`, `internal/proxy/handler.go`
 Driver: Layer 1 does aggressive work that Layer 2 then subsumes when it summarises the same exchanges. The two layers do not coordinate. A coordinator that knows L2 is about to summarise an exchange can skip the L1 spend on that exchange.

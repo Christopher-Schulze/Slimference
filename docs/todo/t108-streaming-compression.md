@@ -1,6 +1,6 @@
 # TASK 108: Streaming compression for long tool outputs
 
-Status: todo
+Status: deferred - see docs/todo.md for closure rationale
 Priority: P2
 Scope: `internal/compression/`, `internal/proxy/handler.go`, `internal/filter/streamfilter.go` (T94)
 Driver: Today compression runs on whole bodies. Long tool outputs (100MB log dumps, multi-minute test runs) blow the working-set budget and produce a latency cliff. Chunked compression during the tool run keeps memory and latency bounded.

@@ -1,6 +1,6 @@
 # TASK 96: Layer 1 conversation-level dedup
 
-Status: todo
+Status: completed - see commits 695b4dc
 Priority: P1
 Scope: `internal/compression/dedup.go`, `internal/compression/dedup_minhash.go`, `internal/compression/layer1.go`, `internal/sessions/`
 Driver: Today dedup operates intra-message. Two identical `git diff` outputs in message 5 and message 17 do not find each other. Conversation-level dedup with stable hash references across messages is one of the largest unrealised L1 levers.

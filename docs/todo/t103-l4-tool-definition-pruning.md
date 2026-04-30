@@ -1,6 +1,6 @@
 # TASK 103: Layer 4 - Tool-Definition Pruning
 
-Status: todo
+Status: deferred - see docs/todo.md for closure rationale
 Priority: P1
 Scope: `internal/proxy/handler.go`, `internal/compression/`, new `internal/toolprune/`
 Driver: Claude tool schemas in the system block are routinely 5-10k tokens. After 20 turns of an interactive session, only a handful of tools have actually been used. A lazy-load model that drops idle tool schemas and reattaches them on demand is a brand-new compression axis no current layer touches.

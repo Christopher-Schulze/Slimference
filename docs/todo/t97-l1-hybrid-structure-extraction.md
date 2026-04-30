@@ -1,6 +1,6 @@
 # TASK 97: Hybrid regex + tree-sitter structure extraction
 
-Status: todo
+Status: deferred - see docs/todo.md for closure rationale
 Priority: P2
 Scope: `internal/compression/structure.go`, `internal/compression/structure_more.go`, dependency on tree-sitter Go bindings
 Driver: Structure extraction is regex-only. Templates, embedded DSLs, and unusual formatters (jsx-in-markdown, scripts inside HTML, embedded SQL) cause regex misses or false positives. Tree-sitter would handle all of these but at a much higher cost. A hybrid path keeps the speed of regex while raising the accuracy ceiling on confidence-fail.

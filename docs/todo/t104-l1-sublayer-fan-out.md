@@ -1,6 +1,6 @@
 # TASK 104: Goroutine fan-out across independent L1 sub-layers
 
-Status: todo
+Status: deferred - see docs/todo.md for closure rationale
 Priority: P2
 Scope: `internal/compression/layer1.go`, `internal/compression/`
 Driver: Layer 1 sub-layers run sequentially. Several are independent (ANSI strip, image-replace, JSON compact, comment strip) and operate on disjoint blocks. Goroutine fan-out keeps the hot-path under the <5ms budget on large bodies.

@@ -1,6 +1,6 @@
 # TASK 107: Conversation-scoped dedup hash cache
 
-Status: todo
+Status: completed - see commits 695b4dc
 Priority: P2
 Scope: `internal/compression/dedup.go`, `internal/compression/dedup_minhash.go`, `internal/sessions/`
 Driver: Dedup recomputes shingle hashes for the entire body on every request. Long sessions repeat much of the same content. A per-conversation hash cache reduces compute proportionally to history length.

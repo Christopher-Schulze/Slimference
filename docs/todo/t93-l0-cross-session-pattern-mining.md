@@ -1,6 +1,6 @@
 # TASK 93: Layer 0 cross-session pattern mining
 
-Status: todo
+Status: deferred - see docs/todo.md for closure rationale
 Priority: P2
 Scope: `internal/filter/`, `internal/sessions/`, `cmd/slimference/`
 Driver: Repeated identical commands (`git status`, `npm test`, `pytest`) produce the same output across runs in the same session and across sessions. Today every run is filtered fresh. From run #3 of an unchanged tool with unchanged output, a pointer marker (`see msg #N`) replaces the body and saves another 30-50% on tool-heavy workflows.

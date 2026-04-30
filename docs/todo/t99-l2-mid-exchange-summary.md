@@ -1,6 +1,6 @@
 # TASK 99: Layer 2 mid-exchange summarization
 
-Status: todo
+Status: deferred - see docs/todo.md for closure rationale
 Priority: P2
 Scope: `internal/summarization/`, `internal/compression/exchange_window.go`, `internal/proxy/handler.go`
 Driver: Sliding-window granularity is per-exchange. If the current in-flight exchange already exceeds budget (e.g. a 20k-token tool result), Layer 2 cannot help because its window does not cover in-progress exchanges. Mid-exchange summarisation with a "still in progress" marker covers the gap.

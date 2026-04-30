@@ -1,6 +1,6 @@
 # TASK 94: Streaming-aware Layer 0 filter
 
-Status: todo
+Status: deferred - see docs/todo.md for closure rationale
 Priority: P2
 Scope: `internal/filter/`, `cmd/slimference/`
 Driver: Long-running outputs (`tail -f`, `docker logs --follow`, slow test runners) skip Layer 0 entirely because filters assume "process exits, then filter". For these workflows the agent ingests the unfiltered tail.

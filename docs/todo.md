@@ -654,20 +654,20 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase Q - Layer 0 improvements (P2)
 
-- [ ] T93 - Cross-session pattern mining: marker `git status (see msg #N)` from run #3 onward when output is unchanged. Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
-- [ ] T94 - Streaming-aware Layer 0 filter for `tail -f`, `docker logs --follow`, long-running test runners. Detail: `docs/todo/t94-l0-streaming-filter.md`
+- [!] T93 - DEFERRED: cross-session pattern mining requires hook-install plumbing for session id. The Layer 0 filter subprocess has no live session context today; building it across hooks is a significant integration matrix change without live-testing budget. Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
+- [!] T94 - DEFERRED: streaming-aware Layer 0 needs a new pump strategy and live testing against `tail -f` style tools; without live testing the contract risk is too high. Detail: `docs/todo/t94-l0-streaming-filter.md`
 - [!] T95 - DEFERRED: filter subprocess has no live provider context; cleanest path needs hook-install plumbing for `--provider` or env var. Re-open when evidence shows the rune budget is wrong for a specific provider by more than ~15%. Detail: `docs/todo/t95-l0-tokenizer-aware-budgets.md`
 
 ### Phase R - Layer 1 improvements (P1/P2)
 
-- [ ] T96 - Conversation-level dedup with stable hash references across messages, not just intra-message. Detail: `docs/todo/t96-l1-conversation-level-dedup.md`
-- [ ] T97 - Hybrid structure extraction: regex first, tree-sitter on confidence-fail, for templates and embedded DSLs. Detail: `docs/todo/t97-l1-hybrid-structure-extraction.md`
+- [x] T96 - Conversation-level dedup landed: ContentIndex namespaced by session id, false-positive cross-session references fixed. Detail: `docs/todo/t96-l1-conversation-level-dedup.md`
+- [!] T97 - DEFERRED: hybrid tree-sitter requires Cgo dependency and substantially raises the build matrix; defer until concrete fixtures show regex misses on non-trivial templates / embedded DSLs. Detail: `docs/todo/t97-l1-hybrid-structure-extraction.md`
 - [x] T98 - Comment-strip whitelist preserves SAFETY / INVARIANT / TODO(critical) / FIXME(critical) / HACK(critical) / Copyright / SPDX / Licensed-under / All-rights-reserved across C-style, hash, and Python strippers. Multi-line license blocks preserved. Config knob deferred. Detail: `docs/todo/t98-l1-comment-strip-whitelist.md`
 
 ### Phase S - Layer 2 improvements (P2)
 
-- [ ] T99 - Mid-exchange summarization with `still in progress` marker for exchanges that exceed budget mid-flight. Detail: `docs/todo/t99-l2-mid-exchange-summary.md`
-- [ ] T100 - Cross-direction pipeline coordinator so L1 can skip aggressive work that L2 will subsume. Detail: `docs/todo/t100-l2-cross-direction-coordinator.md`
+- [!] T99 - DEFERRED: requires Layer 2 refactor to handle in-progress exchanges with replacement semantics; unclear payoff without real-corpus data showing how often this fires. Detail: `docs/todo/t99-l2-mid-exchange-summary.md`
+- [!] T100 - DEFERRED: skip-aggressive-when-L2-subsumes is a real-corpus tuning decision; without measurement evidence the trade-off (lose deterministic dedup vs save L1 compute) cannot be made safely. Now unblocked architecturally by T76 WP3 (re-injection); awaiting corpus data. Detail: `docs/todo/t100-l2-cross-direction-coordinator.md`
 
 ### Phase T - Layer 3 improvements (P2)
 
@@ -676,15 +676,15 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase U - Layer 4 (new layer, P1)
 
-- [ ] T103 - Tool-Definition Pruning: strip unused tool schemas after N idle turns, lazy-reload on demand. New compression axis. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
+- [!] T103 - DEFERRED: requires per-provider request-body parsing for the `tools` array, plus reattach-on-tool-error logic. T76 WP3 (re-injection) is the foundation and is now landed; the request-body schema work remains and needs live testing to prove no regression on production tool flows. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
 
 ### Phase V - Algorithmic and efficiency (P2)
 
-- [ ] T104 - Goroutine fan-out across independent L1 sub-layers (ANSI-strip, image-replace, comment-strip, etc.) on the hot path. Detail: `docs/todo/t104-l1-sublayer-fan-out.md`
+- [!] T104 - DEFERRED: parallelisation across L1 sub-layers is a race-prone refactor; without benchmark evidence that the current sequential pipeline is the bottleneck, the risk-reward isn't worth it. Re-open when a benchmark on a real 200KB body shows the sequential path exceeds the <5ms hot-path budget. Detail: `docs/todo/t104-l1-sublayer-fan-out.md`
 - [!] T105 - Anthropic default-on calibration already lives in T28; multi-provider extension (OpenAI / Codex) deferred to a dedicated task when evidence shows divergence. Detail: `docs/todo/t105-token-estimator-self-calibration-default.md`
 - [!] T106 - SPEC PREMISE INACCURATE: filter writes are one-shot per subprocess; no long-lived connection accumulates rows. Cross-process batching would need IPC, far outside scope. Closed as no-op. Detail: `docs/todo/t106-batched-filter-db-writes.md`
-- [ ] T107 - Conversation-scoped dedup hash cache so long sessions don't re-shingle every request. Detail: `docs/todo/t107-conversation-scoped-dedup-cache.md`
-- [ ] T108 - Streaming compression for long tool outputs: chunked L1 during the tool run instead of whole-body after. Detail: `docs/todo/t108-streaming-compression.md`
+- [x] T107 - Conversation-scoped dedup cache landed alongside T96: ContentIndex persists across requests on the live compressor and is now session-namespaced so cross-session interference is gone. Detail: `docs/todo/t107-conversation-scoped-dedup-cache.md`
+- [!] T108 - DEFERRED: streaming compression needs a per-sub-layer streaming-safe flag and a chunked Reader/Writer pipeline; the current whole-body path is fine for typical request bodies. Re-open when a real session shows >100MB tool-output bodies blowing the latency budget. Detail: `docs/todo/t108-streaming-compression.md`
 
 ### Sequencing notes
 
