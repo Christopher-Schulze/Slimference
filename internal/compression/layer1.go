@@ -3,7 +3,10 @@ package compression
 import (
 	"encoding/json"
 	"log/slog"
+	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/types"
@@ -58,9 +61,13 @@ type DeterministicCompressor struct {
 	// are skipped on the prefix because L2 will replace it anyway.
 	// Cheap idempotent passes (ANSI strip, JSON compact) still run.
 	coordinatorSubsume bool
+	// recordMu serialises recorder.Record calls and coordinatorSkipped
+	// updates so compressMessage is safe to call from multiple goroutines
+	// when CoordinatorParallel is on (T104).
+	recordMu sync.Mutex
 	// coordinatorSkipped counts how often the coordinator skipped a
 	// per-block heavy pass for /admin/status.compression.coordinator.
-	coordinatorSkipped int
+	coordinatorSkipped atomic.Int64
 }
 
 // resolveDedupThreshold applies the T53 staircase: the first step whose
@@ -107,7 +114,7 @@ func (c *DeterministicCompressor) SetCoordinatorSubsume(v bool) { c.coordinatorS
 
 // CoordinatorSkipped returns the cumulative count of per-block heavy
 // passes the coordinator decided to skip. T100 telemetry.
-func (c *DeterministicCompressor) CoordinatorSkipped() int { return c.coordinatorSkipped }
+func (c *DeterministicCompressor) CoordinatorSkipped() int { return int(c.coordinatorSkipped.Load()) }
 
 // CompressWithSession is the session-aware Compress entry point. The
 // sessionID is stamped on every archive entry produced during this call so
@@ -165,19 +172,60 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 	copy(out, messages)
 	toolUses := buildToolUseIndex(messages, len(messages))
 
-	for i := 0; i < prefixEnd; i++ {
-		msg := out[i]
-		msg, js, ds, cs, ss, ds2, as, sc, ts, ims := c.compressMessage(msg, i, prefixEnd, toolUses)
-		out[i] = msg
-		result.JSONSaved += js
-		result.DedupSaved += ds
-		result.CommentSaved += cs
-		result.StructureSaved += ss
-		result.DeltaSaved += ds2
-		result.ANSISaved += as
-		result.SuccessShortSaved += sc
-		result.ToolCompressorSaved += ts
-		result.ImageSaved += ims
+	// T104: message-level fan-out. The original spec asked for
+	// sub-layer-level concurrency (ANSI/image/JSON-compact in parallel
+	// per block); shipping at message granularity is strictly cheaper
+	// to reason about (no shared state inside compressMessage except
+	// the recorder + counters, both protected) and saturates the same
+	// CPU budget. Bounded by GOMAXPROCS so a 4-core machine spawns at
+	// most 4 in-flight compressMessage calls.
+	if c.cfg.Tuning.CoordinatorParallel && prefixEnd > 1 {
+		type fanOut struct {
+			msg                                 types.Message
+			js, ds, cs, ss, d2, as, sc, ts, ims int
+		}
+		fan := make([]fanOut, prefixEnd)
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, runtime.GOMAXPROCS(0))
+		for i := 0; i < prefixEnd; i++ {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(idx int) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				m := out[idx]
+				m, js, ds, cs, ss, d2, as, sc, ts, ims := c.compressMessage(m, idx, prefixEnd, toolUses)
+				fan[idx] = fanOut{m, js, ds, cs, ss, d2, as, sc, ts, ims}
+			}(i)
+		}
+		wg.Wait()
+		for i, r := range fan {
+			out[i] = r.msg
+			result.JSONSaved += r.js
+			result.DedupSaved += r.ds
+			result.CommentSaved += r.cs
+			result.StructureSaved += r.ss
+			result.DeltaSaved += r.d2
+			result.ANSISaved += r.as
+			result.SuccessShortSaved += r.sc
+			result.ToolCompressorSaved += r.ts
+			result.ImageSaved += r.ims
+		}
+	} else {
+		for i := 0; i < prefixEnd; i++ {
+			msg := out[i]
+			msg, js, ds, cs, ss, ds2, as, sc, ts, ims := c.compressMessage(msg, i, prefixEnd, toolUses)
+			out[i] = msg
+			result.JSONSaved += js
+			result.DedupSaved += ds
+			result.CommentSaved += cs
+			result.StructureSaved += ss
+			result.DeltaSaved += ds2
+			result.ANSISaved += as
+			result.SuccessShortSaved += sc
+			result.ToolCompressorSaved += ts
+			result.ImageSaved += ims
+		}
 	}
 
 	// Cross-message optimizations (L1.12 and L1.13)
@@ -301,7 +349,7 @@ func (c *DeterministicCompressor) compressMessage(
 		// image-replace) and let the cheap ANSI/JSON passes above
 		// stand. Counter is bumped per skipped block.
 		if c.coordinatorSubsume {
-			c.coordinatorSkipped++
+			c.coordinatorSkipped.Add(1)
 			if len(text) < originalLen || text != block.Text {
 				if !ansiOnlyChange(origText, text) {
 					if id := c.archiveOriginal(msgIdx, bi, "layer1", origText); id != "" {

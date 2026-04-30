@@ -65,6 +65,7 @@ func (c *DeterministicCompressor) archiveOriginal(msgIdx, blockIdx int, subLayer
 	if original == "" {
 		return ""
 	}
+	c.recordMu.Lock()
 	id, err := c.recorder.Record(contentarchive.Input{
 		SessionID:    c.activeSessionID,
 		MessageIndex: msgIdx,
@@ -72,6 +73,7 @@ func (c *DeterministicCompressor) archiveOriginal(msgIdx, blockIdx int, subLayer
 		SubLayer:     subLayer,
 		Original:     original,
 	})
+	c.recordMu.Unlock()
 	if err != nil {
 		return ""
 	}
