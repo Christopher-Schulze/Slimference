@@ -631,20 +631,20 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase N - UX visibility and ergonomics (P1)
 
-- [ ] T79 - Daemon visibility surface: native macOS menubar (or headless `slimference watch`) so launchd-running daemons aren't invisible. Detail: `docs/todo/t79-daemon-visibility-menubar.md`
-- [ ] T80 - Unified `slimference savings [today|week|month]` collapsing `gain` + `stats` + cache hits into one canonical view in tokens and EUR/USD. Detail: `docs/todo/t80-unified-savings-command.md`
-- [!] T81 - Duration-bounded bypass landed (`SetBypassFor`, `BypassExpiresAt`, lazy auto-revert, telemetry counter). `--next-request`, per-tool / per-route, CLI / admin / TUI surface deferred. Detail: `docs/todo/t81-bypass-granularity.md`
-- [ ] T82 - `slimference compress-preview` CLI: dry-run shows what the proxy would do to a request body without sending. Detail: `docs/todo/t82-compression-preview-cli.md`
+- [x] T79 - 2026-04-30: headless `slimference watch` shipped (`cmd/slimference/watch_cmd.go`) - polls `/admin/status` at `--interval`, prints compact savings + provider state. Native macOS menubar deferred. Detail: `docs/todo/t79-daemon-visibility-menubar.md`
+- [x] T80 - 2026-04-30: `slimference savings [today|week|month|all]` shipped (`cmd/slimference/savings_cmd.go`) - aggregates filter.db + analytics + cache savings; text / `--json` / `--csv`. Detail: `docs/todo/t80-unified-savings-command.md`
+- [!] T81 - Duration-bounded bypass landed (`SetBypassFor`, `BypassExpiresAt`, lazy auto-revert, telemetry counter, `--next-request[=N]`). Per-tool / per-route surface deferred. Detail: `docs/todo/t81-bypass-granularity.md`
+- [x] T82 - 2026-04-30: `slimference compress-preview` shipped (`cmd/slimference/preview_cmd.go`) - reads body, runs L0/L1 with nop summarizer, prints rewritten body / diff / JSON envelope. Detail: `docs/todo/t82-compression-preview-cli.md`
 
 ### Phase O - Stability hardening (P1)
 
-- [ ] T83 - Provider degradation visibility: surface MiniMax / fallback degradation as user-visible status, not silent disable. Detail: `docs/todo/t83-provider-degradation-visibility.md`
+- [x] T83 - 2026-04-30: provider health monitor shipped (`internal/proxy/health_monitor.go`) - rolling success/error window per provider, `/admin/status.providers` + `any_provider_degraded`, watch surface. Detail: `docs/todo/t83-provider-degradation-visibility.md`
 - [!] T84 - SPEC PREMISE INACCURATE: only filter.db is SQLite (others are JSON), and connection lifecycle is short-lived; WAL + periodic checkpoint adds no value under current access pattern. Closed as no-op. Detail: `docs/todo/t84-sqlite-wal-checkpoint.md`
-- [ ] T85 - Graceful drain on launchd restart: finish in-flight streaming connections before exit. Detail: `docs/todo/t85-graceful-drain-on-restart.md`
+- [x] T85 - 2026-04-30: drain landed (`[proxy] drain_timeout_seconds` + `applyDrainTimeout` wraps in-flight context with deadline; analytics queue drained on shutdown). Detail: `docs/todo/t85-graceful-drain-on-restart.md`
 
 ### Phase P - MiniMax determinism and prompt hygiene (P1/P2)
 
-- [ ] T86 - Configurable + versioned compression system prompt with hot-reload and `prompt_version` telemetry field. Detail: `docs/todo/t86-configurable-system-prompt.md`
+- [x] T86 - Versioned prompt override shipped: `[compression] prompt_override_path` loads on proxy start, `SetPromptOverride` propagates body + version, doctor surfaces active version, `prompt_version` telemetry field emitted. Detail: `docs/todo/t86-configurable-system-prompt.md`
 - [x] T87 - Multi-stack few-shot examples landed: Go / Python / TS variants with input-detection picker, telemetry counters, default to Go on ambiguity. Detail: `docs/todo/t87-multi-stack-few-shot-examples.md`
 - [!] T88 - Capability struct + per-provider registry (Anthropic / OpenAI / Codex) landed in `internal/types/provider_caps.go`; unblocks T91 + T78 wiring. Seed request-builder wiring + doctor warning deferred. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
 - [x] T89 - Robust CoT stripping: 12-family canonical strip set with fixed-point loop and per-tag counters; legacy single-family regex retired. Config knob deferred. Detail: `docs/todo/t89-robust-cot-stripping.md`
