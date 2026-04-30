@@ -257,7 +257,7 @@ func wantsHeadless(args []string) bool {
 	}
 	knownSubcommands := map[string]bool{
 		"version": true, "config": true, "test": true, "doctor": true,
-		"stats": true, "gain": true, "savings": true, "compress-preview": true, "filter": true, "rewrite": true,
+		"stats": true, "gain": true, "savings": true, "compress-preview": true, "watch": true, "filter": true, "rewrite": true,
 		"readhook": true, "posttool": true, "checkpoint": true, "expand": true,
 		"hook": true, "debug": true, "daemon": true, "start": true, "stop": true,
 		"restart": true, "service": true, "integrate": true, "bypass": true,
@@ -501,6 +501,9 @@ func handleSubcommand(args []string) {
 
 	case "compress-preview":
 		handleCompressPreviewCmd(args[1:])
+
+	case "watch":
+		handleWatchCmd(args[1:])
 
 	case "filter":
 		handleFilterCmd(args[1:])
