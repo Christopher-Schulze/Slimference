@@ -25,6 +25,7 @@ type mockProxy struct {
 	recentReqs     []types.RequestMetrics
 	l2Status       Layer2Status
 	readStatus     ReadCacheStatus
+	qualityStatus  QualityStatus
 	sessionLogger  *sessions.SessionLogger
 	flushed        bool
 	shutdownCalled bool
@@ -99,6 +100,9 @@ func (m *mockProxy) GetRecentRequests(n int) []types.RequestMetrics {
 func (m *mockProxy) GetLayer2Status() Layer2Status { return m.l2Status }
 func (m *mockProxy) GetReadCacheStatus() ReadCacheStatus {
 	return m.readStatus
+}
+func (m *mockProxy) GetQualityStatus() QualityStatus {
+	return m.qualityStatus
 }
 func (m *mockProxy) GetProviderHealth(_ types.Provider) types.ProviderHealthInfo {
 	return types.ProviderHealthInfo{Status: types.ProviderHealthIdle}
@@ -394,6 +398,38 @@ func TestView_StatsRender(t *testing.T) {
 	output := m.View()
 	if output == "" {
 		t.Error("View() returned empty string for stats view")
+	}
+}
+
+// TestView_StatsRender_QualitySpike covers the renderStatsView branch
+// where the cache-miss spike marker flips to ACTIVE (T77 visibility).
+func TestView_StatsRender_QualitySpike(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.qualityStatus = QualityStatus{
+		ReReadSessions:    3,
+		ReReadTotalChecks: 100,
+		ReReadTotalHits:   25,
+		ReReadRate:        0.25,
+		BaselineHitRate:   0.7,
+		SpikeActive:       true,
+		LastSpikeUnix:     1700000000,
+		TotalSpikeCount:   2,
+		TotalSaved:        12000,
+		TotalInvalidation: 1000,
+		NetSaved:          11000,
+	}
+	m := NewModel(p)
+	m.view = ViewStats
+	m.width = 120
+	m.height = 40
+
+	output := m.View()
+	if !strings.Contains(output, "ACTIVE") {
+		t.Fatalf("expected ACTIVE spike marker, got: %s", output)
+	}
+	if !strings.Contains(output, "QUALITY SIGNALS") {
+		t.Fatalf("quality card title missing: %s", output)
 	}
 }
 

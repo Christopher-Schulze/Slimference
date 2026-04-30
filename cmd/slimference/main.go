@@ -502,6 +502,9 @@ func handleSubcommand(args []string) {
 	case "savings":
 		handleSavingsCmd(args[1:])
 
+	case "quality":
+		handleQualityCmd(args[1:])
+
 	case "compress-preview":
 		handleCompressPreviewCmd(args[1:])
 
@@ -2133,6 +2136,22 @@ func (a *proxyAdapter) GetLayer2Status() tui.Layer2Status {
 		status.LastRun = cs.CreatedAt
 	}
 	return status
+}
+func (a *proxyAdapter) GetQualityStatus() tui.QualityStatus {
+	q := a.p.QualitySnapshot()
+	return tui.QualityStatus{
+		ReReadSessions:    q.ReRead.Sessions,
+		ReReadTotalChecks: q.ReRead.TotalChecks,
+		ReReadTotalHits:   q.ReRead.TotalHits,
+		ReReadRate:        q.ReRead.Rate,
+		BaselineHitRate:   q.CacheMissSpike.BaselineRate,
+		SpikeActive:       q.CacheMissSpike.Active,
+		LastSpikeUnix:     q.CacheMissSpike.LastSpikeUnix,
+		TotalSpikeCount:   q.CacheMissSpike.TotalSpikeCount,
+		TotalSaved:        q.NetSavings.TotalSaved,
+		TotalInvalidation: q.NetSavings.TotalInvalidation,
+		NetSaved:          q.NetSavings.NetSaved,
+	}
 }
 func (a *proxyAdapter) GetReadCacheStatus() tui.ReadCacheStatus {
 	status := a.p.AdminStatusSnapshot().ReadCache

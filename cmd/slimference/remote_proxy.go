@@ -192,6 +192,25 @@ func (a *remoteProxyAdapter) GetLayer2Status() tui.Layer2Status {
 	}
 }
 
+func (a *remoteProxyAdapter) GetQualityStatus() tui.QualityStatus {
+	a.refresh()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return tui.QualityStatus{
+		ReReadSessions:    a.status.Quality.ReRead.Sessions,
+		ReReadTotalChecks: a.status.Quality.ReRead.TotalChecks,
+		ReReadTotalHits:   a.status.Quality.ReRead.TotalHits,
+		ReReadRate:        a.status.Quality.ReRead.Rate,
+		BaselineHitRate:   a.status.Quality.CacheMissSpike.BaselineRate,
+		SpikeActive:       a.status.Quality.CacheMissSpike.Active,
+		LastSpikeUnix:     a.status.Quality.CacheMissSpike.LastSpikeUnix,
+		TotalSpikeCount:   a.status.Quality.CacheMissSpike.TotalSpikeCount,
+		TotalSaved:        a.status.Quality.NetSavings.TotalSaved,
+		TotalInvalidation: a.status.Quality.NetSavings.TotalInvalidation,
+		NetSaved:          a.status.Quality.NetSavings.NetSaved,
+	}
+}
+
 func (a *remoteProxyAdapter) GetReadCacheStatus() tui.ReadCacheStatus {
 	a.refresh()
 	a.mu.RLock()

@@ -24,6 +24,7 @@ SUBCOMMANDS:
   expand       Retrieve an archived tool result by id
   checkpoint   Manage smart-compaction checkpoints
   gain         Report Layer-0 filter token-savings
+  quality      Print T77 quality signals (reread / cache spike / net savings)
   stats        Print analytics snapshots (today|week|month|prompt-cache)
   debug        Decision-chain JSONL tools (paths|last|summary|tail|replay)
   service      Daemon lifecycle (install|uninstall|start|stop|status|logs)
@@ -160,6 +161,14 @@ body; --json emits the full PreviewResult.
 
 Live one-line ticker against /admin/status (T79). Defaults to local
 daemon on the configured port. Ctrl-C / SIGTERM cancels the loop.
+`
+	case "quality":
+		return `slimference quality [--json] [--url <base>]
+
+Render the T77 quality signals exposed at /admin/status.quality:
+re-read counter (per-session), prompt-cache miss-spike alarm,
+net-savings ratio. --json passes the raw block through. --url
+overrides the daemon endpoint (default: http://127.0.0.1:<port>).
 `
 	case "stats":
 		return `slimference stats <today|week|month|prompt-cache [today|week|month|all]> [--json|--csv]

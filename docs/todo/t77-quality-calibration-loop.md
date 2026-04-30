@@ -48,10 +48,10 @@ Each signal is exposed as a counter, surfaced in `/admin/status.quality`, render
 
 ## Acceptance Criteria
 
-- [ ] `RequestSummary` carries `re_read_count` and `net_saved_tokens` fields.
-- [ ] `/admin/status.quality` exposes `reread_rate`, `cache_miss_spike_active`, `net_savings_ratio`.
-- [ ] TUI Quality view renders all three signals.
-- [ ] `slimference quality --json` returns the same data.
+- [x] `RequestSummary` carries `re_read_count` and `net_saved_tokens` fields (commit 0a736fe).
+- [x] `/admin/status.quality` exposes `reread`, `cache_miss_spike`, `net_savings` blocks.
+- [x] TUI Stats view renders the three signals as a dedicated `QUALITY SIGNALS (T77)` card.
+- [x] `slimference quality [--json] [--url]` returns the same data.
 - [ ] Hooks: changing `dedup` threshold in config and re-running an integration session shows the spike detector reacting.
 - [ ] `go run ./scripts/ci` PASS, coverage 100%.
 

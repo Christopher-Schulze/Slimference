@@ -390,6 +390,36 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	if got := rpa.GetToolArchiveStatus(); got.Count != 8 || got.Expanded != 10 {
 		t.Fatalf("remote archive status=%+v", got)
 	}
+
+	// T77 quality adapters: proxyAdapter pulls from QualitySnapshot,
+	// remoteProxyAdapter mirrors the admin quality block.
+	if got := pa.GetQualityStatus(); got.NetSaved != 0 || got.SpikeActive {
+		t.Fatalf("default quality status=%+v", got)
+	}
+	rpa.mu.Lock()
+	rpa.status.Quality.ReRead.Sessions = 5
+	rpa.status.Quality.ReRead.TotalChecks = 100
+	rpa.status.Quality.ReRead.TotalHits = 7
+	rpa.status.Quality.ReRead.Rate = 0.07
+	rpa.status.Quality.CacheMissSpike.Active = true
+	rpa.status.Quality.CacheMissSpike.LastSpikeUnix = 1234
+	rpa.status.Quality.CacheMissSpike.TotalSpikeCount = 9
+	rpa.status.Quality.CacheMissSpike.BaselineRate = 0.8
+	rpa.status.Quality.NetSavings.TotalSaved = 1000
+	rpa.status.Quality.NetSavings.TotalInvalidation = 200
+	rpa.status.Quality.NetSavings.NetSaved = 800
+	rpa.lastRefresh = time.Now()
+	rpa.mu.Unlock()
+	got := rpa.GetQualityStatus()
+	if got.ReReadSessions != 5 || got.ReReadTotalChecks != 100 || got.ReReadTotalHits != 7 {
+		t.Fatalf("remote quality reread=%+v", got)
+	}
+	if !got.SpikeActive || got.LastSpikeUnix != 1234 || got.TotalSpikeCount != 9 {
+		t.Fatalf("remote quality spike=%+v", got)
+	}
+	if got.NetSaved != 800 || got.TotalSaved != 1000 || got.TotalInvalidation != 200 {
+		t.Fatalf("remote quality net=%+v", got)
+	}
 }
 
 func TestHandleReadHookCmd_ArgAndEncodeEdges(t *testing.T) {

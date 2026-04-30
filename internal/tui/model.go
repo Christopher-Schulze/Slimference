@@ -48,6 +48,7 @@ type ProxyInterface interface {
 	GetReadCacheStatus() ReadCacheStatus
 	GetCheckpointStatus() CheckpointStatus
 	GetToolArchiveStatus() ToolArchiveStatus
+	GetQualityStatus() QualityStatus
 	GetProviderHealth(prov types.Provider) types.ProviderHealthInfo
 	SessionLogger() SessionLoggerInterface
 	Shutdown(ctx context.Context) error
@@ -105,6 +106,23 @@ type ToolArchiveStatus struct {
 	BytesStored  int64
 	LastArchived time.Time
 	LastExpanded time.Time
+}
+
+// QualityStatus surfaces the T77 quality signals (re-read, cache-miss
+// spike, net savings) so the TUI can render them without depending on
+// internal/quality or the proxy package directly.
+type QualityStatus struct {
+	ReReadSessions    int
+	ReReadTotalChecks int64
+	ReReadTotalHits   int64
+	ReReadRate        float64
+	BaselineHitRate   float64
+	SpikeActive       bool
+	LastSpikeUnix     int64
+	TotalSpikeCount   int64
+	TotalSaved        int64
+	TotalInvalidation int64
+	NetSaved          int64
 }
 
 // SessionLoggerInterface exposes minimal session logger methods needed by the TUI.

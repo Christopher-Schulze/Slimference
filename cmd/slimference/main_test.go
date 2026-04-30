@@ -429,6 +429,8 @@ func (p *testTUIProxy) GetLayer2Status() tui.Layer2Status { return tui.Layer2Sta
 
 func (p *testTUIProxy) GetReadCacheStatus() tui.ReadCacheStatus { return tui.ReadCacheStatus{} }
 
+func (p *testTUIProxy) GetQualityStatus() tui.QualityStatus { return tui.QualityStatus{} }
+
 func (p *testTUIProxy) GetProviderHealth(types.Provider) types.ProviderHealthInfo {
 	return types.ProviderHealthInfo{Status: types.ProviderHealthIdle}
 }

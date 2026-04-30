@@ -47,10 +47,11 @@ _slimference() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cword=$COMP_CWORD
 
-    local top_level="config test doctor stats gain savings compress-preview watch filter rewrite posttool readhook hook debug daemon start stop restart service integrate bypass completion expand checkpoint trust version"
+    local top_level="config test doctor stats gain savings quality compress-preview watch filter rewrite posttool readhook hook debug daemon start stop restart service integrate bypass completion expand checkpoint trust version"
     local periods="today week month all"
     local period_flags="--json --csv --by-command"
     local savings_flags="--json --csv --project"
+    local quality_flags="--json --url"
     local bypass_verbs="on off status"
     local bypass_scoped_flags="--duration= --next-request --next-request="
 
@@ -121,6 +122,9 @@ _slimference() {
             ;;
         savings)
             COMPREPLY=( $(compgen -W "$periods $savings_flags" -- "$cur") )
+            ;;
+        quality)
+            COMPREPLY=( $(compgen -W "$quality_flags" -- "$cur") )
             ;;
         compress-preview)
             COMPREPLY=( $(compgen -W "--provider --path --diff --json" -- "$cur") )

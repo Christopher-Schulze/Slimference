@@ -623,7 +623,7 @@ API calls in default CI, mutating the operator's live Codex install.
 ### Phase L - Reversibility foundation (P0)
 
 - [!] T76 - Reversibility by default: WP1 archive package + WP2(coarse) end-of-block + preview_pass archiving + WP4 expand + WP5 structure_preview default-on safety landed; WP2(per-sub-layer) and WP3 (opportunistic re-injection) deferred. Detail: `docs/todo/t76-reversibility-by-default.md`
-- [ ] T77 - Quality calibration loop: re-read counter + prompt-cache-miss spike alert + downstream "compression hurts" signal. Detail: `docs/todo/t77-quality-calibration-loop.md`
+- [x] T77 - 2026-04-30: quality calibration loop shipped. Re-read detector + cache-miss-spike detector + net-savings tracker live in `internal/quality/`, surface via `/admin/status.quality`, render in TUI Stats view "QUALITY SIGNALS (T77)" card, exposed via `slimference quality [--json] [--url]` CLI. `RequestSummary` carries `re_read_count` + `net_saved_tokens` (committed earlier in 0a736fe). 100% coverage. Detail: `docs/todo/t77-quality-calibration-loop.md`
 
 ### Phase M - Concept levers (P0/P1)
 

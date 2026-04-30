@@ -151,6 +151,20 @@ func (m *Model) renderStatsView() string {
 		s.Normal.Render(fmt.Sprintf("  Last archive:     %s", formatStatusTime(archive.LastArchived))),
 	})
 
+	q := m.proxy.GetQualityStatus()
+	spikeMarker := "no"
+	if q.SpikeActive {
+		spikeMarker = "ACTIVE"
+	}
+	appendCard("QUALITY SIGNALS (T77)", []string{
+		s.Normal.Render(fmt.Sprintf("  Re-read sessions:  %d", q.ReReadSessions)),
+		s.Normal.Render(fmt.Sprintf("  Re-read events:    %d / %d checks (rate %.2f%%)", q.ReReadTotalHits, q.ReReadTotalChecks, q.ReReadRate*100)),
+		s.Normal.Render(fmt.Sprintf("  Cache miss spike:  %s (baseline %.1f%%, total %d)", spikeMarker, q.BaselineHitRate*100, q.TotalSpikeCount)),
+		s.Normal.Render(fmt.Sprintf("  Tokens saved:      %s", formatTokens(int(q.TotalSaved)))),
+		s.Normal.Render(fmt.Sprintf("  Invalidation cost: %s", formatTokens(int(q.TotalInvalidation)))),
+		s.Normal.Render(fmt.Sprintf("  Net saved tokens:  %s", formatTokens(int(q.NetSaved)))),
+	})
+
 	promptHitRate := snap.PromptCacheHitRate() * 100
 	appendCard("PROMPT CACHE", []string{
 		s.Normal.Render(fmt.Sprintf("  Read hits:        %d / %d (%.1f%%)", snap.PromptCacheReadRequests, snap.TotalRequests, promptHitRate)),
