@@ -47,9 +47,12 @@ _slimference() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cword=$COMP_CWORD
 
-    local top_level="config test doctor stats gain filter rewrite posttool hook debug daemon start stop restart service completion version"
+    local top_level="config test doctor stats gain savings compress-preview watch filter rewrite posttool readhook hook debug daemon start stop restart service integrate bypass completion expand checkpoint trust version"
     local periods="today week month all"
     local period_flags="--json --csv --by-command"
+    local savings_flags="--json --csv --project"
+    local bypass_verbs="on off status"
+    local bypass_scoped_flags="--duration= --next-request --next-request="
 
     if [ "$cword" -eq 1 ]; then
         COMPREPLY=( $(compgen -W "$top_level" -- "$cur") )
@@ -115,6 +118,25 @@ _slimference() {
             ;;
         gain)
             COMPREPLY=( $(compgen -W "$periods $period_flags --project" -- "$cur") )
+            ;;
+        savings)
+            COMPREPLY=( $(compgen -W "$periods $savings_flags" -- "$cur") )
+            ;;
+        compress-preview)
+            COMPREPLY=( $(compgen -W "--provider --path --diff --json" -- "$cur") )
+            ;;
+        watch)
+            COMPREPLY=( $(compgen -W "--once --interval --endpoint" -- "$cur") )
+            ;;
+        bypass)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "$bypass_verbs" -- "$cur") )
+            else
+                COMPREPLY=( $(compgen -W "$bypass_scoped_flags" -- "$cur") )
+            fi
+            ;;
+        filter)
+            COMPREPLY=( $(compgen -W "--stream --" -- "$cur") )
             ;;
     esac
     return 0

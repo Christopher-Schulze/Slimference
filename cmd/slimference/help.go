@@ -73,14 +73,17 @@ Claude/Codex CLI version drift against the supported range.
 Exits 0 on all checks green, 1 on any fail.
 `
 	case "filter":
-		return `slimference filter -- <cmd> [args...]
+		return `slimference filter [--stream] [--] <cmd> [args...]
 
 Run <cmd> under the Layer-0 command filter. Captures full stdout+stderr,
 applies the configured filter pipeline (24 built-ins plus TOML rules),
 persists a row in filter.db, and prints the filtered output. The raw
 output is kept in the tee directory for recovery if the filter fails.
 
-Flags (before the double dash):
+Flags:
+  --stream             T94 streaming-aware mode: ANSI strip + dedup
+                       consecutive identical lines on the fly. Suitable
+                       for tail -f / docker logs --follow style inputs.
   --pipeline <name>    Use a named pipeline from config instead of defaults
   --project <dir>      Tag the row with a project label
   --dry-run            Run the command, emit filter stats, do not mutate output
@@ -136,6 +139,27 @@ full pre-compaction context for copy-paste.
 Aggregate Layer-0 filter.db rows into a savings report. --by-command
 breaks down per parent command, --csv prints CSV, --json prints machine-
 readable output. Optional $/M-token rate in config multiplies savings.
+`
+	case "savings":
+		return `slimference savings [today|week|month|all] [--json|--csv] [--project <p>]
+
+Unified savings view (T80) collapsing Layer-0 filter.db, proxy-side
+compression analytics, and Layer-3 cache hits into one canonical
+report in tokens and (when configured) USD/EUR.
+`
+	case "compress-preview":
+		return `slimference compress-preview [--provider X] [--path P] [--diff] [--json] [-|<file>]
+
+Run the deterministic Layer-1 pipeline against a request body locally
+without paying for an upstream call (T82). --provider auto-detects when
+omitted; --diff renders a unified diff between original and rewritten
+body; --json emits the full PreviewResult.
+`
+	case "watch":
+		return `slimference watch [--once] [--interval=N] [--endpoint URL]
+
+Live one-line ticker against /admin/status (T79). Defaults to local
+daemon on the configured port. Ctrl-C / SIGTERM cancels the loop.
 `
 	case "stats":
 		return `slimference stats <today|week|month|prompt-cache [today|week|month|all]> [--json|--csv]
@@ -216,13 +240,17 @@ Verbs:
 See docs/integration.md for the failure-mode matrix.
 `
 	case "bypass":
-		return `slimference bypass <on|off|status>
+		return `slimference bypass <on|off|status> [--duration=Ns|--next-request[=N]]
 
-Toggle the master bypass flag on the running daemon. When on, the proxy
-keeps accepting connections but forwards traffic byte-equal with zero
-compression - useful when a request feels off and you want to rule
-Slimference out instantly without uninstalling anything. Hot-reload;
-no shell or client restart needed. Requires the daemon to be running.
+Toggle the master bypass flag on the running daemon (T67). When on, the
+proxy keeps accepting connections but forwards traffic byte-equal with
+zero compression — useful when a request feels off and you want to rule
+Slimference out instantly without uninstalling anything. Hot-reload; no
+shell or client restart needed. Requires the daemon to be running.
+
+Optional T81 scoped flags auto-revert:
+  --duration=30s|10m|1h    Revert after the duration elapses.
+  --next-request[=N]       Revert after the next N requests (default 1).
 `
 	case "version":
 		return fmt.Sprintf("slimference v%s\n", version)

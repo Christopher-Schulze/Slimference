@@ -102,7 +102,8 @@ func TestHelpTopLevelContainsKeywords(t *testing.T) {
 func TestHelpForSubcommandKnown(t *testing.T) {
 	t.Parallel()
 	topics := []string{"doctor", "filter", "hook", "rewrite", "posttool", "readhook",
-		"expand", "checkpoint", "gain", "stats", "debug", "service", "daemon",
+		"expand", "checkpoint", "gain", "savings", "compress-preview", "watch",
+		"stats", "debug", "service", "daemon",
 		"config", "test", "completion", "trust", "integrate", "bypass", "version"}
 	for _, topic := range topics {
 		topic := topic
