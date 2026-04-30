@@ -52,6 +52,15 @@ type DeterministicCompressor struct {
 	// mutate it. Optional; nil means "no archiving" and every helper
 	// short-circuits cheaply. T76.
 	recorder MutationRecorder
+	// coordinatorSubsume signals that Layer 2 will summarise the prefix
+	// being processed. T100: when true, heavy L1 sub-layers (dedup,
+	// structure, delta, tool-compressor, success-short, image-replace)
+	// are skipped on the prefix because L2 will replace it anyway.
+	// Cheap idempotent passes (ANSI strip, JSON compact) still run.
+	coordinatorSubsume bool
+	// coordinatorSkipped counts how often the coordinator skipped a
+	// per-block heavy pass for /admin/status.compression.coordinator.
+	coordinatorSkipped int
 }
 
 // resolveDedupThreshold applies the T53 staircase: the first step whose
@@ -89,6 +98,16 @@ func NewDeterministicCompressor(cfg *config.CompressionConfig) *DeterministicCom
 func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Result {
 	return c.CompressWithSession("", messages)
 }
+
+// SetCoordinatorSubsume tells the compressor that Layer 2 will replace
+// the messages being passed in this call, so heavy L1 sub-layers can
+// skip on the prefix. T100. The flag is reset at the end of each
+// CompressWithSession call so callers must set it per-request.
+func (c *DeterministicCompressor) SetCoordinatorSubsume(v bool) { c.coordinatorSubsume = v }
+
+// CoordinatorSkipped returns the cumulative count of per-block heavy
+// passes the coordinator decided to skip. T100 telemetry.
+func (c *DeterministicCompressor) CoordinatorSkipped() int { return c.coordinatorSkipped }
 
 // CompressWithSession is the session-aware Compress entry point. The
 // sessionID is stamped on every archive entry produced during this call so
@@ -274,6 +293,24 @@ func (c *DeterministicCompressor) compressMessage(
 					}
 				}
 			}
+		}
+
+		// T100: when the cross-direction coordinator decides Layer 2
+		// will subsume this prefix, skip every heavy sub-layer below
+		// (dedup, structure, delta, tool-compressor, success-short,
+		// image-replace) and let the cheap ANSI/JSON passes above
+		// stand. Counter is bumped per skipped block.
+		if c.coordinatorSubsume {
+			c.coordinatorSkipped++
+			if len(text) < originalLen || text != block.Text {
+				if !ansiOnlyChange(origText, text) {
+					if id := c.archiveOriginal(msgIdx, bi, "layer1", origText); id != "" {
+						newContent[bi].ArchiveID = id
+					}
+				}
+				newContent[bi].Text = text
+			}
+			continue
 		}
 
 		// L1.3: Dedup before structure / delta (spec order).

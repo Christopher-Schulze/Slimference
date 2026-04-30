@@ -148,11 +148,15 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		l1Start := time.Now()
 		// T76: thread the request id as the session scope so any archive
 		// entry produced by lossy sub-layers carries a correlatable id.
-		// Compressor must be serialized per call internally; the proxy
-		// holds a single instance so concurrent compresses are gated by
-		// HTTP serve goroutine count - acceptable trade-off for v1; the
-		// archive id is timestamped so collisions are practically zero.
+		// T100: when the coordinator is enabled and Layer 2 will fire
+		// (origTokens >= MinTokensForLayer2), tell the L1 compressor to
+		// skip heavy sub-layers since L2 will replace the prefix anyway.
+		coordinatorActive := p.config.Compression.Tuning.CoordinatorEnabled &&
+			p.isLayerEnabled(2) &&
+			origTokens >= p.config.Compression.MinTokensForLayer2
+		p.layer1.SetCoordinatorSubsume(coordinatorActive)
 		result := p.layer1.CompressWithSession(reqID, messages)
+		p.layer1.SetCoordinatorSubsume(false)
 		p.pipelineHist.L1.Record(time.Since(l1Start))
 		if result.TokensSaved > 0 {
 			compressedMessages = result.Messages

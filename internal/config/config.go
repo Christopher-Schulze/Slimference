@@ -170,6 +170,17 @@ type TuningConfig struct {
 	// shape-aware preview when strictly shorter. Default false (T74) until
 	// preview recovery is fully reversible via local archive.
 	StructurePreview bool `toml:"structure_preview"`
+	// CoordinatorEnabled (T100) gates the L1/L2 cross-direction
+	// coordinator: when true and Layer 2 is enabled, Layer 1 skips
+	// heavy sub-layers on the prefix that L2 will summarise. Cheap
+	// passes (ANSI strip, JSON compact) always run. Default off until
+	// real-corpus data validates the trade-off.
+	CoordinatorEnabled bool `toml:"coordinator_enabled"`
+	// CoordinatorParallel (T104) opts in to goroutine fan-out across
+	// independent L1 sub-layers. Race-prone when off; off by default
+	// until benchmark evidence shows the sequential pipeline is the
+	// bottleneck on real bodies.
+	CoordinatorParallel bool `toml:"coordinator_parallel"`
 	// DedupStaircase lowers the MinHash/LSH Jaccard threshold as the
 	// conversation grows. Long sessions accumulate more near-duplicate tool
 	// output; a relaxed threshold catches it without false collapses on
