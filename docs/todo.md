@@ -471,7 +471,7 @@ fuer friktionslose Ersterfahrung) -> P1 (vor 1.0-Tag / GA-Release) -> P2
 - [x] T49 - Docs sync appendix: `docs/documentation.md` gains Appendix P (Post-2.0 Features) covering all T41-T64 entries with file refs; `docs/map.md` gains a Post-2.0 Additions table for new packages + admin surface additions. Full rewrite of the 2.0 body + Doc-Lint CI gate remain stretch. Detail: `docs/todo/t49-docs-sync-2x.md`
 - [x] T50 - `cmd/slimference/main_test.go` 5947 LOC split via AST-based tool into 9 domain files (debug/gain/hook/doctor_config/stats/test/daemon/filter/tui_helpers). main_test.go shrunk to 1094 LOC. Coverage identical at 99.5%; shuffle + race green. Detail: `docs/todo/t50-main-test-split.md`
 - [x] T51 - Streaming upload-limit regression tests: chunked over-limit rejected via errRequestBodyTooLarge, exact-limit accepted, nil-body and read-error paths pinned. Memory-ceiling assertion deferred as optional stretch. Detail: `docs/todo/t51-streaming-upload-limit-test.md`
-- [ ] T52 - Prompt-Cache Hit-Rate Verifikation gegen echte Anthropic-API (A/B + rolling). Detail: `docs/todo/t52-prompt-cache-anthropic-verification.md`
+- [!] T52 - Prompt-Cache verification harness shipped under `scripts/verify/main.go -mode prompt-cache`. Sends N identical Anthropic requests through a running Slimference proxy and asserts cache_read_input_tokens >= 80 % from request 2 onward. Manual close: operator runs against the live Anthropic API. Detail: `docs/todo/t52-prompt-cache-anthropic-verification.md`
 
 ### Bereich H - Adaptive Tuning + Code-Quality Polish (P2)
 
@@ -564,7 +564,7 @@ be mutated unless explicitly requested.
 ### Bereich K - Release Truth + Codex First-Class Finish (P0/P1)
 
 - [x] T70 - Release gate truth and coverage closure: repaired the live `go run ./scripts/ci` failure (`99.4% < 100.0%` -> `100.0%`), updated task proof docs, and made release status machine-verifiable again. Detail: `docs/todo/t70-release-gate-truth-and-coverage.md`
-- [ ] T71 - Codex CLI live E2E certification: on the current Codex CLI, prove install/status/hooks/daemon/proxy/request flow end-to-end and document the exact local recovery path. Detail: `docs/todo/t71-codex-cli-live-e2e-certification.md`
+- [!] T71 - Codex CLI live E2E certification harness shipped under `scripts/verify/main.go -mode codex-smoke`. Forwards a captured Codex request body through the proxy at `/backend-api/codex/conversation`, asserts a 2xx + non-empty body. Manual close: operator runs the harness with cookies/auth captured from a real Codex CLI session (no CLI modification). Detail: `docs/todo/t71-codex-cli-live-e2e-certification.md`
 - [x] T72 - Codex integration single owner and hook drift repair: unified `hook install codex` with `integrate install --client codex`, ensured both write `openai_base_url` + `chatgpt_base_url`, verify pre/post/read hooks, and close stale hook drift. Detail: `docs/todo/t72-codex-integration-single-owner.md`
 - [x] T73 - Codex request-shape compression support: extended the proxy beyond passthrough routing so Codex `/v1/responses` and `/backend-api/codex/*` shapes are safely extractable, reconstructable, and compressible with zero-downside fallback, without live-wiring the user's Codex install. Detail: `docs/todo/t73-codex-request-shape-compression.md`
 - [x] T74 - Structure-preview reversible safety: chose the safe fallback and turned `structure_preview` default off until archive-backed recovery is implemented; opt-in behavior remains available. Detail: `docs/todo/t74-structure-preview-reversible-safety.md`
@@ -671,7 +671,7 @@ API calls in default CI, mutating the operator's live Codex install.
 - [x] T99b - 2026-04-30: live MiniMax summary path shipped. `Layer2.ApplyMidExchange(ctx, messages, threshold)` runs the FallbackChain on the rendered range and falls back to the deterministic stub when the chain errors out or has no configured provider. Handler step 4.5 now calls the Layer2 method instead of the package-level stub.
 - [x] T99c - 2026-04-30: idempotency shipped. `IsMidExchangeMarker` recognises synthetic blocks; `DetectMidExchangePoint` short-circuits when the in-flight exchange already contains one. Pure-function, 100% coverage.
 - [x] T100 - 2026-04-30: coordinator decision-rule wired. Handler checks `CoordinatorEnabled && L2 enabled && origTokens >= MinTokensForLayer2`, sets `SetCoordinatorSubsume(true)` before L1, L1 skips heavy sub-layers (dedup/structure/delta/tool-compressor/success-short/image) while preserving cheap passes (ANSI/JSON). Telemetry via `/admin/status.coordinator.skipped_total`. Default off. Detail: `docs/todo/t100-l2-cross-direction-coordinator.md`
-- [ ] T100b - Soak-window verification: confirm T77 quality signals show no quality regression after enabling T100 against real traffic. Cannot be unit-tested.
+- [!] T100b - Soak-window verification automation shipped: `slimference soak [today|week|month|all]` walks the daily analytics + quality snapshots, detects prompt-cache regression / overflow retries / MiniMax failure spikes, and prints a verdict line ("ok to enable both T100 and T103" / "T100 needs more soak time" / "neither flag is safe yet"). The remaining manual step is collecting at least a few days of real traffic with the flags off, then re-running `slimference soak`.
 
 ### Phase T - Layer 3 improvements (P2)
 
@@ -682,7 +682,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 - [x] T103 - 2026-04-30: Layer 4 tool-definition pruning forward-path shipped. Pure-function pruner in `internal/toolprune/pruner.go` handles Anthropic + OpenAI tool shapes. Wire-in in handler.go step 7.5: extracts tool names, observes usage via tracker, prunes idle definitions, surfaces in `/admin/status.tool_prune`. Gated by `[compression.tuning] tool_prune_enabled` (default off). 100% coverage, race-clean. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
 - [x] T103b - 2026-04-30: heuristic-mention reattach path shipped. `UsageTracker.RememberPrunedDef` caches the original tool definition when L4 prunes it; `MentionedTools` (word-boundary substring match on the request body's text content) detects when the model needs the tool back; `ReattachToolDefinitions` re-adds the def to the body's `tools[]` array. Reattach counter (`/admin/status.tool_prune.reattach_total`) advances per re-attached def. Upstream-error-driven retry (the second design alternative) remains untouched; reopen as T103d if heuristic reattach proves too eager.
-- [ ] T103c - Soak-window verification: confirm T77 quality signals show no spike in re-read rate after enabling T103 against real traffic. Cannot be unit-tested.
+- [!] T103c - Soak-window verification automation shipped (same `slimference soak` subcommand as T100b above). Manual close once a few days of real traffic exist.
 
 ### Phase V - Algorithmic and efficiency (P2)
 

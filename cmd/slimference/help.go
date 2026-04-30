@@ -25,6 +25,7 @@ SUBCOMMANDS:
   checkpoint   Manage smart-compaction checkpoints
   gain         Report Layer-0 filter token-savings
   quality      Print T77 quality signals (reread / cache spike / net savings)
+  soak         T100b/T103c verdict from analytics+quality history
   stats        Print analytics snapshots (today|week|month|prompt-cache)
   debug        Decision-chain JSONL tools (paths|last|summary|tail|replay)
   service      Daemon lifecycle (install|uninstall|start|stop|status|logs)
@@ -169,6 +170,15 @@ Render the T77 quality signals exposed at /admin/status.quality:
 re-read counter (per-session), prompt-cache miss-spike alarm,
 net-savings ratio. --json passes the raw block through. --url
 overrides the daemon endpoint (default: http://127.0.0.1:<port>).
+`
+	case "soak":
+		return `slimference soak [today|week|month|all] [--json]
+
+Walk daily analytics snapshots over the chosen window and emit a
+verdict on whether [compression.tuning] coordinator_enabled (T100)
+or tool_prune_enabled (T103) can be flipped on. Looks at error
+rate, prompt-cache trend, MiniMax failure rate, and overflow
+retries. --json prints the structured SoakReport for scripting.
 `
 	case "stats":
 		return `slimference stats <today|week|month|prompt-cache [today|week|month|all]> [--json|--csv]

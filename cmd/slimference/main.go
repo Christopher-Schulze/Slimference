@@ -505,6 +505,9 @@ func handleSubcommand(args []string) {
 	case "quality":
 		handleQualityCmd(args[1:])
 
+	case "soak":
+		handleSoakCmd(args[1:])
+
 	case "compress-preview":
 		handleCompressPreviewCmd(args[1:])
 
