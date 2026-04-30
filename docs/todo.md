@@ -649,13 +649,13 @@ API calls in default CI, mutating the operator's live Codex install.
 - [!] T88 - Capability struct + per-provider registry (Anthropic / OpenAI / Codex) landed in `internal/types/provider_caps.go`; unblocks T91 + T78 wiring. Seed request-builder wiring + doctor warning deferred. Detail: `docs/todo/t88-seed-and-provider-capability-map.md`
 - [x] T89 - Robust CoT stripping: 12-family canonical strip set with fixed-point loop and per-tag counters; legacy single-family regex retired. Config knob deferred. Detail: `docs/todo/t89-robust-cot-stripping.md`
 - [x] T90 - Deterministic repair (header strip / `*`+`1.` -> `- ` normalisation / preamble trim) runs before retry path; bypasses API round-trip when format-only failures can be fixed locally. Model-driven repair deferred. Detail: `docs/todo/t90-partial-repair-on-validator-fail.md`
-- [!] T91 - DEFERRED until T88 capability map lands (sending the field to a non-supporting provider would 4xx). T90 partial-repair covers most premature-stop cases without per-provider knowledge. Detail: `docs/todo/t91-min-completion-tokens.md`
+- [ ] T91 - REOPENED 2026-04-30: T88 capability map is in; wire `min_completion_tokens` request-side, gated by `SupportsMinCompletionTokens` so non-supporting providers stay untouched. Detail: `docs/todo/t91-min-completion-tokens.md`
 - [x] T92 - Per-bullet lineage markers landed: prompt requests `[msg:N,M]`, validator tolerates them, helpers + counters expose marker-presence rate. T76 WP3 consumer deferred. Detail: `docs/todo/t92-per-bullet-lineage-markers.md`
 
 ### Phase Q - Layer 0 improvements (P2)
 
-- [!] T93 - DEFERRED: cross-session pattern mining requires hook-install plumbing for session id. The Layer 0 filter subprocess has no live session context today; building it across hooks is a significant integration matrix change without live-testing budget. Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
-- [!] T94 - DEFERRED: streaming-aware Layer 0 needs a new pump strategy and live testing against `tail -f` style tools; without live testing the contract risk is too high. Detail: `docs/todo/t94-l0-streaming-filter.md`
+- [ ] T93 - REOPENED 2026-04-30: ship the posttool path (where session_id is available); per-session repetition store + marker emission. Skip the `slimference filter` subprocess case for now (still needs hook plumbing). Detail: `docs/todo/t93-l0-cross-session-pattern-mining.md`
+- [ ] T94 - REOPENED 2026-04-30: implement the streaming pump as `slimference filter --stream <cmd>` opt-in subcommand with synthetic stream-generator unit tests. No live external testing required. Detail: `docs/todo/t94-l0-streaming-filter.md`
 - [!] T95 - DEFERRED: filter subprocess has no live provider context; cleanest path needs hook-install plumbing for `--provider` or env var. Re-open when evidence shows the rune budget is wrong for a specific provider by more than ~15%. Detail: `docs/todo/t95-l0-tokenizer-aware-budgets.md`
 
 ### Phase R - Layer 1 improvements (P1/P2)
@@ -666,8 +666,8 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase S - Layer 2 improvements (P2)
 
-- [!] T99 - DEFERRED: requires Layer 2 refactor to handle in-progress exchanges with replacement semantics; unclear payoff without real-corpus data showing how often this fires. Detail: `docs/todo/t99-l2-mid-exchange-summary.md`
-- [!] T100 - DEFERRED: skip-aggressive-when-L2-subsumes is a real-corpus tuning decision; without measurement evidence the trade-off (lose deterministic dedup vs save L1 compute) cannot be made safely. Now unblocked architecturally by T76 WP3 (re-injection); awaiting corpus data. Detail: `docs/todo/t100-l2-cross-direction-coordinator.md`
+- [ ] T99 - REOPENED 2026-04-30: implement mid-exchange detector + replacement semantics with deterministic stub for tests; ship behind a config flag default-off so production traffic isn't affected until a corpus exists. Detail: `docs/todo/t99-l2-mid-exchange-summary.md`
+- [ ] T100 - REOPENED 2026-04-30: implement coordinator decision-rule with config-gated default-off; wire L1 to honour the plan when set; ship the toggle so future corpus data can flip it without a code change. Detail: `docs/todo/t100-l2-cross-direction-coordinator.md`
 
 ### Phase T - Layer 3 improvements (P2)
 
@@ -676,15 +676,15 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase U - Layer 4 (new layer, P1)
 
-- [!] T103 - DEFERRED: requires per-provider request-body parsing for the `tools` array, plus reattach-on-tool-error logic. T76 WP3 (re-injection) is the foundation and is now landed; the request-body schema work remains and needs live testing to prove no regression on production tool flows. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
+- [ ] T103 - REOPENED 2026-04-30: T76 WP3 is in. Ship the pruner + per-session usage tracker + archive-backed reattach via local-archive references. Default-off feature flag so live tool flows stay untouched until enabled. Detail: `docs/todo/t103-l4-tool-definition-pruning.md`
 
 ### Phase V - Algorithmic and efficiency (P2)
 
-- [!] T104 - DEFERRED: parallelisation across L1 sub-layers is a race-prone refactor; without benchmark evidence that the current sequential pipeline is the bottleneck, the risk-reward isn't worth it. Re-open when a benchmark on a real 200KB body shows the sequential path exceeds the <5ms hot-path budget. Detail: `docs/todo/t104-l1-sublayer-fan-out.md`
+- [ ] T104 - REOPENED 2026-04-30: ship goroutine fan-out for the orthogonal sub-layers (ANSI-strip / image-replace / JSON-compact) gated by a config flag default-off; race tests + benchmarks pin behaviour. Detail: `docs/todo/t104-l1-sublayer-fan-out.md`
 - [!] T105 - Anthropic default-on calibration already lives in T28; multi-provider extension (OpenAI / Codex) deferred to a dedicated task when evidence shows divergence. Detail: `docs/todo/t105-token-estimator-self-calibration-default.md`
 - [!] T106 - SPEC PREMISE INACCURATE: filter writes are one-shot per subprocess; no long-lived connection accumulates rows. Cross-process batching would need IPC, far outside scope. Closed as no-op. Detail: `docs/todo/t106-batched-filter-db-writes.md`
 - [x] T107 - Conversation-scoped dedup cache landed alongside T96: ContentIndex persists across requests on the live compressor and is now session-namespaced so cross-session interference is gone. Detail: `docs/todo/t107-conversation-scoped-dedup-cache.md`
-- [!] T108 - DEFERRED: streaming compression needs a per-sub-layer streaming-safe flag and a chunked Reader/Writer pipeline; the current whole-body path is fine for typical request bodies. Re-open when a real session shows >100MB tool-output bodies blowing the latency budget. Detail: `docs/todo/t108-streaming-compression.md`
+- [ ] T108 - REOPENED 2026-04-30: implement chunked Reader/Writer pipeline + per-sub-layer streaming_safe flag; ship as opt-in feature gated by a config knob. Synthetic large-body tests pin the memory ceiling. Detail: `docs/todo/t108-streaming-compression.md`
 
 ### Sequencing notes
 
