@@ -300,8 +300,38 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	latencyStart := time.Now()
 	upstreamStart := latencyStart
 
+	// --- 8.5 Server-state lever (T78, default off) ---
+	upstreamBody := newBody
+	serverStateKey := ""
+	serverStateUsed := false
+	if p.config.Proxy.ServerStateEnabled && p.serverState != nil {
+		caps := types.CapabilitiesFor(provider)
+		if caps.SupportsResponseID {
+			if key := extractServerStateKey(provider, body); key != "" {
+				serverStateKey = key
+				if prevID := p.serverState.Get(key); prevID != "" {
+					if rewritten, ok := rewriteWithPreviousID(provider, newBody, prevID); ok {
+						upstreamBody = rewritten
+						serverStateUsed = true
+						p.serverState.MarkSkipped()
+					}
+				}
+			}
+		}
+	}
+
 	// --- 9. Forward to upstream ---
-	upstreamResp, err := p.doUpstreamRequest(r, provider, newBody)
+	upstreamResp, err := p.doUpstreamRequest(r, provider, upstreamBody)
+	if err == nil && serverStateUsed && upstreamResp != nil {
+		if shouldRecover, _ := peekUnknownPreviousIDError(upstreamResp); shouldRecover {
+			log.Warn("server-state previous_response_id rejected, retrying with full body",
+				"session", serverStateKey)
+			p.serverState.Forget(serverStateKey)
+			p.serverState.MarkRecover()
+			upstreamResp.Body.Close()
+			upstreamResp, err = p.doUpstreamRequest(r, provider, newBody)
+		}
+	}
 	if err != nil {
 		p.pipelineHist.Upstream.Record(time.Since(upstreamStart))
 		p.pipelineHist.Total.Record(time.Since(start))
@@ -331,6 +361,15 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		outputTokens = estimateTokensFromText(string(responseBody))
 		if provider == types.Anthropic {
 			upstreamCacheUsage = extractAnthropicCacheUsageFromBody(responseBody)
+		}
+	}
+
+	// --- 9b. Server-state response-id capture (T78) ---
+	if p.config.Proxy.ServerStateEnabled && p.serverState != nil &&
+		serverStateKey != "" && responseBody != nil &&
+		upstreamResp.StatusCode == http.StatusOK {
+		if id := extractResponseID(provider, responseBody); id != "" {
+			p.serverState.Set(serverStateKey, id)
 		}
 	}
 

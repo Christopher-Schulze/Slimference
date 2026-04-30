@@ -82,6 +82,11 @@ type ProxyConfig struct {
 	// requests to finish before forcing exit. Zero means "rely on the
 	// caller-provided context only" (legacy behaviour). T85.
 	DrainTimeoutSeconds int `toml:"drain_timeout_seconds"`
+	// ServerStateEnabled gates the T78 server-side state lever: when on,
+	// the proxy rewrites follow-up requests to OpenAI Responses /
+	// CodexChatGPT to use `previous_response_id` instead of resending
+	// the prefix. Default off; flip per environment after live verify.
+	ServerStateEnabled bool `toml:"server_state_enabled"`
 }
 
 // UpstreamConfig holds upstream API base URLs.

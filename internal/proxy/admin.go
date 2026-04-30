@@ -224,8 +224,9 @@ type ToolPruneStats struct {
 
 // ServerStateStats exposes T78 per-session response-id store snapshot.
 type ServerStateStats struct {
-	Sessions  int   `json:"sessions"`
-	SkipTotal int64 `json:"skip_total"`
+	Sessions     int   `json:"sessions"`
+	SkipTotal    int64 `json:"skip_total"`
+	RecoverTotal int64 `json:"recover_total"`
 }
 
 // BypassStats exposes T81 bypass-state telemetry beyond the bare bool.
@@ -428,8 +429,9 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			}
 			s := p.serverState.Snapshot()
 			return ServerStateStats{
-				Sessions:  s.Sessions,
-				SkipTotal: s.SkipTotal,
+				Sessions:     s.Sessions,
+				SkipTotal:    s.SkipTotal,
+				RecoverTotal: s.RecoverTotal,
 			}
 		}(),
 	}

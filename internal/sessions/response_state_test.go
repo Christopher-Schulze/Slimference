@@ -82,3 +82,17 @@ func TestResponseStateStore_SkipCounter(t *testing.T) {
 		t.Fatalf("snapshot skip: %d", s.Snapshot().SkipTotal)
 	}
 }
+
+func TestResponseStateStore_RecoverCounter(t *testing.T) {
+	t.Parallel()
+	s := NewResponseStateStore(10)
+	s.MarkRecover()
+	s.MarkRecover()
+	s.MarkRecover()
+	if s.RecoverTotal() != 3 {
+		t.Fatalf("recover total: %d", s.RecoverTotal())
+	}
+	if s.Snapshot().RecoverTotal != 3 {
+		t.Fatalf("snapshot recover: %d", s.Snapshot().RecoverTotal)
+	}
+}

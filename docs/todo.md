@@ -627,7 +627,7 @@ API calls in default CI, mutating the operator's live Codex install.
 
 ### Phase M - Concept levers (P0/P1)
 
-- [ ] T78 - Provider server-state exploitation: use OpenAI Responses `previous_response_id` and ChatGPT-Backend conversation IDs to skip resending compressible context. Detail: `docs/todo/t78-provider-server-state.md`
+- [x] T78 - 2026-04-30: shipped non-streaming server-state lever for OpenAI Responses + CodexChatGPT. Body rewrite to `previous_response_id`, response-id capture from non-streaming responses, recovery on `previous_response_id not found` 4xx, telemetry via `/admin/status.server_state.{skip_total,recover_total}`. Default off (`[proxy] server_state_enabled`). Streaming response-id capture deferred (follow-up). Detail: `docs/todo/t78-provider-server-state.md`
 
 ### Phase N - UX visibility and ergonomics (P1)
 

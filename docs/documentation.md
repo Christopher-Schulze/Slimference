@@ -410,6 +410,30 @@ the same Layer 1-3 compression path:
 - Rebuild preserves body-level fields such as `conversation_id`, `metadata`,
   `stream`, and `store`, plus auth/session headers in the forwarded request.
 
+### Server-side state lever (T78)
+
+`[proxy] server_state_enabled = true` activates the T78 lever for
+providers whose capability map sets `SupportsResponseID = true`
+(OpenAI, CodexChatGPT). On follow-up turns the proxy:
+
+1. Pulls a session key from the body (OpenAI:
+   `metadata.session_id` → `metadata.conversation_id` →
+   `previous_response_id`; CodexChatGPT: top-level `conversation_id`).
+2. Looks up the last upstream response id stored for that session.
+3. Rewrites the request: history collapsed to the last user turn,
+   `previous_response_id` injected.
+4. Captures the upstream response id from the non-streaming response
+   body and stores it for the next turn.
+5. On a 4xx whose error mentions `previous_response_id`,
+   `response not found`, or `conversation not found`, forgets the
+   anchor, retries the original full body once, and continues.
+
+Anthropic stays untouched (capability says no). Default off so traffic
+shape stays identical until you opt in. Counters at
+`/admin/status.server_state.{sessions,skip_total,recover_total}`.
+Streaming response-id capture is deferred — SSE replies do not yet
+seed the next-turn anchor.
+
 ### Reversibility-by-default (T76)
 
 Layer 1 archives original block content via `internal/contentarchive`

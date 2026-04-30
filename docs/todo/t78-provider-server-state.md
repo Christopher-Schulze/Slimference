@@ -1,6 +1,6 @@
 # TASK 78: Provider server-state exploitation
 
-Status: todo
+Status: shipped 2026-04-30 (streaming response-id capture deferred)
 Priority: P1
 Scope: `internal/proxy/provider.go`, `internal/proxy/handler.go`, `internal/sessions/`, `internal/types/types.go`
 Driver: OpenAI Responses API supports `previous_response_id` for server-side conversation persistence; ChatGPT-Backend (Codex) keeps server-side conversation state via `conversation_id`. Anthropic prompt-caching is the only server-state lever Slimference uses today. Skipping resends entirely is a much bigger savings than compressing the resend.
@@ -43,12 +43,16 @@ For providers that support server-side context retention:
 
 ## Acceptance Criteria
 
-- [ ] OpenAI Responses requests use `previous_response_id` after the first turn in a session.
-- [ ] CodexChatGPT requests use server-side conversation continuity when present.
-- [ ] An integration test simulates "unknown previous_response_id" and verifies the recovery path resends full body with a fresh anchor.
-- [ ] `/admin/status.server_state` exposes the counters.
-- [ ] No Anthropic regression.
-- [ ] Coverage gate green; race tests green.
+- [x] OpenAI Responses / chat-completions requests use `previous_response_id` after the first turn in a session (`internal/proxy/server_state.go`, `internal/proxy/handler.go` step 8.5; integration test `TestServeHTTP_serverStateCaptureAndReuse`).
+- [x] CodexChatGPT requests use server-side conversation continuity (same wire-in path keyed by top-level `conversation_id`; pure-function tests cover the rewrite).
+- [x] Integration test simulates "unknown previous_response_id" → recovery path resends full body with fresh anchor (`TestServeHTTP_serverStateRecoveryOnUnknownPreviousID`).
+- [x] `/admin/status.server_state` exposes the counters: `sessions`, `skip_total`, `recover_total`.
+- [x] No Anthropic regression (capability map → `SupportsResponseID=false`; `TestServeHTTP_serverStateAnthropicNoRegression`).
+- [x] Coverage gate green at 100%; race tests green.
+
+## Deferred follow-up
+
+- Streaming response-id capture: SSE responses do not feed `extractResponseID`, so the proxy still resends the full body on the next turn after a streaming reply. Add an SSE-event tap (e.g., parse `response.completed` for OpenAI Responses, `conversation.created` for ChatGPT-Backend) in a separate task — touches `streamingRelay*` which is currently a hot byte-for-byte tee.
 
 ## Out of Scope
 

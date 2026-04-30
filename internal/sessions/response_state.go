@@ -12,10 +12,11 @@ import (
 // ChatGPT). T78. Caps memory by evicting the least-recently-used
 // session when the entry budget is exceeded.
 type ResponseStateStore struct {
-	mu       sync.Mutex
-	maxEntries int
-	entries  map[string]*responseStateEntry
-	skipTotal atomic.Int64
+	mu           sync.Mutex
+	maxEntries   int
+	entries      map[string]*responseStateEntry
+	skipTotal    atomic.Int64
+	recoverTotal atomic.Int64
 }
 
 type responseStateEntry struct {
@@ -77,6 +78,16 @@ func (s *ResponseStateStore) MarkSkipped() {
 // SkipTotal returns the cumulative skip counter.
 func (s *ResponseStateStore) SkipTotal() int64 { return s.skipTotal.Load() }
 
+// MarkRecover increments the cumulative recovery counter so
+// /admin/status.server_state.recover_total reflects how often a stale
+// previous_response_id forced a retry with the full body.
+func (s *ResponseStateStore) MarkRecover() {
+	s.recoverTotal.Add(1)
+}
+
+// RecoverTotal returns the cumulative recovery counter.
+func (s *ResponseStateStore) RecoverTotal() int64 { return s.recoverTotal.Load() }
+
 // Forget drops state for one session. Used when the operator clears a
 // session manually or when the upstream rejects the previous id.
 func (s *ResponseStateStore) Forget(sessionID string) {
@@ -87,16 +98,18 @@ func (s *ResponseStateStore) Forget(sessionID string) {
 
 // Snapshot exposes the live counters for telemetry. T78.
 type ResponseStateSnapshot struct {
-	Sessions  int   `json:"sessions"`
-	SkipTotal int64 `json:"skip_total"`
+	Sessions     int   `json:"sessions"`
+	SkipTotal    int64 `json:"skip_total"`
+	RecoverTotal int64 `json:"recover_total"`
 }
 
 func (s *ResponseStateStore) Snapshot() ResponseStateSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return ResponseStateSnapshot{
-		Sessions:  len(s.entries),
-		SkipTotal: s.skipTotal.Load(),
+		Sessions:     len(s.entries),
+		SkipTotal:    s.skipTotal.Load(),
+		RecoverTotal: s.recoverTotal.Load(),
 	}
 }
 

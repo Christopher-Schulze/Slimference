@@ -124,6 +124,11 @@ func DefaultTOML() string {
 listen_address = "127.0.0.1"
 listen_port = 8990
 ipv6 = false
+# T78: when true, the proxy uses provider server-side state
+# (previous_response_id for OpenAI Responses / CodexChatGPT) on
+# follow-up turns instead of resending the full history. Default off
+# so traffic shape stays unchanged until you flip the switch.
+server_state_enabled = false
 
 [upstream.anthropic]
 base_url = "https://api.anthropic.com"
