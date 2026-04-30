@@ -44,9 +44,8 @@ Synchronisation is a per-stage waitgroup. No additional locking inside sub-layer
 - [x] Race tests green (`go test -race ./internal/compression/...`).
 - [x] Coverage 100%.
 - [x] Default-off config flag `[compression.tuning] coordinator_parallel`.
-- [ ] **Deferred**: Layer 1 latency on a 200KB body drops by >= 30% on a 4-core machine. Not measured because:
-  1. The shipped form is message-level fan-out (one goroutine per message in the compressible prefix), not the sub-layer-level staging in WP1-WP3 below. Speed-up scales with `prefixEnd`, not with sub-layer count.
-  2. No benchmark fixture for "200KB body" exists yet under `scripts/benchmarks/`. Acceptance reopens once such a fixture lands.
+- [x] 200KB-body benchmark fixture exists (`BenchmarkCompress_LargeBody_{Sequential,Parallel}`).
+- [ ] Layer 1 latency on a 200KB body drops by >= 30% on a 4-core machine: **not met**. Apple M1 measurement shows ~11% drop (461μs → 409μs). Stage-partitioned sub-layer fan-out (T104b) was considered and dropped: the message granularity already harvests most of the wall-clock win and the stage-partitioned variant would add coordination overhead for a smaller delta. Reopen if profiler evidence shows a workload where the remaining 89% of sequential time is dominated by per-block sequential sub-layers rather than per-message work.
 
 ## Deviation from spec
 

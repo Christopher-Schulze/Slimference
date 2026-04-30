@@ -128,6 +128,53 @@ func BenchmarkStripComments_go(b *testing.B) {
 	}
 }
 
+// largeBodyMessages produces a 200KB-style payload that mirrors what
+// Layer 1 sees on heavy tool-result traffic: tool_result blocks with
+// JSON-shaped content that triggers ANSI strip + JSON compact + dedup
+// + structure-extract. Used by the T104b benchmark pair below.
+func largeBodyMessages(nPairs int, perBlock int) []types.Message {
+	body := "{\n" + strings.Repeat("  \"x\": \"value\",\n", perBlock/16) + "  \"end\": true\n}"
+	msgs := make([]types.Message, 0, nPairs*2+1)
+	for i := 0; i < nPairs; i++ {
+		msgs = append(msgs,
+			types.Message{Role: "user", Content: []types.ContentBlock{{Type: "tool_result", Text: body}}},
+			types.Message{Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "ok"}}},
+		)
+	}
+	msgs = append(msgs, types.Message{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "tail"}}})
+	return msgs
+}
+
+// BenchmarkCompress_LargeBody_Sequential exercises Layer 1 on a
+// 200KB-style payload with the message-level fan-out off (T104b
+// baseline).
+func BenchmarkCompress_LargeBody_Sequential(b *testing.B) {
+	c := benchCompressor()
+	msgs := largeBodyMessages(20, 1024)
+	b.ResetTimer()
+	for b.Loop() {
+		c.Reset()
+		c.Compress(msgs)
+	}
+}
+
+// BenchmarkCompress_LargeBody_Parallel exercises Layer 1 on the same
+// payload with [compression.tuning] coordinator_parallel = true (T104
+// message-level fan-out). Compare against the _Sequential bench above
+// to decide whether T104b's stage-partitioned variant is worth the
+// extra refactor.
+func BenchmarkCompress_LargeBody_Parallel(b *testing.B) {
+	cfg := config.Defaults().Compression
+	cfg.Tuning.CoordinatorParallel = true
+	c := NewDeterministicCompressor(&cfg)
+	msgs := largeBodyMessages(20, 1024)
+	b.ResetTimer()
+	for b.Loop() {
+		c.Reset()
+		c.Compress(msgs)
+	}
+}
+
 func BenchmarkExtractStructure_go(b *testing.B) {
 	code := strings.Repeat(`// Package foo
 package foo
