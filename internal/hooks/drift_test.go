@@ -220,3 +220,118 @@ func TestFormatDriftReports(t *testing.T) {
 		t.Fatalf("codex line: %s", text)
 	}
 }
+
+// TestDetectDrift_codexCarriesCapabilities verifies the codex probe
+// populates the capability list from the matrix in codex_caps.go so an
+// operator running `doctor` sees what hook features Slimference relies
+// on for the installed version.
+func TestDetectDrift_codexCarriesCapabilities(t *testing.T) {
+	stubCLIVersion(t,
+		map[string]string{
+			"claude": "claude 1.5.3",
+			"codex":  "codex 0.125.0",
+		},
+		nil,
+	)
+	reports := DetectDrift(context.Background())
+	for _, r := range reports {
+		if r.CLI != "codex" {
+			continue
+		}
+		if len(r.Capabilities) != 1 || r.Capabilities[0] != string(CodexCapDecisionBlock) {
+			t.Fatalf("codex capabilities: got %v, want [decision_block]", r.Capabilities)
+		}
+		if r.CapabilityNotice != "" {
+			t.Fatalf("decision_block-only steady state must not raise a notice; got %q", r.CapabilityNotice)
+		}
+	}
+}
+
+// TestDetectDrift_claudeOmitsCapabilities confirms only the codex probe
+// populates capability data; Claude Code has no Slimference-tracked
+// capability matrix yet.
+func TestDetectDrift_claudeOmitsCapabilities(t *testing.T) {
+	stubCLIVersion(t,
+		map[string]string{
+			"claude": "claude 1.5.3",
+			"codex":  "codex 0.125.0",
+		},
+		nil,
+	)
+	reports := DetectDrift(context.Background())
+	for _, r := range reports {
+		if r.CLI != "claude" {
+			continue
+		}
+		if len(r.Capabilities) != 0 {
+			t.Fatalf("claude must have no capability list yet, got %v", r.Capabilities)
+		}
+		if r.CapabilityNotice != "" {
+			t.Fatalf("claude must not raise a capability notice")
+		}
+	}
+}
+
+// TestCodexCapabilityNotice_TransparentRewriteFlipped fires the
+// notification path when the capability matrix evolves to advertise
+// transparent_rewrite for a future Codex range.
+func TestCodexCapabilityNotice_TransparentRewriteFlipped(t *testing.T) {
+	t.Parallel()
+	caps := []CodexCapability{CodexCapDecisionBlock, CodexCapTransparentRewrite}
+	got := codexCapabilityNotice("1.0.0", caps)
+	if got == "" {
+		t.Fatal("expected a capability notice when transparent_rewrite becomes available")
+	}
+	if !strings.Contains(got, "updatedInput") {
+		t.Fatalf("notice should reference the upstream field, got %q", got)
+	}
+	if !strings.Contains(got, "hook install codex") {
+		t.Fatalf("notice should tell the operator how to act, got %q", got)
+	}
+}
+
+// TestCodexCapabilityNotice_EmptyVersion stays quiet when the CLI
+// version could not be parsed.
+func TestCodexCapabilityNotice_EmptyVersion(t *testing.T) {
+	t.Parallel()
+	if got := codexCapabilityNotice("", nil); got != "" {
+		t.Fatalf("empty version must yield empty notice, got %q", got)
+	}
+}
+
+// TestCodexCapabilityNotice_DecisionBlockOnlyQuiet keeps doctor output
+// noise-free on the steady state where only legacy decision_block is
+// advertised.
+func TestCodexCapabilityNotice_DecisionBlockOnlyQuiet(t *testing.T) {
+	t.Parallel()
+	got := codexCapabilityNotice("0.125.0", []CodexCapability{CodexCapDecisionBlock})
+	if got != "" {
+		t.Fatalf("decision_block-only state must be quiet, got %q", got)
+	}
+}
+
+// TestFormatDriftReports_RendersCapabilitiesAndNotice formats the new
+// capability/notice fields so an operator can read them off the doctor
+// output.
+func TestFormatDriftReports_RendersCapabilitiesAndNotice(t *testing.T) {
+	t.Parallel()
+	text := FormatDriftReports([]DriftReport{
+		{
+			CLI:              "codex",
+			BinaryFound:      true,
+			VersionParsed:    "1.0.0",
+			MinSupported:     "0.117.0",
+			MaxTested:        "1.0.0",
+			Status:           DriftOK,
+			Notes:            "supported range",
+			Capabilities:     []string{"decision_block", "transparent_rewrite"},
+			CapabilityNotice: "modern hook payload available; rerun installer",
+		},
+	})
+	if !strings.Contains(text, "capabilities: decision_block, transparent_rewrite") {
+		t.Fatalf("missing capability list line, got %q", text)
+	}
+	if !strings.Contains(text, "NOTE: modern hook payload available") {
+		t.Fatalf("missing notice line, got %q", text)
+	}
+}

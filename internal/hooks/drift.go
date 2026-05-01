@@ -39,6 +39,19 @@ type DriftReport struct {
 	MaxTested     string
 	Status        DriftStatus
 	Notes         string
+	// Capabilities lists the Slimference-relevant features Slimference
+	// believes the detected version honours. Populated only for CLIs we
+	// have a capability matrix for (currently `codex`); empty for
+	// others. See internal/hooks/codex_caps.go.
+	Capabilities []string
+	// CapabilityNotice carries an actionable message when the capability
+	// snapshot diverges from what Slimference's emitted scripts assume.
+	// The classic case: Codex flips `updatedInput` from "fail open" to
+	// "honoured", at which point `slimference doctor` and the drift
+	// report start asking the operator to upgrade Slimference / re-run
+	// `hook install codex` so the modern transparent-rewrite path is
+	// emitted. Empty when there is nothing to say.
+	CapabilityNotice string
 }
 
 // knownGoodVersions tracks the latest (min, max-tested) ranges we have
@@ -114,7 +127,42 @@ func probeCLI(parent context.Context, cli string) DriftReport {
 	case DriftAbove:
 		report.Notes = fmt.Sprintf("newer than last tested %s - contract may drift", gg.max)
 	}
+	if cli == "codex" {
+		caps := CapabilitiesFor(version)
+		report.Capabilities = make([]string, len(caps))
+		for i, c := range caps {
+			report.Capabilities[i] = string(c)
+		}
+		report.CapabilityNotice = codexCapabilityNotice(version, caps)
+	}
 	return report
+}
+
+// codexCapabilityNotice returns an operator-actionable message when the
+// detected Codex version's capability set does not match what
+// Slimference's emitted scripts assume. T113b ships only the
+// notification layer: the day Codex honours `updatedInput` upstream and
+// our `codexCapabilityMatrix` adds `transparent_rewrite` to a future
+// version range, this function will surface "modern hook payload
+// available; rerun `slimference hook install codex` to switch." An
+// empty return means no action is needed.
+func codexCapabilityNotice(version string, caps []CodexCapability) string {
+	if version == "" {
+		return ""
+	}
+	hasTransparent := false
+	for _, c := range caps {
+		if c == CodexCapTransparentRewrite {
+			hasTransparent = true
+		}
+	}
+	if hasTransparent {
+		return "modern hook payload (updatedInput) supported by this Codex version; re-run `slimference hook install codex` to enable the transparent-rewrite path"
+	}
+	// Currently every supported Codex range advertises only
+	// `decision_block`. Stay quiet so doctor output is not noisy on the
+	// expected steady state.
+	return ""
 }
 
 // versionRegex matches a leading semver-like triple anywhere in the output.
@@ -197,6 +245,12 @@ func FormatDriftReports(reports []DriftReport) string {
 			sb.WriteString(r.Notes)
 		}
 		sb.WriteString("\n")
+		if len(r.Capabilities) > 0 {
+			sb.WriteString(fmt.Sprintf("    capabilities: %s\n", strings.Join(r.Capabilities, ", ")))
+		}
+		if r.CapabilityNotice != "" {
+			sb.WriteString(fmt.Sprintf("    NOTE: %s\n", r.CapabilityNotice))
+		}
 	}
 	return sb.String()
 }

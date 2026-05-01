@@ -76,6 +76,11 @@ The official Codex hooks reference at https://developers.openai.com/codex/hooks 
 - `internal/hooks/codex_caps_test.go`: 17 tests covering the matrix walk, boundary inclusivity, copy-on-return, unparseable inputs, stubbed `cliVersionCmdFn`, and the synthetic-future-range "transparent on" path. 100% coverage on the new file.
 - The script generator (`codexPreToolHookScript`) is **unchanged**; it consults `SupportsTransparentRewrite` only when the upstream gate flips.
 
+### What did ship under T113b-notify (2026-05-01)
+- `DriftReport` carries `Capabilities []string` and `CapabilityNotice string` fields. The codex probe in `probeCLI` consults `CapabilitiesFor(version)` and surfaces the list. `codexCapabilityNotice` returns an operator-actionable message *only* when the capability matrix advertises `transparent_rewrite` for the detected version - the steady-state where only `decision_block` is honoured stays quiet so doctor output is not noisy.
+- `FormatDriftReports` renders both new fields under each CLI block. Once Codex flips `updatedInput` from "fail open" to "honoured" upstream and `codexCapabilityMatrix` adds `transparent_rewrite` for the new version range, the next `slimference doctor` / `slimference hook check-upstream` run prints `NOTE: modern hook payload (updatedInput) supported by this Codex version; re-run \`slimference hook install codex\` to enable the transparent-rewrite path` and the operator knows to act. No manual upstream-doc polling required.
+- 5 new tests covering: capabilities populated for codex / omitted for claude; notice empty in steady state; notice fired with synthetic future capability set; rendered-output coverage of the new lines.
+
 ### Re-activation criteria (T113b)
 1. Codex release notes / hooks doc remove `updatedInput` from the "parsed but not supported" list.
 2. Smoke test: install that Codex release, run a `bash -c 'echo CHANGED'` pre-tool hook that emits `updatedInput.command="echo REPLACED"`, confirm Codex executes `echo REPLACED`.
@@ -89,7 +94,8 @@ The official Codex hooks reference at https://developers.openai.com/codex/hooks 
 
 - [x] Capability matrix + version detection + snapshot helper land with 100% coverage; `SupportsTransparentRewrite` gates all future modern-shape emission.
 - [x] Status documented as BLOCKED in todo.md audit section with the upstream-Codex reason and the re-activation checklist visible to operators.
-- [ ] **T113b** (deferred, dependent on Codex upstream): script-generator branching, `verify` exit-code gate, drift watchdog regeneration, telemetry counters, `[hooks.codex]` config keys.
+- [x] **T113b-notify** (2026-05-01): drift report tracks Codex capabilities and surfaces a `NOTE:` line in `slimference doctor` when the capability matrix flips `transparent_rewrite` on. Operator notification path no longer relies on manual upstream-doc polling.
+- [ ] **T113b-modern** (still deferred, dependent on Codex upstream): script-generator branching to emit `hookSpecificOutput.updatedInput`, `verify` exit-code gate, telemetry counters (`transparent_total`, `block_rerun_total`, `model_ignored_block_total`), `[hooks.codex]` config keys.
 
 ## Out of Scope
 
