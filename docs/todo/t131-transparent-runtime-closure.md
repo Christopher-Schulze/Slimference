@@ -112,7 +112,8 @@ and the evidence shows:
 - [x] `go test ./...` passes.
 - [x] `go run ./scripts/ci` passes (8/8, total statement coverage 100.0%).
 - [x] Focused race check passes for touched packages: `go test -race ./cmd/slimference ./internal/config ./internal/proxy ./internal/tlsdial`.
-- [ ] Manual macOS E2E, optional TS tests, optional integration tags, and full `go test -race ./...` are pending; full race remains blocked by T132 until the known Layer 2 race is fixed.
+- [x] Full `go test -race ./...` passes after T132 fixed the known Layer 2 race.
+- [ ] Manual macOS E2E, optional TS tests, and optional integration tags remain pending.
 
 ## Out of scope
 
