@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -192,45 +193,7 @@ func (l *Layer2) AddFallbackProvider(s Summarizer) {
 // Returns (newMessages, tokensSaved, applied).
 // If no valid summary exists the original slice is returned unchanged.
 func (l *Layer2) ApplyToMessages(messages []types.Message) ([]types.Message, int, bool) {
-	cached, coveredRange := l.cache.GetCurrent()
-	if cached == nil {
-		return messages, 0, false
-	}
-
-	end := coveredRange[1]
-	if end <= 0 || end >= len(messages) {
-		return messages, 0, false
-	}
-
-	summaryText := fmt.Sprintf(
-		"[Conversation summary covering messages 0-%d: %s]",
-		end, cached.Summary,
-	)
-
-	synthetic := types.Message{
-		Index: 0,
-		Role:  "assistant",
-		Content: []types.ContentBlock{
-			{Type: "text", Text: summaryText},
-		},
-		Metadata: types.MessageMetadata{
-			OriginalTokens:   cached.OriginalTokens,
-			CompressedTokens: cached.CompressedTokens,
-			CompressionLevel: types.CompressionLayer2,
-		},
-	}
-
-	// Re-index the tail messages starting from 1.
-	tail := messages[end+1:]
-	result := make([]types.Message, 0, 1+len(tail))
-	result = append(result, synthetic)
-	for i, msg := range tail {
-		msg.Index = i + 1
-		result = append(result, msg)
-	}
-
-	tokensSaved := cached.OriginalTokens - cached.CompressedTokens
-	return result, tokensSaved, true
+	return l.ApplyToMessagesSession(legacySessionID, messages)
 }
 
 // RunCompressionJob is the async worker body. Call it from a goroutine.
@@ -411,6 +374,13 @@ applySummary:
 		ratio = float64(compressedTokens) / float64(origTokens)
 	}
 
+	anchorMsgs := make([]types.Message, 0, len(allAnchorIndices))
+	for _, idx := range allAnchorIndices {
+		if idx < len(messages) {
+			anchorMsgs = append(anchorMsgs, deepCopyMessage(messages[idx]))
+		}
+	}
+
 	cached := &CachedSummary{
 		Summary:          summary,
 		CoveredRange:     [2]int{0, boundaryIdx},
@@ -420,6 +390,7 @@ applySummary:
 		CompressionRatio: ratio,
 		CreatedAt:        time.Now(),
 		Hash:             hashMessages(messages[:boundaryIdx+1]),
+		AnchorMessages:   anchorMsgs,
 	}
 	l.sessions.Store(sessionID, cached)
 
@@ -776,7 +747,10 @@ func (l *Layer2) ApplyToMessagesSession(sessionID string, messages []types.Messa
 	if end <= 0 || end >= len(messages) {
 		return messages, 0, false
 	}
-	summaryText := fmt.Sprintf("[Conversation summary covering messages 0-%d: %s]", end, cached.Summary)
+
+	anchorIndices := cached.AnchorsInlined
+	summaryText := buildSummaryText(end, anchorIndices, cached.Summary)
+
 	synthetic := types.Message{
 		Index: 0,
 		Role:  "assistant",
@@ -789,15 +763,158 @@ func (l *Layer2) ApplyToMessagesSession(sessionID string, messages []types.Messa
 			CompressionLevel: types.CompressionLayer2,
 		},
 	}
+
+	budget := l.maxAnchorsInlined()
+	anchorMsgs := selectAnchors(cached.AnchorMessages, anchorIndices, budget)
+
+	totalAnchors := len(cached.AnchorMessages)
+	verbatimCount := 0
+	demotedCount := 0
+	if totalAnchors > 0 {
+		if totalAnchors <= budget {
+			verbatimCount = totalAnchors
+		} else {
+			verbatimCount = budget
+			demotedCount = totalAnchors - budget
+		}
+	}
+	l.sessions.anchorsTotal.Add(int64(totalAnchors))
+	l.sessions.anchorsVerbatim.Add(int64(verbatimCount))
+	l.sessions.anchorsDemoted.Add(int64(demotedCount))
+
 	tail := messages[end+1:]
-	result := make([]types.Message, 0, 1+len(tail))
+	result := make([]types.Message, 0, 1+len(anchorMsgs)+len(tail))
 	result = append(result, synthetic)
-	for i, msg := range tail {
-		msg.Index = i + 1
+	result = append(result, anchorMsgs...)
+	for _, msg := range tail {
 		result = append(result, msg)
 	}
+	for i := range result {
+		result[i].Index = i
+	}
+
+	if len(anchorIndices) > 0 {
+		v := NewCompressionValidator()
+		vr := v.ValidateApply(messages, result, anchorIndices, budget)
+		if !vr.Valid {
+			slog.Warn("layer2.anchor_loss", "reason", vr.FailReason, "session", sessionID)
+			return messages, 0, false
+		}
+	}
+
 	tokensSaved := cached.OriginalTokens - cached.CompressedTokens
 	return result, tokensSaved, true
+}
+
+func buildSummaryText(end int, anchorIndices []int, summary string) string {
+	if len(anchorIndices) == 0 {
+		return fmt.Sprintf("[Conversation summary covering messages 0-%d: %s]", end, summary)
+	}
+	idxStrs := make([]string, len(anchorIndices))
+	for i, idx := range anchorIndices {
+		idxStrs[i] = fmt.Sprintf("%d", idx)
+	}
+	return fmt.Sprintf("[Conversation summary covering messages 0-%d excluding anchors at %s: %s]",
+		end, strings.Join(idxStrs, ", "), summary)
+}
+
+func selectAnchors(stored []types.Message, indices []int, budget int) []types.Message {
+	if len(stored) == 0 {
+		return nil
+	}
+
+	type entry struct {
+		origOrder int
+		msg       types.Message
+		cat       anchorCategory
+	}
+
+	entries := make([]entry, len(stored))
+	for i, m := range stored {
+		cat := anchorUnknown
+		if i < len(indices) {
+			cat = classifyStoredAnchor(m)
+		}
+		entries[i] = entry{origOrder: i, msg: m, cat: cat}
+	}
+
+	priorityOrder := make([]int, len(entries))
+	for i := range priorityOrder {
+		priorityOrder[i] = i
+	}
+	sort.Slice(priorityOrder, func(a, b int) bool {
+		return entries[priorityOrder[a]].cat < entries[priorityOrder[b]].cat
+	})
+
+	verbatim := make(map[int]bool, budget)
+	for i := 0; i < budget && i < len(priorityOrder); i++ {
+		verbatim[priorityOrder[i]] = true
+	}
+
+	sort.Slice(entries, func(a, b int) bool {
+		return entries[a].origOrder < entries[b].origOrder
+	})
+
+	result := make([]types.Message, 0, len(stored))
+	for i, e := range entries {
+		if verbatim[i] {
+			result = append(result, deepCopyMessage(e.msg))
+		} else {
+			text := fullText(e.msg)
+			if len(text) > 80 {
+				text = text[:77] + "..."
+			}
+			catName := anchorCategoryString(e.cat)
+			idx := -1
+			if i < len(indices) {
+				idx = indices[i]
+			}
+			result = append(result, types.Message{
+				Role: e.msg.Role,
+				Content: []types.ContentBlock{
+					{Type: "text", Text: fmt.Sprintf("[anchor: %s at msg %d - %s]", catName, idx, text)},
+				},
+			})
+		}
+	}
+	return result
+}
+
+func classifyStoredAnchor(m types.Message) anchorCategory {
+	d := NewAnchorDetector()
+	if d.isAnchorError(m) {
+		return anchorError
+	}
+	if d.isAnchorEdit(m) {
+		return anchorEdit
+	}
+	if d.isAnchorDecision(m) {
+		return anchorDecision
+	}
+	if d.isAnchorConfig(m) {
+		return anchorConfig
+	}
+	if d.isAnchorArchitect(m) {
+		return anchorArchitect
+	}
+	return anchorUnknown
+}
+
+func anchorCategoryString(c anchorCategory) string {
+	switch c {
+	case anchorError:
+		return "error"
+	case anchorEdit:
+		return "edit"
+	case anchorDecision:
+		return "decision"
+	case anchorConfig:
+		return "config"
+	case anchorArchitect:
+		return "architect"
+	default:
+		return "generic"
+	}
 }
 
 func (l *Layer2) ShouldTriggerCompressionSession(sessionID string, messages []types.Message) bool {
@@ -852,4 +969,20 @@ func (l *Layer2) CacheStats() CacheStats {
 
 func (l *Layer2) GetSessionCache() *SessionCache {
 	return l.sessions
+}
+
+func deepCopyMessage(m types.Message) types.Message {
+	cp := m
+	cp.Content = make([]types.ContentBlock, len(m.Content))
+	copy(cp.Content, m.Content)
+	return cp
+}
+
+const defaultMaxAnchorsInlined = 8
+
+func (l *Layer2) maxAnchorsInlined() int {
+	if v := l.cfg.Summary.MaxAnchorsInlined; v > 0 {
+		return v
+	}
+	return defaultMaxAnchorsInlined
 }

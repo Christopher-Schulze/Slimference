@@ -240,7 +240,54 @@ func trimToLen(s string, n int) string {
 	return string(runes[:n])
 }
 
-// percentStr formats a ratio as a human-readable percentage string.
+// ValidateApply confirms that anchor messages survive into the post-apply slice.
+// Returns false if any anchor that should be present (within budget) is missing
+// verbatim, and reports which anchors were lost.
+func (v *CompressionValidator) ValidateApply(originalMsgs []types.Message, postApplyMsgs []types.Message, anchorIndices []int, budget int) ValidationResult {
+	if len(anchorIndices) == 0 {
+		return ValidationResult{Valid: true}
+	}
+
+	limit := budget
+	if limit > len(anchorIndices) {
+		limit = len(anchorIndices)
+	}
+
+	for i := 0; i < limit; i++ {
+		origIdx := anchorIndices[i]
+		if origIdx >= len(originalMsgs) {
+			continue
+		}
+		orig := originalMsgs[origIdx]
+		origText := fullText(orig)
+		if origText == "" {
+			continue
+		}
+		found := false
+		for _, post := range postApplyMsgs {
+			if containsVerbatimAnchor(post, orig) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return ValidationResult{
+				Valid:      false,
+				FailReason: "anchor lost: message at index " + strconv.Itoa(origIdx) + " not found verbatim in post-apply output",
+			}
+		}
+	}
+	return ValidationResult{Valid: true}
+}
+
+func containsVerbatimAnchor(post types.Message, orig types.Message) bool {
+	postText := fullText(post)
+	origText := fullText(orig)
+	if origText == "" {
+		return true
+	}
+	return strings.Contains(postText, origText)
+}
 func percentStr(ratio float64) string {
 	pct := int(ratio * 100)
 	s := ""

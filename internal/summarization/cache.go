@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/slimference/slimference/internal/types"
 )
 
 // CachedSummary holds a MiniMax summary alongside its metadata for cache decisions.
@@ -16,7 +18,16 @@ type CachedSummary struct {
 	CompressedTokens int
 	CompressionRatio float64
 	CreatedAt        time.Time
-	Hash             [32]byte
+
+	// Hash is the SHA-256 fingerprint of the serialised input messages for
+	// invalidation when the conversation changes upstream.
+	Hash [32]byte
+
+	// AnchorMessages (T111) are deep-copied snapshots of the messages at
+	// AnchorIndices. ApplyToMessages re-injects them verbatim into the
+	// compressed output so the upstream model does not lose critical edits,
+	// errors, decisions, or config touches.
+	AnchorMessages []types.Message
 }
 
 // --- Session-keyed cache (T110) ---
@@ -34,16 +45,19 @@ type sessionEntry struct {
 // Each session gets its own current/previous pair. LRU eviction applies when
 // the number of distinct sessions exceeds maxSessions. Thread-safe.
 type SessionCache struct {
-	mu          sync.RWMutex
-	entries     map[string]*sessionEntry
-	lru         *list.List
-	lruKeys     map[string]*list.Element
-	maxSessions int
-	hits        atomic.Int64
-	misses      atomic.Int64
-	evictions   atomic.Int64
-	staleHits   atomic.Int64
-	hashMisses  atomic.Int64
+	mu              sync.RWMutex
+	entries         map[string]*sessionEntry
+	lru             *list.List
+	lruKeys         map[string]*list.Element
+	maxSessions     int
+	hits            atomic.Int64
+	misses          atomic.Int64
+	evictions       atomic.Int64
+	staleHits       atomic.Int64
+	hashMisses      atomic.Int64
+	anchorsTotal    atomic.Int64
+	anchorsVerbatim atomic.Int64
+	anchorsDemoted  atomic.Int64
 }
 
 func NewSessionCache(maxSessions int) *SessionCache {
@@ -190,22 +204,28 @@ func (sc *SessionCache) SessionCount() int {
 
 func (sc *SessionCache) Stats() CacheStats {
 	return CacheStats{
-		Sessions:   sc.SessionCount(),
-		Hits:       sc.hits.Load(),
-		Misses:     sc.misses.Load(),
-		Evictions:  sc.evictions.Load(),
-		StaleHits:  sc.staleHits.Load(),
-		HashMisses: sc.hashMisses.Load(),
+		Sessions:        sc.SessionCount(),
+		Hits:            sc.hits.Load(),
+		Misses:          sc.misses.Load(),
+		Evictions:       sc.evictions.Load(),
+		StaleHits:       sc.staleHits.Load(),
+		HashMisses:      sc.hashMisses.Load(),
+		AnchorsTotal:    sc.anchorsTotal.Load(),
+		AnchorsVerbatim: sc.anchorsVerbatim.Load(),
+		AnchorsDemoted:  sc.anchorsDemoted.Load(),
 	}
 }
 
 type CacheStats struct {
-	Sessions   int   `json:"sessions"`
-	Hits       int64 `json:"hits"`
-	Misses     int64 `json:"misses"`
-	Evictions  int64 `json:"evictions"`
-	StaleHits  int64 `json:"stale_hits"`
-	HashMisses int64 `json:"hash_mismatches"`
+	Sessions        int   `json:"sessions"`
+	Hits            int64 `json:"hits"`
+	Misses          int64 `json:"misses"`
+	Evictions       int64 `json:"evictions"`
+	StaleHits       int64 `json:"stale_hits"`
+	HashMisses      int64 `json:"hash_mismatches"`
+	AnchorsTotal    int64 `json:"anchors_total"`
+	AnchorsVerbatim int64 `json:"anchors_verbatim"`
+	AnchorsDemoted  int64 `json:"anchors_demoted"`
 }
 
 // --- Legacy SummaryCache (backward compat wrapper) ---

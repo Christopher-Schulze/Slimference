@@ -175,3 +175,53 @@ func TestLayer2_RunCompressionJob_inputTokenCap(t *testing.T) {
 		t.Fatalf("expected at least 1 API request, got %d", requestCount)
 	}
 }
+
+func TestLayer2_RunCompressionJob_capturesAnchorMessages(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	summaryText := "- alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon phi chi psi omega"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"role":"assistant","content":%q}}]}`, summaryText)
+	}))
+	defer srv.Close()
+
+	cfg := config.Defaults().Compression
+	cfg.MiniMax.BaseURL = srv.URL
+	cfg.MiniMax.APIKeyEnv = "MINIMAX_API_KEY"
+	cfg.MiniMax.MaxRetries = 0
+	cfg.SlidingWindow = 5
+	cfg.MinMessagesForCompression = 8
+	cfg.MinTokensForLayer2 = 1
+
+	l := NewLayer2(&cfg)
+
+	msgs := make([]types.Message, 20)
+	for i := range msgs {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		msgs[i] = msg(t, i, role, strings.Repeat("word ", 25))
+	}
+	msgs[3] = toolUseMsg(t, 3, "edit_file")
+	msgs[7] = msg(t, 7, "assistant", "error: something failed")
+
+	l.RunCompressionJob(msgs)
+
+	cached, _ := l.cache.GetCurrent()
+	if cached == nil {
+		t.Fatal("expected cached summary")
+	}
+	if len(cached.AnchorMessages) == 0 {
+		t.Fatal("expected anchor messages to be captured")
+	}
+	if len(cached.AnchorsInlined) != len(cached.AnchorMessages) {
+		t.Fatalf("AnchorsInlined=%d != AnchorMessages=%d", len(cached.AnchorsInlined), len(cached.AnchorMessages))
+	}
+}

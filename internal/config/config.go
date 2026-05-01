@@ -326,6 +326,10 @@ type SummaryConfig struct {
 	// the OutboundRedaction mode. Useful for operators that want
 	// default-mode redaction plus the strictest tool_input handling.
 	OutboundDropToolInputs bool `toml:"outbound_drop_tool_inputs"`
+	// MaxAnchorsInlined (T111) caps how many anchor messages are re-injected
+	// verbatim into the compressed output. Excess anchors become one-line
+	// digests. Default 8.
+	MaxAnchorsInlined int `toml:"max_anchors_inlined"`
 }
 
 // CacheConfig controls response caching behaviour.
