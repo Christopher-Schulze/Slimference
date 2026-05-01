@@ -42,4 +42,5 @@ go run ./scripts/utils filter-report ~/.slimference/filter.db --csv
 go run ./scripts/utils combined-report ~/.slimference/analytics/2026-04-17.jsonl \
   ~/.slimference/logs/decisions.jsonl \
   ~/.slimference/filter.db
+go run ./scripts/utils tls-probe --profile=chromium_stable --json
 ```

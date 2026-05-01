@@ -86,6 +86,18 @@ warns when the catalogue is older than the review threshold. That warning means
 "refresh the pinned uTLS/browser profile mapping"; it is not a runtime failure
 and it is not a JA3 match proof.
 
+Local profile wiring can be checked without contacting an external probe:
+
+```bash
+go run ./scripts/utils tls-probe --profile=chromium_stable --json
+```
+
+The probe starts a loopback TCP listener, captures Slimference's outbound
+ClientHello, parses TLS/JA3 fields, and compares the selected profile with
+`go_stdlib`. This proves the local Go-stdlib tell is removed. It is still not
+an external JA3/JA4 proof because provider-edge observation includes network
+path, TLS termination, and JA4 features outside the local ClientHello.
+
 ### `uninstall`
 
 Disables the proxy, removes the CA from the keychain, removes the launch agent. The CA files in `~/.slimference/ca` remain on disk so a re-install can reuse them; delete the directory manually for a fully clean slate.

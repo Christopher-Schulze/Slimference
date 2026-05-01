@@ -1,6 +1,6 @@
 # TASK 123: TLS fingerprint mimicry (uTLS) for outbound connections
 
-Status: CODE-COMPLETE / EXTERNAL-JA3-PROBE PENDING (implemented 2026-05-01)
+Status: CODE-COMPLETE / LOCAL-CLIENTHELLO-PROBE COMPLETE / EXTERNAL-JA3-PROBE PENDING (implemented 2026-05-01)
 Priority: P1
 Scope: `internal/tlsdial/` (new package), `internal/proxy/connect.go`, `internal/proxy/ws.go`, `internal/proxy/proxy.go`, `internal/transparent/`. Requires T131 first.
 Driver: today the upstream-side TLS handshake (the connection from Slimference to OpenAI / Anthropic / chatgpt.com) uses Go's `crypto/tls` with default settings. Its TLS ClientHello, JA3/JA4 surface, ALPN order, extension list and cipher-suite ordering are uniquely "Go stdlib" and differ from the native upstream tool's stack (Codex Desktop is an Electron/Chromium app, Codex CLI and Claude Code are Node.js-driven, Python SDKs use OpenSSL via urllib3/httpx, etc.). There is no current proof that OpenAI / ChatGPT-Plus blocks Slimference by JA3, but the operator wants the stealth layer completed proactively. The fix is practical mimicry: make the upstream ClientHello match the selected native profile closely enough that Slimference no longer advertises itself as Go stdlib.
@@ -81,7 +81,8 @@ Not implemented in this landing. uTLS handles ClientHello mimicry; HTTP/2 SETTIN
 
 - [x] Unit coverage proves stdlib and uTLS profile dials complete against a local TLS endpoint when trusted and fail safely when untrusted/unreachable.
 - [x] uTLS dials honor context cancellation while the handshake is blocked and immediately after handshake completion; cancellation closes the underlying TCP connection instead of leaking a hanging dial.
-- [ ] External JA3/JA4 probe remains pending; do not claim exact JA3 hash match until a reflecting endpoint or local ClientHello parser is added.
+- [x] Local `scripts/utils tls-probe` captures the emitted ClientHello on a loopback raw TCP listener, parses TLS record/ClientHello fields, computes JA3, compares the selected profile with `go_stdlib`, and emits JSON/text evidence without contacting an external endpoint.
+- [ ] External reflected JA3/JA4 probe remains pending; do not claim exact provider-edge JA3/JA4 parity until a reflecting endpoint confirms the edge-observed fingerprint.
 
 ### WP6 - Tests
 
@@ -100,7 +101,8 @@ Not implemented in this landing. uTLS handles ClientHello mimicry; HTTP/2 SETTIN
 - [x] Available maintained uTLS profiles ship with explicit alias mapping; exact Node/Python/OpenSSL profile parity is not claimed.
 - [x] `[transparent.tls_profiles]` resolves per-host with default fallback.
 - [x] `slimference proxy status` prints the profile per intercepted host.
-- [ ] External `tls-probe` / reflected JA3 verification is pending.
+- [x] Local `go run ./scripts/utils tls-probe --profile=chromium_stable --json` proves the transparent-mode default emits a non-stdlib ClientHello and records the local JA3 string/hash.
+- [ ] External reflected JA3/JA4 verification is pending.
 - [x] Docs explicitly avoid claiming full undetectability; HTTP/2 SETTINGS and connection-behaviour limits are documented.
 - [x] `go run ./scripts/ci` passes (8/8, total statement coverage 100.0%).
 - [x] Focused race check passes for touched packages: `go test -race ./cmd/slimference ./internal/config ./internal/proxy ./internal/tlsdial`.
@@ -120,6 +122,7 @@ Not implemented in this landing. uTLS handles ClientHello mimicry; HTTP/2 SETTIN
 ```
 go test -race ./internal/tlsdial/... ./internal/proxy/...
 go run ./scripts/utils tls-probe --profile=chromium_stable
+go run ./scripts/utils tls-probe --profile=chromium_stable --json
 slimference proxy status   # shows profile per host
 ```
 

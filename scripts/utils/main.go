@@ -6,6 +6,7 @@
 //	go run ./scripts/utils decision-report <file.jsonl> [--json|--csv]
 //	go run ./scripts/utils filter-report <filter.db> [--json|--csv]
 //	go run ./scripts/utils combined-report <analytics.jsonl> <decisions.jsonl> <filter.db> [--json|--csv]
+//	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
 package main
 
 import (
@@ -26,7 +27,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, tls-probe")
 		os.Exit(1)
 	}
 
@@ -91,6 +92,8 @@ func main() {
 		os.Exit(runStructureAccuracy(os.Args[2:], os.Stdout, os.Stderr))
 	case "leaf-audit":
 		os.Exit(runLeafAudit(os.Args[2:], os.Stdout, os.Stderr))
+	case "tls-probe":
+		os.Exit(runTLSProbe(os.Args[2:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s\n", os.Args[1])
 		os.Exit(1)
