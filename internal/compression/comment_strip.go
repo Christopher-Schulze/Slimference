@@ -48,9 +48,12 @@ func StripComments(code, lang string) string {
 
 func stripCommentsByLang(code, lang string) string {
 	switch lang {
-	case "go", "typescript", "javascript", "rust", "c", "cpp", "cxx", "java":
+	case "go", "typescript", "javascript", "rust", "c", "cpp", "cxx", "java",
+		"zig", "swift", "kotlin", "php", "dart", "lua", "scala", "graphql",
+		"protobuf", "hcl", "powershell", "perl", "ocaml", "haskell",
+		"erlang", "elixir", "solidity", "jsonnet":
 		return stripCStyleComments(code)
-	case "ruby", "shell", "bash", "sh", "zsh":
+	case "ruby", "shell", "bash", "sh", "zsh", "make", "dockerfile":
 		return stripHashComments(code)
 	case "python":
 		return stripPythonComments(code)
@@ -396,7 +399,59 @@ func LanguageFromPath(path string) string {
 		return "yaml"
 	case ".toml":
 		return "toml"
+	case ".zig":
+		return "zig"
+	case ".swift":
+		return "swift"
+	case ".kt", ".kts":
+		return "kotlin"
+	case ".php":
+		return "php"
+	case ".dart":
+		return "dart"
+	case ".lua":
+		return "lua"
+	case ".scala", ".sc":
+		return "scala"
+	case ".graphql", ".gql":
+		return "graphql"
+	case ".proto":
+		return "protobuf"
+	case ".tf", ".tfvars", ".hcl":
+		return "hcl"
+	case ".ps1", ".psm1", ".psd1":
+		return "powershell"
+	case ".pl", ".pm":
+		return "perl"
+	case ".ml", ".mli":
+		return "ocaml"
+	case ".hs", ".lhs":
+		return "haskell"
+	case ".erl", ".hrl":
+		return "erlang"
+	case ".ex", ".exs":
+		return "elixir"
+	case ".sol":
+		return "solidity"
+	case ".json5":
+		return "json5"
+	case ".jsonnet", ".libsonnet":
+		return "jsonnet"
+	case ".svelte":
+		return "svelte"
+	case ".md", ".markdown", ".mdx":
+		return "markdown"
+	case ".sql":
+		return "sql"
 	default:
-		return ""
+		base := strings.ToLower(filepath.Base(path))
+		switch base {
+		case "dockerfile", "containerfile":
+			return "dockerfile"
+		case "makefile", "gnumakefile":
+			return "make"
+		default:
+			return ""
+		}
 	}
 }

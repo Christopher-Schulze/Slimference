@@ -6,7 +6,7 @@ This document covers what transparent mode does, what it deliberately does NOT d
 
 ## Architecture in one paragraph
 
-`slimference proxy install` generates a local ECDSA P-256 root CA under `~/.slimference/ca/`, prompts the operating system to trust it in your keychain (User scope by default, no sudo), and registers the slimference daemon as the macOS System-HTTPS-Proxy on every active network service. From that point on every HTTPS connection an app makes ends up at `127.0.0.1:8990` first; Slimference signs a per-domain leaf certificate on the fly using the trusted root, terminates TLS, runs the request through Layer 0/1/2 compression, then re-emits it to the upstream provider. WebSockets (Codex Desktop's `responses_websocket` transport) tunnel through the same path. WebRTC (Codex Desktop microphone transcription, video) is unaffected because UDP traffic ignores the System-HTTPS-Proxy setting by design.
+`slimference proxy install` generates a local ECDSA P-256 root CA under `~/.slimference/ca/`, prompts the operating system to trust it in your keychain (User scope by default, no sudo), and registers the slimference daemon as the macOS System-HTTPS-Proxy on every active network service. From that point on every HTTPS connection an app makes ends up at `127.0.0.1:8990` first; Slimference signs a per-domain leaf certificate on the fly using the trusted root, terminates TLS, runs the request through Layer 0/1/2 compression, then re-emits it to the upstream provider. WebSockets (Codex Desktop's `responses_websocket` transport) tunnel through the same path. WebRTC (Codex Desktop microphone transcription, video) is unaffected because UDP traffic ignores the System-HTTPS-Proxy setting by design. Upstream TLS in transparent mode uses the configured `internal/tlsdial` uTLS profile instead of always emitting Go's stdlib ClientHello.
 
 ## What it does
 
@@ -14,6 +14,7 @@ This document covers what transparent mode does, what it deliberately does NOT d
 - **Tunnels everything else** via raw TCP relay so iCloud, GitHub, package mirrors, and everything else on your machine keep working unaffected.
 - **Honours WebSocket upgrades** so Codex Desktop's `responses_websocket` traffic completes end-to-end (compression on WS message boundaries is a follow-up after live-corpus measurement; the tunnel itself is in place).
 - **Bypasses WebRTC** for audio. The macOS System-HTTPS-Proxy setting only affects HTTP/HTTPS; UDP / SRTP audio streams continue native. This is the property that makes transparent mode safe for Codex Desktop's microphone transcription feature.
+- **Uses per-host TLS profiles upstream** in transparent mode. Defaults map `chatgpt.com` to `chromium_stable` and the API hosts to `node_stable` intent aliases, currently backed by maintained uTLS Chromium profiles.
 
 ## What it does NOT do
 
@@ -21,6 +22,7 @@ This document covers what transparent mode does, what it deliberately does NOT d
 - **Does not modify per-app configuration.** No `~/.codex/config.toml` patch, no `~/.claude/settings.json` edit. The config-patch path remains available through `slimference integrate codex` / `claude` for operators who do not want a CA in their keychain.
 - **Does not run as root by default.** User-scope trust (`~/Library/Keychains/login.keychain-db`) is the default. `--system` flag opts into System-keychain trust which requires sudo.
 - **Does not export the CA private key.** The ECDSA private key for the root CA stays in `~/.slimference/ca/root.key` (mode 0600), never traverses any network, never appears in any log.
+- **Does not make traffic undetectable.** uTLS removes the obvious Go-stdlib ClientHello tell for transparent-mode upstream dials. It does not spoof source IP, DNS behaviour, HTTP/2 SETTINGS, header ordering, or exact Node/Python OpenSSL fingerprints.
 - **Does not run on Linux or Windows.** macOS-only in this iteration; Linux (`gsettings`/`/etc/environment`) and Windows (`Internet Settings` registry) ride on a future T122-linux / T122-windows.
 
 ## Trust model
@@ -59,7 +61,25 @@ Clears the HTTPS / HTTP proxy via `networksetup -setsecurewebproxystate / -setwe
 
 ### `status`
 
-Prints the CA fingerprint, the launch-agent state, and per-service current proxy configuration. Used to verify the install or to debug "is the proxy enabled right now?".
+Prints the CA fingerprint, transparent runtime state, per-host TLS profile mapping, launch-agent state, per-service current proxy configuration, and daemon reachability when a service points at `127.0.0.1:8990`. If the system proxy points at Slimference but the daemon is unreachable, it prints the repair command `slimference proxy disable`.
+
+## TLS profile configuration
+
+Transparent mode adds these defaults:
+
+```toml
+[transparent]
+enabled = false
+intercept_hosts = ["api.openai.com", "api.anthropic.com", "chatgpt.com"]
+default_tls_profile = "chromium_stable"
+
+[transparent.tls_profiles]
+"api.openai.com" = "node_stable"
+"api.anthropic.com" = "node_stable"
+"chatgpt.com" = "chromium_stable"
+```
+
+Supported concrete profiles are `chromium_stable`, `chrome_133`, `chrome_131`, `chrome_120`, `chrome_120_pq`, `ios_12_1`, `safari_16_0`, and `go_stdlib`. Intent aliases `node_stable`, `python_requests`, `node`, `python`, `chrome`, and `chromium` resolve to `chromium_stable` because the pinned uTLS dependency does not expose exact maintained Node/OpenSSL/Python profiles. This is a practical stealth improvement, not a byte-identical runtime impersonation guarantee.
 
 ### `uninstall`
 
@@ -83,12 +103,14 @@ If the daemon crashes while the proxy is set, all HTTPS apps lose connectivity u
 - **Codex Desktop microphone fails**: WebRTC is supposed to bypass the proxy. Check that you only ran `slimference proxy install` and did not manually enable a SOCKS proxy. Slimference deliberately never touches SOCKS.
 - **Apps that use cert-pinning bypass the trust store**: rare but exist. They will fail TLS handshake under transparent mode regardless of CA trust. Either run them outside transparent mode (disable, run app, re-enable) or use the per-app config-patch path which never touches their TLS path.
 - **`networksetup` says permission denied**: macOS sometimes asks for an admin password the first time. Re-run from a terminal owned by your user account.
+- **`proxy status` prints "Daemon unreachable"**: the system proxy is still pointing at Slimference but the daemon is down. Run `slimference proxy disable` to restore direct HTTPS immediately, then restart the daemon before enabling transparent mode again.
 
 ## Implementation references
 
 - TLS CA + per-domain signer: `internal/tlsca/`
 - CONNECT method dispatch + MITM HTTPS proxy: `internal/proxy/connect.go`, `internal/proxy/mitm_response.go`, `internal/proxy/single_listener.go`
 - WebSocket tunnel: `internal/proxy/ws.go`
+- Upstream TLS profile dialer: `internal/tlsdial/`
 - macOS system integration (networksetup / keychain / launchd): `internal/transparent/`
 - Subcommand tree: `cmd/slimference/proxy_cmd.go`
 - Plan: `docs/todo/t122-transparent-mode.md`

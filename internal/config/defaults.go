@@ -20,6 +20,23 @@ func defaultsRaw() *Config {
 			ListenPort:    8990,
 			IPv6:          false,
 		},
+		Transparent: TransparentConfig{
+			Enabled:        false,
+			InterceptHosts: []string{"api.openai.com", "api.anthropic.com", "chatgpt.com"},
+			CertCacheSize:  256,
+			AudioBypassPaths: []string{
+				"/v1/audio/transcriptions",
+				"/v1/audio/translations",
+				"/v1/realtime",
+				"/backend-api/realtime",
+			},
+			DefaultTLSProfile: "chromium_stable",
+			TLSProfiles: map[string]string{
+				"api.openai.com":    "node_stable",
+				"api.anthropic.com": "node_stable",
+				"chatgpt.com":       "chromium_stable",
+			},
+		},
 		Upstream: UpstreamConfig{
 			Anthropic:    ProviderUpstream{BaseURL: "https://api.anthropic.com"},
 			OpenAI:       ProviderUpstream{BaseURL: "https://api.openai.com"},
@@ -27,7 +44,7 @@ func defaultsRaw() *Config {
 		},
 		Compression: CompressionConfig{
 			Layer1Enabled:                     true,
-			Layer2Enabled:                     false,
+			Layer2Enabled:                     true,
 			Layer3Enabled:                     true,
 			SlidingWindow:                     5,
 			MinMessagesForCompression:         8,
@@ -61,6 +78,14 @@ func defaultsRaw() *Config {
 				// truly want raw outbound must set this to "off"
 				// explicitly; doctor warns when they do.
 				OutboundRedaction: "default",
+			},
+			OutputReduce: OutputReduceConfig{
+				Enabled:              true,
+				Profile:              "auto",
+				SignatureMarker:      "#slimference-output-rules",
+				MaxAddedBytes:        1400,
+				MinInputTokens:       400,
+				AutoDisableThreshold: 30,
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,
@@ -135,6 +160,27 @@ ipv6 = false
 # so traffic shape stays unchanged until you flip the switch.
 server_state_enabled = false
 
+[transparent]
+# T131/T123: transparent system-proxy ingress. Disabled by default so
+# config-patch mode remains byte-for-byte unchanged until explicitly enabled
+# by slimference proxy enable / operator config.
+enabled = false
+intercept_hosts = ["api.openai.com", "api.anthropic.com", "chatgpt.com"]
+cert_cache_size = 256
+# Empty means ~/.slimference; the CA files live below ca/.
+ca_dir = ""
+# WebRTC audio is UDP and bypasses HTTPS proxy settings. These paths are a
+# conservative guard for future TCP/TLS realtime fallbacks on intercepted hosts.
+audio_bypass_paths = ["/v1/audio/transcriptions", "/v1/audio/translations", "/v1/realtime", "/backend-api/realtime"]
+# T123 TLS fingerprint profile. node_stable/python_requests are intent aliases
+# mapped to the closest maintained uTLS profile rather than stale JA3 literals.
+default_tls_profile = "chromium_stable"
+
+[transparent.tls_profiles]
+"api.openai.com" = "node_stable"
+"api.anthropic.com" = "node_stable"
+"chatgpt.com" = "chromium_stable"
+
 [upstream.anthropic]
 base_url = "https://api.anthropic.com"
 
@@ -143,7 +189,7 @@ base_url = "https://api.openai.com"
 
 [compression]
 layer1_enabled = true
-layer2_enabled = false
+layer2_enabled = true
 layer3_enabled = true
 sliding_window = 5
 min_messages_for_compression = 8
@@ -156,6 +202,19 @@ layer2_latency_ema_alpha = 0.2
 structure_min_tokens = 500
 structure_languages = ["go", "typescript", "javascript", "rust", "python", "c", "cpp", "java", "ruby", "shell"]
 dedup_similarity_threshold = 0.85
+
+[compression.output_reduce]
+# T130: output-token discipline injection. This is input-side only: Slimference
+# appends concise provider-specific rules to the system prompt and never edits
+# provider responses after generation.
+enabled = true
+profile = "auto"
+custom_directive_path = ""
+signature_marker = "#slimference-output-rules"
+max_added_bytes = 1400
+# Below this request size, the directive overhead dominates likely savings.
+min_input_tokens = 400
+auto_disable_threshold = 30
 
 [compression.minimax]
 base_url = "https://api.minimax.io/v1"

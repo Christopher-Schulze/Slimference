@@ -40,6 +40,41 @@ func TestFormatTokensPlain64(t *testing.T) {
 	}
 }
 
+func TestRunTUI_Layer2PolicyError(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	origConfigLoad := configLoadFn
+	origAfterStart := runTUIAfterStartFn
+	origStdin := os.Stdin
+	defer func() {
+		configLoadFn = origConfigLoad
+		runTUIAfterStartFn = origAfterStart
+		os.Stdin = origStdin
+	}()
+
+	cfg := config.Defaults()
+	cfg.Compression.Layer2Enabled = true
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+	runTUIAfterStartFn = func(tui.ProxyInterface) {
+		t.Fatal("runTUIAfterStartFn must not run after policy error")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
+	_ = w.Close()
+	os.Stdin = r
+
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(runTUI)
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "layer2 policy") {
+		t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+}
+
 // TestIsServerClosed verifies the server closed error detection.
 func TestIsServerClosed(t *testing.T) {
 	tests := []struct {

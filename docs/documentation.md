@@ -199,7 +199,10 @@ are degradation signals, not status translations.
 
 `slimference gain [today|week|month|all]` aggregates rows from
 `filter.db` into a summary with savings percentages. `--by-command`
-breaks it down per argv[0]. `--csv` / `--json` for machine consumption.
+breaks it down per argv[0]; `--by-parser` groups persisted Layer-0
+savings by parser/tool family; `--cache` reports persisted provider
+prompt-cache read/create counters. `--csv` / `--json` for machine
+consumption.
 
 ---
 
@@ -289,6 +292,14 @@ the guard is conservative on a cold start.
 Default `min_tokens_for_layer2 = 15000` (was 30 k pre-T54). The
 latency-budget guard is opt-in; `layer2_latency_budget_ms = 0`
 disables it.
+
+T129 default state: fresh configs enable Layer 2. Existing configs with
+`layer2_enabled = false` stay disabled. The first interactive startup
+with Layer 2 enabled records an explicit acknowledgement under
+`~/.slimference/policy/layer2-default-on-ack.json`; non-interactive
+startup warns without blocking. `slimference layer2 acknowledge` records
+the marker manually, and `slimference layer2 status` prints the ack
+state.
 
 ### Operating modes (T36)
 
@@ -977,7 +988,7 @@ slimference help [subcommand]
 | `expand`      | Retrieve archived tool result by id (T40).                             |
 | `checkpoint`  | Smart-compaction checkpoint tools: list, show, restore (T39).          |
 | `hook`        | install, remove, verify, status, check-upstream (manual hook mgmt).    |
-| `gain`        | Report Layer-0 filter savings (today/week/month/all; --json / --csv).  |
+| `gain`        | Report Layer-0, by-command/by-parser, or prompt-cache savings.          |
 | `stats`       | Analytics snapshots (today/week/month/prompt-cache).                   |
 | `savings`     | Unified savings view (L0 + L1/2 + L3) per period; --json / --csv (T80).|
 | `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |

@@ -149,12 +149,58 @@ func TestCompactSingleFileRead_largeFile(t *testing.T) {
 	if len(content) < 3000 {
 		t.Skip("content too small to trigger structure extraction")
 	}
-	out, ok := compactSingleFileRead("large_file.go", content)
+	out, ok := compactSingleFileRead([]string{"cat", "large_file.go"}, "large_file.go", content)
 	if !ok {
 		t.Logf("large Go file: no compaction possible (content-dependent)")
 		return
 	}
 	if len(out) >= len(content) {
 		t.Errorf("compacted output should be shorter: %d vs %d", len(out), len(content))
+	}
+}
+
+func TestCompactSingleFileRead_HeadBypassesASTCompaction(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("package main\n\n")
+	for i := 0; i < 80; i++ {
+		sb.WriteString(fmt.Sprintf("func DoThing%d() int {\n", i))
+		sb.WriteString("\treturn 1\n")
+		sb.WriteString("}\n\n")
+	}
+	content := []byte(sb.String())
+	out, ok := compactSingleFileRead([]string{"head", "-n", "40", "large_file.go"}, "large_file.go", content)
+	if ok && strings.Contains(string(out), "AST-compacted by Slimference") {
+		t.Fatal("head/tail partial reads must not use AST compaction")
+	}
+}
+
+func TestCompactSingleFileRead_LargeTypeScriptUsesStructureExtraction(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("import { z } from 'zod'\n\n")
+	for i := 0; i < 80; i++ {
+		sb.WriteString(fmt.Sprintf("export function run%d(): number {\n", i))
+		sb.WriteString("\tconst value = 1\n")
+		sb.WriteString("\treturn value\n")
+		sb.WriteString("}\n\n")
+	}
+	content := []byte(sb.String())
+	out, ok := compactSingleFileRead([]string{"cat", "large.ts"}, "large.ts", content)
+	if !ok {
+		t.Fatal("expected large TypeScript structure extraction")
+	}
+	if !strings.Contains(string(out), "function run0") || len(out) >= len(content) {
+		t.Fatalf("unexpected structure output len=%d input=%d body=%q", len(out), len(content), out)
+	}
+}
+
+func TestCompactSingleFileRead_UnknownLangAndEmptyArgv(t *testing.T) {
+	t.Parallel()
+	if _, ok := compactSingleFileRead([]string{"cat", "file.unknown"}, "file.unknown", []byte("content")); ok {
+		t.Fatal("unknown language should not compact")
+	}
+	if isFullFileCat(nil) {
+		t.Fatal("empty argv is not full-file cat")
 	}
 }

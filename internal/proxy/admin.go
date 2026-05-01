@@ -12,6 +12,7 @@ import (
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/quality"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/repetition"
@@ -177,6 +178,7 @@ type AdminStatus struct {
 	Repetition        RepetitionStats                     `json:"repetition"`
 	ToolPrune         ToolPruneStats                      `json:"tool_prune"`
 	ServerState       ServerStateStats                    `json:"server_state"`
+	OutputReduce      outputreduce.Snapshot               `json:"output_reduce"`
 }
 
 // AnthropicVersionStats reports T62 version-negotiation telemetry.
@@ -189,6 +191,9 @@ type AnthropicVersionStats struct {
 // PromptCacheStats reports cumulative prompt-cache breakpoint telemetry (T45).
 type PromptCacheStats struct {
 	BreakpointsInjectedTotal int64 `json:"breakpoints_injected_total"`
+	CacheReadTokens          int   `json:"cache_read_tokens"`
+	CacheCreateTokens        int   `json:"cache_create_tokens"`
+	EstimatedSavedReadTokens int   `json:"estimated_saved_read_tokens"`
 }
 
 // SummarizationTelemetry exposes the in-memory counters from
@@ -346,6 +351,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		}
 	}
 
+	analyticsSnap := p.GetAnalytics()
 	return AdminStatus{
 		Status:  "ok",
 		Service: "slimference",
@@ -368,7 +374,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		MiniMaxConfigured: p.config.Compression.MiniMax.APIKey() != "",
 		ListenPort:        p.config.Proxy.ListenPort,
 		PrefillSpeed:      p.config.Usage.EstimatedPrefillSpeed,
-		Analytics:         p.GetAnalytics(),
+		Analytics:         analyticsSnap,
 		RecentRequests:    p.GetRecentRequests(20),
 		Layer2:            layer2,
 		ReadCache:         readStatus,
@@ -389,6 +395,9 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		AnalyticsQueue: p.AnalyticsQueueStats(),
 		PromptCache: PromptCacheStats{
 			BreakpointsInjectedTotal: compression.PromptCacheBreakpointsInjected(),
+			CacheReadTokens:          analyticsSnap.PromptCacheReadTokens,
+			CacheCreateTokens:        analyticsSnap.PromptCacheCreateTokens,
+			EstimatedSavedReadTokens: int(float64(analyticsSnap.PromptCacheReadTokens) * 0.9),
 		},
 		Pipeline: p.pipelineHist.Snapshot(),
 		AnthropicVersion: AnthropicVersionStats{
@@ -447,6 +456,12 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 				SkipTotal:    s.SkipTotal,
 				RecoverTotal: s.RecoverTotal,
 			}
+		}(),
+		OutputReduce: func() outputreduce.Snapshot {
+			if p.outputReduce == nil {
+				return outputreduce.Snapshot{}
+			}
+			return p.outputReduce.Snapshot()
 		}(),
 	}
 }

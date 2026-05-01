@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -193,16 +194,25 @@ func parsePromptDocument(s string) (body, version string) {
 
 // examplePromptCounters records which stack examples were chosen so the
 // operator can monitor per-language distribution. T87.
-var examplePromptCounters = map[string]int64{}
+var examplePromptCounters = struct {
+	mu sync.RWMutex
+	m  map[string]int64
+}{m: map[string]int64{}}
 
 // ExamplePromptCount returns the cumulative pick count for a stack tag.
 // Unknown tags return zero. T87.
-func ExamplePromptCount(lang string) int64 { return examplePromptCounters[lang] }
+func ExamplePromptCount(lang string) int64 {
+	examplePromptCounters.mu.RLock()
+	defer examplePromptCounters.mu.RUnlock()
+	return examplePromptCounters.m[lang]
+}
 
 // ExamplePromptCounts returns a copy of the per-stack pick counters.
 func ExamplePromptCounts() map[string]int64 {
-	out := make(map[string]int64, len(examplePromptCounters))
-	for k, v := range examplePromptCounters {
+	examplePromptCounters.mu.RLock()
+	defer examplePromptCounters.mu.RUnlock()
+	out := make(map[string]int64, len(examplePromptCounters.m))
+	for k, v := range examplePromptCounters.m {
 		out[k] = v
 	}
 	return out
@@ -210,9 +220,9 @@ func ExamplePromptCounts() map[string]int64 {
 
 // ResetExamplePromptCounts clears the picker counters. Test helper.
 func ResetExamplePromptCounts() {
-	for k := range examplePromptCounters {
-		delete(examplePromptCounters, k)
-	}
+	examplePromptCounters.mu.Lock()
+	defer examplePromptCounters.mu.Unlock()
+	examplePromptCounters.m = map[string]int64{}
 }
 
 // pickExampleLang scans the input transcript for cheap signals (file
@@ -280,7 +290,9 @@ func pickExampleLang(input string) string {
 // + footer stay so telemetry-gated counters still fire.
 func buildSystemPrompt(input string) string {
 	lang := pickExampleLang(input)
-	examplePromptCounters[lang]++
+	examplePromptCounters.mu.Lock()
+	examplePromptCounters.m[lang]++
+	examplePromptCounters.mu.Unlock()
 	example := exampleGo
 	switch lang {
 	case "python":

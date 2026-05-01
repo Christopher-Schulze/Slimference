@@ -122,6 +122,22 @@ func TestStreamPump_ContextCancel(t *testing.T) {
 	}
 }
 
+func TestStreamPump_ContextCancelWhileScannerSends(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	p := newStreamPump(&buf, StreamOptions{FlushInterval: time.Hour, WindowLines: 1000})
+	input := strings.NewReader(strings.Repeat("line\n", 600))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	done := make(chan struct{})
+	go func() { p.run(ctx, input); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ctx-canceled pump did not stop")
+	}
+}
+
 func TestStreamPump_CloseFlushesFinal(t *testing.T) {
 	t.Parallel()
 	pr, pw := io.Pipe()

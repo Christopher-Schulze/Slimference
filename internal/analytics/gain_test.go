@@ -151,6 +151,80 @@ func TestQueryFilterGainReportByCommand(t *testing.T) {
 	}
 }
 
+func TestQueryFilterGainReportByParser(t *testing.T) {
+	path := t.TempDir() + "/filter.db"
+	db, err := filter.OpenDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	if err := filter.RecordFilterRun(db, "tsc --noEmit", "/p", 100, 40, 60, ts); err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.RecordFilterRun(db, "npm test", "/p", 100, 90, 10, ts); err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.RecordFilterRun(db, "git status", "/p", 50, 10, 40, ts); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	rep, err := QueryFilterGainReportWithOptions(path, "month", ts, false, true, "", 2.0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.ByParser) != 3 {
+		t.Fatalf("by parser: %+v", rep.ByParser)
+	}
+	if rep.ByParser[0].Parser != "typescript" || rep.ByParser[0].TokensSavedEst != 60 || rep.ByParser[0].SavingsUsdEst <= 0 {
+		t.Fatalf("top parser row: %+v", rep.ByParser[0])
+	}
+	if ParserFamilyForCommand("svelte-check") != "svelte" || ParserFamilyForCommand("unknown thing") != "other" {
+		t.Fatal("parser family mapping mismatch")
+	}
+	parserCases := map[string]string{
+		"zig build":          "zig",
+		"sqlfluff lint":      "sql",
+		"markdownlint .":     "markdown",
+		"cargo clippy":       "rust",
+		"go test":            "go",
+		"pytest":             "python",
+		"clang++ main.cc":    "c_cpp_build",
+		"docker ps":          "container",
+		"terraform plan":     "hcl",
+		"ruby spec":          "ruby",
+		"bash script.sh":     "shell",
+		"svelte-check":       "svelte",
+		"tsserver validate":  "typescript",
+		"vitest run":         "javascript",
+		"unknown tool shape": "other",
+	}
+	for cmd, want := range parserCases {
+		if got := ParserFamilyForCommand(cmd); got != want {
+			t.Fatalf("ParserFamilyForCommand(%q)=%q want %q", cmd, got, want)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := WriteGainByParserCSV(&buf, rep.ByParser); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("typescript,")) {
+		t.Fatalf("csv: %s", buf.String())
+	}
+	if err := WriteGainByParserCSV(errWriter{}, rep.ByParser); err == nil {
+		t.Fatal("expected parser CSV write error")
+	}
+	tied := []FilterGainByParserRow{
+		{Parser: "zig", TokensSavedEst: 10},
+		{Parser: "go", TokensSavedEst: 10},
+	}
+	sortGainByParser(tied)
+	if tied[0].Parser != "go" {
+		t.Fatalf("tie sort: %+v", tied)
+	}
+}
+
 func TestQueryFilterGainReport_projectFilter(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "filter.db")

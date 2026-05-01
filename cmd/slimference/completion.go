@@ -11,7 +11,7 @@ import (
 // subcommands (hook install|remove, debug paths|last|..., daemon logs,
 // service install|..., config init|show, test anthropic|openai), and the
 // recurring period/flag tokens (today|week|month|all, --json, --csv,
-// --by-command).
+// --by-command, --by-parser, --cache).
 //
 // Scope: bash only. zsh/fish are out of scope (T32).
 //
@@ -49,7 +49,7 @@ _slimference() {
 
     local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook hook debug daemon start stop restart service integrate bypass layer2 completion expand checkpoint trust version"
     local periods="today week month all"
-    local period_flags="--json --csv --by-command"
+    local period_flags="--json --csv --by-command --by-parser --cache"
     local savings_flags="--json --csv --project"
     local quality_flags="--json --url"
     local bypass_verbs="on off status"
@@ -144,7 +144,7 @@ _slimference() {
             ;;
         layer2)
             if [ "$cword" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "enable disable status" -- "$cur") )
+                COMPREPLY=( $(compgen -W "enable disable status acknowledge ack" -- "$cur") )
             elif [ "$cword" -eq 3 ] && [ "${COMP_WORDS[2]}" = "enable" ]; then
                 COMPREPLY=( $(compgen -W "--acknowledge-data-policy" -- "$cur") )
             fi

@@ -15,6 +15,12 @@ var structuredParsers = []structuredParser{
 	{"go_build", isGoBuildOrVetArgv, parseGoErrors},
 	{"cargo_build", isCargoBuildOrCheckArgv, parseCargoErrors},
 	{"gcc_clang", isGccClangArgv, parseGccClangErrors},
+	{"typescript", isTypeScriptDiagnosticArgv, parseTypeScriptDiagnostics},
+	{"svelte", isSvelteDiagnosticArgv, parseSvelteDiagnostics},
+	{"zig", isZigDiagnosticArgv, parseZigDiagnostics},
+	{"sql", isSQLDiagnosticArgv, parseSQLDiagnostics},
+	{"markdown", isMarkdownDiagnosticArgv, parseMarkdownDiagnostics},
+	{"ecosystem", isPracticalEcosystemDiagnosticArgv, parsePracticalEcosystemDiagnostics},
 }
 
 func ParseFailures(argv []string, stdout string) (string, bool) {

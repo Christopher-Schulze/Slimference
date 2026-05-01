@@ -16,6 +16,7 @@ import (
 // Config is the fully resolved configuration for Slimference.
 type Config struct {
 	Proxy       ProxyConfig       `toml:"proxy"`
+	Transparent TransparentConfig `toml:"transparent"`
 	Upstream    UpstreamConfig    `toml:"upstream"`
 	Compression CompressionConfig `toml:"compression"`
 	Cache       CacheConfig       `toml:"cache"`
@@ -89,6 +90,30 @@ type ProxyConfig struct {
 	ServerStateEnabled bool `toml:"server_state_enabled"`
 }
 
+// TransparentConfig controls the system-proxy CONNECT/MITM ingress.
+type TransparentConfig struct {
+	// Enabled wires the CONNECT interceptor into the live proxy server.
+	// Default false keeps config-patch mode unchanged.
+	Enabled bool `toml:"enabled"`
+	// InterceptHosts are MITM/compression targets. Empty means MITM all
+	// CONNECT hosts and should only be used for dedicated test setups.
+	InterceptHosts []string `toml:"intercept_hosts"`
+	// CertCacheSize caps the per-domain leaf certificate cache.
+	CertCacheSize int `toml:"cert_cache_size"`
+	// CADir is the Slimference state directory that contains the `ca/`
+	// subtree. Empty resolves to ~/.slimference.
+	CADir string `toml:"ca_dir"`
+	// AudioBypassPaths are request paths that should stay byte-relayed when
+	// future realtime fallbacks share an intercepted host. WebRTC UDP still
+	// bypasses the system HTTPS proxy by design.
+	AudioBypassPaths []string `toml:"audio_bypass_paths"`
+	// TLSProfiles maps upstream hostnames to outbound TLS fingerprint
+	// profiles. Empty/unknown hosts use DefaultTLSProfile.
+	TLSProfiles map[string]string `toml:"tls_profiles"`
+	// DefaultTLSProfile is used when TLSProfiles has no host match.
+	DefaultTLSProfile string `toml:"default_tls_profile"`
+}
+
 // UpstreamConfig holds upstream API base URLs.
 type UpstreamConfig struct {
 	Anthropic    ProviderUpstream `toml:"anthropic"`
@@ -120,19 +145,33 @@ type CompressionConfig struct {
 	Layer2LatencyProjectionMultiplier float64 `toml:"layer2_latency_projection_multiplier"`
 	// Layer2LatencyEMAAlpha is the exponential-moving-average weight on
 	// new observations. Default 0.2.
-	Layer2LatencyEMAAlpha    float64       `toml:"layer2_latency_ema_alpha"`
-	StructureMinTokens       int           `toml:"structure_min_tokens"`
-	StructureLanguages       []string      `toml:"structure_languages"`
-	DedupSimilarityThreshold float64       `toml:"dedup_similarity_threshold"`
-	MiniMax                  MiniMaxConfig `toml:"minimax"`
-	Summary                  SummaryConfig `toml:"summary"`
-	Tuning                   TuningConfig  `toml:"tuning"`
+	Layer2LatencyEMAAlpha    float64            `toml:"layer2_latency_ema_alpha"`
+	StructureMinTokens       int                `toml:"structure_min_tokens"`
+	StructureLanguages       []string           `toml:"structure_languages"`
+	DedupSimilarityThreshold float64            `toml:"dedup_similarity_threshold"`
+	MiniMax                  MiniMaxConfig      `toml:"minimax"`
+	Summary                  SummaryConfig      `toml:"summary"`
+	OutputReduce             OutputReduceConfig `toml:"output_reduce"`
+	Tuning                   TuningConfig       `toml:"tuning"`
 	// PromptOverridePath (T86) points at a file whose contents replace
 	// the compiled-in MiniMax system prompt header. Empty disables the
 	// override. The file's first non-empty line may carry a
 	// `# version: <tag>` annotation that is recorded in
 	// /admin/status.summarization.active_prompt_version.
 	PromptOverridePath string `toml:"prompt_override_path"`
+}
+
+// OutputReduceConfig controls Layer 4 output-token reduction through
+// provider-specific system-prompt discipline. It never edits provider
+// responses after the fact; it only modifies outbound instructions.
+type OutputReduceConfig struct {
+	Enabled              bool   `toml:"enabled"`
+	Profile              string `toml:"profile"`
+	CustomDirectivePath  string `toml:"custom_directive_path"`
+	SignatureMarker      string `toml:"signature_marker"`
+	MaxAddedBytes        int    `toml:"max_added_bytes"`
+	MinInputTokens       int    `toml:"min_input_tokens"`
+	AutoDisableThreshold int    `toml:"auto_disable_threshold"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
@@ -600,6 +639,9 @@ func validate(cfg *Config) error {
 	if cfg.Proxy.ListenPort < 1 || cfg.Proxy.ListenPort > 65535 {
 		return fmt.Errorf("proxy.listen_port must be 1-65535, got %d", cfg.Proxy.ListenPort)
 	}
+	if cfg.Transparent.CertCacheSize < 0 {
+		return fmt.Errorf("transparent.cert_cache_size must be >= 0, got %d", cfg.Transparent.CertCacheSize)
+	}
 	if cfg.Compression.SlidingWindow < 1 {
 		return fmt.Errorf("compression.sliding_window must be >= 1")
 	}
@@ -644,6 +686,19 @@ func validate(cfg *Config) error {
 	}
 	if tc := cfg.Compression.MiniMax.TrustClass; tc != "" && tc != "upstream_provider" && tc != "external_third_party" && tc != "unknown" {
 		return fmt.Errorf("compression.minimax.trust_class must be upstream_provider/external_third_party/unknown, got %q", tc)
+	}
+	or := cfg.Compression.OutputReduce
+	if or.Profile != "" && or.Profile != "auto" && or.Profile != "anthropic" && or.Profile != "openai" && or.Profile != "codex" && or.Profile != "noop" {
+		return fmt.Errorf("compression.output_reduce.profile must be auto/anthropic/openai/codex/noop, got %q", or.Profile)
+	}
+	if or.MaxAddedBytes < 0 {
+		return fmt.Errorf("compression.output_reduce.max_added_bytes must be >= 0, got %d", or.MaxAddedBytes)
+	}
+	if or.MinInputTokens < 0 {
+		return fmt.Errorf("compression.output_reduce.min_input_tokens must be >= 0, got %d", or.MinInputTokens)
+	}
+	if or.AutoDisableThreshold < 0 {
+		return fmt.Errorf("compression.output_reduce.auto_disable_threshold must be >= 0, got %d", or.AutoDisableThreshold)
 	}
 	return nil
 }

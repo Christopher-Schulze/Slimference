@@ -58,6 +58,41 @@ func TestAdminStatusSnapshot_WithoutLayer2(t *testing.T) {
 	}
 }
 
+func TestAdminStatusSnapshot_PromptCacheProviderTelemetry(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	p := New(cfg)
+	p.processAnalyticsEvent(types.AnalyticsEvent{
+		Type:              types.EventRequestProcessed,
+		Provider:          types.Anthropic,
+		CacheReadTokens:   1000,
+		CacheCreateTokens: 250,
+	})
+
+	got := p.adminStatusSnapshot()
+	if got.PromptCache.CacheReadTokens != 1000 {
+		t.Fatalf("cache read tokens = %d, want 1000", got.PromptCache.CacheReadTokens)
+	}
+	if got.PromptCache.CacheCreateTokens != 250 {
+		t.Fatalf("cache create tokens = %d, want 250", got.PromptCache.CacheCreateTokens)
+	}
+	if got.PromptCache.EstimatedSavedReadTokens != 900 {
+		t.Fatalf("estimated saved read tokens = %d, want 900", got.PromptCache.EstimatedSavedReadTokens)
+	}
+}
+
+func TestAdminStatusSnapshot_WithoutOutputReduceTracker(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.Defaults()
+	p := New(cfg)
+	p.outputReduce = nil
+
+	got := p.adminStatusSnapshot()
+	if got.OutputReduce.InjectedTurns != 0 || got.OutputReduce.SkippedTurns != 0 || got.OutputReduce.OutputTokensObserved != 0 {
+		t.Fatalf("unexpected output-reduce snapshot without tracker: %+v", got.OutputReduce)
+	}
+}
+
 func TestDecodeAdminJSON_NilBody(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, AdminStatusPath, http.NoBody)
 	req.Body = nil

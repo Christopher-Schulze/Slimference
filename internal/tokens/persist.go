@@ -89,10 +89,7 @@ func appendCalibration(model string, observed, estimated int, ratio int64) {
 	if len(calBuf) > calibrationCap {
 		calBuf = calBuf[len(calBuf)-calibrationCap:]
 	}
-	line, err := json.Marshal(e)
-	if err != nil {
-		return
-	}
+	line, _ := json.Marshal(e)
 	_ = os.MkdirAll(filepath.Dir(calFile), 0700)
 	f, err := os.OpenFile(calFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {

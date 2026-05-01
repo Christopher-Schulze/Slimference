@@ -42,10 +42,21 @@ type FilterGainByCommandRow struct {
 	SavingsUsdEst  float64 `json:"savings_usd_est,omitempty"`
 }
 
+// FilterGainByParserRow groups Layer 0 filter-run rows by parser/tool family.
+type FilterGainByParserRow struct {
+	Parser         string  `json:"parser"`
+	Runs           int64   `json:"runs"`
+	InputTokens    int64   `json:"input_tokens"`
+	OutputTokens   int64   `json:"output_tokens"`
+	TokensSavedEst int64   `json:"tokens_saved_est"`
+	SavingsUsdEst  float64 `json:"savings_usd_est,omitempty"`
+}
+
 // FilterGainReport is the summary plus an optional per-command breakdown.
 type FilterGainReport struct {
 	FilterGainSummary
 	ByCommand []FilterGainByCommandRow `json:"by_command,omitempty"`
+	ByParser  []FilterGainByParserRow  `json:"by_parser,omitempty"`
 }
 
 // FilterGainWindow returns [start, end] for named periods (local time). end is inclusive for display.
@@ -83,6 +94,12 @@ func QueryFilterGain(dbPath string, period string, now time.Time) (FilterGainSum
 // projectRoot filters by project_path (exact match or subdirectory of projectRoot); empty = all projects.
 // usdPerMillionTokens, if > 0, fills SavingsUsdEst fields (tokens_saved / 1e6 * rate).
 func QueryFilterGainReport(dbPath string, period string, now time.Time, byCommand bool, projectRoot string, usdPerMillionTokens float64) (FilterGainReport, error) {
+	return QueryFilterGainReportWithOptions(dbPath, period, now, byCommand, false, projectRoot, usdPerMillionTokens)
+}
+
+// QueryFilterGainReportWithOptions loads summary and optional per-command /
+// per-parser rows in one DB open.
+func QueryFilterGainReportWithOptions(dbPath string, period string, now time.Time, byCommand, byParser bool, projectRoot string, usdPerMillionTokens float64) (FilterGainReport, error) {
 	start, end, err := FilterGainWindow(period, now)
 	if err != nil {
 		return FilterGainReport{}, err
@@ -98,16 +115,24 @@ func QueryFilterGainReport(dbPath string, period string, now time.Time, byComman
 		return FilterGainReport{}, err
 	}
 	rep := FilterGainReport{FilterGainSummary: summary}
-	if !byCommand {
+	if !byCommand && !byParser {
 		applyGainUSD(&rep.FilterGainSummary, nil, usdPerMillionTokens)
 		return rep, nil
 	}
-	rows, err := queryFilterGainByCommandDB(db, start, end, proj)
-	if err != nil {
-		return FilterGainReport{}, err
+	if byCommand || byParser {
+		rows, err := queryFilterGainByCommandDB(db, start, end, proj)
+		if err != nil {
+			return FilterGainReport{}, err
+		}
+		if byCommand {
+			rep.ByCommand = rows
+		}
+		if byParser {
+			rep.ByParser = groupGainRowsByParser(rows)
+		}
 	}
-	rep.ByCommand = rows
 	applyGainUSD(&rep.FilterGainSummary, &rep.ByCommand, usdPerMillionTokens)
+	applyGainParserUSD(&rep.ByParser, usdPerMillionTokens)
 	return rep, nil
 }
 
@@ -118,6 +143,15 @@ func applyGainUSD(s *FilterGainSummary, rows *[]FilterGainByCommandRow, usdPerMi
 	s.USDPerMillionTokens = usdPerMillion
 	s.SavingsUsdEst = float64(s.TokensSavedEst) / 1e6 * usdPerMillion
 	if rows == nil {
+		return
+	}
+	for i := range *rows {
+		(*rows)[i].SavingsUsdEst = float64((*rows)[i].TokensSavedEst) / 1e6 * usdPerMillion
+	}
+}
+
+func applyGainParserUSD(rows *[]FilterGainByParserRow, usdPerMillion float64) {
+	if usdPerMillion <= 0 || rows == nil {
 		return
 	}
 	for i := range *rows {
@@ -199,6 +233,80 @@ ORDER BY 5 DESC
 	return out, rows.Err()
 }
 
+func groupGainRowsByParser(rows []FilterGainByCommandRow) []FilterGainByParserRow {
+	grouped := make(map[string]*FilterGainByParserRow)
+	for _, row := range rows {
+		parser := ParserFamilyForCommand(row.Command)
+		dst := grouped[parser]
+		if dst == nil {
+			dst = &FilterGainByParserRow{Parser: parser}
+			grouped[parser] = dst
+		}
+		dst.Runs += row.Runs
+		dst.InputTokens += row.InputTokens
+		dst.OutputTokens += row.OutputTokens
+		dst.TokensSavedEst += row.TokensSavedEst
+	}
+	out := make([]FilterGainByParserRow, 0, len(grouped))
+	for _, row := range grouped {
+		out = append(out, *row)
+	}
+	sortGainByParser(out)
+	return out
+}
+
+func sortGainByParser(rows []FilterGainByParserRow) {
+	for i := 1; i < len(rows); i++ {
+		current := rows[i]
+		j := i - 1
+		for ; j >= 0 && (rows[j].TokensSavedEst < current.TokensSavedEst ||
+			(rows[j].TokensSavedEst == current.TokensSavedEst && rows[j].Parser > current.Parser)); j-- {
+			rows[j+1] = rows[j]
+		}
+		rows[j+1] = current
+	}
+}
+
+// ParserFamilyForCommand maps a persisted filter_runs command label to the
+// practical parser/tool family used by gain --by-parser.
+func ParserFamilyForCommand(command string) string {
+	c := strings.ToLower(command)
+	switch {
+	case strings.Contains(c, "svelte"):
+		return "svelte"
+	case strings.Contains(c, "typescript") || strings.Contains(c, "tsc") || strings.Contains(c, "tsx") || strings.Contains(c, "tsserver"):
+		return "typescript"
+	case strings.Contains(c, "javascript") || strings.Contains(c, "node") || strings.Contains(c, "bun") || strings.Contains(c, "npm") || strings.Contains(c, "pnpm") || strings.Contains(c, "yarn") || strings.Contains(c, "vite") || strings.Contains(c, "next") || strings.Contains(c, "react") || strings.Contains(c, "jest") || strings.Contains(c, "vitest"):
+		return "javascript"
+	case strings.Contains(c, "zig"):
+		return "zig"
+	case strings.Contains(c, "sql") || strings.Contains(c, "psql") || strings.Contains(c, "migration"):
+		return "sql"
+	case strings.Contains(c, "markdown") || strings.Contains(c, "mdformat"):
+		return "markdown"
+	case strings.Contains(c, "cargo") || strings.Contains(c, "rust") || strings.Contains(c, "clippy") || strings.Contains(c, "rustfmt"):
+		return "rust"
+	case strings.Contains(c, "go ") || strings.Contains(c, "go-") || strings.Contains(c, "gopls"):
+		return "go"
+	case strings.Contains(c, "python") || strings.Contains(c, "pytest") || strings.Contains(c, "mypy") || strings.Contains(c, "ruff") || strings.Contains(c, "pylint"):
+		return "python"
+	case strings.Contains(c, "gcc") || strings.Contains(c, "clang") || strings.Contains(c, "cmake") || strings.Contains(c, "ninja") || strings.Contains(c, "make"):
+		return "c_cpp_build"
+	case strings.Contains(c, "docker") || strings.Contains(c, "kubectl") || strings.Contains(c, "helm"):
+		return "container"
+	case strings.Contains(c, "terraform") || strings.Contains(c, "tofu") || strings.Contains(c, "hcl"):
+		return "hcl"
+	case strings.Contains(c, "git"):
+		return "git"
+	case strings.Contains(c, "ruby"):
+		return "ruby"
+	case strings.Contains(c, "shell") || strings.Contains(c, "bash") || strings.Contains(c, "zsh") || strings.Contains(c, "shfmt"):
+		return "shell"
+	default:
+		return "other"
+	}
+}
+
 // FormatFilterGainReportJSON pretty-prints a report for CLI --json.
 func FormatFilterGainReportJSON(r FilterGainReport) ([]byte, error) {
 	return json.MarshalIndent(r, "", "  ")
@@ -242,9 +350,26 @@ func WriteGainByCommandCSV(w io.Writer, rows []FilterGainByCommandRow) error {
 			strconv.FormatInt(r.TokensSavedEst, 10),
 			strconv.FormatFloat(r.SavingsUsdEst, 'g', -1, 64),
 		}
-		if err := cw.Write(line); err != nil {
-			return err
+		_ = cw.Write(line)
+	}
+	cw.Flush()
+	return cw.Error()
+}
+
+// WriteGainByParserCSV writes a CSV table of per-parser aggregates.
+func WriteGainByParserCSV(w io.Writer, rows []FilterGainByParserRow) error {
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"parser", "runs", "input_tokens", "output_tokens", "tokens_saved_est", "savings_usd_est"})
+	for _, r := range rows {
+		line := []string{
+			r.Parser,
+			strconv.FormatInt(r.Runs, 10),
+			strconv.FormatInt(r.InputTokens, 10),
+			strconv.FormatInt(r.OutputTokens, 10),
+			strconv.FormatInt(r.TokensSavedEst, 10),
+			strconv.FormatFloat(r.SavingsUsdEst, 'g', -1, 64),
 		}
+		_ = cw.Write(line)
 	}
 	cw.Flush()
 	return cw.Error()

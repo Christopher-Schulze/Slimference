@@ -24,7 +24,7 @@ Slimference processes LLM API requests through a multi-layer compression pipelin
 
 - **What happens**: When enabled, conversation prefixes exceeding the token threshold are summarized by an external LLM provider (MiniMax by default).
 - **Data destination**: Compressed conversation content is sent to the configured summarization provider endpoint.
-- **Default state**: **Disabled** (T121). Must be explicitly enabled via `slimference layer2 enable --acknowledge-data-policy`.
+- **Default state**: **Enabled** for fresh configs (T129). Existing configs with `layer2_enabled = false` stay disabled.
 - **Redaction**: Outbound redaction is **on by default** (T109). This strips:
   - HTTP authentication headers
   - Known credential/secret patterns (API keys, tokens, passwords)
@@ -77,7 +77,7 @@ Each layer can be individually disabled in config:
 ```toml
 [compression]
 layer1_enabled = true   # deterministic compression (safe, local)
-layer2_enabled = false  # abstractive summarization (default off, T121)
+layer2_enabled = true   # abstractive summarization (default on, T129)
 layer3_enabled = true   # response cache (safe, local)
 ```
 

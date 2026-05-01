@@ -32,6 +32,7 @@ SUBCOMMANDS:
   daemon       Run as a long-lived daemon (invoked by launchd/systemd)
   integrate    Wire Claude Code and Codex to this proxy (status|install|remove|emergency-off)
   bypass       Toggle the master bypass flag (on|off|status)
+  output-reduce Toggle T130 output-token discipline injection
   config       Config file tools (init|show)
   test         Upstream connectivity tests (minimax|anthropic|openai|intercept)
   completion   Emit shell completion script (bash)
@@ -136,11 +137,12 @@ Manage smart-compaction checkpoints. 'list' prints rankings,
 full pre-compaction context for copy-paste.
 `
 	case "gain":
-		return `slimference gain [today|week|month|all] [--by-command] [--csv] [--project <p>] [--json]
+		return `slimference gain [today|week|month|all] [--by-command|--by-parser|--cache] [--csv] [--project <p>] [--json]
 
 Aggregate Layer-0 filter.db rows into a savings report. --by-command
-breaks down per parent command, --csv prints CSV, --json prints machine-
-readable output. Optional $/M-token rate in config multiplies savings.
+breaks down per parent command, --by-parser groups by parser/tool family,
+--cache reports provider prompt-cache tokens, --csv prints CSV, --json prints
+machine-readable output. Optional $/M-token rate in config multiplies savings.
 `
 	case "savings":
 		return `slimference savings [today|week|month|all] [--json|--csv] [--project <p>]

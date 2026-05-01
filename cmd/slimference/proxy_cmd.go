@@ -4,11 +4,16 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/tlsca"
+	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/transparent"
 )
 
@@ -28,10 +33,11 @@ func handleProxyCmd(args []string) {
 		CADirFn: func() string {
 			return filepath.Join(os.Getenv("HOME"), ".slimference")
 		},
-		Network:  transparent.NewManager(),
-		Keychain: transparent.NewKeychain(),
-		Launch:   transparent.NewLaunchAgent(),
-		LoadCA:   tlsca.LoadOrGenerateCA,
+		Network:     transparent.NewManager(),
+		Keychain:    transparent.NewKeychain(),
+		Launch:      transparent.NewLaunchAgent(),
+		LoadCA:      tlsca.LoadOrGenerateCA,
+		HealthCheck: defaultProxyHealthCheck,
 	})
 	if rc != 0 {
 		exitFn(rc)
@@ -39,15 +45,16 @@ func handleProxyCmd(args []string) {
 }
 
 type proxyEnv struct {
-	Stdout   io.Writer
-	Stderr   io.Writer
-	Stdin    io.Reader
-	Home     string
-	CADirFn  func() string
-	Network  proxyNetworkManager
-	Keychain proxyKeychain
-	Launch   proxyLaunchAgent
-	LoadCA   func(dir string) (*tlsca.CA, error)
+	Stdout      io.Writer
+	Stderr      io.Writer
+	Stdin       io.Reader
+	Home        string
+	CADirFn     func() string
+	Network     proxyNetworkManager
+	Keychain    proxyKeychain
+	Launch      proxyLaunchAgent
+	LoadCA      func(dir string) (*tlsca.CA, error)
+	HealthCheck func(host, port string) error
 }
 
 // proxyNetworkManager is the subset of *transparent.Manager that the
@@ -270,6 +277,7 @@ func proxyStatus(args []string, env proxyEnv) int {
 	if caFP != "" {
 		fmt.Fprintf(env.Stdout, "CA fingerprint:      %s\n", caFP)
 	}
+	printTransparentRuntimeStatus(env.Stdout)
 	plistPath := DefaultPlistPath(env.Home)
 	if env.Launch.IsInstalled(plistPath) {
 		fmt.Fprintf(env.Stdout, "Auto-start:          installed (%s)\n", plistPath)
@@ -283,15 +291,79 @@ func proxyStatus(args []string, env proxyEnv) int {
 		fmt.Fprintln(env.Stdout, "Network services:    none active")
 	} else {
 		fmt.Fprintf(env.Stdout, "Network services:    %d active\n", len(snap.Services))
+		daemonChecked := false
 		for _, s := range snap.Services {
 			active := "off"
 			if s.HTTPSEnabled {
 				active = fmt.Sprintf("ON %s:%s", s.HTTPSProxy, s.HTTPSPort)
+				if isSlimferenceProxyTarget(s.HTTPSProxy, s.HTTPSPort) && !daemonChecked {
+					daemonChecked = true
+					printProxyDaemonStatus(env.Stdout, env.HealthCheck, s.HTTPSProxy, s.HTTPSPort)
+				}
 			}
 			fmt.Fprintf(env.Stdout, "  - %-20s %s\n", s.Name, active)
 		}
 	}
 	return 0
+}
+
+func printTransparentRuntimeStatus(w io.Writer) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(w, "Transparent config:  error: %v\n", err)
+		return
+	}
+	state := "off"
+	if cfg.Transparent.Enabled {
+		state = "on"
+	}
+	fmt.Fprintf(w, "Transparent runtime: %s\n", state)
+	resolver, err := tlsdial.NewResolver(cfg.Transparent.DefaultTLSProfile, cfg.Transparent.TLSProfiles)
+	if err != nil {
+		fmt.Fprintf(w, "TLS profiles:        error: %v\n", err)
+		return
+	}
+	fmt.Fprintln(w, "TLS profiles:")
+	for _, host := range cfg.Transparent.InterceptHosts {
+		profile := resolver.Resolve(host)
+		fmt.Fprintf(w, "  - %-20s %s\n", host, profile.Name)
+	}
+}
+
+func printProxyDaemonStatus(w io.Writer, healthCheck func(host, port string) error, host, port string) {
+	if healthCheck == nil {
+		return
+	}
+	if err := healthCheck(host, port); err != nil {
+		fmt.Fprintf(w, "Daemon:              unreachable at %s:%s (%v)\n", host, port, err)
+		fmt.Fprintln(w, "Repair:              slimference proxy disable")
+		return
+	}
+	fmt.Fprintf(w, "Daemon:              reachable at %s:%s\n", host, port)
+}
+
+func isSlimferenceProxyTarget(host, port string) bool {
+	h := strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]")
+	return port == "8990" && (h == "127.0.0.1" || h == "localhost" || h == "::1")
+}
+
+func defaultProxyHealthCheck(host, port string) error {
+	client := &http.Client{
+		Timeout: 750 * time.Millisecond,
+		Transport: &http.Transport{
+			Proxy: nil,
+		},
+	}
+	resp, err := client.Get("http://" + net.JoinHostPort(strings.Trim(host, "[]"), port) + "/health")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 500 {
+		return fmt.Errorf("health returned HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func proxyUninstall(args []string, env proxyEnv) int {

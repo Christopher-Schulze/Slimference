@@ -19,6 +19,40 @@ func TestDefaults_Valid(t *testing.T) {
 	}
 }
 
+func TestDefaults_TransparentConfig(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	if cfg.Transparent.Enabled {
+		t.Fatal("transparent mode must be opt-in by default")
+	}
+	if cfg.Transparent.CertCacheSize != 256 {
+		t.Fatalf("cert cache size = %d, want 256", cfg.Transparent.CertCacheSize)
+	}
+	if cfg.Transparent.DefaultTLSProfile != "chromium_stable" {
+		t.Fatalf("default tls profile = %q", cfg.Transparent.DefaultTLSProfile)
+	}
+	if len(cfg.Transparent.InterceptHosts) != 3 {
+		t.Fatalf("intercept hosts = %v", cfg.Transparent.InterceptHosts)
+	}
+}
+
+func TestDefaults_OutputReduceConfig(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	if !cfg.Compression.OutputReduce.Enabled {
+		t.Fatal("output-reduce should default on with the min-token gate")
+	}
+	if cfg.Compression.OutputReduce.Profile != "auto" {
+		t.Fatalf("profile = %q", cfg.Compression.OutputReduce.Profile)
+	}
+	if cfg.Compression.OutputReduce.MinInputTokens != 400 {
+		t.Fatalf("min input tokens = %d", cfg.Compression.OutputReduce.MinInputTokens)
+	}
+	if cfg.Compression.OutputReduce.SignatureMarker == "" {
+		t.Fatal("signature marker must be non-empty")
+	}
+}
+
 func TestApplyEnvHooksDebug(t *testing.T) {
 	t.Setenv("SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND", "/opt/bin/slimference")
 	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", "~/d/decisions.jsonl")
@@ -192,6 +226,39 @@ func TestValidate_InvalidPort(t *testing.T) {
 			cfg.Proxy.ListenPort = tc.port
 			if err := validate(cfg); err == nil {
 				t.Errorf("validate() with port %d expected error, got nil", tc.port)
+			}
+		})
+	}
+}
+
+func TestValidate_InvalidTransparentCertCacheSize(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Transparent.CertCacheSize = -1
+	if err := validate(cfg); err == nil {
+		t.Fatal("validate() with negative transparent cert cache expected error")
+	}
+}
+
+func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"profile", func(c *Config) { c.Compression.OutputReduce.Profile = "bad" }},
+		{"max_added", func(c *Config) { c.Compression.OutputReduce.MaxAddedBytes = -1 }},
+		{"min_input", func(c *Config) { c.Compression.OutputReduce.MinInputTokens = -1 }},
+		{"threshold", func(c *Config) { c.Compression.OutputReduce.AutoDisableThreshold = -1 }},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Defaults()
+			tc.mutate(cfg)
+			if err := validate(cfg); err == nil {
+				t.Fatal("expected validation error")
 			}
 		})
 	}
@@ -617,10 +684,27 @@ func TestLoad_TrustClassRejected(t *testing.T) {
 	}
 }
 
-func TestDefaults_Layer2Disabled(t *testing.T) {
+func TestDefaults_Layer2Enabled(t *testing.T) {
 	cfg := Defaults()
+	if !cfg.Compression.Layer2Enabled {
+		t.Fatal("Layer2Enabled must be true by default (T129)")
+	}
+}
+
+func TestLoad_ExplicitLayer2FalsePreserved(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "config-*.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprint(f, "[compression]\nlayer2_enabled = false\n")
+	f.Close()
+	t.Setenv("SLIMFERENCE_CONFIG", f.Name())
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Compression.Layer2Enabled {
-		t.Fatal("Layer2Enabled must be false by default (T121)")
+		t.Fatal("explicit layer2_enabled=false must remain disabled")
 	}
 }
 

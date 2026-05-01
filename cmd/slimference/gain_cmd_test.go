@@ -14,6 +14,7 @@ import (
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/filter"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestParseGainArgs(t *testing.T) {
@@ -324,6 +325,201 @@ func TestParseGainArgs_csvDefaultPeriod(t *testing.T) {
 	p, f, err := parseGainArgs([]string{"--csv"})
 	if err != nil || p != "today" || !f.csv || f.byCommand {
 		t.Fatalf("period=%q csv=%v byCommand=%v err=%v", p, f.csv, f.byCommand, err)
+	}
+}
+
+func TestParseGainArgs_cacheAndByParser(t *testing.T) {
+	p, f, err := parseGainArgs([]string{"--cache", "week", "--json"})
+	if err != nil || p != "week" || !f.cache || !f.json {
+		t.Fatalf("period=%q flags=%+v err=%v", p, f, err)
+	}
+	p, f, err = parseGainArgs([]string{"--by-parser"})
+	if err != nil || p != "today" || !f.byParser {
+		t.Fatalf("period=%q flags=%+v err=%v", p, f, err)
+	}
+	if _, _, err = parseGainArgs([]string{"--cache", "--by-command"}); err == nil {
+		t.Fatal("expected invalid cache/by-command combination")
+	}
+	if _, _, err = parseGainArgs([]string{"--by-command", "--by-parser"}); err == nil {
+		t.Fatal("expected invalid by-command/by-parser combination")
+	}
+}
+
+func TestHandleSubcommand_gain_byParser(t *testing.T) {
+	dbPath := testOpenFilterDBAndRecord(t, "tsc --noEmit", "git status")
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	cfgPath := filepath.Join(t.TempDir(), "gain-usd.toml")
+	content := "[analytics]\ngain_usd_per_million_tokens = 2.5\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "today", "--by-parser"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "By parser/tool family") || !strings.Contains(out, "typescript") || !strings.Contains(out, "git") {
+		t.Fatalf("by-parser stdout: %q", out)
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "today", "--csv", "--by-parser"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "parser") || !strings.Contains(buf.String(), "typescript") {
+		t.Fatalf("csv by-parser stdout: %q", buf.String())
+	}
+}
+
+func TestHandleSubcommand_gain_cache(t *testing.T) {
+	logDir := t.TempDir()
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
+	p, err := analytics.NewPersister(logDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.WriteEvent(types.AnalyticsEvent{
+		Type:              types.EventRequestProcessed,
+		Timestamp:         time.Now(),
+		CacheReadTokens:   200,
+		CacheCreateTokens: 40,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p.Close()
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--cache", "today"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Prompt-cache gain") || !strings.Contains(out, "200") {
+		t.Fatalf("cache gain stdout: %q", out)
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--cache", "today", "--json"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), `"cache_read_tokens"`) {
+		t.Fatalf("cache gain json: %q", buf.String())
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--cache", "today", "--csv"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "cache_read_tokens") {
+		t.Fatalf("cache gain csv: %q", buf.String())
+	}
+}
+
+func TestHandleSubcommand_gain_cacheNoRows(t *testing.T) {
+	logDir := t.TempDir()
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--cache", "today"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "No prompt-cache gain") {
+		t.Fatalf("cache gain empty: %q", buf.String())
+	}
+}
+
+func TestHandleGainCmd_byParserCSVError(t *testing.T) {
+	dbPath := testOpenFilterDBAndRecord(t, "tsc --noEmit")
+	t.Setenv("SLIMFERENCE_FILTER_DB", dbPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+
+	orig := writeGainByParserCSV
+	defer func() { writeGainByParserCSV = orig }()
+	writeGainByParserCSV = func(io.Writer, []analytics.FilterGainByParserRow) error {
+		return errors.New("parser csv failed")
+	}
+
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() {
+		handleSubcommand([]string{"gain", "today", "--csv", "--by-parser"})
+	})
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "parser csv failed") {
+		t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+}
+
+func TestHandleGainCmd_cacheErrorBranches(t *testing.T) {
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "bad.toml"))
+	if err := os.WriteFile(os.Getenv("SLIMFERENCE_CONFIG"), []byte("not valid [[["), 0644); err != nil {
+		t.Fatal(err)
+	}
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() {
+		handleSubcommand([]string{"gain", "--cache", "today"})
+	})
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "load config") {
+		t.Fatalf("config error exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+
+	logDirFile := filepath.Join(t.TempDir(), "not-dir")
+	if err := os.WriteFile(logDirFile, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDirFile))
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() {
+		handleSubcommand([]string{"gain", "--cache", "all"})
+	})
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "gain --cache") {
+		t.Fatalf("report error exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+
+	logDir := t.TempDir()
+	t.Setenv("SLIMFERENCE_CONFIG", writeTestAnalyticsConfigToml(t, logDir))
+	orig := writePromptCacheCSV
+	defer func() { writePromptCacheCSV = orig }()
+	writePromptCacheCSV = func(io.Writer, analytics.PromptCacheReport) error {
+		return errors.New("cache csv failed")
+	}
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() {
+		handleSubcommand([]string{"gain", "--cache", "today", "--csv"})
+	})
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "cache csv failed") {
+		t.Fatalf("csv error exited=%v code=%d stderr=%q", exited, code, buf.String())
 	}
 }
 

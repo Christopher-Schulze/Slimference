@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/slimference/slimference/internal/codecompact"
 	"github.com/slimference/slimference/internal/compression"
 )
 
@@ -30,7 +31,7 @@ func TryStripCommentsFileRead(argv []string, stdout []byte) ([]byte, bool) {
 
 	if nPaths == 1 {
 		// Single-file path: strip comments, optionally extract signatures.
-		return compactSingleFileRead(lastReadFilePath(argv), stdout)
+		return compactSingleFileRead(argv, lastReadFilePath(argv), stdout)
 	}
 
 	// Multi-file: all file paths must have recognized extensions.
@@ -49,12 +50,21 @@ func TryStripCommentsFileRead(argv []string, stdout []byte) ([]byte, bool) {
 }
 
 // compactSingleFileRead applies comment strip and optionally structure extraction to one file.
-func compactSingleFileRead(path string, stdout []byte) ([]byte, bool) {
+func compactSingleFileRead(argv []string, path string, stdout []byte) ([]byte, bool) {
 	lang := compression.LanguageFromPath(path)
 	if lang == "" {
 		return stdout, false
 	}
 	s := string(stdout)
+
+	// For large Go files read via full `cat`, use the AST compactor before
+	// regex structure extraction. head/tail are already partial reads and must
+	// stay literal.
+	if isFullFileCat(argv) && lang == "go" {
+		if out, _, ok, err := codecompact.Compact(path, stdout, codecompact.Options{Mode: "scan"}); err == nil && ok {
+			return out, true
+		}
+	}
 
 	// For large files, try structure (signature) extraction first.
 	if len(stdout) >= signatureOnlyThreshold {
@@ -69,6 +79,13 @@ func compactSingleFileRead(path string, stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	return []byte(out), true
+}
+
+func isFullFileCat(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	return strings.EqualFold(filepath.Base(argv[0]), "cat")
 }
 
 func countReadPaths(argv []string) int {

@@ -82,6 +82,88 @@ func TestMITMResponseWriter_ContentLengthHonoured(t *testing.T) {
 	}
 }
 
+func TestMITMResponseWriter_FlushStreamsBufferedBody(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	rw := newMITMResponseWriter(&buf)
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.WriteHeader(http.StatusAccepted)
+	if _, err := rw.Write([]byte("data: one\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	rw.Flush()
+	if !strings.Contains(buf.String(), "HTTP/1.1 202 Accepted") {
+		t.Fatalf("flush must write response head, got %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "data: one\n") {
+		t.Fatalf("flush must write buffered body, got %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "Content-Length") {
+		t.Fatalf("streaming flush must not invent content-length, got %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "Connection: close") {
+		t.Fatalf("streaming flush must mark connection-close framing, got %q", buf.String())
+	}
+	if !rw.streamed() {
+		t.Fatal("Flush must mark writer as streamed")
+	}
+	if _, err := rw.Write([]byte("data: two\n")); err != nil {
+		t.Fatalf("stream write: %v", err)
+	}
+	if err := rw.finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	if !strings.Contains(buf.String(), "data: two\n") {
+		t.Fatalf("streaming writes must pass through after Flush, got %q", buf.String())
+	}
+}
+
+func TestMITMResponseWriter_FlushImplicitStatus(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	rw := newMITMResponseWriter(&buf)
+	rw.Flush()
+	rw.Flush()
+	if err := rw.finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	if !strings.HasPrefix(buf.String(), "HTTP/1.1 200 OK") {
+		t.Fatalf("flush must default status, got %q", buf.String())
+	}
+}
+
+func TestMITMResponseWriter_FlushHeaderErrorSurfacesOnFinish(t *testing.T) {
+	t.Parallel()
+	rw := newMITMResponseWriter(&errorWriter{after: 0})
+	rw.Flush()
+	rw.Flush()
+	if err := rw.finish(); err == nil {
+		t.Fatal("flush header error must surface from finish")
+	}
+}
+
+func TestMITMResponseWriter_FlushBodyErrorSurfacesOnFinish(t *testing.T) {
+	t.Parallel()
+	rw := newMITMResponseWriter(&errorWriter{after: 1})
+	rw.Write([]byte("body"))
+	rw.Flush()
+	if err := rw.finish(); err == nil {
+		t.Fatal("flush body error must surface from finish")
+	}
+}
+
+func TestMITMResponseWriter_StreamingWriteError(t *testing.T) {
+	t.Parallel()
+	rw := newMITMResponseWriter(&errorWriter{after: 1})
+	rw.Flush()
+	if _, err := rw.Write([]byte("body")); err == nil {
+		t.Fatal("streaming write must return writer error")
+	}
+	if err := rw.finish(); err == nil {
+		t.Fatal("streaming write error must surface from finish")
+	}
+}
+
 func TestMITMResponseWriter_HeadersSorted(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer

@@ -1,9 +1,9 @@
 # TASK 123: TLS fingerprint mimicry (uTLS) for outbound connections
 
-Status: PENDING (planned 2026-05-01)
+Status: CODE-COMPLETE / EXTERNAL-JA3-PROBE PENDING (implemented 2026-05-01)
 Priority: P1
-Scope: `internal/tlsdial/` (new package), `internal/proxy/connect.go`, `internal/proxy/ws.go`, `internal/proxy/proxy.go`, `internal/transparent/`.
-Driver: today the upstream-side TLS handshake (the connection from Slimference to OpenAI / Anthropic / chatgpt.com) uses Go's `crypto/tls` with default settings. Its TLS ClientHello, JA3 hash, ALPN order, extension list and cipher-suite ordering are uniquely "Go stdlib" and differ from the native upstream tool's stack (Codex Desktop is an Electron/Chromium app, Codex CLI is a Node.js binary, Claude Code is a Node.js binary, the Anthropic Python SDK is OpenSSL via urllib3, etc.). OpenAI / ChatGPT-Plus does not currently fingerprint-detect proxy traffic, but a single anti-abuse policy flip on their side would lock Slimference users out by JA3. The fix is to mimic the upstream tool's native ClientHello byte-for-byte so wire-level traffic is indistinguishable from the un-proxied case.
+Scope: `internal/tlsdial/` (new package), `internal/proxy/connect.go`, `internal/proxy/ws.go`, `internal/proxy/proxy.go`, `internal/transparent/`. Requires T131 first.
+Driver: today the upstream-side TLS handshake (the connection from Slimference to OpenAI / Anthropic / chatgpt.com) uses Go's `crypto/tls` with default settings. Its TLS ClientHello, JA3/JA4 surface, ALPN order, extension list and cipher-suite ordering are uniquely "Go stdlib" and differ from the native upstream tool's stack (Codex Desktop is an Electron/Chromium app, Codex CLI and Claude Code are Node.js-driven, Python SDKs use OpenSSL via urllib3/httpx, etc.). There is no current proof that OpenAI / ChatGPT-Plus blocks Slimference by JA3, but the operator wants the stealth layer completed proactively. The fix is practical mimicry: make the upstream ClientHello match the selected native profile closely enough that Slimference no longer advertises itself as Go stdlib.
 
 ---
 
@@ -11,7 +11,7 @@ Driver: today the upstream-side TLS handshake (the connection from Slimference t
 
 The MITM dispatch in `internal/proxy/connect.go::mitm()` reads the inbound CONNECT, signs a leaf cert (`tlsca.Signer`), then runs `tls.Server(conn, cfg)` for the client-facing handshake. That part is fine; the client-facing TLS sees the slimference CA either way and is not a fingerprint risk for OpenAI.
 
-The risk is the **upstream-facing** handshake: when Slimference re-emits the request to `api.openai.com` / `chatgpt.com` etc., it uses Go's standard `tls.Dial` (in `internal/proxy/ws.go::DefaultWebSocketDialer` and the standard `http.Client` transport built by `proxy.go::NewProxy`). That handshake produces a Go-stdlib ClientHello:
+The risk is the **upstream-facing** handshake: before T123, when Slimference re-emitted the request to `api.openai.com` / `chatgpt.com` etc., it used Go's standard TLS stack for the regular upstream transport and `tls.Dial` in `internal/proxy/ws.go::DefaultWebSocketDialer`. That handshake produced a Go-stdlib ClientHello:
 
 - Cipher suites in Go-canonical order
 - TLS 1.3 + 1.2 advertised
@@ -19,19 +19,20 @@ The risk is the **upstream-facing** handshake: when Slimference re-emits the req
 - Extension list including `signed_certificate_timestamp`, `application_layer_protocol_negotiation`, `key_share`, `psk_key_exchange_modes`, etc., in Go's order
 - GREASE values match Go's PRNG seed pattern, not Chromium's
 
-The resulting JA3 hash is `cd08e31494f9531f560d64c695473da9` (or similar - one of a small set of Go fingerprints). Codex Desktop's native Chromium produces JA3 `b32309a26951912be7dba376398abc3b`. Claude Code's Node fingerprint is different again. A simple JA3 allowlist on the OpenAI edge would deny Slimference's traffic while admitting the same user's direct-app traffic.
+The resulting JA3 hash is one of the small Go-stdlib family fingerprints. Codex Desktop's native Chromium and Node/OpenSSL clients produce different fingerprints. A simple JA3 allowlist on the OpenAI edge could deny Slimference's traffic while admitting the same user's direct-app traffic.
 
-Beyond JA3, there is JA4, HTTP/2 SETTINGS frame fingerprinting (frame ordering, initial window sizes, header compression preferences), and connection-reuse patterns. A real anti-bot stack (Cloudflare-style) would catch all of these.
+Beyond JA3/JA4, there is HTTP/2 SETTINGS frame fingerprinting (frame ordering, initial window sizes, header compression preferences), header ordering, DNS behaviour, and connection-reuse patterns. uTLS does **not** solve those by itself. T123 reduces the biggest current wire tell (Go ClientHello); it must not be documented as "undetectable".
 
-## Target state
+## Implemented target state
 
-A new `internal/tlsdial/` package wraps `refraction-networking/utls` and exposes `Dial(host, port string, profile Profile) (net.Conn, error)`. Profiles are per upstream-tool:
+A new `internal/tlsdial/` package wraps `refraction-networking/utls` and exposes `Dial(ctx, network, host, port string, profile Profile) (net.Conn, error)`. Profiles are selected per upstream host:
 
-- `ProfileChromiumStable` - matches the latest Chromium stable release used by Electron-based apps (Codex Desktop, ChatGPT Desktop, slim browser-based clients).
-- `ProfileFirefoxLatest` - for any app embedding Firefox / Servo (rare in the LLM space but supported for symmetry).
-- `ProfileNodeStable` - matches Node.js's BoringSSL build used by Codex CLI, Claude Code, and most JS/TS LLM SDKs.
-- `ProfilePythonRequests` - matches OpenSSL via Python's `requests` / `httpx` (Anthropic Python SDK, OpenAI Python SDK).
-- `ProfileGoStdlib` - the current default; kept for explicitness so an operator who does not care about stealth can opt out.
+- `chromium_stable` / `chrome_133` - uTLS `HelloChrome_133`.
+- `chrome_131`, `chrome_120`, `chrome_120_pq`, `ios_12_1`, `safari_16_0` - explicit uTLS profiles available in the pinned dependency.
+- `node_stable`, `python_requests`, `chrome`, `chromium`, `node`, `python` - intent aliases mapped to `chromium_stable`.
+- `go_stdlib` - explicit opt-out that preserves the legacy Go TLS stack.
+
+Reality note: uTLS v1.8.2 does not expose exact maintained Node/OpenSSL/Python fingerprints. Mapping Node/Python intent labels to Chromium is a practical "remove Go-stdlib tell" improvement, not a claim that Slimference becomes byte-identical to Node's OpenSSL or Python's urllib3/httpx.
 
 Per-host profile selection is operator-configurable in `[transparent.tls_profiles]`:
 
@@ -43,58 +44,69 @@ Per-host profile selection is operator-configurable in `[transparent.tls_profile
 default               = "chromium_stable"
 ```
 
-When transparent mode is enabled, every upstream `tls.Dial` and every WebSocket-over-TLS dial routes through `tlsdial.Dial(host, port, resolveProfile(host))` so the resulting handshake matches the configured profile.
+When transparent mode is enabled, the upstream HTTP transport installs `DialTLSContext` and every WebSocket-over-TLS dial uses the same `tlsdial.Resolver`, so the resulting handshake follows the configured profile. Direct/config-patch mode keeps the standard transport unchanged.
+
+## Preconditions
+
+- T131 must prove the transparent runtime path is actually wired. T123 must not spend effort patching a dead or test-only CONNECT path.
+- The test harness must prove both stdlib and uTLS dials can complete against a local TLS endpoint and fail safely on handshake/dial errors.
+- The docs must say "TLS fingerprint mimicry" / "Go-stdlib fingerprint removed", not "undetectable".
 
 ## Implementation plan
 
 ### WP1 - tlsdial package
 
-- New `internal/tlsdial/profiles.go`: enum `Profile` with constants for the five built-in profiles plus `ProfileAuto` (selects per host based on the `[transparent.tls_profiles]` map). String-based parsing for config consumption.
-- New `internal/tlsdial/dial.go`: `Dial(ctx, host, port, profile)` that builds a `utls.UConn` with the right `ClientHelloID` and runs `Handshake()`. Falls back to Go's stdlib `tls.Dial` when `Profile == ProfileGoStdlib` so the dependency is purely additive.
-- New `internal/tlsdial/resolver.go`: `Resolver` struct holding the per-host map; `Resolve(host) Profile` returns the configured profile or default.
+- [x] New `internal/tlsdial/profile.go`: `Profile`, string parsing, concrete uTLS profile names, and intent aliases.
+- [x] New `internal/tlsdial/dial.go`: `Dial(ctx, network, host, port, profile)` that uses `utls.UClient` for mimicry and Go stdlib only for the explicit `go_stdlib` opt-out.
+- [x] New `internal/tlsdial/resolver.go`: `Resolver` struct holding the per-host map; `Resolve(host) Profile` returns the configured profile or default.
+- [ ] Versioned profile metadata and stale-profile doctor warning remain optional follow-up, not required for the first T123 code landing.
 
 ### WP2 - Wire upstream callers
 
-- `internal/proxy/ws.go::DefaultWebSocketDialer` swaps to `tlsdial.Dial`.
-- `internal/proxy/proxy.go` upstream `http.Client` for the regular request path: replace the default `http.Transport.DialTLSContext` with one that calls `tlsdial.Dial`. Keep the rest of the transport intact (HTTP/2 SETTINGS still come from net/http but we re-emit in matching order; full HTTP/2 fingerprint mimicry is T123b if needed).
-- `internal/transparent/networksetup.go`: no change.
+- [x] `internal/proxy/proxy.go` upstream `http.Client` installs `DialTLSContext` only when transparent mode is enabled.
+- [x] CONNECT/MITM WebSocket dials use the same profiled resolver via `newProfiledWebSocketDialer`.
+- [x] `internal/transparent/networksetup.go`: no change.
 
-### WP3 - HTTP/2 settings emulation (T123b, deferred unless needed)
+### WP3 - HTTP/2 settings reality check
 
-If a real-world OpenAI / Cloudflare deployment ever fingerprints HTTP/2, a follow-up task ports the SETTINGS frame ordering + `INITIAL_WINDOW_SIZE` + `MAX_CONCURRENT_STREAMS` + `HEADER_TABLE_SIZE` to match Chromium's defaults. uTLS handles TLS; HTTP/2 needs a separate layer (likely a fork of `golang.org/x/net/http2` with custom SETTINGS).
+Not implemented in this landing. uTLS handles ClientHello mimicry; HTTP/2 SETTINGS/frame-order/header-order mimicry remains explicitly out of scope unless live evidence shows provider-side detection.
 
 ### WP4 - Config integration
 
-- New `[transparent.tls_profiles]` section in `internal/config/config.go` and defaults.
-- `slimference proxy status` extends to print the resolved profile per intercepted host.
-- `slimference doctor` warns if `tls_profiles.default = go_stdlib` and transparent mode is enabled (the explicit "I do not care about stealth" opt-out).
+- [x] New `[transparent.tls_profiles]` section in `internal/config/config.go` and defaults.
+- [x] `slimference proxy status` prints the resolved profile per intercepted host.
+- [ ] `slimference doctor` stale-profile warning is deferred until versioned profile metadata exists.
 
 ### WP5 - Verification harness
 
-- `scripts/utils/tls-probe`: tool that connects through Slimference to a JA3-reflecting endpoint (e.g. `tls.peet.ws/api/all` or self-hosted), prints the observed JA3, and asserts it matches the expected per-profile fingerprint.
-- Operator can run `go run ./scripts/utils tls-probe --profile=chromium_stable --host=api.openai.com` and see the JA3 hash.
-- CI integration: a synthetic `tls.peet.ws`-style mock running on a goroutine inside the test binary asserts profile fidelity per round-trip.
+- [x] Unit coverage proves stdlib and uTLS profile dials complete against a local TLS endpoint when trusted and fail safely when untrusted/unreachable.
+- [x] uTLS dials honor context cancellation while the handshake is blocked and immediately after handshake completion; cancellation closes the underlying TCP connection instead of leaking a hanging dial.
+- [ ] External JA3/JA4 probe remains pending; do not claim exact JA3 hash match until a reflecting endpoint or local ClientHello parser is added.
 
 ### WP6 - Tests
 
-- `internal/tlsdial/profiles_test.go`: enum parsing, default resolution, per-host overrides.
-- `internal/tlsdial/dial_test.go`: each profile's ClientHello bytes are byte-for-byte equal to a captured reference (golden-file test). Per-profile cipher-suite ordering, extension ordering, GREASE pattern checked.
-- `internal/proxy/ws_test.go` and `internal/proxy/proxy_test.go`: existing tests keep passing; new tests assert that the upstream dialer goes through `tlsdial.Dial` rather than `tls.Dial` directly when transparent mode is on.
+- [x] `internal/tlsdial/profile_test.go`: profile parsing, aliases, default resolution, per-host overrides, profile listing, stdlib/uTLS dial success and failure paths.
+- [x] `internal/proxy/transparent_runtime_test.go`: direct mode keeps stdlib transport; transparent mode installs profiled TLS dial path; WebSocket dialer uses the profile resolver.
+- [x] Existing CONNECT + WebSocket tests keep passing; new T131 test covers upgrade reachability through CONNECT/MITM.
 
 ### WP7 - Documentation
 
-- `docs/transparent-mode.md`: new "TLS Stealth" section explaining the per-host profile concept, the default settings, and the off-switch for operators who prefer Go stdlib (debugging clarity at the cost of a Go fingerprint).
-- `docs/tls-stealth-rationale.md`: longer technical explanation of why JA3 mimicry matters, referenced from the operator-facing doc but separable.
+- [x] This task file documents the practical limits: ClientHello mimicry only, no undetectability claim.
+- [ ] `docs/transparent-mode.md` operator-facing TLS profile section can be expanded after live proof.
 
 ## Acceptance criteria
 
-- [ ] `internal/tlsdial/` package compiles with `refraction-networking/utls` as the only new dependency.
-- [ ] Five profiles ship with golden ClientHello bytes; tests assert byte-equal.
-- [ ] `[transparent.tls_profiles]` resolves per-host with `default` fallback.
-- [ ] `slimference proxy status` prints the profile per intercepted host.
-- [ ] `tls-probe` round-trips against the JA3-reflecting service and reports the matched fingerprint.
-- [ ] Coverage 100%; race-clean; CI gate green.
-- [ ] No regression in existing CONNECT + WebSocket test matrix.
+- [x] `internal/tlsdial/` package compiles with `refraction-networking/utls` as the only new dependency.
+- [x] Available maintained uTLS profiles ship with explicit alias mapping; exact Node/Python/OpenSSL profile parity is not claimed.
+- [x] `[transparent.tls_profiles]` resolves per-host with default fallback.
+- [x] `slimference proxy status` prints the profile per intercepted host.
+- [ ] External `tls-probe` / reflected JA3 verification is pending.
+- [x] Docs explicitly avoid claiming full undetectability; HTTP/2 SETTINGS and connection-behaviour limits are documented.
+- [x] `go run ./scripts/ci` passes (8/8, total statement coverage 100.0%).
+- [x] Focused race check passes for touched packages: `go test -race ./cmd/slimference ./internal/config ./internal/proxy ./internal/tlsdial`.
+- [x] Coverage is 100% for `cmd/slimference`, `internal/proxy`, and `internal/tlsdial`.
+- [x] No regression in existing CONNECT + WebSocket test matrix.
+- [x] Forensic hardening pass fixed uTLS context-cancel behavior; local tests cover handshake-timeout and post-handshake cancellation.
 
 ## Out of scope
 

@@ -1,11 +1,15 @@
 # TASK 129: Layer 2 default-ON re-flip (reverse T121)
 
-Status: PENDING (planned 2026-05-01)
+Status: CODE-COMPLETE / FIRST-RUN ACK + FULL GATES GREEN (2026-05-02)
 Priority: P2
-Scope: `internal/config/defaults.go`, `internal/types/provider_caps.go`, `cmd/slimference/doctor.go`, `docs/data-policy.md`.
-Driver: T121 set `[compression] layer2_enabled = false` as the default after the audit found Layer 2 was sending unredacted conversation prefixes to MiniMax (a third-party / external provider). The audit fix landed as T109 (outbound redaction) and T110/T111 (cache + anchor correctness). Operator (the user driving this Slimference instance) has a MiniMax subscription, accepts the third-party trust label, and wants the saving back. T129 reverses the default flip, keeps every safety rail (T109 redaction default-on, T121 trust-label warning visible), and updates the doctor output so the operator and any future user sees what the policy is.
+Scope: `internal/config/defaults.go`, `internal/types/provider_caps.go`, `cmd/slimference/doctor.go`, first-run acknowledgement state, `docs/data-policy.md`. Requires T132 race-clean first.
+Driver: T121 set `[compression] layer2_enabled = false` as the default after the audit found Layer 2 was sending unredacted conversation prefixes to MiniMax (a third-party / external provider). The audit fix landed as T109 (outbound redaction) and T110/T111 (cache + anchor correctness). Operator (the user driving this Slimference instance) has a MiniMax subscription, accepts the third-party trust label, and wants the saving back. T129 reverses the default flip for fresh installs, keeps every safety rail (T109 redaction default-on, T121 trust-label warning visible), adds an explicit first-run acknowledgement, and updates doctor output so the operator and any future user sees what the policy is.
 
-This task is policy + config only. No new code; reverse a default, update one warning, refresh one doc.
+This is not "silent default-on". Default-on is allowed only after T132 is race-clean and only with a loud first-run/doctor policy surface. Existing explicit opt-out configs remain off.
+
+## Why not silent default-on?
+
+Layer 2 sends conversation content to MiniMax after redaction. Redaction removes secrets/auth/path risk, but it does not make code, comments, filenames, and task context local-only. For the operator's local install that trade-off is accepted. For a fresh user, silent enablement would be a hidden third-party data path. The correct shape is: enabled by default for fresh config, but first run must say exactly what happens and how to disable it.
 
 ---
 
@@ -21,44 +25,61 @@ outbound_redaction = "default"   # T109 default
 provider_trust = "external_third_party"  # MiniMax
 ```
 
-A fresh install runs without L2; `slimference layer2 enable --acknowledge-data-policy` is the explicit-opt-in path. The user is the operator, has acknowledged, has the MiniMax subscription, wants L2 default-on for new installs.
+T129 intentionally reverses this for fresh configs. The user is the operator, has the MiniMax subscription, accepts the external-provider trade-off, and wants L2 default-on for new installs. This is allowed only with the loud doctor warning, first-run acknowledgement marker, and `slimference layer2 disable` off-switch described below.
 
 ## Target state
 
 ```
 [compression]
-layer2_enabled = true      # T129 reversal, post-T109 + T127 + T128 safety
+layer2_enabled = true      # T129 reversal, post-T109 + T110/T111 + T132 safety
 [compression.summary]
 outbound_redaction = "default"   # unchanged
 provider_trust = "external_third_party"
 ```
 
-Everything else stays. Doctor output continues to show the trust-label warning so a future operator who reads through it can see "L2 is enabled and ships data to MiniMax (PRC-hosted)". `slimference layer2 disable` remains the off-switch.
+Everything else stays. Doctor output continues to show the trust-label warning so a future operator who reads through it can see "L2 is enabled and ships data to MiniMax (PRC-hosted)". `slimference layer2 disable` remains the off-switch. The first-run acknowledgement is recorded locally so the warning is explicit without becoming a prompt loop.
 
 ## Implementation plan
 
 ### WP1 - Config flip
 
-- `internal/config/defaults.go`: change `Compression.Layer2Enabled` from `false` to `true`.
-- Migration safety: existing configs with the explicit `layer2_enabled = false` keep the false (the operator was specific). Configs without the key (missing field, fresh install) inherit the new true.
+Completed:
+
+- `internal/config/defaults.go`: `Compression.Layer2Enabled` changed from `false` to `true`.
+- `DefaultTOML()`: `layer2_enabled = true`.
+- Migration safety: existing configs with explicit `layer2_enabled = false` keep false because TOML decoding overlays that value onto the default config.
+
+### WP0 - Race-clean prerequisite
+
+- Complete T132 before this task.
+- `go test -race ./...` must pass after the default flip.
+- Any Layer 2 telemetry counters touched by T129 must be race-safe.
 
 ### WP2 - Doctor warning rewording
 
-- Today `slimference doctor` says "L2 disabled (no outbound data)" or "L2 enabled - outbound to MiniMax".
-- After T129: if L2 enabled and trust = external_third_party, the line reads:
+Completed. `slimference doctor` now emits a WARN-level line for L2 provider trust instead of treating the accepted external provider as a hard FAIL. If L2 is enabled and trust = external_third_party, the line reads:
   `[WARN ] L2 enabled - outbound to MiniMax (external_third_party). Redaction: default. See docs/data-policy.md`
 - The WARN level is intentional. It is not a FAIL because the operator opted in (default ON or via subcommand); but it is loud enough to remind every doctor run that data is leaving the machine.
 
+### WP2b - First-run acknowledgement
+
+- Completed. On first interactive TUI start with L2 default-enabled and no acknowledgement marker, print a blocking terminal warning:
+  `Layer 2 is enabled by default and sends redacted conversation content to MiniMax (external third party / PRC-hosted). Press Enter to acknowledge, or run slimference layer2 disable.`
+- Non-interactive daemon/proxy startup does not hang; it logs a WARN and continues.
+- `slimference layer2 acknowledge` records the acknowledgement explicitly.
+- `slimference layer2 status` shows whether the acknowledgement marker is recorded.
+- The acknowledgement is stored under `~/.slimference/policy/layer2-default-on-ack.json` with version and timestamp.
+
 ### WP3 - data-policy.md update
 
-- `docs/data-policy.md` updates the "Default state" section to reflect L2 being on, with a stronger explainer for first-time readers:
+- Completed. `docs/data-policy.md` updates the "Default state" section to reflect L2 being on, with a stronger explainer for first-time readers:
   - "Layer 2 is on by default. With redaction enabled (default) the outbound data has secrets stripped, paths normalised, auth headers dropped, and JSON credential keys redacted. The conversation content itself (code, comments, file references) does leave your machine. To disable: `slimference layer2 disable`."
 
 ### WP4 - Acceptance test
 
-- Existing T121 tests assert default is false. Update them to assert default is true.
-- New test: fresh-config flow (no `compression.layer2_enabled` key set) yields enabled=true.
-- New test: explicit-false config yields enabled=false (back-compat for operators who set false explicitly).
+- Existing T121 default test now asserts default true.
+- Explicit-false config test asserts `layer2_enabled = false` remains disabled.
+- Doctor warning tests continue to cover upstream override and external third-party fallback.
 
 ### WP5 - Communication
 
@@ -67,12 +88,14 @@ Everything else stays. Doctor output continues to show the trust-label warning s
 
 ## Acceptance criteria
 
-- [ ] Fresh config: Layer 2 on by default.
-- [ ] Explicit `layer2_enabled = false` configs continue to disable.
-- [ ] Doctor surfaces the WARN-level outbound-data line on every run with L2 enabled.
-- [ ] `docs/data-policy.md` reflects new default state.
-- [ ] Existing T121 tests adjusted; new tests added; coverage 100%.
-- [ ] CI gate green; race-clean.
+- [x] Fresh config: Layer 2 on by default.
+- [x] Explicit `layer2_enabled = false` configs continue to disable.
+- [x] T132 known race fixed before the default flip.
+- [x] Doctor surfaces the WARN-level outbound-data line on every run with L2 enabled.
+- [x] First-run acknowledgement exists for interactive startup; non-interactive startup logs/statuses the policy warning without hanging.
+- [x] `docs/data-policy.md` reflects new default state.
+- [x] Existing T121 tests adjusted; explicit-false test added.
+- [x] CI gate green; race-clean after full Phase R batch.
 
 ## Out of scope
 

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,6 +91,9 @@ func newProxyEnv(t *testing.T) (proxyEnv, *bytes.Buffer, *bytes.Buffer, *fakeNet
 		Keychain: kc,
 		Launch:   la,
 		LoadCA:   tlsca.LoadOrGenerateCA,
+		HealthCheck: func(host, port string) error {
+			return nil
+		},
 	}
 	return env, stdout, stderr, net, kc, la
 }
@@ -329,10 +334,114 @@ func TestProxyStatus_AllSections(t *testing.T) {
 		t.Fatalf("rc=%d", rc)
 	}
 	out := stdout.String()
-	for _, want := range []string{"CA fingerprint", "Auto-start", "installed", "Wi-Fi", "Ethernet", "ON 127.0.0.1:8990", "off"} {
+	for _, want := range []string{"CA fingerprint", "Transparent runtime", "TLS profiles", "Daemon", "reachable", "Auto-start", "installed", "Wi-Fi", "Ethernet", "ON 127.0.0.1:8990", "off"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status missing %q in: %q", want, out)
 		}
+	}
+}
+
+func TestProxyStatus_DaemonDownRepairHint(t *testing.T) {
+	t.Parallel()
+	env, stdout, _, net, _, _ := newProxyEnv(t)
+	env.HealthCheck = func(host, port string) error { return errors.New("connection refused") }
+	net.statusSnap = transparent.Snapshot{
+		Services: []transparent.ServiceState{
+			{Name: "Wi-Fi", HTTPSProxy: "127.0.0.1", HTTPSPort: "8990", HTTPSEnabled: true},
+		},
+	}
+	if rc := proxyRun([]string{"status"}, env); rc != 0 {
+		t.Fatalf("rc=%d", rc)
+	}
+	out := stdout.String()
+	for _, want := range []string{"Daemon:", "unreachable", "slimference proxy disable"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status missing %q in: %q", want, out)
+		}
+	}
+}
+
+func TestPrintTransparentRuntimeStatus_ConfigLoadError(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "bad.toml")
+	if err := os.WriteFile(cfgPath, []byte("[transparent]\ncert_cache_size=-1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	var buf bytes.Buffer
+	printTransparentRuntimeStatus(&buf)
+	if !strings.Contains(buf.String(), "Transparent config:") {
+		t.Fatalf("expected config error, got %q", buf.String())
+	}
+}
+
+func TestPrintTransparentRuntimeStatus_ProfileError(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "bad-profile.toml")
+	if err := os.WriteFile(cfgPath, []byte("[transparent]\ndefault_tls_profile=\"missing\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	var buf bytes.Buffer
+	printTransparentRuntimeStatus(&buf)
+	if !strings.Contains(buf.String(), "TLS profiles:") || !strings.Contains(buf.String(), "missing") {
+		t.Fatalf("expected profile error, got %q", buf.String())
+	}
+}
+
+func TestPrintTransparentRuntimeStatus_Enabled(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "enabled.toml")
+	body := []byte("[transparent]\nenabled=true\nintercept_hosts=[\"chatgpt.com\"]\ndefault_tls_profile=\"chromium_stable\"\n")
+	if err := os.WriteFile(cfgPath, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	var buf bytes.Buffer
+	printTransparentRuntimeStatus(&buf)
+	out := buf.String()
+	if !strings.Contains(out, "Transparent runtime: on") || !strings.Contains(out, "chatgpt.com") {
+		t.Fatalf("expected enabled transparent status, got %q", out)
+	}
+}
+
+func TestPrintProxyDaemonStatus_NilHealthCheck(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	printProxyDaemonStatus(&buf, nil, "127.0.0.1", "8990")
+	if buf.Len() != 0 {
+		t.Fatalf("nil health check should be silent, got %q", buf.String())
+	}
+}
+
+func TestDefaultProxyHealthCheck(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	host, port := splitTestHostPort(t, server.URL)
+	if err := defaultProxyHealthCheck(host, port); err != nil {
+		t.Fatalf("health check: %v", err)
+	}
+}
+
+func TestDefaultProxyHealthCheck_BadStatus(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	host, port := splitTestHostPort(t, server.URL)
+	if err := defaultProxyHealthCheck(host, port); err == nil {
+		t.Fatal("500 health check must fail")
+	}
+}
+
+func TestDefaultProxyHealthCheck_DialError(t *testing.T) {
+	t.Parallel()
+	if err := defaultProxyHealthCheck("127.0.0.1", "1"); err == nil {
+		t.Fatal("closed health port must fail")
 	}
 }
 
@@ -488,6 +597,28 @@ func TestHandleProxyCmd_PublicEntrypoint(t *testing.T) {
 	}
 }
 
+func TestHandleSubcommand_ProxyCase(t *testing.T) {
+	originalExit := exitFn
+	defer func() { exitFn = originalExit }()
+	captured := -1
+	exitFn = func(code int) { captured = code }
+	handleSubcommand([]string{"proxy"})
+	if captured != 2 {
+		t.Fatalf("expected exit 2 for proxy without subcommand, got %d", captured)
+	}
+}
+
+func TestHandleSubcommand_CaptureSessionCase(t *testing.T) {
+	originalExit := exitFn
+	defer func() { exitFn = originalExit }()
+	captured := -1
+	exitFn = func(code int) { captured = code }
+	handleSubcommand([]string{"capture-session", "--bogus"})
+	if captured != 2 {
+		t.Fatalf("expected exit 2 for bad capture-session flag, got %d", captured)
+	}
+}
+
 func TestHandleProxyCmd_RealEnvSucceeds(t *testing.T) {
 	originalExit := exitFn
 	defer func() { exitFn = originalExit }()
@@ -510,3 +641,13 @@ func TestHandleProxyCmd_RealEnvSucceeds(t *testing.T) {
 // future test edits remove its only direct use; defensive against
 // import-pruning when this file is large.
 func rcFmt() string { return fmt.Sprintf("%s", "") }
+
+func splitTestHostPort(t *testing.T, rawURL string) (string, string) {
+	t.Helper()
+	hostPort := strings.TrimPrefix(rawURL, "http://")
+	parts := strings.Split(hostPort, ":")
+	if len(parts) != 2 {
+		t.Fatalf("unexpected server URL %q", rawURL)
+	}
+	return parts[0], parts[1]
+}

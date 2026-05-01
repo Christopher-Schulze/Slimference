@@ -53,6 +53,57 @@ func TestServeHTTP_compressibleAnthropic(t *testing.T) {
 	}
 }
 
+func TestServeHTTP_AdaptiveWindowAndLayer2CacheApplied(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = true
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.SlidingWindow = 5
+	cfg.Compression.Tuning.AdaptiveWindowEnabled = true
+	cfg.Compression.Tuning.AdaptiveWindowMin = 3
+	cfg.Compression.Tuning.AdaptiveWindowMax = 3
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	p.layer2.GetSessionCache().Store("anthropic:trace-window", &summarization.CachedSummary{
+		Summary:          "prior context",
+		CoveredRange:     [2]int{0, 2},
+		OriginalTokens:   100,
+		CompressedTokens: 20,
+		CreatedAt:        time.Now(),
+	})
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":256,"messages":[` +
+		`{"role":"user","content":"m1"},` +
+		`{"role":"assistant","content":"m2"},` +
+		`{"role":"user","content":"m3"},` +
+		`{"role":"assistant","content":"m4"},` +
+		`{"role":"user","content":"m5"},` +
+		`{"role":"assistant","content":"m6"},` +
+		`{"role":"user","content":"m7"}` +
+		`]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-trace-id", "trace-window")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, rec.Body.String())
+	}
+}
+
 func TestServeHTTP_compressibleOpenAI(t *testing.T) {
 	t.Parallel()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

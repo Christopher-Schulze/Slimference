@@ -1,12 +1,25 @@
 # TASK 122: Transparent mode (system-wide HTTPS interception)
 
-Status: DONE 2026-05-01 (CA + MITM HTTPS + WebSocket tunnel + system integration + subcommand + docs landed in WP1-8 commits b481a66..HEAD)
+Status: COMPONENT-COMPLETE 2026-05-01; LIVE-CERTIFICATION REQUIRED (see T131)
 Priority: P1
-Scope: `internal/tlsca/` (new), `internal/transparent/` (new), `internal/proxy/proxy.go`, `internal/proxy/connect.go` (new), `cmd/slimference/proxy_cmd.go` (new), `cmd/slimference/main.go`, `internal/config/`, `docs/transparent-mode.md` (new).
+Scope: `internal/tlsca/` (new), `internal/transparent/` (new), `internal/proxy/proxy.go`, `internal/proxy/connect.go` (new), `cmd/slimference/proxy_cmd.go` (new), `cmd/slimference/main.go`, `internal/config/`, `docs/transparent-mode.md` (new). Follow-up runtime proof: `docs/todo/t131-transparent-runtime-closure.md`.
 
 Driver: today every LLM client that wants to route through Slimference needs a per-tool config patch (Codex CLI's `~/.codex/config.toml`, Claude Code's settings, future tools). This breaks two real use-cases: (a) the Codex Desktop App, which speaks WebSocket-over-HTTPS to `chatgpt.com/backend-api/dev` and is non-trivial to redirect via app-config; (b) any tool the operator hasn't pre-configured. Plus: every per-tool patch is a hard dependency on Slimference daemon being up; if the daemon dies, the tool dies. Transparent mode replaces the per-tool patches with a single system-level intercept so any HTTPS-based LLM client routes through Slimference automatically, and a clean off-switch (`slimference proxy disable`) lets the operator drop back to direct OpenAI/Anthropic with no app-side change.
 
 WebRTC (used by Codex Desktop for microphone transcription) bypasses System-HTTPS-Proxy by design (UDP/SRTP, ignores HTTP/HTTPS settings). That is the property that makes transparent mode safe for audio-streaming features: Slimference never sees them, latency stays native, no proxy code path touches them.
+
+## Reality correction (2026-05-01 audit)
+
+The T122 component commits landed useful building blocks, but the repository audit found this task was marked stronger than the code currently proves. Treat the state as **component-complete, not live-certified** until T131 closes these gaps:
+
+- The running proxy startup path must visibly attach the CONNECT/MITM handler when transparent mode is enabled.
+- The transparent config surface must be present and used by proxy startup, not only described in this plan.
+- The WebSocket tunnel helper must be wired into the actual CONNECT/MITM request path, or explicitly documented as deferred.
+- Streaming/SSE/WebSocket paths must be proven not to buffer model output incorrectly.
+- `proxy status` must detect "system proxy points at Slimference but daemon/CONNECT path is not actually usable".
+- A manual macOS E2E proof must cover `proxy install`, `proxy enable`, Codex Desktop traffic, Browser-Use passthrough, microphone bypass, `proxy disable`, and `proxy uninstall`.
+
+Do not use T122 as evidence that transparent mode is production-ready until T131 is done.
 
 ---
 

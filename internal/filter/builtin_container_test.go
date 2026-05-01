@@ -148,6 +148,9 @@ func TestTryCompactContainerOutput_missingBranches(t *testing.T) {
 	}
 
 	// --- TryCompactKubectlGet ---
+	if _, ok := TryCompactKubectlGet([]string{"kubectl", "describe", "pods"}, []byte("")); ok {
+		t.Fatal("kubectl describe: not get")
+	}
 	// non-empty stdout
 	if _, ok := TryCompactKubectlGet([]string{"kubectl", "get", "pods"}, []byte("pod/my-pod\n")); ok {
 		t.Fatal("kubectl get pods: non-empty stdout")

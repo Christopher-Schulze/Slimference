@@ -575,6 +575,138 @@ func TestServePlaintextOnTLS_ReadErrorBreaksLoop(t *testing.T) {
 	}
 }
 
+func TestServePlaintextOnTLS_WebSocketUpgradeUsesTunnel(t *testing.T) {
+	signer := newTestSignerForConnect(t)
+	innerCalled := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		innerCalled = true
+	})
+	ci := NewConnectInterceptor(signer, inner, nil)
+	ci.SetWebSocketTunnel(&WebSocketTunnel{})
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	done := make(chan struct{})
+	go func() {
+		ci.servePlaintextOnTLS(b, "chatgpt.com")
+		close(done)
+	}()
+	_, _ = a.Write([]byte("GET /backend-api/dev HTTP/1.1\r\nHost: chatgpt.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"))
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("websocket tunnel path did not return")
+	}
+	if innerCalled {
+		t.Fatal("websocket upgrade must bypass inner HTTP handler")
+	}
+}
+
+func TestServePlaintextOnTLS_WebSocketPreservesBufferedClientBytes(t *testing.T) {
+	signer := newTestSignerForConnect(t)
+	ci := NewConnectInterceptor(signer, http.NotFoundHandler(), nil)
+	upClient, upServer := net.Pipe()
+	defer upClient.Close()
+	defer upServer.Close()
+	gotEarly := make(chan string, 1)
+	ci.SetWebSocketTunnel(&WebSocketTunnel{
+		Dialer: func(host, port string) (net.Conn, error) {
+			return upClient, nil
+		},
+	})
+	go func() {
+		br := bufio.NewReader(upServer)
+		req, err := http.ReadRequest(br)
+		if err != nil {
+			gotEarly <- "read-request-error:" + err.Error()
+			return
+		}
+		if req.URL.Path != "/backend-api/dev" {
+			gotEarly <- "bad-path:" + req.URL.Path
+			return
+		}
+		_, _ = upServer.Write([]byte("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"))
+		buf := make([]byte, 5)
+		if _, err := io.ReadFull(br, buf); err != nil {
+			gotEarly <- "read-early-error:" + err.Error()
+			return
+		}
+		gotEarly <- string(buf)
+	}()
+
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	done := make(chan struct{})
+	go func() {
+		ci.servePlaintextOnTLS(b, "chatgpt.com")
+		close(done)
+	}()
+	_, _ = a.Write([]byte("GET /backend-api/dev HTTP/1.1\r\nHost: chatgpt.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\nEARLY"))
+	br := bufio.NewReader(a)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("upgrade response: %v", err)
+	}
+	_ = resp.Body.Close()
+	select {
+	case got := <-gotEarly:
+		if got != "EARLY" {
+			t.Fatalf("buffered client bytes not preserved: %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for buffered early bytes")
+	}
+	a.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("websocket tunnel did not exit")
+	}
+}
+
+func TestServePlaintextOnTLS_StreamingResponseClosesConnection(t *testing.T) {
+	signer := newTestSignerForConnect(t)
+	calls := 0
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: one\n"))
+		w.(http.Flusher).Flush()
+	})
+	ci := NewConnectInterceptor(signer, inner, nil)
+	a, b := net.Pipe()
+	defer a.Close()
+	done := make(chan struct{})
+	go func() {
+		ci.servePlaintextOnTLS(b, "api.openai.com")
+		_ = b.Close()
+		close(done)
+	}()
+	_, _ = a.Write([]byte("GET /stream HTTP/1.1\r\nHost: api.openai.com\r\n\r\nGET /must-not-run HTTP/1.1\r\nHost: api.openai.com\r\n\r\n"))
+	resp, err := http.ReadResponse(bufio.NewReader(a), nil)
+	if err != nil {
+		t.Fatalf("stream response: %v", err)
+	}
+	if !resp.Close {
+		t.Fatal("streaming response must be connection-close framed")
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.Contains(string(body), "data: one") {
+		t.Fatalf("stream body mismatch: %q", body)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("streaming response did not close MITM loop")
+	}
+	if calls != 1 {
+		t.Fatalf("streaming response must close before pipelined second request, calls=%d", calls)
+	}
+}
+
 func TestServePlaintextOnTLS_FlushFailureLogged(t *testing.T) {
 	signer := newTestSignerForConnect(t)
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

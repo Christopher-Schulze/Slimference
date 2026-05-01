@@ -38,6 +38,7 @@ type ConnectInterceptor struct {
 	dialUpstream       func(host string, port string) (net.Conn, error)
 	logger             *slog.Logger
 	tlsServerHandshake func(net.Conn, *tls.Config) (*tls.Conn, error)
+	webSocketTunnel    *WebSocketTunnel
 }
 
 // NewConnectInterceptor wires a CONNECT-aware handler around the given
@@ -59,6 +60,7 @@ func NewConnectInterceptor(signer *tlsca.Signer, inner http.Handler, allowlist [
 		dialUpstream:       defaultDialUpstream,
 		logger:             slog.Default(),
 		tlsServerHandshake: defaultTLSServerHandshake,
+		webSocketTunnel:    &WebSocketTunnel{Dialer: DefaultWebSocketDialer, Logger: slog.Default()},
 	}
 }
 
@@ -94,6 +96,14 @@ func (ci *ConnectInterceptor) SetUpstreamDialer(d func(host string, port string)
 func (ci *ConnectInterceptor) SetTLSServerHandshake(fn func(net.Conn, *tls.Config) (*tls.Conn, error)) {
 	if fn != nil {
 		ci.tlsServerHandshake = fn
+	}
+}
+
+// SetWebSocketTunnel overrides the WebSocket upgrade relay used by the
+// MITM path. Tests pin this to local pipes; production sets the TLS dialer.
+func (ci *ConnectInterceptor) SetWebSocketTunnel(t *WebSocketTunnel) {
+	if t != nil {
+		ci.webSocketTunnel = t
 	}
 }
 
@@ -206,10 +216,21 @@ func (ci *ConnectInterceptor) servePlaintextOnTLS(tlsConn net.Conn, host string)
 		req.URL.Host = host
 		req.URL.Scheme = "https"
 		req.RequestURI = ""
+		if IsWebSocketUpgrade(req) && ci.webSocketTunnel != nil {
+			clientConn := net.Conn(tlsConn)
+			if br.Buffered() > 0 {
+				clientConn = &bufferedNetConn{Conn: tlsConn, reader: br}
+			}
+			ci.webSocketTunnel.ServeUpgrade(clientConn, req, host)
+			return
+		}
 		rw := newMITMResponseWriter(tlsConn)
 		ci.innerHandler.ServeHTTP(rw, req)
 		if err := rw.finish(); err != nil {
 			ci.logger.Debug("connect mitm: response flush failed", "host", host, "err", err)
+			return
+		}
+		if rw.streamed() {
 			return
 		}
 		// Drain request body so the next request can be read.
@@ -221,6 +242,18 @@ func (ci *ConnectInterceptor) servePlaintextOnTLS(tlsConn net.Conn, host string)
 			return
 		}
 	}
+}
+
+type bufferedNetConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *bufferedNetConn) Read(p []byte) (int, error) {
+	if c.reader != nil && c.reader.Buffered() > 0 {
+		return c.reader.Read(p)
+	}
+	return c.Conn.Read(p)
 }
 
 // shouldClose mirrors net/http.shouldClose: HTTP/1.0 closes by

@@ -108,9 +108,9 @@ func TestHealthHandler(t *testing.T) {
 	if body.Service != "slimference" {
 		t.Errorf("service = %q, want slimference", body.Service)
 	}
-	// Default config enables L1+L3, L2 is off by default (T121).
-	if !body.Layers["1"] || body.Layers["2"] || !body.Layers["3"] {
-		t.Errorf("layers = %v, want L1=true L2=false L3=true (T121 defaults)", body.Layers)
+	// Default config enables L1+L2+L3 (T129 re-flipped L2 default-on).
+	if !body.Layers["1"] || !body.Layers["2"] || !body.Layers["3"] {
+		t.Errorf("layers = %v, want L1=true L2=true L3=true (T129 defaults)", body.Layers)
 	}
 	// Both providers should be enabled.
 	if !body.Providers["anthropic"] || !body.Providers["openai"] {

@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/slimference/slimference/internal/config"
@@ -17,17 +22,18 @@ type tomlEncoder interface {
 	Encode(v interface{}) error
 }
 
-// handleLayer2Cmd implements `slimference layer2 <enable|disable|status>`.
+// handleLayer2Cmd implements `slimference layer2 <enable|disable|status|acknowledge>`.
 // T121: the only way to enable Layer 2 from the default-off state is
 // `slimference layer2 enable --acknowledge-data-policy`.
 func handleLayer2Cmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: slimference layer2 <enable|disable|status>")
+		fmt.Fprintln(os.Stderr, "usage: slimference layer2 <enable|disable|status|acknowledge>")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Subcommands:")
-		fmt.Fprintln(os.Stderr, "  enable   Enable Layer 2 summarization (requires --acknowledge-data-policy)")
-		fmt.Fprintln(os.Stderr, "  disable  Disable Layer 2 summarization")
-		fmt.Fprintln(os.Stderr, "  status   Show current Layer 2 configuration")
+		fmt.Fprintln(os.Stderr, "  enable       Enable Layer 2 summarization (requires --acknowledge-data-policy)")
+		fmt.Fprintln(os.Stderr, "  disable      Disable Layer 2 summarization")
+		fmt.Fprintln(os.Stderr, "  status       Show current Layer 2 configuration")
+		fmt.Fprintln(os.Stderr, "  acknowledge  Record the T129 default-on data-policy acknowledgement")
 		exitFn(1)
 		return
 	}
@@ -38,8 +44,10 @@ func handleLayer2Cmd(args []string) {
 		handleLayer2Disable()
 	case "status":
 		handleLayer2Status()
+	case "acknowledge", "ack":
+		handleLayer2Acknowledge()
 	default:
-		fmt.Fprintf(os.Stderr, "layer2: unknown subcommand %q (enable|disable|status)\n", args[0])
+		fmt.Fprintf(os.Stderr, "layer2: unknown subcommand %q (enable|disable|status|acknowledge)\n", args[0])
 		exitFn(1)
 	}
 }
@@ -54,6 +62,13 @@ Before enabling, review: docs/data-policy.md
 To acknowledge and enable, run:
   slimference layer2 enable --acknowledge-data-policy
 `
+
+const layer2DefaultOnAckVersion = "t129-layer2-default-on-v1"
+
+type layer2PolicyAck struct {
+	Version string `json:"version"`
+	Unix    int64  `json:"unix"`
+}
 
 func handleLayer2Enable(args []string) {
 	ack := false
@@ -147,13 +162,27 @@ func handleLayer2Status() {
 	fmt.Printf("  API key:       %s\n", boolStr(apiKeySet, "configured", "not set"))
 	fmt.Printf("  Redaction:     %s\n", redaction)
 	fmt.Printf("  Min tokens:    %d\n", cfg.Compression.MinTokensForLayer2)
+	fmt.Printf("  Policy ack:    %s\n", boolStr(layer2PolicyAcknowledged(), "recorded", "missing"))
 
 	if enabled {
 		fmt.Println()
 		fmt.Println("  Data flows to an external third-party provider (MiniMax).")
 		fmt.Println("  Review: docs/data-policy.md")
 		fmt.Println("  Disable: slimference layer2 disable")
+		if !layer2PolicyAcknowledged() {
+			fmt.Println("  Acknowledge: slimference layer2 acknowledge")
+		}
 	}
+}
+
+func handleLayer2Acknowledge() {
+	path, err := writeLayer2PolicyAck(time.Now())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "layer2 acknowledge: %v\n", err)
+		exitFn(1)
+		return
+	}
+	fmt.Printf("layer2: data-policy acknowledgement recorded at %s\n", path)
 }
 
 func boolStr(cond bool, ifTrue, ifFalse string) string {
@@ -175,6 +204,69 @@ func effectiveRedaction(mode string) string {
 		return mode
 	}
 	return "default"
+}
+
+func layer2PolicyAckPath() string {
+	home, err := osUserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".slimference", "policy", "layer2-default-on-ack.json")
+}
+
+func layer2PolicyAcknowledged() bool {
+	path := layer2PolicyAckPath()
+	if path == "" {
+		return false
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var ack layer2PolicyAck
+	if err := json.Unmarshal(data, &ack); err != nil {
+		return false
+	}
+	return ack.Version == layer2DefaultOnAckVersion && ack.Unix > 0
+}
+
+func writeLayer2PolicyAck(now time.Time) (string, error) {
+	path := layer2PolicyAckPath()
+	if path == "" {
+		return "", fmt.Errorf("home directory unavailable")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return "", fmt.Errorf("create policy dir: %w", err)
+	}
+	data, _ := json.MarshalIndent(layer2PolicyAck{
+		Version: layer2DefaultOnAckVersion,
+		Unix:    now.Unix(),
+	}, "", "  ")
+	if err := osWriteFile(path, append(data, '\n'), 0600); err != nil {
+		return "", fmt.Errorf("write ack: %w", err)
+	}
+	return path, nil
+}
+
+func ensureLayer2PolicyAcknowledged(cfg *config.Config, interactive bool, stdin io.Reader, stdout, stderr io.Writer) error {
+	if cfg == nil || !cfg.Compression.Layer2Enabled || layer2PolicyAcknowledged() {
+		return nil
+	}
+	msg := "Layer 2 is enabled by default and sends redacted conversation content to MiniMax (external third-party provider)."
+	if !interactive {
+		fmt.Fprintf(stderr, "[WARN] %s Run `slimference layer2 acknowledge` after reviewing docs/data-policy.md, or `slimference layer2 disable`.\n", msg)
+		return nil
+	}
+	fmt.Fprintln(stdout, msg)
+	fmt.Fprintln(stdout, "Review docs/data-policy.md. Press Enter to acknowledge, or press Ctrl-C and run `slimference layer2 disable`.")
+	if _, err := bufio.NewReader(stdin).ReadString('\n'); err != nil && err != io.EOF {
+		return fmt.Errorf("read acknowledgement: %w", err)
+	}
+	if _, err := writeLayer2PolicyAck(time.Now()); err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, "layer2: data-policy acknowledgement recorded")
+	return nil
 }
 
 // writeConfigUpdate re-encodes the config as TOML and writes it to path.

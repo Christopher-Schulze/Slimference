@@ -23,6 +23,7 @@ import (
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/contentarchive"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
@@ -318,7 +319,46 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// --- 8. Response cache lookup (Layer 3) ---
+	// --- 8. Output-token reduction (T130) ---
+	outputReduceStats := outputreduce.Stats{Reason: "disabled"}
+	outputReduceMinTokens := p.config.Compression.OutputReduce.MinInputTokens
+	if p.config.Compression.OutputReduce.Enabled && compressedTokens < outputReduceMinTokens {
+		outputReduceStats = outputreduce.Stats{Reason: "below_min_tokens"}
+	} else if p.config.Compression.OutputReduce.Enabled {
+		opts := outputreduce.Options{
+			Enabled:             true,
+			Profile:             p.config.Compression.OutputReduce.Profile,
+			CustomDirectivePath: p.config.Compression.OutputReduce.CustomDirectivePath,
+			SignatureMarker:     p.config.Compression.OutputReduce.SignatureMarker,
+			MaxAddedBytes:       p.config.Compression.OutputReduce.MaxAddedBytes,
+		}
+		if injectedBody, stats, err := outputreduce.InjectBody(provider, newBody, opts); err != nil {
+			log.Warn("output-reduce injection skipped", "error", err)
+			outputReduceStats = outputreduce.Stats{Reason: "error"}
+		} else {
+			outputReduceStats = stats
+			if stats.Applied {
+				newBody = injectedBody
+				log.Debug("output-reduce injected",
+					"profile", stats.Profile,
+					"added_tokens", stats.AddedTokens,
+					"added_bytes", stats.AddedBytes,
+				)
+			}
+		}
+	}
+	if p.outputReduce != nil {
+		p.outputReduce.ObserveInjection(outputReduceStats)
+	}
+	if outputReduceStats.Applied && outputReduceStats.AddedTokens > 0 {
+		compressedTokens += outputReduceStats.AddedTokens
+		totalSaved = origTokens - compressedTokens
+		if origTokens > 0 {
+			compressionRatio = float64(compressedTokens) / float64(origTokens)
+		}
+	}
+
+	// --- 8.5 Response cache lookup (Layer 3) ---
 	var cacheKey [32]byte
 	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(newBody)
 	if requestCacheSafe {
@@ -467,6 +507,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		if provider == types.Anthropic {
 			upstreamCacheUsage = extractAnthropicCacheUsageFromBody(responseBody)
 		}
+	}
+	if p.outputReduce != nil {
+		p.outputReduce.ObserveOutput(outputTokens)
 	}
 
 	// --- 9b. Server-state response-id capture (T78) ---

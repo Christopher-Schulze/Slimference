@@ -1,14 +1,22 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/slimference/slimference/internal/config"
 )
+
+type layer2ErrReader struct{}
+
+func (layer2ErrReader) Read([]byte) (int, error) { return 0, errors.New("read fail") }
 
 func TestHandleLayer2Cmd_noArgs(t *testing.T) {
 	var exitCode int
@@ -266,6 +274,7 @@ func TestHandleLayer2Status(t *testing.T) {
 }
 
 func TestHandleLayer2Status_enabled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("MINIMAX_API_KEY", "test-key")
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "test.toml")
@@ -295,6 +304,171 @@ func TestHandleLayer2Status_enabled(t *testing.T) {
 	}
 	if !strings.Contains(out, "docs/data-policy.md") {
 		t.Fatalf("expected data policy link, got: %q", out)
+	}
+	if !strings.Contains(out, "Policy ack:    missing") || !strings.Contains(out, "slimference layer2 acknowledge") {
+		t.Fatalf("expected missing acknowledgement hint, got: %q", out)
+	}
+}
+
+func TestHandleLayer2AcknowledgeAndStatus(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgPath := filepath.Join(t.TempDir(), "test.toml")
+	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"minimax-m2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	explicitConfigPath = cfgPath
+	defer func() { explicitConfigPath = "" }()
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleLayer2Cmd([]string{"acknowledge"})
+	_ = w.Close()
+	os.Stdout = old
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	if !strings.Contains(string(buf[:n]), "acknowledgement recorded") {
+		t.Fatalf("ack output: %q", string(buf[:n]))
+	}
+	if !layer2PolicyAcknowledged() {
+		t.Fatal("ack marker should be recognised")
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleLayer2Status()
+	_ = w.Close()
+	os.Stdout = old
+	n, _ = r.Read(buf)
+	out := string(buf[:n])
+	if !strings.Contains(out, "Policy ack:    recorded") {
+		t.Fatalf("status should show recorded ack, got: %q", out)
+	}
+}
+
+func TestEnsureLayer2PolicyAcknowledgedInteractiveAndNonInteractive(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	cfg.Compression.Layer2Enabled = true
+
+	var out bytes.Buffer
+	if err := ensureLayer2PolicyAcknowledged(cfg, true, strings.NewReader("\n"), &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "acknowledgement recorded") {
+		t.Fatalf("interactive output: %q", out.String())
+	}
+	if !layer2PolicyAcknowledged() {
+		t.Fatal("interactive acknowledgement should write marker")
+	}
+
+	home2 := t.TempDir()
+	t.Setenv("HOME", home2)
+	var errOut bytes.Buffer
+	if err := ensureLayer2PolicyAcknowledged(cfg, false, nil, &out, &errOut); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(errOut.String(), "[WARN]") || layer2PolicyAcknowledged() {
+		t.Fatalf("non-interactive warn=%q acknowledged=%v", errOut.String(), layer2PolicyAcknowledged())
+	}
+}
+
+func TestEnsureLayer2PolicyAcknowledgedSkipsDisabled(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.Layer2Enabled = false
+	var out bytes.Buffer
+	if err := ensureLayer2PolicyAcknowledged(cfg, true, strings.NewReader(""), &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("disabled layer2 should not prompt, got %q", out.String())
+	}
+}
+
+func TestLayer2PolicyAckErrorBranches(t *testing.T) {
+	origHome := osUserHomeDir
+	defer func() { osUserHomeDir = origHome }()
+	osUserHomeDir = func() (string, error) { return "", errors.New("home fail") }
+	if layer2PolicyAckPath() != "" || layer2PolicyAcknowledged() {
+		t.Fatal("home failure should produce no path and no ack")
+	}
+	if _, err := writeLayer2PolicyAck(time.Now()); err == nil {
+		t.Fatal("expected home failure writing ack")
+	}
+
+	var exitCode int
+	oldExit := exitFn
+	exitFn = func(code int) { exitCode = code }
+	defer func() { exitFn = oldExit }()
+	var errOut bytes.Buffer
+	oldErr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	handleLayer2Acknowledge()
+	_ = w.Close()
+	os.Stderr = oldErr
+	_, _ = errOut.ReadFrom(r)
+	if exitCode != 1 || !strings.Contains(errOut.String(), "home directory unavailable") {
+		t.Fatalf("exit=%d stderr=%q", exitCode, errOut.String())
+	}
+}
+
+func TestLayer2PolicyAcknowledgedInvalidJSON(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := layer2PolicyAckPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if layer2PolicyAcknowledged() {
+		t.Fatal("invalid ack JSON should not acknowledge")
+	}
+}
+
+func TestWriteLayer2PolicyAckWriteError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	oldWrite := osWriteFile
+	osWriteFile = func(string, []byte, os.FileMode) error { return errors.New("write fail") }
+	defer func() { osWriteFile = oldWrite }()
+	if _, err := writeLayer2PolicyAck(time.Now()); err == nil {
+		t.Fatal("expected write error")
+	}
+}
+
+func TestWriteLayer2PolicyAckMkdirError(t *testing.T) {
+	homeFile := filepath.Join(t.TempDir(), "home-file")
+	if err := os.WriteFile(homeFile, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", homeFile)
+	if _, err := writeLayer2PolicyAck(time.Now()); err == nil {
+		t.Fatal("expected mkdir error")
+	}
+}
+
+func TestEnsureLayer2PolicyAcknowledgedReadAndWriteErrors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	cfg.Compression.Layer2Enabled = true
+	var out bytes.Buffer
+	if err := ensureLayer2PolicyAcknowledged(cfg, true, layer2ErrReader{}, &out, io.Discard); err == nil {
+		t.Fatal("expected read error")
+	}
+
+	oldWrite := osWriteFile
+	osWriteFile = func(string, []byte, os.FileMode) error { return errors.New("write fail") }
+	defer func() { osWriteFile = oldWrite }()
+	if err := ensureLayer2PolicyAcknowledged(cfg, true, strings.NewReader("\n"), &out, io.Discard); err == nil {
+		t.Fatal("expected write error")
 	}
 }
 
@@ -582,8 +756,8 @@ func TestHandleLayer2Disable_emptyResolvedPath(t *testing.T) {
 	buf := make([]byte, 8192)
 	n, _ := r.Read(buf)
 	out := string(buf[:n])
-	if !strings.Contains(out, "already disabled") {
-		t.Fatalf("expected already disabled (defaults), got: %q", out)
+	if !strings.Contains(out, "disabled (config written") {
+		t.Fatalf("expected disable write from default-on config, got: %q", out)
 	}
 }
 

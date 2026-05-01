@@ -2,6 +2,7 @@ package summarization
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -94,5 +95,26 @@ func TestExamplePromptCount_UnknownLang(t *testing.T) {
 	ResetExamplePromptCounts()
 	if got := ExamplePromptCount("rust"); got != 0 {
 		t.Fatalf("unknown lang must return 0, got %d", got)
+	}
+}
+
+func TestExamplePromptCounts_ConcurrentAccess(t *testing.T) {
+	ResetExamplePromptCounts()
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_ = buildSystemPrompt("edited src/auth/handler.ts and ran npm test")
+		}()
+		go func() {
+			defer wg.Done()
+			_ = ExamplePromptCounts()
+			_ = ExamplePromptCount("ts")
+		}()
+	}
+	wg.Wait()
+	if got := ExamplePromptCount("ts"); got != 32 {
+		t.Fatalf("ts counter = %d, want 32", got)
 	}
 }

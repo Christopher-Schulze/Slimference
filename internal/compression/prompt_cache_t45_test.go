@@ -35,21 +35,58 @@ func breakpointIndices(msgs []types.Message) []int {
 	return out
 }
 
-func TestT45_BreakpointsSpreadEvenly(t *testing.T) {
+func TestT45_BreakpointsPreferHighValueStableTail(t *testing.T) {
 	big := strings.Repeat("x", 2500)
 	msgs := buildUniformMsgs(20, big)
 	out := OptimizeCacheBreakpoints(msgs, 20)
 
 	got := breakpointIndices(out)
-	// Spread-evenly formula: indices (len*k/N)-1 for k in 1..N=4
-	// len=20, N=4 -> 4, 9, 14, 19
-	want := []int{4, 9, 14, 19}
+	// Uniform content has equal size, so the selector should keep the latest
+	// stable turns cached. These are most likely to be re-used on the next
+	// request while still respecting the provider's four-breakpoint cap.
+	want := []int{16, 17, 18, 19}
 	if len(got) != len(want) {
 		t.Fatalf("bp count = %d, want %d (got indices %v)", len(got), len(want), got)
 	}
 	for i, idx := range got {
 		if idx != want[i] {
 			t.Errorf("bp[%d] = %d, want %d (all=%v)", i, idx, want[i], got)
+		}
+	}
+}
+
+func TestT128_BreakpointsPrioritiseLargeToolResults(t *testing.T) {
+	big := strings.Repeat("x", 2500)
+	hugeTool := strings.Repeat("tool-output\n", 700)
+	msgs := buildUniformMsgs(10, big)
+	msgs[1] = types.Message{
+		Role: "user",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolInput:    hugeTool,
+			ToolUseID:    "toolu_1",
+			ToolResultID: "toolr_1",
+		}},
+	}
+	msgs[4] = types.Message{
+		Role: "tool",
+		Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolInput:    hugeTool + hugeTool,
+			ToolUseID:    "toolu_2",
+			ToolResultID: "toolr_2",
+		}},
+	}
+
+	out := OptimizeCacheBreakpoints(msgs, 10)
+	got := breakpointIndices(out)
+	want := map[int]bool{1: true, 4: true, 8: true, 9: true}
+	if len(got) != maxCacheBreakpoints {
+		t.Fatalf("bp count = %d, want %d (indices %v)", len(got), maxCacheBreakpoints, got)
+	}
+	for _, idx := range got {
+		if !want[idx] {
+			t.Fatalf("unexpected breakpoint index %d in %v", idx, got)
 		}
 	}
 }

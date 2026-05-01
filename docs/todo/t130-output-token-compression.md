@@ -1,11 +1,18 @@
 # TASK 130: Layer 4 - output-token compression via per-provider system-prompt directives
 
-Status: PENDING (planned 2026-05-01)
+Status: CODE-COMPLETE / LIVE-SAVING-PROOF PENDING (implemented 2026-05-02)
 Priority: P0 (largest unrealised cost lever)
-Scope: `internal/outputreduce/` (new package), `internal/proxy/handler.go`, `internal/compression/layer1.go`, provider-specific (`internal/proxy/provider.go`), `internal/config/`, `docs/output-reduce.md` (new).
-Driver: today Slimference compresses input. Output is untouched - whatever the model emits flows back to the agent verbatim. But output tokens are 3-5x more expensive than input on every major provider (OpenAI: $30/1M output vs $3-15/1M input; Anthropic Sonnet: $15/1M output vs $3/1M input; Codex / GPT-4o: $10/1M output vs $2.50/1M input). LLMs trained on RLHF default to verbose output: preambles ("I'll help you with that..."), full code emissions where a diff would do, narrating their reasoning between code blocks, repeating the user's request back. Most of that is ceremony with zero information value to the agent. T130 ships a per-provider system-prompt-injection layer that instructs the model to be concise, output diffs not full files for code edits, never quote back received content, and skip preamble. Empirical 30-50% output-token saving on coding tasks.
+Scope: `internal/outputreduce/` (new package), `internal/proxy/handler.go`, `internal/proxy/admin.go`, `internal/config/`, `cmd/slimference/output_reduce_cmd.go`, `docs/output-reduce.md`.
+Driver: today Slimference compresses input. Output is untouched - whatever the model emits flows back to the agent verbatim. Output tokens are usually more expensive than input tokens, and coding agents often emit removable ceremony: preambles, repeated tool output, full-file content where a patch would do, and trailing sign-offs. T130 ships a per-provider system-prompt-injection layer that instructs the model to be concise, output patches where safe, never quote back received content, and skip preamble. Realistic target: 20-35% output-token saving on coding tasks with provider/mode-specific safeguards.
 
-This is the biggest cost lever in the entire stack. Output tokens are the long pole of the bill on real coding sessions; moving the needle 30% on output is equivalent to ~80% on input.
+This is the biggest remaining cost lever because every prior layer is mostly input-side. It must be aggressive, but not stupid: a directive that breaks tool flows or adds more input than it saves is a regression.
+
+## Reality correction (2026-05-01 audit)
+
+- 30-50% is best-case for verbose sessions, not the acceptance baseline.
+- The directive itself costs input tokens. It is short, idempotent, and gated by `min_input_tokens` so small requests are not made worse.
+- "Diff-only" cannot be a blanket rule. New files, tool-specific apply flows, and user-requested full output must override it.
+- Auto-disable must consider both saving and tool-failure rate, not saving alone.
 
 ---
 
@@ -20,7 +27,7 @@ Real-session symptoms (observed in operator's own debug-decisions log):
 - Tool-result-reasoning turn produces 800 output tokens; 400 are the model quoting back the tool output ("the test failed with: <... entire stderr re-emitted ...> ; this means...").
 - Code-explain turn produces 1500 output tokens; the model includes commented-out code, "for context here is the function:" repetition, and trailing "let me know if you have questions" sign-off.
 
-Cumulative on a 40-turn session: ~30k output tokens. Of those, by manual sampling, 35-45% are removable ceremony, repetition, or could be diff-style. At GPT-4o pricing: $0.30 per session removable. Annualised across 50 sessions/week: $750/year per active user.
+Cumulative on a 40-turn coding session, 15-35% of output can often be removed without reducing task quality. Exact savings must be measured per provider and per mode.
 
 ## Target state
 
@@ -43,6 +50,10 @@ You operate inside a token-economy proxy. Apply these output rules unless the us
 4. Do not narrate your reasoning between code blocks unless requested. Code first, ask once at the end if explanation needed.
 5. End at the answer. No "Let me know if you have questions" sign-offs.
 6. When asked a binary question, answer with the binary first, justification second, kept short.
+7. Do not repeat tool output that was just shown; cite the shortest relevant error/path instead.
+8. Add code comments only where logic is non-obvious or invariants matter.
+9. Use one-line bullets for 3+ item status lists unless the user asked for detail.
+10. For edit tasks after a successful patch/tool action, stop at the necessary result and verification status.
 ```
 
 Per-provider tuning: the directive is rewritten at compile time for each provider profile because Anthropic responds to plain-English instructions, OpenAI is more compliant with bullet-form, Codex with a hybrid.
@@ -51,75 +62,79 @@ Per-provider tuning: the directive is rewritten at compile time for each provide
 
 ### WP1 - outputreduce package
 
-- `internal/outputreduce/api.go`: `Inject(req *Request, profile Profile) (*Request, Stats)`. Returns the modified request plus stats including bytes-added (which costs us a tiny input-token bump).
-- `internal/outputreduce/profiles.go`: per-provider profile = {directive text, position-in-prompt, injection style}. Profiles for Anthropic, OpenAI, Codex (ChatGPT-Plus), and a `noop` profile for opt-out.
-- `internal/outputreduce/measurement.go`: rolling per-session output-token-rate tracker so the operator can see the effect.
+- [x] `internal/outputreduce/api.go`: JSON-body injection for Anthropic system, OpenAI messages, Codex messages/input shapes. Returns modified body plus stats including bytes/tokens added.
+- [x] `internal/outputreduce/profiles.go`: profiles for Anthropic, OpenAI, Codex (ChatGPT-Plus), `auto`, and `noop`.
+- [x] `internal/outputreduce/measurement.go`: runtime tracker for injected/skipped turns, input overhead, observed output tokens, and last skip/apply reason.
 
 ### WP2 - Inbound injection
 
-- `internal/proxy/handler.go` calls `outputreduce.Inject` after Layer 0/1/2 input compression but before the request leaves the proxy.
-- The injection is idempotent: if the previous turn's prompt already contains the directive (because the agent re-sends history), we do not re-inject. Detection: Slimference signature marker in the directive that we recognise on subsequent turns.
-- Total bytes added per request: ~600 input tokens. ROI: positive on every turn that produces > 200 output tokens (which is the vast majority).
+- [x] `internal/proxy/handler.go` calls `outputreduce.InjectBody` after input compression/tool pruning and before Layer 3 cache lookup.
+- [x] Injection is idempotent via the configured signature marker.
+- [x] Total bytes added are capped by `max_added_bytes`.
+- [x] Small requests are skipped by `min_input_tokens` to avoid negative net economics.
 
-### WP3 - Per-provider directive variants
+### WP3 - Per-provider and per-mode directive variants
 
-- Anthropic profile: prose-style directive, appended after the original system prompt with a clear separator. Tested with Claude Sonnet 4.6: 32-40% output reduction in coding tasks.
-- OpenAI profile: bullet-list directive, appended after the original system message. Tested with GPT-4o: 28-35% reduction.
-- Codex profile (ChatGPT-Plus backend): hybrid prose + bullet, since Codex Desktop's system prompt has an opinionated structure of its own. Tested: 25-30% reduction.
+- [x] Anthropic profile: concise plain-English rules.
+- [x] OpenAI profile: compact bullet-style rules.
+- [x] Codex profile (ChatGPT-Plus backend): minimal workflow discipline for Codex-style tool sessions.
+- [ ] Mode-specific profiles (`question`, `edit`, `new_file`, `debug`, `review`) are deferred until real-session measurement proves the simple profile is not enough.
 
 ### WP4 - Effect-measurement loop
 
-- After each response, Slimference parses the usage stats and records output-token-count vs the running per-session baseline.
-- A new `slimference gain --output` reports per-session, per-provider output-token ratio change since injection took effect.
-- Per-provider tuning knob: if a provider's measured saving falls below 10% over a rolling 50-turn window, the directive is auto-disabled for that session and the operator gets a warning.
+- [x] After each response, Slimference records observed output tokens and directive input overhead in the admin status snapshot.
+- [ ] `slimference gain --output` is not implemented in this landing; admin status is the source of truth for T130 telemetry.
+- [ ] Auto-soften/disable based on saving + tool-failure rate needs a real tool-failure signal and live corpus baseline; not safe to fake.
 
 ### WP5 - Operator override
 
-- New config keys:
+- [x] New config keys:
   ```
   [compression.output_reduce]
   enabled = true
   profile = "auto"               # auto = pick by provider; or anthropic / openai / codex / noop
   custom_directive_path = ""     # optional path to operator-supplied directive that overrides the profile
   signature_marker = "#slimference-output-rules"  # so we recognise our own injection
+  max_added_bytes = 1400
+  min_input_tokens = 400
   ```
-- `slimference output-reduce status` shows current profile, last-measured saving, signature marker.
+- [x] `slimference output-reduce status` shows effective config.
+- [x] `slimference output-reduce enable|disable` flips the config.
 
 ### WP6 - Loss-control safeguards
 
 T130 modifies output behaviour. If a user-visible regression is observed, the operator must be able to roll back instantly.
 
-- `slimference output-reduce disable` flips the config off without restart.
-- The TUI surfaces a dial for current profile; operator can flip to `noop` mid-session.
-- Worst-case safety: if a session emits a tool-call that has Slimference-detectable corruption (incomplete code, malformed diff), the next turn's directive is rephrased / softened.
+- [x] `slimference output-reduce disable` flips the config off.
+- [ ] TUI dial is deferred; CLI/config is the current operator override.
+- [ ] Malformed-diff/tool-failure auto-soften is deferred until a reliable failure signal exists.
+- [x] Never modify provider responses post-hoc. T130 only changes the model instruction before generation.
 
 ### WP7 - Tests
 
-- `internal/outputreduce/profiles_test.go`: per-profile golden directives.
-- `internal/outputreduce/api_test.go`: injection-into-Anthropic-shape, OpenAI-shape, Codex-shape; idempotence (re-inject is a no-op).
-- `internal/outputreduce/measurement_test.go`: rolling output-rate tracker.
-- Integration test: full request -> inject -> upstream -> measure response -> assert saving counter incremented.
+- [x] `internal/outputreduce/api_test.go`: Anthropic string/array system injection, OpenAI system prepend/append, Codex input string injection, idempotence, custom directive, cap/noop/error branches.
+- [x] `internal/outputreduce/measurement_test.go`: tracker snapshot and nil safety.
+- [x] `internal/proxy/output_reduce_handler_test.go`: full proxy request -> inject -> upstream -> admin telemetry, plus below-min-token skip.
+- [x] `cmd/slimference/output_reduce_cmd_test.go`: CLI status and toggle coverage.
 
 ### WP8 - Docs
 
-`docs/output-reduce.md` operator-facing:
+- [x] `docs/output-reduce.md` operator-facing:
 
-- What the directive looks like (verbatim per profile).
-- Why it works (RLHF default verbosity, instruction-following).
-- How to override or augment.
-- Measured saving per provider.
-- How to roll back if the agent's output quality regresses.
+- Runtime behavior, config, CLI, telemetry, and limits.
 
 ## Acceptance criteria
 
-- [ ] Profile-per-provider directive set, golden-tested.
-- [ ] Idempotent injection across multi-turn conversations.
-- [ ] Effect measurement loop reports per-session output-token saving.
-- [ ] Per-provider auto-disable when saving falls below threshold.
-- [ ] Operator override at runtime.
-- [ ] On the live-corpus benchmark, output-token saving 25-40% across the three major providers.
-- [ ] Coverage 100%; race-clean; CI gate green.
-- [ ] No regression in input-token saving from existing layers.
+- [x] Profile-per-provider directive set, tested.
+- [x] Idempotent injection across multi-turn conversations.
+- [x] Effect measurement loop reports observed output tokens plus directive overhead; no fake saving claim without baseline.
+- [ ] Per-provider auto-disable when saving falls below threshold is pending real failure/saving signal.
+- [x] Operator override via config and `slimference output-reduce enable|disable|status`.
+- [ ] On the live-corpus benchmark, output-token saving 20-35% across coding sessions, with provider-specific breakdown.
+- [x] Directive input-token overhead is measured and included in net input-token accounting.
+- [ ] Diff/patch guidance is not yet mode-specific; it is phrased with explicit full/new-file override.
+- [x] Coverage 100%; focused race-clean; CI gate green.
+- [x] No regression in input-token saving from existing layers under CI corpus gates.
 
 ## Out of scope
 

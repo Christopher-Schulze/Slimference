@@ -19,6 +19,10 @@ func TestHandleSubcommand_doctor_smoke(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
+	prevHome := osUserHomeDir
+	fakeHome := t.TempDir()
+	osUserHomeDir = func() (string, error) { return fakeHome, nil }
+	t.Cleanup(func() { osUserHomeDir = prevHome })
 
 	// Write a minimal config with L2 disabled (T121 default) so the
 	// doctor smoke test does not depend on the operator's XDG config.
@@ -757,7 +761,7 @@ func TestHandleSubcommand_doctor_redactionEmpty(t *testing.T) {
 
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "doctor.toml")
-	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\n[compression.summary]\noutbound_redaction = \"\"\n"
+	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\n[compression.summary]\noutbound_redaction = \"\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}

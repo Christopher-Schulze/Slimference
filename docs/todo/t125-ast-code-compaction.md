@@ -1,26 +1,37 @@
 # TASK 125: AST-based code compaction for file-read tool results
 
-Status: PENDING (planned 2026-05-01)
+Status: CODE-COMPLETE FOR GO SAFE-GATED PATH / LIVE NET-SAVING PROOF PENDING (2026-05-02)
 Priority: P1
-Scope: `internal/codecompact/` (new package), `internal/filter/builtin_read.go`, `internal/filter/pipeline.go`, integration with cache_archive (T96 / T108).
-Driver: when an LLM coding agent reads a code file via `Read` / `cat` / similar tool, today it sees the entire file verbatim - all 2000 lines of a Go service file, every imported helper, every legacy function. The agent rarely needs all of it; what it needs is the package structure, the imports, the symbol table (function / type / constant names + signatures), and the body of whatever function is relevant to the current task. T125 ships an AST-based compactor that replaces full-file reads with a structured "skeleton + relevant bodies" view, lossless because the agent can always re-read the file or `grep` for any body it discovers it needs.
+Scope: `internal/codecompact/` (new package), `internal/filter/builtin_read.go`, `internal/filter/pipeline.go`, integration with cache_archive (T96 / T108). Must include edit-mode gating before default-on.
+Driver: when an LLM coding agent reads a code file via `Read` / `cat` / similar tool, today it sees the entire file verbatim - all 2000 lines of a Go service file, every imported helper, every legacy function. The agent often only needs package structure, imports, symbol table, signatures, and a small number of bodies. T125 ships a gated code-read compactor that replaces full-file reads with a structured "skeleton + relevant bodies" view only when that is likely to help. In edit/debug mode it must pass through full content because extra re-reads can cost more than the input tokens saved.
 
-This is the largest single Layer-0/1 saving lever after Layer 4 (output compression). On a typical 80k-token coding session, file-read tool results account for 30-50% of input tokens. Reducing that by 70-85% net saves 20-40% on total token spend with zero correctness loss.
+This is one of the largest input-side levers after prompt/cache work, but it is not free. On scan/orientation turns, file-read tokens can drop 60-80%. On edit turns, compaction can become negative if the agent immediately asks for omitted bodies. The task is successful only if mode detection prevents negative net savings.
+
+## Reality correction (2026-05-01 audit)
+
+- Do not default this on for every read.
+- Do not assume "agent can re-read" is free; each re-read is another tool loop and can increase expensive output tokens.
+- Start with Go stdlib parsing and one or two high-value languages before adding a large tree-sitter dependency set.
+- Body-on-demand must be a real, testable retrieval path. A footer that hopes the agent asks correctly is not enough.
 
 ---
 
 ## Languages covered (priority order)
 
+2026-05-02 implementation reality:
+
+- Go shipped first via stdlib `go/parser` / `go/ast` / `go/printer` in `internal/codecompact`.
+- The filter integration is deliberately narrow: large `.go` full-file reads through `cat` only. `head` / `tail` are partial reads and bypass AST compaction.
+- TypeScript/Python/Rust/tree-sitter expansion is deferred until the Go gate shows positive live net savings. This follows the reality correction: no 10-grammar dependency set before measured value.
+- Existing regex structure extraction remains as fallback for non-Go languages already supported by `internal/compression/structure.go`.
+
 Each language has a different parser path. We start with the four most-used in LLM coding agents and extend.
 
-1. **Go** - `go/parser` from stdlib. Already in the binary.
-2. **TypeScript / JavaScript** - `tree-sitter` via `github.com/smacker/go-tree-sitter` + `tree-sitter-typescript`.
-3. **Python** - `tree-sitter-python` (parsing only; no execution).
-4. **Rust** - `tree-sitter-rust`.
-5. **Java** - `tree-sitter-java` (extends to Kotlin, Scala via separate grammars).
-6. **C / C++** - `tree-sitter-c` / `tree-sitter-cpp`.
-7. **Swift / Objective-C** - `tree-sitter-swift`.
-8. **Ruby**, **PHP**, **Elixir**, **Haskell**, **Dart**, **Zig**, **Nim**, **Crystal** - tree-sitter grammars where stable.
+1. **Go** - `go/parser` from stdlib. First implementation path.
+2. **TypeScript / JavaScript / TSX / JSX** - parser choice must be justified by fixture gain; tree-sitter is allowed only after binary/build impact is accepted.
+3. **Python** - parser-backed only after Go proves the mode gate.
+4. **Rust** - parser-backed only after Go proves the mode gate.
+5. **C / C++ / Java / Swift / Ruby / PHP / Dart / Zig / Svelte** - later expansion only when T118b/T124 corpus shows real file-read volume.
 
 Languages tree-sitter has no stable grammar for (e.g. very new langs) fall through to "no compaction; pass file unchanged".
 
@@ -124,9 +135,16 @@ class Service:
 def helper_fn(x: str) -> int: ...  # body omitted: 8 lines
 ```
 
-## Lossless guarantee + agent re-read protocol
+## Mode gate + lossless recovery protocol
 
-The compaction is **lossless** in the sense that no information the agent needs to act correctly is dropped *and unrecoverable*. If the agent decides it needs a specific body it omitted:
+The compaction is recoverable, not magically free. It may run only when the mode gate decides the current action is scan/orientation. It must bypass and return full content when:
+
+- The file was edited in the current turn/session.
+- The tool intent is obviously edit/debug (`apply_patch`, `write`, failing test body lookup, "fix this function", etc.).
+- The file is small enough that skeleton overhead is not worth it.
+- Recent quality signals show re-read spikes for this session.
+
+If the agent decides it needs a specific body that was omitted:
 
 1. The compacted output includes a footer:
    ```
@@ -137,22 +155,24 @@ The compaction is **lossless** in the sense that no information the agent needs 
 2. The agent's next tool call can request the full body; Slimference handles the re-request by replaying the original file content for that function.
 3. Slimference caches the original file content per session so a re-read is free (no second filesystem hit).
 
-This makes T125 effectively lossless under the LLM-agent interaction loop: the cost of "I needed that body, fetch please" is one extra tool call, recouped many times over by every other body that did not need fetching.
+This makes T125 recoverable under the LLM-agent interaction loop. The acceptance gate still measures net savings, including re-read cost and output-token recovery cost.
 
 ## Implementation plan
 
 ### WP1 - codecompact package
 
-- `internal/codecompact/api.go`: `Compact(path string, content []byte, opts Options) ([]byte, Stats, error)`. Options include centrality-bias (function names from recent agent context, defaulted from sliding-window analyser), max-skeleton-size, language-detect override.
-- `internal/codecompact/lang_detect.go`: per-extension dispatch (`.go` -> Go, `.ts`/`.tsx` -> TS, `.py` -> Py, etc.). Shebang detection for extensionless scripts.
-- `internal/codecompact/lang_go.go`: uses `go/parser` + `go/ast` + `go/printer`. No external dependency (already in stdlib).
-- `internal/codecompact/lang_ts.go`, `lang_py.go`, `lang_rust.go`, `lang_java.go`, `lang_c.go`: each wraps a tree-sitter grammar with a small AST visitor that extracts decl types + signatures.
+Completed as `internal/codecompact/api.go`:
+
+- `Compact(path string, content []byte, opts Options) ([]byte, Stats, bool, error)`.
+- Go detection by `.go`.
+- Go parsing via stdlib `go/parser` + `go/ast` + `go/printer`.
+- Options include mode, min bytes, max included body lines, recently edited gate, force-full gate, and relevant symbols.
+- Stats expose language, original/compacted bytes, function count, omitted bodies, included bodies, and mode.
+- Unsupported languages return `ErrUnsupported` without mutating output.
 
 ### WP2 - tree-sitter integration
 
-- New dependency: `github.com/smacker/go-tree-sitter` + per-grammar packages.
-- Grammars are statically linked (~1MB per language). Total binary growth ~10MB across 9 grammars. Acceptable.
-- Build tag `notreesitter` excludes tree-sitter for operators who care about binary size (Go-only compaction still works).
+Deferred by design. No tree-sitter dependency was added. Reason: the current repo already has broad non-Go regex structure extraction and T124 diagnostic coverage; adding linked grammars before Go live metrics would be dependency weight without proof.
 
 ### WP3 - Centrality heuristic
 
@@ -165,39 +185,65 @@ This makes T125 effectively lossless under the LLM-agent interaction loop: the c
 - +1 if function body <= 12 lines (cheap to include, shows pattern).
 - Decay: include the top-K-scored bodies until the compacted output reaches a target ratio (e.g. 30% of original).
 
+Implemented subset:
+
+- Include body when function body is <= 8 lines by default.
+- Include `main` and `init`.
+- Include body when the function name is in `Options.RelevantSymbols`.
+- Omit other bodies with `/* body omitted: N lines */`.
+
+### WP3b - Mode gate
+
+`internal/codecompact/mode.go` decides whether compaction is allowed:
+
+- `scan`: compact allowed.
+- `edit`: compact denied, full content returned.
+- `debug`: compact denied unless the failing symbol is known and included.
+- `unknown`: compact denied until corpus evidence proves positive net savings.
+
+Signals: recent tool names, current command, file path, previous edits, quality re-read counters from T77, and explicit operator config.
+
+Implemented subset:
+
+- `Mode` must be empty, `scan`, or `orientation`.
+- `edit` / `debug` / unknown modes deny compaction.
+- `RecentlyEdited` denies compaction.
+- `ForceFull` denies compaction.
+- `MinBytes` floor denies small files.
+- Filter integration only calls the AST compactor for `cat <file.go>`, never for `head` / `tail`.
+
 ### WP4 - Pipeline integration
 
-- New dispatch entry in `internal/filter/pipeline.go`: `code_compact` runs after `read_summary` (T96) but before generic passthrough.
-- Detection: argv-based (`Read`, `cat`, `bat`) + path-extension match.
-- Bypass: file size < 200 lines or < 4KB - too small for compaction to help; full pass-through.
-- Bypass: agent tool call has `read_full=true` flag.
+Completed by extending `internal/filter/builtin_read.go`:
+
+- Single-file `cat` on large Go files attempts `codecompact.Compact` before existing regex structure extraction.
+- `head` / `tail` bypass AST compaction and continue through the old path.
+- Unknown languages pass through or use existing comment-strip/structure fallback where available.
 
 ### WP5 - Re-request handling
 
-- Slimference caches the original file content per session in an in-memory map keyed by (sessionID, absolutePath, mtime).
-- New tool-result-pre-processor detects the "agent asked for a function body explicitly" pattern (heuristic: tool call with `query=` + function name from a previous compacted output).
-- On match, Slimference rewrites the tool result to include the body of the requested function from the cached original.
+Not shipped in this pass. The footer explicitly tells the agent to re-read the file for full bodies. A real body-on-demand cache requires session-aware request context that the current `filter` read path does not own. This remains the main open gap before declaring T125 fully closed.
 
 ### WP6 - Telemetry
 
-- Per-language hit counter + bytes-saved counter.
-- Re-read counter: how often the agent had to ask for a body explicitly (high re-read count means the centrality heuristic is too aggressive; tune downward).
+Existing per-filter observability records in/out bytes for `strip_comments_file_read`. Dedicated per-language AST counters and re-read/net-savings accounting remain pending until body-on-demand/session ownership exists.
 
 ### WP7 - Tests
 
-- Per-language `lang_<lang>_test.go`: 15+ tests per language. Skeleton matches expected; bodies-included match centrality heuristic.
-- Lossless round-trip test: random file -> compact -> ask for every omitted body -> reconstruct -> byte-equal to original (modulo whitespace inside bodies).
-- Performance test: 10k-line Go file compacts in <50ms.
+- `internal/codecompact`: Go skeleton generation, large body omission, short body inclusion, relevant-symbol body inclusion, mode gates, unsupported/invalid input, main/init body inclusion, integer formatting helper.
+- `internal/filter`: AST compaction integration and partial-read bypass.
+- Round-trip body-on-demand remains pending.
 
 ## Acceptance criteria
 
-- [ ] Go compaction works on the live `internal/proxy/proxy.go` (1k+ lines): skeleton + 2-3 method bodies.
-- [ ] TypeScript / Python / Rust / Java parsers ship with corpus tests.
+- [x] Go compaction works on large Go files: skeleton + selected bodies.
+- [x] Mode gate denies edit/debug/force-full/recently-edited/small-file paths and returns full content.
+- [x] Broader tree-sitter expansion is deferred until Go gate metrics are green.
 - [ ] Re-read protocol round-trips: agent asks for a body, gets it, reconstructed file is byte-equal to original.
-- [ ] Centrality heuristic produces stable output for the same input + recent context.
+- [x] Centrality heuristic produces stable output for the same input + relevant symbols.
 - [ ] Per-session cache LRU-bounded; no leak on long sessions.
-- [ ] Coverage 100%; race-clean; CI gate green.
-- [ ] On Slimference repo's own session corpus (T118b), file-read tokens drop by 60-80% with measurable agent-functioning gain (no degraded task completion).
+- [x] Coverage 100%; race-clean; CI gate green after the full Phase R batch.
+- [ ] On Slimference repo's own session corpus (T118b), scan/orientation file-read tokens drop by 60-80% and edit/debug paths show no negative net savings.
 
 ## Out of scope
 
@@ -208,6 +254,7 @@ This makes T125 effectively lossless under the LLM-agent interaction loop: the c
 ## Validation
 
 ```
-go test -race ./internal/codecompact/...
+go test ./internal/codecompact ./internal/filter
+go test -race ./internal/codecompact ./internal/filter
 slimference gain --by-language    # post-corpus measurement
 ```

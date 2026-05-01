@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"sort"
 	"sync/atomic"
 
 	"github.com/slimference/slimference/internal/types"
@@ -11,6 +12,10 @@ const (
 	minStablePrefixTokens = 1024
 	// Rough estimate: 4 characters per token (conservative).
 	charsPerToken = 4
+	// toolResultCacheThreshold marks large tool-result blocks as high-value
+	// cache boundaries. Anthropic charges cache reads far below fresh input,
+	// so large stable tool output should outrank tiny conversational turns.
+	toolResultCacheThreshold = 5 * 1024
 )
 
 // promptCacheBreakpointsInjected counts total breakpoints injected across all
@@ -32,11 +37,10 @@ func ResetPromptCacheBreakpointsCounter() {
 // OptimizeCacheBreakpoints injects Anthropic prompt cache breakpoints into
 // messages. It places `cache_control: {type: "ephemeral"}` on the last content
 // block of up to maxCacheBreakpoints messages inside the stable prefix
-// (index < stableBoundary). Breakpoints are **spread evenly** across the
-// stable prefix (T45) rather than clustered at the tail, which produces
-// overlapping cache layers at multiple depths: a small edit near the tail
-// still hits the earlier layers, and a large prefix change only invalidates
-// the layers it spans.
+// (index < stableBoundary). Breakpoints are selected by expected cache value:
+// large tool results first, then late stable assistant/user turns, with
+// deterministic tie-breaking. This keeps T45's "multiple depth" intent while
+// avoiding uniform placement on low-value tiny messages.
 //
 // Only runs when the stable prefix is >= minStablePrefixTokens estimated
 // tokens - below that the caching overhead outweighs the win.
@@ -60,28 +64,7 @@ func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []ty
 		return messages
 	}
 
-	// Collect indices of messages with content within the stable prefix.
-	// Only these can carry a breakpoint.
-	eligible := make([]int, 0, stableBoundary)
-	for i := 0; i < stableBoundary && i < len(messages); i++ {
-		if len(messages[i].Content) > 0 {
-			eligible = append(eligible, i)
-		}
-	}
-
-	// T45: spread-evenly placement.
-	// If we have up to maxCacheBreakpoints eligible messages, mark them all.
-	// Otherwise, pick maxCacheBreakpoints positions evenly across eligible:
-	// segment k (1..N) ends at eligible[floor(len*k/N) - 1].
-	pickCount := maxCacheBreakpoints
-	if pickCount > len(eligible) {
-		pickCount = len(eligible)
-	}
-	selected := make(map[int]struct{}, pickCount)
-	for k := 1; k <= pickCount; k++ {
-		idx := (len(eligible)*k)/pickCount - 1
-		selected[eligible[idx]] = struct{}{}
-	}
+	selected := selectCacheBreakpointIndices(messages, stableBoundary)
 
 	// Work on a shallow copy of the slice so we do not mutate the caller's
 	// slice header.
@@ -90,7 +73,7 @@ func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []ty
 
 	ephemeral := &types.CacheControl{Type: "ephemeral"}
 	injected := 0
-	for msgIdx := range selected {
+	for _, msgIdx := range selected {
 		msg := result[msgIdx]
 		newContent := make([]types.ContentBlock, len(msg.Content))
 		copy(newContent, msg.Content)
@@ -105,4 +88,71 @@ func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []ty
 	}
 
 	return result
+}
+
+type cacheBreakpointCandidate struct {
+	index int
+	score int
+}
+
+func selectCacheBreakpointIndices(messages []types.Message, stableBoundary int) []int {
+	candidates := make([]cacheBreakpointCandidate, 0, stableBoundary)
+	for i := 0; i < stableBoundary && i < len(messages); i++ {
+		if len(messages[i].Content) == 0 {
+			continue
+		}
+		candidates = append(candidates, cacheBreakpointCandidate{
+			index: i,
+			score: cacheBreakpointScore(messages[i], i, stableBoundary),
+		})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return candidates[i].index > candidates[j].index
+	})
+
+	pickCount := maxCacheBreakpoints
+	if pickCount > len(candidates) {
+		pickCount = len(candidates)
+	}
+	selected := make([]int, pickCount)
+	for i := 0; i < pickCount; i++ {
+		selected[i] = candidates[i].index
+	}
+	sort.Ints(selected)
+	return selected
+}
+
+func cacheBreakpointScore(message types.Message, index, stableBoundary int) int {
+	score := 0
+	if stableBoundary > 1 {
+		score += (index * 100) / (stableBoundary - 1)
+	}
+	switch message.Role {
+	case "assistant":
+		score += 90
+	case "user":
+		score += 70
+	case "tool":
+		score += 80
+	case "system":
+		score += 40
+	}
+	for _, block := range message.Content {
+		size := len(block.Text) + len(block.ToolInput)
+		if block.Type == "tool_result" && size >= toolResultCacheThreshold {
+			score += 1000 + size/1024
+			continue
+		}
+		if size > 1024 {
+			score += size / 2048
+		}
+	}
+	return score
 }

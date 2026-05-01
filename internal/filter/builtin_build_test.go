@@ -764,6 +764,27 @@ error: could not compile 'myapp' due to 1 previous error
 	}
 }
 
+func TestTryCompactBuildOutput_FallbackExtractsBuildErrors(t *testing.T) {
+	t.Parallel()
+	input := strings.Join([]string{
+		"step 1 completed",
+		"step 2 completed",
+		"step 3 completed",
+		"fatal: linker could not resolve symbol",
+		"step 4 completed",
+		"step 5 completed",
+		"step 6 completed",
+	}, "\n")
+	out, ok := TryCompactBuildOutput([]string{"zig", "build"}, []byte(input))
+	if !ok {
+		t.Fatal("expected fallback build-error compaction")
+	}
+	got := string(out)
+	if !strings.Contains(got, "[zig build] FAILED") || !strings.Contains(got, "fatal: linker") {
+		t.Fatalf("unexpected fallback summary: %q", got)
+	}
+}
+
 // TestBuildToolLabel_pnpmYarnNinjaBazelZig covers the four uncovered branches in buildToolLabel:
 // pnpm exec ninja, yarn ninja, npx zig build, npx bazel build.
 func TestBuildToolLabel_pnpmYarnNinjaBazelZig(t *testing.T) {

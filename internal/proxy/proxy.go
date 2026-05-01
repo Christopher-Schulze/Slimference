@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -23,10 +24,13 @@ import (
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/quality"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/tlsca"
+	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -34,6 +38,7 @@ import (
 // newFileWatcherFunc is called by New to create the file watcher; overridden in tests.
 var newFileWatcherFunc = caching.NewFileWatcher
 var errRequestBodyTooLarge = errors.New("request body too large")
+var proxyUserHomeDir = os.UserHomeDir
 
 const maxRequestBodySize = 32 * 1024 * 1024
 
@@ -134,6 +139,8 @@ type Proxy struct {
 	// serverState holds the T78 per-session response-id store. Always
 	// constructed; live wiring is gated by [proxy] server_state_enabled.
 	serverState *sessions.ResponseStateStore
+	// outputReduce tracks T130 prompt-injection overhead and observed output.
+	outputReduce *outputreduce.Tracker
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
@@ -191,6 +198,7 @@ func New(cfg *config.Config) *Proxy {
 		qualityNetSavings: quality.NewNetSavings(),
 		toolPrune:         toolprune.NewUsageTracker(20),
 		serverState:       sessions.NewResponseStateStore(1024),
+		outputReduce:      outputreduce.NewTracker(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile),
 	}
 
 	// Default all toggles to enabled.
@@ -201,18 +209,14 @@ func New(cfg *config.Config) *Proxy {
 	p.layerEnabled[1].Store(cfg.Compression.Layer2Enabled)
 	p.layerEnabled[2].Store(cfg.Compression.Layer3Enabled)
 
-	// Build upstream HTTP clients with sensible timeouts.
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		MaxIdleConnsPerHost:   10,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: 120 * time.Second, // SSE streams can be long
-		DisableCompression:    true,              // we handle our own compression
+	tlsResolver, err := tlsdial.NewResolver(cfg.Transparent.DefaultTLSProfile, cfg.Transparent.TLSProfiles)
+	if err != nil {
+		slog.Warn("transparent TLS profile config invalid; using Go stdlib", "error", err)
+		tlsResolver, _ = tlsdial.NewResolver("go_stdlib", nil)
 	}
+
+	// Build upstream HTTP clients with sensible timeouts.
+	transport := newUpstreamTransport(cfg, tlsResolver)
 	upstreamClient := &http.Client{Transport: transport}
 	p.httpClients[types.Anthropic] = upstreamClient
 	p.httpClients[types.OpenAI] = upstreamClient
@@ -325,14 +329,81 @@ func New(cfg *config.Config) *Proxy {
 	mux.HandleFunc(AdminFlushPath, p.adminFlushHandler)
 	mux.HandleFunc("/", p.ServeHTTP)
 
+	var handler http.Handler = mux
+	if cfg.Transparent.Enabled {
+		if signer, err := newTransparentSigner(cfg); err != nil {
+			slog.Error("transparent proxy disabled: CA init failed", "error", err)
+		} else {
+			connect := NewConnectInterceptor(signer, mux, cfg.Transparent.InterceptHosts)
+			connect.SetLogger(slog.Default())
+			connect.SetWebSocketTunnel(&WebSocketTunnel{
+				Dialer:      newProfiledWebSocketDialer(tlsResolver),
+				Logger:      slog.Default(),
+				BypassPaths: cfg.Transparent.AudioBypassPaths,
+			})
+			handler = connect
+			slog.Info("transparent proxy enabled", "intercept_hosts", cfg.Transparent.InterceptHosts)
+		}
+	}
+
 	p.server = &http.Server{
-		Handler:      p.recoverMiddleware(mux),
+		Handler:      p.recoverMiddleware(handler),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 0, // no write timeout for SSE streams
 		IdleTimeout:  120 * time.Second,
 	}
 
 	return p
+}
+
+func newUpstreamTransport(cfg *config.Config, resolver tlsdial.Resolver) *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport := &http.Transport{
+		DialContext:           dialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 120 * time.Second, // SSE streams can be long
+		DisableCompression:    true,              // we handle our own compression
+	}
+	if cfg.Transparent.Enabled {
+		transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			return tlsdial.Dial(ctx, network, host, port, resolver.Resolve(host))
+		}
+	}
+	return transport
+}
+
+func newProfiledWebSocketDialer(resolver tlsdial.Resolver) WebSocketDialer {
+	return func(host, port string) (net.Conn, error) {
+		return tlsdial.Dial(context.Background(), "tcp", host, port, resolver.Resolve(host))
+	}
+}
+
+func newTransparentSigner(cfg *config.Config) (*tlsca.Signer, error) {
+	caDir := strings.TrimSpace(cfg.Transparent.CADir)
+	if caDir == "" {
+		home, err := proxyUserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve home for transparent CA: %w", err)
+		}
+		caDir = filepath.Join(home, ".slimference")
+	} else {
+		caDir = config.ExpandHomePath(caDir)
+	}
+	ca, err := tlsca.LoadOrGenerateCA(caDir)
+	if err != nil {
+		return nil, err
+	}
+	return tlsca.NewSigner(ca, cfg.Transparent.CertCacheSize), nil
 }
 
 // SetTUISendFn wires up the TUI event delivery function after the TUI program is created.

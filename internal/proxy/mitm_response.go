@@ -10,20 +10,18 @@ import (
 )
 
 // mitmResponseWriter is a minimal http.ResponseWriter for the
-// CONNECT-MITM dispatch path. It buffers the response in memory and
-// flushes it to the underlying TLS connection in `finish()` so the
-// loop in servePlaintextOnTLS controls connection lifetime end-to-end.
-//
-// The full http.ResponseWriter contract is intentionally NOT
-// implemented: streaming via http.Flusher is not supported, hijacking
-// is not supported. Inner handlers that rely on those (none in the
-// Slimference dispatch chain today) need a different ingress.
+// CONNECT-MITM dispatch path. Non-streaming responses stay buffered so
+// Content-Length remains deterministic; Flush switches the writer to
+// immediate streaming for SSE-style relays.
 type mitmResponseWriter struct {
 	conn        io.Writer
 	header      http.Header
 	body        bytes.Buffer
 	statusCode  int
 	wroteHeader bool
+	wroteHead   bool
+	streaming   bool
+	writeErr    error
 }
 
 func newMITMResponseWriter(conn io.Writer) *mitmResponseWriter {
@@ -45,26 +43,84 @@ func (rw *mitmResponseWriter) WriteHeader(status int) {
 	rw.wroteHeader = true
 }
 
-// Write buffers the response body. WriteHeader is implicitly called
-// with 200 if the handler did not set a status before the first Write.
+// Write buffers the response body until Flush or finish. After Flush,
+// bytes are written through immediately.
 func (rw *mitmResponseWriter) Write(p []byte) (int, error) {
 	if !rw.wroteHeader {
 		rw.WriteHeader(http.StatusOK)
 	}
+	if rw.streaming {
+		n, err := rw.conn.Write(p)
+		if err != nil && rw.writeErr == nil {
+			rw.writeErr = err
+		}
+		return n, err
+	}
 	return rw.body.Write(p)
+}
+
+// Flush switches the writer into streaming mode and writes all buffered
+// bytes immediately. Errors are reported by finish(), matching the
+// http.Flusher signature which cannot return an error.
+func (rw *mitmResponseWriter) Flush() {
+	if rw.writeErr != nil {
+		return
+	}
+	if !rw.wroteHeader {
+		rw.WriteHeader(http.StatusOK)
+	}
+	rw.streaming = true
+	if rw.header.Get("Connection") == "" {
+		rw.header.Set("Connection", "close")
+	}
+	if err := rw.writeHead(false); err != nil {
+		rw.writeErr = err
+		return
+	}
+	if rw.body.Len() > 0 {
+		if _, err := rw.conn.Write(rw.body.Bytes()); err != nil {
+			rw.writeErr = err
+			return
+		}
+		rw.body.Reset()
+	}
+}
+
+func (rw *mitmResponseWriter) streamed() bool {
+	return rw.streaming
 }
 
 // finish writes the buffered status line, headers and body to the
 // underlying connection. Returns the first write error, if any.
 func (rw *mitmResponseWriter) finish() error {
+	if rw.writeErr != nil {
+		return rw.writeErr
+	}
 	if !rw.wroteHeader {
 		rw.WriteHeader(http.StatusOK)
+	}
+	if rw.streaming {
+		return nil
+	}
+	if err := rw.writeHead(true); err != nil {
+		return err
+	}
+	if rw.body.Len() == 0 {
+		return nil
+	}
+	_, err := rw.conn.Write(rw.body.Bytes())
+	return err
+}
+
+func (rw *mitmResponseWriter) writeHead(withContentLength bool) error {
+	if rw.wroteHead {
+		return nil
 	}
 	statusText := http.StatusText(rw.statusCode)
 	if statusText == "" {
 		statusText = "Status"
 	}
-	if rw.header.Get("Content-Length") == "" {
+	if withContentLength && rw.header.Get("Content-Length") == "" {
 		rw.header.Set("Content-Length", strconv.Itoa(rw.body.Len()))
 	}
 	var buf bytes.Buffer
@@ -74,11 +130,8 @@ func (rw *mitmResponseWriter) finish() error {
 	if _, err := rw.conn.Write(buf.Bytes()); err != nil {
 		return err
 	}
-	if rw.body.Len() == 0 {
-		return nil
-	}
-	_, err := rw.conn.Write(rw.body.Bytes())
-	return err
+	rw.wroteHead = true
+	return nil
 }
 
 // writeHeadersSorted writes header lines in sorted key order so the

@@ -86,7 +86,9 @@ var (
 	resolveTeeDirFn              = resolveTeeDir
 	filterDefaultDataDirFn       = filter.DefaultDataDir
 	writeGainByCommandCSV        = analytics.WriteGainByCommandCSV
+	writeGainByParserCSV         = analytics.WriteGainByParserCSV
 	writeGainSummaryCSV          = analytics.WriteGainSummaryCSV
+	writePromptCacheCSV          = analytics.WritePromptCacheCSV
 	replaySessionFn              = dbg.ReplaySession
 	daemonIsRunningFn            = daemon.IsRunning
 	daemonStopFn                 = daemon.StopDaemon
@@ -376,6 +378,12 @@ func runTUI() {
 	// Apply CLI flag overrides (take priority over config file).
 	applyTUIFlags(cfg, os.Args[1:])
 
+	if err := ensureLayer2PolicyAcknowledged(cfg, true, os.Stdin, os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintf(os.Stderr, "layer2 policy: %v\n", err)
+		exitFn(1)
+		return
+	}
+
 	setupLogging(cfg)
 	runTUIAfterStartFn(newRemoteProxyFn(cfg))
 }
@@ -564,6 +572,9 @@ func handleSubcommand(args []string) {
 	case "layer2":
 		handleLayer2Cmd(args[1:])
 
+	case "output-reduce":
+		handleOutputReduceCmd(args[1:])
+
 	case "completion":
 		handleCompletionCmd(args[1:])
 
@@ -578,7 +589,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, completion, trust, capture-session, proxy, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
 		exitFn(1)
 	}
 }
@@ -1234,6 +1245,9 @@ func handleDoctorCmd() {
 		}
 		fmt.Printf("[%s] %s: %s\n", symbol, name, msg)
 	}
+	warn := func(name string, fn func() string) {
+		fmt.Printf("[WARN] %s: %s\n", name, fn())
+	}
 
 	fmt.Println("Slimference Doctor")
 	fmt.Println(strings.Repeat("-", 50))
@@ -1356,15 +1370,19 @@ func handleDoctorCmd() {
 	// T121: warn when an external_third_party summarization provider is
 	// enabled. This is the data-policy safety net: even with redaction,
 	// the operator must explicitly acknowledge the data flow.
-	check("L2 provider trust", func() (string, bool) {
+	warn("L2 provider trust", func() string {
 		if !cfg.Compression.Layer2Enabled {
-			return "Layer 2 disabled (no outbound data)", true
+			return "Layer 2 disabled (no outbound data)"
 		}
 		trustClass := types.EffectiveTrustClass(types.MiniMax, cfg.Compression.MiniMax.TrustClass)
 		if trustClass == types.TrustClassUpstreamProvider {
-			return fmt.Sprintf("%s is labelled as upstream provider (operator override)", types.MiniMax), true
+			return fmt.Sprintf("%s is labelled as upstream provider (operator override)", types.MiniMax)
 		}
-		return fmt.Sprintf("WARN: %s is an external third-party provider - conversation data is sent to %s", types.MiniMax, cfg.Compression.MiniMax.BaseURL), false
+		redaction := cfg.Compression.Summary.OutboundRedaction
+		if redaction == "" {
+			redaction = summarization.RedactionModeDefault
+		}
+		return fmt.Sprintf("Layer 2 enabled - outbound to %s (%s external third-party provider). Redaction: %s. See docs/data-policy.md", types.MiniMax, trustClass, redaction)
 	})
 
 	check("Content archive", func() (string, bool) {
@@ -1524,6 +1542,8 @@ func handleStatsCmd(args []string) {
 type gainCLIFlags struct {
 	json      bool
 	byCommand bool
+	byParser  bool
+	cache     bool
 	csv       bool
 	project   string
 }
@@ -1536,6 +1556,10 @@ func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
 			f.json = true
 		case "--by-command":
 			f.byCommand = true
+		case "--by-parser":
+			f.byParser = true
+		case "--cache":
+			f.cache = true
 		case "--csv":
 			f.csv = true
 		case "--project":
@@ -1561,6 +1585,12 @@ func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
 	if period == "" {
 		period = "today"
 	}
+	if f.cache && (f.byCommand || f.byParser || f.project != "") {
+		return "", f, fmt.Errorf("--cache cannot be combined with --by-command, --by-parser, or --project")
+	}
+	if f.byCommand && f.byParser {
+		return "", f, fmt.Errorf("--by-command and --by-parser are mutually exclusive")
+	}
 	return period, f, nil
 }
 
@@ -1574,8 +1604,12 @@ func handleGainCmd(args []string) {
 	switch period {
 	case "today", "week", "month", "all":
 	default:
-		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
+		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command|--by-parser|--cache] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
 		exitFn(1)
+	}
+	if flags.cache {
+		handleGainCache(period, flags)
+		return
 	}
 	path, err := resolveFilterDBPathFn()
 	if err != nil {
@@ -1594,7 +1628,7 @@ func handleGainCmd(args []string) {
 	if cfg, err := config.Load(); err == nil {
 		usdRate = cfg.Analytics.GainUSDPerMillionTokens
 	}
-	rep, err := analytics.QueryFilterGainReport(path, period, time.Now(), flags.byCommand, flags.project, usdRate)
+	rep, err := analytics.QueryFilterGainReportWithOptions(path, period, time.Now(), flags.byCommand, flags.byParser, flags.project, usdRate)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gain: %v\n", err)
 		exitFn(1)
@@ -1603,6 +1637,13 @@ func handleGainCmd(args []string) {
 	if flags.csv {
 		if flags.byCommand {
 			if err := writeGainByCommandCSV(os.Stdout, rep.ByCommand); err != nil {
+				fmt.Fprintf(os.Stderr, "gain: %v\n", err)
+				exitFn(1)
+			}
+			return
+		}
+		if flags.byParser {
+			if err := writeGainByParserCSV(os.Stdout, rep.ByParser); err != nil {
 				fmt.Fprintf(os.Stderr, "gain: %v\n", err)
 				exitFn(1)
 			}
@@ -1653,6 +1694,60 @@ func handleGainCmd(args []string) {
 				extra)
 		}
 	}
+	if flags.byParser && len(rep.ByParser) > 0 {
+		fmt.Println("By parser/tool family (sorted by est. saved):")
+		for _, row := range rep.ByParser {
+			extra := ""
+			if row.SavingsUsdEst > 0 {
+				extra = fmt.Sprintf("  (~$%.4f)", row.SavingsUsdEst)
+			}
+			fmt.Printf("  %-14s runs %d  in %s  out %s  saved ~%s%s\n",
+				row.Parser,
+				row.Runs,
+				formatTokensPlain64(row.InputTokens),
+				formatTokensPlain64(row.OutputTokens),
+				formatTokensPlain64(row.TokensSavedEst),
+				extra)
+		}
+	}
+}
+
+func handleGainCache(period string, flags gainCLIFlags) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+		exitFn(1)
+		return
+	}
+	report, err := analytics.ReadPromptCacheReport(cfg.Analytics.ResolvedLogDir(), period, time.Now())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain --cache: %v\n", err)
+		exitFn(1)
+		return
+	}
+	if flags.csv {
+		if err := writePromptCacheCSV(os.Stdout, report); err != nil {
+			fmt.Fprintf(os.Stderr, "gain --cache: %v\n", err)
+			exitFn(1)
+		}
+		return
+	}
+	if flags.json {
+		b, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	if report.TotalRequests == 0 {
+		fmt.Println("No prompt-cache gain in this window.")
+		return
+	}
+	fmt.Printf("Prompt-cache gain (%s)\n", period)
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("Requests:                  %d\n", report.TotalRequests)
+	fmt.Printf("Cache-read requests:       %d (%.2f%%)\n", report.CacheReadRequests, report.HitRate*100)
+	fmt.Printf("Cache read tokens:         %s\n", formatTokensPlain(report.CacheReadTokens))
+	fmt.Printf("Cache create tokens:       %s\n", formatTokensPlain(report.CacheCreateTokens))
+	fmt.Printf("Estimated read-token save: %s\n", formatTokensPlain(report.EstimatedSavedRead))
 }
 
 func handleDebugCmd(args []string) {
@@ -2382,6 +2477,7 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 	if err != nil {
 		return 0, nil, fmt.Errorf("config load: %w", err)
 	}
+	_ = ensureLayer2PolicyAcknowledged(cfg, false, nil, io.Discard, os.Stderr)
 	setupLogging(cfg)
 	p := newProxyFn(cfg)
 	applyPersistedRuntimeState(p)
