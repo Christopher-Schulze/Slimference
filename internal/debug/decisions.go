@@ -82,7 +82,14 @@ type RequestSummary struct {
 	ProxyLatencyMs     float64                      `json:"proxy_latency_ms"`
 	ReReadCount        int                          `json:"re_read_count"`     // T77
 	NetSavedTokens     int                          `json:"net_saved_tokens"`  // T77
+	AdaptiveWindow     AdaptiveWindowSummary        `json:"adaptive_window"`   // T112
 	Entries            []DecisionEntry              `json:"entries,omitempty"` // only with --trace
+}
+
+type AdaptiveWindowSummary struct {
+	Size   int     `json:"size"`
+	Score  float64 `json:"score"`
+	Reason string  `json:"reason"`
 }
 
 // Recorder collects DecisionEntries and RequestSummaries in memory.

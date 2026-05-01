@@ -413,11 +413,23 @@ func (l *Layer2) withJobTimeout(parent context.Context) (context.Context, contex
 // compression job. Returns false if compression is already in progress or the
 // existing summary is still fresh and covers enough of the conversation.
 func (l *Layer2) ShouldTriggerCompression(messages []types.Message) bool {
+	return l.shouldTriggerCompressionWithWindow(messages, 0)
+}
+
+func (l *Layer2) ShouldTriggerCompressionWindow(messages []types.Message, window int) bool {
+	return l.shouldTriggerCompressionWithWindow(messages, window)
+}
+
+func (l *Layer2) shouldTriggerCompressionWithWindow(messages []types.Message, overrideWindow int) bool {
 	if !l.hasConfiguredProvider() {
 		return false
 	}
+	window := l.cfg.SlidingWindow
+	if overrideWindow > 0 {
+		window = overrideWindow
+	}
 	minMsgs := l.cfg.MinMessagesForCompression
-	prefixEnd := compression.CompressiblePrefixEnd(messages, l.cfg.SlidingWindow)
+	prefixEnd := compression.CompressiblePrefixEnd(messages, window)
 	if prefixEnd < minMsgs {
 		return false
 	}
@@ -438,8 +450,6 @@ func (l *Layer2) ShouldTriggerCompression(messages []types.Message) bool {
 
 	_, existingRange := l.cache.GetCurrent()
 
-	// Trigger if the existing summary covers less than the configured
-	// incremental-overlap threshold of the compressible range.
 	boundaryIdx := prefixEnd - 1
 	if boundaryIdx <= 0 {
 		return true
@@ -918,11 +928,23 @@ func anchorCategoryString(c anchorCategory) string {
 }
 
 func (l *Layer2) ShouldTriggerCompressionSession(sessionID string, messages []types.Message) bool {
+	return l.shouldTriggerCompressionSessionWithWindow(sessionID, messages, 0)
+}
+
+func (l *Layer2) ShouldTriggerCompressionSessionWindow(sessionID string, messages []types.Message, window int) bool {
+	return l.shouldTriggerCompressionSessionWithWindow(sessionID, messages, window)
+}
+
+func (l *Layer2) shouldTriggerCompressionSessionWithWindow(sessionID string, messages []types.Message, overrideWindow int) bool {
 	if !l.hasConfiguredProvider() {
 		return false
 	}
+	window := l.cfg.SlidingWindow
+	if overrideWindow > 0 {
+		window = overrideWindow
+	}
 	minMsgs := l.cfg.MinMessagesForCompression
-	prefixEnd := compression.CompressiblePrefixEnd(messages, l.cfg.SlidingWindow)
+	prefixEnd := compression.CompressiblePrefixEnd(messages, window)
 	if prefixEnd < minMsgs {
 		return false
 	}

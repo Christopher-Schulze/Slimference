@@ -119,6 +119,19 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	origTokens := tokens.CountMessages(messages)
 	log.Debug("request started", "messages", len(messages), "orig_tokens", origTokens)
 
+	// T112: adaptive sliding window resolution.
+	windowDecision := summarization.ResolveWindow(
+		messages,
+		p.config.Compression.SlidingWindow,
+		p.config.Compression.Tuning.AdaptiveWindowEnabled,
+		p.config.Compression.Tuning.AdaptiveWindowMin,
+		p.config.Compression.Tuning.AdaptiveWindowMax,
+	)
+	effectiveWindow := windowDecision.Size
+	if effectiveWindow != p.config.Compression.SlidingWindow {
+		log.Debug("adaptive_window", "decision", windowDecision.String())
+	}
+
 	// --- 3. Secret detection ---
 	if p.secretsDetector != nil {
 		var detections []security.Detection
@@ -154,7 +167,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	if stageAEnabled {
 		stageACacheKey = p.responseCache.ComputeRequestKeyWithHeaders(provider, body, r.Header)
 		if cached, _, ok := p.responseCache.GetByOriginal(stageACacheKey); ok {
-			p.serveStageACacheHit(w, cached, reqID, start, provider, model, len(messages), origTokens, log)
+			p.serveStageACacheHit(w, cached, reqID, start, provider, model, len(messages), origTokens, log, windowDecision)
 			return
 		}
 	}
@@ -221,7 +234,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 6. Prompt cache breakpoints (Anthropic only) ---
 	if provider == types.Anthropic && p.isLayerEnabled(1) {
-		stableBoundary := compression.CompressiblePrefixEnd(compressedMessages, p.config.Compression.SlidingWindow)
+		stableBoundary := compression.CompressiblePrefixEnd(compressedMessages, effectiveWindow)
 		if stableBoundary > 0 {
 			compressedMessages = compression.OptimizeCacheBreakpoints(compressedMessages, stableBoundary)
 		}
@@ -331,8 +344,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					Provider:           provider.String(),
 					Model:              model,
 					TotalMessages:      len(messages),
-					MessagesInWindow:   p.config.Compression.SlidingWindow,
-					MessagesCompressed: max(0, len(messages)-p.config.Compression.SlidingWindow),
+					MessagesInWindow:   effectiveWindow,
+					MessagesCompressed: max(0, len(messages)-effectiveWindow),
 					LayersApplied:      cacheLayers,
 					Tokens: dbg.TokenCounts{
 						Original:    origTokens,
@@ -349,6 +362,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					ProxyLatencyMs:    cacheLatencyMs,
 					ReReadCount:       reReadCount,
 					NetSavedTokens:    totalSaved,
+					AdaptiveWindow: dbg.AdaptiveWindowSummary{
+						Size:   windowDecision.Size,
+						Score:  windowDecision.Score,
+						Reason: windowDecision.Reason,
+					},
 				}
 				p.debugRecorder.Record(summary)
 				p.observeQuality(summary)
@@ -534,7 +552,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// --- 11. Trigger async Layer 2 compression if needed ---
-	if p.isLayerEnabled(2) && p.layer2.ShouldTriggerCompressionSession(sessionID, messages) {
+	if p.isLayerEnabled(2) && p.layer2.ShouldTriggerCompressionSessionWindow(sessionID, messages, effectiveWindow) {
 		select {
 		case p.compressQueue <- types.CompressJob{Messages: messages, Timestamp: time.Now(), SessionID: sessionID}:
 		default:
@@ -550,8 +568,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			Provider:           provider.String(),
 			Model:              model,
 			TotalMessages:      len(messages),
-			MessagesInWindow:   p.config.Compression.SlidingWindow,
-			MessagesCompressed: max(0, len(messages)-p.config.Compression.SlidingWindow),
+			MessagesInWindow:   effectiveWindow,
+			MessagesCompressed: max(0, len(messages)-effectiveWindow),
 			LayersApplied:      appliedLayers,
 			Tokens: dbg.TokenCounts{
 				Original:    origTokens,
@@ -568,6 +586,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			ProxyLatencyMs:    proxyLatencyMs,
 			ReReadCount:       reReadCount,
 			NetSavedTokens:    totalSaved,
+			AdaptiveWindow: dbg.AdaptiveWindowSummary{
+				Size:   windowDecision.Size,
+				Score:  windowDecision.Score,
+				Reason: windowDecision.Reason,
+			},
 		}
 		p.debugRecorder.Record(summary)
 		p.observeQuality(summary)
@@ -614,6 +637,7 @@ func (p *Proxy) serveStageACacheHit(
 	totalMessages int,
 	origTokens int,
 	log *slog.Logger,
+	aw summarization.WindowDecision,
 ) {
 	for k, vv := range cached.Headers {
 		for _, v := range vv {
@@ -633,7 +657,7 @@ func (p *Proxy) serveStageACacheHit(
 			Provider:           provider.String(),
 			Model:              model,
 			TotalMessages:      totalMessages,
-			MessagesInWindow:   p.config.Compression.SlidingWindow,
+			MessagesInWindow:   aw.Size,
 			MessagesCompressed: 0,
 			LayersApplied:      []int{3},
 			Tokens: dbg.TokenCounts{
@@ -650,6 +674,11 @@ func (p *Proxy) serveStageACacheHit(
 			ProxyLatencyMs:    latencyMs,
 			ReReadCount:       0,
 			NetSavedTokens:    0,
+			AdaptiveWindow: dbg.AdaptiveWindowSummary{
+				Size:   aw.Size,
+				Score:  aw.Score,
+				Reason: aw.Reason,
+			},
 		}
 		p.debugRecorder.Record(summary)
 		p.observeQuality(summary)

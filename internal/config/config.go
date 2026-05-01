@@ -228,6 +228,15 @@ type TuningConfig struct {
 	// internal/compression/tool_compressor.go. Exposing them via config
 	// unblocks data-driven tuning without a rebuild. See T61.
 	ToolCompressor ToolCompressorTuning `toml:"tool_compressor"`
+	// AdaptiveWindowEnabled (T112) gates the adaptive sliding window: when
+	// on, the proxy computes a complexity score per request and adjusts the
+	// compressible-prefix boundary around the static SlidingWindow default.
+	// Off = byte-equal to today's fixed window. Default off until soak.
+	AdaptiveWindowEnabled bool `toml:"adaptive_window_enabled"`
+	// AdaptiveWindowMin is the lower bound for the adaptive window (default 3).
+	AdaptiveWindowMin int `toml:"adaptive_window_min"`
+	// AdaptiveWindowMax is the upper bound for the adaptive window (default 12).
+	AdaptiveWindowMax int `toml:"adaptive_window_max"`
 }
 
 // ToolCompressorTuning bundles RTK-style heuristic thresholds for the

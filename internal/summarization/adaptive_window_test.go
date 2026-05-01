@@ -6,63 +6,109 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
-func TestAdaptiveWindowSize_NotEnoughMessages(t *testing.T) {
+func TestResolveWindow_Disabled(t *testing.T) {
 	t.Parallel()
-	// Fewer messages than baseWindow+2: return baseWindow unchanged
 	msgs := makeWindowTestMsgs(4)
-	got := AdaptiveWindowSize(msgs, 5)
-	if got != 5 {
-		t.Errorf("not enough messages: want 5, got %d", got)
+	wd := ResolveWindow(msgs, 5, false, 3, 12)
+	if wd.Size != 5 {
+		t.Errorf("disabled: want 5, got %d", wd.Size)
+	}
+	if wd.Reason != "adaptive disabled" {
+		t.Errorf("reason: got %q", wd.Reason)
 	}
 }
 
-func TestAdaptiveWindowSize_SimpleSession_ShrinkWindow(t *testing.T) {
+func TestResolveWindow_NotEnoughMessages(t *testing.T) {
 	t.Parallel()
-	// Simple Q&A: no tools, no anchors, no files -> low complexity -> window shrinks
-	msgs := makeWindowTestMsgs(15) // 15 plain text messages, no tools
-	base := 5
-	got := AdaptiveWindowSize(msgs, base)
-	// Score ~0: adjusted = 5 + round(0.0 * 4) - 2 = 3
-	// Clamped to [max(3, 3), 7] = [3, 7] -> 3
-	if got > base {
-		t.Errorf("simple session should not increase window: base=%d, got=%d", base, got)
+	msgs := makeWindowTestMsgs(4)
+	wd := ResolveWindow(msgs, 5, true, 3, 12)
+	if wd.Size != 5 {
+		t.Errorf("not enough messages: want 5, got %d", wd.Size)
 	}
-	if got < 3 {
-		t.Errorf("window should not go below 3, got %d", got)
+	if wd.Reason != "too few messages" {
+		t.Errorf("reason: got %q", wd.Reason)
 	}
 }
 
-func TestAdaptiveWindowSize_ComplexSession_ExpandWindow(t *testing.T) {
+func TestResolveWindow_SimpleSession_ShrinkWindow(t *testing.T) {
 	t.Parallel()
-	// Complex session: many tool calls and edit operations -> high complexity -> window expands
+	msgs := makeWindowTestMsgs(15)
+	wd := ResolveWindow(msgs, 5, true, 3, 12)
+	if wd.Size > 5 {
+		t.Errorf("simple session should not increase window: got=%d", wd.Size)
+	}
+	if wd.Size < 3 {
+		t.Errorf("window should not go below min=3, got %d", wd.Size)
+	}
+}
+
+func TestResolveWindow_ComplexSession_ExpandWindow(t *testing.T) {
+	t.Parallel()
 	msgs := makeComplexSessionMsgs(20)
-	base := 5
-	got := AdaptiveWindowSize(msgs, base)
-	if got < base {
-		t.Errorf("complex session should not shrink window: base=%d, got=%d", base, got)
-	}
-	if got > base+2 {
-		t.Errorf("window should not exceed baseWindow+2=%d, got %d", base+2, got)
+	wd := ResolveWindow(msgs, 5, true, 3, 12)
+	if wd.Size < 5 {
+		t.Errorf("complex session should not shrink window: got=%d", wd.Size)
 	}
 }
 
-func TestAdaptiveWindowSize_MinimumThree(t *testing.T) {
+func TestResolveWindow_MinBound(t *testing.T) {
 	t.Parallel()
-	// Even with base=3 and simple session, minimum is always 3
 	msgs := makeWindowTestMsgs(20)
-	got := AdaptiveWindowSize(msgs, 3)
-	if got < 3 {
-		t.Errorf("window should never go below 3, got %d", got)
+	wd := ResolveWindow(msgs, 3, true, 3, 12)
+	if wd.Size < 3 {
+		t.Errorf("window should never go below min=3, got %d", wd.Size)
 	}
 }
 
-func TestAdaptiveWindowSize_MaximumBaseWindowPlusTwo(t *testing.T) {
+func TestResolveWindow_MaxBound(t *testing.T) {
 	t.Parallel()
 	msgs := makeComplexSessionMsgs(30)
-	base := 5
-	got := AdaptiveWindowSize(msgs, base)
-	if got > base+2 {
-		t.Errorf("window should not exceed baseWindow+2=%d, got %d", base+2, got)
+	wd := ResolveWindow(msgs, 5, true, 3, 12)
+	if wd.Size > 12 {
+		t.Errorf("window should not exceed max=12, got %d", wd.Size)
+	}
+}
+
+func TestResolveWindow_ClampedToMax(t *testing.T) {
+	t.Parallel()
+	msgs := makeComplexSessionMsgs(30)
+	wd := ResolveWindow(msgs, 10, true, 3, 4)
+	if wd.Size > 4 {
+		t.Errorf("should not exceed max=4, got %d", wd.Size)
+	}
+}
+
+func TestResolveWindow_NoChange(t *testing.T) {
+	t.Parallel()
+	msgs := makeWindowTestMsgs(20)
+	for i := range msgs {
+		msgs[i].Content = []types.ContentBlock{
+			{Type: "text", Text: "some text"},
+			{Type: "tool_use", ToolName: "Read", ToolInput: `{"path": "file.go"}`},
+		}
+	}
+	wd := ResolveWindow(msgs, 5, true, 3, 12)
+	_ = wd
+}
+
+func TestResolveWindow_String(t *testing.T) {
+	t.Parallel()
+	wd := ResolveWindow(nil, 5, false, 3, 12)
+	s := wd.String()
+	if s == "" {
+		t.Error("String should not be empty")
+	}
+}
+
+func TestResolveWindow_DefaultBounds(t *testing.T) {
+	t.Parallel()
+	msgs := makeWindowTestMsgs(20)
+	wd := ResolveWindow(msgs, 5, true, 0, 0)
+	if wd.Min != 3 {
+		t.Errorf("default min should be 3, got %d", wd.Min)
+	}
+	if wd.Max != 12 {
+		t.Errorf("default max should be 12, got %d", wd.Max)
 	}
 }
 
@@ -209,11 +255,11 @@ func TestAnchorDensity_Empty(t *testing.T) {
 	}
 }
 
-func TestAdaptiveWindowSize_ZeroMsgs(t *testing.T) {
+func TestResolveWindow_ZeroMsgs(t *testing.T) {
 	t.Parallel()
-	got := AdaptiveWindowSize(nil, 5)
-	if got != 5 {
-		t.Errorf("zero messages should return base window, got %d", got)
+	wd := ResolveWindow(nil, 5, true, 3, 12)
+	if wd.Size != 5 {
+		t.Errorf("zero messages should return base window, got %d", wd.Size)
 	}
 }
 
@@ -226,17 +272,15 @@ func abs64(x float64) float64 {
 
 // TestAdaptiveWindowSize_recentStartClamped covers the recentStart<0 → recentStart=0
 // branch, which fires when len(messages) is between baseWindow+2 and 9 (< 10).
-func TestAdaptiveWindowSize_recentStartClamped(t *testing.T) {
+func TestResolveWindow_RecentStartClamped(t *testing.T) {
 	t.Parallel()
-	// base=5, need len >= 7 (>= baseWindow+2) AND len < 10 (so len-10 < 0 → start=0).
-	// Use 8 plain text messages so recentStart = 8-10 = -2 → clamped to 0.
 	msgs := makeWindowTestMsgs(8)
-	got := AdaptiveWindowSize(msgs, 5)
-	if got < 3 {
-		t.Errorf("clamped start: window should be ≥ 3, got %d", got)
+	wd := ResolveWindow(msgs, 5, true, 3, 12)
+	if wd.Size < 3 {
+		t.Errorf("clamped start: window should be >= 3, got %d", wd.Size)
 	}
-	if got > 7 {
-		t.Errorf("clamped start: window should be ≤ 7, got %d", got)
+	if wd.Size > 7 {
+		t.Errorf("clamped start: window should be <= 7, got %d", wd.Size)
 	}
 }
 

@@ -489,3 +489,35 @@ func testCompressionConfig() *config.CompressionConfig {
 		},
 	}
 }
+
+func TestLayer2_ShouldTriggerCompressionSessionWindow(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	cfg := config.Defaults().Compression
+	cfg.MinMessagesForCompression = 2
+	cfg.SlidingWindow = 1
+	cfg.MinTokensForLayer2 = 1
+	l := NewLayer2(&cfg)
+	long := makeTestMessages(10)
+	if !l.ShouldTriggerCompressionSessionWindow("s1", long, 1) {
+		t.Fatal("should trigger with window=1")
+	}
+	if l.ShouldTriggerCompressionSessionWindow("s1", makeTestMessages(2), 1) {
+		t.Fatal("should not trigger with too few messages")
+	}
+}
+
+func TestLayer2_ShouldTriggerCompressionWindow(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	cfg := config.Defaults().Compression
+	cfg.MinMessagesForCompression = 2
+	cfg.SlidingWindow = 1
+	cfg.MinTokensForLayer2 = 1
+	l := NewLayer2(&cfg)
+	long := makeTestMessages(10)
+	if !l.ShouldTriggerCompressionWindow(long, 1) {
+		t.Fatal("should trigger with window=1")
+	}
+	if l.ShouldTriggerCompressionWindow(makeTestMessages(2), 1) {
+		t.Fatal("should not trigger with too few messages")
+	}
+}

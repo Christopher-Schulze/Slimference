@@ -1,21 +1,37 @@
 package summarization
 
 import (
+	"fmt"
 	"math"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
 )
 
-// AdaptiveWindowSize returns a dynamically adjusted sliding window size based on
-// session complexity. The window expands for complex sessions (many files, diverse
-// tools, high anchor density) and contracts for simple ones.
-//
-// BaseWindow is config.SlidingWindow (default 5).
-// Range: [max(3, baseWindow-2), baseWindow+2].
-func AdaptiveWindowSize(messages []types.Message, baseWindow int) int {
+type WindowDecision struct {
+	Size   int
+	Score  float64
+	Reason string
+	Min    int
+	Max    int
+}
+
+func (d WindowDecision) String() string {
+	return fmt.Sprintf("window=%d score=%.2f reason=%q bounds=[%d,%d]", d.Size, d.Score, d.Reason, d.Min, d.Max)
+}
+
+func ResolveWindow(messages []types.Message, baseWindow int, enabled bool, wmin, wmax int) WindowDecision {
+	if wmin <= 0 {
+		wmin = 3
+	}
+	if wmax <= 0 {
+		wmax = 12
+	}
+	if !enabled {
+		return WindowDecision{Size: baseWindow, Score: 0, Reason: "adaptive disabled", Min: wmin, Max: wmax}
+	}
 	if len(messages) < baseWindow+2 {
-		return baseWindow // not enough messages to adapt
+		return WindowDecision{Size: baseWindow, Score: 0, Reason: "too few messages", Min: wmin, Max: wmax}
 	}
 
 	recentStart := len(messages) - 10
@@ -27,15 +43,18 @@ func AdaptiveWindowSize(messages []types.Message, baseWindow int) int {
 	score := computeComplexityScore(recentMsgs)
 	adjusted := baseWindow + int(math.Round(score*4)) - 2
 
-	minWindow := baseWindow - 2
-	if minWindow < 3 {
-		minWindow = 3
+	if adjusted < wmin {
+		return WindowDecision{Size: wmin, Score: score, Reason: "clamped to min", Min: wmin, Max: wmax}
+	}
+	if adjusted > wmax {
+		return WindowDecision{Size: wmax, Score: score, Reason: "clamped to max", Min: wmin, Max: wmax}
 	}
 
-	if adjusted < minWindow {
-		return minWindow
+	reason := "adaptive"
+	if adjusted == baseWindow {
+		reason = "adaptive (no change)"
 	}
-	return adjusted
+	return WindowDecision{Size: adjusted, Score: score, Reason: reason, Min: wmin, Max: wmax}
 }
 
 // computeComplexityScore returns a 0.0-1.0 complexity score for the given messages.
