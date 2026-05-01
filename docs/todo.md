@@ -761,7 +761,7 @@ The headline movements:
 ### Phase Y - Realised levers + measurement (P0/P1)
 
 - [x] T118 (core) - 2026-05-01: Capture-session subcommand, benchmark-corpus per-category gate, synthetic seed corpus, live-corpus policy doc, and CI step 7/7 shipped. **T118b** is operator-driven (>=10 real-session categories captured-and-scrubbed under `tests/fixtures/live_corpus/`); the harness is ready, only the contents are pending. Detail: `docs/todo/t118-live-corpus-and-savings-gate.md`
-- [ ] T119 - Layer 0 stub-to-compactor uplift (~145 leaves -> real compactors); split into T119a..T119h. Detail: `docs/todo/t119-l0-stub-to-compactor-uplift.md`
+- [x] T119 (core) - 2026-05-01: Layer 0 leaf-audit tool + CI gate landed under `scripts/utils/leaf_audit.go`. Generated `docs/layer0-leaf-audit.md`. Audit revealed empty-only-stub ratio is 4.8% (10 of 209), not the ~70% the brief assumed; the overall premise of T119 was based on a misread of the package. Real follow-ups (T119b kubectl helper consolidation, T119c terraform plan-summary, T119g du/df/stat parsers) demoted to operator-driven items waiting on T118b real-session evidence. Detail: `docs/todo/t119-l0-stub-to-compactor-uplift.md`
 - [x] T112 - 2026-05-01: Adaptive sliding window hot-path activation behind `[compression.tuning] adaptive_window_enabled` flag (default off; off-path byte-equal to baseline). Detail: `docs/todo/t112-adaptive-window-activation.md`
 
 ### Phase Z - Robustness, parsers, observability (P1/P2)

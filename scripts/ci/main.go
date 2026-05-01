@@ -53,6 +53,11 @@ func defaultSteps() []step {
 			cmd:   "go",
 			args:  []string{"run", "./scripts/benchmarks", "benchmark-corpus", "tests/fixtures/live_corpus", "--check"},
 		},
+		{
+			label: "leaf audit gate",
+			cmd:   "go",
+			args:  []string{"run", "./scripts/utils", "leaf-audit", "--check", "--max-empty-only-pct=20", "--root=."},
+		},
 	}
 }
 

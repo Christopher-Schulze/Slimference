@@ -89,6 +89,8 @@ func main() {
 		}
 	case "structure-accuracy":
 		os.Exit(runStructureAccuracy(os.Args[2:], os.Stdout, os.Stderr))
+	case "leaf-audit":
+		os.Exit(runLeafAudit(os.Args[2:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s\n", os.Args[1])
 		os.Exit(1)

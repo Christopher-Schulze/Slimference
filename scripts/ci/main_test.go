@@ -11,7 +11,7 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 	t.Parallel()
 
 	steps := defaultSteps()
-	if len(steps) != 7 {
+	if len(steps) != 8 {
 		t.Fatalf("unexpected step count: %d", len(steps))
 	}
 
@@ -37,6 +37,13 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 	}
 	if steps[6].label != "live corpus gate" {
 		t.Fatalf("live corpus gate label: got %q want %q", steps[6].label, "live corpus gate")
+	}
+	wantLeafAudit := []string{"run", "./scripts/utils", "leaf-audit", "--check", "--max-empty-only-pct=20", "--root=."}
+	if !reflect.DeepEqual(steps[7].args, wantLeafAudit) {
+		t.Fatalf("leaf audit args: got %v want %v", steps[7].args, wantLeafAudit)
+	}
+	if steps[7].label != "leaf audit gate" {
+		t.Fatalf("leaf audit label: got %q want %q", steps[7].label, "leaf audit gate")
 	}
 }
 
