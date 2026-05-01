@@ -49,14 +49,14 @@ func ForProvider(provider types.Provider) Tokenizer {
 // estimated is what the tokenizer predicted just before the request was
 // sent. The call is a no-op when observed <= 0 or the tokenizer is not a
 // calibrated one.
-func ObserveUpstreamUsage(provider types.Provider, observed, estimated int) {
+func ObserveUpstreamUsage(provider types.Provider, model string, observed, estimated int) {
 	if observed <= 0 || estimated <= 0 {
 		return
 	}
 	if provider != types.Anthropic {
 		return
 	}
-	anthropic.observe(observed, estimated)
+	anthropic.observe(model, observed, estimated)
 }
 
 // anthropicTokenizer approximates Anthropic token counts using a calibrated
@@ -65,12 +65,13 @@ func ObserveUpstreamUsage(provider types.Provider, observed, estimated int) {
 // nudges the ratio towards observed reality with a gentle EMA so short
 // term noise does not whiplash the estimator.
 type anthropicTokenizer struct {
-	// bytesPerTokenX1000 is the ratio multiplied by 1000 stored in an
-	// atomic so hot-path CountString is lock-free. Default 3500 == 3.5
-	// bytes/token.
 	bytesPerTokenX1000 atomic.Int64
+	perModel           sync.Map
+	mu                 sync.Mutex
+}
 
-	mu sync.Mutex
+type modelRatio struct {
+	value atomic.Int64
 }
 
 func newAnthropicTokenizer() *anthropicTokenizer {
@@ -80,6 +81,35 @@ func newAnthropicTokenizer() *anthropicTokenizer {
 }
 
 var anthropic = newAnthropicTokenizer()
+
+func (a *anthropicTokenizer) ratioForModel(model string) *atomic.Int64 {
+	if model == "" {
+		return &a.bytesPerTokenX1000
+	}
+	family := modelFamily(model)
+	if family == "" {
+		return &a.bytesPerTokenX1000
+	}
+	val, _ := a.perModel.LoadOrStore(family, &modelRatio{})
+	mr := val.(*modelRatio)
+	if mr.value.Load() == 0 {
+		mr.value.Store(a.bytesPerTokenX1000.Load())
+	}
+	return &mr.value
+}
+
+func modelFamily(model string) string {
+	switch {
+	case strings.Contains(model, "opus"):
+		return "opus"
+	case strings.Contains(model, "sonnet"):
+		return "sonnet"
+	case strings.Contains(model, "haiku"):
+		return "haiku"
+	default:
+		return ""
+	}
+}
 
 // Name returns the tokenizer identity for observability.
 func (a *anthropicTokenizer) Name() string { return "anthropic-calibrated" }
@@ -131,32 +161,35 @@ func (a *anthropicTokenizer) CountMessages(messages []types.Message) int {
 // observe adjusts the bytes-per-token ratio towards `observed / estimated`.
 // Uses an EMA with alpha=0.05 so a single outlier never moves the dial
 // more than ~5% and we converge over 20+ samples.
-func (a *anthropicTokenizer) observe(observed, estimated int) {
+func (a *anthropicTokenizer) observe(model string, observed, estimated int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	current := a.bytesPerTokenX1000.Load()
+	ratio := a.ratioForModel(model)
+	current := ratio.Load()
 	if current <= 0 {
 		current = 3500
 	}
-	// correction = current * (estimated / observed) -- if we over-estimated
-	// (estimated > observed) we need a larger ratio (fewer tokens per byte);
-	// if we under-estimated we need a smaller ratio.
 	correction := float64(current) * float64(estimated) / float64(observed)
 	const alpha = 0.05
 	next := float64(current)*(1.0-alpha) + correction*alpha
-	// Clamp to a sane range [1500, 6000].
 	if next < 1500 {
 		next = 1500
 	}
 	if next > 6000 {
 		next = 6000
 	}
-	a.bytesPerTokenX1000.Store(int64(next))
+	ratio.Store(int64(next))
+	if model != "" {
+		appendCalibration(model, observed, estimated, int64(next))
+	}
 }
 
-// BytesPerTokenX1000 exposes the current ratio for telemetry / tests.
 func (a *anthropicTokenizer) BytesPerTokenX1000() int64 {
 	return a.bytesPerTokenX1000.Load()
+}
+
+func (a *anthropicTokenizer) BytesPerTokenX1000ForModel(model string) int64 {
+	return a.ratioForModel(model).Load()
 }
 
 // countCJKRunes counts Han / Hiragana / Katakana / Hangul code points.
@@ -209,10 +242,13 @@ func (universalFallback) CountMessages(messages []types.Message) int {
 	return openaiTokenizer.CountMessages(messages)
 }
 
-// resetForTest restores the Anthropic tokenizer to its default ratio.
-// Only used by tests.
 func resetForTest() {
 	anthropic.bytesPerTokenX1000.Store(3500)
+	anthropic.perModel.Range(func(key, _ any) bool {
+		anthropic.perModel.Delete(key)
+		return true
+	})
+	ResetCalibration()
 }
 
 // modelSelector keeps a string-based sanity check for potential future

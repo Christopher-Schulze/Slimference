@@ -496,7 +496,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// per-provider tokenizer so its bytes-per-token ratio converges on
 	// reality over time.
 	if upstreamCacheUsage.InputTokens > 0 {
-		tokens.ObserveUpstreamUsage(provider, upstreamCacheUsage.InputTokens, compressedTokens)
+		tokens.ObserveUpstreamUsage(provider, model, upstreamCacheUsage.InputTokens, compressedTokens)
 	}
 
 	proxyLatencyMs := float64(time.Since(latencyStart).Microseconds()) / 1000.0

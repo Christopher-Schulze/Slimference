@@ -67,13 +67,11 @@ func TestAnthropicTokenizer_CountMessages(t *testing.T) {
 
 func TestObserveUpstreamUsage_CalibratesAnthropic(t *testing.T) {
 	defer resetForTest()
-	before := anthropic.BytesPerTokenX1000()
-	// If observed is lower than estimated, the correction is
-	// current * estimated/observed which is > current -> ratio rises.
+	before := anthropic.BytesPerTokenX1000ForModel("claude-sonnet")
 	for i := 0; i < 30; i++ {
-		ObserveUpstreamUsage(types.Anthropic, 80, 100)
+		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 80, 100)
 	}
-	after := anthropic.BytesPerTokenX1000()
+	after := anthropic.BytesPerTokenX1000ForModel("claude-sonnet")
 	if after <= before {
 		t.Fatalf("ratio did not rise after repeated over-estimates: %d -> %d", before, after)
 	}
@@ -82,11 +80,12 @@ func TestObserveUpstreamUsage_CalibratesAnthropic(t *testing.T) {
 func TestObserveUpstreamUsage_ConvergesDownwards(t *testing.T) {
 	defer resetForTest()
 	anthropic.bytesPerTokenX1000.Store(5000)
-	// Observed higher than estimated -> ratio should fall.
+	val, _ := anthropic.perModel.LoadOrStore("sonnet", &modelRatio{})
+	val.(*modelRatio).value.Store(5000)
 	for i := 0; i < 40; i++ {
-		ObserveUpstreamUsage(types.Anthropic, 120, 100)
+		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 120, 100)
 	}
-	after := anthropic.BytesPerTokenX1000()
+	after := anthropic.BytesPerTokenX1000ForModel("claude-sonnet")
 	if after >= 5000 {
 		t.Fatalf("ratio did not fall after repeated under-estimates: %d", after)
 	}
@@ -94,18 +93,16 @@ func TestObserveUpstreamUsage_ConvergesDownwards(t *testing.T) {
 
 func TestObserveUpstreamUsage_ClampsToRange(t *testing.T) {
 	defer resetForTest()
-	// Push the ratio aggressively high.
 	for i := 0; i < 200; i++ {
-		ObserveUpstreamUsage(types.Anthropic, 1, 1_000_000)
+		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 1, 1_000_000)
 	}
-	if r := anthropic.BytesPerTokenX1000(); r > 6000 {
+	if r := anthropic.BytesPerTokenX1000ForModel("claude-sonnet"); r > 6000 {
 		t.Fatalf("ratio exceeded cap: %d", r)
 	}
-	// Push aggressively low.
 	for i := 0; i < 200; i++ {
-		ObserveUpstreamUsage(types.Anthropic, 1_000_000, 1)
+		ObserveUpstreamUsage(types.Anthropic, "claude-sonnet", 1_000_000, 1)
 	}
-	if r := anthropic.BytesPerTokenX1000(); r < 1500 {
+	if r := anthropic.BytesPerTokenX1000ForModel("claude-sonnet"); r < 1500 {
 		t.Fatalf("ratio below floor: %d", r)
 	}
 }
@@ -113,9 +110,9 @@ func TestObserveUpstreamUsage_ClampsToRange(t *testing.T) {
 func TestObserveUpstreamUsage_NoOpOnBadInput(t *testing.T) {
 	defer resetForTest()
 	before := anthropic.BytesPerTokenX1000()
-	ObserveUpstreamUsage(types.Anthropic, 0, 100)
-	ObserveUpstreamUsage(types.Anthropic, 100, 0)
-	ObserveUpstreamUsage(types.OpenAI, 100, 100)
+	ObserveUpstreamUsage(types.Anthropic, "", 0, 100)
+	ObserveUpstreamUsage(types.Anthropic, "", 100, 0)
+	ObserveUpstreamUsage(types.OpenAI, "", 100, 100)
 	if after := anthropic.BytesPerTokenX1000(); after != before {
 		t.Fatalf("invalid inputs must not mutate ratio: %d -> %d", before, after)
 	}
@@ -132,7 +129,7 @@ func TestAnthropicTokenizer_FallbackRatio(t *testing.T) {
 func TestAnthropicTokenizer_ObserveFallbackRatio(t *testing.T) {
 	defer resetForTest()
 	anthropic.bytesPerTokenX1000.Store(-1)
-	ObserveUpstreamUsage(types.Anthropic, 100, 110)
+	ObserveUpstreamUsage(types.Anthropic, "", 100, 110)
 	if r := anthropic.BytesPerTokenX1000(); r <= 0 {
 		t.Fatal("observe must restore a positive ratio")
 	}
