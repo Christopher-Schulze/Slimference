@@ -1,6 +1,6 @@
 # TASK 111: Layer 2 anchor verbatim re-injection in ApplyToMessages
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01 (audit-driven mitigation 2026-04-30)
 Priority: P0
 Scope: `internal/summarization/layer2.go`, `internal/summarization/anchor.go`, `internal/summarization/progressive.go`, `internal/summarization/validator.go`
 Driver: `AnchorDetector` already identifies critical messages (edits, errors, decisions, config touches) and `RunCompressionJobContext` correctly excludes them from MiniMax input. But `ApplyToMessages` (`layer2.go:96-136`) collapses the entire `[0..coveredEnd]` range into a **single synthetic assistant message**: the anchor messages are gone from the request the upstream actually sees. The model gets a summary that may say "edit_file applied to handler.go" but loses the verbatim diff content of the edit and the verbatim error text. This is the root cause of "L2 forgets things that mattered" complaints and a real correctness gap, not just a tuning concern.

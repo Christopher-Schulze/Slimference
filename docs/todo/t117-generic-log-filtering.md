@@ -1,6 +1,6 @@
 # TASK 117: Generic log filtering with source auto-detection
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01 (audit-driven mitigation 2026-04-30)
 Priority: P2
 Scope: `internal/filter/builtin_log.go`, `internal/filter/dispatch.go`, `internal/filter/log_shape.go` (new), `tests/fixtures/log_corpus/`
 Driver: `TryCompactLogDedup` only fires when argv matches `docker logs` or `kubectl logs`. Real coding sessions stream log output through `tail -f`, `journalctl`, `cat <file>.log`, `grep ERROR <file>.log`, custom log readers, and pipes (`tail -F app.log | grep WARN`). All of these bypass the existing log compaction and pass through the generic build/test/passthrough fallback - missing the line-dedup, timestamp normalisation, level-based filtering, and tail-cap that `filterLogCompact` already implements.

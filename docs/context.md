@@ -288,3 +288,33 @@ Fresh-eyes review artifact:
              defensive branches (soak T100/T103 impossible state, classifyTrend
              mid==0 guard, redundant daysFor pre-check), added 12+ new tests.
              Coverage 100%, race-clean, `go run ./scripts/ci` all 6 steps green.
+2026-05-01 - T110 completed (core): Layer 2 cache session-keyed. Replaced single
+             global 2-slot SummaryCache with SessionCache keyed by per-request
+             session ID (extracted from Anthropic/OpenAI headers or content hash
+             fallback). LRU eviction (default 64 sessions), per-session Compressing
+             flag, hash-based invalidation, telemetry counters (hits/misses/evictions/
+             stale_hits/hash_mismatches). CompressJob carries SessionID, handler
+             extracts and threads through all L2 paths. Legacy SummaryCache preserved
+             as wrapper for backward compat. Disk persistence deferred to T110b.
+             Coverage 100%, race-clean, CI all 6 steps green.
+2026-05-01 - T111/T112/T120/T116/T117/T114/T115 batch completed: anchor
+             verbatim re-injection (Layer 2 emits [synthetic, anchor1..N
+             verbatim, tail] honoring max_anchors_inlined budget); adaptive
+             sliding window flag-gated activation (default off, off-path
+             byte-equal); filter dispatch panic recovery + per-filter
+             atomic counters + slow-filter detector (sync.Map<name,
+             *atomic.Int64>); loop nudge LoopNudgeMeasurement + additive/
+             subtractive/off strategy gate; generic log filtering with
+             argv-detect + shape-detect (ISO/Unix/Syslog/Bracketed/
+             JSONLines, ≥0.7 confidence); per-model tokenizer EMA with
+             persistent ~/.slimference/calibration/anthropic.jsonl;
+             structured build/test parsers (go, cargo, gcc/clang) with
+             specific-first dispatch. 9 commits b636f1b..25a68af, total
+             +6003/-360 across 61 files, ~162 new test funcs, CI all 6
+             steps green, coverage 100%.
+2026-05-01 - Cleanup pass: committed pending DONE-status lines on
+             t111/t112/t114/t115/t116/t117/t120 detail files left
+             unstaged after their respective task commits; added T110b
+             follow-up entry (L2 cache disk persistence) to audit-section
+             of docs/todo.md; logged T113 BLOCKED state per Codex hooks
+             upstream limitation.

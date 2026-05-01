@@ -754,23 +754,24 @@ The headline movements:
 
 ### Phase X - L2 correctness fixes (P0)
 
-- [x] T110 - Layer 2 cache: session-keyed multi-slot replacement (core; disk persistence deferred). Detail: `docs/todo/t110-l2-cache-session-keyed.md`
-- [ ] T111 - Layer 2 anchor verbatim re-injection in ApplyToMessages. Detail: `docs/todo/t111-l2-anchor-reinjection.md`
+- [x] T110 - 2026-05-01: Layer 2 cache session-keyed multi-slot replacement (core: session ID extraction, LRU, hash invalidation, telemetry; disk persistence deferred to T110b). Detail: `docs/todo/t110-l2-cache-session-keyed.md`
+- [ ] T110b - Layer 2 cache disk snapshot/load (deferred follow-up; persists per-session current+previous to `~/.slimference/layer2_cache/<sid>.json` on shutdown, rehydrates on boot, respects TTL). Not blocking until multi-process operator setups exist.
+- [x] T111 - 2026-05-01: Layer 2 anchor verbatim re-injection in ApplyToMessages. Detail: `docs/todo/t111-l2-anchor-reinjection.md`
 
 ### Phase Y - Realised levers + measurement (P0/P1)
 
 - [ ] T118 - Live coding session corpus + savings reality gate. Detail: `docs/todo/t118-live-corpus-and-savings-gate.md`
 - [ ] T119 - Layer 0 stub-to-compactor uplift (~145 leaves -> real compactors); split into T119a..T119h. Detail: `docs/todo/t119-l0-stub-to-compactor-uplift.md`
-- [ ] T112 - Adaptive sliding window hot-path activation + measurement. Detail: `docs/todo/t112-adaptive-window-activation.md`
+- [x] T112 - 2026-05-01: Adaptive sliding window hot-path activation behind `[compression.tuning] adaptive_window_enabled` flag (default off; off-path byte-equal to baseline). Detail: `docs/todo/t112-adaptive-window-activation.md`
 
 ### Phase Z - Robustness, parsers, observability (P1/P2)
 
-- [ ] T113 - Codex hook transparent rewrite path (drop block-rerun fallback). Detail: `docs/todo/t113-codex-transparent-rewrite.md`
-- [ ] T115 - Build / test failure detection: structured parsers replace substring heuristic. Detail: `docs/todo/t115-build-test-failure-structured-parsers.md`
-- [ ] T117 - Generic log filtering with source auto-detection. Detail: `docs/todo/t117-generic-log-filtering.md`
-- [ ] T120 - Filter dispatch panic recovery + per-filter observability. Detail: `docs/todo/t120-filter-panic-recovery-observability.md`
-- [ ] T114 - Anthropic tokenizer cold-start corpus calibration. Detail: `docs/todo/t114-tokenizer-cold-start-corpus.md`
-- [ ] T116 - Loop nudge: measurement-driven migration to subtractive form. Detail: `docs/todo/t116-loop-nudge-subtractive-migration.md`
+- [ ] T113 - Codex hook transparent rewrite path. **BLOCKED** as of 2026-05-01: Codex hooks doc (developers.openai.com/codex/hooks) confirms `updatedInput`/`additionalContext`/`continue:false`/`stopReason`/`suppressOutput` are parsed-but-not-supported (fail open) in current Codex CLI. The deliverable's transparent-rewrite payload depends on `updatedInput`. T113-core ships the version-detect / capability-map / drift-watchdog scaffolding now so we can flip to transparent rewrite the day Codex lands the field upstream. Detail: `docs/todo/t113-codex-transparent-rewrite.md`
+- [x] T115 - 2026-05-01: Build/test structured parsers (go, cargo, gcc/clang) replacing substring heuristic; per-tool registry with specific-first dispatch. Detail: `docs/todo/t115-build-test-failure-structured-parsers.md`
+- [x] T117 - 2026-05-01: Generic log filtering (tail/journalctl/cat-on-log/grep argv detect + ISO/Unix/Syslog/Bracketed/JSONLines shape detect, dispatched before generic build/test fallbacks). Detail: `docs/todo/t117-generic-log-filtering.md`
+- [x] T120 - 2026-05-01: Filter dispatch panic recovery via `runFilter` wrapper + per-filter observability (atomic counters, slow-filter detector, /admin status surface). Detail: `docs/todo/t120-filter-panic-recovery-observability.md`
+- [x] T114 - 2026-05-01: Per-model tokenizer calibration with persistent EMA (`~/.slimference/calibration/anthropic.jsonl`). Detail: `docs/todo/t114-tokenizer-cold-start-corpus.md`
+- [x] T116 - 2026-05-01: Loop nudge measurement-driven additive/subtractive switch (`[compression.tuning] loop_strategy`); honest LoopNudgeMeasurement replaces fixed 5000-saving estimate. Detail: `docs/todo/t116-loop-nudge-subtractive-migration.md`
 
 ### Sequencing notes (Audit Mitigation)
 

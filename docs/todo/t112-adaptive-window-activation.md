@@ -1,6 +1,6 @@
 # TASK 112: Adaptive sliding window - hot-path activation + measurement
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01 (audit-driven mitigation 2026-04-30)
 Priority: P1
 Scope: `internal/summarization/adaptive_window.go`, `internal/compression/exchange_window.go`, `internal/compression/layer1.go`, `internal/proxy/handler.go`, `internal/config/`
 Driver: `AdaptiveWindowSize` exists in `internal/summarization/adaptive_window.go` and computes a complexity score over (unique file paths, anchor density, tool diversity) - solid logic, fully unit-tested. **Zero production code calls it.** The hot path uses the static `cfg.SlidingWindow = 5` everywhere via `CompressiblePrefixEnd`. This is dead code by audit, dead value by reality. Either wire it up so it earns its keep, or delete it. This task wires it up because the underlying signal (a high-complexity exchange deserves a smaller compressible boundary, a low-complexity one a larger boundary) is sound and its absence is a missed Layer 2 lever.

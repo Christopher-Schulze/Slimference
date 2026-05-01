@@ -1,6 +1,6 @@
 # TASK 114: Anthropic tokenizer cold-start corpus calibration
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01 (audit-driven mitigation 2026-04-30)
 Priority: P2
 Scope: `internal/tokens/`, `tests/fixtures/tokenizer_corpus/`, `scripts/utils/`
 Driver: `anthropicTokenizer` starts with `bytes_per_token = 3500` (3.5 chars/token) and converges via EMA over upstream `usage.input_tokens` events with `alpha=0.05` - meaning ~20+ samples are required to fully shift the ratio. Until then, every saved-token report is wrong by up to ~20%. For dashboards, gain reports, and CI thresholds the cold-start error compounds: a fresh proxy install reports inflated savings for the first hour of use. Fix: ship a measured corpus and seed the EMA from it on startup, so cold-start error is bounded to ±5% from request 1.

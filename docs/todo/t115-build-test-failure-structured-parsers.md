@@ -1,6 +1,6 @@
 # TASK 115: Build / test failure detection - structured parsers
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01 (audit-driven mitigation 2026-04-30)
 Priority: P1
 Scope: `internal/filter/builtin_compact_helpers.go`, `internal/filter/builtin_build.go`, `internal/filter/builtin_testrun.go`, `internal/filter/builtin_lint.go`, `tests/fixtures/build_corpus/`
 Driver: `extractBuildErrors` (`builtin_compact_helpers.go:62-88`) is a substring grep against `error|failed|fatal|cannot|undefined|unresolved|aborting`. False-positive examples observed in the wild: `"Successfully resolved errors: 0"`, `"Test 'test_undefined_handling' passed"`, `"Aborting on first failure: false"`. This emits noisy compaction output where lines that *describe* errors get mistaken for actual error lines, and the filtered tool_result confuses the model into thinking the build failed. Replace the substring heuristic with per-tool structured parsers (cargo, gcc/clang, go, rustc, msbuild, gradle, maven, npm/eslint, pylint, mypy, golangci-lint).

@@ -1,6 +1,6 @@
 # TASK 116: Loop nudge - measurement-driven migration to subtractive form
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01 (audit-driven mitigation 2026-04-30)
 Priority: P2
 Scope: `internal/compression/loop_detect.go`, `internal/compression/layer1.go`, `internal/quality/`, `internal/proxy/handler.go`
 Driver: `ApplyLoopNudge` violates the spec's "additive-only transformation" principle (`spec+.md` §1) by INSERTING a synthetic assistant note when 4+ near-duplicate user messages are detected. The token-savings number it reports (`(streak - 1) * 5000`) is a **hardcoded estimate without A/B data**. Two problems: (a) the math is fictitious until measured; (b) the spec wants subtractive transformations only. Fix: instrument the existing nudge to gather real data on whether it actually breaks loops, then migrate to a subtractive form (collapse near-duplicate user messages with `[Near-duplicate of msg N - omitted]`) once the data confirms the upstream behaviour change is real.

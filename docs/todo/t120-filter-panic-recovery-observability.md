@@ -1,6 +1,6 @@
 # TASK 120: Filter dispatch panic recovery + per-filter observability
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01 (audit-driven mitigation 2026-04-30)
 Priority: P1
 Scope: `internal/filter/pipeline.go`, `internal/filter/dispatch.go`, `internal/filter/observability.go` (new), `internal/filter/tracking.go`
 Driver: `applyLayer0Filters` (`pipeline.go:84-162`) calls 25+ `TryCompact*` functions in sequence. None are wrapped in `defer/recover`. A panic in any single filter (regex bug, nil deref on edge-case input, malformed UTF-8) crashes the entire `slimference filter` subprocess - the LLM agent gets no output, the user-visible session sees a tool failure, the build/test fails. Plus: there is zero per-filter observability. We can't tell which filter is slow, which one fired, or which one short-circuited. Both gaps fixed in one task.
