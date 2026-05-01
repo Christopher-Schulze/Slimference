@@ -762,6 +762,10 @@ The headline movements:
 - [x] T118 (core) - 2026-05-01: Capture-session subcommand, benchmark-corpus per-category gate, synthetic seed corpus, live-corpus policy doc, and CI step 7/7 shipped. **T118b** is operator-driven (>=10 real-session categories captured-and-scrubbed under `tests/fixtures/live_corpus/`); the harness is ready, only the contents are pending. Detail: `docs/todo/t118-live-corpus-and-savings-gate.md`
 - [x] T119 - 2026-05-01: Layer 0 leaf-audit tool + CI gate landed under `scripts/utils/leaf_audit.go`. Generated `docs/layer0-leaf-audit.md`. Audit revealed empty-only-stub ratio is 4.8% (10 of 209), not the ~70% the brief assumed; the overall premise of T119 was based on a misread of the package. T119c terraform parser shipped alongside (see entry below). T119b (kubectl/docker/helm helper consolidation) and T119g (du/df/stat parsers) considered and rejected: the first is a refactor with zero token-saving change, the second targets outputs already too small to compress. Detail: `docs/todo/t119-l0-stub-to-compactor-uplift.md`
 - [x] T119c - 2026-05-01: Terraform plan/apply structured compactor. Detail: `docs/todo/t119c-terraform-parser.md`
+
+### Phase Q - Transparent system-wide intercept (planned 2026-05-01)
+
+- [ ] T122 - Transparent mode: CA-signed MITM HTTPS proxy + WebSocket frame proxy + `networksetup` integration + cert installer + launchd auto-start + `slimference proxy install|enable|disable|uninstall|status` subcommand. Scope: zero-config app interception (Codex Desktop, ChatGPT Desktop, Claude Code, anything HTTPS) with WebRTC audio bypass guarantee and a clean `proxy disable` off-switch. macOS-only in this iteration. Detail: `docs/todo/t122-transparent-mode.md`
 - [x] T112 - 2026-05-01: Adaptive sliding window hot-path activation behind `[compression.tuning] adaptive_window_enabled` flag (default off; off-path byte-equal to baseline). Detail: `docs/todo/t112-adaptive-window-activation.md`
 
 ### Phase Z - Robustness, parsers, observability (P1/P2)
