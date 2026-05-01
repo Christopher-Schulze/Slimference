@@ -169,6 +169,7 @@ func (m *Message) HasToolUse() bool {
 type CompressJob struct {
 	Messages  []Message
 	Timestamp time.Time
+	SessionID string
 }
 
 // EventType classifies analytics events.

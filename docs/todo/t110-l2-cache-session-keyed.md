@@ -1,6 +1,6 @@
 # TASK 110: Layer 2 cache - session-keyed multi-slot replacement
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01 (core: session-keyed cache, ID extraction, hash invalidation, handler wire-in, telemetry; disk persistence deferred)
 Priority: P0
 Scope: `internal/summarization/cache.go`, `internal/summarization/layer2.go`, `internal/proxy/handler.go`
 Driver: Today `SummaryCache` is a 2-slot singleton (current + previous) shared across **every** request the proxy handles. A second concurrent CLI session that triggers Layer 2 will overwrite the first session's cached summary. When the first session's next request arrives, `ApplyToMessages` will splice in **the wrong session's summary** - synthetically prepended to a different conversation. This is a correctness bug, not a tuning issue, and it blocks Layer 2 default-on for any deployment that serves more than one CLI tool simultaneously.
@@ -82,11 +82,11 @@ Disk persistence (graceful shutdown -> daemon restart):
 
 ## Acceptance Criteria
 
-- [ ] No code path can read a Layer 2 summary for session A and apply it to session B.
-- [ ] `cache_max_sessions` enforced; eviction order is LRU.
-- [ ] Disk snapshot/load roundtrip preserves entries within TTL.
-- [ ] Telemetry counters cover the 8 events above.
-- [ ] Coverage 100%; race tests green with t.Parallel concurrent sessions.
+- [x] No code path can read a Layer 2 summary for session A and apply it to session B.
+- [x] `cache_max_sessions` enforced; eviction order is LRU.
+- [ ] Disk snapshot/load roundtrip preserves entries within TTL. (deferred)
+- [x] Telemetry counters cover the 8 events above.
+- [x] Coverage 100%; race tests green with t.Parallel concurrent sessions.
 
 ## Out of Scope
 

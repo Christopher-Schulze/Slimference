@@ -754,7 +754,7 @@ The headline movements:
 
 ### Phase X - L2 correctness fixes (P0)
 
-- [ ] T110 - Layer 2 cache: session-keyed multi-slot replacement. Detail: `docs/todo/t110-l2-cache-session-keyed.md`
+- [x] T110 - Layer 2 cache: session-keyed multi-slot replacement (core; disk persistence deferred). Detail: `docs/todo/t110-l2-cache-session-keyed.md`
 - [ ] T111 - Layer 2 anchor verbatim re-injection in ApplyToMessages. Detail: `docs/todo/t111-l2-anchor-reinjection.md`
 
 ### Phase Y - Realised levers + measurement (P0/P1)

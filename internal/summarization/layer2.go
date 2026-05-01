@@ -27,6 +27,7 @@ type Layer2 struct {
 	cfg       *config.CompressionConfig
 	chain     *FallbackChain
 	cache     *SummaryCache
+	sessions  *SessionCache
 	anchor    *AnchorDetector
 	validator *CompressionValidator
 	// redactor (T109) sanitises every outbound message slice before it
@@ -54,10 +55,12 @@ func NewLayer2(cfg *config.CompressionConfig) *Layer2 {
 	})
 	chain := NewFallbackChain(mm)
 	chain.SetRequireDeterministic(cfg.Summary.RequireDeterministic)
+	sc := NewSessionCache(defaultMaxSessions)
 	return &Layer2{
 		cfg:       cfg,
 		chain:     chain,
-		cache:     NewSummaryCache(),
+		cache:     &SummaryCache{inner: sc},
+		sessions:  sc,
 		anchor:    NewAnchorDetector(),
 		validator: NewCompressionValidator(),
 		redactor:  buildRedactor(cfg),
@@ -239,6 +242,10 @@ func (l *Layer2) RunCompressionJob(messages []types.Message) {
 // RunCompressionJobContext is the async worker body with explicit cancellation.
 // Call it when a caller context should bound summarization work.
 func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.Message) {
+	l.runCompressionJob(ctx, legacySessionID, messages)
+}
+
+func (l *Layer2) runCompressionJob(ctx context.Context, sessionID string, messages []types.Message) {
 	ctx, cancel := l.withJobTimeout(ctx)
 	defer cancel()
 
@@ -273,7 +280,7 @@ func (l *Layer2) RunCompressionJobContext(ctx context.Context, messages []types.
 
 	// If a cached summary already covers most of this range, attempt an incremental
 	// extension by summarising only the new messages appended since last run.
-	existing, existingRange := l.cache.GetCurrent()
+	existing, existingRange := l.sessions.GetCurrent(sessionID)
 	startIdx := 0
 	existingSummaryPrefix := ""
 	if existing != nil && existingRange[1] > 0 {
@@ -414,7 +421,7 @@ applySummary:
 		CreatedAt:        time.Now(),
 		Hash:             hashMessages(messages[:boundaryIdx+1]),
 	}
-	l.cache.Store(cached)
+	l.sessions.Store(sessionID, cached)
 
 	slog.Info("layer2 compression complete",
 		slog.Int("covered_msgs", boundaryIdx+1),
@@ -756,4 +763,93 @@ func (l *Layer2) jobTimeout() time.Duration {
 		return 35 * time.Second
 	}
 	return timeout
+}
+
+// --- Session-keyed API (T110) ---
+
+func (l *Layer2) ApplyToMessagesSession(sessionID string, messages []types.Message) ([]types.Message, int, bool) {
+	cached, coveredRange := l.sessions.GetCurrent(sessionID)
+	if cached == nil {
+		return messages, 0, false
+	}
+	end := coveredRange[1]
+	if end <= 0 || end >= len(messages) {
+		return messages, 0, false
+	}
+	summaryText := fmt.Sprintf("[Conversation summary covering messages 0-%d: %s]", end, cached.Summary)
+	synthetic := types.Message{
+		Index: 0,
+		Role:  "assistant",
+		Content: []types.ContentBlock{
+			{Type: "text", Text: summaryText},
+		},
+		Metadata: types.MessageMetadata{
+			OriginalTokens:   cached.OriginalTokens,
+			CompressedTokens: cached.CompressedTokens,
+			CompressionLevel: types.CompressionLayer2,
+		},
+	}
+	tail := messages[end+1:]
+	result := make([]types.Message, 0, 1+len(tail))
+	result = append(result, synthetic)
+	for i, msg := range tail {
+		msg.Index = i + 1
+		result = append(result, msg)
+	}
+	tokensSaved := cached.OriginalTokens - cached.CompressedTokens
+	return result, tokensSaved, true
+}
+
+func (l *Layer2) ShouldTriggerCompressionSession(sessionID string, messages []types.Message) bool {
+	if !l.hasConfiguredProvider() {
+		return false
+	}
+	minMsgs := l.cfg.MinMessagesForCompression
+	prefixEnd := compression.CompressiblePrefixEnd(messages, l.cfg.SlidingWindow)
+	if prefixEnd < minMsgs {
+		return false
+	}
+	if l.cfg.MinTokensForLayer2 > 0 {
+		prefixTokens := tokens.CountMessages(messages[:prefixEnd])
+		if prefixTokens < l.cfg.MinTokensForLayer2 {
+			return false
+		}
+	}
+	if l.sessions.Compressing(sessionID) {
+		return false
+	}
+	if l.sessions.IsStale(sessionID, summaryMaxAge) {
+		return true
+	}
+	_, existingRange := l.sessions.GetCurrent(sessionID)
+	boundaryIdx := prefixEnd - 1
+	if boundaryIdx <= 0 {
+		return true
+	}
+	coveredFraction := float64(existingRange[1]) / float64(boundaryIdx)
+	return coveredFraction < l.incrementalOverlapThreshold(len(messages))
+}
+
+func (l *Layer2) RunCompressionJobSession(ctx context.Context, sessionID string, messages []types.Message) {
+	l.runCompressionJob(ctx, sessionID, messages)
+}
+
+func (l *Layer2) SetCompressingSession(sessionID string, v bool) {
+	l.sessions.SetCompressing(sessionID, v)
+}
+
+func (l *Layer2) InvalidateSession(sessionID string) {
+	l.sessions.Invalidate(sessionID)
+}
+
+func (l *Layer2) InvalidateAllSessions() {
+	l.sessions.InvalidateAll()
+}
+
+func (l *Layer2) CacheStats() CacheStats {
+	return l.sessions.Stats()
+}
+
+func (l *Layer2) GetSessionCache() *SessionCache {
+	return l.sessions
 }

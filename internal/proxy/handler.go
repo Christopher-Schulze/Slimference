@@ -26,6 +26,7 @@ import (
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
+	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
@@ -44,9 +45,10 @@ func newRequestID() string {
 
 // pipelineStash carries inputs for aggressive recompression on context overflow (spec §17.4).
 type pipelineStash struct {
-	messages []types.Message
-	origBody []byte
-	provider types.Provider
+	messages  []types.Message
+	origBody  []byte
+	provider  types.Provider
+	sessionID string
 }
 
 type pipelineStashKey struct{}
@@ -56,6 +58,7 @@ type pipelineStashKey struct{}
 func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request, provider types.Provider, body []byte) {
 	start := time.Now()
 	reqID := newRequestIDFn()
+	sessionID := summarization.ExtractSessionID(provider, body, r.Header)
 
 	// --- 1. Extract messages ---
 	messages, rawBody, err := extractMessages(provider, body)
@@ -137,9 +140,10 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	r = r.WithContext(context.WithValue(r.Context(), pipelineStashKey{}, pipelineStash{
-		messages: messages,
-		origBody: body,
-		provider: provider,
+		messages:  messages,
+		origBody:  body,
+		provider:  provider,
+		sessionID: sessionID,
 	}))
 
 	// --- 3.5 Stage A cache pre-check (T20) ---
@@ -206,7 +210,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// --- 5. Layer 2: MiniMax summary ---
 	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull {
 		l2Start := time.Now()
-		if newMsgs, saved, applied := p.layer2.ApplyToMessages(compressedMessages); applied {
+		if newMsgs, saved, applied := p.layer2.ApplyToMessagesSession(sessionID, compressedMessages); applied {
 			compressedMessages = newMsgs
 			layer2Savings = saved
 			appliedLayers = append(appliedLayers, 2)
@@ -530,9 +534,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// --- 11. Trigger async Layer 2 compression if needed ---
-	if p.isLayerEnabled(2) && p.layer2.ShouldTriggerCompression(messages) {
+	if p.isLayerEnabled(2) && p.layer2.ShouldTriggerCompressionSession(sessionID, messages) {
 		select {
-		case p.compressQueue <- types.CompressJob{Messages: messages, Timestamp: time.Now()}:
+		case p.compressQueue <- types.CompressJob{Messages: messages, Timestamp: time.Now(), SessionID: sessionID}:
 		default:
 			// Queue full, compression already in progress - skip.
 		}
@@ -900,7 +904,7 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 	// Read-only Layer 2 pass: consume any existing cached summary. Never call
 	// MiniMax synchronously - that is exactly what this path must not do.
 	if p.layer2 != nil {
-		if applied, _, ok := p.layer2.ApplyToMessages(msgs); ok {
+		if applied, _, ok := p.layer2.ApplyToMessagesSession(stash.sessionID, msgs); ok {
 			msgs = applied
 		}
 	}
@@ -908,9 +912,9 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 	// Enqueue a non-blocking async Layer 2 job so the next request benefits
 	// from an up-to-date summary. Drop silently if the queue is full - we
 	// already responded.
-	if p.isLayerEnabled(2) && p.layer2 != nil && p.layer2.ShouldTriggerCompression(stash.messages) {
+	if p.isLayerEnabled(2) && p.layer2 != nil && p.layer2.ShouldTriggerCompressionSession(stash.sessionID, stash.messages) {
 		select {
-		case p.compressQueue <- types.CompressJob{Messages: stash.messages, Timestamp: time.Now()}:
+		case p.compressQueue <- types.CompressJob{Messages: stash.messages, Timestamp: time.Now(), SessionID: stash.sessionID}:
 		default:
 		}
 	}
@@ -1046,11 +1050,11 @@ func (p *Proxy) compressionWorker() {
 
 // runCompressionJob executes a full MiniMax summarization cycle.
 func (p *Proxy) runCompressionJob(job types.CompressJob) {
-	p.layer2.GetCache().Compressing.Store(true)
-	defer p.layer2.GetCache().Compressing.Store(false)
+	p.layer2.SetCompressingSession(job.SessionID, true)
+	defer p.layer2.SetCompressingSession(job.SessionID, false)
 
 	slog.Debug("compression job started", "messages", len(job.Messages))
-	p.layer2.RunCompressionJobContext(p.compressionContext(), job.Messages)
+	p.layer2.RunCompressionJobSession(p.compressionContext(), job.SessionID, job.Messages)
 
 	p.trySendAnalytics(types.AnalyticsEvent{
 		Type:      types.EventCompressionComplete,
@@ -1308,7 +1312,7 @@ func (p *Proxy) GetRecentRequests(n int) []types.RequestMetrics {
 func (p *Proxy) FlushCaches() {
 	p.responseCache.Flush()
 	p.layer1.Reset()
-	p.layer2.GetCache().Invalidate()
+	p.layer2.InvalidateAllSessions()
 	if home, err := os.UserHomeDir(); err == nil {
 		if err := readcache.Clear(readcache.DefaultDir(home)); err != nil {
 			slog.Warn("read cache flush failed", "error", err)
