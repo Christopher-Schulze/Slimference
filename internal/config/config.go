@@ -176,6 +176,10 @@ type TuningConfig struct {
 	// the final user message so the model can break out of a retry loop.
 	// Default false (opt-in).
 	LoopDetection bool `toml:"loop_detection"`
+	// LoopStrategy (T116) selects the loop-handling approach: "additive"
+	// (default, injects nudge text), "subtractive" (collapses streak), or
+	// "off" (no loop handling). When LoopDetection is false, this is ignored.
+	LoopStrategy string `toml:"loop_strategy"`
 	// StructurePreview enables T38: large tool_result blocks (>=4 KB) with
 	// JSON / path-list / ASCII-table shape are replaced with a compact,
 	// shape-aware preview when strictly shorter. Default false (T74) until

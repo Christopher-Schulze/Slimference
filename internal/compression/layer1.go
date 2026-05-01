@@ -144,7 +144,11 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 	// T37 loop nudge runs first so any downstream compression sees the
 	// nudged text. Opt-in via [compression.tuning] loop_detection.
 	if c.cfg.Tuning.LoopDetection {
-		if newMsgs, saved := ApplyLoopNudge(messages); saved > 0 {
+		strategy := ResolveLoopStrategy(StrategyConfig{
+			LoopDetection: c.cfg.Tuning.LoopDetection,
+			LoopStrategy:  c.cfg.Tuning.LoopStrategy,
+		})
+		if newMsgs, saved := strategy.Apply(messages); saved > 0 {
 			messages = newMsgs
 			result.LoopNudgeSaved = saved
 			result.Messages = messages
