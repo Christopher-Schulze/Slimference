@@ -9,6 +9,10 @@ package types
 // teach the relevant call site to consult `Get()`. Removal must stay
 // additive across releases so older configs do not regress.
 type ProviderCapabilities struct {
+	// TrustClass labels the provider's data-flow relationship to the
+	// operator. T121. One of TrustClassUpstreamProvider,
+	// TrustClassExternalThirdParty, or TrustClassUnknown.
+	TrustClass string `json:"trust_class"`
 	// SupportsSeed: provider honours a `seed` field for greedy
 	// determinism beyond `temperature=0`.
 	SupportsSeed bool `json:"supports_seed"`
@@ -32,10 +36,20 @@ type ProviderCapabilities struct {
 	SupportsCachedPrefix bool `json:"supports_cached_prefix"`
 }
 
-// providerCapsRegistry holds the per-provider defaults. Returns a copy
-// on Get so callers cannot mutate shared state.
+// TrustClass labels a provider's data-flow relationship to the operator.
+// T121. "upstream_provider" = the model the user is talking to (Anthropic,
+// OpenAI, Codex). "external_third_party" = a side-channel optimisation
+// provider the user did not ask to talk to (MiniMax). "unknown" = not
+// declared (treated as external for safety).
+const (
+	TrustClassUpstreamProvider   = "upstream_provider"
+	TrustClassExternalThirdParty = "external_third_party"
+	TrustClassUnknown            = "unknown"
+)
+
 var providerCapsRegistry = map[Provider]ProviderCapabilities{
 	Anthropic: {
+		TrustClass:                  TrustClassUpstreamProvider,
 		SupportsSeed:                false,
 		SupportsTemperatureZero:     true,
 		SupportsLogprobs:            false,
@@ -45,6 +59,7 @@ var providerCapsRegistry = map[Provider]ProviderCapabilities{
 		SupportsCachedPrefix:        true,
 	},
 	OpenAI: {
+		TrustClass:                  TrustClassUpstreamProvider,
 		SupportsSeed:                true,
 		SupportsTemperatureZero:     true,
 		SupportsLogprobs:            true,
@@ -54,12 +69,23 @@ var providerCapsRegistry = map[Provider]ProviderCapabilities{
 		SupportsCachedPrefix:        false,
 	},
 	CodexChatGPT: {
+		TrustClass:                  TrustClassUpstreamProvider,
 		SupportsSeed:                false,
 		SupportsTemperatureZero:     true,
 		SupportsLogprobs:            false,
 		SupportsMinCompletionTokens: false,
 		SupportsStopConditions:      false,
 		SupportsResponseID:          true,
+		SupportsCachedPrefix:        false,
+	},
+	MiniMax: {
+		TrustClass:                  TrustClassExternalThirdParty,
+		SupportsSeed:                true,
+		SupportsTemperatureZero:     true,
+		SupportsLogprobs:            false,
+		SupportsMinCompletionTokens: false,
+		SupportsStopConditions:      false,
+		SupportsResponseID:          false,
 		SupportsCachedPrefix:        false,
 	},
 }
@@ -89,4 +115,18 @@ func SetProviderCapabilities(p Provider, caps ProviderCapabilities) func() {
 			delete(providerCapsRegistry, p)
 		}
 	}
+}
+
+// EffectiveTrustClass returns the trust class for a provider, allowing
+// a config-level override. If override is non-empty and a recognised
+// value, it takes precedence over the registry default. T121.
+func EffectiveTrustClass(p Provider, override string) string {
+	if override == TrustClassUpstreamProvider || override == TrustClassExternalThirdParty {
+		return override
+	}
+	caps := CapabilitiesFor(p)
+	if caps.TrustClass == "" {
+		return TrustClassUnknown
+	}
+	return caps.TrustClass
 }

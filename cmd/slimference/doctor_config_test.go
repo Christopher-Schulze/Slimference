@@ -20,7 +20,23 @@ func TestHandleSubcommand_doctor_smoke(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing-doctor.toml"))
+	// Write a minimal config with L2 disabled (T121 default) so the
+	// doctor smoke test does not depend on the operator's XDG config.
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "doctor.toml")
+	cfgContent := `[compression]
+layer1_enabled = true
+layer2_enabled = false
+layer3_enabled = true
+[compression.minimax]
+base_url = "https://api.minimax.io/v1"
+api_key_env = "MINIMAX_API_KEY"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
 	t.Setenv("MINIMAX_API_KEY", "test-key")
@@ -666,5 +682,133 @@ func TestHandleConfigCmd_writeFileError(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "write config") {
 		t.Fatalf("stderr: %q", buf.String())
+	}
+}
+
+func TestHandleSubcommand_doctor_trustOverrideUpstream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "doctor.toml")
+	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\ntrust_class = \"upstream_provider\"\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "upstream provider (operator override)") {
+		t.Fatalf("expected upstream override, got: %q", out)
+	}
+}
+
+func TestHandleSubcommand_doctor_trustUnknownOverride(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "doctor.toml")
+	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\ntrust_class = \"unknown\"\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "external third-party provider") {
+		t.Fatalf("expected external third-party fallback for unknown override, got: %q", out)
+	}
+}
+
+func TestHandleSubcommand_doctor_redactionEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "doctor.toml")
+	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\n[compression.summary]\noutbound_redaction = \"\"\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "default (secrets + paths + auth headers + JSON keys)") {
+		t.Fatalf("expected default redaction, got: %q", out)
+	}
+}
+
+func TestHandleSubcommand_doctor_redactionUnknown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfgDir := t.TempDir()
+	cfgPath := filepath.Join(cfgDir, "doctor.toml")
+	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\n[compression.summary]\noutbound_redaction = \"bogus_mode\"\n"
+	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
+	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"doctor"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "unknown mode") {
+		t.Fatalf("expected unknown mode warning, got: %q", out)
 	}
 }

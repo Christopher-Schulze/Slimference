@@ -1,6 +1,6 @@
 # TASK 121: Layer 2 default-off + opt-in flow + provider trust labelling
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: DONE 2026-05-01
 Priority: P0
 Scope: `internal/config/defaults.go`, `internal/summarization/`, `internal/proxy/`, `cmd/slimference/`, `internal/types/provider_caps.go`, `docs/data-policy.md` (new)
 Driver: Layer 2 by default ships full conversation prefixes (containing source code, tool outputs, paths, error messages, potentially auth tokens) to `api.minimax.io` (a third-party provider hosted in PRC). The current default is `enabled=true`. T109 adds redaction; T121 makes the default explicit-opt-in and exposes a provider trust model so the operator knows what they're agreeing to. Together with T109 these are the prerequisites for shipping Layer 2 in any production deployment with a data-policy obligation.
@@ -84,13 +84,13 @@ Companion artifacts:
 
 ## Acceptance Criteria
 
-- [ ] `layer2_enabled = false` is the new default.
-- [ ] `TrustClass` declared on every registered provider.
-- [ ] `slimference doctor` warns on enabled `external_third_party` providers.
-- [ ] `slimference layer2 enable --acknowledge-data-policy` is the only path to enable from default.
-- [ ] `docs/data-policy.md` shipped + linked from README.
-- [ ] TUI labels external providers.
-- [ ] Coverage 100%; race tests green.
+- [x] `layer2_enabled = false` is the new default.
+- [x] `TrustClass` declared on every registered provider.
+- [x] `slimference doctor` warns on enabled `external_third_party` providers.
+- [x] `slimference layer2 enable --acknowledge-data-policy` is the only path to enable from default.
+- [x] `docs/data-policy.md` shipped + linked from README.
+- [x] TUI labels external providers.
+- [x] Coverage 100%; race tests green.
 
 ## Out of Scope
 

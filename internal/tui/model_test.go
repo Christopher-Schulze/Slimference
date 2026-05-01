@@ -122,12 +122,14 @@ func (m *mockProxy) Config() ProxyConfigInterface {
 }
 
 type mockConfig struct {
-	port  int
-	speed int
+	port       int
+	speed      int
+	trustClass string
 }
 
-func (c *mockConfig) GetListenPort() int   { return c.port }
-func (c *mockConfig) GetPrefillSpeed() int { return c.speed }
+func (c *mockConfig) GetListenPort() int           { return c.port }
+func (c *mockConfig) GetPrefillSpeed() int         { return c.speed }
+func (c *mockConfig) GetMiniMaxTrustClass() string { return c.trustClass }
 
 // mockServiceControl implements ServiceControlInterface for testing.
 type mockServiceControl struct {

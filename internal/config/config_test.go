@@ -583,3 +583,55 @@ func TestExpandHome_BareTildeHomeDirError(t *testing.T) {
 		t.Fatalf("want bare tilde unchanged on error, got %q", got)
 	}
 }
+
+func TestValidate_TrustClass(t *testing.T) {
+	cfg := Defaults()
+	cfg.Compression.MiniMax.TrustClass = "upstream_provider"
+	if err := validate(cfg); err != nil {
+		t.Fatalf("upstream_provider should be valid: %v", err)
+	}
+	cfg.Compression.MiniMax.TrustClass = "external_third_party"
+	if err := validate(cfg); err != nil {
+		t.Fatalf("external_third_party should be valid: %v", err)
+	}
+	cfg.Compression.MiniMax.TrustClass = ""
+	if err := validate(cfg); err != nil {
+		t.Fatalf("empty should be valid: %v", err)
+	}
+	cfg.Compression.MiniMax.TrustClass = "banana"
+	if err := validate(cfg); err == nil {
+		t.Fatal("banana should be rejected")
+	}
+}
+
+func TestLoad_TrustClassRejected(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "config-*.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprint(f, "[compression.minimax]\ntrust_class = \"invalid\"\n")
+	f.Close()
+	t.Setenv("SLIMFERENCE_CONFIG", f.Name())
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() must reject invalid trust_class")
+	}
+}
+
+func TestDefaults_Layer2Disabled(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Compression.Layer2Enabled {
+		t.Fatal("Layer2Enabled must be false by default (T121)")
+	}
+}
+
+func TestValidate_MidExchangeThresholdNegative(t *testing.T) {
+	cfg := Defaults()
+	cfg.Compression.Tuning.MidExchangeThresholdTokens = -1
+	err := validate(cfg)
+	if err == nil {
+		t.Fatal("expected error for negative MidExchangeThresholdTokens")
+	}
+	if !strings.Contains(err.Error(), "mid_exchange_threshold_tokens") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

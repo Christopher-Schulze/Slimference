@@ -271,7 +271,20 @@ Fresh-eyes review artifact:
              `handleHookCmd` verify/status codex sub-branches,
              `validateCodexConfig` non-IsNotExist read error,
              `unpatchCodexConfig` IsNotExist early-return, and
-             `codexStatusInstalled` coherent-install true path.
-             Re-verified full proof stack: `go test ./...`,
-             `go test -race ./...`, `go run ./scripts/coverage -min=100`, and
-             `go run ./scripts/ci` all green with `100.0%` total Go coverage.
+              `codexStatusInstalled` coherent-install true path.
+              Re-verified full proof stack: `go test ./...`,
+              `go test -race ./...`, `go run ./scripts/coverage -min=100`, and
+              `go run ./scripts/ci` all green with `100.0%` total Go coverage.
+2026-05-01 - T121 completed: Layer 2 default-off + trust labels. Flipped
+             `layer2_enabled` default to `false`, added `TrustClass` to
+             provider capability registry (`upstream_provider` for
+             Anthropic/OpenAI/Codex, `external_third_party` for MiniMax),
+             added `EffectiveTrustClass()` with config-override support,
+             created `slimference layer2 enable|disable|status` CLI with
+             mandatory `--acknowledge-data-policy` gate, wired doctor trust
+             + redaction checks, labelled MiniMax as `[external]` in TUI,
+             shipped `docs/data-policy.md`, extracted `resolvedOrFallback()`
+             and `effectiveRedaction()` helpers, removed provably-dead
+             defensive branches (soak T100/T103 impossible state, classifyTrend
+             mid==0 guard, redundant daysFor pre-check), added 12+ new tests.
+             Coverage 100%, race-clean, `go run ./scripts/ci` all 6 steps green.

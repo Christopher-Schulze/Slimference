@@ -47,7 +47,7 @@ _slimference() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cword=$COMP_CWORD
 
-    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook hook debug daemon start stop restart service integrate bypass completion expand checkpoint trust version"
+    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook hook debug daemon start stop restart service integrate bypass layer2 completion expand checkpoint trust version"
     local periods="today week month all"
     local period_flags="--json --csv --by-command"
     local savings_flags="--json --csv --project"
@@ -140,6 +140,13 @@ _slimference() {
                 COMPREPLY=( $(compgen -W "$bypass_verbs" -- "$cur") )
             else
                 COMPREPLY=( $(compgen -W "$bypass_scoped_flags" -- "$cur") )
+            fi
+            ;;
+        layer2)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "enable disable status" -- "$cur") )
+            elif [ "$cword" -eq 3 ] && [ "${COMP_WORDS[2]}" = "enable" ]; then
+                COMPREPLY=( $(compgen -W "--acknowledge-data-policy" -- "$cur") )
             fi
             ;;
         filter)

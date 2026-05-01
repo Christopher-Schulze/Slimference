@@ -750,7 +750,7 @@ The headline movements:
 ### Phase W - Data policy + L2 trust foundation (P0)
 
 - [x] T109 - 2026-04-30: outbound redaction shipped. `Redactor` in `internal/summarization/redact.go` runs structural-first (HTTP auth headers + JSON credential keys), then pattern-based (security detector reuse), then path normalisation (`<HOME>` / `<TMP>`); strict mode adds full tool_input drop + recursive JSON sweep. Wired into `Layer2.RunCompressionJobContext` + `Layer2.ApplyMidExchange`. Default `[compression.summary] outbound_redaction = "default"`. Telemetry surfaces via `/admin/status.layer2.redaction` and `Layer2.RedactionCounters()`. `slimference doctor` adds an "L2 outbound redaction" check that FAILs on `off`. 100% coverage, race-clean. Detail: `docs/todo/t109-l2-outbound-redaction.md`
-- [ ] T121 - Layer 2 default-off + opt-in flow + provider trust labelling. Detail: `docs/todo/t121-l2-default-off-and-trust-labels.md`
+- [x] T121 - Layer 2 default-off + opt-in flow + provider trust labelling. Detail: `docs/todo/t121-l2-default-off-and-trust-labels.md`
 
 ### Phase X - L2 correctness fixes (P0)
 

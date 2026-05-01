@@ -10,6 +10,8 @@
 //	slimference test anthropic     # Test Anthropic reachability
 //	slimference test openai        # Test OpenAI reachability
 //	slimference doctor             # Run all diagnostics
+//	slimference layer2 enable --acknowledge-data-policy  # Enable L2 summarization
+//	slimference layer2 status      # Show Layer 2 config
 //	slimference stats today        # Print today's stats
 //	slimference stats prompt-cache week --json # Prompt-cache report
 //	slimference gain today         # Layer-0 filter.db savings (--by-command, --csv, --project; optional USD/M rate in config)
@@ -559,6 +561,9 @@ func handleSubcommand(args []string) {
 	case "bypass":
 		handleBypassCmd(args[1:])
 
+	case "layer2":
+		handleLayer2Cmd(args[1:])
+
 	case "completion":
 		handleCompletionCmd(args[1:])
 
@@ -567,7 +572,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, completion, trust, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, completion, trust, version")
 		exitFn(1)
 	}
 }
@@ -1340,6 +1345,20 @@ func handleDoctorCmd() {
 		default:
 			return fmt.Sprintf("unknown mode %q - falling back to default semantics", mode), false
 		}
+	})
+
+	// T121: warn when an external_third_party summarization provider is
+	// enabled. This is the data-policy safety net: even with redaction,
+	// the operator must explicitly acknowledge the data flow.
+	check("L2 provider trust", func() (string, bool) {
+		if !cfg.Compression.Layer2Enabled {
+			return "Layer 2 disabled (no outbound data)", true
+		}
+		trustClass := types.EffectiveTrustClass(types.MiniMax, cfg.Compression.MiniMax.TrustClass)
+		if trustClass == types.TrustClassUpstreamProvider {
+			return fmt.Sprintf("%s is labelled as upstream provider (operator override)", types.MiniMax), true
+		}
+		return fmt.Sprintf("WARN: %s is an external third-party provider - conversation data is sent to %s", types.MiniMax, cfg.Compression.MiniMax.BaseURL), false
 	})
 
 	check("Content archive", func() (string, bool) {
@@ -2222,8 +2241,9 @@ type configAdapter struct {
 	cfg *config.Config
 }
 
-func (ca *configAdapter) GetListenPort() int   { return ca.cfg.Proxy.ListenPort }
-func (ca *configAdapter) GetPrefillSpeed() int { return ca.cfg.Usage.EstimatedPrefillSpeed }
+func (ca *configAdapter) GetListenPort() int           { return ca.cfg.Proxy.ListenPort }
+func (ca *configAdapter) GetPrefillSpeed() int         { return ca.cfg.Usage.EstimatedPrefillSpeed }
+func (ca *configAdapter) GetMiniMaxTrustClass() string { return ca.cfg.Compression.MiniMax.TrustClass }
 
 // serviceControlAdapter implements tui.ServiceControlInterface by calling daemon package functions
 // and spawning subprocesses for hook install/remove.

@@ -255,6 +255,19 @@ func TestComputeSoakReport_T100UnsafeButT103Safe(t *testing.T) {
 	}
 }
 
+func TestFormatSoakText_T100SafeT103Unsafe(t *testing.T) {
+	t.Parallel()
+	r := SoakReport{
+		Period: "week", Days: 7, Snapshots: 5,
+		SafeForT100: true, SafeForT103: false,
+		Verdict: "T100 looks safe; T103 needs more soak time",
+	}
+	out := formatSoakText(r)
+	if !strings.Contains(out, "T100 looks safe; T103 needs more soak time") {
+		t.Fatalf("text: %s", out)
+	}
+}
+
 func TestFormatSoakText_NoData(t *testing.T) {
 	t.Parallel()
 	out := formatSoakText(SoakReport{Period: "week", Days: 7, Verdict: "no data"})
@@ -425,5 +438,33 @@ func TestConfigLoadDefaultForSoak(t *testing.T) {
 	c, err := configLoadDefaultForSoak()
 	if err != nil || c == nil {
 		t.Fatalf("got cfg=%v err=%v", c, err)
+	}
+}
+
+func TestHandleSoakCmd_BadPeriodViaCompute(t *testing.T) {
+	origExit := exitFn
+	t.Cleanup(func() { exitFn = origExit })
+	exits := []int{}
+	exitFn = func(code int) { exits = append(exits, code) }
+
+	origCfg := configLoadFn
+	t.Cleanup(func() { configLoadFn = origCfg })
+	configLoadFn = configLoadDefaultForSoak
+
+	stderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = stderr })
+
+	handleSoakCmd([]string{"bogus_period"})
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+
+	if len(exits) == 0 || exits[0] != 1 {
+		t.Fatalf("exits=%v", exits)
+	}
+	if !strings.Contains(buf.String(), "invalid period") {
+		t.Fatalf("stderr: %s", buf.String())
 	}
 }

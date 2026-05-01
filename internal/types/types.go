@@ -17,6 +17,10 @@ const (
 	// so it needs separate routing even though the body format is OpenAI-flavoured.
 	// See T66.
 	CodexChatGPT
+	// MiniMax is the summarization side-channel provider. Not an upstream that
+	// the user talks to directly; it receives compressed conversation prefixes
+	// for abstractive summarization. T121.
+	MiniMax
 )
 
 func (p Provider) String() string {
@@ -27,6 +31,8 @@ func (p Provider) String() string {
 		return "openai"
 	case CodexChatGPT:
 		return "codex_chatgpt"
+	case MiniMax:
+		return "minimax"
 	default:
 		return "unknown"
 	}

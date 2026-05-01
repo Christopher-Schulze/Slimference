@@ -176,8 +176,6 @@ func computeSoakReport(logDir, period string, now time.Time) (SoakReport, error)
 		rep.Verdict = "ok to enable both T100 and T103"
 	case rep.SafeForT103 && !rep.SafeForT100:
 		rep.Verdict = "T103 looks safe; T100 needs more soak time"
-	case rep.SafeForT100 && !rep.SafeForT103:
-		rep.Verdict = "T100 looks safe; T103 needs more soak time"
 	default:
 		rep.Verdict = "neither flag is safe yet"
 	}
@@ -194,9 +192,6 @@ func classifyTrend(rates []float64) string {
 		return "insufficient_data"
 	}
 	mid := len(rates) / 2
-	if mid == 0 {
-		return "insufficient_data"
-	}
 	first := mean(rates[:mid])
 	second := mean(rates[mid:])
 	delta := second - first
@@ -256,11 +251,6 @@ func handleSoakCmd(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		fmt.Fprintln(os.Stderr, "usage: slimference soak [today|week|month|all] [--json]")
-		exitFn(1)
-		return
-	}
-	if _, err := daysFor(period); err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
 		exitFn(1)
 		return
 	}

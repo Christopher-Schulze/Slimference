@@ -136,6 +136,7 @@ type SessionLoggerInterface interface {
 type ProxyConfigInterface interface {
 	GetListenPort() int
 	GetPrefillSpeed() int
+	GetMiniMaxTrustClass() string
 }
 
 // ServiceControlInterface exposes daemon lifecycle operations the TUI can trigger.

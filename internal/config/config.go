@@ -272,6 +272,10 @@ type MiniMaxConfig struct {
 	// EnableSeed emits the `seed` request field for stable summaries (T91).
 	// Off by default to keep the wire shape unchanged until opt-in.
 	EnableSeed bool `toml:"enable_seed"`
+	// TrustClass overrides the provider trust label. When set to
+	// "upstream_provider", a self-hosted endpoint is no longer flagged as
+	// external. T121.
+	TrustClass string `toml:"trust_class"`
 }
 
 // APIKey resolves the MiniMax API key from the configured environment variable.
@@ -620,6 +624,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Analytics.GainUSDPerMillionTokens < 0 {
 		return fmt.Errorf("analytics.gain_usd_per_million_tokens must be >= 0, got %v", cfg.Analytics.GainUSDPerMillionTokens)
+	}
+	if tc := cfg.Compression.MiniMax.TrustClass; tc != "" && tc != "upstream_provider" && tc != "external_third_party" && tc != "unknown" {
+		return fmt.Errorf("compression.minimax.trust_class must be upstream_provider/external_third_party/unknown, got %q", tc)
 	}
 	return nil
 }

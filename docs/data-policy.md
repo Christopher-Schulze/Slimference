@@ -1,0 +1,100 @@
+# Slimference Data Policy
+
+Last updated: 2026-05-01 (T121)
+
+## Overview
+
+Slimference processes LLM API requests through a multi-layer compression pipeline. This document describes what data flows where, and how to control it.
+
+## Data Flow by Layer
+
+### Layer 0: Pre-Entry Filtering (local only)
+
+- **What happens**: Command output (stdout/stderr) from subprocess commands is filtered locally before reaching the LLM.
+- **Data destination**: Local process only. No data leaves your machine.
+- **Controls**: `slimference filter`, `.slimference/filters.toml`
+
+### Layer 1: Deterministic Compression (local only)
+
+- **What happens**: Message content in the conversation prefix is compressed through deterministic, reversible transformations (ANSI stripping, deduplication, structure extraction, etc.).
+- **Data destination**: Local process only. No data leaves your machine.
+- **Controls**: `[compression] layer1_enabled`
+
+### Layer 2: Abstractive Summarization (external)
+
+- **What happens**: When enabled, conversation prefixes exceeding the token threshold are summarized by an external LLM provider (MiniMax by default).
+- **Data destination**: Compressed conversation content is sent to the configured summarization provider endpoint.
+- **Default state**: **Disabled** (T121). Must be explicitly enabled via `slimference layer2 enable --acknowledge-data-policy`.
+- **Redaction**: Outbound redaction is **on by default** (T109). This strips:
+  - HTTP authentication headers
+  - Known credential/secret patterns (API keys, tokens, passwords)
+  - File paths are normalised (`<HOME>`, `<TMP>`)
+  - JSON credential keys are removed
+- **Strict mode**: `[compression.summary] outbound_redaction = "strict"` additionally drops all `tool_input` bodies and runs a recursive JSON sweep.
+- **Controls**:
+  - Enable: `slimference layer2 enable --acknowledge-data-policy`
+  - Disable: `slimference layer2 disable`
+  - Status: `slimference layer2 status`
+  - Doctor check: `slimference doctor`
+
+### Layer 3: Response Cache (local only)
+
+- **What happens**: Compressed responses are cached locally to avoid redundant compression.
+- **Data destination**: Local memory and disk cache only. No data leaves your machine.
+- **Controls**: `[compression] layer3_enabled`, `[cache]`
+
+## Provider Trust Labels
+
+| Provider | Trust Class | Role |
+|----------|------------|------|
+| Anthropic | `upstream_provider` | The LLM you are talking to |
+| OpenAI | `upstream_provider` | The LLM you are talking to |
+| Codex (ChatGPT) | `upstream_provider` | The LLM you are talking to |
+| MiniMax | `external_third_party` | Side-channel summarization provider |
+
+`slimference doctor` warns when any `external_third_party` provider is enabled.
+
+## Self-Hosted Alternative
+
+To use your own summarization endpoint instead of MiniMax:
+
+```toml
+[compression.minimax]
+base_url = "http://localhost:11434/v1"  # e.g., local Ollama
+model = "qwen2.5:7b"
+api_key_env = "LOCAL_LLM_KEY"  # or set to "_" if no key needed
+
+[compression.minimax]
+trust_class = "upstream_provider"  # marks your self-hosted endpoint as trusted
+```
+
+When `trust_class = "upstream_provider"` is set explicitly, `slimference doctor` no longer warns about the provider being external.
+
+## Disabling Layers
+
+Each layer can be individually disabled in config:
+
+```toml
+[compression]
+layer1_enabled = true   # deterministic compression (safe, local)
+layer2_enabled = false  # abstractive summarization (default off, T121)
+layer3_enabled = true   # response cache (safe, local)
+```
+
+Or via CLI:
+
+```bash
+slimference layer2 disable   # writes layer2_enabled = false to config
+```
+
+## Logging and Telemetry
+
+- Slimference logs compression decisions locally (`~/.slimference/logs/`).
+- No telemetry is sent to any external service.
+- `slimference debug` commands inspect local logs only.
+
+## Further Reading
+
+- Redaction design: `docs/todo/t109-l2-outbound-redaction.md`
+- Trust model: `docs/todo/t121-l2-default-off-and-trust-labels.md`
+- Spec: `spec+.md` (normative)

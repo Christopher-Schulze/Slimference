@@ -696,7 +696,13 @@ func (m *Model) buildLeftPanel(width int) []string {
 	l2Status := m.proxy.GetLayer2Status()
 	add(" " + s.PanelTitle.Render("BACKGROUND"))
 	add(renderLayerLine(s, 1, "Deterministic", m.layer1Enabled, snap.Layer1Savings, ""))
-	add(renderLayerLine(s, 2, "MiniMax", m.layer2Enabled, snap.Layer2Savings, l2Summary(l2Status)))
+	l2Label := "MiniMax"
+	trustOverride := m.proxy.Config().GetMiniMaxTrustClass()
+	miniMaxTrust := types.EffectiveTrustClass(types.MiniMax, trustOverride)
+	if miniMaxTrust == types.TrustClassExternalThirdParty {
+		l2Label = "MiniMax [external]"
+	}
+	add(renderLayerLine(s, 2, l2Label, m.layer2Enabled, snap.Layer2Savings, l2Summary(l2Status)))
 	add(renderLayerLine(s, 3, "Cache", m.layer3Enabled, snap.Layer3Savings, fmt.Sprintf("hits: %d/%d", snap.CacheHits, snap.TotalRequests)))
 	add("")
 
