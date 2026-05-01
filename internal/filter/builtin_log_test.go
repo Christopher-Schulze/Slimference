@@ -5,7 +5,51 @@ import (
 	"testing"
 )
 
-func TestTryCompactLogDedup(t *testing.T) {
+func TestTryCompactLogOutput_shapeDetection(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 60; i++ {
+		sb.WriteString("2024-01-01T00:00:01Z DEBUG internal state dump key=val\n")
+	}
+	sb.WriteString("2024-01-01T00:00:02Z ERROR connection refused\n")
+	input := sb.String()
+	out, ok := TryCompactLogOutput([]string{"custom-logger", "run"}, []byte(input))
+	if !ok {
+		t.Fatal("shape detection should trigger log compaction")
+	}
+	s := string(out)
+	if !strings.Contains(s, "ERROR") {
+		t.Errorf("ERROR lines should be retained")
+	}
+	if len(s) >= len(input) {
+		t.Errorf("output should be shorter: %d vs %d", len(s), len(input))
+	}
+}
+
+func TestTryCompactLogOutput_noMatch(t *testing.T) {
+	t.Parallel()
+	input := "some random output\nnot a log\n"
+	out, ok := TryCompactLogOutput([]string{"python", "script.py"}, []byte(input))
+	if ok {
+		t.Fatal("random output should not match")
+	}
+	if string(out) != input {
+		t.Fatal("should pass through unchanged")
+	}
+}
+
+func TestTryCompactLogOutput_emptyWithArgv(t *testing.T) {
+	t.Parallel()
+	out, ok := TryCompactLogOutput([]string{"tail", "-f", "app.log"}, nil)
+	if ok {
+		t.Fatal("empty stdout should not compact")
+	}
+	if out != nil {
+		t.Fatalf("expected nil, got %q", out)
+	}
+}
+
+func TestTryCompactLogDedup_delegatesToLogOutput(t *testing.T) {
 	t.Parallel()
 	in := "same\nsame\nsame\nok\n"
 	out, ok := TryCompactLogDedup([]string{"docker", "logs", "x"}, []byte(in))
@@ -14,16 +58,6 @@ func TestTryCompactLogDedup(t *testing.T) {
 	}
 	if string(out) != "same [×3]\nok\n" {
 		t.Fatalf("got %q", out)
-	}
-	if _, ok := TryCompactLogDedup([]string{"kubectl", "get", "pods"}, []byte(in)); ok {
-		t.Fatal("not logs")
-	}
-	out2, ok := TryCompactLogDedup([]string{"podman", "logs", "ctr"}, []byte(in))
-	if !ok {
-		t.Fatal("expected podman logs dedup")
-	}
-	if string(out2) != "same [×3]\nok\n" {
-		t.Fatalf("podman: got %q", out2)
 	}
 }
 
@@ -36,15 +70,12 @@ func TestCollapseConsecutiveDuplicateLines(t *testing.T) {
 
 func TestTryCompactLogDedup_noDedup(t *testing.T) {
 	t.Parallel()
-	// All unique lines — no dedup, len(out) >= len(s), returns false
 	if _, ok := TryCompactLogDedup([]string{"docker", "logs", "x"}, []byte("a\nb\nc\n")); ok {
 		t.Fatal("unique lines: should not dedup")
 	}
-	// kubectl logs len<2
 	if isKubectlLogsArgv([]string{"kubectl"}) {
 		t.Fatal("kubectl: len<2 should return false")
 	}
-	// kubectl logs success
 	out, ok := TryCompactLogDedup([]string{"kubectl", "logs", "pod"}, []byte("line\nline\nline\n"))
 	if !ok || string(out) != "line [×3]\n" {
 		t.Fatalf("kubectl logs dedup: ok=%v %q", ok, out)

@@ -8,17 +8,26 @@ import (
 
 const logMaxLines = 100
 
-// TryCompactLogDedup collapses consecutive duplicate lines and truncates large logs (F15).
 func TryCompactLogDedup(argv []string, stdout []byte) ([]byte, bool) {
-	if !isDockerLogsArgv(argv) && !isKubectlLogsArgv(argv) {
+	return TryCompactLogOutput(argv, stdout)
+}
+
+func TryCompactLogOutput(argv []string, stdout []byte) ([]byte, bool) {
+	argvMatch := isLogReadingArgv(argv)
+	if !argvMatch {
+		shape, conf := DetectLogShape(stdout)
+		if conf < 0.7 {
+			return stdout, false
+		}
+		_ = shape
+	}
+	if len(stdout) == 0 {
 		return stdout, false
 	}
 	s := string(stdout)
 
-	// Step 1: collapse consecutive duplicates.
 	deduped := collapseConsecutiveDuplicateLines(s)
 
-	// Step 2: if result is still very long, apply log-level filtering or truncation.
 	if len(deduped) > 4000 {
 		filtered := filterLogOutput(deduped)
 		if len(filtered) < len(deduped) {
