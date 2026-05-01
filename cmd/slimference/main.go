@@ -14,7 +14,7 @@
 //	slimference layer2 status      # Show Layer 2 config
 //	slimference stats today        # Print today's stats
 //	slimference stats prompt-cache week --json # Prompt-cache report
-//	slimference gain today         # Layer-0 filter.db savings (--by-command, --csv, --project; optional USD/M rate in config)
+//	slimference gain today         # Layer-0/filter/cache/output telemetry (--by-command, --by-parser, --cache, --output)
 //	slimference filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
 //	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
 //	slimference posttool          # Compact PostToolUse hook JSON from stdin for Codex
@@ -39,6 +39,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -59,6 +60,7 @@ import (
 	"github.com/slimference/slimference/internal/repetition"
 	"github.com/slimference/slimference/internal/slogutil"
 	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
@@ -88,6 +90,7 @@ var (
 	writeGainByCommandCSV        = analytics.WriteGainByCommandCSV
 	writeGainByParserCSV         = analytics.WriteGainByParserCSV
 	writeGainSummaryCSV          = analytics.WriteGainSummaryCSV
+	writeOutputReduceCSV         = analytics.WriteOutputReduceCSV
 	writePromptCacheCSV          = analytics.WritePromptCacheCSV
 	replaySessionFn              = dbg.ReplaySession
 	daemonIsRunningFn            = daemon.IsRunning
@@ -1325,6 +1328,18 @@ func handleDoctorCmd() {
 		})
 	}
 
+	warn("TLS profile catalog", func() string {
+		info := tlsdial.Catalog()
+		now := time.Now()
+		ageDays := int(tlsdial.CatalogAge(now).Hours() / 24)
+		state := "fresh"
+		if tlsdial.CatalogStale(now) {
+			state = "stale - review pinned uTLS/browser profiles"
+		}
+		return fmt.Sprintf("%s generated=%s age_days=%d max_age_days=%d state=%s",
+			info.Version, info.Generated.Format("2006-01-02"), ageDays, info.MaxAgeDays, state)
+	})
+
 	check("Determinism gate", func() (string, bool) {
 		if !cfg.Compression.Summary.RequireDeterministic {
 			return "off (no strict-determinism check)", true
@@ -1544,6 +1559,7 @@ type gainCLIFlags struct {
 	byCommand bool
 	byParser  bool
 	cache     bool
+	output    bool
 	csv       bool
 	project   string
 }
@@ -1560,6 +1576,8 @@ func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
 			f.byParser = true
 		case "--cache":
 			f.cache = true
+		case "--output":
+			f.output = true
 		case "--csv":
 			f.csv = true
 		case "--project":
@@ -1585,8 +1603,11 @@ func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
 	if period == "" {
 		period = "today"
 	}
-	if f.cache && (f.byCommand || f.byParser || f.project != "") {
-		return "", f, fmt.Errorf("--cache cannot be combined with --by-command, --by-parser, or --project")
+	if f.cache && (f.byCommand || f.byParser || f.output || f.project != "") {
+		return "", f, fmt.Errorf("--cache cannot be combined with --by-command, --by-parser, --output, or --project")
+	}
+	if f.output && (f.byCommand || f.byParser || f.project != "") {
+		return "", f, fmt.Errorf("--output cannot be combined with --by-command, --by-parser, or --project")
 	}
 	if f.byCommand && f.byParser {
 		return "", f, fmt.Errorf("--by-command and --by-parser are mutually exclusive")
@@ -1604,11 +1625,15 @@ func handleGainCmd(args []string) {
 	switch period {
 	case "today", "week", "month", "all":
 	default:
-		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command|--by-parser|--cache] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
+		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command|--by-parser|--cache|--output] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
 		exitFn(1)
 	}
 	if flags.cache {
 		handleGainCache(period, flags)
+		return
+	}
+	if flags.output {
+		handleGainOutput(period, flags)
 		return
 	}
 	path, err := resolveFilterDBPathFn()
@@ -1710,6 +1735,69 @@ func handleGainCmd(args []string) {
 				extra)
 		}
 	}
+}
+
+func handleGainOutput(period string, flags gainCLIFlags) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
+		exitFn(1)
+		return
+	}
+	report, err := analytics.ReadOutputReduceReport(cfg.Analytics.ResolvedLogDir(), period, time.Now())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain --output: %v\n", err)
+		exitFn(1)
+		return
+	}
+	if flags.csv {
+		if err := writeOutputReduceCSV(os.Stdout, report); err != nil {
+			fmt.Fprintf(os.Stderr, "gain --output: %v\n", err)
+			exitFn(1)
+		}
+		return
+	}
+	if flags.json {
+		b, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	if report.TotalRequests == 0 {
+		fmt.Println("No output-reduce telemetry in this window.")
+		return
+	}
+	fmt.Printf("Output-reduce telemetry (%s)\n", period)
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("Requests:                    %d\n", report.TotalRequests)
+	fmt.Printf("Applied requests:            %d\n", report.AppliedRequests)
+	fmt.Printf("Skipped requests:            %d\n", report.SkippedRequests)
+	fmt.Printf("Directive input overhead:    %s\n", formatTokensPlain(report.InputOverheadTokens))
+	fmt.Printf("Observed output tokens:      %s\n", formatTokensPlain(report.OutputTokensObserved))
+	fmt.Printf("Applied-turn output tokens:  %s\n", formatTokensPlain(report.AppliedOutputTokens))
+	fmt.Printf("Avg output tokens/request:   %.2f\n", report.AvgOutputTokens)
+	fmt.Printf("Avg directive overhead/apply: %.2f\n", report.AvgInputOverheadPerApply)
+	if len(report.Profiles) > 0 {
+		fmt.Println("Profiles:")
+		for _, key := range sortedStringIntKeys(report.Profiles) {
+			fmt.Printf("  %s: %d\n", key, report.Profiles[key])
+		}
+	}
+	if len(report.Reasons) > 0 {
+		fmt.Println("Reasons:")
+		for _, key := range sortedStringIntKeys(report.Reasons) {
+			fmt.Printf("  %s: %d\n", key, report.Reasons[key])
+		}
+	}
+	fmt.Println("Savings need a live baseline; this report intentionally does not invent one.")
+}
+
+func sortedStringIntKeys(m map[string]int) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func handleGainCache(period string, flags gainCLIFlags) {

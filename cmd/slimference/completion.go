@@ -11,7 +11,7 @@ import (
 // subcommands (hook install|remove, debug paths|last|..., daemon logs,
 // service install|..., config init|show, test anthropic|openai), and the
 // recurring period/flag tokens (today|week|month|all, --json, --csv,
-// --by-command, --by-parser, --cache).
+// --by-command, --by-parser, --cache, --output).
 //
 // Scope: bash only. zsh/fish are out of scope (T32).
 //
@@ -49,7 +49,7 @@ _slimference() {
 
     local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook hook debug daemon start stop restart service integrate bypass layer2 completion expand checkpoint trust version"
     local periods="today week month all"
-    local period_flags="--json --csv --by-command --by-parser --cache"
+    local period_flags="--json --csv --by-command --by-parser --cache --output"
     local savings_flags="--json --csv --project"
     local quality_flags="--json --url"
     local bypass_verbs="on off status"

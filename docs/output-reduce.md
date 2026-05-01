@@ -44,10 +44,13 @@ turns remain idempotent.
 slimference output-reduce status
 slimference output-reduce enable
 slimference output-reduce disable
+slimference gain --output [today|week|month|all] [--json|--csv]
 ```
 
 The command edits the resolved config file using the same config update path as
-Layer 2 toggles.
+Layer 2 toggles. `gain --output` reads persisted analytics JSONL and reports
+applied/skipped requests, directive input overhead, observed output tokens, and
+profile/reason breakdowns.
 
 ## Measurement
 
@@ -65,7 +68,8 @@ The admin status payload exposes:
 
 These are observability counters, not a false "proven saving" claim. Real
 provider-side saving still depends on model compliance and must be judged on
-live sessions or a real corpus.
+live sessions or a real corpus. `gain --output` intentionally reports only
+observable telemetry until that baseline exists.
 
 ## Limits
 

@@ -81,6 +81,11 @@ default_tls_profile = "chromium_stable"
 
 Supported concrete profiles are `chromium_stable`, `chrome_133`, `chrome_131`, `chrome_120`, `chrome_120_pq`, `ios_12_1`, `safari_16_0`, and `go_stdlib`. Intent aliases `node_stable`, `python_requests`, `node`, `python`, `chrome`, and `chromium` resolve to `chromium_stable` because the pinned uTLS dependency does not expose exact maintained Node/OpenSSL/Python profiles. This is a practical stealth improvement, not a byte-identical runtime impersonation guarantee.
 
+`slimference doctor` prints the shipped TLS profile catalogue version/date and
+warns when the catalogue is older than the review threshold. That warning means
+"refresh the pinned uTLS/browser profile mapping"; it is not a runtime failure
+and it is not a JA3 match proof.
+
 ### `uninstall`
 
 Disables the proxy, removes the CA from the keychain, removes the launch agent. The CA files in `~/.slimference/ca` remain on disk so a re-install can reuse them; delete the directory manually for a fully clean slate.

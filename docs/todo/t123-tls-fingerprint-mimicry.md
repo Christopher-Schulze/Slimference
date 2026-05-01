@@ -59,7 +59,7 @@ When transparent mode is enabled, the upstream HTTP transport installs `DialTLSC
 - [x] New `internal/tlsdial/profile.go`: `Profile`, string parsing, concrete uTLS profile names, and intent aliases.
 - [x] New `internal/tlsdial/dial.go`: `Dial(ctx, network, host, port, profile)` that uses `utls.UClient` for mimicry and Go stdlib only for the explicit `go_stdlib` opt-out.
 - [x] New `internal/tlsdial/resolver.go`: `Resolver` struct holding the per-host map; `Resolve(host) Profile` returns the configured profile or default.
-- [ ] Versioned profile metadata and stale-profile doctor warning remain optional follow-up, not required for the first T123 code landing.
+- [x] Versioned profile metadata and stale-profile doctor warning are implemented. `internal/tlsdial.Catalog()` exposes the shipped catalogue version/date/max age, and `slimference doctor` prints a warning line when the catalogue ages past the review threshold.
 
 ### WP2 - Wire upstream callers
 
@@ -75,7 +75,7 @@ Not implemented in this landing. uTLS handles ClientHello mimicry; HTTP/2 SETTIN
 
 - [x] New `[transparent.tls_profiles]` section in `internal/config/config.go` and defaults.
 - [x] `slimference proxy status` prints the resolved profile per intercepted host.
-- [ ] `slimference doctor` stale-profile warning is deferred until versioned profile metadata exists.
+- [x] `slimference doctor` prints TLS profile catalogue version/date/age and warns when pinned profile metadata is stale.
 
 ### WP5 - Verification harness
 
@@ -92,7 +92,7 @@ Not implemented in this landing. uTLS handles ClientHello mimicry; HTTP/2 SETTIN
 ### WP7 - Documentation
 
 - [x] This task file documents the practical limits: ClientHello mimicry only, no undetectability claim.
-- [ ] `docs/transparent-mode.md` operator-facing TLS profile section can be expanded after live proof.
+- [x] `docs/transparent-mode.md` operator-facing TLS profile section documents profile aliases, limits, and stale-catalog doctor warning. External JA3/JA4 proof remains separate.
 
 ## Acceptance criteria
 

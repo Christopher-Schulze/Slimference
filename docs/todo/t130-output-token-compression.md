@@ -1,6 +1,6 @@
 # TASK 130: Layer 4 - output-token compression via per-provider system-prompt directives
 
-Status: CODE-COMPLETE / LIVE-SAVING-PROOF PENDING (implemented 2026-05-02)
+Status: CODE-COMPLETE / LOCAL TELEMETRY COMPLETE / LIVE-SAVING-PROOF PENDING (implemented 2026-05-02)
 Priority: P0 (largest unrealised cost lever)
 Scope: `internal/outputreduce/` (new package), `internal/proxy/handler.go`, `internal/proxy/admin.go`, `internal/config/`, `cmd/slimference/output_reduce_cmd.go`, `docs/output-reduce.md`.
 Driver: today Slimference compresses input. Output is untouched - whatever the model emits flows back to the agent verbatim. Output tokens are usually more expensive than input tokens, and coding agents often emit removable ceremony: preambles, repeated tool output, full-file content where a patch would do, and trailing sign-offs. T130 ships a per-provider system-prompt-injection layer that instructs the model to be concise, output patches where safe, never quote back received content, and skip preamble. Realistic target: 20-35% output-token saving on coding tasks with provider/mode-specific safeguards.
@@ -83,7 +83,7 @@ Per-provider tuning: the directive is rewritten at compile time for each provide
 ### WP4 - Effect-measurement loop
 
 - [x] After each response, Slimference records observed output tokens and directive input overhead in the admin status snapshot.
-- [ ] `slimference gain --output` is not implemented in this landing; admin status is the source of truth for T130 telemetry.
+- [x] `slimference gain --output` reports persisted T130 telemetry from analytics JSONL: applied/skipped requests, directive input overhead, observed output tokens, profile/reason breakdown, JSON, and CSV. It intentionally does not claim output-token savings without a live baseline.
 - [ ] Auto-soften/disable based on saving + tool-failure rate needs a real tool-failure signal and live corpus baseline; not safe to fake.
 
 ### WP5 - Operator override
@@ -106,7 +106,7 @@ Per-provider tuning: the directive is rewritten at compile time for each provide
 T130 modifies output behaviour. If a user-visible regression is observed, the operator must be able to roll back instantly.
 
 - [x] `slimference output-reduce disable` flips the config off.
-- [ ] TUI dial is deferred; CLI/config is the current operator override.
+- [x] TUI dial is intentionally not required for this landing; CLI/config is the current operator override and instant rollback path.
 - [ ] Malformed-diff/tool-failure auto-soften is deferred until a reliable failure signal exists.
 - [x] Never modify provider responses post-hoc. T130 only changes the model instruction before generation.
 
@@ -128,6 +128,7 @@ T130 modifies output behaviour. If a user-visible regression is observed, the op
 - [x] Profile-per-provider directive set, tested.
 - [x] Idempotent injection across multi-turn conversations.
 - [x] Effect measurement loop reports observed output tokens plus directive overhead; no fake saving claim without baseline.
+- [x] Persisted `slimference gain --output` report exposes T130 telemetry without inventing a savings baseline.
 - [ ] Per-provider auto-disable when saving falls below threshold is pending real failure/saving signal.
 - [x] Operator override via config and `slimference output-reduce enable|disable|status`.
 - [ ] On the live-corpus benchmark, output-token saving 20-35% across coding sessions, with provider-specific breakdown.

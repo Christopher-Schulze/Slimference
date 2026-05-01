@@ -57,6 +57,9 @@ api_key_env = "MINIMAX_API_KEY"
 	if !strings.Contains(out, "Slimference Doctor") {
 		t.Fatalf("stdout: %q", out)
 	}
+	if !strings.Contains(out, "TLS profile catalog") || !strings.Contains(out, "utls-chrome-133") {
+		t.Fatalf("expected TLS profile catalog warning: %q", out)
+	}
 	if !strings.Contains(out, "All checks passed") {
 		t.Fatalf("expected success footer: %q", out)
 	}

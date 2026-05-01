@@ -210,6 +210,16 @@ type AnalyticsEvent struct {
 	// CacheCreateTokens is the number of tokens newly cached by this
 	// request (Anthropic usage.cache_creation_input_tokens).
 	CacheCreateTokens int
+	// OutputReduceApplied reports whether T130 injected output-discipline
+	// instructions into this request.
+	OutputReduceApplied bool
+	// OutputReduceProfile is the effective T130 profile used for the request.
+	OutputReduceProfile string
+	// OutputReduceReason is the apply/skip reason recorded by T130.
+	OutputReduceReason string
+	// OutputReduceAddedTokens is the estimated input-token overhead introduced
+	// by the injected T130 directive.
+	OutputReduceAddedTokens int
 }
 
 // RequestMetrics records per-request statistics kept in the ring buffer.

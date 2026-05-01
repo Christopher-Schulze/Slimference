@@ -201,8 +201,9 @@ are degradation signals, not status translations.
 `filter.db` into a summary with savings percentages. `--by-command`
 breaks it down per argv[0]; `--by-parser` groups persisted Layer-0
 savings by parser/tool family; `--cache` reports persisted provider
-prompt-cache read/create counters. `--csv` / `--json` for machine
-consumption.
+prompt-cache read/create counters; `--output` reports persisted T130
+output-reduce telemetry without inventing a savings baseline. `--csv` /
+`--json` for machine consumption.
 
 ---
 
@@ -988,7 +989,7 @@ slimference help [subcommand]
 | `expand`      | Retrieve archived tool result by id (T40).                             |
 | `checkpoint`  | Smart-compaction checkpoint tools: list, show, restore (T39).          |
 | `hook`        | install, remove, verify, status, check-upstream (manual hook mgmt).    |
-| `gain`        | Report Layer-0, by-command/by-parser, or prompt-cache savings.          |
+| `gain`        | Report Layer-0, by-command/by-parser, prompt-cache, or output telemetry.|
 | `stats`       | Analytics snapshots (today/week/month/prompt-cache).                   |
 | `savings`     | Unified savings view (L0 + L1/2 + L3) per period; --json / --csv (T80).|
 | `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |

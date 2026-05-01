@@ -84,6 +84,26 @@ func TestProfileNames_IncludesAliases(t *testing.T) {
 	}
 }
 
+func TestCatalogMetadata(t *testing.T) {
+	t.Parallel()
+	info := Catalog()
+	if info.Version == "" || info.Generated.IsZero() || info.MaxAgeDays <= 0 {
+		t.Fatalf("bad catalog info: %+v", info)
+	}
+	if !containsString(info.Concrete, "chromium_stable") || !containsString(info.Aliases, "node_stable") {
+		t.Fatalf("catalog missing expected names: %+v", info)
+	}
+	if CatalogStale(info.Generated.Add(24 * time.Hour)) {
+		t.Fatal("fresh catalog reported stale")
+	}
+	if !CatalogStale(info.Generated.Add(time.Duration(info.MaxAgeDays+1) * 24 * time.Hour)) {
+		t.Fatal("old catalog not reported stale")
+	}
+	if CatalogStale(info.Generated.Add(-24 * time.Hour)) {
+		t.Fatal("future clock skew should not report stale")
+	}
+}
+
 func TestDial_StdlibAndUTLSProfiles(t *testing.T) {
 	server := httptest.NewTLSServer(nil)
 	defer server.Close()
