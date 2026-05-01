@@ -110,6 +110,11 @@ func applyLayer0Filters(workDir string, argv []string, stdout []byte) ([]byte, s
 		{"aws_json", func() ([]byte, bool) { return TryCompactAwsJSON(argv, stdout) }},
 		{"python_traceback", func() ([]byte, bool) { return TryCompactPythonTraceback(stdout) }},
 		{"terraform_plan", func() ([]byte, bool) { return TryCompactTerraformPlan(argv, stdout) }},
+		{"terraform_init", func() ([]byte, bool) { return TryCompactTerraformInit(argv, stdout) }},
+		{"terraform_validate", func() ([]byte, bool) { return TryCompactTerraformValidate(argv, stdout) }},
+		{"terraform_state_list", func() ([]byte, bool) { return TryCompactTerraformStateList(argv, stdout) }},
+		{"terraform_output", func() ([]byte, bool) { return TryCompactTerraformOutput(argv, stdout) }},
+		{"terraform_show", func() ([]byte, bool) { return TryCompactTerraformShow(argv, stdout) }},
 		{"json_minify", func() ([]byte, bool) { return TryCompactJSONMinify(stdout) }},
 	}
 

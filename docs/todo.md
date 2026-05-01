@@ -754,20 +754,20 @@ The headline movements:
 
 ### Phase X - L2 correctness fixes (P0)
 
-- [x] T110 - 2026-05-01: Layer 2 cache session-keyed multi-slot replacement (core: session ID extraction, LRU, hash invalidation, telemetry; disk persistence deferred to T110b). Detail: `docs/todo/t110-l2-cache-session-keyed.md`
-- [ ] T110b - Layer 2 cache disk snapshot/load (deferred follow-up; persists per-session current+previous to `~/.slimference/layer2_cache/<sid>.json` on shutdown, rehydrates on boot, respects TTL). Not blocking until multi-process operator setups exist.
+- [x] T110 - 2026-05-01: Layer 2 cache session-keyed multi-slot replacement (core: session ID extraction, LRU, hash invalidation, telemetry). Disk persistence considered and rejected: cache lives only while proxy runs, restart cost is one cold L2 hit, multi-process setups do not exist; ~300 LOC for marginal value. Detail: `docs/todo/t110-l2-cache-session-keyed.md`
 - [x] T111 - 2026-05-01: Layer 2 anchor verbatim re-injection in ApplyToMessages. Detail: `docs/todo/t111-l2-anchor-reinjection.md`
 
 ### Phase Y - Realised levers + measurement (P0/P1)
 
 - [x] T118 (core) - 2026-05-01: Capture-session subcommand, benchmark-corpus per-category gate, synthetic seed corpus, live-corpus policy doc, and CI step 7/7 shipped. **T118b** is operator-driven (>=10 real-session categories captured-and-scrubbed under `tests/fixtures/live_corpus/`); the harness is ready, only the contents are pending. Detail: `docs/todo/t118-live-corpus-and-savings-gate.md`
-- [x] T119 (core) - 2026-05-01: Layer 0 leaf-audit tool + CI gate landed under `scripts/utils/leaf_audit.go`. Generated `docs/layer0-leaf-audit.md`. Audit revealed empty-only-stub ratio is 4.8% (10 of 209), not the ~70% the brief assumed; the overall premise of T119 was based on a misread of the package. Real follow-ups (T119b kubectl helper consolidation, T119c terraform plan-summary, T119g du/df/stat parsers) demoted to operator-driven items waiting on T118b real-session evidence. Detail: `docs/todo/t119-l0-stub-to-compactor-uplift.md`
+- [x] T119 - 2026-05-01: Layer 0 leaf-audit tool + CI gate landed under `scripts/utils/leaf_audit.go`. Generated `docs/layer0-leaf-audit.md`. Audit revealed empty-only-stub ratio is 4.8% (10 of 209), not the ~70% the brief assumed; the overall premise of T119 was based on a misread of the package. T119c terraform parser shipped alongside (see entry below). T119b (kubectl/docker/helm helper consolidation) and T119g (du/df/stat parsers) considered and rejected: the first is a refactor with zero token-saving change, the second targets outputs already too small to compress. Detail: `docs/todo/t119-l0-stub-to-compactor-uplift.md`
+- [x] T119c - 2026-05-01: Terraform plan/apply structured compactor. Detail: `docs/todo/t119c-terraform-parser.md`
 - [x] T112 - 2026-05-01: Adaptive sliding window hot-path activation behind `[compression.tuning] adaptive_window_enabled` flag (default off; off-path byte-equal to baseline). Detail: `docs/todo/t112-adaptive-window-activation.md`
 
 ### Phase Z - Robustness, parsers, observability (P1/P2)
 
 - [x] T113 (core) - 2026-05-01: Codex capability matrix + version detection + snapshot helper landed in `internal/hooks/codex_caps.go`. Script generator stays on legacy block+rerun path until Codex honours `updatedInput`. **T113b is BLOCKED** by upstream Codex hooks contract (developers.openai.com/codex/hooks: `updatedInput` parsed but not supported, fails open). Re-activation checklist captured in detail file. Detail: `docs/todo/t113-codex-transparent-rewrite.md`
-- [ ] T113b - Codex transparent rewrite emission once upstream supports `updatedInput` (script branch + verify exit code + drift regeneration + telemetry counters + `[hooks.codex]` config keys). BLOCKED on Codex upstream.
+- [x] T113b-notify - 2026-05-01: Drift watchdog tracks the installed Codex version and the capabilities Slimference advertises for it; doctor surfaces the snapshot so a Codex release flipping `updatedInput` to honoured is visible immediately without manual upstream-doc polling. Full T113b script-branch implementation still BLOCKED on upstream.
 - [x] T115 - 2026-05-01: Build/test structured parsers (go, cargo, gcc/clang) replacing substring heuristic; per-tool registry with specific-first dispatch. Detail: `docs/todo/t115-build-test-failure-structured-parsers.md`
 - [x] T117 - 2026-05-01: Generic log filtering (tail/journalctl/cat-on-log/grep argv detect + ISO/Unix/Syslog/Bracketed/JSONLines shape detect, dispatched before generic build/test fallbacks). Detail: `docs/todo/t117-generic-log-filtering.md`
 - [x] T120 - 2026-05-01: Filter dispatch panic recovery via `runFilter` wrapper + per-filter observability (atomic counters, slow-filter detector, /admin status surface). Detail: `docs/todo/t120-filter-panic-recovery-observability.md`
