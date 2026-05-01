@@ -81,83 +81,52 @@ func applyLayer0AfterANSI(workDir string, argv []string, stdout []byte) []byte {
 // applyLayer0Filters dispatches stdout through each built-in filter in priority order
 // and returns the transformed output plus the name of the matched filter (empty = no match).
 func applyLayer0Filters(workDir string, argv []string, stdout []byte) ([]byte, string) {
-	if out, ok := TryCompactGitStatus(argv, stdout); ok {
-		return out, "git_status"
+	type filterEntry struct {
+		name string
+		fn   func() ([]byte, bool)
 	}
-	if out, ok := TryCompactGitDiff(argv, stdout); ok {
-		return out, "git_diff"
+	filters := []filterEntry{
+		{"git_status", func() ([]byte, bool) { return TryCompactGitStatus(argv, stdout) }},
+		{"git_diff", func() ([]byte, bool) { return TryCompactGitDiff(argv, stdout) }},
+		{"git_log", func() ([]byte, bool) { return TryCompactGitLog(argv, stdout) }},
+		{"git_show", func() ([]byte, bool) { return TryCompactGitShow(argv, stdout) }},
+		{"git_f05", func() ([]byte, bool) { return TryCompactGitF05(argv, stdout) }},
+		{"build_output", func() ([]byte, bool) { return TryCompactBuildOutput(argv, stdout) }},
+		{"test_output", func() ([]byte, bool) { return TryCompactTestOutput(argv, stdout) }},
+		{"dotnet", func() ([]byte, bool) { return TryCompactDotnet(argv, stdout) }},
+		{"ruby_output", func() ([]byte, bool) { return TryCompactRubyOutput(argv, stdout) }},
+		{"search_output", func() ([]byte, bool) { return TryCompactSearchOutput(argv, stdout) }},
+		{"ls", func() ([]byte, bool) { return TryCompactLs(argv, stdout) }},
+		{"tree", func() ([]byte, bool) { return TryCompactTree(argv, stdout) }},
+		{"strip_comments_file_read", func() ([]byte, bool) { return TryStripCommentsFileRead(argv, stdout) }},
+		{"lint_output", func() ([]byte, bool) { return TryCompactLintOutput(argv, stdout) }},
+		{"format_output", func() ([]byte, bool) { return TryCompactFormatOutput(argv, stdout) }},
+		{"psql", func() ([]byte, bool) { return TryCompactPsql(argv, stdout) }},
+		{"package_output", func() ([]byte, bool) { return TryCompactPackageOutput(argv, stdout) }},
+		{"container_output", func() ([]byte, bool) { return TryCompactContainerOutput(argv, stdout) }},
+		{"gh_list", func() ([]byte, bool) { return TryCompactGhList(argv, stdout) }},
+		{"glab_list", func() ([]byte, bool) { return TryCompactGlabList(argv, stdout) }},
+		{"log_dedup", func() ([]byte, bool) { return TryCompactLogDedup(argv, stdout) }},
+		{"aws_json", func() ([]byte, bool) { return TryCompactAwsJSON(argv, stdout) }},
+		{"python_traceback", func() ([]byte, bool) { return TryCompactPythonTraceback(stdout) }},
+		{"terraform_plan", func() ([]byte, bool) { return TryCompactTerraformPlan(argv, stdout) }},
+		{"json_minify", func() ([]byte, bool) { return TryCompactJSONMinify(stdout) }},
 	}
-	if out, ok := TryCompactGitLog(argv, stdout); ok {
-		return out, "git_log"
+
+	inBytes := len(stdout)
+	for _, f := range filters {
+		out, ok, stats := runFilter(f.name, f.fn)
+		stats.InBytes = inBytes
+		if ok {
+			stats.OutBytes = len(out)
+			globalObservability.Record(stats)
+			return out, f.name
+		}
 	}
-	if out, ok := TryCompactGitShow(argv, stdout); ok {
-		return out, "git_show"
-	}
-	if out, ok := TryCompactGitF05(argv, stdout); ok {
-		return out, "git_f05"
-	}
-	if out, ok := TryCompactBuildOutput(argv, stdout); ok {
-		return out, "build_output"
-	}
-	if out, ok := TryCompactTestOutput(argv, stdout); ok {
-		return out, "test_output"
-	}
-	if out, ok := TryCompactDotnet(argv, stdout); ok {
-		return out, "dotnet"
-	}
-	if out, ok := TryCompactRubyOutput(argv, stdout); ok {
-		return out, "ruby_output"
-	}
-	if out, ok := TryCompactSearchOutput(argv, stdout); ok {
-		return out, "search_output"
-	}
-	if out, ok := TryCompactLs(argv, stdout); ok {
-		return out, "ls"
-	}
-	if out, ok := TryCompactTree(argv, stdout); ok {
-		return out, "tree"
-	}
-	if out, ok := TryStripCommentsFileRead(argv, stdout); ok {
-		return out, "strip_comments_file_read"
-	}
-	if out, ok := TryCompactLintOutput(argv, stdout); ok {
-		return out, "lint_output"
-	}
-	if out, ok := TryCompactFormatOutput(argv, stdout); ok {
-		return out, "format_output"
-	}
-	if out, ok := TryCompactPsql(argv, stdout); ok {
-		return out, "psql"
-	}
-	if out, ok := TryCompactPackageOutput(argv, stdout); ok {
-		return out, "package_output"
-	}
-	if out, ok := TryCompactContainerOutput(argv, stdout); ok {
-		return out, "container_output"
-	}
-	if out, ok := TryCompactGhList(argv, stdout); ok {
-		return out, "gh_list"
-	}
-	if out, ok := TryCompactGlabList(argv, stdout); ok {
-		return out, "glab_list"
-	}
-	if out, ok := TryCompactLogDedup(argv, stdout); ok {
-		return out, "log_dedup"
-	}
-	if out, ok := TryCompactAwsJSON(argv, stdout); ok {
-		return out, "aws_json"
-	}
-	if out, ok := TryCompactPythonTraceback(stdout); ok {
-		return out, "python_traceback"
-	}
-	if out, ok := TryCompactTerraformPlan(argv, stdout); ok {
-		return out, "terraform_plan"
-	}
-	if out, ok := TryCompactJSONMinify(stdout); ok {
-		return out, "json_minify"
-	}
+
 	if rule := FirstMatchingTOMLRule(workDir, argv); rule != nil {
-		return ApplyTOMLRule(stdout, rule), "toml_rule"
+		out := ApplyTOMLRule(stdout, rule)
+		return out, "toml_rule"
 	}
 	return stdout, ""
 }
