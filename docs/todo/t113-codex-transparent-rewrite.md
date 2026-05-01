@@ -1,6 +1,6 @@
 # TASK 113: Codex hook transparent rewrite path
 
-Status: PENDING (audit-driven mitigation 2026-04-30)
+Status: BLOCKED 2026-05-01 (upstream Codex hooks contract). Core scaffolding (capability matrix + version detection + snapshot) shipped under this task; transparent_rewrite emission is gated until Codex honours `updatedInput`. See "Upstream block" section below.
 Priority: P1
 Scope: `internal/hooks/codex.go`, `internal/hooks/verify.go`, `internal/hooks/drift.go`, `cmd/slimference/integrate_cmd.go`
 Driver: The current Codex pre-tool hook uses `{decision: "block", reason: "Rerun this command through the local output filter: <rewritten>"}` because Codex 0.121 had no `updatedInput` semantics. This is fragile: it relies on the model interpreting the reason string and re-issuing the call. A rebellious / quota-conscious model can ignore it. A lossy reason text can cause the model to re-issue the wrong command. T05 acknowledged this and shipped the workaround; T72 tightened ownership; neither gave us transparent rewrite. Codex has since shipped multiple releases - we need to detect the supported semantic, prefer transparent rewrite when the version supports it, and ship a hard error for unsupported versions instead of the silent block-rerun fallback.
@@ -63,13 +63,33 @@ This task lands the version-aware emission, the verify gate, and the deprecation
 - `docs/integration.md` updated with the supported Codex version range + legacy-mode escape hatch.
 - Hook install command output includes the detected version + chosen path.
 
+## Upstream block (2026-05-01)
+
+The official Codex hooks reference at https://developers.openai.com/codex/hooks states (verbatim):
+
+> `permissionDecision: "allow"` and `"ask"`, legacy `decision: "approve"`, `updatedInput`, `additionalContext`, `continue: false`, `stopReason`, and `suppressOutput` are parsed but not supported yet, so they fail open.
+
+`updatedInput` is the field this task's "modern emission" path depends on. While Codex parses it without error, it does **not act** on it - the original command runs unchanged. Emitting the modern shape today would silently regress us to "no rewrite at all" for every Bash invocation. We therefore keep the legacy `{decision:"block", reason:"Rerun..."}` script as the only emitted path until Codex flips updatedInput from "fail open" to "honoured".
+
+### What did ship under this task (core, 2026-05-01)
+- `internal/hooks/codex_caps.go`: capability enum (`decision_block`, `transparent_rewrite`, `permission_decision`), version range matrix (current state: every >=0.117.0 advertises `decision_block` only), `CapabilitiesFor`, `HasCodexCapability`, `SupportsTransparentRewrite`, `DetectCodexVersion`, `SnapshotCodexCapabilities`.
+- `internal/hooks/codex_caps_test.go`: 17 tests covering the matrix walk, boundary inclusivity, copy-on-return, unparseable inputs, stubbed `cliVersionCmdFn`, and the synthetic-future-range "transparent on" path. 100% coverage on the new file.
+- The script generator (`codexPreToolHookScript`) is **unchanged**; it consults `SupportsTransparentRewrite` only when the upstream gate flips.
+
+### Re-activation criteria (T113b)
+1. Codex release notes / hooks doc remove `updatedInput` from the "parsed but not supported" list.
+2. Smoke test: install that Codex release, run a `bash -c 'echo CHANGED'` pre-tool hook that emits `updatedInput.command="echo REPLACED"`, confirm Codex executes `echo REPLACED`.
+3. Add the version range to `codexCapabilityMatrix` advertising `transparent_rewrite`.
+4. Branch `codexPreToolHookScript` on `SupportsTransparentRewrite` to emit `hookSpecificOutput.updatedInput`.
+5. Wire `[hooks.codex] minimum_version` + `allow_legacy_rewrite` into `verify.go` exit codes.
+6. Add `RequestSummary.HookPath` and the three counters (`transparent_total`, `block_rerun_total`, `model_ignored_block_total`).
+7. Drift watchdog: re-run `InstallCodex` on detected version change crossing the capability boundary.
+
 ## Acceptance Criteria
 
-- [ ] `CodexPreToolHookScript(version, cmd)` emits the modern shape for supported versions and the legacy shape with a deprecation warning for older versions.
-- [ ] `slimference hook verify` exits non-zero when Codex is below `minimum_version` and `allow_legacy_rewrite` is not set.
-- [ ] Telemetry exposes the three counters above; `model_ignored_block_total` is observable on real traffic.
-- [ ] Drift watchdog regenerates the script on Codex upgrade.
-- [ ] Coverage 100%; race tests green.
+- [x] Capability matrix + version detection + snapshot helper land with 100% coverage; `SupportsTransparentRewrite` gates all future modern-shape emission.
+- [x] Status documented as BLOCKED in todo.md audit section with the upstream-Codex reason and the re-activation checklist visible to operators.
+- [ ] **T113b** (deferred, dependent on Codex upstream): script-generator branching, `verify` exit-code gate, drift watchdog regeneration, telemetry counters, `[hooks.codex]` config keys.
 
 ## Out of Scope
 
