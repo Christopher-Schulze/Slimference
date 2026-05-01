@@ -1,0 +1,11 @@
+{
+  "category": "synthetic_smoke",
+  "description": "Synthetic seed corpus shipped with the repo so the live-corpus gate has something deterministic to chew on. Emulates a small mixed-tool-output session - not real-session data. Real captures land under sibling directories per docs/live-corpus-policy.md once the maintainer captures them.",
+  "synthetic": true,
+  "language": "mixed",
+  "tool_mix": "build/test/log",
+  "expected_savings_min": 0.30,
+  "expected_savings_max": 0.85,
+  "expected_request_count": 3,
+  "notes": "Numbers chosen to keep this fixture stable across compression-tuning changes. If a future tuning legitimately moves the ratio outside [min, max] the maintainer adjusts these bounds explicitly rather than silently."
+}

@@ -570,9 +570,12 @@ func handleSubcommand(args []string) {
 	case "trust":
 		handleTrustCmd(args[1:])
 
+	case "capture-session":
+		handleCaptureSessionCmd(args[1:])
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, completion, trust, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, completion, trust, capture-session, version")
 		exitFn(1)
 	}
 }

@@ -52,6 +52,14 @@ func main() {
 		os.Exit(sessionReportFromPath(path, format))
 	}
 
+	// T118 benchmark-corpus subcommand: walk a per-category live-session
+	// corpus directory, aggregate each category, and check it against the
+	// declared metadata expectations. Used both standalone and as a CI
+	// step so a regression in real-world savings ratio fails the build.
+	if len(os.Args) > 1 && os.Args[1] == "benchmark-corpus" {
+		os.Exit(runBenchmarkCorpus(os.Args[2:]))
+	}
+
 	// T75 codex-smoke-gate subcommand: aggregate a Codex evidence corpus
 	// directory and assert it still meets the regression baseline declared
 	// in `codex-metadata.json`. Exits non-zero on any miss so it can run as

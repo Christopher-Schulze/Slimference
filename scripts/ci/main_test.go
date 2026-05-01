@@ -11,7 +11,7 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 	t.Parallel()
 
 	steps := defaultSteps()
-	if len(steps) != 6 {
+	if len(steps) != 7 {
 		t.Fatalf("unexpected step count: %d", len(steps))
 	}
 
@@ -30,6 +30,13 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 	}
 	if steps[5].label != "codex smoke gate" {
 		t.Fatalf("codex smoke gate label: got %q want %q", steps[5].label, "codex smoke gate")
+	}
+	wantCorpusGate := []string{"run", "./scripts/benchmarks", "benchmark-corpus", "tests/fixtures/live_corpus", "--check"}
+	if !reflect.DeepEqual(steps[6].args, wantCorpusGate) {
+		t.Fatalf("live corpus gate args: got %v want %v", steps[6].args, wantCorpusGate)
+	}
+	if steps[6].label != "live corpus gate" {
+		t.Fatalf("live corpus gate label: got %q want %q", steps[6].label, "live corpus gate")
 	}
 }
 

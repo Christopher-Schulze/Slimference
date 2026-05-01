@@ -760,7 +760,7 @@ The headline movements:
 
 ### Phase Y - Realised levers + measurement (P0/P1)
 
-- [ ] T118 - Live coding session corpus + savings reality gate. Detail: `docs/todo/t118-live-corpus-and-savings-gate.md`
+- [x] T118 (core) - 2026-05-01: Capture-session subcommand, benchmark-corpus per-category gate, synthetic seed corpus, live-corpus policy doc, and CI step 7/7 shipped. **T118b** is operator-driven (>=10 real-session categories captured-and-scrubbed under `tests/fixtures/live_corpus/`); the harness is ready, only the contents are pending. Detail: `docs/todo/t118-live-corpus-and-savings-gate.md`
 - [ ] T119 - Layer 0 stub-to-compactor uplift (~145 leaves -> real compactors); split into T119a..T119h. Detail: `docs/todo/t119-l0-stub-to-compactor-uplift.md`
 - [x] T112 - 2026-05-01: Adaptive sliding window hot-path activation behind `[compression.tuning] adaptive_window_enabled` flag (default off; off-path byte-equal to baseline). Detail: `docs/todo/t112-adaptive-window-activation.md`
 

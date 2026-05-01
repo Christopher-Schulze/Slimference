@@ -48,6 +48,11 @@ func defaultSteps() []step {
 			cmd:   "go",
 			args:  []string{"run", "./scripts/benchmarks", "codex-smoke-gate", "tests/fixtures/codex"},
 		},
+		{
+			label: "live corpus gate",
+			cmd:   "go",
+			args:  []string{"run", "./scripts/benchmarks", "benchmark-corpus", "tests/fixtures/live_corpus", "--check"},
+		},
 	}
 }
 
