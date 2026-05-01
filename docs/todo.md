@@ -765,7 +765,7 @@ The headline movements:
 
 ### Phase Q - Transparent system-wide intercept (planned 2026-05-01)
 
-- [ ] T122 - Transparent mode: CA-signed MITM HTTPS proxy + WebSocket frame proxy + `networksetup` integration + cert installer + launchd auto-start + `slimference proxy install|enable|disable|uninstall|status` subcommand. Scope: zero-config app interception (Codex Desktop, ChatGPT Desktop, Claude Code, anything HTTPS) with WebRTC audio bypass guarantee and a clean `proxy disable` off-switch. macOS-only in this iteration. Detail: `docs/todo/t122-transparent-mode.md`
+- [x] T122 - 2026-05-01: Transparent mode shipped. WP1 (TLS CA + per-domain signer) + WP2 (CONNECT method + MITM HTTPS dispatch) + WP3 (WebSocket tunnel) + WP4-6 (networksetup + keychain + launchd integration) + WP7 (slimference proxy install|enable|disable|status|uninstall subcommand) + WP8 (operator docs). WebRTC audio bypass guaranteed by NOT touching SOCKS. Compression on WS message boundaries deferred to T122b after live-corpus measurement. Detail: `docs/todo/t122-transparent-mode.md`. User-facing docs: `docs/transparent-mode.md`.
 - [x] T112 - 2026-05-01: Adaptive sliding window hot-path activation behind `[compression.tuning] adaptive_window_enabled` flag (default off; off-path byte-equal to baseline). Detail: `docs/todo/t112-adaptive-window-activation.md`
 
 ### Phase Z - Robustness, parsers, observability (P1/P2)

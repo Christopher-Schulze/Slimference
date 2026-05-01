@@ -573,9 +573,12 @@ func handleSubcommand(args []string) {
 	case "capture-session":
 		handleCaptureSessionCmd(args[1:])
 
+	case "proxy":
+		handleProxyCmd(args[1:])
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, completion, trust, capture-session, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, completion, trust, capture-session, proxy, version")
 		exitFn(1)
 	}
 }

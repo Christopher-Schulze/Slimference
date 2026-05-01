@@ -1,6 +1,6 @@
 # TASK 122: Transparent mode (system-wide HTTPS interception)
 
-Status: PENDING (planned 2026-05-01)
+Status: DONE 2026-05-01 (CA + MITM HTTPS + WebSocket tunnel + system integration + subcommand + docs landed in WP1-8 commits b481a66..HEAD)
 Priority: P1
 Scope: `internal/tlsca/` (new), `internal/transparent/` (new), `internal/proxy/proxy.go`, `internal/proxy/connect.go` (new), `cmd/slimference/proxy_cmd.go` (new), `cmd/slimference/main.go`, `internal/config/`, `docs/transparent-mode.md` (new).
 
