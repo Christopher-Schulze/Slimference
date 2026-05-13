@@ -17,6 +17,7 @@ var structuredParsers = []structuredParser{
 	{"gcc_clang", isGccClangArgv, parseGccClangErrors},
 	{"typescript", isTypeScriptDiagnosticArgv, parseTypeScriptDiagnostics},
 	{"svelte", isSvelteDiagnosticArgv, parseSvelteDiagnostics},
+	{"frontend", isFrontendDiagnosticArgv, parseFrontendDiagnostics},
 	{"zig", isZigDiagnosticArgv, parseZigDiagnostics},
 	{"sql", isSQLDiagnosticArgv, parseSQLDiagnostics},
 	{"markdown", isMarkdownDiagnosticArgv, parseMarkdownDiagnostics},

@@ -192,6 +192,10 @@ file point at `~/.slimference/hooks/*.sh`, which invoke
    ls, tree, strip-comments-file-read, lint, format, psql,
    package-manager, container, gh list, glab list, log dedup, aws
    json, python traceback, terraform plan, json minify.
+   `build-output` includes the shared diagnostic parser for Go, Cargo,
+   GCC/Clang, TypeScript, Svelte, frontend tools (Next/Vite/Vitest/Jest/
+   Playwright/ESLint/Biome/Oxlint/Turbo/Bun), Zig, SQL, Markdown, and
+   practical ecosystem compilers.
 4. Fallback: `FirstMatchingTOMLRule` applies user-defined 8-stage
    rules from `~/.slimference/filters.toml`.
 5. Truncate with a short `[truncated …]` hint to

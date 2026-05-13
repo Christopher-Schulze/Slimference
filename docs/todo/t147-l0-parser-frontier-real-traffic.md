@@ -51,10 +51,11 @@ Layer 0 parser coverage is driven by observed traffic:
 ### React / Svelte / Frontend
 
 - React compiler/runtime diagnostic shapes.
-- Next.js route/build errors.
-- Svelte compiler errors.
-- Vite HMR/build errors.
-- Playwright test failures.
+- [x] Next.js route/build errors through the shared frontend diagnostic parser.
+- [x] Svelte compiler errors through the existing Svelte diagnostic parser.
+- [x] Vite HMR/build errors through the shared frontend diagnostic parser.
+- [x] Playwright test failures through the shared frontend diagnostic parser.
+- [x] Vitest/Jest/Bun test frontend failures through the shared frontend diagnostic parser.
 
 ### Python
 
@@ -181,3 +182,8 @@ Layer 0 parser coverage is driven by observed traffic:
   GraphQL, HCL, Dockerfile, and Makefile now have deterministic structure
   summaries for large tool-result content. T147 still owns command-output
   parsers and telemetry for real CLI output shapes.
+- 2026-05-14: First T147 slice landed in the shared diagnostic model: `next`,
+  `vite`, `vitest`, `jest`, `playwright`, `eslint`, `biome`, `oxlint`,
+  `turbo`, `bun test`, and `bun build` route into the conservative
+  `frontend` diagnostic compactor. It preserves only actionable diagnostic
+  rows and short failure summaries, and bypasses when output would not shrink.

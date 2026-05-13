@@ -85,6 +85,10 @@ func parseSvelteDiagnostics(stdout string) (string, bool, bool) {
 	return parseDiagnosticRows("svelte", stdout)
 }
 
+func parseFrontendDiagnostics(stdout string) (string, bool, bool) {
+	return parseDiagnosticRows("frontend", stdout)
+}
+
 func parseSQLDiagnostics(stdout string) (string, bool, bool) {
 	return parseDiagnosticRows("sql", stdout)
 }
@@ -103,6 +107,32 @@ func isTypeScriptDiagnosticArgv(argv []string) bool {
 
 func isSvelteDiagnosticArgv(argv []string) bool {
 	return commandMatchesAny(argv, "svelte-check")
+}
+
+func isFrontendDiagnosticArgv(argv []string) bool {
+	if commandMatchesAny(argv,
+		"next", "vite", "vitest", "jest", "playwright",
+		"eslint", "biome", "oxlint", "turbo",
+	) {
+		return true
+	}
+	return isBunDiagnosticArgv(argv)
+}
+
+func isBunDiagnosticArgv(argv []string) bool {
+	if len(argv) < 2 {
+		return false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "bun" && b != "bun.exe" {
+		return false
+	}
+	switch argv[1] {
+	case "test", "build":
+		return true
+	default:
+		return false
+	}
 }
 
 func isZigDiagnosticArgv(argv []string) bool {

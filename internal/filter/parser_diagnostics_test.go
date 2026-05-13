@@ -52,6 +52,22 @@ svelte-check found 1 error and 0 warnings in 1 file`)
 	}
 }
 
+func TestParseFrontendDiagnostics(t *testing.T) {
+	t.Parallel()
+	stdout := paddedDiagnosticOutput(`src/App.test.tsx:22:9: error: expect(received).toBe(expected)
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:3000
+Test failed. 1 failed, 2 passed.`)
+	got, hadFailures, ok := parseFrontendDiagnostics(stdout)
+	if !ok || !hadFailures {
+		t.Fatal("expected frontend diagnostics")
+	}
+	for _, want := range []string{"[frontend] FAILED", "App.test.tsx", "ERR_CONNECTION_REFUSED", "1 failed"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestParseSQLDiagnostics(t *testing.T) {
 	t.Parallel()
 	stdout := paddedDiagnosticOutput(`== [migrations/001_init.sql] FAIL
@@ -135,6 +151,7 @@ func TestCommandMatchesAnyWrappers(t *testing.T) {
 		{[]string{"pnpm", "exec", "tsc"}, true},
 		{[]string{"yarn", "svelte-check"}, true},
 		{[]string{"bun", "x", "markdownlint"}, true},
+		{[]string{"bun", "run", "markdownlint"}, true},
 		{[]string{"node", "script.js"}, false},
 		{nil, false},
 	}
@@ -143,6 +160,33 @@ func TestCommandMatchesAnyWrappers(t *testing.T) {
 		if got != tt.want {
 			t.Fatalf("commandMatchesAny(%v)=%v want %v", tt.argv, got, tt.want)
 		}
+	}
+}
+
+func TestFrontendDiagnosticArgv(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		argv []string
+		want bool
+	}{
+		{[]string{"next", "build"}, true},
+		{[]string{"pnpm", "exec", "vite", "build"}, true},
+		{[]string{"yarn", "playwright", "test"}, true},
+		{[]string{"bun", "run", "vitest"}, true},
+		{[]string{"bun", "test"}, true},
+		{[]string{"bun", "build"}, true},
+		{[]string{"bun", "install"}, false},
+		{[]string{"node", "server.js"}, false},
+		{[]string{}, false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
+			t.Parallel()
+			if got := isFrontendDiagnosticArgv(tt.argv); got != tt.want {
+				t.Fatalf("isFrontendDiagnosticArgv(%v)=%v want %v", tt.argv, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -156,6 +200,16 @@ Found 1 error.`)
 	}
 	if !strings.Contains(got, "[typescript] FAILED") {
 		t.Fatalf("unexpected dispatch output: %q", got)
+	}
+
+	frontendStdout := paddedDiagnosticOutput(`src/App.test.tsx:22:9: error: expect(received).toBe(expected)
+1 failed`)
+	got, ok = ParseFailures([]string{"bun", "test"}, frontendStdout)
+	if !ok {
+		t.Fatal("expected bun test dispatch")
+	}
+	if !strings.Contains(got, "[frontend] FAILED") {
+		t.Fatalf("unexpected frontend dispatch output: %q", got)
 	}
 }
 
