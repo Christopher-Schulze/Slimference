@@ -63,6 +63,9 @@ api_key_env = "MINIMAX_API_KEY"
 	if !strings.Contains(out, "TLS profile catalog") || !strings.Contains(out, "utls-chrome-133") {
 		t.Fatalf("expected TLS profile catalog warning: %q", out)
 	}
+	if !strings.Contains(out, "TLS reflected proof") {
+		t.Fatalf("expected TLS proof warning: %q", out)
+	}
 	if !strings.Contains(out, "All checks passed") {
 		t.Fatalf("expected success footer: %q", out)
 	}
@@ -77,6 +80,39 @@ func TestFormatTLSCatalogStatusFreshAndStale(t *testing.T) {
 	stale := formatTLSCatalogStatus(info.Generated.Add(time.Duration(info.MaxAgeDays+1) * 24 * time.Hour))
 	if !strings.Contains(stale, "state=stale") {
 		t.Fatalf("stale status=%q", stale)
+	}
+}
+
+func TestFormatTLSProofStatusMissingAndPresent(t *testing.T) {
+	prevHome := osUserHomeDir
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { osUserHomeDir = prevHome })
+	if got := formatTLSProofStatus(time.Now()); !strings.Contains(got, "no reflected provider-edge proof yet") {
+		t.Fatalf("missing proof status=%q", got)
+	}
+	dir := filepath.Join(home, ".slimference", "tls-proofs")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"profile":"chromium_stable","ja3_hash":"abc","timestamp":"2026-05-01T00:00:00Z","success":true}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "chromium_stable.jsonl"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := formatTLSProofStatus(time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC))
+	if !strings.Contains(got, "chromium_stable=ok") || !strings.Contains(got, "ja3=abc") {
+		t.Fatalf("proof status=%q", got)
+	}
+	osUserHomeDir = func() (string, error) { return "", errors.New("no home") }
+	if got := formatTLSProofStatus(time.Now()); !strings.Contains(got, "HOME lookup failed") {
+		t.Fatalf("home error status=%q", got)
+	}
+	osUserHomeDir = func() (string, error) { return home, nil }
+	if err := os.WriteFile(filepath.Join(dir, "bad.jsonl"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := formatTLSProofStatus(time.Now()); !strings.Contains(got, "proof status unreadable") {
+		t.Fatalf("unreadable status=%q", got)
 	}
 }
 

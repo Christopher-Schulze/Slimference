@@ -3,17 +3,22 @@ package main
 import (
 	"context"
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	utls "github.com/refraction-networking/utls"
 	"github.com/slimference/slimference/internal/tlsdial"
+	"github.com/slimference/slimference/internal/tlsproof"
 )
 
 const (
@@ -23,23 +28,28 @@ const (
 )
 
 type tlsProbeReport struct {
-	Profile               string   `json:"profile"`
-	CatalogVersion        string   `json:"catalog_version"`
-	CatalogGenerated      string   `json:"catalog_generated"`
-	ClientHelloBytes      int      `json:"client_hello_bytes"`
-	RecordVersion         string   `json:"record_version"`
-	LegacyVersion         string   `json:"legacy_version"`
-	CipherSuiteCount      int      `json:"cipher_suite_count"`
-	ExtensionCount        int      `json:"extension_count"`
-	ALPN                  []string `json:"alpn,omitempty"`
-	SNI                   string   `json:"sni,omitempty"`
-	SupportedVersions     []string `json:"supported_versions,omitempty"`
-	JA3                   string   `json:"ja3"`
-	JA3Hash               string   `json:"ja3_hash"`
-	GoStdlibJA3Hash       string   `json:"go_stdlib_ja3_hash,omitempty"`
-	DiffersFromGoStdlib   bool     `json:"differs_from_go_stdlib"`
-	ExternalProofRequired bool     `json:"external_proof_required"`
-	Note                  string   `json:"note"`
+	RequestedProfile      string           `json:"requested_profile,omitempty"`
+	Profile               string           `json:"profile"`
+	AliasTarget           string           `json:"alias_target,omitempty"`
+	CatalogVersion        string           `json:"catalog_version"`
+	CatalogGenerated      string           `json:"catalog_generated"`
+	ClientHelloBytes      int              `json:"client_hello_bytes"`
+	RecordVersion         string           `json:"record_version"`
+	LegacyVersion         string           `json:"legacy_version"`
+	CipherSuiteCount      int              `json:"cipher_suite_count"`
+	ExtensionCount        int              `json:"extension_count"`
+	ALPN                  []string         `json:"alpn,omitempty"`
+	SNI                   string           `json:"sni,omitempty"`
+	SupportedVersions     []string         `json:"supported_versions,omitempty"`
+	JA3                   string           `json:"ja3"`
+	JA3Hash               string           `json:"ja3_hash"`
+	GoStdlibJA3Hash       string           `json:"go_stdlib_ja3_hash,omitempty"`
+	DiffersFromGoStdlib   bool             `json:"differs_from_go_stdlib"`
+	ExternalProofRequired bool             `json:"external_proof_required"`
+	ExternalProof         *tlsproof.Record `json:"external_proof,omitempty"`
+	ProofSavedTo          string           `json:"proof_saved_to,omitempty"`
+	CompareStatus         string           `json:"compare_status,omitempty"`
+	Note                  string           `json:"note"`
 }
 
 type tlsClientHello struct {
@@ -70,6 +80,50 @@ func runTLSProbe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	report.RequestedProfile = opts.profile
+	if target, ok := tlsdial.AliasTarget(opts.profile); ok {
+		report.AliasTarget = target
+	}
+	if opts.reflector != "" {
+		proof := probeReflector(context.Background(), profile, opts.reflector)
+		report.ExternalProof = &proof
+		report.ExternalProofRequired = !proof.Success
+		if opts.save {
+			dir := opts.proofDir
+			if dir == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					fmt.Fprintln(stderr, err)
+					return 1
+				}
+				dir = tlsproof.DefaultDir(home)
+			}
+			path, err := tlsproof.Append(dir, proof)
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			report.ProofSavedTo = path
+		}
+	}
+	if opts.comparePath != "" {
+		statuses, err := tlsproof.LatestByProfile(opts.comparePath, time.Now())
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		status, ok := statuses[profile.Name]
+		switch {
+		case !ok:
+			report.CompareStatus = "no_saved_proof_for_profile"
+		case status.JA3Hash == "":
+			report.CompareStatus = "saved_proof_has_no_ja3_hash"
+		case status.JA3Hash == report.JA3Hash:
+			report.CompareStatus = "match"
+		default:
+			report.CompareStatus = "mismatch"
+		}
+	}
 	if opts.json {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
@@ -84,8 +138,12 @@ func runTLSProbe(args []string, stdout, stderr io.Writer) int {
 }
 
 type tlsProbeOptions struct {
-	profile string
-	json    bool
+	profile     string
+	json        bool
+	reflector   string
+	save        bool
+	proofDir    string
+	comparePath string
 }
 
 func parseTLSProbeArgs(args []string) (tlsProbeOptions, error) {
@@ -97,19 +155,49 @@ func parseTLSProbeArgs(args []string) (tlsProbeOptions, error) {
 			continue
 		case arg == "--json":
 			opts.json = true
+		case arg == "--save":
+			opts.save = true
 		case arg == "--profile":
 			if i+1 >= len(args) {
-				return tlsProbeOptions{}, errors.New("Usage: tls-probe [--profile=<name>] [--json]")
+				return tlsProbeOptions{}, errors.New(tlsProbeUsage())
 			}
 			i++
 			opts.profile = args[i]
 		case strings.HasPrefix(arg, "--profile="):
 			opts.profile = strings.TrimPrefix(arg, "--profile=")
+		case arg == "--reflector":
+			if i+1 >= len(args) {
+				return tlsProbeOptions{}, errors.New(tlsProbeUsage())
+			}
+			i++
+			opts.reflector = args[i]
+		case strings.HasPrefix(arg, "--reflector="):
+			opts.reflector = strings.TrimPrefix(arg, "--reflector=")
+		case arg == "--proof-dir":
+			if i+1 >= len(args) {
+				return tlsProbeOptions{}, errors.New(tlsProbeUsage())
+			}
+			i++
+			opts.proofDir = args[i]
+		case strings.HasPrefix(arg, "--proof-dir="):
+			opts.proofDir = strings.TrimPrefix(arg, "--proof-dir=")
+		case arg == "--compare":
+			if i+1 >= len(args) {
+				return tlsProbeOptions{}, errors.New(tlsProbeUsage())
+			}
+			i++
+			opts.comparePath = args[i]
+		case strings.HasPrefix(arg, "--compare="):
+			opts.comparePath = strings.TrimPrefix(arg, "--compare=")
 		default:
-			return tlsProbeOptions{}, fmt.Errorf("unknown tls-probe arg %q\nUsage: tls-probe [--profile=<name>] [--json]", arg)
+			return tlsProbeOptions{}, fmt.Errorf("unknown tls-probe arg %q\n%s", arg, tlsProbeUsage())
 		}
 	}
 	return opts, nil
+}
+
+func tlsProbeUsage() string {
+	return "Usage: tls-probe [--profile=<name>] [--json] [--reflector=https://host/path] [--save] [--proof-dir=<dir>] [--compare=<proof-dir>]"
 }
 
 func buildTLSProbeReport(profile tlsdial.Profile) (tlsProbeReport, error) {
@@ -457,7 +545,13 @@ func tlsProbeReportFromHello(profile tlsdial.Profile, record []byte, hello tlsCl
 
 func writeTLSProbeText(w io.Writer, report tlsProbeReport) {
 	fmt.Fprintln(w, "=== TLS Probe ===")
+	if report.RequestedProfile != "" && report.RequestedProfile != report.Profile {
+		fmt.Fprintf(w, "Requested profile:    %s\n", report.RequestedProfile)
+	}
 	fmt.Fprintf(w, "Profile:              %s\n", report.Profile)
+	if report.AliasTarget != "" {
+		fmt.Fprintf(w, "Alias target:         %s\n", report.AliasTarget)
+	}
 	fmt.Fprintf(w, "Catalog:              %s (%s)\n", report.CatalogVersion, report.CatalogGenerated)
 	fmt.Fprintf(w, "ClientHello bytes:    %d\n", report.ClientHelloBytes)
 	fmt.Fprintf(w, "Record version:       %s\n", report.RecordVersion)
@@ -476,7 +570,153 @@ func writeTLSProbeText(w io.Writer, report tlsProbeReport) {
 		fmt.Fprintf(w, "Go stdlib JA3 hash:   %s\n", report.GoStdlibJA3Hash)
 		fmt.Fprintf(w, "Differs from stdlib:  %t\n", report.DiffersFromGoStdlib)
 	}
+	if report.ExternalProof != nil {
+		fmt.Fprintf(w, "Reflector:            %s\n", report.ExternalProof.Reflector)
+		fmt.Fprintf(w, "Reflector success:    %t\n", report.ExternalProof.Success)
+		if report.ExternalProof.ALPN != "" {
+			fmt.Fprintf(w, "Reflector ALPN:       %s\n", report.ExternalProof.ALPN)
+		}
+		if report.ExternalProof.JA3Hash != "" {
+			fmt.Fprintf(w, "Reflector JA3 hash:   %s\n", report.ExternalProof.JA3Hash)
+		}
+		if report.ExternalProof.JA4 != "" {
+			fmt.Fprintf(w, "Reflector JA4:        %s\n", report.ExternalProof.JA4)
+		}
+		if report.ExternalProof.Notes != "" {
+			fmt.Fprintf(w, "Reflector notes:      %s\n", report.ExternalProof.Notes)
+		}
+	}
+	if report.ProofSavedTo != "" {
+		fmt.Fprintf(w, "Proof saved:          %s\n", report.ProofSavedTo)
+	}
+	if report.CompareStatus != "" {
+		fmt.Fprintf(w, "Compare:              %s\n", report.CompareStatus)
+	}
 	fmt.Fprintf(w, "External proof:       required for JA4/provider-edge parity\n")
+}
+
+func probeReflector(ctx context.Context, profile tlsdial.Profile, rawURL string) tlsproof.Record {
+	record := tlsproof.Record{
+		Profile:   profile.Name,
+		Transport: "external_reflector",
+		Reflector: rawURL,
+		Timestamp: time.Now().UTC(),
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		record.Notes = "reflector must be an https URL"
+		return record
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		port = "443"
+	}
+	record.Host = host
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	conn, err := tlsdial.Dial(ctx, "tcp", host, port, profile)
+	if err != nil {
+		record.Notes = "dial failed: " + err.Error()
+		return record
+	}
+	defer conn.Close()
+	record.ALPN = negotiatedProtocol(conn)
+	if record.ALPN == "h2" {
+		record.Notes = "reflector negotiated h2; HTTP/2 SETTINGS proof is intentionally marked unproven until Slimference owns a matching h2 probe stack"
+		return record
+	}
+	path := u.RequestURI()
+	if path == "" {
+		path = "/"
+	}
+	req := "GET " + path + " HTTP/1.1\r\nHost: " + u.Host + "\r\nUser-Agent: Slimference-TLS-Probe\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+	if _, err := io.WriteString(conn, req); err != nil {
+		record.Notes = "write reflector request failed: " + err.Error()
+		return record
+	}
+	body, err := readHTTP1Body(conn)
+	if err != nil {
+		record.Notes = "read reflector response failed: " + err.Error()
+		return record
+	}
+	fillReflectedProof(&record, body)
+	record.Success = record.JA3 != "" || record.JA3Hash != "" || record.JA4 != ""
+	if !record.Success && record.Notes == "" {
+		record.Notes = "reflector response did not contain recognised ja3/ja3_hash/ja4 fields"
+	}
+	return record
+}
+
+func negotiatedProtocol(conn net.Conn) string {
+	switch c := conn.(type) {
+	case interface{ ConnectionState() tls.ConnectionState }:
+		return c.ConnectionState().NegotiatedProtocol
+	case interface{ ConnectionState() utls.ConnectionState }:
+		return c.ConnectionState().NegotiatedProtocol
+	default:
+		return ""
+	}
+}
+
+func readHTTP1Body(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, 2*1024*1024))
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.SplitN(string(data), "\r\n\r\n", 2)
+	if len(parts) != 2 {
+		return nil, errors.New("missing HTTP header terminator")
+	}
+	status := strings.SplitN(parts[0], "\r\n", 2)[0]
+	if !strings.Contains(status, " 200 ") {
+		return nil, fmt.Errorf("unexpected reflector status %q", status)
+	}
+	return []byte(parts[1]), nil
+}
+
+func fillReflectedProof(record *tlsproof.Record, body []byte) {
+	var root any
+	if err := json.Unmarshal(body, &root); err != nil {
+		record.Notes = "reflector returned non-json body"
+		return
+	}
+	record.JA3 = firstJSONField(root, "ja3", "tls.ja3")
+	record.JA3Hash = firstJSONField(root, "ja3_hash", "ja3_hash.hash", "tls.ja3_hash")
+	record.JA4 = firstJSONField(root, "ja4", "tls.ja4")
+	record.HTTPVersion = firstJSONField(root, "http_version", "http.version")
+	record.H2SettingsHash = firstJSONField(root, "h2_settings_hash", "http2.settings_hash")
+}
+
+func firstJSONField(root any, paths ...string) string {
+	for _, path := range paths {
+		if value := jsonField(root, strings.Split(path, ".")); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func jsonField(v any, path []string) string {
+	if len(path) == 0 {
+		switch x := v.(type) {
+		case string:
+			return x
+		case float64:
+			return strconv.FormatFloat(x, 'f', -1, 64)
+		default:
+			return ""
+		}
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return ""
+	}
+	next, ok := m[path[0]]
+	if !ok {
+		return ""
+	}
+	return jsonField(next, path[1:])
 }
 
 func ja3String(hello tlsClientHello) string {

@@ -28,6 +28,7 @@ func TestReadOutputReduceReport(t *testing.T) {
 				OutputReduceProfile:     "codex",
 				OutputReduceReason:      "applied",
 				OutputReduceAddedTokens: 14,
+				OutputReduceTaskShape:   "code_edit",
 			}),
 		},
 		{
@@ -71,8 +72,8 @@ func TestReadOutputReduceReport(t *testing.T) {
 	if report.InputOverheadTokens != 14 || report.OutputTokensObserved != 160 || report.AppliedOutputTokens != 120 {
 		t.Fatalf("report tokens=%+v", report)
 	}
-	if report.Profiles["codex"] != 1 || report.Reasons["applied"] != 1 || report.Reasons["below_min_tokens"] != 1 {
-		t.Fatalf("maps=%+v %+v", report.Profiles, report.Reasons)
+	if report.Profiles["codex"] != 1 || report.TaskShapes["code_edit"] != 1 || report.Reasons["applied"] != 1 || report.Reasons["below_min_tokens"] != 1 {
+		t.Fatalf("maps=%+v %+v %+v", report.Profiles, report.TaskShapes, report.Reasons)
 	}
 	if report.AvgOutputTokens != 80 || report.AvgAppliedOutputTokens != 120 || report.AvgInputOverheadPerApply != 14 {
 		t.Fatalf("averages=%+v", report)
@@ -87,7 +88,7 @@ func TestReadOutputReduceReportEmptyAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TotalRequests != 0 || report.Profiles != nil || report.Reasons != nil {
+	if report.TotalRequests != 0 || report.Profiles != nil || report.TaskShapes != nil || report.Reasons != nil {
 		t.Fatalf("empty report=%+v", report)
 	}
 	if _, err := ReadOutputReduceReport(t.TempDir(), "bad", now); err == nil {
@@ -121,6 +122,7 @@ func TestWriteOutputReduceCSV(t *testing.T) {
 		AvgAppliedOutputTokens:   120,
 		AvgInputOverheadPerApply: 14,
 		Profiles:                 map[string]int{"codex": 1, " ": 9},
+		TaskShapes:               map[string]int{"code_edit": 1},
 		Reasons:                  map[string]int{"applied": 1, "below_min_tokens": 1, "": 3},
 	})
 	if err != nil {
@@ -131,6 +133,7 @@ func TestWriteOutputReduceCSV(t *testing.T) {
 		"period,total_requests,applied_requests",
 		"week,2,1,1,14,160,120,80.00,120.00,14.00",
 		"profile,codex,1",
+		"task_shape,code_edit,1",
 		"reason,below_min_tokens,1",
 	} {
 		if !strings.Contains(out, want) {

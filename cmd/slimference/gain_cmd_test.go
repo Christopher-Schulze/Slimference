@@ -474,6 +474,7 @@ func TestHandleSubcommand_gain_output(t *testing.T) {
 		OutputReduceProfile:     "codex",
 		OutputReduceReason:      "applied",
 		OutputReduceAddedTokens: 14,
+		OutputReduceTaskShape:   "code_edit",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +489,7 @@ func TestHandleSubcommand_gain_output(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "Output-reduce telemetry") || !strings.Contains(out, "Savings need a live baseline") {
+	if !strings.Contains(out, "Output-reduce telemetry") || !strings.Contains(out, "Savings need a live baseline") || !strings.Contains(out, "code_edit") {
 		t.Fatalf("output gain stdout: %q", out)
 	}
 

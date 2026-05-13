@@ -44,6 +44,7 @@ type FlightOutputReduceAccounting struct {
 	Profile     string `json:"profile,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	AddedTokens int    `json:"added_tokens,omitempty"`
+	TaskShape   string `json:"task_shape,omitempty"`
 }
 
 type FlightRequestSummary struct {
@@ -74,6 +75,7 @@ type OutputReduceSummary struct {
 	Profile     string `json:"profile,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	AddedTokens int    `json:"added_tokens,omitempty"`
+	TaskShape   string `json:"task_shape,omitempty"`
 }
 
 func (s *RequestSummary) EnsureFlight() {
@@ -141,6 +143,7 @@ func BuildFlightRequestSummary(s RequestSummary) FlightRequestSummary {
 			Profile:     s.OutputReduce.Profile,
 			Reason:      s.OutputReduce.Reason,
 			AddedTokens: s.OutputReduce.AddedTokens,
+			TaskShape:   s.OutputReduce.TaskShape,
 		},
 		Errors:               append([]string(nil), s.Errors...),
 		PrivacyRedacted:      true,

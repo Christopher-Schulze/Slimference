@@ -64,6 +64,7 @@ import (
 	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tlsca"
 	"github.com/slimference/slimference/internal/tlsdial"
+	"github.com/slimference/slimference/internal/tlsproof"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/transparent"
 	"github.com/slimference/slimference/internal/tui"
@@ -1530,6 +1531,10 @@ func handleDoctorCmd() {
 		return formatTLSCatalogStatus(time.Now())
 	})
 
+	warn("TLS reflected proof", func() string {
+		return formatTLSProofStatus(time.Now())
+	})
+
 	check("Determinism gate", func() (string, bool) {
 		if !cfg.Compression.Summary.RequireDeterministic {
 			return "off (no strict-determinism check)", true
@@ -1628,6 +1633,36 @@ func formatTLSCatalogStatus(now time.Time) string {
 	}
 	return fmt.Sprintf("%s generated=%s age_days=%d max_age_days=%d state=%s",
 		info.Version, info.Generated.Format("2006-01-02"), ageDays, info.MaxAgeDays, state)
+}
+
+func formatTLSProofStatus(now time.Time) string {
+	home, err := osUserHomeDir()
+	if err != nil {
+		return "proof status unavailable: HOME lookup failed"
+	}
+	dir := tlsproof.DefaultDir(home)
+	statuses, err := tlsproof.LatestByProfile(dir, now)
+	if err != nil {
+		return fmt.Sprintf("proof status unreadable: %v", err)
+	}
+	if len(statuses) == 0 {
+		return fmt.Sprintf("no reflected provider-edge proof yet (run: go run ./scripts/utils tls-probe --profile=chromium_stable --reflector=https://... --save; dir=%s)", dir)
+	}
+	names := tlsproof.ProfilesWithProof(statuses)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		status := statuses[name]
+		state := "failed"
+		if status.Success {
+			state = "ok"
+		}
+		hash := status.JA3Hash
+		if hash == "" {
+			hash = "no-ja3"
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s age_days=%d ja3=%s", name, state, status.AgeDays, hash))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // renderIntegrationChecks emits the T69 integration status block inside
@@ -1983,6 +2018,12 @@ func handleGainOutput(period string, flags gainCLIFlags) {
 			fmt.Printf("  %s: %d\n", key, report.Profiles[key])
 		}
 	}
+	if len(report.TaskShapes) > 0 {
+		fmt.Println("Task shapes:")
+		for _, key := range sortedStringIntKeys(report.TaskShapes) {
+			fmt.Printf("  %s: %d\n", key, report.TaskShapes[key])
+		}
+	}
 	if len(report.Reasons) > 0 {
 		fmt.Println("Reasons:")
 		for _, key := range sortedStringIntKeys(report.Reasons) {
@@ -2269,8 +2310,8 @@ func printFlightSummaries(summaries []dbg.RequestSummary, jsonOut bool) {
 			f.CacheAccounting.PreviousResponseIDUsed,
 			f.CacheAccounting.PreviousResponseIDBillable)
 		if f.OutputReduce.Applied || f.OutputReduce.Reason != "" {
-			fmt.Printf("output:    reduce=%v profile=%s reason=%s added_tokens=%d\n",
-				f.OutputReduce.Applied, f.OutputReduce.Profile, f.OutputReduce.Reason, f.OutputReduce.AddedTokens)
+			fmt.Printf("output:    reduce=%v profile=%s shape=%s reason=%s added_tokens=%d\n",
+				f.OutputReduce.Applied, f.OutputReduce.Profile, f.OutputReduce.TaskShape, f.OutputReduce.Reason, f.OutputReduce.AddedTokens)
 		}
 		fmt.Printf("privacy:   redacted=%v confidence=%s\n", f.PrivacyRedacted, f.Confidence)
 		fmt.Println(strings.Repeat("-", 50))
@@ -2301,7 +2342,7 @@ func encodeFlightCSV(out io.Writer, summaries []dbg.RequestSummary) {
 		"provider_input_tokens", "provider_cached_tokens", "provider_output_tokens",
 		"billable_savings_estimate", "wire_savings_estimate",
 		"local_cache_hit", "previous_response_id_used", "output_reduce_applied",
-		"confidence", "total_proxy_overhead_ms",
+		"output_reduce_task_shape", "confidence", "total_proxy_overhead_ms",
 	})
 	for _, summary := range summaries {
 		summary.EnsureFlight()
@@ -2323,6 +2364,7 @@ func encodeFlightCSV(out io.Writer, summaries []dbg.RequestSummary) {
 			strconv.FormatBool(f.CacheAccounting.LocalResponseCacheHit),
 			strconv.FormatBool(f.CacheAccounting.PreviousResponseIDUsed),
 			strconv.FormatBool(f.OutputReduce.Applied),
+			f.OutputReduce.TaskShape,
 			f.Confidence,
 			strconv.FormatFloat(f.TotalProxyOverheadMs, 'f', 2, 64),
 		})

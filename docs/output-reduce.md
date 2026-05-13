@@ -15,11 +15,23 @@ It never edits provider responses after generation.
   and before the upstream request. Cache keys therefore include the injected
   prompt when injection is active.
 - Provider profiles:
-  - `anthropic`: concise plain-English discipline.
-  - `openai`: compact bullet-style discipline.
-  - `codex`: Codex-specific terse workflow rules.
-  - `auto`: selects the profile from the upstream provider.
-  - `noop`: disables injection without turning the feature off globally.
+  - `off`: disables injection without turning the feature off globally.
+  - `mild`: shortest low-risk discipline.
+  - `standard`: direct answers, no recap, patch-oriented edits.
+  - `aggressive`: stronger anti-filler rules for measured high-savings paths.
+  - `codex_aggressive`: Codex-specific terse workflow rules.
+  - `custom`: uses `custom_directive_path`.
+  - `auto`: selects `standard` for generic providers and
+    `codex_aggressive` for Codex traffic.
+  - legacy aliases `anthropic`, `openai`, `codex`, and `noop` remain accepted
+    for older configs.
+- T141 classifies each request shape (`direct_answer`, `code_edit`,
+  `debugging`, `planning`, `review`, `tool_result_reasoning`,
+  `new_file_generation`) and appends shape-specific guardrails so review and
+  debugging tasks do not lose exact findings, paths, commands, or errors.
+- Auto-tune can downgrade underperforming provider/model/task-shape buckets
+  from aggressive -> standard -> mild -> off based on observed overhead and
+  failure signals.
 
 ## Config
 
@@ -32,6 +44,11 @@ signature_marker = "#slimference-output-rules"
 max_added_bytes = 1400
 min_input_tokens = 400
 auto_disable_threshold = 30
+auto_tune_enabled = true
+auto_tune_min_samples = 30
+min_net_savings_pct = 15
+max_failure_rate_delta = 0.05
+cooldown_turns = 50
 ```
 
 `custom_directive_path` can point at a local text file. If the file does not
@@ -50,7 +67,7 @@ slimference gain --output [today|week|month|all] [--json|--csv]
 The command edits the resolved config file using the same config update path as
 Layer 2 toggles. `gain --output` reads persisted analytics JSONL and reports
 applied/skipped requests, directive input overhead, observed output tokens, and
-profile/reason breakdowns.
+profile/task-shape/reason breakdowns.
 
 ## Measurement
 
@@ -65,6 +82,8 @@ The admin status payload exposes:
 - `output_reduce.avg_output_tokens`
 - `output_reduce.last_reason`
 - `output_reduce.last_added_tokens`
+- `output_reduce.auto_tune_enabled`
+- `output_reduce.downgrades`
 
 These are observability counters, not a false "proven saving" claim. Real
 provider-side saving still depends on model compliance and must be judged on

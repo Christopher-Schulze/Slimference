@@ -178,13 +178,18 @@ type CompressionConfig struct {
 // provider-specific system-prompt discipline. It never edits provider
 // responses after the fact; it only modifies outbound instructions.
 type OutputReduceConfig struct {
-	Enabled              bool   `toml:"enabled"`
-	Profile              string `toml:"profile"`
-	CustomDirectivePath  string `toml:"custom_directive_path"`
-	SignatureMarker      string `toml:"signature_marker"`
-	MaxAddedBytes        int    `toml:"max_added_bytes"`
-	MinInputTokens       int    `toml:"min_input_tokens"`
-	AutoDisableThreshold int    `toml:"auto_disable_threshold"`
+	Enabled              bool    `toml:"enabled"`
+	Profile              string  `toml:"profile"`
+	CustomDirectivePath  string  `toml:"custom_directive_path"`
+	SignatureMarker      string  `toml:"signature_marker"`
+	MaxAddedBytes        int     `toml:"max_added_bytes"`
+	MinInputTokens       int     `toml:"min_input_tokens"`
+	AutoDisableThreshold int     `toml:"auto_disable_threshold"`
+	AutoTuneEnabled      bool    `toml:"auto_tune_enabled"`
+	AutoTuneMinSamples   int     `toml:"auto_tune_min_samples"`
+	MinNetSavingsPct     float64 `toml:"min_net_savings_pct"`
+	MaxFailureRateDelta  float64 `toml:"max_failure_rate_delta"`
+	CooldownTurns        int     `toml:"cooldown_turns"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
@@ -718,8 +723,10 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("compression.minimax.trust_class must be upstream_provider/external_third_party/unknown, got %q", tc)
 	}
 	or := cfg.Compression.OutputReduce
-	if or.Profile != "" && or.Profile != "auto" && or.Profile != "anthropic" && or.Profile != "openai" && or.Profile != "codex" && or.Profile != "noop" {
-		return fmt.Errorf("compression.output_reduce.profile must be auto/anthropic/openai/codex/noop, got %q", or.Profile)
+	if or.Profile != "" && or.Profile != "auto" && or.Profile != "off" && or.Profile != "mild" && or.Profile != "standard" &&
+		or.Profile != "aggressive" && or.Profile != "codex_aggressive" && or.Profile != "custom" &&
+		or.Profile != "anthropic" && or.Profile != "openai" && or.Profile != "codex" && or.Profile != "noop" {
+		return fmt.Errorf("compression.output_reduce.profile must be auto/off/mild/standard/aggressive/codex_aggressive/custom/legacy-provider, got %q", or.Profile)
 	}
 	if or.MaxAddedBytes < 0 {
 		return fmt.Errorf("compression.output_reduce.max_added_bytes must be >= 0, got %d", or.MaxAddedBytes)
@@ -729,6 +736,18 @@ func validate(cfg *Config) error {
 	}
 	if or.AutoDisableThreshold < 0 {
 		return fmt.Errorf("compression.output_reduce.auto_disable_threshold must be >= 0, got %d", or.AutoDisableThreshold)
+	}
+	if or.AutoTuneMinSamples < 0 {
+		return fmt.Errorf("compression.output_reduce.auto_tune_min_samples must be >= 0, got %d", or.AutoTuneMinSamples)
+	}
+	if or.MinNetSavingsPct < 0 {
+		return fmt.Errorf("compression.output_reduce.min_net_savings_pct must be >= 0, got %v", or.MinNetSavingsPct)
+	}
+	if or.MaxFailureRateDelta < 0 || or.MaxFailureRateDelta > 1 {
+		return fmt.Errorf("compression.output_reduce.max_failure_rate_delta must be 0.0-1.0, got %v", or.MaxFailureRateDelta)
+	}
+	if or.CooldownTurns < 0 {
+		return fmt.Errorf("compression.output_reduce.cooldown_turns must be >= 0, got %d", or.CooldownTurns)
 	}
 	return nil
 }

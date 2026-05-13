@@ -32,11 +32,12 @@ type Profile struct {
 
 // CatalogInfo describes the shipped profile catalogue.
 type CatalogInfo struct {
-	Version    string
-	Generated  time.Time
-	MaxAgeDays int
-	Concrete   []string
-	Aliases    []string
+	Version      string
+	Generated    time.Time
+	MaxAgeDays   int
+	Concrete     []string
+	Aliases      []string
+	AliasTargets map[string]string
 }
 
 var profiles = map[string]Profile{
@@ -98,6 +99,17 @@ func ResolveProfile(name string) (Profile, error) {
 	return Profile{}, fmt.Errorf("unknown tls profile %q", name)
 }
 
+// AliasTarget reports whether name is an intent alias and which concrete
+// profile it resolves to. Exact profiles return ("", false).
+func AliasTarget(name string) (string, bool) {
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		key = ""
+	}
+	target, ok := profileAliases[key]
+	return target, ok && key != target
+}
+
 // ProfileNames returns the stable list of accepted concrete profile names and
 // aliases. It is used by diagnostics and tests.
 func ProfileNames() []string {
@@ -123,18 +135,21 @@ func Catalog() CatalogInfo {
 	}
 	sort.Strings(concrete)
 	aliases := make([]string, 0, len(profileAliases))
+	aliasTargets := make(map[string]string, len(profileAliases))
 	for name := range profileAliases {
 		if name != "" {
 			aliases = append(aliases, name)
+			aliasTargets[name] = profileAliases[name]
 		}
 	}
 	sort.Strings(aliases)
 	return CatalogInfo{
-		Version:    ProfileCatalogVersion,
-		Generated:  generated,
-		MaxAgeDays: ProfileCatalogMaxAgeDays,
-		Concrete:   concrete,
-		Aliases:    aliases,
+		Version:      ProfileCatalogVersion,
+		Generated:    generated,
+		MaxAgeDays:   ProfileCatalogMaxAgeDays,
+		Concrete:     concrete,
+		Aliases:      aliases,
+		AliasTargets: aliasTargets,
 	}
 }
 

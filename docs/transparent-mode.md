@@ -115,6 +115,23 @@ ClientHello, parses TLS/JA3 fields, and compares the selected profile with
 an external JA3/JA4 proof because provider-edge observation includes network
 path, TLS termination, and JA4 features outside the local ClientHello.
 
+T139 adds an opt-in reflected proof path:
+
+```bash
+go run ./scripts/utils tls-probe \
+  --profile=chromium_stable \
+  --reflector=https://<reflector-host>/<json-endpoint> \
+  --save \
+  --json
+```
+
+The reflected probe still uses `internal/tlsdial`, not Go's default
+`net/http`, so it measures the same uTLS ClientHello path used by transparent
+mode. Proof records are appended under `~/.slimference/tls-proofs/` and
+`slimference doctor` reports the latest status per profile. If the reflector
+negotiates HTTP/2, Slimference records the attempt as unproven instead of
+pretending HTTP/1.1 probing proves HTTP/2 SETTINGS or JA4 parity.
+
 ### `uninstall`
 
 Disables the proxy, removes the CA from the keychain, removes the launch agent. The CA files in `~/.slimference/ca` remain on disk so a re-install can reuse them; delete the directory manually for a fully clean slate.

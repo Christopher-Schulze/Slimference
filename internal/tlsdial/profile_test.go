@@ -40,6 +40,19 @@ func TestResolveProfile_Aliases(t *testing.T) {
 	}
 }
 
+func TestAliasTarget(t *testing.T) {
+	t.Parallel()
+	if target, ok := AliasTarget(""); !ok || target != "chromium_stable" {
+		t.Fatalf("default alias target = %q %v", target, ok)
+	}
+	if target, ok := AliasTarget("node_stable"); !ok || target != "chromium_stable" {
+		t.Fatalf("node_stable alias target = %q %v", target, ok)
+	}
+	if target, ok := AliasTarget("chromium_stable"); ok || target != "" {
+		t.Fatalf("concrete profile reported alias target = %q %v", target, ok)
+	}
+}
+
 func TestResolveProfile_Unknown(t *testing.T) {
 	t.Parallel()
 	if _, err := ResolveProfile("bogus"); err == nil {

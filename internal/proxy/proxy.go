@@ -200,7 +200,13 @@ func New(cfg *config.Config) *Proxy {
 		qualityNetSavings: quality.NewNetSavings(),
 		toolPrune:         toolprune.NewUsageTracker(20),
 		serverState:       sessions.NewResponseStateStore(1024),
-		outputReduce:      outputreduce.NewTracker(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile),
+		outputReduce: outputreduce.NewTrackerWithAutoTune(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile, outputreduce.AutoTuneConfig{
+			Enabled:             cfg.Compression.OutputReduce.AutoTuneEnabled,
+			MinSamples:          cfg.Compression.OutputReduce.AutoTuneMinSamples,
+			MinNetSavingsPct:    cfg.Compression.OutputReduce.MinNetSavingsPct,
+			MaxFailureRateDelta: cfg.Compression.OutputReduce.MaxFailureRateDelta,
+			CooldownTurns:       cfg.Compression.OutputReduce.CooldownTurns,
+		}),
 	}
 
 	// Default all toggles to enabled.

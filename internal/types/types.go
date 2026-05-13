@@ -220,6 +220,9 @@ type AnalyticsEvent struct {
 	// OutputReduceAddedTokens is the estimated input-token overhead introduced
 	// by the injected T130 directive.
 	OutputReduceAddedTokens int
+	// OutputReduceTaskShape is the T141 request-shape classifier result used
+	// for provider/model/profile auto-tuning buckets.
+	OutputReduceTaskShape string
 }
 
 // RequestMetrics records per-request statistics kept in the ring buffer.

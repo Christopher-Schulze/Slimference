@@ -30,6 +30,7 @@ type OutputReduceReport struct {
 	AvgAppliedOutputTokens   float64        `json:"avg_applied_output_tokens"`
 	AvgInputOverheadPerApply float64        `json:"avg_input_overhead_per_apply"`
 	Profiles                 map[string]int `json:"profiles,omitempty"`
+	TaskShapes               map[string]int `json:"task_shapes,omitempty"`
 	Reasons                  map[string]int `json:"reasons,omitempty"`
 }
 
@@ -37,9 +38,10 @@ type OutputReduceReport struct {
 // requested period. Supported periods: today, week, month, all.
 func ReadOutputReduceReport(logDir, period string, now time.Time) (OutputReduceReport, error) {
 	report := OutputReduceReport{
-		Period:   period,
-		Profiles: make(map[string]int),
-		Reasons:  make(map[string]int),
+		Period:     period,
+		Profiles:   make(map[string]int),
+		TaskShapes: make(map[string]int),
+		Reasons:    make(map[string]int),
 	}
 	paths, err := promptCachePaths(logDir, period, now)
 	if err != nil {
@@ -59,6 +61,9 @@ func ReadOutputReduceReport(logDir, period string, now time.Time) (OutputReduceR
 	}
 	if len(report.Profiles) == 0 {
 		report.Profiles = nil
+	}
+	if len(report.TaskShapes) == 0 {
+		report.TaskShapes = nil
 	}
 	if len(report.Reasons) == 0 {
 		report.Reasons = nil
@@ -103,6 +108,9 @@ func accumulateOutputReduceFile(path string, report *OutputReduceReport) error {
 		if event.OutputReduceProfile != "" {
 			report.Profiles[event.OutputReduceProfile]++
 		}
+		if event.OutputReduceTaskShape != "" {
+			report.TaskShapes[event.OutputReduceTaskShape]++
+		}
 		if event.OutputReduceReason != "" {
 			report.Reasons[event.OutputReduceReason]++
 		}
@@ -140,6 +148,9 @@ func WriteOutputReduceCSV(w io.Writer, report OutputReduceReport) error {
 	})
 	for _, key := range sortedOutputReduceKeys(report.Profiles) {
 		_ = cw.Write([]string{"profile", key, fmt.Sprintf("%d", report.Profiles[key])})
+	}
+	for _, key := range sortedOutputReduceKeys(report.TaskShapes) {
+		_ = cw.Write([]string{"task_shape", key, fmt.Sprintf("%d", report.TaskShapes[key])})
 	}
 	for _, key := range sortedOutputReduceKeys(report.Reasons) {
 		_ = cw.Write([]string{"reason", key, fmt.Sprintf("%d", report.Reasons[key])})

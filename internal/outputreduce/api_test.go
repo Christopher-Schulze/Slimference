@@ -165,6 +165,9 @@ func TestInjectBody_SkipsOverCapAndNoop(t *testing.T) {
 	if out, stats, err := InjectBody(types.OpenAI, body, Options{Enabled: true, Profile: "noop"}); err != nil || stats.Applied || stats.Reason != "noop_profile" || string(out) != string(body) {
 		t.Fatalf("noop out=%s stats=%+v err=%v", out, stats, err)
 	}
+	if out, stats, err := InjectBody(types.OpenAI, body, Options{Enabled: true, Profile: "off"}); err != nil || stats.Applied || stats.Reason != "noop_profile" || string(out) != string(body) {
+		t.Fatalf("off out=%s stats=%+v err=%v", out, stats, err)
+	}
 }
 
 func TestInjectBody_ErrorBranches(t *testing.T) {
@@ -215,6 +218,35 @@ func TestInjectBody_AnthropicAddsMissingSystem(t *testing.T) {
 	out, stats, err := InjectBody(types.Anthropic, []byte(`{"messages":[{"role":"user","content":"hi"}]}`), Options{Enabled: true, Profile: "anthropic"})
 	if err != nil || !stats.Applied || !strings.Contains(string(out), `"system"`) {
 		t.Fatalf("out=%s stats=%+v err=%v", out, stats, err)
+	}
+}
+
+func TestProfilesAndShapeDirective(t *testing.T) {
+	t.Parallel()
+	for _, profile := range []string{"mild", "standard", "aggressive", "codex_aggressive", "custom", "anthropic", "openai", "codex", "off"} {
+		if _, err := ParseProfile(profile); err != nil {
+			t.Fatalf("profile %q: %v", profile, err)
+		}
+	}
+	if got := NextSofter(ProfileAggressive); got != ProfileStandard {
+		t.Fatalf("NextSofter aggressive=%s", got)
+	}
+	if got := NextSofter(ProfileMild); got != ProfileOff {
+		t.Fatalf("NextSofter mild=%s", got)
+	}
+	if got := NextSofter(ProfileStandard); got != ProfileMild {
+		t.Fatalf("NextSofter standard=%s", got)
+	}
+	if got := NextSofter(ProfileOff); got != ProfileOff {
+		t.Fatalf("NextSofter off=%s", got)
+	}
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapePlanning, ShapeUnknown} {
+		if text := DirectiveForShape(ProfileCodexAggressive, shape, DefaultMarker); text == "" {
+			t.Fatalf("empty directive for shape %s", shape)
+		}
+	}
+	for _, profile := range []Profile{ProfileMild, ProfileStandard, ProfileAggressive, ProfileCustom, ProfileOff} {
+		_ = DirectiveForShape(profile, ShapeDirectAnswer, "")
 	}
 }
 

@@ -325,12 +325,22 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	if p.config.Compression.OutputReduce.Enabled && compressedTokens < outputReduceMinTokens {
 		outputReduceStats = outputreduce.Stats{Reason: "below_min_tokens"}
 	} else if p.config.Compression.OutputReduce.Enabled {
+		taskShape := outputreduce.DetectTaskShape(provider, newBody)
+		profileName := p.config.Compression.OutputReduce.Profile
+		if configuredProfile, err := outputreduce.ParseProfile(profileName); err == nil {
+			effective := outputreduce.ResolveProfile(provider, configuredProfile)
+			if p.outputReduce != nil {
+				effective = p.outputReduce.SelectProfile(provider.String(), model, effective, taskShape)
+			}
+			profileName = string(effective)
+		}
 		opts := outputreduce.Options{
 			Enabled:             true,
-			Profile:             p.config.Compression.OutputReduce.Profile,
+			Profile:             profileName,
 			CustomDirectivePath: p.config.Compression.OutputReduce.CustomDirectivePath,
 			SignatureMarker:     p.config.Compression.OutputReduce.SignatureMarker,
 			MaxAddedBytes:       p.config.Compression.OutputReduce.MaxAddedBytes,
+			TaskShape:           taskShape,
 		}
 		if injectedBody, stats, err := outputreduce.InjectBody(provider, newBody, opts); err != nil {
 			log.Warn("output-reduce injection skipped", "error", err)
@@ -422,6 +432,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 						Profile:     outputReduceStats.Profile,
 						Reason:      outputReduceStats.Reason,
 						AddedTokens: outputReduceStats.AddedTokens,
+						TaskShape:   string(outputReduceStats.TaskShape),
 					},
 					ProxyLatencyMs: cacheLatencyMs,
 					ReReadCount:    reReadCount,
@@ -453,6 +464,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				OutputReduceProfile:     outputReduceStats.Profile,
 				OutputReduceReason:      outputReduceStats.Reason,
 				OutputReduceAddedTokens: outputReduceStats.AddedTokens,
+				OutputReduceTaskShape:   string(outputReduceStats.TaskShape),
 			})
 
 			log.Info("request_processed",
@@ -549,6 +561,16 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 	if p.outputReduce != nil {
 		p.outputReduce.ObserveOutput(outputTokens)
+		p.outputReduce.ObserveOutcome(outputreduce.Outcome{
+			Provider:            provider.String(),
+			Model:               model,
+			Profile:             outputReduceStats.Profile,
+			TaskShape:           outputReduceStats.TaskShape,
+			Applied:             outputReduceStats.Applied,
+			InputOverheadTokens: outputReduceStats.AddedTokens,
+			OutputTokens:        outputTokens,
+			Failed:              upstreamResp.StatusCode >= 400,
+		})
 	}
 
 	// --- 9b. Server-state response-id capture (T78) ---
@@ -675,6 +697,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				Profile:     outputReduceStats.Profile,
 				Reason:      outputReduceStats.Reason,
 				AddedTokens: outputReduceStats.AddedTokens,
+				TaskShape:   string(outputReduceStats.TaskShape),
 			},
 			PreviousResponseIDUsed: serverStateUsed,
 			ProxyLatencyMs:         proxyLatencyMs,
@@ -708,6 +731,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		OutputReduceProfile:     outputReduceStats.Profile,
 		OutputReduceReason:      outputReduceStats.Reason,
 		OutputReduceAddedTokens: outputReduceStats.AddedTokens,
+		OutputReduceTaskShape:   string(outputReduceStats.TaskShape),
 	})
 
 	log.Info("request_processed",

@@ -48,6 +48,9 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.MinInputTokens != 400 {
 		t.Fatalf("min input tokens = %d", cfg.Compression.OutputReduce.MinInputTokens)
 	}
+	if !cfg.Compression.OutputReduce.AutoTuneEnabled || cfg.Compression.OutputReduce.AutoTuneMinSamples != 30 {
+		t.Fatalf("auto tune defaults = %+v", cfg.Compression.OutputReduce)
+	}
 	if cfg.Compression.OutputReduce.SignatureMarker == "" {
 		t.Fatal("signature marker must be non-empty")
 	}
@@ -274,6 +277,10 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"max_added", func(c *Config) { c.Compression.OutputReduce.MaxAddedBytes = -1 }},
 		{"min_input", func(c *Config) { c.Compression.OutputReduce.MinInputTokens = -1 }},
 		{"threshold", func(c *Config) { c.Compression.OutputReduce.AutoDisableThreshold = -1 }},
+		{"auto_samples", func(c *Config) { c.Compression.OutputReduce.AutoTuneMinSamples = -1 }},
+		{"min_savings", func(c *Config) { c.Compression.OutputReduce.MinNetSavingsPct = -1 }},
+		{"failure_rate", func(c *Config) { c.Compression.OutputReduce.MaxFailureRateDelta = 2 }},
+		{"cooldown", func(c *Config) { c.Compression.OutputReduce.CooldownTurns = -1 }},
 	}
 	for _, tc := range tests {
 		tc := tc

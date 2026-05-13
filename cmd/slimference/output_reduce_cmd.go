@@ -61,6 +61,11 @@ func handleOutputReduceStatus() {
 	fmt.Printf("  Marker:           %s\n", or.SignatureMarker)
 	fmt.Printf("  Max added bytes:  %d\n", or.MaxAddedBytes)
 	fmt.Printf("  Min input tokens: %d\n", or.MinInputTokens)
+	fmt.Printf("  Auto tune:        %s\n", boolStr(or.AutoTuneEnabled, "yes", "no"))
+	fmt.Printf("  Min samples:      %d\n", or.AutoTuneMinSamples)
+	fmt.Printf("  Min net saving:   %.1f%%\n", or.MinNetSavingsPct)
+	fmt.Printf("  Max failure delta: %.3f\n", or.MaxFailureRateDelta)
+	fmt.Printf("  Cooldown turns:   %d\n", or.CooldownTurns)
 	if or.CustomDirectivePath != "" {
 		fmt.Printf("  Custom directive: %s\n", or.CustomDirectivePath)
 	}

@@ -93,6 +93,11 @@ func defaultsRaw() *Config {
 				MaxAddedBytes:        1400,
 				MinInputTokens:       400,
 				AutoDisableThreshold: 30,
+				AutoTuneEnabled:      true,
+				AutoTuneMinSamples:   30,
+				MinNetSavingsPct:     15,
+				MaxFailureRateDelta:  0.05,
+				CooldownTurns:        50,
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,
@@ -233,6 +238,11 @@ max_added_bytes = 1400
 # Below this request size, the directive overhead dominates likely savings.
 min_input_tokens = 400
 auto_disable_threshold = 30
+auto_tune_enabled = true
+auto_tune_min_samples = 30
+min_net_savings_pct = 15
+max_failure_rate_delta = 0.05
+cooldown_turns = 50
 
 [compression.minimax]
 base_url = "https://api.minimax.io/v1"

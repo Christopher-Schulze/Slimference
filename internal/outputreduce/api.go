@@ -16,6 +16,7 @@ type Options struct {
 	CustomDirectivePath string
 	SignatureMarker     string
 	MaxAddedBytes       int
+	TaskShape           TaskShape
 }
 
 type Stats struct {
@@ -24,6 +25,7 @@ type Stats struct {
 	AddedBytes  int
 	AddedTokens int
 	Reason      string
+	TaskShape   TaskShape
 }
 
 func InjectBody(provider types.Provider, body []byte, opts Options) ([]byte, Stats, error) {
@@ -37,7 +39,11 @@ func InjectBody(provider types.Provider, body []byte, opts Options) ([]byte, Sta
 	}
 	profile := ResolveProfile(provider, configured)
 	stats.Profile = string(profile)
-	if profile == ProfileNoop {
+	stats.TaskShape = opts.TaskShape
+	if stats.TaskShape == "" {
+		stats.TaskShape = DetectTaskShape(provider, body)
+	}
+	if profile == ProfileOff {
 		stats.Reason = "noop_profile"
 		return body, stats, nil
 	}
@@ -107,7 +113,7 @@ func directiveFromOptions(profile Profile, opts Options) (string, error) {
 		}
 		return text, nil
 	}
-	return Directive(profile, markerFromOptions(opts)), nil
+	return DirectiveForShape(profile, opts.TaskShape, markerFromOptions(opts)), nil
 }
 
 func markerFromOptions(opts Options) string {

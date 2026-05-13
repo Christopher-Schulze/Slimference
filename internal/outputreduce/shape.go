@@ -1,0 +1,83 @@
+package outputreduce
+
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/slimference/slimference/internal/types"
+)
+
+type TaskShape string
+
+const (
+	ShapeUnknown       TaskShape = "unknown"
+	ShapeDirectAnswer  TaskShape = "direct_answer"
+	ShapeCodeEdit      TaskShape = "code_edit"
+	ShapeDebugging     TaskShape = "debugging"
+	ShapePlanning      TaskShape = "planning"
+	ShapeReview        TaskShape = "review"
+	ShapeToolReasoning TaskShape = "tool_result_reasoning"
+	ShapeNewFile       TaskShape = "new_file_generation"
+)
+
+func DetectTaskShape(provider types.Provider, body []byte) TaskShape {
+	text := requestText(provider, body)
+	lower := strings.ToLower(text)
+	switch {
+	case containsAny(lower, "create file", "new file", "write a file", "add file", "*** add file"):
+		return ShapeNewFile
+	case containsAny(lower, "apply_patch", "patch", "diff", "edit", "modify", "fix this file", "implement"):
+		return ShapeCodeEdit
+	case containsAny(lower, "error", "failed", "panic", "stack trace", "debug", "why does", "root cause"):
+		return ShapeDebugging
+	case containsAny(lower, "review", "audit", "find issues", "severity"):
+		return ShapeReview
+	case containsAny(lower, "plan", "roadmap", "steps", "todo"):
+		return ShapePlanning
+	case containsAny(lower, "tool_result", "stdout", "stderr", "exit code", "command output"):
+		return ShapeToolReasoning
+	case strings.TrimSpace(lower) != "":
+		return ShapeDirectAnswer
+	default:
+		return ShapeUnknown
+	}
+}
+
+func requestText(provider types.Provider, body []byte) string {
+	var root any
+	if err := json.Unmarshal(body, &root); err != nil {
+		return string(body)
+	}
+	var out strings.Builder
+	walkText(root, &out)
+	return out.String()
+}
+
+func walkText(v any, out *strings.Builder) {
+	switch x := v.(type) {
+	case string:
+		out.WriteString(x)
+		out.WriteByte('\n')
+	case []any:
+		for _, item := range x {
+			walkText(item, out)
+		}
+	case map[string]any:
+		for key, value := range x {
+			if key == "content" || key == "text" || key == "input" || key == "system" || key == "command" || key == "stderr" || key == "stdout" {
+				walkText(value, out)
+				continue
+			}
+			walkText(value, out)
+		}
+	}
+}
+
+func containsAny(s string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(s, needle) {
+			return true
+		}
+	}
+	return false
+}

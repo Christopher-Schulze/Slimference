@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,17 +16,22 @@ import (
 func TestParseTLSProbeArgs(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		args        []string
-		wantProfile string
-		wantJSON    bool
-		wantErr     bool
+		name          string
+		args          []string
+		wantProfile   string
+		wantJSON      bool
+		wantSave      bool
+		wantReflector string
+		wantCompare   string
+		wantErr       bool
 	}{
 		{name: "default", wantProfile: tlsProbeDefaultProfile},
 		{name: "profile equals", args: []string{"--profile=go_stdlib"}, wantProfile: "go_stdlib"},
 		{name: "profile split", args: []string{"--profile", "chrome_131", "--json"}, wantProfile: "chrome_131", wantJSON: true},
+		{name: "reflector save compare", args: []string{"--reflector=https://tls.example/probe", "--save", "--compare=/tmp/proofs"}, wantProfile: tlsProbeDefaultProfile, wantReflector: "https://tls.example/probe", wantSave: true, wantCompare: "/tmp/proofs"},
 		{name: "unknown arg", args: []string{"--bogus"}, wantErr: true},
 		{name: "missing profile value", args: []string{"--profile"}, wantErr: true},
+		{name: "missing reflector value", args: []string{"--reflector"}, wantErr: true},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -39,8 +47,9 @@ func TestParseTLSProbeArgs(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseTLSProbeArgs() error = %v", err)
 			}
-			if got.profile != tt.wantProfile || got.json != tt.wantJSON {
-				t.Fatalf("got %+v, want profile=%q json=%t", got, tt.wantProfile, tt.wantJSON)
+			if got.profile != tt.wantProfile || got.json != tt.wantJSON || got.save != tt.wantSave ||
+				got.reflector != tt.wantReflector || got.comparePath != tt.wantCompare {
+				t.Fatalf("got %+v", got)
 			}
 		})
 	}
@@ -58,6 +67,9 @@ func TestRunTLSProbe_JSONChromiumDiffersFromStdlib(t *testing.T) {
 	if report.Profile != "chromium_stable" {
 		t.Fatalf("profile = %q", report.Profile)
 	}
+	if report.RequestedProfile != "chromium_stable" {
+		t.Fatalf("requested profile = %q", report.RequestedProfile)
+	}
 	if report.ClientHelloBytes == 0 || report.CipherSuiteCount == 0 || report.ExtensionCount == 0 {
 		t.Fatalf("incomplete report: %+v", report)
 	}
@@ -69,6 +81,51 @@ func TestRunTLSProbe_JSONChromiumDiffersFromStdlib(t *testing.T) {
 	}
 	if !report.ExternalProofRequired {
 		t.Fatalf("external proof flag must stay explicit")
+	}
+}
+
+func TestRunTLSProbe_AliasAndCompare(t *testing.T) {
+	dir := t.TempDir()
+	report, err := buildTLSProbeReport(mustProfile(t, "go_stdlib"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"profile":"go_stdlib","ja3_hash":"` + report.JA3Hash + `","timestamp":"2026-05-01T00:00:00Z","success":true}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "go_stdlib.jsonl"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := runTLSProbe([]string{"--profile=go_stdlib", "--compare=" + dir, "--json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit = %d err=%s", code, errOut.String())
+	}
+	var got tlsProbeReport
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.CompareStatus != "match" {
+		t.Fatalf("report=%+v", got)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = runTLSProbe([]string{"--profile=node_stable", "--json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("alias exit = %d err=%s", code, errOut.String())
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.AliasTarget != "chromium_stable" {
+		t.Fatalf("report=%+v", got)
+	}
+}
+
+func TestProbeReflectorRejectsUnsafeURL(t *testing.T) {
+	t.Parallel()
+	proof := probeReflector(context.Background(), mustProfile(t, "chromium_stable"), "http://example.test")
+	if proof.Success || !strings.Contains(proof.Notes, "https URL") {
+		t.Fatalf("proof=%+v", proof)
 	}
 }
 
@@ -147,4 +204,13 @@ func mustHex(t *testing.T, s string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func mustProfile(t *testing.T, name string) tlsdial.Profile {
+	t.Helper()
+	profile, err := tlsdial.ResolveProfile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return profile
 }

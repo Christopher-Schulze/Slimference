@@ -208,8 +208,9 @@ are degradation signals, not status translations.
 breaks it down per argv[0]; `--by-parser` groups persisted Layer-0
 savings by parser/tool family; `--cache` reports persisted provider
 prompt-cache read/create counters; `--output` reports persisted T130
-output-reduce telemetry without inventing a savings baseline. `--csv` /
-`--json` for machine consumption.
+output-reduce telemetry without inventing a savings baseline, including T141
+profile tier and task-shape buckets. `--csv` / `--json` for machine
+consumption.
 
 ---
 
