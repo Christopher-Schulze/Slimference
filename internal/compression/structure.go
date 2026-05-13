@@ -58,6 +58,18 @@ func (e *StructureExtractor) Extract(code, language string) (string, bool) {
 		summary = extractSolidityStructure(code)
 	case "svelte":
 		summary = extractSvelteStructure(code)
+	case "markdown":
+		summary = extractMarkdownStructure(code)
+	case "sql":
+		summary = extractSQLStructure(code)
+	case "graphql":
+		summary = extractGraphQLStructure(code)
+	case "hcl":
+		summary = extractHCLStructure(code)
+	case "dockerfile":
+		summary = extractDockerfileStructure(code)
+	case "make":
+		summary = extractMakeStructure(code)
 	default:
 		return code, false
 	}

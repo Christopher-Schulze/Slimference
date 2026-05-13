@@ -621,6 +621,42 @@ func TestStructureExtractor_Extract_extendedLanguages(t *testing.T) {
 			mustKeep:   []string{"<script>", "import Widget", "function run", "<main>", "<Widget"},
 			mustRemove: []string{"console.log", "color: red"},
 		},
+		{
+			lang:       "markdown",
+			code:       "# API\n# API\n\nLong intro.\n\n- [ ] ship proxy\n\n```ts\n" + strings.Repeat("console.log('noise')\n", 60) + "```\n\n| name | value |\n| ---- | ----- |\n| mode | on |\n",
+			mustKeep:   []string{"# API", "- [ ] ship proxy", "```ts", "| name | value |"},
+			mustRemove: []string{"Long intro", "console.log"},
+		},
+		{
+			lang:       "sql",
+			code:       "create table users (\n  id uuid primary key,\n  email text unique,\n" + strings.Repeat("  ignored_col text,\n", 60) + ");\n\nselect id, email\nfrom users\nwhere email like '%@example.test'\norder by email;\n",
+			mustKeep:   []string{"create table users", "primary key", "select id", "from users", "where email", "order by"},
+			mustRemove: []string{"ignored_col"},
+		},
+		{
+			lang:       "graphql",
+			code:       "type Query {\n" + strings.Repeat("  noisyField: String\n", 60) + "}\n\nfragment UserFields on User {\n  id\n}\n",
+			mustKeep:   []string{"type Query", "fragment UserFields"},
+			mustRemove: []string{"noisyField"},
+		},
+		{
+			lang:       "hcl",
+			code:       "resource \"aws_s3_bucket\" \"logs\" {\n" + strings.Repeat("  tags = { env = \"dev\" }\n", 60) + "}\n\nvariable \"region\" {\n  type = string\n}\n",
+			mustKeep:   []string{"resource \"aws_s3_bucket\"", "variable \"region\""},
+			mustRemove: []string{"tags ="},
+		},
+		{
+			lang:       "dockerfile",
+			code:       "FROM alpine:3.20\nWORKDIR /app\nCOPY . .\nRUN apk add --no-cache ca-certificates\n" + strings.Repeat("RUN echo noisy layer\n", 60) + "CMD [\"/app/slimference\"]\n",
+			mustKeep:   []string{"FROM alpine", "WORKDIR", "COPY . .", "RUN [61 commands omitted]", "CMD"},
+			mustRemove: []string{"echo noisy"},
+		},
+		{
+			lang:       "make",
+			code:       "include common.mk\n.PHONY: test\nGOFLAGS ?= -count=1\ntest: ## run tests\n" + strings.Repeat("\tgo test ./...\n", 60) + "\nrelease:\n\tgo build ./cmd/slimference\n",
+			mustKeep:   []string{"include common.mk", ".PHONY", "GOFLAGS", "test:", "release:"},
+			mustRemove: []string{"go test ./..."},
+		},
 	}
 
 	for _, tc := range tests {
@@ -682,6 +718,27 @@ func TestExtendedStructureHelpers_boundaries(t *testing.T) {
 	noBody := extractBracePatternStructure("fn run();\n"+strings.Repeat("x\n", 4), "//", []string{`^fn\s`}, nil, nil)
 	if !strings.Contains(noBody, "fn run();") {
 		t.Fatalf("brace declaration without body should be kept, got %q", noBody)
+	}
+
+	if out := extractMarkdownStructure("plain prose only\n"); out != "" {
+		t.Fatalf("markdown with no structure should return empty, got %q", out)
+	}
+	if out := extractDockerfileStructure("FROM scratch"); out != "" {
+		t.Fatalf("tiny dockerfile should not expand output, got %q", out)
+	}
+	if out := extractDockerfileStructure("# comment only\n"); out != "" {
+		t.Fatalf("dockerfile with no instructions should return empty, got %q", out)
+	}
+	dockerBodyOnly := extractDockerfileStructure("FROM alpine\nFROM alpine\nx\nx\nx\nx\n")
+	if dockerBodyOnly != "FROM alpine" {
+		t.Fatalf("small dockerfile extraction should return body only, got %q", dockerBodyOnly)
+	}
+	bodyOnlyLine := extractLinePatternStructure("FROM alpine\nx\nx\nx\nx\n", "#", "", []string{`(?i)^\s*FROM\s+`}, "dockerfile instructions")
+	if bodyOnlyLine != "FROM alpine" {
+		t.Fatalf("small line-pattern extraction should return body only, got %q", bodyOnlyLine)
+	}
+	if out := extractLinePatternStructure("FROM alpine", "#", "", []string{`(?i)^\s*FROM\s+`}, "dockerfile instructions"); out != "" {
+		t.Fatalf("tiny line-pattern extraction should not expand output, got %q", out)
 	}
 }
 

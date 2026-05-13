@@ -141,7 +141,8 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
 7. **Layer 0 hooks** — handled *out of process* by Claude Code / Codex
    before the HTTP request is ever sent, but the results appear as
    compressed tool outputs in the body we now receive.
-8. **Layer 1 compression** — deterministic, ~14 sub-layers.
+8. **Layer 1 compression** — deterministic, 15 sub-layers plus preview
+   passes.
 9. **Prompt-cache breakpoints** (T45) — up to 4 `ephemeral` markers
    spread evenly across the stable prefix.
 10. **OpenAI prompt-cache hints** (T136) — optional hashed
@@ -254,6 +255,21 @@ shorter. It preserves reversibility by prepending a small dictionary such as
 `[P1]`. It is deliberately narrow: known local filesystem roots only,
 minimum path length and occurrence gates, URL-style paths ignored, and no
 application when the legend would create a negative saving.
+
+### Structure extraction frontier (T143b)
+
+Structure extraction now covers the main code stacks plus high-volume text and
+config formats. `structure_more.go` adds Markdown, SQL, GraphQL, HCL,
+Dockerfile, and Makefile summaries on top of Go, TypeScript/JavaScript,
+Rust, Python, C/C++, Java, Ruby, shell, Zig, Swift, Kotlin, PHP, Dart,
+Scala, Elixir, Solidity, and Svelte.
+
+The new text/config summaries are deliberately lossy but recoverable through
+the existing content archive. They keep only structural markers: Markdown
+headings/lists/tables/fences, SQL DDL/DML/constraint clauses, GraphQL/HCL
+top-level blocks, Dockerfile image/control instructions with `RUN` chains
+collapsed to a command count, and Makefile includes/variables/targets.
+Negative-saving bypass still applies before any compacted block is used.
 
 ### Adaptive dedup staircase (T53)
 

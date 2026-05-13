@@ -413,6 +413,148 @@ func isSvelteStructuralMarkup(trimmed string) bool {
 	return false
 }
 
+func extractMarkdownStructure(code string) string {
+	return extractLinePatternStructure(code, "<!--", "-->",
+		[]string{
+			`^\s{0,3}#{1,6}\s+\S`,
+			`^\s{0,3}(` + "`" + `{3,}|~{3,})\s*\w*`,
+			`^\s*\|.*\|\s*$`,
+			`^\s{0,3}[-*+]\s+\[[ xX]\]\s+`,
+			`^\s{0,3}[-*+]\s+`,
+			`^\s{0,3}\d+\.\s+`,
+			`^\s{0,3}>\s+`,
+		},
+		"markdown markers",
+	)
+}
+
+func extractSQLStructure(code string) string {
+	return extractLinePatternStructure(code, "--", "",
+		[]string{
+			`(?i)^\s*(with|select|insert\s+into|update|delete\s+from|merge\s+into)\b`,
+			`(?i)^\s*(create|alter|drop)\s+(table|view|materialized\s+view|index|schema|function|procedure|trigger|type)\b`,
+			`(?i)^\s*(from|join|where|group\s+by|order\s+by|having|returning|values)\b`,
+			`(?i)^\s*(constraint|primary\s+key|foreign\s+key|unique|check|references)\b`,
+			`(?i)^\s*[^,\n]+\b(primary\s+key|foreign\s+key|unique|check|references)\b`,
+		},
+		"sql clauses",
+	)
+}
+
+func extractGraphQLStructure(code string) string {
+	return extractBracePatternStructure(code, "#",
+		[]string{
+			`^(query|mutation|subscription|fragment)\b`,
+			`^(type|interface|input|enum|union|scalar|directive)\b`,
+			`^extend\s+(type|interface|input|enum|union|schema)\b`,
+		},
+		[]string{`^schema\s*\{`},
+		nil,
+	)
+}
+
+func extractHCLStructure(code string) string {
+	return extractBracePatternStructure(code, "#",
+		[]string{
+			`^(resource|data|module|variable|output|locals|provider|terraform|moved|import|check)\b`,
+		},
+		nil,
+		nil,
+	)
+}
+
+func extractDockerfileStructure(code string) string {
+	lines := strings.Split(code, "\n")
+	instructionRe := regexp.MustCompile(`(?i)^\s*(FROM|ARG|ENV|WORKDIR|USER|EXPOSE|VOLUME|ENTRYPOINT|CMD|HEALTHCHECK|SHELL|STOPSIGNAL|ONBUILD|COPY|ADD)\b`)
+	runRe := regexp.MustCompile(`(?i)^\s*RUN\s+`)
+	seen := make(map[string]bool)
+	var kept []string
+	runCount := 0
+
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, " \t\r")
+		if strings.TrimSpace(trimmed) == "" {
+			continue
+		}
+		if runRe.MatchString(trimmed) {
+			runCount++
+			continue
+		}
+		if !instructionRe.MatchString(trimmed) || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		kept = append(kept, trimmed)
+	}
+	if runCount > 0 {
+		kept = append(kept, fmt.Sprintf("RUN [%d commands omitted]", runCount))
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	body := strings.Join(kept, "\n")
+	if len(body) >= len(code) {
+		return ""
+	}
+	header := fmt.Sprintf("# [Structural summary - %d dockerfile instructions extracted]\n", len(kept))
+	out := header + body
+	if len(out) >= len(code) {
+		return body
+	}
+	return out
+}
+
+func extractMakeStructure(code string) string {
+	return extractLinePatternStructure(code, "#", "",
+		[]string{
+			`^\s*(include|-include|sinclude)\s+`,
+			`^\s*(export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*[:?+]?=`,
+			`^[^\s:#=][^:#=]*:\s*`,
+			`^\.PHONY:\s*`,
+		},
+		"makefile entries",
+	)
+}
+
+func extractLinePatternStructure(code, commentPrefix, commentSuffix string, patterns []string, label string) string {
+	lines := strings.Split(code, "\n")
+	compiled := compileRegexps(patterns)
+	seen := make(map[string]bool)
+	kept := make([]string, 0, len(lines))
+	extracted := 0
+
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, " \t\r")
+		if strings.TrimSpace(trimmed) == "" {
+			continue
+		}
+		if !matchesAny(compiled, trimmed) {
+			continue
+		}
+		if seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		kept = append(kept, trimmed)
+		extracted++
+	}
+
+	if extracted == 0 {
+		return ""
+	}
+
+	body := strings.Join(kept, "\n")
+	if len(body) >= len(code) {
+		return ""
+	}
+	header := fmt.Sprintf("%s [Structural summary - %d %s extracted]%s\n", commentPrefix, extracted, label, commentSuffix)
+	out := header + body
+	if len(out) >= len(code) {
+		return body
+	}
+	return out
+}
+
 func extractBracePatternStructure(code, commentPrefix string, declPatterns, passthroughPatterns, attrPatterns []string) string {
 	lines := strings.Split(code, "\n")
 	decls := compileRegexps(declPatterns)

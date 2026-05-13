@@ -174,3 +174,10 @@ Layer 0 parser coverage is driven by observed traffic:
 - Do not compact output intended for machine consumption in a later shell pipeline.
 - Do not delete existing parsers.
 
+## Notes
+
+- 2026-05-14: T143b closed part of the user's requested stack coverage on the
+  Layer 1 file/content side, not this Layer 0 tool-output side. Markdown, SQL,
+  GraphQL, HCL, Dockerfile, and Makefile now have deterministic structure
+  summaries for large tool-result content. T147 still owns command-output
+  parsers and telemetry for real CLI output shapes.

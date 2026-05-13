@@ -1,6 +1,6 @@
 # TASK 143: Layer 1 semantic deterministic compaction frontier
 
-Status: IN PROGRESS (T143a reversible path dictionary landed 2026-05-14)
+Status: IN PROGRESS (T143a reversible path dictionary and T143b text/config structure extraction landed 2026-05-14)
 Priority: P0
 Scope: `internal/compression/`, `internal/filter/`, `internal/codecompact/`, `internal/tokens/`, `internal/sessions/`, `internal/quality/`, `tests/fixtures/l1_frontier/`, `docs/savings-assessment.md`.
 
@@ -72,6 +72,12 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
   - C/C++.
   - SQL.
   - Markdown code fences.
+- [x] Land the first non-code structure slice for high-volume text/config
+  formats: Markdown, SQL, GraphQL, HCL, Dockerfile, and Makefile now produce
+  deterministic outlines through `structure_more.go`.
+- Current T143b scope is structural, not body-on-demand AST slicing: it keeps
+  headings, clauses, declarations, targets, and top-level blocks, while
+  dropping inactive prose or command bodies only when the summary is shorter.
 - Prefer existing stdlib or lightweight parsers; tree-sitter only if default build stays clean or feature-gated.
 - Output shape:
   - file header/imports.
@@ -112,9 +118,9 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
 
 - Markdown is often text-heavy and currently underexploited.
 - Detect:
-  - headings.
-  - code fences.
-  - tables.
+  - [x] headings.
+  - [x] code fences.
+  - [x] tables.
   - repeated generated sections.
   - changelog/task logs.
 - Compact inactive sections into heading outlines while preserving active/current section verbatim.
@@ -137,7 +143,8 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
   for the implemented absolute-path slice.
 - [ ] Multi-language slicing covers the requested high-volume stacks.
 - [ ] Stacktrace/test compaction preserves exact actionable failure data.
-- [ ] Markdown/SQL/config compaction has dedicated fixtures.
+- [x] Markdown/SQL/config compaction has dedicated local fixtures for the
+  landed T143b structure-extraction slice.
 - [x] The T143a path dictionary has a strict negative-saving bypass.
 - [ ] No content class can produce negative token saving for more than the configured tolerance across every future T143 slice.
 - [ ] Quality fixtures prove no loss on line/path/error/debug tasks.
@@ -154,6 +161,16 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
     in a local legend and body occurrences use compact aliases.
   - Focus tests: `go test ./internal/compression ./internal/proxy -cover` at
     100% for both packages.
+- 2026-05-14 T143b:
+  - Extended `StructureExtractor` to Markdown, SQL, GraphQL, HCL, Dockerfile,
+    and Makefile.
+  - Markdown keeps headings, task/list/quote markers, table rows, and code
+    fences; SQL keeps DDL/DML/constraint clauses; GraphQL/HCL keep top-level
+    blocks; Dockerfile keeps image/control/copy/cmd instructions and collapses
+    `RUN` chains to a command count; Makefile keeps includes, variables,
+    `.PHONY`, and targets.
+  - All summaries remain guarded by the existing shorter-than-original bypass.
+  - Focus test: `go test ./internal/compression -cover` at 100%.
 
 ## Expected Upside
 
