@@ -18,6 +18,7 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/daemon"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/summarization"
@@ -460,6 +461,8 @@ func (p *testTUIProxy) GetAnalytics() analytics.AnalyticsSnapshot {
 
 func (p *testTUIProxy) GetRecentRequests(int) []types.RequestMetrics { return nil }
 
+func (p *testTUIProxy) GetRecentFlights(int) []dbg.FlightRequestSummary { return nil }
+
 func (p *testTUIProxy) GetLayer2Status() tui.Layer2Status { return tui.Layer2Status{} }
 
 func (p *testTUIProxy) GetReadCacheStatus() tui.ReadCacheStatus { return tui.ReadCacheStatus{} }
@@ -613,7 +616,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
 		out := buf.String()
-		if !strings.Contains(out, `"hookEventName":"PostToolUse"`) || !strings.Contains(out, `Bash output for \"git status\" was compacted locally`) || !strings.Contains(out, `[output truncated to 40 characters]`) {
+		if !strings.Contains(out, `"continue":false`) || !strings.Contains(out, `"hookEventName":"PostToolUse"`) || !strings.Contains(out, `Bash output for \"git status\" was compacted locally`) || !strings.Contains(out, `[output truncated to 40 characters]`) {
 			t.Fatalf("unexpected stdout: %q", out)
 		}
 		readStdinAll = origRead
@@ -722,6 +725,332 @@ func TestHandleSubcommand_PostToolDispatch(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	if !strings.Contains(buf.String(), `"hookEventName":"PostToolUse"`) {
 		t.Fatalf("unexpected stdout: %q", buf.String())
+	}
+}
+
+func TestHandlePostToolCmdRecordsFlight(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	origConfigLoad := configLoadFn
+	origGetwd := osGetwd
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	}()
+
+	tmp := t.TempDir()
+	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	termIsTerminalFn = func(int) bool { return false }
+	readStdinAll = func() ([]byte, error) {
+		return []byte(`{"session_id":"sess-hook","tool_name":"Bash","command":"echo hi","tool_response":"short output"}`), nil
+	}
+	cfg := config.Defaults()
+	cfg.Filter.PassthroughMaxChars = 500
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+	osGetwd = func() (string, error) { return tmp, nil }
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handlePostToolCmd(nil)
+	_ = w.Close()
+	os.Stdout = oldStdout
+	_, _ = io.Copy(io.Discard, r)
+
+	data, err := os.ReadFile(decisionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"source":"hook_post"`) ||
+		!strings.Contains(text, `"session_id":"sess-hook"`) ||
+		!strings.Contains(text, `"route_mode":"hook"`) ||
+		!strings.Contains(text, `"flight"`) {
+		t.Fatalf("flight log missing hook fields: %s", text)
+	}
+}
+
+func TestHandleCodexHookCmd(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+	}()
+	termIsTerminalFn = func(int) bool { return false }
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+
+	t.Run("session_start_adds_context", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"s1","hook_event_name":"SessionStart","source":"startup"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"session-start"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, `"hookEventName":"SessionStart"`) || !strings.Contains(out, "Slimference hooks are active") {
+			t.Fatalf("unexpected session hook output: %q", out)
+		}
+	})
+
+	t.Run("permission_request_denies_destructive_command", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"s2","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"permission-request"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, `"hookEventName":"PermissionRequest"`) || !strings.Contains(out, `"behavior":"deny"`) {
+			t.Fatalf("unexpected permission hook output: %q", out)
+		}
+	})
+
+	t.Run("permission_request_allows_safe_command", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"s3","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"git status"}}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"permission-request"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if !strings.Contains(buf.String(), `"behavior":"allow"`) {
+			t.Fatalf("unexpected allow output: %q", buf.String())
+		}
+	})
+
+	t.Run("user_prompt_submit_no_output", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"s4","hook_event_name":"UserPromptSubmit","prompt":"hi"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"user-prompt-submit"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if buf.Len() != 0 {
+			t.Fatalf("expected no output, got %q", buf.String())
+		}
+	})
+
+	t.Run("stop_emits_valid_json", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"s5","hook_event_name":"Stop","turn_id":"t1"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"stop"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if !strings.Contains(buf.String(), `"continue":true`) {
+			t.Fatalf("unexpected stop output: %q", buf.String())
+		}
+	})
+}
+
+func TestHandleCodexHookCmd_Edges(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+	}()
+
+	tests := []struct {
+		name string
+		args []string
+		term bool
+		read func() ([]byte, error)
+		want string
+	}{
+		{
+			name: "missing_event",
+			args: nil,
+			want: "usage: slimference codexhook",
+		},
+		{
+			name: "terminal_stdin",
+			args: []string{"stop"},
+			term: true,
+			want: "usage: slimference codexhook",
+		},
+		{
+			name: "read_error",
+			args: []string{"stop"},
+			read: func() ([]byte, error) { return nil, errors.New("read boom") },
+			want: "read stdin: read boom",
+		},
+		{
+			name: "unknown_event",
+			args: []string{"future"},
+			read: func() ([]byte, error) { return []byte(`{}`), nil },
+			want: "unknown codexhook event: future",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			termIsTerminalFn = func(int) bool { return tt.term }
+			readStdinAll = tt.read
+			if readStdinAll == nil {
+				readStdinAll = func() ([]byte, error) { return []byte(`{}`), nil }
+			}
+			rp, cleanup := redirectStderr()
+			code, exited := captureExit(func() { handleCodexHookCmd(tt.args) })
+			cleanup()
+			var buf bytes.Buffer
+			_, _ = io.Copy(&buf, rp)
+			if !exited || code != 1 || !strings.Contains(buf.String(), tt.want) {
+				t.Fatalf("exited=%v code=%d stderr=%q want %q", exited, code, buf.String(), tt.want)
+			}
+		})
+	}
+}
+
+func TestCodexHookJSONExtractionAndNoCommand(t *testing.T) {
+	if got := extractJSONText([]byte(`not-json`), "session_id"); got != "" {
+		t.Fatalf("invalid json extracted %q", got)
+	}
+	payload := []byte(`{"outer":[{"inner":{"conversation_id":"c-nested"}}]}`)
+	if got := extractJSONText(payload, "session_id", "conversation_id"); got != "c-nested" {
+		t.Fatalf("nested extraction=%q", got)
+	}
+
+	origRead := readStdinAll
+	origTerm := termIsTerminalFn
+	defer func() {
+		readStdinAll = origRead
+		termIsTerminalFn = origTerm
+	}()
+	termIsTerminalFn = func(int) bool { return false }
+	readStdinAll = func() ([]byte, error) {
+		return []byte(`{"session_id":"s-no-command","tool_name":"Bash"}`), nil
+	}
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleCodexHookCmd([]string{"permission-request"})
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if buf.Len() != 0 {
+		t.Fatalf("no-command permission hook should emit no output, got %q", buf.String())
+	}
+}
+
+func TestCodexHookEncodeErrorsAndFlightBranches(t *testing.T) {
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	decisionsPath := filepath.Join(t.TempDir(), "decisions.jsonl")
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+
+	recordHookFlight("test_hook", "sess", "Tool", "expanded", 1, 100, []int{1}, errors.New("hook boom"))
+	data, err := os.ReadFile(decisionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "hook boom") || !strings.Contains(text, `"saved":0`) {
+		t.Fatalf("flight branches missing: %s", text)
+	}
+	recordHookFlight("test_hook_zero", "sess", "Tool", "zero", 12, 0, nil, nil)
+
+	tests := []struct {
+		name string
+		fn   func()
+	}{
+		{"session_start", func() { handleCodexSessionStartHook([]byte(`{"session_id":"s"}`)) }},
+		{"permission_deny", func() {
+			handleCodexPermissionRequestHook([]byte(`{"tool_input":{"command":"rm -rf /"}}`))
+		}},
+		{"permission_allow", func() {
+			handleCodexPermissionRequestHook([]byte(`{"tool_input":{"command":"git status"}}`))
+		}},
+		{"stop", func() { handleCodexStopHook([]byte(`{"session_id":"s"}`)) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origStdout := os.Stdout
+			_, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = w.Close()
+			os.Stdout = w
+			rp, cleanup := redirectStderr()
+			code, exited := captureExit(tt.fn)
+			cleanup()
+			os.Stdout = origStdout
+			var buf bytes.Buffer
+			_, _ = io.Copy(&buf, rp)
+			if !exited || code != 1 || !strings.Contains(buf.String(), "encode codexhook output") {
+				t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
+			}
+		})
+	}
+}
+
+func TestHandleSubcommand_CodexHookDispatch(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+	}()
+	termIsTerminalFn = func(int) bool { return false }
+	readStdinAll = func() ([]byte, error) {
+		return []byte(`{"session_id":"s","source":"startup"}`), nil
+	}
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"codexhook", "session-start"})
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), `"hookEventName":"SessionStart"`) {
+		t.Fatalf("codexhook subcommand output=%q", buf.String())
+	}
+}
+
+func TestNotifyInterceptReceived(t *testing.T) {
+	ch := make(chan struct{}, 1)
+	notifyInterceptReceived(ch)
+	select {
+	case <-ch:
+	default:
+		t.Fatal("expected first notify")
+	}
+	ch <- struct{}{}
+	notifyInterceptReceived(ch)
+	select {
+	case <-ch:
+	default:
+		t.Fatal("channel should still contain original value after default branch")
 	}
 }
 

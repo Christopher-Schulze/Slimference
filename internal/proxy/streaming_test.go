@@ -92,6 +92,15 @@ func TestExtractOutputTokensFromSSE_OpenAIUsage(t *testing.T) {
 	}
 }
 
+func TestExtractOutputTokensFromSSE_OpenAIResponsesUsage(t *testing.T) {
+	t.Parallel()
+	line := []byte(`data: {"usage":{"output_tokens":77},"choices":[]}`)
+	n := extractOutputTokensFromSSE(line, "openai")
+	if n != 77 {
+		t.Fatalf("got %d want 77", n)
+	}
+}
+
 func TestExtractOutputTokensFromSSE_NonData(t *testing.T) {
 	t.Parallel()
 	if n := extractOutputTokensFromSSE([]byte("event: ping"), "anthropic"); n != 0 {

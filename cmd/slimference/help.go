@@ -20,6 +20,7 @@ SUBCOMMANDS:
   hook         Install / remove / verify Claude and Codex hooks
   rewrite      Rewrite captured output with the filter pipeline
   posttool     Codex PostToolUse hook entry point (stdin JSON)
+  codexhook    Codex lifecycle hook entry points (stdin JSON)
   readhook     Claude Read-hook entry point (stdin JSON)
   expand       Retrieve an archived tool result by id
   checkpoint   Manage smart-compaction checkpoints
@@ -52,8 +53,8 @@ GLOBAL FLAGS:
 
 FIRST STEPS:
   1. slimference doctor         # verify config, ports, upstreams
-  2. slimference hook install   # wire Claude and Codex hooks
-  3. slimference service install (macOS)
+  2. slimference proxy install  # install local CA + daemon for transparent mode
+  3. slimference proxy enable   # arm system HTTPS proxy when you want interception
 
 MORE:
   Config: ~/.slimference/config.toml (override via SLIMFERENCE_CONFIG)
@@ -96,10 +97,11 @@ The child's exit code is propagated verbatim.
 	case "hook":
 		return `slimference hook <install|remove|verify|status|check-upstream> [claude|codex]
 
-install   Write Claude Code and/or Codex hook wrappers (SHA-256 pinned).
-remove    Remove the wrappers again.
-verify    Check checksums against what was installed.
-status    Report installed / missing / drifted state.
+	install   Write Claude Code and/or Codex hook wrappers (SHA-256 pinned).
+	          For Codex, enables only codex_hooks=true; does not patch base URLs.
+	remove    Remove the wrappers again.
+	verify    Check hook checksums only. Codex config-patch state lives under integrate.
+	status    Report installed / missing / drifted state.
 check-upstream   Compare installed CLI version against the supported range.
 `
 	case "rewrite":
@@ -112,9 +114,18 @@ Pipe hook JSON on stdin with field "command", or pass the command after
 		return `slimference posttool
 
 Codex PostToolUse entry point. Reads hook JSON from stdin, compacts the
-captured tool output, optionally archives oversized results, and prints a
-compact additionalContext block for Codex to inject. Non-zero exit only on
-hard I/O errors; business-level problems degrade to passthrough.
+captured tool output, optionally archives oversized results, and returns
+continue:false with compact feedback so Codex can replace the original result.
+Non-zero exit only on hard I/O errors; business-level problems degrade to
+passthrough.
+`
+	case "codexhook":
+		return `slimference codexhook <session-start|permission-request|user-prompt-submit|stop>
+
+Internal Codex lifecycle entry points installed by 'slimference hook install codex'.
+SessionStart injects one concise operating note, PermissionRequest allow/deny uses
+the same local shell policy as Layer 0, UserPromptSubmit records a turn boundary,
+and Stop emits valid no-op JSON for checkpoint/debug continuity.
 `
 	case "readhook":
 		return `slimference readhook
@@ -239,11 +250,12 @@ Tools around the trust model ported from RTK. See docs/rtk-parity.md.
 	case "integrate":
 		return `slimference integrate <status|install|remove|emergency-off> [flags]
 
-Wire Claude Code and Codex to run through this proxy. Install writes
-ANTHROPIC_BASE_URL into your shell rc and openai_base_url +
-chatgpt_base_url into ~/.codex/config.toml, installs both hooks, and
-reports the resulting state. Every edit uses a fenced marker block so
-re-running install is a no-op and remove is exact.
+	Legacy/config-patch mode. Install writes ANTHROPIC_BASE_URL into your
+	shell rc and openai_base_url + chatgpt_base_url into ~/.codex/config.toml,
+	then optionally installs hooks. Transparent proxy mode is handled by
+	"slimference proxy install|enable" and does not mutate Codex config.
+	Every edit uses a fenced marker block so re-running install is a no-op
+	and remove is exact.
 
 Flags:
   --dry-run            Print intended writes without touching anything.

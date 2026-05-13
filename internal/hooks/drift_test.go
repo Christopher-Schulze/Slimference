@@ -238,8 +238,14 @@ func TestDetectDrift_codexCarriesCapabilities(t *testing.T) {
 		if r.CLI != "codex" {
 			continue
 		}
-		if len(r.Capabilities) != 1 || r.Capabilities[0] != string(CodexCapDecisionBlock) {
-			t.Fatalf("codex capabilities: got %v, want [decision_block]", r.Capabilities)
+		want := []string{
+			string(CodexCapDecisionBlock),
+			string(CodexCapPermissionRequestDecision),
+			string(CodexCapPostToolReplaceResult),
+			string(CodexCapLifecycleContext),
+		}
+		if strings.Join(r.Capabilities, ",") != strings.Join(want, ",") {
+			t.Fatalf("codex capabilities: got %v, want %v", r.Capabilities, want)
 		}
 		if r.CapabilityNotice != "" {
 			t.Fatalf("decision_block-only steady state must not raise a notice; got %q", r.CapabilityNotice)

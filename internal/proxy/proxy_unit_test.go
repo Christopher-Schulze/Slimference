@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/config"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -265,6 +266,18 @@ func TestProxy_DebugRecorder(t *testing.T) {
 	// DebugRecorder is always non-nil (initialized in New via dbg.NewRecorder).
 	if p.DebugRecorder() == nil {
 		t.Fatal("DebugRecorder should never be nil after New()")
+	}
+	p.DebugRecorder().Record(dbg.RequestSummary{
+		RequestID: "req-flight",
+		Tokens:    dbg.TokenCounts{Original: 10, Final: 5, Saved: 5},
+	})
+	flights := p.GetRecentFlights(1)
+	if len(flights) != 1 || flights[0].RequestID != "req-flight" {
+		t.Fatalf("recent flights=%+v", flights)
+	}
+	p.debugRecorder = nil
+	if flights := p.GetRecentFlights(1); flights != nil {
+		t.Fatalf("nil recorder flights=%+v", flights)
 	}
 }
 

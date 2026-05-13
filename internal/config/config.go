@@ -88,6 +88,19 @@ type ProxyConfig struct {
 	// CodexChatGPT to use `previous_response_id` instead of resending
 	// the prefix. Default off; flip per environment after live verify.
 	ServerStateEnabled bool `toml:"server_state_enabled"`
+	// OpenAIPromptCache controls optional OpenAI prompt-cache routing
+	// fields. It never applies to CodexChatGPT backend routes until their
+	// live request contract is proven.
+	OpenAIPromptCache OpenAIPromptCacheConfig `toml:"openai_prompt_cache"`
+}
+
+type OpenAIPromptCacheConfig struct {
+	Enabled                    bool   `toml:"enabled"`
+	PromptCacheKeyStrategy     string `toml:"prompt_cache_key_strategy"`
+	StaticPromptCacheKey       string `toml:"static_prompt_cache_key"`
+	Retention                  string `toml:"retention"`
+	MinTokens                  int    `toml:"min_tokens"`
+	MaxRequestsPerKeyPerMinute int    `toml:"max_requests_per_key_per_minute"`
 }
 
 // TransparentConfig controls the system-proxy CONNECT/MITM ingress.
@@ -638,6 +651,23 @@ func applyEnvOverrides(cfg *Config) {
 func validate(cfg *Config) error {
 	if cfg.Proxy.ListenPort < 1 || cfg.Proxy.ListenPort > 65535 {
 		return fmt.Errorf("proxy.listen_port must be 1-65535, got %d", cfg.Proxy.ListenPort)
+	}
+	pc := cfg.Proxy.OpenAIPromptCache
+	switch pc.PromptCacheKeyStrategy {
+	case "", "off", "session", "model_session", "static":
+	default:
+		return fmt.Errorf("proxy.openai_prompt_cache.prompt_cache_key_strategy must be off/session/model_session/static, got %q", pc.PromptCacheKeyStrategy)
+	}
+	switch pc.Retention {
+	case "", "off", "in_memory", "24h", "auto":
+	default:
+		return fmt.Errorf("proxy.openai_prompt_cache.retention must be off/in_memory/24h/auto, got %q", pc.Retention)
+	}
+	if pc.MinTokens < 0 {
+		return fmt.Errorf("proxy.openai_prompt_cache.min_tokens must be >= 0, got %d", pc.MinTokens)
+	}
+	if pc.MaxRequestsPerKeyPerMinute < 0 {
+		return fmt.Errorf("proxy.openai_prompt_cache.max_requests_per_key_per_minute must be >= 0, got %d", pc.MaxRequestsPerKeyPerMinute)
 	}
 	if cfg.Transparent.CertCacheSize < 0 {
 		return fmt.Errorf("transparent.cert_cache_size must be >= 0, got %d", cfg.Transparent.CertCacheSize)

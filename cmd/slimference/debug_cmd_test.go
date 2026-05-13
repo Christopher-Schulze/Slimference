@@ -41,6 +41,63 @@ func TestParseDebugPeriodArgs(t *testing.T) {
 	}
 }
 
+func TestParseDebugFlightExportArgsEdges(t *testing.T) {
+	path, csvOut, err := parseDebugFlightExportArgs([]string{"out.csv"})
+	if err != nil || path != "out.csv" || !csvOut {
+		t.Fatalf("csv suffix: path=%q csv=%v err=%v", path, csvOut, err)
+	}
+	path, csvOut, err = parseDebugFlightExportArgs([]string{"", "--csv", "out.jsonl"})
+	if err != nil || path != "out.jsonl" || !csvOut {
+		t.Fatalf("flag csv: path=%q csv=%v err=%v", path, csvOut, err)
+	}
+	if _, _, err := parseDebugFlightExportArgs([]string{"--bad"}); err == nil {
+		t.Fatal("expected bad flag error")
+	}
+	if _, _, err := parseDebugFlightExportArgs([]string{"one.jsonl", "two.jsonl"}); err == nil {
+		t.Fatal("expected extra arg error")
+	}
+	if _, _, err := parseDebugFlightExportArgs(nil); err == nil {
+		t.Fatal("expected usage error")
+	}
+}
+
+func TestWriteFlightCSVSkipsNilFlightAndWritesRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flights.csv")
+	summaries := []dbg.RequestSummary{
+		{RequestID: "nil-flight"},
+		{
+			RequestID: "req-1",
+			Source:    "proxy",
+			Provider:  "openai",
+			Host:      "api.openai.com",
+			Path:      "/v1/responses",
+			Flight: &dbg.FlightRequestSummary{
+				RequestID:  "req-1",
+				Source:     "proxy",
+				RouteMode:  "mitm",
+				Provider:   "openai",
+				Host:       "api.openai.com",
+				Path:       "/v1/responses",
+				Confidence: "measured",
+			},
+		},
+	}
+	if err := writeFlightCSV(path, summaries); err != nil {
+		t.Fatalf("writeFlightCSV: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "request_id") || !strings.Contains(text, "req-1") {
+		t.Fatalf("unexpected csv:\n%s", text)
+	}
+	if err := writeFlightCSV(t.TempDir(), summaries); err == nil {
+		t.Fatal("expected write error when CSV path is a directory")
+	}
+}
+
 // TestHandleDebugTail_limitClamped covers the limit>500 clamp (main.go:967-969).
 // Point SLIMFERENCE_FILTER_DB to a non-existent file so mustOpenFilterDB returns (nil, false).
 func TestHandleDebugTail_limitClamped(t *testing.T) {
@@ -1002,6 +1059,248 @@ func TestHandleDebugLast_withLayer1Breakdown(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	if !strings.Contains(buf.String(), "layer1") {
 		t.Errorf("want layer1 breakdown in output, got: %q", buf.String())
+	}
+}
+
+func TestHandleDebugFlightCommands(t *testing.T) {
+	tmp := t.TempDir()
+	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
+	content := `{"req_id":"req-flight","ts":"2024-01-01T00:00:00Z","source":"transparent_connect","provider":"openai","host":"chatgpt.com","path":"/backend-api/dev","route_mode":"mitm","tokens":{"original":300,"final":180,"saved":120,"ratio":0.6},"layers_applied":[1],"cache_read_tokens":90,"output_reduce":{"applied":true,"profile":"codex","reason":"applied","added_tokens":5}}` + "\n"
+	if err := os.WriteFile(decisionsPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleDebugFlight([]string{"last"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "Flight recorder") || !strings.Contains(buf.String(), "read=90") {
+		t.Fatalf("flight last output: %q", buf.String())
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleDebugFlight([]string{"tail", "5", "--json"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), `"schema_version"`) || !strings.Contains(buf.String(), `"token_accounting"`) {
+		t.Fatalf("flight tail json output: %q", buf.String())
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleDebugFlight([]string{"replay", decisionsPath})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "req-flight") {
+		t.Fatalf("flight replay output: %q", buf.String())
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleDebugFlight([]string{"replay", decisionsPath, "--json"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), `"request_id": "req-flight"`) {
+		t.Fatalf("flight replay json output: %q", buf.String())
+	}
+
+	outPath := filepath.Join(tmp, "flight.jsonl")
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleDebugFlight([]string{"export", outPath})
+	_ = w.Close()
+	os.Stdout = old
+	if data, err := os.ReadFile(outPath); err != nil || !strings.Contains(string(data), `"request_id":"req-flight"`) {
+		t.Fatalf("flight export data=%q err=%v", string(data), err)
+	}
+
+	csvPath := filepath.Join(tmp, "flight.csv")
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleDebugFlight([]string{"export", csvPath})
+	_ = w.Close()
+	os.Stdout = old
+	if data, err := os.ReadFile(csvPath); err != nil || !strings.Contains(string(data), "request_id,source,route_mode") || !strings.Contains(string(data), "req-flight") {
+		t.Fatalf("flight csv data=%q err=%v", string(data), err)
+	}
+}
+
+func TestHandleDebugFlightNoConfiguredLogAndParseArgs(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleDebugFlight([]string{"last"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "No decisions_log configured") {
+		t.Fatalf("expected no decisions log message, got %q", buf.String())
+	}
+
+	if limit, jsonOut, err := parseDebugFlightArgs([]string{"", "600", "--json"}, 20); err != nil || limit != 500 || !jsonOut {
+		t.Fatalf("parse flight args limit=%d json=%v err=%v", limit, jsonOut, err)
+	}
+	for _, args := range [][]string{{"--bad"}, {"1", "2"}, {"zero"}} {
+		if _, _, err := parseDebugFlightArgs(args, 20); err == nil {
+			t.Fatalf("expected parse error for %v", args)
+		}
+	}
+}
+
+func TestHandleDebugFlightErrorBranches(t *testing.T) {
+	for _, args := range [][]string{nil, []string{"wat"}} {
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handleDebugFlight(args) })
+		cleanup()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rp)
+		if !exited || code != 1 || buf.Len() == 0 {
+			t.Fatalf("args=%v code=%d exited=%v stderr=%q", args, code, exited, buf.String())
+		}
+	}
+
+	for _, run := range []func(){
+		func() { handleDebugFlightLast([]string{"--bad"}) },
+		func() { handleDebugFlightTail([]string{"--bad"}) },
+		func() { handleDebugFlightReplay(nil) },
+		func() { handleDebugFlightReplay([]string{"file", "--bad"}) },
+		func() { handleDebugFlightExport(nil) },
+		func() { handleDebugFlightExport([]string{"out.jsonl", "--bad"}) },
+		func() { handleDebugFlightExport([]string{"a.jsonl", "b.jsonl"}) },
+	} {
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(run)
+		cleanup()
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, rp)
+		if !exited || code != 1 || buf.Len() == 0 {
+			t.Fatalf("expected exit/stderr, code=%d exited=%v stderr=%q", code, exited, buf.String())
+		}
+	}
+}
+
+func TestHandleDebugFlightReplayAndExportErrors(t *testing.T) {
+	origReplay := replaySessionFn
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) { return nil, errors.New("replay boom") }
+	t.Cleanup(func() { replaySessionFn = origReplay })
+
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { handleDebugFlightReplay([]string{"file"}) })
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "replay boom") {
+		t.Fatalf("replay error code=%d exited=%v stderr=%q", code, exited, buf.String())
+	}
+
+	tmp := t.TempDir()
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", filepath.Join(tmp, "decisions.jsonl"))
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() { handleDebugFlightExport([]string{filepath.Join(tmp, "out.jsonl")}) })
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "replay boom") {
+		t.Fatalf("export replay error code=%d exited=%v stderr=%q", code, exited, buf.String())
+	}
+}
+
+func TestHandleDebugFlightTailNoConfiguredLogAndExportWriteError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleDebugFlightTail(nil)
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "No decisions_log configured") {
+		t.Fatalf("tail no log output=%q", buf.String())
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleDebugFlightExport([]string{filepath.Join(tmp, "out.jsonl")})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "No decisions_log configured") {
+		t.Fatalf("export no log output=%q", buf.String())
+	}
+
+	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
+	if err := os.WriteFile(decisionsPath, []byte(`{"req_id":"req-write","tokens":{"original":1,"final":1}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { handleDebugFlightExport([]string{tmp}) })
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "flight export") {
+		t.Fatalf("export write error code=%d exited=%v stderr=%q", code, exited, buf.String())
+	}
+
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() { handleDebugFlightExport([]string{tmp, "--csv"}) })
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "flight export") {
+		t.Fatalf("export csv write error code=%d exited=%v stderr=%q", code, exited, buf.String())
+	}
+}
+
+func TestPrintFlightSummariesEmptyAndDispatch(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	printFlightSummaries(nil, false)
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "No flight records") {
+		t.Fatalf("empty flight output=%q", buf.String())
+	}
+
+	tmp := t.TempDir()
+	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
+	if err := os.WriteFile(decisionsPath, []byte(`{"req_id":"req-dispatch","tokens":{"original":2,"final":1,"saved":1}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"debug", "flight", "last", "--json"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "req-dispatch") {
+		t.Fatalf("flight dispatch output=%q", buf.String())
 	}
 }
 

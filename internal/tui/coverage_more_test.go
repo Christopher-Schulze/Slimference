@@ -36,11 +36,11 @@ func TestSetupSelectionHelpersAndFormatting(t *testing.T) {
 		t.Fatalf("select step=%d cursor=%d", m.setupStep, m.setupCursor)
 	}
 	m.selectSetupStep(9)
-	if m.setupStep != 3 || m.setupCursor != 2 {
+	if m.setupStep != 5 || m.setupCursor != 4 {
 		t.Fatalf("invalid select changed state: step=%d cursor=%d", m.setupStep, m.setupCursor)
 	}
 	m.moveSetupCursor(-1)
-	if m.setupCursor != 1 || m.setupStep != 2 {
+	if m.setupCursor != 3 || m.setupStep != 4 {
 		t.Fatalf("move up step=%d cursor=%d", m.setupStep, m.setupCursor)
 	}
 	m.setupCursor = 0
@@ -50,7 +50,7 @@ func TestSetupSelectionHelpersAndFormatting(t *testing.T) {
 		t.Fatalf("move clamp low step=%d cursor=%d", m.setupStep, m.setupCursor)
 	}
 	m.moveSetupCursor(99)
-	if m.setupCursor != 2 || m.setupStep != 3 {
+	if m.setupCursor != 4 || m.setupStep != 5 {
 		t.Fatalf("move clamp step=%d cursor=%d", m.setupStep, m.setupCursor)
 	}
 	m.setupCursor = 1
@@ -113,7 +113,12 @@ func TestSetupSelectionHelpersAndFormatting(t *testing.T) {
 	}
 
 	done := NewModel(newMockProxy())
-	done.SetServiceControl(&mockServiceControl{})
+	done.SetServiceControl(&mockServiceControl{transparentStatus: TransparentStatus{
+		CAExists:           true,
+		CATrusted:          true,
+		AutoStartInstalled: true,
+		ProxyArmed:         true,
+	}})
 	done.hookStatus = HookStatus{Claude: true, Codex: true}
 	origHomeFn := userHomeDirFn
 	home := t.TempDir()

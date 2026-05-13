@@ -78,6 +78,128 @@ func TestInstallCodex_PreAndPostScriptWriteErrors(t *testing.T) {
 	})
 }
 
+func TestInstallCodex_LifecycleScriptWriteErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(string) string
+		want string
+	}{
+		{"read", CodexReadHookScriptPath, "write read-tool hook script"},
+		{"session", CodexSessionStartHookScriptPath, "write session-start hook script"},
+		{"permission", CodexPermissionHookScriptPath, "write permission-request hook script"},
+		{"user_prompt", CodexUserPromptHookScriptPath, "write user-prompt-submit hook script"},
+		{"stop", CodexStopHookScriptPath, "write stop hook script"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.MkdirAll(tc.path(home), 0o755); err != nil {
+				t.Fatalf("mkdir blocker: %v", err)
+			}
+			err := InstallCodex(home, "slimference")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q error, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestEnsureCodexHooksFeatureBranches(t *testing.T) {
+	t.Run("mkdir_error", func(t *testing.T) {
+		home := t.TempDir()
+		if err := os.WriteFile(filepath.Join(home, ".codex"), []byte("blocker"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureCodexHooksFeature(home); err == nil {
+			t.Fatal("expected mkdir error")
+		}
+	})
+	t.Run("conflicting_false", func(t *testing.T) {
+		home := t.TempDir()
+		configPath := filepath.Join(home, ".codex", "config.toml")
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(configPath, []byte("[features]\ncodex_hooks = false\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureCodexHooksFeature(home); err == nil || !strings.Contains(err.Error(), "codex_hooks=false") {
+			t.Fatalf("expected conflict, got %v", err)
+		}
+	})
+	t.Run("already_true", func(t *testing.T) {
+		home := t.TempDir()
+		configPath := filepath.Join(home, ".codex", "config.toml")
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		before := "[features]\ncodex_hooks = true\n"
+		if err := os.WriteFile(configPath, []byte(before), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureCodexHooksFeature(home); err != nil {
+			t.Fatalf("ensure: %v", err)
+		}
+		after, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != before {
+			t.Fatalf("already true should not rewrite: %q", string(after))
+		}
+	})
+	t.Run("insert_existing_features", func(t *testing.T) {
+		home := t.TempDir()
+		configPath := filepath.Join(home, ".codex", "config.toml")
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(configPath, []byte("[features]\nother = true\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureCodexHooksFeature(home); err != nil {
+			t.Fatalf("ensure: %v", err)
+		}
+		after, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(after), slimferenceCodexHooksLine) || !strings.Contains(string(after), "other = true") {
+			t.Fatalf("unexpected config: %q", string(after))
+		}
+	})
+	t.Run("append_new_features_to_nonempty_file", func(t *testing.T) {
+		home := t.TempDir()
+		configPath := filepath.Join(home, ".codex", "config.toml")
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(configPath, []byte(`model = "gpt-5"`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureCodexHooksFeature(home); err != nil {
+			t.Fatalf("ensure: %v", err)
+		}
+		after, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(after), "model = \"gpt-5\"\n\n[features]\n"+slimferenceCodexHooksLine) {
+			t.Fatalf("unexpected config: %q", string(after))
+		}
+	})
+	t.Run("config_path_directory_error", func(t *testing.T) {
+		home := t.TempDir()
+		configPath := filepath.Join(home, ".codex", "config.toml")
+		if err := os.MkdirAll(configPath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureCodexHooksFeature(home); err == nil {
+			t.Fatal("expected config read error")
+		}
+	})
+}
+
 func TestInstallCodex_InstallHooksJSONError(t *testing.T) {
 	home := t.TempDir()
 	codexPath := filepath.Join(home, ".codex")
@@ -90,7 +212,7 @@ func TestInstallCodex_InstallHooksJSONError(t *testing.T) {
 	}
 }
 
-func TestInstallCodex_IgnoresConfigPath(t *testing.T) {
+func TestInstallCodex_ConfigPathDirectoryFailsFeatureFlag(t *testing.T) {
 	home := t.TempDir()
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
@@ -100,8 +222,8 @@ func TestInstallCodex_IgnoresConfigPath(t *testing.T) {
 		t.Fatalf("mkdir config path: %v", err)
 	}
 	err := InstallCodex(home, "slimference")
-	if err != nil {
-		t.Fatalf("hook install should not touch config.toml, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "enable codex hooks feature") {
+		t.Fatalf("expected config feature flag error, got %v", err)
 	}
 }
 
@@ -208,7 +330,7 @@ func TestVerifyReport_CodexIncompleteAndAgentsFallbackWithoutMarker(t *testing.T
 	if ok {
 		t.Fatal("expected incomplete codex install to fail verify")
 	}
-	if !strings.Contains(strings.Join(lines, "\n"), "config MISSING") {
+	if !strings.Contains(strings.Join(lines, "\n"), "script MISSING") {
 		t.Fatalf("unexpected verify output: %v", lines)
 	}
 
@@ -263,35 +385,20 @@ func TestRemoveCodexHooksJSON_MarshalError(t *testing.T) {
 	}
 }
 
-func TestVerifyReport_CodexConfigIncomplete(t *testing.T) {
+func TestVerifyReport_CodexConfigPatchIgnored(t *testing.T) {
 	home := t.TempDir()
-	prePath := CodexPreHookScriptPath(home)
-	postPath := CodexHookScriptPath(home)
-	if err := os.MkdirAll(filepath.Dir(prePath), 0o755); err != nil {
-		t.Fatalf("mkdir hook dir: %v", err)
-	}
-	if err := os.WriteFile(prePath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write pre hook: %v", err)
-	}
-	if err := os.WriteFile(postPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write post hook: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
-		t.Fatalf("mkdir codex dir: %v", err)
-	}
-	hooksJSON := `{"PreToolUse":[{"hooks":[{"command":"bash ` + prePath + `"}]}],"PostToolUse":[{"hooks":[{"command":"bash ` + postPath + `"}]}]}`
-	if err := os.WriteFile(filepath.Join(home, ".codex", "hooks.json"), []byte(hooksJSON), 0o644); err != nil {
-		t.Fatalf("write hooks.json: %v", err)
+	if err := InstallCodex(home, "slimference"); err != nil {
+		t.Fatalf("install codex: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte("[features]\ncodex_hooks = true\n"), 0o644); err != nil {
 		t.Fatalf("write config.toml: %v", err)
 	}
 
-	lines, ok := VerifyReport(home)
-	if ok {
-		t.Fatal("expected incomplete config verification failure")
+	lines, ok := VerifyCodexReport(home)
+	if !ok {
+		t.Fatalf("expected config-patch to be ignored by hook verify, got lines=%v", lines)
 	}
-	if !strings.Contains(strings.Join(lines, "\n"), "config incomplete") {
+	if !strings.Contains(strings.Join(lines, "\n"), "config-patch status not checked") {
 		t.Fatalf("unexpected verify output: %v", lines)
 	}
 }

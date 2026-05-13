@@ -8,7 +8,7 @@ import (
 // handleCompletionCmd implements `slimference completion bash`. The emitted
 // script is sourceable in a bash session and offers context-sensitive
 // completion for every top-level subcommand, the most common nested
-// subcommands (hook install|remove, debug paths|last|..., daemon logs,
+// subcommands (hook install|remove, debug paths|last|flight|..., daemon logs,
 // service install|..., config init|show, test anthropic|openai), and the
 // recurring period/flag tokens (today|week|month|all, --json, --csv,
 // --by-command, --by-parser, --cache, --output).
@@ -47,7 +47,7 @@ _slimference() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cword=$COMP_CWORD
 
-    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook hook debug daemon start stop restart service integrate bypass layer2 completion expand checkpoint trust version"
+    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook codexhook hook debug daemon start stop restart service integrate bypass layer2 completion expand checkpoint trust version"
     local periods="today week month all"
     local period_flags="--json --csv --by-command --by-parser --cache --output"
     local savings_flags="--json --csv --project"
@@ -81,13 +81,24 @@ _slimference() {
                 esac
             fi
             ;;
+        codexhook)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "session-start permission-request user-prompt-submit stop" -- "$cur") )
+            fi
+            ;;
         debug)
             if [ "$cword" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "paths last summary tail replay" -- "$cur") )
+                COMPREPLY=( $(compgen -W "paths last summary tail replay flight" -- "$cur") )
             elif [ "$cword" -eq 3 ]; then
                 case "${COMP_WORDS[2]}" in
                     summary) COMPREPLY=( $(compgen -W "$periods --json" -- "$cur") ) ;;
                     last|tail) COMPREPLY=( $(compgen -W "--json" -- "$cur") ) ;;
+                    flight) COMPREPLY=( $(compgen -W "last tail replay export" -- "$cur") ) ;;
+                esac
+            elif [ "$cword" -eq 4 ]; then
+                case "${COMP_WORDS[2]}:${COMP_WORDS[3]}" in
+                    flight:last|flight:tail|flight:replay) COMPREPLY=( $(compgen -W "--json" -- "$cur") ) ;;
+                    flight:export) COMPREPLY=( $(compgen -W "--csv" -- "$cur") ) ;;
                 esac
             fi
             ;;

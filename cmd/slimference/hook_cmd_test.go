@@ -241,13 +241,15 @@ func TestHandleHookCmd_installCodex_success(t *testing.T) {
 	if !strings.Contains(buf.String(), "Installed Codex hooks") {
 		t.Fatalf("expected codex install message, got: %q", buf.String())
 	}
+	if _, err := os.Stat(filepath.Join(home, ".codex", "hooks.json")); err != nil {
+		t.Fatalf("hooks.json missing after hook install: %v", err)
+	}
 	configData, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
 	if err != nil {
-		t.Fatalf("read codex config: %v", err)
+		t.Fatalf("config.toml missing after hook install: %v", err)
 	}
-	configText := string(configData)
-	if !strings.Contains(configText, "openai_base_url") || !strings.Contains(configText, "chatgpt_base_url") {
-		t.Fatalf("hook install codex should write complete codex config block: %s", configText)
+	if !strings.Contains(string(configData), "codex_hooks = true") || strings.Contains(string(configData), "openai_base_url") {
+		t.Fatalf("hook install must enable hooks only, got config.toml: %s", configData)
 	}
 }
 
@@ -296,36 +298,35 @@ func TestHandleHookCmd_removeCodex_success(t *testing.T) {
 	}
 }
 
-func TestInstallCodexIntegrationHook_ConfigError(t *testing.T) {
+func TestHandleHookCmd_installCodexDoesNotValidateConfigPatch(t *testing.T) {
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(codexDir, "config.toml"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte("openai_base_url = \"http://example.com\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := installCodexIntegrationHook(home, "slimference")
-	if err == nil || !strings.Contains(err.Error(), "codex config") {
-		t.Fatalf("expected codex config error, got %v", err)
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"hook", "install", "codex"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "Enabled codex_hooks feature flag only") {
+		t.Fatalf("expected feature-flag-only message, got %q", buf.String())
 	}
-}
-
-func TestRemoveCodexIntegrationHook_ConfigError(t *testing.T) {
-	home := t.TempDir()
-	codexDir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+	configData, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(`{}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(codexDir, "config.toml"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	err := removeCodexIntegrationHook(home)
-	if err == nil || !strings.Contains(err.Error(), "codex config remove") {
-		t.Fatalf("expected codex config remove error, got %v", err)
+	if !strings.Contains(string(configData), "openai_base_url = \"http://example.com\"") ||
+		!strings.Contains(string(configData), "codex_hooks = true") {
+		t.Fatalf("hook install changed config.toml: %s", configData)
 	}
 }
 

@@ -19,6 +19,13 @@ func defaultsRaw() *Config {
 			ListenAddress: "127.0.0.1",
 			ListenPort:    8990,
 			IPv6:          false,
+			OpenAIPromptCache: OpenAIPromptCacheConfig{
+				Enabled:                    false,
+				PromptCacheKeyStrategy:     "session",
+				Retention:                  "off",
+				MinTokens:                  1024,
+				MaxRequestsPerKeyPerMinute: 15,
+			},
 		},
 		Transparent: TransparentConfig{
 			Enabled:        false,
@@ -159,6 +166,17 @@ ipv6 = false
 # follow-up turns instead of resending the full history. Default off
 # so traffic shape stays unchanged until you flip the switch.
 server_state_enabled = false
+
+[proxy.openai_prompt_cache]
+# T136: optional OpenAI API prompt-cache routing fields. Disabled by default
+# because generic OpenAI supports these fields, but CodexChatGPT backend routes
+# must stay untouched until their live contract is captured.
+enabled = false
+prompt_cache_key_strategy = "session" # off | session | model_session | static
+static_prompt_cache_key = ""
+retention = "off" # off | in_memory | 24h | auto
+min_tokens = 1024
+max_requests_per_key_per_minute = 15
 
 [transparent]
 # T131/T123: transparent system-proxy ingress. Disabled by default so

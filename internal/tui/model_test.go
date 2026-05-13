@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slimference/slimference/internal/analytics"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -23,6 +24,7 @@ type mockProxy struct {
 	layer3Enabled  bool
 	snap           analytics.AnalyticsSnapshot
 	recentReqs     []types.RequestMetrics
+	recentFlights  []dbg.FlightRequestSummary
 	l2Status       Layer2Status
 	readStatus     ReadCacheStatus
 	qualityStatus  QualityStatus
@@ -97,6 +99,13 @@ func (m *mockProxy) GetAnalytics() analytics.AnalyticsSnapshot { return m.snap }
 func (m *mockProxy) GetRecentRequests(n int) []types.RequestMetrics {
 	return m.recentReqs
 }
+func (m *mockProxy) GetRecentFlights(n int) []dbg.FlightRequestSummary {
+	if n <= 0 || len(m.recentFlights) <= n {
+		return append([]dbg.FlightRequestSummary(nil), m.recentFlights...)
+	}
+	start := len(m.recentFlights) - n
+	return append([]dbg.FlightRequestSummary(nil), m.recentFlights[start:]...)
+}
 func (m *mockProxy) GetLayer2Status() Layer2Status { return m.l2Status }
 func (m *mockProxy) GetReadCacheStatus() ReadCacheStatus {
 	return m.readStatus
@@ -133,13 +142,18 @@ func (c *mockConfig) GetMiniMaxTrustClass() string { return c.trustClass }
 
 // mockServiceControl implements ServiceControlInterface for testing.
 type mockServiceControl struct {
-	started   bool
-	stopped   bool
-	restarted bool
-	installed bool
-	removed   bool
-	running   bool
-	err       error
+	started              bool
+	stopped              bool
+	restarted            bool
+	installed            bool
+	removed              bool
+	running              bool
+	transparentInstalled bool
+	transparentEnabled   bool
+	transparentDisabled  bool
+	transparentRemoved   bool
+	transparentStatus    TransparentStatus
+	err                  error
 }
 
 func (m *mockServiceControl) StartDaemon() error {
@@ -182,6 +196,41 @@ func (m *mockServiceControl) DaemonStatus() (bool, int, int) {
 		return true, 1234, 8990
 	}
 	return false, 0, 0
+}
+func (m *mockServiceControl) TransparentStatus() TransparentStatus { return m.transparentStatus }
+func (m *mockServiceControl) InstallTransparent() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.transparentInstalled = true
+	m.transparentStatus = TransparentStatus{CAExists: true, CATrusted: true, AutoStartInstalled: true}
+	return nil
+}
+func (m *mockServiceControl) EnableTransparent() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.transparentEnabled = true
+	m.transparentStatus.ProxyArmed = true
+	m.transparentStatus.ActiveServices = 1
+	m.transparentStatus.DaemonReachable = true
+	return nil
+}
+func (m *mockServiceControl) DisableTransparent() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.transparentDisabled = true
+	m.transparentStatus.ProxyArmed = false
+	return nil
+}
+func (m *mockServiceControl) UninstallTransparent() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.transparentRemoved = true
+	m.transparentStatus = TransparentStatus{}
+	return nil
 }
 func (m *mockServiceControl) InstallHook(target string) error {
 	if m.err != nil {
@@ -464,6 +513,20 @@ func TestView_DebugRender(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	p.sessionLogger.Log("INFO", "test", "hello debug view")
+	p.recentFlights = []dbg.FlightRequestSummary{{
+		RequestID: "req-debug-flight",
+		Source:    "proxy",
+		RouteMode: "mitm",
+		Layers:    []int{1, 3},
+		TokenAccounting: dbg.FlightTokenAccounting{
+			BillableSavingsEstimate: 120,
+			ProviderOutputTokens:    35,
+		},
+		CacheAccounting: dbg.FlightCacheAccounting{
+			ProviderCachedInputTokens: 90,
+		},
+		TotalProxyOverheadMs: 4.2,
+	}}
 	m := NewModel(p)
 	m.view = ViewDebug
 	m.width = 100
@@ -472,6 +535,30 @@ func TestView_DebugRender(t *testing.T) {
 	output := m.View()
 	if output == "" {
 		t.Error("View() returned empty string for debug view")
+	}
+	if !strings.Contains(output, "FLIGHT RECORDER") || !strings.Contains(output, "req-debug-fli") {
+		t.Fatalf("debug view missing flight diagnostics: %s", output)
+	}
+}
+
+func TestRenderFlightDiagnosticsFallbacks(t *testing.T) {
+	t.Parallel()
+	m := NewModel(newMockProxy())
+	out := renderFlightDiagnostics(&m, []dbg.FlightRequestSummary{{
+		RequestID: "req-fallback",
+		Source:    "hook_post",
+		RouteMode: "hook",
+		TokenAccounting: dbg.FlightTokenAccounting{
+			BillableSavingsEstimate: 7,
+			EstimatedOutputTokens:   3,
+		},
+		CacheAccounting: dbg.FlightCacheAccounting{
+			ProviderCacheReadTokens: 5,
+		},
+		BypassReason: "passthrough",
+	}})
+	if !strings.Contains(out, "req-fallback") || !strings.Contains(out, "bypasses 1") {
+		t.Fatalf("flight diagnostics fallback output=%s", out)
 	}
 }
 
@@ -1359,7 +1446,11 @@ func TestView_SetupView_executeStep_alreadyDone(t *testing.T) {
 	m := NewModel(p)
 	m.width = 100
 	m.height = 30
-	svc := &mockServiceControl{}
+	svc := &mockServiceControl{transparentStatus: TransparentStatus{
+		CAExists:           true,
+		CATrusted:          true,
+		AutoStartInstalled: true,
+	}}
 	m.SetServiceControl(svc)
 	m.hookStatus = HookStatus{Claude: true, Codex: true}
 

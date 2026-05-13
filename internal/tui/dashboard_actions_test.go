@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,6 +142,15 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 		t.Fatalf("disable autostart failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
 
+	runAction("transparent")
+	if !svc.transparentEnabled || !strings.Contains(m.flashMsg, "Transparent proxy armed") {
+		t.Fatalf("arm transparent failed: svc=%+v flash=%q", svc, m.flashMsg)
+	}
+	runAction("transparent")
+	if !svc.transparentDisabled || !strings.Contains(m.flashMsg, "Transparent proxy disarmed") {
+		t.Fatalf("disarm transparent failed: svc=%+v flash=%q", svc, m.flashMsg)
+	}
+
 	runAction("claude")
 	if m.claudeEnabled || !strings.Contains(m.flashMsg, "Claude Code: OFF") {
 		t.Fatalf("claude toggle flash=%q enabled=%v", m.flashMsg, m.claudeEnabled)
@@ -177,12 +187,40 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 	svc := &mockServiceControl{err: os.ErrPermission}
 	m.SetServiceControl(svc)
 
-	for _, id := range []string{"daemon", "restart", "autostart"} {
+	for _, id := range []string{"daemon", "restart", "autostart", "transparent"} {
 		m.mainCursor = findDashboardActionIndex(m.dashboardActions(), id)
 		_ = m.executeMainSelection()
 		if !strings.Contains(m.flashMsg, "failed") {
 			t.Fatalf("expected failure flash for %s, got %q", id, m.flashMsg)
 		}
+	}
+
+	enableFail := NewModel(newMockProxy())
+	enableFail.SetServiceControl(&mockServiceControl{
+		err: errors.New("boom"),
+		transparentStatus: TransparentStatus{
+			CAExists:           true,
+			CATrusted:          true,
+			AutoStartInstalled: true,
+		},
+	})
+	enableFail.mainCursor = findDashboardActionIndex(enableFail.dashboardActions(), "transparent")
+	_ = enableFail.executeMainSelection()
+	if !strings.Contains(enableFail.flashMsg, "Arm transparent proxy failed") {
+		t.Fatalf("transparent enable failure flash=%q", enableFail.flashMsg)
+	}
+
+	disableFail := NewModel(newMockProxy())
+	disableFail.SetServiceControl(&mockServiceControl{
+		err: errors.New("boom"),
+		transparentStatus: TransparentStatus{
+			ProxyArmed: true,
+		},
+	})
+	disableFail.mainCursor = findDashboardActionIndex(disableFail.dashboardActions(), "transparent")
+	_ = disableFail.executeMainSelection()
+	if !strings.Contains(disableFail.flashMsg, "Disarm transparent proxy failed") {
+		t.Fatalf("transparent disable failure flash=%q", disableFail.flashMsg)
 	}
 
 	_ = m.executeDebugSelection()
@@ -574,7 +612,7 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Done: Install Codex hook") {
+	if !strings.Contains(model.flashMsg, "Done: Arm system HTTPS proxy") {
 		t.Fatalf("setup enter flash=%q", model.flashMsg)
 	}
 

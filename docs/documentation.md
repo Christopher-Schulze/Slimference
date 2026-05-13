@@ -61,9 +61,11 @@ bytes shrink.
 
 - **Claude Code**: via `ANTHROPIC_BASE_URL=http://127.0.0.1:8990` (supported
   since Claude Code 1.0). Full proxy access to request + response bodies.
-- **Codex**: via `openai_base_url` + `chatgpt_base_url` in
-  `~/.codex/config.toml`. Research report confirms Codex accepts plain
-  HTTP on localhost for these values; no MITM or CA trickery needed.
+- **Codex**: default path is transparent mode (`slimference proxy
+  install|enable`): local CA + daemon + macOS HTTPS proxy, with no Codex
+  config mutation. Legacy/config-patch mode remains available via
+  `slimference integrate install --client codex`, which writes
+  `openai_base_url` + `chatgpt_base_url` in `~/.codex/config.toml`.
 - **Generic OpenAI API**: `api.openai.com/v1/chat/completions` routed by
   path detection when no Codex UA is present.
 
@@ -139,15 +141,19 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
 8. **Layer 1 compression** — deterministic, ~14 sub-layers.
 9. **Prompt-cache breakpoints** (T45) — up to 4 `ephemeral` markers
    spread evenly across the stable prefix.
-10. **Layer 2** — MiniMax summarisation when `len(tokens) >=
+10. **OpenAI prompt-cache hints** (T136) — optional hashed
+    `prompt_cache_key` and model-gated `prompt_cache_retention` injection
+    for generic OpenAI API requests only; CodexChatGPT backend routes stay
+    untouched until live proof.
+11. **Layer 2** — MiniMax summarisation when `len(tokens) >=
     min_tokens_for_layer2` AND latency budget permits (T54).
-11. **Upstream call** via the per-provider HTTP client. Streaming is
+12. **Upstream call** via the per-provider HTTP client. Streaming is
     preserved.
-12. **Overflow recovery** (spec+.md §17.4): on HTTP 400 with context-
+13. **Overflow recovery** (spec+.md §17.4): on HTTP 400 with context-
     too-large signal, retry with aggressive re-compression, then raw.
-13. **Layer 3 response cache** — stores by request hash; `FileWatcher`
+14. **Layer 3 response cache** — stores by request hash; `FileWatcher`
     invalidates on change.
-14. **Analytics events** via non-blocking queue. Drops are counted +
+15. **Analytics events** via non-blocking queue. Drops are counted +
     warn-logged (T42).
 
 ### Phase histograms (T58)
@@ -446,6 +452,19 @@ shape stays identical until you opt in. Counters at
 Streaming response-id capture is deferred — SSE replies do not yet
 seed the next-turn anchor.
 
+### OpenAI prompt-cache hints (T136)
+
+`[proxy.openai_prompt_cache]` is an opt-in request-hint layer for generic
+OpenAI API traffic. When enabled and the estimated input size crosses
+`min_tokens`, Slimference may add a privacy-safe hashed `prompt_cache_key`
+and a model-gated `prompt_cache_retention` value. Existing caller-owned
+fields are preserved, generated keys never contain raw prompt text or full
+local paths, and a per-key rate cap disables the hint before it can create
+high-cardinality cache churn. If OpenAI rejects the fields with a relevant
+4xx response, the proxy retries once without those hints. CodexChatGPT
+backend routes do not receive these fields until T140 captures live request
+acceptance.
+
 ### Reversibility-by-default (T76)
 
 Layer 1 archives original block content via `internal/contentarchive`
@@ -574,8 +593,20 @@ exposed at `/admin/status.anthropic_version.unknown_seen_total`.
 
 ## 9. Auto-Integration (Claude Code + Codex)
 
-`internal/integrate` and `slimference integrate` (T65) wire both
-clients to the proxy with a single idempotent command.
+`internal/integrate` and `slimference integrate` (T65) implement the explicit
+legacy/config-patch path. The preferred Codex CLI/App path is transparent mode:
+`slimference proxy install` installs the local CA + daemon support and
+`slimference proxy enable` arms macOS HTTPS proxy routing without touching
+`~/.codex`.
+
+The TUI exposes the same transparent lifecycle. The Setup view starts with
+**Install transparent proxy (CA + daemon)** and **Arm system HTTPS proxy**;
+Codex/Claude hooks are legacy fallback steps after that. The Dashboard can arm
+or disarm transparent mode directly. Setup shortcuts are `[a]` arm/disarm,
+`[u]` uninstall transparent, `[p]` daemon start/stop, `[o]` restart, `[e]`
+enable autostart, and `[w]` disable autostart. The status shown there is a
+cached snapshot of CA, keychain trust, launchd, system proxy, daemon
+reachability, and networksetup health.
 
 ### What `integrate install` does
 
@@ -583,7 +614,7 @@ clients to the proxy with a single idempotent command.
 |------------------|--------------------------------------------|-----------------|
 | Claude Code      | `export ANTHROPIC_BASE_URL=...`            | shell rc        |
 | Codex            | `openai_base_url` + `chatgpt_base_url`     | config.toml     |
-| Hooks            | PreToolUse + PostToolUse                   | hooks.json etc. |
+| Hooks            | Optional Codex lifecycle + tool hooks      | hooks.json etc. |
 
 Every edit uses fenced marker comments:
 
@@ -595,6 +626,21 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:8990
 
 First touch of an existing file leaves a timestamped backup
 `.slim-backup-<ts>`.
+
+### Optional Codex hook layer
+
+`slimference hook install codex` is separate from transparent proxy setup and
+legacy config-patch integration. It writes `~/.codex/hooks.json`, executable
+scripts under `~/.slimference/hooks/`, and only the official
+`[features] codex_hooks = true` flag in `~/.codex/config.toml`; it does not
+write `openai_base_url` or `chatgpt_base_url`.
+
+The installed events are `SessionStart`, `PreToolUse`, `PermissionRequest`,
+`PostToolUse`, `UserPromptSubmit`, and `Stop`. `PostToolUse` is the primary
+token-saving hook path: raw output is archived and compact feedback is emitted
+with Codex's documented replacement shape. Unsupported/fail-open fields such
+as `PreToolUse.updatedInput` remain disabled until a live Codex build proves
+they are honored.
 
 ### TOML scope safety
 
@@ -628,8 +674,11 @@ Fish uses `set -gx VAR value`; zsh / bash use `export VAR=value`.
 ### Verbs
 
 ```
-slimference integrate status                  # detect + report
-slimference integrate install                 # wire everything
+slimference proxy install                     # default transparent Codex path
+slimference proxy enable                      # arm system HTTPS proxy
+slimference                                    # TUI control plane for install/arm/disarm
+slimference integrate status                  # detect legacy/config-patch state
+slimference integrate install                 # legacy wire-up
 slimference integrate install --dry-run       # show diff, no writes
 slimference integrate install --client=codex  # one client only
 slimference integrate remove                  # clean teardown
@@ -985,6 +1034,7 @@ slimference help [subcommand]
 | `filter`      | Layer-0 filter wrapper: `slimference filter -- <cmd>`.                 |
 | `rewrite`     | Rewrite captured output (used by PreToolUse hook).                     |
 | `posttool`    | Codex PostToolUse entry point (stdin JSON).                            |
+| `codexhook`   | Codex lifecycle hook entry point for session, permission, prompt, stop. |
 | `readhook`    | Claude Read-hook entry point.                                          |
 | `expand`      | Retrieve archived tool result by id (T40).                             |
 | `checkpoint`  | Smart-compaction checkpoint tools: list, show, restore (T39).          |
@@ -995,12 +1045,31 @@ slimference help [subcommand]
 | `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |
 | `watch`       | Live ticker against /admin/status; Ctrl-C to stop (T79).               |
 | `filter --stream` | Streaming-aware Layer-0 wrapper for `tail -f` style inputs (T94).  |
-| `debug`       | paths, last, summary, tail, replay.                                    |
+| `debug`       | paths, last, summary, tail, replay, flight last/tail/replay/export.    |
 | `config`      | init, show.                                                            |
 | `test`        | minimax, anthropic, openai, intercept.                                 |
 | `completion`  | Emit bash completion.                                                  |
 | `trust`       | Trust-model tools (from RTK port).                                     |
 | `version`     | Print version.                                                         |
+
+### Flight recorder
+
+`slimference debug flight` reads the same normalized flight records that the
+proxy and TUI use. A flight record is generated from each persisted
+`RequestSummary` and records route/source, host/path/provider, layer list,
+estimated input before/after, provider-reported input/cache/output usage,
+output-reduce metadata, `previous_response_id` state, errors, privacy state,
+and proxy overhead. `last`, `tail`, and `replay` support `--json`; `export`
+writes JSONL by default and CSV with `--csv` or an `.csv` target path.
+
+The recorder is privacy-first: before a request summary is retained or flushed
+to `[debug].decisions_log`, bearer auth, API-key/token/password/cookie
+assignments, `sk-*` keys, user-home paths, and temp paths are redacted. Raw
+request/response bodies are not captured by the flight recorder.
+
+The TUI Debug view renders a `FLIGHT RECORDER` block sourced from the same
+records: recent route/source/layers, billable savings estimate, provider cache
+tokens, output tokens, bypass count, and slowest request.
 
 ### Global flags
 
@@ -1033,9 +1102,8 @@ slimference help [subcommand]
 ```bash
 go build -o $HOME/.local/bin/slimference ./cmd/slimference
 slimference doctor
-slimference integrate install
-slimference service install
-exec $SHELL -l   # reload so ANTHROPIC_BASE_URL takes effect
+slimference proxy install
+slimference proxy enable
 ```
 
 ### From a release archive
@@ -1213,7 +1281,7 @@ internal/checkpoints/         Smart-compaction checkpoints (T39).
 internal/config/              Load / ResolveConfigPath / LoadOptions (T46).
 internal/tokens/              tiktoken wrapper + per-provider calibration.
 internal/debug/               Decision-chain recorder + replay.
-internal/sessions/            Session log files.
+internal/sessions/            Session logs, response-state, and T138 turn-state owner.
 internal/resilience/          Retry + backoff + rate limiter.
 internal/slogutil/            Rotating JSON log handler.
 internal/buildinfo/           Build-time Version + Commit (ldflags-set).

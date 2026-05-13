@@ -120,34 +120,12 @@ func TestInstalledStatus_CodexMissingPostScriptIsFalse(t *testing.T) {
 	}
 }
 
-func TestInstalledStatus_CodexIncompleteConfigIsFalse(t *testing.T) {
+func TestInstalledStatus_CodexCompleteHooksIgnoresIncompleteConfigPatch(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
 	codexDir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(codexDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	raw := `{
-  "PreToolUse": [
-    {"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-pre-tool.sh","statusMessage":"Slimference rewrite guard"}]},
-    {"matcher":"Read","hooks":[{"type":"command","command":"bash /tmp/codex-read-tool.sh","statusMessage":"Slimference read cache"}]}
-  ],
-  "PostToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-post-tool.sh","statusMessage":"Slimference filter"}]}]
-}`
-	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(raw), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(CodexPreHookScriptPath(home)), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(CodexPreHookScriptPath(home), []byte("#!/bin/sh"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(CodexReadHookScriptPath(home), []byte("#!/bin/sh"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(CodexHookScriptPath(home), []byte("#!/bin/sh"), 0755); err != nil {
+	if err := InstallCodex(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
 	config := "openai_base_url = \"http://127.0.0.1:8787/v1\"\n"
@@ -156,44 +134,21 @@ func TestInstalledStatus_CodexIncompleteConfigIsFalse(t *testing.T) {
 	}
 
 	_, codex := InstalledStatus(home)
-	if codex {
-		t.Fatal("want codex=false when config.toml is incomplete")
+	if !codex {
+		t.Fatal("want codex=true when hooks are complete; config-patch is owned by integrate status")
 	}
 }
 
-func TestInstalledStatus_CodexMissingConfigIsFalse(t *testing.T) {
+func TestInstalledStatus_CodexCompleteHooksIgnoresMissingConfigPatch(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
-	codexDir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(codexDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	raw := `{
-  "PreToolUse": [
-    {"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-pre-tool.sh","statusMessage":"Slimference rewrite guard"}]},
-    {"matcher":"Read","hooks":[{"type":"command","command":"bash /tmp/codex-read-tool.sh","statusMessage":"Slimference read cache"}]}
-  ],
-  "PostToolUse": [{"matcher":"Bash","hooks":[{"type":"command","command":"bash /tmp/codex-post-tool.sh","statusMessage":"Slimference filter"}]}]
-}`
-	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(raw), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(CodexPreHookScriptPath(home)), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(CodexPreHookScriptPath(home), []byte("#!/bin/sh"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(CodexReadHookScriptPath(home), []byte("#!/bin/sh"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(CodexHookScriptPath(home), []byte("#!/bin/sh"), 0755); err != nil {
+	if err := InstallCodex(home, "slimference"); err != nil {
 		t.Fatal(err)
 	}
 
 	_, codex := InstalledStatus(home)
-	if codex {
-		t.Fatal("want codex=false when config.toml is missing")
+	if !codex {
+		t.Fatal("want codex=true when hooks are complete; config-patch is optional")
 	}
 }

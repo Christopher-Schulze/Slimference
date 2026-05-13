@@ -18,6 +18,7 @@
 //	slimference filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
 //	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
 //	slimference posttool          # Compact PostToolUse hook JSON from stdin for Codex
+//	slimference codexhook <event> # Codex lifecycle hook entry points
 //	slimference hook install claude # Install Claude Code / Codex hooks (v1)
 //	slimference debug paths        # Show resolved config / filter.db / tee paths
 //	slimference debug last         # Last Layer-0 row from filter.db (--json)
@@ -31,6 +32,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -60,8 +62,10 @@ import (
 	"github.com/slimference/slimference/internal/repetition"
 	"github.com/slimference/slimference/internal/slogutil"
 	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/tlsca"
 	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/toolarchive"
+	"github.com/slimference/slimference/internal/transparent"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
 	"golang.org/x/term"
@@ -100,10 +104,15 @@ var (
 	daemonFormatStatusFn         = daemon.FormatStatus
 	daemonRunFn                  = daemon.RunDaemon
 	installClaudeHookFn          = hooks.InstallClaude
-	installCodexHookFn           = installCodexIntegrationHook
+	installCodexHookFn           = hooks.InstallCodex
 	removeClaudeHookFn           = hooks.RemoveClaude
-	removeCodexHookFn            = removeCodexIntegrationHook
+	removeCodexHookFn            = hooks.RemoveCodex
 	loadTUIStateFn               = tui.LoadPersistedState
+	proxyRunFn                   = proxyRun
+	newTransparentNetworkFn      = func() proxyNetworkManager { return transparent.NewManager() }
+	newTransparentKeychainFn     = func() proxyKeychain { return transparent.NewKeychain() }
+	newTransparentLaunchFn       = func() proxyLaunchAgent { return transparent.NewLaunchAgent() }
+	transparentProxyHealthFn     = defaultProxyHealthCheck
 
 	// runTUI sub-components: injectable for test coverage of post-startup paths.
 	configLoadFn = func() (*config.Config, error) {
@@ -164,26 +173,6 @@ var (
 		return ch
 	}
 )
-
-func installCodexIntegrationHook(home string, slimferenceCmd string) error {
-	if err := hooks.InstallCodex(home, slimferenceCmd); err != nil {
-		return err
-	}
-	if _, err := integrate.WriteCodexBlock(home, integrate.ProxyURL); err != nil {
-		return fmt.Errorf("codex config: %w", err)
-	}
-	return nil
-}
-
-func removeCodexIntegrationHook(home string) error {
-	if err := hooks.RemoveCodex(home); err != nil {
-		return err
-	}
-	if _, err := integrate.RemoveCodexBlock(home); err != nil {
-		return fmt.Errorf("codex config remove: %w", err)
-	}
-	return nil
-}
 
 func main() {
 	proxy.Version = version
@@ -268,7 +257,7 @@ func wantsHeadless(args []string) bool {
 	knownSubcommands := map[string]bool{
 		"version": true, "config": true, "test": true, "doctor": true,
 		"stats": true, "gain": true, "savings": true, "compress-preview": true, "watch": true, "filter": true, "rewrite": true,
-		"readhook": true, "posttool": true, "checkpoint": true, "expand": true,
+		"readhook": true, "posttool": true, "codexhook": true, "checkpoint": true, "expand": true,
 		"hook": true, "debug": true, "daemon": true, "start": true, "stop": true,
 		"restart": true, "service": true, "integrate": true, "bypass": true,
 		"completion": true, "trust": true,
@@ -539,6 +528,9 @@ func handleSubcommand(args []string) {
 	case "posttool":
 		handlePostToolCmd(args[1:])
 
+	case "codexhook":
+		handleCodexHookCmd(args[1:])
+
 	case "checkpoint":
 		handleCheckpointCmd(args[1:])
 
@@ -592,7 +584,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
 		exitFn(1)
 	}
 }
@@ -755,6 +747,7 @@ func handleRewriteCmd(args []string) {
 	rewriteEmit := func(cmdLine string) {
 		// Permission check runs first (deny/ask take priority over filter matching).
 		if code, msg := layer0PermissionCheck(cmdLine); code != 0 {
+			recordHookFlight("hook_pre", "", "Bash", msg, len(cmdLine), len(cmdLine), nil, nil)
 			fmt.Fprintln(os.Stderr, msg)
 			exitFn(code)
 		}
@@ -769,8 +762,10 @@ func handleRewriteCmd(args []string) {
 		rewritten, hasFilter := filter.RewriteCommand(cmdLine, excluded)
 		if !hasFilter {
 			// No filter applies - exit 1 signals the hook to passthrough unchanged.
+			recordHookFlight("hook_pre", "", "Bash", "passthrough", len(cmdLine), len(cmdLine), nil, nil)
 			exitFn(1)
 		}
+		recordHookFlight("hook_pre", "", "Bash", "rewritten", len(cmdLine), len(rewritten), []int{0}, nil)
 		fmt.Println(rewritten)
 		exitFn(0)
 	}
@@ -836,6 +831,7 @@ func handlePostToolCmd(args []string) {
 	}
 
 	compacted, changed := filter.CompactCapturedOutput(wd, details.CommandLine, details.ToolResponse, maxOut)
+	recordHookFlight("hook_post", details.SessionID, details.ToolName, hookDecision(changed), len(details.ToolResponse), len(compacted), []int{0}, nil)
 
 	// T93 cross-session pattern mining: when the same (session, tool,
 	// command, output) tuple has been observed multiple times, replace
@@ -867,12 +863,7 @@ func handlePostToolCmd(args []string) {
 			Preview:   string(compacted),
 		})
 		if archiveErr == nil && entry != nil {
-			out := map[string]interface{}{
-				"hookSpecificOutput": map[string]interface{}{
-					"hookEventName":     "PostToolUse",
-					"additionalContext": toolarchive.RenderContext(*entry),
-				},
-			}
+			out := codexPostToolReplacement(toolarchive.RenderContext(*entry))
 			if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 				fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
 				exitFn(1)
@@ -892,16 +883,163 @@ func handlePostToolCmd(args []string) {
 		context = fmt.Sprintf("Bash output was compacted locally.\n%s", compacted)
 	}
 
-	out := map[string]interface{}{
+	out := codexPostToolReplacement(context)
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
+		exitFn(1)
+	}
+}
+
+func codexPostToolReplacement(context string) map[string]interface{} {
+	return map[string]interface{}{
+		"continue":   false,
+		"stopReason": context,
 		"hookSpecificOutput": map[string]interface{}{
 			"hookEventName":     "PostToolUse",
 			"additionalContext": context,
 		},
 	}
-	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
-		fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
+}
+
+func handleCodexHookCmd(args []string) {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: slimference codexhook <session-start|permission-request|user-prompt-submit|stop>   (pipe Codex hook JSON on stdin)")
 		exitFn(1)
 	}
+	if termIsTerminalFn(int(os.Stdin.Fd())) {
+		fmt.Fprintln(os.Stderr, "usage: slimference codexhook <session-start|permission-request|user-prompt-submit|stop>   (pipe Codex hook JSON on stdin)")
+		exitFn(1)
+	}
+	payload, err := readStdinAll()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
+		exitFn(1)
+	}
+	switch args[0] {
+	case "session-start":
+		handleCodexSessionStartHook(payload)
+	case "permission-request":
+		handleCodexPermissionRequestHook(payload)
+	case "user-prompt-submit":
+		handleCodexUserPromptSubmitHook(payload)
+	case "stop":
+		handleCodexStopHook(payload)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown codexhook event: %s\n", args[0])
+		exitFn(1)
+	}
+}
+
+func handleCodexSessionStartHook(payload []byte) {
+	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	source := extractJSONText(payload, "source")
+	if source == "" {
+		source = "session"
+	}
+	recordHookFlight("codex_session_start", sessionID, "SessionStart", source, len(payload), len(payload), nil, nil)
+	out := map[string]interface{}{
+		"continue": true,
+		"hookSpecificOutput": map[string]interface{}{
+			"hookEventName":     "SessionStart",
+			"additionalContext": "Slimference hooks are active. Trust compacted tool-result feedback and request explicit expansion only when the missing raw output is required.",
+		},
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
+		exitFn(1)
+	}
+}
+
+func handleCodexPermissionRequestHook(payload []byte) {
+	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	toolName := extractJSONText(payload, "tool_name", "toolName")
+	if toolName == "" {
+		toolName = "PermissionRequest"
+	}
+	cmdLine, err := filter.ExtractCommandFromHookJSON(payload)
+	if err != nil {
+		recordHookFlight("codex_permission_request", sessionID, toolName, "no_command", len(payload), len(payload), nil, nil)
+		return
+	}
+	if code, msg := layer0PermissionCheck(cmdLine); code != 0 {
+		recordHookFlight("codex_permission_request", sessionID, toolName, "deny", len(payload), len(payload), nil, nil)
+		out := map[string]interface{}{
+			"hookSpecificOutput": map[string]interface{}{
+				"hookEventName": "PermissionRequest",
+				"decision": map[string]interface{}{
+					"behavior": "deny",
+					"message":  msg,
+				},
+			},
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+			fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
+			exitFn(1)
+		}
+		return
+	}
+	recordHookFlight("codex_permission_request", sessionID, toolName, "allow", len(payload), len(payload), nil, nil)
+	out := map[string]interface{}{
+		"hookSpecificOutput": map[string]interface{}{
+			"hookEventName": "PermissionRequest",
+			"decision": map[string]interface{}{
+				"behavior": "allow",
+			},
+		},
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
+		exitFn(1)
+	}
+}
+
+func handleCodexUserPromptSubmitHook(payload []byte) {
+	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	recordHookFlight("codex_user_prompt_submit", sessionID, "UserPromptSubmit", "observed", len(payload), len(payload), nil, nil)
+}
+
+func handleCodexStopHook(payload []byte) {
+	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	recordHookFlight("codex_stop", sessionID, "Stop", "continue", len(payload), len(payload), nil, nil)
+	out := map[string]interface{}{"continue": true}
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
+		exitFn(1)
+	}
+}
+
+func extractJSONText(payload []byte, keys ...string) string {
+	var v interface{}
+	if err := json.Unmarshal(payload, &v); err != nil {
+		return ""
+	}
+	for _, key := range keys {
+		if s, ok := findJSONText(v, key); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func findJSONText(v interface{}, key string) (string, bool) {
+	switch t := v.(type) {
+	case map[string]interface{}:
+		if s, ok := t[key].(string); ok && s != "" {
+			return s, true
+		}
+		for _, child := range t {
+			if s, ok := findJSONText(child, key); ok {
+				return s, true
+			}
+		}
+	case []interface{}:
+		for _, child := range t {
+			if s, ok := findJSONText(child, key); ok {
+				return s, true
+			}
+		}
+	}
+	return "", false
 }
 
 func handleReadHookCmd(args []string) {
@@ -941,9 +1079,11 @@ func handleReadHookCmd(args []string) {
 	}
 	decision, err := readcache.Evaluate(readcache.DefaultDir(home), req)
 	if err != nil {
+		recordHookFlight("readhook", req.SessionID, mode, "error", 0, 0, nil, err)
 		fmt.Fprintf(os.Stderr, "readhook: %v\n", err)
 		exitFn(1)
 	}
+	recordHookFlight("readhook", req.SessionID, mode, string(decision.Type), 0, 0, nil, nil)
 	if decision.Type != readcache.DecisionBlock {
 		return
 	}
@@ -967,6 +1107,57 @@ func handleReadHookCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "encode readhook output: %v\n", err)
 		exitFn(1)
 	}
+}
+
+func hookDecision(changed bool) string {
+	if changed {
+		return "compacted"
+	}
+	return "passthrough"
+}
+
+func recordHookFlight(source, sessionID, toolName, decision string, originalBytes, finalBytes int, layers []int, hookErr error) {
+	path := configuredDecisionsLogPath()
+	if path == "" {
+		return
+	}
+	originalTokens := filter.EstimateTokensFromBytes(originalBytes)
+	finalTokens := filter.EstimateTokensFromBytes(finalBytes)
+	if finalBytes == 0 && originalBytes > 0 {
+		finalTokens = originalTokens
+	}
+	saved := originalTokens - finalTokens
+	if saved < 0 {
+		saved = 0
+	}
+	ratio := 1.0
+	if originalTokens > 0 {
+		ratio = float64(finalTokens) / float64(originalTokens)
+	}
+	var errorsOut []string
+	if hookErr != nil {
+		errorsOut = []string{hookErr.Error()}
+	}
+	rec := dbg.NewRecorder(1, path)
+	rec.Record(dbg.RequestSummary{
+		RequestID:     fmt.Sprintf("%s-%d", source, time.Now().UnixNano()),
+		Timestamp:     time.Now().UTC(),
+		SessionID:     sessionID,
+		Source:        source,
+		Provider:      "local",
+		ClientFamily:  toolName,
+		RouteMode:     "hook",
+		BypassReason:  decision,
+		Model:         toolName,
+		LayersApplied: append([]int(nil), layers...),
+		Tokens: dbg.TokenCounts{
+			Original: originalTokens,
+			Final:    finalTokens,
+			Saved:    saved,
+			Ratio:    ratio,
+		},
+		Errors: errorsOut,
+	})
 }
 
 func handleHookCmd(args []string) {
@@ -1001,7 +1192,9 @@ func handleHookCmd(args []string) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Installed Codex hooks and config (~/.codex/hooks.json + config.toml + AGENTS.md).")
+			fmt.Println("Installed Codex hooks only (~/.codex/hooks.json + ~/.slimference/hooks + AGENTS.md fallback).")
+			fmt.Println("Enabled codex_hooks feature flag only; Codex base URLs were not modified.")
+			fmt.Println("Use `slimference integrate install --client codex` only for legacy config-patch mode.")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown install target: %s (want claude|codex)\n", args[1])
 			exitFn(1)
@@ -1023,7 +1216,8 @@ func handleHookCmd(args []string) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Removed Slimference hooks from Codex (hooks.json + config.toml + AGENTS.md).")
+			fmt.Println("Removed Slimference hooks from Codex (hooks.json + AGENTS.md fallback).")
+			fmt.Println("Codex config was not modified. Use `slimference integrate remove --client codex` to remove config-patch mode.")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown remove target: %s\n", args[1])
 			exitFn(1)
@@ -1193,10 +1387,7 @@ func testIntercept(cfg *config.Config, provider string) {
 		w.WriteHeader(200)
 		w.Write([]byte(`{"type":"message","id":"test","content":[{"type":"text","text":"Slimference intercept test OK"}],"model":"test","role":"assistant","stop_reason":"end_turn"}`))
 		fmt.Println("\nPASS - proxy intercept works!")
-		select {
-		case received <- struct{}{}:
-		default:
-		}
+		notifyInterceptReceived(received)
 	})
 
 	srv := &http.Server{Addr: cfg.ListenAddr(), Handler: mux}
@@ -1228,6 +1419,13 @@ func testIntercept(cfg *config.Config, provider string) {
 		fmt.Println("  3. Try: curl " + cfg.ListenURL() + "/health")
 		shutdown()
 		exitFn(1)
+	}
+}
+
+func notifyInterceptReceived(received chan struct{}) {
+	select {
+	case received <- struct{}{}:
+	default:
 	}
 }
 
@@ -1329,15 +1527,7 @@ func handleDoctorCmd() {
 	}
 
 	warn("TLS profile catalog", func() string {
-		info := tlsdial.Catalog()
-		now := time.Now()
-		ageDays := int(tlsdial.CatalogAge(now).Hours() / 24)
-		state := "fresh"
-		if tlsdial.CatalogStale(now) {
-			state = "stale - review pinned uTLS/browser profiles"
-		}
-		return fmt.Sprintf("%s generated=%s age_days=%d max_age_days=%d state=%s",
-			info.Version, info.Generated.Format("2006-01-02"), ageDays, info.MaxAgeDays, state)
+		return formatTLSCatalogStatus(time.Now())
 	})
 
 	check("Determinism gate", func() (string, bool) {
@@ -1427,6 +1617,17 @@ func handleDoctorCmd() {
 	} else {
 		fmt.Println("Some checks failed. See above for details.")
 	}
+}
+
+func formatTLSCatalogStatus(now time.Time) string {
+	info := tlsdial.Catalog()
+	ageDays := int(tlsdial.CatalogAge(now).Hours() / 24)
+	state := "fresh"
+	if tlsdial.CatalogStale(now) {
+		state = "stale - review pinned uTLS/browser profiles"
+	}
+	return fmt.Sprintf("%s generated=%s age_days=%d max_age_days=%d state=%s",
+		info.Version, info.Generated.Format("2006-01-02"), ageDays, info.MaxAgeDays, state)
 }
 
 // renderIntegrationChecks emits the T69 integration status block inside
@@ -1840,12 +2041,13 @@ func handleGainCache(period string, flags gainCLIFlags) {
 
 func handleDebugCmd(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: slimference debug <paths|last|summary|tail|replay>")
+		fmt.Fprintln(os.Stderr, "usage: slimference debug <paths|last|summary|tail|replay|flight>")
 		fmt.Fprintln(os.Stderr, "  paths — show resolved config file, analytics log, filter.db, tee dir")
 		fmt.Fprintln(os.Stderr, "  last    — print last filter_runs row (optional --json)")
 		fmt.Fprintln(os.Stderr, "  summary — aggregate for today|week|month|all (default today, --json)")
 		fmt.Fprintln(os.Stderr, "  tail    — newest N rows (default 20, max 500, --json)")
 		fmt.Fprintln(os.Stderr, "  replay  — replay session JSONL (RequestSummary per-request breakdown)")
+		fmt.Fprintln(os.Stderr, "  flight  — normalized request flight recorder view")
 		exitFn(1)
 	}
 	switch args[0] {
@@ -1859,10 +2061,273 @@ func handleDebugCmd(args []string) {
 		handleDebugTail(args[1:])
 	case "replay":
 		handleDebugReplay(args[1:])
+	case "flight":
+		handleDebugFlight(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown debug subcommand: %s\n", args[0])
 		exitFn(1)
 	}
+}
+
+func handleDebugFlight(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: slimference debug flight <last|tail|replay|export> ...")
+		exitFn(1)
+	}
+	switch args[0] {
+	case "last":
+		handleDebugFlightLast(args[1:])
+	case "tail":
+		handleDebugFlightTail(args[1:])
+	case "replay":
+		handleDebugFlightReplay(args[1:])
+	case "export":
+		handleDebugFlightExport(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown debug flight subcommand: %s\n", args[0])
+		exitFn(1)
+	}
+}
+
+func parseDebugFlightArgs(args []string, defaultLimit int) (limit int, jsonOut bool, err error) {
+	limit = defaultLimit
+	var gotLimit bool
+	for _, a := range args {
+		switch a {
+		case "--json", "-json":
+			jsonOut = true
+		default:
+			if a == "" {
+				continue
+			}
+			if strings.HasPrefix(a, "-") {
+				return 0, false, fmt.Errorf("unknown flag: %s", a)
+			}
+			if gotLimit {
+				return 0, false, fmt.Errorf("unexpected extra argument: %s", a)
+			}
+			n, convErr := strconv.Atoi(a)
+			if convErr != nil || n < 1 {
+				return 0, false, fmt.Errorf("limit must be a positive integer")
+			}
+			limit = n
+			gotLimit = true
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	return limit, jsonOut, nil
+}
+
+func configuredDecisionsLogPath() string {
+	cfg, _ := config.Load()
+	path := strings.TrimSpace(cfg.Debug.DecisionsLog)
+	if path == "" {
+		return ""
+	}
+	return filepath.Clean(config.ExpandHomePath(path))
+}
+
+func handleDebugFlightLast(args []string) {
+	limit, jsonOut, err := parseDebugFlightArgs(args, 1)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+	path := configuredDecisionsLogPath()
+	if path == "" {
+		fmt.Println("No decisions_log configured. Set [debug].decisions_log or SLIMFERENCE_DEBUG_DECISIONS_LOG.")
+		return
+	}
+	summaries := readLastDecisionSummaries(path, limit)
+	printFlightSummaries(summaries, jsonOut)
+}
+
+func handleDebugFlightTail(args []string) {
+	limit, jsonOut, err := parseDebugFlightArgs(args, 20)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+	path := configuredDecisionsLogPath()
+	if path == "" {
+		fmt.Println("No decisions_log configured. Set [debug].decisions_log or SLIMFERENCE_DEBUG_DECISIONS_LOG.")
+		return
+	}
+	summaries := readLastDecisionSummaries(path, limit)
+	printFlightSummaries(summaries, jsonOut)
+}
+
+func handleDebugFlightReplay(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: slimference debug flight replay <decisions.jsonl> [--json]")
+		exitFn(1)
+	}
+	jsonOut := false
+	for _, a := range args[1:] {
+		if a == "--json" || a == "-json" {
+			jsonOut = true
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "unknown argument: %s\n", a)
+		exitFn(1)
+	}
+	summaries, err := replaySessionFn(args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "flight replay: %v\n", err)
+		exitFn(1)
+	}
+	printFlightSummaries(summaries, jsonOut)
+}
+
+func handleDebugFlightExport(args []string) {
+	outPath, csvOut, err := parseDebugFlightExportArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		exitFn(1)
+	}
+	path := configuredDecisionsLogPath()
+	if path == "" {
+		fmt.Println("No decisions_log configured. Set [debug].decisions_log or SLIMFERENCE_DEBUG_DECISIONS_LOG.")
+		return
+	}
+	summaries, err := replaySessionFn(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "flight export: %v\n", err)
+		exitFn(1)
+	}
+	if csvOut {
+		err = writeFlightCSV(outPath, summaries)
+	} else {
+		err = writeFlightJSONL(outPath, summaries)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "flight export: %v\n", err)
+		exitFn(1)
+	}
+	fmt.Printf("Exported %d flight record(s) to %s\n", len(summaries), outPath)
+}
+
+func parseDebugFlightExportArgs(args []string) (path string, csvOut bool, err error) {
+	for _, arg := range args {
+		switch arg {
+		case "--csv", "-csv":
+			csvOut = true
+		case "":
+			continue
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return "", false, fmt.Errorf("unknown flag: %s", arg)
+			}
+			if path != "" {
+				return "", false, fmt.Errorf("unexpected extra argument: %s", arg)
+			}
+			path = arg
+		}
+	}
+	if path == "" {
+		return "", false, fmt.Errorf("usage: slimference debug flight export <out.jsonl|out.csv> [--csv]")
+	}
+	if strings.HasSuffix(strings.ToLower(path), ".csv") {
+		csvOut = true
+	}
+	return path, csvOut, nil
+}
+
+func printFlightSummaries(summaries []dbg.RequestSummary, jsonOut bool) {
+	flights := make([]dbg.FlightRequestSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		summary.EnsureFlight()
+		if summary.Flight != nil {
+			flights = append(flights, *summary.Flight)
+		}
+	}
+	if jsonOut {
+		b, _ := json.MarshalIndent(flights, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	if len(flights) == 0 {
+		fmt.Println("No flight records found.")
+		return
+	}
+	fmt.Printf("Flight recorder (%d request(s))\n", len(flights))
+	fmt.Println(strings.Repeat("-", 50))
+	for _, f := range flights {
+		fmt.Printf("req_id:    %s\n", f.RequestID)
+		fmt.Printf("source:    %s  route: %s  provider: %s\n", f.Source, f.RouteMode, f.Provider)
+		fmt.Printf("tokens:    est_in %d -> %d  billable_saved_est=%d  provider_cached=%d\n",
+			f.TokenAccounting.EstimatedOriginalInputTokens,
+			f.TokenAccounting.EstimatedFinalInputTokens,
+			f.TokenAccounting.BillableSavingsEstimate,
+			f.TokenAccounting.ProviderCachedTokens)
+		fmt.Printf("cache:     local=%v read=%d create=%d prev_response_id=%v billable_prev_id=%v\n",
+			f.CacheAccounting.LocalResponseCacheHit,
+			f.CacheAccounting.ProviderCacheReadTokens,
+			f.CacheAccounting.ProviderCacheCreateTokens,
+			f.CacheAccounting.PreviousResponseIDUsed,
+			f.CacheAccounting.PreviousResponseIDBillable)
+		if f.OutputReduce.Applied || f.OutputReduce.Reason != "" {
+			fmt.Printf("output:    reduce=%v profile=%s reason=%s added_tokens=%d\n",
+				f.OutputReduce.Applied, f.OutputReduce.Profile, f.OutputReduce.Reason, f.OutputReduce.AddedTokens)
+		}
+		fmt.Printf("privacy:   redacted=%v confidence=%s\n", f.PrivacyRedacted, f.Confidence)
+		fmt.Println(strings.Repeat("-", 50))
+	}
+}
+
+func writeFlightJSONL(path string, summaries []dbg.RequestSummary) error {
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	for _, summary := range summaries {
+		summary.EnsureFlight()
+		_ = enc.Encode(summary.Flight)
+	}
+	return os.WriteFile(path, []byte(buf.String()), 0o600)
+}
+
+func writeFlightCSV(path string, summaries []dbg.RequestSummary) error {
+	var buf strings.Builder
+	encodeFlightCSV(&buf, summaries)
+	return os.WriteFile(path, []byte(buf.String()), 0o600)
+}
+
+func encodeFlightCSV(out io.Writer, summaries []dbg.RequestSummary) {
+	w := csv.NewWriter(out)
+	_ = w.Write([]string{
+		"request_id", "source", "route_mode", "provider", "host", "path",
+		"estimated_original_input_tokens", "estimated_final_input_tokens",
+		"provider_input_tokens", "provider_cached_tokens", "provider_output_tokens",
+		"billable_savings_estimate", "wire_savings_estimate",
+		"local_cache_hit", "previous_response_id_used", "output_reduce_applied",
+		"confidence", "total_proxy_overhead_ms",
+	})
+	for _, summary := range summaries {
+		summary.EnsureFlight()
+		f := summary.Flight
+		_ = w.Write([]string{
+			f.RequestID,
+			f.Source,
+			f.RouteMode,
+			f.Provider,
+			f.Host,
+			f.Path,
+			strconv.Itoa(f.TokenAccounting.EstimatedOriginalInputTokens),
+			strconv.Itoa(f.TokenAccounting.EstimatedFinalInputTokens),
+			strconv.Itoa(f.TokenAccounting.ProviderInputTokens),
+			strconv.Itoa(f.TokenAccounting.ProviderCachedTokens),
+			strconv.Itoa(f.TokenAccounting.ProviderOutputTokens),
+			strconv.Itoa(f.TokenAccounting.BillableSavingsEstimate),
+			strconv.Itoa(f.TokenAccounting.WireSavingsEstimate),
+			strconv.FormatBool(f.CacheAccounting.LocalResponseCacheHit),
+			strconv.FormatBool(f.CacheAccounting.PreviousResponseIDUsed),
+			strconv.FormatBool(f.OutputReduce.Applied),
+			f.Confidence,
+			strconv.FormatFloat(f.TotalProxyOverheadMs, 'f', 2, 64),
+		})
+	}
+	w.Flush()
 }
 
 func parseDebugPeriodArgs(args []string) (period string, jsonOut bool, err error) {
@@ -2158,6 +2623,7 @@ func readLastDecisionSummaries(path string, n int) []dbg.RequestSummary {
 	for i := len(tail) - 1; i >= 0; i-- {
 		var s dbg.RequestSummary
 		if err := json.Unmarshal([]byte(tail[i]), &s); err == nil && s.RequestID != "" {
+			s.EnsureFlight()
 			out = append(out, s)
 		}
 	}
@@ -2365,6 +2831,9 @@ func (a *proxyAdapter) GetAnalytics() analytics.AnalyticsSnapshot {
 func (a *proxyAdapter) GetRecentRequests(n int) []types.RequestMetrics {
 	return a.p.GetRecentRequests(n)
 }
+func (a *proxyAdapter) GetRecentFlights(n int) []dbg.FlightRequestSummary {
+	return a.p.GetRecentFlights(n)
+}
 func (a *proxyAdapter) GetLayer2Status() tui.Layer2Status {
 	cache := a.p.GetLayer2Cache()
 	if cache == nil {
@@ -2485,6 +2954,104 @@ func (sca *serviceControlAdapter) DaemonStatus() (bool, int, int) {
 		return false, 0, 0
 	}
 	return true, pf.PID, pf.Port
+}
+
+func (sca *serviceControlAdapter) TransparentStatus() tui.TransparentStatus {
+	home := os.Getenv("HOME")
+	status := tui.TransparentStatus{}
+	if home == "" {
+		status.Detail = "HOME unresolved"
+		return status
+	}
+
+	certPath := filepath.Join(home, ".slimference", "ca", "root.crt")
+	if _, err := os.Stat(certPath); err == nil {
+		status.CAExists = true
+		trusted, trustErr := newTransparentKeychainFn().IsTrusted(certPath)
+		status.CATrusted = trusted
+		if trustErr != nil && status.Detail == "" {
+			status.Detail = trustErr.Error()
+		}
+	}
+
+	plistPath := transparent.DefaultPlistPath(home)
+	status.AutoStartInstalled = newTransparentLaunchFn().IsInstalled(plistPath)
+
+	snap := newTransparentNetworkFn().Status()
+	if snap.UnreachableErr != nil {
+		status.NetworkUnavailable = true
+		if status.Detail == "" {
+			status.Detail = snap.UnreachableErr.Error()
+		}
+		return status
+	}
+	for _, svc := range snap.Services {
+		if !svc.HTTPSEnabled || !isSlimferenceProxyTarget(svc.HTTPSProxy, svc.HTTPSPort) {
+			continue
+		}
+		status.ProxyArmed = true
+		status.ActiveServices++
+		if status.DaemonReachable {
+			continue
+		}
+		if err := transparentProxyHealthFn(svc.HTTPSProxy, svc.HTTPSPort); err == nil {
+			status.DaemonReachable = true
+		} else if status.Detail == "" {
+			status.Detail = err.Error()
+		}
+	}
+	return status
+}
+
+func (sca *serviceControlAdapter) InstallTransparent() error {
+	return sca.runTransparentProxyCommand("install")
+}
+
+func (sca *serviceControlAdapter) EnableTransparent() error {
+	return sca.runTransparentProxyCommand("enable")
+}
+
+func (sca *serviceControlAdapter) DisableTransparent() error {
+	return sca.runTransparentProxyCommand("disable")
+}
+
+func (sca *serviceControlAdapter) UninstallTransparent() error {
+	return sca.runTransparentProxyCommand("uninstall")
+}
+
+func (sca *serviceControlAdapter) runTransparentProxyCommand(args ...string) error {
+	var stdout strings.Builder
+	var stderr strings.Builder
+	rc := proxyRunFn(args, proxyCommandEnv(&stdout, &stderr, os.Stdin))
+	if rc == 0 {
+		return nil
+	}
+	msg := strings.TrimSpace(stderr.String())
+	if msg == "" {
+		msg = strings.TrimSpace(stdout.String())
+	}
+	if msg == "" {
+		msg = fmt.Sprintf("proxy %s failed with exit %d", strings.Join(args, " "), rc)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+func proxyCommandEnv(stdout io.Writer, stderr io.Writer, stdin io.Reader) proxyEnv {
+	home := os.Getenv("HOME")
+	return proxyEnv{
+		Stdout: stdout,
+		Stderr: stderr,
+		Stdin:  stdin,
+		Home:   home,
+		CADirFn: func() string {
+			return filepath.Join(home, ".slimference")
+		},
+		Network:     newTransparentNetworkFn(),
+		Keychain:    newTransparentKeychainFn(),
+		Launch:      newTransparentLaunchFn(),
+		LoadCA:      tlsca.LoadOrGenerateCA,
+		HealthCheck: transparentProxyHealthFn,
+	}
 }
 
 func (sca *serviceControlAdapter) InstallHook(target string) error {

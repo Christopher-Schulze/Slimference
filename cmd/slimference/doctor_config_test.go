@@ -12,6 +12,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/slimference/slimference/internal/tlsdial"
 )
 
 func TestHandleSubcommand_doctor_smoke(t *testing.T) {
@@ -62,6 +65,18 @@ api_key_env = "MINIMAX_API_KEY"
 	}
 	if !strings.Contains(out, "All checks passed") {
 		t.Fatalf("expected success footer: %q", out)
+	}
+}
+
+func TestFormatTLSCatalogStatusFreshAndStale(t *testing.T) {
+	info := tlsdial.Catalog()
+	fresh := formatTLSCatalogStatus(info.Generated.Add(24 * time.Hour))
+	if !strings.Contains(fresh, "state=fresh") {
+		t.Fatalf("fresh status=%q", fresh)
+	}
+	stale := formatTLSCatalogStatus(info.Generated.Add(time.Duration(info.MaxAgeDays+1) * 24 * time.Hour))
+	if !strings.Contains(stale, "state=stale") {
+		t.Fatalf("stale status=%q", stale)
 	}
 }
 

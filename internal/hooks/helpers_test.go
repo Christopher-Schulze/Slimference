@@ -334,8 +334,8 @@ func TestVerifyReport_CodexIncompleteAndLegacy(t *testing.T) {
 		t.Fatal("incomplete codex install should not verify cleanly")
 	}
 	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "script MISSING") && !strings.Contains(joined, "config MISSING") {
-		t.Fatalf("expected missing script/config report, got %v", lines)
+	if !strings.Contains(joined, "script MISSING") {
+		t.Fatalf("expected missing script report, got %v", lines)
 	}
 
 	legacyHome := t.TempDir()

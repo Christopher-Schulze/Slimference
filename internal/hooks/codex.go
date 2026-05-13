@@ -101,13 +101,30 @@ printf '%%s' "$INPUT" | %s readhook codex
 `, q)
 }
 
+func codexLifecycleHookScript(slimferenceCmd string, event string) string {
+	cmd := strings.TrimSpace(slimferenceCmd)
+	if cmd == "" {
+		cmd = "slimference"
+	}
+	q := bashSingleQuoted(cmd)
+	return fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+INPUT=$(cat)
+printf '%%s' "$INPUT" | %s codexhook %s
+`, q, event)
+}
+
 // InstallCodex installs the Slimference hooks for Codex CLI.
 //
 // Writes:
 //  1. ~/.slimference/hooks/codex-pre-tool.sh - PreToolUse Bash hook script
 //  2. ~/.slimference/hooks/codex-post-tool.sh - PostToolUse Bash hook script
 //  3. ~/.slimference/hooks/codex-read-tool.sh - PreToolUse Read hook script
-//  4. ~/.codex/hooks.json - PreToolUse/PostToolUse hook entries
+//  4. ~/.slimference/hooks/codex-session-start.sh - SessionStart hook script
+//  5. ~/.slimference/hooks/codex-permission-request.sh - PermissionRequest hook script
+//  6. ~/.slimference/hooks/codex-user-prompt-submit.sh - UserPromptSubmit hook script
+//  7. ~/.slimference/hooks/codex-stop.sh - Stop hook script
+//  8. ~/.codex/hooks.json - lifecycle hook entries
 //
 // If a hooks.json already exists with Slimference entries, it is not modified.
 func InstallCodex(home string, slimferenceCmd string) error {
@@ -132,10 +149,29 @@ func InstallCodex(home string, slimferenceCmd string) error {
 	if err := os.WriteFile(readScriptPath, []byte(codexReadToolHookScript(slimferenceCmd)), 0755); err != nil {
 		return fmt.Errorf("write read-tool hook script: %w", err)
 	}
+	sessionScriptPath := CodexSessionStartHookScriptPath(home)
+	if err := os.WriteFile(sessionScriptPath, []byte(codexLifecycleHookScript(slimferenceCmd, "session-start")), 0755); err != nil {
+		return fmt.Errorf("write session-start hook script: %w", err)
+	}
+	permissionScriptPath := CodexPermissionHookScriptPath(home)
+	if err := os.WriteFile(permissionScriptPath, []byte(codexLifecycleHookScript(slimferenceCmd, "permission-request")), 0755); err != nil {
+		return fmt.Errorf("write permission-request hook script: %w", err)
+	}
+	userPromptScriptPath := CodexUserPromptHookScriptPath(home)
+	if err := os.WriteFile(userPromptScriptPath, []byte(codexLifecycleHookScript(slimferenceCmd, "user-prompt-submit")), 0755); err != nil {
+		return fmt.Errorf("write user-prompt-submit hook script: %w", err)
+	}
+	stopScriptPath := CodexStopHookScriptPath(home)
+	if err := os.WriteFile(stopScriptPath, []byte(codexLifecycleHookScript(slimferenceCmd, "stop")), 0755); err != nil {
+		return fmt.Errorf("write stop hook script: %w", err)
+	}
 
 	// Step 2: Write/update ~/.codex/hooks.json
 	if err := installCodexHooksJSONWithScripts(home, preScriptPath, postScriptPath, readScriptPath); err != nil {
 		return fmt.Errorf("write hooks.json: %w", err)
+	}
+	if err := ensureCodexHooksFeature(home); err != nil {
+		return fmt.Errorf("enable codex hooks feature: %w", err)
 	}
 
 	// Step 3: Also keep AGENTS.md block for backwards compat with older Codex versions
@@ -166,7 +202,7 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 
 	existing["PreToolUse"] = mergeCodexHookEntries(existing["PreToolUse"],
 		map[string]interface{}{
-			"matcher": "Bash",
+			"matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
 			"hooks": []interface{}{
 				map[string]interface{}{
 					"type":          "command",
@@ -186,13 +222,50 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 			},
 		},
 	)
+	existing["SessionStart"] = mergeCodexHookEntries(existing["SessionStart"], map[string]interface{}{
+		"matcher": "startup|resume|clear",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":          "command",
+				"command":       fmt.Sprintf("bash %s", CodexSessionStartHookScriptPath(home)),
+				"statusMessage": "Local session boundary",
+			},
+		},
+	})
+	existing["PermissionRequest"] = mergeCodexHookEntries(existing["PermissionRequest"], map[string]interface{}{
+		"matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":          "command",
+				"command":       fmt.Sprintf("bash %s", CodexPermissionHookScriptPath(home)),
+				"statusMessage": "Local approval guard",
+			},
+		},
+	})
 	existing["PostToolUse"] = mergeCodexHookEntries(existing["PostToolUse"], map[string]interface{}{
-		"matcher": "Bash",
+		"matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", postScriptPath),
 				"statusMessage": "Local output filter",
+			},
+		},
+	})
+	existing["UserPromptSubmit"] = mergeCodexHookEntries(existing["UserPromptSubmit"], map[string]interface{}{
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": fmt.Sprintf("bash %s", CodexUserPromptHookScriptPath(home)),
+			},
+		},
+	})
+	existing["Stop"] = mergeCodexHookEntries(existing["Stop"], map[string]interface{}{
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": fmt.Sprintf("bash %s", CodexStopHookScriptPath(home)),
+				"timeout": 30,
 			},
 		},
 	})
@@ -210,6 +283,55 @@ func validateCodexInstallPreconditions(home string) error {
 		return err
 	}
 	return nil
+}
+
+func ensureCodexHooksFeature(home string) error {
+	codexDir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		return err
+	}
+	configPath := filepath.Join(codexDir, "config.toml")
+	data, err := os.ReadFile(configPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	content := string(data)
+	state := parseCodexConfigState(content)
+	if state.CodexHooks != nil {
+		if !*state.CodexHooks {
+			return fmt.Errorf("conflicting codex_hooks=false in config.toml")
+		}
+		return nil
+	}
+	if strings.Contains(content, "[features]") {
+		content = strings.Replace(content, "[features]", "[features]\n"+slimferenceCodexHooksLine, 1)
+	} else {
+		if strings.TrimSpace(content) != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		content += "\n[features]\n" + slimferenceCodexHooksLine + "\n"
+	}
+	return os.WriteFile(configPath, []byte(content), 0644)
+}
+
+func removeCodexHooksFeature(home string) error {
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == slimferenceCodexHooksLine {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return os.WriteFile(configPath, []byte(strings.Join(filtered, "\n")), 0644)
 }
 
 func readExistingCodexHooksJSON(hooksPath string) (map[string]interface{}, error) {
@@ -322,6 +444,11 @@ func RemoveCodex(home string) error {
 	_ = os.Remove(CodexPreHookScriptPath(home))
 	_ = os.Remove(CodexHookScriptPath(home))
 	_ = os.Remove(CodexReadHookScriptPath(home))
+	_ = os.Remove(CodexSessionStartHookScriptPath(home))
+	_ = os.Remove(CodexPermissionHookScriptPath(home))
+	_ = os.Remove(CodexUserPromptHookScriptPath(home))
+	_ = os.Remove(CodexStopHookScriptPath(home))
+	_ = removeCodexHooksFeature(home)
 
 	// Remove AGENTS.md block (legacy).
 	return removeCodexAgentsMD(home)
@@ -344,7 +471,11 @@ func removeCodexHooksJSON(home string) error {
 	}
 
 	removeCodexHookEvent(existing, "PreToolUse")
+	removeCodexHookEvent(existing, "SessionStart")
+	removeCodexHookEvent(existing, "PermissionRequest")
 	removeCodexHookEvent(existing, "PostToolUse")
+	removeCodexHookEvent(existing, "UserPromptSubmit")
+	removeCodexHookEvent(existing, "Stop")
 
 	out, err := jsonMarshalIndentFn(existing, "", "  ")
 	if err != nil {
@@ -423,7 +554,11 @@ func CodexHookInstalled(home string) bool {
 	hasPre := strings.Contains(content, "codex-pre-tool.sh") || strings.Contains(content, "Slimference rewrite guard") || strings.Contains(content, "Local rewrite guard")
 	hasPost := strings.Contains(content, "codex-post-tool.sh") || strings.Contains(content, "Slimference filter") || strings.Contains(content, "Local output filter")
 	hasRead := strings.Contains(content, "codex-read-tool.sh") || strings.Contains(content, "Slimference read cache") || strings.Contains(content, "Local read cache")
-	return hasPre && hasPost && hasRead
+	hasSession := strings.Contains(content, "codex-session-start.sh") || strings.Contains(content, "Local session boundary")
+	hasPermission := strings.Contains(content, "codex-permission-request.sh") || strings.Contains(content, "Local approval guard")
+	hasUserPrompt := strings.Contains(content, "codex-user-prompt-submit.sh")
+	hasStop := strings.Contains(content, "codex-stop.sh")
+	return hasPre && hasPost && hasRead && hasSession && hasPermission && hasUserPrompt && hasStop
 }
 
 // CodexPreHookScriptPath returns the path to the installed Codex PreToolUse hook script.
@@ -438,6 +573,22 @@ func CodexHookScriptPath(home string) string {
 
 func CodexReadHookScriptPath(home string) string {
 	return filepath.Join(home, ".slimference", "hooks", "codex-read-tool.sh")
+}
+
+func CodexSessionStartHookScriptPath(home string) string {
+	return filepath.Join(home, ".slimference", "hooks", "codex-session-start.sh")
+}
+
+func CodexPermissionHookScriptPath(home string) string {
+	return filepath.Join(home, ".slimference", "hooks", "codex-permission-request.sh")
+}
+
+func CodexUserPromptHookScriptPath(home string) string {
+	return filepath.Join(home, ".slimference", "hooks", "codex-user-prompt-submit.sh")
+}
+
+func CodexStopHookScriptPath(home string) string {
+	return filepath.Join(home, ".slimference", "hooks", "codex-stop.sh")
 }
 
 func mergeCodexHookEntries(existing interface{}, slimferenceEntries ...map[string]interface{}) []interface{} {
@@ -484,11 +635,18 @@ func codexEntryHasSlimferenceHook(entry interface{}) bool {
 		}
 		command, _ := hookMap["command"].(string)
 		statusMessage, _ := hookMap["statusMessage"].(string)
-		if strings.Contains(command, "codex-pre-tool.sh") || strings.Contains(command, "codex-post-tool.sh") || strings.Contains(command, "codex-read-tool.sh") {
+		if strings.Contains(command, "codex-pre-tool.sh") ||
+			strings.Contains(command, "codex-post-tool.sh") ||
+			strings.Contains(command, "codex-read-tool.sh") ||
+			strings.Contains(command, "codex-session-start.sh") ||
+			strings.Contains(command, "codex-permission-request.sh") ||
+			strings.Contains(command, "codex-user-prompt-submit.sh") ||
+			strings.Contains(command, "codex-stop.sh") {
 			return true
 		}
 		if strings.Contains(statusMessage, "Slimference rewrite guard") || strings.Contains(statusMessage, "Slimference filter") || strings.Contains(statusMessage, "Slimference read cache") ||
-			strings.Contains(statusMessage, "Local rewrite guard") || strings.Contains(statusMessage, "Local output filter") || strings.Contains(statusMessage, "Local read cache") {
+			strings.Contains(statusMessage, "Local rewrite guard") || strings.Contains(statusMessage, "Local output filter") || strings.Contains(statusMessage, "Local read cache") ||
+			strings.Contains(statusMessage, "Local session boundary") || strings.Contains(statusMessage, "Local approval guard") {
 			return true
 		}
 	}

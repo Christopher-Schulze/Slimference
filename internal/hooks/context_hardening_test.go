@@ -26,7 +26,7 @@ func TestInstallCodex_hooksJSONWriteErrorAfterPreflight(t *testing.T) {
 	}
 }
 
-func TestInstallCodex_doesNotPatchConfigAfterHooksJSON(t *testing.T) {
+func TestInstallCodex_reportsFeatureFlagWriteErrorAfterHooksJSON(t *testing.T) {
 	home := t.TempDir()
 	codexDir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
@@ -42,7 +42,7 @@ func TestInstallCodex_doesNotPatchConfigAfterHooksJSON(t *testing.T) {
 	}()
 
 	err := InstallCodex(home, "slimference")
-	if err != nil {
-		t.Fatalf("hook install should not patch config.toml, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "enable codex hooks feature") {
+		t.Fatalf("expected codex_hooks feature write error, got %v", err)
 	}
 }

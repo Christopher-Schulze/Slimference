@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/buildinfo"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/hooks"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
@@ -44,6 +45,7 @@ type ProxyInterface interface {
 	FlushCaches()
 	GetAnalytics() analytics.AnalyticsSnapshot
 	GetRecentRequests(n int) []types.RequestMetrics
+	GetRecentFlights(n int) []dbg.FlightRequestSummary
 	GetLayer2Status() Layer2Status
 	GetReadCacheStatus() ReadCacheStatus
 	GetCheckpointStatus() CheckpointStatus
@@ -139,6 +141,23 @@ type ProxyConfigInterface interface {
 	GetMiniMaxTrustClass() string
 }
 
+// TransparentStatus is the TUI-facing snapshot of system transparent-mode state.
+type TransparentStatus struct {
+	CAExists           bool
+	CATrusted          bool
+	AutoStartInstalled bool
+	ProxyArmed         bool
+	DaemonReachable    bool
+	NetworkUnavailable bool
+	ActiveServices     int
+	Detail             string
+}
+
+// Installed reports whether transparent mode is installed but not necessarily armed.
+func (s TransparentStatus) Installed() bool {
+	return s.CAExists && s.CATrusted && s.AutoStartInstalled
+}
+
 // ServiceControlInterface exposes daemon lifecycle operations the TUI can trigger.
 // Implemented by a thin adapter in cmd/slimference/main.go that calls the daemon package.
 type ServiceControlInterface interface {
@@ -154,6 +173,16 @@ type ServiceControlInterface interface {
 	UninstallService() error
 	// DaemonStatus returns (running bool, pid int, port int).
 	DaemonStatus() (bool, int, int)
+	// TransparentStatus returns CA, daemon, and system proxy state for transparent mode.
+	TransparentStatus() TransparentStatus
+	// InstallTransparent installs the local CA trust and launchd daemon without arming the proxy.
+	InstallTransparent() error
+	// EnableTransparent routes system HTTPS traffic through Slimference.
+	EnableTransparent() error
+	// DisableTransparent restores direct system HTTPS routing.
+	DisableTransparent() error
+	// UninstallTransparent disables routing and removes keychain trust / launchd.
+	UninstallTransparent() error
 	// InstallHook installs a hook for the given target ("claude" or "codex").
 	InstallHook(target string) error
 	// RemoveHook removes a hook for the given target.
@@ -207,6 +236,9 @@ type Model struct {
 	setupCursor int    // selected setup row for arrow navigation (0-indexed)
 	setupAction string // pending action description
 
+	transparentStatus   TransparentStatus
+	transparentStatusAt time.Time
+
 	// Flash message.
 	flashMsg    string
 	flashExpiry time.Time
@@ -215,6 +247,7 @@ type Model struct {
 // SetServiceControl sets the service control interface for daemon operations.
 func (m *Model) SetServiceControl(svc ServiceControlInterface) {
 	m.svc = svc
+	m.refreshTransparentStatus(true)
 }
 
 // NewModel creates a TUI model wired to the given proxy. If a persisted
@@ -429,6 +462,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.setFlash("Service installed (auto-start enabled)")
 				}
+				m.refreshTransparentStatus(true)
 				m.persistStateBestEffort()
 				return m, flashTimer(3 * time.Second)
 			}
@@ -440,6 +474,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.setFlash("Service uninstalled")
 				}
+				m.refreshTransparentStatus(true)
+				m.persistStateBestEffort()
+				return m, flashTimer(3 * time.Second)
+			}
+
+		case "a":
+			if m.view == ViewSetup && m.svc != nil {
+				status := m.transparentStatus
+				if status.ProxyArmed {
+					if err := m.svc.DisableTransparent(); err != nil {
+						m.setFlash("Disarm failed: " + err.Error())
+					} else {
+						m.setFlash("Transparent proxy disarmed")
+					}
+				} else {
+					if !status.Installed() {
+						if err := m.svc.InstallTransparent(); err != nil {
+							m.setFlash("Install failed: " + err.Error())
+							m.persistStateBestEffort()
+							return m, flashTimer(3 * time.Second)
+						}
+					}
+					if err := m.svc.EnableTransparent(); err != nil {
+						m.setFlash("Arm failed: " + err.Error())
+					} else {
+						m.setFlash("Transparent proxy armed")
+					}
+				}
+				m.refreshTransparentStatus(true)
+				m.persistStateBestEffort()
+				return m, flashTimer(3 * time.Second)
+			}
+
+		case "u":
+			if m.view == ViewSetup && m.svc != nil {
+				if err := m.svc.UninstallTransparent(); err != nil {
+					m.setFlash("Transparent uninstall failed: " + err.Error())
+				} else {
+					m.setFlash("Transparent proxy uninstalled")
+				}
+				m.refreshTransparentStatus(true)
 				m.persistStateBestEffort()
 				return m, flashTimer(3 * time.Second)
 			}
@@ -491,6 +566,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.latestSnap = m.proxy.GetAnalytics()
+		m.refreshTransparentStatus(false)
 		return m, tickCmd()
 
 	case proxyEventMsg:
@@ -626,10 +702,24 @@ func (m *Model) autoStartInstalled() bool {
 	return err == nil
 }
 
+func (m *Model) refreshTransparentStatus(force bool) {
+	if m.svc == nil {
+		m.transparentStatus = TransparentStatus{}
+		m.transparentStatusAt = time.Time{}
+		return
+	}
+	if !force && !m.transparentStatusAt.IsZero() && time.Since(m.transparentStatusAt) < 2*time.Second {
+		return
+	}
+	m.transparentStatus = m.svc.TransparentStatus()
+	m.transparentStatusAt = time.Now()
+}
+
 func (m *Model) dashboardActions() []dashboardAction {
 	actions := make([]dashboardAction, 0, 9)
 	if m.svc != nil {
 		running, pid, port := m.svc.DaemonStatus()
+		transparent := m.transparentStatus
 		daemonLabel := "Start daemon"
 		daemonState := fmt.Sprintf("idle · :%d", m.proxy.Config().GetListenPort())
 		daemonDescription := "Run Slimference permanently in the background."
@@ -668,6 +758,25 @@ func (m *Model) dashboardActions() []dashboardAction {
 			label:       autoLabel,
 			description: autoDesc,
 			state:       autoState,
+		})
+		transparentLabel := "Arm transparent proxy"
+		transparentState := "off"
+		transparentDesc := "Route Codex and Claude HTTPS through Slimference without modifying their installs."
+		if transparent.ProxyArmed {
+			transparentLabel = "Disarm transparent proxy"
+			transparentState = fmt.Sprintf("armed · %d svc", transparent.ActiveServices)
+			transparentDesc = "Restore direct HTTPS routing while keeping the daemon and CA installed."
+		} else if transparent.Installed() {
+			transparentState = "installed"
+		} else if transparent.CAExists || transparent.CATrusted || transparent.AutoStartInstalled {
+			transparentState = "partial"
+		}
+		actions = append(actions, dashboardAction{
+			group:       "Operations",
+			id:          "transparent",
+			label:       transparentLabel,
+			description: transparentDesc,
+			state:       transparentState,
 		})
 	}
 	actions = append(actions,
@@ -797,6 +906,29 @@ func (m *Model) executeMainSelection() tea.Cmd {
 				m.setFlash("Auto-start enabled")
 			}
 		}
+	case "transparent":
+		status := m.transparentStatus
+		if status.ProxyArmed {
+			if err := m.svc.DisableTransparent(); err != nil {
+				m.setFlash("Disarm transparent proxy failed: " + err.Error())
+			} else {
+				m.setFlash("Transparent proxy disarmed")
+			}
+		} else {
+			if !status.Installed() {
+				if err := m.svc.InstallTransparent(); err != nil {
+					m.setFlash("Install transparent proxy failed: " + err.Error())
+					m.persistStateBestEffort()
+					return flashTimer(3 * time.Second)
+				}
+			}
+			if err := m.svc.EnableTransparent(); err != nil {
+				m.setFlash("Arm transparent proxy failed: " + err.Error())
+			} else {
+				m.setFlash("Transparent proxy armed")
+			}
+		}
+		m.refreshTransparentStatus(true)
 	case "claude":
 		m.claudeEnabled = !m.claudeEnabled
 		m.proxy.SetProviderEnabled(types.Anthropic, m.claudeEnabled)
@@ -847,26 +979,38 @@ func (m *Model) setupSteps() []setupStep {
 	}
 	steps := []setupStep{
 		{
-			label:   "Install Claude Code hook",
-			check:   func() bool { return m.hookStatus.Claude },
-			action:  func(m *Model) error { return m.svc.InstallHook("claude") },
-			confirm: "Install Claude Code hook",
+			label:   "Install transparent proxy (CA + daemon)",
+			check:   func() bool { return m.transparentStatus.Installed() },
+			action:  func(m *Model) error { return m.svc.InstallTransparent() },
+			confirm: "Install CA trust and launchd daemon",
 		},
 		{
-			label:   "Install Codex hook",
+			label:   "Arm system HTTPS proxy",
+			check:   func() bool { return m.transparentStatus.ProxyArmed },
+			action:  func(m *Model) error { return m.svc.EnableTransparent() },
+			confirm: "Route system HTTPS through Slimference",
+		},
+		{
+			label:   "Install Codex hook (legacy fallback)",
 			check:   func() bool { return m.hookStatus.Codex },
 			action:  func(m *Model) error { return m.svc.InstallHook("codex") },
-			confirm: "Install Codex hook",
+			confirm: "Install Codex hook fallback",
 		},
 		{
-			label: "Install auto-start service (launchd)",
+			label:   "Install Claude Code hook (legacy fallback)",
+			check:   func() bool { return m.hookStatus.Claude },
+			action:  func(m *Model) error { return m.svc.InstallHook("claude") },
+			confirm: "Install Claude Code hook fallback",
+		},
+		{
+			label: "Repair auto-start service (launchd only)",
 			check: func() bool {
 				home, _ := userHomeDirFn()
 				_, err := os.Stat(filepath.Join(home, "Library", "LaunchAgents", "com.slimference.daemon.plist"))
 				return err == nil
 			},
 			action:  func(m *Model) error { return m.svc.InstallService() },
-			confirm: "Install launchd auto-start service",
+			confirm: "Repair launchd auto-start service",
 		},
 	}
 	return steps
@@ -887,6 +1031,7 @@ func (m *Model) executeSetupStep() {
 		m.setFlash("Error: " + err.Error())
 		return
 	}
+	m.refreshTransparentStatus(true)
 	// Refresh hook status after install.
 	if home, err := userHomeDirFn(); err == nil {
 		claude, codex := hooks.InstalledStatus(home)
@@ -896,6 +1041,7 @@ func (m *Model) executeSetupStep() {
 }
 
 func (m *Model) enterSetupView() {
+	m.refreshTransparentStatus(true)
 	m.setupStep = 0
 	m.setupCursor = 0
 	if m.svc == nil {

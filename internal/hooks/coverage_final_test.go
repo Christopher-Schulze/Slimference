@@ -76,16 +76,16 @@ func TestUnpatchCodexConfig_NotExists(t *testing.T) {
 	}
 }
 
-// TestCodexStatusInstalled_CoherentTrue covers the codexCoherentInstall==true
-// early-return branch in codexStatusInstalled (verify.go:52-54).
+// TestCodexStatusInstalled_CoherentTrue covers the hook-complete branch in
+// codexStatusInstalled. Config-patch coherence remains tested separately.
 func TestCodexStatusInstalled_CoherentTrue(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	if err := InstallCodex(home, "slimference"); err != nil {
 		t.Fatalf("install codex: %v", err)
 	}
-	// InstallCodex does not write config.toml; a coherent install requires
-	// both openai_base_url and chatgpt_base_url pointing at the proxy.
+	// Config-patch may exist too, but hook installed status no longer depends
+	// on these fields.
 	config := "openai_base_url = \"http://127.0.0.1:8990/v1\"\nchatgpt_base_url = \"http://127.0.0.1:8990/v1\"\n"
 	if err := os.WriteFile(filepath.Join(home, ".codex", "config.toml"), []byte(config), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -121,7 +121,7 @@ func TestInstallCodex_ReadHookWriteErrorAndMissingReadScript(t *testing.T) {
 	if err := os.Remove(CodexReadHookScriptPath(home)); err != nil {
 		t.Fatal(err)
 	}
-	if codexCoherentInstall(home) {
-		t.Fatal("missing codex read hook must make install incoherent")
+	if InspectCodexHooks(home).Complete() {
+		t.Fatal("missing codex read hook must make hook install incomplete")
 	}
 }

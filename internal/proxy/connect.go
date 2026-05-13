@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/tlsca"
 )
 
@@ -39,6 +40,7 @@ type ConnectInterceptor struct {
 	logger             *slog.Logger
 	tlsServerHandshake func(net.Conn, *tls.Config) (*tls.Conn, error)
 	webSocketTunnel    *WebSocketTunnel
+	debugRecorder      *dbg.Recorder
 }
 
 // NewConnectInterceptor wires a CONNECT-aware handler around the given
@@ -107,6 +109,10 @@ func (ci *ConnectInterceptor) SetWebSocketTunnel(t *WebSocketTunnel) {
 	}
 }
 
+func (ci *ConnectInterceptor) SetDebugRecorder(r *dbg.Recorder) {
+	ci.debugRecorder = r
+}
+
 // ServeHTTP fields the CONNECT request. For non-CONNECT methods the
 // interceptor delegates straight to inner so a single dispatcher can
 // front everything.
@@ -142,9 +148,11 @@ func (ci *ConnectInterceptor) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !ci.shouldMITM(host) {
+		ci.recordFlight(host, "", "raw_passthrough", "host_not_intercepted", nil)
 		ci.passthrough(clientConn, host, port)
 		return
 	}
+	ci.recordFlight(host, "", "mitm_connect", "host_intercepted", nil)
 	ci.mitm(clientConn, host)
 }
 
@@ -166,6 +174,7 @@ func (ci *ConnectInterceptor) passthrough(client net.Conn, host, port string) {
 	upstream, err := ci.dialUpstream(host, port)
 	if err != nil {
 		ci.logger.Error("connect passthrough: dial failed", "host", host, "port", port, "err", err)
+		ci.recordFlight(host, "", "raw_passthrough", "dial_failed", err)
 		return
 	}
 	defer upstream.Close()
@@ -180,6 +189,7 @@ func (ci *ConnectInterceptor) mitm(client net.Conn, host string) {
 	cert, err := ci.signer.Cert(host)
 	if err != nil {
 		ci.logger.Error("connect mitm: leaf cert failed", "host", host, "err", err)
+		ci.recordFlight(host, "", "mitm_connect", "leaf_cert_failed", err)
 		return
 	}
 	tlsCfg := &tls.Config{
@@ -189,6 +199,7 @@ func (ci *ConnectInterceptor) mitm(client net.Conn, host string) {
 	tlsConn, err := ci.tlsServerHandshake(client, tlsCfg)
 	if err != nil {
 		ci.logger.Debug("connect mitm: handshake failed", "host", host, "err", err)
+		ci.recordFlight(host, "", "mitm_connect", "handshake_failed", err)
 		return
 	}
 	defer tlsConn.Close()
@@ -217,6 +228,7 @@ func (ci *ConnectInterceptor) servePlaintextOnTLS(tlsConn net.Conn, host string)
 		req.URL.Scheme = "https"
 		req.RequestURI = ""
 		if IsWebSocketUpgrade(req) && ci.webSocketTunnel != nil {
+			ci.recordFlight(host, req.URL.Path, "websocket_tunnel", "upgrade", nil)
 			clientConn := net.Conn(tlsConn)
 			if br.Buffered() > 0 {
 				clientConn = &bufferedNetConn{Conn: tlsConn, reader: br}
@@ -241,6 +253,40 @@ func (ci *ConnectInterceptor) servePlaintextOnTLS(tlsConn net.Conn, host string)
 		if shouldClose(req) {
 			return
 		}
+	}
+}
+
+func (ci *ConnectInterceptor) recordFlight(host, path, routeMode, reason string, err error) {
+	if ci.debugRecorder == nil {
+		return
+	}
+	var errorsOut []string
+	if err != nil {
+		errorsOut = []string{err.Error()}
+	}
+	ci.debugRecorder.Record(dbg.RequestSummary{
+		RequestID:    fmt.Sprintf("connect-%d", time.Now().UnixNano()),
+		Timestamp:    time.Now().UTC(),
+		Source:       "transparent_connect",
+		Provider:     providerForConnectHost(host),
+		Host:         host,
+		Path:         path,
+		RouteMode:    routeMode,
+		BypassReason: reason,
+		Errors:       errorsOut,
+	})
+}
+
+func providerForConnectHost(host string) string {
+	switch strings.ToLower(host) {
+	case "api.anthropic.com":
+		return "anthropic"
+	case "api.openai.com":
+		return "openai"
+	case "chatgpt.com":
+		return "codex_chatgpt"
+	default:
+		return "unknown"
 	}
 }
 

@@ -61,8 +61,8 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 }
 
 // cacheUsage captures provider-reported prompt-cache accounting for a single
-// request. Only Anthropic populates these fields today; OpenAI has no
-// equivalent usage field.
+// request. Anthropic reports cache_read/cache_creation input tokens; OpenAI
+// and Codex expose cached input tokens through usage token-details fields.
 type cacheUsage struct {
 	ReadTokens   int
 	CreateTokens int
@@ -112,10 +112,18 @@ func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstrea
 
 		// Count output tokens from SSE data events.
 		outputTokens += extractOutputTokensFromSSE(line, provider)
-		if provider == "anthropic" {
+		switch provider {
+		case "anthropic":
 			if r, c, in := extractAnthropicCacheUsage(line); r > 0 || c > 0 || in > 0 {
 				usage.ReadTokens += r
 				usage.CreateTokens += c
+				if in > usage.InputTokens {
+					usage.InputTokens = in
+				}
+			}
+		case "openai", "codex_chatgpt":
+			if r, in := extractOpenAICacheUsage(line); r > 0 || in > 0 {
+				usage.ReadTokens += r
 				if in > usage.InputTokens {
 					usage.InputTokens = in
 				}
@@ -184,6 +192,65 @@ func extractAnthropicCacheUsage(line []byte) (read, create, input int) {
 	return read, create, input
 }
 
+func extractOpenAICacheUsage(line []byte) (read, input int) {
+	if !bytes.HasPrefix(line, []byte("data: ")) {
+		return 0, 0
+	}
+	data := line[6:]
+	if bytes.Equal(data, []byte("[DONE]")) {
+		return 0, 0
+	}
+	return extractOpenAICacheUsageFromData(data)
+}
+
+func extractOpenAICacheUsageFromData(data []byte) (read, input int) {
+	var chunk struct {
+		Usage *openAIUsage `json:"usage,omitempty"`
+	}
+	if err := json.Unmarshal(data, &chunk); err != nil || chunk.Usage == nil {
+		return 0, 0
+	}
+	return chunk.Usage.cachedTokens(), chunk.Usage.inputTokens()
+}
+
+type openAIUsage struct {
+	PromptTokens        int `json:"prompt_tokens"`
+	InputTokens         int `json:"input_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	PromptTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
+	InputTokensDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"input_tokens_details,omitempty"`
+}
+
+func (u openAIUsage) cachedTokens() int {
+	cached := 0
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.CachedTokens > cached {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	if u.InputTokensDetails != nil && u.InputTokensDetails.CachedTokens > cached {
+		cached = u.InputTokensDetails.CachedTokens
+	}
+	return cached
+}
+
+func (u openAIUsage) inputTokens() int {
+	if u.InputTokens > 0 {
+		return u.InputTokens
+	}
+	return u.PromptTokens
+}
+
+func (u openAIUsage) outputTokens() int {
+	if u.OutputTokens > 0 {
+		return u.OutputTokens
+	}
+	return u.CompletionTokens
+}
+
 // extractAnthropicCacheUsageFromBody parses a non-streaming JSON response
 // body and returns the provider-reported cache usage + input_tokens. Zero
 // on failure.
@@ -205,6 +272,28 @@ func extractAnthropicCacheUsageFromBody(body []byte) cacheUsage {
 		ReadTokens:   resp.Usage.CacheReadInputTokens,
 		CreateTokens: resp.Usage.CacheCreationInputTokens,
 		InputTokens:  resp.Usage.InputTokens,
+	}
+}
+
+func extractOpenAICacheUsageFromBody(body []byte) cacheUsage {
+	if len(body) == 0 {
+		return cacheUsage{}
+	}
+	read, input := extractOpenAICacheUsageFromData(body)
+	return cacheUsage{
+		ReadTokens:  read,
+		InputTokens: input,
+	}
+}
+
+func extractCacheUsageFromBody(provider string, body []byte) cacheUsage {
+	switch provider {
+	case "anthropic":
+		return extractAnthropicCacheUsageFromBody(body)
+	case "openai", "codex_chatgpt":
+		return extractOpenAICacheUsageFromBody(body)
+	default:
+		return cacheUsage{}
 	}
 }
 
@@ -249,7 +338,7 @@ func extractOutputTokensFromSSE(line []byte, provider string) int {
 	switch provider {
 	case "anthropic":
 		return extractAnthropicOutputTokens(data)
-	case "openai":
+	case "openai", "codex_chatgpt":
 		return extractOpenAIOutputTokens(data)
 	}
 	return 0
@@ -290,9 +379,7 @@ type openAIChunk struct {
 			Content string `json:"content"`
 		} `json:"delta"`
 	} `json:"choices"`
-	Usage *struct {
-		CompletionTokens int `json:"completion_tokens"`
-	} `json:"usage,omitempty"`
+	Usage *openAIUsage `json:"usage,omitempty"`
 }
 
 func extractOpenAIOutputTokens(data []byte) int {
@@ -301,8 +388,8 @@ func extractOpenAIOutputTokens(data []byte) int {
 		return 0
 	}
 	// Final chunk may have usage stats.
-	if chunk.Usage != nil && chunk.Usage.CompletionTokens > 0 {
-		return chunk.Usage.CompletionTokens
+	if chunk.Usage != nil && chunk.Usage.outputTokens() > 0 {
+		return chunk.Usage.outputTokens()
 	}
 	// Approximate from delta content.
 	for _, c := range chunk.Choices {

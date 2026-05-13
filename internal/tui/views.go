@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slimference/slimference/internal/analytics"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -278,6 +279,10 @@ func (m *Model) renderDebugView() string {
 		lines = append(lines, "")
 	}
 
+	flights := m.proxy.GetRecentFlights(8)
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderFlightDiagnostics(m, flights)))
+	lines = append(lines, "")
+
 	if m.proxy.SessionLogger() != nil {
 		entries := m.proxy.SessionLogger().Recent(30)
 		if len(entries) == 0 {
@@ -318,6 +323,64 @@ func (m *Model) renderDebugView() string {
 	return s.Border.Width(width - 2).Render(content)
 }
 
+func renderFlightDiagnostics(m *Model, flights []dbg.FlightRequestSummary) string {
+	s := m.styles
+	body := []string{" " + s.PanelTitle.Render("FLIGHT RECORDER")}
+	if len(flights) == 0 {
+		body = append(body, "", s.Muted.Render("  No flight records yet."))
+		return strings.Join(body, "\n")
+	}
+	var saved, cached, output, bypasses int
+	slowest := 0.0
+	slowestID := ""
+	for _, f := range flights {
+		saved += flightSaved(f)
+		cached += flightCached(f)
+		output += flightOutput(f)
+		if f.RouteMode == "raw_passthrough" || f.RouteMode == "local_cache" || f.BypassReason != "" {
+			bypasses++
+		}
+		if f.TotalProxyOverheadMs > slowest {
+			slowest = f.TotalProxyOverheadMs
+			slowestID = f.RequestID
+		}
+	}
+	body = append(body,
+		"",
+		" "+s.Normal.Render(fmt.Sprintf("requests %d  saved %s  cached %s  output %s", len(flights), formatTokens(saved), formatTokens(cached), formatTokens(output))),
+		" "+s.Normal.Render(fmt.Sprintf("bypasses %d  slowest %.1fms %s", bypasses, slowest, slowestID)),
+		"",
+	)
+	for _, f := range flights {
+		label := f.RequestID
+		if len(label) > 14 {
+			label = label[:14]
+		}
+		body = append(body, " "+s.Muted.Render(fmt.Sprintf("%-14s", label))+
+			s.Normal.Render(fmt.Sprintf(" %s/%s L%v saved=%s cache=%s out=%s",
+				f.Source, f.RouteMode, f.Layers, formatTokens(flightSaved(f)), formatTokens(flightCached(f)), formatTokens(flightOutput(f)))))
+	}
+	return strings.Join(body, "\n")
+}
+
+func flightSaved(f dbg.FlightRequestSummary) int {
+	return f.TokenAccounting.BillableSavingsEstimate
+}
+
+func flightCached(f dbg.FlightRequestSummary) int {
+	if f.CacheAccounting.ProviderCachedInputTokens > 0 {
+		return f.CacheAccounting.ProviderCachedInputTokens
+	}
+	return f.CacheAccounting.ProviderCacheReadTokens
+}
+
+func flightOutput(f dbg.FlightRequestSummary) int {
+	if f.TokenAccounting.ProviderOutputTokens > 0 {
+		return f.TokenAccounting.ProviderOutputTokens
+	}
+	return f.TokenAccounting.EstimatedOutputTokens
+}
+
 // renderSetupView renders the interactive install wizard and service management screen.
 func (m *Model) renderSetupView() string {
 	s := m.styles
@@ -335,19 +398,43 @@ func (m *Model) renderSetupView() string {
 	lines = append(lines, rule)
 
 	// Overall READY status.
-	allReady := m.hookStatus.Claude && m.hookStatus.Codex
+	transparent := TransparentStatus{}
+	if m.svc != nil {
+		transparent = m.transparentStatus
+	}
+	allReady := transparent.Installed() || (m.svc == nil && m.hookStatus.Claude && m.hookStatus.Codex)
 	statusCard := ""
-	if allReady {
+	if transparent.ProxyArmed {
 		statusCard = s.Card.Width(innerWidth - 2).Render(
-			s.BannerGood.Render("READY") + " " + s.Normal.Render("ALL SET - Slimference is ready for daily use."),
+			s.BannerGood.Render("ARMED") + " " + s.Normal.Render("System HTTPS is routed through Slimference."),
+		)
+	} else if allReady {
+		message := "Transparent mode is installed. Arm it when you want traffic in the pipeline."
+		if m.svc == nil {
+			message = "ALL SET - Slimference is ready for daily use."
+		}
+		statusCard = s.Card.Width(innerWidth - 2).Render(
+			s.BannerGood.Render("READY") + " " + s.Normal.Render(message),
 		)
 	} else {
 		missing := []string{}
-		if !m.hookStatus.Claude {
-			missing = append(missing, "Claude Code hook")
-		}
-		if !m.hookStatus.Codex {
-			missing = append(missing, "Codex hook")
+		if m.svc != nil {
+			if !transparent.CAExists {
+				missing = append(missing, "local CA")
+			}
+			if transparent.CAExists && !transparent.CATrusted {
+				missing = append(missing, "trusted CA")
+			}
+			if !transparent.AutoStartInstalled {
+				missing = append(missing, "launchd daemon")
+			}
+		} else {
+			if !m.hookStatus.Claude {
+				missing = append(missing, "Claude Code hook")
+			}
+			if !m.hookStatus.Codex {
+				missing = append(missing, "Codex hook")
+			}
 		}
 		statusCard = s.Card.Width(innerWidth - 2).Render(
 			s.BannerWarn.Render("SETUP") + " " + s.Normal.Render("Missing: "+strings.Join(missing, ", ")),
@@ -384,8 +471,9 @@ func (m *Model) renderSetupView() string {
 		} else {
 			serviceLines = append(serviceLines, "  "+s.Muted.Render("○ STOPPED")+"  daemon not running")
 		}
+		serviceLines = append(serviceLines, renderTransparentStatusLine(s, transparent))
 		serviceLines = append(serviceLines, "")
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("Use the Dashboard view to start, stop, restart, enable autostart, disable autostart, toggle providers, and flush caches."))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] arm/disarm transparent proxy  [u] uninstall transparent  [p] daemon start/stop  [o] restart  [e] enable autostart  [w] disable autostart"))
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(serviceLines, "\n")))
 
 	} else {
@@ -438,9 +526,9 @@ func (m *Model) renderSetupView() string {
 		commandLines := []string{
 			" " + s.PanelTitle.Render("COMMANDS"),
 			"",
-			"  " + s.SetupCmd.Render("slimference hook install claude|codex"),
-			"  " + s.SetupCmd.Render("slimference service install"),
-			"  " + s.SetupCmd.Render("slimference start"),
+			"  " + s.SetupCmd.Render("slimference proxy install"),
+			"  " + s.SetupCmd.Render("slimference proxy enable"),
+			"  " + s.SetupCmd.Render("slimference proxy disable"),
 		}
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(commandLines, "\n")))
 	}
@@ -817,9 +905,9 @@ func (m *Model) buildRightPanel(width int) []string {
 	if snap.TotalRequests == 0 && !m.hookStatus.Claude && !m.hookStatus.Codex {
 		add(" " + s.PanelTitle.Render("QUICK START"))
 		add("")
-		add(" " + s.Normal.Render("1. Install hooks:"))
-		add("   " + s.SetupCmd.Render("$ slimference hook install claude"))
-		add("   " + s.SetupCmd.Render("$ slimference hook install codex"))
+		add(" " + s.Normal.Render("1. Install transparent mode:"))
+		add("   " + s.SetupCmd.Render("$ slimference proxy install"))
+		add("   " + s.SetupCmd.Render("$ slimference proxy enable"))
 		add("")
 		add(" " + s.Normal.Render("2. Start Claude Code or Codex CLI"))
 		add(" " + s.Muted.Render("   Requests appear here automatically."))
@@ -869,6 +957,23 @@ func providerFlowLine(s Styles, label string, stats analytics.ProviderStats, lat
 		state += fmt.Sprintf(" · %.0fms", latencyMs)
 	}
 	return " " + padRight(label, 12) + "  " + s.Muted.Render(state)
+}
+
+func renderTransparentStatusLine(s Styles, status TransparentStatus) string {
+	switch {
+	case status.ProxyArmed && status.DaemonReachable:
+		return "  " + s.Saved.Render("● TRANSPARENT") + fmt.Sprintf("  armed on %d service(s), daemon reachable", status.ActiveServices)
+	case status.ProxyArmed:
+		return "  " + s.LogError.Render("● TRANSPARENT") + fmt.Sprintf("  armed on %d service(s), daemon unreachable", status.ActiveServices)
+	case status.Installed():
+		return "  " + s.Saved.Render("● TRANSPARENT") + "  installed, currently disarmed"
+	case status.CAExists || status.CATrusted || status.AutoStartInstalled:
+		return "  " + s.BannerWarn.Render("● TRANSPARENT") + "  partially installed"
+	case status.NetworkUnavailable:
+		return "  " + s.LogError.Render("● TRANSPARENT") + "  networksetup unavailable"
+	default:
+		return "  " + s.Muted.Render("○ TRANSPARENT") + "  not installed"
+	}
 }
 
 func extendLines(lines []string, target int, filler string) []string {

@@ -9,8 +9,19 @@ import (
 func TestCapabilitiesFor_KnownRange_AdvertisesDecisionBlockOnly(t *testing.T) {
 	t.Parallel()
 	caps := CapabilitiesFor("0.125.0")
-	if len(caps) != 1 || caps[0] != CodexCapDecisionBlock {
-		t.Fatalf("expected [decision_block], got %v", caps)
+	want := []CodexCapability{
+		CodexCapDecisionBlock,
+		CodexCapPermissionRequestDecision,
+		CodexCapPostToolReplaceResult,
+		CodexCapLifecycleContext,
+	}
+	if len(caps) != len(want) {
+		t.Fatalf("expected %v, got %v", want, caps)
+	}
+	for i := range want {
+		if caps[i] != want[i] {
+			t.Fatalf("expected %v, got %v", want, caps)
+		}
 	}
 }
 
@@ -31,7 +42,7 @@ func TestCapabilitiesFor_UnparseableTriple_ReturnsNil(t *testing.T) {
 func TestCapabilitiesFor_EmptyMaxIsOpenEnded(t *testing.T) {
 	t.Parallel()
 	caps := CapabilitiesFor("9.9.9")
-	if len(caps) != 1 || caps[0] != CodexCapDecisionBlock {
+	if len(caps) == 0 || caps[0] != CodexCapDecisionBlock {
 		t.Fatalf("expected open-ended match to advertise decision_block, got %v", caps)
 	}
 }
@@ -39,7 +50,7 @@ func TestCapabilitiesFor_EmptyMaxIsOpenEnded(t *testing.T) {
 func TestCapabilitiesFor_BoundaryAtMin_Inclusive(t *testing.T) {
 	t.Parallel()
 	caps := CapabilitiesFor("0.117.0")
-	if len(caps) != 1 {
+	if len(caps) != 4 {
 		t.Fatalf("expected min boundary to be inclusive; got %v", caps)
 	}
 }
@@ -62,6 +73,12 @@ func TestHasCodexCapability_KnownPositive(t *testing.T) {
 	if !HasCodexCapability("0.125.0", CodexCapDecisionBlock) {
 		t.Fatal("expected 0.125.0 to advertise decision_block")
 	}
+	if !HasCodexCapability("0.125.0", CodexCapPermissionRequestDecision) {
+		t.Fatal("expected 0.125.0 to advertise permission_request_decision")
+	}
+	if !HasCodexCapability("0.125.0", CodexCapPostToolReplaceResult) {
+		t.Fatal("expected 0.125.0 to advertise posttool_replace_result")
+	}
 }
 
 func TestHasCodexCapability_UpstreamFailOpenIsFalse(t *testing.T) {
@@ -70,7 +87,31 @@ func TestHasCodexCapability_UpstreamFailOpenIsFalse(t *testing.T) {
 		t.Fatal("transparent_rewrite must remain false until Codex honours updatedInput")
 	}
 	if HasCodexCapability("0.125.0", CodexCapPermissionDecision) {
-		t.Fatal("permission_decision must remain false until Codex honours it")
+		t.Fatal("pretool permission_decision must remain false until Codex honours allow/ask for PreToolUse")
+	}
+}
+
+func TestCodexHookFeatureMatrix_ReturnsCopyAndCurrentReality(t *testing.T) {
+	t.Parallel()
+	a := CodexHookFeatureMatrix()
+	b := CodexHookFeatureMatrix()
+	if len(a) == 0 || len(b) == 0 {
+		t.Fatal("expected feature matrix entries")
+	}
+	if &a[0] == &b[0] {
+		t.Fatal("expected copied backing array")
+	}
+	var sawPostReplace, sawUpdatedInput bool
+	for _, f := range a {
+		if f.Event == "PostToolUse" && f.Name == "continue:false" && f.Status == CodexFeatureSupported {
+			sawPostReplace = true
+		}
+		if f.Event == "PreToolUse" && f.Name == "updatedInput" && f.Status == CodexFeatureParsedFailOpen {
+			sawUpdatedInput = true
+		}
+	}
+	if !sawPostReplace || !sawUpdatedInput {
+		t.Fatalf("feature matrix missing required current facts: post=%v updatedInput=%v", sawPostReplace, sawUpdatedInput)
 	}
 }
 

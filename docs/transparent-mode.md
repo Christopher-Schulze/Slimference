@@ -6,7 +6,7 @@ This document covers what transparent mode does, what it deliberately does NOT d
 
 ## Architecture in one paragraph
 
-`slimference proxy install` generates a local ECDSA P-256 root CA under `~/.slimference/ca/`, prompts the operating system to trust it in your keychain (User scope by default, no sudo), and registers the slimference daemon as the macOS System-HTTPS-Proxy on every active network service. From that point on every HTTPS connection an app makes ends up at `127.0.0.1:8990` first; Slimference signs a per-domain leaf certificate on the fly using the trusted root, terminates TLS, runs the request through Layer 0/1/2 compression, then re-emits it to the upstream provider. WebSockets (Codex Desktop's `responses_websocket` transport) tunnel through the same path. WebRTC (Codex Desktop microphone transcription, video) is unaffected because UDP traffic ignores the System-HTTPS-Proxy setting by design. Upstream TLS in transparent mode uses the configured `internal/tlsdial` uTLS profile instead of always emitting Go's stdlib ClientHello.
+`slimference proxy install` generates a local ECDSA P-256 root CA under `~/.slimference/ca/`, prompts the operating system to trust it in your keychain (User scope by default, no sudo), and registers the Slimference daemon for autostart. `slimference proxy enable` is the separate arming step: it sets the macOS System-HTTPS-Proxy on every active network service so HTTPS connections first reach `127.0.0.1:8990`. Slimference signs a per-domain leaf certificate on the fly using the trusted root, terminates TLS, runs allowlisted LLM requests through the compression pipeline, then re-emits them to the upstream provider. WebSockets (Codex Desktop's `responses_websocket` transport) tunnel through the same path. WebRTC (Codex Desktop microphone transcription, video) is unaffected because UDP traffic ignores the System-HTTPS-Proxy setting by design. Upstream TLS in transparent mode uses the configured `internal/tlsdial` uTLS profile instead of always emitting Go's stdlib ClientHello.
 
 ## What it does
 
@@ -19,7 +19,7 @@ This document covers what transparent mode does, what it deliberately does NOT d
 ## What it does NOT do
 
 - **Does not touch SOCKS proxy.** WebRTC bypass is the property of NOT setting a SOCKS hook; we want audio to skip Slimference entirely.
-- **Does not modify per-app configuration.** No `~/.codex/config.toml` patch, no `~/.claude/settings.json` edit. The config-patch path remains available through `slimference integrate codex` / `claude` for operators who do not want a CA in their keychain.
+- **Does not modify per-app configuration.** No `~/.codex/config.toml` patch, no `~/.claude/settings.json` edit. The config-patch path remains available through `slimference integrate install --client codex|claude` for operators who do not want a CA in their keychain.
 - **Does not run as root by default.** User-scope trust (`~/Library/Keychains/login.keychain-db`) is the default. `--system` flag opts into System-keychain trust which requires sudo.
 - **Does not export the CA private key.** The ECDSA private key for the root CA stays in `~/.slimference/ca/root.key` (mode 0600), never traverses any network, never appears in any log.
 - **Does not make traffic undetectable.** uTLS removes the obvious Go-stdlib ClientHello tell for transparent-mode upstream dials. It does not spoof source IP, DNS behaviour, HTTP/2 SETTINGS, header ordering, or exact Node/Python OpenSSL fingerprints.
@@ -46,6 +46,23 @@ slimference proxy disable
 slimference proxy status
 slimference proxy uninstall [--system]
 ```
+
+The same lifecycle is available from the TUI. Open `slimference`, switch to
+Setup, then use:
+
+- `[enter]` on **Install transparent proxy (CA + daemon)** to trust the local CA
+  and install the launch agent.
+- `[enter]` on **Arm system HTTPS proxy** or shortcut `[a]` to route system HTTPS
+  through Slimference.
+- `[a]` again to disarm and return apps to direct upstream connections.
+- `[u]` to run transparent uninstall from the TUI.
+- `[p]`, `[o]`, `[e]`, `[w]` for daemon start/stop, restart, autostart install,
+  and autostart removal.
+
+The TUI status line is a cached operator snapshot: CA exists, CA trusted,
+autostart installed, system proxy armed, number of armed services, daemon
+reachability, and networksetup availability. It force-refreshes after actions
+and avoids calling `networksetup`, `security`, or `launchctl` from render loops.
 
 ### `install`
 

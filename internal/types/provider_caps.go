@@ -33,7 +33,13 @@ type ProviderCapabilities struct {
 	SupportsResponseID bool `json:"supports_response_id"`
 	// SupportsCachedPrefix: provider exposes prompt-caching
 	// (Anthropic-style breakpoints).
-	SupportsCachedPrefix bool `json:"supports_cached_prefix"`
+	SupportsCachedPrefix                bool `json:"supports_cached_prefix"`
+	SupportsPromptCacheUsage            bool `json:"supports_prompt_cache_usage"`
+	SupportsPromptCacheKey              bool `json:"supports_prompt_cache_key"`
+	SupportsPromptCacheRetention        bool `json:"supports_prompt_cache_retention"`
+	SupportsPreviousResponseIDHTTP      bool `json:"supports_previous_response_id_http"`
+	SupportsPreviousResponseIDWebSocket bool `json:"supports_previous_response_id_websocket"`
+	BillsPreviousResponseIDContext      bool `json:"bills_previous_response_id_context"`
 }
 
 // TrustClass labels a provider's data-flow relationship to the operator.
@@ -57,26 +63,36 @@ var providerCapsRegistry = map[Provider]ProviderCapabilities{
 		SupportsStopConditions:      true,
 		SupportsResponseID:          false,
 		SupportsCachedPrefix:        true,
+		SupportsPromptCacheUsage:    true,
 	},
 	OpenAI: {
-		TrustClass:                  TrustClassUpstreamProvider,
-		SupportsSeed:                true,
-		SupportsTemperatureZero:     true,
-		SupportsLogprobs:            true,
-		SupportsMinCompletionTokens: false,
-		SupportsStopConditions:      true,
-		SupportsResponseID:          true,
-		SupportsCachedPrefix:        false,
+		TrustClass:                     TrustClassUpstreamProvider,
+		SupportsSeed:                   true,
+		SupportsTemperatureZero:        true,
+		SupportsLogprobs:               true,
+		SupportsMinCompletionTokens:    false,
+		SupportsStopConditions:         true,
+		SupportsResponseID:             true,
+		SupportsCachedPrefix:           false,
+		SupportsPromptCacheUsage:       true,
+		SupportsPromptCacheKey:         true,
+		SupportsPromptCacheRetention:   true,
+		SupportsPreviousResponseIDHTTP: true,
+		BillsPreviousResponseIDContext: true,
 	},
 	CodexChatGPT: {
-		TrustClass:                  TrustClassUpstreamProvider,
-		SupportsSeed:                false,
-		SupportsTemperatureZero:     true,
-		SupportsLogprobs:            false,
-		SupportsMinCompletionTokens: false,
-		SupportsStopConditions:      false,
-		SupportsResponseID:          true,
-		SupportsCachedPrefix:        false,
+		TrustClass:                          TrustClassUpstreamProvider,
+		SupportsSeed:                        false,
+		SupportsTemperatureZero:             true,
+		SupportsLogprobs:                    false,
+		SupportsMinCompletionTokens:         false,
+		SupportsStopConditions:              false,
+		SupportsResponseID:                  true,
+		SupportsCachedPrefix:                false,
+		SupportsPromptCacheUsage:            true,
+		SupportsPreviousResponseIDHTTP:      true,
+		SupportsPreviousResponseIDWebSocket: false,
+		BillsPreviousResponseIDContext:      true,
 	},
 	MiniMax: {
 		TrustClass:                  TrustClassExternalThirdParty,

@@ -140,7 +140,9 @@ type Proxy struct {
 	// constructed; live wiring is gated by [proxy] server_state_enabled.
 	serverState *sessions.ResponseStateStore
 	// outputReduce tracks T130 prompt-injection overhead and observed output.
-	outputReduce *outputreduce.Tracker
+	outputReduce          *outputreduce.Tracker
+	openAIPromptCacheMu   sync.Mutex
+	openAIPromptCacheRate map[string]promptCacheRateBucket
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
@@ -336,6 +338,7 @@ func New(cfg *config.Config) *Proxy {
 		} else {
 			connect := NewConnectInterceptor(signer, mux, cfg.Transparent.InterceptHosts)
 			connect.SetLogger(slog.Default())
+			connect.SetDebugRecorder(p.debugRecorder)
 			connect.SetWebSocketTunnel(&WebSocketTunnel{
 				Dialer:      newProfiledWebSocketDialer(tlsResolver),
 				Logger:      slog.Default(),
@@ -977,6 +980,22 @@ func (p *Proxy) SessionLogger() *sessions.SessionLogger {
 // DebugRecorder returns the debug decision recorder for the "debug last" CLI command.
 func (p *Proxy) DebugRecorder() *dbg.Recorder {
 	return p.debugRecorder
+}
+
+// GetRecentFlights returns the normalized flight records shown by the TUI.
+func (p *Proxy) GetRecentFlights(n int) []dbg.FlightRequestSummary {
+	if p.debugRecorder == nil {
+		return nil
+	}
+	summaries := p.debugRecorder.Last(n, false)
+	flights := make([]dbg.FlightRequestSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		summary.EnsureFlight()
+		if summary.Flight != nil {
+			flights = append(flights, *summary.Flight)
+		}
+	}
+	return flights
 }
 
 // GetProviderHealth returns the health snapshot for the given provider,

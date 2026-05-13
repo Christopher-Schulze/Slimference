@@ -50,7 +50,7 @@ func TestAdminStatusSnapshot_NilToolPruneAndServerState(t *testing.T) {
 }
 
 func TestAdminStatusSnapshot_NewTelemetryBlocks(t *testing.T) {
-	t.Parallel()
+	t.Setenv("HOME", t.TempDir())
 	p := New(config.Defaults())
 	snap := p.adminStatusSnapshot()
 	// All new blocks must be present and zero-valued by default.

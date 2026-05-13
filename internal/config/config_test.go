@@ -240,6 +240,30 @@ func TestValidate_InvalidTransparentCertCacheSize(t *testing.T) {
 	}
 }
 
+func TestValidate_InvalidOpenAIPromptCacheConfig(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"strategy", func(c *Config) { c.Proxy.OpenAIPromptCache.PromptCacheKeyStrategy = "workspace" }},
+		{"retention", func(c *Config) { c.Proxy.OpenAIPromptCache.Retention = "forever" }},
+		{"min_tokens", func(c *Config) { c.Proxy.OpenAIPromptCache.MinTokens = -1 }},
+		{"rate_limit", func(c *Config) { c.Proxy.OpenAIPromptCache.MaxRequestsPerKeyPerMinute = -1 }},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Defaults()
+			tc.mutate(cfg)
+			if err := validate(cfg); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

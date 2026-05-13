@@ -376,6 +376,9 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	if got := pa.GetToolArchiveStatus(); got.Count != 1 || got.Archived != 1 {
 		t.Fatalf("archive status=%+v", got)
 	}
+	if got := pa.GetRecentFlights(1); len(got) != 0 {
+		t.Fatalf("default proxy flights=%+v", got)
+	}
 
 	rpa := newRemoteProxyAdapter(cfg)
 	rpa.mu.Lock()
@@ -389,6 +392,9 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	}
 	if got := rpa.GetToolArchiveStatus(); got.Count != 8 || got.Expanded != 10 {
 		t.Fatalf("remote archive status=%+v", got)
+	}
+	if got := rpa.GetRecentFlights(3); got != nil {
+		t.Fatalf("remote flights should be nil until admin transport exposes them, got %+v", got)
 	}
 
 	// T77 quality adapters: proxyAdapter pulls from QualitySnapshot,

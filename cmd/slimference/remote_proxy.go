@@ -12,6 +12,7 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/daemon"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/tui"
@@ -179,6 +180,10 @@ func (a *remoteProxyAdapter) GetRecentRequests(n int) []types.RequestMetrics {
 	}
 	start := len(a.status.RecentRequests) - n
 	return append([]types.RequestMetrics(nil), a.status.RecentRequests[start:]...)
+}
+
+func (a *remoteProxyAdapter) GetRecentFlights(int) []dbg.FlightRequestSummary {
+	return nil
 }
 
 func (a *remoteProxyAdapter) GetLayer2Status() tui.Layer2Status {

@@ -1221,17 +1221,23 @@ func TestCollectFeaturesSection(t *testing.T) {
 func TestParseCodexConfigState(t *testing.T) {
 	t.Parallel()
 
-	state := parseCodexConfigState("openai_base_url = \"http://127.0.0.1:8990\" # keep\ncodex_hooks = true\n")
+	state := parseCodexConfigState("openai_base_url = \"http://127.0.0.1:8990\" # keep\nchatgpt_base_url = \"http://127.0.0.1:8990\"\ncodex_hooks = true\n")
 	if !state.HasOpenAIBaseURL || state.OpenAIBaseURL != "http://127.0.0.1:8990" {
 		t.Fatalf("unexpected base url state: %#v", state)
+	}
+	if !state.HasChatGPTBaseURL || state.ChatGPTBaseURL != "http://127.0.0.1:8990" {
+		t.Fatalf("unexpected chatgpt base url state: %#v", state)
 	}
 	if state.CodexHooks == nil || !*state.CodexHooks {
 		t.Fatalf("expected codex_hooks=true, got %#v", state)
 	}
 
-	state = parseCodexConfigState("openai_base_url = broken\ncodex_hooks = false\n")
+	state = parseCodexConfigState("openai_base_url = broken\nchatgpt_base_url = broken\ncodex_hooks = false\n")
 	if !state.HasOpenAIBaseURL || state.OpenAIBaseURL != "" {
 		t.Fatalf("broken quoted base url should still mark presence without parsed value: %#v", state)
+	}
+	if !state.HasChatGPTBaseURL || state.ChatGPTBaseURL != "" {
+		t.Fatalf("broken quoted chatgpt url should still mark presence without parsed value: %#v", state)
 	}
 	if state.CodexHooks == nil || *state.CodexHooks {
 		t.Fatalf("expected codex_hooks=false, got %#v", state)
@@ -1398,7 +1404,7 @@ func TestVerifyReport_codexLegacyUpgrade(t *testing.T) {
 	}
 }
 
-func TestVerifyReport_codexConfigConflict(t *testing.T) {
+func TestVerifyReport_codexConfigConflictIgnored(t *testing.T) {
 	t.Parallel()
 
 	home := t.TempDir()
@@ -1433,9 +1439,13 @@ func TestVerifyReport_codexConfigConflict(t *testing.T) {
 
 	lines, ok := VerifyReport(home)
 	if ok {
-		t.Fatal("verify should fail on config conflict")
+		t.Fatal("verify report should still fail because Claude hooks are absent")
 	}
-	if !strings.Contains(strings.Join(lines, "\n"), "config conflict") {
-		t.Fatalf("expected config conflict report, got %v", lines)
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "config conflict") {
+		t.Fatalf("hook verify must not report config conflict, got %v", lines)
+	}
+	if !strings.Contains(joined, "config-patch status not checked") {
+		t.Fatalf("expected config-patch owner hint, got %v", lines)
 	}
 }

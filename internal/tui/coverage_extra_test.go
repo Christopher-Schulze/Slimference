@@ -55,10 +55,10 @@ func TestModel_SetupSteps_ServiceInstallCheckTrue(t *testing.T) {
 	model := NewModel(newMockProxy())
 	model.SetServiceControl(&mockServiceControl{})
 	steps := model.setupSteps()
-	if len(steps) != 3 {
+	if len(steps) != 5 {
 		t.Fatalf("unexpected step count: %d", len(steps))
 	}
-	if !steps[2].check() {
+	if !steps[4].check() {
 		t.Fatal("expected launchd step to report installed service")
 	}
 }
@@ -138,6 +138,66 @@ func TestUpdate_SetupServiceErrorBranches(t *testing.T) {
 	}
 }
 
+func TestUpdate_SetupTransparentKeys(t *testing.T) {
+	proxy := newMockProxy()
+	model := NewModel(proxy)
+	model.view = ViewSetup
+	svc := &mockServiceControl{}
+	model.SetServiceControl(svc)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model = updated.(Model)
+	if !svc.transparentInstalled || !svc.transparentEnabled || !strings.Contains(model.flashMsg, "armed") {
+		t.Fatalf("arm transparent failed: svc=%+v flash=%q", svc, model.flashMsg)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model = updated.(Model)
+	if !svc.transparentDisabled || !strings.Contains(model.flashMsg, "disarmed") {
+		t.Fatalf("disarm transparent failed: svc=%+v flash=%q", svc, model.flashMsg)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}})
+	model = updated.(Model)
+	if !svc.transparentRemoved || !strings.Contains(model.flashMsg, "uninstalled") {
+		t.Fatalf("uninstall transparent failed: svc=%+v flash=%q", svc, model.flashMsg)
+	}
+}
+
+func TestUpdate_SetupTransparentKeyErrors(t *testing.T) {
+	for _, key := range []rune{'a', 'u'} {
+		model := NewModel(newMockProxy())
+		model.view = ViewSetup
+		model.SetServiceControl(&mockServiceControl{err: errors.New("boom")})
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+		got := updated.(Model)
+		if !strings.Contains(got.flashMsg, "failed") && !strings.Contains(got.flashMsg, "Install failed") {
+			t.Fatalf("key %q flash=%q", string(key), got.flashMsg)
+		}
+	}
+}
+
+func TestUpdate_SetupTransparentArmDisarmErrors(t *testing.T) {
+	for _, armed := range []bool{false, true} {
+		model := NewModel(newMockProxy())
+		model.view = ViewSetup
+		model.SetServiceControl(&mockServiceControl{
+			err: errors.New("boom"),
+			transparentStatus: TransparentStatus{
+				CAExists:           true,
+				CATrusted:          true,
+				AutoStartInstalled: true,
+				ProxyArmed:         armed,
+			},
+		})
+		updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+		got := updated.(Model)
+		if !strings.Contains(got.flashMsg, "failed") {
+			t.Fatalf("armed=%v flash=%q", armed, got.flashMsg)
+		}
+	}
+}
+
 func TestUpdate_BypassToggleOnAndOff(t *testing.T) {
 	proxy := newMockProxy()
 	model := NewModel(proxy)
@@ -155,16 +215,58 @@ func TestUpdate_BypassToggleOnAndOff(t *testing.T) {
 	}
 }
 
+func TestRenderTransparentStatusLineStates(t *testing.T) {
+	styles := NewStyles()
+	cases := []struct {
+		status TransparentStatus
+		want   string
+	}{
+		{status: TransparentStatus{ProxyArmed: true, DaemonReachable: true, ActiveServices: 2}, want: "daemon reachable"},
+		{status: TransparentStatus{ProxyArmed: true, ActiveServices: 1}, want: "daemon unreachable"},
+		{status: TransparentStatus{CAExists: true, CATrusted: true, AutoStartInstalled: true}, want: "installed"},
+		{status: TransparentStatus{CAExists: true}, want: "partially installed"},
+		{status: TransparentStatus{NetworkUnavailable: true}, want: "networksetup unavailable"},
+		{status: TransparentStatus{}, want: "not installed"},
+	}
+	for _, tc := range cases {
+		if got := renderTransparentStatusLine(styles, tc.status); !strings.Contains(got, tc.want) {
+			t.Fatalf("status line=%q want %q", got, tc.want)
+		}
+	}
+}
+
+func TestSetupSteps_ClaudeActionAndPartialState(t *testing.T) {
+	model := NewModel(newMockProxy())
+	svc := &mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}}
+	model.SetServiceControl(svc)
+
+	actions := model.dashboardActions()
+	foundPartial := false
+	for _, action := range actions {
+		if action.id == "transparent" && action.state == "partial" {
+			foundPartial = true
+		}
+	}
+	if !foundPartial {
+		t.Fatalf("transparent partial dashboard action missing: %+v", actions)
+	}
+
+	steps := model.setupSteps()
+	if err := steps[3].action(&model); err != nil {
+		t.Fatalf("claude action failed: %v", err)
+	}
+}
+
 func TestSetupSteps_ActionClosures(t *testing.T) {
 	model := NewModel(newMockProxy())
 	svc := &mockServiceControl{}
 	model.SetServiceControl(svc)
 
 	steps := model.setupSteps()
-	if err := steps[1].action(&model); err != nil {
+	if err := steps[2].action(&model); err != nil {
 		t.Fatalf("codex action failed: %v", err)
 	}
-	if err := steps[2].action(&model); err != nil {
+	if err := steps[4].action(&model); err != nil {
 		t.Fatalf("service action failed: %v", err)
 	}
 	if !svc.installed {
@@ -218,6 +320,28 @@ func TestRenderViews_CoverageBranches(t *testing.T) {
 
 	if header := model.renderHeader(1); !strings.Contains(header, "SLIMFERENCE v") {
 		t.Fatalf("unexpected narrow header: %q", header)
+	}
+}
+
+func TestRenderSetupView_TransparentArmedAndTrustMissing(t *testing.T) {
+	armed := NewModel(newMockProxy())
+	armed.view = ViewSetup
+	armed.width = 100
+	armed.SetServiceControl(&mockServiceControl{transparentStatus: TransparentStatus{
+		ProxyArmed:      true,
+		ActiveServices:  1,
+		DaemonReachable: true,
+	}})
+	if view := armed.renderSetupView(); !strings.Contains(view, "ARMED") {
+		t.Fatalf("armed setup view missing ARMED: %s", view)
+	}
+
+	untrusted := NewModel(newMockProxy())
+	untrusted.view = ViewSetup
+	untrusted.width = 100
+	untrusted.SetServiceControl(&mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}})
+	if view := untrusted.renderSetupView(); !strings.Contains(view, "trusted CA") {
+		t.Fatalf("untrusted setup view missing trusted CA: %s", view)
 	}
 }
 

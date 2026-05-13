@@ -358,6 +358,19 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	prePromptCacheBody := newBody
+	promptCacheDecision := openAIPromptCacheDecision{Reason: "disabled"}
+	if injectedBody, decision := p.injectOpenAIPromptCache(provider, newBody, model, compressedTokens, sessionID); decision.Applied {
+		newBody = injectedBody
+		promptCacheDecision = decision
+		log.Debug("openai prompt-cache fields injected",
+			"key_set", decision.Key != "",
+			"retention", decision.Retention,
+		)
+	} else {
+		promptCacheDecision = decision
+	}
+
 	// --- 8.5 Response cache lookup (Layer 3) ---
 	var cacheKey [32]byte
 	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(newBody)
@@ -381,7 +394,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				summary := dbg.RequestSummary{
 					RequestID:          reqID,
 					Timestamp:          start,
+					Source:             "proxy",
 					Provider:           provider.String(),
+					Host:               r.Host,
+					Path:               r.URL.Path,
+					RouteMode:          "local_cache",
 					Model:              model,
 					TotalMessages:      len(messages),
 					MessagesInWindow:   effectiveWindow,
@@ -399,9 +416,16 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					CacheHit:          true,
 					CacheReadTokens:   0,
 					CacheCreateTokens: 0,
-					ProxyLatencyMs:    cacheLatencyMs,
-					ReReadCount:       reReadCount,
-					NetSavedTokens:    totalSaved,
+					OutputTokens:      outputTokens,
+					OutputReduce: dbg.OutputReduceSummary{
+						Applied:     outputReduceStats.Applied,
+						Profile:     outputReduceStats.Profile,
+						Reason:      outputReduceStats.Reason,
+						AddedTokens: outputReduceStats.AddedTokens,
+					},
+					ProxyLatencyMs: cacheLatencyMs,
+					ReReadCount:    reReadCount,
+					NetSavedTokens: totalSaved,
 					AdaptiveWindow: dbg.AdaptiveWindowSummary{
 						Size:   windowDecision.Size,
 						Score:  windowDecision.Score,
@@ -471,6 +495,19 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 9. Forward to upstream ---
 	upstreamResp, err := p.doUpstreamRequest(r, provider, upstreamBody)
+	if err == nil && promptCacheDecision.Applied && upstreamResp != nil && peekPromptCacheUnsupportedError(upstreamResp) {
+		log.Warn("openai prompt-cache fields rejected, retrying without cache hints",
+			"reason", promptCacheDecision.Reason)
+		upstreamResp.Body.Close()
+		upstreamBody = prePromptCacheBody
+		promptCacheDecision = openAIPromptCacheDecision{Reason: "rejected_retry"}
+		if p.config.Proxy.ServerStateEnabled && p.serverState != nil && serverStateUsed {
+			if rewritten, ok := rewriteWithPreviousID(provider, prePromptCacheBody, p.serverState.Get(serverStateKey)); ok {
+				upstreamBody = rewritten
+			}
+		}
+		upstreamResp, err = p.doUpstreamRequest(r, provider, upstreamBody)
+	}
 	if err == nil && serverStateUsed && upstreamResp != nil {
 		if shouldRecover, _ := peekUnknownPreviousIDError(upstreamResp); shouldRecover {
 			log.Warn("server-state previous_response_id rejected, retrying with full body",
@@ -508,9 +545,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	} else {
 		responseBody = passthrough(w, upstreamResp)
 		outputTokens = estimateTokensFromText(string(responseBody))
-		if provider == types.Anthropic {
-			upstreamCacheUsage = extractAnthropicCacheUsageFromBody(responseBody)
-		}
+		upstreamCacheUsage = extractCacheUsageFromBody(provider.String(), responseBody)
 	}
 	if p.outputReduce != nil {
 		p.outputReduce.ObserveOutput(outputTokens)
@@ -600,11 +635,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 11. Trigger async Layer 2 compression if needed ---
 	if p.isLayerEnabled(2) && p.layer2.ShouldTriggerCompressionSessionWindow(sessionID, messages, effectiveWindow) {
-		select {
-		case p.compressQueue <- types.CompressJob{Messages: messages, Timestamp: time.Now(), SessionID: sessionID}:
-		default:
-			// Queue full, compression already in progress - skip.
-		}
+		enqueueCompressionJob(p.compressQueue, types.CompressJob{Messages: messages, Timestamp: time.Now(), SessionID: sessionID})
 	}
 
 	// --- Debug decision recording ---
@@ -612,7 +643,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		summary := dbg.RequestSummary{
 			RequestID:          reqID,
 			Timestamp:          start,
+			SessionID:          sessionID,
+			Source:             "proxy",
 			Provider:           provider.String(),
+			Host:               r.Host,
+			Path:               r.URL.Path,
+			RouteMode:          "upstream",
 			Model:              model,
 			TotalMessages:      len(messages),
 			MessagesInWindow:   effectiveWindow,
@@ -626,13 +662,24 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				Saved:       totalSaved,
 				Ratio:       compressionRatio,
 			},
-			Layer1Breakdown:   layer1Breakdown,
-			CacheHit:          false,
-			CacheReadTokens:   upstreamCacheUsage.ReadTokens,
-			CacheCreateTokens: upstreamCacheUsage.CreateTokens,
-			ProxyLatencyMs:    proxyLatencyMs,
-			ReReadCount:       reReadCount,
-			NetSavedTokens:    totalSaved,
+			Layer1Breakdown:      layer1Breakdown,
+			CacheHit:             false,
+			CacheReadTokens:      upstreamCacheUsage.ReadTokens,
+			CacheCreateTokens:    upstreamCacheUsage.CreateTokens,
+			ProviderInputTokens:  upstreamCacheUsage.InputTokens,
+			ProviderCachedTokens: upstreamCacheUsage.ReadTokens,
+			ProviderOutputTokens: outputTokens,
+			OutputTokens:         outputTokens,
+			OutputReduce: dbg.OutputReduceSummary{
+				Applied:     outputReduceStats.Applied,
+				Profile:     outputReduceStats.Profile,
+				Reason:      outputReduceStats.Reason,
+				AddedTokens: outputReduceStats.AddedTokens,
+			},
+			PreviousResponseIDUsed: serverStateUsed,
+			ProxyLatencyMs:         proxyLatencyMs,
+			ReReadCount:            reReadCount,
+			NetSavedTokens:         totalSaved,
 			AdaptiveWindow: dbg.AdaptiveWindowSummary{
 				Size:   windowDecision.Size,
 				Score:  windowDecision.Score,
@@ -705,7 +752,9 @@ func (p *Proxy) serveStageACacheHit(
 		summary := dbg.RequestSummary{
 			RequestID:          reqID,
 			Timestamp:          start,
+			Source:             "proxy",
 			Provider:           provider.String(),
+			RouteMode:          "local_cache",
 			Model:              model,
 			TotalMessages:      totalMessages,
 			MessagesInWindow:   aw.Size,
@@ -722,6 +771,7 @@ func (p *Proxy) serveStageACacheHit(
 			CacheHit:          true,
 			CacheReadTokens:   0,
 			CacheCreateTokens: 0,
+			OutputTokens:      outputTokens,
 			ProxyLatencyMs:    latencyMs,
 			ReReadCount:       0,
 			NetSavedTokens:    0,
@@ -1071,6 +1121,14 @@ func (p *Proxy) handlePassthrough(w http.ResponseWriter, r *http.Request, provid
 		streamingRelay(r.Context(), w, resp, provider.String())
 	} else {
 		passthrough(w, resp)
+	}
+}
+
+func enqueueCompressionJob(queue chan types.CompressJob, job types.CompressJob) {
+	select {
+	case queue <- job:
+	default:
+		// Queue full, compression already in progress - skip.
 	}
 }
 

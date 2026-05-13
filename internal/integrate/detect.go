@@ -115,9 +115,10 @@ func DetectCodex(home string) ClientStatus {
 		appendCodexHookDetails(&s, hookState)
 	}
 	if configComplete {
-		s.Details = append(s.Details, "config.toml: wired (openai_base_url + chatgpt_base_url)")
+		s.Details = append(s.Details, "config-patch: installed (openai_base_url + chatgpt_base_url)")
 	} else {
-		s.Details = append(s.Details, "config.toml: not wired/incomplete")
+		s.Details = append(s.Details, "config-patch: off/incomplete")
+		s.Details = append(s.Details, "transparent proxy mode does not require Codex config-patch")
 	}
 
 	wired := 0

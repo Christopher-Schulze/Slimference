@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/tlsca"
 )
 
@@ -216,6 +217,53 @@ func TestConnectInterceptor_PassthroughDialFailureLogged(t *testing.T) {
 	_, _ = io.Copy(io.Discard, br)
 	if !strings.Contains(logged.String(), "dial failed") {
 		t.Fatalf("expected dial-failure log, got %q", logged.String())
+	}
+}
+
+func TestConnectInterceptor_FlightRecorderRecordsRouting(t *testing.T) {
+	t.Parallel()
+	NewConnectInterceptor(nil, http.NotFoundHandler(), nil).recordFlight("api.anthropic.com", "", "mitm_connect", "noop", nil)
+	ci := NewConnectInterceptor(nil, http.NotFoundHandler(), []string{"api.openai.com"})
+	rec := dbg.NewRecorder(10, "")
+	ci.SetDebugRecorder(rec)
+
+	ci.recordFlight("github.com", "", "raw_passthrough", "host_not_intercepted", nil)
+	ci.recordFlight("chatgpt.com", "/backend-api/dev", "websocket_tunnel", "upgrade", nil)
+	ci.recordFlight("api.openai.com", "", "mitm_connect", "handshake_failed", errors.New("tls boom"))
+
+	flights := rec.Last(3, false)
+	if len(flights) != 3 {
+		t.Fatalf("flight count=%d", len(flights))
+	}
+	var sawRaw, sawWS, sawErr bool
+	for _, summary := range flights {
+		summary.EnsureFlight()
+		if summary.RouteMode == "raw_passthrough" && summary.Provider == "unknown" {
+			sawRaw = true
+		}
+		if summary.RouteMode == "websocket_tunnel" && summary.Provider == "codex_chatgpt" && summary.Path == "/backend-api/dev" {
+			sawWS = true
+		}
+		if summary.RouteMode == "mitm_connect" && len(summary.Errors) == 1 {
+			sawErr = true
+		}
+	}
+	if !sawRaw || !sawWS || !sawErr {
+		t.Fatalf("routing flights raw=%v ws=%v err=%v summaries=%+v", sawRaw, sawWS, sawErr, flights)
+	}
+}
+
+func TestProviderForConnectHost(t *testing.T) {
+	tests := map[string]string{
+		"api.anthropic.com": "anthropic",
+		"api.openai.com":    "openai",
+		"chatgpt.com":       "codex_chatgpt",
+		"example.com":       "unknown",
+	}
+	for host, want := range tests {
+		if got := providerForConnectHost(host); got != want {
+			t.Fatalf("providerForConnectHost(%q)=%q want %q", host, got, want)
+		}
 	}
 }
 

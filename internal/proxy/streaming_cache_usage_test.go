@@ -65,6 +65,53 @@ func TestExtractAnthropicCacheUsageFromBody(t *testing.T) {
 	}
 }
 
+func TestExtractOpenAICacheUsage(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		line      string
+		wantRead  int
+		wantInput int
+	}{
+		{"non-data line", "event: ping", 0, 0},
+		{"done sentinel", "data: [DONE]", 0, 0},
+		{"invalid json", "data: {oops", 0, 0},
+		{"chat prompt details", `data: {"usage":{"prompt_tokens":1200,"prompt_tokens_details":{"cached_tokens":768}}}`, 768, 1200},
+		{"responses input details", `data: {"usage":{"input_tokens":2400,"input_tokens_details":{"cached_tokens":1024}}}`, 1024, 2400},
+		{"details max wins", `data: {"usage":{"prompt_tokens":5,"input_tokens":9,"prompt_tokens_details":{"cached_tokens":100},"input_tokens_details":{"cached_tokens":200}}}`, 200, 9},
+		{"no usage", `data: {"choices":[{"delta":{"content":"hi"}}]}`, 0, 0},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			read, input := extractOpenAICacheUsage([]byte(tc.line))
+			if read != tc.wantRead || input != tc.wantInput {
+				t.Fatalf("got read=%d input=%d, want read=%d input=%d", read, input, tc.wantRead, tc.wantInput)
+			}
+		})
+	}
+}
+
+func TestExtractCacheUsageFromBody_OpenAIAndUnknown(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"usage":{"input_tokens":3000,"input_tokens_details":{"cached_tokens":2048}}}`)
+	usage := extractCacheUsageFromBody("openai", body)
+	if usage.ReadTokens != 2048 || usage.InputTokens != 3000 || usage.CreateTokens != 0 {
+		t.Fatalf("openai usage=%+v", usage)
+	}
+	usage = extractCacheUsageFromBody("codex_chatgpt", body)
+	if usage.ReadTokens != 2048 || usage.InputTokens != 3000 {
+		t.Fatalf("codex usage=%+v", usage)
+	}
+	if got := extractCacheUsageFromBody("other", body); got != (cacheUsage{}) {
+		t.Fatalf("unknown usage=%+v", got)
+	}
+	if got := extractOpenAICacheUsageFromBody([]byte("{oops")); got != (cacheUsage{}) {
+		t.Fatalf("invalid openai usage=%+v", got)
+	}
+}
+
 // TestExtractAnthropicCacheUsage_InputTokens returns the provider-reported
 // input_token total alongside cache fields.
 func TestExtractAnthropicCacheUsage_InputTokens(t *testing.T) {
@@ -134,6 +181,28 @@ func TestStreamingRelayWithUsage_InputTokensMaxWins(t *testing.T) {
 	_, usage := streamingRelayWithUsage(context.Background(), rec, resp, "anthropic")
 	if usage.InputTokens != 500 {
 		t.Fatalf("expected max input_tokens=500, got %d", usage.InputTokens)
+	}
+}
+
+func TestStreamingRelayWithUsage_AggregatesOpenAICacheFields(t *testing.T) {
+	t.Parallel()
+	sse := strings.Join([]string{
+		`data: {"usage":{"input_tokens":1000,"input_tokens_details":{"cached_tokens":250}}}`,
+		``,
+		`data: {"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":300},"output_tokens":9}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       readCloser(sse),
+	}
+	rec := httptest.NewRecorder()
+	output, usage := streamingRelayWithUsage(context.Background(), rec, resp, "codex_chatgpt")
+	if output != 9 || usage.ReadTokens != 550 || usage.InputTokens != 1200 {
+		t.Fatalf("output=%d usage=%+v", output, usage)
 	}
 }
 

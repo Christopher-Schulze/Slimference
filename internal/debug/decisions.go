@@ -64,26 +64,42 @@ type Layer2Summary struct {
 // RequestSummary aggregates all decision entries for one proxy request.
 // This is the top-level object returned by "slimference debug last".
 type RequestSummary struct {
-	RequestID          string                       `json:"req_id"`
-	Timestamp          time.Time                    `json:"ts"`
-	Provider           string                       `json:"provider"`
-	Model              string                       `json:"model"`
-	TotalMessages      int                          `json:"total_messages"`
-	MessagesInWindow   int                          `json:"messages_in_window"`
-	MessagesCompressed int                          `json:"messages_compressed"`
-	LayersApplied      []int                        `json:"layers_applied"`
-	Tokens             TokenCounts                  `json:"tokens"`
-	Layer1Breakdown    map[string]SubLayerBreakdown `json:"layer1_breakdown"`
-	Layer2             Layer2Summary                `json:"layer2"`
-	CacheHit           bool                         `json:"cache_hit"`
-	CacheReadTokens    int                          `json:"cache_read_tokens"`
-	CacheCreateTokens  int                          `json:"cache_create_tokens"`
-	SecretsRedacted    int                          `json:"secrets_redacted"`
-	ProxyLatencyMs     float64                      `json:"proxy_latency_ms"`
-	ReReadCount        int                          `json:"re_read_count"`     // T77
-	NetSavedTokens     int                          `json:"net_saved_tokens"`  // T77
-	AdaptiveWindow     AdaptiveWindowSummary        `json:"adaptive_window"`   // T112
-	Entries            []DecisionEntry              `json:"entries,omitempty"` // only with --trace
+	RequestID              string                       `json:"req_id"`
+	Timestamp              time.Time                    `json:"ts"`
+	SessionID              string                       `json:"session_id,omitempty"`
+	TurnID                 string                       `json:"turn_id,omitempty"`
+	Source                 string                       `json:"source,omitempty"`
+	Provider               string                       `json:"provider"`
+	Host                   string                       `json:"host,omitempty"`
+	Path                   string                       `json:"path,omitempty"`
+	ClientFamily           string                       `json:"client_family,omitempty"`
+	RouteMode              string                       `json:"route_mode,omitempty"`
+	BypassReason           string                       `json:"bypass_reason,omitempty"`
+	Model                  string                       `json:"model"`
+	TotalMessages          int                          `json:"total_messages"`
+	MessagesInWindow       int                          `json:"messages_in_window"`
+	MessagesCompressed     int                          `json:"messages_compressed"`
+	LayersApplied          []int                        `json:"layers_applied"`
+	Tokens                 TokenCounts                  `json:"tokens"`
+	Layer1Breakdown        map[string]SubLayerBreakdown `json:"layer1_breakdown"`
+	Layer2                 Layer2Summary                `json:"layer2"`
+	CacheHit               bool                         `json:"cache_hit"`
+	CacheReadTokens        int                          `json:"cache_read_tokens"`
+	CacheCreateTokens      int                          `json:"cache_create_tokens"`
+	ProviderInputTokens    int                          `json:"provider_input_tokens,omitempty"`
+	ProviderCachedTokens   int                          `json:"provider_cached_tokens,omitempty"`
+	ProviderOutputTokens   int                          `json:"provider_output_tokens,omitempty"`
+	OutputTokens           int                          `json:"output_tokens,omitempty"`
+	OutputReduce           OutputReduceSummary          `json:"output_reduce,omitempty"`
+	PreviousResponseIDUsed bool                         `json:"previous_response_id_used,omitempty"`
+	SecretsRedacted        int                          `json:"secrets_redacted"`
+	Errors                 []string                     `json:"errors,omitempty"`
+	ProxyLatencyMs         float64                      `json:"proxy_latency_ms"`
+	ReReadCount            int                          `json:"re_read_count"`     // T77
+	NetSavedTokens         int                          `json:"net_saved_tokens"`  // T77
+	AdaptiveWindow         AdaptiveWindowSummary        `json:"adaptive_window"`   // T112
+	Entries                []DecisionEntry              `json:"entries,omitempty"` // only with --trace
+	Flight                 *FlightRequestSummary        `json:"flight,omitempty"`
 }
 
 type AdaptiveWindowSummary struct {
@@ -119,6 +135,8 @@ func NewRecorder(capacity int, decisionsLog string) *Recorder {
 
 // Record appends a completed RequestSummary to the ring and optionally flushes to JSONL.
 func (r *Recorder) Record(s RequestSummary) {
+	s = RedactRequestSummary(s)
+	s.EnsureFlight()
 	r.mu.Lock()
 	r.summaries[r.head%r.cap] = s
 	r.head++
@@ -212,6 +230,12 @@ func (r *Recorder) flushJSONL(path string, s RequestSummary) {
 // Avoids nil checks in the hot path.
 type NopRecorder struct{}
 
-func (NopRecorder) Record(_ RequestSummary)                 {}
-func (NopRecorder) Last(_ int, _ bool) []RequestSummary     { return nil }
-func (NopRecorder) Aggregate() map[string]SubLayerBreakdown { return nil }
+func (NopRecorder) Record(_ RequestSummary) {}
+
+func (NopRecorder) Last(_ int, _ bool) []RequestSummary {
+	return nil
+}
+
+func (NopRecorder) Aggregate() map[string]SubLayerBreakdown {
+	return nil
+}
