@@ -78,8 +78,13 @@ type cacheUsage struct {
 func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstreamResp *http.Response, provider string) (outputTokens int, usage cacheUsage) {
 	defer upstreamResp.Body.Close()
 
-	// Copy all upstream response headers to client.
+	// Copy upstream response headers to the client. This relay writes
+	// scanner lines with normalized newlines, so an upstream Content-Length
+	// is no longer authoritative and would make net/http reject the write.
 	for k, vv := range upstreamResp.Header {
+		if strings.EqualFold(k, "Content-Length") {
+			continue
+		}
 		for _, v := range vv {
 			w.Header().Add(k, v)
 		}

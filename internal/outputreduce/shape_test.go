@@ -13,6 +13,7 @@ func TestDetectTaskShape(t *testing.T) {
 		body []byte
 		want TaskShape
 	}{
+		{name: "exact reply", body: []byte(`{"messages":[{"role":"user","content":"reply exactly: ok"}]}`), want: ShapeExactReply},
 		{name: "new file", body: []byte(`{"messages":[{"role":"user","content":"create file internal/x.go"}]}`), want: ShapeNewFile},
 		{name: "code edit", body: []byte(`{"messages":[{"role":"user","content":"apply_patch this bug"}]}`), want: ShapeCodeEdit},
 		{name: "debug", body: []byte(`{"messages":[{"role":"user","content":"debug this panic stack trace"}]}`), want: ShapeDebugging},
@@ -21,6 +22,7 @@ func TestDetectTaskShape(t *testing.T) {
 		{name: "tool", body: []byte(`{"messages":[{"role":"user","content":"stderr exit code command output"}]}`), want: ShapeToolReasoning},
 		{name: "direct", body: []byte(`{"messages":[{"role":"user","content":"what is this"}]}`), want: ShapeDirectAnswer},
 		{name: "invalid json fallback", body: []byte(`debug error`), want: ShapeDebugging},
+		{name: "ignores schema text", body: []byte(`{"tools":[{"description":"create file"}],"messages":[{"role":"user","content":"what is this"}]}`), want: ShapeDirectAnswer},
 	}
 	for _, tt := range tests {
 		tt := tt

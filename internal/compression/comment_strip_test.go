@@ -380,3 +380,261 @@ func TestStripHashLine_escapeInString(t *testing.T) {
 		t.Errorf("escaped content inside string must be preserved: %q", got)
 	}
 }
+
+func TestStripComments_extendedTextAndDataLanguages(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		lang       string
+		input      string
+		mustKeep   []string
+		mustRemove []string
+	}{
+		{
+			name: "json5",
+			lang: "json5",
+			input: `{
+  // explain field
+  url: "https://example.test/path",
+  count: 1 /* old */
+}`,
+			mustKeep:   []string{"https://example.test/path", "count: 1"},
+			mustRemove: []string{"explain field", "old"},
+		},
+		{
+			name: "sql",
+			lang: "sql",
+			input: `select '-- not a comment' as marker; -- real comment
+/* remove block */
+select 1;`,
+			mustKeep:   []string{"'-- not a comment'", "select 1"},
+			mustRemove: []string{"real comment", "remove block"},
+		},
+		{
+			name: "svelte",
+			lang: "svelte",
+			input: `<script lang="ts">
+  // script comment
+  export let name = "world";
+</script>
+<!-- markup comment -->
+<h1>{name}</h1>
+<style>
+/* style comment */
+h1 { color: red; }
+</style>`,
+			mustKeep:   []string{"export let name", "<h1>{name}</h1>", "color: red"},
+			mustRemove: []string{"script comment", "markup comment", "style comment"},
+		},
+		{
+			name: "markdown fences",
+			lang: "markdown",
+			input: `# Title
+<!-- hidden note -->
+
+` + "```ts" + `
+// code comment
+const url = "https://example.test";
+` + "```" + `
+Normal text stays.`,
+			mustKeep:   []string{"# Title", "https://example.test", "Normal text stays"},
+			mustRemove: []string{"hidden note", "code comment"},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := StripComments(tc.input, tc.lang)
+			if len(got) >= len(tc.input) {
+				t.Fatalf("expected shorter output, got len=%d input=%d\n%s", len(got), len(tc.input), got)
+			}
+			for _, want := range tc.mustKeep {
+				if !strings.Contains(got, want) {
+					t.Errorf("missing %q in %s", want, got)
+				}
+			}
+			for _, absent := range tc.mustRemove {
+				if strings.Contains(got, absent) {
+					t.Errorf("unexpected %q in %s", absent, got)
+				}
+			}
+		})
+	}
+}
+
+func TestStripSQLLine_conservativeDollarQuote(t *testing.T) {
+	t.Parallel()
+	var inBlock bool
+	line := `select $$ -- part of function body $$; -- untouched when dollar quoted`
+	got := stripSQLLine(line, &inBlock)
+	if got != line {
+		t.Fatalf("dollar-quoted SQL should pass through unchanged, got %q", got)
+	}
+}
+
+func TestStripCSSLine_blockState(t *testing.T) {
+	t.Parallel()
+	inBlock := false
+	got := stripCSSLine(`.a { color: red; } /* starts`, &inBlock)
+	if !inBlock {
+		t.Fatal("expected unclosed CSS block comment state")
+	}
+	if strings.Contains(got, "starts") {
+		t.Fatalf("unclosed comment tail should be removed: %q", got)
+	}
+	got = stripCSSLine(`still comment */ .b { color: blue; }`, &inBlock)
+	if inBlock {
+		t.Fatal("expected CSS block comment state to close")
+	}
+	if !strings.Contains(got, ".b") || strings.Contains(got, "still comment") {
+		t.Fatalf("expected remainder after CSS block close, got %q", got)
+	}
+	inBlock = true
+	got = stripCSSLine(`still comment`, &inBlock)
+	if !inBlock || got != "" {
+		t.Fatalf("unterminated in-block CSS should stay in block with empty output, got %q state=%v", got, inBlock)
+	}
+}
+
+func TestStripSQLLine_blockAndStringState(t *testing.T) {
+	t.Parallel()
+	var inBlock bool
+	got := stripSQLLine(`select 'it''s -- literal', "field--name", `+"`dash--key`"+`; -- strip`, &inBlock)
+	if strings.Contains(got, "strip") {
+		t.Fatalf("line comment after quoted SQL strings should be stripped: %q", got)
+	}
+	for _, want := range []string{"it''s -- literal", "field--name", "dash--key"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("quoted content %q should be preserved in %q", want, got)
+		}
+	}
+
+	got = stripSQLLine(`select 1 /* middle */ + 2;`, &inBlock)
+	if strings.Contains(got, "middle") || !strings.Contains(got, "+ 2") {
+		t.Fatalf("same-line SQL block comment not stripped correctly: %q", got)
+	}
+
+	got = stripSQLLine(`select 1 /* open`, &inBlock)
+	if !inBlock {
+		t.Fatal("expected SQL block comment state")
+	}
+	if strings.Contains(got, "open") {
+		t.Fatalf("unclosed SQL block tail should be removed: %q", got)
+	}
+	got = stripSQLLine(`comment closes */ select 2;`, &inBlock)
+	if inBlock {
+		t.Fatal("expected SQL block comment state to close")
+	}
+	if !strings.Contains(got, "select 2") || strings.Contains(got, "comment closes") {
+		t.Fatalf("expected SQL remainder after block close, got %q", got)
+	}
+	inBlock = true
+	got = stripSQLLine(`still comment`, &inBlock)
+	if !inBlock || got != "" {
+		t.Fatalf("unterminated in-block SQL should stay in block with empty output, got %q state=%v", got, inBlock)
+	}
+}
+
+func TestStripMarkdownComments_hashFence(t *testing.T) {
+	t.Parallel()
+	input := "```python\n# remove me\nvalue = \"# keep\"\n```\n"
+	got := StripComments(input, "markdown")
+	if strings.Contains(got, "remove me") {
+		t.Fatalf("hash comment inside markdown code fence should be stripped: %q", got)
+	}
+	if !strings.Contains(got, `"# keep"`) {
+		t.Fatalf("hash inside fenced string should be preserved: %q", got)
+	}
+}
+
+func TestMarkdownFenceLanguageAliases(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"```":                  "",
+		"```language-ts title": "typescript",
+		"```jsx":               "javascript",
+		"```rs":                "rust",
+		"```py":                "python",
+		"```bash":              "shell",
+		"```c++":               "cpp",
+		"```htm":               "html",
+		"```scss":              "css",
+		"```postgresql":        "sql",
+		"```json5":             "json5",
+	}
+	for line, want := range tests {
+		line, want := line, want
+		t.Run(line, func(t *testing.T) {
+			t.Parallel()
+			got, ok := markdownFenceLanguage(line)
+			if !ok || got != want {
+				t.Fatalf("got (%q,%v), want (%q,true)", got, ok, want)
+			}
+		})
+	}
+	if _, ok := markdownFenceLanguage("not a fence"); ok {
+		t.Fatal("non-fence should not match")
+	}
+	if isHashCommentLanguage("go") {
+		t.Fatal("go is not a hash-comment language")
+	}
+}
+
+func TestStripMarkdownComments_variedFenceLanguages(t *testing.T) {
+	t.Parallel()
+	input := "```sql\nselect 1; -- remove sql\n```\n" +
+		"```css\n/* remove css */ .x { color: red; }\n```\n" +
+		"```html\n<!-- remove html --><div>ok</div>\n```\n" +
+		"```brainfuck\n// keep unknown\n```\n"
+	got := StripComments(input, "markdown")
+	for _, absent := range []string{"remove sql", "remove css", "remove html"} {
+		if strings.Contains(got, absent) {
+			t.Fatalf("unexpected %q in %s", absent, got)
+		}
+	}
+	for _, want := range []string{"select 1", "color: red", "<div>ok</div>", "// keep unknown"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %s", want, got)
+		}
+	}
+}
+
+func TestStripSvelteComments_whitelistAndInlineTags(t *testing.T) {
+	t.Parallel()
+	input := `<script>const inline = true; // preserved on inline tag</script>
+<script>
+// SAFETY: preserve this invariant
+const x = 1; // remove
+</script>`
+	got := StripComments(input, "svelte")
+	if !strings.Contains(got, "SAFETY: preserve this invariant") {
+		t.Fatalf("whitelisted semantic comment should remain: %q", got)
+	}
+	if strings.Contains(got, "remove") {
+		t.Fatalf("script comment should be stripped: %q", got)
+	}
+	if !strings.Contains(got, "inline = true") {
+		t.Fatalf("inline script tag should pass through conservatively: %q", got)
+	}
+}
+
+func TestStripSQLComments_whitelist(t *testing.T) {
+	t.Parallel()
+	input := `-- SPDX-License-Identifier: MIT
+-- remove ordinary comment
+
+
+select 1;`
+	got := StripComments(input, "sql")
+	if !strings.Contains(got, "SPDX-License-Identifier") {
+		t.Fatalf("whitelisted SQL comment should remain: %q", got)
+	}
+	if strings.Contains(got, "ordinary comment") {
+		t.Fatalf("ordinary SQL comment should be stripped: %q", got)
+	}
+	if strings.Contains(got, "\n\n\n") {
+		t.Fatalf("blank lines should be normalised: %q", got)
+	}
+}

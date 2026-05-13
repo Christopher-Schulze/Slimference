@@ -69,6 +69,13 @@ type ProxyConfig struct {
 	ListenAddress string `toml:"listen_address"`
 	ListenPort    int    `toml:"listen_port"`
 	IPv6          bool   `toml:"ipv6"`
+	// DirectCodexWebSocketPolicy controls only local direct Codex CLI
+	// WebSocket upgrades that arrive via openai_base_url/chatgpt_base_url
+	// pointing at 127.0.0.1. It does not affect CONNECT/MITM transparent
+	// mode or Codex App traffic. "tunnel" preserves WebSocket byte-for-byte;
+	// "force_https_fallback" rejects the upgrade so Codex uses its native
+	// HTTPS transport, which lets the existing JSON compression pipeline run.
+	DirectCodexWebSocketPolicy string `toml:"direct_codex_websocket_policy"`
 	// AnthropicVersions lists the `anthropic-version` header values for
 	// which the full Layer 1 / Layer 2 pipeline is trusted. Requests
 	// carrying an unknown version downgrade to conservative mode (T62).
@@ -715,6 +722,11 @@ func applyEnvOverrides(cfg *Config) {
 func validate(cfg *Config) error {
 	if cfg.Proxy.ListenPort < 1 || cfg.Proxy.ListenPort > 65535 {
 		return fmt.Errorf("proxy.listen_port must be 1-65535, got %d", cfg.Proxy.ListenPort)
+	}
+	switch cfg.Proxy.DirectCodexWebSocketPolicy {
+	case "", "tunnel", "force_https_fallback":
+	default:
+		return fmt.Errorf("proxy.direct_codex_websocket_policy must be tunnel/force_https_fallback, got %q", cfg.Proxy.DirectCodexWebSocketPolicy)
 	}
 	pc := cfg.Proxy.OpenAIPromptCache
 	switch pc.PromptCacheKeyStrategy {

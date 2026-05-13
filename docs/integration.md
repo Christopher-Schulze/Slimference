@@ -162,10 +162,14 @@ openai_base_url = "http://127.0.0.1:8990/backend-api/codex"
 chatgpt_base_url = "http://127.0.0.1:8990/backend-api/"
 ```
 
-`slimference proxy env codex --proxied` uses these values as per-process
-`codex -c ...` overrides without mutating `~/.codex/config.toml`. Persistent
+`slimference proxy env codex --proxied` now uses a per-process custom provider
+named `slimference-codex` instead of the built-in `openai` provider. It points
+that provider at the same backend-prefixed base URL, sets
+`requires_openai_auth=true`, and sets `supports_websockets=false` so current
+Codex CLI uses HTTP directly without WebSocket retry/fallback delay. Persistent
 legacy config-patch mode via `slimference integrate install --client codex`
-writes the same prefixed values into the fenced Slimference block.
+still writes the prefixed `openai_base_url` and `chatgpt_base_url` values into
+the fenced Slimference block.
 
 From Cloudflare's / OpenAI's perspective the request volume is unchanged;
 the request path, query, authorization, cookies, and user-agent are forwarded

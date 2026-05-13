@@ -42,7 +42,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 ### Bestehende Dateien anpassen (HANDOVER „Files to MODIFY”)
 - [x] `cmd/slimference/main.go`: `filter`, `hook`, `rewrite`, `gain`, `debug` (`paths|last|summary|tail|replay`), `version` — vollständig implementiert
 - [x] `internal/compression/layer1.go`: Pipeline `spec+.md` §3/§5 komplett; alle Sub-Layer integriert
-- [x] `internal/compression/comment_strip.go` (10 Sprachen), `dedup.go` + `dedup_minhash.go` (MinHash/LSH)
+- [x] `internal/compression/comment_strip.go` (38 path languages), `dedup.go` + `dedup_minhash.go` (MinHash/LSH)
 - [x] `internal/compression/treesitter.go` → `structure.go` (Rename + alle Imports/Refs erledigt)
 - [x] `internal/proxy/handler.go`: Overflow §17.4, Fenster / `CompressiblePrefixEnd` / Prompt-Cache konsistent
 - [x] `go.mod`: `modernc.org/sqlite` drin, kein `gjson`
@@ -137,9 +137,9 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] L1.14: Pre-Filtered Content Tagging — `prefilter_tag.go` implementiert + getestet
 
 ### Existing Sub-Layer Improvements
-- [x] L1.2 Comment Strip: alle 10 Sprachen vorhanden (C, C++, Java, Ruby, Shell ergänzt)
+- [x] L1.2 Comment Strip: 38 path languages vorhanden inkl. Svelte, Markdown, SQL und JSON5
 - [x] L1.3 Dedup: MinHash/LSH in `dedup_minhash.go` — k=128, shingle=3, Jaccard 0.85
-- [x] L1.4 Code Structure Extraction: regex-basiert in `structure.go`; 10 Sprachen; `structure_more.go` für weitere Pattern
+- [x] L1.4 Code Structure Extraction: regex-basiert in `structure.go`; 19 Sprachen; `structure_more.go` für weitere Pattern
 - [x] L1.6 Prompt Cache: Breakpoint-Injektion nach Kompression verifiziert — `TestServeHTTP_promptCacheBreakpointsInjected` in `handler_compressible_test.go`
 
 ---
@@ -167,8 +167,8 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 ## Low-Hanging Fruits (Existing Code)
 
 - [x] dedup.go + dedup_minhash.go: MinHash/LSH (k=128, shingle=3, Jaccard 0.85) — implementiert + 100% Coverage
-- [x] `structure.go` (ehem. treesitter.go): Rename erledigt; Regex-Muster für alle 10 Sprachen implementiert
-- [x] comment_strip.go: C, C++, Java, Ruby, Shell — alle 10 Sprachen vorhanden (`spec+.md` §5.2)
+- [x] `structure.go` (ehem. treesitter.go): Rename erledigt; Regex-Muster für alle 19 Structure-Sprachen implementiert
+- [x] comment_strip.go: 38 path languages vorhanden inkl. Svelte, Markdown, SQL und JSON5 (`spec+.md` §5.2)
 - [x] layer1 / pipeline: ANSI zuerst (`spec+.md` §5.7), dann §3 Schritte 4a–4m — korrekte Reihenfolge in layer1.go
 - [x] layer1: Success-Short-Circuit (`spec+.md` §5.10) — `success_shortcircuit.go` implementiert + getestet
 - [x] **Sliding window:** `SlidingWindow` = Anzahl user-gestarteter Exchanges — in `layer1`, `layer2`, `handler` konsistent via `exchange_window.go`
@@ -176,10 +176,10 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] go.mod: `encoding/json` nur — kein gjson vorhanden
 - [x] go.mod: `modernc.org/sqlite` — drin, kein mattn/go-sqlite3
 - [x] handler.go: Context-Overflow §17.4 — aggressiver Re-Compress implementiert (Fenster 2, L2-Target 10 %, Fallback Roh-Body)
-- [x] config/defaults.go: `structure_languages` auf alle 10 Sprachen erweitert (go, ts, js, rust, python, c, cpp, java, ruby, shell)
+- [x] config/defaults.go: `structure_languages` auf 19 Sprachen erweitert (go, ts, js, rust, python, c, cpp, java, ruby, shell, zig, swift, kotlin, php, dart, scala, elixir, solidity, svelte)
 - [x] spec+.md: tree-sitter references replaced with regex-based extraction (DONE)
 - [x] spec+.md: config variables renamed from tree_sitter_* to structure_* (DONE)
-- [x] spec+.md: language support expanded to 10 in config defaults (DONE)
+- [x] spec+.md: language support expanded to 19 in config defaults (DONE)
 - [x] spec+.md: Section numbers updated (4->5, 5->6, etc.) (DONE)
 - [x] spec+.md: All section cross-references updated (14.4->16.4) (DONE)
 
@@ -799,7 +799,7 @@ Required order: T137 -> T133 -> T134 -> T135 -> T136 -> T138 -> T139 -> T141 -> 
 - [~] T138 - Session/turn ownership spine for AST and cross-tool state is in progress: the bounded `internal/sessions.TurnStateStore` core is landed, and Codex hook processes now share a file-backed turn-state adapter under `~/.slimference/turn-state/`. T125 FileReadContext is wired for PostToolUse/file-read compaction and recently-edited reads stay literal. T126 hot-path integration and body-on-demand retrieval remain open. Detail: `docs/todo/t138-session-turn-ownership-spine.md`
 - [x] T139 - 2026-05-13: TLS proof hardening landed for local scope. `internal/tlsproof` stores JSONL proof records under `~/.slimference/tls-proofs/`; `tls-probe` now supports reflected HTTPS proof attempts, JSON, save, and compare modes while still using `internal/tlsdial`; alias targets are explicit; `doctor` reports catalogue age plus latest reflected proof status. HTTP/2 reflector negotiation is marked unproven instead of faked. Live provider-edge proof still requires an operator-chosen reflector run. Detail: `docs/todo/t139-tls-provider-edge-proof.md`
 - [x] T141 - 2026-05-13: Output-reduce auto-tuning landed. Profiles are tiered (`off`, `mild`, `standard`, `aggressive`, `codex_aggressive`, `custom`), task-shape detection feeds shape-specific guardrails, analytics/flight records carry task-shape metadata, and the tracker can auto-downgrade provider/model/task-shape buckets on failure or overhead signals. `gain --output` stays baseline-honest: observed output only, no fake saving claim. Detail: `docs/todo/t141-output-token-auto-tuning.md`
-- [ ] T140 - Codex CLI/App live E2E certification and real corpus: CLI-only split proof is partially certified for the current Codex CLI without arming macOS System-HTTPS-Proxy (`proxy env codex --proxied`, per-process backend-prefixed base URLs, `route_mode=websocket_tunnel`, App remains direct). Remaining proof: Codex App, Browser-Use, voice/WebRTC bypass, disable/uninstall, scrubbed corpus savings, and WebSocket compression feasibility. Detail: `docs/todo/t140-codex-live-e2e-certification.md`
+- [ ] T140 - Codex CLI/App live E2E certification and real corpus: CLI-only split proof is partially certified for the current Codex CLI without arming macOS System-HTTPS-Proxy (`proxy env codex --proxied`, per-process `slimference-codex` custom provider, `supports_websockets=false`, App remains direct). Default WebSocket tunnel works byte-for-byte; the old `direct_codex_websocket_policy = "force_https_fallback"` path remains only as fallback proof mode. Live CLI smoke + CLI tool-loop passed through the zstd HTTP pipeline. Remaining proof: Codex App, Browser-Use, voice/WebRTC bypass, disable/uninstall, scrubbed corpus savings, and WebSocket compression feasibility. Detail: `docs/todo/t140-codex-live-e2e-certification.md`
 
 ### Phase Z - Robustness, parsers, observability (P1/P2)
 

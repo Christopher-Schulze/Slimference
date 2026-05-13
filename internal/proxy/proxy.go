@@ -336,6 +336,8 @@ func New(cfg *config.Config) *Proxy {
 	// HTTP server with the proxy mux.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", p.healthHandler)
+	mux.HandleFunc("/admin/health", p.healthHandler)
+	mux.HandleFunc(AdminHealthPath, p.healthHandler)
 	mux.HandleFunc(AdminStatusPath, p.adminStatusHandler)
 	mux.HandleFunc(AdminProviderPath, p.adminProviderHandler)
 	mux.HandleFunc(AdminLayerPath, p.adminLayerHandler)
@@ -585,6 +587,21 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // CONNECT-MITM stream, so it must be tunneled before the JSON compression
 // handler tries to read a nonexistent request body.
 func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Request, provider types.Provider) {
+	if provider == types.CodexChatGPT && p.config.Proxy.DirectCodexWebSocketPolicy == "force_https_fallback" {
+		if p.debugRecorder != nil {
+			p.debugRecorder.Record(dbg.RequestSummary{
+				RequestID: newRequestIDFn(),
+				Timestamp: time.Now(),
+				Source:    "proxy",
+				Provider:  provider.String(),
+				Host:      r.Host,
+				Path:      r.URL.Path,
+				RouteMode: "websocket_force_https_fallback",
+			})
+		}
+		http.Error(w, "codex websocket disabled by Slimference direct CLI policy", http.StatusServiceUnavailable)
+		return
+	}
 	if p.webSocketTunnel == nil {
 		http.Error(w, "websocket tunnel unavailable", http.StatusBadGateway)
 		return

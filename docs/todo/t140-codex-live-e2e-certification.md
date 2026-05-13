@@ -127,9 +127,18 @@ One manual-but-scripted certification run proves:
 - This task is allowed to use the user's live Codex CLI/App only when the operator explicitly starts certification.
 - Default CI must never call paid/live provider endpoints.
 - 2026-05-13 partial CLI-only proof completed without arming macOS System-HTTPS-Proxy:
-  - `slimference proxy env codex --proxied` now prints a non-mutating per-process command using `openai_base_url="http://127.0.0.1:8990/backend-api/codex"` and `chatgpt_base_url="http://127.0.0.1:8990/backend-api/"`.
+  - The first helper version printed a non-mutating per-process command using `openai_base_url="http://127.0.0.1:8990/backend-api/codex"` and `chatgpt_base_url="http://127.0.0.1:8990/backend-api/"`.
   - Live command returned `SLIMFERENCE_CLI_PROXY_OK`.
   - Flight evidence recorded `provider=codex_chatgpt`, `host=127.0.0.1:8990`, `path=/backend-api/codex/responses`, `route_mode=websocket_tunnel`.
   - `~/.codex/config.toml` remained unmodified; no `openai_base_url` or `chatgpt_base_url` lines were present after the test.
   - `slimference proxy status` showed every macOS Network service `off`, so Codex App remained direct for this mode.
-- This proof certifies CLI-only routing and WebSocket continuity. It does not certify token savings on Codex WebSocket traffic because current `WebSocketTunnel` is byte-for-byte by design; message-boundary compression remains a future follow-up after live frame-shape capture.
+- 2026-05-13 follow-up CLI-only proof completed with `[proxy] direct_codex_websocket_policy = "force_https_fallback"`:
+  - Current Codex CLI retried the local WebSocket, then fell back to HTTP.
+  - Slimference decoded Codex's zstd request body, ran the normal HTTP pipeline, re-encoded zstd upstream, and the live command returned `slimference-cli-zstd-fixed`.
+  - A live tool-loop command returned `slimference-cli-tool-output-ok` after the shell tool output was sent back through the fallback HTTP path.
+  - Flight evidence for the final tool-loop showed `route_mode=upstream`, `provider=codex_chatgpt`, output-reduce skipped with `reason=exact_reply`, and no negative input-token overhead.
+- 2026-05-13 final CLI-only proof switched the preferred helper to a custom Codex provider:
+  - `slimference proxy env codex --proxied` now prints `model_provider="slimference-codex"` plus `[model_providers.slimference-codex]` overrides for `base_url="http://127.0.0.1:8990/backend-api/codex"`, `requires_openai_auth=true`, `supports_websockets=false`, and `wire_api="responses"`.
+  - Live command returned `slimference-custom-provider-ok` without WebSocket retry/fallback noise.
+  - Flight evidence showed one direct HTTP `route_mode=upstream` request on `/backend-api/codex/responses`; the prior `websocket_force_https_fallback` records are now legacy evidence only.
+- This proof certifies CLI-only routing, WebSocket continuity, and the zstd HTTP pipeline for current Codex CLI. It does not certify token savings on Codex WebSocket traffic because current `WebSocketTunnel` is byte-for-byte by design; message-boundary compression remains a future follow-up after live frame-shape capture.

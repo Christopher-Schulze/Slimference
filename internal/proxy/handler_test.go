@@ -93,6 +93,7 @@ func TestHealthHandler(t *testing.T) {
 		Status            string          `json:"status"`
 		Service           string          `json:"service"`
 		Version           string          `json:"version"`
+		PID               int             `json:"pid"`
 		Layers            map[string]bool `json:"layers"`
 		Providers         map[string]bool `json:"providers"`
 		QueueDepth        map[string]int  `json:"queue_depth"`
@@ -107,6 +108,9 @@ func TestHealthHandler(t *testing.T) {
 	}
 	if body.Service != "slimference" {
 		t.Errorf("service = %q, want slimference", body.Service)
+	}
+	if body.PID <= 0 {
+		t.Errorf("pid = %d, want positive process id", body.PID)
 	}
 	// Default config enables L1+L2+L3 (T129 re-flipped L2 default-on).
 	if !body.Layers["1"] || !body.Layers["2"] || !body.Layers["3"] {

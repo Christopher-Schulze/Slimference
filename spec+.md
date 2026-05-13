@@ -128,8 +128,11 @@ shrinks input at entry time, Layers 1-3 compress the already-smaller history fur
 
 1. **Zero-downside guarantee**: If compression would degrade quality, skip it. Uncompressed
    passthrough is always the fallback. The proxy must NEVER make things worse.
-2. **Additive-only transformation**: The proxy only REMOVES or REPLACES tokens. It never
-   ADDS content to the conversation that the user/model did not produce.
+2. **Compression transformations are subtractive by default**: Layer 0-3 only REMOVE or
+   REPLACE tokens. The explicit Layer 4/output-reduce exception may add a short,
+   marker-scoped provider directive to reduce expensive completion tokens; it must be
+   observable, configurable, skipped for exact-answer turns, and auto-tuned off when net
+   value is not proven.
 3. **Transparency**: Every compression decision is logged. The user can inspect exactly
    what was changed and why.
 4. **Graceful degradation**: If MiniMax is down, Layer 2 is skipped. If regex extraction
@@ -3359,7 +3362,7 @@ min_tokens_for_layer2 = 30000
 structure_min_tokens = 500
 
 # Structure extraction: languages to support (others pass through uncompressed)
-structure_languages = ["go", "typescript", "javascript", "rust", "python", "c", "cpp", "java", "ruby", "shell"]
+structure_languages = ["go", "typescript", "javascript", "rust", "python", "c", "cpp", "java", "ruby", "shell", "zig", "swift", "kotlin", "php", "dart", "scala", "elixir", "solidity", "svelte"]
 
 # Deduplication: similarity threshold for near-duplicate detection (0.0-1.0)
 dedup_similarity_threshold = 0.85
@@ -4300,7 +4303,7 @@ Layer 1 compression:
 - JSON minification: valid/invalid JSON, nested objects, arrays, edge cases
 - Comment stripping: per language, string literal preservation, multiline
 - Deduplication: exact match, near-duplicate, no-match, edge similarities
-- Structure extraction: per language (10), regex failures, minimum size threshold
+- Structure extraction: per language (19), regex failures, minimum size threshold
 - Delta encoding: identical files, small diffs, large diffs, new files
 - Prompt cache: breakpoint placement, minimum size, multiple breakpoints
 

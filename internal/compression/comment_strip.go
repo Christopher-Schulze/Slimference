@@ -51,7 +51,7 @@ func stripCommentsByLang(code, lang string) string {
 	case "go", "typescript", "javascript", "rust", "c", "cpp", "cxx", "java",
 		"zig", "swift", "kotlin", "php", "dart", "lua", "scala", "graphql",
 		"protobuf", "hcl", "powershell", "perl", "ocaml", "haskell",
-		"erlang", "elixir", "solidity", "jsonnet":
+		"erlang", "elixir", "solidity", "json5", "jsonnet":
 		return stripCStyleComments(code)
 	case "ruby", "shell", "bash", "sh", "zsh", "make", "dockerfile":
 		return stripHashComments(code)
@@ -63,6 +63,12 @@ func stripCommentsByLang(code, lang string) string {
 		return stripCSSComments(code)
 	case "yaml", "toml":
 		return stripHashComments(code)
+	case "svelte":
+		return stripSvelteComments(code)
+	case "markdown":
+		return stripMarkdownComments(code)
+	case "sql":
+		return stripSQLComments(code)
 	default:
 		return code
 	}
@@ -315,6 +321,304 @@ func stripCSSComments(code string) string {
 		remaining = after[end+2:]
 	}
 	return normalizeBlankLines(b.String())
+}
+
+func stripCSSLine(line string, inBlock *bool) string {
+	var b strings.Builder
+	i := 0
+	for i < len(line) {
+		if *inBlock {
+			end := strings.Index(line[i:], "*/")
+			if end == -1 {
+				return b.String()
+			}
+			i += end + 2
+			*inBlock = false
+			continue
+		}
+		if i+1 < len(line) && line[i] == '/' && line[i+1] == '*' {
+			end := strings.Index(line[i+2:], "*/")
+			if end == -1 {
+				*inBlock = true
+				return b.String()
+			}
+			i = i + 2 + end + 2
+			continue
+		}
+		b.WriteByte(line[i])
+		i++
+	}
+	return b.String()
+}
+
+func stripSvelteComments(code string) string {
+	lines := strings.Split(code, "\n")
+	result := make([]string, 0, len(lines))
+	inScript := false
+	inStyle := false
+	inScriptBlock := false
+	inStyleBlock := false
+	consecutiveBlanks := 0
+
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		if isWhitelistedComment(line) {
+			result = append(result, line)
+			consecutiveBlanks = 0
+			continue
+		}
+
+		stripped := line
+		switch {
+		case inScript:
+			if strings.Contains(lower, "</script>") {
+				inScript = false
+				inScriptBlock = false
+			} else {
+				stripped = stripCStyleLine(line, &inScriptBlock)
+			}
+		case inStyle:
+			if strings.Contains(lower, "</style>") {
+				inStyle = false
+				inStyleBlock = false
+			} else {
+				stripped = stripCSSLine(line, &inStyleBlock)
+			}
+		default:
+			stripped = stripHTMLComments(line)
+			if strings.Contains(lower, "<script") && !strings.Contains(lower, "</script>") {
+				inScript = true
+			} else if strings.Contains(lower, "<style") && !strings.Contains(lower, "</style>") {
+				inStyle = true
+			}
+		}
+
+		trimmed := strings.TrimSpace(stripped)
+		if trimmed == "" {
+			consecutiveBlanks++
+			if consecutiveBlanks <= 1 {
+				result = append(result, "")
+			}
+			continue
+		}
+		consecutiveBlanks = 0
+		result = append(result, stripped)
+	}
+
+	return strings.Join(result, "\n")
+}
+
+func stripMarkdownComments(code string) string {
+	lines := strings.Split(code, "\n")
+	result := make([]string, 0, len(lines))
+	inFence := false
+	fenceLang := ""
+	inCBlock := false
+	inSQLBlock := false
+	consecutiveBlanks := 0
+
+	for _, line := range lines {
+		if lang, fence := markdownFenceLanguage(line); fence {
+			inFence = !inFence
+			if inFence {
+				fenceLang = lang
+				inCBlock = false
+				inSQLBlock = false
+			} else {
+				fenceLang = ""
+			}
+			result = append(result, line)
+			consecutiveBlanks = 0
+			continue
+		}
+
+		stripped := line
+		if inFence {
+			switch {
+			case isCStyleCommentLanguage(fenceLang):
+				stripped = stripCStyleLine(line, &inCBlock)
+			case isHashCommentLanguage(fenceLang):
+				stripped = stripHashLine(line)
+			case fenceLang == "sql":
+				stripped = stripSQLLine(line, &inSQLBlock)
+			case fenceLang == "html":
+				stripped = stripHTMLComments(line)
+			case fenceLang == "css":
+				stripped = stripCSSComments(line)
+			}
+		} else {
+			stripped = stripHTMLComments(line)
+		}
+
+		trimmed := strings.TrimSpace(stripped)
+		if trimmed == "" {
+			consecutiveBlanks++
+			if consecutiveBlanks <= 1 {
+				result = append(result, "")
+			}
+			continue
+		}
+		consecutiveBlanks = 0
+		result = append(result, stripped)
+	}
+
+	return strings.Join(result, "\n")
+}
+
+func markdownFenceLanguage(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "```") && !strings.HasPrefix(trimmed, "~~~") {
+		return "", false
+	}
+	raw := strings.TrimSpace(trimmed[3:])
+	if raw == "" {
+		return "", true
+	}
+	fields := strings.Fields(raw)
+	return canonicalFenceLanguage(fields[0]), true
+}
+
+func canonicalFenceLanguage(raw string) string {
+	lang := strings.ToLower(strings.Trim(raw, "{}[](),"))
+	lang = strings.TrimPrefix(lang, "language-")
+	switch lang {
+	case "ts", "tsx":
+		return "typescript"
+	case "js", "jsx", "mjs", "cjs":
+		return "javascript"
+	case "rs":
+		return "rust"
+	case "py", "python3":
+		return "python"
+	case "sh", "bash", "zsh":
+		return "shell"
+	case "c++", "cc", "cxx", "hpp":
+		return "cpp"
+	case "htm":
+		return "html"
+	case "scss", "sass":
+		return "css"
+	case "postgres", "postgresql", "mysql", "sqlite":
+		return "sql"
+	default:
+		return lang
+	}
+}
+
+func isCStyleCommentLanguage(lang string) bool {
+	switch lang {
+	case "go", "typescript", "javascript", "rust", "c", "cpp", "cxx", "java",
+		"zig", "swift", "kotlin", "php", "dart", "lua", "scala", "graphql",
+		"protobuf", "hcl", "powershell", "perl", "ocaml", "haskell",
+		"erlang", "elixir", "solidity", "json5", "jsonnet":
+		return true
+	default:
+		return false
+	}
+}
+
+func isHashCommentLanguage(lang string) bool {
+	switch lang {
+	case "ruby", "shell", "bash", "sh", "zsh", "make", "dockerfile", "python", "yaml", "toml":
+		return true
+	default:
+		return false
+	}
+}
+
+func stripSQLComments(code string) string {
+	lines := strings.Split(code, "\n")
+	result := make([]string, 0, len(lines))
+	inBlock := false
+	consecutiveBlanks := 0
+
+	for _, line := range lines {
+		if isWhitelistedComment(line) {
+			result = append(result, line)
+			consecutiveBlanks = 0
+			continue
+		}
+		stripped := stripSQLLine(line, &inBlock)
+		trimmed := strings.TrimSpace(stripped)
+		if trimmed == "" {
+			consecutiveBlanks++
+			if consecutiveBlanks <= 1 {
+				result = append(result, "")
+			}
+			continue
+		}
+		consecutiveBlanks = 0
+		result = append(result, stripped)
+	}
+
+	return strings.Join(result, "\n")
+}
+
+func stripSQLLine(line string, inBlock *bool) string {
+	if !*inBlock && strings.Contains(line, "$$") {
+		return line
+	}
+
+	var b strings.Builder
+	i := 0
+	inString := false
+	stringChar := byte(0)
+
+	for i < len(line) {
+		ch := line[i]
+
+		if *inBlock {
+			end := strings.Index(line[i:], "*/")
+			if end == -1 {
+				return b.String()
+			}
+			i += end + 2
+			*inBlock = false
+			continue
+		}
+
+		if inString {
+			b.WriteByte(ch)
+			if ch == stringChar {
+				if stringChar == '\'' && i+1 < len(line) && line[i+1] == '\'' {
+					i++
+					b.WriteByte(line[i])
+					i++
+					continue
+				}
+				inString = false
+			}
+			i++
+			continue
+		}
+
+		if ch == '\'' || ch == '"' || ch == '`' {
+			inString = true
+			stringChar = ch
+			b.WriteByte(ch)
+			i++
+			continue
+		}
+
+		if ch == '-' && i+1 < len(line) && line[i+1] == '-' {
+			break
+		}
+
+		if ch == '/' && i+1 < len(line) && line[i+1] == '*' {
+			end := strings.Index(line[i+2:], "*/")
+			if end == -1 {
+				*inBlock = true
+				break
+			}
+			i = i + 2 + end + 2
+			continue
+		}
+
+		b.WriteByte(ch)
+		i++
+	}
+
+	return b.String()
 }
 
 // stripHashComments removes # comments for YAML and TOML.

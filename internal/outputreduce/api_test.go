@@ -115,14 +115,22 @@ func TestInjectBody_CodexInputString(t *testing.T) {
 	}
 	var root struct {
 		Input []struct {
+			Type    string `json:"type"`
 			Role    string `json:"role"`
-			Content string `json:"content"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
 		} `json:"input"`
 	}
 	if err := json.Unmarshal(out, &root); err != nil {
 		t.Fatal(err)
 	}
-	if len(root.Input) != 2 || root.Input[0].Role != "system" || root.Input[1].Content != "inspect repo" {
+	if len(root.Input) != 2 ||
+		root.Input[0].Type != "message" ||
+		root.Input[0].Role != "system" ||
+		root.Input[0].Content[0].Type != "input_text" ||
+		root.Input[1].Content[0].Text != "inspect repo" {
 		t.Fatalf("input: %#v", root.Input)
 	}
 }
@@ -167,6 +175,10 @@ func TestInjectBody_SkipsOverCapAndNoop(t *testing.T) {
 	}
 	if out, stats, err := InjectBody(types.OpenAI, body, Options{Enabled: true, Profile: "off"}); err != nil || stats.Applied || stats.Reason != "noop_profile" || string(out) != string(body) {
 		t.Fatalf("off out=%s stats=%+v err=%v", out, stats, err)
+	}
+	exact := []byte(`{"messages":[{"role":"user","content":"reply exactly: ok"}]}`)
+	if out, stats, err := InjectBody(types.OpenAI, exact, Options{Enabled: true, Profile: "openai"}); err != nil || stats.Applied || stats.Reason != "exact_reply" || string(out) != string(exact) {
+		t.Fatalf("exact out=%s stats=%+v err=%v", out, stats, err)
 	}
 }
 
@@ -240,7 +252,7 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 	if got := NextSofter(ProfileOff); got != ProfileOff {
 		t.Fatalf("NextSofter off=%s", got)
 	}
-	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapePlanning, ShapeUnknown} {
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapePlanning, ShapeDirectAnswer, ShapeUnknown} {
 		if text := DirectiveForShape(ProfileCodexAggressive, shape, DefaultMarker); text == "" {
 			t.Fatalf("empty directive for shape %s", shape)
 		}
@@ -258,6 +270,14 @@ func TestInjectBody_CodexMessagesAndInputBranches(t *testing.T) {
 	}
 	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":[]}`), Options{Enabled: true, Profile: "codex"}); err != nil || !stats.Applied || !strings.Contains(string(out), DefaultMarker) {
 		t.Fatalf("codex array out=%s stats=%+v err=%v", out, stats, err)
+	}
+	systemArrayBody := []byte(`{"input":[{"type":"message","role":"system","content":[{"type":"input_text","text":"base"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	out, stats, err := InjectBody(types.CodexChatGPT, systemArrayBody, Options{Enabled: true, Profile: "codex"})
+	if err != nil || !stats.Applied {
+		t.Fatalf("codex system array out=%s stats=%+v err=%v", out, stats, err)
+	}
+	if strings.Contains(string(out), `"type":"text"`) || !strings.Contains(string(out), `"type":"input_text"`) {
+		t.Fatalf("codex output-reduce must use Responses input_text blocks: %s", out)
 	}
 	if _, _, err := InjectBody(types.CodexChatGPT, []byte(`{"input":{}}`), Options{Enabled: true, Profile: "codex"}); err == nil {
 		t.Fatal("expected object input error")
@@ -306,6 +326,31 @@ func TestAppendToMessageContentArrayAndFallback(t *testing.T) {
 	out = appendToMessageContent(msg, "rule")
 	if string(out["content"]) != `"rule"` {
 		t.Fatalf("fallback content: %s", out["content"])
+	}
+	codex := appendToCodexMessageContent(map[string]json.RawMessage{
+		"role":    mustJSON("system"),
+		"content": mustJSON([]map[string]string{{"type": "input_text", "text": "base"}}),
+	}, "rule")
+	if strings.Contains(string(codex["content"]), `"type":"text"`) || !strings.Contains(string(codex["content"]), "rule") {
+		t.Fatalf("codex content block: %s", codex["content"])
+	}
+	codex = appendToCodexMessageContent(map[string]json.RawMessage{
+		"role":    mustJSON("system"),
+		"content": mustJSON("base"),
+	}, "rule")
+	if !strings.Contains(string(codex["content"]), "base") || !strings.Contains(string(codex["content"]), "rule") {
+		t.Fatalf("codex string content: %s", codex["content"])
+	}
+	codex = appendToCodexMessageContent(map[string]json.RawMessage{
+		"role":    mustJSON("system"),
+		"content": json.RawMessage(`123`),
+	}, "rule")
+	if !strings.Contains(string(codex["content"]), `"type":"input_text"`) || !strings.Contains(string(codex["content"]), "rule") {
+		t.Fatalf("codex fallback content: %s", codex["content"])
+	}
+	codex = appendToCodexMessageContent(map[string]json.RawMessage{"role": mustJSON("system")}, "rule")
+	if !strings.Contains(string(codex["content"]), `"type":"input_text"`) || !strings.Contains(string(codex["content"]), "rule") {
+		t.Fatalf("codex missing content: %s", codex["content"])
 	}
 }
 

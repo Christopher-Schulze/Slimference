@@ -9,6 +9,10 @@ It never edits provider responses after generation.
 - Enabled by default under `[compression.output_reduce]`.
 - Skipped for small requests below `min_input_tokens` because the instruction
   overhead would dominate likely savings.
+- Skipped for constrained exact-answer turns (`reply exactly`, `answer
+  exactly`, `respond exactly`, `say exactly`, `output exactly`) because the
+  user already supplied a stronger output contract and adding another directive
+  is pure input overhead.
 - Idempotent via `signature_marker`; if the marker is already present in the
   request body, Slimference does not inject again.
 - Runs after input compression and tool pruning, before Layer 3 cache lookup
@@ -27,8 +31,15 @@ It never edits provider responses after generation.
     for older configs.
 - T141 classifies each request shape (`direct_answer`, `code_edit`,
   `debugging`, `planning`, `review`, `tool_result_reasoning`,
-  `new_file_generation`) and appends shape-specific guardrails so review and
-  debugging tasks do not lose exact findings, paths, commands, or errors.
+  `new_file_generation`, `exact_reply`) and appends shape-specific guardrails
+  so review and debugging tasks do not lose exact findings, paths, commands,
+  or errors. Shape detection reads only task/content-bearing fields rather than
+  tool-schema descriptions, so a tool description containing "create file" does
+  not misclassify an unrelated direct-answer turn.
+- Codex Responses requests use Responses-compatible injected content blocks
+  (`type: "input_text"`). Slimference must never inject generic
+  `type: "text"` blocks into `input[].content[]`, because current Codex
+  backends reject that shape.
 - Auto-tune can downgrade underperforming provider/model/task-shape buckets
   from aggressive -> standard -> mild -> off based on observed overhead and
   failure signals.

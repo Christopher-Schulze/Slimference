@@ -16,9 +16,10 @@ func Defaults() *Config {
 func defaultsRaw() *Config {
 	return &Config{
 		Proxy: ProxyConfig{
-			ListenAddress: "127.0.0.1",
-			ListenPort:    8990,
-			IPv6:          false,
+			ListenAddress:              "127.0.0.1",
+			ListenPort:                 8990,
+			IPv6:                       false,
+			DirectCodexWebSocketPolicy: "tunnel",
 			OpenAIPromptCache: OpenAIPromptCacheConfig{
 				Enabled:                    false,
 				PromptCacheKeyStrategy:     "session",
@@ -62,7 +63,9 @@ func defaultsRaw() *Config {
 			StructureMinTokens:                500,
 			StructureLanguages: []string{
 				"go", "typescript", "javascript", "rust", "python",
-				"c", "cpp", "java", "ruby", "shell",
+				"c", "cpp", "java", "ruby", "shell", "zig", "swift",
+				"kotlin", "php", "dart", "scala", "elixir", "solidity",
+				"svelte",
 			},
 			DedupSimilarityThreshold: 0.85,
 			MiniMax: MiniMaxConfig{
@@ -168,6 +171,11 @@ func DefaultTOML() string {
 listen_address = "127.0.0.1"
 listen_port = 8990
 ipv6 = false
+# Local Codex CLI direct mode only. "tunnel" preserves WebSockets; set
+# "force_https_fallback" to reject direct Codex WebSocket upgrades so Codex
+# uses its native HTTPS fallback and Slimference can apply the JSON pipeline.
+# Does not affect transparent CONNECT/MITM or Codex App traffic.
+direct_codex_websocket_policy = "tunnel"
 # T78: when true, the proxy uses provider server-side state
 # (previous_response_id for OpenAI Responses / CodexChatGPT) on
 # follow-up turns instead of resending the full history. Default off
@@ -225,7 +233,7 @@ layer2_latency_budget_ms = 0
 layer2_latency_projection_multiplier = 1.2
 layer2_latency_ema_alpha = 0.2
 structure_min_tokens = 500
-structure_languages = ["go", "typescript", "javascript", "rust", "python", "c", "cpp", "java", "ruby", "shell"]
+structure_languages = ["go", "typescript", "javascript", "rust", "python", "c", "cpp", "java", "ruby", "shell", "zig", "swift", "kotlin", "php", "dart", "scala", "elixir", "solidity", "svelte"]
 dedup_similarity_threshold = 0.85
 
 [compression.output_reduce]

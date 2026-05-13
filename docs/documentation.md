@@ -226,7 +226,7 @@ orchestrates 14 sub-layers. Execution order per spec+.md §5:
 |---|-------------------------------------|--------------------------------|
 | 1 | ANSI / control-char strip          | `ansi_strip.go`                |
 | 2 | JSON minify                        | `json_minify.go`               |
-| 3 | Comment strip (10 languages)       | `comment_strip.go`             |
+| 3 | Comment strip (38 path languages)  | `comment_strip.go`             |
 | 4 | Exact dedup + MinHash/LSH          | `dedup.go` + `dedup_minhash.go`|
 | 5 | Structure extraction               | `structure.go`                 |
 | 6 | Delta encoding (LCS unified diff)  | `delta.go`                     |
@@ -628,6 +628,17 @@ or disarm transparent mode directly. Setup shortcuts are `[a]` arm/disarm,
 enable autostart, and `[w]` disable autostart. The status shown there is a
 cached snapshot of CA, keychain trust, launchd, system proxy, daemon
 reachability, and networksetup health.
+
+For CLI-only split testing, `slimference proxy env codex --proxied` prints a
+non-mutating command that points only that Codex CLI process at
+`127.0.0.1:8990`; the Codex App remains direct as long as macOS
+System-HTTPS-Proxy is off. The helper launches Codex with a per-process custom
+provider named `slimference-codex`, sets its base URL to
+`http://127.0.0.1:8990/backend-api/codex`, marks it
+`requires_openai_auth=true`, and sets `supports_websockets=false`. That avoids
+the current Codex CLI WebSocket retry/fallback delay and sends HTTP Responses
+traffic directly through Slimference's zstd-aware compression pipeline. Default
+direct mode still tunnels Codex's WebSocket transport byte-for-byte.
 
 ### What `integrate install` does
 

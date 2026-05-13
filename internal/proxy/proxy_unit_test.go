@@ -135,6 +135,16 @@ func TestProxy_StartShutdown_Health(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
+	for _, path := range []string{"/admin/health", AdminHealthPath} {
+		resp, err := client.Get("http://" + addr + path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d", path, resp.StatusCode)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := p.Shutdown(ctx); err != nil {

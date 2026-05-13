@@ -22,6 +22,9 @@ func TestDefaults_Valid(t *testing.T) {
 func TestDefaults_TransparentConfig(t *testing.T) {
 	t.Parallel()
 	cfg := Defaults()
+	if cfg.Proxy.DirectCodexWebSocketPolicy != "tunnel" {
+		t.Fatalf("direct codex websocket policy = %q", cfg.Proxy.DirectCodexWebSocketPolicy)
+	}
 	if cfg.Transparent.Enabled {
 		t.Fatal("transparent mode must be opt-in by default")
 	}
@@ -240,6 +243,15 @@ func TestValidate_InvalidTransparentCertCacheSize(t *testing.T) {
 	cfg.Transparent.CertCacheSize = -1
 	if err := validate(cfg); err == nil {
 		t.Fatal("validate() with negative transparent cert cache expected error")
+	}
+}
+
+func TestValidate_InvalidDirectCodexWebSocketPolicy(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Proxy.DirectCodexWebSocketPolicy = "rewrite_frames"
+	if err := validate(cfg); err == nil {
+		t.Fatal("validate() with invalid direct codex websocket policy expected error")
 	}
 }
 

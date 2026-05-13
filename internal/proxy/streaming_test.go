@@ -312,6 +312,26 @@ func TestStreamingRelay_CountsTokens(t *testing.T) {
 	}
 }
 
+func TestStreamingRelayWithUsage_DropsContentLength(t *testing.T) {
+	t.Parallel()
+	rec := httptest.NewRecorder()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":   []string{"text/event-stream"},
+			"Content-Length": []string{"1"},
+		},
+		Body: io.NopCloser(strings.NewReader("data: {\"usage\":{\"output_tokens\":1}}\n\n")),
+	}
+	output, _ := streamingRelayWithUsage(context.Background(), rec, resp, "openai")
+	if output != 1 {
+		t.Fatalf("output=%d", output)
+	}
+	if got := rec.Header().Get("Content-Length"); got != "" {
+		t.Fatalf("streaming relay must drop stale content-length, got %q", got)
+	}
+}
+
 func TestStreamingRelay_clientWriteError(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()

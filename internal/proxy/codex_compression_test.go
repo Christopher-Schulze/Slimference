@@ -46,6 +46,40 @@ func TestExtractMessages_CodexResponsesInput(t *testing.T) {
 	}
 }
 
+func TestExtractMessages_CodexInputSkipsUnsupportedItemsLosslessly(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{
+		"model":"codex-test",
+		"input":[
+			{"type":"unknown","opaque":{"keep":true}},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"original text"}]},
+			{"type":"custom","content":[{"type":"image","url":"local"}]}
+		],
+		"stream":false
+	}`)
+
+	msgs, _, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Index != 1 || msgs[0].TextContent() != "original text" {
+		t.Fatalf("unsupported items should be skipped without aborting parse: %#v", msgs)
+	}
+
+	msgs[0].Content[0].Text = "compact text"
+	out, err := reconstructBody(types.CodexChatGPT, body, msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, `"opaque":{"keep":true}`) || !strings.Contains(s, `"type":"custom"`) {
+		t.Fatalf("unsupported items were not preserved: %s", s)
+	}
+	if !strings.Contains(s, "compact text") || strings.Contains(s, "original text") {
+		t.Fatalf("known item rewrite failed: %s", s)
+	}
+}
+
 func TestExtractMessages_CodexMessagesShapeUsesOpenAIParser(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"model":"codex-test","messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"call_x","content":"tool out"}],"store":true}`)
@@ -211,6 +245,42 @@ func TestMessagesToCodexInputJSON_Fallbacks(t *testing.T) {
 	}
 	if string(out) != string(originalItems) {
 		t.Fatalf("missing raw item should preserve original input: %s", out)
+	}
+
+	_, err = messagesToCodexInputJSON(json.RawMessage(`{}`), []types.Message{{
+		Role: "user",
+		Content: []types.ContentBlock{{
+			Type: "text",
+			Text: "replacement",
+			RawBlock: codexInputItemRaw{
+				Fields:    map[string]json.RawMessage{"content": json.RawMessage(`"old"`)},
+				TextPath:  "content_string",
+				TextIndex: -1,
+			},
+		}},
+	}})
+	if err == nil {
+		t.Fatal("expected invalid original input array error")
+	}
+
+	out, err = messagesToCodexInputJSON(originalItems, []types.Message{{
+		Role: "user",
+		Content: []types.ContentBlock{{
+			Type: "text",
+			Text: "replacement",
+			RawBlock: codexInputItemRaw{
+				Fields:    map[string]json.RawMessage{"content": json.RawMessage(`"old"`)},
+				ItemIndex: 99,
+				TextPath:  "content_string",
+				TextIndex: -1,
+			},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != string(originalItems) {
+		t.Fatalf("out-of-range raw item should preserve original input: %s", out)
 	}
 
 	_, err = messagesToCodexInputJSON(originalItems, []types.Message{{

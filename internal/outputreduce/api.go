@@ -43,6 +43,10 @@ func InjectBody(provider types.Provider, body []byte, opts Options) ([]byte, Sta
 	if stats.TaskShape == "" {
 		stats.TaskShape = DetectTaskShape(provider, body)
 	}
+	if stats.TaskShape == ShapeExactReply {
+		stats.Reason = "exact_reply"
+		return body, stats, nil
+	}
 	if profile == ProfileOff {
 		stats.Reason = "noop_profile"
 		return body, stats, nil
@@ -171,9 +175,9 @@ func injectCodex(root map[string]json.RawMessage, directive string) (bool, error
 	if trimmed[0] == '"' {
 		var s string
 		_ = json.Unmarshal(raw, &s)
-		root["input"] = mustJSON([]map[string]any{
-			{"role": "system", "content": directive},
-			{"role": "user", "content": s},
+		root["input"] = mustJSON([]map[string]json.RawMessage{
+			codexMessage("system", directive),
+			codexMessage("user", s),
 		})
 		return true, nil
 	}
@@ -181,7 +185,7 @@ func injectCodex(root map[string]json.RawMessage, directive string) (bool, error
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return false, fmt.Errorf("parse codex input items: %w", err)
 	}
-	items = injectMessageList(items, directive, "system")
+	items = injectCodexMessageList(items, directive)
 	root["input"] = mustJSON(items)
 	return true, nil
 }
@@ -223,6 +227,56 @@ func appendToMessageContent(msg map[string]json.RawMessage, directive string) ma
 	}
 	out["content"] = mustJSON(directive)
 	return out
+}
+
+func injectCodexMessageList(messages []map[string]json.RawMessage, directive string) []map[string]json.RawMessage {
+	if len(messages) > 0 {
+		if role := rawString(messages[0]["role"]); role == "system" || role == "developer" {
+			messages[0] = appendToCodexMessageContent(messages[0], directive)
+			return messages
+		}
+	}
+	out := make([]map[string]json.RawMessage, 0, len(messages)+1)
+	out = append(out, codexMessage("system", directive))
+	out = append(out, messages...)
+	return out
+}
+
+func appendToCodexMessageContent(msg map[string]json.RawMessage, directive string) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(msg)+1)
+	for k, v := range msg {
+		out[k] = v
+	}
+	if raw, ok := msg["content"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			out["content"] = mustJSON(s + "\n\n" + directive)
+			return out
+		}
+		var blocks []map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &blocks); err == nil {
+			blocks = append(blocks, codexTextBlock(directive))
+			out["content"] = mustJSON(blocks)
+			return out
+		}
+	}
+	out["content"] = mustJSON([]map[string]json.RawMessage{codexTextBlock(directive)})
+	return out
+}
+
+func codexMessage(role, text string) map[string]json.RawMessage {
+	return map[string]json.RawMessage{
+		"type":    mustJSON("message"),
+		"role":    mustJSON(role),
+		"content": mustJSON([]map[string]json.RawMessage{codexTextBlock(text)}),
+	}
+}
+
+func codexTextBlock(text string) map[string]json.RawMessage {
+	return map[string]json.RawMessage{
+		"type": mustJSON("input_text"),
+		"text": mustJSON(text),
+	}
 }
 
 func textBlock(text string) map[string]json.RawMessage {

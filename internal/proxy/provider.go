@@ -102,6 +102,7 @@ type openAIToolCall struct {
 
 type codexInputItemRaw struct {
 	Fields    map[string]json.RawMessage
+	ItemIndex int
 	TextPath  string
 	TextIndex int
 }
@@ -212,7 +213,7 @@ func extractCodexInputMessages(inputRaw json.RawMessage, extra map[string]json.R
 			return nil, extra, err
 		}
 		if !ok {
-			return nil, extra, nil
+			continue
 		}
 		messages = append(messages, msg)
 	}
@@ -237,7 +238,7 @@ func codexInputItemToMessage(index int, itemRaw json.RawMessage) (types.Message,
 		return types.Message{}, false, nil
 	}
 
-	raw := codexInputItemRaw{Fields: fields, TextIndex: -1}
+	raw := codexInputItemRaw{Fields: fields, ItemIndex: index, TextIndex: -1}
 	msg := types.Message{Index: index, Role: role}
 
 	switch itemType {
@@ -549,19 +550,29 @@ func messagesToCodexInputJSON(originalInput json.RawMessage, messages []types.Me
 		return json.Marshal(messages[0].TextContent())
 	}
 
-	items := make([]json.RawMessage, 0, len(messages))
+	var originalItems []json.RawMessage
+	if err := json.Unmarshal(originalInput, &originalItems); err != nil {
+		return nil, err
+	}
+	items := make([]json.RawMessage, len(originalItems))
+	copy(items, originalItems)
+	changed := false
 	for _, msg := range messages {
 		rawItem, ok := firstCodexInputRaw(msg)
 		if !ok {
+			continue
+		}
+		if rawItem.ItemIndex < 0 || rawItem.ItemIndex >= len(items) {
 			continue
 		}
 		item, err := codexMessageToInputItem(msg, rawItem)
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, item)
+		items[rawItem.ItemIndex] = item
+		changed = true
 	}
-	if len(items) == 0 {
+	if !changed {
 		return originalInput, nil
 	}
 	return json.Marshal(items)

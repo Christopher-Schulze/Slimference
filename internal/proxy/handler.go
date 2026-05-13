@@ -16,8 +16,10 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/compression"
@@ -36,6 +38,8 @@ import (
 var reconstructBodyFn = reconstructBody
 var newRequestWithContextFn = http.NewRequestWithContext
 var newRequestIDFn = newRequestID
+var newZstdReaderFn = zstd.NewReader
+var newZstdWriterFn = zstd.NewWriter
 
 // newRequestID generates a short random hex request ID for debug correlation.
 func newRequestID() string {
@@ -54,16 +58,87 @@ type pipelineStash struct {
 
 type pipelineStashKey struct{}
 
+type requestBodyEncoding string
+
+const (
+	requestBodyEncodingIdentity requestBodyEncoding = ""
+	requestBodyEncodingZstd     requestBodyEncoding = "zstd"
+)
+
+type requestBodyEncodingKey struct{}
+
+func decodeRequestBodyForPipeline(body []byte, contentEncoding string) ([]byte, requestBodyEncoding, error) {
+	encoding := requestBodyEncoding(strings.ToLower(strings.TrimSpace(contentEncoding)))
+	switch encoding {
+	case "", "identity":
+		return body, requestBodyEncodingIdentity, nil
+	case requestBodyEncodingZstd:
+		decoder, err := newZstdReaderFn(nil)
+		if err != nil {
+			return nil, "", fmt.Errorf("create zstd decoder: %w", err)
+		}
+		defer decoder.Close()
+		decoded, err := decoder.DecodeAll(body, nil)
+		if err != nil {
+			return nil, "", fmt.Errorf("decode zstd body: %w", err)
+		}
+		return decoded, requestBodyEncodingZstd, nil
+	default:
+		return nil, "", fmt.Errorf("unsupported content-encoding %q", contentEncoding)
+	}
+}
+
+func encodeRequestBodyForPipeline(body []byte, encoding requestBodyEncoding) ([]byte, error) {
+	switch encoding {
+	case requestBodyEncodingIdentity:
+		return body, nil
+	case requestBodyEncodingZstd:
+		encoder, err := newZstdWriterFn(nil)
+		if err != nil {
+			return nil, fmt.Errorf("create zstd encoder: %w", err)
+		}
+		defer encoder.Close() //nolint:errcheck
+		return encoder.EncodeAll(body, nil), nil
+	default:
+		return nil, fmt.Errorf("unsupported request body encoding %q", encoding)
+	}
+}
+
 // handleCompressibleRequest applies the full compression pipeline and forwards to upstream.
 // This is the hot path: called for every POST /v1/messages and POST /v1/chat/completions.
 func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request, provider types.Provider, body []byte) {
 	start := time.Now()
 	reqID := newRequestIDFn()
+	wireBody := body
+	decodedBody, requestEncoding, err := decodeRequestBodyForPipeline(body, r.Header.Get("Content-Encoding"))
+	if err != nil {
+		slog.Warn("request body decode failed; passthrough",
+			"error", err,
+			"provider", provider,
+			"content_encoding", r.Header.Get("Content-Encoding"),
+			"body_bytes", len(body),
+		)
+		p.handlePassthrough(w, r, provider, wireBody)
+		return
+	}
+	body = decodedBody
+	r = r.WithContext(context.WithValue(r.Context(), requestBodyEncodingKey{}, requestEncoding))
+	r = r.WithContext(context.WithValue(r.Context(), origBodyKey{}, body))
 	sessionID := summarization.ExtractSessionID(provider, body, r.Header)
 
 	// --- 1. Extract messages ---
 	messages, rawBody, err := extractMessages(provider, body)
 	if err != nil {
+		if provider == types.CodexChatGPT {
+			slog.Warn("codex body parse failed; passthrough",
+				"error", err,
+				"content_type", r.Header.Get("Content-Type"),
+				"content_encoding", r.Header.Get("Content-Encoding"),
+				"body_bytes", len(wireBody),
+			)
+			p.handlePassthrough(w, r, provider, wireBody)
+			return
+		}
 		slog.Error("extract messages", "error", err)
 		p.proxyError(w, http.StatusBadRequest, fmt.Sprintf("parse request: %v", err))
 		return
@@ -887,7 +962,12 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 
 	// buildReq creates a fresh request per attempt (body reader is consumed each time).
 	buildReq := func(b []byte) (*http.Request, error) {
-		req, err := newRequestWithContextFn(r.Context(), r.Method, upstreamURL, bytes.NewReader(b))
+		encoding, _ := r.Context().Value(requestBodyEncodingKey{}).(requestBodyEncoding)
+		wireBody, err := encodeRequestBodyForPipeline(b, encoding)
+		if err != nil {
+			return nil, err
+		}
+		req, err := newRequestWithContextFn(r.Context(), r.Method, upstreamURL, bytes.NewReader(wireBody))
 		if err != nil {
 			return nil, fmt.Errorf("build upstream request: %w", err)
 		}
@@ -896,7 +976,7 @@ func (p *Proxy) doUpstreamRequest(r *http.Request, provider types.Provider, body
 				req.Header.Add(k, v)
 			}
 		}
-		req.ContentLength = int64(len(b))
+		req.ContentLength = int64(len(wireBody))
 		return req, nil
 	}
 
@@ -1127,7 +1207,9 @@ func (p *Proxy) handlePassthrough(w http.ResponseWriter, r *http.Request, provid
 	}
 	if len(body) > 0 {
 		upstreamReq.ContentLength = int64(len(body))
-		upstreamReq.Header.Set("Content-Type", "application/json")
+		if upstreamReq.Header.Get("Content-Type") == "" {
+			upstreamReq.Header.Set("Content-Type", "application/json")
+		}
 	}
 
 	client := p.httpClients[provider]
@@ -1162,6 +1244,7 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		Status            string          `json:"status"`
 		Service           string          `json:"service"`
 		Version           string          `json:"version"`
+		PID               int             `json:"pid"`
 		Layers            map[string]bool `json:"layers"`
 		Providers         map[string]bool `json:"providers"`
 		QueueDepth        map[string]int  `json:"queue_depth"`
@@ -1171,6 +1254,7 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		Status:  "ok",
 		Service: "slimference",
 		Version: Version,
+		PID:     os.Getpid(),
 		Layers: map[string]bool{
 			"1": p.isLayerEnabled(1),
 			"2": p.isLayerEnabled(2),

@@ -240,10 +240,12 @@ Codex CLI launch helpers for T140 split testing:
 
 The direct helper clears HTTP(S)/ALL proxy env and sets NO_PROXY=*.
 The proxied helper leaves the macOS System HTTPS proxy untouched and launches
-Codex with per-process openai_base_url/chatgpt_base_url overrides pointing at
-the local daemon. This keeps Codex App direct. The transparent-proxied helper
-is the CONNECT/MITM variant for explicit CA-path tests. All helpers print the
-exact shell command; they do not mutate Codex config.
+Codex with a per-process custom provider named slimference-codex pointing at
+the local daemon. That provider disables Responses WebSockets, so the CLI uses
+HTTP directly without retrying fallback. This keeps Codex App direct. The
+transparent-proxied helper is the CONNECT/MITM variant for explicit CA-path
+tests. All helpers print the exact shell command; they do not mutate Codex
+config.
 `
 	case "config":
 		return `slimference config <init|show>

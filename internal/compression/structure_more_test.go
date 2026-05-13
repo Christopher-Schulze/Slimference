@@ -196,7 +196,7 @@ func TestStructureExtractor_Extract_unknownLanguage(t *testing.T) {
 	t.Parallel()
 	e := NewStructureExtractor()
 	code := "fn main() {}"
-	out, ok := e.Extract(code, "zig")
+	out, ok := e.Extract(code, "json5")
 	if ok || out != code {
 		t.Fatalf("want passthrough, ok=%v out=%q", ok, out)
 	}
@@ -555,5 +555,148 @@ func World() int {
 	_, ok2 := ExtractStructure("some random content", "unknown-lang")
 	if ok2 {
 		t.Fatal("unknown language should return ok=false")
+	}
+}
+
+func TestStructureExtractor_Extract_extendedLanguages(t *testing.T) {
+	t.Parallel()
+	e := NewStructureExtractor()
+	tests := []struct {
+		lang       string
+		code       string
+		mustKeep   []string
+		mustRemove []string
+	}{
+		{
+			lang:       "zig",
+			code:       "const std = @import(\"std\");\n\npub fn run() void {\n" + strings.Repeat("    std.debug.print(\"x\", .{});\n", 60) + "}\n",
+			mustKeep:   []string{"@import", "pub fn run"},
+			mustRemove: []string{"debug.print"},
+		},
+		{
+			lang:       "swift",
+			code:       "import Foundation\n\n@MainActor\npublic struct Runner {\n" + strings.Repeat("  let value = 1\n", 60) + "}\n",
+			mustKeep:   []string{"import Foundation", "@MainActor", "struct Runner"},
+			mustRemove: []string{"let value = 1"},
+		},
+		{
+			lang:       "kotlin",
+			code:       "package app\n\nimport kotlin.io.*\n\nclass Runner {\n" + strings.Repeat("  val value = 1\n", 60) + "}\n",
+			mustKeep:   []string{"package app", "class Runner"},
+			mustRemove: []string{"val value = 1"},
+		},
+		{
+			lang:       "php",
+			code:       "<?php\nnamespace App;\n\nuse DateTimeImmutable;\n\nfinal class Runner {\n" + strings.Repeat("  public function x() { return 1; }\n", 60) + "}\n",
+			mustKeep:   []string{"namespace App", "class Runner"},
+			mustRemove: []string{"return 1"},
+		},
+		{
+			lang:       "dart",
+			code:       "import 'dart:io';\n\nclass Runner {\n" + strings.Repeat("  final value = 1;\n", 60) + "}\n",
+			mustKeep:   []string{"import 'dart:io'", "class Runner"},
+			mustRemove: []string{"final value = 1"},
+		},
+		{
+			lang:       "scala",
+			code:       "package app\n\nimport scala.util.Try\n\nobject Runner {\n" + strings.Repeat("  val value = 1\n", 60) + "}\n",
+			mustKeep:   []string{"package app", "object Runner"},
+			mustRemove: []string{"val value = 1"},
+		},
+		{
+			lang:       "elixir",
+			code:       "defmodule App.Runner do\n  alias App.Repo\n  def run do\n" + strings.Repeat("    IO.inspect(:work)\n", 60) + "  end\nend\n",
+			mustKeep:   []string{"defmodule App.Runner", "alias App.Repo", "def run"},
+			mustRemove: []string{"IO.inspect"},
+		},
+		{
+			lang:       "solidity",
+			code:       "pragma solidity ^0.8.0;\n\ncontract Vault {\n" + strings.Repeat("  uint256 private value;\n", 60) + "}\n",
+			mustKeep:   []string{"pragma solidity", "contract Vault"},
+			mustRemove: []string{"private value"},
+		},
+		{
+			lang:       "svelte",
+			code:       "<script lang=\"ts\">\nimport Widget from './Widget.svelte';\nexport function run() {\n" + strings.Repeat("  console.log('x');\n", 60) + "}\n</script>\n<main>\n  <Widget />\n</main>\n<style>\n" + strings.Repeat(".x { color: red; }\n", 40) + "</style>\n",
+			mustKeep:   []string{"<script>", "import Widget", "function run", "<main>", "<Widget"},
+			mustRemove: []string{"console.log", "color: red"},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.lang, func(t *testing.T) {
+			t.Parallel()
+			out, ok := e.Extract(tc.code, tc.lang)
+			if !ok {
+				t.Fatalf("expected extraction for %s", tc.lang)
+			}
+			if len(out) >= len(tc.code) {
+				t.Fatalf("summary should be shorter for %s\n%s", tc.lang, out)
+			}
+			for _, want := range tc.mustKeep {
+				if !strings.Contains(out, want) {
+					t.Errorf("missing %q in %s", want, out)
+				}
+			}
+			for _, absent := range tc.mustRemove {
+				if strings.Contains(out, absent) {
+					t.Errorf("unexpected %q in %s", absent, out)
+				}
+			}
+		})
+	}
+}
+
+func TestExtendedStructureHelpers_boundaries(t *testing.T) {
+	t.Parallel()
+
+	if out := extractElixirStructure("value = 1\n"); out != "" {
+		t.Fatalf("elixir with no declarations should return empty, got %q", out)
+	}
+	if out := extractElixirStructure("def run"); out != "" {
+		t.Fatalf("tiny elixir declaration should not expand output, got %q", out)
+	}
+	bodyOnly := extractElixirStructure("def run\n" + strings.Repeat("x\n", 4))
+	if bodyOnly != "def run" {
+		t.Fatalf("small elixir extraction should return body without header, got %q", bodyOnly)
+	}
+
+	if out := extractSvelteStructure("plain text"); out != "" {
+		t.Fatalf("svelte with no structure should return empty, got %q", out)
+	}
+	if out := extractSvelteStructure("<main></main>"); out != "" {
+		t.Fatalf("tiny svelte markup should not expand output, got %q", out)
+	}
+	if out := extractSvelteStructure("<script>\nconst x = 1;\n</script>"); out != "" {
+		t.Fatalf("svelte script without declarations should return empty, got %q", out)
+	}
+	bodyOnlySvelte := extractSvelteStructure("<main>\n" + strings.Repeat("x\n", 4))
+	if bodyOnlySvelte != "<main>" {
+		t.Fatalf("small svelte extraction should return body without header, got %q", bodyOnlySvelte)
+	}
+
+	if out := extractBracePatternStructure("x = 1", "//", []string{`^fn\s`}, nil, nil); out != "" {
+		t.Fatalf("brace extractor with no declarations should return empty, got %q", out)
+	}
+	noBody := extractBracePatternStructure("fn run();\n"+strings.Repeat("x\n", 4), "//", []string{`^fn\s`}, nil, nil)
+	if !strings.Contains(noBody, "fn run();") {
+		t.Fatalf("brace declaration without body should be kept, got %q", noBody)
+	}
+}
+
+func TestIsSvelteStructuralMarkup(t *testing.T) {
+	t.Parallel()
+	truthy := []string{"{#if ok}", "{:else}", "{/if}", "<Widget />", "<svelte:head>", "<slot />", "<main>"}
+	for _, line := range truthy {
+		if !isSvelteStructuralMarkup(line) {
+			t.Fatalf("%q should be structural", line)
+		}
+	}
+	falsy := []string{"", "</main>", "<!-- comment -->", "<div>", "<   "}
+	for _, line := range falsy {
+		if isSvelteStructuralMarkup(line) {
+			t.Fatalf("%q should not be structural", line)
+		}
 	}
 }

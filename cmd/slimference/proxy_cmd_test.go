@@ -153,11 +153,14 @@ func TestProxyEnvCodex_Proxied(t *testing.T) {
 	out := stdout.String()
 	for _, want := range []string{
 		"Codex CLI proxied mode",
-		"per-process config override",
+		"per-process custom provider override",
+		"WebSockets are disabled",
 		"-u HTTP_PROXY",
 		"NO_PROXY=127.0.0.1,localhost,::1",
-		"openai_base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
-		"chatgpt_base_url=\"http://127.0.0.1:8990/backend-api/\"",
+		"model_provider=\"slimference-codex\"",
+		"model_providers.slimference-codex.base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
+		"model_providers.slimference-codex.requires_openai_auth=true",
+		"model_providers.slimference-codex.supports_websockets=false",
 		" prompt",
 	} {
 		if !strings.Contains(out, want) {
@@ -169,7 +172,7 @@ func TestProxyEnvCodex_Proxied(t *testing.T) {
 func TestProxyEnvCodex_IPv6Proxied(t *testing.T) {
 	t.Parallel()
 	got := shellJoin(codexEnvCommand("proxied", "::1", "8990", nil))
-	if !strings.Contains(got, "openai_base_url=\"http://[::1]:8990/backend-api/codex\"") {
+	if !strings.Contains(got, "model_providers.slimference-codex.base_url=\"http://[::1]:8990/backend-api/codex\"") {
 		t.Fatalf("expected bracketed IPv6 Codex base URL, got %q", got)
 	}
 }

@@ -468,7 +468,8 @@ func proxyEnvCmd(args []string, env proxyEnv) int {
 	case "direct":
 		fmt.Fprintln(env.Stdout, "# Codex CLI direct mode: use while macOS System HTTPS proxy is armed for Codex App testing.")
 	case "proxied":
-		fmt.Fprintln(env.Stdout, "# Codex CLI proxied mode: per-process config override; macOS System HTTPS proxy remains untouched.")
+		fmt.Fprintln(env.Stdout, "# Codex CLI proxied mode: per-process custom provider override; macOS System HTTPS proxy remains untouched.")
+		fmt.Fprintln(env.Stdout, "# WebSockets are disabled for this one Codex process so requests use HTTP directly instead of retrying fallback.")
 		fmt.Fprintln(env.Stdout, "# Codex App stays direct unless you separately run `slimference proxy enable`.")
 	case "transparent-proxied":
 		fmt.Fprintln(env.Stdout, "# Codex CLI transparent-proxied mode: process-local HTTP(S)_PROXY through CONNECT/MITM.")
@@ -507,8 +508,12 @@ func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
 		)
 		base = append(base,
 			"codex",
-			"-c", "openai_base_url="+strconv.Quote(integrate.CodexOpenAIBaseURL(target)),
-			"-c", "chatgpt_base_url="+strconv.Quote(integrate.CodexChatGPTBaseURL(target)),
+			"-c", "model_provider="+strconv.Quote("slimference-codex"),
+			"-c", "model_providers.slimference-codex.name="+strconv.Quote("Slimference Codex"),
+			"-c", "model_providers.slimference-codex.base_url="+strconv.Quote(integrate.CodexOpenAIBaseURL(target)),
+			"-c", "model_providers.slimference-codex.requires_openai_auth=true",
+			"-c", "model_providers.slimference-codex.supports_websockets=false",
+			"-c", "model_providers.slimference-codex.wire_api="+strconv.Quote("responses"),
 		)
 		base = append(base, codexArgs...)
 		return base

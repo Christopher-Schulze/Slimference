@@ -33,6 +33,7 @@ func adminCacheAgeFrom(h caching.AgeHistogram) AdminCacheAgeStatus {
 
 const (
 	AdminBasePath            = "/_slimference/admin"
+	AdminHealthPath          = AdminBasePath + "/health"
 	AdminStatusPath          = AdminBasePath + "/status"
 	AdminProviderPath        = AdminBasePath + "/provider"
 	AdminLayerPath           = AdminBasePath + "/layer"

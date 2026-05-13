@@ -40,6 +40,24 @@ func (e *StructureExtractor) Extract(code, language string) (string, bool) {
 		summary = extractRubyStructure(code)
 	case "shell":
 		summary = extractShellStructure(code)
+	case "zig":
+		summary = extractZigStructure(code)
+	case "swift":
+		summary = extractSwiftStructure(code)
+	case "kotlin":
+		summary = extractKotlinStructure(code)
+	case "php":
+		summary = extractPHPStructure(code)
+	case "dart":
+		summary = extractDartStructure(code)
+	case "scala":
+		summary = extractScalaStructure(code)
+	case "elixir":
+		summary = extractElixirStructure(code)
+	case "solidity":
+		summary = extractSolidityStructure(code)
+	case "svelte":
+		summary = extractSvelteStructure(code)
 	default:
 		return code, false
 	}
