@@ -28,6 +28,7 @@ type Layer1Result struct {
 	ImageSaved            int
 	RepeatedCollapseSaved int
 	GraphPruningSaved     int
+	DictionarySaved       int
 	// PreviewSaved is T38: shape-aware preview of large tool_result blocks.
 	PreviewSaved int
 	// LoopNudgeSaved is T37: injected retry-loop nudge estimate.
@@ -186,8 +187,8 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 	// most 4 in-flight compressMessage calls.
 	if c.cfg.Tuning.CoordinatorParallel && prefixEnd > 1 {
 		type fanOut struct {
-			msg                                 types.Message
-			js, ds, cs, ss, d2, as, sc, ts, ims int
+			msg                                       types.Message
+			js, ds, cs, ss, d2, as, sc, ts, ims, dict int
 		}
 		fan := make([]fanOut, prefixEnd)
 		var wg sync.WaitGroup
@@ -199,8 +200,8 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 				defer wg.Done()
 				defer func() { <-sem }()
 				m := out[idx]
-				m, js, ds, cs, ss, d2, as, sc, ts, ims := c.compressMessage(m, idx, prefixEnd, toolUses)
-				fan[idx] = fanOut{m, js, ds, cs, ss, d2, as, sc, ts, ims}
+				m, js, ds, cs, ss, d2, as, sc, ts, ims, dict := c.compressMessage(m, idx, prefixEnd, toolUses)
+				fan[idx] = fanOut{m, js, ds, cs, ss, d2, as, sc, ts, ims, dict}
 			}(i)
 		}
 		wg.Wait()
@@ -215,11 +216,12 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 			result.SuccessShortSaved += r.sc
 			result.ToolCompressorSaved += r.ts
 			result.ImageSaved += r.ims
+			result.DictionarySaved += r.dict
 		}
 	} else {
 		for i := 0; i < prefixEnd; i++ {
 			msg := out[i]
-			msg, js, ds, cs, ss, ds2, as, sc, ts, ims := c.compressMessage(msg, i, prefixEnd, toolUses)
+			msg, js, ds, cs, ss, ds2, as, sc, ts, ims, dict := c.compressMessage(msg, i, prefixEnd, toolUses)
 			out[i] = msg
 			result.JSONSaved += js
 			result.DedupSaved += ds
@@ -230,6 +232,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 			result.SuccessShortSaved += sc
 			result.ToolCompressorSaved += ts
 			result.ImageSaved += ims
+			result.DictionarySaved += dict
 		}
 	}
 
@@ -255,7 +258,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 		result.DedupSaved + result.ANSISaved + result.SuccessShortSaved +
 		result.ToolCompressorSaved + result.ImageSaved +
 		result.RepeatedCollapseSaved + result.GraphPruningSaved +
-		result.PreviewSaved + result.LoopNudgeSaved
+		result.DictionarySaved + result.PreviewSaved + result.LoopNudgeSaved
 	result.Messages = out
 
 	if result.TokensSaved > 0 {
@@ -271,6 +274,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 			slog.Int("image_saved", result.ImageSaved),
 			slog.Int("repeated_collapse_saved", result.RepeatedCollapseSaved),
 			slog.Int("graph_pruning_saved", result.GraphPruningSaved),
+			slog.Int("dictionary_saved", result.DictionarySaved),
 			slog.Int("total_saved", result.TokensSaved),
 		)
 	}
@@ -283,7 +287,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 // L1.12 (repeated collapse) and L1.13 (graph pruning) run cross-message after this loop.
 func (c *DeterministicCompressor) compressMessage(
 	msg types.Message, msgIdx, prefixEnd int, toolUses map[string]toolUseInfo,
-) (out types.Message, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved int) {
+) (out types.Message, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved, dictionarySaved int) {
 	out = msg
 	newContent := make([]types.ContentBlock, len(msg.Content))
 	copy(newContent, msg.Content)
@@ -490,6 +494,12 @@ func (c *DeterministicCompressor) compressMessage(
 			}
 		}
 
+		if dictText, saved, ok := applySemanticDictionary(text); ok {
+			text = dictText
+			dictionarySaved += saved
+			appliedSubLayers = append(appliedSubLayers, "semantic_dictionary")
+		}
+
 		if len(text) < originalLen || text != block.Text {
 			// T76: archive the original block text before stamping the
 			// mutated value so the proxy can re-inject the original on
@@ -514,7 +524,7 @@ func (c *DeterministicCompressor) compressMessage(
 
 	out.Content = newContent
 	out.Metadata = msg.Metadata
-	return out, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved
+	return out, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved, dictionarySaved
 }
 
 // ansiOnlyChange reports whether the only difference between original and

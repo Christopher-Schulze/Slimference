@@ -1,6 +1,6 @@
 # TASK 143: Layer 1 semantic deterministic compaction frontier
 
-Status: PENDING (planned 2026-05-13)
+Status: IN PROGRESS (T143a reversible path dictionary landed 2026-05-14)
 Priority: P0
 Scope: `internal/compression/`, `internal/filter/`, `internal/codecompact/`, `internal/tokens/`, `internal/sessions/`, `internal/quality/`, `tests/fixtures/l1_frontier/`, `docs/savings-assessment.md`.
 
@@ -40,16 +40,26 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
 
 ### WP2 - Reversible per-request dictionaries
 
-- Build a deterministic alias table for repeated high-cost strings:
+- [x] Build a deterministic alias table for repeated high-cost strings:
   - absolute paths.
+- Implemented first safe slice: repeated absolute local paths inside a
+  tool-result block are replaced with `[P1]`, `[P2]`, ... only when a prepended
+  legend keeps the transform reversible and produces positive net savings.
+- Current guards: known local filesystem roots only, minimum path length,
+  minimum occurrence count, maximum eight aliases, URL-style path rejection,
+  and negative-saving bypass.
+- Remaining dictionary classes:
   - long package/module names.
   - repeated test names.
   - repeated stack frames.
   - repeated error prefixes.
   - repeated JSON keys in huge objects.
-- Replace repeats with compact aliases only inside the same request body.
-- Add a legend at the smallest safe scope.
-- Do not alias code identifiers if it would make code edits ambiguous.
+- [x] Replace repeats with compact aliases at the smallest safe scope.
+  T143a uses block-local scope because it is self-contained and reversible
+  without session state.
+- [x] Add a legend at the smallest safe scope.
+- [x] Do not alias code identifiers if it would make code edits ambiguous.
+  T143a aliases only absolute paths, never symbol names.
 
 ### WP3 - Multi-language symbol slicing
 
@@ -123,14 +133,27 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
 ## Acceptance
 
 - [ ] Token budgets are provider-aware when context is available.
-- [ ] Reversible dictionary compaction never aliases edit-critical identifiers.
+- [x] Reversible dictionary compaction never aliases edit-critical identifiers
+  for the implemented absolute-path slice.
 - [ ] Multi-language slicing covers the requested high-volume stacks.
 - [ ] Stacktrace/test compaction preserves exact actionable failure data.
 - [ ] Markdown/SQL/config compaction has dedicated fixtures.
-- [ ] No content class can produce negative token saving for more than the configured tolerance.
+- [x] The T143a path dictionary has a strict negative-saving bypass.
+- [ ] No content class can produce negative token saving for more than the configured tolerance across every future T143 slice.
 - [ ] Quality fixtures prove no loss on line/path/error/debug tasks.
 - [ ] Live-corpus gate from T146 shows positive net saving before default-on.
 - [ ] `go run ./scripts/ci` passes with 100% coverage for new Go code.
+
+## Implementation Notes
+
+- 2026-05-14 T143a:
+  - Added `internal/compression/semantic_dictionary.go`.
+  - Layer 1 now reports `DictionarySaved` and the proxy exposes it as
+    `semantic_dictionary` in Layer 1 breakdowns.
+  - The dictionary is reversible by construction: the full original path stays
+    in a local legend and body occurrences use compact aliases.
+  - Focus tests: `go test ./internal/compression ./internal/proxy -cover` at
+    100% for both packages.
 
 ## Expected Upside
 
@@ -143,4 +166,3 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
 - Over-slicing can force extra tool calls, which can cost more than saved input tokens.
 - Multi-language parsing can become maintenance-heavy if implemented as too many bespoke parsers.
 - Dictionary legends can add overhead on small inputs; planner must bypass small cases.
-

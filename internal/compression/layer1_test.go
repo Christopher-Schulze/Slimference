@@ -607,14 +607,43 @@ func TestCompressMessage_UsesScalarDedupThresholdFallback(t *testing.T) {
 		Type: "tool_result",
 		Text: strings.Repeat("same words ", 80),
 	})
-	_, _, _, _, _, _, _, _, _, _ = c.compressMessage(msg, 0, 2, nil)
+	_, _, _, _, _, _, _, _, _, _, _ = c.compressMessage(msg, 0, 2, nil)
 	dupe := buildMessage(t, 1, "user", types.ContentBlock{
 		Type: "tool_result",
 		Text: strings.Repeat("same words ", 80),
 	})
-	_, _, dedupSaved, _, _, _, _, _, _, _ := c.compressMessage(dupe, 1, 2, nil)
+	_, _, dedupSaved, _, _, _, _, _, _, _, _ := c.compressMessage(dupe, 1, 2, nil)
 	if dedupSaved <= 0 {
 		t.Fatalf("dedup fallback did not trigger, saved=%d", dedupSaved)
+	}
+}
+
+func TestCompress_SemanticDictionaryForRepeatedPaths(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	c := NewDeterministicCompressor(cfg)
+	path := "/Users/example/workspace/slimference/internal/proxy/handler.go"
+	body := "panic stack\n" + strings.Repeat(path+":123: failure in handler\n", 12)
+	msgs := []types.Message{
+		buildMessage(t, 0, "user", types.ContentBlock{
+			Type:     "tool_result",
+			ToolName: "Bash",
+			Text:     body,
+		}),
+		buildMessage(t, 1, "assistant", textBlock("ok")),
+		buildMessage(t, 2, "user", textBlock("tail")),
+	}
+
+	result := c.Compress(msgs)
+	if result.DictionarySaved <= 0 {
+		t.Fatalf("DictionarySaved=%d", result.DictionarySaved)
+	}
+	got := result.Messages[0].Content[0].Text
+	if !strings.Contains(got, "[Slimference path dictionary]") || !strings.Contains(got, "[P1]="+path) {
+		t.Fatalf("dictionary legend missing: %s", got)
+	}
+	if strings.Count(got, path) != 1 {
+		t.Fatalf("path should only remain in legend, got %d occurrences in %s", strings.Count(got, path), got)
 	}
 }
 

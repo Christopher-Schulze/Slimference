@@ -220,7 +220,8 @@ consumption.
 ## 5. Layer 1 - Deterministic Compression
 
 `internal/compression/layer1.go::DeterministicCompressor.Compress`
-orchestrates 14 sub-layers. Execution order per spec+.md §5:
+orchestrates 15 sub-layers. Execution order per spec+.md §5 plus the T143
+semantic frontier:
 
 | # | Sub-layer                          | File                           |
 |---|-------------------------------------|--------------------------------|
@@ -234,14 +235,25 @@ orchestrates 14 sub-layers. Execution order per spec+.md §5:
 | 8 | Tool-type-aware compression        | `tool_compressor.go`           |
 | 9 | Success-shortcircuit               | `success_shortcircuit.go`      |
 |10 | Image-block replace                | `image_replace.go`             |
-|11 | Repeated-line collapse             | `repeated_collapse.go`         |
-|12 | File-op graph pruning              | `graph_pruning.go`             |
-|13 | Prefilter tag                      | `prefilter_tag.go`             |
-|14 | Loop nudge (T37)                   | `loop_detect.go`               |
+|11 | Reversible path dictionary         | `semantic_dictionary.go`       |
+|12 | Repeated-line collapse             | `repeated_collapse.go`         |
+|13 | File-op graph pruning              | `graph_pruning.go`             |
+|14 | Prefilter tag                      | `prefilter_tag.go`             |
+|15 | Loop nudge (T37)                   | `loop_detect.go`               |
 
 Plus:
 - Structure-aware preview for oversized tool results (T38 / T55).
 - Prompt-cache breakpoints (T23, T45).
+
+### Reversible path dictionary (T143a)
+
+`semantic_dictionary.go` aliases repeated absolute local paths inside one
+tool-result block only when the embedded legend plus aliases are strictly
+shorter. It preserves reversibility by prepending a small dictionary such as
+`[P1]=/Users/.../file.go`, then replacing repeated body occurrences with
+`[P1]`. It is deliberately narrow: known local filesystem roots only,
+minimum path length and occurrence gates, URL-style paths ignored, and no
+application when the legend would create a negative saving.
 
 ### Adaptive dedup staircase (T53)
 

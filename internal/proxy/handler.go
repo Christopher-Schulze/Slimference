@@ -973,6 +973,7 @@ func buildLayer1Breakdown(r compression.Layer1Result) map[string]dbg.SubLayerBre
 	addBD("success_shortcircuit", r.SuccessShortSaved)
 	addBD("tool_compressor", r.ToolCompressorSaved)
 	addBD("image_replace", r.ImageSaved)
+	addBD("semantic_dictionary", r.DictionarySaved)
 	addBD("repeated_collapse", r.RepeatedCollapseSaved)
 	addBD("graph_pruning", r.GraphPruningSaved)
 	return bd
