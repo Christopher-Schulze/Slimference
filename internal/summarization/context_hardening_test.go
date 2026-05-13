@@ -326,7 +326,15 @@ func TestLayer2_RunCompressionJobContext_canceledAfterPreprocess(t *testing.T) {
 	cfg.MinTokensForLayer2 = 1
 
 	layer := NewLayer2(&cfg)
-	hugeText := bytes.Repeat([]byte("line with context payload\n"), 500000)
+	layer.chain.SetProviders(&cancelSummarizer{
+		name:       "cancel-after-preprocess",
+		configured: true,
+		summarize: func(ctx context.Context) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	})
+	hugeText := bytes.Repeat([]byte("line with context payload\n"), 5000)
 	msgs := []types.Message{
 		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: string(hugeText)}}},
 		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "ack"}}},

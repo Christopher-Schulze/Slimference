@@ -12,10 +12,27 @@ import (
 // (functions/types only) instead of comment strip alone.
 const signatureOnlyThreshold = 3000
 
+// FileReadContext carries request/session signals that decide whether a file
+// read can be safely compacted. Empty context preserves legacy scan behaviour.
+type FileReadContext struct {
+	Mode            string
+	RecentlyEdited  bool
+	ForceFull       bool
+	RelevantSymbols []string
+}
+
 // TryStripCommentsFileRead compacts cat/head/tail stdout (F06).
 // Single file: strips comments. Large single file: also attempts signature extraction.
 // Multiple files with known extensions: applies comment strip to each section.
 func TryStripCommentsFileRead(argv []string, stdout []byte) ([]byte, bool) {
+	return TryStripCommentsFileReadWithContext(argv, stdout, FileReadContext{Mode: "scan"})
+}
+
+// TryStripCommentsFileReadWithContext is the context-aware variant used by
+// PostToolUse/session-aware paths. It bypasses compaction for recently edited
+// or edit/debug reads so the model receives exact file contents when it is
+// likely to modify or inspect details.
+func TryStripCommentsFileReadWithContext(argv []string, stdout []byte, ctx FileReadContext) ([]byte, bool) {
 	if len(argv) < 2 {
 		return stdout, false
 	}
@@ -28,10 +45,13 @@ func TryStripCommentsFileRead(argv []string, stdout []byte) ([]byte, bool) {
 	if nPaths == 0 {
 		return stdout, false
 	}
+	if ctx.ForceFull || ctx.RecentlyEdited || isEditOrDebugReadMode(ctx.Mode) {
+		return stdout, false
+	}
 
 	if nPaths == 1 {
 		// Single-file path: strip comments, optionally extract signatures.
-		return compactSingleFileRead(argv, lastReadFilePath(argv), stdout)
+		return compactSingleFileReadWithContext(argv, lastReadFilePath(argv), stdout, ctx)
 	}
 
 	// Multi-file: all file paths must have recognized extensions.
@@ -51,6 +71,13 @@ func TryStripCommentsFileRead(argv []string, stdout []byte) ([]byte, bool) {
 
 // compactSingleFileRead applies comment strip and optionally structure extraction to one file.
 func compactSingleFileRead(argv []string, path string, stdout []byte) ([]byte, bool) {
+	return compactSingleFileReadWithContext(argv, path, stdout, FileReadContext{Mode: "scan"})
+}
+
+func compactSingleFileReadWithContext(argv []string, path string, stdout []byte, ctx FileReadContext) ([]byte, bool) {
+	if ctx.ForceFull || ctx.RecentlyEdited || isEditOrDebugReadMode(ctx.Mode) {
+		return stdout, false
+	}
 	lang := compression.LanguageFromPath(path)
 	if lang == "" {
 		return stdout, false
@@ -61,7 +88,13 @@ func compactSingleFileRead(argv []string, path string, stdout []byte) ([]byte, b
 	// regex structure extraction. head/tail are already partial reads and must
 	// stay literal.
 	if isFullFileCat(argv) && lang == "go" {
-		if out, _, ok, err := codecompact.Compact(path, stdout, codecompact.Options{Mode: "scan"}); err == nil && ok {
+		if out, _, ok, err := codecompact.Compact(path, stdout, codecompact.Options{
+			Mode:                 fileReadMode(ctx.Mode),
+			RecentlyEdited:       ctx.RecentlyEdited,
+			ForceFull:            ctx.ForceFull,
+			RelevantSymbols:      append([]string(nil), ctx.RelevantSymbols...),
+			MaxIncludedBodyLines: 12,
+		}); err == nil && ok {
 			return out, true
 		}
 	}
@@ -79,6 +112,42 @@ func compactSingleFileRead(argv []string, path string, stdout []byte) ([]byte, b
 		return stdout, false
 	}
 	return []byte(out), true
+}
+
+func isEditOrDebugReadMode(mode string) bool {
+	switch fileReadMode(mode) {
+	case "edit", "debug":
+		return true
+	default:
+		return false
+	}
+}
+
+func fileReadMode(mode string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		return "scan"
+	}
+	return mode
+}
+
+// ReadPathFromCommandLine returns the single file path read by a simple
+// cat/head/tail command line. Compound commands intentionally return empty.
+func ReadPathFromCommandLine(commandLine string) string {
+	for _, tok := range tokenize(commandLine) {
+		if tok.Kind == TokenOperator || tok.Kind == TokenPipe || tok.Kind == TokenRedirect || tok.Kind == TokenShellism {
+			return ""
+		}
+	}
+	argv := primaryArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 || countReadPaths(argv) != 1 {
+		return ""
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	if b != "cat" && b != "head" && b != "tail" {
+		return ""
+	}
+	return lastReadFilePath(argv)
 }
 
 func isFullFileCat(argv []string) bool {

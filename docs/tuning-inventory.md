@@ -15,7 +15,7 @@ Current centralized knobs under `[compression.tuning]`:
 | `structure_in_window` | `false` | `internal/compression/{layer1,structure_in_window}.go` | Enables conservative in-window structure extraction for large `tool_result` blocks. |
 | `structure_in_window_min_tokens` | `1500` | same | Minimum estimated token count before in-window structure extraction can trigger. |
 | `loop_detection` | `false` | `internal/compression/layer1.go` | Enables retry-loop detection and final-user-message nudge injection. |
-| `structure_preview` | `false` | `internal/compression/preview_pass.go` | Enables shape-aware previews for large structured tool outputs. |
+| `structure_preview` | `true` | `internal/compression/preview_pass.go` | Enables archive-backed shape-aware previews for large structured tool outputs. |
 
 Notes:
 

@@ -36,6 +36,7 @@ func defaultMiniMaxConfig(baseURL string) config.MiniMaxConfig {
 		ConnectTimeoutSeconds:  2,
 		ResponseTimeoutSeconds: 4,
 		RateLimitRPM:           120,
+		EnableReasoningSplit:   true,
 	}
 }
 
@@ -120,6 +121,58 @@ func TestSummarize_PayloadOmitsOptionalsByDefault(t *testing.T) {
 	body := <-captured
 	if bytes_contains(body, "min_tokens") || bytes_contains(body, `"seed":`) {
 		t.Fatalf("optional fields leaked into default payload: %s", string(body))
+	}
+	if !bytes_contains(body, `"reasoning_split":true`) {
+		t.Fatalf("MiniMax reasoning_split default missing: %s", string(body))
+	}
+}
+
+func TestSummarize_PayloadUsesConfiguredSampling(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	captured := make(chan []byte, 1)
+	srv := newMockMiniMaxServer(t, func(body []byte) []byte {
+		select {
+		case captured <- body:
+		default:
+		}
+		return []byte(`{"choices":[{"message":{"role":"assistant","content":"- fact one [msg:0]\n- fact two [msg:1]\n- fact three [msg:2]\n- fact four [msg:3]\n- fact five [msg:4]"}}]}`)
+	})
+	defer srv.Close()
+
+	cfg := defaultMiniMaxConfig(srv.URL)
+	cfg.Temperature = 0.2
+	cfg.TopP = 0.75
+	client := NewMiniMaxClient(cfg)
+	if _, err := client.Summarize(t.Context(), "input transcript text", 0, 5, 200); err != nil {
+		t.Fatal(err)
+	}
+	body := string(<-captured)
+	if !strings.Contains(body, `"temperature":0.2`) || !strings.Contains(body, `"top_p":0.75`) {
+		t.Fatalf("configured sampling not present: %s", body)
+	}
+}
+
+func TestSummarize_CanDisableReasoningSplit(t *testing.T) {
+	t.Setenv("MINIMAX_API_KEY", "test-key")
+	captured := make(chan []byte, 1)
+	srv := newMockMiniMaxServer(t, func(body []byte) []byte {
+		select {
+		case captured <- body:
+		default:
+		}
+		return []byte(`{"choices":[{"message":{"role":"assistant","content":"- fact one [msg:0]\n- fact two [msg:1]\n- fact three [msg:2]\n- fact four [msg:3]\n- fact five [msg:4]"}}]}`)
+	})
+	defer srv.Close()
+
+	cfg := defaultMiniMaxConfig(srv.URL)
+	cfg.EnableReasoningSplit = false
+	client := NewMiniMaxClient(cfg)
+	if _, err := client.Summarize(t.Context(), "input transcript text", 0, 5, 200); err != nil {
+		t.Fatal(err)
+	}
+	body := string(<-captured)
+	if strings.Contains(body, "reasoning_split") {
+		t.Fatalf("reasoning_split should be omitted when disabled: %s", body)
 	}
 }
 

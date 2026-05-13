@@ -733,14 +733,17 @@ func TestHandlePostToolCmdRecordsFlight(t *testing.T) {
 	origRead := readStdinAll
 	origConfigLoad := configLoadFn
 	origGetwd := osGetwd
+	origHome := osUserHomeDir
 	defer func() {
 		termIsTerminalFn = origTerm
 		readStdinAll = origRead
 		configLoadFn = origConfigLoad
 		osGetwd = origGetwd
+		osUserHomeDir = origHome
 	}()
 
 	tmp := t.TempDir()
+	osUserHomeDir = func() (string, error) { return tmp, nil }
 	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
 	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
@@ -774,14 +777,110 @@ func TestHandlePostToolCmdRecordsFlight(t *testing.T) {
 	}
 }
 
+func TestHookTurnStateHelpers(t *testing.T) {
+	origHome := osUserHomeDir
+	defer func() { osUserHomeDir = origHome }()
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+
+	if got := hookPathCandidates("/repo", "src/main.go"); len(got) != 2 || got[0] != "src/main.go" || got[1] != "/repo/src/main.go" {
+		t.Fatalf("path candidates=%v", got)
+	}
+	if got := hookPathCandidates("/repo", " "); got != nil {
+		t.Fatalf("blank candidates=%v", got)
+	}
+	if got := firstNonEmpty("", "  ", "x"); got != "x" {
+		t.Fatalf("firstNonEmpty=%q", got)
+	}
+	if got := firstNonEmpty("", " "); got != "" {
+		t.Fatalf("firstNonEmpty blank=%q", got)
+	}
+
+	observeSessionStartTurnState("sess-helper")
+	observePostToolTurnState("/repo", filter.PostToolPayload{
+		SessionID:    "sess-helper",
+		ToolName:     "apply_patch",
+		CommandLine:  "*** Update File: src/main.go",
+		CWD:          "/repo",
+		FilePaths:    []string{"src/main.go"},
+		ToolUseID:    "tool-1",
+		ToolResponse: "ok",
+	})
+	ctx := hookFileReadContext("/repo", filter.PostToolPayload{
+		SessionID:    "sess-helper",
+		ToolName:     "Bash",
+		CommandLine:  "cat src/main.go",
+		ToolResponse: "package main\n",
+	})
+	if !ctx.RecentlyEdited {
+		t.Fatal("expected recently edited context")
+	}
+	ctx = hookFileReadContext("/repo", filter.PostToolPayload{
+		SessionID:    "sess-helper",
+		ToolName:     "Bash",
+		CommandLine:  "cat src/other.go",
+		ToolResponse: "package main\n",
+	})
+	if ctx.RecentlyEdited {
+		t.Fatal("unseen file should not be recently edited")
+	}
+	observePostToolTurnState("/wrong", filter.PostToolPayload{
+		SessionID:    "sess-helper",
+		ToolName:     "Edit",
+		CommandLine:  "apply_patch",
+		CWD:          "/actual",
+		FilePaths:    []string{"src/cwd.go"},
+		ToolResponse: "ok",
+	})
+	ctx = hookFileReadContext("/wrong", filter.PostToolPayload{
+		SessionID:    "sess-helper",
+		ToolName:     "Bash",
+		CommandLine:  "cat src/cwd.go",
+		CWD:          "/actual",
+		ToolResponse: "package main\n",
+	})
+	if !ctx.RecentlyEdited {
+		t.Fatal("hook cwd should take precedence over process cwd")
+	}
+	observePostToolTurnState("/repo", filter.PostToolPayload{
+		SessionID:    "sess-helper",
+		ToolName:     "Bash",
+		CommandLine:  "cat src/other.go",
+		ToolResponse: "package main\n",
+	})
+	observeUserPromptTurnState("sess-helper")
+	observeStopTurnState("sess-helper")
+
+	osUserHomeDir = func() (string, error) { return "", errors.New("home") }
+	ctx = hookFileReadContext("/repo", filter.PostToolPayload{SessionID: "sess-helper", CommandLine: "cat src/main.go"})
+	if ctx.RecentlyEdited {
+		t.Fatal("home error should degrade to scan context")
+	}
+	observeSessionStartTurnState("ignored")
+	observeUserPromptTurnState("ignored")
+	observeStopTurnState("ignored")
+	observePostToolTurnState("/repo", filter.PostToolPayload{SessionID: "ignored", ToolName: "Edit", FilePaths: []string{"x.go"}})
+
+	if postToolLooksLikeEdit(filter.PostToolPayload{ToolName: "Bash", CommandLine: "cat main.go"}) {
+		t.Fatal("cat must not look like edit")
+	}
+	if !postToolLooksLikeEdit(filter.PostToolPayload{CommandLine: "*** Add File: x.go"}) {
+		t.Fatal("patch command must look like edit")
+	}
+}
+
 func TestHandleCodexHookCmd(t *testing.T) {
 	origTerm := termIsTerminalFn
 	origRead := readStdinAll
+	origHome := osUserHomeDir
 	defer func() {
 		termIsTerminalFn = origTerm
 		readStdinAll = origRead
+		osUserHomeDir = origHome
 	}()
 	termIsTerminalFn = func(int) bool { return false }
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
 	t.Run("session_start_adds_context", func(t *testing.T) {

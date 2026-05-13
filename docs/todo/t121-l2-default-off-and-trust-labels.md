@@ -16,7 +16,7 @@ layer2_enabled = true
 ```
 
 `internal/summarization/minimax.go` (current):
-- Default model `minimax-m2.7`
+- Default model `MiniMax-M2.7`
 - Default base URL `https://api.minimax.io/v1`
 - API key from `MINIMAX_API_KEY` env var
 - No provider trust label visible anywhere

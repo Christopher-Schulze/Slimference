@@ -1,6 +1,6 @@
 # TASK 129: Layer 2 default-ON re-flip (reverse T121)
 
-Status: CODE-COMPLETE / FIRST-RUN ACK + FULL GATES GREEN (2026-05-02)
+Status: CODE-COMPLETE / FIRST-RUN ACK + PROVIDER-TUNABLE L2 GREEN (2026-05-13)
 Priority: P2
 Scope: `internal/config/defaults.go`, `internal/types/provider_caps.go`, `cmd/slimference/doctor.go`, first-run acknowledgement state, `docs/data-policy.md`. Requires T132 race-clean first.
 Driver: T121 set `[compression] layer2_enabled = false` as the default after the audit found Layer 2 was sending unredacted conversation prefixes to MiniMax (a third-party / external provider). The audit fix landed as T109 (outbound redaction) and T110/T111 (cache + anchor correctness). Operator (the user driving this Slimference instance) has a MiniMax subscription, accepts the third-party trust label, and wants the saving back. T129 reverses the default flip for fresh installs, keeps every safety rail (T109 redaction default-on, T121 trust-label warning visible), adds an explicit first-run acknowledgement, and updates doctor output so the operator and any future user sees what the policy is.
@@ -99,7 +99,7 @@ Completed. `slimference doctor` now emits a WARN-level line for L2 provider trus
 
 ## Out of scope
 
-- Switching providers (replacing MiniMax with an alternative). Operator already has the MiniMax subscription; T129 stays compatible.
+- Deep provider migration UI. The runtime path is now provider-tunable through `[compression.minimax]` and `SLIMFERENCE_MINIMAX_*` overrides, but T129 does not add a separate provider registry UI.
 - Local-LLM summariser path (rejected by operator brief: "ich habe keine ressourcen auf meinem mac übrig").
 - Re-doing the T109 redaction. T129 trusts T109 and ships on top of it.
 - Re-doing T110 cache or T111 anchor logic. T129 inherits both.
@@ -117,3 +117,9 @@ slimference layer2 status   # expect "Layer 2 is enabled (default)"
 Operator: "default on bitte!"
 
 Done. No further policy bits required; T109 + T110 + T111 + T121's redaction + trust-label safeguards remain active and visible.
+
+2026-05-13 stabilisation:
+
+- `[compression.minimax]` remains the historical section name, but the client is now documented and tested as an OpenAI-compatible `/chat/completions` summarizer endpoint.
+- Env overrides now support direct `SLIMFERENCE_MINIMAX_API_KEY`, `SLIMFERENCE_MINIMAX_API_KEY_ENV`, `SLIMFERENCE_MINIMAX_BASE_URL`, `SLIMFERENCE_MINIMAX_MODEL`, sampling/timeouts/rate-limit/capability flags, trust class, prompt override path, and deterministic-mode policy.
+- MiniMax M2.x `reasoning_split` is default-on to keep thinking content out of `message.content`; set `SLIMFERENCE_MINIMAX_ENABLE_REASONING_SPLIT=false` for non-MiniMax compatible providers that reject the extension.

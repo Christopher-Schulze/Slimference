@@ -89,12 +89,29 @@ const exampleTS = "EXAMPLE INPUT:\n" +
 	"- Decision: add token validation to handleLogin() -> approved and implemented [msg:3,4]\n" +
 	"- npm test --prefix src/auth passed (8 tests, 0.842s) [msg:7,8]\n\n"
 
+const exampleRust = "EXAMPLE INPUT:\n" +
+	"[USER msg 0]\nAdd auth to the Axum API. Inspect the current login handler.\n---\n" +
+	"[ASSISTANT msg 1]\n<tool_use name=\"read_file\" input={\"path\":\"src/auth/handler.rs\"}>\n---\n" +
+	"[USER msg 2]\n<tool_result id=\"r1\">pub async fn handle_login(State(state): State<AppState>) -> StatusCode {\n    // TODO: validate token\n    StatusCode::OK\n}</tool_result>\n---\n" +
+	"[ASSISTANT msg 3]\nsrc/auth/handler.rs:handle_login() needs token validation against AppState.\n---\n" +
+	"[USER msg 4]\nGo. Then run `cargo test -p auth`.\n---\n" +
+	"[ASSISTANT msg 5]\n<tool_use name=\"apply_patch\" input={\"path\":\"src/auth/handler.rs\"}>\n---\n" +
+	"[USER msg 6]\n<tool_result id=\"r2\">OK</tool_result>\n---\n" +
+	"[ASSISTANT msg 7]\n<tool_use name=\"bash\" input={\"command\":\"cargo test -p auth\"}>\n---\n" +
+	"[USER msg 8]\n<tool_result id=\"r3\">test result: ok. 18 passed; 0 failed; finished in 0.41s</tool_result>\n---\n\n" +
+	"CORRECT OUTPUT FOR ABOVE INPUT:\n" +
+	"- User requested auth addition to Axum API, checked src/auth/handler.rs [msg:0,1]\n" +
+	"- src/auth/handler.rs contains handle_login() - needs token validation against AppState [msg:2,3]\n" +
+	"- apply_patch applied to src/auth/handler.rs (added token validation) [msg:5,6]\n" +
+	"- Decision: add token validation to handle_login() -> approved and implemented [msg:3,4]\n" +
+	"- cargo test -p auth passed (18 tests, 0.41s) [msg:7,8]\n\n"
+
 // systemPromptHeader is the stack-agnostic body of the prompt. T87 stack
 // examples are appended at request time via buildSystemPrompt.
-const systemPromptHeader = "You are a deterministic information extractor. You compress AI coding session transcripts into structured reference summaries. You never think, reason, or explain. You only extract and condense facts.\n\n" +
+const systemPromptHeader = "You are a deterministic, model-agnostic information extractor. You compress AI coding session transcripts into structured reference summaries. You never think, reason, or explain. You only extract and condense facts that are present in the input.\n\n" +
 	"MANDATORY OUTPUT FORMAT:\n" +
 	"- One fact per line, prefixed with a dash: \"- \"\n" +
-	"- No other format is acceptable. No paragraphs. No prose. No sections.\n\n" +
+	"- No other format is acceptable. No JSON. No paragraphs. No prose. No sections.\n\n" +
 	"CONTENT RULES (violating ANY rule = failed output):\n" +
 	"1. Copy ALL file paths verbatim. Include extension. Example: src/auth/handler.go\n" +
 	"2. Copy ALL function/method names verbatim. Example: handleLogin()\n" +
@@ -227,10 +244,10 @@ func ResetExamplePromptCounts() {
 
 // pickExampleLang scans the input transcript for cheap signals (file
 // extensions, language-specific tokens) and returns one of "go",
-// "python", or "ts". Defaults to "go" on tie or empty signals to
+// "python", "ts", or "rust". Defaults to "go" on tie or empty signals to
 // preserve the previous prompt behaviour. T87.
 func pickExampleLang(input string) string {
-	scores := map[string]int{"go": 0, "python": 0, "ts": 0}
+	scores := map[string]int{"go": 0, "python": 0, "ts": 0, "rust": 0}
 	low := strings.ToLower(input)
 
 	// File-extension signals carry the most weight.
@@ -245,7 +262,7 @@ func pickExampleLang(input string) string {
 		{".tsx", "ts", 3},
 		{".jsx", "ts", 2},
 		{".js", "ts", 2},
-		{".rs", "go", 0}, // rust falls back to Go style for now
+		{".rs", "rust", 3},
 	} {
 		scores[sig.lang] += strings.Count(low, sig.needle) * sig.weight
 	}
@@ -268,13 +285,19 @@ func pickExampleLang(input string) string {
 		{"pnpm ", "ts", 1},
 		{"tsc ", "ts", 1},
 		{"function ", "ts", 1},
+		{"cargo test", "rust", 2},
+		{"cargo build", "rust", 2},
+		{"rustc ", "rust", 1},
+		{"impl ", "rust", 1},
+		{"pub fn ", "rust", 2},
+		{"pub async fn ", "rust", 2},
 	} {
 		scores[sig.lang] += strings.Count(low, sig.needle) * sig.weight
 	}
 
 	best := "go"
 	bestScore := scores["go"]
-	for _, lang := range []string{"python", "ts"} {
+	for _, lang := range []string{"python", "ts", "rust"} {
 		if scores[lang] > bestScore {
 			best = lang
 			bestScore = scores[lang]
@@ -299,6 +322,8 @@ func buildSystemPrompt(input string) string {
 		example = examplePython
 	case "ts":
 		example = exampleTS
+	case "rust":
+		example = exampleRust
 	}
 	header := systemPromptHeader
 	if promptOverrideBody != "" {
@@ -475,6 +500,9 @@ type mmRequest struct {
 	TopP             float64 `json:"top_p"`
 	FrequencyPenalty float64 `json:"frequency_penalty"`
 	Stream           bool    `json:"stream"`
+	// ReasoningSplit is a MiniMax M2.x OpenAI-compatible extension. It is
+	// config-gated because generic OpenAI-compatible providers may reject it.
+	ReasoningSplit bool `json:"reasoning_split,omitempty"`
 }
 
 // mmMessage is a single role/content pair used in the chat completion API.
@@ -517,7 +545,9 @@ type MiniMaxClient struct {
 	apiKey      string
 	model       string
 	temperature float64
+	topP        float64
 	maxRetries  int
+	reasonSplit bool
 	httpClient  *http.Client
 	limiter     *rate.Limiter
 	// caps gates optional request fields (seed, min_tokens, ...) per
@@ -565,6 +595,10 @@ func NewMiniMaxClient(cfg config.MiniMaxConfig) *MiniMaxClient {
 	if rpm <= 0 {
 		rpm = 10
 	}
+	topP := cfg.TopP
+	if topP <= 0 {
+		topP = 1
+	}
 	// Convert RPM to per-second rate with a burst of 1.
 	rps := rate.Limit(float64(rpm) / 60.0)
 	limiter := rate.NewLimiter(rps, 1)
@@ -574,7 +608,9 @@ func NewMiniMaxClient(cfg config.MiniMaxConfig) *MiniMaxClient {
 		apiKey:      cfg.APIKey(),
 		model:       cfg.Model,
 		temperature: cfg.Temperature,
+		topP:        topP,
 		maxRetries:  cfg.MaxRetries,
+		reasonSplit: cfg.EnableReasoningSplit,
 		httpClient:  httpClient,
 		limiter:     limiter,
 	}
@@ -605,7 +641,9 @@ func (c *MiniMaxClient) Summarize(ctx context.Context, inputText string, startMs
 		startMsg, endMsg, targetTokens, inputText,
 	)
 
-	// Force temperature to 0 regardless of config for deterministic output.
+	// Default config keeps temperature=0 for deterministic compression. The
+	// value remains configurable for OpenAI-compatible fallback providers
+	// whose hosted defaults need explicit reproduction during live tuning.
 	// T87: system prompt is built per request with the stack-appropriate
 	// few-shot example so non-Go sessions are not primed with Go idioms.
 	payload := mmRequest{
@@ -615,10 +653,11 @@ func (c *MiniMaxClient) Summarize(ctx context.Context, inputText string, startMs
 			{Role: "user", Content: userContent},
 		},
 		MaxTokens:        targetTokens,
-		Temperature:      0,
-		TopP:             1.0,
+		Temperature:      c.temperature,
+		TopP:             c.topP,
 		FrequencyPenalty: 0,
 		Stream:           false,
+		ReasoningSplit:   c.reasonSplit,
 	}
 	// T91: send min_tokens only when the active capability map says the
 	// provider supports it. 70% of target floor avoids premature stops

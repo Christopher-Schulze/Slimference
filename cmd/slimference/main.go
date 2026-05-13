@@ -60,6 +60,7 @@ import (
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/repetition"
+	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/slogutil"
 	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tlsca"
@@ -831,7 +832,9 @@ func handlePostToolCmd(args []string) {
 		maxOut = cfg.Filter.PassthroughMaxChars
 	}
 
-	compacted, changed := filter.CompactCapturedOutput(wd, details.CommandLine, details.ToolResponse, maxOut)
+	readCtx := hookFileReadContext(wd, details)
+	compacted, changed := filter.CompactCapturedOutputWithContext(wd, details.CommandLine, details.ToolResponse, maxOut, readCtx)
+	observePostToolTurnState(wd, details)
 	recordHookFlight("hook_post", details.SessionID, details.ToolName, hookDecision(changed), len(details.ToolResponse), len(compacted), []int{0}, nil)
 
 	// T93 cross-session pattern mining: when the same (session, tool,
@@ -933,6 +936,7 @@ func handleCodexHookCmd(args []string) {
 
 func handleCodexSessionStartHook(payload []byte) {
 	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	observeSessionStartTurnState(sessionID)
 	source := extractJSONText(payload, "source")
 	if source == "" {
 		source = "session"
@@ -996,11 +1000,13 @@ func handleCodexPermissionRequestHook(payload []byte) {
 
 func handleCodexUserPromptSubmitHook(payload []byte) {
 	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	observeUserPromptTurnState(sessionID)
 	recordHookFlight("codex_user_prompt_submit", sessionID, "UserPromptSubmit", "observed", len(payload), len(payload), nil, nil)
 }
 
 func handleCodexStopHook(payload []byte) {
 	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	observeStopTurnState(sessionID)
 	recordHookFlight("codex_stop", sessionID, "Stop", "continue", len(payload), len(payload), nil, nil)
 	out := map[string]interface{}{"continue": true}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
@@ -1084,6 +1090,7 @@ func handleReadHookCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "readhook: %v\n", err)
 		exitFn(1)
 	}
+	_ = sessions.ObserveHookFile(sessions.DefaultHookStateDir(home), req.SessionID, req.FilePath, "read")
 	recordHookFlight("readhook", req.SessionID, mode, string(decision.Type), 0, 0, nil, nil)
 	if decision.Type != readcache.DecisionBlock {
 		return
@@ -1115,6 +1122,101 @@ func hookDecision(changed bool) string {
 		return "compacted"
 	}
 	return "passthrough"
+}
+
+func hookFileReadContext(workDir string, details filter.PostToolPayload) filter.FileReadContext {
+	ctx := filter.FileReadContext{Mode: "scan"}
+	readPath := filter.ReadPathFromCommandLine(details.CommandLine)
+	if readPath == "" || details.SessionID == "" {
+		return ctx
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		return ctx
+	}
+	dir := sessions.DefaultHookStateDir(home)
+	for _, path := range hookPathCandidates(firstNonEmpty(details.CWD, workDir), readPath) {
+		recent, err := sessions.RecentlyEditedHookFile(dir, details.SessionID, path, 2)
+		if err == nil && recent {
+			ctx.RecentlyEdited = true
+			return ctx
+		}
+	}
+	return ctx
+}
+
+func observeSessionStartTurnState(sessionID string) {
+	if home, err := osUserHomeDir(); err == nil {
+		_ = sessions.StartHookSession(sessions.DefaultHookStateDir(home), sessionID)
+	}
+}
+
+func observeUserPromptTurnState(sessionID string) {
+	if home, err := osUserHomeDir(); err == nil {
+		_ = sessions.StartHookTurn(sessions.DefaultHookStateDir(home), sessionID)
+	}
+}
+
+func observeStopTurnState(sessionID string) {
+	if home, err := osUserHomeDir(); err == nil {
+		_ = sessions.CloseHookTurn(sessions.DefaultHookStateDir(home), sessionID)
+	}
+}
+
+func observePostToolTurnState(workDir string, details filter.PostToolPayload) {
+	if details.SessionID == "" {
+		return
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := sessions.DefaultHookStateDir(home)
+	_ = sessions.ObserveHookTool(dir, details.SessionID, details.ToolName, details.CommandLine)
+	if readPath := filter.ReadPathFromCommandLine(details.CommandLine); readPath != "" {
+		for _, path := range hookPathCandidates(firstNonEmpty(details.CWD, workDir), readPath) {
+			_ = sessions.ObserveHookFile(dir, details.SessionID, path, "read")
+		}
+	}
+	if !postToolLooksLikeEdit(details) {
+		return
+	}
+	for _, path := range details.FilePaths {
+		for _, candidate := range hookPathCandidates(firstNonEmpty(details.CWD, workDir), path) {
+			_ = sessions.ObserveHookFile(dir, details.SessionID, candidate, "edit")
+		}
+	}
+}
+
+func postToolLooksLikeEdit(details filter.PostToolPayload) bool {
+	s := strings.ToLower(details.ToolName + " " + details.CommandLine)
+	return strings.Contains(s, "apply_patch") ||
+		strings.Contains(s, "edit") ||
+		strings.Contains(s, "write") ||
+		strings.Contains(s, "*** update file:") ||
+		strings.Contains(s, "*** add file:") ||
+		strings.Contains(s, "*** delete file:")
+}
+
+func hookPathCandidates(workDir, path string) []string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	candidates := []string{filepath.Clean(path)}
+	if workDir != "" && !filepath.IsAbs(path) {
+		candidates = append(candidates, filepath.Clean(filepath.Join(workDir, path)))
+	}
+	return candidates
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func recordHookFlight(source, sessionID, toolName, decision string, originalBytes, finalBytes int, layers []int, hookErr error) {

@@ -69,7 +69,17 @@ func RunPipeline(ctx context.Context, workDir string, argv []string, passthrough
 // the output (spec+.md §4.6: built-in > TOML > generic cleanup).
 // Logs which filter matched (or passthrough) at debug level.
 func applyLayer0AfterANSI(workDir string, argv []string, stdout []byte) []byte {
-	out, filterName := applyLayer0Filters(workDir, argv, stdout)
+	out, filterName := applyLayer0FiltersWithContext(workDir, argv, stdout, FileReadContext{Mode: "scan"})
+	if filterName != "" {
+		slog.Debug("layer0 filter applied", "filter", filterName, "in_bytes", len(stdout), "out_bytes", len(out))
+	} else {
+		slog.Debug("layer0 passthrough", "in_bytes", len(stdout))
+	}
+	return out
+}
+
+func applyLayer0AfterANSIWithContext(workDir string, argv []string, stdout []byte, ctx FileReadContext) []byte {
+	out, filterName := applyLayer0FiltersWithContext(workDir, argv, stdout, ctx)
 	if filterName != "" {
 		slog.Debug("layer0 filter applied", "filter", filterName, "in_bytes", len(stdout), "out_bytes", len(out))
 	} else {
@@ -81,6 +91,10 @@ func applyLayer0AfterANSI(workDir string, argv []string, stdout []byte) []byte {
 // applyLayer0Filters dispatches stdout through each built-in filter in priority order
 // and returns the transformed output plus the name of the matched filter (empty = no match).
 func applyLayer0Filters(workDir string, argv []string, stdout []byte) ([]byte, string) {
+	return applyLayer0FiltersWithContext(workDir, argv, stdout, FileReadContext{Mode: "scan"})
+}
+
+func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte, ctx FileReadContext) ([]byte, string) {
 	type filterEntry struct {
 		name string
 		fn   func() ([]byte, bool)
@@ -99,7 +113,7 @@ func applyLayer0Filters(workDir string, argv []string, stdout []byte) ([]byte, s
 		{"search_output", func() ([]byte, bool) { return TryCompactSearchOutput(argv, stdout) }},
 		{"ls", func() ([]byte, bool) { return TryCompactLs(argv, stdout) }},
 		{"tree", func() ([]byte, bool) { return TryCompactTree(argv, stdout) }},
-		{"strip_comments_file_read", func() ([]byte, bool) { return TryStripCommentsFileRead(argv, stdout) }},
+		{"strip_comments_file_read", func() ([]byte, bool) { return TryStripCommentsFileReadWithContext(argv, stdout, ctx) }},
 		{"lint_output", func() ([]byte, bool) { return TryCompactLintOutput(argv, stdout) }},
 		{"format_output", func() ([]byte, bool) { return TryCompactFormatOutput(argv, stdout) }},
 		{"psql", func() ([]byte, bool) { return TryCompactPsql(argv, stdout) }},

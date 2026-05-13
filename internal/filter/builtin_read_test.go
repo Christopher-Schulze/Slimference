@@ -175,6 +175,59 @@ func TestCompactSingleFileRead_HeadBypassesASTCompaction(t *testing.T) {
 	}
 }
 
+func TestCompactSingleFileRead_ContextBypassesCompaction(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("package main\n\n")
+	for i := 0; i < 80; i++ {
+		sb.WriteString(fmt.Sprintf("// comment %d\n", i))
+		sb.WriteString(fmt.Sprintf("func DoThing%d() int {\n\treturn %d\n}\n\n", i, i))
+	}
+	content := []byte(sb.String())
+	for _, ctx := range []FileReadContext{
+		{Mode: "edit"},
+		{Mode: "debug"},
+		{Mode: "scan", RecentlyEdited: true},
+		{Mode: "scan", ForceFull: true},
+	} {
+		out, ok := compactSingleFileReadWithContext([]string{"cat", "large_file.go"}, "large_file.go", content, ctx)
+		if ok || string(out) != string(content) {
+			t.Fatalf("context %+v must bypass compaction", ctx)
+		}
+	}
+}
+
+func TestTryStripCommentsFileReadWithContext_RecentlyEdited(t *testing.T) {
+	t.Parallel()
+	src := []byte("// keep while editing\npackage main\nfunc main() {}\n")
+	out, ok := TryStripCommentsFileReadWithContext([]string{"cat", "main.go"}, src, FileReadContext{Mode: "scan", RecentlyEdited: true})
+	if ok || string(out) != string(src) {
+		t.Fatalf("recently edited read must remain literal, ok=%v out=%q", ok, out)
+	}
+	out, ok = TryStripCommentsFileReadWithContext([]string{"cat", "a.go", "b.go"}, src, FileReadContext{Mode: "scan", RecentlyEdited: true})
+	if ok || string(out) != string(src) {
+		t.Fatalf("recently edited multi-file read must remain literal, ok=%v out=%q", ok, out)
+	}
+}
+
+func TestReadPathFromCommandLine(t *testing.T) {
+	t.Parallel()
+	if fileReadMode("") != "scan" {
+		t.Fatal("empty mode must default to scan")
+	}
+	if got := ReadPathFromCommandLine("cat internal/filter/builtin_read.go"); got != "internal/filter/builtin_read.go" {
+		t.Fatalf("read path = %q", got)
+	}
+	if got := ReadPathFromCommandLine("head -n 20 main.go"); got != "main.go" {
+		t.Fatalf("head read path = %q", got)
+	}
+	for _, cmd := range []string{"cat a.go b.go", "cat main.go | wc -l", "go test ./...", "printf main.go"} {
+		if got := ReadPathFromCommandLine(cmd); got != "" {
+			t.Fatalf("command %q should not produce a single read path, got %q", cmd, got)
+		}
+	}
+}
+
 func TestCompactSingleFileRead_LargeTypeScriptUsesStructureExtraction(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder

@@ -389,11 +389,74 @@ func TestDefaultConfigPath(t *testing.T) {
 	}
 }
 
-// TestApplyEnvOverrides_MinimaxAPIKey covers the SLIMFERENCE_MINIMAX_API_KEY branch.
-func TestApplyEnvOverrides_MinimaxAPIKey(t *testing.T) {
+// TestApplyEnvOverrides_MinimaxProvider covers OpenAI-compatible summarizer env overrides.
+func TestApplyEnvOverrides_MinimaxProvider(t *testing.T) {
 	t.Setenv("SLIMFERENCE_MINIMAX_API_KEY", "test-key-xyz")
+	t.Setenv("SLIMFERENCE_MINIMAX_BASE_URL", "https://integrate.api.nvidia.com/v1")
+	t.Setenv("SLIMFERENCE_MINIMAX_MODEL", "nvidia/nemotron-3-super-120b-a12b")
+	t.Setenv("SLIMFERENCE_MINIMAX_TEMPERATURE", "0.1")
+	t.Setenv("SLIMFERENCE_MINIMAX_TOP_P", "0.9")
+	t.Setenv("SLIMFERENCE_MINIMAX_MAX_RETRIES", "4")
+	t.Setenv("SLIMFERENCE_MINIMAX_CONNECT_TIMEOUT_SECONDS", "6")
+	t.Setenv("SLIMFERENCE_MINIMAX_RESPONSE_TIMEOUT_SECONDS", "44")
+	t.Setenv("SLIMFERENCE_MINIMAX_RATE_LIMIT_RPM", "22")
+	t.Setenv("SLIMFERENCE_MINIMAX_ENABLE_SEED", "true")
+	t.Setenv("SLIMFERENCE_MINIMAX_ENABLE_MIN_TOKENS", "on")
+	t.Setenv("SLIMFERENCE_MINIMAX_ENABLE_REASONING_SPLIT", "false")
+	t.Setenv("SLIMFERENCE_MINIMAX_TRUST_CLASS", "upstream_provider")
+	t.Setenv("SLIMFERENCE_L2_REQUIRE_DETERMINISTIC", "yes")
+	t.Setenv("SLIMFERENCE_L2_OUTBOUND_REDACTION", "strict")
+	t.Setenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH", "/tmp/prompt.txt")
 	cfg := Defaults()
-	applyEnvOverrides(cfg) // just must not panic; the value is discarded via _ = v
+	applyEnvOverrides(cfg)
+	if cfg.Compression.MiniMax.APIKeyEnv != "SLIMFERENCE_MINIMAX_API_KEY" || cfg.Compression.MiniMax.APIKey() != "test-key-xyz" {
+		t.Fatalf("direct key override not wired: env=%q key=%q", cfg.Compression.MiniMax.APIKeyEnv, cfg.Compression.MiniMax.APIKey())
+	}
+	if cfg.Compression.MiniMax.BaseURL != "https://integrate.api.nvidia.com/v1" {
+		t.Fatalf("base url: %q", cfg.Compression.MiniMax.BaseURL)
+	}
+	if cfg.Compression.MiniMax.Model != "nvidia/nemotron-3-super-120b-a12b" {
+		t.Fatalf("model: %q", cfg.Compression.MiniMax.Model)
+	}
+	if cfg.Compression.MiniMax.Temperature != 0.1 || cfg.Compression.MiniMax.TopP != 0.9 {
+		t.Fatalf("sampling: %+v", cfg.Compression.MiniMax)
+	}
+	if cfg.Compression.MiniMax.MaxRetries != 4 || cfg.Compression.MiniMax.ConnectTimeoutSeconds != 6 ||
+		cfg.Compression.MiniMax.ResponseTimeoutSeconds != 44 || cfg.Compression.MiniMax.RateLimitRPM != 22 {
+		t.Fatalf("runtime knobs: %+v", cfg.Compression.MiniMax)
+	}
+	if !cfg.Compression.MiniMax.EnableSeed || !cfg.Compression.MiniMax.EnableMinTokens || cfg.Compression.MiniMax.EnableReasoningSplit {
+		t.Fatalf("cap flags: %+v", cfg.Compression.MiniMax)
+	}
+	if cfg.Compression.MiniMax.TrustClass != "upstream_provider" ||
+		!cfg.Compression.Summary.RequireDeterministic ||
+		cfg.Compression.Summary.OutboundRedaction != "strict" ||
+		cfg.Compression.PromptOverridePath != "/tmp/prompt.txt" {
+		t.Fatalf("l2 fields not overridden: %+v %+v", cfg.Compression.MiniMax, cfg.Compression.Summary)
+	}
+}
+
+func TestApplyEnvOverrides_MinimaxAPIKeyEnvWins(t *testing.T) {
+	t.Setenv("SLIMFERENCE_MINIMAX_API_KEY", "ignored")
+	t.Setenv("SLIMFERENCE_MINIMAX_API_KEY_ENV", "NVIDIA_API_KEY")
+	t.Setenv("NVIDIA_API_KEY", "nv-key")
+	cfg := Defaults()
+	applyEnvOverrides(cfg)
+	if cfg.Compression.MiniMax.APIKeyEnv != "NVIDIA_API_KEY" || cfg.Compression.MiniMax.APIKey() != "nv-key" {
+		t.Fatalf("api key env override failed: env=%q key=%q", cfg.Compression.MiniMax.APIKeyEnv, cfg.Compression.MiniMax.APIKey())
+	}
+}
+
+func TestApplyEnvOverrides_InvalidNumericMiniMax(t *testing.T) {
+	t.Setenv("SLIMFERENCE_MINIMAX_MAX_RETRIES", "nope")
+	t.Setenv("SLIMFERENCE_MINIMAX_TEMPERATURE", "nope")
+	cfg := Defaults()
+	wantRetries := cfg.Compression.MiniMax.MaxRetries
+	wantTemp := cfg.Compression.MiniMax.Temperature
+	applyEnvOverrides(cfg)
+	if cfg.Compression.MiniMax.MaxRetries != wantRetries || cfg.Compression.MiniMax.Temperature != wantTemp {
+		t.Fatalf("invalid numeric env should be ignored: %+v", cfg.Compression.MiniMax)
+	}
 }
 
 // TestApplyEnvOverrides_DebugFields covers the SLIMFERENCE_DEBUG_LEVEL, DEBUG_FORMAT, and DEBUG_MAX_ENTRIES branches.
@@ -699,6 +762,35 @@ func TestValidate_TrustClass(t *testing.T) {
 	cfg.Compression.MiniMax.TrustClass = "banana"
 	if err := validate(cfg); err == nil {
 		t.Fatal("banana should be rejected")
+	}
+}
+
+func TestValidate_MiniMaxFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"base_url", func(c *Config) { c.Compression.MiniMax.BaseURL = "" }},
+		{"api_key_env", func(c *Config) { c.Compression.MiniMax.APIKeyEnv = "" }},
+		{"model", func(c *Config) { c.Compression.MiniMax.Model = "" }},
+		{"temperature_low", func(c *Config) { c.Compression.MiniMax.Temperature = -0.01 }},
+		{"temperature_high", func(c *Config) { c.Compression.MiniMax.Temperature = 2.01 }},
+		{"top_p_low", func(c *Config) { c.Compression.MiniMax.TopP = 0 }},
+		{"top_p_high", func(c *Config) { c.Compression.MiniMax.TopP = 1.01 }},
+		{"max_retries", func(c *Config) { c.Compression.MiniMax.MaxRetries = -1 }},
+		{"connect_timeout", func(c *Config) { c.Compression.MiniMax.ConnectTimeoutSeconds = 0 }},
+		{"response_timeout", func(c *Config) { c.Compression.MiniMax.ResponseTimeoutSeconds = 0 }},
+		{"rate_limit", func(c *Config) { c.Compression.MiniMax.RateLimitRPM = -1 }},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Defaults()
+			tc.mutate(cfg)
+			if err := validate(cfg); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
 	}
 }
 

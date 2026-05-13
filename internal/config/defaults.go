@@ -68,12 +68,14 @@ func defaultsRaw() *Config {
 			MiniMax: MiniMaxConfig{
 				BaseURL:                "https://api.minimax.io/v1",
 				APIKeyEnv:              "MINIMAX_API_KEY",
-				Model:                  "minimax-m2.7",
+				Model:                  "MiniMax-M2.7",
 				Temperature:            0,
+				TopP:                   1,
 				MaxRetries:             3,
 				ConnectTimeoutSeconds:  5,
 				ResponseTimeoutSeconds: 30,
 				RateLimitRPM:           10,
+				EnableReasoningSplit:   true,
 			},
 			Summary: SummaryConfig{
 				// Mode=balanced is the default operating profile. The
@@ -245,10 +247,14 @@ max_failure_rate_delta = 0.05
 cooldown_turns = 50
 
 [compression.minimax]
+# Historical section name, but the client is OpenAI-compatible:
+# set base_url/model/api_key_env to swap MiniMax M2.7 for another
+# /v1/chat/completions provider such as NVIDIA NIM.
 base_url = "https://api.minimax.io/v1"
 api_key_env = "MINIMAX_API_KEY"
-model = "minimax-m2.7"
+model = "MiniMax-M2.7"
 temperature = 0
+top_p = 1
 max_retries = 3
 connect_timeout_seconds = 5
 response_timeout_seconds = 30
@@ -258,6 +264,10 @@ enable_seed = false
 # T91: emit min_tokens to lift the lower bound of the completion length.
 # Off by default because the field is not publicly documented for MiniMax.
 enable_min_tokens = false
+# MiniMax M2.x OpenAI-compatible responses may include <think> content in
+# message.content. reasoning_split moves that into reasoning_details. Disable
+# for non-MiniMax OpenAI-compatible providers that reject extra fields.
+enable_reasoning_split = true
 
 [compression.summary]
 # Operating mode: strict | balanced | fast. Selecting a mode configures

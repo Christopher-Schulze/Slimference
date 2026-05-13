@@ -325,12 +325,16 @@ type StaircaseStep struct {
 	Threshold  float64 `toml:"threshold"`
 }
 
-// MiniMaxConfig holds settings for the MiniMax summarization API.
+// MiniMaxConfig holds settings for the OpenAI-compatible summarization API.
+// The TOML section keeps the historical "minimax" name because MiniMax M2.x
+// is the default provider, but BaseURL/Model/APIKeyEnv can point at any
+// compatible /chat/completions endpoint.
 type MiniMaxConfig struct {
 	BaseURL                string  `toml:"base_url"`
 	APIKeyEnv              string  `toml:"api_key_env"`
 	Model                  string  `toml:"model"`
 	Temperature            float64 `toml:"temperature"`
+	TopP                   float64 `toml:"top_p"`
 	MaxRetries             int     `toml:"max_retries"`
 	ConnectTimeoutSeconds  int     `toml:"connect_timeout_seconds"`
 	ResponseTimeoutSeconds int     `toml:"response_timeout_seconds"`
@@ -342,6 +346,11 @@ type MiniMaxConfig struct {
 	// EnableSeed emits the `seed` request field for stable summaries (T91).
 	// Off by default to keep the wire shape unchanged until opt-in.
 	EnableSeed bool `toml:"enable_seed"`
+	// EnableReasoningSplit emits MiniMax's OpenAI-compatible
+	// `reasoning_split` request field so M2.x thinking content is returned
+	// outside message.content. Disable for non-MiniMax providers that reject
+	// extra fields.
+	EnableReasoningSplit bool `toml:"enable_reasoning_split"`
 	// TrustClass overrides the provider trust label. When set to
 	// "upstream_provider", a self-hosted endpoint is no longer flagged as
 	// external. T121.
@@ -645,10 +654,60 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("SLIMFERENCE_L2_MODE"); v != "" {
 		cfg.Compression.Summary.Mode = v
 	}
-	if v := os.Getenv("SLIMFERENCE_MINIMAX_API_KEY"); v != "" {
-		// Store directly in env var that MiniMaxConfig.APIKey() reads
-		// The env var name comes from config, but allow a direct override too.
-		_ = v // already readable via os.Getenv(cfg.Compression.MiniMax.APIKeyEnv)
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_REQUIRE_DETERMINISTIC")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.Summary.RequireDeterministic = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_OUTBOUND_REDACTION")); v != "" {
+		cfg.Compression.Summary.OutboundRedaction = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH")); v != "" {
+		cfg.Compression.PromptOverridePath = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_API_KEY_ENV")); v != "" {
+		cfg.Compression.MiniMax.APIKeyEnv = v
+	} else if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_API_KEY")); v != "" {
+		// Direct key override: switch APIKeyEnv so MiniMaxConfig.APIKey()
+		// resolves the explicit Slimference variable instead of silently
+		// ignoring it when api_key_env is still MINIMAX_API_KEY.
+		cfg.Compression.MiniMax.APIKeyEnv = "SLIMFERENCE_MINIMAX_API_KEY"
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_BASE_URL")); v != "" {
+		cfg.Compression.MiniMax.BaseURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_MODEL")); v != "" {
+		cfg.Compression.MiniMax.Model = v
+	}
+	if n, ok := envIntOK("SLIMFERENCE_MINIMAX_MAX_RETRIES"); ok {
+		cfg.Compression.MiniMax.MaxRetries = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_MINIMAX_CONNECT_TIMEOUT_SECONDS"); ok {
+		cfg.Compression.MiniMax.ConnectTimeoutSeconds = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_MINIMAX_RESPONSE_TIMEOUT_SECONDS"); ok {
+		cfg.Compression.MiniMax.ResponseTimeoutSeconds = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_MINIMAX_RATE_LIMIT_RPM"); ok {
+		cfg.Compression.MiniMax.RateLimitRPM = n
+	}
+	if f, ok := envFloatOK("SLIMFERENCE_MINIMAX_TEMPERATURE"); ok {
+		cfg.Compression.MiniMax.Temperature = f
+	}
+	if f, ok := envFloatOK("SLIMFERENCE_MINIMAX_TOP_P"); ok {
+		cfg.Compression.MiniMax.TopP = f
+	}
+	if b, ok := envBoolOK("SLIMFERENCE_MINIMAX_ENABLE_SEED"); ok {
+		cfg.Compression.MiniMax.EnableSeed = b
+	}
+	if b, ok := envBoolOK("SLIMFERENCE_MINIMAX_ENABLE_MIN_TOKENS"); ok {
+		cfg.Compression.MiniMax.EnableMinTokens = b
+	}
+	if b, ok := envBoolOK("SLIMFERENCE_MINIMAX_ENABLE_REASONING_SPLIT"); ok {
+		cfg.Compression.MiniMax.EnableReasoningSplit = b
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_TRUST_CLASS")); v != "" {
+		cfg.Compression.MiniMax.TrustClass = v
 	}
 }
 
@@ -718,6 +777,33 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Analytics.GainUSDPerMillionTokens < 0 {
 		return fmt.Errorf("analytics.gain_usd_per_million_tokens must be >= 0, got %v", cfg.Analytics.GainUSDPerMillionTokens)
+	}
+	if strings.TrimSpace(cfg.Compression.MiniMax.BaseURL) == "" {
+		return fmt.Errorf("compression.minimax.base_url must not be empty")
+	}
+	if strings.TrimSpace(cfg.Compression.MiniMax.APIKeyEnv) == "" {
+		return fmt.Errorf("compression.minimax.api_key_env must not be empty")
+	}
+	if strings.TrimSpace(cfg.Compression.MiniMax.Model) == "" {
+		return fmt.Errorf("compression.minimax.model must not be empty")
+	}
+	if cfg.Compression.MiniMax.Temperature < 0 || cfg.Compression.MiniMax.Temperature > 2 {
+		return fmt.Errorf("compression.minimax.temperature must be 0.0-2.0, got %v", cfg.Compression.MiniMax.Temperature)
+	}
+	if cfg.Compression.MiniMax.TopP <= 0 || cfg.Compression.MiniMax.TopP > 1 {
+		return fmt.Errorf("compression.minimax.top_p must be >0.0 and <=1.0, got %v", cfg.Compression.MiniMax.TopP)
+	}
+	if cfg.Compression.MiniMax.MaxRetries < 0 {
+		return fmt.Errorf("compression.minimax.max_retries must be >= 0, got %d", cfg.Compression.MiniMax.MaxRetries)
+	}
+	if cfg.Compression.MiniMax.ConnectTimeoutSeconds <= 0 {
+		return fmt.Errorf("compression.minimax.connect_timeout_seconds must be > 0, got %d", cfg.Compression.MiniMax.ConnectTimeoutSeconds)
+	}
+	if cfg.Compression.MiniMax.ResponseTimeoutSeconds <= 0 {
+		return fmt.Errorf("compression.minimax.response_timeout_seconds must be > 0, got %d", cfg.Compression.MiniMax.ResponseTimeoutSeconds)
+	}
+	if cfg.Compression.MiniMax.RateLimitRPM < 0 {
+		return fmt.Errorf("compression.minimax.rate_limit_rpm must be >= 0, got %d", cfg.Compression.MiniMax.RateLimitRPM)
 	}
 	if tc := cfg.Compression.MiniMax.TrustClass; tc != "" && tc != "upstream_provider" && tc != "external_third_party" && tc != "unknown" {
 		return fmt.Errorf("compression.minimax.trust_class must be upstream_provider/external_third_party/unknown, got %q", tc)
@@ -798,4 +884,43 @@ func envInt(key string) int {
 	var n int
 	fmt.Sscanf(v, "%d", &n)
 	return n
+}
+
+func envIntOK(key string) (int, bool) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+func envFloatOK(key string) (float64, bool) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return 0, false
+	}
+	return f, true
+}
+
+func envBoolOK(key string) (bool, bool) {
+	return parseEnvBool(strings.TrimSpace(os.Getenv(key)))
+}
+
+func parseEnvBool(v string) (bool, bool) {
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
 }

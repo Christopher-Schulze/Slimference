@@ -1,6 +1,6 @@
 # T55 - Structure-Preview (T38) Default-On nach Beta-Phase
 
-Status: superseded by T74
+Status: superseded by T74, then restored by T76
 Priority: P2
 Scope: `internal/compression/`, `internal/config/`, `docs/tuning-inventory.md`, `docs/benchmarks.md`
 Driver: post-v2 production-readiness audit (2026-04-20)
@@ -9,12 +9,11 @@ Driver: post-v2 production-readiness audit (2026-04-20)
 
 ## Problem
 
-T38 shipped "Structure-aware tool-result preview": for large tool
-outputs, inject a short structural summary (top-level keys / table of
-contents / file list) instead of truncating the body. It is gated
-behind `structure_preview = false` (opt-in) because the original T38
-acceptance criteria required cautious rollout due to potential
-info-loss.
+T38 shipped "Structure-aware tool-result preview": for large tool outputs,
+inject a short structural summary (top-level keys / table of contents / file
+list) instead of truncating the body. It was temporarily gated behind
+`structure_preview = false` by T74 because the original T38 acceptance criteria
+required cautious rollout until recovery was proven.
 
 4 weeks of opt-in use is enough signal to re-evaluate. Evidence from
 analytics snapshots of opted-in users shows:
@@ -25,18 +24,18 @@ analytics snapshots of opted-in users shows:
   large-result tools).
 
 Conclusion at the time: switch default to on with a prominent opt-out. T74
-superseded that rollout because archive-backed reversibility was not complete.
+paused that rollout because archive-backed reversibility was not complete; T76
+later restored default-on after the recovery foundation landed.
 
 ## Current State
 
-- `structure_preview = false` by default again after T74.
-- Behaviour is fully implemented, tested, documented, and remains opt-in.
+- `structure_preview = true` by default again after T76.
+- Behaviour is fully implemented, tested, documented, and archive-backed.
 - No measurement on what users lose when it triggers.
 
 ## Target State
 
-- Default `structure_preview = true` starting v2.1.0. Superseded by T74:
-  default is off until reversible preview recovery lands.
+- Default `structure_preview = true` after T76's archive-backed recovery.
 - Loud opt-out via `SLIMFERENCE_STRUCTURE_PREVIEW=false` + config
   field.
 - Preview records a **reversible hint**: each preview references the

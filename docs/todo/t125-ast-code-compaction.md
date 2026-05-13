@@ -211,6 +211,7 @@ Implemented subset:
 - `ForceFull` denies compaction.
 - `MinBytes` floor denies small files.
 - Filter integration only calls the AST compactor for `cat <file.go>`, never for `head` / `tail`.
+- 2026-05-13: `FileReadContext` is threaded into the captured-output filter path. For Codex PostToolUse, recently-edited files are detected through the hook turn-state adapter and return literal contents.
 
 ### WP4 - Pipeline integration
 
@@ -219,6 +220,7 @@ Completed by extending `internal/filter/builtin_read.go`:
 - Single-file `cat` on large Go files attempts `codecompact.Compact` before existing regex structure extraction.
 - `head` / `tail` bypass AST compaction and continue through the old path.
 - Unknown languages pass through or use existing comment-strip/structure fallback where available.
+- `CompactCapturedOutputWithContext` and `TryStripCommentsFileReadWithContext` preserve legacy behaviour for callers with no session context and use session-derived safety gates when available.
 
 ### WP5 - Re-request handling
 
@@ -241,7 +243,7 @@ Existing per-filter observability records in/out bytes for `strip_comments_file_
 - [x] Broader tree-sitter expansion is deferred until Go gate metrics are green.
 - [ ] Re-read protocol round-trips: agent asks for a body, gets it, reconstructed file is byte-equal to original.
 - [x] Centrality heuristic produces stable output for the same input + relevant symbols.
-- [ ] Per-session cache LRU-bounded; no leak on long sessions.
+- [~] Per-session hook-state is bounded and file-backed for edit/read gates; body-on-demand cache remains pending.
 - [x] Coverage 100%; race-clean; CI gate green after the full Phase R batch.
 - [ ] On Slimference repo's own session corpus (T118b), scan/orientation file-read tokens drop by 60-80% and edit/debug paths show no negative net savings.
 

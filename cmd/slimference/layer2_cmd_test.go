@@ -247,7 +247,7 @@ func TestHandleLayer2Disable_badConfig(t *testing.T) {
 func TestHandleLayer2Status(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "test.toml")
-	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"minimax-m2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
+	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestHandleLayer2Status(t *testing.T) {
 	if !strings.Contains(out, "disabled") {
 		t.Fatalf("expected disabled status, got: %q", out)
 	}
-	if !strings.Contains(out, "minimax-m2.7") {
+	if !strings.Contains(out, "MiniMax-M2.7") {
 		t.Fatalf("expected model name, got: %q", out)
 	}
 }
@@ -278,7 +278,7 @@ func TestHandleLayer2Status_enabled(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "test-key")
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "test.toml")
-	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"minimax-m2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
+	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestHandleLayer2AcknowledgeAndStatus(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfgPath := filepath.Join(t.TempDir(), "test.toml")
-	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"minimax-m2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
+	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +551,7 @@ func TestHandleLayer2Cmd_disableViaDispatch(t *testing.T) {
 func TestHandleLayer2Cmd_statusViaDispatch(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "test.toml")
-	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"minimax-m2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
+	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +577,7 @@ func TestHandleLayer2Cmd_statusViaDispatch(t *testing.T) {
 func TestHandleLayer2Status_noApiKey(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "test.toml")
-	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"minimax-m2.7\"\napi_key_env = \"SLIMFERENCE_NONEXISTENT_KEY\"\n"
+	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"SLIMFERENCE_NONEXISTENT_KEY\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -685,7 +685,7 @@ func TestWriteConfigUpdate_mkdirError(t *testing.T) {
 func TestHandleSubcommand_layer2Status(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "test.toml")
-	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"minimax-m2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
+	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
 	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}

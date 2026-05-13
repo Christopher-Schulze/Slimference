@@ -10,6 +10,12 @@ import (
 // tool output. It is used by PostToolUse hooks where the command has already run.
 // Returns the compacted output and whether it materially changed.
 func CompactCapturedOutput(workDir, commandLine, output string, maxRunes int) ([]byte, bool) {
+	return CompactCapturedOutputWithContext(workDir, commandLine, output, maxRunes, FileReadContext{Mode: "scan"})
+}
+
+// CompactCapturedOutputWithContext applies Layer-0 compaction with file-read
+// safety context from hook/session state.
+func CompactCapturedOutputWithContext(workDir, commandLine, output string, maxRunes int, ctx FileReadContext) ([]byte, bool) {
 	stripped := compression.StripANSICodes(output)
 	argv := primaryArgvForCapturedOutput(commandLine)
 
@@ -19,7 +25,7 @@ func CompactCapturedOutput(workDir, commandLine, output string, maxRunes int) ([
 		return compacted, strings.TrimSpace(string(compacted)) != strings.TrimSpace(stripped)
 	}
 
-	compacted = applyLayer0AfterANSI(workDir, argv, compacted)
+	compacted = applyLayer0AfterANSIWithContext(workDir, argv, compacted, ctx)
 	compacted = TruncateStdoutWithHint(compacted, maxRunes)
 	if strings.TrimSpace(string(compacted)) == strings.TrimSpace(stripped) {
 		return compacted, false

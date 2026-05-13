@@ -42,6 +42,13 @@ func TestPickExampleLang_TSXJSX(t *testing.T) {
 	}
 }
 
+func TestPickExampleLang_Rust(t *testing.T) {
+	in := "edited src/auth/handler.rs with pub async fn handle_login then ran cargo test -p auth"
+	if got := pickExampleLang(in); got != "rust" {
+		t.Fatalf("expected rust, got %q", got)
+	}
+}
+
 func TestBuildSystemPrompt_PythonExample(t *testing.T) {
 	ResetExamplePromptCounts()
 	prompt := buildSystemPrompt("edited app/auth/handler.py and ran pytest app/")
@@ -78,6 +85,17 @@ func TestBuildSystemPrompt_DefaultsToGo(t *testing.T) {
 	}
 	if ExamplePromptCount("go") != 1 {
 		t.Fatalf("go counter not advanced: %d", ExamplePromptCount("go"))
+	}
+}
+
+func TestBuildSystemPrompt_RustExample(t *testing.T) {
+	ResetExamplePromptCounts()
+	prompt := buildSystemPrompt("touched src/auth/handler.rs and ran cargo test -p auth")
+	if !strings.Contains(prompt, "handle_login()") || !strings.Contains(prompt, "cargo test -p auth") {
+		t.Fatalf("rust example missing in prompt:\n%s", prompt[:200])
+	}
+	if ExamplePromptCount("rust") != 1 {
+		t.Fatalf("rust counter not advanced: %d", ExamplePromptCount("rust"))
 	}
 }
 

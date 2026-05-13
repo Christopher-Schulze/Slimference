@@ -1,6 +1,6 @@
 # TASK 138: Session/turn ownership spine for AST and cross-tool state
 
-Status: IN PROGRESS (core state owner landed 2026-05-13; hot-path integrations still open)
+Status: IN PROGRESS (core + hook-backed edit/read gates landed 2026-05-13; T126/body-on-demand still open)
 Priority: P1
 Scope: `internal/sessions/`, `internal/proxy/`, `internal/hooks/`, `internal/filter/`, `internal/readcache/`, `internal/codecompact/`, `internal/crosstool/`, `internal/toolarchive/`, `internal/quality/`, `internal/tui/`.
 
@@ -8,7 +8,7 @@ Scope: `internal/sessions/`, `internal/proxy/`, `internal/hooks/`, `internal/fil
 
 Several features are intentionally conservative because the code lacks one authoritative session/turn state owner:
 
-- T125 AST compaction has `RecentlyEdited` and mode gates, but the hot path calls it with static `Mode: "scan"`.
+- T125 AST compaction had `RecentlyEdited` and mode gates, but the hot path called it with static `Mode: "scan"` before the 2026-05-13 hook-backed context pass.
 - T125 body-on-demand cannot be honest without request/session ownership.
 - T126 crosstool dedup is library-only because `internal/filter` lacks user-turn boundaries.
 - Read cache, repetition store, tool archive, quality signals, prompt cache, and Layer 2 session IDs all infer state independently.
@@ -116,7 +116,7 @@ It is request-scoped where possible and process-scoped only behind explicit sess
 
 ## Acceptance
 
-- [ ] T125 edit-mode gating is backed by real session/turn state.
+- [x] T125 edit-mode gating is backed by real hook session/turn state for Codex hook/PostToolUse paths.
 - [ ] T125 body-on-demand has a real retrieval path or stays disabled.
 - [ ] T126 hot-path integration is safe and per-turn only.
 - [ ] Read cache, repetition, tool archive, quality, and proxy share compatible session/turn keys.
@@ -134,8 +134,13 @@ It is request-scoped where possible and process-scoped only behind explicit sess
   - `RecentlyEdited(session,path,N)` is now a real signal T125 can use for edit-mode gating once the hook/proxy paths thread session ids through it.
   - Git path-list fingerprints are exact, sorted, de-duplicated path hashes suitable for the T126 mini hot path.
   - Package tests include lifecycle, caps/eviction, duplicate suppression, concurrent observation safety, and fingerprint determinism at 100% statement coverage.
+- 2026-05-13 hook-backed context implementation:
+  - `internal/sessions/hook_state.go` adds a file-backed, lock-protected hook turn-state adapter under `~/.slimference/turn-state/` so separate Codex hook processes can share session/turn/read/edit observations.
+  - `SessionStart`, `UserPromptSubmit`, `Stop`, `ReadHook`, and `PostToolUse` now best-effort record turn boundaries, file reads, tool events, and edit paths.
+  - `internal/filter.FileReadContext` is wired through `CompactCapturedOutputWithContext`, `applyLayer0FiltersWithContext`, and `TryStripCommentsFileReadWithContext`.
+  - Recently-edited, force-full, edit-mode, and debug-mode reads return literal output instead of AST skeletons, signature extraction, or comment stripping.
+  - Hook state is intentionally file-backed rather than only in-memory because Codex invokes hooks as separate processes.
+  - MiniMax/OpenAI-compatible Layer 2 provider knobs were hardened during the same stabilisation pass: direct `SLIMFERENCE_MINIMAX_API_KEY`, base URL/model/key-env overrides, honoured `temperature`/`top_p`, default MiniMax `reasoning_split`, and Rust summary examples.
 - Open boundaries:
-  - Hook events are not yet persisted through this store, so cross-process Codex hooks still need a file/daemon-backed adapter before T138 can be marked done.
-  - T125 still needs the `FileReadContext` plumbing to turn `RecentlyEdited` into a hot-path gate.
-  - T126 hot-path integration remains off until the filter path receives session+turn+cwd ownership.
+  - T126 hot-path integration remains off until exact git path-list elision is proven against real hook/session sequences.
   - Body-on-demand remains disabled; no retrieval protocol has been claimed.

@@ -17,7 +17,7 @@ source in one hop.
 3. [Request Lifecycle](#3-request-lifecycle)
 4. [Layer 0 - Pre-Entry Filter](#4-layer-0-pre-entry-filter)
 5. [Layer 1 - Deterministic Compression](#5-layer-1-deterministic-compression)
-6. [Layer 2 - MiniMax Summarisation](#6-layer-2-minimax-summarisation)
+6. [Layer 2 - OpenAI-Compatible Summarisation](#6-layer-2-openai-compatible-summarisation)
 7. [Layer 3 - Response Cache](#7-layer-3-response-cache)
 8. [Provider Support](#8-provider-support)
 9. [Auto-Integration (Claude Code + Codex)](#9-auto-integration-claude-code--codex)
@@ -272,21 +272,24 @@ RTK-inspired heuristics now live in
 `SetToolCompressorTuning` installs these at proxy boot; zero/negative
 fields fall back to the compile-time defaults.
 
-### Structure preview (T38 / T74)
+### Structure preview (T38 / T74 / T76)
 
-`[compression.tuning] structure_preview = false` is the default. The
-preview pass remains available as an opt-in, but it is not default-on until
-each preview has local archive recovery. Oversized tool_result blocks with
-JSON / path-list / ASCII-table shape can be replaced with a compact,
-shape-aware preview when strictly shorter.
+`[compression.tuning] structure_preview = true` is the default after T76's
+content-archive foundation. Oversized tool_result blocks with JSON /
+path-list / ASCII-table shape can be replaced with a compact, shape-aware
+preview when strictly shorter, while archive-backed recovery keeps the
+original body locally retrievable.
 
 ---
 
-## 6. Layer 2 - MiniMax Summarisation
+## 6. Layer 2 - OpenAI-Compatible Summarisation
 
-`internal/summarization/layer2.go` calls the MiniMax M2.7 API to
-summarise old tool outputs and convo tails. Summaries land in a
-persistent cache so the same range is not re-summarised.
+`internal/summarization/layer2.go` calls the configured
+OpenAI-compatible `/v1/chat/completions` endpoint to summarise old tool
+outputs and conversation tails. The default endpoint is MiniMax M2.7,
+but `[compression.minimax]` is now only a historical section name:
+`base_url`, `model`, and `api_key_env` can point at another compatible
+provider without code changes.
 
 ### Decision rule (T54)
 
@@ -311,6 +314,20 @@ with Layer 2 enabled records an explicit acknowledgement under
 startup warns without blocking. `slimference layer2 acknowledge` records
 the marker manually, and `slimference layer2 status` prints the ack
 state.
+
+Provider/runtime knobs:
+
+- `SLIMFERENCE_MINIMAX_BASE_URL`, `SLIMFERENCE_MINIMAX_MODEL`, and
+  `SLIMFERENCE_MINIMAX_API_KEY_ENV` override the summariser endpoint,
+  model, and secret env var for fast provider swaps.
+- `SLIMFERENCE_MINIMAX_API_KEY` is a direct key override and switches
+  `api_key_env` to itself instead of being silently ignored.
+- `temperature` defaults to `0` and `top_p` to `1` for deterministic
+  compression. Both are now honoured in the outbound request.
+- `enable_reasoning_split = true` is default for MiniMax M2.x so
+  thinking content is returned outside `message.content`; set
+  `SLIMFERENCE_MINIMAX_ENABLE_REASONING_SPLIT=false` for non-MiniMax
+  compatible endpoints that reject this extension.
 
 ### Operating modes (T36)
 
@@ -543,11 +560,11 @@ there (would need extra hook plumbing).
 ### Configurable system prompt (T86 + T87 + T92)
 
 `[compression] prompt_override_path` points at a file whose contents
-replace the compile-time MiniMax system-prompt header. Optional
+replace the compile-time summariser system-prompt header. Optional
 `# version: <tag>` line is recorded in
 `/admin/status.summarization.active_prompt_version`. The few-shot
-example block rotates per request (Go / Python / TypeScript) based
-on the input transcript (T87). Every bullet must end with a
+example block rotates per request (Go / Python / TypeScript / Rust)
+based on the input transcript (T87). Every bullet must end with a
 `[msg:N]` lineage marker (T92); compliance rate is exposed at
 `/admin/status.summarization.lineage_marker_rate`.
 
@@ -956,7 +973,7 @@ dedup_similarity_threshold           = 0.85               # scalar fallback
 
   [compression.tuning]
   loop_detection    = false                  # T37
-  structure_preview = false                  # T74 safety default
+  structure_preview = true                   # T76 archive-backed default
   incremental_staircase = [ ... ]            # T27
   dedup_staircase = [                        # T53
     { msg_count_le = 10,       threshold = 0.88 },
@@ -973,7 +990,10 @@ dedup_similarity_threshold           = 0.85               # scalar fallback
   [compression.minimax]
   api_key_env = "MINIMAX_API_KEY"
   base_url    = "https://api.minimax.io/v1"
-  model       = "MiniMax-M1-80k"
+  model       = "MiniMax-M2.7"
+  temperature = 0
+  top_p       = 1
+  enable_reasoning_split = true
 
   [compression.summary]
   mode = "balanced"     # strict | balanced | fast (T36)
@@ -1266,7 +1286,7 @@ internal/compression/         Layer 1 sub-layers + Layer 1 pipeline.
   preview.go                  Structure-aware preview (T38).
   loop_detect.go              Loop-nudge Jaccard detector (T37).
 
-internal/summarization/       Layer 2 MiniMax client.
+internal/summarization/       Layer 2 OpenAI-compatible summarizer client.
   layer2.go                   Summarisation + cache + staircase (T27, T36).
   latency_estimator.go        EMA + ShouldRunLayer2 decision (T54).
 

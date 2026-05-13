@@ -1,6 +1,6 @@
 # Slimference Data Policy
 
-Last updated: 2026-05-01 (T121)
+Last updated: 2026-05-13 (T129 + provider-tunable Layer 2)
 
 ## Overview
 
@@ -22,7 +22,7 @@ Slimference processes LLM API requests through a multi-layer compression pipelin
 
 ### Layer 2: Abstractive Summarization (external)
 
-- **What happens**: When enabled, conversation prefixes exceeding the token threshold are summarized by an external LLM provider (MiniMax by default).
+- **What happens**: When enabled, conversation prefixes exceeding the token threshold are summarized by a configured OpenAI-compatible LLM endpoint (MiniMax M2.7 by default).
 - **Data destination**: Compressed conversation content is sent to the configured summarization provider endpoint.
 - **Default state**: **Enabled** for fresh configs (T129). Existing configs with `layer2_enabled = false` stay disabled.
 - **Redaction**: Outbound redaction is **on by default** (T109). This strips:
@@ -54,21 +54,29 @@ Slimference processes LLM API requests through a multi-layer compression pipelin
 
 `slimference doctor` warns when any `external_third_party` provider is enabled.
 
-## Self-Hosted Alternative
+## Alternative Summarization Endpoint
 
-To use your own summarization endpoint instead of MiniMax:
+The `[compression.minimax]` section name is historical. The client sends non-streaming `/v1/chat/completions` requests and can point at any OpenAI-compatible endpoint. For MiniMax M2.x, `enable_reasoning_split = true` keeps thinking content out of `message.content`. Disable it when a non-MiniMax endpoint rejects extra fields.
 
 ```toml
 [compression.minimax]
-base_url = "http://localhost:11434/v1"  # e.g., local Ollama
+base_url = "http://localhost:11434/v1"      # e.g. local/self-hosted endpoint
 model = "qwen2.5:7b"
-api_key_env = "LOCAL_LLM_KEY"  # or set to "_" if no key needed
-
-[compression.minimax]
-trust_class = "upstream_provider"  # marks your self-hosted endpoint as trusted
+api_key_env = "LOCAL_LLM_KEY"
+enable_reasoning_split = false
+trust_class = "upstream_provider"          # suppress external-provider warning for self-hosted endpoints
 ```
 
 When `trust_class = "upstream_provider"` is set explicitly, `slimference doctor` no longer warns about the provider being external.
+
+Environment overrides for fast model swaps:
+
+```bash
+SLIMFERENCE_MINIMAX_BASE_URL="https://integrate.api.nvidia.com/v1"
+SLIMFERENCE_MINIMAX_MODEL="nvidia/nemotron-3-super-120b-a12b"
+SLIMFERENCE_MINIMAX_API_KEY_ENV="NVIDIA_API_KEY"
+SLIMFERENCE_MINIMAX_ENABLE_REASONING_SPLIT=false
+```
 
 ## Disabling Layers
 

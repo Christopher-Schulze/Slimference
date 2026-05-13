@@ -1,10 +1,12 @@
 # T74 - Structure-Preview Reversible Safety
 
-Status: done
+Status: done; superseded by T76 default-on recovery
 Priority: P1
 Scope: `internal/compression/preview*.go`, `internal/toolarchive/`, `cmd/slimference/checkpoint_cmd.go`, `internal/proxy/admin.go`, `docs/todo/t55-structure-preview-default-on.md`, `docs/documentation.md`
 Driver: Structure preview had become default-on while its original T55
-reversibility criteria were still open.
+reversibility criteria were still open. T74 therefore safety-paused the
+default. T76 later landed the archive-backed recovery foundation and restored
+`structure_preview = true`.
 
 ---
 
@@ -35,8 +37,8 @@ Pick one safe default:
 
 No default-on lossy preview without recovery.
 
-T74 chose option 2: preview is opt-in until a future task wires archive-backed
-recovery directly into the preview pass.
+T74 chose option 2 at the time. Post-T76 update: archive-backed recovery has
+landed, so the current default is `structure_preview = true` again.
 
 ## Implementation Plan
 
@@ -71,10 +73,10 @@ recovery directly into the preview pass.
 ## Acceptance Criteria
 
 - [x] Default-on preview has an archive ID and local expand recovery, or is not default-on.
-- [x] Archive failure never causes lossy default preview because preview is opt-in by default.
+- [x] Archive failure never causes lossy default preview; post-T76 archive-backed recovery is the default-on guard.
 - [x] `slimference expand <id>` returns exact original output for tool-archive entries.
 - [x] Admin status exposes existing tool archive archive/expand counters.
-- [x] If reversibility is not implemented, default is off and docs are updated.
+- [x] If reversibility is not implemented, default is off and docs are updated; superseded by T76 once reversibility landed.
 - [x] `go test -race ./internal/compression/... ./internal/toolarchive/... ./cmd/slimference/...` green.
 
 ## Out of Scope
@@ -95,12 +97,14 @@ go test -race ./...
 
 ## Closure Notes
 
-- `internal/config/defaults.go` now sets
-  `Compression.Tuning.StructurePreview=false`.
-- `DefaultTOML()` emits `structure_preview = false`.
-- `internal/config/t55_defaults_test.go` now pins the T74 safety default.
-- Full archive-backed preview remains useful follow-up work, but it is no
-  longer a production blocker because the lossy path is not default-on.
+- T74 originally set `Compression.Tuning.StructurePreview=false` as a safety
+  fallback.
+- Post-T76 current state: `internal/config/defaults.go` sets
+  `Compression.Tuning.StructurePreview=true`, `DefaultTOML()` emits
+  `structure_preview = true`, and `internal/config/t55_defaults_test.go` pins
+  the restored default-on contract.
+- Full archive-backed preview is no longer a production blocker because T76
+  put the recovery foundation behind lossy preview paths.
 - Final verification on 2026-04-29: `go run ./scripts/ci`,
   `go test -race ./...`, `bun test tests/ts`,
   `go test -tags=integration ./tests/integration`, and
