@@ -1210,6 +1210,73 @@ func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
 	}
 }
 
+func TestHandleServiceStartStopRestartAndLogsAliases(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origStop := daemonStopFn
+	origExecutable := osExecutable
+	origStartDetached := startDetachedDaemonFn
+	origReadRecent := daemonReadRecentLogLinesFn
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		daemonStopFn = origStop
+		osExecutable = origExecutable
+		startDetachedDaemonFn = origStartDetached
+		daemonReadRecentLogLinesFn = origReadRecent
+	}()
+
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	startCalls := 0
+	startDetachedDaemonFn = func(binary string) error {
+		startCalls++
+		if binary != "/tmp/slimference" {
+			t.Fatalf("unexpected start binary: %q", binary)
+		}
+		return nil
+	}
+	stopCalls := 0
+	daemonStopFn = func() error {
+		stopCalls++
+		return nil
+	}
+	checks := 0
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		checks++
+		switch checks {
+		case 1: // service start
+			return false, nil, nil
+		case 2: // service restart checks whether it should stop first
+			return true, &daemon.PIDFile{PID: 7, Port: 8990}, nil
+		default: // service restart delegates to start
+			return false, nil, nil
+		}
+	}
+	daemonReadRecentLogLinesFn = func(path string, n int, since time.Time) ([]string, error) {
+		if n != 200 || !since.IsZero() {
+			t.Fatalf("unexpected log args n=%d since=%v", n, since)
+		}
+		return []string{"service-log-line"}, nil
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleServiceCmd([]string{"start"})
+	handleServiceCmd([]string{"stop"})
+	handleServiceCmd([]string{"restart"})
+	handleServiceCmd([]string{"logs", "--stream=stdout"})
+	_ = w.Close()
+	os.Stdout = oldStdout
+
+	var out bytes.Buffer
+	_, _ = io.Copy(&out, r)
+	if startCalls != 2 || stopCalls != 2 {
+		t.Fatalf("startCalls=%d stopCalls=%d output=%q", startCalls, stopCalls, out.String())
+	}
+	if !strings.Contains(out.String(), "Slimference daemon started.") || !strings.Contains(out.String(), "service-log-line") {
+		t.Fatalf("unexpected service alias output: %q", out.String())
+	}
+}
+
 func TestHandleStartStopRestartAndServiceCommandErrors(t *testing.T) {
 	origIsRunning := daemonIsRunningFn
 	origStop := daemonStopFn

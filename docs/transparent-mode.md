@@ -45,7 +45,7 @@ slimference proxy enable
 slimference proxy disable
 slimference proxy status
 slimference proxy uninstall [--system]
-slimference proxy env codex <--direct|--proxied> [-- <codex-args>...]
+slimference proxy env codex <--direct|--proxied|--transparent-proxied> [-- <codex-args>...]
 ```
 
 The same lifecycle is available from the TUI. Open `slimference`, switch to
@@ -89,6 +89,7 @@ Prints exact Codex CLI launch commands for split live testing without mutating
 ```bash
 slimference proxy env codex --direct
 slimference proxy env codex --proxied
+slimference proxy env codex --transparent-proxied
 ```
 
 `--direct` clears `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and lowercase
@@ -96,14 +97,27 @@ variants, then sets `NO_PROXY=*`. Use it when the macOS System-HTTPS-Proxy is
 armed and Codex App should flow through Slimference while Codex CLI should try
 to stay direct.
 
-`--proxied` sets HTTP/HTTPS/ALL proxy env variables to
-`http://127.0.0.1:8990` and clears `NO_PROXY`. Use it when the system proxy is
-disabled and Codex App should stay direct while Codex CLI should flow through
-Slimference. This mode still needs the Slimference daemon running with
-`[transparent].enabled=true` and the local CA trusted, because Codex CLI sends
-HTTPS `CONNECT` requests through the proxy. It does not need
-`slimference proxy enable`; leaving the macOS System-HTTPS-Proxy disabled is
-what keeps Codex App direct during this split test.
+`--proxied` is the preferred CLI-only split-test path. It unsets proxy
+environment variables, keeps the macOS System-HTTPS-Proxy untouched, and
+launches Codex with per-process config overrides:
+
+```toml
+openai_base_url = "http://127.0.0.1:8990/backend-api/codex"
+chatgpt_base_url = "http://127.0.0.1:8990/backend-api/"
+```
+
+Modern Codex appends `/responses` to `openai_base_url`, so the Codex backend
+prefix is required. The command is not written to `~/.codex/config.toml`; it
+only affects that one CLI process. This keeps Codex App direct while Codex CLI
+flows through Slimference. Current Codex CLI uses a WebSocket responses path in
+this mode, so Slimference records `route_mode=websocket_tunnel`; WebSocket
+message-boundary compression remains a future layer, not part of this tunnel.
+
+`--transparent-proxied` is the CONNECT/MITM variant. It sets HTTP/HTTPS/ALL
+proxy environment variables to `http://127.0.0.1:8990` and clears `NO_PROXY`.
+Use it only when explicitly testing the CA path. It requires a running daemon
+with `[transparent].enabled=true` and a trusted local CA, but still does not
+require `slimference proxy enable`.
 
 Flight log commands such as `slimference debug flight tail 50 --json` only have
 disk evidence if the running daemon has `[debug].decisions_log` configured or
@@ -146,11 +160,11 @@ slimference proxy env codex --proxied
 slimference debug flight tail 50 --json
 ```
 
-Run the printed Codex CLI command. A CLI text turn should create flight records;
-Codex App should remain direct because the macOS System-HTTPS-Proxy is disabled.
-If `slimference proxy status` reports `Transparent runtime: off`, enable it in
-the Slimference config before this mode; otherwise the daemon is only a normal
-HTTP reverse proxy and cannot MITM the CLI's HTTPS `CONNECT` stream.
+Run the printed Codex CLI command. A CLI text turn should create flight records
+with `provider=codex_chatgpt`, `path=/backend-api/codex/responses`, and
+`route_mode=websocket_tunnel` when the installed Codex build uses WebSocket
+responses. Codex App should remain direct because the macOS System-HTTPS-Proxy
+is disabled and no persistent `~/.codex/config.toml` block is written.
 
 Browser-Use passthrough is proven by a non-LLM HTTPS host being raw-relayed
 without compression. Microphone/WebRTC bypass is a negative proof: the App voice

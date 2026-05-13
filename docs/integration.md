@@ -148,12 +148,24 @@ exec $SHELL -l
 
 ## Why legacy Codex config-patch mode works without MITM
 
-Codex reads `openai_base_url` + `chatgpt_base_url` from its `config.toml`
+Codex reads `openai_base_url` + `chatgpt_base_url` from its config layer
 directly - no binary patching, no certificate authority installation, no
 TLS fingerprint forgery. The local proxy listens on plain HTTP on
 `127.0.0.1:8990`; Codex talks to it in the clear; the proxy then speaks
 real HTTPS to `https://chatgpt.com` upstream with the same bearer token
-and user-agent Codex would have sent directly.
+and user-agent Codex would have sent directly. For modern ChatGPT-auth Codex
+builds, the values must include Codex's backend prefixes because Codex appends
+`/responses` to `openai_base_url`:
+
+```toml
+openai_base_url = "http://127.0.0.1:8990/backend-api/codex"
+chatgpt_base_url = "http://127.0.0.1:8990/backend-api/"
+```
+
+`slimference proxy env codex --proxied` uses these values as per-process
+`codex -c ...` overrides without mutating `~/.codex/config.toml`. Persistent
+legacy config-patch mode via `slimference integrate install --client codex`
+writes the same prefixed values into the fenced Slimference block.
 
 From Cloudflare's / OpenAI's perspective the request volume is unchanged;
 the request path, query, authorization, cookies, and user-agent are forwarded
@@ -172,6 +184,12 @@ Codex wiring: `/v1/responses` and `/backend-api/codex/*` are accepted as
 potential Codex compression paths, but only recognised conversation shapes
 enter Layer 1-3. Unknown Codex backend bodies are forwarded byte-for-byte
 instead of being rejected or rewritten.
+
+If the installed Codex build uses WebSocket responses, the local direct path
+arrives as `ws://127.0.0.1:8990/backend-api/codex/responses`. Slimference
+tunnels that upgrade to `chatgpt.com` and records `route_mode=websocket_tunnel`.
+The tunnel proves CLI/App routing and continuity; it does not yet compress
+WebSocket message frames.
 
 To reproduce the checked-in Codex reporting smoke corpus without touching
 your live Codex installation:

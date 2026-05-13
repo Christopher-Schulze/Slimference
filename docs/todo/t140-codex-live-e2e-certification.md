@@ -126,3 +126,10 @@ One manual-but-scripted certification run proves:
 
 - This task is allowed to use the user's live Codex CLI/App only when the operator explicitly starts certification.
 - Default CI must never call paid/live provider endpoints.
+- 2026-05-13 partial CLI-only proof completed without arming macOS System-HTTPS-Proxy:
+  - `slimference proxy env codex --proxied` now prints a non-mutating per-process command using `openai_base_url="http://127.0.0.1:8990/backend-api/codex"` and `chatgpt_base_url="http://127.0.0.1:8990/backend-api/"`.
+  - Live command returned `SLIMFERENCE_CLI_PROXY_OK`.
+  - Flight evidence recorded `provider=codex_chatgpt`, `host=127.0.0.1:8990`, `path=/backend-api/codex/responses`, `route_mode=websocket_tunnel`.
+  - `~/.codex/config.toml` remained unmodified; no `openai_base_url` or `chatgpt_base_url` lines were present after the test.
+  - `slimference proxy status` showed every macOS Network service `off`, so Codex App remained direct for this mode.
+- This proof certifies CLI-only routing and WebSocket continuity. It does not certify token savings on Codex WebSocket traffic because current `WebSocketTunnel` is byte-for-byte by design; message-boundary compression remains a future follow-up after live frame-shape capture.

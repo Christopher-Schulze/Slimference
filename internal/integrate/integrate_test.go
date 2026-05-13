@@ -165,6 +165,22 @@ func TestClaudeEnvBlockBody_BlankProxyUsesDefault(t *testing.T) {
 	}
 }
 
+func TestCodexBaseURLsUseModernChatGPTPrefixes(t *testing.T) {
+	openAIBase := CodexOpenAIBaseURL("http://127.0.0.1:8990")
+	if openAIBase != "http://127.0.0.1:8990/backend-api/codex" {
+		t.Fatalf("openai base URL = %q", openAIBase)
+	}
+	chatGPTBase := CodexChatGPTBaseURL("http://127.0.0.1:8990")
+	if chatGPTBase != "http://127.0.0.1:8990/backend-api/" {
+		t.Fatalf("chatgpt base URL = %q", chatGPTBase)
+	}
+	body := codexBlockBody("http://127.0.0.1:8990/")
+	if !strings.Contains(body, `openai_base_url = "http://127.0.0.1:8990/backend-api/codex"`) ||
+		!strings.Contains(body, `chatgpt_base_url = "http://127.0.0.1:8990/backend-api/"`) {
+		t.Fatalf("codex block body missing modern prefixes: %q", body)
+	}
+}
+
 func TestWriteRCBlock_CreatesFile(t *testing.T) {
 	home := t.TempDir()
 	rc := filepath.Join(home, ".zshrc")
@@ -492,10 +508,10 @@ func TestWriteCodexBlock_BlankProxyUsesDefault(t *testing.T) {
 		t.Fatalf("action = %q", evt.Action)
 	}
 	content, _ := os.ReadFile(CodexConfigPath(home))
-	if !strings.Contains(string(content), `openai_base_url = "`+ProxyURL+`"`) {
+	if !strings.Contains(string(content), `openai_base_url = "`+CodexOpenAIBaseURL(ProxyURL)+`"`) {
 		t.Fatalf("default openai_base_url missing: %s", content)
 	}
-	if !strings.Contains(string(content), `chatgpt_base_url = "`+ProxyURL+`"`) {
+	if !strings.Contains(string(content), `chatgpt_base_url = "`+CodexChatGPTBaseURL(ProxyURL)+`"`) {
 		t.Fatalf("default chatgpt_base_url missing: %s", content)
 	}
 }

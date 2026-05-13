@@ -3451,7 +3451,7 @@ func runPostInstallHealthProbe() {
 
 func handleServiceCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: slimference service <install|uninstall|status>")
+		fmt.Fprintln(os.Stderr, "usage: slimference service <install|uninstall|start|stop|restart|status|logs>")
 		exitFn(1)
 	}
 	switch args[0] {
@@ -3475,6 +3475,12 @@ func handleServiceCmd(args []string) {
 			exitFn(1)
 		}
 		fmt.Println("Service uninstalled.")
+	case "start":
+		handleStartCmd()
+	case "stop":
+		handleStopCmd()
+	case "restart":
+		handleRestartCmd()
 	case "status":
 		data, err := daemonFormatStatusFn()
 		if err != nil {
@@ -3482,6 +3488,8 @@ func handleServiceCmd(args []string) {
 			exitFn(1)
 		}
 		fmt.Println(string(data))
+	case "logs":
+		handleDaemonLogsCmd(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown service command: %s\n", args[0])
 		exitFn(1)

@@ -236,12 +236,14 @@ disarms + removes trust/launchd artifacts.
 Codex CLI launch helpers for T140 split testing:
   slimference proxy env codex --direct [-- <codex-args>...]
   slimference proxy env codex --proxied [-- <codex-args>...]
+  slimference proxy env codex --transparent-proxied [-- <codex-args>...]
 
 The direct helper clears HTTP(S)/ALL proxy env and sets NO_PROXY=*.
-The proxied helper points Codex CLI at http://127.0.0.1:8990 and clears
-NO_PROXY. It requires a running daemon with [transparent].enabled=true and a
-trusted local CA, but it does not require 'slimference proxy enable'. Both
-helpers print the exact shell command; they do not mutate Codex config.
+The proxied helper leaves the macOS System HTTPS proxy untouched and launches
+Codex with per-process openai_base_url/chatgpt_base_url overrides pointing at
+the local daemon. This keeps Codex App direct. The transparent-proxied helper
+is the CONNECT/MITM variant for explicit CA-path tests. All helpers print the
+exact shell command; they do not mutate Codex config.
 `
 	case "config":
 		return `slimference config <init|show>

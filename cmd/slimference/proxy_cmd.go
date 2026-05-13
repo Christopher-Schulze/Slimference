@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/integrate"
 	"github.com/slimference/slimference/internal/tlsca"
 	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/transparent"
@@ -409,7 +411,7 @@ func proxyUninstall(args []string, env proxyEnv) int {
 
 func proxyEnvCmd(args []string, env proxyEnv) int {
 	if len(args) == 0 {
-		fmt.Fprintln(env.Stderr, "usage: slimference proxy env codex <--direct|--proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]")
+		fmt.Fprintln(env.Stderr, "usage: slimference proxy env codex <--direct|--proxied|--transparent-proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]")
 		return 2
 	}
 	client, rest := args[0], args[1:]
@@ -430,16 +432,22 @@ func proxyEnvCmd(args []string, env proxyEnv) int {
 		switch {
 		case a == "--direct":
 			if mode != "" {
-				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct or --proxied")
+				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct, --proxied, or --transparent-proxied")
 				return 2
 			}
 			mode = "direct"
 		case a == "--proxied":
 			if mode != "" {
-				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct or --proxied")
+				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct, --proxied, or --transparent-proxied")
 				return 2
 			}
 			mode = "proxied"
+		case a == "--transparent-proxied":
+			if mode != "" {
+				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct, --proxied, or --transparent-proxied")
+				return 2
+			}
+			mode = "transparent-proxied"
 		case strings.HasPrefix(a, "--host="):
 			host = strings.TrimPrefix(a, "--host=")
 		case strings.HasPrefix(a, "--port="):
@@ -452,7 +460,7 @@ func proxyEnvCmd(args []string, env proxyEnv) int {
 		}
 	}
 	if mode == "" {
-		fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct or --proxied")
+		fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct, --proxied, or --transparent-proxied")
 		return 2
 	}
 	command := codexEnvCommand(mode, host, port, codexArgs)
@@ -460,7 +468,10 @@ func proxyEnvCmd(args []string, env proxyEnv) int {
 	case "direct":
 		fmt.Fprintln(env.Stdout, "# Codex CLI direct mode: use while macOS System HTTPS proxy is armed for Codex App testing.")
 	case "proxied":
-		fmt.Fprintln(env.Stdout, "# Codex CLI proxied mode: use while macOS System HTTPS proxy is disabled for Codex App direct testing.")
+		fmt.Fprintln(env.Stdout, "# Codex CLI proxied mode: per-process config override; macOS System HTTPS proxy remains untouched.")
+		fmt.Fprintln(env.Stdout, "# Codex App stays direct unless you separately run `slimference proxy enable`.")
+	case "transparent-proxied":
+		fmt.Fprintln(env.Stdout, "# Codex CLI transparent-proxied mode: process-local HTTP(S)_PROXY through CONNECT/MITM.")
 		fmt.Fprintln(env.Stdout, "# Requires a running Slimference daemon with [transparent].enabled=true and the local CA trusted.")
 	}
 	fmt.Fprintln(env.Stdout, "# Flight logs require the running Slimference daemon to have [debug].decisions_log or SLIMFERENCE_DEBUG_DECISIONS_LOG configured.")
@@ -483,6 +494,25 @@ func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
 			"no_proxy=*",
 		)
 	case "proxied":
+		target := "http://" + net.JoinHostPort(host, port)
+		base = append(base,
+			"-u", "HTTP_PROXY",
+			"-u", "HTTPS_PROXY",
+			"-u", "ALL_PROXY",
+			"-u", "http_proxy",
+			"-u", "https_proxy",
+			"-u", "all_proxy",
+			"NO_PROXY=127.0.0.1,localhost,::1",
+			"no_proxy=127.0.0.1,localhost,::1",
+		)
+		base = append(base,
+			"codex",
+			"-c", "openai_base_url="+strconv.Quote(integrate.CodexOpenAIBaseURL(target)),
+			"-c", "chatgpt_base_url="+strconv.Quote(integrate.CodexChatGPTBaseURL(target)),
+		)
+		base = append(base, codexArgs...)
+		return base
+	case "transparent-proxied":
 		target := "http://" + net.JoinHostPort(host, port)
 		base = append(base,
 			"-u", "NO_PROXY",

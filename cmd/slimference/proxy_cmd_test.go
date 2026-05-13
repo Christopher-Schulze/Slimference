@@ -153,13 +153,12 @@ func TestProxyEnvCodex_Proxied(t *testing.T) {
 	out := stdout.String()
 	for _, want := range []string{
 		"Codex CLI proxied mode",
-		"transparent].enabled=true",
-		"-u NO_PROXY",
-		"HTTP_PROXY=http://127.0.0.1:8990",
-		"HTTPS_PROXY=http://127.0.0.1:8990",
-		"ALL_PROXY=http://127.0.0.1:8990",
-		"http_proxy=http://127.0.0.1:8990",
-		"codex prompt",
+		"per-process config override",
+		"-u HTTP_PROXY",
+		"NO_PROXY=127.0.0.1,localhost,::1",
+		"openai_base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
+		"chatgpt_base_url=\"http://127.0.0.1:8990/backend-api/\"",
+		" prompt",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("proxied env output missing %q in: %q", want, out)
@@ -170,8 +169,32 @@ func TestProxyEnvCodex_Proxied(t *testing.T) {
 func TestProxyEnvCodex_IPv6Proxied(t *testing.T) {
 	t.Parallel()
 	got := shellJoin(codexEnvCommand("proxied", "::1", "8990", nil))
-	if !strings.Contains(got, "HTTP_PROXY=http://[::1]:8990") {
-		t.Fatalf("expected bracketed IPv6 proxy target, got %q", got)
+	if !strings.Contains(got, "openai_base_url=\"http://[::1]:8990/backend-api/codex\"") {
+		t.Fatalf("expected bracketed IPv6 Codex base URL, got %q", got)
+	}
+}
+
+func TestProxyEnvCodex_TransparentProxied(t *testing.T) {
+	t.Parallel()
+	env, stdout, stderr, _, _, _ := newProxyEnv(t)
+	args := []string{"env", "codex", "--transparent-proxied", "--host=127.0.0.1", "--port=8990", "prompt"}
+	if rc := proxyRun(args, env); rc != 0 {
+		t.Fatalf("expected rc=0, got %d stderr=%q", rc, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"transparent-proxied mode",
+		"transparent].enabled=true",
+		"-u NO_PROXY",
+		"HTTP_PROXY=http://127.0.0.1:8990",
+		"HTTPS_PROXY=http://127.0.0.1:8990",
+		"ALL_PROXY=http://127.0.0.1:8990",
+		"http_proxy=http://127.0.0.1:8990",
+		"codex prompt",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("transparent proxied env output missing %q in: %q", want, out)
+		}
 	}
 }
 
@@ -183,6 +206,7 @@ func TestProxyEnvCodex_RejectsBadArgs(t *testing.T) {
 		{"env", "codex"},
 		{"env", "codex", "--direct", "--proxied"},
 		{"env", "codex", "--proxied", "--direct"},
+		{"env", "codex", "--proxied", "--transparent-proxied"},
 		{"env", "codex", "--direct", "--bogus"},
 	}
 	for _, args := range cases {

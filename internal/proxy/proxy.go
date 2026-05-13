@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -143,6 +144,7 @@ type Proxy struct {
 	outputReduce          *outputreduce.Tracker
 	openAIPromptCacheMu   sync.Mutex
 	openAIPromptCacheRate map[string]promptCacheRateBucket
+	webSocketTunnel       *WebSocketTunnel
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
@@ -229,6 +231,11 @@ func New(cfg *config.Config) *Proxy {
 	p.httpClients[types.Anthropic] = upstreamClient
 	p.httpClients[types.OpenAI] = upstreamClient
 	p.httpClients[types.CodexChatGPT] = upstreamClient
+	p.webSocketTunnel = &WebSocketTunnel{
+		Dialer:      newProfiledWebSocketDialer(tlsResolver),
+		Logger:      slog.Default(),
+		BypassPaths: cfg.Transparent.AudioBypassPaths,
+	}
 
 	// Layer 1: Deterministic compressor.
 	p.layer1 = compression.NewDeterministicCompressor(&cfg.Compression)
@@ -345,11 +352,7 @@ func New(cfg *config.Config) *Proxy {
 			connect := NewConnectInterceptor(signer, mux, cfg.Transparent.InterceptHosts)
 			connect.SetLogger(slog.Default())
 			connect.SetDebugRecorder(p.debugRecorder)
-			connect.SetWebSocketTunnel(&WebSocketTunnel{
-				Dialer:      newProfiledWebSocketDialer(tlsResolver),
-				Logger:      slog.Default(),
-				BypassPaths: cfg.Transparent.AudioBypassPaths,
-			})
+			connect.SetWebSocketTunnel(p.webSocketTunnel)
 			handler = connect
 			slog.Info("transparent proxy enabled", "intercept_hosts", cfg.Transparent.InterceptHosts)
 		}
@@ -506,6 +509,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// sends /v1/responses through openai_base_url) from generic OpenAI.
 	userAgent := r.Header.Get("User-Agent")
 	provider := detectProviderWithUA(r.URL.Path, nil, userAgent)
+	if IsWebSocketUpgrade(r) {
+		p.handleDirectWebSocketUpgrade(w, r, provider)
+		return
+	}
 
 	// Fast passthrough for non-compress-eligible paths.
 	if !isCompressiblePath(r.URL.Path) {
@@ -570,6 +577,58 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(ctx)
 
 	p.handleCompressibleRequest(w, r, provider, body)
+}
+
+// handleDirectWebSocketUpgrade supports non-mutating Codex CLI-only routing
+// via `codex -c openai_base_url=http://127.0.0.1:8990/backend-api/codex`.
+// That path reaches Slimference as a plain local WebSocket upgrade, not a
+// CONNECT-MITM stream, so it must be tunneled before the JSON compression
+// handler tries to read a nonexistent request body.
+func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Request, provider types.Provider) {
+	if p.webSocketTunnel == nil {
+		http.Error(w, "websocket tunnel unavailable", http.StatusBadGateway)
+		return
+	}
+	host, ok := p.upstreamHost(provider)
+	if !ok {
+		http.Error(w, "upstream host unavailable", http.StatusBadGateway)
+		return
+	}
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "hijack not supported", http.StatusInternalServerError)
+		return
+	}
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		slog.Error("websocket direct: hijack failed", "path", r.URL.Path, "err", err)
+		return
+	}
+	defer clientConn.Close()
+	if p.debugRecorder != nil {
+		p.debugRecorder.Record(dbg.RequestSummary{
+			RequestID: newRequestIDFn(),
+			Timestamp: time.Now(),
+			Source:    "proxy",
+			Provider:  provider.String(),
+			Host:      r.Host,
+			Path:      r.URL.Path,
+			RouteMode: "websocket_tunnel",
+		})
+	}
+	p.webSocketTunnel.ServeUpgrade(clientConn, r, host)
+}
+
+func (p *Proxy) upstreamHost(provider types.Provider) (string, bool) {
+	u, err := url.Parse(p.upstreamURL(provider, "", ""))
+	if err != nil {
+		return "", false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return "", false
+	}
+	return host, true
 }
 
 // hasBypassedTool reports whether the request body references a tool

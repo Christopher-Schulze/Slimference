@@ -18,15 +18,34 @@ func CodexConfigPath(home string) string {
 // routes that Codex uses for session + rate-limit metadata). Pointing both
 // at Slimference means the proxy sees 100% of Codex's request volume.
 func codexBlockBody(proxyURL string) string {
-	proxyURL = strings.TrimSpace(proxyURL)
-	if proxyURL == "" {
-		proxyURL = ProxyURL
-	}
 	return fmt.Sprintf(
 		`openai_base_url = "%s"
 chatgpt_base_url = "%s"`,
-		proxyURL, proxyURL,
+		CodexOpenAIBaseURL(proxyURL), CodexChatGPTBaseURL(proxyURL),
 	)
+}
+
+// CodexOpenAIBaseURL returns the model-provider base URL Codex needs when
+// authenticated with ChatGPT. Modern Codex appends `/responses` to this value,
+// so Slimference must expose the ChatGPT Codex backend prefix here, not the
+// proxy root.
+func CodexOpenAIBaseURL(proxyURL string) string {
+	return strings.TrimRight(resolveCodexProxyRoot(proxyURL), "/") + "/backend-api/codex"
+}
+
+// CodexChatGPTBaseURL returns the base URL for ChatGPT metadata/auth requests.
+// Codex appends paths such as `connectors/directory/list`, so this must mirror
+// Codex's upstream default `https://chatgpt.com/backend-api/`.
+func CodexChatGPTBaseURL(proxyURL string) string {
+	return strings.TrimRight(resolveCodexProxyRoot(proxyURL), "/") + "/backend-api/"
+}
+
+func resolveCodexProxyRoot(proxyURL string) string {
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" {
+		return ProxyURL
+	}
+	return proxyURL
 }
 
 // WriteCodexBlock upserts the Slimference block in Codex's config.toml.

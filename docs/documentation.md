@@ -682,6 +682,7 @@ slimference proxy install                     # default transparent Codex path
 slimference proxy enable                      # arm system HTTPS proxy
 slimference proxy env codex --direct          # print Codex CLI direct env command
 slimference proxy env codex --proxied         # print CLI-only proxy env command
+slimference proxy env codex --transparent-proxied # print CLI CONNECT/MITM env command
 slimference                                    # TUI control plane for install/arm/disarm
 slimference integrate status                  # detect legacy/config-patch state
 slimference integrate install                 # legacy wire-up

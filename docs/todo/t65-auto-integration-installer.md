@@ -80,6 +80,17 @@ Plus TUI badges (covered by T67).
 
 ### config.toml manipulation
 
+2026-05-13 update: modern ChatGPT-auth Codex appends `/responses` to
+`openai_base_url`, so the implemented values are now backend-prefixed:
+
+```
+openai_base_url = "http://127.0.0.1:8990/backend-api/codex"
+chatgpt_base_url = "http://127.0.0.1:8990/backend-api/"
+```
+
+The historical root values below are retained as original T65 planning context,
+not as current implementation truth.
+
 - Uses the same marker fence in TOML comments:
   ```
   # >>> slimference integration >>>
