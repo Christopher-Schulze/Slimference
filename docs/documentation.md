@@ -194,8 +194,11 @@ file point at `~/.slimference/hooks/*.sh`, which invoke
    json, python traceback, terraform plan, json minify.
    `build-output` includes the shared diagnostic parser for Go, Cargo,
    GCC/Clang, TypeScript, Svelte, frontend tools (Next/Vite/Vitest/Jest/
-   Playwright/ESLint/Biome/Oxlint/Turbo/Bun), Zig, SQL, Markdown, and
-   practical ecosystem compilers.
+   Playwright/ESLint/Biome/Oxlint/Turbo/Bun), Python diagnostics
+   (ruff/pylint/flake8/mypy/pyright/pytest/unittest matching), Zig, SQL,
+   Markdown, and practical ecosystem compilers. `lint-output` also calls the
+   shared parser after exact success compactors so non-empty Python
+   lint/type-check output is reduced without losing the older ok-paths.
 4. Fallback: `FirstMatchingTOMLRule` applies user-defined 8-stage
    rules from `~/.slimference/filters.toml`.
 5. Truncate with a short `[truncated …]` hint to

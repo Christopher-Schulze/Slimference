@@ -59,10 +59,14 @@ Layer 0 parser coverage is driven by observed traffic:
 
 ### Python
 
-- `pytest`.
-- `ruff`.
-- `mypy`.
-- `pyright`.
+- [x] `pytest` direct, wrapped, and `python -m pytest` matching in the
+  shared diagnostic recognizer; existing test-output fallback remains the
+  owner for pytest compaction labels.
+- [x] `ruff`.
+- [x] `mypy`.
+- [x] `pyright` / `basedpyright`.
+- [x] `pylint`, `flake8`, and `python -m unittest` matching in the shared
+  diagnostic recognizer.
 - `uv`.
 - `pip` resolver errors.
 
@@ -187,3 +191,10 @@ Layer 0 parser coverage is driven by observed traffic:
   `turbo`, `bun test`, and `bun build` route into the conservative
   `frontend` diagnostic compactor. It preserves only actionable diagnostic
   rows and short failure summaries, and bypasses when output would not shrink.
+- 2026-05-14: Python diagnostic slice landed. The shared diagnostic parser now
+  recognizes ruff, pylint, flake8, mypy, pyright/basedpyright, pytest,
+  `python -m pytest`, `uv run pytest`, `poetry run pytest`, and
+  `python -m unittest`. `lint_output` calls the shared parser after exact
+  success compactors, so non-empty Python lint/type-check output is reduced
+  without removing the older specialized success paths. `test_output` keeps
+  its existing label-preserving fallback for pytest to avoid regressions.

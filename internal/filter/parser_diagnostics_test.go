@@ -68,6 +68,24 @@ Test failed. 1 failed, 2 passed.`)
 	}
 }
 
+func TestParsePythonDiagnostics(t *testing.T) {
+	t.Parallel()
+	stdout := paddedDiagnosticOutput(`src/app.py:3:1: F401 'os' imported but unused
+src/main.py:10: error: Argument 1 has incompatible type "str"; expected "int"  [arg-type]
+/Users/me/project/pkg/service.py:22:7 - error: "missing_name" is not defined
+FAILED tests/test_service.py::test_handles_missing_name - AssertionError: expected 1 got 2
+Found 2 errors in 2 files.`)
+	got, hadFailures, ok := parsePythonDiagnostics(stdout)
+	if !ok || !hadFailures {
+		t.Fatal("expected Python diagnostics")
+	}
+	for _, want := range []string{"[python] FAILED", "F401", "[arg-type]", "missing_name", "test_handles_missing_name", "Found 2 errors"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestParseSQLDiagnostics(t *testing.T) {
 	t.Parallel()
 	stdout := paddedDiagnosticOutput(`== [migrations/001_init.sql] FAIL
@@ -132,6 +150,9 @@ func TestParseDiagnosticRows_NoMatchAndTooShort(t *testing.T) {
 	if got, _, ok := parseDiagnosticRows("typescript", "0 errors\n"); ok {
 		t.Fatalf("short success should not compact: %q", got)
 	}
+	if got, _, ok := parseDiagnosticRows("very-long-label", "build ok"); ok {
+		t.Fatalf("short build success should not compact: %q", got)
+	}
 	if got, _, ok := parseDiagnosticRows("typescript", "plain output\nBuild finished without diagnostics\n"); ok {
 		t.Fatalf("non-diagnostic output should not compact: %q", got)
 	}
@@ -190,6 +211,45 @@ func TestFrontendDiagnosticArgv(t *testing.T) {
 	}
 }
 
+func TestPythonDiagnosticArgv(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		argv []string
+		want bool
+	}{
+		{[]string{"ruff", "check", "."}, true},
+		{[]string{"python", "-m", "ruff", "check", "."}, true},
+		{[]string{"pylint", "pkg"}, true},
+		{[]string{"flake8", "pkg"}, true},
+		{[]string{"mypy", "src"}, true},
+		{[]string{"python3", "-m", "mypy", "src"}, true},
+		{[]string{"pyright", "src"}, true},
+		{[]string{"basedpyright", "src"}, true},
+		{[]string{"pytest", "-q"}, true},
+		{[]string{"npx", "pytest", "-q"}, true},
+		{[]string{"npx", "-y"}, false},
+		{[]string{"pnpm", "exec", "pytest", "-q"}, true},
+		{[]string{"yarn", "py.test", "-q"}, true},
+		{[]string{"python3", "-m", "pytest"}, true},
+		{[]string{"python3", "-m", "notpytest"}, false},
+		{[]string{"uv", "run", "pytest"}, true},
+		{[]string{"poetry", "run", "python", "-m", "pytest"}, true},
+		{[]string{"python", "-m", "unittest"}, true},
+		{[]string{"python", "script.py"}, false},
+		{[]string{"pip", "install", "x"}, false},
+		{[]string{}, false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
+			t.Parallel()
+			if got := isPythonDiagnosticArgv(tt.argv); got != tt.want {
+				t.Fatalf("isPythonDiagnosticArgv(%v)=%v want %v", tt.argv, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestT124_ParseFailuresDispatchesNewParsers(t *testing.T) {
 	t.Parallel()
 	stdout := paddedDiagnosticOutput(`src/App.tsx(12,7): error TS2322: Type mismatch.
@@ -211,6 +271,39 @@ Found 1 error.`)
 	if !strings.Contains(got, "[frontend] FAILED") {
 		t.Fatalf("unexpected frontend dispatch output: %q", got)
 	}
+
+	pythonStdout := paddedDiagnosticOutput(`src/app.py:3:1: F401 'os' imported but unused
+Found 1 error.`)
+	got, ok = ParseFailures([]string{"ruff", "check", "."}, pythonStdout)
+	if !ok {
+		t.Fatal("expected ruff dispatch")
+	}
+	if !strings.Contains(got, "[python] FAILED") {
+		t.Fatalf("unexpected python dispatch output: %q", got)
+	}
+}
+
+func TestPythonDiagnosticsIntegratedIntoLintAndTestFilters(t *testing.T) {
+	t.Parallel()
+	lintStdout := diagnosticOutputWithNeutralPadding(`src/app.py:3:1: F401 'os' imported but unused
+Found 1 error.`)
+	lintOut, ok := TryCompactLintOutput([]string{"ruff", "check", "."}, []byte(lintStdout))
+	if !ok {
+		t.Fatal("expected ruff lint output to compact through shared diagnostics")
+	}
+	if !strings.Contains(string(lintOut), "[python] FAILED") || strings.Contains(string(lintOut), "neutral padding") {
+		t.Fatalf("unexpected lint compact output: %q", lintOut)
+	}
+
+	testStdout := diagnosticOutputWithNeutralPadding(`FAILED tests/test_service.py::test_handles_missing_name - AssertionError: expected 1 got 2
+1 failed, 3 passed.`)
+	testOut, ok := TryCompactTestOutput([]string{"pytest", "-q"}, []byte(testStdout))
+	if !ok {
+		t.Fatal("expected pytest output to compact through existing test fallback")
+	}
+	if !strings.Contains(string(testOut), "[pytest] FAILED") || strings.Contains(string(testOut), "neutral padding") {
+		t.Fatalf("unexpected test compact output: %q", testOut)
+	}
 }
 
 func paddedDiagnosticOutput(core string) string {
@@ -219,6 +312,16 @@ func paddedDiagnosticOutput(core string) string {
 	sb.WriteByte('\n')
 	for i := 0; i < 20; i++ {
 		sb.WriteString("progress line that should be removed from compact diagnostics\n")
+	}
+	return sb.String()
+}
+
+func diagnosticOutputWithNeutralPadding(core string) string {
+	var sb strings.Builder
+	sb.WriteString(core)
+	sb.WriteByte('\n')
+	for i := 0; i < 20; i++ {
+		sb.WriteString("neutral padding line that should be removed from compact output\n")
 	}
 	return sb.String()
 }

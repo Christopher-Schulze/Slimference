@@ -7,12 +7,14 @@ import (
 )
 
 var (
-	reColonDiagnostic = regexp.MustCompile(`^[^\s:][^:\n]*:\d+(:\d+)?:\s*(error|warning|fatal error|note|hint|info|E\d+|W\d+|TS\d+|[A-Z]+-\d+)\b`)
-	reParenDiagnostic = regexp.MustCompile(`^[^( \t][^\n]*\(\d+,\d+\):\s*(error|warning)\s+[A-Z]+\d+:`)
-	rePipeDiagnostic  = regexp.MustCompile(`^\s*\d+\s+[^\s].*\s+(error|warning|style|convention|refactor)\s+[\w./-]+`)
-	reSQLFluffLine    = regexp.MustCompile(`^L:\s*\d+\s*\|\s*P:\s*\d+\s*\|\s*[A-Z]{1,4}\d{2}\s*\|`)
-	reMarkdownLine    = regexp.MustCompile(`^[^\s:][^:\n]*\.md:\d+(:\d+)?:\s*MD\d{3}\b`)
-	reSummaryLine     = regexp.MustCompile(`(?i)(\b(error|errors|warning|warnings|failed|failures|violations|problems|issues|diagnostics)\b|✖|✗)`)
+	reColonDiagnostic  = regexp.MustCompile(`^[^\s:][^:\n]*:\d+(:\d+)?:\s*(error|warning|fatal error|note|hint|info|E\d+|W\d+|TS\d+|[A-Z]\d{3,4}|[A-Z]+-\d+)\b`)
+	reDashDiagnostic   = regexp.MustCompile(`^[^\s:][^:\n]*:\d+(:\d+)?\s+-\s+(error|warning|information|hint)\b`)
+	reParenDiagnostic  = regexp.MustCompile(`^[^( \t][^\n]*\(\d+,\d+\):\s*(error|warning)\s+[A-Z]+\d+:`)
+	rePipeDiagnostic   = regexp.MustCompile(`^\s*\d+\s+[^\s].*\s+(error|warning|style|convention|refactor)\s+[\w./-]+`)
+	reSQLFluffLine     = regexp.MustCompile(`^L:\s*\d+\s*\|\s*P:\s*\d+\s*\|\s*[A-Z]{1,4}\d{2}\s*\|`)
+	reMarkdownLine     = regexp.MustCompile(`^[^\s:][^:\n]*\.md:\d+(:\d+)?:\s*MD\d{3}\b`)
+	rePytestFailedLine = regexp.MustCompile(`^(FAILED|ERROR)\s+[^ \t]+\.py(::|\s+-\s+)`)
+	reSummaryLine      = regexp.MustCompile(`(?i)(\b(error|errors|warning|warnings|failed|failures|violations|problems|issues|diagnostics)\b|✖|✗)`)
 )
 
 func parseDiagnosticRows(label string, stdout string) (string, bool, bool) {
@@ -49,10 +51,12 @@ func parseDiagnosticRows(label string, stdout string) (string, bool, bool) {
 
 func isDiagnosticLine(line string) bool {
 	return reColonDiagnostic.MatchString(line) ||
+		reDashDiagnostic.MatchString(line) ||
 		reParenDiagnostic.MatchString(line) ||
 		rePipeDiagnostic.MatchString(line) ||
 		reSQLFluffLine.MatchString(line) ||
-		reMarkdownLine.MatchString(line)
+		reMarkdownLine.MatchString(line) ||
+		rePytestFailedLine.MatchString(line)
 }
 
 func isDiagnosticSummary(line string) bool {
@@ -89,6 +93,10 @@ func parseFrontendDiagnostics(stdout string) (string, bool, bool) {
 	return parseDiagnosticRows("frontend", stdout)
 }
 
+func parsePythonDiagnostics(stdout string) (string, bool, bool) {
+	return parseDiagnosticRows("python", stdout)
+}
+
 func parseSQLDiagnostics(stdout string) (string, bool, bool) {
 	return parseDiagnosticRows("sql", stdout)
 }
@@ -117,6 +125,51 @@ func isFrontendDiagnosticArgv(argv []string) bool {
 		return true
 	}
 	return isBunDiagnosticArgv(argv)
+}
+
+func isPythonDiagnosticArgv(argv []string) bool {
+	if isRuffArgv(argv) ||
+		isPylintArgv(argv) ||
+		isFlake8Argv(argv) ||
+		isMypyArgv(argv) ||
+		isUvRunPytestArgv(argv) ||
+		isPoetryRunPytestArgv(argv) ||
+		isPythonUnittestArgv(argv) {
+		return true
+	}
+	if isPytestArgv(argv) {
+		return true
+	}
+	return commandMatchesAny(argv, "pyright", "basedpyright", "pytest", "py.test")
+}
+
+func isPytestArgv(argv []string) bool {
+	if len(argv) < 1 {
+		return false
+	}
+	b0 := strings.ToLower(filepath.Base(argv[0]))
+	if b0 == "npx" || b0 == "npx.cmd" {
+		rest, ok := npxArgvSuffix(argv)
+		return ok && isPytestArgv(rest)
+	}
+	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
+		return isPytestArgv(argv[2:])
+	}
+	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
+		return isPytestArgv(argv[1:])
+	}
+	if b0 == "pytest" || b0 == "py.test" || b0 == "pytest.exe" {
+		return true
+	}
+	if b0 != "python" && b0 != "python3" && b0 != "python.exe" && b0 != "python3.exe" {
+		return false
+	}
+	for i := 0; i < len(argv)-1; i++ {
+		if argv[i] == "-m" && (argv[i+1] == "pytest" || argv[i+1] == "py.test") {
+			return true
+		}
+	}
+	return false
 }
 
 func isBunDiagnosticArgv(argv []string) bool {

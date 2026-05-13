@@ -18,6 +18,7 @@ var structuredParsers = []structuredParser{
 	{"typescript", isTypeScriptDiagnosticArgv, parseTypeScriptDiagnostics},
 	{"svelte", isSvelteDiagnosticArgv, parseSvelteDiagnostics},
 	{"frontend", isFrontendDiagnosticArgv, parseFrontendDiagnostics},
+	{"python", isPythonDiagnosticArgv, parsePythonDiagnostics},
 	{"zig", isZigDiagnosticArgv, parseZigDiagnostics},
 	{"sql", isSQLDiagnosticArgv, parseSQLDiagnostics},
 	{"markdown", isMarkdownDiagnosticArgv, parseMarkdownDiagnostics},

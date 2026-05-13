@@ -1638,6 +1638,9 @@ func TryCompactLintOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactStylelint(argv, stdout); ok {
 		return out, true
 	}
+	if compact, ok := ParseFailures(argv, string(stdout)); ok {
+		return []byte(compact), true
+	}
 	// Fallback: truncate large lint violation output for recognized lint tools.
 	if label := lintToolLabel(argv); label != "" {
 		s := strings.TrimSpace(string(stdout))
