@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -128,9 +130,27 @@ func NewRecorder(capacity int, decisionsLog string) *Recorder {
 	return &Recorder{
 		summaries:    make([]RequestSummary, capacity),
 		cap:          capacity,
-		decisionsLog: decisionsLog,
+		decisionsLog: normalizeDecisionsLogPath(decisionsLog),
 		writeLineFn:  writeDecisionLine,
 	}
+}
+
+func normalizeDecisionsLogPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			if path == "~" {
+				path = home
+			} else {
+				path = filepath.Join(home, path[2:])
+			}
+		}
+	}
+	return filepath.Clean(path)
 }
 
 // Record appends a completed RequestSummary to the ring and optionally flushes to JSONL.
@@ -209,6 +229,15 @@ func (r *Recorder) flushJSONL(path string, s RequestSummary) {
 		)
 		return
 	}
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			slog.Warn("debug recorder: create decisions log directory failed",
+				slog.String("path", path),
+				slog.String("err", err.Error()),
+			)
+			return
+		}
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		slog.Warn("debug recorder: open decisions log failed",
@@ -230,7 +259,9 @@ func (r *Recorder) flushJSONL(path string, s RequestSummary) {
 // Avoids nil checks in the hot path.
 type NopRecorder struct{}
 
-func (NopRecorder) Record(_ RequestSummary) {}
+func (NopRecorder) Record(s RequestSummary) {
+	_ = s
+}
 
 func (NopRecorder) Last(_ int, _ bool) []RequestSummary {
 	return nil

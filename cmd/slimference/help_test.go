@@ -104,7 +104,7 @@ func TestHelpForSubcommandKnown(t *testing.T) {
 	topics := []string{"doctor", "filter", "hook", "rewrite", "posttool", "codexhook", "readhook",
 		"expand", "checkpoint", "gain", "savings", "quality", "compress-preview", "watch",
 		"soak",
-		"stats", "debug", "service", "daemon",
+		"stats", "debug", "service", "daemon", "proxy",
 		"config", "test", "completion", "trust", "integrate", "bypass", "version"}
 	for _, topic := range topics {
 		topic := topic

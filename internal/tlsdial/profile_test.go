@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,19 @@ func TestResolver_InvalidProfile(t *testing.T) {
 	}
 }
 
+func TestDialConfigsPinHTTP11ForCustomTransport(t *testing.T) {
+	t.Parallel()
+	stdlib := newStdlibConfig("api.openai.com")
+	utlsCfg := newUTLSConfig("api.openai.com")
+	want := []string{"http/1.1"}
+	if !sameStrings(stdlib.NextProtos, want) {
+		t.Fatalf("stdlib NextProtos = %v, want %v", stdlib.NextProtos, want)
+	}
+	if !sameStrings(utlsCfg.NextProtos, want) {
+		t.Fatalf("utls NextProtos = %v, want %v", utlsCfg.NextProtos, want)
+	}
+}
+
 func TestProfileNames_IncludesAliases(t *testing.T) {
 	t.Parallel()
 	names := ProfileNames()
@@ -162,6 +176,79 @@ func TestDial_StdlibAndUTLSProfiles(t *testing.T) {
 	_ = conn.Close()
 }
 
+func TestDial_UTLSForcesHTTP11ALPN(t *testing.T) {
+	server := httptest.NewUnstartedServer(nil)
+	server.TLS = &tls.Config{NextProtos: []string{"h2", "http/1.1"}}
+	server.StartTLS()
+	defer server.Close()
+
+	host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldUTLS := newUTLSConfig
+	newUTLSConfig = func(host string) *utls.Config {
+		cfg := oldUTLS(host)
+		cfg.InsecureSkipVerify = true
+		return cfg
+	}
+	defer func() { newUTLSConfig = oldUTLS }()
+
+	profile, err := ResolveProfile("chromium_stable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := Dial(context.Background(), "tcp", host, port, profile)
+	if err != nil {
+		t.Fatalf("utls Dial: %v", err)
+	}
+	defer conn.Close()
+
+	tlsConn, ok := conn.(*utls.UConn)
+	if !ok {
+		t.Fatalf("conn type = %T, want *utls.UConn", conn)
+	}
+	if got := tlsConn.ConnectionState().NegotiatedProtocol; got != "http/1.1" {
+		t.Fatalf("negotiated ALPN = %q, want http/1.1", got)
+	}
+}
+
+func TestForceHTTP11Extensions(t *testing.T) {
+	t.Parallel()
+	got := forceHTTP11Extensions([]utls.TLSExtension{
+		&utls.SNIExtension{},
+		&utls.ALPNExtension{AlpnProtocols: []string{"h2", "http/1.1"}},
+		&utls.ApplicationSettingsExtension{SupportedProtocols: []string{"h2"}},
+		&utls.ApplicationSettingsExtensionNew{SupportedProtocols: []string{"h2"}},
+	})
+	var alpn []string
+	for _, ext := range got {
+		switch e := ext.(type) {
+		case *utls.ALPNExtension:
+			alpn = e.AlpnProtocols
+		case *utls.ApplicationSettingsExtension, *utls.ApplicationSettingsExtensionNew:
+			t.Fatalf("HTTP/2 ALPS extension survived: %T", ext)
+		}
+	}
+	if !sameStrings(alpn, []string{"http/1.1"}) {
+		t.Fatalf("ALPN = %v, want http/1.1", alpn)
+	}
+}
+
+func TestForceHTTP11Extensions_AddsMissingALPN(t *testing.T) {
+	t.Parallel()
+	got := forceHTTP11Extensions([]utls.TLSExtension{&utls.SNIExtension{}})
+	var alpn []string
+	for _, ext := range got {
+		if e, ok := ext.(*utls.ALPNExtension); ok {
+			alpn = e.AlpnProtocols
+		}
+	}
+	if !sameStrings(alpn, []string{"http/1.1"}) {
+		t.Fatalf("ALPN = %v, want http/1.1", alpn)
+	}
+}
+
 func TestDial_DialError(t *testing.T) {
 	t.Parallel()
 	profile, err := ResolveProfile("go_stdlib")
@@ -170,6 +257,39 @@ func TestDial_DialError(t *testing.T) {
 	}
 	if _, err := Dial(context.Background(), "tcp", "127.0.0.1", "1", profile); err == nil {
 		t.Fatal("Dial to closed port must fail")
+	}
+}
+
+func TestDial_UTLSPrepareErrorClosesConnection(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+	host, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := Profile{
+		Name:          "bogus",
+		ClientHelloID: utls.ClientHelloID{Client: "bogus"},
+	}
+	_, err = Dial(context.Background(), "tcp", host, port, profile)
+	if err == nil || !strings.Contains(err.Error(), "prepare utls handshake") {
+		t.Fatalf("Dial error = %v, want prepare utls handshake", err)
+	}
+	select {
+	case conn := <-accepted:
+		_ = conn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("listener did not receive the connection")
 	}
 }
 
@@ -259,6 +379,18 @@ func TestDial_UTLSContextCanceledAfterHandshake(t *testing.T) {
 	if _, err := Dial(ctx, "tcp", host, port, profile); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Dial error = %v, want context canceled", err)
 	}
+}
+
+func sameStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func containsString(values []string, want string) bool {

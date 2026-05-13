@@ -8,10 +8,11 @@ import (
 // handleCompletionCmd implements `slimference completion bash`. The emitted
 // script is sourceable in a bash session and offers context-sensitive
 // completion for every top-level subcommand, the most common nested
-// subcommands (hook install|remove, debug paths|last|flight|..., daemon logs,
-// service install|..., config init|show, test anthropic|openai), and the
-// recurring period/flag tokens (today|week|month|all, --json, --csv,
-// --by-command, --by-parser, --cache, --output).
+// subcommands (hook install|remove, proxy install|env|..., debug
+// paths|last|flight|..., daemon logs, service install|..., config init|show,
+// test anthropic|openai), and the recurring period/flag tokens
+// (today|week|month|all, --json, --csv, --by-command, --by-parser, --cache,
+// --output).
 //
 // Scope: bash only. zsh/fish are out of scope (T32).
 //
@@ -37,7 +38,7 @@ func handleCompletionCmd(args []string) {
 // bashCompletionScript is the sourceable bash completion for slimference.
 // Keep in lockstep with the top-level dispatch in handleSubcommand and the
 // nested dispatchers (handleHookCmd, handleDebugCmd, handleDaemonCmd,
-// handleServiceCmd, handleConfigCmd, handleTestCmd).
+// handleServiceCmd, handleProxyCmd, handleConfigCmd, handleTestCmd).
 const bashCompletionScript = `# slimference bash completion
 # Source this file or add to ~/.bash_completion.d/slimference .
 
@@ -47,7 +48,7 @@ _slimference() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cword=$COMP_CWORD
 
-    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook codexhook hook debug daemon start stop restart service integrate bypass layer2 completion expand checkpoint trust version"
+    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook codexhook hook debug daemon start stop restart service proxy integrate bypass layer2 completion expand checkpoint trust version"
     local periods="today week month all"
     local period_flags="--json --csv --by-command --by-parser --cache --output"
     local savings_flags="--json --csv --project"
@@ -112,6 +113,18 @@ _slimference() {
         service)
             if [ "$cword" -eq 2 ]; then
                 COMPREPLY=( $(compgen -W "install uninstall status" -- "$cur") )
+            fi
+            ;;
+        proxy)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "install enable disable status uninstall env" -- "$cur") )
+            elif [ "$cword" -eq 3 ]; then
+                case "${COMP_WORDS[2]}" in
+                    env) COMPREPLY=( $(compgen -W "codex" -- "$cur") ) ;;
+                    install|enable|disable|status|uninstall) COMPREPLY=( $(compgen -W "--yes --system --no-launchd --host= --port=" -- "$cur") ) ;;
+                esac
+            elif [ "$cword" -ge 4 ] && [ "${COMP_WORDS[2]}" = "env" ] && [ "${COMP_WORDS[3]}" = "codex" ]; then
+                COMPREPLY=( $(compgen -W "--direct --proxied --host= --port= --" -- "$cur") )
             fi
             ;;
         completion)

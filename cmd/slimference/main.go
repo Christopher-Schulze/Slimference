@@ -2673,17 +2673,16 @@ func readLastDecisionSummaries(path string, n int) []dbg.RequestSummary {
 }
 
 func handleDebugPaths() {
-	cfg, err := config.Load()
+	cfg, info, err := config.LoadWithOptions(config.LoadOptions{ExplicitPath: explicitConfigPath})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
 		exitFn(1)
 	}
-	configPath := config.DefaultConfigPath()
-	configNote := "default"
-	if p := os.Getenv("SLIMFERENCE_CONFIG"); p != "" {
-		configPath = p
-		configNote = "SLIMFERENCE_CONFIG"
+	configPath := "(built-in defaults)"
+	if info.ResolvedPath != "" {
+		configPath = info.ResolvedPath
 	}
+	configNote := debugConfigSourceLabel(info.Source)
 	var filterLine, teeLine string
 	if filterDB, ferr := resolveFilterDBPathFn(); ferr != nil {
 		filterLine = fmt.Sprintf("(error: %v)", ferr)
@@ -2741,6 +2740,19 @@ func handleDebugPaths() {
 	fmt.Printf("decisions log:    %s [%s]\n", decisionsLine, dnote)
 	fmt.Printf("project filters:  %s\n", projectFiltersLine)
 	fmt.Println(strings.Repeat("-", 50))
+}
+
+func debugConfigSourceLabel(source string) string {
+	switch source {
+	case "flag":
+		return "--config"
+	case "env":
+		return "SLIMFERENCE_CONFIG"
+	case "":
+		return "defaults"
+	default:
+		return source
+	}
 }
 
 func formatTokensPlain64(n int64) string {

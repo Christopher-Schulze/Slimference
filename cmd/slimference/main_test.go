@@ -1013,6 +1013,15 @@ func TestCodexHookEncodeErrorsAndFlightBranches(t *testing.T) {
 	}
 }
 
+func TestRecordHookFlight_NoDecisionsLogNoop(t *testing.T) {
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "xdg"))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", "")
+
+	recordHookFlight("test_hook_no_log", "sess", "Tool", "noop", 12, 6, nil, nil)
+}
+
 func TestHandleSubcommand_CodexHookDispatch(t *testing.T) {
 	origTerm := termIsTerminalFn
 	origRead := readStdinAll

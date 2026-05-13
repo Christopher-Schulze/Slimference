@@ -31,6 +31,7 @@ SUBCOMMANDS:
   debug        Decision-chain JSONL tools (paths|last|summary|tail|replay)
   service      Daemon lifecycle (install|uninstall|start|stop|status|logs)
   daemon       Run as a long-lived daemon (invoked by launchd/systemd)
+  proxy        Transparent CA/daemon/System-HTTPS-Proxy lifecycle and CLI env helpers
   integrate    Wire Claude Code and Codex to this proxy (status|install|remove|emergency-off)
   bypass       Toggle the master bypass flag (on|off|status)
   output-reduce Toggle T130 output-token discipline injection
@@ -223,6 +224,24 @@ Linux: manages the user-scoped systemd unit (when available).
 Invoked by the OS service supervisor (launchd/systemd). Runs the proxy
 foreground with JSON logging and platform-specific integration. Users
 should prefer 'slimference service <verb>' or '--no-tui' instead.
+`
+	case "proxy":
+		return `slimference proxy <install|enable|disable|status|uninstall|env> [args]
+
+Transparent macOS mode. install creates/trusts the local CA and installs
+the daemon, enable arms the System HTTPS proxy, disable restores direct
+routing, status reports CA/launchd/networksetup/daemon state, and uninstall
+disarms + removes trust/launchd artifacts.
+
+Codex CLI launch helpers for T140 split testing:
+  slimference proxy env codex --direct [-- <codex-args>...]
+  slimference proxy env codex --proxied [-- <codex-args>...]
+
+The direct helper clears HTTP(S)/ALL proxy env and sets NO_PROXY=*.
+The proxied helper points Codex CLI at http://127.0.0.1:8990 and clears
+NO_PROXY. It requires a running daemon with [transparent].enabled=true and a
+trusted local CA, but it does not require 'slimference proxy enable'. Both
+helpers print the exact shell command; they do not mutate Codex config.
 `
 	case "config":
 		return `slimference config <init|show>

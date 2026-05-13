@@ -45,7 +45,7 @@ type Keychain struct {
 func NewKeychain() *Keychain {
 	return &Keychain{
 		exec:    runCommand,
-		timeout: 10 * time.Second,
+		timeout: 2 * time.Minute,
 		homeFn:  defaultHome,
 	}
 }
@@ -73,7 +73,7 @@ func (k *Keychain) Install(certPath string, scope Scope) error {
 	if keychain == "" {
 		return fmt.Errorf("transparent: cannot resolve keychain for scope %s", scope)
 	}
-	args := []string{"add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, certPath}
+	args := []string{"add-trusted-cert", "-d", "-r", "trustRoot", "-p", "ssl", "-k", keychain, certPath}
 	if _, err := k.run(args); err != nil {
 		return fmt.Errorf("transparent: add-trusted-cert: %w", err)
 	}

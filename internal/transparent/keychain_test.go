@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestScope_Stringer(t *testing.T) {
@@ -57,7 +58,7 @@ func TestKeychain_InstallSystemScope(t *testing.T) {
 func TestKeychain_InstallExecFailureSurfaced(t *testing.T) {
 	t.Parallel()
 	mock := newMockExec()
-	mock.errs["security add-trusted-cert -d -r trustRoot -k /Users/test/Library/Keychains/login.keychain-db /path/to/cert"] = errors.New("denied")
+	mock.errs["security add-trusted-cert -d -r trustRoot -p ssl -k /Users/test/Library/Keychains/login.keychain-db /path/to/cert"] = errors.New("denied")
 	k := NewKeychain()
 	k.SetExec(mock.run)
 	k.SetHome(func() string { return "/Users/test" })
@@ -171,6 +172,14 @@ func TestKeychain_SetHomeNilNoOp(t *testing.T) {
 	k.SetHome(nil)
 	if k.homeFn == nil {
 		t.Fatal("nil arg must NOT clear homeFn hook")
+	}
+}
+
+func TestKeychain_DefaultTimeoutAllowsMacOSTrustPrompt(t *testing.T) {
+	t.Parallel()
+	k := NewKeychain()
+	if k.timeout < time.Minute {
+		t.Fatalf("keychain trust timeout too short for macOS auth prompt: %s", k.timeout)
 	}
 }
 

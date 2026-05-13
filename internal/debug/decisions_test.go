@@ -123,6 +123,35 @@ func TestRecorder_FlushJSONL(t *testing.T) {
 	}
 }
 
+func TestRecorder_FlushJSONL_ExpandsHomeAndCreatesDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := "~/.slimference/debug/decisions.jsonl"
+	r := NewRecorder(10, path)
+
+	r.Record(RequestSummary{RequestID: "req-home", Provider: "openai"})
+
+	resolved := filepath.Join(home, ".slimference", "debug", "decisions.jsonl")
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		t.Fatalf("expected expanded JSONL file to be written: %v", err)
+	}
+	if !contains(string(data), "req-home") {
+		t.Fatalf("expanded JSONL should contain req-home, got: %s", string(data))
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("literal tilde path should not be used, stat err=%v", err)
+	}
+}
+
+func TestNormalizeDecisionsLogPath_BareHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got := normalizeDecisionsLogPath("~"); got != home {
+		t.Fatalf("bare home path = %q, want %q", got, home)
+	}
+}
+
 func TestNopRecorder(t *testing.T) {
 	t.Parallel()
 	var nr NopRecorder
@@ -167,6 +196,12 @@ func TestFlushJSONL_UnwritablePath(t *testing.T) {
 	r := NewRecorder(5, "/dev/null/nonexistent/decisions.jsonl")
 	// Should not panic even with an unwritable path
 	r.Record(RequestSummary{RequestID: "no-panic"})
+}
+
+func TestFlushJSONL_OpenFileError(t *testing.T) {
+	t.Parallel()
+	r := NewRecorder(5, t.TempDir())
+	r.Record(RequestSummary{RequestID: "open-file-error"})
 }
 
 func TestRecorder_FlushJSONL_MarshalErrorSkipsWrite(t *testing.T) {

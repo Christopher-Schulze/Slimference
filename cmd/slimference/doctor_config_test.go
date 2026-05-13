@@ -103,6 +103,14 @@ func TestFormatTLSProofStatusMissingAndPresent(t *testing.T) {
 	if !strings.Contains(got, "chromium_stable=ok") || !strings.Contains(got, "ja3=abc") {
 		t.Fatalf("proof status=%q", got)
 	}
+	noHash := `{"profile":"chrome_131","timestamp":"2026-05-02T00:00:00Z","success":false}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "chrome_131.jsonl"), []byte(noHash), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = formatTLSProofStatus(time.Date(2026, 5, 3, 0, 0, 0, 0, time.UTC))
+	if !strings.Contains(got, "chrome_131=failed") || !strings.Contains(got, "ja3=no-ja3") {
+		t.Fatalf("proof status without JA3=%q", got)
+	}
 	osUserHomeDir = func() (string, error) { return "", errors.New("no home") }
 	if got := formatTLSProofStatus(time.Now()); !strings.Contains(got, "HOME lookup failed") {
 		t.Fatalf("home error status=%q", got)

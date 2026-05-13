@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 2.3.0
-Last updated: 2026-04-20
+Last updated: 2026-05-13
 
 Comprehensive reference for the Slimference token-optimising proxy. This
 document is re-written for the 2.3 line; sections follow current code
@@ -71,8 +71,11 @@ bytes shrink.
 
 ### Design invariants
 
-- **No MITM**: upstream certs are validated as-is. The proxy terminates
-  plain HTTP on loopback.
+- **Explicit transparent MITM only when armed**: legacy/config-patch mode
+  terminates plain HTTP on loopback. Transparent mode is opt-in via
+  `slimference proxy install|enable`; when armed it uses the local trusted CA
+  to terminate allowlisted LLM HTTPS hosts and re-dials upstream with normal
+  certificate validation.
 - **Passthrough on failure**: if any layer errors, the original body is
   forwarded. See section 10.
 - **Bypass switch**: a single atomic flag collapses every provider + layer
@@ -677,6 +680,8 @@ Fish uses `set -gx VAR value`; zsh / bash use `export VAR=value`.
 ```
 slimference proxy install                     # default transparent Codex path
 slimference proxy enable                      # arm system HTTPS proxy
+slimference proxy env codex --direct          # print Codex CLI direct env command
+slimference proxy env codex --proxied         # print CLI-only proxy env command
 slimference                                    # TUI control plane for install/arm/disarm
 slimference integrate status                  # detect legacy/config-patch state
 slimference integrate install                 # legacy wire-up
@@ -796,10 +801,15 @@ call after the deadline sees the cleared state.
 
 ### What Slimference does NOT do
 
-- No TLS termination (MITM).
-- No modification of upstream certificates.
-- No system-wide CA injection.
-- No traffic interception beyond the local proxy port.
+- No transparent interception unless the operator installs the local CA and
+  arms the macOS System-HTTPS-Proxy.
+- No modification of provider certificates. Transparent mode signs local leaf
+  certificates from Slimference's local root CA, then validates upstream
+  provider certificates on the outbound connection.
+- No SOCKS/WebRTC interception; microphone/audio UDP paths are expected to
+  bypass transparent mode.
+- No traffic inspection for non-allowlisted hosts; those CONNECT requests are
+  raw-relayed.
 
 ---
 
@@ -1031,6 +1041,7 @@ slimference help [subcommand]
 | `bypass`      | on, off, status — master bypass via admin API.                         |
 | `service`     | install, uninstall, start, stop, restart, status, logs (launchd).      |
 | `daemon`      | Run as long-lived daemon (invoked by launchd; users prefer `--no-tui`).|
+| `proxy`       | Transparent CA/daemon/System-HTTPS-Proxy lifecycle plus Codex env helpers. |
 | `doctor`      | Full diagnostic sweep + integration checks.                            |
 | `filter`      | Layer-0 filter wrapper: `slimference filter -- <cmd>`.                 |
 | `rewrite`     | Rewrite captured output (used by PreToolUse hook).                     |

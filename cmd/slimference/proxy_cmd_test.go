@@ -120,6 +120,92 @@ func TestProxyRun_UnknownSubcommand(t *testing.T) {
 	}
 }
 
+func TestProxyEnvCodex_Direct(t *testing.T) {
+	t.Parallel()
+	env, stdout, stderr, _, _, _ := newProxyEnv(t)
+	if rc := proxyRun([]string{"env", "codex", "--direct", "--", "exec", "hello world"}, env); rc != 0 {
+		t.Fatalf("expected rc=0, got %d stderr=%q", rc, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"Codex CLI direct mode",
+		"-u HTTP_PROXY",
+		"-u HTTPS_PROXY",
+		"-u ALL_PROXY",
+		"'NO_PROXY=*'",
+		"'no_proxy=*'",
+		"codex exec 'hello world'",
+		"decisions_log",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("direct env output missing %q in: %q", want, out)
+		}
+	}
+}
+
+func TestProxyEnvCodex_Proxied(t *testing.T) {
+	t.Parallel()
+	env, stdout, stderr, _, _, _ := newProxyEnv(t)
+	args := []string{"env", "codex", "--proxied", "--host=127.0.0.1", "--port=8990", "prompt"}
+	if rc := proxyRun(args, env); rc != 0 {
+		t.Fatalf("expected rc=0, got %d stderr=%q", rc, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"Codex CLI proxied mode",
+		"transparent].enabled=true",
+		"-u NO_PROXY",
+		"HTTP_PROXY=http://127.0.0.1:8990",
+		"HTTPS_PROXY=http://127.0.0.1:8990",
+		"ALL_PROXY=http://127.0.0.1:8990",
+		"http_proxy=http://127.0.0.1:8990",
+		"codex prompt",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("proxied env output missing %q in: %q", want, out)
+		}
+	}
+}
+
+func TestProxyEnvCodex_IPv6Proxied(t *testing.T) {
+	t.Parallel()
+	got := shellJoin(codexEnvCommand("proxied", "::1", "8990", nil))
+	if !strings.Contains(got, "HTTP_PROXY=http://[::1]:8990") {
+		t.Fatalf("expected bracketed IPv6 proxy target, got %q", got)
+	}
+}
+
+func TestProxyEnvCodex_RejectsBadArgs(t *testing.T) {
+	t.Parallel()
+	cases := [][]string{
+		{"env"},
+		{"env", "claude", "--direct"},
+		{"env", "codex"},
+		{"env", "codex", "--direct", "--proxied"},
+		{"env", "codex", "--proxied", "--direct"},
+		{"env", "codex", "--direct", "--bogus"},
+	}
+	for _, args := range cases {
+		args := args
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			t.Parallel()
+			env, _, _, _, _, _ := newProxyEnv(t)
+			if rc := proxyRun(args, env); rc != 2 {
+				t.Fatalf("expected rc=2 for %v, got %d", args, rc)
+			}
+		})
+	}
+}
+
+func TestShellQuote_EscapesSingleQuote(t *testing.T) {
+	t.Parallel()
+	got := shellJoin([]string{"codex", "exec", "it's done", ""})
+	want := `codex exec 'it'"'"'s done' ''`
+	if got != want {
+		t.Fatalf("shellJoin = %q, want %q", got, want)
+	}
+}
+
 func TestProxyInstall_HappyPath(t *testing.T) {
 	t.Parallel()
 	env, stdout, _, _, kc, la := newProxyEnv(t)

@@ -45,6 +45,7 @@ slimference proxy enable
 slimference proxy disable
 slimference proxy status
 slimference proxy uninstall [--system]
+slimference proxy env codex <--direct|--proxied> [-- <codex-args>...]
 ```
 
 The same lifecycle is available from the TUI. Open `slimference`, switch to
@@ -79,6 +80,81 @@ Clears the HTTPS / HTTP proxy via `networksetup -setsecurewebproxystate / -setwe
 ### `status`
 
 Prints the CA fingerprint, transparent runtime state, per-host TLS profile mapping, launch-agent state, per-service current proxy configuration, and daemon reachability when a service points at `127.0.0.1:8990`. If the system proxy points at Slimference but the daemon is unreachable, it prints the repair command `slimference proxy disable`.
+
+### `env codex`
+
+Prints exact Codex CLI launch commands for split live testing without mutating
+`~/.codex`:
+
+```bash
+slimference proxy env codex --direct
+slimference proxy env codex --proxied
+```
+
+`--direct` clears `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and lowercase
+variants, then sets `NO_PROXY=*`. Use it when the macOS System-HTTPS-Proxy is
+armed and Codex App should flow through Slimference while Codex CLI should try
+to stay direct.
+
+`--proxied` sets HTTP/HTTPS/ALL proxy env variables to
+`http://127.0.0.1:8990` and clears `NO_PROXY`. Use it when the system proxy is
+disabled and Codex App should stay direct while Codex CLI should flow through
+Slimference. This mode still needs the Slimference daemon running with
+`[transparent].enabled=true` and the local CA trusted, because Codex CLI sends
+HTTPS `CONNECT` requests through the proxy. It does not need
+`slimference proxy enable`; leaving the macOS System-HTTPS-Proxy disabled is
+what keeps Codex App direct during this split test.
+
+Flight log commands such as `slimference debug flight tail 50 --json` only have
+disk evidence if the running daemon has `[debug].decisions_log` configured or
+was started with `SLIMFERENCE_DEBUG_DECISIONS_LOG`, for example:
+
+```bash
+export SLIMFERENCE_DEBUG_DECISIONS_LOG="$HOME/.slimference/debug/decisions.jsonl"
+```
+
+For launchd-managed daemon runs, prefer the config file setting because a
+current shell export does not retroactively change an already-running daemon.
+The recorder expands leading `~/` paths and creates the parent directory on
+first write, so `~/.slimference/debug/decisions.jsonl` works without manual
+directory setup.
+
+## T140 live split test
+
+Mode 1: Codex App through Slimference, Codex CLI direct.
+
+```bash
+slimference proxy status
+slimference proxy install
+slimference proxy enable
+slimference proxy status
+slimference proxy env codex --direct
+slimference debug flight tail 50 --json
+```
+
+Run the printed Codex CLI command in a separate terminal. A Codex App text turn
+should create transparent flight records; the CLI turn should not. If the CLI
+still creates flight records, the current CLI build is not proven direct under
+that environment.
+
+Mode 2: Codex CLI through Slimference, Codex App direct.
+
+```bash
+slimference proxy disable
+slimference proxy status
+slimference proxy env codex --proxied
+slimference debug flight tail 50 --json
+```
+
+Run the printed Codex CLI command. A CLI text turn should create flight records;
+Codex App should remain direct because the macOS System-HTTPS-Proxy is disabled.
+If `slimference proxy status` reports `Transparent runtime: off`, enable it in
+the Slimference config before this mode; otherwise the daemon is only a normal
+HTTP reverse proxy and cannot MITM the CLI's HTTPS `CONNECT` stream.
+
+Browser-Use passthrough is proven by a non-LLM HTTPS host being raw-relayed
+without compression. Microphone/WebRTC bypass is a negative proof: the App voice
+path still works and no audio payload inspection appears in flight records.
 
 ## TLS profile configuration
 

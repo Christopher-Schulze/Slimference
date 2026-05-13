@@ -17,7 +17,8 @@ import (
 	"github.com/slimference/slimference/internal/transparent"
 )
 
-// handleProxyCmd implements `slimference proxy <install|enable|disable|status|uninstall>`.
+// handleProxyCmd implements
+// `slimference proxy <install|enable|disable|status|uninstall|env>`.
 //
 // Transparent mode is the system-wide intercept path: install once,
 // enable to flip all HTTPS to Slimference, disable to drop back to
@@ -81,7 +82,7 @@ type proxyLaunchAgent interface {
 
 func proxyRun(args []string, env proxyEnv) int {
 	if len(args) == 0 {
-		fmt.Fprintln(env.Stderr, "usage: slimference proxy <install|enable|disable|status|uninstall>")
+		fmt.Fprintln(env.Stderr, "usage: slimference proxy <install|enable|disable|status|uninstall|env>")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -96,6 +97,8 @@ func proxyRun(args []string, env proxyEnv) int {
 		return proxyStatus(rest, env)
 	case "uninstall":
 		return proxyUninstall(rest, env)
+	case "env":
+		return proxyEnvCmd(rest, env)
 	default:
 		fmt.Fprintf(env.Stderr, "proxy: unknown subcommand %q\n", sub)
 		return 2
@@ -402,6 +405,122 @@ func proxyUninstall(args []string, env proxyEnv) int {
 	fmt.Fprintln(env.Stdout, "manually if you want a fully clean slate.")
 	_ = ctxBackground
 	return 0
+}
+
+func proxyEnvCmd(args []string, env proxyEnv) int {
+	if len(args) == 0 {
+		fmt.Fprintln(env.Stderr, "usage: slimference proxy env codex <--direct|--proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]")
+		return 2
+	}
+	client, rest := args[0], args[1:]
+	if client != "codex" {
+		fmt.Fprintf(env.Stderr, "proxy env: unsupported client %q (supported: codex)\n", client)
+		return 2
+	}
+	mode := ""
+	host := "127.0.0.1"
+	port := "8990"
+	var codexArgs []string
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		if a == "--" {
+			codexArgs = append(codexArgs, rest[i+1:]...)
+			break
+		}
+		switch {
+		case a == "--direct":
+			if mode != "" {
+				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct or --proxied")
+				return 2
+			}
+			mode = "direct"
+		case a == "--proxied":
+			if mode != "" {
+				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct or --proxied")
+				return 2
+			}
+			mode = "proxied"
+		case strings.HasPrefix(a, "--host="):
+			host = strings.TrimPrefix(a, "--host=")
+		case strings.HasPrefix(a, "--port="):
+			port = strings.TrimPrefix(a, "--port=")
+		case strings.HasPrefix(a, "-"):
+			fmt.Fprintf(env.Stderr, "proxy env codex: unknown flag %q\n", a)
+			return 2
+		default:
+			codexArgs = append(codexArgs, a)
+		}
+	}
+	if mode == "" {
+		fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct or --proxied")
+		return 2
+	}
+	command := codexEnvCommand(mode, host, port, codexArgs)
+	switch mode {
+	case "direct":
+		fmt.Fprintln(env.Stdout, "# Codex CLI direct mode: use while macOS System HTTPS proxy is armed for Codex App testing.")
+	case "proxied":
+		fmt.Fprintln(env.Stdout, "# Codex CLI proxied mode: use while macOS System HTTPS proxy is disabled for Codex App direct testing.")
+		fmt.Fprintln(env.Stdout, "# Requires a running Slimference daemon with [transparent].enabled=true and the local CA trusted.")
+	}
+	fmt.Fprintln(env.Stdout, "# Flight logs require the running Slimference daemon to have [debug].decisions_log or SLIMFERENCE_DEBUG_DECISIONS_LOG configured.")
+	fmt.Fprintln(env.Stdout, shellJoin(command))
+	return 0
+}
+
+func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
+	base := []string{"env"}
+	switch mode {
+	case "direct":
+		base = append(base,
+			"-u", "HTTP_PROXY",
+			"-u", "HTTPS_PROXY",
+			"-u", "ALL_PROXY",
+			"-u", "http_proxy",
+			"-u", "https_proxy",
+			"-u", "all_proxy",
+			"NO_PROXY=*",
+			"no_proxy=*",
+		)
+	case "proxied":
+		target := "http://" + net.JoinHostPort(host, port)
+		base = append(base,
+			"-u", "NO_PROXY",
+			"-u", "no_proxy",
+			"HTTP_PROXY="+target,
+			"HTTPS_PROXY="+target,
+			"ALL_PROXY="+target,
+			"http_proxy="+target,
+			"https_proxy="+target,
+			"all_proxy="+target,
+		)
+	}
+	base = append(base, "codex")
+	base = append(base, codexArgs...)
+	return base
+}
+
+func shellJoin(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, a := range args {
+		quoted = append(quoted, shellQuote(a))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if strings.IndexFunc(s, func(r rune) bool {
+		return !(r >= 'A' && r <= 'Z' ||
+			r >= 'a' && r <= 'z' ||
+			r >= '0' && r <= '9' ||
+			r == '_' || r == '-' || r == '.' || r == '/' || r == ':' || r == '=')
+	}) == -1 {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 // ctxBackground is referenced by uninstall just to keep the context

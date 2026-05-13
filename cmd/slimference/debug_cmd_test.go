@@ -16,6 +16,15 @@ import (
 	"github.com/slimference/slimference/internal/filter"
 )
 
+func isolateDebugNoConfig(t *testing.T) string {
+	t.Helper()
+	tmp := t.TempDir()
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmp, "xdg"))
+	t.Setenv("HOME", filepath.Join(tmp, "home"))
+	return tmp
+}
+
 func TestParseDebugPeriodArgs(t *testing.T) {
 	p, j, err := parseDebugPeriodArgs([]string{"month", "--json"})
 	if err != nil || p != "month" || !j {
@@ -138,6 +147,7 @@ func TestHandleDebugTail_emptyStringArg(t *testing.T) {
 }
 
 func TestHandleSubcommand_debugLast(t *testing.T) {
+	isolateDebugNoConfig(t)
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "filter.db")
 	db, err := filter.OpenDB(dbPath)
@@ -181,6 +191,7 @@ func TestHandleSubcommand_debugLast(t *testing.T) {
 }
 
 func TestHandleSubcommand_debugLast_noFilterDBFile(t *testing.T) {
+	isolateDebugNoConfig(t)
 	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "missing-filter.db"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -438,6 +449,40 @@ decisions_log = "~/decisions.jsonl"
 	}
 }
 
+func TestHandleSubcommand_debugPaths_XDGConfigSource(t *testing.T) {
+	tmp := t.TempDir()
+	xdg := filepath.Join(tmp, "xdg")
+	cfgDir := filepath.Join(xdg, "slimference")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(cfgDir, "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(`[debug]
+decisions_log = "/xdg/decisions.jsonl"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("SLIMFERENCE_CONFIG", "")
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", "")
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"debug", "paths"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, cfgPath+" [xdg]") {
+		t.Fatalf("expected xdg config source, got: %q", out)
+	}
+	if !strings.Contains(out, "/xdg/decisions.jsonl [[debug] decisions_log]") {
+		t.Fatalf("expected xdg decisions_log source, got: %q", out)
+	}
+}
+
 func TestHandleSubcommand_debugSummary_noFilterDB(t *testing.T) {
 	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "missing-filter.db"))
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
@@ -609,6 +654,7 @@ func TestHandleSubcommand_debugReplayUsageExits1(t *testing.T) {
 // TestHandleDebugLast_noRows covers handleDebugLast when the DB exists but has no rows
 // (main.go:1041-1044).
 func TestHandleDebugLast_noRows(t *testing.T) {
+	isolateDebugNoConfig(t)
 	dbPath := filepath.Join(t.TempDir(), "empty-filter.db")
 	db, err := filter.OpenDB(dbPath)
 	if err != nil {
@@ -664,6 +710,49 @@ func TestHandleDebugPaths_projectFiltersPresent(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "[present]") {
 		t.Fatalf("expected '[present]' for project filters, got: %q", out)
+	}
+}
+
+func TestHandleSubcommand_debugPaths_explicitConfigSource(t *testing.T) {
+	tmp := t.TempDir()
+	cfgPath := filepath.Join(tmp, "explicit.toml")
+	if err := os.WriteFile(cfgPath, []byte("[debug]\ndecisions_log = \"~/debug/decisions.jsonl\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orig := explicitConfigPath
+	explicitConfigPath = cfgPath
+	defer func() { explicitConfigPath = orig }()
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"debug", "paths"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "config file:      "+cfgPath+" [--config]") {
+		t.Fatalf("expected explicit config source, got: %q", out)
+	}
+	if !strings.Contains(out, "[debug] decisions_log") {
+		t.Fatalf("expected decisions log source, got: %q", out)
+	}
+}
+
+func TestDebugConfigSourceLabel(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"flag":     "--config",
+		"env":      "SLIMFERENCE_CONFIG",
+		"":         "defaults",
+		"xdg":      "xdg",
+		"defaults": "defaults",
+	}
+	for in, want := range tests {
+		if got := debugConfigSourceLabel(in); got != want {
+			t.Fatalf("debugConfigSourceLabel(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -846,7 +935,7 @@ func TestHandleDebugTail_queryErrorExits1(t *testing.T) {
 func TestHandleDebugLast_queryErrorExits1(t *testing.T) {
 	if os.Getenv("TP_DBG_LAST_QUERY_ERR") == "1" {
 		t.Setenv("SLIMFERENCE_FILTER_DB", os.Getenv("TP_DBG_LAST_CORRUPT_DB"))
-		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+		isolateDebugNoConfig(t)
 		handleSubcommand([]string{"debug", "last"})
 		return
 	}
@@ -978,8 +1067,8 @@ func TestReadLastDecisionSummaries_scanErrorReturnsNil(t *testing.T) {
 
 // TestHandleDebugLast_nArg covers the strconv.Atoi(a) && v>0 → n=v branch.
 func TestHandleDebugLast_nArg(t *testing.T) {
+	isolateDebugNoConfig(t)
 	t.Setenv("SLIMFERENCE_FILTER_DB", filepath.Join(t.TempDir(), "nonexistent.db"))
-	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -1139,8 +1228,7 @@ func TestHandleDebugFlightCommands(t *testing.T) {
 }
 
 func TestHandleDebugFlightNoConfiguredLogAndParseArgs(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	isolateDebugNoConfig(t)
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -1223,8 +1311,7 @@ func TestHandleDebugFlightReplayAndExportErrors(t *testing.T) {
 }
 
 func TestHandleDebugFlightTailNoConfiguredLogAndExportWriteError(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	tmp := isolateDebugNoConfig(t)
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
@@ -1418,7 +1505,7 @@ func TestHandleDebugSummary_queryError_inProcess(t *testing.T) {
 	}
 	db.Close()
 	t.Setenv("SLIMFERENCE_FILTER_DB", badDB)
-	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	isolateDebugNoConfig(t)
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -1452,7 +1539,7 @@ func TestHandleDebugTail_queryError_inProcess(t *testing.T) {
 	}
 	db.Close()
 	t.Setenv("SLIMFERENCE_FILTER_DB", badDB)
-	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	isolateDebugNoConfig(t)
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
@@ -1486,7 +1573,7 @@ func TestHandleDebugLast_queryError_inProcess(t *testing.T) {
 	}
 	db.Close()
 	t.Setenv("SLIMFERENCE_FILTER_DB", badDB)
-	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
+	isolateDebugNoConfig(t)
 
 	rp, cleanup := redirectStderr()
 	code, exited := captureExit(func() {
