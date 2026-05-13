@@ -84,6 +84,16 @@ func (t *Tracker) SelectProfile(provider, model string, requested Profile, shape
 	return requested
 }
 
+func (t *Tracker) InCooldown(provider, model string, profile Profile, shape TaskShape) bool {
+	if t == nil || !t.auto.Enabled {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	b := t.buckets[bucketKey(provider, model, profile, shape)]
+	return b != nil && b.cooldown > 0
+}
+
 func (t *Tracker) ObserveInjection(stats Stats) {
 	if t == nil {
 		return

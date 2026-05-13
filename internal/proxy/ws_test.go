@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/slimference/slimference/internal/wscompact"
 )
 
 func TestIsWebSocketUpgrade_Positive(t *testing.T) {
@@ -252,6 +254,67 @@ func TestWebSocketTunnel_BidirectionalPipe(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("ServeUpgrade did not return after client close")
+	}
+}
+
+func TestWebSocketTunnel_InspectorSeesFrameShapes(t *testing.T) {
+	t.Parallel()
+	upstreamA, upstreamB := net.Pipe()
+	defer upstreamA.Close()
+	defer upstreamB.Close()
+	go func() {
+		br := bufio.NewReader(upstreamA)
+		_, _ = http.ReadRequest(br)
+		_, _ = upstreamA.Write([]byte(
+			"HTTP/1.1 101 Switching Protocols\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n\r\n"))
+		buf := make([]byte, 18)
+		_, _ = io.ReadFull(br, buf)
+		_, _ = upstreamA.Write([]byte{0x81, 0x0e})
+		_, _ = upstreamA.Write([]byte(`{"type":"ack"}`))
+	}()
+	summaries := make(chan wscompact.FrameSummary, 4)
+	wt := &WebSocketTunnel{
+		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
+		Inspector: wscompact.InspectorFunc(func(summary wscompact.FrameSummary) {
+			summaries <- summary
+		}),
+	}
+	clientA, clientB := net.Pipe()
+	defer clientA.Close()
+	defer clientB.Close()
+	r := httptest.NewRequest("GET", "/ws", nil)
+	r.Header.Set("Upgrade", "websocket")
+	r.Header.Set("Connection", "Upgrade")
+	go wt.ServeUpgrade(clientB, r, "api.openai.com")
+	br := bufio.NewReader(clientA)
+	resp, err := http.ReadResponse(br, r)
+	if err != nil {
+		t.Fatalf("read 101: %v", err)
+	}
+	resp.Body.Close()
+	_, _ = clientA.Write([]byte{0x81, 0x10})
+	_, _ = clientA.Write([]byte(`{"type":"hello"}`))
+	buf := make([]byte, 16)
+	if _, err := io.ReadFull(br, buf); err != nil {
+		t.Fatalf("read upstream ack frame: %v", err)
+	}
+	clientA.Close()
+	var seenClient, seenServer bool
+	deadline := time.After(2 * time.Second)
+	for !(seenClient && seenServer) {
+		select {
+		case summary := <-summaries:
+			if summary.Direction == wscompact.DirectionClientToServer && summary.MessageType == "hello" {
+				seenClient = true
+			}
+			if summary.Direction == wscompact.DirectionServerToClient && summary.MessageType == "ack" {
+				seenServer = true
+			}
+		case <-deadline:
+			t.Fatalf("missing inspected summaries client=%t server=%t", seenClient, seenServer)
+		}
 	}
 }
 

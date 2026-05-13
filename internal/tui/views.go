@@ -330,7 +330,7 @@ func renderFlightDiagnostics(m *Model, flights []dbg.FlightRequestSummary) strin
 		body = append(body, "", s.Muted.Render("  No flight records yet."))
 		return strings.Join(body, "\n")
 	}
-	var saved, cached, output, bypasses int
+	var saved, cached, output, bypasses, planBlocks int
 	slowest := 0.0
 	slowestID := ""
 	for _, f := range flights {
@@ -340,6 +340,9 @@ func renderFlightDiagnostics(m *Model, flights []dbg.FlightRequestSummary) strin
 		if f.RouteMode == "raw_passthrough" || f.RouteMode == "local_cache" || f.BypassReason != "" {
 			bypasses++
 		}
+		if f.Plan != nil && f.Plan.SafetyBlocked {
+			planBlocks++
+		}
 		if f.TotalProxyOverheadMs > slowest {
 			slowest = f.TotalProxyOverheadMs
 			slowestID = f.RequestID
@@ -348,7 +351,7 @@ func renderFlightDiagnostics(m *Model, flights []dbg.FlightRequestSummary) strin
 	body = append(body,
 		"",
 		" "+s.Normal.Render(fmt.Sprintf("requests %d  saved %s  cached %s  output %s", len(flights), formatTokens(saved), formatTokens(cached), formatTokens(output))),
-		" "+s.Normal.Render(fmt.Sprintf("bypasses %d  slowest %.1fms %s", bypasses, slowest, slowestID)),
+		" "+s.Normal.Render(fmt.Sprintf("bypasses %d  plan-blocks %d  slowest %.1fms %s", bypasses, planBlocks, slowest, slowestID)),
 		"",
 	)
 	for _, f := range flights {
@@ -359,8 +362,38 @@ func renderFlightDiagnostics(m *Model, flights []dbg.FlightRequestSummary) strin
 		body = append(body, " "+s.Muted.Render(fmt.Sprintf("%-14s", label))+
 			s.Normal.Render(fmt.Sprintf(" %s/%s L%v saved=%s cache=%s out=%s",
 				f.Source, f.RouteMode, f.Layers, formatTokens(flightSaved(f)), formatTokens(flightCached(f)), formatTokens(flightOutput(f)))))
+		if planLine := renderFlightPlanLine(f); planLine != "" {
+			body = append(body, " "+s.Muted.Render("plan")+" "+s.Normal.Render(planLine))
+		}
 	}
 	return strings.Join(body, "\n")
+}
+
+func renderFlightPlanLine(f dbg.FlightRequestSummary) string {
+	if f.Plan == nil || len(f.Plan.Decisions) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, min(len(f.Plan.Decisions), 4))
+	for _, decision := range f.Plan.Decisions {
+		if decision.Layer == "" || decision.Action == "" {
+			continue
+		}
+		parts = append(parts, decision.Layer+"="+decision.Action)
+		if len(parts) == 4 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	line := strings.Join(parts, " ")
+	if len(f.Plan.Decisions) > len(parts) {
+		line += fmt.Sprintf(" +%d", len(f.Plan.Decisions)-len(parts))
+	}
+	if f.Plan.SafetyBlocked {
+		line += " blocked"
+	}
+	return line
 }
 
 func flightSaved(f dbg.FlightRequestSummary) int {

@@ -12,7 +12,7 @@ This document covers what transparent mode does, what it deliberately does NOT d
 
 - **Catches all HTTPS** for the configured allowlist of LLM hosts (`api.openai.com`, `api.anthropic.com`, `chatgpt.com` etc.). Compression layers run as if the request had arrived through a config-patched direct port.
 - **Tunnels everything else** via raw TCP relay so iCloud, GitHub, package mirrors, and everything else on your machine keep working unaffected.
-- **Honours WebSocket upgrades** so Codex Desktop's `responses_websocket` traffic completes end-to-end (compression on WS message boundaries is a follow-up after live-corpus measurement; the tunnel itself is in place).
+- **Honours WebSocket upgrades** so Codex Desktop's `responses_websocket` traffic completes end-to-end. The tunnel is byte-for-byte by default; T142 adds an inspect-only frame parser that can record opcode/direction/JSON-shape metadata without mutating frames. Compression on WS message boundaries remains blocked until live Codex frame-shape evidence proves the internal protocol is stable enough.
 - **Bypasses WebRTC** for audio. The macOS System-HTTPS-Proxy setting only affects HTTP/HTTPS; UDP / SRTP audio streams continue native. This is the property that makes transparent mode safe for Codex Desktop's microphone transcription feature.
 - **Uses per-host TLS profiles upstream** in transparent mode. Defaults map `chatgpt.com` to `chromium_stable` and the API hosts to `node_stable` intent aliases, currently backed by maintained uTLS Chromium profiles.
 

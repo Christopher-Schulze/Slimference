@@ -23,6 +23,14 @@ This file governs what may and may not enter `tests/fixtures/live_corpus/`. The 
 
 The capture flow is intentionally manual. Slimference does not auto-capture sessions, ever.
 
+0. Generate the exact category-specific runbook:
+
+   ```
+   go run ./scripts/verify -mode live-corpus-plan -category <category> -client codex_cli
+   ```
+
+   This prints the capture path, export command, metadata skeleton, and benchmark commands for the category.
+
 1. Run a real coding session through Slimference with the debug decision log enabled:
 
    ```
@@ -55,11 +63,18 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
      "category": "<category>",
      "description": "<what kind of work this session represents>",
      "synthetic": false,
+     "evidence_level": "live_operator",
      "language": "<primary language>",
      "tool_mix": "<short summary>",
      "expected_savings_min": 0.30,
      "expected_savings_max": 0.80,
      "expected_request_count": <int>,
+     "expected_max_errors": 0,
+     "expected_latency_p95_max_ms": 1000,
+     "expected_provider_cache_read_min": 0,
+     "expected_output_reduce_applied_min": 0,
+     "expected_planner_missed_max": 0,
+     "expected_planner_bypass_applied_max": 0,
      "notes": "<provenance, scrubbing notes, anything reviewers should know>"
    }
    ```
@@ -70,7 +85,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --check
    ```
 
-   The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, or has fewer requests than `expected_request_count`.
+   The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, or exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`). The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
 
 6. Commit. The fixture is now part of the CI regression contract.
 

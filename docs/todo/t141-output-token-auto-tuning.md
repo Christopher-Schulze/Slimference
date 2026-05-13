@@ -1,6 +1,6 @@
 # TASK 141: Output-token reduction auto-tuning and failure guard
 
-Status: DONE (local implementation 2026-05-13; live saving proof remains T140/T118b)
+Status: DONE (local implementation 2026-05-13; live saving proof and next-level tuning remain T140/T146/T148)
 Priority: P1
 Scope: `internal/outputreduce/`, `internal/proxy/handler.go`, `internal/analytics/`, `internal/quality/`, `cmd/slimference/output_reduce_cmd.go`, `cmd/slimference/gain_cmd.go`, `internal/tui/`, `docs/output-reduce.md`.
 
@@ -123,5 +123,9 @@ Output-reduce becomes a feedback-controlled system:
 
 - This task maximizes T130 without turning output reduction into brittle prompt spam.
 - Implemented local scope: tiered profiles, task-shape classifier, auto-tune tracker, config knobs, analytics/flight task-shape metadata, CLI/docs/tests.
-- Live quality proof still belongs to T140/T118b; local code only prevents obvious repeated failure/overhead patterns.
+- 2026-05-14 follow-up: the auto-tune cooldown state is now queryable through
+  `Tracker.InCooldown` and is fed into T149 planner facts before profile
+  selection, so a cooled aggressive bucket is visible as a planned
+  `cheap_only` profile-softening decision.
+- Live quality proof still belongs to T140/T146, and next-level real-session output profile evolution is tracked as T148. Local T141 code only prevents obvious repeated failure/overhead patterns.
 - Verification: `go run ./scripts/ci` passed 8/8 on 2026-05-13 with 100.0% statement coverage.

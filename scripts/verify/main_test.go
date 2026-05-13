@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestBuildPromptCacheBody(t *testing.T) {
@@ -315,5 +317,73 @@ func TestURLTrimming(t *testing.T) {
 	t.Parallel()
 	if got := strings.TrimRight("http://x/", "/"); got != "http://x" {
 		t.Fatalf("trim: %s", got)
+	}
+}
+
+func TestRunLiveCorpusPlan_RendersDeterministicRunbook(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stdout, r)
+		close(done)
+	}()
+	now := time.Date(2026, 5, 14, 8, 9, 10, 0, time.UTC)
+	rc := runLiveCorpusPlan("tests/fixtures/live_corpus", "Codex CLI Tool Heavy", "codex_cli", now)
+	_ = w.Close()
+	<-done
+	if rc != 0 {
+		t.Fatalf("expected 0, got %d", rc)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"T146 live corpus capture plan",
+		"codex_cli_tool_heavy",
+		"codex_cli_tool_heavy_20260514_080910.jsonl",
+		"slimference debug flight export",
+		"benchmark-corpus tests/fixtures/live_corpus --check",
+		`"evidence_level": "live_operator"`,
+		`"expected_planner_missed_max": 0`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("runbook missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunLiveCorpusPlan_RejectsMissingCategoryOrRoot(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 5, 14, 8, 9, 10, 0, time.UTC)
+	if rc := runLiveCorpusPlan("root", "", "codex_cli", now); rc != 2 {
+		t.Fatalf("expected category error 2, got %d", rc)
+	}
+	if rc := runLiveCorpusPlan("", "cat", "codex_cli", now); rc != 2 {
+		t.Fatalf("expected root error 2, got %d", rc)
+	}
+}
+
+func TestSafePlanName(t *testing.T) {
+	t.Parallel()
+	if got := safePlanName("Codex CLI / Tool Heavy!"); got != "codex_cli_tool_heavy" {
+		t.Fatalf("safePlanName = %q", got)
+	}
+}
+
+func TestRenderLiveCorpusMetadataSkeleton_IsValidJSON(t *testing.T) {
+	t.Parallel()
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(renderLiveCorpusMetadataSkeleton("cat", "cli")), &decoded); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if decoded["category"] != "cat" || decoded["evidence_level"] != "live_operator" ||
+		decoded["expected_planner_bypass_applied_max"] != float64(0) {
+		t.Fatalf("unexpected metadata: %+v", decoded)
 	}
 }

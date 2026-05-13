@@ -525,6 +525,15 @@ func TestView_DebugRender(t *testing.T) {
 		CacheAccounting: dbg.FlightCacheAccounting{
 			ProviderCachedInputTokens: 90,
 		},
+		Plan: &dbg.PlanSummary{
+			Decisions: []dbg.PlanDecisionSummary{
+				{Layer: "l0", Action: "run"},
+				{Layer: "l1", Action: "run"},
+				{Layer: "l2", Action: "bypass"},
+				{Layer: "l3", Action: "run"},
+				{Layer: "l4_output", Action: "run"},
+			},
+		},
 		TotalProxyOverheadMs: 4.2,
 	}}
 	m := NewModel(p)
@@ -538,6 +547,9 @@ func TestView_DebugRender(t *testing.T) {
 	}
 	if !strings.Contains(output, "FLIGHT RECORDER") || !strings.Contains(output, "req-debug-fli") {
 		t.Fatalf("debug view missing flight diagnostics: %s", output)
+	}
+	if !strings.Contains(output, "plan") || !strings.Contains(output, "l0=run") || !strings.Contains(output, "+1") {
+		t.Fatalf("debug view missing plan summary: %s", output)
 	}
 }
 
@@ -556,9 +568,31 @@ func TestRenderFlightDiagnosticsFallbacks(t *testing.T) {
 			ProviderCacheReadTokens: 5,
 		},
 		BypassReason: "passthrough",
+		Plan: &dbg.PlanSummary{
+			SafetyBlocked: true,
+			Decisions: []dbg.PlanDecisionSummary{
+				{Layer: "websocket", Action: "inspect"},
+			},
+		},
 	}})
-	if !strings.Contains(out, "req-fallback") || !strings.Contains(out, "bypasses 1") {
+	if !strings.Contains(out, "req-fallback") || !strings.Contains(out, "bypasses 1") ||
+		!strings.Contains(out, "plan-blocks 1") || !strings.Contains(out, "websocket=inspect blocked") {
 		t.Fatalf("flight diagnostics fallback output=%s", out)
+	}
+}
+
+func TestRenderFlightPlanLineEmptyCases(t *testing.T) {
+	t.Parallel()
+	if got := renderFlightPlanLine(dbg.FlightRequestSummary{}); got != "" {
+		t.Fatalf("nil plan line = %q", got)
+	}
+	if got := renderFlightPlanLine(dbg.FlightRequestSummary{Plan: &dbg.PlanSummary{}}); got != "" {
+		t.Fatalf("empty plan line = %q", got)
+	}
+	if got := renderFlightPlanLine(dbg.FlightRequestSummary{Plan: &dbg.PlanSummary{
+		Decisions: []dbg.PlanDecisionSummary{{Layer: "", Action: "run"}, {Layer: "l1", Action: ""}},
+	}}); got != "" {
+		t.Fatalf("invalid decisions line = %q", got)
 	}
 }
 

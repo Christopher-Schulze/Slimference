@@ -24,35 +24,52 @@ const corpusCategoryMetadataFilename = "metadata.json"
 // Only ExpectedSavingsMin is mandatory for the gate; everything else is
 // human context that gets rendered in reports.
 type CategoryMetadata struct {
-	Category               string  `json:"category"`
-	Description            string  `json:"description"`
-	Synthetic              bool    `json:"synthetic"`
-	Language               string  `json:"language"`
-	ToolMix                string  `json:"tool_mix"`
-	ExpectedSavingsMin     float64 `json:"expected_savings_min"`
-	ExpectedSavingsMax     float64 `json:"expected_savings_max"`
-	ExpectedRequestCount   int     `json:"expected_request_count"`
-	ExpectedLayer2Optional bool    `json:"expected_layer2_optional"`
-	Notes                  string  `json:"notes"`
+	Category                        string  `json:"category"`
+	Description                     string  `json:"description"`
+	Synthetic                       bool    `json:"synthetic"`
+	EvidenceLevel                   string  `json:"evidence_level"`
+	Language                        string  `json:"language"`
+	ToolMix                         string  `json:"tool_mix"`
+	ExpectedSavingsMin              float64 `json:"expected_savings_min"`
+	ExpectedSavingsMax              float64 `json:"expected_savings_max"`
+	ExpectedRequestCount            int     `json:"expected_request_count"`
+	ExpectedLayer2Optional          bool    `json:"expected_layer2_optional"`
+	ExpectedMaxErrors               int     `json:"expected_max_errors,omitempty"`
+	ExpectedLatencyP95MaxMs         float64 `json:"expected_latency_p95_max_ms,omitempty"`
+	ExpectedProviderCacheReadMin    int64   `json:"expected_provider_cache_read_min,omitempty"`
+	ExpectedOutputReduceAppliedMin  int     `json:"expected_output_reduce_applied_min,omitempty"`
+	ExpectedPlannerMissedMax        int     `json:"expected_planner_missed_max,omitempty"`
+	ExpectedPlannerBypassAppliedMax int     `json:"expected_planner_bypass_applied_max,omitempty"`
+	Notes                           string  `json:"notes"`
 }
 
 // CategoryResult is the per-category outcome of one gate evaluation.
 type CategoryResult struct {
-	Category       string            `json:"category"`
-	Path           string            `json:"path"`
-	Sessions       int               `json:"sessions"`
-	Requests       int               `json:"requests"`
-	OrigTokens     int64             `json:"orig_tokens"`
-	SavedTokens    int64             `json:"saved_tokens"`
-	SavingsRatio   float64           `json:"savings_ratio"`
-	Layer0Saved    int64             `json:"layer0_saved"`
-	Layer1Saved    int64             `json:"layer1_saved"`
-	Layer2Saved    int64             `json:"layer2_saved"`
-	Layer3Saved    int64             `json:"layer3_saved"`
-	Synthetic      bool              `json:"synthetic"`
-	Failures       []string          `json:"failures,omitempty"`
-	GateConfigured bool              `json:"gate_configured"`
-	Metadata       *CategoryMetadata `json:"metadata,omitempty"`
+	Category                  string                               `json:"category"`
+	Path                      string                               `json:"path"`
+	Sessions                  int                                  `json:"sessions"`
+	Requests                  int                                  `json:"requests"`
+	OrigTokens                int64                                `json:"orig_tokens"`
+	SavedTokens               int64                                `json:"saved_tokens"`
+	SavingsRatio              float64                              `json:"savings_ratio"`
+	Layer0Saved               int64                                `json:"layer0_saved"`
+	Layer1Saved               int64                                `json:"layer1_saved"`
+	Layer2Saved               int64                                `json:"layer2_saved"`
+	Layer3Saved               int64                                `json:"layer3_saved"`
+	OutputTokens              int64                                `json:"output_tokens"`
+	ProviderCacheReadTokens   int64                                `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens int64                                `json:"provider_cache_create_tokens"`
+	ProviderCachedTokens      int64                                `json:"provider_cached_tokens"`
+	OutputReduceApplied       int                                  `json:"output_reduce_applied"`
+	ErrorCount                int                                  `json:"error_count"`
+	LatencyP95Ms              float64                              `json:"latency_p95_ms"`
+	PlanReplay                planReplayAggregate                  `json:"plan_replay"`
+	LayerCombinations         map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
+	EvidenceLevel             string                               `json:"evidence_level"`
+	Synthetic                 bool                                 `json:"synthetic"`
+	Failures                  []string                             `json:"failures,omitempty"`
+	GateConfigured            bool                                 `json:"gate_configured"`
+	Metadata                  *CategoryMetadata                    `json:"metadata,omitempty"`
 }
 
 // CorpusReport is the aggregate of all categories.
@@ -82,6 +99,17 @@ func LoadCategoryMetadata(dir string) (*CategoryMetadata, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(data, &raw)
+	if _, ok := raw["expected_max_errors"]; !ok {
+		meta.ExpectedMaxErrors = -1
+	}
+	if _, ok := raw["expected_planner_missed_max"]; !ok {
+		meta.ExpectedPlannerMissedMax = -1
+	}
+	if _, ok := raw["expected_planner_bypass_applied_max"]; !ok {
+		meta.ExpectedPlannerBypassAppliedMax = -1
+	}
 	if meta.Category == "" {
 		meta.Category = filepath.Base(dir)
 	}
@@ -108,20 +136,37 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		ratio = float64(agg.savedTokens) / float64(agg.origTokens)
 	}
 	res := CategoryResult{
-		Category:       meta.Category,
-		Path:           dir,
-		Sessions:       sessions,
-		Requests:       agg.requests,
-		OrigTokens:     agg.origTokens,
-		SavedTokens:    agg.savedTokens,
-		SavingsRatio:   ratio,
-		Layer0Saved:    agg.layer0Saved,
-		Layer1Saved:    agg.layer1Saved,
-		Layer2Saved:    agg.layer2Saved,
-		Layer3Saved:    agg.layer3Saved,
-		Synthetic:      meta.Synthetic,
-		GateConfigured: meta.ExpectedSavingsMin > 0 || meta.ExpectedRequestCount > 0,
-		Metadata:       meta,
+		Category:                  meta.Category,
+		Path:                      dir,
+		Sessions:                  sessions,
+		Requests:                  agg.requests,
+		OrigTokens:                agg.origTokens,
+		SavedTokens:               agg.savedTokens,
+		SavingsRatio:              ratio,
+		Layer0Saved:               agg.layer0Saved,
+		Layer1Saved:               agg.layer1Saved,
+		Layer2Saved:               agg.layer2Saved,
+		Layer3Saved:               agg.layer3Saved,
+		OutputTokens:              agg.outputTokenSum,
+		ProviderCacheReadTokens:   agg.cacheReadSum,
+		ProviderCacheCreateTokens: agg.cacheCreateSum,
+		ProviderCachedTokens:      agg.providerCachedSum,
+		OutputReduceApplied:       agg.outputReduceApplied,
+		ErrorCount:                agg.errorCount,
+		LatencyP95Ms:              percentileFloat64(agg.latenciesMs, 0.95),
+		PlanReplay:                clonePlanReplayAggregate(agg.planReplay),
+		LayerCombinations:         cloneLayerCombinations(agg.layerCombinations),
+		EvidenceLevel:             normalizeEvidenceLevel(meta),
+		Synthetic:                 meta.Synthetic,
+		GateConfigured: meta.ExpectedSavingsMin > 0 ||
+			meta.ExpectedRequestCount > 0 ||
+			meta.ExpectedLatencyP95MaxMs > 0 ||
+			meta.ExpectedProviderCacheReadMin > 0 ||
+			meta.ExpectedOutputReduceAppliedMin > 0 ||
+			meta.ExpectedMaxErrors >= 0 ||
+			meta.ExpectedPlannerMissedMax >= 0 ||
+			meta.ExpectedPlannerBypassAppliedMax >= 0,
+		Metadata: meta,
 	}
 	res.Failures = evaluateCategoryGate(res, meta)
 	return res, nil
@@ -157,7 +202,36 @@ func evaluateCategoryGate(res CategoryResult, meta *CategoryMetadata) []string {
 	if meta.ExpectedSavingsMax > 0 && res.SavingsRatio > meta.ExpectedSavingsMax+1e-9 {
 		failures = append(failures, fmt.Sprintf("savings_ratio=%.4f > max=%.4f (suspicious overcount)", res.SavingsRatio, meta.ExpectedSavingsMax))
 	}
+	if meta.ExpectedMaxErrors >= 0 && res.ErrorCount > meta.ExpectedMaxErrors {
+		failures = append(failures, fmt.Sprintf("errors=%d > max=%d", res.ErrorCount, meta.ExpectedMaxErrors))
+	}
+	if meta.ExpectedLatencyP95MaxMs > 0 && res.LatencyP95Ms > meta.ExpectedLatencyP95MaxMs+1e-9 {
+		failures = append(failures, fmt.Sprintf("latency_p95_ms=%.1f > max=%.1f", res.LatencyP95Ms, meta.ExpectedLatencyP95MaxMs))
+	}
+	if meta.ExpectedProviderCacheReadMin > 0 && res.ProviderCacheReadTokens < meta.ExpectedProviderCacheReadMin {
+		failures = append(failures, fmt.Sprintf("provider_cache_read_tokens=%d < min=%d", res.ProviderCacheReadTokens, meta.ExpectedProviderCacheReadMin))
+	}
+	if meta.ExpectedOutputReduceAppliedMin > 0 && res.OutputReduceApplied < meta.ExpectedOutputReduceAppliedMin {
+		failures = append(failures, fmt.Sprintf("output_reduce_applied=%d < min=%d", res.OutputReduceApplied, meta.ExpectedOutputReduceAppliedMin))
+	}
+	if meta.ExpectedPlannerMissedMax >= 0 && res.PlanReplay.MissedActive > meta.ExpectedPlannerMissedMax {
+		failures = append(failures, fmt.Sprintf("planner_missed_active=%d > max=%d", res.PlanReplay.MissedActive, meta.ExpectedPlannerMissedMax))
+	}
+	if meta.ExpectedPlannerBypassAppliedMax >= 0 && res.PlanReplay.BypassApplied > meta.ExpectedPlannerBypassAppliedMax {
+		failures = append(failures, fmt.Sprintf("planner_bypass_applied=%d > max=%d", res.PlanReplay.BypassApplied, meta.ExpectedPlannerBypassAppliedMax))
+	}
 	return failures
+}
+
+func normalizeEvidenceLevel(meta *CategoryMetadata) string {
+	level := strings.TrimSpace(meta.EvidenceLevel)
+	if level != "" {
+		return level
+	}
+	if meta.Synthetic {
+		return "synthetic"
+	}
+	return "live_operator"
 }
 
 // EvaluateCorpus walks the root directory and produces a CorpusReport.
@@ -233,6 +307,36 @@ func FormatCorpusReport(report CorpusReport) string {
 		sb.WriteString(fmt.Sprintf("  saved tokens: %d\n", c.SavedTokens))
 		sb.WriteString(fmt.Sprintf("  ratio:        %.2f%%\n", c.SavingsRatio*100))
 		sb.WriteString(fmt.Sprintf("  L0/L1/L2/L3:  %d / %d / %d / %d\n", c.Layer0Saved, c.Layer1Saved, c.Layer2Saved, c.Layer3Saved))
+		sb.WriteString(fmt.Sprintf("  output tokens:%d\n", c.OutputTokens))
+		sb.WriteString(fmt.Sprintf("  provider cache read/create/cached: %d / %d / %d\n", c.ProviderCacheReadTokens, c.ProviderCacheCreateTokens, c.ProviderCachedTokens))
+		sb.WriteString(fmt.Sprintf("  output-reduce:%d\n", c.OutputReduceApplied))
+		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
+		sb.WriteString(fmt.Sprintf("  latency p95:  %.1f ms\n", c.LatencyP95Ms))
+		if c.PlanReplay.RequestsWithPlan > 0 {
+			sb.WriteString(fmt.Sprintf("  planner:      requests=%d decisions=%d expected=%d active=%d/%d missed=%d bypass-hit=%d blocked=%d\n",
+				c.PlanReplay.RequestsWithPlan,
+				c.PlanReplay.Decisions,
+				c.PlanReplay.ExpectedSavingsTokens,
+				c.PlanReplay.ObservedActive,
+				c.PlanReplay.ExpectedActive,
+				c.PlanReplay.MissedActive,
+				c.PlanReplay.BypassApplied,
+				c.PlanReplay.SafetyBlocked,
+			))
+		}
+		if len(c.LayerCombinations) > 0 {
+			sb.WriteString("  combos:\n")
+			for _, key := range sortedLayerCombinationKeys(c.LayerCombinations) {
+				combo := c.LayerCombinations[key]
+				ratio := 0.0
+				if combo.OrigTokens > 0 {
+					ratio = float64(combo.SavedTokens) / float64(combo.OrigTokens) * 100
+				}
+				sb.WriteString(fmt.Sprintf("    %-18s requests=%d saved=%d ratio=%.2f%% output=%d errors=%d\n",
+					key, combo.Requests, combo.SavedTokens, ratio, combo.OutputTokens, combo.Errors))
+			}
+		}
+		sb.WriteString(fmt.Sprintf("  evidence:     %s\n", c.EvidenceLevel))
 		if c.GateConfigured {
 			if len(c.Failures) == 0 {
 				sb.WriteString("  gate:         PASS\n")

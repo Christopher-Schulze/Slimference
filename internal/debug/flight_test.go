@@ -34,8 +34,22 @@ func TestBuildFlightRequestSummary(t *testing.T) {
 		ProviderOutputTokens:   120,
 		OutputReduce:           OutputReduceSummary{Applied: true, Profile: "codex", Reason: "applied", AddedTokens: 12},
 		PreviousResponseIDUsed: true,
-		Errors:                 []string{"recoverable"},
-		ProxyLatencyMs:         12.5,
+		Plan: &PlanSummary{
+			Provider:      "openai",
+			Model:         "gpt-5",
+			RouteMode:     "mitm",
+			SafetyBlocked: false,
+			Decisions: []PlanDecisionSummary{{
+				Layer:                 "l1",
+				Action:                "run",
+				Reason:                "large_or_structured_input",
+				ExpectedSavingsTokens: 200,
+				Risk:                  "medium",
+				Confidence:            "unknown",
+			}},
+		},
+		Errors:         []string{"recoverable"},
+		ProxyLatencyMs: 12.5,
 	}
 
 	flight := BuildFlightRequestSummary(summary)
@@ -55,11 +69,21 @@ func TestBuildFlightRequestSummary(t *testing.T) {
 	if !flight.OutputReduce.Applied || flight.OutputReduce.AddedTokens != 12 {
 		t.Fatalf("bad output reduce accounting: %+v", flight.OutputReduce)
 	}
+	if flight.Plan == nil || len(flight.Plan.Decisions) != 1 || flight.Plan.Decisions[0].Layer != "l1" {
+		t.Fatalf("bad planner summary: %+v", flight.Plan)
+	}
+	summary.Plan.Decisions[0].Layer = "mutated"
+	if flight.Plan.Decisions[0].Layer != "l1" {
+		t.Fatalf("planner summary should be cloned, got %+v", flight.Plan.Decisions)
+	}
 	if !flight.PrivacyRedacted || flight.Confidence != "provider_reported" {
 		t.Fatalf("bad privacy/confidence: redacted=%v confidence=%s", flight.PrivacyRedacted, flight.Confidence)
 	}
 	if len(flight.Events) < 5 {
 		t.Fatalf("expected flight event chain, got %+v", flight.Events)
+	}
+	if !hasFlightStage(flight.Events, "planner", "advice_ready") {
+		t.Fatalf("missing planner advice event: %+v", flight.Events)
 	}
 }
 
@@ -105,4 +129,32 @@ func TestEnsureFlightKeepsExisting(t *testing.T) {
 	if summary.Flight != existing || summary.Flight.SchemaVersion != 99 {
 		t.Fatalf("existing flight should be kept: %+v", summary.Flight)
 	}
+}
+
+func TestPlannerHelpers(t *testing.T) {
+	t.Parallel()
+	if got := plannerDecision(&PlanSummary{SafetyBlocked: true}); got != "blocked" {
+		t.Fatalf("plannerDecision blocked = %q", got)
+	}
+	if got := boolString(false); got != "false" {
+		t.Fatalf("boolString false = %q", got)
+	}
+	if got := boolString(true); got != "true" {
+		t.Fatalf("boolString true = %q", got)
+	}
+	if got := intString(0); got != "0" {
+		t.Fatalf("intString zero = %q", got)
+	}
+	if got := intString(12345); got != "12345" {
+		t.Fatalf("intString = %q", got)
+	}
+}
+
+func hasFlightStage(events []FlightEvent, stage, decision string) bool {
+	for _, event := range events {
+		if event.Stage == stage && event.Decision == decision {
+			return true
+		}
+	}
+	return false
 }

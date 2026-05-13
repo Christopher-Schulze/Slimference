@@ -12,6 +12,7 @@ import (
 	"time"
 
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/planner"
 	"github.com/slimference/slimference/internal/tlsca"
 )
 
@@ -274,6 +275,12 @@ func (ci *ConnectInterceptor) recordFlight(host, path, routeMode, reason string,
 		RouteMode:    routeMode,
 		BypassReason: reason,
 		Errors:       errorsOut,
+		Plan: debugPlanSummary(planner.Plan(planner.RequestFacts{
+			Provider:             providerForConnectHost(host),
+			RouteMode:            routeMode,
+			ContentClasses:       []string{"transparent_connect"},
+			LiveCorpusConfidence: "unknown",
+		})),
 	})
 }
 

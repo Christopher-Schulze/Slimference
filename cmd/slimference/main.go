@@ -15,6 +15,7 @@
 //	slimference stats today        # Print today's stats
 //	slimference stats prompt-cache week --json # Prompt-cache report
 //	slimference gain today         # Layer-0/filter/cache/output telemetry (--by-command, --by-parser, --cache, --output)
+//	slimference plan inspect       # Dry-run cross-layer planner decisions
 //	slimference filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
 //	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
 //	slimference posttool          # Compact PostToolUse hook JSON from stdin for Codex
@@ -509,6 +510,9 @@ func handleSubcommand(args []string) {
 	case "quality":
 		handleQualityCmd(args[1:])
 
+	case "plan":
+		handlePlanCmd(args[1:])
+
 	case "soak":
 		handleSoakCmd(args[1:])
 
@@ -586,7 +590,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
 		exitFn(1)
 	}
 }

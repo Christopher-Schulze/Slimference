@@ -15,6 +15,10 @@ const sampleJSONL = `{"req_id":"r1","ts":"2026-04-18T12:00:00Z","provider":"anth
 const codexJSONL = `{"req_id":"c1","ts":"2026-04-29T12:00:00Z","provider":"codex_chatgpt","model":"codex-cli","codex_route":"/v1/responses","total_messages":8,"messages_in_window":4,"layers_applied":[0,1,3],"tokens":{"original":2000,"after_layer0":1800,"after_layer1":1200,"after_layer2":1200,"final":900,"saved":1100,"ratio":0.45},"layer1_breakdown":{"tool_compressor":{"blocks":2,"saved":500},"json_compact":{"blocks":1,"saved":100}},"cache_hit":true,"cache_read_tokens":300,"cache_create_tokens":120,"proxy_latency_ms":12}
 `
 
+const plannedJSONL = `{"req_id":"p1","provider":"openai","model":"gpt-5","route_mode":"upstream","layers_applied":[0,1],"tokens":{"original":1000,"after_layer0":900,"after_layer1":700,"after_layer2":700,"final":700,"saved":300},"output_reduce":{"applied":true},"plan":{"provider":"openai","route_mode":"upstream","decisions":[{"layer":"l0","action":"run","reason":"tool","expected_savings_tokens":100,"risk":"low","confidence":"high"},{"layer":"l1","action":"cheap_only","reason":"recent","expected_savings_tokens":40,"risk":"low","confidence":"medium"},{"layer":"l2","action":"run","reason":"long","expected_savings_tokens":300,"risk":"medium","confidence":"low"},{"layer":"l4_output","action":"run","reason":"output","expected_savings_tokens":50,"risk":"medium","confidence":"high"},{"layer":"websocket","action":"bypass","reason":"not_ws","risk":"none","confidence":"high"}]}}` + "\n" +
+	`{"req_id":"p2","provider":"codex_chatgpt","route_mode":"websocket_tunnel","tokens":{"original":100,"after_layer0":100,"after_layer1":100,"after_layer2":100,"final":100,"saved":0},"plan":{"provider":"codex_chatgpt","route_mode":"websocket_tunnel","safety_blocked":true,"decisions":[{"layer":"websocket","action":"tunnel","reason":"operator_disabled","risk":"none","confidence":"high"},{"layer":"","action":"run"},{"layer":"l3","action":"bypass","reason":"small","risk":"none","confidence":"high"}]}}` + "\n" +
+	`{"req_id":"p3","provider":"openai","route_mode":"upstream","cache_hit":true,"cache_read_tokens":5,"previous_response_id_used":true,"tokens":{"original":100,"after_layer0":90,"after_layer1":80,"after_layer2":70,"final":60,"saved":40},"layer2":{"applied":true},"flight":{"route_mode":"upstream","plan":{"provider":"openai","route_mode":"upstream","decisions":[{"layer":"l3","action":"run","reason":"cache","expected_savings_tokens":20,"risk":"low","confidence":"provider_reported"},{"layer":"unknown","action":"run","reason":"unknown","expected_savings_tokens":1,"risk":"medium","confidence":"low"}]}}}` + "\n"
+
 func TestAggregateSessions_HappyPath(t *testing.T) {
 	t.Parallel()
 	agg, err := AggregateSessions(strings.NewReader(sampleJSONL), nil)
@@ -45,6 +49,9 @@ func TestAggregateSessions_HappyPath(t *testing.T) {
 	if agg.perProvider["anthropic"] != 1 || agg.perProvider["openai"] != 1 {
 		t.Fatalf("perProvider: %+v", agg.perProvider)
 	}
+	if agg.layerCombinations["L1+L2"].Requests != 1 || agg.layerCombinations["L3"].Requests != 1 {
+		t.Fatalf("layer combinations: %+v", agg.layerCombinations)
+	}
 }
 
 func TestAggregateSessions_CodexFields(t *testing.T) {
@@ -61,6 +68,41 @@ func TestAggregateSessions_CodexFields(t *testing.T) {
 	}
 	if agg.cacheReadSum != 300 || agg.cacheCreateSum != 120 {
 		t.Fatalf("prompt cache read=%d create=%d", agg.cacheReadSum, agg.cacheCreateSum)
+	}
+	if combo := agg.layerCombinations["L0+L1+L3"]; combo.Requests != 1 || combo.SavedTokens != 1100 {
+		t.Fatalf("codex layer combination: %+v", agg.layerCombinations)
+	}
+}
+
+func TestAggregateSessions_PlannedVsActual(t *testing.T) {
+	t.Parallel()
+	agg, err := AggregateSessions(strings.NewReader(plannedJSONL), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agg.planReplay.RequestsWithPlan != 3 || agg.planReplay.Decisions != 9 {
+		t.Fatalf("plan replay counts: %+v", agg.planReplay)
+	}
+	if agg.planReplay.ExpectedSavingsTokens != 511 {
+		t.Fatalf("expected plan savings=%d", agg.planReplay.ExpectedSavingsTokens)
+	}
+	if agg.planReplay.ExpectedActive != 6 || agg.planReplay.ObservedActive != 4 || agg.planReplay.MissedActive != 2 {
+		t.Fatalf("active replay: %+v", agg.planReplay)
+	}
+	if agg.planReplay.BypassApplied != 1 || agg.planReplay.SafetyBlocked != 1 {
+		t.Fatalf("bypass/blocked replay: %+v", agg.planReplay)
+	}
+	if agg.planReplay.ActionCounts["run"] != 5 || agg.planReplay.ActionCounts["cheap_only"] != 1 ||
+		agg.planReplay.ActionCounts["bypass"] != 2 || agg.planReplay.ActionCounts["tunnel"] != 1 {
+		t.Fatalf("action counts: %+v", agg.planReplay.ActionCounts)
+	}
+	if agg.planReplay.RiskCounts["medium"] != 3 || agg.planReplay.RiskCounts["none"] != 3 {
+		t.Fatalf("risk counts: %+v", agg.planReplay.RiskCounts)
+	}
+	cloned := clonePlanReplayAggregate(agg.planReplay)
+	agg.planReplay.ActionCounts["run"] = 999
+	if cloned.ActionCounts["run"] != 5 {
+		t.Fatalf("clone aliased action counts: %+v", cloned.ActionCounts)
 	}
 }
 
@@ -102,7 +144,7 @@ func TestFormatSessionReport_NonEmpty(t *testing.T) {
 	t.Parallel()
 	agg, _ := AggregateSessions(strings.NewReader(sampleJSONL), nil)
 	out := FormatSessionReport(agg)
-	for _, need := range []string{"Requests:", "Original tokens:", "Layer 0 saved:", "Layer 1 saved:", "Layer 3 saved:", "Cache hit rate:", "anthropic", "openai"} {
+	for _, need := range []string{"Requests:", "Original tokens:", "Layer 0 saved:", "Layer 1 saved:", "Layer 3 saved:", "Cache hit rate:", "Layer combination breakdown:", "L1+L2", "anthropic", "openai"} {
 		if !strings.Contains(out, need) {
 			t.Fatalf("missing %q in report:\n%s", need, out)
 		}
@@ -120,6 +162,17 @@ func TestFormatSessionReport_CodexRoute(t *testing.T) {
 	}
 }
 
+func TestFormatSessionReport_PlannerReplay(t *testing.T) {
+	t.Parallel()
+	agg, _ := AggregateSessions(strings.NewReader(plannedJSONL), nil)
+	out := FormatSessionReport(agg)
+	for _, need := range []string{"Planner requests:", "Planner expected:", "Planner active:", "Planner misses:", "Planner bypass hit:", "Planner blocked:"} {
+		if !strings.Contains(out, need) {
+			t.Fatalf("missing %q in report:\n%s", need, out)
+		}
+	}
+}
+
 func TestFormatSessionMarkdown_Empty(t *testing.T) {
 	t.Parallel()
 	if got := FormatSessionMarkdown(newSessionReportAggregate()); !strings.Contains(got, "no session records") {
@@ -131,7 +184,7 @@ func TestFormatSessionMarkdown_Nonempty(t *testing.T) {
 	t.Parallel()
 	agg, _ := AggregateSessions(strings.NewReader(sampleJSONL), nil)
 	md := FormatSessionMarkdown(agg)
-	for _, need := range []string{"| Metric | Value |", "| Requests | 2 |", "| Savings ratio |", "| Provider | Requests |"} {
+	for _, need := range []string{"| Metric | Value |", "| Requests | 2 |", "| Savings ratio |", "| Layer combination | Requests |", "| L1+L2 | 1 |", "| Provider | Requests |"} {
 		if !strings.Contains(md, need) {
 			t.Fatalf("missing %q in markdown:\n%s", need, md)
 		}
@@ -143,6 +196,17 @@ func TestFormatSessionMarkdown_CodexRoute(t *testing.T) {
 	agg, _ := AggregateSessions(strings.NewReader(codexJSONL), nil)
 	md := FormatSessionMarkdown(agg)
 	for _, need := range []string{"| Codex route | Requests |", "| /v1/responses | 1 |", "| Prompt cache read tokens | 300 |"} {
+		if !strings.Contains(md, need) {
+			t.Fatalf("missing %q in markdown:\n%s", need, md)
+		}
+	}
+}
+
+func TestFormatSessionMarkdown_PlannerReplay(t *testing.T) {
+	t.Parallel()
+	agg, _ := AggregateSessions(strings.NewReader(plannedJSONL), nil)
+	md := FormatSessionMarkdown(agg)
+	for _, need := range []string{"| Planner requests | 3 |", "| Planner expected savings | 511 |", "| Planner active observed | 4 / 6 |"} {
 		if !strings.Contains(md, need) {
 			t.Fatalf("missing %q in markdown:\n%s", need, md)
 		}

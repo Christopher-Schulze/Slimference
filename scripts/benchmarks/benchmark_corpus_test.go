@@ -44,6 +44,10 @@ const sampleHighSavingsRecord = `{"req_id":"req_high","provider":"anthropic","mo
 
 const sampleLowSavingsRecord = `{"req_id":"req_low","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":990,"after_layer1":950,"after_layer2":950,"final":950,"saved":50}}` + "\n"
 
+const sampleEvidenceRecord = `{"req_id":"req_evidence","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"cache_read_tokens":120,"cache_create_tokens":40,"provider_cached_tokens":120,"output_tokens":77,"output_reduce":{"applied":true,"profile":"codex_aggressive"},"proxy_latency_ms":42.5}` + "\n"
+
+const sampleErrorLatencyRecord = `{"req_id":"req_error","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"errors":["bad"],"proxy_latency_ms":2000}` + "\n"
+
 func TestLoadCategoryMetadata_Missing(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -157,6 +161,129 @@ func TestEvaluateCategory_GateFailRequestCount(t *testing.T) {
 	}
 }
 
+func TestEvaluateCategory_EvidenceMetricsAndGates(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "evidence", CategoryMetadata{
+		Category:                       "evidence",
+		EvidenceLevel:                  "live_operator",
+		ExpectedSavingsMin:             0.10,
+		ExpectedProviderCacheReadMin:   100,
+		ExpectedOutputReduceAppliedMin: 1,
+		ExpectedLatencyP95MaxMs:        100,
+		ExpectedMaxErrors:              1,
+	}, []string{sampleEvidenceRecord})
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(res.Failures) != 0 {
+		t.Fatalf("expected no failures, got %v", res.Failures)
+	}
+	if res.ProviderCacheReadTokens != 120 || res.ProviderCacheCreateTokens != 40 || res.ProviderCachedTokens != 120 {
+		t.Fatalf("cache metrics: %+v", res)
+	}
+	if res.OutputTokens != 77 || res.OutputReduceApplied != 1 || res.LatencyP95Ms != 42.5 || res.EvidenceLevel != "live_operator" {
+		t.Fatalf("evidence metrics: %+v", res)
+	}
+	if combo := res.LayerCombinations["L0+L1+L3+L4"]; combo.Requests != 1 || combo.OutputTokens != 77 {
+		t.Fatalf("layer combinations: %+v", res.LayerCombinations)
+	}
+}
+
+func TestEvaluateCategory_PlannerReplayMetricsAndGates(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "planner", CategoryMetadata{
+		Category:                        "planner",
+		ExpectedSavingsMin:              0.10,
+		ExpectedPlannerMissedMax:        2,
+		ExpectedPlannerBypassAppliedMax: 1,
+	}, []string{plannedJSONL})
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(res.Failures) != 0 {
+		t.Fatalf("expected no failures, got %v", res.Failures)
+	}
+	if res.PlanReplay.RequestsWithPlan != 3 ||
+		res.PlanReplay.ExpectedSavingsTokens != 511 ||
+		res.PlanReplay.MissedActive != 2 ||
+		res.PlanReplay.BypassApplied != 1 {
+		t.Fatalf("planner metrics: %+v", res.PlanReplay)
+	}
+}
+
+func TestEvaluateCategory_PlannerReplayGateFailures(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "planner_bad", CategoryMetadata{
+		Category:                 "planner_bad",
+		ExpectedPlannerMissedMax: 1,
+	}, []string{plannedJSONL})
+	metadataPath := filepath.Join(dir, corpusCategoryMetadataFilename)
+	raw, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	meta["expected_planner_bypass_applied_max"] = 0
+	rewritten, _ := json.MarshalIndent(meta, "", "  ")
+	if err := os.WriteFile(metadataPath, rewritten, 0o644); err != nil {
+		t.Fatalf("rewrite metadata: %v", err)
+	}
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	got := strings.Join(res.Failures, "\n")
+	for _, want := range []string{"planner_missed_active=2", "planner_bypass_applied=1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures: %v", want, res.Failures)
+		}
+	}
+}
+
+func TestEvaluateCategory_EvidenceGateFailures(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "bad_evidence", CategoryMetadata{
+		Category:                       "bad_evidence",
+		ExpectedSavingsMin:             0.10,
+		ExpectedProviderCacheReadMin:   999,
+		ExpectedOutputReduceAppliedMin: 2,
+		ExpectedLatencyP95MaxMs:        100,
+	}, []string{sampleErrorLatencyRecord})
+	metadataPath := filepath.Join(dir, corpusCategoryMetadataFilename)
+	raw, err := os.ReadFile(metadataPath)
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	meta["expected_max_errors"] = 0
+	rewritten, _ := json.MarshalIndent(meta, "", "  ")
+	if err := os.WriteFile(metadataPath, rewritten, 0o644); err != nil {
+		t.Fatalf("rewrite metadata: %v", err)
+	}
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	got := strings.Join(res.Failures, "\n")
+	for _, want := range []string{"errors=1", "latency_p95_ms=2000.0", "provider_cache_read_tokens=0", "output_reduce_applied=0"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures: %v", want, res.Failures)
+		}
+	}
+}
+
 func TestEvaluateCategory_BubblesAggregateError(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -251,6 +378,30 @@ func TestFormatCorpusReport_RendersCategoriesAndPolicyHint(t *testing.T) {
 	}
 	if !strings.Contains(s, "live-corpus-policy.md") {
 		t.Fatalf("expected synthetic-only hint pointing at policy doc, got %q", s)
+	}
+	if !strings.Contains(s, "evidence:     synthetic") {
+		t.Fatalf("expected evidence level in render, got %q", s)
+	}
+}
+
+func TestFormatCorpusReport_PlannerReplay(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "planner", CategoryMetadata{
+		Category:                        "planner",
+		ExpectedSavingsMin:              0.10,
+		ExpectedPlannerMissedMax:        2,
+		ExpectedPlannerBypassAppliedMax: 1,
+	}, []string{plannedJSONL})
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	s := FormatCorpusReport(report)
+	for _, want := range []string{"planner:", "requests=3", "expected=511", "missed=2", "bypass-hit=1", "combos:", "L0+L1+L4"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in report:\n%s", want, s)
+		}
 	}
 }
 

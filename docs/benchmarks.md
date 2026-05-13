@@ -77,6 +77,26 @@ When live Codex capture is approved, the same metadata schema applies: replace
 the synthetic fixtures and update the `regression_gate` to a value drawn from
 the real corpus, not from intuition.
 
+For the per-category live corpus under `tests/fixtures/live_corpus/`, run:
+
+```
+go run ./scripts/verify -mode live-corpus-plan -category codex_cli_tool_heavy -client codex_cli
+go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --check
+go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --json
+```
+
+The category gate reports and can enforce evidence level, input-layer savings,
+output tokens, provider-cache read/create/cached tokens, output-reduce hits,
+error count, latency p95, and planner replay consistency. Planner replay
+compares each recorded dry-run plan with the observed layer execution:
+expected-active actions, observed active actions, missed actions, bypass/tunnel
+actions that still saw activity, safety-blocked requests, and expected
+planner savings. The same reports also emit an observed layer-combination
+matrix (`L0+L1`, `L0+L1+L3`, `L0+L1+L3+L4`, `WS`, etc.) with request count,
+saved tokens, output tokens, and errors. This keeps future "saves N percent"
+and "safe to default-on" claims tied to real captured sessions instead of
+synthetic smoke data.
+
 | Metric | Value |
 | --- | --- |
 | Requests | 2 |

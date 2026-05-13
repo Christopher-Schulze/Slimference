@@ -40,10 +40,16 @@ func TestTrackerAutoTuneDowngradesOnFailures(t *testing.T) {
 	if got := tr.SelectProfile("openai", "gpt", profile, ShapeCodeEdit); got != ProfileAggressive {
 		t.Fatalf("initial profile=%s", got)
 	}
+	if tr.InCooldown("openai", "gpt", profile, ShapeCodeEdit) {
+		t.Fatal("initial bucket must not be in cooldown")
+	}
 	tr.ObserveOutcome(Outcome{Provider: "openai", Model: "gpt", Profile: string(profile), TaskShape: ShapeCodeEdit, Applied: true, Failed: true})
 	tr.ObserveOutcome(Outcome{Provider: "openai", Model: "gpt", Profile: string(profile), TaskShape: ShapeCodeEdit, Applied: true, Failed: true})
 	if got := tr.SelectProfile("openai", "gpt", profile, ShapeCodeEdit); got != ProfileStandard {
 		t.Fatalf("downgraded profile=%s", got)
+	}
+	if !tr.InCooldown("openai", "gpt", profile, ShapeCodeEdit) {
+		t.Fatal("downgraded bucket should be in cooldown")
 	}
 	snap := tr.Snapshot()
 	if !snap.AutoTuneEnabled || len(snap.Downgrades) != 1 {
@@ -71,10 +77,16 @@ func TestTrackerAutoTuneSkipBranches(t *testing.T) {
 	if got := nilTracker.SelectProfile("openai", "gpt", ProfileAggressive, ShapeUnknown); got != ProfileAggressive {
 		t.Fatalf("nil select=%s", got)
 	}
+	if nilTracker.InCooldown("openai", "gpt", ProfileAggressive, ShapeUnknown) {
+		t.Fatal("nil tracker must not report cooldown")
+	}
 	nilTracker.ObserveOutcome(Outcome{Applied: true})
 	tr := NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{Enabled: false})
 	if got := tr.SelectProfile("openai", "gpt", ProfileAggressive, ShapeUnknown); got != ProfileAggressive {
 		t.Fatalf("disabled select=%s", got)
+	}
+	if tr.InCooldown("openai", "gpt", ProfileAggressive, ShapeUnknown) {
+		t.Fatal("disabled tuner must not report cooldown")
 	}
 	tr.ObserveOutcome(Outcome{Applied: true, Profile: string(ProfileAggressive)})
 	if len(tr.Snapshot().Downgrades) != 0 {
@@ -91,6 +103,37 @@ func TestTrackerAutoTuneSkipBranches(t *testing.T) {
 	tr.ObserveOutcome(Outcome{Provider: "p", Model: "m", Profile: string(ProfileAggressive), TaskShape: ShapeDebugging, Applied: true, Failed: true})
 	if got := tr.SelectProfile("p", "m", ProfileAggressive, ShapeDebugging); got != ProfileStandard {
 		t.Fatalf("cooldown downgrade=%s", got)
+	}
+}
+
+func TestTrackerAutoTuneCooldownExpires(t *testing.T) {
+	t.Parallel()
+	tr := NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{
+		Enabled:             true,
+		MinSamples:          1,
+		MaxFailureRateDelta: 0.1,
+		CooldownTurns:       2,
+	})
+	outcome := Outcome{
+		Provider:  "openai",
+		Model:     "gpt",
+		Profile:   string(ProfileAggressive),
+		TaskShape: ShapeDebugging,
+		Applied:   true,
+		Failed:    true,
+	}
+	tr.ObserveOutcome(outcome)
+	if !tr.InCooldown("openai", "gpt", ProfileAggressive, ShapeDebugging) {
+		t.Fatal("bucket should enter cooldown after downgrade")
+	}
+	outcome.Failed = false
+	tr.ObserveOutcome(outcome)
+	if !tr.InCooldown("openai", "gpt", ProfileAggressive, ShapeDebugging) {
+		t.Fatal("cooldown should remain after one decrement")
+	}
+	tr.ObserveOutcome(outcome)
+	if tr.InCooldown("openai", "gpt", ProfileAggressive, ShapeDebugging) {
+		t.Fatal("cooldown should expire after configured turns")
 	}
 }
 

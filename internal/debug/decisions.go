@@ -63,6 +63,28 @@ type Layer2Summary struct {
 	CompressionRatio float64 `json:"compression_ratio"`
 }
 
+// PlanDecisionSummary records one dry-run planner decision for observability.
+// It is intentionally content-free: only layer names, actions, reasons and
+// numeric estimates are emitted so debug logs never duplicate prompt text.
+type PlanDecisionSummary struct {
+	Layer                 string `json:"layer"`
+	Action                string `json:"action"`
+	Reason                string `json:"reason"`
+	ExpectedSavingsTokens int    `json:"expected_savings_tokens,omitempty"`
+	Risk                  string `json:"risk"`
+	Confidence            string `json:"confidence"`
+}
+
+// PlanSummary records the cross-layer dry-run planner output attached to a
+// request. The proxy currently treats it as advice-only telemetry.
+type PlanSummary struct {
+	Provider      string                `json:"provider,omitempty"`
+	Model         string                `json:"model,omitempty"`
+	RouteMode     string                `json:"route_mode,omitempty"`
+	SafetyBlocked bool                  `json:"safety_blocked"`
+	Decisions     []PlanDecisionSummary `json:"decisions,omitempty"`
+}
+
 // RequestSummary aggregates all decision entries for one proxy request.
 // This is the top-level object returned by "slimference debug last".
 type RequestSummary struct {
@@ -100,6 +122,7 @@ type RequestSummary struct {
 	ReReadCount            int                          `json:"re_read_count"`     // T77
 	NetSavedTokens         int                          `json:"net_saved_tokens"`  // T77
 	AdaptiveWindow         AdaptiveWindowSummary        `json:"adaptive_window"`   // T112
+	Plan                   *PlanSummary                 `json:"plan,omitempty"`    // T149 dry-run planner
 	Entries                []DecisionEntry              `json:"entries,omitempty"` // only with --trace
 	Flight                 *FlightRequestSummary        `json:"flight,omitempty"`
 }

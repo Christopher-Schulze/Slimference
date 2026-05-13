@@ -396,6 +396,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 8. Output-token reduction (T130) ---
 	outputReduceStats := outputreduce.Stats{Reason: "disabled"}
+	outputReduceCooldown := false
 	outputReduceMinTokens := p.config.Compression.OutputReduce.MinInputTokens
 	if p.config.Compression.OutputReduce.Enabled && compressedTokens < outputReduceMinTokens {
 		outputReduceStats = outputreduce.Stats{Reason: "below_min_tokens"}
@@ -405,6 +406,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		if configuredProfile, err := outputreduce.ParseProfile(profileName); err == nil {
 			effective := outputreduce.ResolveProfile(provider, configuredProfile)
 			if p.outputReduce != nil {
+				outputReduceCooldown = p.outputReduce.InCooldown(provider.String(), model, effective, taskShape)
 				effective = p.outputReduce.SelectProfile(provider.String(), model, effective, taskShape)
 			}
 			profileName = string(effective)
@@ -517,6 +519,21 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 						Score:  windowDecision.Score,
 						Reason: windowDecision.Reason,
 					},
+					Plan: p.dryRunPlan(plannerInput{
+						provider:                    provider,
+						model:                       model,
+						routeMode:                   "local_cache",
+						estimatedInputTokens:        origTokens,
+						expectedOutputTokens:        outputTokens,
+						taskShape:                   string(outputReduceStats.TaskShape),
+						contentClasses:              plannerClassesFromMessages(messages),
+						recentEdit:                  reReadCount > 0,
+						providerCacheSupported:      true,
+						previousResponseIDAvailable: false,
+						outputReduceCooldown:        outputReduceCooldown,
+						liveCorpusConfidence:        "unknown",
+						negativeSavingsHistory:      totalSaved < 0,
+					}),
 				}
 				p.debugRecorder.Record(summary)
 				p.observeQuality(summary)
@@ -783,6 +800,21 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				Score:  windowDecision.Score,
 				Reason: windowDecision.Reason,
 			},
+			Plan: p.dryRunPlan(plannerInput{
+				provider:                    provider,
+				model:                       model,
+				routeMode:                   "upstream",
+				estimatedInputTokens:        origTokens,
+				expectedOutputTokens:        outputTokens,
+				taskShape:                   string(outputReduceStats.TaskShape),
+				contentClasses:              plannerClassesFromMessages(messages),
+				recentEdit:                  reReadCount > 0,
+				providerCacheSupported:      promptCacheDecision.Applied || upstreamCacheUsage.ReadTokens > 0 || upstreamCacheUsage.CreateTokens > 0,
+				previousResponseIDAvailable: serverStateUsed,
+				outputReduceCooldown:        outputReduceCooldown,
+				liveCorpusConfidence:        "unknown",
+				negativeSavingsHistory:      totalSaved < 0,
+			}),
 		}
 		p.debugRecorder.Record(summary)
 		p.observeQuality(summary)
@@ -879,6 +911,17 @@ func (p *Proxy) serveStageACacheHit(
 				Score:  aw.Score,
 				Reason: aw.Reason,
 			},
+			Plan: p.dryRunPlan(plannerInput{
+				provider:                    provider,
+				model:                       model,
+				routeMode:                   "local_cache",
+				estimatedInputTokens:        origTokens,
+				expectedOutputTokens:        outputTokens,
+				contentClasses:              []string{"conversation"},
+				providerCacheSupported:      true,
+				previousResponseIDAvailable: false,
+				liveCorpusConfidence:        "unknown",
+			}),
 		}
 		p.debugRecorder.Record(summary)
 		p.observeQuality(summary)

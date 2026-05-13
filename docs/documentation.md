@@ -1115,6 +1115,58 @@ The TUI Debug view renders a `FLIGHT RECORDER` block sourced from the same
 records: recent route/source/layers, billable savings estimate, provider cache
 tokens, output tokens, bypass count, and slowest request.
 
+### WebSocket inspection
+
+Transparent WebSocket transport remains byte-for-byte by default. The
+`internal/wscompact` package adds an inspect-only frame reader that can be
+attached to the tunnel without mutation. It preserves raw bytes, decodes
+frame metadata, reassembles fragmented text messages for shape inspection,
+records opcode/direction/payload length/JSON top-level keys/message type, and
+marks RSV/compressed-extension frames as inspect-only blockers. This is the
+T142 foundation for future WebSocket message-boundary compression; mutation
+is still blocked on live Codex frame-shape evidence.
+
+### Compression planner
+
+`internal/planner` is the deterministic safety governor for cross-layer
+coordination. It turns request facts (provider/model/route, input/output token
+size, content classes, live-corpus confidence, manual disables, recent-edit
+state, provider cache support, L2 policy, output-reduce cooldown, and
+WebSocket shape confidence) into per-layer decisions for L0, L1, L2, L3,
+output-reduce, and WebSocket transport. The package is pure: same facts produce
+the same `CompressionPlan`, every decision carries action, reason, expected
+saving, risk, and confidence, and operator-disabled layers stay disabled.
+Output-reduce cooldown is sourced from the T141 auto-tune tracker before
+profile selection; the planner marks it as a `cheap_only`
+`quality_cooldown_soften_profile` decision because the runtime softens the
+profile rather than fully disabling output reduction.
+
+The proxy hot path now attaches this plan as dry-run advice to
+`debug.RequestSummary` and normalized `flight` records for upstream, local
+cache, transparent CONNECT, and direct WebSocket routes. This does not yet
+override layer execution; it gives `debug flight`, the TUI, and corpus replay a
+single explanation surface for "why this request was compressed or skipped".
+Actual layer behavior remains guarded by the existing layer-local fallbacks
+until T146 planned-vs-actual evidence is available.
+
+`slimference plan inspect` dry-runs the same planner without sending upstream
+traffic. It accepts provider/model/route/token/cache/WebSocket facts, can
+estimate input tokens from a request file or stdin, and prints either a compact
+human table or JSON. This is the fixture-facing entry point for comparing
+planned versus actual outcomes before any planner decision becomes behavior
+controlling.
+
+`scripts/benchmarks benchmark-corpus` replays recorded `plan` objects from
+request summaries and compares them with observed layer execution. The report
+counts requests with plans, decisions, expected planner savings, expected-active
+versus observed-active actions, missed active actions, bypass/tunnel actions
+that still saw activity, and safety-blocked requests. Category metadata can set
+planner thresholds so future default-on changes have measurable evidence.
+It also emits an observed layer-combination matrix keyed by stable labels
+(`L0`, `L1`, `L2`, `L3`, `L4`, `WS`, or `none`) with request count, saved
+tokens, output tokens, and errors. This is factual corpus accounting, not a
+simulated alternate-run replay.
+
 ### Global flags
 
 ```

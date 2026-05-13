@@ -25,6 +25,7 @@ SUBCOMMANDS:
   expand       Retrieve an archived tool result by id
   checkpoint   Manage smart-compaction checkpoints
   gain         Report Layer-0 filter token-savings
+  plan         Dry-run cross-layer compression planner decisions
   quality      Print T77 quality signals (reread / cache spike / net savings)
   soak         T100b/T103c verdict from analytics+quality history
   stats        Print analytics snapshots (today|week|month|prompt-cache)
@@ -185,6 +186,14 @@ Render the T77 quality signals exposed at /admin/status.quality:
 re-read counter (per-session), prompt-cache miss-spike alarm,
 net-savings ratio. --json passes the raw block through. --url
 overrides the daemon endpoint (default: http://127.0.0.1:<port>).
+`
+	case "plan":
+		return `slimference plan inspect [flags] [-|<request-file>]
+
+Run the cross-layer compression planner without sending a request. The command
+accepts provider/model/route/token/cache/WebSocket facts, estimates input
+tokens from an optional file/stdin when --input-tokens is omitted, and prints
+the deterministic per-layer plan. Use --json for machine-readable output.
 `
 	case "soak":
 		return `slimference soak [today|week|month|all] [--json]

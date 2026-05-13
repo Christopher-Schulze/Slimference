@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/outputreduce"
 )
 
 func TestServeHTTP_OutputReduceInjectsBeforeUpstream(t *testing.T) {
@@ -136,5 +137,67 @@ func TestServeHTTP_OutputReduceInjectionErrorFallsBackToOriginal(t *testing.T) {
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 1 || snap.LastReason != "error" {
 		t.Fatalf("output-reduce snapshot after injection error: %+v", snap)
+	}
+}
+
+func TestServeHTTP_OutputReduceCooldownFeedsPlannerAndSoftensProfile(t *testing.T) {
+	t.Parallel()
+	var captured []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"output_tokens":500}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.OutputReduce.Enabled = true
+	cfg.Compression.OutputReduce.Profile = string(outputreduce.ProfileAggressive)
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	cfg.Compression.OutputReduce.AutoTuneEnabled = true
+	cfg.Compression.OutputReduce.AutoTuneMinSamples = 1
+	cfg.Compression.OutputReduce.MaxFailureRateDelta = 0.1
+	cfg.Compression.OutputReduce.CooldownTurns = 3
+	cfg.Secrets.Mode = "off"
+
+	model := "claude-3-5-sonnet-20241022"
+	p := New(cfg)
+	p.outputReduce.ObserveOutcome(outputreduce.Outcome{
+		Provider:  "anthropic",
+		Model:     model,
+		Profile:   string(outputreduce.ProfileAggressive),
+		TaskShape: outputreduce.ShapeCodeEdit,
+		Applied:   true,
+		Failed:    true,
+	})
+
+	body := `{"model":"` + model + `","max_tokens":512,"messages":[{"role":"user","content":"` + strings.Repeat("please edit and patch tersely ", 40) + `"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if !strings.Contains(string(captured), "#slimference-output-rules") {
+		t.Fatalf("directive not injected: %s", captured)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].Plan == nil {
+		t.Fatalf("missing planner summary: %#v", summaries)
+	}
+	if !hasPlanAction(summaries[0].Plan.Decisions, "l4_output", "cheap_only", "quality_cooldown_soften_profile") {
+		t.Fatalf("planner did not expose output-reduce cooldown: %+v", summaries[0].Plan.Decisions)
+	}
+	if summaries[0].OutputReduce.Profile != string(outputreduce.ProfileStandard) {
+		t.Fatalf("cooldown should soften aggressive profile to standard, summary=%+v", summaries[0].OutputReduce)
 	}
 }

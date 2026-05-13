@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/slimference/slimference/internal/wscompact"
 )
 
 // WebSocketDialer captures the upstream-dial dependency that the
@@ -27,6 +29,7 @@ type WebSocketTunnel struct {
 	Dialer      WebSocketDialer
 	Logger      *slog.Logger
 	BypassPaths []string
+	Inspector   wscompact.Inspector
 }
 
 // IsWebSocketUpgrade reports whether the request is asking for a
@@ -128,7 +131,11 @@ func (t *WebSocketTunnel) ServeUpgrade(clientConn net.Conn, r *http.Request, hos
 		_, _ = clientConn.Write(bytes)
 		_, _ = upstreamReader.Discard(buffered)
 	}
-	pipeBytes(clientConn, upstream)
+	if t.Inspector == nil {
+		pipeBytes(clientConn, upstream)
+		return
+	}
+	pipeWebSocketBytes(clientConn, upstream, t.Inspector)
 }
 
 func (t *WebSocketTunnel) logf(msg string, args ...any) {
@@ -156,6 +163,19 @@ func forwardResponse(client net.Conn, resp *http.Response) error {
 func writeBadGateway(client net.Conn) error {
 	_, err := client.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"))
 	return err
+}
+
+func pipeWebSocketBytes(client, upstream net.Conn, inspector wscompact.Inspector) {
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = wscompact.InspectStream(client, upstream, wscompact.DirectionServerToClient, inspector)
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = wscompact.InspectStream(upstream, client, wscompact.DirectionClientToServer, inspector)
+		done <- struct{}{}
+	}()
+	<-done
 }
 
 // DefaultWebSocketDialer is the production dial used when the system

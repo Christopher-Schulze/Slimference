@@ -7,6 +7,8 @@
 //   - codex-smoke: T71 / T75 - send a single Codex-shaped request
 //     through a running Slimference proxy with the operator's already-
 //     installed Codex login (no CLI modification required).
+//   - live-corpus-plan: T146 - print the exact local capture, export,
+//     metadata, benchmark, and policy-review steps for one corpus category.
 //
 // All flows are READ-ONLY against the operator's secrets: the tool
 // never reads ANTHROPIC_API_KEY or chatgpt cookies itself; it only
@@ -17,6 +19,7 @@
 //
 //	go run ./scripts/verify -mode prompt-cache -url http://127.0.0.1:8990 -count 10
 //	go run ./scripts/verify -mode codex-smoke -url http://127.0.0.1:8990
+//	go run ./scripts/verify -mode live-corpus-plan -category codex_cli_tool_heavy
 //
 // Exit code 0 = verdict PASS; 1 = verdict FAIL; 2 = invocation error.
 package main
@@ -29,16 +32,20 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 func main() {
-	mode := flag.String("mode", "prompt-cache", "verification flow: prompt-cache | codex-smoke")
+	mode := flag.String("mode", "prompt-cache", "verification flow: prompt-cache | codex-smoke | live-corpus-plan")
 	url := flag.String("url", "http://127.0.0.1:8990", "Slimference proxy base URL")
 	count := flag.Int("count", 10, "number of identical requests to send (prompt-cache mode)")
 	model := flag.String("model", "claude-3-5-sonnet-20241022", "model id for prompt-cache mode")
 	body := flag.String("body", "", "raw JSON body file (codex-smoke mode); reads stdin when empty")
+	category := flag.String("category", "codex_cli_tool_heavy", "live corpus category (live-corpus-plan mode)")
+	client := flag.String("client", "codex_cli", "client label for corpus metadata (live-corpus-plan mode)")
+	corpusRoot := flag.String("corpus-root", "tests/fixtures/live_corpus", "corpus root (live-corpus-plan mode)")
 	flag.Parse()
 
 	switch *mode {
@@ -46,6 +53,8 @@ func main() {
 		os.Exit(runPromptCache(*url, *model, *count))
 	case "codex-smoke":
 		os.Exit(runCodexSmoke(*url, *body))
+	case "live-corpus-plan":
+		os.Exit(runLiveCorpusPlan(*corpusRoot, *category, *client, time.Now().UTC()))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown -mode %q\n", *mode)
 		os.Exit(2)
@@ -210,4 +219,96 @@ func readBodyOrStdin(path string) ([]byte, error) {
 		return io.ReadAll(os.Stdin)
 	}
 	return os.ReadFile(path)
+}
+
+func runLiveCorpusPlan(root, category, client string, now time.Time) int {
+	category = safePlanName(category)
+	client = strings.TrimSpace(client)
+	root = strings.TrimSpace(root)
+	if category == "" {
+		fmt.Fprintln(os.Stderr, "live-corpus-plan: -category is required")
+		return 2
+	}
+	if root == "" {
+		fmt.Fprintln(os.Stderr, "live-corpus-plan: -corpus-root is required")
+		return 2
+	}
+	if client == "" {
+		client = "codex_cli"
+	}
+	sessionName := fmt.Sprintf("%s_%s", category, now.Format("20060102_150405"))
+	capturePath := fmt.Sprintf("~/.slimference/captures/%s.jsonl", sessionName)
+	categoryDir := filepath.Join(root, category)
+	sessionFile := filepath.Join(categoryDir, sessionName+".jsonl")
+	metadataFile := filepath.Join(categoryDir, "metadata.json")
+
+	fmt.Println("Slimference T146 live corpus capture plan")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Printf("Category:     %s\n", category)
+	fmt.Printf("Client:       %s\n", client)
+	fmt.Printf("Capture file: %s\n", capturePath)
+	fmt.Printf("Corpus file:  %s\n", sessionFile)
+	fmt.Println("")
+	fmt.Println("1. Start capture against a running local Slimference path:")
+	fmt.Printf("   SLIMFERENCE_DEBUG_DECISIONS_LOG=%s slimference start\n", capturePath)
+	fmt.Println("")
+	fmt.Println("2. Run the real operator task for this category, then stop Slimference.")
+	fmt.Println("")
+	fmt.Println("3. Review and export the captured flight log:")
+	fmt.Printf("   slimference debug flight replay %s\n", capturePath)
+	fmt.Printf("   mkdir -p %s\n", categoryDir)
+	fmt.Printf("   slimference debug flight export %s\n", sessionFile)
+	fmt.Println("")
+	fmt.Println("4. Create metadata.json next to the session with this starting shape:")
+	fmt.Println(renderLiveCorpusMetadataSkeleton(category, client))
+	fmt.Println("")
+	fmt.Println("5. Run gates before commit:")
+	fmt.Println("   go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --check")
+	fmt.Println("   go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --json")
+	fmt.Printf("   go run ./scripts/benchmarks session-report %s\n", categoryDir)
+	fmt.Println("")
+	fmt.Println("6. Privacy rule: read the JSONL end-to-end before commit. Delete and recapture on any redaction doubt.")
+	fmt.Printf("Metadata path: %s\n", metadataFile)
+	return 0
+}
+
+func safePlanName(value string) string {
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range strings.ToLower(value) {
+		ok := r >= 'a' && r <= 'z' || r >= '0' && r <= '9'
+		if ok {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func renderLiveCorpusMetadataSkeleton(category, client string) string {
+	payload := map[string]any{
+		"category":                            category,
+		"description":                         "Real operator-captured session; replace this with the exact task shape before commit.",
+		"synthetic":                           false,
+		"evidence_level":                      "live_operator",
+		"language":                            "mixed",
+		"tool_mix":                            client,
+		"expected_savings_min":                0.10,
+		"expected_savings_max":                0.90,
+		"expected_request_count":              1,
+		"expected_max_errors":                 0,
+		"expected_latency_p95_max_ms":         1000,
+		"expected_provider_cache_read_min":    0,
+		"expected_output_reduce_applied_min":  0,
+		"expected_planner_missed_max":         0,
+		"expected_planner_bypass_applied_max": 0,
+		"notes":                               "Scrubbed manually after T109 redaction; raw prompts, secrets, screenshots, and absolute paths verified absent.",
+	}
+	out, _ := json.MarshalIndent(payload, "   ", "  ")
+	return string(out)
 }

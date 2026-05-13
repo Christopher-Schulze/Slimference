@@ -597,6 +597,14 @@ func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Requ
 				Host:      r.Host,
 				Path:      r.URL.Path,
 				RouteMode: "websocket_force_https_fallback",
+				Plan: p.dryRunPlan(plannerInput{
+					provider:                   provider,
+					routeMode:                  "websocket_force_https_fallback",
+					contentClasses:             []string{"websocket"},
+					webSocketShapeKnown:        false,
+					webSocketMutationRequested: false,
+					liveCorpusConfidence:       "unknown",
+				}),
 			})
 		}
 		http.Error(w, "codex websocket disabled by Slimference direct CLI policy", http.StatusServiceUnavailable)
@@ -631,6 +639,14 @@ func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Requ
 			Host:      r.Host,
 			Path:      r.URL.Path,
 			RouteMode: "websocket_tunnel",
+			Plan: p.dryRunPlan(plannerInput{
+				provider:                   provider,
+				routeMode:                  "websocket_tunnel",
+				contentClasses:             []string{"websocket"},
+				webSocketShapeKnown:        false,
+				webSocketMutationRequested: false,
+				liveCorpusConfidence:       "unknown",
+			}),
 		})
 	}
 	p.webSocketTunnel.ServeUpgrade(clientConn, r, host)

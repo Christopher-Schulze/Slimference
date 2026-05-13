@@ -63,6 +63,7 @@ type FlightRequestSummary struct {
 	TokenAccounting      FlightTokenAccounting        `json:"token_accounting"`
 	CacheAccounting      FlightCacheAccounting        `json:"cache_accounting"`
 	OutputReduce         FlightOutputReduceAccounting `json:"output_reduce"`
+	Plan                 *PlanSummary                 `json:"plan,omitempty"`
 	Errors               []string                     `json:"errors,omitempty"`
 	PrivacyRedacted      bool                         `json:"privacy_redaction_state"`
 	Confidence           string                       `json:"confidence"`
@@ -145,6 +146,7 @@ func BuildFlightRequestSummary(s RequestSummary) FlightRequestSummary {
 			AddedTokens: s.OutputReduce.AddedTokens,
 			TaskShape:   s.OutputReduce.TaskShape,
 		},
+		Plan:                 clonePlanSummary(s.Plan),
 		Errors:               append([]string(nil), s.Errors...),
 		PrivacyRedacted:      true,
 		Confidence:           confidence,
@@ -187,6 +189,18 @@ func buildFlightEvents(s RequestSummary, flight FlightRequestSummary) []FlightEv
 			Reason:    s.OutputReduce.Reason,
 		})
 	}
+	if s.Plan != nil {
+		events = append(events, FlightEvent{
+			Timestamp: s.Timestamp,
+			Stage:     "planner",
+			Decision:  plannerDecision(s.Plan),
+			Fields: map[string]string{
+				"decisions":   intString(len(s.Plan.Decisions)),
+				"route_mode":  s.Plan.RouteMode,
+				"safety_gate": boolString(s.Plan.SafetyBlocked),
+			},
+		})
+	}
 	if len(s.Errors) > 0 {
 		for _, errText := range s.Errors {
 			events = append(events, FlightEvent{
@@ -206,11 +220,48 @@ func buildFlightEvents(s RequestSummary, flight FlightRequestSummary) []FlightEv
 	return events
 }
 
+func clonePlanSummary(plan *PlanSummary) *PlanSummary {
+	if plan == nil {
+		return nil
+	}
+	out := *plan
+	out.Decisions = append([]PlanDecisionSummary(nil), plan.Decisions...)
+	return &out
+}
+
+func plannerDecision(plan *PlanSummary) string {
+	if plan.SafetyBlocked {
+		return "blocked"
+	}
+	return "advice_ready"
+}
+
 func boolDecision(ok bool) string {
 	if ok {
 		return "applied"
 	}
 	return "skipped"
+}
+
+func boolString(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
+}
+
+func intString(v int) string {
+	if v == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for v > 0 {
+		i--
+		b[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return string(b[i:])
 }
 
 func cacheDecision(s RequestSummary) string {
