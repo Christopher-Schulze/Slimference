@@ -142,6 +142,28 @@ func (m *Model) renderStatsView() string {
 		s.Normal.Render(fmt.Sprintf("  Tracked files:    %d across %d sessions", readCache.TrackedFiles, readCache.Sessions)),
 	})
 
+	layer0 := m.proxy.GetLayer0Status()
+	layer0Lines := []string{
+		s.Normal.Render(fmt.Sprintf("  Attempts:        %d", layer0.Attempts)),
+		s.Normal.Render(fmt.Sprintf("  Matches:         %d (%.1f%% hit)", layer0.Matches, layer0.HitRate*100)),
+		s.Normal.Render(fmt.Sprintf("  Misses/Panics:   %d / %d", layer0.Misses, layer0.Panics)),
+		s.Normal.Render(fmt.Sprintf("  Bytes saved:     %s", formatBytesCompact(layer0.BytesSaved))),
+	}
+	if len(layer0.Filters) == 0 {
+		layer0Lines = append(layer0Lines, s.Muted.Render("  No parser attempts recorded yet."))
+	} else {
+		limit := len(layer0.Filters)
+		if limit > 3 {
+			limit = 3
+		}
+		for i := 0; i < limit; i++ {
+			f := layer0.Filters[i]
+			layer0Lines = append(layer0Lines, s.Muted.Render(fmt.Sprintf("  %s  %d/%d · %s · %.2fms",
+				f.Name, f.Matches, f.Attempts, formatBytesCompact(f.BytesSaved), f.AvgMs)))
+		}
+	}
+	appendCard("LAYER 0 PARSERS", layer0Lines)
+
 	checkpoints := m.proxy.GetCheckpointStatus()
 	appendCard("CHECKPOINTS", []string{
 		s.Normal.Render(fmt.Sprintf("  Captures:         %d (%d restores)", checkpoints.Captures, checkpoints.Restores)),

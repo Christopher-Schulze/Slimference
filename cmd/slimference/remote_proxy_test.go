@@ -15,6 +15,7 @@ import (
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -78,6 +79,17 @@ func TestRemoteProxyAdapter_StatusAndActions(t *testing.T) {
 					LastRun:     time.Unix(100, 0).UTC(),
 					QueueDepth:  4,
 				},
+				Layer0: map[string]filter.FilterSnapshot{
+					"git_status": {
+						Name:       "git_status",
+						Attempts:   5,
+						Matches:    2,
+						Misses:     3,
+						BytesSaved: 120,
+						HitRate:    0.4,
+						AvgMs:      0.2,
+					},
+				},
 				ReadCache: proxy.AdminReadCacheStatus{
 					Evaluations:     7,
 					Allows:          3,
@@ -123,6 +135,9 @@ func TestRemoteProxyAdapter_StatusAndActions(t *testing.T) {
 	}
 	if !a.GetLayer2Status().Compressing {
 		t.Fatal("layer2 status should be cached from admin status")
+	}
+	if got := a.GetLayer0Status(); got.Attempts != 5 || got.BytesSaved != 120 || len(got.Filters) != 1 {
+		t.Fatalf("layer0 status: %+v", got)
 	}
 	if got := a.GetReadCacheStatus(); got.Blocks != 4 || got.TrackedFiles != 5 {
 		t.Fatalf("read cache status: %+v", got)

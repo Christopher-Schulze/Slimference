@@ -15,6 +15,7 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/hooks"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/readcache"
@@ -375,6 +376,15 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	}
 	if got := pa.GetToolArchiveStatus(); got.Count != 1 || got.Archived != 1 {
 		t.Fatalf("archive status=%+v", got)
+	}
+	filter.GlobalFilterObservability().Record(filter.FilterStats{
+		Name:     "adapter_layer0_test_filter",
+		Matched:  true,
+		InBytes:  80,
+		OutBytes: 20,
+	})
+	if got := pa.GetLayer0Status(); got.Attempts == 0 || got.BytesSaved < 60 {
+		t.Fatalf("layer0 status=%+v", got)
 	}
 	if got := pa.GetRecentFlights(1); len(got) != 0 {
 		t.Fatalf("default proxy flights=%+v", got)

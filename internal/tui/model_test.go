@@ -25,6 +25,7 @@ type mockProxy struct {
 	snap           analytics.AnalyticsSnapshot
 	recentReqs     []types.RequestMetrics
 	recentFlights  []dbg.FlightRequestSummary
+	layer0Status   Layer0Status
 	l2Status       Layer2Status
 	readStatus     ReadCacheStatus
 	qualityStatus  QualityStatus
@@ -106,6 +107,7 @@ func (m *mockProxy) GetRecentFlights(n int) []dbg.FlightRequestSummary {
 	start := len(m.recentFlights) - n
 	return append([]dbg.FlightRequestSummary(nil), m.recentFlights[start:]...)
 }
+func (m *mockProxy) GetLayer0Status() Layer0Status { return m.layer0Status }
 func (m *mockProxy) GetLayer2Status() Layer2Status { return m.l2Status }
 func (m *mockProxy) GetReadCacheStatus() ReadCacheStatus {
 	return m.readStatus
@@ -441,6 +443,37 @@ func TestView_MainRender(t *testing.T) {
 func TestView_StatsRender(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
+	p.layer0Status = Layer0Status{
+		Attempts:   5,
+		Matches:    2,
+		Misses:     3,
+		BytesSaved: 4096,
+		HitRate:    0.4,
+		Filters: []Layer0FilterStatus{{
+			Name:       "git_status",
+			Attempts:   5,
+			Matches:    2,
+			Misses:     3,
+			BytesSaved: 4096,
+			HitRate:    0.4,
+			AvgMs:      0.25,
+		}, {
+			Name:       "python_traceback",
+			Attempts:   2,
+			Matches:    1,
+			BytesSaved: 1024,
+		}, {
+			Name:       "package_output",
+			Attempts:   2,
+			Matches:    1,
+			BytesSaved: 512,
+		}, {
+			Name:       "json_minify",
+			Attempts:   2,
+			Matches:    1,
+			BytesSaved: 128,
+		}},
+	}
 	m := NewModel(p)
 	m.view = ViewStats
 	m.width = 100
@@ -449,6 +482,9 @@ func TestView_StatsRender(t *testing.T) {
 	output := m.View()
 	if output == "" {
 		t.Error("View() returned empty string for stats view")
+	}
+	if !strings.Contains(output, "LAYER 0 PARSERS") || !strings.Contains(output, "git_status") {
+		t.Fatalf("layer0 parser card missing: %s", output)
 	}
 }
 

@@ -46,6 +46,7 @@ type ProxyInterface interface {
 	GetAnalytics() analytics.AnalyticsSnapshot
 	GetRecentRequests(n int) []types.RequestMetrics
 	GetRecentFlights(n int) []dbg.FlightRequestSummary
+	GetLayer0Status() Layer0Status
 	GetLayer2Status() Layer2Status
 	GetReadCacheStatus() ReadCacheStatus
 	GetCheckpointStatus() CheckpointStatus
@@ -78,6 +79,27 @@ type Layer2Status struct {
 	Compressing bool
 	LastRun     time.Time
 	QueueDepth  int
+}
+
+type Layer0FilterStatus struct {
+	Name       string
+	Attempts   int64
+	Matches    int64
+	Misses     int64
+	Panics     int64
+	BytesSaved int64
+	HitRate    float64
+	AvgMs      float64
+}
+
+type Layer0Status struct {
+	Filters    []Layer0FilterStatus
+	Attempts   int64
+	Matches    int64
+	Misses     int64
+	Panics     int64
+	BytesSaved int64
+	HitRate    float64
 }
 
 type ReadCacheStatus struct {

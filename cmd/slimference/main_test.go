@@ -463,6 +463,8 @@ func (p *testTUIProxy) GetRecentRequests(int) []types.RequestMetrics { return ni
 
 func (p *testTUIProxy) GetRecentFlights(int) []dbg.FlightRequestSummary { return nil }
 
+func (p *testTUIProxy) GetLayer0Status() tui.Layer0Status { return tui.Layer0Status{} }
+
 func (p *testTUIProxy) GetLayer2Status() tui.Layer2Status { return tui.Layer2Status{} }
 
 func (p *testTUIProxy) GetReadCacheStatus() tui.ReadCacheStatus { return tui.ReadCacheStatus{} }

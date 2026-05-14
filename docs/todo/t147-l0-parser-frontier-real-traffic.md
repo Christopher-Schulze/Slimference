@@ -163,7 +163,8 @@ Layer 0 parser coverage is driven by observed traffic:
 ### WP5 - Parser telemetry
 
 - [x] Admin status exposes runtime Layer 0 attempts, matches, misses, panics,
-  bytes in/out, bytes saved, hit rate, and average runtime per filter.
+  bytes in/out, bytes saved, hit rate, and average runtime per filter; the TUI
+  Stats view renders the same top-filter telemetry.
 - [x] `gain --by-parser` groups persisted Layer 0 token savings across the
   landed parser families: frontend/JS monorepo tools, Python, SQL/DB, package
   managers, JVM/mobile/PHP, containers/Kubernetes/Helm, Go, Rust, shell,
@@ -250,7 +251,8 @@ Layer 0 parser coverage is driven by observed traffic:
 - 2026-05-14: Parser telemetry correction landed. The admin status payload now
   includes Layer 0 runtime observability (`layer0`) with attempts, matches,
   misses, panics, bytes in/out, bytes saved, hit rate, and average runtime per
-  filter. `gain --by-parser` now maps the recently landed frontend, monorepo,
+  filter; the TUI Stats view surfaces totals and the top filters. `gain
+  --by-parser` now maps the recently landed frontend, monorepo,
   Python, SQL/DB, package-manager, JVM/mobile/PHP, and container parser
   families instead of letting them fall into `other`. No fake bypass ledger was
   added: the current filter API cannot honestly report "negative-saving

@@ -907,6 +907,8 @@ Base path `/_slimference/admin`:
 - `analytics`: snapshot (tokens, ratios, requests).
 - `analytics_queue`: capacity, depth, enqueued_total, dropped_total (T42).
 - `recent_requests`: last 20 `RequestMetrics`.
+- `layer0`: per-filter runtime observability: attempts, matches, misses,
+  panics, bytes in/out, bytes saved, hit rate, and average runtime.
 - `layer2`: queue depth, compressing, last run, cache size.
 - `read_cache`, `checkpoints`, `tool_archive`: subsystem stats.
 - `provider_health`: per-provider health.
@@ -979,6 +981,12 @@ every view. A flash toast echoes the new state on toggle.
 to a running daemon via the admin API rather than driving a local
 `Proxy` instance. Used when you run `slimference` against a daemon
 started by `service install`.
+
+The Stats view renders Layer 0 parser telemetry from the same admin status
+snapshot: total attempts/matches/misses/panics, runtime hit rate, bytes saved,
+and the top parser filters by saved bytes. This is runtime observability; the
+persisted billing-style Layer 0 savings view remains `slimference gain
+--by-parser`.
 
 ---
 

@@ -77,6 +77,7 @@ func (a *remoteProxyAdapter) refresh() {
 		a.lastRefresh = time.Now()
 		a.status.Analytics = analytics.AnalyticsSnapshot{}
 		a.status.RecentRequests = nil
+		a.status.Layer0 = nil
 		a.status.Layer2 = proxy.AdminLayer2Status{}
 		a.status.ReadCache = proxy.AdminReadCacheStatus{}
 		a.status.ProviderHealth = map[string]types.ProviderHealthInfo{
@@ -184,6 +185,13 @@ func (a *remoteProxyAdapter) GetRecentRequests(n int) []types.RequestMetrics {
 
 func (a *remoteProxyAdapter) GetRecentFlights(int) []dbg.FlightRequestSummary {
 	return nil
+}
+
+func (a *remoteProxyAdapter) GetLayer0Status() tui.Layer0Status {
+	a.refresh()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return layer0StatusFromSnapshots(a.status.Layer0)
 }
 
 func (a *remoteProxyAdapter) GetLayer2Status() tui.Layer2Status {
