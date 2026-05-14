@@ -142,3 +142,86 @@ func TestClassifyToolResult(t *testing.T) {
 		})
 	}
 }
+
+func TestClassifyToolResultWithInput_UsesCodexShellCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		toolName  string
+		toolInput string
+		content   string
+		want      types.ToolResultType
+	}{
+		{
+			name:      "git status short command",
+			toolName:  "shell",
+			toolInput: `{"command":"git status --short"}`,
+			content:   " M internal/proxy/provider.go\n?? tmp.txt\n",
+			want:      types.ToolTypeGitOutput,
+		},
+		{
+			name:      "go test command",
+			toolName:  "exec_command",
+			toolInput: `{"cmd":"go test ./internal/proxy"}`,
+			content:   "ok  github.com/slimference/slimference/internal/proxy  0.041s\nPASS\n",
+			want:      types.ToolTypeTestOutput,
+		},
+		{
+			name:      "ripgrep command",
+			toolName:  "shell",
+			toolInput: `{"command":"rg -n TODO internal"}`,
+			content:   "internal/a.go:10:TODO\ninternal/b.go:20:TODO\n",
+			want:      types.ToolTypeSearchResult,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := classifyToolResultWithInput(tc.toolName, tc.toolInput, tc.content)
+			if got != tc.want {
+				t.Fatalf("classifyToolResultWithInput()=%d want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClassifyToolInput_Branches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  types.ToolResultType
+	}{
+		{name: "empty", input: "", want: types.ToolTypeUnknown},
+		{name: "invalid json", input: "{", want: types.ToolTypeUnknown},
+		{name: "missing command", input: `{"path":"x"}`, want: types.ToolTypeUnknown},
+		{name: "non-string command", input: `{"command":123}`, want: types.ToolTypeUnknown},
+		{name: "blank command", input: `{"command":"   "}`, want: types.ToolTypeUnknown},
+		{name: "absolute git show", input: `{"command":"/usr/bin/git show HEAD"}`, want: types.ToolTypeGitOutput},
+		{name: "git unknown", input: `{"command":"git config --list"}`, want: types.ToolTypeUnknown},
+		{name: "go build", input: `{"command":"go build ./..."}`, want: types.ToolTypeBuildOutput},
+		{name: "go vet", input: `{"command":"go vet ./..."}`, want: types.ToolTypeBuildOutput},
+		{name: "bun test", input: `{"command":"bun test"}`, want: types.ToolTypeTestOutput},
+		{name: "npm run build", input: `{"command":"npm run build"}`, want: types.ToolTypeBuildOutput},
+		{name: "pnpm lint", input: `{"command":"pnpm lint"}`, want: types.ToolTypeLintOutput},
+		{name: "yarn unknown", input: `{"command":"yarn why react"}`, want: types.ToolTypeUnknown},
+		{name: "tsc", input: `{"command":"tsc --noEmit"}`, want: types.ToolTypeBuildOutput},
+		{name: "eslint", input: `{"command":"eslint ."}`, want: types.ToolTypeLintOutput},
+		{name: "ls", input: `{"command":"ls -la"}`, want: types.ToolTypeDirListing},
+		{name: "unknown head", input: `{"command":"echo hello"}`, want: types.ToolTypeUnknown},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := classifyToolInput(tc.input); got != tc.want {
+				t.Fatalf("classifyToolInput(%s)=%d want %d", tc.input, got, tc.want)
+			}
+		})
+	}
+}

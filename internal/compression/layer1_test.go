@@ -306,6 +306,41 @@ func TestCompress_ToolResultDeltaUsesResolvedToolCallKey(t *testing.T) {
 	}
 }
 
+func TestCompress_ToolCompressorUsesResolvedCodexToolInput(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	c := NewDeterministicCompressor(cfg)
+	var output strings.Builder
+	for i := 0; i < 120; i++ {
+		output.WriteString(fmt.Sprintf("internal/pkg/file_%02d.go:%d:TODO marker %02d\n", i, i+1, i))
+	}
+	msgs := []types.Message{
+		buildMessage(t, 0, "user", textBlock("find TODOs")),
+		buildMessage(t, 0, "assistant", types.ContentBlock{
+			Type:      "tool_use",
+			ToolName:  "exec_command",
+			ToolInput: `{"command":"rg -n TODO internal"}`,
+			ToolUseID: "call-rg",
+		}),
+		buildMessage(t, 1, "tool", types.ContentBlock{
+			Type:         "tool_result",
+			Text:         output.String(),
+			ToolResultID: "call-rg",
+		}),
+		buildMessage(t, 2, "assistant", textBlock("done")),
+		buildMessage(t, 3, "user", textBlock("summarize")),
+	}
+
+	result := c.Compress(msgs)
+	if result.ToolCompressorSaved <= 0 {
+		t.Fatalf("ToolCompressorSaved=%d want > 0", result.ToolCompressorSaved)
+	}
+	got := result.Messages[2].Content[0].Text
+	if !strings.Contains(got, "more matches omitted") || strings.Contains(got, "file_119.go") {
+		t.Fatalf("resolved command should compact search output, got %q", got)
+	}
+}
+
 func TestCompress_DeltaTracksNormalizedCommentStrippedSource(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)

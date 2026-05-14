@@ -70,6 +70,86 @@ func classifyToolResult(toolName string, content string) types.ToolResultType {
 	return types.ToolTypeCommandOutput
 }
 
+func classifyToolResultWithInput(toolName string, toolInput string, content string) types.ToolResultType {
+	if toolType := classifyToolInput(toolInput); toolType != types.ToolTypeUnknown {
+		return toolType
+	}
+	return classifyToolResult(toolName, content)
+}
+
+func classifyToolInput(toolInput string) types.ToolResultType {
+	if strings.TrimSpace(toolInput) == "" {
+		return types.ToolTypeUnknown
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(toolInput), &raw); err != nil {
+		return types.ToolTypeUnknown
+	}
+	cmd := ""
+	for _, key := range []string{"command", "cmd"} {
+		if value, ok := raw[key].(string); ok {
+			cmd = value
+			break
+		}
+	}
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return types.ToolTypeUnknown
+	}
+	fields := strings.Fields(cmd)
+	head := fields[0]
+	if strings.Contains(head, "/") {
+		parts := strings.Split(head, "/")
+		head = parts[len(parts)-1]
+	}
+	switch head {
+	case "git":
+		if len(fields) > 1 {
+			switch fields[1] {
+			case "status", "diff", "log", "show":
+				return types.ToolTypeGitOutput
+			}
+		}
+	case "go", "cargo", "pytest", "jest", "vitest", "playwright", "rspec":
+		if (len(fields) > 1 && fields[1] == "test") || head == "pytest" || head == "jest" || head == "vitest" || head == "playwright" || head == "rspec" {
+			return types.ToolTypeTestOutput
+		}
+		if len(fields) > 1 && (fields[1] == "build" || fields[1] == "vet") {
+			return types.ToolTypeBuildOutput
+		}
+	case "bun", "npm", "pnpm", "yarn":
+		return classifyJavaScriptPackageCommand(fields)
+	case "tsc", "webpack", "vite", "cmake", "make":
+		return types.ToolTypeBuildOutput
+	case "eslint", "ruff", "mypy", "pyright", "clippy", "golangci-lint", "staticcheck":
+		return types.ToolTypeLintOutput
+	case "rg", "grep", "ag", "ack", "find":
+		return types.ToolTypeSearchResult
+	case "ls", "tree":
+		return types.ToolTypeDirListing
+	}
+	return types.ToolTypeUnknown
+}
+
+func classifyJavaScriptPackageCommand(fields []string) types.ToolResultType {
+	if len(fields) < 2 {
+		return types.ToolTypeUnknown
+	}
+	args := fields[1:]
+	if args[0] == "run" && len(args) > 1 {
+		args = args[1:]
+	}
+	switch args[0] {
+	case "test", "vitest", "jest", "playwright":
+		return types.ToolTypeTestOutput
+	case "build", "compile", "typecheck", "check":
+		return types.ToolTypeBuildOutput
+	case "lint", "eslint":
+		return types.ToolTypeLintOutput
+	}
+	return types.ToolTypeUnknown
+}
+
 var (
 	// Git patterns
 	reClassifyGitBranch = regexp.MustCompile(

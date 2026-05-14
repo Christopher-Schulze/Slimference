@@ -181,6 +181,46 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 		t.Fatalf("function output fallback mapping: ok=%v msg=%#v", ok, msg)
 	}
 
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"function_call_output","id":"call_wrapped","output":{"stdout":"ok  github.com/slimference/slimference/internal/proxy  0.041s\nPASS\n","exit_code":0}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Content[0].Text != "ok  github.com/slimference/slimference/internal/proxy  0.041s\nPASS\n" {
+		t.Fatalf("wrapped stdout should be extracted as tool text: ok=%v msg=%#v", ok, msg)
+	}
+	msg.Content[0].Text = "ok\n"
+	raw, ok := msg.Content[0].RawBlock.(codexInputItemRaw)
+	if !ok {
+		t.Fatal("expected codex raw block")
+	}
+	out, err := codexMessageToInputItem(msg, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"stdout":"ok\n"`) || !strings.Contains(string(out), `"exit_code":0`) {
+		t.Fatalf("wrapped stdout rewrite should preserve output object metadata: %s", out)
+	}
+	for _, rawOutput := range []json.RawMessage{
+		json.RawMessage(`{`),
+		json.RawMessage(`{"stdout":"out","stderr":"err"}`),
+		json.RawMessage(`{"stdout":"   "}`),
+		json.RawMessage(`{"exit_code":0}`),
+	} {
+		if _, ok := singleCodexOutputTextField(rawOutput); ok {
+			t.Fatalf("singleCodexOutputTextField(%s) unexpectedly matched", rawOutput)
+		}
+	}
+	_, err = codexMessageToInputItem(types.Message{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", Text: "replacement"}}}, codexInputItemRaw{
+		Fields: map[string]json.RawMessage{
+			"type":   json.RawMessage(`"function_call_output"`),
+			"output": json.RawMessage(`"not-object"`),
+		},
+		TextPath: "output_field:stdout",
+	})
+	if err == nil {
+		t.Fatal("expected invalid output object error")
+	}
+
 	if msg, ok, err = codexInputItemToMessage(10, json.RawMessage(`{"type":"unknown","content":"ignored"}`)); err != nil || ok || msg.Role != "" {
 		t.Fatalf("unknown item should be ignored, ok=%v msg=%#v err=%v", ok, msg, err)
 	}

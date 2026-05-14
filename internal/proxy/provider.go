@@ -252,11 +252,12 @@ func codexInputItemToMessage(index int, itemRaw json.RawMessage) (types.Message,
 		}}
 		return msg, true, nil
 	case "function_call_output":
-		raw.TextPath = "output"
+		text, textPath := codexOutputText(fields["output"])
+		raw.TextPath = textPath
 		msg.Role = "tool"
 		msg.Content = []types.ContentBlock{{
 			Type:         "tool_result",
-			Text:         rawJSONText(fields["output"]),
+			Text:         text,
 			ToolResultID: firstNonEmpty(rawJSONString(fields["call_id"]), rawJSONString(fields["id"])),
 			RawBlock:     raw,
 		}}
@@ -345,6 +346,44 @@ func rawJSONText(raw json.RawMessage) string {
 		return ""
 	}
 	return string(raw)
+}
+
+func codexOutputText(raw json.RawMessage) (string, string) {
+	if s := rawJSONString(raw); s != "" {
+		return s, "output"
+	}
+	fields, ok := singleCodexOutputTextField(raw)
+	if ok {
+		return rawJSONString(fields.value), "output_field:" + fields.name
+	}
+	return rawJSONText(raw), "output"
+}
+
+type codexOutputField struct {
+	name  string
+	value json.RawMessage
+}
+
+func singleCodexOutputTextField(raw json.RawMessage) (codexOutputField, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return codexOutputField{}, false
+	}
+	var selected codexOutputField
+	for _, key := range []string{"output", "stdout", "text", "content", "stderr"} {
+		value, ok := obj[key]
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(rawJSONString(value)) == "" {
+			continue
+		}
+		if selected.name != "" {
+			return codexOutputField{}, false
+		}
+		selected = codexOutputField{name: key, value: value}
+	}
+	return selected, selected.name != ""
 }
 
 func firstNonEmpty(values ...string) string {
@@ -617,6 +656,17 @@ func codexMessageToInputItem(msg types.Message, raw codexInputItemRaw) (json.Raw
 	case "output":
 		data, _ := json.Marshal(text)
 		fields["output"] = data
+	default:
+		if key, ok := strings.CutPrefix(raw.TextPath, "output_field:"); ok && key != "" {
+			var obj map[string]json.RawMessage
+			if err := json.Unmarshal(fields["output"], &obj); err != nil {
+				return nil, err
+			}
+			data, _ := json.Marshal(text)
+			obj[key] = data
+			output, _ := json.Marshal(obj)
+			fields["output"] = output
+		}
 	}
 
 	return json.Marshal(fields)

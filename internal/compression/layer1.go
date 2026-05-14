@@ -454,7 +454,12 @@ func (c *DeterministicCompressor) compressMessage(
 		// Skip when text was already replaced by dedup/delta/structure (content is a reference
 		// or transformed diff, not the raw tool output the classifier expects).
 		if !msg.Metadata.WasDeduped && !textTransformed {
-			toolType := classifyToolResult(block.ToolName, text)
+			resolvedBlock := block
+			if use, ok := resolveToolUseInfo(block, toolUses); ok {
+				resolvedBlock.ToolName = use.name
+				resolvedBlock.ToolInput = use.input
+			}
+			toolType := classifyToolResultWithInput(resolvedBlock.ToolName, resolvedBlock.ToolInput, text)
 			if toolType != types.ToolTypeUnknown && toolType != types.ToolTypeFileRead &&
 				toolType != types.ToolTypeJSONData {
 				if compressed := compressToolOutput(toolType, text, messageAge, c.cfg.SlidingWindow); len(compressed) < len(text) {
@@ -534,10 +539,7 @@ func shouldRunStructureExtraction(text string, minTokens int) bool {
 	if minTokens <= 0 {
 		return true
 	}
-	if counted := tokens.CountString(text); counted > 0 {
-		return counted >= minTokens
-	}
-	return len(text)/4 >= minTokens
+	return tokens.CountString(text) >= minTokens
 }
 
 // ansiOnlyChange reports whether the only difference between original and
