@@ -202,6 +202,8 @@ file point at `~/.slimference/hooks/*.sh`, which invoke
    lint/type-check output is reduced without losing the older ok-paths.
    `package-manager` compacts install/update success summaries and
    npm/pnpm/yarn/bun/pip/uv resolver-error noise to actionable lines.
+   `psql` covers SQL-shell table-border compaction for psql, MySQL/MariaDB,
+   SQLite, and SQLite3 outputs.
 4. Fallback: `FirstMatchingTOMLRule` applies user-defined 8-stage
    rules from `~/.slimference/filters.toml`.
 5. Truncate with a short `[truncated …]` hint to

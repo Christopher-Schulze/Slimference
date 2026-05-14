@@ -11,8 +11,20 @@ func TestTryCompactPsql(t *testing.T) {
 	if !ok || string(out) != "[psql] ok\n" {
 		t.Fatalf("ok=%v %q", ok, out)
 	}
-	if _, ok := TryCompactPsql([]string{"mysql", "-e", "x"}, []byte("")); ok {
-		t.Fatal("not mysql")
+	mysqlOut, ok := TryCompactPsql([]string{"mysql", "-e", "select 1"}, []byte(""))
+	if !ok || string(mysqlOut) != "[mysql] ok\n" {
+		t.Fatalf("mysql ok=%v %q", ok, mysqlOut)
+	}
+	mariadbOut, ok := TryCompactPsql([]string{"mariadb", "-e", "select 1"}, []byte(""))
+	if !ok || string(mariadbOut) != "[mariadb] ok\n" {
+		t.Fatalf("mariadb ok=%v %q", ok, mariadbOut)
+	}
+	sqliteOut, ok := TryCompactPsql([]string{"sqlite3", "db.sqlite", "select 1"}, []byte(""))
+	if !ok || string(sqliteOut) != "[sqlite] ok\n" {
+		t.Fatalf("sqlite ok=%v %q", ok, sqliteOut)
+	}
+	if _, ok := TryCompactPsql([]string{"redis-cli", "ping"}, []byte("")); ok {
+		t.Fatal("not a SQL shell")
 	}
 }
 
@@ -43,6 +55,34 @@ func TestTryCompactPsql_tableBorders(t *testing.T) {
 	}
 	if len(s) >= len(input) {
 		t.Errorf("compact output should be shorter: got %d vs %d", len(s), len(input))
+	}
+}
+
+func TestTryCompactPsql_mysqlTable(t *testing.T) {
+	t.Parallel()
+	input := `+----+-------+-------------------+
+| id | name  | email             |
++----+-------+-------------------+
+|  1 | alice | alice@example.com |
+|  2 | bob   | bob@example.com   |
++----+-------+-------------------+
+2 rows in set (0.00 sec)
+`
+	out, ok := TryCompactPsql([]string{"mysql", "-e", "select * from users"}, []byte(input))
+	if !ok {
+		t.Fatalf("expected mysql table compaction: %q", out)
+	}
+	s := string(out)
+	if strings.Contains(s, "+----") {
+		t.Fatalf("mysql borders should be stripped, got %q", s)
+	}
+	for _, want := range []string{"id | name | email", "alice@example.com", "2 rows in set"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in %q", want, s)
+		}
+	}
+	if len(s) >= len(input) {
+		t.Fatalf("compact output should be shorter: got %d vs %d", len(s), len(input))
 	}
 }
 
@@ -93,5 +133,27 @@ func TestCompactPsqlOutput_borderStyleRow(t *testing.T) {
 	}
 	if strings.HasPrefix(got, " |") {
 		t.Errorf("border-style row: leading empty col should be stripped, got %q", got)
+	}
+}
+
+func TestSQLShellLabel(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		argv []string
+		want string
+	}{
+		{[]string{"psql.exe"}, "psql"},
+		{[]string{"mysql.exe"}, "mysql"},
+		{[]string{"mariadb.exe"}, "mariadb"},
+		{[]string{"sqlite"}, "sqlite"},
+		{[]string{"sqlite.exe"}, "sqlite"},
+		{[]string{"sqlite3.exe"}, "sqlite"},
+		{[]string{"duckdb"}, ""},
+		{nil, ""},
+	}
+	for _, tt := range tests {
+		if got := sqlShellLabel(tt.argv); got != tt.want {
+			t.Fatalf("sqlShellLabel(%v)=%q want %q", tt.argv, got, tt.want)
+		}
 	}
 }

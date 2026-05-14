@@ -9,18 +9,15 @@ import (
 // rePsqlSeparator matches psql ASCII table separator lines like "----+------+----".
 var rePsqlSeparator = regexp.MustCompile(`^[-+]+$`)
 
-// TryCompactPsql compacts psql ASCII table output (F19): strips separator lines and trims column padding.
+// TryCompactPsql compacts SQL shell ASCII table output (F19): strips separator lines and trims column padding.
 func TryCompactPsql(argv []string, stdout []byte) ([]byte, bool) {
-	if len(argv) < 1 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b != "psql" && b != "psql.exe" {
+	label := sqlShellLabel(argv)
+	if label == "" {
 		return stdout, false
 	}
 	s := strings.TrimSpace(string(stdout))
 	if s == "" {
-		return []byte("[psql] ok\n"), true
+		return []byte("[" + label + "] ok\n"), true
 	}
 	compact := compactPsqlOutput(s)
 	if compact == "" || len(compact) >= len(s) {
@@ -29,7 +26,25 @@ func TryCompactPsql(argv []string, stdout []byte) ([]byte, bool) {
 	return []byte(compact), true
 }
 
-// compactPsqlOutput removes ASCII table borders and normalizes column spacing.
+func sqlShellLabel(argv []string) string {
+	if len(argv) < 1 {
+		return ""
+	}
+	switch strings.ToLower(filepath.Base(argv[0])) {
+	case "psql", "psql.exe":
+		return "psql"
+	case "mysql", "mysql.exe":
+		return "mysql"
+	case "mariadb", "mariadb.exe":
+		return "mariadb"
+	case "sqlite", "sqlite.exe", "sqlite3", "sqlite3.exe":
+		return "sqlite"
+	default:
+		return ""
+	}
+}
+
+// compactPsqlOutput removes SQL shell ASCII table borders and normalizes column spacing.
 func compactPsqlOutput(s string) string {
 	lines := strings.Split(s, "\n")
 	var out []string

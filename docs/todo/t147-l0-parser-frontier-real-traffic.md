@@ -89,12 +89,10 @@ Layer 0 parser coverage is driven by observed traffic:
 
 ### Database and Data
 
-- [x] PostgreSQL `psql` diagnostic/error matching through the shared SQL
-  diagnostic parser.
-- [x] SQLite shell diagnostic/error matching through the shared SQL diagnostic
-  parser.
-- [x] MySQL/MariaDB client diagnostic/error matching through the shared SQL
-  diagnostic parser.
+- [x] PostgreSQL `psql` table and diagnostic/error matching.
+- [x] SQLite shell empty-output and diagnostic/error matching.
+- [x] MySQL/MariaDB table, empty-output, and diagnostic/error matching.
+- semantic `EXPLAIN`/query-plan summarization.
 - migration tool output.
 - [x] Prisma/Drizzle migration diagnostic matching through the shared SQL
   diagnostic parser.
@@ -214,3 +212,8 @@ Layer 0 parser coverage is driven by observed traffic:
   resolver failures to actionable error lines while still preserving existing
   success summaries. Error output is capped to avoid shipping repeated resolver
   traces back to the model.
+- 2026-05-14: SQL shell table-output slice landed. The existing `psql` ASCII
+  table compactor now also recognizes MySQL, MariaDB, SQLite, and SQLite3
+  shells, strips border-only lines, normalizes padded `|` columns, and emits
+  compact ok markers for empty SQL shell output. This is deliberately table
+  shape compaction, not semantic query-plan interpretation.
