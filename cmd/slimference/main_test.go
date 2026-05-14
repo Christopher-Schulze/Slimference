@@ -21,6 +21,7 @@ import (
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/proxy"
+	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
@@ -851,6 +852,9 @@ func TestHookTurnStateHelpers(t *testing.T) {
 		ToolResponse: "package main\n",
 	})
 	observeUserPromptTurnState("sess-helper")
+	if got := currentHookTurnID(sessions.DefaultHookStateDir(home), "sess-helper"); got != "turn-2" {
+		t.Fatalf("current hook turn id=%q", got)
+	}
 	observeStopTurnState("sess-helper")
 
 	osUserHomeDir = func() (string, error) { return "", errors.New("home") }
@@ -862,6 +866,13 @@ func TestHookTurnStateHelpers(t *testing.T) {
 	observeUserPromptTurnState("ignored")
 	observeStopTurnState("ignored")
 	observePostToolTurnState("/repo", filter.PostToolPayload{SessionID: "ignored", ToolName: "Edit", FilePaths: []string{"x.go"}})
+	dirAsFile := filepath.Join(t.TempDir(), "not-dir")
+	if err := os.WriteFile(dirAsFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := currentHookTurnID(dirAsFile, "ignored"); got != "" {
+		t.Fatalf("currentHookTurnID error path=%q", got)
+	}
 
 	if postToolLooksLikeEdit(filter.PostToolPayload{ToolName: "Bash", CommandLine: "cat main.go"}) {
 		t.Fatal("cat must not look like edit")
@@ -1641,6 +1652,95 @@ func TestHandleStartStopRestartAndServiceCommandErrors(t *testing.T) {
 	_, _ = io.Copy(&errBuf, rp)
 	if !exited || code != 1 || !strings.Contains(errBuf.String(), "unknown service command") {
 		t.Fatalf("handleServiceCmd unknown: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+}
+
+func TestHandleStartWaitBranches(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origExecutable := osExecutable
+	origStartDetached := startDetachedDaemonFn
+	origAfter := timeAfterFn
+	origTicker := newTickerFn
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		osExecutable = origExecutable
+		startDetachedDaemonFn = origStartDetached
+		timeAfterFn = origAfter
+		newTickerFn = origTicker
+	}()
+
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	startDetachedDaemonFn = func(string) error { return nil }
+	timeAfterFn = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	newTickerFn = func(time.Duration) *time.Ticker { return time.NewTicker(time.Hour) }
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(handleStartCmd)
+	cleanup()
+	var errBuf bytes.Buffer
+	_, _ = io.Copy(&errBuf, rp)
+	if !exited || code != 1 || !strings.Contains(errBuf.String(), "check `slimference service logs") {
+		t.Fatalf("handleStartCmd wait timeout: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
+	}
+
+	timeAfterFn = func(time.Duration) <-chan time.Time { return make(chan time.Time) }
+	newTickerFn = func(time.Duration) *time.Ticker { return time.NewTicker(time.Millisecond) }
+	checks := 0
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		checks++
+		if checks <= 2 {
+			return false, nil, nil
+		}
+		return true, nil, nil
+	}
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleStartCmd()
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var out bytes.Buffer
+	_, _ = io.Copy(&out, r)
+	if !strings.Contains(out.String(), "Slimference daemon started.") {
+		t.Fatalf("generic start output=%q", out.String())
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, errors.New("check later") }
+	if _, err := waitForDaemonStarted(time.Second, time.Millisecond); err == nil || !strings.Contains(err.Error(), "check daemon") {
+		t.Fatalf("expected check daemon error, got %v", err)
+	}
+}
+
+func TestServiceControlAdapterStartDaemonWaitError(t *testing.T) {
+	origIsRunning := daemonIsRunningFn
+	origExecutable := osExecutable
+	origStartDetached := startDetachedDaemonFn
+	origAfter := timeAfterFn
+	origTicker := newTickerFn
+	defer func() {
+		daemonIsRunningFn = origIsRunning
+		osExecutable = origExecutable
+		startDetachedDaemonFn = origStartDetached
+		timeAfterFn = origAfter
+		newTickerFn = origTicker
+	}()
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	startDetachedDaemonFn = func(string) error { return nil }
+	timeAfterFn = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	newTickerFn = func(time.Duration) *time.Ticker { return time.NewTicker(time.Hour) }
+	err := (&serviceControlAdapter{}).StartDaemon()
+	if err == nil || !strings.Contains(err.Error(), "timeout after") {
+		t.Fatalf("expected wait error, got %v", err)
 	}
 }
 

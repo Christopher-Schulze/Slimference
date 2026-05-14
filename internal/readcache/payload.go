@@ -13,6 +13,7 @@ func ExtractRequest(raw []byte) (Request, error) {
 
 	req := Request{
 		SessionID: findString(payload, "session_id"),
+		TurnID:    findString(payload, "turn_id"),
 		FilePath:  findString(payload, "file_path"),
 		Offset:    findInt(payload, "offset"),
 		Limit:     findInt(payload, "limit"),

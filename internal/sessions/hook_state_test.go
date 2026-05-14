@@ -27,6 +27,13 @@ func TestHookStateLifecycleAndRecentlyEdited(t *testing.T) {
 	if err := StartHookTurn(dir, "sess/1"); err != nil {
 		t.Fatal(err)
 	}
+	currentTurn, err := CurrentHookTurnID(dir, "sess/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if currentTurn != "turn-2" {
+		t.Fatalf("current turn = %q", currentTurn)
+	}
 	hit, err = RecentlyEditedHookFile(dir, "sess/1", "src/main.go", 1)
 	if err != nil {
 		t.Fatal(err)

@@ -69,6 +69,7 @@ func TestToolArchiveFallbackIDListRenderAndPreview(t *testing.T) {
 	first, err := Archive(dir, Input{
 		ToolName:  "Bash",
 		SessionID: "sess 1",
+		TurnID:    "turn 1",
 		Command:   "npm test",
 		Output:    strings.Repeat("line\n", 700),
 	})
@@ -80,6 +81,9 @@ func TestToolArchiveFallbackIDListRenderAndPreview(t *testing.T) {
 	}
 	if first.SessionID != "sess_1" {
 		t.Fatalf("safe archive session id=%q", first.SessionID)
+	}
+	if first.TurnID != "turn_1" {
+		t.Fatalf("safe archive turn id=%q", first.TurnID)
 	}
 
 	second, err := Archive(dir, Input{

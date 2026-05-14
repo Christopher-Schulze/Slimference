@@ -38,6 +38,7 @@ type Input struct {
 	ToolName  string
 	ToolUseID string
 	SessionID string
+	TurnID    string
 	Command   string
 	Output    string
 	Preview   string
@@ -50,6 +51,7 @@ type Entry struct {
 	ToolName   string    `json:"tool_name,omitempty"`
 	ToolUseID  string    `json:"tool_use_id,omitempty"`
 	SessionID  string    `json:"session_id,omitempty"`
+	TurnID     string    `json:"turn_id,omitempty"`
 	Command    string    `json:"command,omitempty"`
 	Preview    string    `json:"preview"`
 	OutputSize int       `json:"output_size"`
@@ -109,6 +111,7 @@ func Archive(dir string, input Input) (*Entry, error) {
 		ToolName:   strings.TrimSpace(input.ToolName),
 		ToolUseID:  strings.TrimSpace(input.ToolUseID),
 		SessionID:  sessions.SafeOptionalSessionID(input.SessionID),
+		TurnID:     sessions.SafeOptionalTurnID(input.TurnID),
 		Command:    strings.TrimSpace(input.Command),
 		Preview:    previewText(input),
 		OutputSize: len(input.Output),
@@ -285,6 +288,7 @@ func buildID(input Input) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		input.ToolName,
 		sessions.SafeOptionalSessionID(input.SessionID),
+		sessions.SafeOptionalTurnID(input.TurnID),
 		input.Command,
 		trimForHash(input.Output),
 	}, "\x00")))

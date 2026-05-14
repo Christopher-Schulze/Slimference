@@ -15,4 +15,16 @@ func TestSafeSessionID(t *testing.T) {
 	if got := SafeOptionalSessionID("sess/1"); got != "sess_1" {
 		t.Fatalf("optional session id = %q", got)
 	}
+	if got := SafeTurnID(""); got != AnonymousTurnID {
+		t.Fatalf("blank turn id = %q", got)
+	}
+	if got := SafeTurnID(" turn/1:x "); got != "turn_1_x" {
+		t.Fatalf("safe turn id = %q", got)
+	}
+	if got := SafeOptionalTurnID(" \n "); got != "" {
+		t.Fatalf("optional blank turn id = %q", got)
+	}
+	if got := SafeOptionalTurnID("turn/2"); got != "turn_2" {
+		t.Fatalf("optional turn id = %q", got)
+	}
 }

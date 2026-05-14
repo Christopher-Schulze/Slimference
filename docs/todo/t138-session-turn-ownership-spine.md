@@ -1,6 +1,6 @@
 # TASK 138: Session/turn ownership spine for AST and cross-tool state
 
-Status: IN PROGRESS (core + hook-backed edit/read gates + T125 body recovery + T126 mini hot path + TUI hook-state diagnostics + safe session storage keys landed; turn-level convergence/live proof still open)
+Status: DONE (core + hook-backed edit/read gates + T125 body recovery + T126 mini hot path + TUI hook-state diagnostics + safe session/turn storage keys landed)
 Priority: P1
 Scope: `internal/sessions/`, `internal/proxy/`, `internal/hooks/`, `internal/filter/`, `internal/readcache/`, `internal/codecompact/`, `internal/crosstool/`, `internal/toolarchive/`, `internal/quality/`, `internal/tui/`.
 
@@ -119,7 +119,7 @@ It is request-scoped where possible and process-scoped only behind explicit sess
 - [x] T125 edit-mode gating is backed by real hook session/turn state for Codex hook/PostToolUse paths.
 - [x] T125 body-on-demand has a real retrieval path or stays disabled.
 - [x] T126 hot-path integration is safe and per-turn only for Codex PostToolUse.
-- [ ] Read cache, repetition, tool archive, quality, and proxy share compatible session/turn keys.
+- [x] Read cache, repetition, tool archive, quality, and proxy share compatible session/turn keys.
 - [x] TUI/debug can show why a file/tool output was compacted or left literal.
 - [x] `go test -race ./...` passes.
 - [x] `go run ./scripts/ci` passes.
@@ -164,4 +164,14 @@ It is request-scoped where possible and process-scoped only behind explicit sess
   - Proxy quality re-read observations now use the extracted session id, not the per-request id, and ignore blank sessions so re-read quality signals are session-scoped instead of request-scoped noise.
 - Open boundaries:
   - T126 still needs live corpus proof before any broader command family or dedicated `gain --crosstool` report.
-  - Turn-level ownership is still not threaded through read cache, repetition, tool archive, quality, and proxy. The safe session id is unified; turn ids are not yet a universal storage key.
+- 2026-05-14 turn-key convergence closure:
+  - `internal/sessions.SafeTurnID` and `SafeOptionalTurnID` mirror the session storage convention for turn-scoped metadata.
+  - `CurrentHookTurnID` exposes the current file-backed Codex hook turn id without loading or mutating unrelated state.
+  - Read-cache requests now parse `turn_id`, persist `current_turn_id` on the session, and stamp each cached file entry with `last_turn_id`.
+  - Tool archive entries now persist `turn_id` and include it in fallback archive ids, so body recovery/debug can identify both session and turn provenance.
+  - Repetition storage now records `first_turn_id` and `last_turn_id` while keeping the primary identity session-wide; this preserves useful cross-turn repetition detection instead of shrinking it to one turn.
+  - Quality re-read detection now has an explicit `ObserveTurn(session, turn, key)` path, and the proxy exposes `ObserveQualityToolKeyForTurn` for future request/hook callers that have real turn ids.
+  - The implementation is metadata-only for existing hot paths: unknown turn ids degrade to the previous behavior, and no compression decision becomes more aggressive because a turn id exists.
+  - Verification: `go test -race ./...` passed; `go run ./scripts/ci` passed all 8 steps with total coverage 100.0%.
+  - Installed `/Users/christopher/.local/bin/slimference`, restarted the daemon, and verified it running on PID `93769` port `8990`.
+  - Post-install Codex CLI-only smoke returned `SLIMFERENCE_T138_TURN_KEYS_OK` through the process-local `slimference-codex` provider. Flight `63e141f7330a2fdb` recorded `provider=codex_chatgpt`, `route_mode=upstream`, `path=/backend-api/codex/responses`, `provider_input_tokens=32450`, `provider_cached_tokens=7552`, and `provider_output_tokens=26`.

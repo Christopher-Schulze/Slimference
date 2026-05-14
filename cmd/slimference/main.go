@@ -858,8 +858,10 @@ func handlePostToolCmd(args []string) {
 	// Best-effort: storage errors leave the original behaviour intact.
 	if home, err := osUserHomeDir(); err == nil && details.SessionID != "" {
 		if repDB, repErr := repetition.Open(repetition.DefaultPath(home)); repErr == nil {
+			turnID := currentHookTurnID(sessions.DefaultHookStateDir(home), details.SessionID)
 			count, firstMsg, _ := repetition.Record(repDB, repetition.Key{
 				SessionID: details.SessionID,
+				TurnID:    turnID,
 				ToolName:  details.ToolName,
 				Command:   details.CommandLine,
 				Output:    details.ToolResponse,
@@ -873,10 +875,12 @@ func handlePostToolCmd(args []string) {
 	}
 
 	if home, err := osUserHomeDir(); err == nil {
+		turnID := currentHookTurnID(sessions.DefaultHookStateDir(home), details.SessionID)
 		entry, archiveErr := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
 			ToolName:  details.ToolName,
 			ToolUseID: details.ToolUseID,
 			SessionID: details.SessionID,
+			TurnID:    turnID,
 			Command:   details.CommandLine,
 			Output:    details.ToolResponse,
 			Preview:   string(compacted),
@@ -1099,6 +1103,9 @@ func handleReadHookCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "home: %v\n", err)
 		exitFn(1)
 	}
+	if req.TurnID == "" {
+		req.TurnID = currentHookTurnID(sessions.DefaultHookStateDir(home), req.SessionID)
+	}
 	decision, err := readcache.Evaluate(readcache.DefaultDir(home), req)
 	if err != nil {
 		recordHookFlight("readhook", req.SessionID, mode, "error", 0, 0, nil, err)
@@ -1201,6 +1208,17 @@ func observePostToolTurnState(workDir string, details filter.PostToolPayload) {
 			_ = sessions.ObserveHookFile(dir, details.SessionID, candidate, "edit")
 		}
 	}
+}
+
+func currentHookTurnID(dir, sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	turnID, err := sessions.CurrentHookTurnID(dir, sessionID)
+	if err != nil {
+		return ""
+	}
+	return turnID
 }
 
 func applyPostToolCrossToolDedup(workDir string, details filter.PostToolPayload) ([]byte, bool) {

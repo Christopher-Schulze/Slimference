@@ -3,6 +3,8 @@ package readcache
 import (
 	"fmt"
 	"os"
+
+	"github.com/slimference/slimference/internal/sessions"
 )
 
 const maxCachedFileBytes = 64 * 1024
@@ -11,6 +13,9 @@ func Evaluate(dir string, req Request) (Decision, error) {
 	state, err := LoadSession(dir, req.SessionID)
 	if err != nil {
 		return Decision{}, err
+	}
+	if turnID := safeTurn(req.TurnID); turnID != "" {
+		state.CurrentTurnID = turnID
 	}
 
 	absPath, err := readCacheAbsPath(req.FilePath)
@@ -89,8 +94,13 @@ func sameRange(entry *FileEntry, req Request) bool {
 
 func updateEntry(entry *FileEntry, req Request, modTime int64, content string) {
 	entry.Path = req.FilePath
+	entry.LastTurnID = safeTurn(req.TurnID)
 	entry.Offset = req.Offset
 	entry.Limit = req.Limit
 	entry.ModTimeUnixNs = modTime
 	entry.CachedContent = content
+}
+
+func safeTurn(turnID string) string {
+	return sessions.SafeOptionalTurnID(turnID)
 }

@@ -14,6 +14,7 @@ func TestArchiveAndExpand(t *testing.T) {
 		ToolName:  "Bash",
 		ToolUseID: "tool_123",
 		SessionID: "sess_1",
+		TurnID:    "turn/1",
 		Command:   "npm test",
 		Output:    strings.Repeat("line\n", 800),
 		Preview:   "short preview",
@@ -21,7 +22,7 @@ func TestArchiveAndExpand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entry == nil || entry.ID != "tool_123" {
+	if entry == nil || entry.ID != "tool_123" || entry.TurnID != "turn_1" {
 		t.Fatalf("entry=%+v", entry)
 	}
 

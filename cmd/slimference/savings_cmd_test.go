@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -409,6 +411,21 @@ func TestComputeSavings_ProjectSkipsDecisionLogProxyFlights(t *testing.T) {
 	got := computeSavings(cfg, "today", "/project", now)
 	if got.ProxyRequests != 0 || got.ProxySavedTokens != 0 {
 		t.Fatalf("project-scoped savings must not use unscoped decision log: %+v", got)
+	}
+}
+
+func TestAccumulateProxyFlightsReplayErrorIsIgnored(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	t.Cleanup(func() { replaySessionFn = prevReplay })
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return nil, errors.New("replay")
+	}
+	out := SavingsSummary{}
+	accumulateProxyFlightsFromDecisionLog(&out, cfg, "today", time.Now())
+	if out.ProxyRequests != 0 {
+		t.Fatalf("replay error should leave summary unchanged: %+v", out)
 	}
 }
 

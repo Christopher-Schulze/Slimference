@@ -2,6 +2,7 @@ package readcache
 
 type Request struct {
 	SessionID string
+	TurnID    string
 	FilePath  string
 	Offset    int
 	Limit     int
@@ -34,6 +35,7 @@ type Decision struct {
 
 type FileEntry struct {
 	Path          string `json:"path"`
+	LastTurnID    string `json:"last_turn_id,omitempty"`
 	Offset        int    `json:"offset"`
 	Limit         int    `json:"limit"`
 	ModTimeUnixNs int64  `json:"mod_time_unix_ns"`
@@ -41,8 +43,9 @@ type FileEntry struct {
 }
 
 type SessionState struct {
-	SessionID string                `json:"session_id"`
-	Files     map[string]*FileEntry `json:"files"`
+	SessionID     string                `json:"session_id"`
+	CurrentTurnID string                `json:"current_turn_id,omitempty"`
+	Files         map[string]*FileEntry `json:"files"`
 }
 
 type Stats struct {

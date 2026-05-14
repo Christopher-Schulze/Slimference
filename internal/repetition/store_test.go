@@ -29,19 +29,27 @@ func TestDefaultPath(t *testing.T) {
 
 func TestRecord_FirstHitInsert(t *testing.T) {
 	db := openTestDB(t)
-	count, firstMsg, err := Record(db, Key{SessionID: "s", ToolName: "Bash", Command: "git status", Output: "ok"}, 7)
+	count, firstMsg, err := Record(db, Key{SessionID: "s", TurnID: "turn/1", ToolName: "Bash", Command: "git status", Output: "ok"}, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 || firstMsg != 7 {
 		t.Fatalf("first hit: count=%d firstMsg=%d", count, firstMsg)
 	}
+	var firstTurn string
+	var lastTurn string
+	if err := db.QueryRow(`SELECT first_turn_id, last_turn_id FROM posttool_repetitions WHERE session_id = ?`, "s").Scan(&firstTurn, &lastTurn); err != nil {
+		t.Fatal(err)
+	}
+	if firstTurn != "turn_1" || lastTurn != "turn_1" {
+		t.Fatalf("turn ids: first=%q last=%q", firstTurn, lastTurn)
+	}
 }
 
 func TestRecord_RepeatedHitsBump(t *testing.T) {
 	db := openTestDB(t)
 	for i := 1; i <= 3; i++ {
-		count, first, err := Record(db, Key{SessionID: "s", ToolName: "Bash", Command: "git status", Output: "same"}, i)
+		count, first, err := Record(db, Key{SessionID: "s", TurnID: "turn-" + string(rune('0'+i)), ToolName: "Bash", Command: "git status", Output: "same"}, i)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,6 +59,13 @@ func TestRecord_RepeatedHitsBump(t *testing.T) {
 		if first != 1 {
 			t.Fatalf("hit %d: firstMsg drifted: %d", i, first)
 		}
+	}
+	var lastTurn string
+	if err := db.QueryRow(`SELECT last_turn_id FROM posttool_repetitions WHERE session_id = ?`, "s").Scan(&lastTurn); err != nil {
+		t.Fatal(err)
+	}
+	if lastTurn != "turn-3" {
+		t.Fatalf("last turn = %q", lastTurn)
 	}
 }
 
@@ -82,6 +97,115 @@ func TestHashKeyUsesSafeOptionalSessionID(t *testing.T) {
 	blank, _, _ := hashKey(Key{SessionID: " \n ", ToolName: "Bash", Output: "x"})
 	if blank != "" {
 		t.Fatalf("blank optional session id = %q", blank)
+	}
+}
+
+func TestEnsureTextColumnMigratesOldSchema(t *testing.T) {
+	db := openTestDB(t)
+	if _, err := db.Exec(`DROP TABLE posttool_repetitions`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE posttool_repetitions (session_id TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureTextColumn(db, "posttool_repetitions", "first_turn_id"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureTextColumn(db, "posttool_repetitions", "first_turn_id"); err != nil {
+		t.Fatal(err)
+	}
+	var found int
+	rows, err := db.Query(`PRAGMA table_info(posttool_repetitions)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatal(err)
+		}
+		if name == "first_turn_id" {
+			found++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if found != 1 {
+		t.Fatalf("first_turn_id column count=%d", found)
+	}
+	if err := ensureTextColumn(db, "missing_table", "x"); err == nil {
+		t.Fatal("expected missing-table alter error")
+	}
+	closed := openTestDB(t)
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureTextColumn(closed, "posttool_repetitions", "x"); err == nil {
+		t.Fatal("expected closed-db query error")
+	}
+}
+
+func TestEnsureTextColumnInjectedErrors(t *testing.T) {
+	db := openTestDB(t)
+	prevScan := scanTextColumnFunc
+	prevRowsErr := textColumnRowsErrFunc
+	t.Cleanup(func() {
+		scanTextColumnFunc = prevScan
+		textColumnRowsErrFunc = prevRowsErr
+	})
+	scanTextColumnFunc = func(*sql.Rows) (string, error) { return "", errors.New("scan") }
+	if err := ensureTextColumn(db, "posttool_repetitions", "first_turn_id"); err == nil {
+		t.Fatal("expected scan error")
+	}
+	scanTextColumnFunc = prevScan
+	textColumnRowsErrFunc = func(*sql.Rows) error { return errors.New("rows") }
+	if err := ensureTextColumn(db, "posttool_repetitions", "missing_column"); err == nil {
+		t.Fatal("expected rows error")
+	}
+	rows, err := db.Query(`SELECT 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatal("expected one row")
+	}
+	if _, err := scanTextColumn(rows); err == nil {
+		t.Fatal("expected direct scan error")
+	}
+}
+
+func TestMigrateEnsureColumnErrors(t *testing.T) {
+	db := openTestDB(t)
+	prev := ensureTextColumnFunc
+	t.Cleanup(func() { ensureTextColumnFunc = prev })
+	ensureTextColumnFunc = func(*sql.DB, string, string) error { return errors.New("first ensure") }
+	if err := migrate(db); err == nil {
+		t.Fatal("expected first ensure error")
+	}
+	count := 0
+	ensureTextColumnFunc = func(*sql.DB, string, string) error {
+		count++
+		if count == 2 {
+			return errors.New("second ensure")
+		}
+		return nil
+	}
+	if err := migrate(db); err == nil {
+		t.Fatal("expected second ensure error")
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ensureTextColumnFunc = prev
+	if err := migrate(db); err == nil {
+		t.Fatal("expected migrate exec error")
 	}
 }
 
@@ -141,7 +265,7 @@ func TestRecord_InsertExecErrorOnConstraintViolation(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE posttool_repetitions`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE posttool_repetitions (session_id TEXT NOT NULL, tool_key TEXT NOT NULL, output_sha TEXT NOT NULL, hit_count INTEGER, first_seen INTEGER, last_seen INTEGER, first_msg INTEGER, extra_required INTEGER NOT NULL, PRIMARY KEY (session_id, tool_key, output_sha))`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE posttool_repetitions (session_id TEXT NOT NULL, first_turn_id TEXT NOT NULL DEFAULT '', last_turn_id TEXT NOT NULL DEFAULT '', tool_key TEXT NOT NULL, output_sha TEXT NOT NULL, hit_count INTEGER, first_seen INTEGER, last_seen INTEGER, first_msg INTEGER, extra_required INTEGER NOT NULL, PRIMARY KEY (session_id, tool_key, output_sha))`); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := Record(db, Key{SessionID: "s", ToolName: "x", Output: "y"}, 1); err == nil {
@@ -161,7 +285,7 @@ func TestRecord_UpdateExecErrorOnConstraintViolation(t *testing.T) {
 	if _, err := db.Exec(`DROP TABLE posttool_repetitions`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TABLE posttool_repetitions (session_id TEXT NOT NULL, tool_key TEXT NOT NULL, output_sha TEXT NOT NULL, hit_count INTEGER NOT NULL CHECK (hit_count < 2), first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, first_msg INTEGER NOT NULL, PRIMARY KEY (session_id, tool_key, output_sha))`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE posttool_repetitions (session_id TEXT NOT NULL, first_turn_id TEXT NOT NULL DEFAULT '', last_turn_id TEXT NOT NULL DEFAULT '', tool_key TEXT NOT NULL, output_sha TEXT NOT NULL, hit_count INTEGER NOT NULL CHECK (hit_count < 2), first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, first_msg INTEGER NOT NULL, PRIMARY KEY (session_id, tool_key, output_sha))`); err != nil {
 		t.Fatal(err)
 	}
 	// Reseed via raw SQL so the row exists; Record's UPDATE will then

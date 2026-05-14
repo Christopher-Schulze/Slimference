@@ -42,8 +42,35 @@ func TestReReadDetector_EmptyKeyIgnored(t *testing.T) {
 	if d.Observe("s1", "") {
 		t.Fatal("empty key must not register")
 	}
+	if d.Observe("", "key") {
+		t.Fatal("empty session must not register")
+	}
 	if d.Stats().TotalChecks != 0 {
-		t.Fatal("empty key must not increment checks")
+		t.Fatal("empty key/session must not increment checks")
+	}
+}
+
+func TestReReadDetector_ObserveTurnUsesExplicitTurnBoundary(t *testing.T) {
+	t.Parallel()
+	d := NewReReadDetector(1)
+	if d.ObserveTurn("sess/1", "turn/1", "tool:read:a") {
+		t.Fatal("first observation must miss")
+	}
+	if !d.ObserveTurn("sess/1", "turn/1", "tool:read:a") {
+		t.Fatal("same explicit turn should hit without advancing the window")
+	}
+	if !d.ObserveTurn("sess/1", "turn/2", "tool:read:a") {
+		t.Fatal("next explicit turn is still inside window")
+	}
+	if d.ObserveTurn("sess/1", "turn/3", "tool:read:filler") {
+		t.Fatal("distinct filler key should miss")
+	}
+	if d.ObserveTurn("sess/1", "turn/4", "tool:read:a") {
+		t.Fatal("two explicit turn advances should leave the one-turn window")
+	}
+	stats := d.Stats()
+	if stats.Sessions != 1 || stats.TotalChecks != 5 || stats.TotalHits != 2 {
+		t.Fatalf("turn-aware stats wrong: %+v", stats)
 	}
 }
 

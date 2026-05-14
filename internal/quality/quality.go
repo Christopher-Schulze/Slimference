@@ -21,6 +21,8 @@ package quality
 import (
 	"sync"
 	"time"
+
+	"github.com/slimference/slimference/internal/sessions"
 )
 
 // ReReadDetector maintains a per-session map of tool keys with the turn
@@ -38,6 +40,7 @@ type ReReadDetector struct {
 
 type sessionState struct {
 	turn        int
+	lastTurnID  string
 	keyLastSeen map[string]int
 }
 
@@ -60,7 +63,16 @@ func NewReReadDetector(windowTurns int) *ReReadDetector {
 // Returns true when the key was last seen within the configured
 // window (a re-read), false otherwise. Empty keys are ignored.
 func (d *ReReadDetector) Observe(sessionID, toolKey string) bool {
+	return d.ObserveTurn(sessionID, "", toolKey)
+}
+
+func (d *ReReadDetector) ObserveTurn(sessionID, turnID, toolKey string) bool {
+	sessionID = sessions.SafeOptionalSessionID(sessionID)
+	turnID = sessions.SafeOptionalTurnID(turnID)
 	if toolKey == "" {
+		return false
+	}
+	if sessionID == "" {
 		return false
 	}
 	d.mu.Lock()
@@ -75,7 +87,10 @@ func (d *ReReadDetector) Observe(sessionID, toolKey string) bool {
 		st = &sessionState{keyLastSeen: make(map[string]int)}
 		d.sessions[sessionID] = st
 	}
-	st.turn++
+	if turnID == "" || turnID != st.lastTurnID {
+		st.turn++
+		st.lastTurnID = turnID
+	}
 
 	prev, ok := st.keyLastSeen[toolKey]
 	hit := ok && st.turn-prev <= d.windowTurns

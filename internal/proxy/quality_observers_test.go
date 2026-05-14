@@ -29,6 +29,12 @@ func TestObserveQualityToolKey_RoundTrip(t *testing.T) {
 	if p.QualitySnapshot().ReRead.TotalChecks != 2 {
 		t.Fatal("empty observation should not increment checks")
 	}
+	if p.ObserveQualityToolKeyForTurn("sess/1", "turn/1", "tool:a") {
+		t.Fatal("first turn-aware observation should miss")
+	}
+	if !p.ObserveQualityToolKeyForTurn("sess/1", "turn/1", "tool:a") {
+		t.Fatal("same turn-aware observation should hit")
+	}
 }
 
 func TestObserveQualityCacheHit_FeedsSpikeDetector(t *testing.T) {

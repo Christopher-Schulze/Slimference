@@ -599,6 +599,9 @@ reduced `tools[]`. Reattach (T103b) is tracked separately.
 
 The `slimference posttool` hook records each `(session_id,
 tool_name, command, output)` tuple in `~/.slimference/repetition.db`.
+The row also keeps `first_turn_id` and `last_turn_id` for debug/provenance, but
+the identity stays session-wide so useful cross-turn repetition detection is not
+accidentally reduced to one turn.
 On the third (and later) occurrence, the captured output is
 replaced with `[tool output identical to msg #N (seen M times)]`
 before the archive write. Counters at
@@ -740,9 +743,11 @@ git path-list observation. This is diagnostic only; missing hook state does not
 change proxy behaviour.
 
 Persistent hook/read-cache/repetition/tool-archive storage now uses the shared
-`internal/sessions.SafeSessionID` convention for non-empty session ids. Blank
-sessions remain no-op/anonymous depending on the store so missing provider
-session metadata never creates unbounded cross-session state.
+`internal/sessions.SafeSessionID` convention for non-empty session ids and
+`internal/sessions.SafeTurnID` for turn metadata. Blank sessions remain
+no-op/anonymous depending on the store, and blank turn ids degrade to the prior
+session-only behaviour so missing provider metadata never creates unbounded
+cross-session state.
 
 ### TOML scope safety
 

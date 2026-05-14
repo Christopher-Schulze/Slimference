@@ -23,9 +23,12 @@ import (
 // the error paths can be exercised without root permissions or a
 // broken filesystem.
 var (
-	sqlOpenFunc  = func(driver, dsn string) (*sql.DB, error) { return sql.Open(driver, dsn) }
-	mkdirAllFunc = os.MkdirAll
-	migrateFunc  = migrate
+	sqlOpenFunc           = func(driver, dsn string) (*sql.DB, error) { return sql.Open(driver, dsn) }
+	mkdirAllFunc          = os.MkdirAll
+	migrateFunc           = migrate
+	ensureTextColumnFunc  = ensureTextColumn
+	scanTextColumnFunc    = scanTextColumn
+	textColumnRowsErrFunc = func(rows *sql.Rows) error { return rows.Err() }
 )
 
 // DefaultPath returns the canonical on-disk path for the repetition DB.
@@ -54,6 +57,8 @@ func migrate(db *sql.DB) error {
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS posttool_repetitions (
   session_id TEXT NOT NULL,
+  first_turn_id TEXT NOT NULL DEFAULT '',
+  last_turn_id TEXT NOT NULL DEFAULT '',
   tool_key   TEXT NOT NULL,
   output_sha TEXT NOT NULL,
   hit_count  INTEGER NOT NULL,
@@ -64,13 +69,20 @@ CREATE TABLE IF NOT EXISTS posttool_repetitions (
 );
 CREATE INDEX IF NOT EXISTS idx_posttool_rep_last ON posttool_repetitions(last_seen);
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := ensureTextColumnFunc(db, "posttool_repetitions", "first_turn_id"); err != nil {
+		return err
+	}
+	return ensureTextColumnFunc(db, "posttool_repetitions", "last_turn_id")
 }
 
 // Key normalises the tuple identity used for repetition matching.
 // Output is hashed so the store stays compact even for large bodies.
 type Key struct {
 	SessionID string
+	TurnID    string
 	ToolName  string
 	Command   string
 	Output    string
@@ -93,6 +105,7 @@ func Record(db *sql.DB, k Key, msgIdx int) (count int, firstMsg int, err error) 
 	if sess == "" || tool == "|" {
 		return 0, 0, nil
 	}
+	turnID := sessions.SafeOptionalTurnID(k.TurnID)
 	now := time.Now().Unix()
 
 	row := db.QueryRow(`
@@ -104,9 +117,9 @@ WHERE session_id = ? AND tool_key = ? AND output_sha = ?`, sess, tool, sha)
 	if scanErr == nil {
 		newCount := prev + 1
 		if _, err := db.Exec(`
-UPDATE posttool_repetitions SET hit_count = ?, last_seen = ?
+UPDATE posttool_repetitions SET hit_count = ?, last_seen = ?, last_turn_id = ?
 WHERE session_id = ? AND tool_key = ? AND output_sha = ?`,
-			newCount, now, sess, tool, sha); err != nil {
+			newCount, now, turnID, sess, tool, sha); err != nil {
 			return 0, 0, err
 		}
 		return newCount, prevMsg, nil
@@ -115,11 +128,45 @@ WHERE session_id = ? AND tool_key = ? AND output_sha = ?`,
 		return 0, 0, scanErr
 	}
 	if _, err := db.Exec(`
-INSERT INTO posttool_repetitions (session_id, tool_key, output_sha, hit_count, first_seen, last_seen, first_msg)
-VALUES (?, ?, ?, 1, ?, ?, ?)`, sess, tool, sha, now, now, msgIdx); err != nil {
+INSERT INTO posttool_repetitions (session_id, first_turn_id, last_turn_id, tool_key, output_sha, hit_count, first_seen, last_seen, first_msg)
+VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`, sess, turnID, turnID, tool, sha, now, now, msgIdx); err != nil {
 		return 0, 0, err
 	}
 	return 1, msgIdx, nil
+}
+
+func ensureTextColumn(db *sql.DB, table, column string) error {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		name, err := scanTextColumnFunc(rows)
+		if err != nil {
+			return err
+		}
+		if name == column {
+			return textColumnRowsErrFunc(rows)
+		}
+	}
+	if err := textColumnRowsErrFunc(rows); err != nil {
+		return err
+	}
+	_, err = db.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " TEXT NOT NULL DEFAULT ''")
+	return err
+}
+
+func scanTextColumn(rows *sql.Rows) (string, error) {
+	var cid int
+	var name, typ string
+	var notNull int
+	var defaultValue any
+	var pk int
+	if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 // Forget drops state for one session id. Used when an operator clears

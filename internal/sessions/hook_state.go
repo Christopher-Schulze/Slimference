@@ -182,6 +182,15 @@ func RecentlyEditedHookFile(dir, sessionID, path string, previousTurns int) (boo
 	return hit, err
 }
 
+func CurrentHookTurnID(dir, sessionID string) (string, error) {
+	var out string
+	err := inspectHookState(dir, sessionID, func(state *HookState) error {
+		out = SafeOptionalTurnID(state.CurrentTurn)
+		return nil
+	})
+	return out, err
+}
+
 func LoadHookState(dir, sessionID string) (HookState, error) {
 	path := hookStatePath(dir, sessionID)
 	data, err := os.ReadFile(path)

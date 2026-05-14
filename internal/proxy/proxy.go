@@ -970,12 +970,17 @@ func (p *Proxy) QualitySnapshot() quality.QualitySnapshot {
 // Called when a tool_use block is observed during request processing. Empty
 // session or key are no-ops. Returns true when the detector reports a re-read.
 func (p *Proxy) ObserveQualityToolKey(sessionID, toolKey string) bool {
+	return p.ObserveQualityToolKeyForTurn(sessionID, "", toolKey)
+}
+
+func (p *Proxy) ObserveQualityToolKeyForTurn(sessionID, turnID, toolKey string) bool {
 	sessionID = sessions.SafeOptionalSessionID(sessionID)
+	turnID = sessions.SafeOptionalTurnID(turnID)
 	toolKey = strings.TrimSpace(toolKey)
 	if sessionID == "" || toolKey == "" || p.qualityReRead == nil {
 		return false
 	}
-	return p.qualityReRead.Observe(sessionID, toolKey)
+	return p.qualityReRead.ObserveTurn(sessionID, turnID, toolKey)
 }
 
 // ObserveQualityCacheHit feeds prompt-cache hit/miss outcomes into the

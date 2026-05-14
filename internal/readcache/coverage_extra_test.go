@@ -61,6 +61,17 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 	if hydrated.SessionID != "hydrated" || hydrated.Files == nil {
 		t.Fatalf("hydrated=%+v", hydrated)
 	}
+	hydrated.CurrentTurnID = "turn/1"
+	if err := SaveSession(dir, hydrated); err != nil {
+		t.Fatal(err)
+	}
+	hydrated, err = LoadSession(dir, "hydrated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hydrated.CurrentTurnID != "turn_1" {
+		t.Fatalf("hydrated turn id=%q", hydrated.CurrentTurnID)
+	}
 
 	if got := sanitizeSessionID(" \n "); got != "anonymous" {
 		t.Fatalf("sanitizeSessionID blank=%q", got)
@@ -122,9 +133,16 @@ func TestReadCacheEvaluateAndStatsBranches(t *testing.T) {
 	if err := os.WriteFile(file, []byte(strings.Repeat("x", 10)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	req := Request{SessionID: "s2", FilePath: file}
+	req := Request{SessionID: "s2", TurnID: "turn/2", FilePath: file}
 	if _, err := Evaluate(dir, req); err != nil {
 		t.Fatal(err)
+	}
+	state, err := LoadSession(dir, "s2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.CurrentTurnID != "turn_2" || state.Files[file].LastTurnID != "turn_2" {
+		t.Fatalf("turn state not stored: %+v", state)
 	}
 	if err := os.WriteFile(file, []byte(strings.Repeat("x", 10)), 0o644); err != nil {
 		t.Fatal(err)
@@ -165,11 +183,11 @@ func TestReadCacheEvaluateAndStatsBranches(t *testing.T) {
 func TestReadCachePayloadCoverage(t *testing.T) {
 	t.Parallel()
 
-	req, err := ExtractRequest([]byte(`{"session_id":"s","tool_input":{"file_path":"x","offset":1.9,"limit":7}}`))
+	req, err := ExtractRequest([]byte(`{"session_id":"s","turn_id":"turn/1","tool_input":{"file_path":"x","offset":1.9,"limit":7}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if req.Offset != 1 || req.Limit != 7 {
+	if req.TurnID != "turn/1" || req.Offset != 1 || req.Limit != 7 {
 		t.Fatalf("request=%+v", req)
 	}
 
