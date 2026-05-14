@@ -105,9 +105,13 @@ Layer 0 parser coverage is driven by observed traffic:
 
 ### Infra / Monorepo
 
-- Docker build/run errors.
-- Kubernetes `kubectl describe/get/events`.
-- Helm lint/template/install.
+- [x] Docker/Podman/Nerdctl build/run diagnostic matching through the shared
+  ecosystem parser; existing container compactor still owns list/table output.
+- [x] Kubernetes `kubectl`/`oc` describe/get/events diagnostic matching through
+  the shared ecosystem parser; existing container/log compactors still own
+  `kubectl get` tables and logs.
+- [x] Helm lint/template/install diagnostic matching through the shared
+  ecosystem parser; existing quiet-list/search compactors remain intact.
 - Terraform/OpenTofu plan/apply already exists; extend real misses.
 - GitHub CLI output.
 - Nx/Turborepo/Lerna workspace output.
@@ -227,3 +231,8 @@ Layer 0 parser coverage is driven by observed traffic:
   Kotlin, Dart, Flutter, PHP, and related tools, and keeps Kotlin compiler
   `e: file.kt: (line, col)` rows as actionable diagnostics instead of treating
   them as generic text.
+- 2026-05-14: Docker/Kubernetes/Helm diagnostic slice landed. The shared
+  ecosystem parser now recognizes Docker, Docker Compose, Podman, Nerdctl,
+  `kubectl`, `oc`, and Helm error/warning output, while the existing
+  container/log compactors continue to own table counts, quiet-empty results,
+  and repeated log collapse.

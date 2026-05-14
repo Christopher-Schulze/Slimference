@@ -320,6 +320,13 @@ func TestPracticalEcosystemDiagnosticArgv(t *testing.T) {
 		{[]string{"xcodebuild", "test"}, true},
 		{[]string{"flutter", "analyze"}, true},
 		{[]string{"phpunit", "tests"}, true},
+		{[]string{"docker", "build", "."}, true},
+		{[]string{"docker-compose", "up"}, true},
+		{[]string{"podman", "build", "."}, true},
+		{[]string{"nerdctl", "compose", "up"}, true},
+		{[]string{"kubectl", "describe", "pod", "web"}, true},
+		{[]string{"oc", "get", "events"}, true},
+		{[]string{"helm", "install", "app", "chart/"}, true},
 		{[]string{"not-a-build-tool", "x"}, false},
 	}
 	for _, tt := range tests {
@@ -382,6 +389,25 @@ Found 1 error.`)
 	}
 	if !strings.Contains(got, "[ecosystem] FAILED") {
 		t.Fatalf("unexpected javac dispatch output: %q", got)
+	}
+
+	kubeStdout := diagnosticOutputWithNeutralPadding(`Error from server (NotFound): pods "web" not found
+Warning  FailedScheduling  default-scheduler  0/3 nodes are available`)
+	got, ok = ParseFailures([]string{"kubectl", "describe", "pod", "web"}, kubeStdout)
+	if !ok {
+		t.Fatal("expected kubectl dispatch")
+	}
+	if !strings.Contains(got, "[ecosystem] FAILED") || !strings.Contains(got, "FailedScheduling") {
+		t.Fatalf("unexpected kubectl dispatch output: %q", got)
+	}
+
+	helmStdout := diagnosticOutputWithNeutralPadding(`Error: INSTALLATION FAILED: template: chart/templates/deploy.yaml:12: bad character U+002D '-'`)
+	got, ok = ParseFailures([]string{"helm", "install", "app", "chart/"}, helmStdout)
+	if !ok {
+		t.Fatal("expected helm dispatch")
+	}
+	if !strings.Contains(got, "[ecosystem] FAILED") || !strings.Contains(got, "INSTALLATION FAILED") {
+		t.Fatalf("unexpected helm dispatch output: %q", got)
 	}
 }
 
