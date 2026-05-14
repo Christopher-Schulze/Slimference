@@ -42,6 +42,22 @@ func TestArchiveAndExpand(t *testing.T) {
 	}
 }
 
+func TestRenderContextIncludesBodyExpandHintForASTPreview(t *testing.T) {
+	t.Parallel()
+	got := RenderContext(Entry{
+		ID:      "tool-ast",
+		Command: "cat service.go",
+		Preview: `package demo
+
+func Huge() int { /* body omitted: 40 lines */ }
+
+/* AST-compacted by Slimference. Re-read the file for full bodies when editing/debugging. */`,
+	})
+	if !strings.Contains(got, "Body expand: slimference expand-body tool-ast <symbol>") {
+		t.Fatalf("missing body expand hint:\n%s", got)
+	}
+}
+
 func TestEligibleRequiresRealMetadata(t *testing.T) {
 	t.Parallel()
 

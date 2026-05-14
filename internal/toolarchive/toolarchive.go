@@ -250,9 +250,14 @@ func RenderContext(entry Entry) string {
 	if entry.Command != "" {
 		base = fmt.Sprintf("Large tool output archived locally for %q.", entry.Command)
 	}
+	bodyHint := ""
+	if strings.Contains(entry.Preview, "AST-compacted by Slimference") {
+		bodyHint = fmt.Sprintf("Body expand: slimference expand-body %s <symbol>\n", entry.ID)
+	}
 	return base + "\n" +
 		fmt.Sprintf("Reference: %s\n", entry.URI) +
 		fmt.Sprintf("Archive ID: %s\n", entry.ID) +
+		bodyHint +
 		"Preview:\n" + entry.Preview
 }
 

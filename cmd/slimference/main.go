@@ -166,7 +166,9 @@ var (
 			}
 		}
 	}
-	proxyStartTimeout = 200 * time.Millisecond
+	proxyStartTimeout       = 200 * time.Millisecond
+	daemonStartTimeout      = 3 * time.Second
+	daemonStartPollInterval = 50 * time.Millisecond
 	// runTeaProgramFn injects tea.Program.Run so tests can return immediately without a terminal.
 	runTeaProgramFn = (*tea.Program).Run
 	// tuiSendProxyEventFn injects tui.SendProxyEvent so progSender.send can be tested without a running program.
@@ -262,7 +264,7 @@ func wantsHeadless(args []string) bool {
 	knownSubcommands := map[string]bool{
 		"version": true, "config": true, "test": true, "doctor": true,
 		"stats": true, "gain": true, "savings": true, "compress-preview": true, "watch": true, "filter": true, "rewrite": true,
-		"readhook": true, "posttool": true, "codexhook": true, "checkpoint": true, "expand": true,
+		"readhook": true, "posttool": true, "codexhook": true, "checkpoint": true, "expand": true, "expand-body": true,
 		"hook": true, "debug": true, "daemon": true, "start": true, "stop": true,
 		"restart": true, "service": true, "integrate": true, "bypass": true,
 		"completion": true, "trust": true,
@@ -545,6 +547,9 @@ func handleSubcommand(args []string) {
 	case "expand":
 		handleExpandCmd(args[1:])
 
+	case "expand-body":
+		handleExpandBodyCmd(args[1:])
+
 	case "hook":
 		handleHookCmd(args[1:])
 
@@ -592,7 +597,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, expand-body, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
 		exitFn(1)
 	}
 }
@@ -3181,6 +3186,9 @@ func (sca *serviceControlAdapter) StartDaemon() error {
 	if err := startDetachedDaemonFn(binary); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
 	}
+	if _, err := waitForDaemonStarted(daemonStartTimeout, daemonStartPollInterval); err != nil {
+		return fmt.Errorf("start daemon: %w", err)
+	}
 	return nil
 }
 
@@ -3594,6 +3602,16 @@ func handleStartCmd() {
 		fmt.Fprintf(os.Stderr, "start daemon: %v\n", err)
 		exitFn(1)
 	}
+	started, err := waitForDaemonStarted(daemonStartTimeout, daemonStartPollInterval)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "start daemon: %v\n", err)
+		fmt.Fprintln(os.Stderr, "  check `slimference service logs --stream=stderr` for daemon startup errors")
+		exitFn(1)
+	}
+	if started != nil && started.PID > 0 {
+		fmt.Printf("Slimference daemon started. PID %d, port %d.\n", started.PID, started.Port)
+		return
+	}
 	fmt.Println("Slimference daemon started.")
 }
 
@@ -3613,6 +3631,27 @@ func handleRestartCmd() {
 		}
 	}
 	handleStartCmd()
+}
+
+func waitForDaemonStarted(timeout, interval time.Duration) (*daemon.PIDFile, error) {
+	deadline := timeAfterFn(timeout)
+	ticker := newTickerFn(interval)
+	defer ticker.Stop()
+
+	for {
+		running, pf, err := daemonIsRunningFn()
+		if err != nil {
+			return nil, fmt.Errorf("check daemon: %w", err)
+		}
+		if running {
+			return pf, nil
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline:
+			return nil, fmt.Errorf("timeout after %s", timeout)
+		}
+	}
 }
 
 // postInstallHealthProbeTimeout bounds the health probe in seconds. Test-

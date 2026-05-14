@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/slimference/slimference/internal/checkpoints"
+	"github.com/slimference/slimference/internal/codecompact"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/toolarchive"
 )
 
@@ -104,4 +106,57 @@ func handleExpandCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "expand write: %v\n", err)
 		exitFn(1)
 	}
+}
+
+func handleExpandBodyCmd(args []string) {
+	if len(args) != 2 || strings.TrimSpace(args[0]) == "" || strings.TrimSpace(args[1]) == "" {
+		fmt.Fprintln(os.Stderr, "usage: slimference expand-body <archive-id|local-archive://<id>> <go-symbol>")
+		exitFn(1)
+		return
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "home: %v\n", err)
+		exitFn(1)
+		return
+	}
+	var body []byte
+	path := "archive.go"
+	if meta, raw, err := toolarchive.Expand(toolarchive.DefaultDir(home), args[0]); err == nil {
+		body = raw
+		if p := filterReadPath(meta.Command); p != "" {
+			path = p
+		}
+	} else if _, raw, err := contentarchive.Get(contentarchive.DefaultDir(home), args[0]); err == nil {
+		body = raw
+	} else {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(os.Stderr, "archive entry not found")
+			exitFn(1)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "expand-body: %v\n", err)
+		exitFn(1)
+		return
+	}
+	out, ok, err := codecompact.ExtractGoSymbolBody(path, body, args[1])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "expand-body: %v\n", err)
+		exitFn(1)
+		return
+	}
+	if !ok {
+		fmt.Fprintf(os.Stderr, "symbol body not found: %s\n", strings.TrimSpace(args[1]))
+		exitFn(1)
+		return
+	}
+	if _, err := os.Stdout.Write(out); err != nil {
+		fmt.Fprintf(os.Stderr, "expand-body write: %v\n", err)
+		exitFn(1)
+		return
+	}
+}
+
+func filterReadPath(command string) string {
+	return filter.ReadPathFromCommandLine(command)
 }

@@ -1,6 +1,6 @@
 # TASK 138: Session/turn ownership spine for AST and cross-tool state
 
-Status: IN PROGRESS (core + hook-backed edit/read gates + T126 mini hot path landed; body-on-demand still open)
+Status: IN PROGRESS (core + hook-backed edit/read gates + T125 body recovery + T126 mini hot path landed; TUI/debug convergence still open)
 Priority: P1
 Scope: `internal/sessions/`, `internal/proxy/`, `internal/hooks/`, `internal/filter/`, `internal/readcache/`, `internal/codecompact/`, `internal/crosstool/`, `internal/toolarchive/`, `internal/quality/`, `internal/tui/`.
 
@@ -9,7 +9,7 @@ Scope: `internal/sessions/`, `internal/proxy/`, `internal/hooks/`, `internal/fil
 Several features are intentionally conservative because the code lacks one authoritative session/turn state owner:
 
 - T125 AST compaction had `RecentlyEdited` and mode gates, but the hot path called it with static `Mode: "scan"` before the 2026-05-13 hook-backed context pass.
-- T125 body-on-demand cannot be honest without request/session ownership.
+- T125 body-on-demand cannot be honest without request/session ownership or an archive-backed original body source.
 - T126 crosstool dedup needs session/turn ownership; the standalone filter wrapper still lacks it, while Codex PostToolUse now has it through file-backed hook state.
 - Read cache, repetition store, tool archive, quality signals, prompt cache, and Layer 2 session IDs all infer state independently.
 
@@ -117,7 +117,7 @@ It is request-scoped where possible and process-scoped only behind explicit sess
 ## Acceptance
 
 - [x] T125 edit-mode gating is backed by real hook session/turn state for Codex hook/PostToolUse paths.
-- [ ] T125 body-on-demand has a real retrieval path or stays disabled.
+- [x] T125 body-on-demand has a real retrieval path or stays disabled.
 - [x] T126 hot-path integration is safe and per-turn only for Codex PostToolUse.
 - [ ] Read cache, repetition, tool archive, quality, and proxy share compatible session/turn keys.
 - [ ] TUI/debug can show why a file/tool output was compacted or left literal.
@@ -146,6 +146,12 @@ It is request-scoped where possible and process-scoped only behind explicit sess
   - Codex `PostToolUse` observes raw `git status` path lists and elides only later `git diff --name-only` output with the same session, same turn, same CWD, and same exact sorted path fingerprint.
   - The marker is explicit (`[Slimference: N git paths already shown by previous ...]`) and no diff hunks, name-status tables, git ls-files output, non-git output, or standalone `slimference filter` runs are touched.
   - Tests cover file-backed repeat detection, CWD separation, cap enforcement, command detection, marker escaping, and full PostToolUse JSON output.
+- 2026-05-14 T125 body-on-demand implementation:
+  - Large AST-compacted reads are already archived by `PostToolUse` with the raw original output and the compacted preview.
+  - `toolarchive.RenderContext` adds a concrete recovery command for AST previews: `slimference expand-body <archive-id> <symbol>`.
+  - `expand-body` extracts Go function/method declarations from the archived original, supporting `Func`, `Type.Method`, and `(*Type).Method` symbols.
+  - This is intentionally not wired through unsupported `updatedInput` mutation. The agent must run the explicit command when it needs an omitted body.
 - Open boundaries:
-  - Body-on-demand remains disabled; no retrieval protocol has been claimed.
   - T126 still needs live corpus proof before any broader command family or dedicated `gain --crosstool` report.
+  - TUI/debug still needs a compact session/turn state view.
+  - Read cache, repetition, tool archive, quality, and proxy still need a single visible session-key story.

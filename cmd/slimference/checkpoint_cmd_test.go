@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -120,6 +121,166 @@ func TestHandleExpandCmd_FallsBackToContentArchive(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	if !strings.Contains(buf.String(), "archived comment line") {
 		t.Fatalf("content-archive expand output=%q", buf.String())
+	}
+}
+
+func TestHandleExpandBodyCmd_PrintsArchivedGoBody(t *testing.T) {
+	origHome := osUserHomeDir
+	origStdout := os.Stdout
+	defer func() {
+		osUserHomeDir = origHome
+		os.Stdout = origStdout
+	}()
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	entry, err := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
+		ToolName:  "Bash",
+		ToolUseID: "body-1",
+		SessionID: "sess-body",
+		Command:   "cat service.go",
+		Output: `package demo
+
+type Service struct{}
+
+func (s *Service) Run() int {
+	return 42
+}
+` + strings.Repeat("// pad\n", 500),
+	})
+	if err != nil || entry == nil {
+		t.Fatalf("archive entry=%+v err=%v", entry, err)
+	}
+
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleExpandBodyCmd([]string{entry.ID, "Service.Run"})
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "func (s *Service) Run() int") || !strings.Contains(buf.String(), "return 42") {
+		t.Fatalf("expand-body output=%q", buf.String())
+	}
+}
+
+func TestHandleExpandBodyCmd_FallsBackToContentArchive(t *testing.T) {
+	origHome := osUserHomeDir
+	origStdout := os.Stdout
+	defer func() {
+		osUserHomeDir = origHome
+		os.Stdout = origStdout
+	}()
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
+		SessionID:    "sess-content-body",
+		MessageIndex: 1,
+		BlockIndex:   0,
+		SubLayer:     "go_ast",
+		Original: `package demo
+
+func Helper() int {
+	return 7
+}
+` + strings.Repeat("// pad\n", 80),
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil {
+		t.Fatalf("contentarchive put: entry=%#v err=%v", entry, err)
+	}
+
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleExpandBodyCmd([]string{entry.ID, "Helper"})
+	_ = w.Close()
+	os.Stdout = origStdout
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "func Helper() int") || !strings.Contains(buf.String(), "return 7") {
+		t.Fatalf("content expand-body output=%q", buf.String())
+	}
+}
+
+func TestHandleExpandBodyCmd_ErrorPaths(t *testing.T) {
+	origHome := osUserHomeDir
+	origStdout := os.Stdout
+	defer func() {
+		osUserHomeDir = origHome
+		os.Stdout = origStdout
+	}()
+
+	if code, exited := captureExit(func() { handleExpandBodyCmd([]string{"missing"}) }); !exited || code != 1 {
+		t.Fatalf("usage exit=%v code=%d", exited, code)
+	}
+	osUserHomeDir = func() (string, error) { return "", errors.New("no home") }
+	if code, exited := captureExit(func() { handleExpandBodyCmd([]string{"id", "Symbol"}) }); !exited || code != 1 {
+		t.Fatalf("home exit=%v code=%d", exited, code)
+	}
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	if code, exited := captureExit(func() { handleExpandBodyCmd([]string{"missing", "Symbol"}) }); !exited || code != 1 {
+		t.Fatalf("missing exit=%v code=%d", exited, code)
+	}
+	entry, err := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
+		ToolName:  "Bash",
+		ToolUseID: "body-miss",
+		SessionID: "sess-body",
+		Command:   "cat service.go",
+		Output:    "package demo\nfunc Present() {}\n" + strings.Repeat("// pad\n", 500),
+	})
+	if err != nil || entry == nil {
+		t.Fatalf("archive entry=%+v err=%v", entry, err)
+	}
+	if code, exited := captureExit(func() { handleExpandBodyCmd([]string{entry.ID, "Missing"}) }); !exited || code != 1 {
+		t.Fatalf("symbol miss exit=%v code=%d", exited, code)
+	}
+
+	broken, err := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
+		ToolName:  "Bash",
+		ToolUseID: "body-broken",
+		SessionID: "sess-body",
+		Command:   "cat broken.go",
+		Output:    "package demo\nfunc {\n" + strings.Repeat("// pad\n", 500),
+	})
+	if err != nil || broken == nil {
+		t.Fatalf("broken archive entry=%+v err=%v", broken, err)
+	}
+	if code, exited := captureExit(func() { handleExpandBodyCmd([]string{broken.ID, "Missing"}) }); !exited || code != 1 {
+		t.Fatalf("parse error exit=%v code=%d", exited, code)
+	}
+
+	good, err := toolarchive.Archive(toolarchive.DefaultDir(home), toolarchive.Input{
+		ToolName:  "Bash",
+		ToolUseID: "body-write",
+		SessionID: "sess-body",
+		Command:   "cat service.go",
+		Output:    "package demo\nfunc Present() {}\n" + strings.Repeat("// pad\n", 500),
+	})
+	if err != nil || good == nil {
+		t.Fatalf("good archive entry=%+v err=%v", good, err)
+	}
+	_, w, _ := os.Pipe()
+	_ = w.Close()
+	os.Stdout = w
+	if code, exited := captureExit(func() { handleExpandBodyCmd([]string{good.ID, "Present"}) }); !exited || code != 1 {
+		t.Fatalf("write exit=%v code=%d", exited, code)
+	}
+	os.Stdout = origStdout
+
+	errorHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(errorHome, ".slimference"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(errorHome, ".slimference", "content-archive"), []byte("not-dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	osUserHomeDir = func() (string, error) { return errorHome, nil }
+	if code, exited := captureExit(func() { handleExpandBodyCmd([]string{"missing", "Symbol"}) }); !exited || code != 1 {
+		t.Fatalf("generic archive exit=%v code=%d", exited, code)
 	}
 }
 

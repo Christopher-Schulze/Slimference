@@ -24,9 +24,14 @@ func TestServiceControlAdapter_StartDaemon(t *testing.T) {
 		startDetachedDaemonFn = origStartDetached
 	}()
 
-	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
-	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	started := false
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		if started {
+			return true, &daemon.PIDFile{PID: 77, Port: 8990}, nil
+		}
+		return false, nil, nil
+	}
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	startDetachedDaemonFn = func(binary string) error {
 		started = true
 		if binary != "/tmp/slimference" {
@@ -107,6 +112,9 @@ func TestServiceControlAdapter_StopRestartInstallUninstallAndStatus(t *testing.T
 		if isRunningChecks == 1 {
 			return true, &daemon.PIDFile{PID: 42, Port: 8990}, nil
 		}
+		if startCalls > 0 {
+			return true, &daemon.PIDFile{PID: 43, Port: 8990}, nil
+		}
 		return false, nil, nil
 	}
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
@@ -173,9 +181,14 @@ func TestServiceControlAdapter_RestartAndInstallServiceErrors(t *testing.T) {
 		t.Fatalf("expected restart stop error, got %v", err)
 	}
 
-	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
-	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	startCalls := 0
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		if startCalls > 0 {
+			return true, &daemon.PIDFile{PID: 43, Port: 8990}, nil
+		}
+		return false, nil, nil
+	}
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	startDetachedDaemonFn = func(string) error {
 		startCalls++
 		return nil

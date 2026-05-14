@@ -23,6 +23,7 @@ SUBCOMMANDS:
   codexhook    Codex lifecycle hook entry points (stdin JSON)
   readhook     Claude Read-hook entry point (stdin JSON)
   expand       Retrieve an archived tool result by id
+  expand-body  Retrieve one Go function/method body from an archived read
   checkpoint   Manage smart-compaction checkpoints
   gain         Report filter/cache/output/proxy token accounting
   plan         Dry-run cross-layer compression planner decisions
@@ -141,6 +142,13 @@ updates the cache.
 
 Retrieve the full body of an archived tool result. Id is printed next to
 the preview in-context as 'slim://tool/<id>'. Prints to stdout.
+`
+	case "expand-body":
+		return `slimference expand-body <id> <go-symbol>
+
+Retrieve one Go function or method body from an archived file-read result.
+Use this when an AST-compacted preview omitted a body. Symbols may be plain
+functions (Run) or methods (Service.Run / (*Service).Run). Prints to stdout.
 `
 	case "checkpoint":
 		return `slimference checkpoint <list|show|restore> [args]

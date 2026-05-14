@@ -536,8 +536,8 @@ func TestHandleSubcommandAndPostToolEncodeCoverage(t *testing.T) {
 		ToolName:  "Bash",
 		ToolUseID: "dispatch-expand",
 		SessionID: "sess",
-		Command:   "cmd",
-		Output:    strings.Repeat("line\n", 700),
+		Command:   "cat dispatch.go",
+		Output:    "package main\nfunc Dispatch() int { return 1 }\n" + strings.Repeat("// pad\n", 700),
 	})
 	if err != nil || entry == nil {
 		t.Fatalf("archive err=%v entry=%+v", err, entry)
@@ -545,6 +545,12 @@ func TestHandleSubcommandAndPostToolEncodeCoverage(t *testing.T) {
 	r, w, _ = os.Pipe()
 	os.Stdout = w
 	handleSubcommand([]string{"expand", entry.ID})
+	_ = w.Close()
+	os.Stdout = origStdout
+	_ = r.Close()
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"expand-body", entry.ID, "Dispatch"})
 	_ = w.Close()
 	os.Stdout = origStdout
 	_ = r.Close()

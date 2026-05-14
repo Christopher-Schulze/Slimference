@@ -1276,13 +1276,23 @@ func TestHandleSubcommand_DaemonAndServiceDispatch(t *testing.T) {
 	}()
 
 	daemonRunFn = func(func() (int, func(context.Context) error, error)) error { return nil }
-	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
-	daemonStopFn = func() error { return nil }
+	started := false
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		if started {
+			return true, &daemon.PIDFile{PID: 99, Port: 8990}, nil
+		}
+		return false, nil, nil
+	}
+	daemonStopFn = func() error {
+		started = false
+		return nil
+	}
 	daemonInstallLaunchdFn = func(string) error { return nil }
 	daemonUninstallFn = func() error { return nil }
 	daemonFormatStatusFn = func() ([]byte, error) { return []byte(`{"running":false}`), nil }
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	osStartProcess = func(string, []string, *os.ProcAttr) (*os.Process, error) {
+		started = true
 		return os.FindProcess(os.Getpid())
 	}
 
@@ -1315,6 +1325,7 @@ func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
 	origFormatStatus := daemonFormatStatusFn
 	origExecutable := osExecutable
 	origStartProcess := osStartProcess
+	origStartDetached := startDetachedDaemonFn
 	defer func() {
 		daemonIsRunningFn = origIsRunning
 		daemonRunFn = origRunDaemon
@@ -1324,6 +1335,7 @@ func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
 		daemonFormatStatusFn = origFormatStatus
 		osExecutable = origExecutable
 		osStartProcess = origStartProcess
+		startDetachedDaemonFn = origStartDetached
 	}()
 
 	rp, cleanup := redirectStderr()
@@ -1338,13 +1350,18 @@ func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
 		t.Fatalf("handleDaemonCmd: exited=%v code=%d stderr=%q", exited, code, errBuf.String())
 	}
 
+	daemonStarted := false
 	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		if daemonStarted {
+			return true, &daemon.PIDFile{PID: 99, Port: 8990}, nil
+		}
 		return false, nil, nil
 	}
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
 	startCalls := 0
 	startDetachedDaemonFn = func(binary string) error {
 		startCalls++
+		daemonStarted = true
 		if binary != "/tmp/slimference" {
 			t.Fatalf("unexpected start binary: %q", binary)
 		}
@@ -1363,6 +1380,7 @@ func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
 	daemonStopCalls := 0
 	daemonStopFn = func() error {
 		daemonStopCalls++
+		daemonStarted = false
 		return nil
 	}
 	handleStopCmd()
@@ -1371,6 +1389,9 @@ func TestHandleDaemonStartStopRestartAndServiceCommands(t *testing.T) {
 		restartChecks++
 		if restartChecks == 1 {
 			return true, &daemon.PIDFile{PID: 1, Port: 2}, nil
+		}
+		if daemonStarted {
+			return true, &daemon.PIDFile{PID: 99, Port: 8990}, nil
 		}
 		return false, nil, nil
 	}
@@ -1417,9 +1438,11 @@ func TestHandleServiceStartStopRestartAndLogsAliases(t *testing.T) {
 	}()
 
 	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	started := false
 	startCalls := 0
 	startDetachedDaemonFn = func(binary string) error {
 		startCalls++
+		started = true
 		if binary != "/tmp/slimference" {
 			t.Fatalf("unexpected start binary: %q", binary)
 		}
@@ -1428,10 +1451,14 @@ func TestHandleServiceStartStopRestartAndLogsAliases(t *testing.T) {
 	stopCalls := 0
 	daemonStopFn = func() error {
 		stopCalls++
+		started = false
 		return nil
 	}
 	checks := 0
 	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		if started {
+			return true, &daemon.PIDFile{PID: 99, Port: 8990}, nil
+		}
 		checks++
 		switch checks {
 		case 1: // service start

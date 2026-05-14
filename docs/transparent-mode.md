@@ -58,7 +58,8 @@ Setup, then use:
 - `[a]` again to disarm and return apps to direct upstream connections.
 - `[u]` to run transparent uninstall from the TUI.
 - `[p]`, `[o]`, `[e]`, `[w]` for daemon start/stop, restart, autostart install,
-  and autostart removal.
+  and autostart removal. Start/restart waits for the daemon status file before
+  reporting success, so immediate status checks do not race process startup.
 
 The TUI status line is a cached operator snapshot: CA exists, CA trusted,
 autostart installed, system proxy armed, number of armed services, daemon

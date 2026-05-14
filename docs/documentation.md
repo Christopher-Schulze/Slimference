@@ -674,7 +674,9 @@ The TUI exposes the same transparent lifecycle. The Setup view starts with
 Codex/Claude hooks are legacy fallback steps after that. The Dashboard can arm
 or disarm transparent mode directly. Setup shortcuts are `[a]` arm/disarm,
 `[u]` uninstall transparent, `[p]` daemon start/stop, `[o]` restart, `[e]`
-enable autostart, and `[w]` disable autostart. The status shown there is a
+enable autostart, and `[w]` disable autostart. Daemon start/restart waits for
+the pid/status file before reporting success, so the next status refresh is not
+racy. The status shown there is a
 cached snapshot of CA, keychain trust, launchd, system proxy, daemon
 reachability, and networksetup health.
 
@@ -724,9 +726,12 @@ cross-tool mini path: raw `git status` path lists are recorded in the
 file-backed current turn, and a later same-session/same-turn/same-CWD
 `git diff --name-only` with the same exact path fingerprint is replaced by an
 explicit marker. Diff hunks, `--name-status`, `git ls-files`, non-git output,
-and standalone `slimference filter` runs are not touched. Unsupported/fail-open
-fields such as `PreToolUse.updatedInput` remain disabled until a live Codex
-build proves they are honored.
+and standalone `slimference filter` runs are not touched. For large
+AST-compacted Go file reads, the archive context also prints
+`slimference expand-body <archive-id> <symbol>` so an omitted function or method
+body can be recovered from the archived original. Unsupported/fail-open fields
+such as `PreToolUse.updatedInput` remain disabled until a live Codex build
+proves they are honored.
 
 ### TOML scope safety
 
@@ -1133,7 +1138,7 @@ slimference help [subcommand]
 |---------------|------------------------------------------------------------------------|
 | `integrate`   | status, install, remove, emergency-off; wire Claude + Codex + hooks.   |
 | `bypass`      | on, off, status — master bypass via admin API.                         |
-| `service`     | install, uninstall, start, stop, restart, status, logs (launchd).      |
+| `service`     | install, uninstall, start, stop, restart, status, logs; start/restart wait for daemon status (launchd). |
 | `daemon`      | Run as long-lived daemon (invoked by launchd; users prefer `--no-tui`).|
 | `proxy`       | Transparent CA/daemon/System-HTTPS-Proxy lifecycle plus Codex env helpers. |
 | `doctor`      | Full diagnostic sweep + integration checks.                            |
@@ -1143,6 +1148,7 @@ slimference help [subcommand]
 | `codexhook`   | Codex lifecycle hook entry point for session, permission, prompt, stop. |
 | `readhook`    | Claude Read-hook entry point.                                          |
 | `expand`      | Retrieve archived tool result by id (T40).                             |
+| `expand-body` | Retrieve one Go function/method body from an archived AST read (T125). |
 | `checkpoint`  | Smart-compaction checkpoint tools: list, show, restore (T39).          |
 | `hook`        | install, remove, verify, status, check-upstream (manual hook mgmt).    |
 | `gain`        | Report Layer-0, by-command/by-parser, prompt-cache, output, or proxy-flight telemetry.|

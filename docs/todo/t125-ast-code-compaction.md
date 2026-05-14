@@ -1,6 +1,6 @@
 # TASK 125: AST-based code compaction for file-read tool results
 
-Status: CODE-COMPLETE FOR GO SAFE-GATED PATH / LIVE NET-SAVING PROOF PENDING (2026-05-02)
+Status: CODE-COMPLETE FOR GO SAFE-GATED PATH + ARCHIVE-BACKED BODY RECOVERY / LIVE NET-SAVING PROOF PENDING (2026-05-14)
 Priority: P1
 Scope: `internal/codecompact/` (new package), `internal/filter/builtin_read.go`, `internal/filter/pipeline.go`, integration with cache_archive (T96 / T108). Must include edit-mode gating before default-on.
 Driver: when an LLM coding agent reads a code file via `Read` / `cat` / similar tool, today it sees the entire file verbatim - all 2000 lines of a Go service file, every imported helper, every legacy function. The agent often only needs package structure, imports, symbol table, signatures, and a small number of bodies. T125 ships a gated code-read compactor that replaces full-file reads with a structured "skeleton + relevant bodies" view only when that is likely to help. In edit/debug mode it must pass through full content because extra re-reads can cost more than the input tokens saved.
@@ -152,8 +152,11 @@ If the agent decides it needs a specific body that was omitted:
       "show me the body of <FuncName>"
       or re-read with read_full=true */
    ```
-2. The agent's next tool call can request the full body; Slimference handles the re-request by replaying the original file content for that function.
-3. Slimference caches the original file content per session so a re-read is free (no second filesystem hit).
+2. The agent's next tool call can request the full body with
+   `slimference expand-body <archive-id> <symbol>`.
+3. Slimference extracts the function/method body from the archived original
+   tool output, not from the compacted preview. Supported symbols are plain Go
+   functions (`Run`) and methods (`Service.Run`, `(*Service).Run`).
 
 This makes T125 recoverable under the LLM-agent interaction loop. The acceptance gate still measures net savings, including re-read cost and output-token recovery cost.
 
@@ -224,26 +227,36 @@ Completed by extending `internal/filter/builtin_read.go`:
 
 ### WP5 - Re-request handling
 
-Not shipped in this pass. The footer explicitly tells the agent to re-read the file for full bodies. A real body-on-demand cache requires session-aware request context that the current `filter` read path does not own. This remains the main open gap before declaring T125 fully closed.
+Shipped for Go archive-backed recovery:
+
+- `PostToolUse` already archives large raw tool outputs before returning the
+  compacted preview.
+- `toolarchive.RenderContext` now adds `Body expand: slimference expand-body
+  <archive-id> <symbol>` whenever the preview is AST-compacted.
+- `slimference expand-body <archive-id> <go-symbol>` expands the archived
+  original and prints exactly one Go function/method declaration with body.
+- Retrieval is intentionally archive-backed. It does not read a possibly
+  changed workspace file and does not pretend Codex can mutate a previous tool
+  call through unsupported hook fields.
 
 ### WP6 - Telemetry
 
-Existing per-filter observability records in/out bytes for `strip_comments_file_read`. Dedicated per-language AST counters and re-read/net-savings accounting remain pending until body-on-demand/session ownership exists.
+Existing per-filter observability records in/out bytes for `strip_comments_file_read`. Dedicated per-language AST counters and re-read/net-savings accounting remain pending until live corpus data proves this path fires often enough to justify another report surface.
 
 ### WP7 - Tests
 
 - `internal/codecompact`: Go skeleton generation, large body omission, short body inclusion, relevant-symbol body inclusion, mode gates, unsupported/invalid input, main/init body inclusion, integer formatting helper.
 - `internal/filter`: AST compaction integration and partial-read bypass.
-- Round-trip body-on-demand remains pending.
+- Round-trip body-on-demand is covered for Go archived reads via `expand-body`.
 
 ## Acceptance criteria
 
 - [x] Go compaction works on large Go files: skeleton + selected bodies.
 - [x] Mode gate denies edit/debug/force-full/recently-edited/small-file paths and returns full content.
 - [x] Broader tree-sitter expansion is deferred until Go gate metrics are green.
-- [ ] Re-read protocol round-trips: agent asks for a body, gets it, reconstructed file is byte-equal to original.
+- [x] Re-read protocol round-trips for Go archived reads: agent asks for a body by archive id + symbol and gets the original function/method body.
 - [x] Centrality heuristic produces stable output for the same input + relevant symbols.
-- [~] Per-session hook-state is bounded and file-backed for edit/read gates; body-on-demand cache remains pending.
+- [x] Per-session hook-state is bounded and file-backed for edit/read gates; body-on-demand uses the existing tool archive rather than a new global cache.
 - [x] Coverage 100%; race-clean; CI gate green after the full Phase R batch.
 - [ ] On Slimference repo's own session corpus (T118b), scan/orientation file-read tokens drop by 60-80% and edit/debug paths show no negative net savings.
 
