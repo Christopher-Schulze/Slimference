@@ -13,6 +13,7 @@ const (
 	ShapeUnknown       TaskShape = "unknown"
 	ShapeExactReply    TaskShape = "exact_reply"
 	ShapeDirectAnswer  TaskShape = "direct_answer"
+	ShapeReadOnly      TaskShape = "read_only_analysis"
 	ShapeCodeEdit      TaskShape = "code_edit"
 	ShapeDebugging     TaskShape = "debugging"
 	ShapePlanning      TaskShape = "planning"
@@ -27,6 +28,11 @@ func DetectTaskShape(provider types.Provider, body []byte) TaskShape {
 	switch {
 	case containsAny(lower, "reply exactly", "respond exactly", "answer exactly", "say exactly", "output exactly"):
 		return ShapeExactReply
+	case containsAny(lower,
+		"read-only", "read only", "do not edit", "don't edit", "do not modify", "do not write", "no edits",
+		"inspect", "analyze", "analyse", "audit", "report in", "nur analysieren", "nichts anfassen", "nicht anfassen",
+	):
+		return ShapeReadOnly
 	case containsAny(lower, "create file", "new file", "write a file", "add file", "*** add file"):
 		return ShapeNewFile
 	case containsAny(lower, "apply_patch", "patch", "diff", "edit", "modify", "fix this file", "implement"):

@@ -252,7 +252,7 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 	if got := NextSofter(ProfileOff); got != ProfileOff {
 		t.Fatalf("NextSofter off=%s", got)
 	}
-	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapePlanning, ShapeDirectAnswer, ShapeUnknown} {
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReadOnly, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapePlanning, ShapeDirectAnswer, ShapeUnknown} {
 		if text := DirectiveForShape(ProfileCodexAggressive, shape, DefaultMarker); text == "" {
 			t.Fatalf("empty directive for shape %s", shape)
 		}

@@ -98,6 +98,40 @@ func TestServeHTTP_OutputReduceSkipsBelowMinTokens(t *testing.T) {
 	}
 }
 
+func TestServeHTTP_NonStreamingOpenAIUsageOverridesEstimatedOutputTokens(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"resp_1","usage":{"input_tokens":200,"input_tokens_details":{"cached_tokens":50},"output_tokens":123}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.OpenAI.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"gpt-5","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if snap := p.outputReduce.Snapshot(); snap.OutputTokensObserved != 123 {
+		t.Fatalf("output tokens should use provider usage, got %+v", snap)
+	}
+}
+
 func TestServeHTTP_OutputReduceInjectionErrorFallsBackToOriginal(t *testing.T) {
 	t.Parallel()
 	var captured []byte

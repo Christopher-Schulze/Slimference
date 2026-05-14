@@ -116,6 +116,8 @@ func shapeDirective(shape TaskShape) string {
 		return " For code-edit tasks, avoid prose recaps after the patch."
 	case ShapeNewFile:
 		return " For new-file tasks, full file content is allowed when required."
+	case ShapeReadOnly:
+		return " For read-only analysis, do not suggest or emit edits unless explicitly asked; report only evidence, verdict, and next risk."
 	case ShapeReview:
 		return " For review tasks, keep all actionable findings; do not compress away severity, file, or line."
 	case ShapeDebugging:

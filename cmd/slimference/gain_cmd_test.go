@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/analytics"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -333,6 +335,10 @@ func TestParseGainArgs_cacheAndByParser(t *testing.T) {
 	if err != nil || p != "week" || !f.cache || !f.json {
 		t.Fatalf("period=%q flags=%+v err=%v", p, f, err)
 	}
+	p, f, err = parseGainArgs([]string{"--proxy", "today", "--json"})
+	if err != nil || p != "today" || !f.proxy || !f.json {
+		t.Fatalf("period=%q flags=%+v err=%v", p, f, err)
+	}
 	p, f, err = parseGainArgs([]string{"--by-parser"})
 	if err != nil || p != "today" || !f.byParser {
 		t.Fatalf("period=%q flags=%+v err=%v", p, f, err)
@@ -349,6 +355,9 @@ func TestParseGainArgs_cacheAndByParser(t *testing.T) {
 	}
 	if _, _, err = parseGainArgs([]string{"--output", "--project", "/p"}); err == nil {
 		t.Fatal("expected invalid output/project combination")
+	}
+	if _, _, err = parseGainArgs([]string{"--proxy", "--cache"}); err == nil {
+		t.Fatal("expected invalid proxy/cache combination")
 	}
 	if _, _, err = parseGainArgs([]string{"--by-command", "--by-parser"}); err == nil {
 		t.Fatal("expected invalid by-command/by-parser combination")
@@ -529,6 +538,146 @@ func TestHandleSubcommand_gain_outputNoRows(t *testing.T) {
 	_, _ = io.Copy(&buf, r)
 	if !strings.Contains(buf.String(), "No output-reduce telemetry") {
 		t.Fatalf("output gain empty: %q", buf.String())
+	}
+}
+
+func TestHandleSubcommand_gain_proxy(t *testing.T) {
+	tmp := t.TempDir()
+	decisionsPath := filepath.Join(tmp, "decisions.jsonl")
+	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
+		RequestID: "req-proxy",
+		Timestamp: time.Now(),
+		Tokens: dbg.TokenCounts{
+			Original: 1000,
+			Final:    800,
+			Saved:    200,
+		},
+		ProviderInputTokens:  1100,
+		ProviderCachedTokens: 400,
+		ProviderOutputTokens: 90,
+		OutputReduce: dbg.OutputReduceSummary{
+			Applied:     true,
+			AddedTokens: 10,
+			TaskShape:   "read_only_analysis",
+		},
+	})
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--proxy", "today"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	out := buf.String()
+	if !strings.Contains(out, "Proxy flight gain") || !strings.Contains(out, "Provider cached tokens") || !strings.Contains(out, "360") {
+		t.Fatalf("proxy gain stdout: %q", out)
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--proxy", "today", "--json"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), `"provider_cached_tokens"`) || !strings.Contains(buf.String(), `"net_billable_equivalent_estimate"`) {
+		t.Fatalf("proxy gain json: %q", buf.String())
+	}
+
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--proxy", "today", "--csv"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "provider_cached_tokens") || !strings.Contains(buf.String(), "today") {
+		t.Fatalf("proxy gain csv: %q", buf.String())
+	}
+}
+
+func TestHandleSubcommand_gain_proxyNoRowsOrLog(t *testing.T) {
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", "")
+	cfgPath := filepath.Join(t.TempDir(), "blank-debug.toml")
+	if err := os.WriteFile(cfgPath, []byte("[debug]\ndecisions_log = \"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--proxy", "today"})
+	_ = w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "No decisions_log configured") {
+		t.Fatalf("proxy gain no log: %q", buf.String())
+	}
+
+	decisionsPath := filepath.Join(t.TempDir(), "decisions.jsonl")
+	if err := os.WriteFile(decisionsPath, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	r, w, _ = os.Pipe()
+	os.Stdout = w
+	handleSubcommand([]string{"gain", "--proxy", "today"})
+	_ = w.Close()
+	os.Stdout = old
+	buf.Reset()
+	_, _ = io.Copy(&buf, r)
+	if !strings.Contains(buf.String(), "No proxy flight records") {
+		t.Fatalf("proxy gain no rows: %q", buf.String())
+	}
+}
+
+func TestHandleGainCmd_proxyErrorBranches(t *testing.T) {
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", filepath.Join(t.TempDir(), "missing.jsonl"))
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() {
+		handleSubcommand([]string{"gain", "--proxy", "today"})
+	})
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "gain --proxy") {
+		t.Fatalf("replay error exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+
+	decisionsPath := filepath.Join(t.TempDir(), "decisions.jsonl")
+	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{RequestID: "req", Timestamp: time.Now()})
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() {
+		handleGainProxy("bad", gainCLIFlags{})
+	})
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "gain --proxy") {
+		t.Fatalf("bad period exited=%v code=%d stderr=%q", exited, code, buf.String())
+	}
+
+	orig := writeProxyFlightGainCSV
+	defer func() { writeProxyFlightGainCSV = orig }()
+	writeProxyFlightGainCSV = func(io.Writer, analytics.ProxyFlightGainSummary) error {
+		return errors.New("proxy csv failed")
+	}
+	rp, cleanup = redirectStderr()
+	code, exited = captureExit(func() {
+		handleSubcommand([]string{"gain", "--proxy", "today", "--csv"})
+	})
+	cleanup()
+	buf.Reset()
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 || !strings.Contains(buf.String(), "proxy csv failed") {
+		t.Fatalf("csv error exited=%v code=%d stderr=%q", exited, code, buf.String())
 	}
 }
 
@@ -832,5 +981,17 @@ func TestHandleGainCmd_writeGainSummaryCSVError(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "gain") {
 		t.Fatalf("stderr: %q", buf.String())
+	}
+}
+
+func writeDecisionSummary(t *testing.T, path string, summary dbg.RequestSummary) {
+	t.Helper()
+	summary.EnsureFlight()
+	data, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

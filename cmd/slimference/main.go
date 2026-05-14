@@ -14,7 +14,7 @@
 //	slimference layer2 status      # Show Layer 2 config
 //	slimference stats today        # Print today's stats
 //	slimference stats prompt-cache week --json # Prompt-cache report
-//	slimference gain today         # Layer-0/filter/cache/output telemetry (--by-command, --by-parser, --cache, --output)
+//	slimference gain today         # Layer-0/filter/cache/output/proxy telemetry (--by-command, --by-parser, --cache, --output, --proxy)
 //	slimference plan inspect       # Dry-run cross-layer planner decisions
 //	slimference filter -- <cmd>    # Layer-0: subprocess + ANSI strip + DB log
 //	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
@@ -99,6 +99,7 @@ var (
 	writeGainSummaryCSV          = analytics.WriteGainSummaryCSV
 	writeOutputReduceCSV         = analytics.WriteOutputReduceCSV
 	writePromptCacheCSV          = analytics.WritePromptCacheCSV
+	writeProxyFlightGainCSV      = analytics.WriteProxyFlightGainCSV
 	replaySessionFn              = dbg.ReplaySession
 	daemonIsRunningFn            = daemon.IsRunning
 	daemonStopFn                 = daemon.StopDaemon
@@ -1902,6 +1903,7 @@ type gainCLIFlags struct {
 	byParser  bool
 	cache     bool
 	output    bool
+	proxy     bool
 	csv       bool
 	project   string
 }
@@ -1920,6 +1922,8 @@ func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
 			f.cache = true
 		case "--output":
 			f.output = true
+		case "--proxy":
+			f.proxy = true
 		case "--csv":
 			f.csv = true
 		case "--project":
@@ -1948,8 +1952,11 @@ func parseGainArgs(args []string) (period string, f gainCLIFlags, err error) {
 	if f.cache && (f.byCommand || f.byParser || f.output || f.project != "") {
 		return "", f, fmt.Errorf("--cache cannot be combined with --by-command, --by-parser, --output, or --project")
 	}
-	if f.output && (f.byCommand || f.byParser || f.project != "") {
-		return "", f, fmt.Errorf("--output cannot be combined with --by-command, --by-parser, or --project")
+	if f.output && (f.byCommand || f.byParser || f.proxy || f.project != "") {
+		return "", f, fmt.Errorf("--output cannot be combined with --by-command, --by-parser, --proxy, or --project")
+	}
+	if f.proxy && (f.byCommand || f.byParser || f.cache || f.project != "") {
+		return "", f, fmt.Errorf("--proxy cannot be combined with --by-command, --by-parser, --cache, or --project")
 	}
 	if f.byCommand && f.byParser {
 		return "", f, fmt.Errorf("--by-command and --by-parser are mutually exclusive")
@@ -1967,7 +1974,7 @@ func handleGainCmd(args []string) {
 	switch period {
 	case "today", "week", "month", "all":
 	default:
-		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command|--by-parser|--cache|--output] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
+		fmt.Fprintln(os.Stderr, "usage: slimference gain [today|week|month|all] [--json] [--by-command|--by-parser|--cache|--output|--proxy] [--csv] [--project <path>]  (USD: [analytics] gain_usd_per_million_tokens or SLIMFERENCE_GAIN_USD_PER_MILLION)")
 		exitFn(1)
 	}
 	if flags.cache {
@@ -1976,6 +1983,10 @@ func handleGainCmd(args []string) {
 	}
 	if flags.output {
 		handleGainOutput(period, flags)
+		return
+	}
+	if flags.proxy {
+		handleGainProxy(period, flags)
 		return
 	}
 	path, err := resolveFilterDBPathFn()
@@ -2077,6 +2088,56 @@ func handleGainCmd(args []string) {
 				extra)
 		}
 	}
+}
+
+func handleGainProxy(period string, flags gainCLIFlags) {
+	path := configuredDecisionsLogPath()
+	if path == "" {
+		fmt.Println("No decisions_log configured. Set [debug].decisions_log or SLIMFERENCE_DEBUG_DECISIONS_LOG.")
+		return
+	}
+	summaries, err := replaySessionFn(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain --proxy: %v\n", err)
+		exitFn(1)
+		return
+	}
+	report, err := analytics.SummarizeProxyFlights(summaries, period, time.Now())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gain --proxy: %v\n", err)
+		exitFn(1)
+		return
+	}
+	if flags.csv {
+		if err := writeProxyFlightGainCSV(os.Stdout, report); err != nil {
+			fmt.Fprintf(os.Stderr, "gain --proxy: %v\n", err)
+			exitFn(1)
+		}
+		return
+	}
+	if flags.json {
+		b, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(b))
+		return
+	}
+	if report.Requests == 0 {
+		fmt.Println("No proxy flight records in this window.")
+		return
+	}
+	fmt.Printf("Proxy flight gain (%s)\n", period)
+	fmt.Println(strings.Repeat("-", 50))
+	fmt.Printf("Requests:                       %d\n", report.Requests)
+	fmt.Printf("Provider-reported requests:      %d\n", report.ProviderReportedRequests)
+	fmt.Printf("Provider input tokens:           %s\n", formatTokensPlain(report.ProviderInputTokens))
+	fmt.Printf("Provider cached tokens:          %s\n", formatTokensPlain(report.ProviderCachedTokens))
+	fmt.Printf("Provider output tokens:          %s\n", formatTokensPlain(report.ProviderOutputTokens))
+	fmt.Printf("Billable input savings estimate: %s\n", formatTokensPlain(report.BillableInputSavingsEstimate))
+	fmt.Printf("Cache-read discount equivalent:  %s\n", formatTokensPlain(report.CacheReadDiscountTokenEquivalent))
+	fmt.Printf("Net billable-equivalent estimate: %s\n", formatTokensPlain(report.NetBillableEquivalentEstimate))
+	if report.OutputReduceInputOverheadTokens > 0 {
+		fmt.Printf("Output-reduce input overhead:    %s\n", formatTokensPlain(report.OutputReduceInputOverheadTokens))
+	}
+	fmt.Println("Provider cache credits are observed billing-equivalent credits, not claimed Slimference-caused token deletion.")
 }
 
 func handleGainOutput(period string, flags gainCLIFlags) {

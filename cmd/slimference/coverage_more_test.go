@@ -386,6 +386,14 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	if got := pa.GetLayer0Status(); got.Attempts == 0 || got.BytesSaved < 60 {
 		t.Fatalf("layer0 status=%+v", got)
 	}
+	tied := layer0StatusFromSnapshots(map[string]filter.FilterSnapshot{
+		"low":   {Attempts: 1, Matches: 1, BytesSaved: 10},
+		"high":  {Attempts: 2, Matches: 2, BytesSaved: 10},
+		"alpha": {Attempts: 3, Matches: 2, BytesSaved: 10},
+	})
+	if len(tied.Filters) != 3 || tied.Filters[0].Name != "alpha" || tied.Filters[1].Name != "high" {
+		t.Fatalf("layer0 tie sort=%+v", tied.Filters)
+	}
 	if got := pa.GetRecentFlights(1); len(got) != 0 {
 		t.Fatalf("default proxy flights=%+v", got)
 	}

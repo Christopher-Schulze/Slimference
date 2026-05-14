@@ -118,6 +118,28 @@ func TestExtractCacheUsageFromBody_OpenAIAndUnknown(t *testing.T) {
 	}
 }
 
+func TestMergeOpenAIUsageMergesNestedDetails(t *testing.T) {
+	t.Parallel()
+	a, ok := extractOpenAIUsageFromData([]byte(`{"usage":{"prompt_tokens":10,"input_tokens":20,"completion_tokens":3,"output_tokens":4,"prompt_tokens_details":{"cached_tokens":5},"input_tokens_details":{"cached_tokens":7}}}`))
+	if !ok {
+		t.Fatal("usage a missing")
+	}
+	b, ok := extractOpenAIUsageFromData([]byte(`{"usage":{"prompt_tokens":30,"input_tokens":40,"completion_tokens":8,"output_tokens":9,"prompt_tokens_details":{"cached_tokens":15},"input_tokens_details":{"cached_tokens":17}}}`))
+	if !ok {
+		t.Fatal("usage b missing")
+	}
+	got := mergeOpenAIUsage(a, b)
+	if got.PromptTokens != 30 || got.InputTokens != 40 || got.CompletionTokens != 8 || got.OutputTokens != 9 {
+		t.Fatalf("bad merged token totals: %+v", got)
+	}
+	if got.PromptTokensDetails == nil || got.PromptTokensDetails.CachedTokens != 15 {
+		t.Fatalf("bad prompt details: %+v", got.PromptTokensDetails)
+	}
+	if got.InputTokensDetails == nil || got.InputTokensDetails.CachedTokens != 17 {
+		t.Fatalf("bad input details: %+v", got.InputTokensDetails)
+	}
+}
+
 // TestExtractAnthropicCacheUsage_InputTokens returns the provider-reported
 // input_token total alongside cache fields.
 func TestExtractAnthropicCacheUsage_InputTokens(t *testing.T) {

@@ -145,6 +145,20 @@ The recorder expands leading `~/` paths and creates the parent directory on
 first write, so `~/.slimference/debug/decisions.jsonl` works without manual
 directory setup.
 
+For real proxied Codex accounting, use the flight-backed gain view:
+
+```bash
+slimference gain --proxy today --json
+```
+
+This reads the same decision log and separates provider-reported input tokens,
+provider cached tokens, output tokens, estimated input savings, output-reduce
+input overhead, and a billing-equivalent cache-read discount estimate. Plain
+`slimference gain` remains the Layer-0 `filter.db` view; `gain --cache` and
+`gain --output` read analytics-event logs, while `gain --proxy` is the reliable
+view for daemon-proxied Codex CLI/App traffic when only the flight recorder is
+configured.
+
 ## T140 live split test
 
 Mode 1: Codex App through Slimference, Codex CLI direct.

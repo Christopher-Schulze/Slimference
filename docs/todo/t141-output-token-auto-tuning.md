@@ -44,12 +44,14 @@ Output-reduce becomes a feedback-controlled system:
   - debugging
   - planning
   - review
+  - read-only analysis
   - tool-result reasoning
   - new file generation
 - [x] Rules:
   - code edit: prefer diff/tool action, no recap.
   - new file generation: do not force diff-only if full file is required.
   - review: keep findings complete, do not over-compress.
+  - read-only analysis: do not push patch/diff/full-file behavior when the operator explicitly asked for inspect/analyze/audit/report without edits.
   - debugging: preserve exact error/path/line.
 
 ### WP3 - Measurement
@@ -96,7 +98,6 @@ Output-reduce becomes a feedback-controlled system:
 - [x] `slimference output-reduce status` shows:
   - active profile.
   - auto-tune status.
-  - auto-tune status.
   - thresholds and cooldowns.
 - [x] Admin status exposes current downgrade buckets through `output_reduce.downgrades`.
 - [x] TUI consumes admin status for output-reduce visibility through the existing runtime stats surface.
@@ -127,5 +128,9 @@ Output-reduce becomes a feedback-controlled system:
   `Tracker.InCooldown` and is fed into T149 planner facts before profile
   selection, so a cooled aggressive bucket is visible as a planned
   `cheap_only` profile-softening decision.
+- 2026-05-14 follow-up after the larger Codex CLI read-only probe: explicit
+  read-only/audit prompts now classify as `read_only_analysis` before edit or
+  new-file keywords are considered. This prevents file-path-heavy inspection
+  prompts from receiving new-file/edit-oriented output rules.
 - Live quality proof still belongs to T140/T146, and next-level real-session output profile evolution is tracked as T148. Local T141 code only prevents obvious repeated failure/overhead patterns.
 - Verification: `go run ./scripts/ci` passed 8/8 on 2026-05-13 with 100.0% statement coverage.

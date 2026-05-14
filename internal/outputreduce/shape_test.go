@@ -15,6 +15,8 @@ func TestDetectTaskShape(t *testing.T) {
 	}{
 		{name: "exact reply", body: []byte(`{"messages":[{"role":"user","content":"reply exactly: ok"}]}`), want: ShapeExactReply},
 		{name: "new file", body: []byte(`{"messages":[{"role":"user","content":"create file internal/x.go"}]}`), want: ShapeNewFile},
+		{name: "read only beats edit words", body: []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"Read-only probe. Do not edit files. Inspect internal/proxy/handler.go and report in German."}]}]}`), want: ShapeReadOnly},
+		{name: "german no touch beats patch", body: []byte(`{"messages":[{"role":"user","content":"nur analysieren, nichts anfassen, apply_patch nur erwähnen"}]}`), want: ShapeReadOnly},
 		{name: "code edit", body: []byte(`{"messages":[{"role":"user","content":"apply_patch this bug"}]}`), want: ShapeCodeEdit},
 		{name: "debug", body: []byte(`{"messages":[{"role":"user","content":"debug this panic stack trace"}]}`), want: ShapeDebugging},
 		{name: "review", body: []byte(`{"messages":[{"role":"user","content":"review for severity findings"}]}`), want: ShapeReview},

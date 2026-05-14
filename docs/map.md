@@ -125,6 +125,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 - `internal/analytics/prompt_cache.go`: persisted prompt-cache report reader and CSV/JSON export helpers for `stats prompt-cache`
 - `internal/analytics/persistence.go`: JSONL logging to ~/.slimference/analytics/
 - `internal/analytics/gain.go`: slimference gain - filter savings by period/command
+- `internal/analytics/proxy_gain.go`: `slimference gain --proxy` decision-log flight accounting for real proxied LLM requests
 - `internal/debug/session.go`: SessionFileStats() for JSONL preview, ReplaySession() with non-summary skip
 - `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary, guarded JSONL flush on marshal/write failure
 - `internal/tui/model.go`: BubbleTea model, arrow-first operator-console navigation, selectable dashboard/debug/setup actions, bounded shutdown, private debug-log export (`~/.slimference/exports`, 0700/0600)
