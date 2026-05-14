@@ -33,6 +33,10 @@ func CompactCapturedOutputWithContext(workDir, commandLine, output string, maxRu
 	return compacted, true
 }
 
+func ArgvForCapturedOutput(commandLine string) []string {
+	return primaryArgvForCapturedOutput(commandLine)
+}
+
 func primaryArgvForCapturedOutput(commandLine string) []string {
 	toks := tokenize(commandLine)
 	if len(toks) == 0 {

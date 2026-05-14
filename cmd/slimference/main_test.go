@@ -871,6 +871,97 @@ func TestHookTurnStateHelpers(t *testing.T) {
 	}
 }
 
+func TestPostToolCrossToolDedup(t *testing.T) {
+	origHome := osUserHomeDir
+	defer func() { osUserHomeDir = origHome }()
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	observeSessionStartTurnState("sess-git")
+
+	status := filter.PostToolPayload{
+		SessionID:    "sess-git",
+		CommandLine:  "git status --short",
+		CWD:          "/repo",
+		ToolResponse: " M a.go\n?? b.go\n",
+	}
+	if out, ok := applyPostToolCrossToolDedup("/wrong", status); ok || len(out) != 0 {
+		t.Fatalf("status should observe only: ok=%v out=%q", ok, out)
+	}
+	diff := filter.PostToolPayload{
+		SessionID:    "sess-git",
+		CommandLine:  "git diff --name-only",
+		CWD:          "/repo",
+		ToolResponse: "b.go\na.go\n",
+	}
+	out, ok := applyPostToolCrossToolDedup("/wrong", diff)
+	if !ok || !strings.Contains(string(out), "2 git paths already shown") || !strings.Contains(string(out), "git status --short") {
+		t.Fatalf("expected crosstool marker: ok=%v out=%q", ok, out)
+	}
+	otherCWD := diff
+	otherCWD.CWD = "/other"
+	if out, ok := applyPostToolCrossToolDedup("/wrong", otherCWD); ok || len(out) != 0 {
+		t.Fatalf("different cwd should not elide: ok=%v out=%q", ok, out)
+	}
+	if out, ok := applyPostToolCrossToolDedup("/repo", filter.PostToolPayload{CommandLine: "git diff --name-only", ToolResponse: "a.go\n"}); ok || len(out) != 0 {
+		t.Fatalf("missing session should passthrough: ok=%v out=%q", ok, out)
+	}
+	if out, ok := applyPostToolCrossToolDedup("/repo", filter.PostToolPayload{SessionID: "sess-git", CommandLine: "> out.txt", ToolResponse: "a.go\n"}); ok || len(out) != 0 {
+		t.Fatalf("empty argv should passthrough: ok=%v out=%q", ok, out)
+	}
+	osUserHomeDir = func() (string, error) { return "", errors.New("home") }
+	if out, ok := applyPostToolCrossToolDedup("/repo", diff); ok || len(out) != 0 {
+		t.Fatalf("home error should passthrough: ok=%v out=%q", ok, out)
+	}
+	if got := gitPathListForPostTool([]string{"git", "diff", "--name-status"}, "M\ta.go\n"); got != nil {
+		t.Fatalf("name-status must not produce name-only paths: %v", got)
+	}
+}
+
+func TestHandlePostToolCmdCrossToolDedup(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	origConfigLoad := configLoadFn
+	origGetwd := osGetwd
+	origHome := osUserHomeDir
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+		osUserHomeDir = origHome
+	}()
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	osGetwd = func() (string, error) { return "/repo", nil }
+	termIsTerminalFn = func(int) bool { return false }
+	cfg := config.Defaults()
+	cfg.Filter.PassthroughMaxChars = 500
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+	observeSessionStartTurnState("sess-hook-git")
+
+	run := func(payload []byte) string {
+		t.Helper()
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		return buf.String()
+	}
+	statusPayload := []byte(`{"session_id":"sess-hook-git","tool_name":"Bash","cwd":"/repo","command":"git status --short","tool_response":" M a.go\n?? b.go\n"}`)
+	_ = run(statusPayload)
+	diffPayload := []byte(`{"session_id":"sess-hook-git","tool_name":"Bash","cwd":"/repo","command":"git diff --name-only","tool_response":"b.go\na.go\n"}`)
+	out := run(diffPayload)
+	if !strings.Contains(out, "2 git paths already shown") || !strings.Contains(out, `"continue":false`) {
+		t.Fatalf("posttool crosstool output=%q", out)
+	}
+}
+
 func TestHandleCodexHookCmd(t *testing.T) {
 	origTerm := termIsTerminalFn
 	origRead := readStdinAll

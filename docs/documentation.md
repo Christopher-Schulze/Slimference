@@ -719,9 +719,14 @@ write `openai_base_url` or `chatgpt_base_url`.
 The installed events are `SessionStart`, `PreToolUse`, `PermissionRequest`,
 `PostToolUse`, `UserPromptSubmit`, and `Stop`. `PostToolUse` is the primary
 token-saving hook path: raw output is archived and compact feedback is emitted
-with Codex's documented replacement shape. Unsupported/fail-open fields such
-as `PreToolUse.updatedInput` remain disabled until a live Codex build proves
-they are honored.
+with Codex's documented replacement shape. It also owns the safe T126
+cross-tool mini path: raw `git status` path lists are recorded in the
+file-backed current turn, and a later same-session/same-turn/same-CWD
+`git diff --name-only` with the same exact path fingerprint is replaced by an
+explicit marker. Diff hunks, `--name-status`, `git ls-files`, non-git output,
+and standalone `slimference filter` runs are not touched. Unsupported/fail-open
+fields such as `PreToolUse.updatedInput` remain disabled until a live Codex
+build proves they are honored.
 
 ### TOML scope safety
 
@@ -1434,7 +1439,7 @@ internal/checkpoints/         Smart-compaction checkpoints (T39).
 internal/config/              Load / ResolveConfigPath / LoadOptions (T46).
 internal/tokens/              tiktoken wrapper + per-provider calibration.
 internal/debug/               Decision-chain recorder + replay.
-internal/sessions/            Session logs, response-state, and T138 turn-state owner.
+internal/sessions/            Session logs, response-state, and file-backed T138 hook turn-state.
 internal/resilience/          Retry + backoff + rate limiter.
 internal/slogutil/            Rotating JSON log handler.
 internal/buildinfo/           Build-time Version + Commit (ldflags-set).

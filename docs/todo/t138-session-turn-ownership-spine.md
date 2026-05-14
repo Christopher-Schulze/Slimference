@@ -1,6 +1,6 @@
 # TASK 138: Session/turn ownership spine for AST and cross-tool state
 
-Status: IN PROGRESS (core + hook-backed edit/read gates landed 2026-05-13; T126/body-on-demand still open)
+Status: IN PROGRESS (core + hook-backed edit/read gates + T126 mini hot path landed; body-on-demand still open)
 Priority: P1
 Scope: `internal/sessions/`, `internal/proxy/`, `internal/hooks/`, `internal/filter/`, `internal/readcache/`, `internal/codecompact/`, `internal/crosstool/`, `internal/toolarchive/`, `internal/quality/`, `internal/tui/`.
 
@@ -10,7 +10,7 @@ Several features are intentionally conservative because the code lacks one autho
 
 - T125 AST compaction had `RecentlyEdited` and mode gates, but the hot path called it with static `Mode: "scan"` before the 2026-05-13 hook-backed context pass.
 - T125 body-on-demand cannot be honest without request/session ownership.
-- T126 crosstool dedup is library-only because `internal/filter` lacks user-turn boundaries.
+- T126 crosstool dedup needs session/turn ownership; the standalone filter wrapper still lacks it, while Codex PostToolUse now has it through file-backed hook state.
 - Read cache, repetition store, tool archive, quality signals, prompt cache, and Layer 2 session IDs all infer state independently.
 
 The fix is not to wire global state into filters. The fix is a small, explicit session/turn spine that all these systems can consult.
@@ -118,11 +118,11 @@ It is request-scoped where possible and process-scoped only behind explicit sess
 
 - [x] T125 edit-mode gating is backed by real hook session/turn state for Codex hook/PostToolUse paths.
 - [ ] T125 body-on-demand has a real retrieval path or stays disabled.
-- [ ] T126 hot-path integration is safe and per-turn only.
+- [x] T126 hot-path integration is safe and per-turn only for Codex PostToolUse.
 - [ ] Read cache, repetition, tool archive, quality, and proxy share compatible session/turn keys.
 - [ ] TUI/debug can show why a file/tool output was compacted or left literal.
-- [ ] `go test -race ./...` passes.
-- [ ] `go run ./scripts/ci` passes.
+- [x] `go test -race ./...` passes.
+- [x] `go run ./scripts/ci` passes.
 
 ## Notes
 
@@ -141,6 +141,11 @@ It is request-scoped where possible and process-scoped only behind explicit sess
   - Recently-edited, force-full, edit-mode, and debug-mode reads return literal output instead of AST skeletons, signature extraction, or comment stripping.
   - Hook state is intentionally file-backed rather than only in-memory because Codex invokes hooks as separate processes.
   - MiniMax/OpenAI-compatible Layer 2 provider knobs were hardened during the same stabilisation pass: direct `SLIMFERENCE_MINIMAX_API_KEY`, base URL/model/key-env overrides, honoured `temperature`/`top_p`, default MiniMax `reasoning_split`, and Rust summary examples.
+- 2026-05-14 T126 mini hot-path implementation:
+  - `HookTurnState` persists git path-list fingerprints per current turn under `~/.slimference/turn-state/`.
+  - Codex `PostToolUse` observes raw `git status` path lists and elides only later `git diff --name-only` output with the same session, same turn, same CWD, and same exact sorted path fingerprint.
+  - The marker is explicit (`[Slimference: N git paths already shown by previous ...]`) and no diff hunks, name-status tables, git ls-files output, non-git output, or standalone `slimference filter` runs are touched.
+  - Tests cover file-backed repeat detection, CWD separation, cap enforcement, command detection, marker escaping, and full PostToolUse JSON output.
 - Open boundaries:
-  - T126 hot-path integration remains off until exact git path-list elision is proven against real hook/session sequences.
   - Body-on-demand remains disabled; no retrieval protocol has been claimed.
+  - T126 still needs live corpus proof before any broader command family or dedicated `gain --crosstool` report.

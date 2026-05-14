@@ -59,6 +59,38 @@ func TestState_ElidesRepeatedGitNameOnlyAfterStatus(t *testing.T) {
 	}
 }
 
+func TestGitArgvDetectionAndMarker(t *testing.T) {
+	t.Parallel()
+	if !IsGitStatusArgv([]string{"/usr/bin/git", "status", "--short"}) {
+		t.Fatal("expected git status detection")
+	}
+	if IsGitStatusArgv([]string{"status"}) {
+		t.Fatal("non-git argv must not be status")
+	}
+	if IsGitStatusArgv([]string{"git", "diff", "--name-only"}) {
+		t.Fatal("diff must not be status")
+	}
+	if !IsGitDiffNameOnlyArgv([]string{"git", "-C", "/repo", "diff", "--name-only"}) {
+		t.Fatal("expected git diff --name-only detection")
+	}
+	if IsGitDiffNameOnlyArgv([]string{"diff", "--name-only"}) {
+		t.Fatal("non-git argv must not be git diff")
+	}
+	if IsGitDiffNameOnlyArgv([]string{"git", "diff", "--name-status"}) {
+		t.Fatal("name-status must not be name-only")
+	}
+	if IsGitDiffNameOnlyArgv([]string{"git", "status", "--name-only"}) {
+		t.Fatal("name-only without diff must not match")
+	}
+	marker := Marker(2, "git `status` with a very long suffix "+strings.Repeat("x", 160))
+	if !strings.Contains(marker, "2 git paths") || strings.Contains(marker, "`status`") || !strings.Contains(marker, "...`") {
+		t.Fatalf("bad marker: %q", marker)
+	}
+	if !strings.Contains(Marker(1, ""), "earlier git command") {
+		t.Fatal("empty marker source should use fallback")
+	}
+}
+
 func TestState_DoesNotElideFirstOrDifferentList(t *testing.T) {
 	t.Parallel()
 	state := NewState()

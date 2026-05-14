@@ -53,6 +53,46 @@ func (s *State) ApplyGitNameOnly(sessionID string, output []byte) Result {
 	return s.apply(sessionID, "git name-only", output, paths)
 }
 
+func IsGitStatusArgv(argv []string) bool {
+	if !isGitArgv(argv) {
+		return false
+	}
+	for _, arg := range argv[1:] {
+		if arg == "status" {
+			return true
+		}
+	}
+	return false
+}
+
+func IsGitDiffNameOnlyArgv(argv []string) bool {
+	if !isGitArgv(argv) {
+		return false
+	}
+	hasDiff := false
+	hasNameOnly := false
+	for _, arg := range argv[1:] {
+		switch arg {
+		case "diff":
+			hasDiff = true
+		case "--name-only":
+			hasNameOnly = true
+		}
+	}
+	return hasDiff && hasNameOnly
+}
+
+func Marker(count int, source string) string {
+	source = strings.TrimSpace(strings.ReplaceAll(source, "`", "'"))
+	if source == "" {
+		source = "earlier git command"
+	}
+	if len(source) > 120 {
+		source = source[:120] + "..."
+	}
+	return "[Slimference: " + intString(count) + " git paths already shown by previous `" + source + "`]\n"
+}
+
 func (s *State) apply(sessionID, source string, output []byte, paths []string) Result {
 	result := Result{Output: output, PathCount: len(paths)}
 	if len(paths) == 0 {
@@ -69,7 +109,7 @@ func (s *State) apply(sessionID, source string, output []byte, paths []string) R
 	}
 	s.mu.RUnlock()
 	if ok {
-		result.Output = []byte("[Slimference: " + intString(len(paths)) + " git paths already shown by previous `" + previous.Source + "`]\n")
+		result.Output = []byte(Marker(len(paths), previous.Source))
 		result.Elided = true
 		result.ElidedPaths = len(paths)
 		result.Source = previous.Source
@@ -94,6 +134,10 @@ func (s *State) observe(sessionID, source string, paths []string) int {
 	session.lists[fp] = gitPathList{Source: source, Paths: append([]string(nil), paths...)}
 	session.lastUpdate = time.Now()
 	return len(paths)
+}
+
+func isGitArgv(argv []string) bool {
+	return len(argv) >= 2 && filepath.Base(argv[0]) == "git"
 }
 
 func ExtractGitStatusPaths(output []byte) []string {

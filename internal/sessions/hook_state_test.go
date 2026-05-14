@@ -62,6 +62,60 @@ func TestHookStateLifecycleAndRecentlyEdited(t *testing.T) {
 	}
 }
 
+func TestHookStateGitPathListRepeat(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := StartHookSession(dir, "sess-git"); err != nil {
+		t.Fatal(err)
+	}
+	first, repeated, err := ObserveHookGitPathList(dir, "sess-git", "/repo", "git status --short", []string{"b.go", "a.go", "a.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated || first.Count != 2 || first.Fingerprint == "" {
+		t.Fatalf("first=%+v repeated=%v", first, repeated)
+	}
+	second, repeated, err := ObserveHookGitPathList(dir, "sess-git", "/repo", "git diff --name-only", []string{"./a.go", "b.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !repeated || second.Source != "git status --short" || second.Count != 2 {
+		t.Fatalf("second=%+v repeated=%v", second, repeated)
+	}
+	_, repeated, err = ObserveHookGitPathList(dir, "sess-git", "/other", "git diff --name-only", []string{"a.go", "b.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated {
+		t.Fatal("different cwd must not repeat")
+	}
+	empty, repeated, err := ObserveHookGitPathList(dir, "sess-git", "/repo", "git diff --name-only", nil)
+	if err != nil || repeated || empty.Fingerprint != "" {
+		t.Fatalf("empty=%+v repeated=%v err=%v", empty, repeated, err)
+	}
+	dirAsFile := filepath.Join(t.TempDir(), "not-dir")
+	if err := os.WriteFile(dirAsFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ObserveHookGitPathList(dirAsFile, "sess-git", "/repo", "git status", []string{"a.go"}); err == nil {
+		t.Fatal("expected git path list observe error")
+	}
+
+	for i := 0; i < hookStateMaxFilesPerSet+2; i++ {
+		path := "file-" + strconvItoa(i) + ".go"
+		if _, _, err := ObserveHookGitPathList(dir, "sess-cap", "/repo", "git status", []string{path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	capped, err := LoadHookState(dir, "sess-cap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(capped.Turns[len(capped.Turns)-1].GitPathLists); got != hookStateMaxFilesPerSet {
+		t.Fatalf("git path list cap=%d", got)
+	}
+}
+
 func TestHookStateDefaultsAndHelpers(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

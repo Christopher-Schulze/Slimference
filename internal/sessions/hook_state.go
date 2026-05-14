@@ -27,13 +27,22 @@ type HookState struct {
 }
 
 type HookTurnState struct {
-	ID          string    `json:"id"`
-	StartedAt   time.Time `json:"started_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	Closed      bool      `json:"closed"`
-	Tools       []string  `json:"tools,omitempty"`
-	FilesRead   []string  `json:"files_read,omitempty"`
-	FilesEdited []string  `json:"files_edited,omitempty"`
+	ID           string                 `json:"id"`
+	StartedAt    time.Time              `json:"started_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
+	Closed       bool                   `json:"closed"`
+	Tools        []string               `json:"tools,omitempty"`
+	FilesRead    []string               `json:"files_read,omitempty"`
+	FilesEdited  []string               `json:"files_edited,omitempty"`
+	GitPathLists []HookGitPathListState `json:"git_path_lists,omitempty"`
+}
+
+type HookGitPathListState struct {
+	Source      string    `json:"source"`
+	CWD         string    `json:"cwd,omitempty"`
+	Fingerprint string    `json:"fingerprint"`
+	Count       int       `json:"count"`
+	ObservedAt  time.Time `json:"observed_at"`
 }
 
 func DefaultHookStateDir(home string) string {
@@ -109,6 +118,44 @@ func ObserveHookFile(dir, sessionID, path, operation string) error {
 		state.UpdatedAt = now
 		return nil
 	})
+}
+
+func ObserveHookGitPathList(dir, sessionID, cwd, source string, paths []string) (HookGitPathListState, bool, error) {
+	fp := FingerprintPaths(paths)
+	if fp == "" {
+		return HookGitPathListState{}, false, nil
+	}
+	cleanCWD := normaliseHookPath(cwd)
+	source = strings.TrimSpace(source)
+	var out HookGitPathListState
+	var repeated bool
+	err := mutateHookState(dir, sessionID, func(state *HookState, now time.Time) error {
+		turn := currentHookTurn(state, now)
+		for _, existing := range turn.GitPathLists {
+			if existing.CWD == cleanCWD && existing.Fingerprint == fp {
+				out = existing
+				repeated = true
+				turn.UpdatedAt = now
+				state.UpdatedAt = now
+				return nil
+			}
+		}
+		out = HookGitPathListState{
+			Source:      source,
+			CWD:         cleanCWD,
+			Fingerprint: fp,
+			Count:       len(sortedUniqueStrings(paths)),
+			ObservedAt:  now,
+		}
+		turn.GitPathLists = append(turn.GitPathLists, out)
+		if len(turn.GitPathLists) > hookStateMaxFilesPerSet {
+			turn.GitPathLists = turn.GitPathLists[len(turn.GitPathLists)-hookStateMaxFilesPerSet:]
+		}
+		turn.UpdatedAt = now
+		state.UpdatedAt = now
+		return nil
+	})
+	return out, repeated, err
 }
 
 func RecentlyEditedHookFile(dir, sessionID, path string, previousTurns int) (bool, error) {

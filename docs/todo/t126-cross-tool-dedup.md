@@ -1,8 +1,8 @@
 # TASK 126: Cross-tool result deduplication (mini-scope)
 
-Status: LIBRARY-COMPLETE / HOT-PATH INTEGRATION DEFERRED (2026-05-02)
+Status: CODE-COMPLETE FOR CODEX POSTTOOL MINI HOT PATH / LIVE CORPUS PROOF PENDING (2026-05-14)
 Priority: P3
-Scope: `internal/crosstool/` (new package), `internal/filter/pipeline.go`, git-specific path-list compaction only.
+Scope: `internal/crosstool/`, `internal/sessions/`, `cmd/slimference posttool`, git-specific path-list compaction only.
 Driver: a typical LLM coding turn can repeat the same changed-file list across `git status`, `git diff --stat`, `git diff --name-only`, and `git ls-files`. Broad cross-tool elision is dangerous because tool output may be consumed by scripts or by agent reasoning that expects exact text. T126 is therefore reduced to one safe case: exact git path-list duplication where the replacement marker cannot break command output semantics.
 
 This is no longer a broad 5-15% saving task. Expected saving is 1-3% in git-heavy turns. That is acceptable only because the blast radius is now tiny.
@@ -19,15 +19,24 @@ Tool results flow through `applyLayer0Filters` independently. The only pattern t
 
 2026-05-02 reality check: the current `git status` built-in already compresses porcelain status to counts, not path lists. That means the original hot-path saving premise is smaller than expected. A safe detector/state library is still useful, but wiring it into the pipeline without session/user-turn ownership would be fake precision.
 
+2026-05-14 implementation correction: Codex `PostToolUse` now has file-backed
+session/turn ownership through T138, so the mini hot path is wired there only.
+The normal `slimference filter` subprocess path remains stateless and does not
+perform cross-tool elision.
+
 ## Target state
 
-A `crosstool.State` per session tracks git path lists the agent has seen this turn. When a later git command emits the same path list as metadata, the L0 pipeline can elide that metadata with a marker:
+A `crosstool.State` or the file-backed Codex hook turn-state tracks git path
+lists the agent has seen this turn. When a later git command emits the same
+path list as metadata, the PostToolUse path can elide that metadata with a
+marker:
 
 ```
-[Slimference: 12 git paths already shown by previous `git status`; diff body unchanged]
+[Slimference: 12 git paths already shown by previous `git status --short`]
 ```
 
-The marker is allowed only when the actual diff/error/body content remains unchanged.
+The marker is allowed only for pure path-list metadata. Diff hunks, stderr, and
+body content are never eligible.
 
 ## Implementation plan
 
@@ -82,26 +91,41 @@ Conservative rules:
 
 ### WP4 - Pipeline integration
 
-Deferred. Reason: pipeline currently has no session/user-turn boundary in `internal/filter`, and `git status` no longer emits the full path list after its existing compactor. Integrating now would either be global-state wrong or mostly no-op. Correct integration belongs after session-aware tool-result ownership is available.
+Completed for Codex PostToolUse only:
+
+- `internal/sessions.HookTurnState` now persists `GitPathLists` under
+  `~/.slimference/turn-state/` next to tools/files.
+- `cmd/slimference posttool` extracts paths from raw `git status` output and
+  records their sorted fingerprint for the current session/turn/CWD.
+- A later `git diff --name-only` in the same session/turn/CWD with the same
+  exact path fingerprint is replaced by the marker.
+- The normal `slimference filter` path remains intentionally untouched because
+  it has no durable user-turn boundary when run as a standalone wrapper.
 
 ### WP5 - Telemetry
 
-Pending with hot-path integration.
+Minimal hook telemetry exists through existing PostToolUse flight records:
+the output size shrinks and the hook decision is recorded as compacted. Dedicated
+`gain --crosstool` accounting remains pending until live corpus data shows this
+mini path is worth a separate report.
 
 ### WP6 - Reset on session boundary
 
-Library supports `ResetSession(sessionID)`. Automatic user-message boundary reset is pending because the filter pipeline does not yet own session state.
+Library supports `ResetSession(sessionID)`. Codex hook state resets naturally
+on `SessionStart` and starts a fresh current turn on `UserPromptSubmit`; the
+git path-list state is stored inside that turn and therefore does not cross
+user turns.
 
 ### WP7 - Tests
 
-- Unit tests cover git status extraction, git name-only extraction, non-status rejection, first/different list passthrough, repeated list elision, session reset, path normalisation, and fingerprint stability.
+- Unit tests cover git status extraction, git name-only extraction, non-status rejection, first/different list passthrough, repeated list elision, session reset, path normalisation, command detection, marker escaping, file-backed hook-state repeat detection, CWD separation, cap enforcement, and full PostToolUse JSON output.
 
 ## Acceptance criteria
 
 - [x] Detectors fire only on real git path-list shapes.
 - [x] Elision markers emitted with accurate count and source command.
 - [x] Library exposes per-session reset.
-- [ ] Hot path clears per-session state at user-message boundary.
+- [x] Codex PostToolUse hot path clears state at user-message boundary through file-backed hook turns.
 - [x] Coverage 100%; race-clean; CI gate green after the full Phase R batch.
 - [ ] On Slimference's own corpus, git-heavy turns show positive net saving with zero non-git output changes.
 
@@ -122,3 +146,8 @@ slimference gain --crosstool   # post-corpus measurement
 ## Notes
 
 The user's stated preference is conservative: "radikal minimieren wenn". So the default settings prioritise *not* eliding when in doubt. The elision marker is mandatory and the actual diff/body content remains untouched.
+
+2026-05-14 shipped limit: only `git status` path-list observation and
+`git diff --name-only` elision are active. `git diff --name-status`,
+`git diff` hunks, `git ls-files`, grep/find output, and non-git tables are
+not touched.

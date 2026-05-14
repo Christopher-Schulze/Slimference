@@ -53,6 +53,7 @@ import (
 	"github.com/slimference/slimference/internal/buildinfo"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/crosstool"
 	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
@@ -840,6 +841,10 @@ func handlePostToolCmd(args []string) {
 	readCtx := hookFileReadContext(wd, details)
 	compacted, changed := filter.CompactCapturedOutputWithContext(wd, details.CommandLine, details.ToolResponse, maxOut, readCtx)
 	observePostToolTurnState(wd, details)
+	if out, ok := applyPostToolCrossToolDedup(wd, details); ok {
+		compacted = out
+		changed = true
+	}
 	recordHookFlight("hook_post", details.SessionID, details.ToolName, hookDecision(changed), len(details.ToolResponse), len(compacted), []int{0}, nil)
 
 	// T93 cross-session pattern mining: when the same (session, tool,
@@ -1191,6 +1196,42 @@ func observePostToolTurnState(workDir string, details filter.PostToolPayload) {
 			_ = sessions.ObserveHookFile(dir, details.SessionID, candidate, "edit")
 		}
 	}
+}
+
+func applyPostToolCrossToolDedup(workDir string, details filter.PostToolPayload) ([]byte, bool) {
+	if details.SessionID == "" {
+		return nil, false
+	}
+	argv := filter.ArgvForCapturedOutput(details.CommandLine)
+	if len(argv) == 0 {
+		return nil, false
+	}
+	paths := gitPathListForPostTool(argv, details.ToolResponse)
+	if len(paths) == 0 {
+		return nil, false
+	}
+	home, err := osUserHomeDir()
+	if err != nil {
+		return nil, false
+	}
+	cwd := firstNonEmpty(details.CWD, workDir)
+	dir := sessions.DefaultHookStateDir(home)
+	source := strings.Join(argv, " ")
+	previous, repeated, err := sessions.ObserveHookGitPathList(dir, details.SessionID, cwd, source, paths)
+	if err != nil || !repeated || !crosstool.IsGitDiffNameOnlyArgv(argv) {
+		return nil, false
+	}
+	return []byte(crosstool.Marker(previous.Count, previous.Source)), true
+}
+
+func gitPathListForPostTool(argv []string, output string) []string {
+	if crosstool.IsGitStatusArgv(argv) {
+		return crosstool.ExtractGitStatusPaths([]byte(output))
+	}
+	if crosstool.IsGitDiffNameOnlyArgv(argv) {
+		return crosstool.ExtractGitNameOnlyPaths([]byte(output))
+	}
+	return nil
 }
 
 func postToolLooksLikeEdit(details filter.PostToolPayload) bool {
