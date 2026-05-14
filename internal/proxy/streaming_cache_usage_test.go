@@ -78,6 +78,7 @@ func TestExtractOpenAICacheUsage(t *testing.T) {
 		{"invalid json", "data: {oops", 0, 0},
 		{"chat prompt details", `data: {"usage":{"prompt_tokens":1200,"prompt_tokens_details":{"cached_tokens":768}}}`, 768, 1200},
 		{"responses input details", `data: {"usage":{"input_tokens":2400,"input_tokens_details":{"cached_tokens":1024}}}`, 1024, 2400},
+		{"responses completed nested usage", `data: {"type":"response.completed","response":{"usage":{"input_tokens":61429,"input_tokens_details":{"cached_tokens":38144},"output_tokens":54}}}`, 38144, 61429},
 		{"details max wins", `data: {"usage":{"prompt_tokens":5,"input_tokens":9,"prompt_tokens_details":{"cached_tokens":100},"input_tokens_details":{"cached_tokens":200}}}`, 200, 9},
 		{"no usage", `data: {"choices":[{"delta":{"content":"hi"}}]}`, 0, 0},
 	}
@@ -109,6 +110,11 @@ func TestExtractCacheUsageFromBody_OpenAIAndUnknown(t *testing.T) {
 	}
 	if got := extractOpenAICacheUsageFromBody([]byte("{oops")); got != (cacheUsage{}) {
 		t.Fatalf("invalid openai usage=%+v", got)
+	}
+	nested := []byte(`{"response":{"usage":{"input_tokens":61429,"input_tokens_details":{"cached_tokens":38144},"output_tokens":54}}}`)
+	usage = extractCacheUsageFromBody("codex_chatgpt", nested)
+	if usage.ReadTokens != 38144 || usage.InputTokens != 61429 || usage.OutputTokens != 54 {
+		t.Fatalf("nested codex usage=%+v", usage)
 	}
 }
 
@@ -189,7 +195,7 @@ func TestStreamingRelayWithUsage_AggregatesOpenAICacheFields(t *testing.T) {
 	sse := strings.Join([]string{
 		`data: {"usage":{"input_tokens":1000,"input_tokens_details":{"cached_tokens":250}}}`,
 		``,
-		`data: {"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":300},"output_tokens":9}}`,
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":300},"output_tokens":9}}}`,
 		``,
 		`data: [DONE]`,
 		``,

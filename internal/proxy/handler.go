@@ -650,6 +650,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		responseBody = passthrough(w, upstreamResp)
 		outputTokens = estimateTokensFromText(string(responseBody))
 		upstreamCacheUsage = extractCacheUsageFromBody(provider.String(), responseBody)
+		if upstreamCacheUsage.OutputTokens > 0 {
+			outputTokens = upstreamCacheUsage.OutputTokens
+		}
 	}
 	if p.outputReduce != nil {
 		p.outputReduce.ObserveOutput(outputTokens)

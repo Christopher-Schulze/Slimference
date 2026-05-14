@@ -112,7 +112,7 @@ One manual-but-scripted certification run proves:
 
 ## Acceptance
 
-- [ ] Codex CLI transparent traffic certified.
+- [x] Codex CLI transparent traffic certified.
 - [ ] Codex App transparent traffic certified.
 - [ ] WebSocket behavior certified or explicitly not observed for the tested version.
 - [ ] Browser-Use passthrough certified.
@@ -142,3 +142,9 @@ One manual-but-scripted certification run proves:
   - Live command returned `slimference-custom-provider-ok` without WebSocket retry/fallback noise.
   - Flight evidence showed one direct HTTP `route_mode=upstream` request on `/backend-api/codex/responses`; the prior `websocket_force_https_fallback` records are now legacy evidence only.
 - This proof certifies CLI-only routing, WebSocket continuity, and the zstd HTTP pipeline for current Codex CLI. It does not certify token savings on Codex WebSocket traffic because current `WebSocketTunnel` is byte-for-byte by design; message-boundary compression is now tracked explicitly as T142 and remains blocked on live frame-shape capture before any mutation mode.
+- 2026-05-14 CLI-only probe re-run against Codex CLI `0.130.0` with the current repo daemon:
+  - macOS System HTTPS proxy stayed disarmed for all active services, so Codex App remained direct.
+  - `codex exec` used the per-process `slimference-codex` provider override and ran a shell tool loop successfully, returning `SLIMFERENCE_CLI_ACCOUNTING_OK`.
+  - Flight evidence showed two `/backend-api/codex/responses` requests with `route_mode=upstream`, `provider=codex_chatgpt`, and `confidence=provider_reported`.
+  - Responses-API nested `response.usage` is now parsed for Codex/OpenAI accounting. The final probe recorded provider-reported input/cache/output tokens in the flight log instead of local-only estimates.
+  - The tiny probe correctly skipped output-reduce and compression-heavy layers as below threshold; this certifies routing/accounting, not savings magnitude.

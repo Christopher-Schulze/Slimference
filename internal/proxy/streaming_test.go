@@ -101,6 +101,15 @@ func TestExtractOutputTokensFromSSE_OpenAIResponsesUsage(t *testing.T) {
 	}
 }
 
+func TestExtractOutputTokensFromSSE_OpenAIResponsesCompletedUsage(t *testing.T) {
+	t.Parallel()
+	line := []byte(`data: {"type":"response.completed","response":{"usage":{"input_tokens":61429,"input_tokens_details":{"cached_tokens":38144},"output_tokens":54}}}`)
+	n := extractOutputTokensFromSSE(line, "codex_chatgpt")
+	if n != 54 {
+		t.Fatalf("got %d want 54", n)
+	}
+}
+
 func TestExtractOutputTokensFromSSE_NonData(t *testing.T) {
 	t.Parallel()
 	if n := extractOutputTokensFromSSE([]byte("event: ping"), "anthropic"); n != 0 {

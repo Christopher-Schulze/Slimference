@@ -69,7 +69,8 @@ type cacheUsage struct {
 	// InputTokens is the provider-reported total input token count. Used
 	// by T28 to self-calibrate the per-provider tokenizer. Zero when
 	// absent.
-	InputTokens int
+	InputTokens  int
+	OutputTokens int
 }
 
 // streamingRelayWithUsage is streamingRelay augmented with prompt-cache usage
@@ -209,13 +210,11 @@ func extractOpenAICacheUsage(line []byte) (read, input int) {
 }
 
 func extractOpenAICacheUsageFromData(data []byte) (read, input int) {
-	var chunk struct {
-		Usage *openAIUsage `json:"usage,omitempty"`
-	}
-	if err := json.Unmarshal(data, &chunk); err != nil || chunk.Usage == nil {
+	usage, ok := extractOpenAIUsageFromData(data)
+	if !ok {
 		return 0, 0
 	}
-	return chunk.Usage.cachedTokens(), chunk.Usage.inputTokens()
+	return usage.cachedTokens(), usage.inputTokens()
 }
 
 type openAIUsage struct {
@@ -284,10 +283,14 @@ func extractOpenAICacheUsageFromBody(body []byte) cacheUsage {
 	if len(body) == 0 {
 		return cacheUsage{}
 	}
-	read, input := extractOpenAICacheUsageFromData(body)
+	usage, ok := extractOpenAIUsageFromData(body)
+	if !ok {
+		return cacheUsage{}
+	}
 	return cacheUsage{
-		ReadTokens:  read,
-		InputTokens: input,
+		ReadTokens:   usage.cachedTokens(),
+		InputTokens:  usage.inputTokens(),
+		OutputTokens: usage.outputTokens(),
 	}
 }
 
@@ -388,13 +391,12 @@ type openAIChunk struct {
 }
 
 func extractOpenAIOutputTokens(data []byte) int {
+	if usage, ok := extractOpenAIUsageFromData(data); ok && usage.outputTokens() > 0 {
+		return usage.outputTokens()
+	}
 	var chunk openAIChunk
 	if err := json.Unmarshal(data, &chunk); err != nil {
 		return 0
-	}
-	// Final chunk may have usage stats.
-	if chunk.Usage != nil && chunk.Usage.outputTokens() > 0 {
-		return chunk.Usage.outputTokens()
 	}
 	// Approximate from delta content.
 	for _, c := range chunk.Choices {
@@ -403,6 +405,59 @@ func extractOpenAIOutputTokens(data []byte) int {
 		}
 	}
 	return 0
+}
+
+func extractOpenAIUsageFromData(data []byte) (openAIUsage, bool) {
+	var envelope struct {
+		Usage    *openAIUsage `json:"usage,omitempty"`
+		Response *struct {
+			Usage *openAIUsage `json:"usage,omitempty"`
+		} `json:"response,omitempty"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return openAIUsage{}, false
+	}
+	var merged openAIUsage
+	found := false
+	if envelope.Usage != nil {
+		merged = mergeOpenAIUsage(merged, *envelope.Usage)
+		found = true
+	}
+	if envelope.Response != nil && envelope.Response.Usage != nil {
+		merged = mergeOpenAIUsage(merged, *envelope.Response.Usage)
+		found = true
+	}
+	return merged, found
+}
+
+func mergeOpenAIUsage(a, b openAIUsage) openAIUsage {
+	if b.PromptTokens > a.PromptTokens {
+		a.PromptTokens = b.PromptTokens
+	}
+	if b.InputTokens > a.InputTokens {
+		a.InputTokens = b.InputTokens
+	}
+	if b.CompletionTokens > a.CompletionTokens {
+		a.CompletionTokens = b.CompletionTokens
+	}
+	if b.OutputTokens > a.OutputTokens {
+		a.OutputTokens = b.OutputTokens
+	}
+	if b.PromptTokensDetails != nil {
+		if a.PromptTokensDetails == nil {
+			a.PromptTokensDetails = b.PromptTokensDetails
+		} else if b.PromptTokensDetails.CachedTokens > a.PromptTokensDetails.CachedTokens {
+			a.PromptTokensDetails.CachedTokens = b.PromptTokensDetails.CachedTokens
+		}
+	}
+	if b.InputTokensDetails != nil {
+		if a.InputTokensDetails == nil {
+			a.InputTokensDetails = b.InputTokensDetails
+		} else if b.InputTokensDetails.CachedTokens > a.InputTokensDetails.CachedTokens {
+			a.InputTokensDetails.CachedTokens = b.InputTokensDetails.CachedTokens
+		}
+	}
+	return a
 }
 
 // estimateTokensFromText gives a fast approximation: roughly 4 bytes per token.
