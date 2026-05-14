@@ -122,7 +122,7 @@ func isSvelteDiagnosticArgv(argv []string) bool {
 func isFrontendDiagnosticArgv(argv []string) bool {
 	if commandMatchesAny(argv,
 		"next", "vite", "vitest", "jest", "playwright",
-		"eslint", "biome", "oxlint", "turbo",
+		"eslint", "biome", "oxlint", "turbo", "nx", "lerna",
 	) {
 		return true
 	}

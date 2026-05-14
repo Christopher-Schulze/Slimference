@@ -219,6 +219,8 @@ func TestFrontendDiagnosticArgv(t *testing.T) {
 		{[]string{"next", "build"}, true},
 		{[]string{"pnpm", "exec", "vite", "build"}, true},
 		{[]string{"yarn", "playwright", "test"}, true},
+		{[]string{"npx", "nx", "build", "web"}, true},
+		{[]string{"pnpm", "exec", "lerna", "run", "build"}, true},
 		{[]string{"bun", "run", "vitest"}, true},
 		{[]string{"bun", "test"}, true},
 		{[]string{"bun", "build"}, true},
@@ -360,6 +362,16 @@ Found 1 error.`)
 	}
 	if !strings.Contains(got, "[frontend] FAILED") {
 		t.Fatalf("unexpected frontend dispatch output: %q", got)
+	}
+
+	monorepoStdout := diagnosticOutputWithNeutralPadding(`apps/web/src/App.tsx:4:7: error TS2322: Type 'string' is not assignable to type 'number'
+NX   Running target build for project web failed`)
+	got, ok = ParseFailures([]string{"npx", "nx", "build", "web"}, monorepoStdout)
+	if !ok {
+		t.Fatal("expected nx dispatch")
+	}
+	if !strings.Contains(got, "[frontend] FAILED") || !strings.Contains(got, "NX") {
+		t.Fatalf("unexpected nx dispatch output: %q", got)
 	}
 
 	pythonStdout := paddedDiagnosticOutput(`src/app.py:3:1: F401 'os' imported but unused

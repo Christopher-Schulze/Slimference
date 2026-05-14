@@ -114,7 +114,8 @@ Layer 0 parser coverage is driven by observed traffic:
   ecosystem parser; existing quiet-list/search compactors remain intact.
 - Terraform/OpenTofu plan/apply already exists; extend real misses.
 - GitHub CLI output.
-- Nx/Turborepo/Lerna workspace output.
+- [x] Nx/Turborepo/Lerna workspace diagnostics through the shared frontend/
+  monorepo parser; existing Nx/Turbo empty success compactors remain intact.
 
 ## Work Packages
 
@@ -236,3 +237,7 @@ Layer 0 parser coverage is driven by observed traffic:
   `kubectl`, `oc`, and Helm error/warning output, while the existing
   container/log compactors continue to own table counts, quiet-empty results,
   and repeated log collapse.
+- 2026-05-14: Monorepo diagnostic slice landed. The shared frontend diagnostic
+  parser now recognizes Nx and Lerna non-empty failure output in addition to
+  the existing Turbo path and the existing Nx/Turbo empty build/test
+  compactors.

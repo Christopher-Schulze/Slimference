@@ -194,7 +194,7 @@ file point at `~/.slimference/hooks/*.sh`, which invoke
    json, python traceback, terraform plan, json minify.
    `build-output` includes the shared diagnostic parser for Go, Cargo,
    GCC/Clang, TypeScript, Svelte, frontend tools (Next/Vite/Vitest/Jest/
-   Playwright/ESLint/Biome/Oxlint/Turbo/Bun), Python diagnostics
+   Playwright/ESLint/Biome/Oxlint/Turbo/Nx/Lerna/Bun), Python diagnostics
    (ruff/pylint/flake8/mypy/pyright/pytest/unittest matching), Zig, SQL/DB
    client diagnostics (psql/sqlite/mysql/mariadb/Prisma/Drizzle/SQLFluff/
    Sqruff), Markdown, and practical ecosystem compilers (Java/Kotlin/Swift/
