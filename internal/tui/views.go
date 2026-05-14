@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/slimference/slimference/internal/analytics"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -305,6 +306,9 @@ func (m *Model) renderDebugView() string {
 	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderFlightDiagnostics(m, flights)))
 	lines = append(lines, "")
 
+	lines = append(lines, s.Card.Width(innerWidth-2).Render(renderHookTurnDiagnostics(m, loadLatestHookTurnDebugStatus())))
+	lines = append(lines, "")
+
 	if m.proxy.SessionLogger() != nil {
 		entries := m.proxy.SessionLogger().Recent(30)
 		if len(entries) == 0 {
@@ -434,6 +438,152 @@ func flightOutput(f dbg.FlightRequestSummary) int {
 		return f.TokenAccounting.ProviderOutputTokens
 	}
 	return f.TokenAccounting.EstimatedOutputTokens
+}
+
+type hookTurnDebugStatus struct {
+	Present      bool
+	Error        string
+	StatePath    string
+	SessionID    string
+	TurnID       string
+	Closed       bool
+	UpdatedAt    time.Time
+	Tools        []string
+	FilesRead    []string
+	FilesEdited  []string
+	GitPathLists []sessions.HookGitPathListState
+}
+
+func loadLatestHookTurnDebugStatus() hookTurnDebugStatus {
+	home, _ := userHomeDirFn()
+	dir := sessions.DefaultHookStateDir(strings.TrimSpace(home))
+	return loadLatestHookTurnDebugStatusFromDir(dir)
+}
+
+func loadLatestHookTurnDebugStatusFromDir(dir string) hookTurnDebugStatus {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return hookTurnDebugStatus{}
+		}
+		return hookTurnDebugStatus{Error: err.Error()}
+	}
+	var latest hookTurnDebugStatus
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		sessionID := strings.TrimSuffix(entry.Name(), ".json")
+		state, err := sessions.LoadHookState(dir, sessionID)
+		if err != nil {
+			return hookTurnDebugStatus{Present: true, StatePath: filepath.Join(dir, entry.Name()), SessionID: sessionID, Error: err.Error()}
+		}
+		turn := state.Turns[len(state.Turns)-1]
+		for _, candidate := range state.Turns {
+			if candidate.ID == state.CurrentTurn {
+				turn = candidate
+				break
+			}
+		}
+		status := hookTurnDebugStatus{
+			Present:      true,
+			StatePath:    filepath.Join(dir, entry.Name()),
+			SessionID:    state.SessionID,
+			TurnID:       turn.ID,
+			Closed:       turn.Closed,
+			UpdatedAt:    turn.UpdatedAt,
+			Tools:        append([]string(nil), turn.Tools...),
+			FilesRead:    append([]string(nil), turn.FilesRead...),
+			FilesEdited:  append([]string(nil), turn.FilesEdited...),
+			GitPathLists: append([]sessions.HookGitPathListState(nil), turn.GitPathLists...),
+		}
+		if !latest.Present || status.UpdatedAt.After(latest.UpdatedAt) {
+			latest = status
+		}
+	}
+	return latest
+}
+
+func renderHookTurnDiagnostics(m *Model, status hookTurnDebugStatus) string {
+	s := m.styles
+	body := []string{" " + s.PanelTitle.Render("HOOK TURN STATE")}
+	if status.Error != "" {
+		body = append(body, "", s.Highlight.Render("  "+status.Error))
+		return strings.Join(body, "\n")
+	}
+	if !status.Present {
+		body = append(body, "", s.Muted.Render("  No hook turn-state file yet."))
+		return strings.Join(body, "\n")
+	}
+	state := "open"
+	if status.Closed {
+		state = "closed"
+	}
+	body = append(body,
+		"",
+		" "+s.Normal.Render(fmt.Sprintf("session %s  turn %s  %s  updated %s", compactDebugLabel(status.SessionID, 18), status.TurnID, state, formatStatusTime(status.UpdatedAt))),
+		" "+s.Normal.Render(fmt.Sprintf("tools %d  read %d  edited %d  git-lists %d", len(status.Tools), len(status.FilesRead), len(status.FilesEdited), len(status.GitPathLists))),
+	)
+	for _, hint := range hookTurnDecisionHints(status) {
+		body = append(body, " "+s.Normal.Render("gate: "+hint))
+	}
+	if line := compactDebugList("tools", status.Tools, 3); line != "" {
+		body = append(body, " "+s.Muted.Render(line))
+	}
+	if line := compactDebugList("read", status.FilesRead, 3); line != "" {
+		body = append(body, " "+s.Muted.Render(line))
+	}
+	if line := compactDebugList("edited", status.FilesEdited, 3); line != "" {
+		body = append(body, " "+s.Muted.Render(line))
+	}
+	if len(status.GitPathLists) > 0 {
+		last := status.GitPathLists[len(status.GitPathLists)-1]
+		body = append(body, " "+s.Muted.Render(fmt.Sprintf("git last %s paths=%d cwd=%s", compactDebugLabel(last.Source, 16), last.Count, compactDebugLabel(last.CWD, 28))))
+	}
+	return strings.Join(body, "\n")
+}
+
+func hookTurnDecisionHints(status hookTurnDebugStatus) []string {
+	hints := []string{}
+	if len(status.FilesEdited) > 0 {
+		hints = append(hints, "recent edit observed; matching file reads stay literal")
+	} else if len(status.FilesRead) > 0 {
+		hints = append(hints, "file reads observed; scan-sized Go reads may AST-compact")
+	}
+	if len(status.GitPathLists) > 0 {
+		hints = append(hints, "git path list recorded; exact same-turn name-only repeats may elide")
+	}
+	return hints
+}
+
+func compactDebugList(label string, values []string, limit int) string {
+	if len(values) == 0 || limit <= 0 {
+		return ""
+	}
+	n := len(values)
+	if n > limit {
+		values = values[n-limit:]
+	}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, compactDebugLabel(value, 32))
+	}
+	line := label + ": " + strings.Join(parts, ", ")
+	if n > len(values) {
+		line += fmt.Sprintf(" +%d", n-len(values))
+	}
+	return line
+}
+
+func compactDebugLabel(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	if limit <= 1 {
+		return value[:limit]
+	}
+	return value[:limit-1] + "…"
 }
 
 // renderSetupView renders the interactive install wizard and service management screen.

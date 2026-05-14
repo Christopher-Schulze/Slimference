@@ -1,6 +1,6 @@
 # TASK 138: Session/turn ownership spine for AST and cross-tool state
 
-Status: IN PROGRESS (core + hook-backed edit/read gates + T125 body recovery + T126 mini hot path landed; TUI/debug convergence still open)
+Status: IN PROGRESS (core + hook-backed edit/read gates + T125 body recovery + T126 mini hot path + TUI hook-state diagnostics landed; storage-key convergence still open)
 Priority: P1
 Scope: `internal/sessions/`, `internal/proxy/`, `internal/hooks/`, `internal/filter/`, `internal/readcache/`, `internal/codecompact/`, `internal/crosstool/`, `internal/toolarchive/`, `internal/quality/`, `internal/tui/`.
 
@@ -120,7 +120,7 @@ It is request-scoped where possible and process-scoped only behind explicit sess
 - [x] T125 body-on-demand has a real retrieval path or stays disabled.
 - [x] T126 hot-path integration is safe and per-turn only for Codex PostToolUse.
 - [ ] Read cache, repetition, tool archive, quality, and proxy share compatible session/turn keys.
-- [ ] TUI/debug can show why a file/tool output was compacted or left literal.
+- [x] TUI/debug can show why a file/tool output was compacted or left literal.
 - [x] `go test -race ./...` passes.
 - [x] `go run ./scripts/ci` passes.
 
@@ -151,7 +151,11 @@ It is request-scoped where possible and process-scoped only behind explicit sess
   - `toolarchive.RenderContext` adds a concrete recovery command for AST previews: `slimference expand-body <archive-id> <symbol>`.
   - `expand-body` extracts Go function/method declarations from the archived original, supporting `Func`, `Type.Method`, and `(*Type).Method` symbols.
   - This is intentionally not wired through unsupported `updatedInput` mutation. The agent must run the explicit command when it needs an omitted body.
+- 2026-05-14 TUI/debug hook-state diagnostics:
+  - The Debug view now includes a `HOOK TURN STATE` card.
+  - It loads the latest file-backed Codex hook state from `~/.slimference/turn-state/`.
+  - It surfaces active session/turn, open/closed state, tools observed, files read, files edited, and the latest git path-list observation.
+  - Missing hook state is rendered as an empty diagnostic, not an error, because transparent proxy mode can run without optional Codex hooks.
 - Open boundaries:
   - T126 still needs live corpus proof before any broader command family or dedicated `gain --crosstool` report.
-  - TUI/debug still needs a compact session/turn state view.
   - Read cache, repetition, tool archive, quality, and proxy still need a single visible session-key story.

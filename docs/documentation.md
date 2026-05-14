@@ -733,6 +733,12 @@ body can be recovered from the archived original. Unsupported/fail-open fields
 such as `PreToolUse.updatedInput` remain disabled until a live Codex build
 proves they are honored.
 
+The TUI Debug view includes a **Hook Turn State** card for this optional layer.
+It reads the latest file-backed state from `~/.slimference/turn-state/` and
+shows the active session/turn, tool count, read/edit file counts, and the last
+git path-list observation. This is diagnostic only; missing hook state does not
+change proxy behaviour.
+
 ### TOML scope safety
 
 The Codex fence is inserted **before the first `[table]` header** in
