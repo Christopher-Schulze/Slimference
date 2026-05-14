@@ -114,6 +114,23 @@ func TestPlannerClassHelpers(t *testing.T) {
 	}
 }
 
+func TestRequestHasEditIntent(t *testing.T) {
+	t.Parallel()
+	if requestHasEditIntent([]types.Message{{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Read"}}}}) {
+		t.Fatal("read-only tool must not count as edit")
+	}
+	editSamples := [][]types.Message{
+		{{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Edit"}}}},
+		{{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "shell", ToolInput: `{"command":"apply_patch <<'PATCH'"}`}}}},
+		{{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "exec_command", ToolInput: `{"cmd":"write file"}`}}}},
+	}
+	for _, sample := range editSamples {
+		if !requestHasEditIntent(sample) {
+			t.Fatalf("expected edit intent for %+v", sample)
+		}
+	}
+}
+
 func hasPlanAction(decisions []dbg.PlanDecisionSummary, layer, action, reason string) bool {
 	for _, decision := range decisions {
 		if decision.Layer == layer && decision.Action == action && decision.Reason == reason {

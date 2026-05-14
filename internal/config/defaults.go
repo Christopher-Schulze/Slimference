@@ -111,12 +111,14 @@ func defaultsRaw() *Config {
 					{MsgCountLE: 120, Threshold: 0.55},
 					{MsgCountLE: 1_000_000, Threshold: 0.40},
 				},
-				OverflowSlidingWindow:      2,
-				OverflowTargetRatio:        0.10,
-				StructureInWindow:          false,
-				StructureInWindowMinTokens: 1500,
-				LoopDetection:              false,
-				StructurePreview:           true,
+				OverflowSlidingWindow:       2,
+				OverflowTargetRatio:         0.10,
+				StructureInWindow:           false,
+				StructureInWindowMinTokens:  1500,
+				ToolOutputInWindow:          true,
+				ToolOutputInWindowMinTokens: 800,
+				LoopDetection:               false,
+				StructurePreview:            true,
 				DedupStaircase: []StaircaseStep{
 					{MsgCountLE: 10, Threshold: 0.88},
 					{MsgCountLE: 20, Threshold: 0.85},
@@ -325,6 +327,12 @@ threshold = 0.40
 # and not on the last message are eligible.
 structure_in_window = false
 structure_in_window_min_tokens = 1500
+
+# Allow deterministic compaction of large current-turn tool outputs. This is
+# what makes short Codex CLI turns with one huge rg/go-test/build output save
+# tokens without waiting for the output to age out of the sliding window.
+tool_output_in_window = true
+tool_output_in_window_min_tokens = 800
 
 # T37: detect retry loops (>=4 consecutive user turns with >=0.75 Jaccard
 # word similarity) and prepend a short nudge to the final user message so

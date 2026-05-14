@@ -159,16 +159,30 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 
 	prefixEnd := CompressiblePrefixEnd(messages, c.cfg.SlidingWindow)
 	if prefixEnd <= 0 {
+		if c.cfg.Tuning.ToolOutputInWindow && len(messages) > 1 {
+			out := make([]types.Message, len(messages))
+			copy(out, messages)
+			toolUses := buildToolUseIndex(messages, len(messages))
+			saved := c.toolOutputInWindowPass(out, 0, toolUses)
+			if saved > 0 {
+				result.ToolCompressorSaved = saved
+				result.TokensSaved = saved
+				result.Messages = out
+			}
+		}
 		// T24: even when the compressible prefix is empty, in-window
 		// structure extraction (opt-in) can still compress large tool
 		// outputs in the middle of the conversation.
 		if c.cfg.Tuning.StructureInWindow && len(messages) >= 2 {
-			out := make([]types.Message, len(messages))
-			copy(out, messages)
+			out := result.Messages
+			if len(out) == 0 {
+				out = make([]types.Message, len(messages))
+				copy(out, messages)
+			}
 			saved := c.structureInWindowPass(out, 0)
 			if saved > 0 {
 				result.StructureSaved = saved
-				result.TokensSaved = saved
+				result.TokensSaved += saved
 				result.Messages = out
 			}
 		}
@@ -245,6 +259,13 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 	// only fires when no other transformation replaced the raw text.
 	if c.cfg.Tuning.StructurePreview {
 		result.PreviewSaved = c.structurePreviewPass(out, prefixEnd)
+	}
+
+	// Short Codex CLI turns often keep the largest command output inside the
+	// sliding window. Type-aware compaction is still safe there for large,
+	// classified tool outputs because it leaves explicit omission markers.
+	if c.cfg.Tuning.ToolOutputInWindow && prefixEnd < len(out)-1 {
+		result.ToolCompressorSaved += c.toolOutputInWindowPass(out, prefixEnd, toolUses)
 	}
 
 	// T24: opt-in in-window structure extraction. Walks the tail of the

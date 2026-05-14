@@ -235,6 +235,15 @@ type TuningConfig struct {
 	// in-window tool_result block to be eligible for structure extraction.
 	// Default 1500 (conservative: half of a typical file read).
 	StructureInWindowMinTokens int `toml:"structure_in_window_min_tokens"`
+	// ToolOutputInWindow enables deterministic type-aware compaction for
+	// large shell/tool outputs inside the sliding window. This is safe for
+	// high-volume listings/search/test/build outputs because omitted markers
+	// preserve the fact that output was truncated. Default true for Codex CLI
+	// short-turn efficiency.
+	ToolOutputInWindow bool `toml:"tool_output_in_window"`
+	// ToolOutputInWindowMinTokens is the minimum estimated token count for
+	// in-window tool output compaction. Default 800.
+	ToolOutputInWindowMinTokens int `toml:"tool_output_in_window_min_tokens"`
 	// LoopDetection enables T37: when 4+ consecutive user messages share
 	// >=0.75 Jaccard word similarity, a synthetic nudge is prepended to
 	// the final user message so the model can break out of a retry loop.

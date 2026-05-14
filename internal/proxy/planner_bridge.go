@@ -121,6 +121,25 @@ func plannerClassesFromMessages(messages []types.Message) []string {
 	return classes
 }
 
+func requestHasEditIntent(messages []types.Message) bool {
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			name := strings.ToLower(strings.TrimSpace(block.ToolName))
+			switch name {
+			case "edit", "write", "apply_patch", "multiedit", "multi_edit", "update_plan":
+				return true
+			}
+			input := strings.ToLower(block.ToolInput)
+			if strings.Contains(input, "apply_patch") ||
+				strings.Contains(input, "\"cmd\":\"write") ||
+				strings.Contains(input, "\"command\":\"write") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func normalizedPlannerClasses(classes []string) []string {
 	seen := make(map[string]struct{}, len(classes))
 	out := make([]string, 0, len(classes))
