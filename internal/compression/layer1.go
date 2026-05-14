@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -411,8 +412,7 @@ func (c *DeterministicCompressor) compressMessage(
 			// L1.4: Structure extraction (skipped for pre-filtered content).
 			lang := c.detectLanguage(block, text)
 			if lang != "" && c.structureLangAllowed(lang) {
-				estimatedTokens := len(text) / 4
-				if estimatedTokens >= c.cfg.StructureMinTokens {
+				if shouldRunStructureExtraction(text, c.cfg.StructureMinTokens) {
 					if summary, changed := c.structExtractor.Extract(text, lang); changed {
 						structSaved += len(text) - len(summary)
 						text = summary
@@ -525,6 +525,19 @@ func (c *DeterministicCompressor) compressMessage(
 	out.Content = newContent
 	out.Metadata = msg.Metadata
 	return out, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved, dictionarySaved
+}
+
+func shouldRunStructureExtraction(text string, minTokens int) bool {
+	if text == "" {
+		return false
+	}
+	if minTokens <= 0 {
+		return true
+	}
+	if counted := tokens.CountString(text); counted > 0 {
+		return counted >= minTokens
+	}
+	return len(text)/4 >= minTokens
 }
 
 // ansiOnlyChange reports whether the only difference between original and

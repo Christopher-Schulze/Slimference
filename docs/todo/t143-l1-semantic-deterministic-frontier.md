@@ -25,8 +25,11 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
 
 ### WP1 - Tokenizer-aware budget planner
 
-- Reopen the useful part of T95 now that proxy/hook/session context exists.
-- Replace character-only thresholds with provider-token budgets where provider context is available.
+- [x] Reopen the useful part of T95 now that proxy/hook/session context exists.
+- [x] Replace the central Layer 1 structure-extraction byte/4 gate with the
+  local tokenizer so `structure_min_tokens` is enforced in token space instead
+  of character-count space. Provider-specific tokenizers remain a later
+  extension when provider context is passed into Layer 1.
 - Keep char thresholds as fallback.
 - Budgets by content family:
   - tool output.
@@ -139,6 +142,8 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
 ## Acceptance
 
 - [ ] Token budgets are provider-aware when context is available.
+- [x] Structure extraction no longer uses byte/4 as its primary budget gate;
+  local-tokenizer counting is used with byte/4 fallback.
 - [x] Reversible dictionary compaction never aliases edit-critical identifiers
   for the implemented absolute-path slice.
 - [ ] Multi-language slicing covers the requested high-volume stacks.
@@ -170,6 +175,13 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
     `RUN` chains to a command count; Makefile keeps includes, variables,
     `.PHONY`, and targets.
   - All summaries remain guarded by the existing shorter-than-original bypass.
+  - Focus test: `go test ./internal/compression -cover` at 100%.
+- 2026-05-14 T143c:
+  - Replaced the Layer 1 structure-extraction threshold from `len(text)/4` to
+    local-tokenizer counting via `internal/tokens`.
+  - This makes `structure_min_tokens` behave like a token budget instead of a
+    byte heuristic while preserving the old byte/4 fallback if tokenizer
+    initialization fails.
   - Focus test: `go test ./internal/compression -cover` at 100%.
 
 ## Expected Upside

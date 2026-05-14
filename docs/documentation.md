@@ -286,7 +286,9 @@ the existing content archive. They keep only structural markers: Markdown
 headings/lists/tables/fences, SQL DDL/DML/constraint clauses, GraphQL/HCL
 top-level blocks, Dockerfile image/control instructions with `RUN` chains
 collapsed to a command count, and Makefile includes/variables/targets.
-Negative-saving bypass still applies before any compacted block is used.
+The `structure_min_tokens` gate is evaluated with the local tokenizer, falling
+back to byte/4 only if tokenizer initialization fails. Negative-saving bypass
+still applies before any compacted block is used.
 
 ### Adaptive dedup staircase (T53)
 

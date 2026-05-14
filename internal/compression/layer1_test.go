@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -562,6 +563,27 @@ func TestCompress_structureExtractLargeGoFile(t *testing.T) {
 	}
 	if !result.Messages[0].Metadata.WasStructured {
 		t.Fatal("WasStructured should be true")
+	}
+}
+
+func TestShouldRunStructureExtraction_UsesTokenizerThreshold(t *testing.T) {
+	t.Parallel()
+	text := strings.Repeat("token rich content ", 30)
+	counted := tokens.CountString(text)
+	if counted <= 0 {
+		t.Fatal("tokenizer returned zero")
+	}
+	if !shouldRunStructureExtraction(text, counted) {
+		t.Fatal("threshold equal to token count should run")
+	}
+	if shouldRunStructureExtraction(text, counted+1) {
+		t.Fatal("threshold above token count should not run")
+	}
+	if shouldRunStructureExtraction("", 0) {
+		t.Fatal("empty text should not run")
+	}
+	if !shouldRunStructureExtraction("small", 0) {
+		t.Fatal("zero threshold should run non-empty text")
 	}
 }
 
