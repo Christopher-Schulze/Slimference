@@ -49,17 +49,14 @@ func RunPipeline(ctx context.Context, workDir string, argv []string, passthrough
 		return pr
 	}
 
-	rawLen := len(out)
 	stripped := compression.StripANSICodes(string(out))
 	pr.Stdout = applyLayer0AfterANSI(workDir, argv, []byte(stripped))
 	pr.Stdout = TruncateStdoutWithHint(pr.Stdout, passthroughMaxRunes)
 
-	inBytes := rawLen + len(errOut)
-	outBytes := len(pr.Stdout) + len(errOut)
-	pr.InputTokens = EstimateTokensFromBytes(inBytes)
-	pr.OutputTokens = EstimateTokensFromBytes(outBytes)
-	if inBytes > 0 {
-		pr.SavingsPct = float64(inBytes-outBytes) / float64(inBytes) * 100.0
+	pr.InputTokens = estimateTokensFromByteSlices(out, errOut)
+	pr.OutputTokens = estimateTokensFromByteSlices(pr.Stdout, errOut)
+	if pr.InputTokens > 0 {
+		pr.SavingsPct = float64(pr.InputTokens-pr.OutputTokens) / float64(pr.InputTokens) * 100.0
 	}
 	slog.Debug("layer0 result", "argv0", argv0, "in_tokens", pr.InputTokens, "out_tokens", pr.OutputTokens, "savings_pct", pr.SavingsPct)
 	return pr

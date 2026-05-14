@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+
+	"github.com/slimference/slimference/internal/tokens"
 )
 
 // RunCommand runs argv[0] with argv[1:] in workDir, capturing combined stdout/stderr.
@@ -41,4 +43,27 @@ func EstimateTokensFromBytes(n int) int {
 		return 1
 	}
 	return t
+}
+
+// EstimateTokensFromText counts tokens with the local tokenizer and falls back
+// to the historical byte/4 heuristic only if the tokenizer is unavailable.
+func EstimateTokensFromText(text string) int {
+	if text == "" {
+		return 0
+	}
+	if counted := tokens.CountString(text); counted > 0 {
+		return counted
+	}
+	return EstimateTokensFromBytes(len(text))
+}
+
+func estimateTokensFromByteSlices(parts ...[]byte) int {
+	total := 0
+	for _, part := range parts {
+		if len(part) == 0 {
+			continue
+		}
+		total += EstimateTokensFromText(string(part))
+	}
+	return total
 }

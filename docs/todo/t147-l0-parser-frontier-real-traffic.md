@@ -257,3 +257,7 @@ Layer 0 parser coverage is driven by observed traffic:
   families instead of letting them fall into `other`. No fake bypass ledger was
   added: the current filter API cannot honestly report "negative-saving
   prevented" without changing the compactor return type.
+- 2026-05-14: Layer 0 `filter.db` token accounting now uses the local tokenizer
+  for persisted input/output token counts, with byte/4 only as fallback. This
+  makes `gain`, `debug summary`, and parser-family savings closer to provider
+  billing reality without changing filtered bytes.

@@ -211,7 +211,9 @@ file point at `~/.slimference/hooks/*.sh`, which invoke
 5. Truncate with a short `[truncated …]` hint to
    `passthrough_max_chars` (default 4000; spec+.md §4.6).
 6. Emit to stdout + write the raw bytes to the tee dir for recovery.
-7. Record the run in `filter.db` (SQLite).
+7. Record the run in `filter.db` (SQLite) with local-tokenizer counts for
+   input/output tokens, falling back to byte/4 only if the tokenizer is
+   unavailable.
 
 ### Exit-code contract
 
@@ -222,13 +224,14 @@ are degradation signals, not status translations.
 ### Token-saving reporting
 
 `slimference gain [today|week|month|all]` aggregates rows from
-`filter.db` into a summary with savings percentages. `--by-command`
-breaks it down per argv[0]; `--by-parser` groups persisted Layer-0
-savings by parser/tool family; `--cache` reports persisted provider
-prompt-cache read/create counters; `--output` reports persisted T130
-output-reduce telemetry without inventing a savings baseline, including T141
-profile tier and task-shape buckets. `--csv` / `--json` for machine
-consumption.
+`filter.db` into a summary with savings percentages. Layer 0 now stores
+local-tokenizer counts rather than plain byte/4 estimates, so parser-family
+comparisons are closer to what the provider will bill. `--by-command` breaks it
+down per argv[0]; `--by-parser` groups persisted Layer-0 savings by parser/tool
+family; `--cache` reports persisted provider prompt-cache read/create counters;
+`--output` reports persisted T130 output-reduce telemetry without inventing a
+savings baseline, including T141 profile tier and task-shape buckets. `--csv` /
+`--json` for machine consumption.
 
 ---
 

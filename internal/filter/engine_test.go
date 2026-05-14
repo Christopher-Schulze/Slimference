@@ -65,3 +65,18 @@ func TestEstimateTokensFromBytes(t *testing.T) {
 		t.Fatal()
 	}
 }
+
+func TestEstimateTokensFromTextAndSlices(t *testing.T) {
+	t.Parallel()
+	if EstimateTokensFromText("") != 0 {
+		t.Fatal("empty text should count as zero")
+	}
+	short := EstimateTokensFromText("hello world")
+	long := EstimateTokensFromText("hello world with several more words for tokenizer accuracy")
+	if short <= 0 || long <= short {
+		t.Fatalf("token estimates not monotonic: short=%d long=%d", short, long)
+	}
+	if got := estimateTokensFromByteSlices([]byte("hello"), nil, []byte("world")); got <= 0 {
+		t.Fatalf("slice estimate=%d", got)
+	}
+}
