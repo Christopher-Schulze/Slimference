@@ -420,11 +420,7 @@ func (t *turnState) snapshot() TurnSnapshot {
 }
 
 func normalizeSessionKey(sessionID string) SessionKey {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return SessionKey("anonymous")
-	}
-	return SessionKey(sessionID)
+	return SessionKey(SafeSessionID(sessionID))
 }
 
 func normaliseToolObservation(obs ToolObservation, now time.Time) ToolObservation {

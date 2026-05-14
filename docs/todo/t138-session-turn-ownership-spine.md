@@ -1,6 +1,6 @@
 # TASK 138: Session/turn ownership spine for AST and cross-tool state
 
-Status: IN PROGRESS (core + hook-backed edit/read gates + T125 body recovery + T126 mini hot path + TUI hook-state diagnostics landed; storage-key convergence still open)
+Status: IN PROGRESS (core + hook-backed edit/read gates + T125 body recovery + T126 mini hot path + TUI hook-state diagnostics + safe session storage keys landed; turn-level convergence/live proof still open)
 Priority: P1
 Scope: `internal/sessions/`, `internal/proxy/`, `internal/hooks/`, `internal/filter/`, `internal/readcache/`, `internal/codecompact/`, `internal/crosstool/`, `internal/toolarchive/`, `internal/quality/`, `internal/tui/`.
 
@@ -156,6 +156,12 @@ It is request-scoped where possible and process-scoped only behind explicit sess
   - It loads the latest file-backed Codex hook state from `~/.slimference/turn-state/`.
   - It surfaces active session/turn, open/closed state, tools observed, files read, files edited, and the latest git path-list observation.
   - Missing hook state is rendered as an empty diagnostic, not an error, because transparent proxy mode can run without optional Codex hooks.
+- 2026-05-14 safe session storage-key convergence:
+  - `internal/sessions.SafeSessionID` is the shared canonical storage id (`anonymous` for blank, filesystem-safe replacement for non `[A-Za-z0-9_-]` runes).
+  - Hook state and in-memory `TurnStateStore` use the same safe id.
+  - Read cache now stores blank sessions as `anonymous` instead of `unknown-session`.
+  - Repetition and tool archive keep blank session ids as no-op/optional, but sanitise every non-empty session id before persistence.
+  - Proxy quality re-read observations now use the extracted session id, not the per-request id, and ignore blank sessions so re-read quality signals are session-scoped instead of request-scoped noise.
 - Open boundaries:
   - T126 still needs live corpus proof before any broader command family or dedicated `gain --crosstool` report.
-  - Read cache, repetition, tool archive, quality, and proxy still need a single visible session-key story.
+  - Turn-level ownership is still not threaded through read cache, repetition, tool archive, quality, and proxy. The safe session id is unified; turn ids are not yet a universal storage key.

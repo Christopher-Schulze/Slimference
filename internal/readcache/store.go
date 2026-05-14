@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/slimference/slimference/internal/sessions"
 )
 
 var (
@@ -53,6 +54,7 @@ func SaveSession(dir string, state *SessionState) error {
 	if err := readCacheMkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	state.SessionID = sanitizeSessionID(state.SessionID)
 
 	data, err := readCacheMarshalIndent(state, "", "  ")
 	if err != nil {
@@ -66,23 +68,5 @@ func sessionPath(dir string, sessionID string) string {
 }
 
 func sanitizeSessionID(sessionID string) string {
-	if strings.TrimSpace(sessionID) == "" {
-		return "unknown-session"
-	}
-	var b strings.Builder
-	for _, r := range sessionID {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r)
-		case r >= 'A' && r <= 'Z':
-			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	return b.String()
+	return sessions.SafeSessionID(sessionID)
 }

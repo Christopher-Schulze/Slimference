@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/slimference/slimference/internal/sessions"
 	_ "modernc.org/sqlite"
 )
 
@@ -80,7 +81,7 @@ type Key struct {
 func hashKey(k Key) (sessionID, toolKey, outputSHA string) {
 	tool := strings.TrimSpace(k.ToolName) + "|" + strings.TrimSpace(k.Command)
 	sum := sha256.Sum256([]byte(strings.TrimSpace(k.Output)))
-	return strings.TrimSpace(k.SessionID), tool, hex.EncodeToString(sum[:])
+	return sessions.SafeOptionalSessionID(k.SessionID), tool, hex.EncodeToString(sum[:])
 }
 
 // Record bumps the counter for k and returns the resulting hit count
@@ -124,6 +125,7 @@ VALUES (?, ?, ?, 1, ?, ?, ?)`, sess, tool, sha, now, now, msgIdx); err != nil {
 // Forget drops state for one session id. Used when an operator clears
 // a session manually or when a session ends.
 func Forget(db *sql.DB, sessionID string) error {
+	sessionID = sessions.SafeOptionalSessionID(sessionID)
 	if sessionID == "" {
 		return nil
 	}

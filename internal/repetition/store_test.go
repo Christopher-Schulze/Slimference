@@ -74,6 +74,17 @@ func TestRecord_EmptyKeyNoop(t *testing.T) {
 	}
 }
 
+func TestHashKeyUsesSafeOptionalSessionID(t *testing.T) {
+	sessionID, _, _ := hashKey(Key{SessionID: "sess/1 with space", ToolName: "Bash", Output: "x"})
+	if sessionID != "sess_1_with_space" {
+		t.Fatalf("safe session id = %q", sessionID)
+	}
+	blank, _, _ := hashKey(Key{SessionID: " \n ", ToolName: "Bash", Output: "x"})
+	if blank != "" {
+		t.Fatalf("blank optional session id = %q", blank)
+	}
+}
+
 func TestForget(t *testing.T) {
 	db := openTestDB(t)
 	_, _, _ = Record(db, Key{SessionID: "s1", ToolName: "Bash", Output: "a"}, 1)
@@ -87,6 +98,15 @@ func TestForget(t *testing.T) {
 	}
 	if err := Forget(db, ""); err != nil {
 		t.Fatalf("empty forget must noop: %v", err)
+	}
+
+	_, _, _ = Record(db, Key{SessionID: "sess/1", ToolName: "Bash", Output: "a"}, 1)
+	if err := Forget(db, "sess/1"); err != nil {
+		t.Fatal(err)
+	}
+	stats, _ = Snapshot(db)
+	if stats.UniqueSessions != 1 {
+		t.Fatalf("safe forget did not delete sanitised session: %+v", stats)
 	}
 }
 

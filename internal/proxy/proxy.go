@@ -966,11 +966,16 @@ func (p *Proxy) QualitySnapshot() quality.QualitySnapshot {
 	}
 }
 
-// ObserveQualityToolKey is the proxy-side hook for the re-read
-// detector. Called when a tool_use block is observed during request
-// processing. Empty session or key are no-ops.
-func (p *Proxy) ObserveQualityToolKey(sessionID, toolKey string) {
-	p.qualityReRead.Observe(sessionID, toolKey)
+// ObserveQualityToolKey is the proxy-side hook for the re-read detector.
+// Called when a tool_use block is observed during request processing. Empty
+// session or key are no-ops. Returns true when the detector reports a re-read.
+func (p *Proxy) ObserveQualityToolKey(sessionID, toolKey string) bool {
+	sessionID = sessions.SafeOptionalSessionID(sessionID)
+	toolKey = strings.TrimSpace(toolKey)
+	if sessionID == "" || toolKey == "" || p.qualityReRead == nil {
+		return false
+	}
+	return p.qualityReRead.Observe(sessionID, toolKey)
 }
 
 // ObserveQualityCacheHit feeds prompt-cache hit/miss outcomes into the

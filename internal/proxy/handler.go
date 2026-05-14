@@ -183,7 +183,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		for _, msg := range messages {
 			for _, block := range msg.Content {
 				if block.Type == "tool_use" && block.ToolName != "" {
-					if p.qualityReRead.Observe(reqID, block.ToolName) {
+					if p.ObserveQualityToolKey(sessionID, block.ToolName) {
 						reReadCount++
 					}
 				}

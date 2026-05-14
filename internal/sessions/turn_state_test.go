@@ -70,6 +70,17 @@ func TestTurnStateLifecycleAndObservations(t *testing.T) {
 	}
 }
 
+func TestTurnStateUsesSafeSessionID(t *testing.T) {
+	store := NewTurnStateStore(TurnStoreOptions{})
+	start := store.StartSession("sess/1 with space", "codex", "/repo")
+	if start.SessionID != "sess_1_with_space" {
+		t.Fatalf("safe start session id = %q", start.SessionID)
+	}
+	if _, ok := store.Snapshot("sess_1_with_space", "turn-1"); !ok {
+		t.Fatal("snapshot should be available under safe session id")
+	}
+}
+
 func TestTurnStateCapsAnonymousAndPreviousTurnEdit(t *testing.T) {
 	now := time.Unix(2000, 0).UTC()
 	store := NewTurnStateStore(TurnStoreOptions{

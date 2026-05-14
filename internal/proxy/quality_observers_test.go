@@ -10,14 +10,24 @@ import (
 func TestObserveQualityToolKey_RoundTrip(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
-	p.ObserveQualityToolKey("sess-1", "tool:read:src/auth/handler.go")
-	p.ObserveQualityToolKey("sess-1", "tool:read:src/auth/handler.go")
+	if p.ObserveQualityToolKey("sess-1", "tool:read:src/auth/handler.go") {
+		t.Fatal("first observation should not be a re-read")
+	}
+	if !p.ObserveQualityToolKey("sess-1", "tool:read:src/auth/handler.go") {
+		t.Fatal("second observation should be a re-read")
+	}
 	stats := p.QualitySnapshot().ReRead
 	if stats.TotalChecks != 2 {
 		t.Fatalf("checks: %d", stats.TotalChecks)
 	}
 	if stats.TotalHits == 0 {
 		t.Fatal("re-read in window must register a hit")
+	}
+	if p.ObserveQualityToolKey("", "tool") || p.ObserveQualityToolKey("sess-1", "") {
+		t.Fatal("empty session/tool should not register")
+	}
+	if p.QualitySnapshot().ReRead.TotalChecks != 2 {
+		t.Fatal("empty observation should not increment checks")
 	}
 }
 

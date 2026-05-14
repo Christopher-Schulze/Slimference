@@ -739,6 +739,11 @@ shows the active session/turn, tool count, read/edit file counts, and the last
 git path-list observation. This is diagnostic only; missing hook state does not
 change proxy behaviour.
 
+Persistent hook/read-cache/repetition/tool-archive storage now uses the shared
+`internal/sessions.SafeSessionID` convention for non-empty session ids. Blank
+sessions remain no-op/anonymous depending on the store so missing provider
+session metadata never creates unbounded cross-session state.
+
 ### TOML scope safety
 
 The Codex fence is inserted **before the first `[table]` header** in

@@ -78,6 +78,9 @@ func TestToolArchiveFallbackIDListRenderAndPreview(t *testing.T) {
 	if first == nil || first.ID == "" || first.ToolUseID != "" {
 		t.Fatalf("entry=%+v", first)
 	}
+	if first.SessionID != "sess_1" {
+		t.Fatalf("safe archive session id=%q", first.SessionID)
+	}
 
 	second, err := Archive(dir, Input{
 		ToolName:  "Read",

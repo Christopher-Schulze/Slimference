@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/slimference/slimference/internal/sessions"
 )
 
 const (
@@ -106,7 +108,7 @@ func Archive(dir string, input Input) (*Entry, error) {
 		CreatedAt:  time.Now().UTC(),
 		ToolName:   strings.TrimSpace(input.ToolName),
 		ToolUseID:  strings.TrimSpace(input.ToolUseID),
-		SessionID:  strings.TrimSpace(input.SessionID),
+		SessionID:  sessions.SafeOptionalSessionID(input.SessionID),
 		Command:    strings.TrimSpace(input.Command),
 		Preview:    previewText(input),
 		OutputSize: len(input.Output),
@@ -282,7 +284,7 @@ func buildID(input Input) string {
 	}
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		input.ToolName,
-		input.SessionID,
+		sessions.SafeOptionalSessionID(input.SessionID),
 		input.Command,
 		trimForHash(input.Output),
 	}, "\x00")))

@@ -22,7 +22,7 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.SessionID != "unknown-session" {
+	if state.SessionID != "anonymous" {
 		t.Fatalf("LoadSession empty id=%q", state.SessionID)
 	}
 
@@ -30,7 +30,7 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 	if err := SaveSession(dir, state); err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := LoadSession(dir, "unknown-session")
+	reloaded, err := LoadSession(dir, "anonymous")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 		t.Fatalf("hydrated=%+v", hydrated)
 	}
 
-	if got := sanitizeSessionID(" \n "); got != "unknown-session" {
+	if got := sanitizeSessionID(" \n "); got != "anonymous" {
 		t.Fatalf("sanitizeSessionID blank=%q", got)
 	}
 	if got, ok := numericValue(7); !ok || got != 7 {
