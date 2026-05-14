@@ -131,7 +131,7 @@ func TryCompactNpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	switch argv[1] {
-	case "install", "ci":
+	case "install", "ci", "update":
 	default:
 		return stdout, false
 	}
@@ -150,7 +150,7 @@ func TryCompactPnpmInstall(argv []string, stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	switch argv[1] {
-	case "install", "ci":
+	case "install", "ci", "update":
 	default:
 		return stdout, false
 	}
@@ -165,13 +165,13 @@ func TryCompactYarnInstall(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 2 {
 		return stdout, false
 	}
-	if filepath.Base(argv[0]) != "yarn" || argv[1] != "install" {
+	if filepath.Base(argv[0]) != "yarn" || (argv[1] != "install" && argv[1] != "upgrade") {
 		return stdout, false
 	}
 	if strings.TrimSpace(string(stdout)) != "" {
 		return stdout, false
 	}
-	return []byte("[yarn install] ok\n"), true
+	return []byte(fmt.Sprintf("[yarn %s] ok\n", argv[1])), true
 }
 
 // TryCompactPoetryInstall summarizes empty stdout from `poetry install` / `npx|pnpm exec|yarn … poetry install` (F12 partial).
@@ -501,18 +501,22 @@ func pkgToolLabel(argv []string) string {
 	}
 	b0 := strings.ToLower(filepath.Base(argv[0]))
 	switch {
-	case b0 == "npm" && (argv[1] == "install" || argv[1] == "ci"):
+	case b0 == "npm" && (argv[1] == "install" || argv[1] == "ci" || argv[1] == "update"):
 		return fmt.Sprintf("npm %s", argv[1])
-	case (b0 == "pnpm" || b0 == "pnpm.cmd") && (argv[1] == "install" || argv[1] == "ci"):
+	case (b0 == "pnpm" || b0 == "pnpm.cmd") && (argv[1] == "install" || argv[1] == "ci" || argv[1] == "update"):
 		return fmt.Sprintf("pnpm %s", argv[1])
-	case (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && argv[1] == "install":
-		return "yarn install"
+	case (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") && (argv[1] == "install" || argv[1] == "upgrade"):
+		return fmt.Sprintf("yarn %s", argv[1])
 	case b0 == "pip" || b0 == "pip3" || b0 == "pip.exe":
 		if argv[1] == "install" {
 			return "pip install"
 		}
 	case b0 == "bun" && argv[1] == "install":
 		return "bun install"
+	case (b0 == "uv" || b0 == "uv.exe") && argv[1] == "sync":
+		return "uv sync"
+	case (b0 == "uv" || b0 == "uv.exe") && len(argv) >= 3 && argv[1] == "pip" && argv[2] == "install":
+		return "uv pip install"
 	}
 	return ""
 }
@@ -527,6 +531,13 @@ func extractPkgSummary(s, label string) (string, bool) {
 			continue
 		}
 		tl := strings.ToLower(t)
+		if isPackageErrorSummaryLine(t, tl) {
+			summaryLines = append(summaryLines, t)
+			if len(summaryLines) >= 12 {
+				break
+			}
+			continue
+		}
 		// npm/pnpm: "added N packages", "removed N packages", "changed N packages"
 		if strings.Contains(tl, "added ") || strings.Contains(tl, "removed ") ||
 			strings.Contains(tl, "changed ") || strings.Contains(tl, "audited ") {
@@ -559,4 +570,18 @@ func extractPkgSummary(s, label string) (string, bool) {
 		return "", false
 	}
 	return out, true
+}
+
+func isPackageErrorSummaryLine(trimmed, lower string) bool {
+	return strings.Contains(lower, " err!") ||
+		strings.Contains(lower, "eresolve") ||
+		strings.Contains(lower, "err_pnpm_") ||
+		strings.Contains(lower, "resolutionimpossible") ||
+		strings.Contains(lower, "could not find a version") ||
+		strings.Contains(lower, "no matching version") ||
+		strings.Contains(lower, "no solution found") ||
+		strings.Contains(lower, "failed with errors") ||
+		strings.HasPrefix(lower, "error:") ||
+		strings.HasPrefix(lower, "error ") ||
+		strings.Contains(trimmed, "YN000") && strings.Contains(lower, "error")
 }

@@ -42,8 +42,8 @@ Layer 0 parser coverage is driven by observed traffic:
 - `vitest`.
 - `jest`.
 - `bun test`.
-- `bun install`.
-- `npm/pnpm/yarn` install/update warnings.
+- [x] `bun install` success/error summary compaction.
+- [x] `npm/pnpm/yarn` install/update warnings and resolver errors.
 - `vite`.
 - `next build`.
 - `turbo`.
@@ -67,8 +67,8 @@ Layer 0 parser coverage is driven by observed traffic:
 - [x] `pyright` / `basedpyright`.
 - [x] `pylint`, `flake8`, and `python -m unittest` matching in the shared
   diagnostic recognizer.
-- `uv`.
-- `pip` resolver errors.
+- [x] `uv` sync / pip install resolver errors.
+- [x] `pip` resolver errors.
 
 ### Zig / C / C++
 
@@ -208,3 +208,9 @@ Layer 0 parser coverage is driven by observed traffic:
   package-manager wrappers such as `npm exec --`, `npm x`, `pnpm exec`, `bun x`,
   `bun run`, `yarn`, and `npx`. This deliberately covers diagnostic/error
   compaction only; rich table/explain summarization remains future work.
+- 2026-05-14: Package-manager resolver-error slice landed. `npm install|ci|update`,
+  `pnpm install|ci|update`, `yarn install|upgrade`, `bun install`,
+  `pip install`, `uv pip install`, and `uv sync` now compact noisy install
+  resolver failures to actionable error lines while still preserving existing
+  success summaries. Error output is capped to avoid shipping repeated resolver
+  traces back to the model.

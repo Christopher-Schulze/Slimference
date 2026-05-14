@@ -23,6 +23,18 @@ func TestTryCompactPackageOutput(t *testing.T) {
 	if !ok || string(out3) != "[yarn install] ok\n" {
 		t.Fatalf("yarn: %q", out3)
 	}
+	npmUpdate, ok := TryCompactNpmInstall([]string{"npm", "update"}, []byte(""))
+	if !ok || string(npmUpdate) != "[npm update] ok\n" {
+		t.Fatalf("npm update: %q", npmUpdate)
+	}
+	pnpmUpdate, ok := TryCompactPnpmInstall([]string{"pnpm", "update"}, []byte(""))
+	if !ok || string(pnpmUpdate) != "[pnpm update] ok\n" {
+		t.Fatalf("pnpm update: %q", pnpmUpdate)
+	}
+	yarnUpgrade, ok := TryCompactYarnInstall([]string{"yarn", "upgrade"}, []byte(""))
+	if !ok || string(yarnUpgrade) != "[yarn upgrade] ok\n" {
+		t.Fatalf("yarn upgrade: %q", yarnUpgrade)
+	}
 	poet, ok := TryCompactPoetryInstall([]string{"poetry", "install"}, []byte(""))
 	if !ok || string(poet) != "[poetry install] ok\n" {
 		t.Fatalf("poetry: %q", poet)
@@ -344,6 +356,78 @@ Successfully installed charset-normalizer-3.3.2 idna-3.6 requests-2.31.0 urllib3
 	}
 }
 
+func TestTryCompactPackageOutput_installResolverErrors(t *testing.T) {
+	t.Parallel()
+	input := strings.Repeat("npm timing idealTree Completed in 12ms\n", 20) + `npm ERR! code ERESOLVE
+npm ERR! ERESOLVE unable to resolve dependency tree
+npm ERR! peer react@"^18" from @example/widget@1.0.0
+`
+	out, ok := TryCompactPackageOutput([]string{"npm", "install"}, []byte(input))
+	if !ok {
+		t.Fatalf("expected compact npm resolver error, got pass-through")
+	}
+	s := string(out)
+	for _, want := range []string{"[npm install]", "ERESOLVE", "peer react"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in %q", want, s)
+		}
+	}
+	if strings.Contains(s, "idealTree") || len(s) >= len(input) {
+		t.Fatalf("resolver compaction kept noise or did not shrink: %q", s)
+	}
+
+	pnpmInput := strings.Repeat("Progress: resolved 100, reused 99\n", 20) + `ERR_PNPM_NO_MATCHING_VERSION No matching version found for left-pad@99.0.0
+Failed with errors
+`
+	pnpmOut, ok := TryCompactPackageOutput([]string{"pnpm", "update"}, []byte(pnpmInput))
+	if !ok {
+		t.Fatalf("expected compact pnpm resolver error, got pass-through")
+	}
+	if !strings.Contains(string(pnpmOut), "ERR_PNPM_NO_MATCHING_VERSION") || strings.Contains(string(pnpmOut), "Progress:") {
+		t.Fatalf("unexpected pnpm resolver compact output: %q", pnpmOut)
+	}
+
+	pipInput := strings.Repeat("Downloading dependency metadata\n", 20) + `ERROR: Could not find a version that satisfies the requirement does-not-exist==99
+ERROR: ResolutionImpossible: for help visit https://pip.pypa.io
+`
+	pipOut, ok := TryCompactPackageOutput([]string{"uv", "pip", "install", "does-not-exist==99"}, []byte(pipInput))
+	if !ok {
+		t.Fatalf("expected compact uv pip resolver error, got pass-through")
+	}
+	if !strings.Contains(string(pipOut), "ResolutionImpossible") || strings.Contains(string(pipOut), "Downloading") {
+		t.Fatalf("unexpected uv pip resolver compact output: %q", pipOut)
+	}
+
+	uvSyncInput := strings.Repeat("Resolved 120 packages\n", 20) + "error: No solution found when resolving dependencies\n"
+	uvSyncOut, ok := TryCompactPackageOutput([]string{"uv", "sync"}, []byte(uvSyncInput))
+	if !ok {
+		t.Fatalf("expected compact uv sync resolver error, got pass-through")
+	}
+	if !strings.Contains(string(uvSyncOut), "No solution found") || strings.Contains(string(uvSyncOut), "Resolved 120") {
+		t.Fatalf("unexpected uv sync resolver compact output: %q", uvSyncOut)
+	}
+
+	yarnInput := strings.Repeat("YN0000: Resolving packages\n", 20) + `➤ YN0001: │ Error: @example/missing isn't supported by any available resolver
+➤ YN0000: Failed with errors in 1s 20ms
+`
+	yarnOut, ok := TryCompactPackageOutput([]string{"yarn", "install"}, []byte(yarnInput))
+	if !ok {
+		t.Fatalf("expected compact yarn resolver error, got pass-through")
+	}
+	if !strings.Contains(string(yarnOut), "YN0001") || strings.Contains(string(yarnOut), "Resolving packages") {
+		t.Fatalf("unexpected yarn resolver compact output: %q", yarnOut)
+	}
+
+	bunInput := strings.Repeat("bun install v1.2.0\n", 20) + "error: No matching version found for package totally-missing@99\n"
+	bunOut, ok := TryCompactPackageOutput([]string{"bun", "install"}, []byte(bunInput))
+	if !ok {
+		t.Fatalf("expected compact bun resolver error, got pass-through")
+	}
+	if !strings.Contains(string(bunOut), "No matching version") || strings.Contains(string(bunOut), "bun install v") {
+		t.Fatalf("unexpected bun resolver compact output: %q", bunOut)
+	}
+}
+
 // TestExtractPkgSummary exercises all branches of extractPkgSummary directly.
 func TestExtractPkgSummary(t *testing.T) {
 	t.Parallel()
@@ -379,5 +463,18 @@ func TestExtractPkgSummary(t *testing.T) {
 	out4, ok4 := extractPkgSummary(shortInput, "npm install")
 	if ok4 {
 		t.Errorf("short input: want false when summary not shorter, got true with %q", out4)
+	}
+
+	// Error line cap keeps pathological resolver output bounded.
+	var capped strings.Builder
+	for i := 0; i < 20; i++ {
+		capped.WriteString("npm ERR! repeated resolver error\n")
+	}
+	out5, ok5 := extractPkgSummary(capped.String(), "npm install")
+	if !ok5 {
+		t.Fatal("expected capped resolver output to compact")
+	}
+	if strings.Count(out5, "npm ERR!") != 12 {
+		t.Fatalf("expected 12 capped error lines, got %q", out5)
 	}
 }
