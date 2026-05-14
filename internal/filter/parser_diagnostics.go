@@ -14,6 +14,7 @@ var (
 	reSQLFluffLine     = regexp.MustCompile(`^L:\s*\d+\s*\|\s*P:\s*\d+\s*\|\s*[A-Z]{1,4}\d{2}\s*\|`)
 	reMarkdownLine     = regexp.MustCompile(`^[^\s:][^:\n]*\.md:\d+(:\d+)?:\s*MD\d{3}\b`)
 	rePytestFailedLine = regexp.MustCompile(`^(FAILED|ERROR)\s+[^ \t]+\.py(::|\s+-\s+)`)
+	reKotlinLine       = regexp.MustCompile(`^[ew]:\s+[^:\n]+\.kts?:\s+\(\d+,\s*\d+\):\s+`)
 	reSummaryLine      = regexp.MustCompile(`(?i)(\b(error|errors|warning|warnings|failed|failures|violations|problems|issues|diagnostics)\b|✖|✗)`)
 )
 
@@ -56,7 +57,8 @@ func isDiagnosticLine(line string) bool {
 		rePipeDiagnostic.MatchString(line) ||
 		reSQLFluffLine.MatchString(line) ||
 		reMarkdownLine.MatchString(line) ||
-		rePytestFailedLine.MatchString(line)
+		rePytestFailedLine.MatchString(line) ||
+		reKotlinLine.MatchString(line)
 }
 
 func isDiagnosticSummary(line string) bool {
@@ -210,7 +212,7 @@ func isMarkdownDiagnosticArgv(argv []string) bool {
 func isPracticalEcosystemDiagnosticArgv(argv []string) bool {
 	return commandMatchesAny(argv,
 		"swift", "xcodebuild", "swiftlint", "swift-format",
-		"kotlinc", "gradle", "mvn", "sbt", "scalac",
+		"swiftc", "kotlinc", "gradle", "gradlew", "mvn", "mvnw", "javac", "sbt", "scalac",
 		"php", "phpstan", "psalm", "phpunit", "composer",
 		"dart", "flutter",
 		"lua", "luacheck",

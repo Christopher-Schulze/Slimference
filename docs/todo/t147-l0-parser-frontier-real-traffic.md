@@ -81,10 +81,15 @@ Layer 0 parser coverage is driven by observed traffic:
 
 ### JVM / Mobile / Other High-Use Stacks
 
-- Java `javac`, Maven, Gradle.
-- Kotlin Gradle diagnostics.
-- Swift build/test.
-- Dart/Flutter analyzer/test.
+- [x] Java `javac`, Maven/Maven wrapper, Gradle/Gradle wrapper diagnostic
+  matching through the shared ecosystem parser; existing empty-output
+  compactors remain for Maven/Gradle build/test success paths.
+- [x] Kotlin compiler `e: file.kt: (line, col)` diagnostics and Gradle-wrapper
+  matching through the shared ecosystem parser.
+- [x] Swift/SwiftC/Xcode diagnostic matching plus existing Swift build/package
+  success compactors.
+- [x] Dart/Flutter analyzer/test diagnostic matching plus existing analyzer/test
+  success compactors.
 - PHP Composer/PHPUnit/Psalm/PHPStan.
 
 ### Database and Data
@@ -217,3 +222,8 @@ Layer 0 parser coverage is driven by observed traffic:
   shells, strips border-only lines, normalizes padded `|` columns, and emits
   compact ok markers for empty SQL shell output. This is deliberately table
   shape compaction, not semantic query-plan interpretation.
+- 2026-05-14: JVM/mobile diagnostic slice landed. The shared ecosystem parser
+  now recognizes `javac`, `mvnw`, `gradlew`, `swiftc`, existing Swift/Xcode,
+  Kotlin, Dart, Flutter, PHP, and related tools, and keeps Kotlin compiler
+  `e: file.kt: (line, col)` rows as actionable diagnostics instead of treating
+  them as generic text.

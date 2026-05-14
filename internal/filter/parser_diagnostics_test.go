@@ -133,15 +133,22 @@ docs/guide.md:4: MD041/first-line-heading First line in a file should be a top-l
 
 func TestParsePracticalEcosystemDiagnostics(t *testing.T) {
 	t.Parallel()
-	stdout := paddedDiagnosticOutput(`lib/main.dart:7:10: Error: The getter 'foo' isn't defined for the type 'App'.
+	stdout := diagnosticOutputWithNeutralPadding(`lib/main.dart:7:10: Error: The getter 'foo' isn't defined for the type 'App'.
 sources/App.swift:9:13: warning: initialization of immutable value was never used
+src/Main.java:3: error: cannot find symbol
+e: src/main/kotlin/App.kt: (7, 13): Unresolved reference 'missingName'
 2 issues found.`)
 	got, hadFailures, ok := parsePracticalEcosystemDiagnostics(stdout)
 	if !ok || !hadFailures {
 		t.Fatal("expected practical ecosystem diagnostics")
 	}
-	if !strings.Contains(got, "lib/main.dart") || !strings.Contains(got, "sources/App.swift") {
-		t.Fatalf("missing ecosystem details: %q", got)
+	for _, want := range []string{"lib/main.dart", "sources/App.swift", "src/Main.java", "App.kt"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "neutral padding") {
+		t.Fatalf("unexpected neutral padding in ecosystem output: %q", got)
 	}
 }
 
@@ -299,6 +306,33 @@ func TestSQLDiagnosticArgv(t *testing.T) {
 	}
 }
 
+func TestPracticalEcosystemDiagnosticArgv(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		argv []string
+		want bool
+	}{
+		{[]string{"javac", "src/Main.java"}, true},
+		{[]string{"./mvnw", "test"}, true},
+		{[]string{"./gradlew", "build"}, true},
+		{[]string{"kotlinc", "src/App.kt"}, true},
+		{[]string{"swiftc", "main.swift"}, true},
+		{[]string{"xcodebuild", "test"}, true},
+		{[]string{"flutter", "analyze"}, true},
+		{[]string{"phpunit", "tests"}, true},
+		{[]string{"not-a-build-tool", "x"}, false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
+			t.Parallel()
+			if got := isPracticalEcosystemDiagnosticArgv(tt.argv); got != tt.want {
+				t.Fatalf("isPracticalEcosystemDiagnosticArgv(%v)=%v want %v", tt.argv, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestT124_ParseFailuresDispatchesNewParsers(t *testing.T) {
 	t.Parallel()
 	stdout := paddedDiagnosticOutput(`src/App.tsx(12,7): error TS2322: Type mismatch.
@@ -338,6 +372,16 @@ Found 1 error.`)
 	}
 	if !strings.Contains(got, "[sql] FAILED") {
 		t.Fatalf("unexpected sql dispatch output: %q", got)
+	}
+
+	jvmStdout := diagnosticOutputWithNeutralPadding(`src/Main.java:3: error: cannot find symbol
+1 error`)
+	got, ok = ParseFailures([]string{"javac", "src/Main.java"}, jvmStdout)
+	if !ok {
+		t.Fatal("expected javac dispatch")
+	}
+	if !strings.Contains(got, "[ecosystem] FAILED") {
+		t.Fatalf("unexpected javac dispatch output: %q", got)
 	}
 }
 

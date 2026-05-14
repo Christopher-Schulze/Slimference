@@ -197,9 +197,10 @@ file point at `~/.slimference/hooks/*.sh`, which invoke
    Playwright/ESLint/Biome/Oxlint/Turbo/Bun), Python diagnostics
    (ruff/pylint/flake8/mypy/pyright/pytest/unittest matching), Zig, SQL/DB
    client diagnostics (psql/sqlite/mysql/mariadb/Prisma/Drizzle/SQLFluff/
-   Sqruff), Markdown, and practical ecosystem compilers. `lint-output` also
-   calls the shared parser after exact success compactors so non-empty Python
-   lint/type-check output is reduced without losing the older ok-paths.
+   Sqruff), Markdown, and practical ecosystem compilers (Java/Kotlin/Swift/
+   Dart/Flutter/PHP and adjacent wrappers). `lint-output` also calls the shared
+   parser after exact success compactors so non-empty Python lint/type-check
+   output is reduced without losing the older ok-paths.
    `package-manager` compacts install/update success summaries and
    npm/pnpm/yarn/bun/pip/uv resolver-error noise to actionable lines.
    `psql` covers SQL-shell table-border compaction for psql, MySQL/MariaDB,
