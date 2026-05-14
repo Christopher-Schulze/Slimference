@@ -196,7 +196,11 @@ func isZigDiagnosticArgv(argv []string) bool {
 
 func isSQLDiagnosticArgv(argv []string) bool {
 	return isPyPkgToolSubcommandArgv(argv, "sqlfluff", "lint") ||
-		commandMatchesAny(argv, "sqlfluff", "sqruff", "psql")
+		commandMatchesAny(argv,
+			"sqlfluff", "sqruff",
+			"psql", "sqlite3", "sqlite", "mysql", "mariadb",
+			"prisma", "drizzle-kit",
+		)
 }
 
 func isMarkdownDiagnosticArgv(argv []string) bool {
@@ -232,6 +236,13 @@ func commandMatchesAny(argv []string, names ...string) bool {
 	}
 	if len(argv) >= 3 && (b0 == "pnpm" || b0 == "pnpm.cmd") && argv[1] == "exec" {
 		return commandMatchesAny(argv[2:], names...)
+	}
+	if len(argv) >= 3 && (b0 == "npm" || b0 == "npm.cmd") && (argv[1] == "exec" || argv[1] == "x") {
+		rest := argv[2:]
+		if len(rest) > 0 && rest[0] == "--" {
+			rest = rest[1:]
+		}
+		return commandMatchesAny(rest, names...)
 	}
 	if len(argv) >= 2 && (b0 == "yarn" || b0 == "yarn.cmd" || b0 == "yarnpkg") {
 		return commandMatchesAny(argv[1:], names...)

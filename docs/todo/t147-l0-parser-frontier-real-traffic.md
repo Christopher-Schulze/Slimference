@@ -89,12 +89,16 @@ Layer 0 parser coverage is driven by observed traffic:
 
 ### Database and Data
 
-- PostgreSQL `psql` table/output/error/explain.
-- SQLite shell output.
-- MySQL/MariaDB client output.
+- [x] PostgreSQL `psql` diagnostic/error matching through the shared SQL
+  diagnostic parser.
+- [x] SQLite shell diagnostic/error matching through the shared SQL diagnostic
+  parser.
+- [x] MySQL/MariaDB client diagnostic/error matching through the shared SQL
+  diagnostic parser.
 - migration tool output.
-- Prisma/Drizzle migrations.
-- SQL lint/format diagnostics.
+- [x] Prisma/Drizzle migration diagnostic matching through the shared SQL
+  diagnostic parser.
+- [x] SQL lint/format diagnostics through existing SQLFluff/Sqruff matching.
 
 ### Infra / Monorepo
 
@@ -198,3 +202,9 @@ Layer 0 parser coverage is driven by observed traffic:
   success compactors, so non-empty Python lint/type-check output is reduced
   without removing the older specialized success paths. `test_output` keeps
   its existing label-preserving fallback for pytest to avoid regressions.
+- 2026-05-14: SQL/DB client diagnostic slice landed. The shared SQL
+  diagnostic parser now recognizes `psql`, `sqlite3`/`sqlite`,
+  `mysql`/`mariadb`, Prisma, Drizzle Kit, SQLFluff, and Sqruff, including
+  package-manager wrappers such as `npm exec --`, `npm x`, `pnpm exec`, `bun x`,
+  `bun run`, `yarn`, and `npx`. This deliberately covers diagnostic/error
+  compaction only; rich table/explain summarization remains future work.

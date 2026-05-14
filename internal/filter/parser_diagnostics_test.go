@@ -100,6 +100,23 @@ All Finished!`)
 	}
 }
 
+func TestParseSQLClientDiagnostics(t *testing.T) {
+	t.Parallel()
+	stdout := diagnosticOutputWithNeutralPadding(`ERROR 1064 (42000) at line 1: You have an error in your SQL syntax
+Parse error near line 2: no such table: users
+Prisma schema loaded from prisma/schema.prisma
+Error: P3006 Migration failed to apply cleanly to the shadow database`)
+	got, hadFailures, ok := parseSQLDiagnostics(stdout)
+	if !ok || !hadFailures {
+		t.Fatal("expected SQL client diagnostics")
+	}
+	for _, want := range []string{"[sql] FAILED", "ERROR 1064", "no such table", "P3006"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestParseMarkdownDiagnostics(t *testing.T) {
 	t.Parallel()
 	stdout := paddedDiagnosticOutput(`docs/readme.md:12: MD013/line-length Line length [Expected: 80; Actual: 142]
@@ -170,6 +187,8 @@ func TestCommandMatchesAnyWrappers(t *testing.T) {
 		{[]string{"tsc"}, true},
 		{[]string{"npx", "-y", "tsc"}, true},
 		{[]string{"pnpm", "exec", "tsc"}, true},
+		{[]string{"npm", "exec", "--", "tsc"}, true},
+		{[]string{"npm", "exec", "--"}, false},
 		{[]string{"yarn", "svelte-check"}, true},
 		{[]string{"bun", "x", "markdownlint"}, true},
 		{[]string{"bun", "run", "markdownlint"}, true},
@@ -250,6 +269,36 @@ func TestPythonDiagnosticArgv(t *testing.T) {
 	}
 }
 
+func TestSQLDiagnosticArgv(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		argv []string
+		want bool
+	}{
+		{[]string{"sqlfluff", "lint", "."}, true},
+		{[]string{"python", "-m", "sqlfluff", "lint", "."}, true},
+		{[]string{"psql", "-c", "select 1"}, true},
+		{[]string{"sqlite3", "db.sqlite", "select 1"}, true},
+		{[]string{"mysql", "-e", "select 1"}, true},
+		{[]string{"mariadb", "-e", "select 1"}, true},
+		{[]string{"npm", "exec", "--", "prisma", "migrate", "dev"}, true},
+		{[]string{"pnpm", "exec", "prisma", "migrate", "dev"}, true},
+		{[]string{"npm", "x", "drizzle-kit", "push"}, true},
+		{[]string{"bun", "x", "drizzle-kit", "push"}, true},
+		{[]string{"python", "script.py"}, false},
+		{[]string{}, false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(strings.Join(tt.argv, " "), func(t *testing.T) {
+			t.Parallel()
+			if got := isSQLDiagnosticArgv(tt.argv); got != tt.want {
+				t.Fatalf("isSQLDiagnosticArgv(%v)=%v want %v", tt.argv, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestT124_ParseFailuresDispatchesNewParsers(t *testing.T) {
 	t.Parallel()
 	stdout := paddedDiagnosticOutput(`src/App.tsx(12,7): error TS2322: Type mismatch.
@@ -280,6 +329,15 @@ Found 1 error.`)
 	}
 	if !strings.Contains(got, "[python] FAILED") {
 		t.Fatalf("unexpected python dispatch output: %q", got)
+	}
+
+	sqlStdout := diagnosticOutputWithNeutralPadding(`ERROR 1064 (42000) at line 1: You have an error in your SQL syntax`)
+	got, ok = ParseFailures([]string{"mysql", "-e", "select * from"}, sqlStdout)
+	if !ok {
+		t.Fatal("expected mysql dispatch")
+	}
+	if !strings.Contains(got, "[sql] FAILED") {
+		t.Fatalf("unexpected sql dispatch output: %q", got)
 	}
 }
 
