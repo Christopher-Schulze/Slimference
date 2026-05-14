@@ -19,8 +19,12 @@ type FilterStats struct {
 }
 
 type filterCounter struct {
+	attempts   atomic.Int64
 	calls      atomic.Int64
+	misses     atomic.Int64
 	panics     atomic.Int64
+	bytesIn    atomic.Int64
+	bytesOut   atomic.Int64
 	bytesSaved atomic.Int64
 	totalNs    atomic.Int64
 }
@@ -46,11 +50,18 @@ func (o *FilterObservability) getOrCreate(name string) *filterCounter {
 
 func (o *FilterObservability) Record(stats FilterStats) {
 	c := o.getOrCreate(stats.Name)
-	c.calls.Add(1)
+	c.attempts.Add(1)
 	c.totalNs.Add(stats.Elapsed.Nanoseconds())
 	if stats.Panicked {
 		c.panics.Add(1)
 	}
+	if stats.Matched {
+		c.calls.Add(1)
+	} else if !stats.Panicked {
+		c.misses.Add(1)
+	}
+	c.bytesIn.Add(int64(stats.InBytes))
+	c.bytesOut.Add(int64(stats.OutBytes))
 	if stats.Matched && stats.InBytes > stats.OutBytes {
 		c.bytesSaved.Add(int64(stats.InBytes - stats.OutBytes))
 	}
@@ -71,17 +82,28 @@ func (o *FilterObservability) Snapshot() map[string]FilterSnapshot {
 	o.mu.Range(func(key, val any) bool {
 		name := key.(string)
 		c := val.(*filterCounter)
+		attempts := c.attempts.Load()
 		calls := c.calls.Load()
 		totalNs := c.totalNs.Load()
 		avgMs := float64(0)
-		if calls > 0 {
-			avgMs = float64(totalNs) / float64(calls) / 1e6
+		if attempts > 0 {
+			avgMs = float64(totalNs) / float64(attempts) / 1e6
+		}
+		hitRate := float64(0)
+		if attempts > 0 {
+			hitRate = float64(calls) / float64(attempts)
 		}
 		out[name] = FilterSnapshot{
 			Name:       name,
+			Attempts:   attempts,
 			Calls:      calls,
+			Matches:    calls,
+			Misses:     c.misses.Load(),
 			Panics:     c.panics.Load(),
+			BytesIn:    c.bytesIn.Load(),
+			BytesOut:   c.bytesOut.Load(),
 			BytesSaved: c.bytesSaved.Load(),
+			HitRate:    hitRate,
 			AvgMs:      avgMs,
 		}
 		return true
@@ -91,9 +113,15 @@ func (o *FilterObservability) Snapshot() map[string]FilterSnapshot {
 
 type FilterSnapshot struct {
 	Name       string  `json:"name"`
+	Attempts   int64   `json:"attempts"`
 	Calls      int64   `json:"calls"`
+	Matches    int64   `json:"matches"`
+	Misses     int64   `json:"misses"`
 	Panics     int64   `json:"panics"`
+	BytesIn    int64   `json:"bytes_in"`
+	BytesOut   int64   `json:"bytes_out"`
 	BytesSaved int64   `json:"bytes_saved"`
+	HitRate    float64 `json:"hit_rate"`
 	AvgMs      float64 `json:"avg_ms"`
 }
 

@@ -274,27 +274,44 @@ func ParserFamilyForCommand(command string) string {
 	switch {
 	case strings.Contains(c, "svelte"):
 		return "svelte"
-	case strings.Contains(c, "typescript") || strings.Contains(c, "tsc") || strings.Contains(c, "tsx") || strings.Contains(c, "tsserver"):
+	case commandContainsAny(c, "typescript", "tsc", "tsx", "tsserver", "vue-tsc"):
 		return "typescript"
-	case strings.Contains(c, "javascript") || strings.Contains(c, "node") || strings.Contains(c, "bun") || strings.Contains(c, "npm") || strings.Contains(c, "pnpm") || strings.Contains(c, "yarn") || strings.Contains(c, "vite") || strings.Contains(c, "next") || strings.Contains(c, "react") || strings.Contains(c, "jest") || strings.Contains(c, "vitest"):
+	case commandContainsAny(c,
+		"javascript", "node", "bun", "npm", "pnpm", "yarn",
+		"vite", "next", "react", "jest", "vitest", "playwright",
+		"eslint", "biome", "oxlint", "turbo", "nx", "lerna",
+	):
 		return "javascript"
 	case strings.Contains(c, "zig"):
 		return "zig"
-	case strings.Contains(c, "sql") || strings.Contains(c, "psql") || strings.Contains(c, "migration"):
+	case commandContainsAny(c,
+		"sql", "psql", "sqlite", "mysql", "mariadb", "migration",
+		"prisma", "drizzle", "sqlfluff", "sqruff",
+	):
 		return "sql"
 	case strings.Contains(c, "markdown") || strings.Contains(c, "mdformat"):
 		return "markdown"
-	case strings.Contains(c, "cargo") || strings.Contains(c, "rust") || strings.Contains(c, "clippy") || strings.Contains(c, "rustfmt"):
+	case commandContainsAny(c, "cargo", "rust", "clippy", "rustfmt"):
 		return "rust"
 	case strings.Contains(c, "go ") || strings.Contains(c, "go-") || strings.Contains(c, "gopls"):
 		return "go"
-	case strings.Contains(c, "python") || strings.Contains(c, "pytest") || strings.Contains(c, "mypy") || strings.Contains(c, "ruff") || strings.Contains(c, "pylint"):
+	case commandContainsAny(c,
+		"python", "pytest", "unittest", "mypy", "ruff", "pylint",
+		"flake8", "pyright", "basedpyright", "uv ", "[uv]",
+		"poetry",
+	):
 		return "python"
-	case strings.Contains(c, "gcc") || strings.Contains(c, "clang") || strings.Contains(c, "cmake") || strings.Contains(c, "ninja") || strings.Contains(c, "make"):
+	case commandContainsAny(c,
+		"javac", "java ", "kotlinc", "kotlin", "gradle", "mvn ", "mvnw",
+		"maven", "sbt", "scalac", "swift", "xcodebuild", "dart",
+		"flutter", "php", "phpunit", "phpstan", "psalm", "composer",
+	):
+		return "jvm_mobile_php"
+	case commandContainsAny(c, "gcc", "g++", "clang", "clang++", "cmake", "ninja", "make"):
 		return "c_cpp_build"
-	case strings.Contains(c, "docker") || strings.Contains(c, "kubectl") || strings.Contains(c, "helm"):
+	case commandContainsAny(c, "docker", "podman", "nerdctl", "kubectl", "kube", "oc ", "[oc]", "helm", "hadolint"):
 		return "container"
-	case strings.Contains(c, "terraform") || strings.Contains(c, "tofu") || strings.Contains(c, "hcl"):
+	case commandContainsAny(c, "terraform", "tofu", "hcl"):
 		return "hcl"
 	case strings.Contains(c, "git"):
 		return "git"
@@ -305,6 +322,15 @@ func ParserFamilyForCommand(command string) string {
 	default:
 		return "other"
 	}
+}
+
+func commandContainsAny(command string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(command, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // FormatFilterGainReportJSON pretty-prints a report for CLI --json.

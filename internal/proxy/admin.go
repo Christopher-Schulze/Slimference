@@ -12,6 +12,7 @@ import (
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/quality"
 	"github.com/slimference/slimference/internal/readcache"
@@ -160,6 +161,7 @@ type AdminStatus struct {
 	Analytics         analytics.AnalyticsSnapshot         `json:"analytics"`
 	RecentRequests    []types.RequestMetrics              `json:"recent_requests"`
 	Layer2            AdminLayer2Status                   `json:"layer2"`
+	Layer0            map[string]filter.FilterSnapshot    `json:"layer0"`
 	ReadCache         AdminReadCacheStatus                `json:"read_cache"`
 	Checkpoints       AdminCheckpointStatus               `json:"checkpoints"`
 	ToolArchive       AdminToolArchiveStatus              `json:"tool_archive"`
@@ -378,6 +380,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		Analytics:         analyticsSnap,
 		RecentRequests:    p.GetRecentRequests(20),
 		Layer2:            layer2,
+		Layer0:            filter.GlobalFilterObservability().Snapshot(),
 		ReadCache:         readStatus,
 		Checkpoints:       checkpointStatus,
 		ToolArchive:       toolArchiveStatus,

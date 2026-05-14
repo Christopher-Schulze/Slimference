@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/repetition"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -65,6 +66,17 @@ func TestAdminStatusSnapshot_NewTelemetryBlocks(t *testing.T) {
 	}
 	if snap.BypassDetail.Enabled {
 		t.Fatal("bypass_detail.enabled must default false")
+	}
+	filter.GlobalFilterObservability().Record(filter.FilterStats{
+		Name:     "proxy_admin_test_filter",
+		Elapsed:  time.Millisecond,
+		Matched:  true,
+		InBytes:  100,
+		OutBytes: 40,
+	})
+	snap = p.adminStatusSnapshot()
+	if got := snap.Layer0["proxy_admin_test_filter"]; got.Attempts == 0 || got.BytesSaved != 60 {
+		t.Fatalf("layer0 telemetry not surfaced: %+v", got)
 	}
 }
 

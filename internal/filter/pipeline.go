@@ -136,15 +136,23 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 	for _, f := range filters {
 		out, ok, stats := runFilter(f.name, f.fn)
 		stats.InBytes = inBytes
+		stats.OutBytes = inBytes
 		if ok {
 			stats.OutBytes = len(out)
 			globalObservability.Record(stats)
 			return out, f.name
 		}
+		globalObservability.Record(stats)
 	}
 
 	if rule := FirstMatchingTOMLRule(workDir, argv); rule != nil {
 		out := ApplyTOMLRule(stdout, rule)
+		globalObservability.Record(FilterStats{
+			Name:     "toml_rule",
+			Matched:  true,
+			InBytes:  inBytes,
+			OutBytes: len(out),
+		})
 		return out, "toml_rule"
 	}
 	return stdout, ""

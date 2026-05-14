@@ -15,7 +15,8 @@ Layer 0 parser coverage is driven by observed traffic:
 1. Flight records show which tool outputs are large and frequent.
 2. Parsers are added for high-volume shapes first.
 3. Every parser is conservative, failable, and bypasses unknown shapes.
-4. `gain --by-parser` shows real hit rates and savings.
+4. Runtime admin status shows parser attempts, matches, misses, hit rates, and byte savings.
+5. `gain --by-parser` groups persisted token savings by practical parser/tool family.
 
 ## Priority Parser Families
 
@@ -161,12 +162,16 @@ Layer 0 parser coverage is driven by observed traffic:
 
 ### WP5 - Parser telemetry
 
-- Persist parser name, in/out bytes/tokens, bypass reason.
-- `gain --by-parser` distinguishes:
-  - hits.
-  - misses.
-  - bypasses.
-  - negative-savings prevented.
+- [x] Admin status exposes runtime Layer 0 attempts, matches, misses, panics,
+  bytes in/out, bytes saved, hit rate, and average runtime per filter.
+- [x] `gain --by-parser` groups persisted Layer 0 token savings across the
+  landed parser families: frontend/JS monorepo tools, Python, SQL/DB, package
+  managers, JVM/mobile/PHP, containers/Kubernetes/Helm, Go, Rust, shell,
+  Markdown, HCL, C/C++, Zig, Git, and Ruby.
+- Persisted `filter_runs` remains token-saving accounting, not a full bypass
+  ledger. Per-filter bypass reasons and "negative-saving prevented" require a
+  richer filter-result API; do not fake those numbers from current bool-only
+  compactors.
 
 ## Acceptance
 
@@ -175,7 +180,8 @@ Layer 0 parser coverage is driven by observed traffic:
 - [ ] Each parser has high-confidence bypass behavior.
 - [ ] Core requested stacks are covered: sh, bash, zsh, Python, JS/TS, Bun/Node, Rust, Go, Zig, C, C++, React, Svelte, Markdown, SQL/DB.
 - [ ] Next common stacks are covered or explicitly queued: Java, Kotlin, Swift, PHP, Dart/Flutter, Docker, Kubernetes, Terraform/OpenTofu, monorepo tools.
-- [ ] Parser telemetry exposes real hit/saving rates.
+- [x] Local parser telemetry exposes runtime hit/saving rates through admin
+  status and grouped persisted savings through `gain --by-parser`.
 - [ ] Live-corpus gate proves no parser causes quality loss.
 - [ ] `go run ./scripts/ci` passes with 100% coverage for new Go code.
 
@@ -241,3 +247,11 @@ Layer 0 parser coverage is driven by observed traffic:
   parser now recognizes Nx and Lerna non-empty failure output in addition to
   the existing Turbo path and the existing Nx/Turbo empty build/test
   compactors.
+- 2026-05-14: Parser telemetry correction landed. The admin status payload now
+  includes Layer 0 runtime observability (`layer0`) with attempts, matches,
+  misses, panics, bytes in/out, bytes saved, hit rate, and average runtime per
+  filter. `gain --by-parser` now maps the recently landed frontend, monorepo,
+  Python, SQL/DB, package-manager, JVM/mobile/PHP, and container parser
+  families instead of letting them fall into `other`. No fake bypass ledger was
+  added: the current filter API cannot honestly report "negative-saving
+  prevented" without changing the compactor return type.

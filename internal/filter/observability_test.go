@@ -70,16 +70,35 @@ func TestFilterObservability_Record(t *testing.T) {
 		InBytes:  200,
 		OutBytes: 80,
 	})
+	o.Record(FilterStats{
+		Name:     "git_status",
+		Elapsed:  1 * time.Millisecond,
+		Matched:  false,
+		InBytes:  30,
+		OutBytes: 30,
+	})
 	snap := o.Snapshot()
 	if len(snap) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(snap))
 	}
 	fs := snap["git_status"]
+	if fs.Attempts != 3 {
+		t.Fatalf("attempts=%d want 3", fs.Attempts)
+	}
 	if fs.Calls != 2 {
 		t.Fatalf("calls=%d want 2", fs.Calls)
 	}
+	if fs.Matches != 2 || fs.Misses != 1 {
+		t.Fatalf("matches=%d misses=%d want 2/1", fs.Matches, fs.Misses)
+	}
 	if fs.BytesSaved != 170 {
 		t.Fatalf("bytes_saved=%d want 170", fs.BytesSaved)
+	}
+	if fs.BytesIn != 330 || fs.BytesOut != 160 {
+		t.Fatalf("bytes in/out=%d/%d want 330/160", fs.BytesIn, fs.BytesOut)
+	}
+	if fs.HitRate < 0.66 || fs.HitRate > 0.67 {
+		t.Fatalf("hit_rate=%f want about 0.666", fs.HitRate)
 	}
 }
 
@@ -93,6 +112,9 @@ func TestFilterObservability_PanicCounter(t *testing.T) {
 	snap := o.Snapshot()
 	if snap["broken"].Panics != 1 {
 		t.Fatalf("panics=%d", snap["broken"].Panics)
+	}
+	if snap["broken"].Attempts != 1 || snap["broken"].Calls != 0 {
+		t.Fatalf("panic attempts/calls=%d/%d", snap["broken"].Attempts, snap["broken"].Calls)
 	}
 }
 
@@ -139,6 +161,9 @@ func TestFilterObservability_Concurrent(t *testing.T) {
 	snap := o.Snapshot()
 	if snap["concurrent"].Calls != 100 {
 		t.Fatalf("calls=%d want 100", snap["concurrent"].Calls)
+	}
+	if snap["concurrent"].Attempts != 100 || snap["concurrent"].Matches != 100 {
+		t.Fatalf("attempts/matches=%d/%d want 100/100", snap["concurrent"].Attempts, snap["concurrent"].Matches)
 	}
 }
 
