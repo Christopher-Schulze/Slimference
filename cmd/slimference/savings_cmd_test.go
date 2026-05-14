@@ -10,6 +10,7 @@ import (
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
+	dbg "github.com/slimference/slimference/internal/debug"
 )
 
 func TestParseSavingsArgs_Defaults(t *testing.T) {
@@ -119,21 +120,27 @@ func TestAccumulateSnapshots_NegativeSavedClamped(t *testing.T) {
 func TestFormatSavingsText(t *testing.T) {
 
 	s := SavingsSummary{
-		Period:            "today",
-		Project:           "/tmp/proj",
-		Layer0Runs:        3,
-		Layer0SavedTokens: 100,
-		ProxyRequests:     5,
-		ProxyOrigTokens:   1000,
-		ProxyCompTokens:   600,
-		ProxySavedTokens:  400,
-		CacheHits:         1,
-		TotalSavedTokens:  500,
-		USDPerMillion:     5,
-		TotalSavedUSD:     0.0025,
+		Period:                           "today",
+		Project:                          "/tmp/proj",
+		Layer0Runs:                       3,
+		Layer0SavedTokens:                100,
+		ProxyRequests:                    5,
+		ProxyOrigTokens:                  1000,
+		ProxyCompTokens:                  600,
+		ProxySavedTokens:                 400,
+		CacheHits:                        1,
+		TotalSavedTokens:                 500,
+		ProviderReportedRequests:         2,
+		ProviderInputTokens:              1200,
+		ProviderCachedTokens:             300,
+		ProviderOutputTokens:             80,
+		CacheReadDiscountTokenEquivalent: 270,
+		NetBillableEquivalentTokens:      770,
+		USDPerMillion:                    5,
+		TotalSavedUSD:                    0.0025,
 	}
 	got := formatSavingsText(s)
-	for _, want := range []string{"Slimference savings (today)", "/tmp/proj", "Layer 0 filter runs:", "Total tokens saved:", "$0.0025"} {
+	for _, want := range []string{"Slimference savings (today)", "/tmp/proj", "Layer 0 filter runs:", "Provider cached tokens:", "Billable-equivalent saved:", "Total tokens saved:", "$0.0025"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, got)
 		}
@@ -331,6 +338,77 @@ func TestComputeSavings_WithSnapshots(t *testing.T) {
 	}
 	if got.TotalSavedUSD <= 0 {
 		t.Fatalf("expected non-zero USD: %+v", got)
+	}
+}
+
+func TestComputeSavings_UsesDecisionLogProxyFlights(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	prevPath := resolveFilterDBPathFn
+	t.Cleanup(func() { resolveFilterDBPathFn = prevPath })
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such.db", nil }
+
+	now := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
+	decisionsPath := t.TempDir() + "/decisions.jsonl"
+	cfg.Debug.DecisionsLog = decisionsPath
+	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
+		RequestID: "req-proxy",
+		Timestamp: now,
+		Source:    "proxy",
+		Provider:  "codex_chatgpt",
+		Tokens: dbg.TokenCounts{
+			Original: 1000,
+			Final:    700,
+			Saved:    300,
+		},
+		ProviderInputTokens:  1200,
+		ProviderCachedTokens: 500,
+		ProviderOutputTokens: 80,
+		OutputReduce: dbg.OutputReduceSummary{
+			AddedTokens: 12,
+		},
+	})
+
+	got := computeSavings(cfg, "today", "", now)
+	if got.ProxyRequests != 1 || got.ProviderReportedRequests != 1 {
+		t.Fatalf("proxy request counters: %+v", got)
+	}
+	if got.ProxyOrigTokens != 1000 || got.ProxyCompTokens != 700 || got.ProxySavedTokens != 300 {
+		t.Fatalf("proxy token counters: %+v", got)
+	}
+	if got.ProviderInputTokens != 1200 || got.ProviderCachedTokens != 500 || got.ProviderOutputTokens != 80 {
+		t.Fatalf("provider counters: %+v", got)
+	}
+	if got.CacheReadDiscountTokenEquivalent != 450 || got.NetBillableEquivalentTokens != 750 {
+		t.Fatalf("billable counters: %+v", got)
+	}
+}
+
+func TestComputeSavings_ProjectSkipsDecisionLogProxyFlights(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	prevPath := resolveFilterDBPathFn
+	t.Cleanup(func() { resolveFilterDBPathFn = prevPath })
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such.db", nil }
+
+	now := time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
+	decisionsPath := t.TempDir() + "/decisions.jsonl"
+	cfg.Debug.DecisionsLog = decisionsPath
+	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
+		RequestID: "req-proxy",
+		Timestamp: now,
+		Source:    "proxy",
+		Provider:  "codex_chatgpt",
+		Tokens: dbg.TokenCounts{
+			Original: 1000,
+			Final:    700,
+			Saved:    300,
+		},
+	})
+
+	got := computeSavings(cfg, "today", "/project", now)
+	if got.ProxyRequests != 0 || got.ProxySavedTokens != 0 {
+		t.Fatalf("project-scoped savings must not use unscoped decision log: %+v", got)
 	}
 }
 

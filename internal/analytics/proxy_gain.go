@@ -50,6 +50,9 @@ func SummarizeProxyFlights(summaries []dbg.RequestSummary, period string, now ti
 		}
 		summary.EnsureFlight()
 		flight := summary.Flight
+		if !isProviderProxyFlight(flight) {
+			continue
+		}
 		tokens := flight.TokenAccounting
 		report.Requests++
 		if flight.Confidence == "provider_reported" {
@@ -74,6 +77,22 @@ func SummarizeProxyFlights(summaries []dbg.RequestSummary, period string, now ti
 	report.CacheReadDiscountTokenEquivalent = int(float64(report.ProviderCachedTokens) * 0.9)
 	report.NetBillableEquivalentEstimate = report.BillableInputSavingsEstimate + report.CacheReadDiscountTokenEquivalent
 	return report, nil
+}
+
+func isProviderProxyFlight(flight *dbg.FlightRequestSummary) bool {
+	if flight == nil {
+		return false
+	}
+	switch flight.Provider {
+	case "", "local", "unknown":
+		return false
+	}
+	switch flight.Source {
+	case "", "proxy", "transparent_connect":
+		return true
+	default:
+		return false
+	}
 }
 
 // WriteProxyFlightGainCSV renders the proxy flight gain summary as one CSV row.

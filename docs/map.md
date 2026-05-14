@@ -272,7 +272,7 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 | Quality calibration signals           | `internal/quality/`                                    | T77  |
 | Provider response-state store         | `internal/sessions/response_state.go`                  | T78  |
 | `slimference watch` live ticker       | `cmd/slimference/watch_cmd.go`                         | T79  |
-| Unified `slimference savings`         | `cmd/slimference/savings_cmd.go`                       | T80  |
+| Unified `slimference savings`         | `cmd/slimference/savings_cmd.go` + `internal/analytics/proxy_gain.go` | T80/T140 |
 | Duration + next-request bypass        | `internal/proxy/proxy.go::SetBypassFor*`               | T81  |
 | `slimference compress-preview`        | `cmd/slimference/preview_cmd.go` + `internal/proxy/preview.go` | T82  |
 | Provider degradation composite flag   | `internal/proxy/health_monitor.go::anyDegraded`        | T83  |

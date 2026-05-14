@@ -16,6 +16,8 @@ func TestSummarizeProxyFlights(t *testing.T) {
 		{
 			RequestID: "req-1",
 			Timestamp: now.Add(-time.Hour),
+			Source:    "proxy",
+			Provider:  "codex_chatgpt",
 			Tokens: dbg.TokenCounts{
 				Original: 1000,
 				Final:    700,
@@ -33,6 +35,8 @@ func TestSummarizeProxyFlights(t *testing.T) {
 		{
 			RequestID:           "req-2",
 			Timestamp:           now.Add(-2 * time.Hour),
+			Source:              "transparent_connect",
+			Provider:            "openai",
 			OutputTokens:        20,
 			ProviderInputTokens: 100,
 			Tokens: dbg.TokenCounts{
@@ -44,10 +48,34 @@ func TestSummarizeProxyFlights(t *testing.T) {
 		{
 			RequestID: "old",
 			Timestamp: now.AddDate(0, 0, -2),
+			Source:    "proxy",
+			Provider:  "codex_chatgpt",
 			Tokens: dbg.TokenCounts{
 				Original: 999,
 				Final:    1,
 				Saved:    998,
+			},
+		},
+		{
+			RequestID: "hook-local",
+			Timestamp: now,
+			Source:    "readhook",
+			Provider:  "local",
+			Tokens: dbg.TokenCounts{
+				Original: 5000,
+				Final:    10,
+				Saved:    4990,
+			},
+		},
+		{
+			RequestID: "raw-pass",
+			Timestamp: now,
+			Source:    "transparent_connect",
+			Provider:  "unknown",
+			Tokens: dbg.TokenCounts{
+				Original: 5000,
+				Final:    10,
+				Saved:    4990,
 			},
 		},
 	}
@@ -76,6 +104,33 @@ func TestSummarizeProxyFlightsBadPeriod(t *testing.T) {
 	t.Parallel()
 	if _, err := SummarizeProxyFlights(nil, "bad", time.Now()); err == nil {
 		t.Fatal("expected bad period error")
+	}
+}
+
+func TestIsProviderProxyFlight(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		flight *dbg.FlightRequestSummary
+		want   bool
+	}{
+		{name: "nil", flight: nil, want: false},
+		{name: "missing provider", flight: &dbg.FlightRequestSummary{Source: "proxy"}, want: false},
+		{name: "local provider", flight: &dbg.FlightRequestSummary{Source: "proxy", Provider: "local"}, want: false},
+		{name: "unknown provider", flight: &dbg.FlightRequestSummary{Source: "transparent_connect", Provider: "unknown"}, want: false},
+		{name: "legacy source empty", flight: &dbg.FlightRequestSummary{Provider: "codex_chatgpt"}, want: true},
+		{name: "proxy", flight: &dbg.FlightRequestSummary{Source: "proxy", Provider: "codex_chatgpt"}, want: true},
+		{name: "transparent connect", flight: &dbg.FlightRequestSummary{Source: "transparent_connect", Provider: "openai"}, want: true},
+		{name: "hook source", flight: &dbg.FlightRequestSummary{Source: "hook_post", Provider: "codex_chatgpt"}, want: false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isProviderProxyFlight(tt.flight); got != tt.want {
+				t.Fatalf("isProviderProxyFlight() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

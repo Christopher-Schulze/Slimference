@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,19 +25,26 @@ type savingsFlags struct {
 // and Layer 3 cache savings into a single canonical view. Returned by
 // `slimference savings <period>` and surfaced via /admin if needed.
 type SavingsSummary struct {
-	Period            string  `json:"period"`
-	Project           string  `json:"project,omitempty"`
-	Layer0Runs        int64   `json:"layer0_runs"`
-	Layer0SavedTokens int64   `json:"layer0_saved_tokens"`
-	Layer0SavedUSD    float64 `json:"layer0_saved_usd"`
-	ProxyOrigTokens   int64   `json:"proxy_orig_tokens"`
-	ProxyCompTokens   int64   `json:"proxy_comp_tokens"`
-	ProxySavedTokens  int64   `json:"proxy_saved_tokens"`
-	ProxyRequests     int64   `json:"proxy_requests"`
-	CacheHits         int64   `json:"cache_hits"`
-	TotalSavedTokens  int64   `json:"total_saved_tokens"`
-	TotalSavedUSD     float64 `json:"total_saved_usd"`
-	USDPerMillion     float64 `json:"usd_per_million_tokens"`
+	Period                           string  `json:"period"`
+	Project                          string  `json:"project,omitempty"`
+	Layer0Runs                       int64   `json:"layer0_runs"`
+	Layer0SavedTokens                int64   `json:"layer0_saved_tokens"`
+	Layer0SavedUSD                   float64 `json:"layer0_saved_usd"`
+	ProxyOrigTokens                  int64   `json:"proxy_orig_tokens"`
+	ProxyCompTokens                  int64   `json:"proxy_comp_tokens"`
+	ProxySavedTokens                 int64   `json:"proxy_saved_tokens"`
+	ProxyRequests                    int64   `json:"proxy_requests"`
+	ProviderReportedRequests         int64   `json:"provider_reported_requests"`
+	ProviderInputTokens              int64   `json:"provider_input_tokens"`
+	ProviderCachedTokens             int64   `json:"provider_cached_tokens"`
+	ProviderOutputTokens             int64   `json:"provider_output_tokens"`
+	OutputReduceInputOverheadTokens  int64   `json:"output_reduce_input_overhead_tokens"`
+	CacheReadDiscountTokenEquivalent int64   `json:"cache_read_discount_token_equivalent"`
+	NetBillableEquivalentTokens      int64   `json:"net_billable_equivalent_tokens"`
+	CacheHits                        int64   `json:"cache_hits"`
+	TotalSavedTokens                 int64   `json:"total_saved_tokens"`
+	TotalSavedUSD                    float64 `json:"total_saved_usd"`
+	USDPerMillion                    float64 `json:"usd_per_million_tokens"`
 }
 
 func parseSavingsArgs(args []string) (period string, f savingsFlags, err error) {
@@ -123,11 +131,42 @@ func computeSavings(cfg *config.Config, period, project string, now time.Time) S
 		}
 	}
 
+	if project == "" {
+		accumulateProxyFlightsFromDecisionLog(&out, cfg, period, now)
+	}
+
 	out.TotalSavedTokens = out.Layer0SavedTokens + out.ProxySavedTokens
+	out.NetBillableEquivalentTokens = out.TotalSavedTokens + out.CacheReadDiscountTokenEquivalent
 	if out.USDPerMillion > 0 {
 		out.TotalSavedUSD = float64(out.TotalSavedTokens) / 1_000_000.0 * out.USDPerMillion
 	}
 	return out
+}
+
+func accumulateProxyFlightsFromDecisionLog(out *SavingsSummary, cfg *config.Config, period string, now time.Time) {
+	path := strings.TrimSpace(cfg.Debug.DecisionsLog)
+	if path == "" {
+		return
+	}
+	path = filepath.Clean(config.ExpandHomePath(path))
+	summaries, err := replaySessionFn(path)
+	if err != nil {
+		return
+	}
+	report, err := analytics.SummarizeProxyFlights(summaries, period, now)
+	if err != nil || report.Requests == 0 {
+		return
+	}
+	out.ProxyRequests = int64(report.Requests)
+	out.ProviderReportedRequests = int64(report.ProviderReportedRequests)
+	out.ProxyOrigTokens = int64(report.EstimatedOriginalInputTokens)
+	out.ProxyCompTokens = int64(report.EstimatedFinalInputTokens)
+	out.ProxySavedTokens = int64(report.BillableInputSavingsEstimate)
+	out.ProviderInputTokens = int64(report.ProviderInputTokens)
+	out.ProviderCachedTokens = int64(report.ProviderCachedTokens)
+	out.ProviderOutputTokens = int64(report.ProviderOutputTokens)
+	out.OutputReduceInputOverheadTokens = int64(report.OutputReduceInputOverheadTokens)
+	out.CacheReadDiscountTokenEquivalent = int64(report.CacheReadDiscountTokenEquivalent)
 }
 
 func accumulateSnapshots(out *SavingsSummary, snapshots []analytics.AnalyticsSnapshot) {
@@ -161,9 +200,19 @@ func formatSavingsText(s SavingsSummary) string {
 	sb.WriteString(fmt.Sprintf("Proxy original tokens:      %s\n", formatInt64Plain(s.ProxyOrigTokens)))
 	sb.WriteString(fmt.Sprintf("Proxy compressed tokens:    %s\n", formatInt64Plain(s.ProxyCompTokens)))
 	sb.WriteString(fmt.Sprintf("Proxy tokens saved:         %s\n", formatInt64Plain(s.ProxySavedTokens)))
+	if s.ProviderReportedRequests > 0 {
+		sb.WriteString(fmt.Sprintf("Provider-reported requests: %d\n", s.ProviderReportedRequests))
+		sb.WriteString(fmt.Sprintf("Provider input tokens:      %s\n", formatInt64Plain(s.ProviderInputTokens)))
+		sb.WriteString(fmt.Sprintf("Provider cached tokens:     %s\n", formatInt64Plain(s.ProviderCachedTokens)))
+		sb.WriteString(fmt.Sprintf("Provider output tokens:     %s\n", formatInt64Plain(s.ProviderOutputTokens)))
+		sb.WriteString(fmt.Sprintf("Cache-read billable equiv.: %s\n", formatInt64Plain(s.CacheReadDiscountTokenEquivalent)))
+	}
 	sb.WriteString(fmt.Sprintf("Layer 3 cache hits:         %d\n", s.CacheHits))
 	sb.WriteString(strings.Repeat("-", 60) + "\n")
 	sb.WriteString(fmt.Sprintf("Total tokens saved:         %s\n", formatInt64Plain(s.TotalSavedTokens)))
+	if s.NetBillableEquivalentTokens != s.TotalSavedTokens {
+		sb.WriteString(fmt.Sprintf("Billable-equivalent saved:  %s\n", formatInt64Plain(s.NetBillableEquivalentTokens)))
+	}
 	if s.USDPerMillion > 0 {
 		sb.WriteString(fmt.Sprintf("Total saved (~$%.2f/M est.): ~$%.4f\n", s.USDPerMillion, s.TotalSavedUSD))
 	}
@@ -173,16 +222,23 @@ func formatSavingsText(s SavingsSummary) string {
 // formatSavingsCSV emits a single-row CSV summary.
 func formatSavingsCSV(s SavingsSummary) string {
 	var sb strings.Builder
-	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,cache_hits,total_saved_tokens,total_saved_usd\n")
-	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%.4f\n",
+	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,total_saved_tokens,total_saved_usd\n")
+	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f\n",
 		s.Period,
 		s.Project,
 		s.Layer0Runs,
 		s.Layer0SavedTokens,
 		s.ProxyRequests,
+		s.ProviderReportedRequests,
 		s.ProxyOrigTokens,
 		s.ProxyCompTokens,
 		s.ProxySavedTokens,
+		s.ProviderInputTokens,
+		s.ProviderCachedTokens,
+		s.ProviderOutputTokens,
+		s.OutputReduceInputOverheadTokens,
+		s.CacheReadDiscountTokenEquivalent,
+		s.NetBillableEquivalentTokens,
 		s.CacheHits,
 		s.TotalSavedTokens,
 		s.TotalSavedUSD,

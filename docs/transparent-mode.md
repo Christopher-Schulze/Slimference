@@ -149,15 +149,19 @@ For real proxied Codex accounting, use the flight-backed gain view:
 
 ```bash
 slimference gain --proxy today --json
+slimference savings today --json
 ```
 
 This reads the same decision log and separates provider-reported input tokens,
 provider cached tokens, output tokens, estimated input savings, output-reduce
-input overhead, and a billing-equivalent cache-read discount estimate. Plain
-`slimference gain` remains the Layer-0 `filter.db` view; `gain --cache` and
-`gain --output` read analytics-event logs, while `gain --proxy` is the reliable
-view for daemon-proxied Codex CLI/App traffic when only the flight recorder is
-configured.
+input overhead, and a billing-equivalent cache-read discount estimate.
+`gain --proxy` and `savings` count provider proxy flights only: local hook,
+readhook, raw passthrough, and unknown-provider records are ignored so the
+report cannot be inflated by local bookkeeping. Plain `slimference gain`
+remains the Layer-0 `filter.db` view; `gain --cache` and `gain --output` read
+analytics-event logs, while `gain --proxy` is the focused proxy evidence view
+and `savings` is the operator's unified roll-up for daemon-proxied Codex
+CLI/App traffic.
 
 ## T140 live split test
 

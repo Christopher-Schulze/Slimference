@@ -547,6 +547,8 @@ func TestHandleSubcommand_gain_proxy(t *testing.T) {
 	writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
 		RequestID: "req-proxy",
 		Timestamp: time.Now(),
+		Source:    "proxy",
+		Provider:  "codex_chatgpt",
 		Tokens: dbg.TokenCounts{
 			Original: 1000,
 			Final:    800,

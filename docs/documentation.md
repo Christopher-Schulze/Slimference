@@ -230,8 +230,10 @@ comparisons are closer to what the provider will bill. `--by-command` breaks it
 down per argv[0]; `--by-parser` groups persisted Layer-0 savings by parser/tool
 family; `--cache` reports persisted provider prompt-cache read/create counters;
 `--output` reports persisted T130 output-reduce telemetry without inventing a
-savings baseline, including T141 profile tier and task-shape buckets. `--csv` /
-`--json` for machine consumption.
+savings baseline, including T141 profile tier and task-shape buckets; `--proxy`
+reads flight-recorder decision logs and reports provider-only proxied LLM
+requests with input/cache/output accounting. `--csv` / `--json` for machine
+consumption.
 
 ---
 
@@ -1138,9 +1140,9 @@ slimference help [subcommand]
 | `expand`      | Retrieve archived tool result by id (T40).                             |
 | `checkpoint`  | Smart-compaction checkpoint tools: list, show, restore (T39).          |
 | `hook`        | install, remove, verify, status, check-upstream (manual hook mgmt).    |
-| `gain`        | Report Layer-0, by-command/by-parser, prompt-cache, or output telemetry.|
+| `gain`        | Report Layer-0, by-command/by-parser, prompt-cache, output, or proxy-flight telemetry.|
 | `stats`       | Analytics snapshots (today/week/month/prompt-cache).                   |
-| `savings`     | Unified savings view (L0 + L1/2 + L3) per period; --json / --csv (T80).|
+| `savings`     | Unified savings view (L0 + proxy flights + L3) per period; --json / --csv (T80).|
 | `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |
 | `watch`       | Live ticker against /admin/status; Ctrl-C to stop (T79).               |
 | `filter --stream` | Streaming-aware Layer-0 wrapper for `tail -f` style inputs (T94).  |
