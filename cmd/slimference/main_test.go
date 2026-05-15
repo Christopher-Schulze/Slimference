@@ -656,8 +656,8 @@ func TestHandlePostToolCmd(t *testing.T) {
 		osGetwd = origGetwd
 	})
 
-	t.Run("large_compacted_output_auto_emits_hook_json", func(t *testing.T) {
-		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "")
+	t.Run("large_compacted_output_auto_mode_emits_hook_json", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "auto")
 		termIsTerminalFn = func(int) bool { return false }
 		payload, err := json.Marshal(map[string]string{
 			"command":       "git status",
@@ -881,6 +881,45 @@ func TestPostToolReplacementDecisionHelpers(t *testing.T) {
 	}
 	if codexPostToolAutoReplacementWorthIt(1000, 1) {
 		t.Fatal("small original token estimate must not pass auto replacement threshold")
+	}
+}
+
+func TestCodexPostToolArchiveContext(t *testing.T) {
+	withPreview := codexPostToolArchiveContext(toolarchive.Entry{
+		ID:      "tool-ctx",
+		URI:     "local-archive://tool-ctx",
+		Command: "go test ./...",
+		Preview: strings.Repeat("x", codexPostToolContextPreviewChars+20),
+	})
+	for _, want := range []string{
+		`Bash output for "go test ./..." compacted by Slimference.`,
+		"Raw archive: local-archive://tool-ctx",
+		"Archive ID: tool-ctx",
+		"archived preview",
+	} {
+		if !strings.Contains(withPreview, want) {
+			t.Fatalf("archive context missing %q in %q", want, withPreview)
+		}
+	}
+
+	withoutPreview := codexPostToolArchiveContext(toolarchive.Entry{
+		ID:  "tool-no-preview",
+		URI: "local-archive://tool-no-preview",
+	})
+	if !strings.Contains(withoutPreview, "Bash output compacted by Slimference.") ||
+		strings.Contains(withoutPreview, "Preview:") {
+		t.Fatalf("archive context without preview=%q", withoutPreview)
+	}
+}
+
+func TestCodexHookModeDefaultsAuto(t *testing.T) {
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "")
+	if got := codexHookMode(); got != "auto" {
+		t.Fatalf("default hook mode=%q", got)
+	}
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "nonsense")
+	if got := codexHookMode(); got != "auto" {
+		t.Fatalf("unknown hook mode=%q", got)
 	}
 }
 

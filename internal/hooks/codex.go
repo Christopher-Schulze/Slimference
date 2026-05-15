@@ -34,11 +34,11 @@ func codexPreToolHookScript(slimferenceCmd string) string {
 	q := bashSingleQuoted(cmd)
 	return fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
-INPUT=$(cat)
 MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-silent}"
 if [[ "$MODE" != "aggressive" ]]; then
   exit 0
 fi
+INPUT=$(cat)
 CMD=$(printf '%%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
 if [[ -z "${CMD:-}" ]]; then
   exit 0
@@ -82,7 +82,8 @@ esac
 }
 
 // codexPostToolHookScript returns the shell script content for the Codex PostToolUse hook.
-// It compacts captured tool output and returns additionalContext when that adds signal.
+// Default mode is auto: run Bash output compaction without requiring launch flags.
+// Output replacement is suppressed only via explicit SLIMFERENCE_CODEX_HOOK_MODE=silent.
 func codexPostToolHookScript(slimferenceCmd string) string {
 	cmd := strings.TrimSpace(slimferenceCmd)
 	if cmd == "" {
@@ -91,6 +92,11 @@ func codexPostToolHookScript(slimferenceCmd string) string {
 	q := bashSingleQuoted(cmd)
 	return fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
+MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-auto}"
+case "$MODE" in
+  compact|aggressive|auto) ;;
+  *) exit 0 ;;
+esac
 INPUT=$(cat)
 TIMEOUT="${SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS:-4}"
 if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$TIMEOUT" -lt 1 ]]; then
@@ -130,6 +136,11 @@ func codexReadToolHookScript(slimferenceCmd string) string {
 	q := bashSingleQuoted(cmd)
 	return fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
+MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-auto}"
+case "$MODE" in
+  compact|aggressive|auto|debug) ;;
+  *) exit 0 ;;
+esac
 INPUT=$(cat)
 printf '%%s' "$INPUT" | %s readhook codex
 `, q)
@@ -143,6 +154,11 @@ func codexLifecycleHookScript(slimferenceCmd string, event string) string {
 	q := bashSingleQuoted(cmd)
 	return fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
+MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-auto}"
+case "$MODE" in
+  compact|aggressive|auto|debug) ;;
+  *) exit 0 ;;
+esac
 INPUT=$(cat)
 printf '%%s' "$INPUT" | %s codexhook %s
 `, q, event)

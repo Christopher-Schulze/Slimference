@@ -238,7 +238,8 @@ func TestCodexPreToolHookScript_DefaultSilentAggressiveOptIn(t *testing.T) {
 	s := codexPreToolHookScript("/opt/bin/slimference")
 	modeGate := strings.Index(s, `if [[ "$MODE" != "aggressive" ]]`)
 	rewriteCall := strings.Index(s, `rewrite -- "$CMD"`)
-	if modeGate == -1 || rewriteCall == -1 || modeGate > rewriteCall {
+	inputRead := strings.Index(s, `INPUT=$(cat)`)
+	if modeGate == -1 || rewriteCall == -1 || inputRead == -1 || modeGate > inputRead || modeGate > rewriteCall {
 		t.Fatalf("expected aggressive mode gate before rewrite call:\n%s", s)
 	}
 	if !strings.Contains(s, `MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-silent}"`) {
@@ -246,6 +247,44 @@ func TestCodexPreToolHookScript_DefaultSilentAggressiveOptIn(t *testing.T) {
 	}
 	if !strings.Contains(s, "Rerun compacted command:") {
 		t.Fatalf("expected legacy aggressive retry path to remain opt-in:\n%s", s)
+	}
+}
+
+func TestCodexPostToolHookScript_DefaultAutoSilentOptOut(t *testing.T) {
+	t.Parallel()
+	s := codexPostToolHookScript("/opt/bin/slimference")
+	modeGate := strings.Index(s, `compact|aggressive|auto`)
+	postToolCall := strings.Index(s, `posttool >"$TMP_OUT"`)
+	inputRead := strings.Index(s, `INPUT=$(cat)`)
+	if modeGate == -1 || postToolCall == -1 || inputRead == -1 || modeGate > inputRead || modeGate > postToolCall {
+		t.Fatalf("expected mode gate before posttool call:\n%s", s)
+	}
+	if !strings.Contains(s, `MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-auto}"`) {
+		t.Fatalf("expected auto default mode:\n%s", s)
+	}
+}
+
+func TestCodexReadAndLifecycleHookScripts_DefaultAutoSilentOptOut(t *testing.T) {
+	t.Parallel()
+	readScript := codexReadToolHookScript("/opt/bin/slimference")
+	readGate := strings.Index(readScript, `compact|aggressive|auto|debug`)
+	readCall := strings.Index(readScript, `readhook codex`)
+	readInput := strings.Index(readScript, `INPUT=$(cat)`)
+	if readGate == -1 || readCall == -1 || readInput == -1 || readGate > readInput || readGate > readCall {
+		t.Fatalf("expected mode gate before readhook call:\n%s", readScript)
+	}
+	if !strings.Contains(readScript, `MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-auto}"`) {
+		t.Fatalf("expected auto default mode:\n%s", readScript)
+	}
+	lifecycleScript := codexLifecycleHookScript("/opt/bin/slimference", "session-start")
+	lifecycleGate := strings.Index(lifecycleScript, `compact|aggressive|auto|debug`)
+	lifecycleCall := strings.Index(lifecycleScript, `codexhook session-start`)
+	lifecycleInput := strings.Index(lifecycleScript, `INPUT=$(cat)`)
+	if lifecycleGate == -1 || lifecycleCall == -1 || lifecycleInput == -1 || lifecycleGate > lifecycleInput || lifecycleGate > lifecycleCall {
+		t.Fatalf("expected mode gate before lifecycle call:\n%s", lifecycleScript)
+	}
+	if !strings.Contains(lifecycleScript, `MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-auto}"`) {
+		t.Fatalf("expected auto default mode:\n%s", lifecycleScript)
 	}
 }
 

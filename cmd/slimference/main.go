@@ -901,7 +901,7 @@ func handlePostToolCmd(args []string) {
 			if !emitReplacement {
 				return
 			}
-			out := codexPostToolReplacement(toolarchive.RenderContext(*entry))
+			out := codexPostToolReplacement(codexPostToolArchiveContext(*entry))
 			if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 				fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
 				exitFn(1)
@@ -926,6 +926,21 @@ func handlePostToolCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
 		exitFn(1)
 	}
+}
+
+const codexPostToolContextPreviewChars = 600
+
+func codexPostToolArchiveContext(entry toolarchive.Entry) string {
+	base := "Bash output compacted by Slimference."
+	if entry.Command != "" {
+		base = fmt.Sprintf("Bash output for %q compacted by Slimference.", entry.Command)
+	}
+	context := base + "\nRaw archive: " + entry.URI + "\nArchive ID: " + entry.ID
+	preview := strings.TrimSpace(entry.Preview)
+	if preview == "" {
+		return context
+	}
+	return context + "\nPreview:\n" + toolarchive.DefaultPreview(preview, codexPostToolContextPreviewChars)
 }
 
 func postToolBelowMinTokens(text string, minTokens int) bool {
@@ -975,7 +990,7 @@ func postToolFlightToolName(details filter.PostToolPayload) string {
 func codexPostToolReplacement(context string) map[string]interface{} {
 	return map[string]interface{}{
 		"continue":   false,
-		"stopReason": context,
+		"stopReason": "Slimference compacted Bash output.",
 		"hookSpecificOutput": map[string]interface{}{
 			"hookEventName":     "PostToolUse",
 			"additionalContext": context,
