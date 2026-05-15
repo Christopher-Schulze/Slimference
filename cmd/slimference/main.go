@@ -883,7 +883,6 @@ func handlePostToolCmd(args []string) {
 			}
 		}
 	}
-	recordHookFlight("hook_post", details.SessionID, postToolFlightToolName(details), hookDecision(changed), len(details.ToolResponse), len(compacted), []int{0}, nil)
 	emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(compacted))
 
 	if home, err := osUserHomeDir(); err == nil {
@@ -899,9 +898,12 @@ func handlePostToolCmd(args []string) {
 		})
 		if archiveErr == nil && entry != nil {
 			if !emitReplacement {
+				recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(details.ToolResponse), nil)
 				return
 			}
-			out := codexPostToolReplacement(codexPostToolArchiveContext(*entry))
+			context := codexPostToolArchiveContext(*entry)
+			recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(context), codexPostToolDecisionEntries(details, len(details.ToolResponse), len(compacted), len(context)))
+			out := codexPostToolReplacement(context)
 			if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 				fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
 				exitFn(1)
@@ -911,6 +913,7 @@ func handlePostToolCmd(args []string) {
 	}
 
 	if !emitReplacement {
+		recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(details.ToolResponse), nil)
 		return
 	}
 
@@ -921,11 +924,49 @@ func handlePostToolCmd(args []string) {
 		context = fmt.Sprintf("Bash output was compacted locally.\n%s", compacted)
 	}
 
+	recordCodexPostToolAccounting(details, changed, len(details.ToolResponse), len(context), codexPostToolDecisionEntries(details, len(details.ToolResponse), len(compacted), len(context)))
 	out := codexPostToolReplacement(context)
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 		fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
 		exitFn(1)
 	}
+}
+
+func recordCodexPostToolAccounting(details filter.PostToolPayload, changed bool, originalBytes int, finalBytes int, entries []dbg.DecisionEntry) {
+	recordHookFlightEntries("hook_post", details.SessionID, postToolFlightToolName(details), hookDecision(changed), originalBytes, finalBytes, []int{0}, entries, nil)
+}
+
+func codexPostToolDecisionEntries(details filter.PostToolPayload, originalBytes int, compactedBytes int, contextBytes int) []dbg.DecisionEntry {
+	originalTokens := filter.EstimateTokensFromBytes(originalBytes)
+	compactedTokens := filter.EstimateTokensFromBytes(compactedBytes)
+	contextTokens := filter.EstimateTokensFromBytes(contextBytes)
+	entries := []dbg.DecisionEntry{{
+		ContentType:  "tool_result",
+		Layer:        0,
+		SubLayer:     "codex_posttool_compaction",
+		Action:       "compressed",
+		Reason:       postToolFlightToolName(details),
+		TokensBefore: originalTokens,
+		TokensAfter:  compactedTokens,
+		SavedTokens:  originalTokens - compactedTokens,
+		Settings: map[string]string{
+			"command": details.CommandLine,
+		},
+	}}
+	contextAdded := contextTokens - compactedTokens
+	if contextAdded > 0 {
+		entries = append(entries, dbg.DecisionEntry{
+			ContentType:  "tool_result",
+			Layer:        0,
+			SubLayer:     "codex_hook_replacement_context",
+			Action:       "overhead",
+			Reason:       "replacement metadata and archive pointer",
+			TokensBefore: compactedTokens,
+			TokensAfter:  contextTokens,
+			SavedTokens:  -contextAdded,
+		})
+	}
+	return entries
 }
 
 const codexPostToolContextPreviewChars = 600
@@ -1431,6 +1472,10 @@ func firstNonEmpty(values ...string) string {
 }
 
 func recordHookFlight(source, sessionID, toolName, decision string, originalBytes, finalBytes int, layers []int, hookErr error) {
+	recordHookFlightEntries(source, sessionID, toolName, decision, originalBytes, finalBytes, layers, nil, hookErr)
+}
+
+func recordHookFlightEntries(source, sessionID, toolName, decision string, originalBytes, finalBytes int, layers []int, entries []dbg.DecisionEntry, hookErr error) {
 	path := configuredDecisionsLogPath()
 	if path == "" {
 		return
@@ -1453,9 +1498,19 @@ func recordHookFlight(source, sessionID, toolName, decision string, originalByte
 		errorsOut = []string{hookErr.Error()}
 	}
 	rec := dbg.NewRecorder(1, path)
+	requestID := fmt.Sprintf("%s-%d", source, time.Now().UnixNano())
+	now := time.Now().UTC()
+	for i := range entries {
+		if entries[i].Timestamp.IsZero() {
+			entries[i].Timestamp = now
+		}
+		if entries[i].RequestID == "" {
+			entries[i].RequestID = requestID
+		}
+	}
 	rec.Record(dbg.RequestSummary{
-		RequestID:     fmt.Sprintf("%s-%d", source, time.Now().UnixNano()),
-		Timestamp:     time.Now().UTC(),
+		RequestID:     requestID,
+		Timestamp:     now,
 		SessionID:     sessionID,
 		Source:        source,
 		Provider:      "local",
@@ -1470,7 +1525,8 @@ func recordHookFlight(source, sessionID, toolName, decision string, originalByte
 			Saved:    saved,
 			Ratio:    ratio,
 		},
-		Errors: errorsOut,
+		Errors:  errorsOut,
+		Entries: entries,
 	})
 }
 

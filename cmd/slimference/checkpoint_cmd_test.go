@@ -12,6 +12,7 @@ import (
 
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/toolarchive"
 )
 
@@ -353,6 +354,9 @@ func TestHandlePostToolCmd_T93RepetitionMarkerOnThirdHit(t *testing.T) {
 	}()
 
 	home := t.TempDir()
+	decisionsPath := filepath.Join(home, "decisions.jsonl")
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(home, "missing.toml"))
 	termIsTerminalFn = func(int) bool { return false }
 	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 	osUserHomeDir = func() (string, error) { return home, nil }
@@ -421,6 +425,9 @@ func TestHandlePostToolCmd_ArchivesLargeOutputWhenMetadataPresent(t *testing.T) 
 	}()
 
 	home := t.TempDir()
+	decisionsPath := filepath.Join(home, "decisions.jsonl")
+	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(home, "missing.toml"))
 	termIsTerminalFn = func(int) bool { return false }
 	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 	osUserHomeDir = func() (string, error) { return home, nil }
@@ -455,5 +462,26 @@ func TestHandlePostToolCmd_ArchivesLargeOutputWhenMetadataPresent(t *testing.T) 
 	}
 	if _, err := os.Stat(filepath.Join(toolarchive.DefaultDir(home), "entries", "tool-1.json")); err != nil {
 		t.Fatalf("archive metadata missing: %v", err)
+	}
+	data, err := os.ReadFile(decisionsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var summary dbg.RequestSummary
+	if err := json.Unmarshal(bytes.TrimSpace(data), &summary); err != nil {
+		t.Fatal(err)
+	}
+	mechanisms := map[string]dbg.MechanismAccounting{}
+	for _, item := range summary.Mechanisms {
+		mechanisms[item.Name] = item
+	}
+	if mechanisms["codex_posttool_compaction"].SavedTokens <= 0 {
+		t.Fatalf("missing compaction savings: %+v", summary.Mechanisms)
+	}
+	if mechanisms["codex_hook_replacement_context"].AddedTokens <= 0 {
+		t.Fatalf("missing replacement overhead: %+v", summary.Mechanisms)
+	}
+	if summary.Flight == nil || len(summary.Flight.Mechanisms) == 0 {
+		t.Fatalf("flight mechanisms missing: %+v", summary.Flight)
 	}
 }

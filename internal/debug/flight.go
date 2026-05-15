@@ -80,6 +80,7 @@ type FlightRequestSummary struct {
 	CacheAccounting      FlightCacheAccounting        `json:"cache_accounting"`
 	ToolPrune            FlightToolPruneAccounting    `json:"tool_prune"`
 	OutputReduce         FlightOutputReduceAccounting `json:"output_reduce"`
+	Mechanisms           []MechanismAccounting        `json:"mechanisms,omitempty"`
 	Plan                 *PlanSummary                 `json:"plan,omitempty"`
 	Errors               []string                     `json:"errors,omitempty"`
 	PrivacyRedacted      bool                         `json:"privacy_redaction_state"`
@@ -178,6 +179,7 @@ func BuildFlightRequestSummary(s RequestSummary) FlightRequestSummary {
 			AddedTokens: s.OutputReduce.AddedTokens,
 			TaskShape:   s.OutputReduce.TaskShape,
 		},
+		Mechanisms:           append([]MechanismAccounting(nil), s.Mechanisms...),
 		Plan:                 clonePlanSummary(s.Plan),
 		Errors:               append([]string(nil), s.Errors...),
 		PrivacyRedacted:      true,

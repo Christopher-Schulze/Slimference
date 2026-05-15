@@ -40,6 +40,22 @@ type SubLayerBreakdown struct {
 	Saved  int `json:"saved"`
 }
 
+// MechanismAccounting records token impact for one concrete saving or overhead
+// mechanism. Saved is gross reduction, Added is extra prompt/context cost, Net
+// is Saved-Added. Negative Net is allowed and explicitly marks regressions.
+type MechanismAccounting struct {
+	Name           string `json:"name"`
+	Layer          int    `json:"layer,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Count          int    `json:"count"`
+	OriginalTokens int    `json:"original_tokens,omitempty"`
+	FinalTokens    int    `json:"final_tokens,omitempty"`
+	SavedTokens    int    `json:"saved_tokens,omitempty"`
+	AddedTokens    int    `json:"added_tokens,omitempty"`
+	NetTokens      int    `json:"net_tokens"`
+	Reason         string `json:"reason,omitempty"`
+}
+
 // TokenCounts holds before/after token totals for a request.
 type TokenCounts struct {
 	Original    int     `json:"original"`
@@ -143,6 +159,7 @@ type RequestSummary struct {
 	PromptCache            PromptCacheSummary           `json:"prompt_cache,omitempty"`
 	ToolPrune              ToolPruneSummary             `json:"tool_prune,omitempty"`
 	OutputReduce           OutputReduceSummary          `json:"output_reduce,omitempty"`
+	Mechanisms             []MechanismAccounting        `json:"mechanisms,omitempty"`
 	PreviousResponseIDUsed bool                         `json:"previous_response_id_used,omitempty"`
 	SecretsRedacted        int                          `json:"secrets_redacted"`
 	Errors                 []string                     `json:"errors,omitempty"`
@@ -207,6 +224,7 @@ func normalizeDecisionsLogPath(path string) string {
 // Record appends a completed RequestSummary to the ring and optionally flushes to JSONL.
 func (r *Recorder) Record(s RequestSummary) {
 	s = RedactRequestSummary(s)
+	s.EnsureMechanisms()
 	s.EnsureFlight()
 	r.mu.Lock()
 	r.summaries[r.head%r.cap] = s
@@ -220,6 +238,130 @@ func (r *Recorder) Record(s RequestSummary) {
 	if path != "" {
 		r.flushJSONL(path, s)
 	}
+}
+
+func (s *RequestSummary) EnsureMechanisms() {
+	if s == nil || len(s.Mechanisms) > 0 {
+		return
+	}
+	s.Mechanisms = BuildMechanismAccounting(*s)
+}
+
+func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
+	var out []MechanismAccounting
+	for _, entry := range s.Entries {
+		name := strings.TrimSpace(entry.SubLayer)
+		if name == "" {
+			name = "unnamed"
+		}
+		added := 0
+		saved := entry.SavedTokens
+		if saved < 0 {
+			added = -saved
+			saved = 0
+		}
+		out = append(out, MechanismAccounting{
+			Name:           name,
+			Layer:          entry.Layer,
+			Source:         "decision_entry",
+			Count:          1,
+			OriginalTokens: entry.TokensBefore,
+			FinalTokens:    entry.TokensAfter,
+			SavedTokens:    saved,
+			AddedTokens:    added,
+			NetTokens:      saved - added,
+			Reason:         entry.Reason,
+		})
+	}
+	for name, bd := range s.Layer1Breakdown {
+		out = append(out, MechanismAccounting{
+			Name:        name,
+			Layer:       1,
+			Source:      "layer1_breakdown",
+			Count:       bd.Blocks,
+			SavedTokens: bd.Saved,
+			NetTokens:   bd.Saved,
+		})
+	}
+	if s.Layer2.Applied || s.Layer2.OriginalTokens > 0 || s.Layer2.CompressedTokens > 0 {
+		saved := s.Layer2.OriginalTokens - s.Layer2.CompressedTokens
+		if saved < 0 {
+			saved = 0
+		}
+		out = append(out, MechanismAccounting{
+			Name:           "layer2_summarization",
+			Layer:          2,
+			Source:         "layer2",
+			Count:          boolCount(s.Layer2.Applied),
+			OriginalTokens: s.Layer2.OriginalTokens,
+			FinalTokens:    s.Layer2.CompressedTokens,
+			SavedTokens:    saved,
+			NetTokens:      saved,
+		})
+	}
+	if s.PromptCache.Applied || s.PromptCache.Reason != "" || s.CacheReadTokens > 0 || s.CacheCreateTokens > 0 || s.ProviderCachedTokens > 0 {
+		cacheSaved := s.CacheReadTokens + s.ProviderCachedTokens
+		out = append(out, MechanismAccounting{
+			Name:           "provider_prompt_cache",
+			Source:         "cache_accounting",
+			Count:          boolCount(s.PromptCache.Applied || cacheSaved > 0 || s.CacheCreateTokens > 0),
+			OriginalTokens: s.PromptCache.StablePrefixTokens,
+			SavedTokens:    cacheSaved,
+			AddedTokens:    s.CacheCreateTokens,
+			NetTokens:      cacheSaved - s.CacheCreateTokens,
+			Reason:         s.PromptCache.Reason,
+		})
+	}
+	if s.ToolPrune.Applied || s.ToolPrune.Reason != "" || s.ToolPrune.SavedTokens > 0 || s.ToolPrune.Reattached > 0 {
+		out = append(out, MechanismAccounting{
+			Name:        "tool_prune",
+			Layer:       4,
+			Source:      "tool_prune",
+			Count:       boolCount(s.ToolPrune.Applied),
+			SavedTokens: s.ToolPrune.SavedTokens,
+			AddedTokens: s.ToolPrune.Reattached,
+			NetTokens:   s.ToolPrune.SavedTokens - s.ToolPrune.Reattached,
+			Reason:      s.ToolPrune.Reason,
+		})
+	}
+	if s.OutputReduce.Applied || s.OutputReduce.Reason != "" || s.OutputReduce.AddedTokens > 0 {
+		out = append(out, MechanismAccounting{
+			Name:        "output_reduce_directive",
+			Source:      "output_reduce",
+			Count:       boolCount(s.OutputReduce.Applied),
+			AddedTokens: s.OutputReduce.AddedTokens,
+			NetTokens:   -s.OutputReduce.AddedTokens,
+			Reason:      s.OutputReduce.Reason,
+		})
+	}
+	if s.Tokens.Original > 0 || s.Tokens.Final > 0 {
+		out = append(out, MechanismAccounting{
+			Name:           "request_total",
+			Source:         "request",
+			Count:          1,
+			OriginalTokens: s.Tokens.Original,
+			FinalTokens:    s.Tokens.Final,
+			SavedTokens:    s.Tokens.Saved,
+			AddedTokens:    positive(s.OutputReduce.AddedTokens),
+			NetTokens:      s.Tokens.Saved - positive(s.OutputReduce.AddedTokens),
+			Reason:         s.BypassReason,
+		})
+	}
+	return out
+}
+
+func boolCount(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+func positive(v int) int {
+	if v > 0 {
+		return v
+	}
+	return 0
 }
 
 // Last returns the most recent n request summaries, newest first.
