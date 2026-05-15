@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -41,6 +42,7 @@ func handleProxyCmd(args []string) {
 		Launch:      transparent.NewLaunchAgent(),
 		LoadCA:      tlsca.LoadOrGenerateCA,
 		HealthCheck: defaultProxyHealthCheck,
+		RunCommand:  defaultProxyCommandRunner,
 	})
 	if rc != 0 {
 		exitFn(rc)
@@ -58,7 +60,10 @@ type proxyEnv struct {
 	Launch      proxyLaunchAgent
 	LoadCA      func(dir string) (*tlsca.CA, error)
 	HealthCheck func(host, port string) error
+	RunCommand  proxyCommandRunner
 }
+
+type proxyCommandRunner func(name string, args []string, stdin io.Reader, stdout, stderr io.Writer) error
 
 // proxyNetworkManager is the subset of *transparent.Manager that the
 // subcommand consumes. Defined here so tests can stub it.
@@ -84,7 +89,7 @@ type proxyLaunchAgent interface {
 
 func proxyRun(args []string, env proxyEnv) int {
 	if len(args) == 0 {
-		fmt.Fprintln(env.Stderr, "usage: slimference proxy <install|enable|disable|status|uninstall|env>")
+		fmt.Fprintln(env.Stderr, "usage: slimference proxy <install|enable|disable|status|uninstall|env|run>")
 		return 2
 	}
 	sub, rest := args[0], args[1:]
@@ -101,6 +106,8 @@ func proxyRun(args []string, env proxyEnv) int {
 		return proxyUninstall(rest, env)
 	case "env":
 		return proxyEnvCmd(rest, env)
+	case "run":
+		return proxyRunClientCmd(rest, env)
 	default:
 		fmt.Fprintf(env.Stderr, "proxy: unknown subcommand %q\n", sub)
 		return 2
@@ -410,57 +417,8 @@ func proxyUninstall(args []string, env proxyEnv) int {
 }
 
 func proxyEnvCmd(args []string, env proxyEnv) int {
-	if len(args) == 0 {
-		fmt.Fprintln(env.Stderr, "usage: slimference proxy env codex <--direct|--proxied|--transparent-proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]")
-		return 2
-	}
-	client, rest := args[0], args[1:]
-	if client != "codex" {
-		fmt.Fprintf(env.Stderr, "proxy env: unsupported client %q (supported: codex)\n", client)
-		return 2
-	}
-	mode := ""
-	host := "127.0.0.1"
-	port := "8990"
-	var codexArgs []string
-	for i := 0; i < len(rest); i++ {
-		a := rest[i]
-		if a == "--" {
-			codexArgs = append(codexArgs, rest[i+1:]...)
-			break
-		}
-		switch {
-		case a == "--direct":
-			if mode != "" {
-				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct, --proxied, or --transparent-proxied")
-				return 2
-			}
-			mode = "direct"
-		case a == "--proxied":
-			if mode != "" {
-				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct, --proxied, or --transparent-proxied")
-				return 2
-			}
-			mode = "proxied"
-		case a == "--transparent-proxied":
-			if mode != "" {
-				fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct, --proxied, or --transparent-proxied")
-				return 2
-			}
-			mode = "transparent-proxied"
-		case strings.HasPrefix(a, "--host="):
-			host = strings.TrimPrefix(a, "--host=")
-		case strings.HasPrefix(a, "--port="):
-			port = strings.TrimPrefix(a, "--port=")
-		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(env.Stderr, "proxy env codex: unknown flag %q\n", a)
-			return 2
-		default:
-			codexArgs = append(codexArgs, a)
-		}
-	}
-	if mode == "" {
-		fmt.Fprintln(env.Stderr, "proxy env codex: choose exactly one of --direct, --proxied, or --transparent-proxied")
+	mode, host, port, codexArgs, ok := parseCodexProxyArgs(args, env.Stderr, "env")
+	if !ok {
 		return 2
 	}
 	command := codexEnvCommand(mode, host, port, codexArgs)
@@ -479,6 +437,88 @@ func proxyEnvCmd(args []string, env proxyEnv) int {
 	fmt.Fprintln(env.Stdout, shellJoin(command))
 	return 0
 }
+
+func proxyRunClientCmd(args []string, env proxyEnv) int {
+	mode, host, port, codexArgs, ok := parseCodexProxyArgs(args, env.Stderr, "run")
+	if !ok {
+		return 2
+	}
+	command := codexEnvCommand(mode, host, port, codexArgs)
+	runner := env.RunCommand
+	if runner == nil {
+		runner = defaultProxyCommandRunnerFunc
+	}
+	if err := runner(command[0], command[1:], env.Stdin, env.Stdout, env.Stderr); err != nil {
+		fmt.Fprintf(env.Stderr, "proxy run codex: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func parseCodexProxyArgs(args []string, stderr io.Writer, verb string) (mode, host, port string, codexArgs []string, ok bool) {
+	if len(args) == 0 {
+		fmt.Fprintf(stderr, "usage: slimference proxy %s codex <--direct|--proxied|--transparent-proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]\n", verb)
+		return "", "", "", nil, false
+	}
+	client, rest := args[0], args[1:]
+	if client != "codex" {
+		fmt.Fprintf(stderr, "proxy %s: unsupported client %q (supported: codex)\n", verb, client)
+		return "", "", "", nil, false
+	}
+	host = "127.0.0.1"
+	port = "8990"
+	for i := 0; i < len(rest); i++ {
+		a := rest[i]
+		if a == "--" {
+			codexArgs = append(codexArgs, rest[i+1:]...)
+			break
+		}
+		switch {
+		case a == "--direct":
+			if mode != "" {
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, or --transparent-proxied\n", verb)
+				return "", "", "", nil, false
+			}
+			mode = "direct"
+		case a == "--proxied":
+			if mode != "" {
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, or --transparent-proxied\n", verb)
+				return "", "", "", nil, false
+			}
+			mode = "proxied"
+		case a == "--transparent-proxied":
+			if mode != "" {
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, or --transparent-proxied\n", verb)
+				return "", "", "", nil, false
+			}
+			mode = "transparent-proxied"
+		case strings.HasPrefix(a, "--host="):
+			host = strings.TrimPrefix(a, "--host=")
+		case strings.HasPrefix(a, "--port="):
+			port = strings.TrimPrefix(a, "--port=")
+		case strings.HasPrefix(a, "-"):
+			fmt.Fprintf(stderr, "proxy %s codex: unknown flag %q\n", verb, a)
+			return "", "", "", nil, false
+		default:
+			codexArgs = append(codexArgs, a)
+		}
+	}
+	if mode == "" {
+		fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, or --transparent-proxied\n", verb)
+		return "", "", "", nil, false
+	}
+	return mode, host, port, codexArgs, true
+}
+
+func defaultProxyCommandRunner(name string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
+}
+
+var defaultProxyCommandRunnerFunc proxyCommandRunner = defaultProxyCommandRunner
 
 func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
 	base := []string{"env"}

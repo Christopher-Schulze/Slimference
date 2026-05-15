@@ -46,7 +46,11 @@ slimference proxy disable
 slimference proxy status
 slimference proxy uninstall [--system]
 slimference proxy env codex <--direct|--proxied|--transparent-proxied> [-- <codex-args>...]
+slimference proxy run codex <--direct|--proxied|--transparent-proxied> [-- <codex-args>...]
 ```
+
+`proxy env` prints the shell command for inspection or copy/paste. `proxy run`
+executes Codex directly with the same one-process environment.
 
 The same lifecycle is available from the TUI. Open `slimference`, switch to
 Setup, then use:

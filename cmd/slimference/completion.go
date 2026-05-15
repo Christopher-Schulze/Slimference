@@ -8,7 +8,7 @@ import (
 // handleCompletionCmd implements `slimference completion bash`. The emitted
 // script is sourceable in a bash session and offers context-sensitive
 // completion for every top-level subcommand, the most common nested
-// subcommands (hook install|remove, proxy install|env|..., debug
+// subcommands (hook install|remove, proxy install|env|run|..., debug
 // paths|last|flight|..., daemon logs, service install|..., config init|show,
 // test anthropic|openai), and the recurring period/flag tokens
 // (today|week|month|all, --json, --csv, --by-command, --by-parser, --cache,
@@ -117,13 +117,13 @@ _slimference() {
             ;;
         proxy)
             if [ "$cword" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "install enable disable status uninstall env" -- "$cur") )
+                COMPREPLY=( $(compgen -W "install enable disable status uninstall env run" -- "$cur") )
             elif [ "$cword" -eq 3 ]; then
                 case "${COMP_WORDS[2]}" in
-                    env) COMPREPLY=( $(compgen -W "codex" -- "$cur") ) ;;
+                    env|run) COMPREPLY=( $(compgen -W "codex" -- "$cur") ) ;;
                     install|enable|disable|status|uninstall) COMPREPLY=( $(compgen -W "--yes --system --no-launchd --host= --port=" -- "$cur") ) ;;
                 esac
-            elif [ "$cword" -ge 4 ] && [ "${COMP_WORDS[2]}" = "env" ] && [ "${COMP_WORDS[3]}" = "codex" ]; then
+            elif [ "$cword" -ge 4 ] && { [ "${COMP_WORDS[2]}" = "env" ] || [ "${COMP_WORDS[2]}" = "run" ]; } && [ "${COMP_WORDS[3]}" = "codex" ]; then
                 COMPREPLY=( $(compgen -W "--direct --proxied --host= --port= --" -- "$cur") )
             fi
             ;;

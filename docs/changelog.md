@@ -967,3 +967,7 @@ Planner telemetry is also tightened for the current CLI-only route: Codex HTTP
 provider requests explicitly bypass WebSocket mutation, Codex cache accounting is
 not mislabeled as prompt-cache-key mutation without a previous response id, and
 exact-reply prompts stay out of Layer-4 directive plans.
+
+`slimference proxy run codex --proxied -- <args>` now executes the same safe
+one-process Codex environment that `proxy env codex --proxied` prints, removing
+the copy/paste or `eval` step for normal repo-local tests.

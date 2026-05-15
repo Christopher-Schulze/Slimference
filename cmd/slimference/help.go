@@ -250,7 +250,7 @@ foreground with JSON logging and platform-specific integration. Users
 should prefer 'slimference service <verb>' or '--no-tui' instead.
 `
 	case "proxy":
-		return `slimference proxy <install|enable|disable|status|uninstall|env> [args]
+		return `slimference proxy <install|enable|disable|status|uninstall|env|run> [args]
 
 Transparent macOS mode. install creates/trusts the local CA and installs
 the daemon, enable arms the System HTTPS proxy, disable restores direct
@@ -261,6 +261,7 @@ Codex CLI launch helpers for T140 split testing:
   slimference proxy env codex --direct [-- <codex-args>...]
   slimference proxy env codex --proxied [-- <codex-args>...]
   slimference proxy env codex --transparent-proxied [-- <codex-args>...]
+  slimference proxy run codex --proxied [-- <codex-args>...]
 
 The direct helper clears HTTP(S)/ALL proxy env and sets NO_PROXY=*.
 The proxied helper leaves the macOS System HTTPS proxy untouched and launches
@@ -268,7 +269,8 @@ Codex with a per-process custom provider named slimference-codex pointing at
 the local daemon. That provider disables Responses WebSockets, so the CLI uses
 HTTP directly without retrying fallback. This keeps Codex App direct. The
 transparent-proxied helper is the CONNECT/MITM variant for explicit CA-path
-tests. All helpers print the exact shell command; they do not mutate Codex
+tests. proxy env prints the exact shell command. proxy run executes Codex
+directly with the same one-process environment. Neither mode mutates Codex
 config.
 `
 	case "config":

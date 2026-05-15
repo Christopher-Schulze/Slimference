@@ -788,11 +788,12 @@ racy. The status shown there is a
 cached snapshot of CA, keychain trust, launchd, system proxy, daemon
 reachability, and networksetup health.
 
-For CLI-only split testing, `slimference proxy env codex --proxied` prints a
-non-mutating command that points only that Codex CLI process at
-`127.0.0.1:8990`; the Codex App remains direct as long as macOS
-System-HTTPS-Proxy is off. The helper launches Codex with a per-process custom
-provider named `slimference-codex`, sets its base URL to
+For CLI-only split testing, `slimference proxy run codex --proxied` starts
+Codex with a non-mutating one-process environment that points only that Codex
+CLI process at `127.0.0.1:8990`; the Codex App remains direct as long as macOS
+System-HTTPS-Proxy is off. `slimference proxy env codex --proxied` prints the
+same command instead of executing it. The helper launches Codex with a
+per-process custom provider named `slimference-codex`, sets its base URL to
 `http://127.0.0.1:8990/backend-api/codex`, marks it
 `requires_openai_auth=true`, and sets `supports_websockets=false`. That avoids
 the current Codex CLI WebSocket retry/fallback delay and sends HTTP Responses

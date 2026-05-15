@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -201,6 +202,90 @@ func TestProxyEnvCodex_TransparentProxied(t *testing.T) {
 	}
 }
 
+func TestProxyRunCodex_ProxiedExecutesCommand(t *testing.T) {
+	t.Parallel()
+	env, stdout, stderr, _, _, _ := newProxyEnv(t)
+	var gotName string
+	var gotArgs []string
+	env.RunCommand = func(name string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		fmt.Fprintln(stdout, "started")
+		return nil
+	}
+	if rc := proxyRun([]string{"run", "codex", "--proxied", "--", "."}, env); rc != 0 {
+		t.Fatalf("expected rc=0, got %d stderr=%q", rc, stderr.String())
+	}
+	if gotName != "env" {
+		t.Fatalf("runner name=%q args=%v", gotName, gotArgs)
+	}
+	joined := strings.Join(gotArgs, "\x00")
+	for _, want := range []string{
+		"codex",
+		"model_provider=\"slimference-codex\"",
+		"model_providers.slimference-codex.base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
+		"model_providers.slimference-codex.supports_websockets=false",
+		".",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("run args missing %q in %q", want, joined)
+		}
+	}
+	if stdout.String() != "started\n" {
+		t.Fatalf("stdout should come from child only, got %q", stdout.String())
+	}
+}
+
+func TestProxyRunCodex_RunnerError(t *testing.T) {
+	t.Parallel()
+	env, _, stderr, _, _, _ := newProxyEnv(t)
+	env.RunCommand = func(name string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		return errors.New("boom")
+	}
+	if rc := proxyRun([]string{"run", "codex", "--direct"}, env); rc != 1 {
+		t.Fatalf("expected rc=1, got %d", rc)
+	}
+	if !strings.Contains(stderr.String(), "proxy run codex: boom") {
+		t.Fatalf("missing runner error, got %q", stderr.String())
+	}
+}
+
+func TestProxyRunCodex_DefaultRunnerFallback(t *testing.T) {
+	env, _, stderr, _, _, _ := newProxyEnv(t)
+	oldRunner := defaultProxyCommandRunnerFunc
+	defer func() { defaultProxyCommandRunnerFunc = oldRunner }()
+	called := false
+	defaultProxyCommandRunnerFunc = func(name string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+		called = true
+		if name != "env" || len(args) == 0 {
+			return fmt.Errorf("bad command %q %#v", name, args)
+		}
+		return nil
+	}
+	if rc := proxyRun([]string{"run", "codex", "--direct"}, env); rc != 0 {
+		t.Fatalf("expected rc=0, got %d stderr=%q", rc, stderr.String())
+	}
+	if !called {
+		t.Fatal("default runner fallback was not used")
+	}
+}
+
+func TestDefaultProxyCommandRunner(t *testing.T) {
+	if os.Getenv("SLIMFERENCE_PROXY_RUN_HELPER") == "1" {
+		fmt.Fprint(os.Stdout, "helper-ok")
+		return
+	}
+	t.Setenv("SLIMFERENCE_PROXY_RUN_HELPER", "1")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	if err := defaultProxyCommandRunner(os.Args[0], []string{"-test.run=TestDefaultProxyCommandRunner"}, &bytes.Buffer{}, stdout, stderr); err != nil {
+		t.Fatalf("default runner failed: %v stderr=%q", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "helper-ok") {
+		t.Fatalf("unexpected helper stdout %q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
 func TestProxyEnvCodex_RejectsBadArgs(t *testing.T) {
 	t.Parallel()
 	cases := [][]string{
@@ -221,6 +306,14 @@ func TestProxyEnvCodex_RejectsBadArgs(t *testing.T) {
 				t.Fatalf("expected rc=2 for %v, got %d", args, rc)
 			}
 		})
+	}
+}
+
+func TestProxyRunCodex_RejectsBadArgs(t *testing.T) {
+	t.Parallel()
+	env, _, _, _, _, _ := newProxyEnv(t)
+	if rc := proxyRun([]string{"run", "codex"}, env); rc != 2 {
+		t.Fatalf("expected rc=2, got %d", rc)
 	}
 }
 
