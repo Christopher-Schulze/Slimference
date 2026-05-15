@@ -89,9 +89,25 @@ func DirectiveForShape(profile Profile, shape TaskShape, marker string) string {
 	case ProfileAggressive:
 		return marker + "\nAggressive output rules: answer in the fewest complete words; no ceremony; no recap; no quoted tool output; no \"let me know\" ending; code edits as patch/diff unless a full new file is required; after successful tool action, report result plus verification only; comments only for non-obvious invariants." + shapeDirective(shape)
 	case ProfileCodex, ProfileCodexAggressive:
+		if directive := compactCodexDirectiveForShape(shape, marker); directive != "" {
+			return directive
+		}
 		return marker + "\nCodex output rules: be terse; skip preambles and recap filler; never re-emit tool output except the shortest needed error/path; after apply_patch/tool success, stop at result plus verification; prefer diffs/patches for edits unless creating a new file or explicitly asked for full content; preserve exact commands/paths/errors when debugging." + shapeDirective(shape)
 	case ProfileCustom:
 		return marker
+	default:
+		return ""
+	}
+}
+
+func compactCodexDirectiveForShape(shape TaskShape, marker string) string {
+	switch shape {
+	case ShapeReadOnly:
+		return marker + "\nRead-only: concise verdict plus evidence only; do not mention hooks, filters, or Slimference unless explicitly asked."
+	case ShapePlanning:
+		return marker + "\nPlanning: compact ordered steps, no filler, no hook/filter/Slimference meta."
+	case ShapeDirectAnswer:
+		return marker + "\nAnswer directly and briefly; no preamble, recap, sign-off, or hook/filter/Slimference meta."
 	default:
 		return ""
 	}
@@ -126,7 +142,29 @@ func shapeDirective(shape TaskShape) string {
 		return " For tool-result reasoning, summarize only the decision-relevant lines."
 	case ShapePlanning:
 		return " For planning, use compact ordered steps with no filler."
+	case ShapeRepairFollowup:
+		return ""
 	default:
 		return ""
 	}
+}
+
+func LowROISkipReason(shape TaskShape, inputTokens int) string {
+	switch shape {
+	case ShapeRepairFollowup:
+		return "repair_followup_low_roi"
+	case ShapeReadOnly:
+		if inputTokens > 0 && inputTokens < 60000 {
+			return "read_only_low_roi"
+		}
+	case ShapePlanning:
+		if inputTokens > 0 && inputTokens < 30000 {
+			return "planning_low_roi"
+		}
+	case ShapeDirectAnswer:
+		if inputTokens > 0 && inputTokens < 12000 {
+			return "direct_answer_low_roi"
+		}
+	}
+	return ""
 }

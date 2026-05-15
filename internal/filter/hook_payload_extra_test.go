@@ -24,10 +24,13 @@ func TestExtractPostToolPayloadFromHookJSON_NestedCommand(t *testing.T) {
 	}
 }
 
-func TestExtractPostToolPayloadFromHookJSON_ToolResponseMustBeString(t *testing.T) {
-	_, _, err := ExtractPostToolPayloadFromHookJSON([]byte(`{"tool_response": 42}`))
-	if err == nil || !strings.Contains(err.Error(), "tool_response") {
-		t.Fatalf("expected missing string tool_response error, got %v", err)
+func TestExtractPostToolPayloadFromHookJSON_NonStringResponseSkips(t *testing.T) {
+	command, toolResponse, err := ExtractPostToolPayloadFromHookJSON([]byte(`{"command":"git status","tool_response": 42}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command != "git status" || toolResponse != "" {
+		t.Fatalf("command=%q toolResponse=%q", command, toolResponse)
 	}
 }
 

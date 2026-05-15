@@ -167,9 +167,11 @@ func (m *Message) HasToolUse() bool {
 
 // CompressJob is sent to the async compression worker goroutine.
 type CompressJob struct {
-	Messages  []Message
-	Timestamp time.Time
-	SessionID string
+	Messages     []Message
+	Timestamp    time.Time
+	SessionID    string
+	InputHash    [32]byte
+	HasInputHash bool
 }
 
 // EventType classifies analytics events.

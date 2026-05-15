@@ -1,12 +1,15 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -200,6 +203,55 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 	if !strings.Contains(string(out), `"stdout":"ok\n"`) || !strings.Contains(string(out), `"exit_code":0`) {
 		t.Fatalf("wrapped stdout rewrite should preserve output object metadata: %s", out)
 	}
+
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"local_shell_call","call_id":"call_shell","action":{"command":"/opt/homebrew/bin/bash -lc 'git status --short .'"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Role != "assistant" || msg.Content[0].ToolName != "shell" || !strings.Contains(msg.Content[0].ToolInput, "git status") {
+		t.Fatalf("local shell call mapping: ok=%v msg=%#v", ok, msg)
+	}
+
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"local_shell_call_output","call_id":"call_shell","command":["/opt/homebrew/bin/bash","-lc","git status --short ."],"aggregated_output":"Chunk ID: abc\nProcess exited with code 0\nOutput:\n M internal/proxy/provider.go\n"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Role != "tool" || msg.Content[0].ToolResultID != "call_shell" || msg.Content[0].ToolName != "shell" || !strings.Contains(msg.Content[0].ToolInput, "git status") || !strings.Contains(msg.Content[0].Text, "Chunk ID") {
+		t.Fatalf("local shell output mapping: ok=%v msg=%#v", ok, msg)
+	}
+	msg.Content[0].Text = "compact\n"
+	raw, ok = msg.Content[0].RawBlock.(codexInputItemRaw)
+	if !ok {
+		t.Fatal("expected local shell raw block")
+	}
+	out, err = codexMessageToInputItem(msg, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"aggregated_output":"compact\n"`) || !strings.Contains(string(out), `"command":["/opt/homebrew/bin/bash","-lc","git status --short ."]`) {
+		t.Fatalf("aggregated_output rewrite should preserve command metadata: %s", out)
+	}
+
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"tool_output","call_id":"call_obj","stdout":{"text":"out\n","exit_code":0}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Content[0].Text != "out\n" {
+		t.Fatalf("direct stdout object mapping: ok=%v msg=%#v", ok, msg)
+	}
+	msg.Content[0].Text = "compact out\n"
+	raw, ok = msg.Content[0].RawBlock.(codexInputItemRaw)
+	if !ok {
+		t.Fatal("expected stdout raw block")
+	}
+	out, err = codexMessageToInputItem(msg, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"stdout":{"exit_code":0,"text":"compact out\n"}`) {
+		t.Fatalf("direct stdout object rewrite should preserve metadata: %s", out)
+	}
+
 	for _, rawOutput := range []json.RawMessage{
 		json.RawMessage(`{`),
 		json.RawMessage(`{"stdout":"out","stderr":"err"}`),
@@ -220,6 +272,16 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid output object error")
 	}
+	_, err = codexMessageToInputItem(types.Message{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", Text: "replacement"}}}, codexInputItemRaw{
+		Fields: map[string]json.RawMessage{
+			"type":   json.RawMessage(`"tool_output"`),
+			"stdout": json.RawMessage(`"not-object"`),
+		},
+		TextPath: "field_object:stdout:text",
+	})
+	if err == nil {
+		t.Fatal("expected invalid field object error")
+	}
 
 	if msg, ok, err = codexInputItemToMessage(10, json.RawMessage(`{"type":"unknown","content":"ignored"}`)); err != nil || ok || msg.Role != "" {
 		t.Fatalf("unknown item should be ignored, ok=%v msg=%#v err=%v", ok, msg, err)
@@ -239,6 +301,79 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 
 	if codexRoleForInputType("unrecognized") != "" || rawJSONString(json.RawMessage(`{"not":"string"}`)) != "" || rawJSONText(nil) != "" || firstNonEmpty("", "") != "" {
 		t.Fatal("expected empty helper fallbacks")
+	}
+}
+
+func TestCodexToolShapeHelpers(t *testing.T) {
+	t.Parallel()
+
+	if codexLooksLikeToolCall("", map[string]json.RawMessage{"id": json.RawMessage(`"x"`)}) {
+		t.Fatal("id alone should not become a tool call")
+	}
+	if !codexLooksLikeToolCall("", map[string]json.RawMessage{"id": json.RawMessage(`"x"`), "input": json.RawMessage(`{"cmd":"pwd"}`)}) {
+		t.Fatal("id plus input should become a tool call")
+	}
+	if !codexLooksLikeToolCall("", map[string]json.RawMessage{"id": json.RawMessage(`"x"`), "command_line": json.RawMessage(`"git status"`)}) {
+		t.Fatal("id plus command_line should become a tool call")
+	}
+	if codexLooksLikeToolOutput("custom_output", nil) {
+		t.Fatal("output suffix without output text should not match")
+	}
+	if !codexLooksLikeToolOutput("output", map[string]json.RawMessage{"text": json.RawMessage(`"done"`)}) {
+		t.Fatal("output item with direct text should match")
+	}
+	if codexToolName(map[string]json.RawMessage{"name": json.RawMessage(`"exec_command"`), "cmd": json.RawMessage(`"pwd"`)}) != "exec_command" {
+		t.Fatal("explicit tool name should win")
+	}
+	if codexToolName(nil) != "" || codexToolInput(nil) != "" {
+		t.Fatal("empty tool metadata should stay empty")
+	}
+
+	commandCases := []struct {
+		fields map[string]json.RawMessage
+		want   string
+	}{
+		{map[string]json.RawMessage{"cmd": json.RawMessage(`"go test ./..."`)}, "go test ./..."},
+		{map[string]json.RawMessage{"command_line": json.RawMessage(`"cargo test"`)}, "cargo test"},
+		{map[string]json.RawMessage{"cmdline": json.RawMessage(`"go vet ./..."`)}, "go vet ./..."},
+		{map[string]json.RawMessage{"shell_command": json.RawMessage(`"git status --short"`)}, "git status --short"},
+		{map[string]json.RawMessage{"command": json.RawMessage(`"git diff"`)}, "git diff"},
+		{map[string]json.RawMessage{"argv": json.RawMessage(`["go","test","./pkg with space"]`)}, `go test "./pkg with space"`},
+		{map[string]json.RawMessage{"args": json.RawMessage(`["rg","needle","path with space"]`)}, `rg needle "path with space"`},
+		{map[string]json.RawMessage{"input": json.RawMessage(`{"command":["/bin/sh","-c","git status --short"]}`)}, `/bin/sh -c "git status --short"`},
+		{map[string]json.RawMessage{"action": json.RawMessage(`{"command_line":"make test"}`)}, "make test"},
+		{map[string]json.RawMessage{"action": json.RawMessage(`{"args":["go","test","./..."]}`)}, "go test ./..."},
+	}
+	for _, tc := range commandCases {
+		if got := codexCommandLineFromFields(tc.fields); got != tc.want {
+			t.Fatalf("codexCommandLineFromFields=%q want %q for %#v", got, tc.want, tc.fields)
+		}
+	}
+	if got := rawJSONStringArray(json.RawMessage(`{"bad":true}`)); got != nil {
+		t.Fatalf("invalid string array=%#v", got)
+	}
+	if got := rawJSONStringArray(nil); got != nil {
+		t.Fatalf("nil string array=%#v", got)
+	}
+
+	outputCases := []struct {
+		fields   map[string]json.RawMessage
+		wantText string
+		wantPath string
+	}{
+		{map[string]json.RawMessage{"stderr": json.RawMessage(`"err\n"`)}, "err\n", "field:stderr"},
+		{map[string]json.RawMessage{"text": json.RawMessage(`"text\n"`)}, "text\n", "field:text"},
+		{map[string]json.RawMessage{"aggregated_output": json.RawMessage(`{"stdout":"wrapped\n","exit_code":0}`)}, "wrapped\n", "field_object:aggregated_output:stdout"},
+		{map[string]json.RawMessage{"stdout": json.RawMessage(`{"unexpected":true}`)}, `{"unexpected":true}`, "field:stdout"},
+	}
+	for _, tc := range outputCases {
+		text, path := codexToolOutputText(tc.fields)
+		if text != tc.wantText || path != tc.wantPath {
+			t.Fatalf("codexToolOutputText text=%q path=%q want %q/%q", text, path, tc.wantText, tc.wantPath)
+		}
+	}
+	if text, path := codexToolOutputText(nil); text != "" || path != "" {
+		t.Fatalf("empty output text=%q path=%q", text, path)
 	}
 }
 
@@ -413,6 +548,190 @@ func TestServeHTTP_CodexResponsesCompressionAndHeaders(t *testing.T) {
 	summaries := p.DebugRecorder().Last(1, false)
 	if len(summaries) != 1 || summaries[0].Provider != "codex_chatgpt" || summaries[0].Tokens.Saved <= 0 {
 		t.Fatalf("debug summary missing codex savings: %#v", summaries)
+	}
+}
+
+func TestServeHTTP_CodexResponsesProxyLayer0CompactsToolOutput(t *testing.T) {
+	t.Parallel()
+	var status strings.Builder
+	for i := 0; i < 120; i++ {
+		status.WriteString(" M internal/proxy/file_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	bodyMap := map[string]interface{}{
+		"model": "codex-test",
+		"input": []interface{}{
+			map[string]interface{}{
+				"type": "message",
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{"type": "input_text", "text": "check git status"},
+				},
+			},
+			map[string]interface{}{
+				"type":      "function_call",
+				"call_id":   "call_status",
+				"name":      "shell",
+				"arguments": map[string]interface{}{"command": "git status --short"},
+			},
+			map[string]interface{}{
+				"type":    "function_call_output",
+				"call_id": "call_status",
+				"output":  status.String(),
+			},
+		},
+		"stream": false,
+	}
+	body, err := json.Marshal(bodyMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var capturedBody []byte
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/backend-api/codex/responses" {
+			http.NotFound(w, r)
+			return
+		}
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"resp_layer0","usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":0},"output_tokens":5}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "codex/0.130.0")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if len(capturedBody) == 0 || len(capturedBody) >= len(body) {
+		t.Fatalf("expected Layer 0 to shorten upstream body, original=%d captured=%d body=%s", len(body), len(capturedBody), capturedBody)
+	}
+	msgs, _, err := extractMessages(types.CodexChatGPT, capturedBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var toolText string
+	for _, msg := range msgs {
+		for _, block := range msg.Content {
+			if block.Type == "tool_result" {
+				toolText = block.Text
+			}
+		}
+	}
+	if !strings.Contains(toolText, "[git status]") || strings.Contains(toolText, "file_119.go") {
+		t.Fatalf("tool output was not Layer-0 compacted: %q", toolText)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || !slices.Contains(summaries[0].LayersApplied, 0) {
+		t.Fatalf("summary missing Layer 0: %#v", summaries)
+	}
+	if summaries[0].Tokens.AfterLayer0 >= summaries[0].Tokens.Original {
+		t.Fatalf("Layer 0 accounting did not save tokens: %#v", summaries[0].Tokens)
+	}
+}
+
+func TestServeHTTP_CodexResponsesProxyLayer0CompactsLocalShellEnvelope(t *testing.T) {
+	t.Parallel()
+	var status strings.Builder
+	for i := 0; i < 120; i++ {
+		status.WriteString(" M internal/proxy/local_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	bodyMap := map[string]interface{}{
+		"model": "codex-test",
+		"input": []interface{}{
+			map[string]interface{}{
+				"type": "message",
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{"type": "input_text", "text": "check git status"},
+				},
+			},
+			map[string]interface{}{
+				"type":    "local_shell_call",
+				"call_id": "call_status",
+				"action":  map[string]interface{}{"command": "/opt/homebrew/bin/bash -lc 'git status --short .'"},
+			},
+			map[string]interface{}{
+				"type":              "local_shell_call_output",
+				"call_id":           "call_status",
+				"command":           []string{"/opt/homebrew/bin/bash", "-lc", "git status --short ."},
+				"aggregated_output": "Chunk ID: abc\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + status.String(),
+			},
+		},
+		"stream": false,
+	}
+	body, err := json.Marshal(bodyMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var capturedBody []byte
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"resp_layer0","usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":0},"output_tokens":5}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "codex/0.130.0")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	msgs, _, err := extractMessages(types.CodexChatGPT, capturedBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var toolText string
+	for _, msg := range msgs {
+		for _, block := range msg.Content {
+			if block.Type == "tool_result" {
+				toolText = block.Text
+			}
+		}
+	}
+	if !strings.Contains(toolText, "Process exited with code 0") || !strings.Contains(toolText, "Output:\n[git status]") || strings.Contains(toolText, "local_119.go") {
+		t.Fatalf("local shell envelope was not Layer-0 compacted: %q", toolText)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || !slices.Contains(summaries[0].LayersApplied, 0) {
+		t.Fatalf("summary missing Layer 0: %#v", summaries)
 	}
 }
 

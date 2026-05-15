@@ -101,7 +101,10 @@ The child's exit code is propagated verbatim.
 		return `slimference hook <install|remove|verify|status|check-upstream> [claude|codex]
 
 	install   Write Claude Code and/or Codex hook wrappers (SHA-256 pinned).
-	          For Codex, enables only codex_hooks=true; does not patch base URLs.
+	          For Codex, enables only hooks=true; does not patch base URLs.
+	          Codex hooks default to silent mode; set SLIMFERENCE_CODEX_HOOK_MODE=compact
+	          only when you explicitly want visible PostToolUse replacement blocks.
+	          Use SLIMFERENCE_CODEX_HOOK_MODE=aggressive for PreToolUse block-and-rerun.
 	remove    Remove the wrappers again.
 	verify    Check hook checksums only. Codex config-patch state lives under integrate.
 	status    Report installed / missing / drifted state.
@@ -117,18 +120,21 @@ Pipe hook JSON on stdin with field "command", or pass the command after
 		return `slimference posttool
 
 Codex PostToolUse entry point. Reads hook JSON from stdin, compacts the
-captured tool output, optionally archives oversized results, and returns
+captured tool output, archives oversized results, and returns no visible output
+by default. With SLIMFERENCE_CODEX_HOOK_MODE=compact or aggressive, returns
 continue:false with compact feedback so Codex can replace the original result.
 Non-zero exit only on hard I/O errors; business-level problems degrade to
 passthrough.
 `
 	case "codexhook":
-		return `slimference codexhook <session-start|permission-request|user-prompt-submit|stop>
+		return `slimference codexhook <session-start|permission-request|user-prompt-submit|posttool-timeout|stop>
 
 Internal Codex lifecycle entry points installed by 'slimference hook install codex'.
-SessionStart injects one concise operating note, PermissionRequest allow/deny uses
+SessionStart records state silently by default, PermissionRequest allow/deny uses
 the same local shell policy as Layer 0, UserPromptSubmit records a turn boundary,
-and Stop emits valid no-op JSON for checkpoint/debug continuity.
+PostTool timeout records fail-open telemetry, and Stop emits valid no-op JSON
+for checkpoint/debug continuity. Set
+SLIMFERENCE_CODEX_HOOK_MODE=debug to emit SessionStart debug context.
 `
 	case "readhook":
 		return `slimference readhook

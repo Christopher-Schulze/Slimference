@@ -8,13 +8,14 @@ import (
 )
 
 type PostToolPayload struct {
-	CommandLine  string
-	ToolResponse string
-	ToolName     string
-	ToolUseID    string
-	SessionID    string
-	CWD          string
-	FilePaths    []string
+	CommandLine     string
+	ToolResponse    string
+	HasToolResponse bool
+	ToolName        string
+	ToolUseID       string
+	SessionID       string
+	CWD             string
+	FilePaths       []string
 }
 
 func ExtractPostToolDetailsFromHookJSON(b []byte) (PostToolPayload, error) {
@@ -22,10 +23,7 @@ func ExtractPostToolDetailsFromHookJSON(b []byte) (PostToolPayload, error) {
 	if err := json.Unmarshal(b, &v); err != nil {
 		return PostToolPayload{}, fmt.Errorf("filter: JSON: %w", err)
 	}
-	toolResponse, _ := findStringForKey(v, "tool_response")
-	if toolResponse == "" {
-		return PostToolPayload{}, fmt.Errorf("filter: no string field %q in JSON", "tool_response")
-	}
+	toolResponse, hasToolResponse := findPostToolResponse(v)
 	command, _ := findStringForKey(v, "command")
 	toolName, ok := findStringForKey(v, "tool_name")
 	if !ok {
@@ -41,14 +39,24 @@ func ExtractPostToolDetailsFromHookJSON(b []byte) (PostToolPayload, error) {
 	}
 	cwd, _ := findStringForKey(v, "cwd")
 	return PostToolPayload{
-		CommandLine:  command,
-		ToolResponse: toolResponse,
-		ToolName:     toolName,
-		ToolUseID:    toolUseID,
-		SessionID:    sessionID,
-		CWD:          cwd,
-		FilePaths:    collectPostToolFilePaths(v, command),
+		CommandLine:     command,
+		ToolResponse:    toolResponse,
+		HasToolResponse: hasToolResponse,
+		ToolName:        toolName,
+		ToolUseID:       toolUseID,
+		SessionID:       sessionID,
+		CWD:             cwd,
+		FilePaths:       collectPostToolFilePaths(v, command),
 	}, nil
+}
+
+func findPostToolResponse(v interface{}) (string, bool) {
+	for _, key := range []string{"tool_response", "toolResponse", "tool_output", "toolOutput", "stdout"} {
+		if s, ok := findStringForKey(v, key); ok {
+			return s, true
+		}
+	}
+	return "", false
 }
 
 func collectPostToolFilePaths(v interface{}, command string) []string {

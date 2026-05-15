@@ -31,6 +31,20 @@ func TestSummarizeProxyFlights(t *testing.T) {
 				Applied:     true,
 				AddedTokens: 12,
 			},
+			PromptCache: dbg.PromptCacheSummary{
+				Applied:            true,
+				Reason:             "applied",
+				StablePrefixHash:   "hot-a",
+				StablePrefixTokens: 1500,
+			},
+			ToolPrune: dbg.ToolPruneSummary{
+				Applied:     true,
+				PrunedTools: 2,
+				SavedTokens: 40,
+				Reattached:  1,
+				Miss:        true,
+				Retry:       true,
+			},
 		},
 		{
 			RequestID:           "req-2",
@@ -39,6 +53,11 @@ func TestSummarizeProxyFlights(t *testing.T) {
 			Provider:            "openai",
 			OutputTokens:        20,
 			ProviderInputTokens: 100,
+			PromptCache: dbg.PromptCacheSummary{
+				Reason:             "stable_prefix_too_small",
+				StablePrefixHash:   "cold-b",
+				StablePrefixTokens: 300,
+			},
 			Tokens: dbg.TokenCounts{
 				Original: 200,
 				Final:    220,
@@ -91,12 +110,28 @@ func TestSummarizeProxyFlights(t *testing.T) {
 		report.ProviderInputTokens != 1300 ||
 		report.ProviderCachedTokens != 500 ||
 		report.ProviderOutputTokens != 100 ||
-		report.BillableInputSavingsEstimate != 280 ||
+		report.BillableInputSavingsEstimate != 320 ||
 		report.OutputReduceInputOverheadTokens != 12 {
 		t.Fatalf("bad token totals: %+v", report)
 	}
-	if report.CacheReadDiscountTokenEquivalent != 450 || report.NetBillableEquivalentEstimate != 730 {
+	if report.ToolPruneSavedTokens != 40 ||
+		report.ToolPrunePrunedTools != 2 ||
+		report.ToolPruneReattached != 1 ||
+		report.ToolPruneMisses != 1 ||
+		report.ToolPruneRetries != 1 {
+		t.Fatalf("bad tool-prune totals: %+v", report)
+	}
+	if report.CacheReadDiscountTokenEquivalent != 450 || report.NetBillableEquivalentEstimate != 770 {
 		t.Fatalf("bad net estimate: %+v", report)
+	}
+	if len(report.PromptCacheHeat) != 2 {
+		t.Fatalf("expected two heat rows, got %+v", report.PromptCacheHeat)
+	}
+	if hot := report.PromptCacheHeat[0]; hot.StablePrefixHash != "hot-a" || hot.HintsApplied != 1 || hot.ProviderCachedTokens != 500 || hot.StablePrefixTokensMax != 1500 {
+		t.Fatalf("bad hot heat row: %+v", hot)
+	}
+	if cold := report.PromptCacheHeat[1]; cold.StablePrefixHash != "cold-b" || cold.HintsSkipped != 1 {
+		t.Fatalf("bad cold heat row: %+v", cold)
 	}
 }
 
@@ -147,10 +182,22 @@ func TestWriteProxyFlightGainCSV(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "provider_cached_tokens") || !strings.Contains(out, "730") {
+	if !strings.Contains(out, "provider_cached_tokens") || !strings.Contains(out, "prompt_cache_heat_keys") || !strings.Contains(out, "730") {
 		t.Fatalf("csv output: %q", out)
 	}
 	if err := WriteProxyFlightGainCSV(promptCacheErrWriter{}, ProxyFlightGainSummary{}); err == nil {
 		t.Fatal("expected writer error")
+	}
+}
+
+func TestSortedPromptCacheHeatTieBreaks(t *testing.T) {
+	t.Parallel()
+	rows := sortedPromptCacheHeat(map[string]*PromptCacheHeatRow{
+		"b": {StablePrefixHash: "b", Requests: 1, HintsApplied: 1},
+		"a": {StablePrefixHash: "a", Requests: 1, HintsApplied: 1},
+		"c": {StablePrefixHash: "c", Requests: 1, CacheReadTokens: 1},
+	})
+	if got := []string{rows[0].StablePrefixHash, rows[1].StablePrefixHash, rows[2].StablePrefixHash}; got[0] != "c" || got[1] != "a" || got[2] != "b" {
+		t.Fatalf("unexpected order: %+v", got)
 	}
 }

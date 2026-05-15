@@ -1,6 +1,6 @@
 # TASK 149: Cross-layer compression planner and safety governor
 
-Status: IN PROGRESS (T149a pure planner core, T149b dry-run flight/TUI integration, T149c plan inspect, T149d corpus planner replay, and T149e output-reduce cooldown facts landed 2026-05-14; behavior control pending)
+Status: COMPLETED (T149a pure planner core, T149b dry-run flight/TUI integration, T149c plan inspect, T149d corpus planner replay, T149e output-reduce cooldown facts, T149f L0/L1/L2 behavior gates, and T149g richer runtime facts landed)
 Priority: P0
 Scope: `internal/planner/`, `internal/proxy/handler.go`, `internal/compression/`, `internal/summarization/`, `internal/caching/`, `internal/outputreduce/`, `internal/wscompact/`, `internal/sessions/`, `internal/quality/`, `cmd/slimference/plan_cmd.go`, `docs/documentation.md`.
 
@@ -37,7 +37,7 @@ Operators can inspect why Slimference did or did not compress a request.
 ### WP1 - Plan model
 
 - [x] Add `internal/planner`.
-- [~] Core structs:
+- [x] Core structs:
   - `RequestFacts`.
   - `ProviderCapabilities`.
   - `SessionFacts`.
@@ -67,11 +67,17 @@ Operators can inspect why Slimference did or did not compress a request.
   content classes, recent re-read/edit signal, provider-cache support,
   previous-response availability, manual layer toggles, L2 enabled state, and
   WebSocket route class.
-- [ ] Future fact extraction still needs session-owned edit-file state,
-  live-corpus confidence lookup, and WebSocket shape registry results.
+- [x] Session-owned edit-file state is read from the file-backed Codex hook
+  turn state, so the planner can protect recently edited files even when the
+  current proxied request is read-only.
+- [x] Live-corpus confidence can come from explicit operator config or from
+  corpus metadata (`synthetic`, `evidence_level`, `expected_request_count`),
+  defaulting to `unknown` when evidence is absent or unreadable.
+- [x] WebSocket shape confidence is backed by an inspect-only shape registry
+  fed by the byte-preserving `wscompact` frame inspector.
 - [x] Output-reduce cooldown is now read from the T141 auto-tune tracker before
   profile selection. The planner records this as a `cheap_only`
-  `quality_cooldown_soften_profile` decision so debug/corpus replay matches the
+  `quality_cooldown_soften_layer4` decision so debug/corpus replay matches the
   real behavior: aggressive directives are softened, not silently kept.
 
 ### WP3 - Layer action selection
@@ -125,10 +131,21 @@ Operators can inspect why Slimference did or did not compress a request.
 
 ### WP6 - Integration
 
-- [x] Handler attaches a dry-run planner output to completed request summaries.
-  This is advice-only and never changes request bytes or layer behavior.
-- [ ] Handler asks planner before running compression pipeline.
-- [ ] Existing layer APIs receive plan hints, not raw global config.
+- [x] Handler attaches a planner output to completed request summaries.
+  It started as advice-only telemetry; T149f now uses the same plan to govern
+  L0/L1/L2 hot-path behavior.
+- [x] Handler asks planner before running the L0/L1/L2 compression pipeline.
+- [x] Existing hot-path gates receive plan hints instead of independently
+  inferring the same threshold from raw global config:
+  - L0 proxy compaction bypasses planner-declared small no-tool requests.
+  - L1 bypasses operator-disabled plans and switches to cheap-only mode for
+    recent-edit/small-request safety gates.
+  - L1/L2 coordination uses the planner's L2 `run` decision instead of only
+    `MinTokensForLayer2`.
+  - L2 cached-summary apply and background enqueue are skipped only for hard
+    planner bypasses (operator-disabled, external policy disabled,
+    recent-edit window); soft below-ROI bypass still lets Layer2's richer
+    cache/candidate checks prove an upside.
 - Layer-local safety remains in place; planner is not the only guard.
 - Preserve manual operator toggles: a disabled layer stays disabled.
 
@@ -152,13 +169,15 @@ Operators can inspect why Slimference did or did not compress a request.
   record: upstream, local cache, Stage-A cache hit, transparent CONNECT,
   direct WebSocket tunnel, and direct WebSocket fallback.
 - [x] Planner decisions are visible in flight/debug/TUI.
-- [ ] Manual layer toggles are still authoritative.
+- [x] Manual layer toggles are still authoritative.
 - [x] Safety gates prevent known bad combinations in the pure planner core.
-- [ ] Layers no longer make conflicting independent choices where planner owns the decision.
+- [x] L0/L1/L2 no longer make conflicting independent choices where the planner owns the decision.
 - [x] T146 corpus can replay planned vs actual outcomes.
 - [x] T141 auto-tune cooldown is visible to planner/flight summaries and covered
   by proxy integration tests.
 - [x] `go run ./scripts/ci` passes with 100% coverage for new Go code.
+- [x] Rich planner facts are wired to runtime state instead of placeholders:
+  recent edit state, live-corpus confidence, and WebSocket shape knowledge.
 
 ## Expected Upside
 
@@ -187,7 +206,8 @@ Operators can inspect why Slimference did or did not compress a request.
   - Added `internal/proxy/planner_bridge.go` to translate live proxy facts into planner input without importing prompt content into logs.
   - Wired dry-run plans into upstream/local-cache summaries, Stage-A cache hits, transparent CONNECT records, and direct WebSocket tunnel/fallback records.
   - TUI Debug view renders compact plan lines (`l0=run l1=cheap_only ...`) plus a plan-block counter.
-  - Behavior remains unchanged: no layer execution is controlled by planner yet.
+  - Behavior remained unchanged in T149b; T149f later promoted L0/L1/L2 to
+    planner-controlled hot-path gates.
   - Focus tests: `go test ./internal/debug ./internal/proxy ./internal/planner ./internal/tui -cover`; all touched packages remain 100%.
 - 2026-05-14 T149c:
   - Added `slimference plan inspect [flags] [-|<request-file>]`.
@@ -203,14 +223,46 @@ Operators can inspect why Slimference did or did not compress a request.
   - `scripts/benchmarks` now replays recorded `plan` / `flight.plan` objects from request-summary JSONL and compares them with observed layer activity.
   - Reports include planner request count, decision count, expected planner savings, expected-active/observed-active/missed active actions, bypass/tunnel actions that still saw activity, safety-blocked requests, action counts, and risk counts.
   - Category metadata supports `expected_planner_missed_max` and `expected_planner_bypass_applied_max`.
-  - This closes evidence plumbing for planned-vs-actual. Behavior control remains pending and should not be enabled before live corpus gates are populated.
+  - This closes evidence plumbing for planned-vs-actual. Behavior control was
+    later enabled only for conservative L0/L1/L2 gates in T149f; richer
+    live-corpus facts remain pending.
   - Focus test: `go test ./scripts/benchmarks -cover`.
 - 2026-05-14 T149e:
   - Added `outputreduce.Tracker.InCooldown` and wired it into the proxy's
     planner facts before output-reduce profile selection.
   - Planner L4 cooldown behavior now says `cheap_only` with
-    `quality_cooldown_soften_profile`, matching the T141 auto-tuner's real
-    downgrade behavior instead of pretending the layer is fully bypassed.
+    `quality_cooldown_soften_layer4`, matching the T141 auto-tuner's real
+    downgrade behavior and T151's tool-prune session cooldown instead of
+    pretending the layer is fully bypassed.
   - Added proxy integration coverage proving an aggressive profile in cooldown
     is softened to standard and exposed in the attached plan summary.
   - Focus test: `go test ./internal/outputreduce ./internal/planner ./internal/proxy -cover`.
+- 2026-05-15 T149f:
+  - Promoted the proxy planner bridge from advice-only telemetry into the hot
+    L0/L1/L2 request path.
+  - The handler now builds a request-local `CompressionPlan` after secret
+    scanning and before pipeline execution, then derives layer actions from the
+    plan.
+  - L0 proxy compaction is skipped for planner `bypass`; L1 skips on planner
+    `bypass`, runs cheap-only when planner says `cheap_only`, and only treats
+    L2 as coordinator-owned when planner says L2 will `run`; L2 cache apply and
+    async enqueue are skipped only for hard planner bypasses so below-ROI
+    estimates cannot suppress already-proven session cache wins.
+  - Manual layer toggles still flow into `ManualDisabled`, so explicit operator
+    disables remain stronger than the planner.
+  - Focus test: `go test ./internal/planner ./internal/proxy ./internal/compression ./internal/summarization`.
+- 2026-05-15 T149g:
+  - Closed the remaining planner fact placeholders. Recent-edit state now reads
+    file-backed hook turns via `internal/sessions`, not just the current request
+    body.
+  - Added `[compression.tuning] planner_live_corpus_confidence` and
+    `planner_live_corpus_metadata_path`; metadata-derived confidence is
+    conservative (`synthetic` -> low, real/live operator evidence -> high,
+    request-count-only evidence -> medium, otherwise unknown).
+  - Added an inspect-only `wscompact.ShapeRegistry` and wired it into
+    `WebSocketTunnel` so direct WebSocket routes can report observed shape
+    knowledge without mutating frames.
+  - WebSocket mutation, shadow compression, and live frame corpus expansion
+    remain owned by T142/T146. T149 now supplies the safety input those tasks
+    need.
+  - Focus tests: `go test ./internal/config ./internal/proxy ./internal/planner ./internal/wscompact`; race tests: `go test -race ./internal/config ./internal/proxy ./internal/planner ./internal/wscompact`.

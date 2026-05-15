@@ -110,11 +110,15 @@ func TestPlan_L3CacheAndPreviousResponse(t *testing.T) {
 	if d := findDecision(t, small, Layer3); d.Action != ActionBypass || d.Reason != "prefix_too_small" {
 		t.Fatalf("small L3=%+v", d)
 	}
+	codexAccountingOnly := Plan(RequestFacts{Provider: "codex_chatgpt", EstimatedInputTokens: 5000, ProviderCacheSupported: true})
+	if d := findDecision(t, codexAccountingOnly, Layer3); d.Action != ActionBypass || d.Reason != "codex_cache_accounting_only" || d.Confidence != "provider_reported" {
+		t.Fatalf("codex accounting-only L3=%+v", d)
+	}
 	cache := Plan(RequestFacts{EstimatedInputTokens: 5000, ProviderCacheSupported: true})
 	if d := findDecision(t, cache, Layer3); d.Action != ActionRun || d.Reason != "stable_prefix_cache_hint" || d.Confidence != "provider_reported" {
 		t.Fatalf("cache L3=%+v", d)
 	}
-	prev := Plan(RequestFacts{EstimatedInputTokens: 100, ProviderCacheSupported: true, PreviousResponseIDAvailable: true})
+	prev := Plan(RequestFacts{Provider: "codex_chatgpt", EstimatedInputTokens: 100, ProviderCacheSupported: true, PreviousResponseIDAvailable: true})
 	if d := findDecision(t, prev, Layer3); d.Action != ActionRun || d.Reason != "previous_response_state_available" {
 		t.Fatalf("prev L3=%+v", d)
 	}
@@ -123,8 +127,16 @@ func TestPlan_L3CacheAndPreviousResponse(t *testing.T) {
 func TestPlan_L4OutputReduce(t *testing.T) {
 	t.Parallel()
 	cooldown := Plan(RequestFacts{ExpectedOutputTokens: 1000, OutputReduceCooldown: true})
-	if d := findDecision(t, cooldown, Layer4); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_profile" || d.Risk != "medium" {
+	if d := findDecision(t, cooldown, Layer4); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_layer4" || d.Risk != "medium" {
 		t.Fatalf("cooldown L4=%+v", d)
+	}
+	toolCooldown := Plan(RequestFacts{ExpectedOutputTokens: 1000, ToolPruneCooldown: true})
+	if d := findDecision(t, toolCooldown, Layer4); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_layer4" {
+		t.Fatalf("tool cooldown L4=%+v", d)
+	}
+	exact := Plan(RequestFacts{TaskShape: " exact_reply ", EstimatedInputTokens: 5000, ExpectedOutputTokens: 1000})
+	if d := findDecision(t, exact, Layer4); d.Action != ActionBypass || d.Reason != "exact_reply" {
+		t.Fatalf("exact L4=%+v", d)
 	}
 	run := Plan(RequestFacts{ExpectedOutputTokens: 300, LiveCorpusConfidence: "low"})
 	if d := findDecision(t, run, Layer4); d.Action != ActionRun || d.ExpectedSavingsTokens != 60 || d.Confidence != "low" {
@@ -141,6 +153,10 @@ func TestPlan_WebSocketModes(t *testing.T) {
 	notWS := Plan(RequestFacts{RouteMode: "upstream"})
 	if d := findDecision(t, notWS, LayerWebSocket); d.Action != ActionBypass {
 		t.Fatalf("not websocket=%+v", d)
+	}
+	codexHTTP := Plan(RequestFacts{Provider: "codex_chatgpt", RouteMode: "upstream"})
+	if d := findDecision(t, codexHTTP, LayerWebSocket); d.Action != ActionBypass || d.Reason != "codex_cli_http_provider" {
+		t.Fatalf("codex http websocket=%+v", d)
 	}
 	inspect := Plan(RequestFacts{RouteMode: "websocket_tunnel"})
 	if d := findDecision(t, inspect, LayerWebSocket); d.Action != ActionInspect || d.Reason != "inspect_only_default" {

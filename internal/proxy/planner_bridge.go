@@ -1,10 +1,14 @@
 package proxy
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/planner"
+	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -19,6 +23,7 @@ type plannerInput struct {
 	recentEdit                  bool
 	providerCacheSupported      bool
 	previousResponseIDAvailable bool
+	toolPruneCooldown           bool
 	outputReduceCooldown        bool
 	webSocketShapeKnown         bool
 	webSocketMutationRequested  bool
@@ -30,6 +35,10 @@ func (p *Proxy) dryRunPlan(in plannerInput) *dbg.PlanSummary {
 	if p == nil {
 		return nil
 	}
+	return debugPlanSummary(p.buildCompressionPlan(in))
+}
+
+func (p *Proxy) buildCompressionPlan(in plannerInput) planner.CompressionPlan {
 	manualDisabled := map[planner.Layer]bool{
 		planner.Layer1: !p.isLayerEnabled(1),
 		planner.Layer2: !p.isLayerEnabled(2),
@@ -42,7 +51,7 @@ func (p *Proxy) dryRunPlan(in plannerInput) *dbg.PlanSummary {
 		caps.SupportsPromptCacheUsage ||
 		caps.SupportsPromptCacheKey ||
 		caps.SupportsPromptCacheRetention
-	plan := planner.Plan(planner.RequestFacts{
+	return planner.Plan(planner.RequestFacts{
 		Provider:                    in.provider.String(),
 		Model:                       in.model,
 		RouteMode:                   in.routeMode,
@@ -56,6 +65,7 @@ func (p *Proxy) dryRunPlan(in plannerInput) *dbg.PlanSummary {
 		Layer2Acknowledged:          p.config.Compression.Layer2Enabled,
 		ProviderCacheSupported:      providerCacheSupported,
 		PreviousResponseIDAvailable: in.previousResponseIDAvailable,
+		ToolPruneCooldown:           in.toolPruneCooldown,
 		OutputReduceCooldown:        in.outputReduceCooldown,
 		NegativeSavingsHistory:      in.negativeSavingsHistory,
 		WebSocketShapeKnown:         in.webSocketShapeKnown,
@@ -63,7 +73,134 @@ func (p *Proxy) dryRunPlan(in plannerInput) *dbg.PlanSummary {
 		LiveCorpusConfidence:        in.liveCorpusConfidence,
 		LatencyBudgetMs:             p.config.Compression.Layer2LatencyBudgetMs,
 	})
-	return debugPlanSummary(plan)
+}
+
+func (p *Proxy) plannerRecentEditFact(sessionID string, messages []types.Message) bool {
+	if requestHasEditIntent(messages) {
+		return true
+	}
+	return sessionHasRecentEditedFile(sessionID, 2)
+}
+
+func sessionHasRecentEditedFile(sessionID string, previousTurns int) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return false
+	}
+	home, err := proxyUserHomeDir()
+	if err != nil {
+		return false
+	}
+	state, err := sessions.LoadHookState(sessions.DefaultHookStateDir(home), sessionID)
+	if err != nil {
+		return false
+	}
+	start := len(state.Turns) - 1 - previousTurns
+	if start < 0 {
+		start = 0
+	}
+	for _, turn := range state.Turns[start:] {
+		if len(turn.FilesEdited) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Proxy) plannerLiveCorpusConfidence() string {
+	if p == nil || p.config == nil {
+		return "unknown"
+	}
+	tuning := p.config.Compression.Tuning
+	if confidence := normalizePlannerConfidence(tuning.PlannerLiveCorpusConfidence); confidence != "" && confidence != "unknown" {
+		return confidence
+	}
+	if confidence := liveCorpusConfidenceFromMetadataPath(tuning.PlannerLiveCorpusMetadataPath); confidence != "" {
+		return confidence
+	}
+	if confidence := normalizePlannerConfidence(tuning.PlannerLiveCorpusConfidence); confidence != "" {
+		return confidence
+	}
+	return "unknown"
+}
+
+func (p *Proxy) webSocketShapeKnown() bool {
+	return p != nil && p.webSocketShapes != nil && p.webSocketShapes.Known()
+}
+
+func normalizePlannerConfidence(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "high", "medium", "low", "unknown":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func liveCorpusConfidenceFromMetadataPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	info, err := os.Stat(path)
+	if err == nil && info.IsDir() {
+		path = filepath.Join(path, "metadata.json")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var meta struct {
+		Synthetic            bool   `json:"synthetic"`
+		EvidenceLevel        string `json:"evidence_level"`
+		ExpectedRequestCount int    `json:"expected_request_count"`
+	}
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return ""
+	}
+	evidence := strings.ToLower(strings.TrimSpace(meta.EvidenceLevel))
+	switch {
+	case meta.Synthetic:
+		return "low"
+	case evidence == "live_operator" || evidence == "real_operator":
+		return "high"
+	case strings.Contains(evidence, "live") || strings.Contains(evidence, "real"):
+		return "medium"
+	case meta.ExpectedRequestCount > 0:
+		return "medium"
+	default:
+		return "unknown"
+	}
+}
+
+func plannerDecisionForLayer(plan planner.CompressionPlan, layer planner.Layer) (planner.LayerDecision, bool) {
+	for _, decision := range plan.Decisions {
+		if decision.Layer == layer {
+			return decision, true
+		}
+	}
+	return planner.LayerDecision{}, false
+}
+
+func plannerActionForLayer(plan planner.CompressionPlan, layer planner.Layer, fallback planner.Action) planner.Action {
+	decision, ok := plannerDecisionForLayer(plan, layer)
+	if !ok {
+		return fallback
+	}
+	return decision.Action
+}
+
+func plannerHardBypassForLayer2(plan planner.CompressionPlan) bool {
+	decision, ok := plannerDecisionForLayer(plan, planner.Layer2)
+	if !ok || decision.Action != planner.ActionBypass {
+		return false
+	}
+	switch decision.Reason {
+	case "operator_disabled", "external_summary_policy_not_ready", "recent_edit_window":
+		return true
+	default:
+		return false
+	}
 }
 
 func debugPlanSummary(plan planner.CompressionPlan) *dbg.PlanSummary {

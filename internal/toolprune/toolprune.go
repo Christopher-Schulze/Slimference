@@ -16,13 +16,16 @@ import (
 // a sliding window. When a tool is observed inside the window, it is
 // considered "active" and survives pruning.
 type UsageTracker struct {
-	mu             sync.Mutex
-	idleThreshold  int
-	maxSessions    int
-	sessions       map[string]*sessionUsage
-	prunedTotal    int64
-	reattachTotal  int64
-	tokensSavedSum int64
+	mu              sync.Mutex
+	idleThreshold   int
+	maxSessions     int
+	sessions        map[string]*sessionUsage
+	prunedTotal     int64
+	reattachTotal   int64
+	missTotal       int64
+	retryTotal      int64
+	alwaysKeepTotal int64
+	tokensSavedSum  int64
 }
 
 type sessionUsage struct {
@@ -33,6 +36,9 @@ type sessionUsage struct {
 	// pruned from this session so a follow-up turn that mentions the
 	// tool name can reattach the original definition. T103b.
 	prunedDefs map[string]json.RawMessage
+	// disabled is set after a missing-tool fallback. Once a session proves
+	// the pruner guessed wrong, future turns keep the full schema.
+	disabled bool
 }
 
 // NewUsageTracker returns a tracker with the supplied idle threshold
@@ -114,6 +120,58 @@ func (u *UsageTracker) MarkReattached() {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.reattachTotal++
+}
+
+// MarkMiss records a suspected missing-tool failure and disables future
+// pruning for the session. Empty session id still increments global miss
+// telemetry but cannot disable a bucket.
+func (u *UsageTracker) MarkMiss(sessionID string) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.missTotal++
+	if sessionID == "" {
+		return
+	}
+	st, ok := u.sessions[sessionID]
+	if !ok {
+		if len(u.sessions) >= u.maxSessions {
+			u.evictOldestLocked()
+		}
+		st = &sessionUsage{lastSeen: make(map[string]int)}
+		u.sessions[sessionID] = st
+	}
+	st.disabled = true
+	st.lastActivity = time.Now()
+}
+
+// MarkRetry records that the proxy retried once with the archived full
+// tool set after a missing-tool response.
+func (u *UsageTracker) MarkRetry() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.retryTotal++
+}
+
+// MarkAlwaysKept records how many tools survived pruning due to the
+// always-keep safety class.
+func (u *UsageTracker) MarkAlwaysKept(count int) {
+	if count <= 0 {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.alwaysKeepTotal += int64(count)
+}
+
+// Disabled reports whether the session is in the quality cooldown bucket.
+func (u *UsageTracker) Disabled(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	st, ok := u.sessions[sessionID]
+	return ok && st.disabled
 }
 
 // RememberPrunedDef caches the original JSON definition of a tool that
@@ -206,21 +264,35 @@ func (u *UsageTracker) Forget(sessionID string) {
 
 // Stats returns the live tracker counters.
 type Stats struct {
-	Sessions       int   `json:"sessions"`
-	PrunedTotal    int64 `json:"pruned_total"`
-	ReattachTotal  int64 `json:"reattach_total"`
-	TokensSavedSum int64 `json:"tokens_saved_sum"`
+	Sessions         int   `json:"sessions"`
+	PrunedTotal      int64 `json:"pruned_total"`
+	ReattachTotal    int64 `json:"reattach_total"`
+	MissTotal        int64 `json:"miss_total"`
+	RetryTotal       int64 `json:"retry_total"`
+	AlwaysKeepTotal  int64 `json:"always_keep_total"`
+	DisabledSessions int   `json:"disabled_sessions"`
+	TokensSavedSum   int64 `json:"tokens_saved_sum"`
 }
 
 // Snapshot exposes the current counters for /admin/status surfaces.
 func (u *UsageTracker) Snapshot() Stats {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	disabledSessions := 0
+	for _, st := range u.sessions {
+		if st.disabled {
+			disabledSessions++
+		}
+	}
 	return Stats{
-		Sessions:       len(u.sessions),
-		PrunedTotal:    u.prunedTotal,
-		ReattachTotal:  u.reattachTotal,
-		TokensSavedSum: u.tokensSavedSum,
+		Sessions:         len(u.sessions),
+		PrunedTotal:      u.prunedTotal,
+		ReattachTotal:    u.reattachTotal,
+		MissTotal:        u.missTotal,
+		RetryTotal:       u.retryTotal,
+		AlwaysKeepTotal:  u.alwaysKeepTotal,
+		DisabledSessions: disabledSessions,
+		TokensSavedSum:   u.tokensSavedSum,
 	}
 }
 
@@ -241,8 +313,16 @@ func (u *UsageTracker) evictOldestLocked() {
 // PruneDecision describes the result of a single prune evaluation:
 // which tools to keep, which to drop, and why.
 type PruneDecision struct {
-	Keep   []string
-	Pruned []string
+	Keep       []string
+	Pruned     []string
+	AlwaysKept int
+	Reason     string
+}
+
+// DecisionOptions controls the pruning safety envelope for one request.
+type DecisionOptions struct {
+	MinKeep    int
+	AlwaysKeep []string
 }
 
 // Decide returns a PruneDecision for the supplied tool list given the
@@ -250,22 +330,41 @@ type PruneDecision struct {
 // stay attached even if all are idle (caller's safety net against
 // over-pruning). minKeep <= 0 disables the floor.
 func (u *UsageTracker) Decide(sessionID string, tools []string, minKeep int) PruneDecision {
+	return u.DecideWithOptions(sessionID, tools, DecisionOptions{MinKeep: minKeep})
+}
+
+// DecideWithOptions returns a PruneDecision for the supplied tool list,
+// preserving configured always-keep tools and respecting per-session
+// quality cooldown.
+func (u *UsageTracker) DecideWithOptions(sessionID string, tools []string, opts DecisionOptions) PruneDecision {
 	out := PruneDecision{
 		Keep:   make([]string, 0, len(tools)),
 		Pruned: make([]string, 0, len(tools)),
 	}
 	if sessionID == "" {
 		out.Keep = append(out.Keep, tools...)
+		out.Reason = "no_session"
 		return out
 	}
+	if u.Disabled(sessionID) {
+		out.Keep = append(out.Keep, tools...)
+		out.Reason = "quality_cooldown"
+		return out
+	}
+	alwaysKeep := AlwaysKeepSet(opts.AlwaysKeep)
 	for _, t := range tools {
+		if alwaysKeep[t] || IsDefaultAlwaysKeep(t) {
+			out.Keep = append(out.Keep, t)
+			out.AlwaysKept++
+			continue
+		}
 		if u.Active(sessionID, t) {
 			out.Keep = append(out.Keep, t)
 		} else {
 			out.Pruned = append(out.Pruned, t)
 		}
 	}
-	if minKeep > 0 && len(out.Keep) < minKeep {
+	if opts.MinKeep > 0 && len(out.Keep) < opts.MinKeep {
 		// Restore the most-recently-used pruned tools until the floor
 		// is met. Most-recently-used = highest lastSeen turn.
 		u.mu.Lock()
@@ -283,7 +382,7 @@ func (u *UsageTracker) Decide(sessionID string, tools []string, minKeep int) Pru
 				}
 			}
 			for _, name := range ranking {
-				if len(out.Keep) >= minKeep {
+				if len(out.Keep) >= opts.MinKeep {
 					break
 				}
 				out.Keep = append(out.Keep, name)
@@ -297,6 +396,11 @@ func (u *UsageTracker) Decide(sessionID string, tools []string, minKeep int) Pru
 			}
 		}
 		u.mu.Unlock()
+	}
+	if len(out.Pruned) == 0 && out.Reason == "" {
+		out.Reason = "nothing_prunable"
+	} else if out.Reason == "" {
+		out.Reason = "idle_tools"
 	}
 	return out
 }

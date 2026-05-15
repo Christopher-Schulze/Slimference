@@ -164,6 +164,10 @@ func filterGitCompact(content string, aggressive bool) string {
 
 // filterTestCompact reduces test output: keeps failures and summary, drops verbose pass output.
 func filterTestCompact(content string, aggressive bool) string {
+	if compacted := compactSemanticTestFailure(content, aggressive); compacted != content {
+		return compacted
+	}
+
 	lines := strings.Split(content, "\n")
 	var failures, summary []string
 	var inFailure bool

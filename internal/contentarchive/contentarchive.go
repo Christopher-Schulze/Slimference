@@ -290,9 +290,27 @@ func LoadStats(dir string) (Stats, error) {
 	}
 	var stats Stats
 	if err := json.Unmarshal(data, &stats); err != nil {
+		if recovered, ok := recoverStatsWithTrailingBraces(data); ok {
+			return recovered, nil
+		}
 		return Stats{}, err
 	}
 	return stats, nil
+}
+
+func recoverStatsWithTrailingBraces(data []byte) (Stats, bool) {
+	end := bytes.LastIndexByte(data, '}')
+	for end > 0 {
+		var stats Stats
+		if err := json.Unmarshal(data[:end+1], &stats); err == nil {
+			trailing := bytes.TrimSpace(data[end+1:])
+			if len(bytes.Trim(trailing, "}")) == 0 {
+				return stats, true
+			}
+		}
+		end = bytes.LastIndexByte(data[:end], '}')
+	}
+	return Stats{}, false
 }
 
 // SaveStats writes stats.json atomically.

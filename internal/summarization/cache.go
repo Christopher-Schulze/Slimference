@@ -35,10 +35,12 @@ type CachedSummary struct {
 const defaultMaxSessions = 64
 
 type sessionEntry struct {
-	current     *CachedSummary
-	previous    *CachedSummary
-	compressing atomic.Bool
-	lastTouch   time.Time
+	current          *CachedSummary
+	previous         *CachedSummary
+	compressing      atomic.Bool
+	lastTouch        time.Time
+	candidateHash    [32]byte
+	candidateHashSet bool
 }
 
 // SessionCache is a session-keyed multi-slot store for Layer 2 summaries.
@@ -55,6 +57,8 @@ type SessionCache struct {
 	evictions       atomic.Int64
 	staleHits       atomic.Int64
 	hashMisses      atomic.Int64
+	candidateSets   atomic.Int64
+	staleJobSkips   atomic.Int64
 	anchorsTotal    atomic.Int64
 	anchorsVerbatim atomic.Int64
 	anchorsDemoted  atomic.Int64
@@ -145,6 +149,27 @@ func (sc *SessionCache) GetCurrentWithHash(sessionID string, inputHash [32]byte)
 	return e.current, e.current.CoveredRange
 }
 
+func (sc *SessionCache) GetCurrentMatchingPrefix(sessionID string, messages []types.Message) (*CachedSummary, [2]int) {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	e, ok := sc.entries[sessionID]
+	if !ok || e.current == nil {
+		sc.misses.Add(1)
+		return nil, [2]int{}
+	}
+	end := e.current.CoveredRange[1]
+	if end < 0 || end >= len(messages) {
+		sc.hashMisses.Add(1)
+		return nil, [2]int{}
+	}
+	if e.current.Hash != ([32]byte{}) && e.current.Hash != hashMessages(messages[:end+1]) {
+		sc.hashMisses.Add(1)
+		return nil, [2]int{}
+	}
+	sc.hits.Add(1)
+	return e.current, e.current.CoveredRange
+}
+
 func (sc *SessionCache) Compressing(sessionID string) bool {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
@@ -160,6 +185,29 @@ func (sc *SessionCache) SetCompressing(sessionID string, v bool) {
 	defer sc.mu.Unlock()
 	e := sc.getOrCreateEntry(sessionID)
 	e.compressing.Store(v)
+}
+
+func (sc *SessionCache) SetCandidateHash(sessionID string, inputHash [32]byte) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	e := sc.getOrCreateEntry(sessionID)
+	e.candidateHash = inputHash
+	e.candidateHashSet = true
+	sc.candidateSets.Add(1)
+}
+
+func (sc *SessionCache) CandidateHashMatches(sessionID string, inputHash [32]byte) bool {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+	e, ok := sc.entries[sessionID]
+	if !ok || !e.candidateHashSet {
+		return false
+	}
+	return e.candidateHash == inputHash
+}
+
+func (sc *SessionCache) RecordStaleJobSkip() {
+	sc.staleJobSkips.Add(1)
 }
 
 func (sc *SessionCache) Invalidate(sessionID string) {
@@ -210,6 +258,8 @@ func (sc *SessionCache) Stats() CacheStats {
 		Evictions:       sc.evictions.Load(),
 		StaleHits:       sc.staleHits.Load(),
 		HashMisses:      sc.hashMisses.Load(),
+		CandidateSets:   sc.candidateSets.Load(),
+		StaleJobSkips:   sc.staleJobSkips.Load(),
 		AnchorsTotal:    sc.anchorsTotal.Load(),
 		AnchorsVerbatim: sc.anchorsVerbatim.Load(),
 		AnchorsDemoted:  sc.anchorsDemoted.Load(),
@@ -223,6 +273,8 @@ type CacheStats struct {
 	Evictions       int64 `json:"evictions"`
 	StaleHits       int64 `json:"stale_hits"`
 	HashMisses      int64 `json:"hash_mismatches"`
+	CandidateSets   int64 `json:"candidate_sets"`
+	StaleJobSkips   int64 `json:"stale_job_skips"`
 	AnchorsTotal    int64 `json:"anchors_total"`
 	AnchorsVerbatim int64 `json:"anchors_verbatim"`
 	AnchorsDemoted  int64 `json:"anchors_demoted"`

@@ -162,7 +162,11 @@ func TestLayer2_RunCompressionJob_inputTokenCap(t *testing.T) {
 		if i%2 == 1 {
 			role = "assistant"
 		}
-		msgs[i] = msg(t, i, role, strings.Repeat("abcde ", 10000))
+		text := strings.Repeat("abcde ", 10000)
+		if i == 0 {
+			text += "\nsrc/main.go was read before truncation\n"
+		}
+		msgs[i] = msg(t, i, role, text)
 	}
 
 	l.RunCompressionJob(msgs)

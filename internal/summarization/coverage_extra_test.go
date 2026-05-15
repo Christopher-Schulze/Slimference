@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +22,7 @@ type coverageSummarizer struct {
 	lastContext context.Context
 	lastInput   string
 	lastTarget  int
+	onSummarize func()
 }
 
 func (s *coverageSummarizer) Name() string { return s.name }
@@ -37,6 +37,9 @@ func (s *coverageSummarizer) Summarize(ctx context.Context, input string, _, _, 
 	s.callCount++
 	if index < len(s.errs) && s.errs[index] != nil {
 		return "", s.errs[index]
+	}
+	if s.onSummarize != nil {
+		s.onSummarize()
 	}
 	if index < len(s.summaries) {
 		return s.summaries[index], nil
@@ -121,7 +124,7 @@ func TestLayer2_RunCompressionJobContext_RetrysValidationFailure(t *testing.T) {
 		configured: true,
 		summaries: []string{
 			"not bullets",
-			"- src/main.go contains HandleMain\n- src/lib/util.go contains helper",
+			"- src/main.go contains HandleMain and enough context to satisfy retry validation",
 		},
 	}
 	layer.chain.SetProviders(fake)
@@ -134,6 +137,35 @@ func TestLayer2_RunCompressionJobContext_RetrysValidationFailure(t *testing.T) {
 	}
 	if fake.callCount != 2 {
 		t.Fatalf("expected retry, got %d calls", fake.callCount)
+	}
+}
+
+func TestLayer2_RunCompressionJobContext_CanceledBeforeWork(t *testing.T) {
+	cfg := config.Defaults().Compression
+	layer := NewLayer2(&cfg)
+	layer.chain.SetProviders(&coverageSummarizer{name: "fake", configured: true, summaries: []string{"- never used"}})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	layer.runCompressionJob(ctx, legacySessionID, coverageMessages())
+	if cached, _ := layer.cache.GetCurrent(); cached != nil {
+		t.Fatalf("canceled job must not cache summary: %#v", cached)
+	}
+}
+
+func TestLayer2_RunCompressionJobContext_CanceledBeforeStore(t *testing.T) {
+	cfg := config.Defaults().Compression
+	cfg.MinTokensForLayer2 = 1
+	layer := NewLayer2(&cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	layer.chain.SetProviders(&coverageSummarizer{
+		name:        "fake",
+		configured:  true,
+		summaries:   []string{"- src/main.go HandleMain error: boom\n- src/lib/util.go helper panic: bad"},
+		onSummarize: cancel,
+	})
+	layer.runCompressionJob(ctx, legacySessionID, coverageMessages())
+	if cached, _ := layer.cache.GetCurrent(); cached != nil {
+		t.Fatalf("canceled job must not store accepted summary: %#v", cached)
 	}
 }
 
@@ -255,15 +287,8 @@ func TestLayer2_RunCompressionJobContext_TruncatesHugeInputAndClampsTarget(t *te
 	}
 	layer.chain.SetProviders(fake)
 
-	huge := strings.Repeat("word ", 130000) + "\nsrc/main.go\nfunc HandleMain() {}\n"
-	var builder strings.Builder
-	for i := 0; i < 130000; i++ {
-		builder.WriteString("line ")
-		builder.WriteString(strconv.Itoa(i))
-		builder.WriteByte('\n')
-	}
-	builder.WriteString("src/main.go\nfunc HandleMain() {}\n")
-	huge = builder.String()
+	droppedPrefix := strings.Repeat("dropword ", 70000)
+	huge := droppedPrefix + "\nsrc/main.go\nfunc HandleMain() {}\n"
 	msgs := []types.Message{
 		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: huge}}},
 		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "ack"}}},
@@ -276,8 +301,41 @@ func TestLayer2_RunCompressionJobContext_TruncatesHugeInputAndClampsTarget(t *te
 	if fake.callCount == 0 {
 		t.Fatal("expected summarize call for huge input")
 	}
-	if strings.Contains(fake.lastInput, strings.Repeat("word ", 1000)) {
+	if strings.Contains(fake.lastInput, strings.Repeat("dropword ", 1000)) {
 		t.Fatal("expected huge prefix to be truncated before summarization")
+	}
+}
+
+func TestLayer2_RunCompressionJobContext_RecapsHighTokenDensityAfterByteCap(t *testing.T) {
+	cfg := config.Defaults().Compression
+	cfg.MinMessagesForCompression = 1
+	cfg.SlidingWindow = 1
+	cfg.MinTokensForLayer2 = 1
+	cfg.Summary.TargetRatio = 0.01
+
+	layer := NewLayer2(&cfg)
+	fake := &coverageSummarizer{
+		name:       "fake",
+		configured: true,
+		summaries:  []string{"- src/main.go\n- func HandleMain()"},
+	}
+	layer.chain.SetProviders(fake)
+
+	cjkLines := strings.Repeat("漢字a\n漢字b\n", 50000)
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: cjkLines + "src/main.go\nfunc HandleMain() {}\n"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "ack"}}},
+		{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "tail src/main.go"}}},
+		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "done"}}},
+	}
+
+	layer.RunCompressionJobContext(context.Background(), msgs)
+
+	if fake.callCount == 0 {
+		t.Fatal("expected summarize call for high-token-density input")
+	}
+	if fake.lastTarget <= 0 {
+		t.Fatalf("expected target tokens to be computed, got %d", fake.lastTarget)
 	}
 }
 
@@ -383,6 +441,26 @@ func TestContentDensityAndAdaptiveTargetEdgeBranches(t *testing.T) {
 	}
 	if got := computeAdaptiveTarget(10_000, dense, 0.55); got != 6000 {
 		t.Fatalf("expected ratio cap at 0.60, got %d", got)
+	}
+
+	if got := contentDensityText(""); got != 0.5 {
+		t.Fatalf("empty text density = %v, want 0.5", got)
+	}
+	if got := contentDensityText("plain prose without newline"); got != 0 {
+		t.Fatalf("plain single-line density = %v, want 0", got)
+	}
+	pathHeavy := strings.Repeat("src/a.go ", 20)
+	if got := contentDensityText(pathHeavy); got != 1.0 {
+		t.Fatalf("path-heavy text should clamp to 1.0, got %v", got)
+	}
+	if got := capSummarizationInput("abcdef", 0); got != "abcdef" {
+		t.Fatalf("disabled cap changed input: %q", got)
+	}
+	if got := capSummarizationInput("short", 10); got != "short" {
+		t.Fatalf("short input changed: %q", got)
+	}
+	if got := capSummarizationInput("abcdef", 1); got != "cdef" {
+		t.Fatalf("no-newline cap = %q, want cdef", got)
 	}
 }
 

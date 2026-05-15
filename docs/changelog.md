@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+### 2026-05-15 - T154 Read/File Delta Maximizer
+
+- Extended read-cache decisions from hook-only reads into proxy-visible
+  file-read history with session-scoped content hashes and archive URIs.
+- Unchanged rereads now collapse to stable expandable references; changed
+  rereads emit concise textual deltas only when shorter than the full content.
+- Added recent-edit safety bypass through hook turn-state and tests for
+  unchanged rereads, changed rereads, archive expansion, and recent-edit
+  fail-open behavior.
+- Tightened Layer 2 huge-input handling so summariser input is capped before
+  expensive preprocessing/density scoring and target sizing uses submitted text.
+
+### 2026-05-15 - T153 Hierarchical Context Capsules
+
+- Added deterministic `ContextCapsule` schema and builders for micro, phase,
+  and session capsules with token accounting, source ranges, validation state,
+  archive URIs, and tier selectors.
+- Micro capsules now archive large non-anchor tool results through
+  `contentarchive`; phase/session capsules skip anchor-bearing ranges so edits,
+  failures, decisions, and blockers stay verbatim.
+- Reused existing `slimference expand` content-archive retrieval for capsule
+  expansion and added tests proving source recovery.
+
+### 2026-05-15 - T152 Async L2 Background Summary Pipeline
+
+- Added Layer 2 candidate scoring so background MiniMax jobs queue only when
+  provider, prefix size, recent-anchor safety, projected savings, and cache
+  coverage gates say the next request can benefit.
+- Added per-session candidate hashes to `CompressJob`; workers now drop stale
+  jobs before calling MiniMax and record `stale_job_skips`.
+- Made cached summary application prefix-hash aware and exposed Layer 2 cache
+  stats in `/admin/status.layer2.cache_stats`.
+
+### 2026-05-15 - T151 L4 Tool-Schema Pruning Maximizer
+
+- Added conservative always-keep classes and `tool_prune_always_keep` so
+  shell/edit/read/safety/browser/MCP tools stay attached while cold custom
+  tool schemas can be pruned.
+- Added one-shot full-schema retry for missing-tool 4xx responses and disabled
+  future pruning for that session bucket after a miss.
+- Surfaced tool-prune saved-token, pruned-tool, reattach, miss, retry,
+  always-keep, and disabled-session telemetry in admin/debug/flight/gain
+  surfaces.
+
+### 2026-05-15 - T150 L3 Stable-Prefix Cache Planner
+
+- Added stable-prefix planning for OpenAI prompt-cache hints: keys now rotate
+  on stable prefix/tool-schema changes while ignoring latest user-turn churn.
+- Gated hint injection on stable-prefix tokens instead of whole-request tokens,
+  so one-turn prompts do not pay cache-hint overhead.
+- Added content-free prompt-cache hint telemetry to debug/flight records and
+  kept provider-reported cache usage as the only billable-savings source.
+
 ### 2026-04-19 - TUI Operator Console Polish
 
 - Reworked the BubbleTea dashboard from a hotkey-led status board into a more
@@ -813,3 +866,104 @@ Comprehensive test coverage expansion across all packages. All tests pass.
 - `testIntercept` 60-second timeout path (7 stmts): Impractical.
 - Subprocess-only os.Exit paths (~15 stmts): Coverage only counted for in-process execution.
 - Defensive guards on impossible errors (~40 stmts across all packages): json.Marshal on concrete structs, os.UserHomeDir failure, fsnotify.NewWatcher failure, sql.Open failure, tiktoken init failure, timer goroutine tick paths (60s/5min intervals).
+
+### 2026-05-15 - T149f planner hot-path behavior gates
+
+Promoted the cross-layer planner from telemetry-only advice into the HTTP
+compression hot path for L0/L1/L2. Planner actions now skip L0 proxy compaction
+on bypass, switch L1 into cheap-only mode for small/recent-edit safety gates,
+coordinate L1 with L2 only when the planner says L2 will run, and prevent L2
+cache apply/background enqueue only for hard L2 bypasses such as disabled policy
+or edit-window safety.
+
+### 2026-05-15 - T149g planner fact closure
+
+Closed the remaining planner placeholders. Recent-edit protection now reads
+file-backed hook turn state, live-corpus confidence can come from explicit
+config or corpus metadata, and direct WebSocket routes report inspect-only
+shape-registry knowledge without enabling frame mutation.
+
+### 2026-05-15 - T148a output-reduce repair feedback
+
+Added repair-followup detection for output-reduce. Follow-up turns asking for
+missing detail or reporting malformed patch/application failures now bypass
+brevity injection and feed a one-shot repair signal into the previous
+provider/model/profile/task-shape auto-tune bucket.
+
+### 2026-05-15 - T143d semantic stacktrace compaction
+
+Layer 1 test-output compression now has a semantic stacktrace reducer. Large
+test failures keep anchors, assertion/diff detail, app source frames, and
+package summaries while collapsing framework/vendor frames and excess diff or
+context lines behind explicit omitted-count markers.
+
+### 2026-05-15 - T144a Layer 2 task contracts
+
+Layer 2 summaries now select task-shaped prompt contracts for coding,
+debugging, review, planning, documentation, live E2E, and generic sessions.
+The validator also rejects invented file paths absent from the summarized
+source slice, while tolerating normalized relative/absolute path variants.
+
+### 2026-05-15 - T146d live-corpus scenario validators
+
+The live-corpus gate can now fail categories on declared scenario validators:
+tool-heavy, cache-reuse, output-reduce, planner-alignment, WebSocket, low-error,
+layer-combo-diversity, and L2-summary. Unknown validator names fail closed so a
+metadata typo cannot silently remove proof pressure from aggressive defaults.
+
+### 2026-05-15 - T145b prompt-cache heat map
+
+`gain --proxy` now reports prompt-cache heat by stable-prefix hash. Text shows
+the hottest rows, JSON exposes `prompt_cache_heat`, and CSV carries heat-key
+count plus the top hash/cached-token count, while keeping provider cache
+credits separate from local token-deletion claims.
+
+### 2026-05-15 - T142b WebSocket shadow estimator
+
+WebSocket inspection now emits non-mutating shadow accounting for text frames.
+JSON payloads get `json_compact` would-save bytes/tokens and applied-layer
+labels, while non-JSON and RSV/compressed frames report explicit blockers. Raw
+frame bytes remain byte-for-byte unchanged.
+
+### 2026-05-15 - T145c Anthropic prompt-cache truth reconcile
+
+T145 tracking now reflects the already-landed Anthropic cache-control path:
+stable-prefix token gate, max-four breakpoint cap, high-value tool-result
+scoring, non-mutating message copies, and proxy upstream-request coverage.
+Remaining T145 work is explicitly limited to WebSocket response-ID proof and
+30+ turn live-corpus hit-rate proof.
+
+### 2026-05-15 - T148b output-reduce profile rows
+
+`gain --output` now reports provider/model/profile/task-shape rows in text,
+JSON, and CSV. Rows include requests, applied/skipped counts, directive input
+overhead, observed output tokens, applied-turn output tokens, and averages,
+while still refusing to claim output savings without a comparable baseline.
+
+### 2026-05-15 - T143e multi-language structure truth reconcile
+
+T143 tracking now reflects the live structural extractor coverage: requested
+Go/TypeScript/JavaScript, Python, Rust, Svelte, Zig, C/C++, SQL, and Markdown
+stacks plus Swift, Kotlin, PHP, Dart, Scala, Elixir, Solidity, GraphQL, HCL,
+Dockerfile, and Makefile. This is structural slicing only, not a false AST
+body-on-demand claim.
+
+### 2026-05-15 - T144 local Layer 2 status reconcile
+
+T144 tracking now reflects landed local Layer 2 pieces: adaptive ROI candidate
+gating, session-keyed background summaries, hierarchical capsules, deterministic
+outbound pre-processing, original context fallback on failed summaries, and
+doctor/TUI provider policy status. Remaining work is narrowed to live-corpus
+quality/default-on proof.
+
+### 2026-05-15 - T140 Codex CLI Layer 0 resolver polish
+
+Codex CLI proxy Layer 0 now recognizes additional safe command/read shapes
+(`cmdline`, `shell_command`, `args`, local-shell aliases, and read path aliases)
+before compacting tool output. Unknown shapes still fail open and rewrites remain
+accepted only when the token count decreases.
+
+Planner telemetry is also tightened for the current CLI-only route: Codex HTTP
+provider requests explicitly bypass WebSocket mutation, Codex cache accounting is
+not mislabeled as prompt-cache-key mutation without a previous response id, and
+exact-reply prompts stay out of Layer-4 directive plans.

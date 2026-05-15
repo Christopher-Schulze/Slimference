@@ -596,6 +596,40 @@ func TestSnapshot_LoadStatsError(t *testing.T) {
 	}
 }
 
+func TestLoadStats_RecoversTrailingBraceCorruption(t *testing.T) {
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, statsFilename), []byte(`{"count":7,"archived":3}
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := LoadStats(dir)
+	if err != nil {
+		t.Fatalf("LoadStats should recover trailing brace corruption: %v", err)
+	}
+	if stats.Count != 7 || stats.Archived != 3 {
+		t.Fatalf("stats = %+v", stats)
+	}
+}
+
+func TestLoadStats_RejectsTrailingNonBraceGarbage(t *testing.T) {
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, statsFilename), []byte(`{"count":7} nope`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadStats(dir); err == nil {
+		t.Fatal("expected trailing non-brace garbage to fail")
+	}
+}
+
 func TestSnapshot_ListError(t *testing.T) {
 
 	saved := readDir

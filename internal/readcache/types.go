@@ -39,6 +39,8 @@ type FileEntry struct {
 	Offset        int    `json:"offset"`
 	Limit         int    `json:"limit"`
 	ModTimeUnixNs int64  `json:"mod_time_unix_ns"`
+	ContentHash   string `json:"content_hash,omitempty"`
+	ArchiveURI    string `json:"archive_uri,omitempty"`
 	CachedContent string `json:"cached_content,omitempty"`
 }
 

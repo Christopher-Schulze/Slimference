@@ -1,6 +1,6 @@
 # TASK 143: Layer 1 semantic deterministic compaction frontier
 
-Status: IN PROGRESS (T143a reversible path dictionary and T143b text/config structure extraction landed 2026-05-14)
+Status: IN PROGRESS (T143a dictionary, T143b/T143e structure slices, T143c token budget gate, and T143d stacktrace/test-failure compaction landed)
 Priority: P0
 Scope: `internal/compression/`, `internal/filter/`, `internal/codecompact/`, `internal/tokens/`, `internal/sessions/`, `internal/quality/`, `tests/fixtures/l1_frontier/`, `docs/savings-assessment.md`.
 
@@ -67,14 +67,16 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
 ### WP3 - Multi-language symbol slicing
 
 - Extend AST/symbol slicing beyond Go:
-  - TypeScript/JavaScript/TSX/JSX.
-  - Python.
-  - Rust.
-  - Svelte.
-  - Zig.
-  - C/C++.
-  - SQL.
-  - Markdown code fences.
+  - [x] TypeScript/JavaScript/TSX/JSX.
+  - [x] Python.
+  - [x] Rust.
+  - [x] Svelte.
+  - [x] Zig.
+  - [x] C/C++.
+  - [x] SQL.
+  - [x] Markdown code fences.
+  - [x] Additional high-volume stacks now covered structurally: Swift, Kotlin,
+    PHP, Dart, Scala, Elixir, and Solidity.
 - [x] Land the first non-code structure slice for high-volume text/config
   formats: Markdown, SQL, GraphQL, HCL, Dockerfile, and Makefile now produce
   deterministic outlines through `structure_more.go`.
@@ -93,21 +95,21 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
 ### WP4 - Stacktrace and test-failure semantic compaction
 
 - Recognize high-volume failure shapes:
-  - Go `go test`.
-  - Rust `cargo test` / `cargo nextest`.
-  - Python `pytest`.
-  - JS/TS `vitest`, `jest`, `bun test`.
-  - Java/Kotlin Gradle/Maven.
-  - C/C++ compiler and sanitizer traces.
+  - [x] Go `go test` panic/failure traces.
+  - [x] Rust-style `thread ... panicked` / source-frame traces.
+  - [x] Python `Traceback` / pytest-style source frames.
+  - [x] JS/TS `vitest`, `jest`, `bun test` stack frames.
+  - [x] Java/Kotlin Gradle/Maven source frames.
+  - [x] C/C++ source frames where they appear in test output.
 - Preserve:
-  - failing test name.
-  - exact assertion diff.
-  - top application frames.
-  - command and exit status.
+  - [x] failing test name.
+  - [x] exact assertion diff, capped only after explicit overflow marker.
+  - [x] top application frames.
+  - [x] package/status summary lines.
 - Collapse:
-  - vendor/framework frames.
-  - repeated path prefixes.
-  - repeated expected/actual boilerplate.
+  - [x] vendor/framework frames.
+  - [x] repeated identical failure lines.
+  - [x] excessive assertion/diff boilerplate with explicit omitted counts.
 
 ### WP5 - Config/schema-aware compaction
 
@@ -146,15 +148,16 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
   local-tokenizer counting is used with byte/4 fallback.
 - [x] Reversible dictionary compaction never aliases edit-critical identifiers
   for the implemented absolute-path slice.
-- [ ] Multi-language slicing covers the requested high-volume stacks.
-- [ ] Stacktrace/test compaction preserves exact actionable failure data.
+- [x] Multi-language structural slicing covers the requested high-volume stacks.
+- [x] Stacktrace/test compaction preserves exact actionable failure data for
+  the landed L1 tool-output slice.
 - [x] Markdown/SQL/config compaction has dedicated local fixtures for the
   landed T143b structure-extraction slice.
 - [x] The T143a path dictionary has a strict negative-saving bypass.
 - [ ] No content class can produce negative token saving for more than the configured tolerance across every future T143 slice.
 - [ ] Quality fixtures prove no loss on line/path/error/debug tasks.
 - [ ] Live-corpus gate from T146 shows positive net saving before default-on.
-- [ ] `go run ./scripts/ci` passes with 100% coverage for new Go code.
+- [x] `go run ./scripts/ci` passes with 100% coverage for new Go code.
 
 ## Implementation Notes
 
@@ -183,6 +186,22 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
     byte heuristic while preserving the old byte/4 fallback if tokenizer
     initialization fails.
   - Focus test: `go test ./internal/compression -cover` at 100%.
+- 2026-05-15 T143d:
+  - Added `internal/compression/stacktrace_compact.go` behind the existing
+    `ToolTypeTestOutput` compressor. It only runs on stacktrace-shaped,
+    sufficiently large test output and keeps the shorter-than-original guard.
+  - Preserves failing anchors, assertion/diff lines, application source
+    frames, and test/package summaries while collapsing framework/vendor
+    frames and excessive diff/context lines with explicit omitted counts.
+  - Focus test: `go test ./internal/compression -cover` at 100%.
+- 2026-05-15 T143e:
+  - Reconciled the multi-language structural slice status against the live
+    implementation. `internal/compression/structure_more.go` and
+    `structure_more_test.go` now cover the requested Go/TypeScript/JavaScript,
+    Python, Rust, Svelte, Zig, C/C++, SQL, and Markdown stacks plus Swift,
+    Kotlin, PHP, Dart, Scala, Elixir, Solidity, GraphQL, HCL, Dockerfile, and
+    Makefile. This is structural slicing, not a claim of full AST body-on-demand
+    reconstruction.
 
 ## Expected Upside
 

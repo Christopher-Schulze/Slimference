@@ -1,10 +1,13 @@
 package readcache
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/slimference/slimference/internal/contentarchive"
 )
 
 func TestEvaluate_FirstReadAllowsAndStores(t *testing.T) {
@@ -100,5 +103,168 @@ func TestEvaluate_ChangedRangeAllows(t *testing.T) {
 	}
 	if decision.Type != DecisionAllow {
 		t.Fatalf("expected allow, got %#v", decision)
+	}
+}
+
+func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	req := Request{SessionID: "s1", FilePath: "main.go"}
+	before := "package main\n" + strings.Repeat("func a() {}\n", 40)
+	decision, err := EvaluateObserved(dir, req, before, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionAllow {
+		t.Fatalf("first observed read should allow: %+v", decision)
+	}
+
+	decision, err = EvaluateObserved(dir, req, before, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged || !strings.Contains(decision.Reason, "Full content: local-archive://") {
+		t.Fatalf("unchanged observed read should block with archive reference: %+v", decision)
+	}
+
+	state, err := LoadSession(dir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, body, err := contentarchive.Get(archiveDir, state.Files["main.go"].ArchiveURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != before {
+		t.Fatal("archive did not expand original observed content")
+	}
+
+	after := before + "func b() {}\n"
+	decision, err = EvaluateObserved(dir, req, after, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta || !strings.Contains(decision.Reason, "+ func b() {}") {
+		t.Fatalf("changed observed read should block with delta: %+v", decision)
+	}
+}
+
+func TestEvaluateObserved_RecentEditAllowsAndUpdates(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	req := Request{SessionID: "s1", FilePath: "main.go"}
+	before := strings.Repeat("old line\n", 20)
+	if _, err := EvaluateObserved(dir, req, before, archiveDir, false); err != nil {
+		t.Fatal(err)
+	}
+	after := strings.Repeat("new line\n", 20)
+	decision, err := EvaluateObserved(dir, req, after, archiveDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionAllow {
+		t.Fatalf("recent edit must allow full content: %+v", decision)
+	}
+	state, err := LoadSession(dir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Files["main.go"].CachedContent != after {
+		t.Fatal("recent edit path should still update stored full content")
+	}
+}
+
+func TestEvaluateObserved_FailOpenBranches(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	if decision, err := EvaluateObserved(dir, Request{SessionID: "s1", TurnID: "turn-1"}, "content", archiveDir, false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("empty path should allow, decision=%+v err=%v", decision, err)
+	}
+	if decision, err := EvaluateObserved(dir, Request{SessionID: "s1", FilePath: "main.go", Offset: 1}, "content", archiveDir, false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("partial read should allow, decision=%+v err=%v", decision, err)
+	}
+
+	req := Request{SessionID: "s2", FilePath: "short.go"}
+	short := "one two three four five six seven"
+	if decision, err := EvaluateObserved(dir, req, short, archiveDir, false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("first short read should allow, decision=%+v err=%v", decision, err)
+	}
+	if decision, err := EvaluateObserved(dir, req, short, archiveDir, false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("short unarchived reread should allow, decision=%+v err=%v", decision, err)
+	}
+
+	req = Request{SessionID: "s3", FilePath: "no-archive.go"}
+	before := strings.Repeat("old line\n", 20)
+	after := strings.Repeat("new line\n", 20)
+	if _, err := EvaluateObserved(dir, req, before, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if decision, err := EvaluateObserved(dir, req, after, "", false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("missing archive dir should fail open, decision=%+v err=%v", decision, err)
+	}
+
+	badArchive := filepath.Join(t.TempDir(), "archive-file")
+	if err := os.WriteFile(badArchive, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if decision, err := EvaluateObserved(dir, Request{SessionID: "s4", FilePath: "bad-archive.go"}, before, badArchive, false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("archive write failure should fail open, decision=%+v err=%v", decision, err)
+	}
+
+	req = Request{SessionID: "s5", FilePath: "large-change.go"}
+	if _, err := EvaluateObserved(dir, req, strings.Repeat("a", 80), archiveDir, false); err != nil {
+		t.Fatal(err)
+	}
+	if decision, err := EvaluateObserved(dir, req, strings.Repeat("b", 80), archiveDir, false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("non-shorter delta should allow full content, decision=%+v err=%v", decision, err)
+	}
+}
+
+func TestEvaluateObserved_InjectedErrorBranches(t *testing.T) {
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	req := Request{SessionID: "s1", FilePath: "main.go"}
+	content := strings.Repeat("line\n", 30)
+
+	origRead := readCacheReadFile
+	origSave := readCacheSaveSession
+	defer func() {
+		readCacheReadFile = origRead
+		readCacheSaveSession = origSave
+	}()
+
+	readCacheReadFile = func(string) ([]byte, error) { return nil, errors.New("load observed") }
+	if _, err := EvaluateObserved(dir, req, content, archiveDir, false); err == nil {
+		t.Fatal("expected load-session error")
+	}
+	readCacheReadFile = origRead
+
+	readCacheSaveSession = func(string, *SessionState) error { return errors.New("save recent") }
+	if _, err := EvaluateObserved(dir, req, content, archiveDir, true); err == nil {
+		t.Fatal("expected recent-edit save error")
+	}
+	readCacheSaveSession = origSave
+
+	if _, err := EvaluateObserved(dir, req, content, archiveDir, false); err != nil {
+		t.Fatal(err)
+	}
+	readCacheSaveSession = func(string, *SessionState) error { return errors.New("save unchanged") }
+	if _, err := EvaluateObserved(dir, req, content, archiveDir, false); err == nil {
+		t.Fatal("expected unchanged save error")
+	}
+	readCacheSaveSession = origSave
+
+	if _, err := EvaluateObserved(dir, req, content, archiveDir, false); err != nil {
+		t.Fatal(err)
+	}
+	readCacheSaveSession = func(string, *SessionState) error { return errors.New("save changed") }
+	if _, err := EvaluateObserved(dir, req, content+"changed\n", archiveDir, false); err == nil {
+		t.Fatal("expected changed save error")
 	}
 }

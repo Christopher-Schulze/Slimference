@@ -26,6 +26,7 @@ import (
 	"github.com/slimference/slimference/internal/contentarchive"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/outputreduce"
+	"github.com/slimference/slimference/internal/planner"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
@@ -235,6 +236,25 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		sessionID: sessionID,
 	}))
 
+	repairSignal := outputreduce.DetectRepairSignal(provider, body)
+	p.consumeOutputReduceRepairSignal(sessionID, repairSignal)
+
+	recentEditFact := p.plannerRecentEditFact(sessionID, messages)
+	liveCorpusConfidence := p.plannerLiveCorpusConfidence()
+	runtimePlan := p.buildCompressionPlan(plannerInput{
+		provider:             provider,
+		model:                model,
+		routeMode:            "upstream",
+		estimatedInputTokens: origTokens,
+		contentClasses:       plannerClassesFromMessages(messages),
+		recentEdit:           recentEditFact,
+		liveCorpusConfidence: liveCorpusConfidence,
+	})
+	layer0Action := plannerActionForLayer(runtimePlan, planner.Layer0, planner.ActionRun)
+	layer1Action := plannerActionForLayer(runtimePlan, planner.Layer1, planner.ActionRun)
+	layer2Action := plannerActionForLayer(runtimePlan, planner.Layer2, planner.ActionBypass)
+	layer2HardBypass := plannerHardBypassForLayer2(runtimePlan)
+
 	// --- 3.5 Stage A cache pre-check (T20) ---
 	// If an identical original request already produced a cached upstream
 	// response, serve it without running Layer 1 or Layer 2 at all.
@@ -249,12 +269,27 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	compressedMessages := messages
-	var layer1Savings, layer2Savings int
+	var layer0Savings, layer1Savings, layer2Savings int
 	appliedLayers := make([]int, 0, 3)
+
+	// --- 3.75 Layer 0: proxy-side tool-output compaction ---
+	// Codex CLI `exec` currently does not emit reliable PostToolUse hook
+	// events, so the CLI hot path must not depend on hook delivery for
+	// Layer-0 savings. Once Codex resends function_call/function_call_output
+	// history through the proxied Responses request, run the same
+	// deterministic captured-output filters here.
+	if p.isProviderEnabled(provider) && pipelineMode == PipelineFull && layer0Action != planner.ActionBypass {
+		if l0Messages, saved := applyProxyLayer0WithSession(compressedMessages, sessionID); saved > 0 {
+			compressedMessages = l0Messages
+			layer0Savings = saved
+			appliedLayers = append(appliedLayers, 0)
+			log.Debug("proxy layer0 applied", "saved", saved)
+		}
+	}
 
 	// --- 4. Layer 1: Deterministic compression ---
 	var layer1Breakdown map[string]dbg.SubLayerBreakdown
-	if p.isLayerEnabled(1) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull {
+	if p.isLayerEnabled(1) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull && layer1Action != planner.ActionBypass {
 		l1Start := time.Now()
 		// T76: thread the request id as the session scope so any archive
 		// entry produced by lossy sub-layers carries a correlatable id.
@@ -263,9 +298,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		// skip heavy sub-layers since L2 will replace the prefix anyway.
 		coordinatorActive := p.config.Compression.Tuning.CoordinatorEnabled &&
 			p.isLayerEnabled(2) &&
-			origTokens >= p.config.Compression.MinTokensForLayer2
+			layer2Action == planner.ActionRun
+		if layer1Action == planner.ActionCheapOnly {
+			coordinatorActive = true
+		}
 		p.layer1.SetCoordinatorSubsume(coordinatorActive)
-		result := p.layer1.CompressWithSession(reqID, messages)
+		result := p.layer1.CompressWithSession(reqID, compressedMessages)
 		p.layer1.SetCoordinatorSubsume(false)
 		p.pipelineHist.L1.Record(time.Since(l1Start))
 		if result.TokensSaved > 0 {
@@ -297,7 +335,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// --- 5. Layer 2: MiniMax summary ---
-	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull {
+	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull && !layer2HardBypass {
 		l2Start := time.Now()
 		if newMsgs, saved, applied := p.layer2.ApplyToMessagesSession(sessionID, compressedMessages); applied {
 			compressedMessages = newMsgs
@@ -326,6 +364,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		compressedMessages = messages
 		compressedTokens = origTokens
 		appliedLayers = nil
+		layer0Savings = 0
 		layer1Savings = 0
 		layer2Savings = 0
 	}
@@ -344,17 +383,26 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		compressionRatio = float64(compressedTokens) / float64(origTokens)
 	}
 
-	// --- 7.5 Tool-definition pruning (T103, Layer 4, default off) ---
-	if p.config.Compression.Tuning.ToolPruneEnabled && p.toolPrune != nil && reqID != "" {
+	// --- 7.5 Tool-definition pruning (T103/T151, Layer 4, default off) ---
+	toolPruneSummary := dbg.ToolPruneSummary{Reason: "disabled"}
+	toolPruneSessionKey := resolveToolPruneSessionKey(sessionID, reqID)
+	preToolPruneBody := newBody
+	if p.config.Compression.Tuning.ToolPruneEnabled && p.toolPrune != nil {
+		toolPruneSummary = dbg.ToolPruneSummary{
+			Reason:        "no_tools",
+			SessionKeySet: toolPruneSessionKey != "",
+		}
 		// T103b: reattach previously-pruned tool definitions when the
 		// current message text mentions a pruned tool by name. Runs
 		// before the prune decision so a freshly reattached tool also
 		// shows up in the active list and survives the next idle
 		// check.
-		if mentions := messageMentionsAnyPrunedTool(messages, p.toolPrune, reqID); len(mentions) > 0 {
-			defs := p.toolPrune.LookupPrunedDefs(reqID, mentions)
+		if mentions := messageMentionsAnyPrunedTool(messages, p.toolPrune, toolPruneSessionKey); len(mentions) > 0 {
+			defs := p.toolPrune.LookupPrunedDefs(toolPruneSessionKey, mentions)
 			if reattached, n, err := toolprune.ReattachToolDefinitions(newBody, provider, defs); err == nil && n > 0 {
 				newBody = reattached
+				preToolPruneBody = newBody
+				toolPruneSummary.Reattached += n
 				for range n {
 					p.toolPrune.MarkReattached()
 				}
@@ -365,8 +413,15 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			}
 		}
 		if toolNames := toolprune.ExtractToolNames(newBody, provider); len(toolNames) > 0 {
-			p.toolPrune.ObserveTurn(reqID, extractUsedToolNames(messages))
-			decision := p.toolPrune.Decide(reqID, toolNames, 1)
+			p.toolPrune.ObserveTurn(toolPruneSessionKey, extractUsedToolNames(messages))
+			decision := p.toolPrune.DecideWithOptions(toolPruneSessionKey, toolNames, toolprune.DecisionOptions{
+				MinKeep:    1,
+				AlwaysKeep: p.config.Compression.Tuning.ToolPruneAlwaysKeep,
+			})
+			toolPruneSummary.Reason = decision.Reason
+			toolPruneSummary.AlwaysKept = decision.AlwaysKept
+			toolPruneSummary.Cooldown = decision.Reason == "quality_cooldown"
+			p.toolPrune.MarkAlwaysKept(decision.AlwaysKept)
 			if len(decision.Pruned) > 0 {
 				toPrune := make(map[string]bool, len(decision.Pruned))
 				for _, n := range decision.Pruned {
@@ -376,13 +431,16 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					savedEst := estimateTokensFromText(string(newBody)) - estimateTokensFromText(string(prunedBody))
 					if savedEst > 0 {
 						newBody = prunedBody
+						toolPruneSummary.Applied = true
+						toolPruneSummary.PrunedTools = len(removed)
+						toolPruneSummary.SavedTokens = savedEst
 						p.toolPrune.MarkPruned(savedEst)
 						// T103b: cache pruned defs so a future turn
 						// that mentions the tool name can reattach
 						// them. The map iteration order is fine
 						// because each (name, def) pair is independent.
 						for name, def := range removed {
-							p.toolPrune.RememberPrunedDef(reqID, name, def)
+							p.toolPrune.RememberPrunedDef(toolPruneSessionKey, name, def)
 						}
 						log.Debug("tool-prune applied",
 							"pruned", len(removed),
@@ -418,6 +476,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			SignatureMarker:     p.config.Compression.OutputReduce.SignatureMarker,
 			MaxAddedBytes:       p.config.Compression.OutputReduce.MaxAddedBytes,
 			TaskShape:           taskShape,
+			InputTokens:         compressedTokens,
 		}
 		if injectedBody, stats, err := outputreduce.InjectBody(provider, newBody, opts); err != nil {
 			log.Warn("output-reduce injection skipped", "error", err)
@@ -504,6 +563,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					CacheReadTokens:   0,
 					CacheCreateTokens: 0,
 					OutputTokens:      outputTokens,
+					ToolPrune:         toolPruneSummary,
 					OutputReduce: dbg.OutputReduceSummary{
 						Applied:     outputReduceStats.Applied,
 						Profile:     outputReduceStats.Profile,
@@ -527,11 +587,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 						expectedOutputTokens:        outputTokens,
 						taskShape:                   string(outputReduceStats.TaskShape),
 						contentClasses:              plannerClassesFromMessages(messages),
-						recentEdit:                  requestHasEditIntent(messages),
+						recentEdit:                  recentEditFact,
 						providerCacheSupported:      true,
 						previousResponseIDAvailable: false,
+						toolPruneCooldown:           toolPruneSummary.Cooldown,
 						outputReduceCooldown:        outputReduceCooldown,
-						liveCorpusConfidence:        "unknown",
+						liveCorpusConfidence:        p.plannerLiveCorpusConfidence(),
 						negativeSavingsHistory:      totalSaved < 0,
 					}),
 				}
@@ -612,6 +673,21 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 		upstreamResp, err = p.doUpstreamRequest(r, provider, upstreamBody)
 	}
+	if err == nil && toolPruneSummary.Applied && upstreamResp != nil && peekMissingToolDefinitionError(upstreamResp) {
+		log.Warn("tool-prune missing-tool response, retrying with full tool schema",
+			"session_key_set", toolPruneSessionKey != "",
+			"pruned_tools", toolPruneSummary.PrunedTools)
+		if p.toolPrune != nil {
+			p.toolPrune.MarkMiss(toolPruneSessionKey)
+			p.toolPrune.MarkRetry()
+		}
+		toolPruneSummary.Miss = true
+		toolPruneSummary.Retry = true
+		toolPruneSummary.Cooldown = true
+		upstreamResp.Body.Close()
+		upstreamBody = p.rewriteToolPruneRetryBody(provider, preToolPruneBody, serverStateUsed, serverStateKey)
+		upstreamResp, err = p.doUpstreamRequest(r, provider, upstreamBody)
+	}
 	if err == nil && serverStateUsed && upstreamResp != nil {
 		if shouldRecover, _ := peekUnknownPreviousIDError(upstreamResp); shouldRecover {
 			log.Warn("server-state previous_response_id rejected, retrying with full body",
@@ -656,7 +732,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 	if p.outputReduce != nil {
 		p.outputReduce.ObserveOutput(outputTokens)
-		p.outputReduce.ObserveOutcome(outputreduce.Outcome{
+		outcome := outputreduce.Outcome{
 			Provider:            provider.String(),
 			Model:               model,
 			Profile:             outputReduceStats.Profile,
@@ -665,7 +741,11 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			InputOverheadTokens: outputReduceStats.AddedTokens,
 			OutputTokens:        outputTokens,
 			Failed:              upstreamResp.StatusCode >= 400,
-		})
+			RepairSignal:        repairSignal.Repair,
+			UserReaskSignal:     repairSignal.UserReask,
+		}
+		p.outputReduce.ObserveOutcome(outcome)
+		p.rememberOutputReduceSignal(sessionID, outcome)
 	}
 
 	// --- 9b. Server-state response-id capture (T78) ---
@@ -751,8 +831,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// --- 11. Trigger async Layer 2 compression if needed ---
-	if p.isLayerEnabled(2) && p.layer2.ShouldTriggerCompressionSessionWindow(sessionID, messages, effectiveWindow) {
-		enqueueCompressionJob(p.compressQueue, types.CompressJob{Messages: messages, Timestamp: time.Now(), SessionID: sessionID})
+	if p.isLayerEnabled(2) && !layer2HardBypass && p.layer2.ShouldTriggerCompressionSessionWindow(sessionID, messages, effectiveWindow) {
+		p.enqueueLayer2Compression(sessionID, messages, effectiveWindow)
 	}
 
 	// --- Debug decision recording ---
@@ -773,8 +853,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			LayersApplied:      appliedLayers,
 			Tokens: dbg.TokenCounts{
 				Original:    origTokens,
-				AfterLayer1: origTokens - layer1Savings,
-				AfterLayer2: origTokens - layer1Savings - layer2Savings,
+				AfterLayer0: origTokens - layer0Savings,
+				AfterLayer1: origTokens - layer0Savings - layer1Savings,
+				AfterLayer2: origTokens - layer0Savings - layer1Savings - layer2Savings,
 				Final:       compressedTokens,
 				Saved:       totalSaved,
 				Ratio:       compressionRatio,
@@ -787,6 +868,15 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			ProviderCachedTokens: upstreamCacheUsage.ReadTokens,
 			ProviderOutputTokens: outputTokens,
 			OutputTokens:         outputTokens,
+			PromptCache: dbg.PromptCacheSummary{
+				Applied:            promptCacheDecision.Applied,
+				Reason:             promptCacheDecision.Reason,
+				KeySet:             promptCacheDecision.Key != "",
+				Retention:          promptCacheDecision.Retention,
+				StablePrefixHash:   promptCacheDecision.StablePrefixHash,
+				StablePrefixTokens: promptCacheDecision.StablePrefixTokens,
+			},
+			ToolPrune: toolPruneSummary,
 			OutputReduce: dbg.OutputReduceSummary{
 				Applied:     outputReduceStats.Applied,
 				Profile:     outputReduceStats.Profile,
@@ -811,11 +901,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				expectedOutputTokens:        outputTokens,
 				taskShape:                   string(outputReduceStats.TaskShape),
 				contentClasses:              plannerClassesFromMessages(messages),
-				recentEdit:                  requestHasEditIntent(messages),
+				recentEdit:                  recentEditFact,
 				providerCacheSupported:      promptCacheDecision.Applied || upstreamCacheUsage.ReadTokens > 0 || upstreamCacheUsage.CreateTokens > 0,
 				previousResponseIDAvailable: serverStateUsed,
+				toolPruneCooldown:           toolPruneSummary.Cooldown,
 				outputReduceCooldown:        outputReduceCooldown,
-				liveCorpusConfidence:        "unknown",
+				liveCorpusConfidence:        p.plannerLiveCorpusConfidence(),
 				negativeSavingsHistory:      totalSaved < 0,
 			}),
 		}
@@ -923,7 +1014,7 @@ func (p *Proxy) serveStageACacheHit(
 				contentClasses:              []string{"conversation"},
 				providerCacheSupported:      true,
 				previousResponseIDAvailable: false,
-				liveCorpusConfidence:        "unknown",
+				liveCorpusConfidence:        p.plannerLiveCorpusConfidence(),
 			}),
 		}
 		p.debugRecorder.Record(summary)
@@ -1194,10 +1285,7 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 	// from an up-to-date summary. Drop silently if the queue is full - we
 	// already responded.
 	if p.isLayerEnabled(2) && p.layer2 != nil && p.layer2.ShouldTriggerCompressionSession(stash.sessionID, stash.messages) {
-		select {
-		case p.compressQueue <- types.CompressJob{Messages: stash.messages, Timestamp: time.Now(), SessionID: stash.sessionID}:
-		default:
-		}
+		p.enqueueLayer2Compression(stash.sessionID, stash.messages, 0)
 	}
 
 	return reconstructBodyFn(stash.provider, stash.origBody, msgs)
@@ -1234,6 +1322,22 @@ func (p *Proxy) proxyError(w http.ResponseWriter, statusCode int, msg string) {
 }
 
 // handlePassthrough proxies a request to upstream without any modification.
+func resolveToolPruneSessionKey(sessionID string, reqID string) string {
+	if sessionID != "" {
+		return sessionID
+	}
+	return reqID
+}
+
+func (p *Proxy) rewriteToolPruneRetryBody(provider types.Provider, preToolPruneBody []byte, serverStateUsed bool, serverStateKey string) []byte {
+	if p.config.Proxy.ServerStateEnabled && p.serverState != nil && serverStateUsed {
+		if rewritten, ok := rewriteWithPreviousID(provider, preToolPruneBody, p.serverState.Get(serverStateKey)); ok {
+			return rewritten
+		}
+	}
+	return preToolPruneBody
+}
+
 func (p *Proxy) handlePassthrough(w http.ResponseWriter, r *http.Request, provider types.Provider, body []byte) {
 	upstreamURL := p.upstreamURL(provider, r.URL.Path, r.URL.RawQuery)
 
@@ -1283,6 +1387,18 @@ func enqueueCompressionJob(queue chan types.CompressJob, job types.CompressJob) 
 	default:
 		// Queue full, compression already in progress - skip.
 	}
+}
+
+func (p *Proxy) enqueueLayer2Compression(sessionID string, messages []types.Message, window int) {
+	job := types.CompressJob{Messages: messages, Timestamp: time.Now(), SessionID: sessionID}
+	if p.layer2 != nil {
+		if inputHash, ok := p.layer2.CompressionCandidateHash(messages, window); ok {
+			p.layer2.MarkCompressionCandidate(sessionID, inputHash)
+			job.InputHash = inputHash
+			job.HasInputHash = true
+		}
+	}
+	enqueueCompressionJob(p.compressQueue, job)
 }
 
 // healthHandler responds to GET /health with full proxy status JSON.
@@ -1343,6 +1459,10 @@ func (p *Proxy) compressionWorker() {
 
 // runCompressionJob executes a full MiniMax summarization cycle.
 func (p *Proxy) runCompressionJob(job types.CompressJob) {
+	if job.HasInputHash && !p.layer2.IsCurrentCompressionCandidate(job.SessionID, job.InputHash) {
+		p.layer2.RecordStaleCompressionJobSkip()
+		return
+	}
 	p.layer2.SetCompressingSession(job.SessionID, true)
 	defer p.layer2.SetCompressingSession(job.SessionID, false)
 

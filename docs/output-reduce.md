@@ -29,20 +29,26 @@ It never edits provider responses after generation.
     `codex_aggressive` for Codex traffic.
   - legacy aliases `anthropic`, `openai`, `codex`, and `noop` remain accepted
     for older configs.
-- T141 classifies each request shape (`direct_answer`, `code_edit`,
+- T141/T148 classifies each request shape (`direct_answer`, `code_edit`,
   `debugging`, `planning`, `review`, `tool_result_reasoning`,
-  `new_file_generation`, `exact_reply`) and appends shape-specific guardrails
-  so review and debugging tasks do not lose exact findings, paths, commands,
-  or errors. Shape detection reads only task/content-bearing fields rather than
-  tool-schema descriptions, so a tool description containing "create file" does
-  not misclassify an unrelated direct-answer turn.
+  `new_file_generation`, `exact_reply`, `repair_followup`) and appends
+  shape-specific guardrails so review and debugging tasks do not lose exact
+  findings, paths, commands, or errors. Shape detection reads only
+  task/content-bearing fields rather than tool-schema descriptions, so a tool
+  description containing "create file" does not misclassify an unrelated
+  direct-answer turn.
+- T148 repair-followup turns (`you skipped`, `explain more`, `what did you do`,
+  malformed patch/application failure wording, and German equivalents) are
+  skipped with `repair_followup_low_roi`: if the user is asking for missing
+  detail, another brevity directive is negative ROI.
 - Codex Responses requests use Responses-compatible injected content blocks
   (`type: "input_text"`). Slimference must never inject generic
   `type: "text"` blocks into `input[].content[]`, because current Codex
   backends reject that shape.
 - Auto-tune can downgrade underperforming provider/model/task-shape buckets
-  from aggressive -> standard -> mild -> off based on observed overhead and
-  failure signals.
+  from aggressive -> standard -> mild -> off based on observed overhead,
+  upstream failures, and T148 one-shot repair/user-reask signals from the next
+  turn in the same session.
 
 ## Config
 

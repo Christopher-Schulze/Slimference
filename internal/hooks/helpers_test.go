@@ -133,7 +133,7 @@ func TestPatchAndUnpatchCodexConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "openai_base_url") || !strings.Contains(text, "codex_hooks = true") {
+	if !strings.Contains(text, "openai_base_url") || !strings.Contains(text, "hooks = true") {
 		t.Fatalf("patchCodexConfig missing fields: %s", text)
 	}
 
@@ -145,7 +145,7 @@ func TestPatchAndUnpatchCodexConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	text = string(data)
-	if strings.Contains(text, "openai_base_url") || strings.Contains(text, "codex_hooks = true") {
+	if strings.Contains(text, "openai_base_url") || strings.Contains(text, "hooks = true") {
 		t.Fatalf("unpatchCodexConfig should remove slimference additions: %s", text)
 	}
 	if !strings.Contains(text, "other = true") {
@@ -168,36 +168,6 @@ func TestPatchCodexConfig_ConflictingOpenAIBaseURLReturnsError(t *testing.T) {
 	err := patchCodexConfig(home)
 	if err == nil || !strings.Contains(err.Error(), "conflicting openai_base_url") {
 		t.Fatalf("expected conflicting openai_base_url error, got %v", err)
-	}
-}
-
-func TestInstallCodexAgentsMD_AppendsNewlineAndIdempotent(t *testing.T) {
-	t.Parallel()
-
-	home := t.TempDir()
-	path := filepath.Join(home, ".codex", "AGENTS.md")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("before"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := installCodexAgentsMD(home, "/bin/slimference"); err != nil {
-		t.Fatal(err)
-	}
-	if err := installCodexAgentsMD(home, "/bin/slimference"); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	if !strings.Contains(text, "before\n") {
-		t.Fatalf("expected newline before appended block: %q", text)
-	}
-	if strings.Count(text, codexMarkerBegin) != 1 {
-		t.Fatalf("expected idempotent agents block, got %q", text)
 	}
 }
 
@@ -227,12 +197,8 @@ func TestInstallCodexAndRemoveCodex_ErrorPaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(`{}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	agentsPath := filepath.Join(codexDir, "AGENTS.md")
-	if err := os.WriteFile(agentsPath, []byte(codexMarkerBegin+"\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := RemoveCodex(home2); err == nil {
-		t.Fatal("expected RemoveCodex to fail on unclosed AGENTS marker")
+	if err := RemoveCodex(home2); err != nil {
+		t.Fatalf("RemoveCodex must ignore AGENTS.md entirely and clean hooks/config only: %v", err)
 	}
 }
 

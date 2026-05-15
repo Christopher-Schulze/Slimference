@@ -63,6 +63,32 @@ type Layer2Summary struct {
 	CompressionRatio float64 `json:"compression_ratio"`
 }
 
+// PromptCacheSummary records content-free provider-cache hint decisions.
+// StablePrefixHash is already truncated and content-derived only; it must
+// never contain raw prompt text.
+type PromptCacheSummary struct {
+	Applied            bool   `json:"applied"`
+	Reason             string `json:"reason,omitempty"`
+	KeySet             bool   `json:"key_set,omitempty"`
+	Retention          string `json:"retention,omitempty"`
+	StablePrefixHash   string `json:"stable_prefix_hash,omitempty"`
+	StablePrefixTokens int    `json:"stable_prefix_tokens,omitempty"`
+}
+
+// ToolPruneSummary records content-free Layer 4 tool-schema pruning telemetry.
+type ToolPruneSummary struct {
+	Applied       bool   `json:"applied"`
+	Reason        string `json:"reason,omitempty"`
+	SessionKeySet bool   `json:"session_key_set,omitempty"`
+	PrunedTools   int    `json:"pruned_tools,omitempty"`
+	AlwaysKept    int    `json:"always_kept,omitempty"`
+	SavedTokens   int    `json:"saved_tokens,omitempty"`
+	Reattached    int    `json:"reattached,omitempty"`
+	Miss          bool   `json:"miss,omitempty"`
+	Retry         bool   `json:"retry,omitempty"`
+	Cooldown      bool   `json:"cooldown,omitempty"`
+}
+
 // PlanDecisionSummary records one dry-run planner decision for observability.
 // It is intentionally content-free: only layer names, actions, reasons and
 // numeric estimates are emitted so debug logs never duplicate prompt text.
@@ -114,6 +140,8 @@ type RequestSummary struct {
 	ProviderCachedTokens   int                          `json:"provider_cached_tokens,omitempty"`
 	ProviderOutputTokens   int                          `json:"provider_output_tokens,omitempty"`
 	OutputTokens           int                          `json:"output_tokens,omitempty"`
+	PromptCache            PromptCacheSummary           `json:"prompt_cache,omitempty"`
+	ToolPrune              ToolPruneSummary             `json:"tool_prune,omitempty"`
 	OutputReduce           OutputReduceSummary          `json:"output_reduce,omitempty"`
 	PreviousResponseIDUsed bool                         `json:"previous_response_id_used,omitempty"`
 	SecretsRedacted        int                          `json:"secrets_redacted"`

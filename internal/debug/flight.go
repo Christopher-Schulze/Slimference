@@ -31,12 +31,16 @@ type FlightTokenAccounting struct {
 }
 
 type FlightCacheAccounting struct {
-	LocalResponseCacheHit      bool `json:"local_response_cache_hit"`
-	ProviderCacheReadTokens    int  `json:"provider_cache_read_tokens,omitempty"`
-	ProviderCacheCreateTokens  int  `json:"provider_cache_create_tokens,omitempty"`
-	ProviderCachedInputTokens  int  `json:"provider_cached_input_tokens,omitempty"`
-	PreviousResponseIDUsed     bool `json:"previous_response_id_used,omitempty"`
-	PreviousResponseIDBillable bool `json:"previous_response_id_billable_saving"`
+	LocalResponseCacheHit         bool   `json:"local_response_cache_hit"`
+	ProviderCacheReadTokens       int    `json:"provider_cache_read_tokens,omitempty"`
+	ProviderCacheCreateTokens     int    `json:"provider_cache_create_tokens,omitempty"`
+	ProviderCachedInputTokens     int    `json:"provider_cached_input_tokens,omitempty"`
+	PromptCacheHintApplied        bool   `json:"prompt_cache_hint_applied,omitempty"`
+	PromptCacheHintReason         string `json:"prompt_cache_hint_reason,omitempty"`
+	PromptCacheStablePrefixHash   string `json:"prompt_cache_stable_prefix_hash,omitempty"`
+	PromptCacheStablePrefixTokens int    `json:"prompt_cache_stable_prefix_tokens,omitempty"`
+	PreviousResponseIDUsed        bool   `json:"previous_response_id_used,omitempty"`
+	PreviousResponseIDBillable    bool   `json:"previous_response_id_billable_saving"`
 }
 
 type FlightOutputReduceAccounting struct {
@@ -45,6 +49,18 @@ type FlightOutputReduceAccounting struct {
 	Reason      string `json:"reason,omitempty"`
 	AddedTokens int    `json:"added_tokens,omitempty"`
 	TaskShape   string `json:"task_shape,omitempty"`
+}
+
+type FlightToolPruneAccounting struct {
+	Applied     bool   `json:"applied"`
+	Reason      string `json:"reason,omitempty"`
+	PrunedTools int    `json:"pruned_tools,omitempty"`
+	AlwaysKept  int    `json:"always_kept,omitempty"`
+	SavedTokens int    `json:"saved_tokens,omitempty"`
+	Reattached  int    `json:"reattached,omitempty"`
+	Miss        bool   `json:"miss,omitempty"`
+	Retry       bool   `json:"retry,omitempty"`
+	Cooldown    bool   `json:"cooldown,omitempty"`
 }
 
 type FlightRequestSummary struct {
@@ -62,6 +78,7 @@ type FlightRequestSummary struct {
 	Layers               []int                        `json:"layers,omitempty"`
 	TokenAccounting      FlightTokenAccounting        `json:"token_accounting"`
 	CacheAccounting      FlightCacheAccounting        `json:"cache_accounting"`
+	ToolPrune            FlightToolPruneAccounting    `json:"tool_prune"`
 	OutputReduce         FlightOutputReduceAccounting `json:"output_reduce"`
 	Plan                 *PlanSummary                 `json:"plan,omitempty"`
 	Errors               []string                     `json:"errors,omitempty"`
@@ -132,12 +149,27 @@ func BuildFlightRequestSummary(s RequestSummary) FlightRequestSummary {
 			WireSavingsEstimate:          s.Tokens.Saved,
 		},
 		CacheAccounting: FlightCacheAccounting{
-			LocalResponseCacheHit:      s.CacheHit,
-			ProviderCacheReadTokens:    s.CacheReadTokens,
-			ProviderCacheCreateTokens:  s.CacheCreateTokens,
-			ProviderCachedInputTokens:  s.ProviderCachedTokens,
-			PreviousResponseIDUsed:     s.PreviousResponseIDUsed,
-			PreviousResponseIDBillable: false,
+			LocalResponseCacheHit:         s.CacheHit,
+			ProviderCacheReadTokens:       s.CacheReadTokens,
+			ProviderCacheCreateTokens:     s.CacheCreateTokens,
+			ProviderCachedInputTokens:     s.ProviderCachedTokens,
+			PromptCacheHintApplied:        s.PromptCache.Applied,
+			PromptCacheHintReason:         s.PromptCache.Reason,
+			PromptCacheStablePrefixHash:   s.PromptCache.StablePrefixHash,
+			PromptCacheStablePrefixTokens: s.PromptCache.StablePrefixTokens,
+			PreviousResponseIDUsed:        s.PreviousResponseIDUsed,
+			PreviousResponseIDBillable:    false,
+		},
+		ToolPrune: FlightToolPruneAccounting{
+			Applied:     s.ToolPrune.Applied,
+			Reason:      s.ToolPrune.Reason,
+			PrunedTools: s.ToolPrune.PrunedTools,
+			AlwaysKept:  s.ToolPrune.AlwaysKept,
+			SavedTokens: s.ToolPrune.SavedTokens,
+			Reattached:  s.ToolPrune.Reattached,
+			Miss:        s.ToolPrune.Miss,
+			Retry:       s.ToolPrune.Retry,
+			Cooldown:    s.ToolPrune.Cooldown,
 		},
 		OutputReduce: FlightOutputReduceAccounting{
 			Applied:     s.OutputReduce.Applied,
@@ -179,6 +211,37 @@ func buildFlightEvents(s RequestSummary, flight FlightRequestSummary) []FlightEv
 			Timestamp: s.Timestamp,
 			Stage:     "cache",
 			Decision:  cacheDecision(s),
+		})
+	}
+	if s.PromptCache.Reason != "" {
+		events = append(events, FlightEvent{
+			Timestamp: s.Timestamp,
+			Stage:     "prompt_cache",
+			Decision:  boolDecision(s.PromptCache.Applied),
+			Reason:    s.PromptCache.Reason,
+			Fields: map[string]string{
+				"key_set":              boolString(s.PromptCache.KeySet),
+				"retention":            s.PromptCache.Retention,
+				"stable_prefix_hash":   s.PromptCache.StablePrefixHash,
+				"stable_prefix_tokens": intString(s.PromptCache.StablePrefixTokens),
+			},
+		})
+	}
+	if s.ToolPrune.Applied || s.ToolPrune.Reason != "" {
+		events = append(events, FlightEvent{
+			Timestamp: s.Timestamp,
+			Stage:     "tool_prune",
+			Decision:  boolDecision(s.ToolPrune.Applied),
+			Reason:    s.ToolPrune.Reason,
+			Fields: map[string]string{
+				"pruned_tools": intString(s.ToolPrune.PrunedTools),
+				"always_kept":  intString(s.ToolPrune.AlwaysKept),
+				"saved_tokens": intString(s.ToolPrune.SavedTokens),
+				"reattached":   intString(s.ToolPrune.Reattached),
+				"miss":         boolString(s.ToolPrune.Miss),
+				"retry":        boolString(s.ToolPrune.Retry),
+				"cooldown":     boolString(s.ToolPrune.Cooldown),
+			},
 		})
 	}
 	if s.OutputReduce.Applied || s.OutputReduce.Reason != "" {

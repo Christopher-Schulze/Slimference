@@ -151,6 +151,37 @@ func (t *Tracker) ObserveOutcome(outcome Outcome) {
 	}
 }
 
+func (t *Tracker) ObserveRepairSignal(provider, model string, profile Profile, shape TaskShape) {
+	if t == nil || !t.auto.Enabled {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	key := bucketKey(provider, model, profile, shape)
+	b := t.buckets[key]
+	if b == nil {
+		return
+	}
+	b.failures++
+	if b.cooldown > 0 {
+		b.cooldown--
+		return
+	}
+	if b.samples < int64(t.auto.MinSamples) {
+		return
+	}
+	if shouldDowngrade(b, t.auto) {
+		next := NextSofter(b.profile)
+		t.downgrades[key] = next
+		b.profile = next
+		b.cooldown = int64(t.auto.CooldownTurns)
+		b.samples = 0
+		b.failures = 0
+		b.inputOverheadTokens = 0
+		b.outputTokens = 0
+	}
+}
+
 func (t *Tracker) ObserveOutput(outputTokens int) {
 	if t == nil || outputTokens <= 0 {
 		return

@@ -131,6 +131,51 @@ These are the main files.`
 	}
 }
 
+func TestValidator_InventedFilePath(t *testing.T) {
+	t.Parallel()
+
+	v := NewCompressionValidator()
+	originalText := strings.Repeat("The implementation used internal/proxy/handler.go only. ", 80)
+	msgs := buildValidatorMessages(t, originalText)
+	origTokens := len(originalText) / 4
+	summary := "- internal/proxy/handler.go was used, but internal/secret/fake.go was invented." +
+		strings.Repeat(" enough content", 40)
+
+	result := v.Validate(msgs, summary, origTokens)
+	if result.Valid {
+		t.Fatal("expected invented path to fail validation")
+	}
+	if !strings.Contains(result.FailReason, "invented file path") {
+		t.Fatalf("wrong reason: %q", result.FailReason)
+	}
+}
+
+func TestInventedSummaryPaths(t *testing.T) {
+	t.Parallel()
+	if got := inventedSummaryPaths("a.go", []string{"a.go"}, nil); got != nil {
+		t.Fatalf("empty summary paths should return nil, got %#v", got)
+	}
+	got := inventedSummaryPaths("a.go", []string{"a.go"}, []string{"a.go", "b.go"})
+	if len(got) != 1 || got[0] != "b.go" {
+		t.Fatalf("invented paths = %#v", got)
+	}
+	if got := inventedSummaryPaths("src/lib/util.go", nil, []string{"/lib/util.go"}); len(got) != 0 {
+		t.Fatalf("suffix-equivalent path should not count as invented: %#v", got)
+	}
+	if got := inventedSummaryPaths("", []string{"root/pkg/file.go", ""}, []string{"pkg/file.go"}); len(got) != 0 {
+		t.Fatalf("source-path suffix should not count as invented: %#v", got)
+	}
+	if got := pathSeenInSource("", "", nil); !got {
+		t.Fatal("empty normalized path should be treated as seen")
+	}
+	if got := pathSeenInSource("", "x.go", []string{""}); got {
+		t.Fatal("empty source path should not match non-empty summary path")
+	}
+	if got := normalizeSummaryPath("././src/main.go."); got != "src/main.go" {
+		t.Fatalf("normalized path = %q", got)
+	}
+}
+
 // TestValidator_MissingFunctionNames verifies failure when >20% of function names are absent.
 func TestValidator_MissingFunctionNames(t *testing.T) {
 	t.Parallel()

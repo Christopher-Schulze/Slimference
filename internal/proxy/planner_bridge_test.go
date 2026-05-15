@@ -1,12 +1,17 @@
 package proxy
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/planner"
+	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
+	"github.com/slimference/slimference/internal/wscompact"
 )
 
 func TestDryRunPlan_AttachesProviderAndDisabledLayers(t *testing.T) {
@@ -45,6 +50,212 @@ func TestDryRunPlan_NilProxy(t *testing.T) {
 	var p *Proxy
 	if got := p.dryRunPlan(plannerInput{provider: types.OpenAI}); got != nil {
 		t.Fatalf("nil proxy plan = %+v, want nil", got)
+	}
+}
+
+func TestBuildCompressionPlan_DrivesRecentEditActions(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Compression.Layer2Enabled = true
+	p := New(cfg)
+
+	plan := p.buildCompressionPlan(plannerInput{
+		provider:             types.Anthropic,
+		model:                "claude",
+		routeMode:            "upstream",
+		estimatedInputTokens: 20_000,
+		contentClasses:       []string{"source_file"},
+		recentEdit:           true,
+	})
+	l1, ok := plannerDecisionForLayer(plan, planner.Layer1)
+	if !ok || l1.Action != planner.ActionCheapOnly || l1.Reason != "recent_edit_preserve_full_context" {
+		t.Fatalf("L1 recent-edit decision = %+v, ok=%v", l1, ok)
+	}
+	l2, ok := plannerDecisionForLayer(plan, planner.Layer2)
+	if !ok || l2.Action != planner.ActionBypass || l2.Reason != "recent_edit_window" {
+		t.Fatalf("L2 recent-edit decision = %+v, ok=%v", l2, ok)
+	}
+	if !plannerHardBypassForLayer2(plan) {
+		t.Fatal("recent-edit L2 bypass must be treated as a hard runtime bypass")
+	}
+	softPlan := p.buildCompressionPlan(plannerInput{
+		provider:             types.Anthropic,
+		model:                "claude",
+		routeMode:            "upstream",
+		estimatedInputTokens: 500,
+	})
+	if plannerHardBypassForLayer2(softPlan) {
+		t.Fatal("below-ROI L2 bypass must leave layer-local cache/candidate checks available")
+	}
+	if got := plannerActionForLayer(plan, planner.Layer3, planner.ActionInspect); got == planner.ActionInspect {
+		t.Fatalf("expected concrete L3 action, got fallback %q", got)
+	}
+	if got := plannerActionForLayer(plan, planner.Layer("missing"), planner.ActionInspect); got != planner.ActionInspect {
+		t.Fatalf("missing layer action = %q, want fallback", got)
+	}
+}
+
+func TestPlannerRecentEditFact_UsesSessionHookState(t *testing.T) {
+	home := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	p := New(cfg)
+	sessionID := "planner-edit-session"
+	if err := sessions.ObserveHookFile(sessions.DefaultHookStateDir(home), sessionID, "/repo/main.go", "edit"); err != nil {
+		t.Fatalf("observe edit: %v", err)
+	}
+	messages := []types.Message{{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Read"}}}}
+	if !p.plannerRecentEditFact(sessionID, messages) {
+		t.Fatal("session-owned edit state must drive planner recent-edit fact")
+	}
+	if p.plannerRecentEditFact("", messages) {
+		t.Fatal("empty session without edit tool must not mark recent edit")
+	}
+	proxyUserHomeDir = func() (string, error) { return "", errors.New("home") }
+	if p.plannerRecentEditFact(sessionID, messages) {
+		t.Fatal("home lookup failure must fail closed to no session edit fact")
+	}
+}
+
+func TestPlannerRecentEditFact_RequestIntentAndMissingState(t *testing.T) {
+	home := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	p := New(config.Defaults())
+	if !p.plannerRecentEditFact("no-state-needed", []types.Message{{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolName: "Edit"}}}}) {
+		t.Fatal("current request edit intent must mark recent edit")
+	}
+	if sessionHasRecentEditedFile("missing-session", 2) {
+		t.Fatal("missing hook-state file must not mark recent edit")
+	}
+	stateDir := sessions.DefaultHookStateDir(home)
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, sessions.SafeSessionID("broken-session")+".json"), []byte(`{`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if sessionHasRecentEditedFile("broken-session", 2) {
+		t.Fatal("invalid hook-state JSON must not mark recent edit")
+	}
+}
+
+func TestPlannerLiveCorpusConfidence_ConfigAndMetadata(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Compression.Tuning.PlannerLiveCorpusConfidence = "medium"
+	if got := New(cfg).plannerLiveCorpusConfidence(); got != "medium" {
+		t.Fatalf("configured confidence = %q", got)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "metadata.json")
+	if err := os.WriteFile(path, []byte(`{"synthetic":false,"evidence_level":"live_operator","expected_request_count":7}`), 0o644); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+	cfg = config.Defaults()
+	cfg.Compression.Tuning.PlannerLiveCorpusMetadataPath = dir
+	if got := New(cfg).plannerLiveCorpusConfidence(); got != "high" {
+		t.Fatalf("live metadata confidence = %q", got)
+	}
+	if err := os.WriteFile(path, []byte(`{"synthetic":true,"evidence_level":"synthetic","expected_request_count":7}`), 0o644); err != nil {
+		t.Fatalf("write synthetic metadata: %v", err)
+	}
+	if got := New(cfg).plannerLiveCorpusConfidence(); got != "low" {
+		t.Fatalf("synthetic metadata confidence = %q", got)
+	}
+}
+
+func TestPlannerLiveCorpusConfidence_FallbackBranches(t *testing.T) {
+	t.Parallel()
+	var p *Proxy
+	if got := p.plannerLiveCorpusConfidence(); got != "unknown" {
+		t.Fatalf("nil proxy confidence = %q", got)
+	}
+	if got := normalizePlannerConfidence(" invalid "); got != "" {
+		t.Fatalf("invalid normalized confidence = %q", got)
+	}
+	cfg := config.Defaults()
+	cfg.Compression.Tuning.PlannerLiveCorpusConfidence = "invalid"
+	if got := New(cfg).plannerLiveCorpusConfidence(); got != "unknown" {
+		t.Fatalf("invalid configured confidence fallback = %q", got)
+	}
+	if got := liveCorpusConfidenceFromMetadataPath(filepath.Join(t.TempDir(), "missing.json")); got != "" {
+		t.Fatalf("missing metadata confidence = %q", got)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "metadata.json")
+	badDir := filepath.Join(t.TempDir(), "metadata.json")
+	if err := os.MkdirAll(badDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := liveCorpusConfidenceFromMetadataPath(badDir); got != "" {
+		t.Fatalf("unreadable metadata confidence = %q", got)
+	}
+	if err := os.WriteFile(path, []byte(`{"synthetic":false,"evidence_level":"realish","expected_request_count":0}`), 0o644); err != nil {
+		t.Fatalf("write realish metadata: %v", err)
+	}
+	if got := liveCorpusConfidenceFromMetadataPath(path); got != "medium" {
+		t.Fatalf("realish metadata confidence = %q", got)
+	}
+	if err := os.WriteFile(path, []byte(`{"synthetic":false,"evidence_level":"","expected_request_count":3}`), 0o644); err != nil {
+		t.Fatalf("write count metadata: %v", err)
+	}
+	if got := liveCorpusConfidenceFromMetadataPath(path); got != "medium" {
+		t.Fatalf("count metadata confidence = %q", got)
+	}
+	if err := os.WriteFile(path, []byte(`{"synthetic":false}`), 0o644); err != nil {
+		t.Fatalf("write unknown metadata: %v", err)
+	}
+	if got := liveCorpusConfidenceFromMetadataPath(path); got != "unknown" {
+		t.Fatalf("unknown metadata confidence = %q", got)
+	}
+	if err := os.WriteFile(path, []byte(`{`), 0o644); err != nil {
+		t.Fatalf("write invalid metadata: %v", err)
+	}
+	if got := liveCorpusConfidenceFromMetadataPath(path); got != "" {
+		t.Fatalf("invalid metadata confidence = %q", got)
+	}
+}
+
+func TestWebSocketShapeKnown_UsesRegistry(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	p := New(cfg)
+	if p.webSocketShapeKnown() {
+		t.Fatal("fresh websocket shape registry must be unknown")
+	}
+	p.webSocketShapes.Observe(wscompact.FrameSummary{
+		Direction:    wscompact.DirectionClientToServer,
+		JSON:         true,
+		JSONTopLevel: "object",
+		JSONKeys:     []string{"type"},
+		MessageType:  "hello",
+	})
+	if !p.webSocketShapeKnown() {
+		t.Fatal("observed websocket JSON shape must mark registry known")
+	}
+}
+
+func TestPlannerHardBypassForLayer2Reasons(t *testing.T) {
+	t.Parallel()
+	for _, reason := range []string{"operator_disabled", "external_summary_policy_not_ready", "recent_edit_window"} {
+		plan := planner.CompressionPlan{Decisions: []planner.LayerDecision{{
+			Layer:  planner.Layer2,
+			Action: planner.ActionBypass,
+			Reason: reason,
+		}}}
+		if !plannerHardBypassForLayer2(plan) {
+			t.Fatalf("reason %q should hard-bypass", reason)
+		}
+	}
+	if plannerHardBypassForLayer2(planner.CompressionPlan{}) {
+		t.Fatal("missing L2 decision must not hard-bypass")
 	}
 }
 

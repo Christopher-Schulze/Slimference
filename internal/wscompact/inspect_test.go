@@ -117,7 +117,7 @@ func TestReadFrame_TruncatedHeaderAndPayload(t *testing.T) {
 
 func TestInspectStream_ByteForByteAndJSONShape(t *testing.T) {
 	t.Parallel()
-	raw := makeFrame(1, true, false, []byte(`{"method":"responses.create","z":1,"a":2}`))
+	raw := makeFrame(1, true, false, []byte("{\n  \"method\": \"responses.create\",\n  \"z\": 1,\n  \"a\": 2\n}"))
 	var dst bytes.Buffer
 	var summaries []FrameSummary
 	written, err := InspectStream(&dst, bytes.NewReader(raw), DirectionClientToServer, InspectorFunc(func(s FrameSummary) {
@@ -135,6 +135,9 @@ func TestInspectStream_ByteForByteAndJSONShape(t *testing.T) {
 	got := summaries[0]
 	if !got.JSON || got.JSONTopLevel != "object" || got.MessageType != "responses.create" || strings.Join(got.JSONKeys, ",") != "a,method,z" {
 		t.Fatalf("summary=%+v", got)
+	}
+	if got.Shadow == nil || !got.Shadow.Eligible || got.Shadow.SavedBytes <= 0 || strings.Join(got.Shadow.AppliedLayers, ",") != "json_compact" {
+		t.Fatalf("shadow=%+v", got.Shadow)
 	}
 }
 
@@ -206,6 +209,15 @@ func TestInspectStream_ControlBinaryNonJSONAndRSV(t *testing.T) {
 	if summaries[4].InspectNote != "non_json_text" || summaries[5].InspectNote != "reserved_bits_or_compressed_extension" || summaries[7].JSONTopLevel != "array" || summaries[8].JSONTopLevel != "scalar" {
 		t.Fatalf("unexpected summaries=%+v", summaries)
 	}
+	if summaries[4].Shadow == nil || summaries[4].Shadow.Blocker != "non_json_text" {
+		t.Fatalf("non-json shadow=%+v", summaries[4].Shadow)
+	}
+	if summaries[5].Shadow == nil || summaries[5].Shadow.Blocker != "reserved_bits_or_compressed_extension" {
+		t.Fatalf("rsv shadow=%+v", summaries[5].Shadow)
+	}
+	if summaries[8].Shadow == nil || summaries[8].Shadow.Blocker != "no_savings" {
+		t.Fatalf("scalar shadow=%+v", summaries[8].Shadow)
+	}
 }
 
 func TestSummarizeFrame_ObjectWithoutStringType(t *testing.T) {
@@ -214,6 +226,21 @@ func TestSummarizeFrame_ObjectWithoutStringType(t *testing.T) {
 	summary := SummarizeFrame(frame, DirectionClientToServer, frame.Payload, false)
 	if !summary.JSON || summary.JSONTopLevel != "object" || summary.MessageType != "" || strings.Join(summary.JSONKeys, ",") != "event" {
 		t.Fatalf("summary=%+v", summary)
+	}
+}
+
+func TestSummarizeFrame_ShadowEstimateTokensBranches(t *testing.T) {
+	t.Parallel()
+	if got := shadowEstimateTokens(0); got != 0 {
+		t.Fatalf("zero tokens=%d", got)
+	}
+	if got := shadowEstimateTokens(1); got != 1 {
+		t.Fatalf("one-byte tokens=%d", got)
+	}
+	frame := Frame{Payload: []byte("{\n  \"a\": 1,\n  \"b\": 2\n}"), Fin: true, Opcode: 1}
+	summary := SummarizeFrame(frame, DirectionClientToServer, frame.Payload, false)
+	if summary.Shadow == nil || !summary.Shadow.Eligible || summary.Shadow.SavedTokens <= 0 {
+		t.Fatalf("shadow summary=%+v", summary.Shadow)
 	}
 }
 

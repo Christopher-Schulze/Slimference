@@ -230,7 +230,9 @@ comparisons are closer to what the provider will bill. `--by-command` breaks it
 down per argv[0]; `--by-parser` groups persisted Layer-0 savings by parser/tool
 family; `--cache` reports persisted provider prompt-cache read/create counters;
 `--output` reports persisted T130 output-reduce telemetry without inventing a
-savings baseline, including T141 profile tier and task-shape buckets; `--proxy`
+savings baseline, including T141 profile tier and task-shape buckets plus a
+provider/model/profile/task-shape profile row report for manual evolution;
+`--proxy`
 reads flight-recorder decision logs and reports provider-only proxied LLM
 requests with input/cache/output accounting. `--csv` / `--json` for machine
 consumption.
@@ -291,6 +293,26 @@ collapsed to a command count, and Makefile includes/variables/targets.
 The `structure_min_tokens` gate is evaluated with the local tokenizer, falling
 back to byte/4 only if tokenizer initialization fails. Negative-saving bypass
 still applies before any compacted block is used.
+
+### Semantic test-failure compaction (T143d)
+
+`stacktrace_compact.go` runs inside the existing L1 tool-output compressor for
+large `ToolTypeTestOutput` blocks that actually look like stack traces. It keeps
+failing test anchors, assertion/diff lines, top application source frames, and
+package/status summaries, then collapses framework/vendor frames and excessive
+diff/context lines with explicit omitted-count markers. The existing
+shorter-than-original guard still decides whether the compacted block is used.
+
+### Layer 2 task-shaped contracts (T144a)
+
+Before MiniMax or any OpenAI-compatible fallback sees a summarization request,
+`prompt_contract.go` classifies the transcript as coding, debugging, review,
+planning, documentation, live E2E, or generic. The selected contract is appended
+to the model-agnostic system prompt and preserves exact paths, commands,
+failures, decisions, uncertainty markers, and no-prose bullet format according
+to task shape. `validator.go` also rejects summary file paths that are absent
+from the summarized source slice, with normalization for relative/absolute path
+variants.
 
 ### Adaptive dedup staircase (T53)
 
@@ -364,6 +386,24 @@ startup warns without blocking. `slimference layer2 acknowledge` records
 the marker manually, and `slimference layer2 status` prints the ack
 state.
 
+T152 hardens Layer 2 as a background-only optimizer. After the active
+request completes, `ScoreBackgroundCandidateSession` checks provider
+availability, compressible-prefix size, recent edit/error anchors,
+projected savings, and existing summary coverage. Eligible jobs enter
+the bounded `compressQueue` with a session candidate hash. The worker
+drops stale hashes before calling MiniMax, and `ApplyToMessagesSession`
+only replaces messages when the cached summary hash still matches the
+live covered prefix. Hash mismatch, stale worker job, provider failure,
+timeout, validation failure, and anchor-loss validation all fail open to
+the original context. Telemetry is exposed at
+`/admin/status.layer2.cache_stats`.
+
+Layer 2 caps formatted summariser input before preprocessing or density
+scoring. The cap keeps the newest text inside the 120k-token quality window
+and computes adaptive target tokens from the actually submitted text, not the
+pre-cap message slice. This prevents huge historical reads from burning CPU
+or timing out before the provider call.
+
 Provider/runtime knobs:
 
 - `SLIMFERENCE_MINIMAX_BASE_URL`, `SLIMFERENCE_MINIMAX_MODEL`, and
@@ -388,6 +428,36 @@ Provider/runtime knobs:
 
 Explicit numeric overrides in the same block take precedence; the mode
 fills unset fields from a coherent bundle.
+
+### Hierarchical context capsules (T153)
+
+`internal/summarization/capsules.go` provides deterministic, reversible
+context capsules for future T149 selection. `ContextCapsule` records the
+tier (`micro`, `phase`, `session`), source range, token accounting,
+anchor indices, validation state, summary text, and content-archive URIs.
+Micro capsules cover large non-anchor tool results. Phase capsules cover
+inactive task slices split on user task/next/fix/plan boundaries. Session
+capsules compose old validated phases. Any range containing edit/error/
+decision/config anchors is skipped so critical material remains verbatim.
+Every capsule is archive-backed and can be expanded with the existing
+`slimference expand <local-archive-id>` path.
+
+### Proxy-visible read/file deltas (T154)
+
+T154 moves the read-cache/delta win from hook-only file reads into proxied
+request history. When a tool result contains a concrete file-read command and
+the request carries a stable session id, `readcache.EvaluateObserved` hashes
+the observed content, archives the full text through `internal/contentarchive`,
+and updates the session-scoped read entry before Layer 0 proxy compaction.
+
+The first full read is allowed through, with any normal deterministic Layer 0
+compaction still available. An unchanged reread becomes a stable reference to
+the archived full content. A changed reread becomes a textual delta only when
+the delta plus archive reference is shorter than the current full content.
+Unknown sessions, missing archives, non-shorter deltas, unknown paths, and
+recent same-session edits fail open to the original content. Recent-edit
+detection uses the file-backed hook turn state so an edit/apply-patch event
+keeps the next read verbatim instead of hiding fresh code behind a delta.
 
 ### Incremental staircase (T27)
 
@@ -419,11 +489,12 @@ cache entry whose key was computed from a body mentioning that path.
 
 `internal/compression/prompt_cache.go::OptimizeCacheBreakpoints` places
 up to 4 `cache_control: {type: "ephemeral"}` markers on the messages of
-the stable prefix. T45 spreads them EVENLY at ~25/50/75/100 percent
-depths of the eligible prefix rather than clustering at the tail. That
-creates overlapping cache layers: a small late edit still hits the
-earlier layers, and a large prefix change only invalidates the layers
-it spans.
+the stable prefix when the prefix is at least 1024 estimated tokens.
+Breakpoints are selected by expected cache value: large stable
+`tool_result` blocks first, then late stable user/assistant/tool turns,
+with deterministic tie-breaking. The caller-owned message slice is not
+mutated. This keeps Anthropic cache hints on stable content while avoiding
+cache-control overhead on tiny one-shot requests.
 
 Cumulative injection count:
 `/admin/status.prompt_cache.breakpoints_injected_total`.
@@ -488,8 +559,13 @@ the same Layer 1-3 compression path:
 
 - OpenAI-style `messages` bodies are parsed through the existing OpenAI
   normalizer.
-- Responses-style `input` arrays map `message`, `function_call`, and
-  `function_call_output` items into `types.Message`.
+- Responses-style `input` arrays map `message`, `function_call`,
+  `function_call_output`, local-shell call/output variants, direct
+  `command`/`args` arrays, `cmdline`/`shell_command` aliases, read path
+  aliases, `aggregated_output`, `stdout`, and `stderr` into `types.Message`.
+- Codex CLI exec envelopes (`Chunk ID`, exit code metadata, `Output:`)
+  are treated as transport metadata: Layer 0 compacts the payload after
+  `Output:` and preserves the header.
 - `/v1/responses` is considered compressible only after User-Agent/body
   detection classifies it as `CodexChatGPT`; generic OpenAI Responses
   traffic remains passthrough.
@@ -525,15 +601,34 @@ seed the next-turn anchor.
 ### OpenAI prompt-cache hints (T136)
 
 `[proxy.openai_prompt_cache]` is an opt-in request-hint layer for generic
-OpenAI API traffic. When enabled and the estimated input size crosses
-`min_tokens`, Slimference may add a privacy-safe hashed `prompt_cache_key`
-and a model-gated `prompt_cache_retention` value. Existing caller-owned
-fields are preserved, generated keys never contain raw prompt text or full
-local paths, and a per-key rate cap disables the hint before it can create
-high-cardinality cache churn. If OpenAI rejects the fields with a relevant
-4xx response, the proxy retries once without those hints. CodexChatGPT
-backend routes do not receive these fields until T140 captures live request
-acceptance.
+OpenAI API traffic. When enabled, Slimference first builds a stable-prefix
+plan from `messages` / Responses `input` arrays plus stable top-level fields
+(`instructions`, `system`, `developer`, `tools`). Only content before the
+final user turn is eligible; the latest user turn is excluded so normal prompt
+edits do not rotate the cache key. The hint gate uses stable-prefix tokens,
+not whole-request tokens, so one-turn requests do not pay cache-hint overhead
+just because the latest prompt is large.
+
+Generated `prompt_cache_key` values are privacy-safe hashes over session/model
+strategy plus the stable-prefix hash. They rotate when the stable prefix or
+tool schema changes, but they never contain raw prompt text or full local
+paths. Existing caller-owned fields are preserved, and a per-key rate cap
+disables the hint before it can create high-cardinality cache churn. If OpenAI
+rejects the fields with a relevant 4xx response, the proxy retries once
+without those hints while preserving any server-state rewrite. Debug/flight
+telemetry records only content-free fields: applied/reason, retention,
+stable-prefix token estimate, and stable-prefix hash.
+
+CodexChatGPT backend routes do not receive these fields until T140 captures
+live request acceptance.
+
+`slimference gain --proxy` includes a content-free prompt-cache heat map grouped
+by stable-prefix hash. Each row records request count, hint applied/skipped
+counts, maximum stable-prefix token estimate, provider cached tokens, provider
+cache read tokens, and cache create tokens. JSON exposes `prompt_cache_heat`,
+CSV exposes heat-key count plus top hash/cached-token totals, and text output
+prints the hottest five hashes. These rows explain cache behavior; provider
+cache credits remain provider/accounting evidence, not claimed local deletion.
 
 ### Reversibility-by-default (T76)
 
@@ -591,9 +686,19 @@ beyond the threshold are removed from `tools[]` for Anthropic
 (`tools[].name`) and OpenAI / CodexChatGPT (`tools[].function.name`
 or top-level `tools[].name`). Telemetry at
 `/admin/status.tool_prune.{sessions,pruned_total,reattach_total,
-tokens_saved_sum}`. Default off. Forward-path-only in this
-release: if the model invokes a pruned tool, the upstream sees the
-reduced `tools[]`. Reattach (T103b) is tracked separately.
+miss_total,retry_total,always_keep_total,disabled_sessions,
+tokens_saved_sum}`. Default off.
+
+T151 makes the pruner soak-safe enough for wider testing: shell,
+edit, read, safety, browser, and MCP tool classes are always kept, and
+`tool_prune_always_keep = []` can add project-specific exact tool
+names. Pruned definitions are archived by session and tool name. A
+later mention reattaches the definition before pruning runs again. If
+the upstream returns a conservative missing-tool 4xx, the proxy retries
+once with the full pre-prune schema, records miss/retry telemetry, and
+disables future pruning for that session bucket. `slimference gain
+--proxy` includes tool-prune saved-token, pruned-tool, reattach, miss,
+and retry totals from the decision log.
 
 ### Posttool cross-session repetition marker (T93)
 
@@ -718,13 +823,31 @@ First touch of an existing file leaves a timestamped backup
 `slimference hook install codex` is separate from transparent proxy setup and
 legacy config-patch integration. It writes `~/.codex/hooks.json`, executable
 scripts under `~/.slimference/hooks/`, and only the official
-`[features] codex_hooks = true` flag in `~/.codex/config.toml`; it does not
+`[features] hooks = true` flag in `~/.codex/config.toml`; it does not
 write `openai_base_url` or `chatgpt_base_url`.
 
 The installed events are `SessionStart`, `PreToolUse`, `PermissionRequest`,
-`PostToolUse`, `UserPromptSubmit`, and `Stop`. `PostToolUse` is the primary
-token-saving hook path: raw output is archived and compact feedback is emitted
-with Codex's documented replacement shape. It also owns the safe T126
+`PostToolUse`, `UserPromptSubmit`, and `Stop`. `PostToolUse` is Bash-only by
+default; write tools (`apply_patch`, `Edit`, `Write`) and MCP calls are not
+post-processed because their current ROI is negative without per-tool output
+contracts. `SessionStart` records hook state without injecting context unless
+`SLIMFERENCE_CODEX_HOOK_MODE=debug` is set, and `PreToolUse` does not
+block/retry Bash commands unless `SLIMFERENCE_CODEX_HOOK_MODE=aggressive` is set
+deliberately.
+`PostToolUse` records turn state and archives raw Bash output. The default
+`SLIMFERENCE_CODEX_HOOK_MODE=auto` emits visible `continue:false` replacement
+only for Bash outputs with at least 600 original tokens, at least 400 saved
+tokens, and at least 45% savings. `compact` / `aggressive` force visible
+replacement for any changed output; `silent` keeps archive-only behaviour. It fail-opens on unknown
+payload shapes so Codex never sees hook crashes for unsupported tool results:
+missing or non-string tool-output fields are skipped and recorded as telemetry.
+Tiny outputs below `hooks.codex_posttool_min_tokens` are skipped before the
+heavy compaction/archive path. Both the generated shell hook and the Go
+entrypoint enforce a fail-open watchdog via
+`hooks.codex_posttool_timeout_seconds` / `SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS`;
+timeout telemetry is recorded as `timeout_fail_open`.
+The primary no-chat-noise saving path is the Codex proxy route, not visible hook
+feedback. The hook path also owns the safe T126
 cross-tool mini path: raw `git status` path lists are recorded in the
 file-backed current turn, and a later same-session/same-turn/same-CWD
 `git diff --name-only` with the same exact path fingerprint is replaced by an
@@ -1112,6 +1235,8 @@ tee_dir               = ""
 [hooks]
 slimference_command = "slimference"
 exclude_commands    = []
+codex_posttool_timeout_seconds = 4
+codex_posttool_min_tokens      = 800
 
 [debug]
 level           = "info"
@@ -1130,6 +1255,8 @@ SLIMFERENCE_UPSTREAM_{ANTHROPIC,OPENAI,CODEX_CHATGPT}_BASE_URL,
 SLIMFERENCE_COMPRESSION_SLIDING_WINDOW,
 SLIMFERENCE_SECRETS_MODE, SLIMFERENCE_LOGGING_LEVEL,
 SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND,
+SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS,
+SLIMFERENCE_CODEX_POSTTOOL_MIN_TOKENS,
 SLIMFERENCE_DEBUG_{DECISIONS_LOG,LEVEL,FORMAT,MAX_ENTRIES},
 SLIMFERENCE_FILTER_{PASSTHROUGH_MAX_CHARS,DB,TEE_DIR}
 ```
@@ -1206,32 +1333,47 @@ Transparent WebSocket transport remains byte-for-byte by default. The
 attached to the tunnel without mutation. It preserves raw bytes, decodes
 frame metadata, reassembles fragmented text messages for shape inspection,
 records opcode/direction/payload length/JSON top-level keys/message type, and
-marks RSV/compressed-extension frames as inspect-only blockers. This is the
-T142 foundation for future WebSocket message-boundary compression; mutation
-is still blocked on live Codex frame-shape evidence.
+marks RSV/compressed-extension frames as inspect-only blockers. Frame summaries
+also carry a non-mutating `shadow` block: JSON text payloads are compacted in
+memory with stdlib `json.Compact` only for accounting, while the original frame
+bytes are still written unchanged. The shadow block records would-save
+bytes/tokens, applied layers (`json_compact`), and explicit blockers for
+non-JSON or RSV/compressed-extension frames. Full request-pipeline shadow replay
+and mutation remain blocked on live Codex frame-shape evidence.
 
 ### Compression planner
 
 `internal/planner` is the deterministic safety governor for cross-layer
 coordination. It turns request facts (provider/model/route, input/output token
 size, content classes, live-corpus confidence, manual disables, recent-edit
-state, provider cache support, L2 policy, output-reduce cooldown, and
-WebSocket shape confidence) into per-layer decisions for L0, L1, L2, L3,
-output-reduce, and WebSocket transport. The package is pure: same facts produce
+state, provider cache support, L2 policy, output-reduce/tool-prune cooldown,
+and WebSocket shape confidence) into per-layer decisions for L0, L1, L2, L3,
+Layer 4 output/tool controls, and WebSocket transport. The package is pure: same facts produce
 the same `CompressionPlan`, every decision carries action, reason, expected
 saving, risk, and confidence, and operator-disabled layers stay disabled.
-Output-reduce cooldown is sourced from the T141 auto-tune tracker before
-profile selection; the planner marks it as a `cheap_only`
-`quality_cooldown_soften_profile` decision because the runtime softens the
-profile rather than fully disabling output reduction.
+The proxy derives recent-edit state from the current request plus file-backed
+hook turn state, so read-only follow-up requests can still preserve recently
+edited files. Live-corpus confidence defaults to `unknown`, can be asserted via
+`[compression.tuning] planner_live_corpus_confidence`, or derived from
+`planner_live_corpus_metadata_path` metadata. WebSocket shape confidence is fed
+by the inspect-only `wscompact.ShapeRegistry`; it records observed JSON frame
+shapes without changing bytes.
+Layer 4 cooldown is sourced from the T141 output-reduce tracker and the T151
+tool-prune session bucket; the planner marks it as a `cheap_only`
+`quality_cooldown_soften_layer4` decision because the runtime softens Layer 4
+rather than blindly continuing aggressive behavior.
 
-The proxy hot path now attaches this plan as dry-run advice to
-`debug.RequestSummary` and normalized `flight` records for upstream, local
-cache, transparent CONNECT, and direct WebSocket routes. This does not yet
-override layer execution; it gives `debug flight`, the TUI, and corpus replay a
-single explanation surface for "why this request was compressed or skipped".
-Actual layer behavior remains guarded by the existing layer-local fallbacks
-until T146 planned-vs-actual evidence is available.
+The proxy hot path attaches this plan to `debug.RequestSummary` and normalized
+`flight` records for upstream, local cache, transparent CONNECT, and direct
+WebSocket routes. For HTTP compression requests, the same request-local plan now
+also controls the first behavior gates: L0 proxy compaction skips planner
+`bypass`, L1 skips planner `bypass` and uses cheap-only mode for planner
+`cheap_only`, L1/L2 coordination keys off the planner's L2 `run` decision, and
+L2 cache apply/background enqueue skip hard L2 bypasses (operator-disabled,
+external policy disabled, recent-edit window). Soft below-ROI L2 bypasses still
+fall through to Layer2's session cache and candidate scoring so the planner does
+not suppress already-proven cache wins. Layer-local fallbacks remain active; the
+planner is an early governor, not the only safety mechanism.
 
 `slimference plan inspect` dry-runs the same planner without sending upstream
 traffic. It accepts provider/model/route/token/cache/WebSocket facts, can
@@ -1249,7 +1391,12 @@ planner thresholds so future default-on changes have measurable evidence.
 It also emits an observed layer-combination matrix keyed by stable labels
 (`L0`, `L1`, `L2`, `L3`, `L4`, `WS`, or `none`) with request count, saved
 tokens, output tokens, and errors. This is factual corpus accounting, not a
-simulated alternate-run replay.
+simulated alternate-run replay. Category metadata can additionally declare
+`scenario_validators` (`tool_heavy`, `cache_reuse`, `output_reduce`,
+`planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`,
+`l2_summary`) so a category fails unless the intended optimization behavior is
+actually present in the captured request summaries; unknown validator names fail
+closed.
 
 ### Global flags
 

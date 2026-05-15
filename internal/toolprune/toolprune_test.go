@@ -202,3 +202,60 @@ func TestSnapshotBoundedAtCap(t *testing.T) {
 		t.Fatalf("cap not enforced: %d", got)
 	}
 }
+
+func TestSafetyAndTelemetryBranches(t *testing.T) {
+	if IsDefaultAlwaysKeep("") {
+		t.Fatal("empty name must not be default-keep")
+	}
+	if IsDefaultAlwaysKeep("customDomainLookup") {
+		t.Fatal("custom tool must not match default keep tokens")
+	}
+	for _, name := range []string{"mcp__repo_search", "Apply_Patch", "terminal.exec"} {
+		if !IsDefaultAlwaysKeep(name) {
+			t.Fatalf("%q should be default-keep", name)
+		}
+	}
+
+	for _, body := range []string{
+		"missing tool call",
+		"unknown tool requested",
+		"tool not found",
+		"not found in tools",
+		"not among the tools",
+		"not a valid tool",
+		"tool_use id not found",
+	} {
+		if !LooksLikeMissingToolError(400, []byte(body)) {
+			t.Fatalf("body should look like missing-tool error: %q", body)
+		}
+	}
+	if LooksLikeMissingToolError(399, []byte("missing tool")) ||
+		LooksLikeMissingToolError(500, []byte("missing tool")) ||
+		LooksLikeMissingToolError(400, nil) ||
+		LooksLikeMissingToolError(400, []byte("quota exceeded")) {
+		t.Fatal("non-missing-tool responses must not match")
+	}
+
+	tracker := NewUsageTracker(1)
+	tracker.MarkMiss("")
+	if tracker.Disabled("") {
+		t.Fatal("empty session cannot be disabled")
+	}
+	tracker.maxSessions = 1
+	tracker.ObserveTurn("old", []string{"tool"})
+	tracker.MarkMiss("sess")
+	if !tracker.Disabled("sess") {
+		t.Fatal("session miss should disable future pruning")
+	}
+	tracker.MarkRetry()
+	tracker.MarkAlwaysKept(0)
+	tracker.MarkAlwaysKept(3)
+	decision := tracker.DecideWithOptions("sess", []string{"custom"}, DecisionOptions{MinKeep: 0})
+	if decision.Reason != "quality_cooldown" || len(decision.Keep) != 1 {
+		t.Fatalf("cooldown decision mismatch: %+v", decision)
+	}
+	stats := tracker.Snapshot()
+	if stats.MissTotal != 2 || stats.RetryTotal != 1 || stats.AlwaysKeepTotal != 3 || stats.DisabledSessions != 1 {
+		t.Fatalf("stats mismatch: %+v", stats)
+	}
+}

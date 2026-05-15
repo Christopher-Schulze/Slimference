@@ -23,6 +23,8 @@ func TestReadOutputReduceReport(t *testing.T) {
 			Type: "analytics_event",
 			Payload: mustJSON(t, types.AnalyticsEvent{
 				Type:                    types.EventRequestProcessed,
+				Provider:                types.OpenAI,
+				Model:                   "gpt-5.5",
 				OutputTokens:            120,
 				OutputReduceApplied:     true,
 				OutputReduceProfile:     "codex",
@@ -35,6 +37,8 @@ func TestReadOutputReduceReport(t *testing.T) {
 			Type: "analytics_event",
 			Payload: mustJSON(t, types.AnalyticsEvent{
 				Type:               types.EventRequestProcessed,
+				Provider:           types.OpenAI,
+				Model:              "gpt-5.5",
 				OutputTokens:       40,
 				OutputReduceReason: "below_min_tokens",
 			}),
@@ -78,6 +82,15 @@ func TestReadOutputReduceReport(t *testing.T) {
 	if report.AvgOutputTokens != 80 || report.AvgAppliedOutputTokens != 120 || report.AvgInputOverheadPerApply != 14 {
 		t.Fatalf("averages=%+v", report)
 	}
+	if len(report.ProfileRows) != 2 {
+		t.Fatalf("profile rows=%+v", report.ProfileRows)
+	}
+	if row := report.ProfileRows[0]; row.Provider != "openai" || row.Model != "gpt-5.5" || row.Profile != "codex" || row.TaskShape != "code_edit" || row.Requests != 1 || row.AppliedRequests != 1 || row.InputOverheadTokens != 14 || row.AvgInputOverheadPerApply != 14 {
+		t.Fatalf("first profile row=%+v", row)
+	}
+	if row := report.ProfileRows[1]; row.Profile != "none" || row.TaskShape != "unknown" || row.SkippedRequests != 1 || row.Reasons["below_min_tokens"] != 1 {
+		t.Fatalf("second profile row=%+v", row)
+	}
 }
 
 func TestReadOutputReduceReportEmptyAndErrors(t *testing.T) {
@@ -88,7 +101,7 @@ func TestReadOutputReduceReportEmptyAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TotalRequests != 0 || report.Profiles != nil || report.TaskShapes != nil || report.Reasons != nil {
+	if report.TotalRequests != 0 || report.Profiles != nil || report.TaskShapes != nil || report.Reasons != nil || report.ProfileRows != nil {
 		t.Fatalf("empty report=%+v", report)
 	}
 	if _, err := ReadOutputReduceReport(t.TempDir(), "bad", now); err == nil {
@@ -124,6 +137,21 @@ func TestWriteOutputReduceCSV(t *testing.T) {
 		Profiles:                 map[string]int{"codex": 1, " ": 9},
 		TaskShapes:               map[string]int{"code_edit": 1},
 		Reasons:                  map[string]int{"applied": 1, "below_min_tokens": 1, "": 3},
+		ProfileRows: []OutputReduceProfileRow{
+			{
+				Provider:                 "openai",
+				Model:                    "gpt-5.5",
+				Profile:                  "codex",
+				TaskShape:                "code_edit",
+				Requests:                 1,
+				AppliedRequests:          1,
+				InputOverheadTokens:      14,
+				OutputTokensObserved:     120,
+				AppliedOutputTokens:      120,
+				AvgOutputTokens:          120,
+				AvgInputOverheadPerApply: 14,
+			},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +163,7 @@ func TestWriteOutputReduceCSV(t *testing.T) {
 		"profile,codex,1",
 		"task_shape,code_edit,1",
 		"reason,below_min_tokens,1",
+		"profile_row,openai,gpt-5.5,codex,code_edit,1,1,0,14,120,120,120.00,14.00",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("csv missing %q in %q", want, out)
@@ -143,4 +172,74 @@ func TestWriteOutputReduceCSV(t *testing.T) {
 	if err := WriteOutputReduceCSV(promptCacheErrWriter{}, OutputReduceReport{}); err == nil {
 		t.Fatal("expected csv write error")
 	}
+}
+
+func TestOutputReduceProfileRowsBranches(t *testing.T) {
+	t.Parallel()
+
+	report := OutputReduceReport{}
+	report.observeOutputReduceProfileRow(types.AnalyticsEvent{})
+	if report.profileRows != nil {
+		t.Fatalf("empty output-reduce event should not create rows: %+v", report.profileRows)
+	}
+
+	report.profileRows = map[string]*OutputReduceProfileRow{
+		"zero": {
+			Provider: "zero",
+			Model:    "unknown",
+			Profile:  "none",
+		},
+		"plain": {
+			Provider:             "openai",
+			Model:                "gpt",
+			Profile:              "mild",
+			TaskShape:            "review",
+			Requests:             1,
+			AppliedRequests:      1,
+			InputOverheadTokens:  8,
+			OutputTokensObserved: 20,
+		},
+	}
+	report.finalizeOutputReduceProfileRows()
+	if len(report.ProfileRows) != 2 {
+		t.Fatalf("profile rows=%+v", report.ProfileRows)
+	}
+	for _, row := range report.ProfileRows {
+		if row.Provider == "openai" && (row.AvgOutputTokens != 20 || row.AvgInputOverheadPerApply != 8 || row.Reasons != nil) {
+			t.Fatalf("plain row averages/reasons=%+v", row)
+		}
+	}
+
+	base := OutputReduceProfileRow{
+		Provider:             "openai",
+		Model:                "gpt",
+		Profile:              "standard",
+		TaskShape:            "code_edit",
+		Requests:             2,
+		AppliedRequests:      1,
+		OutputTokensObserved: 100,
+	}
+	cases := []struct {
+		name string
+		a    OutputReduceProfileRow
+		b    OutputReduceProfileRow
+	}{
+		{name: "requests", a: withOutputReduceRow(base, func(r *OutputReduceProfileRow) { r.Requests = 3 }), b: base},
+		{name: "applied", a: withOutputReduceRow(base, func(r *OutputReduceProfileRow) { r.AppliedRequests = 2 }), b: base},
+		{name: "output", a: withOutputReduceRow(base, func(r *OutputReduceProfileRow) { r.OutputTokensObserved = 101 }), b: base},
+		{name: "provider", a: withOutputReduceRow(base, func(r *OutputReduceProfileRow) { r.Provider = "anthropic" }), b: base},
+		{name: "model", a: withOutputReduceRow(base, func(r *OutputReduceProfileRow) { r.Model = "claude" }), b: base},
+		{name: "shape", a: withOutputReduceRow(base, func(r *OutputReduceProfileRow) { r.TaskShape = "audit" }), b: base},
+		{name: "profile", a: withOutputReduceRow(base, func(r *OutputReduceProfileRow) { r.Profile = "mild" }), b: base},
+	}
+	for _, tc := range cases {
+		if !lessOutputReduceProfileRow(tc.a, tc.b) {
+			t.Fatalf("%s: expected a < b: %+v %+v", tc.name, tc.a, tc.b)
+		}
+	}
+}
+
+func withOutputReduceRow(base OutputReduceProfileRow, mutate func(*OutputReduceProfileRow)) OutputReduceProfileRow {
+	mutate(&base)
+	return base
 }

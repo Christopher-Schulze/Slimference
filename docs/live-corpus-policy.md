@@ -75,6 +75,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
      "expected_output_reduce_applied_min": 0,
      "expected_planner_missed_max": 0,
      "expected_planner_bypass_applied_max": 0,
+     "scenario_validators": ["tool_heavy", "low_error"],
      "notes": "<provenance, scrubbing notes, anything reviewers should know>"
    }
    ```
@@ -85,7 +86,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --check
    ```
 
-   The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, or exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`). The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
+   The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`), or fails any declared `scenario_validators`. Supported validators are `tool_heavy`, `cache_reuse`, `output_reduce`, `planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`, and `l2_summary`; unknown names fail the gate so typos cannot silently weaken evidence. The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
 
 6. Commit. The fixture is now part of the CI regression contract.
 

@@ -32,6 +32,8 @@ func TestBuildFlightRequestSummary(t *testing.T) {
 		ProviderInputTokens:    700,
 		ProviderCachedTokens:   250,
 		ProviderOutputTokens:   120,
+		PromptCache:            PromptCacheSummary{Applied: true, Reason: "applied", KeySet: true, Retention: "24h", StablePrefixHash: "abc123", StablePrefixTokens: 444},
+		ToolPrune:              ToolPruneSummary{Applied: true, Reason: "idle_tools", PrunedTools: 3, AlwaysKept: 2, SavedTokens: 120, Reattached: 1, Miss: true, Retry: true, Cooldown: true},
 		OutputReduce:           OutputReduceSummary{Applied: true, Profile: "codex", Reason: "applied", AddedTokens: 12},
 		PreviousResponseIDUsed: true,
 		Plan: &PlanSummary{
@@ -66,6 +68,18 @@ func TestBuildFlightRequestSummary(t *testing.T) {
 	if !flight.CacheAccounting.PreviousResponseIDUsed || flight.CacheAccounting.PreviousResponseIDBillable {
 		t.Fatalf("bad previous_response_id accounting: %+v", flight.CacheAccounting)
 	}
+	if !flight.CacheAccounting.PromptCacheHintApplied ||
+		flight.CacheAccounting.PromptCacheHintReason != "applied" ||
+		flight.CacheAccounting.PromptCacheStablePrefixTokens != 444 {
+		t.Fatalf("bad prompt-cache accounting: %+v", flight.CacheAccounting)
+	}
+	if !flight.ToolPrune.Applied ||
+		flight.ToolPrune.SavedTokens != 120 ||
+		!flight.ToolPrune.Miss ||
+		!flight.ToolPrune.Retry ||
+		!flight.ToolPrune.Cooldown {
+		t.Fatalf("bad tool-prune accounting: %+v", flight.ToolPrune)
+	}
 	if !flight.OutputReduce.Applied || flight.OutputReduce.AddedTokens != 12 {
 		t.Fatalf("bad output reduce accounting: %+v", flight.OutputReduce)
 	}
@@ -84,6 +98,12 @@ func TestBuildFlightRequestSummary(t *testing.T) {
 	}
 	if !hasFlightStage(flight.Events, "planner", "advice_ready") {
 		t.Fatalf("missing planner advice event: %+v", flight.Events)
+	}
+	if !hasFlightStage(flight.Events, "prompt_cache", "applied") {
+		t.Fatalf("missing prompt-cache event: %+v", flight.Events)
+	}
+	if !hasFlightStage(flight.Events, "tool_prune", "applied") {
+		t.Fatalf("missing tool-prune event: %+v", flight.Events)
 	}
 }
 

@@ -34,6 +34,7 @@ import (
 	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
+	"github.com/slimference/slimference/internal/wscompact"
 )
 
 // newFileWatcherFunc is called by New to create the file watcher; overridden in tests.
@@ -142,9 +143,12 @@ type Proxy struct {
 	serverState *sessions.ResponseStateStore
 	// outputReduce tracks T130 prompt-injection overhead and observed output.
 	outputReduce          *outputreduce.Tracker
+	outputReduceRepairMu  sync.Mutex
+	outputReduceRepair    map[string]pendingOutputReduceSignal
 	openAIPromptCacheMu   sync.Mutex
 	openAIPromptCacheRate map[string]promptCacheRateBucket
 	webSocketTunnel       *WebSocketTunnel
+	webSocketShapes       *wscompact.ShapeRegistry
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder
@@ -189,19 +193,20 @@ func (p *Proxy) recoverMiddleware(next http.Handler) http.Handler {
 func New(cfg *config.Config) *Proxy {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	p := &Proxy{
-		config:            cfg,
-		httpClients:       make(map[types.Provider]*http.Client),
-		compressQueue:     make(chan types.CompressJob, 4),
-		analyticsQueue:    make(chan types.AnalyticsEvent, 256),
-		workerCtx:         workerCtx,
-		workerCancel:      workerCancel,
-		shutdownCh:        make(chan struct{}),
-		pipelineHist:      analytics.NewPipelineHistograms(),
-		qualityReRead:     quality.NewReReadDetector(10),
-		qualityCacheSpike: quality.NewCacheMissSpikeDetector(50, 0.25),
-		qualityNetSavings: quality.NewNetSavings(),
-		toolPrune:         toolprune.NewUsageTracker(20),
-		serverState:       sessions.NewResponseStateStore(1024),
+		config:             cfg,
+		httpClients:        make(map[types.Provider]*http.Client),
+		compressQueue:      make(chan types.CompressJob, 4),
+		analyticsQueue:     make(chan types.AnalyticsEvent, 256),
+		workerCtx:          workerCtx,
+		workerCancel:       workerCancel,
+		shutdownCh:         make(chan struct{}),
+		pipelineHist:       analytics.NewPipelineHistograms(),
+		qualityReRead:      quality.NewReReadDetector(10),
+		qualityCacheSpike:  quality.NewCacheMissSpikeDetector(50, 0.25),
+		qualityNetSavings:  quality.NewNetSavings(),
+		toolPrune:          toolprune.NewUsageTracker(20),
+		serverState:        sessions.NewResponseStateStore(1024),
+		outputReduceRepair: make(map[string]pendingOutputReduceSignal),
 		outputReduce: outputreduce.NewTrackerWithAutoTune(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile, outputreduce.AutoTuneConfig{
 			Enabled:             cfg.Compression.OutputReduce.AutoTuneEnabled,
 			MinSamples:          cfg.Compression.OutputReduce.AutoTuneMinSamples,
@@ -231,10 +236,12 @@ func New(cfg *config.Config) *Proxy {
 	p.httpClients[types.Anthropic] = upstreamClient
 	p.httpClients[types.OpenAI] = upstreamClient
 	p.httpClients[types.CodexChatGPT] = upstreamClient
+	p.webSocketShapes = wscompact.NewShapeRegistry()
 	p.webSocketTunnel = &WebSocketTunnel{
 		Dialer:      newProfiledWebSocketDialer(tlsResolver),
 		Logger:      slog.Default(),
 		BypassPaths: cfg.Transparent.AudioBypassPaths,
+		Inspector:   p.webSocketShapes,
 	}
 
 	// Layer 1: Deterministic compressor.
@@ -601,9 +608,9 @@ func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Requ
 					provider:                   provider,
 					routeMode:                  "websocket_force_https_fallback",
 					contentClasses:             []string{"websocket"},
-					webSocketShapeKnown:        false,
+					webSocketShapeKnown:        p.webSocketShapeKnown(),
 					webSocketMutationRequested: false,
-					liveCorpusConfidence:       "unknown",
+					liveCorpusConfidence:       p.plannerLiveCorpusConfidence(),
 				}),
 			})
 		}
@@ -643,9 +650,9 @@ func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Requ
 				provider:                   provider,
 				routeMode:                  "websocket_tunnel",
 				contentClasses:             []string{"websocket"},
-				webSocketShapeKnown:        false,
+				webSocketShapeKnown:        p.webSocketShapeKnown(),
 				webSocketMutationRequested: false,
-				liveCorpusConfidence:       "unknown",
+				liveCorpusConfidence:       p.plannerLiveCorpusConfidence(),
 			}),
 		})
 	}

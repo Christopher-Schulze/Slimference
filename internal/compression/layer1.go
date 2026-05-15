@@ -175,10 +175,6 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 		// outputs in the middle of the conversation.
 		if c.cfg.Tuning.StructureInWindow && len(messages) >= 2 {
 			out := result.Messages
-			if len(out) == 0 {
-				out = make([]types.Message, len(messages))
-				copy(out, messages)
-			}
 			saved := c.structureInWindowPass(out, 0)
 			if saved > 0 {
 				result.StructureSaved = saved

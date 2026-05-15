@@ -105,7 +105,11 @@ Required minimum categories:
   - tool success/failure retained.
 - For L2 summaries, compare full-context answers to summarized-context answers on golden questions.
 - For output reduce, detect repair turns and user re-asks.
-- Implemented foundation: corpus metadata can now fail categories on `expected_max_errors`; richer scenario validators remain pending.
+- Implemented foundation: corpus metadata can now fail categories on `expected_max_errors`.
+- Implemented 2026-05-15: category metadata supports failable `scenario_validators`
+  for `tool_heavy`, `cache_reuse`, `output_reduce`, `planner_alignment`,
+  `websocket`, `low_error`, `layer_combo_diversity`, and `l2_summary`. Unknown
+  validator names fail the gate instead of silently weakening evidence.
 
 ### WP5 - Reporting
 
@@ -140,7 +144,7 @@ Required minimum categories:
   - max fallback/error rate.
   - max quality regression.
 - Default-on requires passing thresholds.
-- Implemented foundation: category `metadata.json` supports `evidence_level`, `expected_max_errors`, `expected_latency_p95_max_ms`, `expected_provider_cache_read_min`, `expected_output_reduce_applied_min`, `expected_planner_missed_max`, and `expected_planner_bypass_applied_max` in addition to savings/request gates.
+- Implemented foundation: category `metadata.json` supports `evidence_level`, `expected_max_errors`, `expected_latency_p95_max_ms`, `expected_provider_cache_read_min`, `expected_output_reduce_applied_min`, `expected_planner_missed_max`, `expected_planner_bypass_applied_max`, and `scenario_validators` in addition to savings/request gates.
 
 ## Acceptance
 
@@ -150,7 +154,7 @@ Required minimum categories:
 - [x] Reports show observed layer-combination matrices without live network calls.
 - [x] Reports separate input compression, output reduce, cache billing, and latency.
 - [x] Reports planned-vs-actual planner execution signals from captured request summaries.
-- [ ] Quality gates are scenario-specific and failable.
+- [x] Quality gates are scenario-specific and failable.
 - [ ] Every Phase AB task references its required corpus gate.
 - [x] `go run ./scripts/ci` includes a corpus regression check that skips only live capture, not replay validation.
 
@@ -177,6 +181,16 @@ Required minimum categories:
   - The JSON report exposes `layer_combinations` per category so later A/B
     analysis can compare full-pipeline sessions against individual or planned
     combinations.
+  - Focus test: `go test ./scripts/benchmarks -cover`.
+- 2026-05-15 T146d:
+  - `metadata.json` category gates now support `scenario_validators`.
+  - The validators bind category names to concrete evidence: tool-heavy sessions
+    must show L0/L1 savings, cache-reuse sessions must show L3/provider-cache
+    evidence, output-reduce sessions must apply output-reduce, planner-alignment
+    sessions must have no missed/bypass-applied plan actions, WebSocket sessions
+    must show `WS`, low-error sessions must have zero errors, combo-diversity
+    sessions must have multiple observed layer combinations, and L2-summary
+    sessions must show L2 savings.
   - Focus test: `go test ./scripts/benchmarks -cover`.
 
 ## Expected Upside

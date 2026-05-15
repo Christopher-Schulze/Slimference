@@ -165,8 +165,12 @@ func TestDetectDaemon_OKWithPID(t *testing.T) {
 }
 
 func TestDetectDaemon_DefaultURLWhenEmpty(t *testing.T) {
-	// Empty URL falls back to ProxyURL constant - pointed at an
-	// unroutable port by default, so this just exercises the nil-URL path.
+	oldDefault := defaultDaemonURL
+	defaultDaemonURL = "http://127.0.0.1:1"
+	t.Cleanup(func() {
+		defaultDaemonURL = oldDefault
+	})
+
 	s := DetectDaemon("")
 	if s.Running {
 		t.Fatal("empty url should yield unreachable daemon")

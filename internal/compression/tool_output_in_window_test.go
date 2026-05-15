@@ -6,8 +6,18 @@ import (
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/types"
 )
+
+type toolOutputWindowRecorder struct {
+	seen contentarchive.Input
+}
+
+func (r *toolOutputWindowRecorder) Record(input contentarchive.Input) (string, error) {
+	r.seen = input
+	return "archive-tool-output", nil
+}
 
 func TestToolOutputInWindowPass_CompactsLargeCurrentSearchOutput(t *testing.T) {
 	t.Parallel()
@@ -69,5 +79,68 @@ func TestToolOutputInWindowPass_DisabledAndSafetyBranches(t *testing.T) {
 	}
 	if toolOutputInWindowTypeAllowed(types.ToolTypeFileRead) {
 		t.Fatal("file reads must not be compacted by tool-output in-window pass")
+	}
+}
+
+func TestToolOutputInWindowPass_MinTokenFallbackAndNoShrink(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	cfg.SlidingWindow = 5
+	cfg.Tuning.ToolOutputInWindow = true
+	cfg.Tuning.ToolOutputInWindowMinTokens = 0
+	c := NewDeterministicCompressor(&cfg)
+
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "build"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-build", ToolName: "shell", ToolInput: `{"command":"tsc"}`}}},
+		{Index: 2, Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-build", Text: strings.Repeat("ok build line\n", 1000)}}},
+		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "done"}}},
+		{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "tail"}}},
+	}
+
+	result := c.Compress(msgs)
+	if result.ToolCompressorSaved != 0 {
+		t.Fatalf("non-shrinking build output should be skipped, saved=%d", result.ToolCompressorSaved)
+	}
+	if got := result.Messages[2].Content[0].Text; got != msgs[2].Content[0].Text {
+		t.Fatal("non-shrinking output should remain byte-identical")
+	}
+}
+
+func TestToolOutputInWindowPass_ArchivesOriginalWhenRecorderPresent(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	cfg.SlidingWindow = 5
+	cfg.Tuning.ToolOutputInWindow = true
+	cfg.Tuning.ToolOutputInWindowMinTokens = 100
+	recorder := &toolOutputWindowRecorder{}
+	c := NewDeterministicCompressor(&cfg).WithRecorder(recorder)
+
+	var output strings.Builder
+	for i := 0; i < 300; i++ {
+		output.WriteString(fmt.Sprintf("internal/filter/file_%03d.go:%d:needle\n", i, i+1))
+	}
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "search"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-search", ToolName: "shell", ToolInput: `{"command":"rg needle internal/filter"}`}}},
+		{Index: 2, Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-search", Text: output.String()}}},
+		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "done"}}},
+		{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "tail"}}},
+	}
+
+	result := c.CompressWithSession("session-tool-output", msgs)
+	block := result.Messages[2].Content[0]
+	if block.ArchiveID != "archive-tool-output" {
+		t.Fatalf("archive id=%q", block.ArchiveID)
+	}
+	if recorder.seen.SessionID != "session-tool-output" || recorder.seen.SubLayer != "tool_output_in_window" {
+		t.Fatalf("archive input=%#v", recorder.seen)
+	}
+}
+
+func TestClassifyJavaScriptPackageCommand_requiresScriptName(t *testing.T) {
+	t.Parallel()
+	if got := classifyJavaScriptPackageCommand([]string{"npm"}); got != types.ToolTypeUnknown {
+		t.Fatalf("npm without subcommand classified as %v", got)
 	}
 }

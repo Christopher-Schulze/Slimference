@@ -354,9 +354,11 @@ func TestHandlePostToolCmd_T93RepetitionMarkerOnThirdHit(t *testing.T) {
 
 	home := t.TempDir()
 	termIsTerminalFn = func(int) bool { return false }
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 	osUserHomeDir = func() (string, error) { return home, nil }
 	cfg := config.Defaults()
 	cfg.Filter.PassthroughMaxChars = 40
+	cfg.Hooks.CodexPostToolMinTokens = 0
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
 
 	for i := 0; i < 3; i++ {
@@ -420,9 +422,11 @@ func TestHandlePostToolCmd_ArchivesLargeOutputWhenMetadataPresent(t *testing.T) 
 
 	home := t.TempDir()
 	termIsTerminalFn = func(int) bool { return false }
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 	osUserHomeDir = func() (string, error) { return home, nil }
 	cfg := config.Defaults()
 	cfg.Filter.PassthroughMaxChars = 40
+	cfg.Hooks.CodexPostToolMinTokens = 0
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
 
 	payload, err := json.Marshal(map[string]string{

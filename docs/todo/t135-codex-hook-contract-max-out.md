@@ -33,7 +33,7 @@ Optional hook install becomes an advanced precision layer:
 
 1. User can run Slimference with no Codex hook mutation.
 2. If hooks are installed, every supported hook event is used for measurable value.
-3. `PostToolUse` becomes the main hook saving path: compact/replace large supported tool output before the model relies on it.
+3. `PostToolUse` supports an opt-in visible saving path: compact/replace large supported tool output before the model relies on it when `SLIMFERENCE_CODEX_HOOK_MODE=compact` or `aggressive` is set.
 4. `SessionStart` and `UserPromptSubmit` create correct session/turn boundaries for T138.
 5. `PermissionRequest` enforces policy without blocking safe work.
 6. `Stop` snapshots final state/checkpoints and validates no dangerous failure loop.
@@ -44,7 +44,7 @@ Optional hook install becomes an advanced precision layer:
 ### WP1 - Official contract matrix
 
 - Extend `internal/hooks/codex_caps.go` from version-only to event/field support:
-  - `codex_hooks_feature_flag`
+  - `hooks_feature_flag`
   - `session_start.additional_context`
   - `pre_tool_use.block`
   - `pre_tool_use.updated_input`
@@ -129,7 +129,7 @@ Optional hook install becomes an advanced precision layer:
 - [x] Hook strategy explicitly handles concurrent matching hooks and incomplete tool interception.
 - [x] SessionStart/UserPromptSubmit/Stop provide local T138 boundary events; durable cross-process state remains T138.
 - [x] PermissionRequest maps Slimference policy safely.
-- [x] Hook install/verify output is honest about optional mutation and enables only `codex_hooks=true`, not base URL config-patching.
+- [x] Hook install/verify output is honest about optional mutation and enables only `hooks=true`, not base URL config-patching.
 - [x] `go run ./scripts/ci` passes.
 
 ## Notes
@@ -137,11 +137,13 @@ Optional hook install becomes an advanced precision layer:
 - This task does not replace transparent mode. It is an optional enhancement for Codex CLI/App sessions that load Codex hooks.
 - 2026-05-13 implementation:
   - `internal/hooks/codex.go` now installs seven Codex hook scripts: `SessionStart`, `PreToolUse` Bash/Read, `PermissionRequest`, `PostToolUse`, `UserPromptSubmit`, and `Stop`.
-  - `hook install codex` writes `~/.codex/hooks.json`, executable scripts under `~/.slimference/hooks/`, legacy `AGENTS.md` fallback, and only the required `[features] codex_hooks = true` flag. It does not write `openai_base_url`.
+  - `hook install codex` writes `~/.codex/hooks.json`, executable scripts under `~/.slimference/hooks/`, and only the required `[features] hooks = true` flag. It does not write `openai_base_url` and must never write global `~/.codex/AGENTS.md`.
   - `internal/hooks/verify.go` verifies each Codex hook script and event entry separately, including SHA-256 hashes.
   - `internal/hooks/codex_caps.go` now records supported, parsed-fail-open, fail-closed, and unprobed hook fields. `PreToolUse.updatedInput` remains parsed-fail-open and disabled.
   - `cmd/slimference/main.go::handleCodexHookCmd` implements `session-start`, `permission-request`, `user-prompt-submit`, and `stop`.
-  - `posttool` now emits documented `continue:false` + `stopReason` + `PostToolUse.additionalContext`, so Codex can replace the original large tool result with compact feedback.
+  - `posttool` originally emitted documented `continue:false` + `stopReason` + `PostToolUse.additionalContext`, so Codex could replace the original large tool result with compact feedback.
+  - 2026-05-15 hook ROI correction: default `posttool` mode is `auto`; outputs below 600 original tokens or below 400 saved tokens stay archive-only, but Bash outputs with >=45% savings are replaced by compact feedback. `silent` restores archive-only mode; `compact` / `aggressive` force visible replacement for every changed output.
+  - 2026-05-14 hardening: Codex `PostToolUse` installs Bash-only by default, generated shell scripts have a fail-open watchdog before Codex's 600s timeout, Go `posttool` skips missing/non-string response payloads and tiny outputs, and timeout telemetry records `timeout_fail_open`.
   - `PermissionRequest` uses the same Layer-0 deny/ask policy as `slimference filter` and returns Codex's documented allow/deny shape.
   - Local unit coverage added in `cmd/slimference/main_test.go`, `internal/hooks/codex_caps_test.go`, `internal/hooks/status_extra_test.go`, and existing install/verify tests.
   - `go run ./scripts/ci` passes 8/8 with 100.0% total statement coverage after the T135/T136 coverage closure.

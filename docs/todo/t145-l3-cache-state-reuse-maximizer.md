@@ -1,6 +1,6 @@
 # TASK 145: Layer 3 provider-cache and state-reuse maximizer
 
-Status: PENDING (planned 2026-05-13)
+Status: IN PROGRESS (local/provable slices landed; live proof pending)
 Priority: P0
 Scope: `internal/caching/`, `internal/proxy/handler.go`, `internal/proxy/streaming.go`, `internal/provider/`, `internal/sessions/`, `internal/flight/`, `cmd/slimference/gain_cmd.go`, `cmd/slimference/cache_cmd.go`, `docs/savings-assessment.md`.
 
@@ -36,6 +36,12 @@ Layer 3 becomes a provider-capability optimizer:
   - cache read/create input tokens.
   - TTL limits.
   - breakpoint count caps.
+  - Implemented locally:
+    - `internal/compression/prompt_cache.go::OptimizeCacheBreakpoints` injects at most four `cache_control: {"type":"ephemeral"}` breakpoints.
+    - The stable prefix must be at least 1024 estimated tokens, so tiny one-shot requests skip the hint path.
+    - Candidate selection prefers large stable `tool_result` blocks, then late stable user/assistant/tool turns, with deterministic tie-breaking.
+    - The caller-owned message slice is not mutated.
+    - `internal/proxy/handler_compressible_test.go::TestServeHTTP_promptCacheBreakpointsInjected` verifies the forwarded Anthropic upstream request contains ephemeral cache-control breakpoints.
 - Unknown provider:
   - no cache hints unless explicitly configured.
 
@@ -104,9 +110,15 @@ Layer 3 becomes a provider-capability optimizer:
   - request size.
 - Surface:
   - `slimference gain --cache`.
+  - `slimference gain --proxy`.
   - admin status.
   - TUI stats.
   - flight export.
+- Implemented 2026-05-15:
+  - `gain --proxy` emits a content-free prompt-cache heat map grouped by stable-prefix hash.
+  - Rows record requests, hint applied/skipped counts, maximum stable-prefix tokens, provider cached tokens, provider cache read tokens, and provider cache create tokens.
+  - JSON exposes `prompt_cache_heat`; CSV includes heat-key count, top hash, and top cached-token count; text output prints the five hottest hashes.
+  - Cache credits remain labelled as provider/accounting evidence, not local token deletion.
 
 ### WP7 - Safety and retries
 
@@ -116,15 +128,15 @@ Layer 3 becomes a provider-capability optimizer:
 
 ## Acceptance
 
-- [ ] Provider cache capability matrix reflects current supported fields in code, not stale comments.
-- [ ] Stable prefix planner places hints only on stable segments.
-- [ ] OpenAI/Codex cache hints are endpoint/model-gated and retry-safe.
-- [ ] Anthropic cache-control placement respects provider caps.
-- [ ] `previous_response_id` owner is session-scoped and invalidates correctly.
+- [x] Provider cache capability matrix reflects current supported fields in code, not stale comments for locally supported paths.
+- [x] Stable prefix planner places hints only on stable segments for OpenAI prompt-cache keys and Anthropic cache-control breakpoints.
+- [x] OpenAI cache hints are endpoint/model-gated and retry-safe; Codex prompt-cache-key injection remains disabled rather than guessed.
+- [x] Anthropic cache-control placement respects current local caps: max 4 breakpoints and 1024-token stable-prefix gate.
+- [x] `previous_response_id` owner is session-scoped and invalidates correctly for the HTTP path.
 - [ ] WebSocket response IDs are only parsed after T142 shape proof.
-- [ ] `gain --cache` separates provider-reported savings from estimates.
+- [x] `gain --cache` / `gain --proxy` separate provider-reported savings from estimates.
 - [ ] T146 live corpus proves cache hit rates on 30+ turn sessions.
-- [ ] `go run ./scripts/ci` passes with 100% coverage for new Go code.
+- [x] `go run ./scripts/ci` passes with 100% coverage for new Go code.
 
 ## Expected Upside
 
@@ -139,4 +151,3 @@ Layer 3 becomes a provider-capability optimizer:
 - Do not add cross-user cache sharing.
 - Do not keep secrets in cache keys.
 - Do not rely on WebSocket response IDs before T142/T146 prove shapes.
-

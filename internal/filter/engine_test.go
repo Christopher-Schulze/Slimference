@@ -80,3 +80,10 @@ func TestEstimateTokensFromTextAndSlices(t *testing.T) {
 		t.Fatalf("slice estimate=%d", got)
 	}
 }
+
+func TestEstimateTokensFromText_fallbackWhenTokenizerUnavailable(t *testing.T) {
+	got := estimateTokensFromText("abcdefghijkl", func(string) int { return 0 })
+	if got != 3 {
+		t.Fatalf("fallback estimate=%d, want 3", got)
+	}
+}

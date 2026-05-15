@@ -849,21 +849,23 @@ func TestHandleCompressibleRequest_ToolPrunePrunesIdle(t *testing.T) {
 	p := New(cfg)
 
 	fixedSession := "fixed-toolprune-session"
+	trackerSession := "anthropic:" + fixedSession
 	origNewReqID := newRequestIDFn
 	newRequestIDFn = func() string { return fixedSession }
 	defer func() { newRequestIDFn = origNewReqID }()
 
 	p.toolPrune = toolprune.NewUsageTracker(2)
 	for i := 0; i < 3; i++ {
-		p.toolPrune.ObserveTurn(fixedSession, []string{"Read", "Bash", "Write"})
+		p.toolPrune.ObserveTurn(trackerSession, []string{"KeepHot", "GetWeather", "SendMail"})
 	}
 	for i := 0; i < 5; i++ {
-		p.toolPrune.ObserveTurn(fixedSession, []string{"Read"})
+		p.toolPrune.ObserveTurn(trackerSession, []string{"KeepHot"})
 	}
 
-	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"Read","description":"read file"},{"name":"Bash","description":"run command"},{"name":"Write","description":"write file"}],"messages":[{"role":"user","content":[{"type":"tool_result","text":"output"}]}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"KeepHot","description":"hot tool ` + strings.Repeat("details ", 100) + `"},{"name":"GetWeather","description":"weather ` + strings.Repeat("details ", 100) + `"},{"name":"SendMail","description":"mail ` + strings.Repeat("details ", 100) + `"}],"messages":[{"role":"user","content":[{"type":"tool_result","text":"output"}]}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-trace-id", fixedSession)
 	rec := httptest.NewRecorder()
 	p.ServeHTTP(rec, req)
 
@@ -874,7 +876,7 @@ func TestHandleCompressibleRequest_ToolPrunePrunesIdle(t *testing.T) {
 	}
 
 	if !strings.Contains(rec.Body.String(), "done-1") {
-		t.Fatalf("expected only 1 tool (Read kept, Bash/Write pruned), got: %s", rec.Body.String())
+		t.Fatalf("expected only 1 tool (KeepHot kept, cold tools pruned), got: %s", rec.Body.String())
 	}
 	snap := p.toolPrune.Snapshot()
 	if snap.PrunedTotal == 0 {
@@ -905,12 +907,13 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	// Override request id generation so the test can pre-seed the
 	// tracker under a known session key.
 	const fixedID = "test-reattach-session"
+	const trackerID = "anthropic:test-reattach-session"
 	prev := newRequestIDFn
 	newRequestIDFn = func() string { return fixedID }
 	t.Cleanup(func() { newRequestIDFn = prev })
 
 	p.toolPrune.RememberPrunedDef(
-		fixedID,
+		trackerID,
 		"Bash",
 		[]byte(`{"name":"Bash","description":"run shell"}`),
 	)
@@ -918,6 +921,7 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"Read","description":"read"}],"messages":[{"role":"user","content":"please use Bash to list files"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-trace-id", fixedID)
 	rec := httptest.NewRecorder()
 	p.ServeHTTP(rec, req)
 
@@ -928,6 +932,143 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	}
 	if got := p.toolPrune.Snapshot().ReattachTotal; got != 1 {
 		t.Fatalf("reattach counter: %d want 1", got)
+	}
+}
+
+func TestHandleCompressibleRequest_ToolPruneAlwaysKeepsCoreTools(t *testing.T) {
+	var toolCount int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, _ := io.ReadAll(r.Body)
+		var reqBody map[string]json.RawMessage
+		_ = json.Unmarshal(bodyBytes, &reqBody)
+		var tools []struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(reqBody["tools"], &tools)
+		atomic.StoreInt32(&toolCount, int32(len(tools)))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	const fixedSession = "toolprune-always-core"
+	const trackerSession = "anthropic:toolprune-always-core"
+	prev := newRequestIDFn
+	newRequestIDFn = func() string { return fixedSession }
+	t.Cleanup(func() { newRequestIDFn = prev })
+
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	p.toolPrune.ObserveTurn(trackerSession, []string{"Bash", "Read", "ColdTool"})
+	p.toolPrune.ObserveTurn(trackerSession, []string{"Read"})
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"Bash","description":"run command ` + strings.Repeat("details ", 100) + `"},{"name":"Read","description":"read file ` + strings.Repeat("details ", 100) + `"},{"name":"ColdTool","description":"cold function ` + strings.Repeat("details ", 100) + `"}],"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-trace-id", fixedSession)
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if got := atomic.LoadInt32(&toolCount); got != 2 {
+		t.Fatalf("upstream tool count = %d want 2 core tools kept", got)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.AlwaysKeepTotal < 2 {
+		t.Fatalf("always keep telemetry missing: %+v", snap)
+	}
+}
+
+func TestHandleCompressibleRequest_ToolPruneMissingToolRetryDisablesSession(t *testing.T) {
+	var calls int32
+	var firstHadPrunedTool atomic.Bool
+	var retryHadPrunedTool atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := atomic.AddInt32(&calls, 1)
+		bodyBytes, _ := io.ReadAll(r.Body)
+		var reqBody map[string]json.RawMessage
+		_ = json.Unmarshal(bodyBytes, &reqBody)
+		var tools []struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(reqBody["tools"], &tools)
+		hasWeather := false
+		for _, tool := range tools {
+			if tool.Name == "GetWeather" {
+				hasWeather = true
+				break
+			}
+		}
+		if call == 1 {
+			firstHadPrunedTool.Store(hasWeather)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"unknown tool GetWeather"}`))
+			return
+		}
+		retryHadPrunedTool.Store(hasWeather)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	const fixedSession = "toolprune-retry-session"
+	const trackerSession = "anthropic:toolprune-retry-session"
+	prev := newRequestIDFn
+	newRequestIDFn = func() string { return fixedSession }
+	t.Cleanup(func() { newRequestIDFn = prev })
+
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	p.toolPrune.ObserveTurn(trackerSession, []string{"EchoTool", "GetWeather"})
+	p.toolPrune.ObserveTurn(trackerSession, []string{"EchoTool"})
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"EchoTool","description":"echo ` + strings.Repeat("details ", 100) + `"},{"name":"GetWeather","description":"weather ` + strings.Repeat("details ", 100) + `"}],"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-trace-id", fixedSession)
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("upstream calls = %d want 2", got)
+	}
+	if firstHadPrunedTool.Load() {
+		t.Fatal("first request should have pruned GetWeather")
+	}
+	if !retryHadPrunedTool.Load() {
+		t.Fatal("retry request should restore GetWeather")
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.MissTotal != 1 || snap.RetryTotal != 1 || snap.DisabledSessions != 1 {
+		t.Fatalf("retry telemetry: %+v", snap)
 	}
 }
 

@@ -217,6 +217,29 @@ func TestInjectBody_SkipBranches(t *testing.T) {
 	}
 }
 
+func TestInjectBody_LowROIGates(t *testing.T) {
+	t.Parallel()
+	readOnly := []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"Read-only inspect and report. Do not edit."}]}]}`)
+	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 20000}); err != nil || stats.Applied || stats.Reason != "read_only_low_roi" || string(out) != string(readOnly) {
+		t.Fatalf("read-only out=%s stats=%+v err=%v", out, stats, err)
+	}
+	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 70000}); err != nil || !stats.Applied || !strings.Contains(string(out), "Read-only: concise verdict plus evidence only") {
+		t.Fatalf("large read-only out=%s stats=%+v err=%v", out, stats, err)
+	}
+	planning := []byte(`{"messages":[{"role":"user","content":"plan next steps"}]}`)
+	if _, stats, err := InjectBody(types.OpenAI, planning, Options{Enabled: true, Profile: "openai", InputTokens: 20000}); err != nil || stats.Applied || stats.Reason != "planning_low_roi" {
+		t.Fatalf("planning stats=%+v err=%v", stats, err)
+	}
+	direct := []byte(`{"messages":[{"role":"user","content":"what is this"}]}`)
+	if _, stats, err := InjectBody(types.OpenAI, direct, Options{Enabled: true, Profile: "openai", InputTokens: 8000}); err != nil || stats.Applied || stats.Reason != "direct_answer_low_roi" {
+		t.Fatalf("direct stats=%+v err=%v", stats, err)
+	}
+	repair := []byte(`{"messages":[{"role":"user","content":"you skipped the failing test output, explain more"}]}`)
+	if out, stats, err := InjectBody(types.OpenAI, repair, Options{Enabled: true, Profile: "openai", InputTokens: 90000}); err != nil || stats.Applied || stats.Reason != "repair_followup_low_roi" || string(out) != string(repair) {
+		t.Fatalf("repair out=%s stats=%+v err=%v", out, stats, err)
+	}
+}
+
 func TestInjectBody_AnthropicUnsupportedSystemShape(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"system":123,"messages":[{"role":"user","content":"hi"}]}`)
@@ -256,6 +279,9 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 		if text := DirectiveForShape(ProfileCodexAggressive, shape, DefaultMarker); text == "" {
 			t.Fatalf("empty directive for shape %s", shape)
 		}
+	}
+	if text := DirectiveForShape(ProfileCodexAggressive, ShapeReadOnly, DefaultMarker); strings.Contains(text, "Codex output rules") || !strings.Contains(text, "do not mention hooks") {
+		t.Fatalf("read-only codex directive should be compact and meta-suppressing: %q", text)
 	}
 	for _, profile := range []Profile{ProfileMild, ProfileStandard, ProfileAggressive, ProfileCustom, ProfileOff} {
 		_ = DirectiveForShape(profile, ShapeDirectAnswer, "")

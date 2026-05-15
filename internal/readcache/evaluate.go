@@ -1,9 +1,13 @@
 package readcache
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/sessions"
 )
 
@@ -41,6 +45,68 @@ func Evaluate(dir string, req Request) (Decision, error) {
 	}
 
 	return evaluateChanged(dir, state, entry, req, modTime, info.Size())
+}
+
+func EvaluateObserved(dir string, req Request, content string, archiveDir string, recentlyEdited bool) (Decision, error) {
+	state, err := LoadSession(dir, req.SessionID)
+	if err != nil {
+		return Decision{}, err
+	}
+	if turnID := safeTurn(req.TurnID); turnID != "" {
+		state.CurrentTurnID = turnID
+	}
+	path := strings.TrimSpace(req.FilePath)
+	if path == "" || !req.IsFullFileRead() {
+		decision := Decision{Type: DecisionAllow}
+		return decision, RecordDecision(dir, decision)
+	}
+	entry := state.Files[path]
+	if entry == nil {
+		entry = &FileEntry{Path: path}
+		state.Files[path] = entry
+	}
+
+	hash := hashObservedContent(content)
+	archiveURI, archived := archiveObservedContent(archiveDir, req, content)
+	if recentlyEdited {
+		updateObservedEntry(entry, req, hash, archiveURI, content)
+		if err := readCacheSaveSession(dir, state); err != nil {
+			return Decision{}, err
+		}
+		decision := Decision{Type: DecisionAllow}
+		return decision, RecordDecision(dir, decision)
+	}
+	if entry.ContentHash != "" && entry.ContentHash == hash && entry.ArchiveURI != "" {
+		updateObservedEntry(entry, req, hash, entry.ArchiveURI, content)
+		if err := readCacheSaveSession(dir, state); err != nil {
+			return Decision{}, err
+		}
+		decision := Decision{
+			Type:      DecisionBlock,
+			Reason:    unchangedReference(req.FilePath, entry.ArchiveURI),
+			BlockKind: BlockKindUnchanged,
+		}
+		return decision, RecordDecision(dir, decision)
+	}
+
+	oldContent := entry.CachedContent
+	oldHash := entry.ContentHash
+	updateObservedEntry(entry, req, hash, archiveURI, content)
+	if err := readCacheSaveSession(dir, state); err != nil {
+		return Decision{}, err
+	}
+	if archived && oldHash != "" && oldContent != "" {
+		delta := buildDeltaSummary(req.FilePath, oldContent, content)
+		if delta != "" {
+			delta = delta + "\nFull content: " + archiveURI
+			if len(delta) < len(content) {
+				decision := Decision{Type: DecisionBlock, Reason: delta, BlockKind: BlockKindDelta}
+				return decision, RecordDecision(dir, decision)
+			}
+		}
+	}
+	decision := Decision{Type: DecisionAllow}
+	return decision, RecordDecision(dir, decision)
 }
 
 func blockUnchanged(dir string, state *SessionState, entry *FileEntry, req Request, modTime int64) (Decision, error) {
@@ -99,6 +165,47 @@ func updateEntry(entry *FileEntry, req Request, modTime int64, content string) {
 	entry.Limit = req.Limit
 	entry.ModTimeUnixNs = modTime
 	entry.CachedContent = content
+	entry.ContentHash = hashObservedContent(content)
+}
+
+func updateObservedEntry(entry *FileEntry, req Request, hash string, archiveURI string, content string) {
+	entry.Path = strings.TrimSpace(req.FilePath)
+	entry.LastTurnID = safeTurn(req.TurnID)
+	entry.Offset = req.Offset
+	entry.Limit = req.Limit
+	entry.ModTimeUnixNs = 0
+	entry.ContentHash = hash
+	if archiveURI != "" {
+		entry.ArchiveURI = archiveURI
+	}
+	entry.CachedContent = content
+}
+
+func hashObservedContent(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
+func archiveObservedContent(archiveDir string, req Request, content string) (string, bool) {
+	if archiveDir == "" {
+		return "", false
+	}
+	entry, err := contentarchive.Put(archiveDir, contentarchive.Input{
+		SessionID:    req.SessionID,
+		MessageIndex: 0,
+		BlockIndex:   0,
+		SubLayer:     "readcache_proxy_delta",
+		Original:     content,
+		Preview:      fmt.Sprintf("file read %s", req.FilePath),
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil {
+		return "", false
+	}
+	return entry.URI, true
+}
+
+func unchangedReference(path string, archiveURI string) string {
+	return fmt.Sprintf("Slimference file reference for %s: unchanged since previous full read.\nFull content: %s", path, archiveURI)
 }
 
 func safeTurn(turnID string) string {

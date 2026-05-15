@@ -163,13 +163,15 @@ func appendCodexHookDetails(s *ClientStatus, state hooks.CodexHookState) {
 	}
 }
 
+var defaultDaemonURL = ProxyURL
+
 // DetectDaemon probes the proxy health endpoint and returns the running
 // status. The caller provides the base URL so the same detector works in
 // tests against an httptest server.
 func DetectDaemon(proxyURL string) DaemonStatus {
 	s := DaemonStatus{}
 	if proxyURL == "" {
-		proxyURL = ProxyURL
+		proxyURL = defaultDaemonURL
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

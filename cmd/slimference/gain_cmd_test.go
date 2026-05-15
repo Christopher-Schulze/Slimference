@@ -478,6 +478,8 @@ func TestHandleSubcommand_gain_output(t *testing.T) {
 	if err := p.WriteEvent(types.AnalyticsEvent{
 		Type:                    types.EventRequestProcessed,
 		Timestamp:               time.Now(),
+		Provider:                types.CodexChatGPT,
+		Model:                   "gpt-5.5",
 		OutputTokens:            120,
 		OutputReduceApplied:     true,
 		OutputReduceProfile:     "codex",
@@ -498,7 +500,7 @@ func TestHandleSubcommand_gain_output(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "Output-reduce telemetry") || !strings.Contains(out, "Savings need a live baseline") || !strings.Contains(out, "code_edit") {
+	if !strings.Contains(out, "Output-reduce telemetry") || !strings.Contains(out, "Savings need a live baseline") || !strings.Contains(out, "code_edit") || !strings.Contains(out, "Profile rows:") || !strings.Contains(out, "codex_chatgpt/gpt-5.5") {
 		t.Fatalf("output gain stdout: %q", out)
 	}
 
@@ -509,7 +511,7 @@ func TestHandleSubcommand_gain_output(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), `"input_overhead_tokens"`) {
+	if !strings.Contains(buf.String(), `"input_overhead_tokens"`) || !strings.Contains(buf.String(), `"profile_rows"`) {
 		t.Fatalf("output gain json: %q", buf.String())
 	}
 
@@ -520,7 +522,7 @@ func TestHandleSubcommand_gain_output(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "input_overhead_tokens") {
+	if !strings.Contains(buf.String(), "input_overhead_tokens") || !strings.Contains(buf.String(), "profile_row,codex_chatgpt,gpt-5.5") {
 		t.Fatalf("output gain csv: %q", buf.String())
 	}
 }
@@ -562,6 +564,20 @@ func TestHandleSubcommand_gain_proxy(t *testing.T) {
 			AddedTokens: 10,
 			TaskShape:   "read_only_analysis",
 		},
+		PromptCache: dbg.PromptCacheSummary{
+			Applied:            true,
+			Reason:             "applied",
+			StablePrefixHash:   "heat-a",
+			StablePrefixTokens: 2048,
+		},
+		ToolPrune: dbg.ToolPruneSummary{
+			SavedTokens:   12,
+			PrunedTools:   2,
+			Reattached:    1,
+			Miss:          true,
+			Retry:         true,
+			SessionKeySet: true,
+		},
 	})
 	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
@@ -575,7 +591,7 @@ func TestHandleSubcommand_gain_proxy(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "Proxy flight gain") || !strings.Contains(out, "Provider cached tokens") || !strings.Contains(out, "360") {
+	if !strings.Contains(out, "Proxy flight gain") || !strings.Contains(out, "Provider cached tokens") || !strings.Contains(out, "360") || !strings.Contains(out, "Tool-prune saved tokens") || !strings.Contains(out, "Prompt-cache heat") {
 		t.Fatalf("proxy gain stdout: %q", out)
 	}
 
@@ -586,7 +602,7 @@ func TestHandleSubcommand_gain_proxy(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), `"provider_cached_tokens"`) || !strings.Contains(buf.String(), `"net_billable_equivalent_estimate"`) {
+	if !strings.Contains(buf.String(), `"provider_cached_tokens"`) || !strings.Contains(buf.String(), `"net_billable_equivalent_estimate"`) || !strings.Contains(buf.String(), `"prompt_cache_heat"`) {
 		t.Fatalf("proxy gain json: %q", buf.String())
 	}
 
@@ -597,7 +613,7 @@ func TestHandleSubcommand_gain_proxy(t *testing.T) {
 	os.Stdout = old
 	buf.Reset()
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "provider_cached_tokens") || !strings.Contains(buf.String(), "today") {
+	if !strings.Contains(buf.String(), "provider_cached_tokens") || !strings.Contains(buf.String(), "prompt_cache_heat_keys") || !strings.Contains(buf.String(), "today") {
 		t.Fatalf("proxy gain csv: %q", buf.String())
 	}
 }

@@ -224,8 +224,7 @@ func (l *Layer2) runCompressionJob(ctx context.Context, sessionID string, messag
 		return
 	}
 	if l.cfg.MinTokensForLayer2 > 0 {
-		prefixTokens := tokens.CountMessages(messages[:prefixEnd])
-		if prefixTokens < l.cfg.MinTokensForLayer2 {
+		if !l.passesLayer2TokenGate(messages, prefixEnd, l.cfg.SlidingWindow) {
 			return
 		}
 	}
@@ -273,6 +272,7 @@ func (l *Layer2) runCompressionJob(ctx context.Context, sessionID string, messag
 	toSummarize = l.applyOutboundRedaction(toSummarize)
 
 	inputText := existingSummaryPrefix + l.FormatMessagesForSummarization(toSummarize)
+	inputText = capSummarizationInput(inputText, maxLayer2InputTokens)
 	inputText = preprocessInput(inputText)
 	if ctx.Err() != nil {
 		return
@@ -281,20 +281,13 @@ func (l *Layer2) runCompressionJob(ctx context.Context, sessionID string, messag
 
 	// Cap input to prevent quality degradation on very long conversations.
 	// M2.7 has 200k context but quality drops past ~120k input tokens.
-	const maxInputTokens = 120000
-	if origTokens > maxInputTokens {
+	if origTokens > maxLayer2InputTokens {
 		// Truncate from the oldest messages, keeping the most recent content.
-		maxBytes := maxInputTokens * 4
-		if len(inputText) > maxBytes {
-			inputText = inputText[len(inputText)-maxBytes:]
-			if idx := strings.Index(inputText, "\n"); idx >= 0 {
-				inputText = inputText[idx+1:]
-			}
-		}
+		inputText = capSummarizationInput(inputText, maxLayer2InputTokens)
 		origTokens = estimateTokens(inputText)
 	}
 
-	targetTokens := computeAdaptiveTarget(origTokens, toSummarize, l.cfg.Summary.TargetRatio)
+	targetTokens := computeAdaptiveTargetFromText(origTokens, inputText, len(toSummarize), l.cfg.Summary.TargetRatio)
 
 	summary, providerName, err := l.chain.Summarize(ctx, inputText, startIdx, boundaryIdx, targetTokens)
 	if err != nil {
@@ -434,8 +427,7 @@ func (l *Layer2) shouldTriggerCompressionWithWindow(messages []types.Message, ov
 		return false
 	}
 	if l.cfg.MinTokensForLayer2 > 0 {
-		prefixTokens := tokens.CountMessages(messages[:prefixEnd])
-		if prefixTokens < l.cfg.MinTokensForLayer2 {
+		if !l.passesLayer2TokenGate(messages, prefixEnd, window) {
 			return false
 		}
 	}
@@ -625,13 +617,55 @@ func contentDensity(messages []types.Message) float64 {
 	return density
 }
 
+func contentDensityText(text string) float64 {
+	if text == "" {
+		return 0.5
+	}
+
+	original := text
+	totalChars := len(text)
+	codeChars := 0
+	pathChars := 0
+	toolChars := 0
+	for _, marker := range []string{"<tool_use", "<tool_result"} {
+		toolChars += strings.Count(original, marker) * len(marker)
+	}
+
+	for len(text) > 0 {
+		line := text
+		if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+			line = text[:idx]
+			text = text[idx+1:]
+		} else {
+			text = ""
+		}
+		trimmed := strings.TrimSpace(line)
+		if looksLikeCode(trimmed) || looksLikePath(trimmed) {
+			codeChars += len(trimmed)
+		}
+	}
+
+	matches := filePathRegex.FindAllString(original, -1)
+	pathChars += len(matches) * 20
+	density := float64(codeChars+toolChars+pathChars) / float64(totalChars)
+	if density > 1.0 {
+		density = 1.0
+	}
+	return density
+}
+
 // computeAdaptiveTarget calculates target output tokens based on input size,
 // content density, and message count. Dense content (code/paths/tools) needs
 // more output tokens to preserve information; sparse prose can compress more.
 func computeAdaptiveTarget(origTokens int, messages []types.Message, baseRatio float64) int {
-	density := contentDensity(messages)
-	msgCount := len(messages)
+	return computeAdaptiveTargetWithDensity(origTokens, len(messages), baseRatio, contentDensity(messages))
+}
 
+func computeAdaptiveTargetFromText(origTokens int, inputText string, msgCount int, baseRatio float64) int {
+	return computeAdaptiveTargetWithDensity(origTokens, msgCount, baseRatio, contentDensityText(inputText))
+}
+
+func computeAdaptiveTargetWithDensity(origTokens int, msgCount int, baseRatio float64, density float64) int {
 	ratio := baseRatio
 
 	if msgCount <= 5 {
@@ -654,6 +688,23 @@ func computeAdaptiveTarget(origTokens int, messages []types.Message, baseRatio f
 
 	target := int(float64(origTokens) * ratio)
 	return max(target, 100)
+}
+
+const maxLayer2InputTokens = 120000
+
+func capSummarizationInput(input string, maxTokens int) string {
+	if maxTokens <= 0 {
+		return input
+	}
+	maxBytes := maxTokens * 4
+	if len(input) <= maxBytes {
+		return input
+	}
+	input = input[len(input)-maxBytes:]
+	if idx := strings.IndexByte(input, '\n'); idx >= 0 {
+		return input[idx+1:]
+	}
+	return input
 }
 
 // splitLines splits text into lines without allocating a new slice per line.
@@ -746,10 +797,179 @@ func (l *Layer2) jobTimeout() time.Duration {
 	return timeout
 }
 
+const (
+	adaptiveLayer2MinFraction       = 0.55
+	adaptiveLayer2FloorTokens       = 6000
+	adaptiveLayer2MinToolTokens     = 3000
+	adaptiveLayer2ToolTokenShareMin = 0.35
+)
+
+type BackgroundCandidate struct {
+	Eligible               bool
+	Reason                 string
+	PrefixEnd              int
+	PrefixTokens           int
+	ToolTokens             int
+	ToolTokenShare         float64
+	ProjectedSavingsTokens int
+	ExistingCovered        float64
+}
+
+func (l *Layer2) passesLayer2TokenGate(messages []types.Message, prefixEnd int, window int) bool {
+	if l.cfg.MinTokensForLayer2 <= 0 {
+		return true
+	}
+	if prefixEnd <= 0 || prefixEnd > len(messages) {
+		return false
+	}
+	prefixTokens := tokens.CountMessages(messages[:prefixEnd])
+	if prefixTokens >= l.cfg.MinTokensForLayer2 {
+		return true
+	}
+	return l.adaptiveLayer2ROICandidate(messages, prefixEnd, window, prefixTokens)
+}
+
+func (l *Layer2) adaptiveLayer2ROICandidate(messages []types.Message, prefixEnd int, window int, prefixTokens int) bool {
+	if prefixTokens < adaptiveLayer2MinTokens(l.cfg.MinTokensForLayer2) {
+		return false
+	}
+	if l.recentSensitiveAnchor(messages, prefixEnd, window) {
+		return false
+	}
+	toolTokens := layer2ToolResultTokens(messages[:prefixEnd])
+	if toolTokens < adaptiveLayer2MinToolTokens || prefixTokens <= 0 {
+		return false
+	}
+	share := float64(toolTokens) / float64(prefixTokens)
+	return share >= adaptiveLayer2ToolTokenShareMin
+}
+
+func adaptiveLayer2MinTokens(configured int) int {
+	if configured <= 0 {
+		return 0
+	}
+	adaptive := int(float64(configured) * adaptiveLayer2MinFraction)
+	if adaptive < adaptiveLayer2FloorTokens {
+		return adaptiveLayer2FloorTokens
+	}
+	return adaptive
+}
+
+func (l *Layer2) recentSensitiveAnchor(messages []types.Message, _ int, window int) bool {
+	if l.anchor == nil {
+		return false
+	}
+	start := len(messages) - max(window, 1)
+	if start < 0 {
+		start = 0
+	}
+	for _, msg := range messages[start:] {
+		if l.anchor.isAnchorEdit(msg) || l.anchor.isAnchorError(msg) {
+			return true
+		}
+	}
+	return false
+}
+
+func layer2ToolResultTokens(messages []types.Message) int {
+	total := 0
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type == "tool_result" {
+				total += tokens.CountString(block.Text)
+			}
+		}
+	}
+	return total
+}
+
+func (l *Layer2) ScoreBackgroundCandidateSession(sessionID string, messages []types.Message, window int) BackgroundCandidate {
+	if !l.hasConfiguredProvider() {
+		return BackgroundCandidate{Reason: "provider_unconfigured"}
+	}
+	if window <= 0 {
+		window = l.cfg.SlidingWindow
+	}
+	prefixEnd := compression.CompressiblePrefixEnd(messages, window)
+	c := BackgroundCandidate{PrefixEnd: prefixEnd}
+	if prefixEnd < l.cfg.MinMessagesForCompression {
+		c.Reason = "below_min_messages"
+		return c
+	}
+	if l.sessions.Compressing(sessionID) {
+		c.Reason = "already_compressing"
+		return c
+	}
+	if prefixEnd == 0 {
+		c.Eligible = true
+		c.Reason = "empty_existing_boundary"
+		return c
+	}
+	if l.recentSensitiveAnchor(messages, prefixEnd, window) {
+		c.Reason = "recent_sensitive_anchor"
+		return c
+	}
+
+	c.PrefixTokens = tokens.CountMessages(messages[:prefixEnd])
+	c.ToolTokens = layer2ToolResultTokens(messages[:prefixEnd])
+	if c.PrefixTokens > 0 {
+		c.ToolTokenShare = float64(c.ToolTokens) / float64(c.PrefixTokens)
+	}
+	if l.cfg.MinTokensForLayer2 > 0 && !l.passesLayer2TokenGate(messages, prefixEnd, window) {
+		c.Reason = "below_token_roi_gate"
+		return c
+	}
+
+	targetRatio := l.cfg.Summary.TargetRatio
+	if targetRatio <= 0 || targetRatio >= 1 {
+		targetRatio = 0.20
+	}
+	c.ProjectedSavingsTokens = c.PrefixTokens - int(float64(c.PrefixTokens)*targetRatio)
+	if c.ProjectedSavingsTokens < l.minProjectedLayer2Savings() {
+		c.Reason = "projected_savings_too_low"
+		return c
+	}
+
+	if l.sessions.IsStale(sessionID, summaryMaxAge) {
+		c.Eligible = true
+		c.Reason = "stale_or_missing_summary"
+		return c
+	}
+	_, existingRange := l.sessions.GetCurrent(sessionID)
+	boundaryIdx := prefixEnd - 1
+	if boundaryIdx <= 0 {
+		c.Eligible = true
+		c.Reason = "empty_existing_boundary"
+		return c
+	}
+	c.ExistingCovered = float64(existingRange[1]) / float64(boundaryIdx)
+	if c.ExistingCovered < l.incrementalOverlapThreshold(len(messages)) {
+		c.Eligible = true
+		c.Reason = "coverage_below_threshold"
+		return c
+	}
+	c.Reason = "existing_summary_sufficient"
+	return c
+}
+
+func (l *Layer2) minProjectedLayer2Savings() int {
+	if l.cfg.MinTokensForLayer2 <= 1 {
+		return 1
+	}
+	v := l.cfg.MinTokensForLayer2 / 8
+	if v < 256 {
+		return 256
+	}
+	if v > 2048 {
+		return 2048
+	}
+	return v
+}
+
 // --- Session-keyed API (T110) ---
 
 func (l *Layer2) ApplyToMessagesSession(sessionID string, messages []types.Message) ([]types.Message, int, bool) {
-	cached, coveredRange := l.sessions.GetCurrent(sessionID)
+	cached, coveredRange := l.sessions.GetCurrentMatchingPrefix(sessionID, messages)
 	if cached == nil {
 		return messages, 0, false
 	}
@@ -936,37 +1156,11 @@ func (l *Layer2) ShouldTriggerCompressionSessionWindow(sessionID string, message
 }
 
 func (l *Layer2) shouldTriggerCompressionSessionWithWindow(sessionID string, messages []types.Message, overrideWindow int) bool {
-	if !l.hasConfiguredProvider() {
-		return false
-	}
 	window := l.cfg.SlidingWindow
 	if overrideWindow > 0 {
 		window = overrideWindow
 	}
-	minMsgs := l.cfg.MinMessagesForCompression
-	prefixEnd := compression.CompressiblePrefixEnd(messages, window)
-	if prefixEnd < minMsgs {
-		return false
-	}
-	if l.cfg.MinTokensForLayer2 > 0 {
-		prefixTokens := tokens.CountMessages(messages[:prefixEnd])
-		if prefixTokens < l.cfg.MinTokensForLayer2 {
-			return false
-		}
-	}
-	if l.sessions.Compressing(sessionID) {
-		return false
-	}
-	if l.sessions.IsStale(sessionID, summaryMaxAge) {
-		return true
-	}
-	_, existingRange := l.sessions.GetCurrent(sessionID)
-	boundaryIdx := prefixEnd - 1
-	if boundaryIdx <= 0 {
-		return true
-	}
-	coveredFraction := float64(existingRange[1]) / float64(boundaryIdx)
-	return coveredFraction < l.incrementalOverlapThreshold(len(messages))
+	return l.ScoreBackgroundCandidateSession(sessionID, messages, window).Eligible
 }
 
 func (l *Layer2) RunCompressionJobSession(ctx context.Context, sessionID string, messages []types.Message) {
@@ -975,6 +1169,29 @@ func (l *Layer2) RunCompressionJobSession(ctx context.Context, sessionID string,
 
 func (l *Layer2) SetCompressingSession(sessionID string, v bool) {
 	l.sessions.SetCompressing(sessionID, v)
+}
+
+func (l *Layer2) CompressionCandidateHash(messages []types.Message, window int) ([32]byte, bool) {
+	if window <= 0 {
+		window = l.cfg.SlidingWindow
+	}
+	prefixEnd := compression.CompressiblePrefixEnd(messages, window)
+	if prefixEnd <= 0 || prefixEnd > len(messages) {
+		return [32]byte{}, false
+	}
+	return hashMessages(messages[:prefixEnd]), true
+}
+
+func (l *Layer2) MarkCompressionCandidate(sessionID string, inputHash [32]byte) {
+	l.sessions.SetCandidateHash(sessionID, inputHash)
+}
+
+func (l *Layer2) IsCurrentCompressionCandidate(sessionID string, inputHash [32]byte) bool {
+	return l.sessions.CandidateHashMatches(sessionID, inputHash)
+}
+
+func (l *Layer2) RecordStaleCompressionJobSkip() {
+	l.sessions.RecordStaleJobSkip()
 }
 
 func (l *Layer2) InvalidateSession(sessionID string) {

@@ -24,23 +24,24 @@ const corpusCategoryMetadataFilename = "metadata.json"
 // Only ExpectedSavingsMin is mandatory for the gate; everything else is
 // human context that gets rendered in reports.
 type CategoryMetadata struct {
-	Category                        string  `json:"category"`
-	Description                     string  `json:"description"`
-	Synthetic                       bool    `json:"synthetic"`
-	EvidenceLevel                   string  `json:"evidence_level"`
-	Language                        string  `json:"language"`
-	ToolMix                         string  `json:"tool_mix"`
-	ExpectedSavingsMin              float64 `json:"expected_savings_min"`
-	ExpectedSavingsMax              float64 `json:"expected_savings_max"`
-	ExpectedRequestCount            int     `json:"expected_request_count"`
-	ExpectedLayer2Optional          bool    `json:"expected_layer2_optional"`
-	ExpectedMaxErrors               int     `json:"expected_max_errors,omitempty"`
-	ExpectedLatencyP95MaxMs         float64 `json:"expected_latency_p95_max_ms,omitempty"`
-	ExpectedProviderCacheReadMin    int64   `json:"expected_provider_cache_read_min,omitempty"`
-	ExpectedOutputReduceAppliedMin  int     `json:"expected_output_reduce_applied_min,omitempty"`
-	ExpectedPlannerMissedMax        int     `json:"expected_planner_missed_max,omitempty"`
-	ExpectedPlannerBypassAppliedMax int     `json:"expected_planner_bypass_applied_max,omitempty"`
-	Notes                           string  `json:"notes"`
+	Category                        string   `json:"category"`
+	Description                     string   `json:"description"`
+	Synthetic                       bool     `json:"synthetic"`
+	EvidenceLevel                   string   `json:"evidence_level"`
+	Language                        string   `json:"language"`
+	ToolMix                         string   `json:"tool_mix"`
+	ExpectedSavingsMin              float64  `json:"expected_savings_min"`
+	ExpectedSavingsMax              float64  `json:"expected_savings_max"`
+	ExpectedRequestCount            int      `json:"expected_request_count"`
+	ExpectedLayer2Optional          bool     `json:"expected_layer2_optional"`
+	ExpectedMaxErrors               int      `json:"expected_max_errors,omitempty"`
+	ExpectedLatencyP95MaxMs         float64  `json:"expected_latency_p95_max_ms,omitempty"`
+	ExpectedProviderCacheReadMin    int64    `json:"expected_provider_cache_read_min,omitempty"`
+	ExpectedOutputReduceAppliedMin  int      `json:"expected_output_reduce_applied_min,omitempty"`
+	ExpectedPlannerMissedMax        int      `json:"expected_planner_missed_max,omitempty"`
+	ExpectedPlannerBypassAppliedMax int      `json:"expected_planner_bypass_applied_max,omitempty"`
+	ScenarioValidators              []string `json:"scenario_validators,omitempty"`
+	Notes                           string   `json:"notes"`
 }
 
 // CategoryResult is the per-category outcome of one gate evaluation.
@@ -165,7 +166,8 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 			meta.ExpectedOutputReduceAppliedMin > 0 ||
 			meta.ExpectedMaxErrors >= 0 ||
 			meta.ExpectedPlannerMissedMax >= 0 ||
-			meta.ExpectedPlannerBypassAppliedMax >= 0,
+			meta.ExpectedPlannerBypassAppliedMax >= 0 ||
+			len(meta.ScenarioValidators) > 0,
 		Metadata: meta,
 	}
 	res.Failures = evaluateCategoryGate(res, meta)
@@ -220,7 +222,68 @@ func evaluateCategoryGate(res CategoryResult, meta *CategoryMetadata) []string {
 	if meta.ExpectedPlannerBypassAppliedMax >= 0 && res.PlanReplay.BypassApplied > meta.ExpectedPlannerBypassAppliedMax {
 		failures = append(failures, fmt.Sprintf("planner_bypass_applied=%d > max=%d", res.PlanReplay.BypassApplied, meta.ExpectedPlannerBypassAppliedMax))
 	}
+	failures = append(failures, evaluateScenarioValidators(res, meta.ScenarioValidators)...)
 	return failures
+}
+
+func evaluateScenarioValidators(res CategoryResult, validators []string) []string {
+	var failures []string
+	for _, raw := range validators {
+		name := strings.ToLower(strings.TrimSpace(raw))
+		if name == "" {
+			continue
+		}
+		switch name {
+		case "tool_heavy":
+			if res.Layer0Saved <= 0 && res.Layer1Saved <= 0 {
+				failures = append(failures, "scenario tool_heavy: expected Layer 0 or Layer 1 savings")
+			}
+		case "cache_reuse":
+			if res.Layer3Saved <= 0 && res.ProviderCacheReadTokens <= 0 && res.ProviderCachedTokens <= 0 {
+				failures = append(failures, "scenario cache_reuse: expected Layer 3 or provider cache evidence")
+			}
+		case "output_reduce":
+			if res.OutputReduceApplied <= 0 {
+				failures = append(failures, "scenario output_reduce: expected output-reduce application")
+			}
+		case "planner_alignment":
+			if res.PlanReplay.RequestsWithPlan <= 0 {
+				failures = append(failures, "scenario planner_alignment: expected planner decisions")
+			} else if res.PlanReplay.MissedActive > 0 || res.PlanReplay.BypassApplied > 0 {
+				failures = append(failures, fmt.Sprintf("scenario planner_alignment: missed=%d bypass_applied=%d", res.PlanReplay.MissedActive, res.PlanReplay.BypassApplied))
+			}
+		case "websocket":
+			if !hasLayerCombination(res.LayerCombinations, "WS") {
+				failures = append(failures, "scenario websocket: expected websocket layer evidence")
+			}
+		case "low_error":
+			if res.ErrorCount != 0 {
+				failures = append(failures, fmt.Sprintf("scenario low_error: errors=%d", res.ErrorCount))
+			}
+		case "layer_combo_diversity":
+			if len(res.LayerCombinations) < 2 {
+				failures = append(failures, fmt.Sprintf("scenario layer_combo_diversity: combinations=%d", len(res.LayerCombinations)))
+			}
+		case "l2_summary":
+			if res.Layer2Saved <= 0 {
+				failures = append(failures, "scenario l2_summary: expected Layer 2 savings")
+			}
+		default:
+			failures = append(failures, fmt.Sprintf("unknown scenario validator %q", raw))
+		}
+	}
+	return failures
+}
+
+func hasLayerCombination(combos map[string]layerCombinationAggregate, label string) bool {
+	for key := range combos {
+		for _, part := range strings.Split(key, "+") {
+			if part == label {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func normalizeEvidenceLevel(meta *CategoryMetadata) string {
@@ -312,6 +375,9 @@ func FormatCorpusReport(report CorpusReport) string {
 		sb.WriteString(fmt.Sprintf("  output-reduce:%d\n", c.OutputReduceApplied))
 		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
 		sb.WriteString(fmt.Sprintf("  latency p95:  %.1f ms\n", c.LatencyP95Ms))
+		if c.Metadata != nil && len(c.Metadata.ScenarioValidators) > 0 {
+			sb.WriteString(fmt.Sprintf("  validators:   %s\n", strings.Join(c.Metadata.ScenarioValidators, ", ")))
+		}
 		if c.PlanReplay.RequestsWithPlan > 0 {
 			sb.WriteString(fmt.Sprintf("  planner:      requests=%d decisions=%d expected=%d active=%d/%d missed=%d bypass-hit=%d blocked=%d\n",
 				c.PlanReplay.RequestsWithPlan,

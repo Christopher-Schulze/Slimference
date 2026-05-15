@@ -48,10 +48,14 @@ func EstimateTokensFromBytes(n int) int {
 // EstimateTokensFromText counts tokens with the local tokenizer and falls back
 // to the historical byte/4 heuristic only if the tokenizer is unavailable.
 func EstimateTokensFromText(text string) int {
+	return estimateTokensFromText(text, tokens.CountString)
+}
+
+func estimateTokensFromText(text string, countString func(string) int) int {
 	if text == "" {
 		return 0
 	}
-	if counted := tokens.CountString(text); counted > 0 {
+	if counted := countString(text); counted > 0 {
 		return counted
 	}
 	return EstimateTokensFromBytes(len(text))

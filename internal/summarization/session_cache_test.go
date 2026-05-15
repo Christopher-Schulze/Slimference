@@ -2,6 +2,7 @@ package summarization
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,59 @@ func TestSessionCache_GetCurrentWithHash(t *testing.T) {
 	cached, _ = sc.GetCurrentWithHash("nonexistent", [32]byte{})
 	if cached != nil {
 		t.Fatal("expected nil for missing")
+	}
+}
+
+func TestSessionCache_GetCurrentMatchingPrefixRejectsChangedPrefix(t *testing.T) {
+	t.Parallel()
+	sc := NewSessionCache(10)
+	msgs := makeTestMessages(4)
+	sc.Store("sess-a", &CachedSummary{
+		Summary:      "s1",
+		CoveredRange: [2]int{0, 1},
+		Hash:         hashMessages(msgs[:2]),
+		CreatedAt:    time.Now(),
+	})
+
+	changed := append([]types.Message(nil), msgs...)
+	changed[1].Content = append([]types.ContentBlock(nil), changed[1].Content...)
+	changed[1].Content[0].Text = "changed prefix"
+	cached, _ := sc.GetCurrentMatchingPrefix("sess-a", changed)
+	if cached != nil {
+		t.Fatal("expected hash mismatch to block cached summary apply")
+	}
+	if got := sc.Stats().HashMisses; got != 1 {
+		t.Fatalf("hash mismatch telemetry = %d, want 1", got)
+	}
+}
+
+func TestSessionCache_CandidateHashTelemetry(t *testing.T) {
+	t.Parallel()
+	sc := NewSessionCache(10)
+	want := [32]byte{7}
+	sc.SetCandidateHash("sess-a", want)
+	if !sc.CandidateHashMatches("sess-a", want) {
+		t.Fatal("expected candidate hash match")
+	}
+	if sc.CandidateHashMatches("sess-a", [32]byte{8}) {
+		t.Fatal("expected candidate hash mismatch")
+	}
+	sc.RecordStaleJobSkip()
+	stats := sc.Stats()
+	if stats.CandidateSets != 1 || stats.StaleJobSkips != 1 {
+		t.Fatalf("stats = %+v", stats)
+	}
+}
+
+func TestSessionCache_CandidateHashMissingAndZero(t *testing.T) {
+	t.Parallel()
+	sc := NewSessionCache(10)
+	if sc.CandidateHashMatches("missing", [32]byte{1}) {
+		t.Fatal("missing candidate hash should not match")
+	}
+	sc.SetCandidateHash("sess-a", [32]byte{})
+	if !sc.CandidateHashMatches("sess-a", [32]byte{}) || sc.CandidateHashMatches("sess-a", [32]byte{1}) {
+		t.Fatal("set zero candidate hash should match only zero")
 	}
 }
 
@@ -339,6 +393,208 @@ func TestLayer2_ShouldTriggerCompressionSession_MinTokensGate(t *testing.T) {
 	}
 }
 
+func TestLayer2_ShouldTriggerCompressionSession_AdaptiveToolOutputROI(t *testing.T) {
+	cfg := testCompressionConfig()
+	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
+	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
+	cfg.MinTokensForLayer2 = 15000
+	cfg.MinMessagesForCompression = 3
+	cfg.SlidingWindow = 2
+	t.Setenv("TEST_KEY", "test")
+	l := NewLayer2(cfg)
+	msgs := makeToolHeavyMessages(12, strings.Repeat("tool output ", 500))
+	if !l.ShouldTriggerCompressionSession("s1", msgs) {
+		t.Fatal("tool-heavy prefix above adaptive floor should trigger before the fixed threshold")
+	}
+
+	recentEdit := makeToolHeavyMessages(12, strings.Repeat("tool output ", 500))
+	recentEdit[len(recentEdit)-1] = types.Message{
+		Index: len(recentEdit) - 1,
+		Role:  "assistant",
+		Content: []types.ContentBlock{{
+			Type:     "tool_use",
+			ToolName: "apply_patch",
+		}},
+	}
+	if l.ShouldTriggerCompressionSession("s2", recentEdit) {
+		t.Fatal("recent edit anchor should block adaptive early trigger")
+	}
+
+	prose := makeTestMessages(30)
+	for i := range prose {
+		prose[i].Content[0].Text = strings.Repeat("plain prose ", 150)
+	}
+	if l.ShouldTriggerCompressionSession("s3", prose) {
+		t.Fatal("large prose below fixed threshold should not use tool-output adaptive gate")
+	}
+}
+
+func TestLayer2_ScoreBackgroundCandidateSessionTelemetry(t *testing.T) {
+	cfg := testCompressionConfig()
+	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
+	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
+	cfg.MinTokensForLayer2 = 15000
+	cfg.MinMessagesForCompression = 3
+	cfg.SlidingWindow = 2
+	t.Setenv("TEST_KEY", "test")
+	l := NewLayer2(cfg)
+
+	candidate := l.ScoreBackgroundCandidateSession("s1", makeToolHeavyMessages(12, strings.Repeat("tool output ", 500)), 2)
+	if !candidate.Eligible {
+		t.Fatalf("expected eligible tool-heavy candidate, got %+v", candidate)
+	}
+	if candidate.ProjectedSavingsTokens <= 0 || candidate.ToolTokenShare < adaptiveLayer2ToolTokenShareMin {
+		t.Fatalf("weak candidate telemetry: %+v", candidate)
+	}
+
+	recentEdit := makeToolHeavyMessages(12, strings.Repeat("tool output ", 500))
+	recentEdit[len(recentEdit)-1] = types.Message{
+		Index: len(recentEdit) - 1,
+		Role:  "assistant",
+		Content: []types.ContentBlock{{
+			Type:     "tool_use",
+			ToolName: "apply_patch",
+		}},
+	}
+	blocked := l.ScoreBackgroundCandidateSession("s2", recentEdit, 2)
+	if blocked.Eligible || blocked.Reason != "recent_sensitive_anchor" {
+		t.Fatalf("expected recent-sensitive-anchor block, got %+v", blocked)
+	}
+}
+
+func TestLayer2_BackgroundCandidateBranchCoverage(t *testing.T) {
+	cfg := testCompressionConfig()
+	l := NewLayer2(cfg)
+	if got := l.ScoreBackgroundCandidateSession("s1", makeTestMessages(10), 2); got.Reason != "provider_unconfigured" {
+		t.Fatalf("provider branch mismatch: %+v", got)
+	}
+
+	t.Setenv("TEST_KEY_BRANCH", "test-key")
+	cfg = testCompressionConfig()
+	cfg.MiniMax.APIKeyEnv = "TEST_KEY_BRANCH"
+	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
+	cfg.SlidingWindow = 2
+	cfg.MinMessagesForCompression = 20
+	l = NewLayer2(cfg)
+	heavy := makeToolHeavyMessages(8, strings.Repeat("tool output ", 80))
+	if got := l.ScoreBackgroundCandidateSession("s1", heavy, 2); got.Reason != "below_min_messages" {
+		t.Fatalf("below-min branch mismatch: %+v", got)
+	}
+
+	cfg.MinMessagesForCompression = 3
+	l = NewLayer2(cfg)
+	l.SetCompressingSession("s1", true)
+	if got := l.ScoreBackgroundCandidateSession("s1", heavy, 2); got.Reason != "already_compressing" {
+		t.Fatalf("compressing branch mismatch: %+v", got)
+	}
+
+	cfg.MinMessagesForCompression = 0
+	l = NewLayer2(cfg)
+	if got := l.ScoreBackgroundCandidateSession("s2", nil, 5); got.Reason != "empty_existing_boundary" || !got.Eligible {
+		t.Fatalf("empty-boundary branch mismatch: %+v", got)
+	}
+
+	cfg.MinMessagesForCompression = 3
+	cfg.MinTokensForLayer2 = 100000
+	l = NewLayer2(cfg)
+	if got := l.ScoreBackgroundCandidateSession("s3", heavy, 2); got.Reason != "below_token_roi_gate" {
+		t.Fatalf("token-gate branch mismatch: %+v", got)
+	}
+
+	cfg.MinTokensForLayer2 = 10
+	cfg.Summary.TargetRatio = 0.99
+	l = NewLayer2(cfg)
+	if got := l.ScoreBackgroundCandidateSession("s4", heavy, 2); got.Reason != "projected_savings_too_low" {
+		t.Fatalf("projected-savings branch mismatch: %+v", got)
+	}
+
+	cfg.MinTokensForLayer2 = 0
+	cfg.Summary.TargetRatio = 0.2
+	l = NewLayer2(cfg)
+	if got := l.ScoreBackgroundCandidateSession("s5-default-window", heavy, 0); got.Reason != "stale_or_missing_summary" || !got.Eligible {
+		t.Fatalf("default-window branch mismatch: %+v", got)
+	}
+	if got := l.ScoreBackgroundCandidateSession("s5", heavy, 2); got.Reason != "stale_or_missing_summary" || !got.Eligible {
+		t.Fatalf("stale branch mismatch: %+v", got)
+	}
+	l.sessions.Store("s6", &CachedSummary{Summary: "fresh", CoveredRange: [2]int{0, 1}, CreatedAt: time.Now()})
+	if got := l.ScoreBackgroundCandidateSession("s6", heavy, 2); got.Reason != "coverage_below_threshold" || !got.Eligible {
+		t.Fatalf("coverage branch mismatch: %+v", got)
+	}
+	l.sessions.Store("s7", &CachedSummary{Summary: "fresh", CoveredRange: [2]int{0, 5}, CreatedAt: time.Now()})
+	if got := l.ScoreBackgroundCandidateSession("s7", heavy, 2); got.Reason != "existing_summary_sufficient" || got.Eligible {
+		t.Fatalf("sufficient branch mismatch: %+v", got)
+	}
+
+	cfg.MinTokensForLayer2 = 10
+	l = NewLayer2(cfg)
+	if l.passesLayer2TokenGate(heavy, -1, 2) {
+		t.Fatal("invalid prefix should fail token gate")
+	}
+	cfg.MinTokensForLayer2 = 0
+	l = NewLayer2(cfg)
+	if !l.passesLayer2TokenGate(heavy, 2, 2) {
+		t.Fatal("zero min token gate should pass")
+	}
+	if adaptiveLayer2MinTokens(0) != 0 || adaptiveLayer2MinTokens(1000) != adaptiveLayer2FloorTokens || adaptiveLayer2MinTokens(10000) != adaptiveLayer2FloorTokens {
+		t.Fatal("adaptive min token helper mismatch")
+	}
+	if l.recentSensitiveAnchor(nil, 0, 1) {
+		t.Fatal("empty messages should not have recent anchor")
+	}
+
+	cfg.MinTokensForLayer2 = 50000
+	l = NewLayer2(cfg)
+	if got := l.minProjectedLayer2Savings(); got != 2048 {
+		t.Fatalf("max projected savings floor mismatch: %d", got)
+	}
+	l.anchor = nil
+	if l.recentSensitiveAnchor(heavy, 0, 2) {
+		t.Fatal("nil anchor detector should not find recent anchors")
+	}
+	cfg.MinTokensForLayer2 = 15000
+	l = NewLayer2(cfg)
+	recentAdaptive := append([]types.Message(nil), heavy...)
+	recentAdaptive[len(recentAdaptive)-1] = toolUseMsg(t, len(recentAdaptive)-1, "edit_file")
+	if l.adaptiveLayer2ROICandidate(recentAdaptive, len(recentAdaptive)-2, 2, adaptiveLayer2FloorTokens+3000) {
+		t.Fatal("recent sensitive anchor should block adaptive ROI candidate")
+	}
+	if l.adaptiveLayer2ROICandidate(makeTestMessages(20), 10, 2, adaptiveLayer2FloorTokens+3000) {
+		t.Fatal("low tool-token volume should block adaptive ROI candidate")
+	}
+	cfg.MinMessagesForCompression = 1
+	cfg.MinTokensForLayer2 = 0
+	l = NewLayer2(cfg)
+	onePrefix := makeToolHeavyMessages(1, strings.Repeat("tool output ", 80))
+	l.sessions.Store("boundary-zero", &CachedSummary{Summary: "fresh", CoveredRange: [2]int{0, 0}, CreatedAt: time.Now()})
+	if got := l.ScoreBackgroundCandidateSession("boundary-zero", onePrefix, 5); got.Reason != "empty_existing_boundary" || !got.Eligible {
+		t.Fatalf("boundary zero branch mismatch: %+v", got)
+	}
+}
+
+func TestLayer2CandidateHashHelpers(t *testing.T) {
+	t.Parallel()
+	cfg := testCompressionConfig()
+	cfg.SlidingWindow = 5
+	l := NewLayer2(cfg)
+	if _, ok := l.CompressionCandidateHash(makeTestMessages(2), 5); ok {
+		t.Fatal("no compressible prefix should not hash")
+	}
+	_, _ = l.CompressionCandidateHash(makeTestMessages(10), 0)
+	hash, ok := l.CompressionCandidateHash(makeTestMessages(10), 2)
+	if !ok || hash == ([32]byte{}) {
+		t.Fatalf("expected candidate hash, ok=%v hash=%x", ok, hash)
+	}
+	l.MarkCompressionCandidate("sess", hash)
+	if !l.IsCurrentCompressionCandidate("sess", hash) {
+		t.Fatal("candidate hash should match after mark")
+	}
+	l.RecordStaleCompressionJobSkip()
+	if got := l.GetSessionCache().Stats().StaleJobSkips; got != 1 {
+		t.Fatalf("stale skip telemetry=%d", got)
+	}
+}
+
 func TestLayer2_ShouldTriggerCompressionSession_NoProvider(t *testing.T) {
 	cfg := testCompressionConfig()
 	cfg.MiniMax.BaseURL = ""
@@ -472,6 +728,20 @@ func makeTestMessages(n int) []types.Message {
 			Role:  role,
 			Content: []types.ContentBlock{
 				{Type: "text", Text: "message content " + string(rune('a'+i%26))},
+			},
+		}
+	}
+	return msgs
+}
+
+func makeToolHeavyMessages(n int, toolOutput string) []types.Message {
+	msgs := make([]types.Message, n)
+	for i := range msgs {
+		msgs[i] = types.Message{
+			Index: i,
+			Role:  "tool",
+			Content: []types.ContentBlock{
+				{Type: "tool_result", Text: toolOutput},
 			},
 		}
 	}

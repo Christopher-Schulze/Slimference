@@ -19,18 +19,39 @@ import (
 // It reports observable overhead and output volume only; it does not claim
 // output-token savings without a live baseline.
 type OutputReduceReport struct {
-	Period                   string         `json:"period"`
-	TotalRequests            int            `json:"total_requests"`
+	Period                   string                   `json:"period"`
+	TotalRequests            int                      `json:"total_requests"`
+	AppliedRequests          int                      `json:"applied_requests"`
+	SkippedRequests          int                      `json:"skipped_requests"`
+	InputOverheadTokens      int                      `json:"input_overhead_tokens"`
+	OutputTokensObserved     int                      `json:"output_tokens_observed"`
+	AppliedOutputTokens      int                      `json:"applied_output_tokens"`
+	AvgOutputTokens          float64                  `json:"avg_output_tokens"`
+	AvgAppliedOutputTokens   float64                  `json:"avg_applied_output_tokens"`
+	AvgInputOverheadPerApply float64                  `json:"avg_input_overhead_per_apply"`
+	Profiles                 map[string]int           `json:"profiles,omitempty"`
+	TaskShapes               map[string]int           `json:"task_shapes,omitempty"`
+	Reasons                  map[string]int           `json:"reasons,omitempty"`
+	ProfileRows              []OutputReduceProfileRow `json:"profile_rows,omitempty"`
+	profileRows              map[string]*OutputReduceProfileRow
+}
+
+// OutputReduceProfileRow is the provider/model/profile/task-shape slice used
+// for manual profile evolution. It reports observed volume and directive
+// overhead only; it deliberately does not infer output-token savings.
+type OutputReduceProfileRow struct {
+	Provider                 string         `json:"provider"`
+	Model                    string         `json:"model"`
+	Profile                  string         `json:"profile"`
+	TaskShape                string         `json:"task_shape"`
+	Requests                 int            `json:"requests"`
 	AppliedRequests          int            `json:"applied_requests"`
 	SkippedRequests          int            `json:"skipped_requests"`
 	InputOverheadTokens      int            `json:"input_overhead_tokens"`
 	OutputTokensObserved     int            `json:"output_tokens_observed"`
 	AppliedOutputTokens      int            `json:"applied_output_tokens"`
 	AvgOutputTokens          float64        `json:"avg_output_tokens"`
-	AvgAppliedOutputTokens   float64        `json:"avg_applied_output_tokens"`
 	AvgInputOverheadPerApply float64        `json:"avg_input_overhead_per_apply"`
-	Profiles                 map[string]int `json:"profiles,omitempty"`
-	TaskShapes               map[string]int `json:"task_shapes,omitempty"`
 	Reasons                  map[string]int `json:"reasons,omitempty"`
 }
 
@@ -68,6 +89,7 @@ func ReadOutputReduceReport(logDir, period string, now time.Time) (OutputReduceR
 	if len(report.Reasons) == 0 {
 		report.Reasons = nil
 	}
+	report.finalizeOutputReduceProfileRows()
 	return report, nil
 }
 
@@ -114,6 +136,7 @@ func accumulateOutputReduceFile(path string, report *OutputReduceReport) error {
 		if event.OutputReduceReason != "" {
 			report.Reasons[event.OutputReduceReason]++
 		}
+		report.observeOutputReduceProfileRow(event)
 	}
 	return scanner.Err()
 }
@@ -155,8 +178,119 @@ func WriteOutputReduceCSV(w io.Writer, report OutputReduceReport) error {
 	for _, key := range sortedOutputReduceKeys(report.Reasons) {
 		_ = cw.Write([]string{"reason", key, fmt.Sprintf("%d", report.Reasons[key])})
 	}
+	for _, row := range report.ProfileRows {
+		_ = cw.Write([]string{
+			"profile_row",
+			row.Provider,
+			row.Model,
+			row.Profile,
+			row.TaskShape,
+			fmt.Sprintf("%d", row.Requests),
+			fmt.Sprintf("%d", row.AppliedRequests),
+			fmt.Sprintf("%d", row.SkippedRequests),
+			fmt.Sprintf("%d", row.InputOverheadTokens),
+			fmt.Sprintf("%d", row.OutputTokensObserved),
+			fmt.Sprintf("%d", row.AppliedOutputTokens),
+			fmt.Sprintf("%.2f", row.AvgOutputTokens),
+			fmt.Sprintf("%.2f", row.AvgInputOverheadPerApply),
+		})
+	}
 	cw.Flush()
 	return cw.Error()
+}
+
+func (report *OutputReduceReport) observeOutputReduceProfileRow(event types.AnalyticsEvent) {
+	if !event.OutputReduceApplied && event.OutputReduceProfile == "" && event.OutputReduceTaskShape == "" && event.OutputReduceReason == "" {
+		return
+	}
+	provider := event.Provider.String()
+	model := normalizedOutputReduceDimension(event.Model, "unknown")
+	profile := normalizedOutputReduceDimension(event.OutputReduceProfile, "none")
+	shape := normalizedOutputReduceDimension(event.OutputReduceTaskShape, "unknown")
+	key := provider + "\x00" + model + "\x00" + profile + "\x00" + shape
+	if report.profileRows == nil {
+		report.profileRows = make(map[string]*OutputReduceProfileRow)
+	}
+	row := report.profileRows[key]
+	if row == nil {
+		row = &OutputReduceProfileRow{
+			Provider:  provider,
+			Model:     model,
+			Profile:   profile,
+			TaskShape: shape,
+		}
+		report.profileRows[key] = row
+	}
+	row.Requests++
+	row.OutputTokensObserved += event.OutputTokens
+	if event.OutputReduceApplied {
+		row.AppliedRequests++
+		row.InputOverheadTokens += event.OutputReduceAddedTokens
+		row.AppliedOutputTokens += event.OutputTokens
+	} else if event.OutputReduceReason != "" {
+		row.SkippedRequests++
+	}
+	if event.OutputReduceReason != "" {
+		if row.Reasons == nil {
+			row.Reasons = make(map[string]int)
+		}
+		row.Reasons[event.OutputReduceReason]++
+	}
+}
+
+func (report *OutputReduceReport) finalizeOutputReduceProfileRows() {
+	if len(report.profileRows) == 0 {
+		report.ProfileRows = nil
+		report.profileRows = nil
+		return
+	}
+	report.ProfileRows = make([]OutputReduceProfileRow, 0, len(report.profileRows))
+	for _, row := range report.profileRows {
+		if row.Requests > 0 {
+			row.AvgOutputTokens = float64(row.OutputTokensObserved) / float64(row.Requests)
+		}
+		if row.AppliedRequests > 0 {
+			row.AvgInputOverheadPerApply = float64(row.InputOverheadTokens) / float64(row.AppliedRequests)
+		}
+		if len(row.Reasons) == 0 {
+			row.Reasons = nil
+		}
+		report.ProfileRows = append(report.ProfileRows, *row)
+	}
+	sort.Slice(report.ProfileRows, func(i, j int) bool {
+		return lessOutputReduceProfileRow(report.ProfileRows[i], report.ProfileRows[j])
+	})
+	report.profileRows = nil
+}
+
+func lessOutputReduceProfileRow(a, b OutputReduceProfileRow) bool {
+	if a.Requests != b.Requests {
+		return a.Requests > b.Requests
+	}
+	if a.AppliedRequests != b.AppliedRequests {
+		return a.AppliedRequests > b.AppliedRequests
+	}
+	if a.OutputTokensObserved != b.OutputTokensObserved {
+		return a.OutputTokensObserved > b.OutputTokensObserved
+	}
+	if a.Provider != b.Provider {
+		return a.Provider < b.Provider
+	}
+	if a.Model != b.Model {
+		return a.Model < b.Model
+	}
+	if a.TaskShape != b.TaskShape {
+		return a.TaskShape < b.TaskShape
+	}
+	return a.Profile < b.Profile
+}
+
+func normalizedOutputReduceDimension(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func sortedOutputReduceKeys(m map[string]int) []string {

@@ -49,6 +49,12 @@ type HooksConfig struct {
 	// never rewritten by "slimference rewrite", regardless of filter rules.
 	// Corresponds to [hooks] exclude_commands in config.toml (spec+.md §4.9).
 	ExcludeCommands []string `toml:"exclude_commands"`
+	// CodexPostToolTimeoutSeconds is the fail-open watchdog for Codex PostToolUse.
+	// It prevents a hung output compactor from reaching Codex' 600s hook timeout.
+	CodexPostToolTimeoutSeconds int `toml:"codex_posttool_timeout_seconds"`
+	// CodexPostToolMinTokens skips PostToolUse compaction for tiny tool outputs.
+	// 0 disables the skip. Default is tuned for Bash output only.
+	CodexPostToolMinTokens int `toml:"codex_posttool_min_tokens"`
 }
 
 // FilterConfig holds Layer-0 CLI paths (optional; env vars still override when set in the CLI).
@@ -274,6 +280,9 @@ type TuningConfig struct {
 	// ToolPruneIdleThresholdTurns are removed from the request body
 	// and archived for transparent reattachment. Default off.
 	ToolPruneEnabled bool `toml:"tool_prune_enabled"`
+	// ToolPruneAlwaysKeep extends the built-in always-keep class for
+	// project-specific safety tools. Entries are exact tool names.
+	ToolPruneAlwaysKeep []string `toml:"tool_prune_always_keep"`
 	// MidExchangeEnabled (T99) gates Layer 2 mid-exchange summarization:
 	// when on, long in-flight exchanges exceeding the token threshold
 	// produce an in-progress summary. Default off until a corpus
@@ -314,6 +323,15 @@ type TuningConfig struct {
 	AdaptiveWindowMin int `toml:"adaptive_window_min"`
 	// AdaptiveWindowMax is the upper bound for the adaptive window (default 12).
 	AdaptiveWindowMax int `toml:"adaptive_window_max"`
+	// PlannerLiveCorpusConfidence is an operator assertion for the T149
+	// planner confidence fact. Empty/unknown keeps planner confidence
+	// conservative. Valid values: unknown, low, medium, high.
+	PlannerLiveCorpusConfidence string `toml:"planner_live_corpus_confidence"`
+	// PlannerLiveCorpusMetadataPath points at a committed live-corpus
+	// metadata.json file or a directory containing one. When the explicit
+	// confidence above is empty/unknown, the proxy derives a conservative
+	// high/medium/low planner confidence from that metadata.
+	PlannerLiveCorpusMetadataPath string `toml:"planner_live_corpus_metadata_path"`
 }
 
 // ToolCompressorTuning bundles RTK-style heuristic thresholds for the
@@ -647,6 +665,12 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND"); v != "" {
 		cfg.Hooks.SlimferenceCommand = v
 	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS"); ok {
+		cfg.Hooks.CodexPostToolTimeoutSeconds = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_POSTTOOL_MIN_TOKENS"); ok {
+		cfg.Hooks.CodexPostToolMinTokens = n
+	}
 	if v := os.Getenv("SLIMFERENCE_DEBUG_DECISIONS_LOG"); v != "" {
 		cfg.Debug.DecisionsLog = v
 	}
@@ -786,12 +810,23 @@ func validate(cfg *Config) error {
 	if t.OverflowTargetRatio < 0 || t.OverflowTargetRatio > 1 {
 		return fmt.Errorf("compression.tuning.overflow_target_ratio must be 0.0-1.0")
 	}
+	switch strings.TrimSpace(t.PlannerLiveCorpusConfidence) {
+	case "", "unknown", "low", "medium", "high":
+	default:
+		return fmt.Errorf("compression.tuning.planner_live_corpus_confidence must be unknown/low/medium/high, got %q", t.PlannerLiveCorpusConfidence)
+	}
 	mode := cfg.Secrets.Mode
 	if mode != "redact" && mode != "warn" && mode != "block" && mode != "off" {
 		return fmt.Errorf("secrets.mode must be redact/warn/block/off, got %q", mode)
 	}
 	if cfg.Filter.PassthroughMaxChars < 0 {
 		return fmt.Errorf("filter.passthrough_max_chars must be >= 0, got %d", cfg.Filter.PassthroughMaxChars)
+	}
+	if cfg.Hooks.CodexPostToolTimeoutSeconds < 1 || cfg.Hooks.CodexPostToolTimeoutSeconds > 30 {
+		return fmt.Errorf("hooks.codex_posttool_timeout_seconds must be 1-30, got %d", cfg.Hooks.CodexPostToolTimeoutSeconds)
+	}
+	if cfg.Hooks.CodexPostToolMinTokens < 0 {
+		return fmt.Errorf("hooks.codex_posttool_min_tokens must be >= 0, got %d", cfg.Hooks.CodexPostToolMinTokens)
 	}
 	if cfg.Compression.Tuning.MidExchangeThresholdTokens < 0 {
 		return fmt.Errorf("compression.tuning.mid_exchange_threshold_tokens must be >= 0, got %d", cfg.Compression.Tuning.MidExchangeThresholdTokens)

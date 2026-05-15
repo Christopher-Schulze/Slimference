@@ -313,6 +313,7 @@ func pickExampleLang(input string) string {
 // + footer stay so telemetry-gated counters still fire.
 func buildSystemPrompt(input string) string {
 	lang := pickExampleLang(input)
+	contract := pickSummaryTaskContract(input)
 	examplePromptCounters.mu.Lock()
 	examplePromptCounters.m[lang]++
 	examplePromptCounters.mu.Unlock()
@@ -329,7 +330,7 @@ func buildSystemPrompt(input string) string {
 	if promptOverrideBody != "" {
 		header = promptOverrideBody
 	}
-	return header + example + systemPromptFooter
+	return header + example + taskContractPrompt(contract) + systemPromptFooter
 }
 
 // coTRegex matches chain-of-thought thinking blocks that some models emit.

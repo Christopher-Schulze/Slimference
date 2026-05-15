@@ -71,6 +71,21 @@ func TestTrackerAutoTuneDowngradesOnOverhead(t *testing.T) {
 	}
 }
 
+func TestTrackerAutoTuneDowngradesOnRepairSignal(t *testing.T) {
+	t.Parallel()
+	tr := NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{
+		Enabled:             true,
+		MinSamples:          1,
+		MaxFailureRateDelta: 0.1,
+		CooldownTurns:       2,
+	})
+	tr.ObserveOutcome(Outcome{Provider: "codex", Model: "gpt", Profile: string(ProfileCodexAggressive), TaskShape: ShapeCodeEdit, Applied: true, OutputTokens: 100})
+	tr.ObserveRepairSignal("codex", "gpt", ProfileCodexAggressive, ShapeCodeEdit)
+	if got := tr.SelectProfile("codex", "gpt", ProfileCodexAggressive, ShapeCodeEdit); got != ProfileStandard {
+		t.Fatalf("repair downgrade=%s", got)
+	}
+}
+
 func TestTrackerAutoTuneSkipBranches(t *testing.T) {
 	t.Parallel()
 	var nilTracker *Tracker
@@ -81,6 +96,7 @@ func TestTrackerAutoTuneSkipBranches(t *testing.T) {
 		t.Fatal("nil tracker must not report cooldown")
 	}
 	nilTracker.ObserveOutcome(Outcome{Applied: true})
+	nilTracker.ObserveRepairSignal("openai", "gpt", ProfileAggressive, ShapeUnknown)
 	tr := NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{Enabled: false})
 	if got := tr.SelectProfile("openai", "gpt", ProfileAggressive, ShapeUnknown); got != ProfileAggressive {
 		t.Fatalf("disabled select=%s", got)
@@ -88,6 +104,7 @@ func TestTrackerAutoTuneSkipBranches(t *testing.T) {
 	if tr.InCooldown("openai", "gpt", ProfileAggressive, ShapeUnknown) {
 		t.Fatal("disabled tuner must not report cooldown")
 	}
+	tr.ObserveRepairSignal("openai", "gpt", ProfileAggressive, ShapeUnknown)
 	tr.ObserveOutcome(Outcome{Applied: true, Profile: string(ProfileAggressive)})
 	if len(tr.Snapshot().Downgrades) != 0 {
 		t.Fatal("disabled tuner must not downgrade")
@@ -104,6 +121,17 @@ func TestTrackerAutoTuneSkipBranches(t *testing.T) {
 	if got := tr.SelectProfile("p", "m", ProfileAggressive, ShapeDebugging); got != ProfileStandard {
 		t.Fatalf("cooldown downgrade=%s", got)
 	}
+	tr.ObserveRepairSignal("missing", "m", ProfileAggressive, ShapeDebugging)
+
+	tr = NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{Enabled: true, MinSamples: 3, MaxFailureRateDelta: 0.1, CooldownTurns: 2})
+	tr.ObserveOutcome(Outcome{Provider: "p", Model: "m", Profile: string(ProfileAggressive), TaskShape: ShapeCodeEdit, Applied: true, OutputTokens: 100})
+	tr.ObserveRepairSignal("p", "m", ProfileAggressive, ShapeCodeEdit)
+	if got := tr.SelectProfile("p", "m", ProfileAggressive, ShapeCodeEdit); got != ProfileAggressive {
+		t.Fatalf("below-min repair should not downgrade=%s", got)
+	}
+	tr = NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{Enabled: true, MinSamples: 1, MaxFailureRateDelta: 0.1, CooldownTurns: 2})
+	tr.ObserveOutcome(Outcome{Provider: "p", Model: "m", Profile: string(ProfileAggressive), TaskShape: ShapeReview, Applied: true, Failed: true})
+	tr.ObserveRepairSignal("p", "m", ProfileAggressive, ShapeReview)
 }
 
 func TestTrackerAutoTuneCooldownExpires(t *testing.T) {

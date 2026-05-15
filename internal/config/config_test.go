@@ -61,11 +61,19 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 
 func TestApplyEnvHooksDebug(t *testing.T) {
 	t.Setenv("SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND", "/opt/bin/slimference")
+	t.Setenv("SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS", "3")
+	t.Setenv("SLIMFERENCE_CODEX_POSTTOOL_MIN_TOKENS", "600")
 	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", "~/d/decisions.jsonl")
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
 	if cfg.Hooks.SlimferenceCommand != "/opt/bin/slimference" {
 		t.Fatalf("hooks command: %q", cfg.Hooks.SlimferenceCommand)
+	}
+	if cfg.Hooks.CodexPostToolTimeoutSeconds != 3 {
+		t.Fatalf("posttool timeout: %d", cfg.Hooks.CodexPostToolTimeoutSeconds)
+	}
+	if cfg.Hooks.CodexPostToolMinTokens != 600 {
+		t.Fatalf("posttool min tokens: %d", cfg.Hooks.CodexPostToolMinTokens)
 	}
 	if cfg.Debug.DecisionsLog != "~/d/decisions.jsonl" {
 		t.Fatalf("decisions log: %q", cfg.Debug.DecisionsLog)
@@ -580,6 +588,25 @@ func TestValidate_PassthroughMaxCharsNegative(t *testing.T) {
 	}
 }
 
+func TestValidateCodexPostToolHookKnobs(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	cfg.Hooks.CodexPostToolTimeoutSeconds = 0
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for zero posttool timeout")
+	}
+	cfg = Defaults()
+	cfg.Hooks.CodexPostToolTimeoutSeconds = 31
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for too-large posttool timeout")
+	}
+	cfg = Defaults()
+	cfg.Hooks.CodexPostToolMinTokens = -1
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for negative posttool min tokens")
+	}
+}
+
 // TestValidate_GainUSDNegative covers the gain_usd_per_million_tokens<0 validation.
 func TestValidate_GainUSDNegative(t *testing.T) {
 	t.Parallel()
@@ -851,6 +878,22 @@ func TestValidate_MidExchangeThresholdNegative(t *testing.T) {
 		t.Fatal("expected error for negative MidExchangeThresholdTokens")
 	}
 	if !strings.Contains(err.Error(), "mid_exchange_threshold_tokens") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidate_PlannerLiveCorpusConfidence(t *testing.T) {
+	cfg := Defaults()
+	cfg.Compression.Tuning.PlannerLiveCorpusConfidence = "high"
+	if err := validate(cfg); err != nil {
+		t.Fatalf("valid planner confidence rejected: %v", err)
+	}
+	cfg.Compression.Tuning.PlannerLiveCorpusConfidence = "fake"
+	err := validate(cfg)
+	if err == nil {
+		t.Fatal("expected error for invalid planner confidence")
+	}
+	if !strings.Contains(err.Error(), "planner_live_corpus_confidence") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

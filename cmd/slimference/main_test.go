@@ -23,6 +23,7 @@ import (
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/summarization"
+	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -541,7 +542,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		readStdinAll = origRead
 	})
 
-	t.Run("json_parse_error", func(t *testing.T) {
+	t.Run("json_parse_error_fails_open", func(t *testing.T) {
 		termIsTerminalFn = func(int) bool { return false }
 		readStdinAll = func() ([]byte, error) { return []byte("{"), nil }
 		rp, cleanup := redirectStderr()
@@ -549,13 +550,13 @@ func TestHandlePostToolCmd(t *testing.T) {
 		cleanup()
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, rp)
-		if !exited || code != 1 || !strings.Contains(buf.String(), "filter: JSON") {
+		if exited || buf.Len() != 0 {
 			t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
 		}
 		readStdinAll = origRead
 	})
 
-	t.Run("missing_tool_response_error", func(t *testing.T) {
+	t.Run("missing_tool_response_skips", func(t *testing.T) {
 		termIsTerminalFn = func(int) bool { return false }
 		readStdinAll = func() ([]byte, error) { return []byte(`{"command":"git status"}`), nil }
 		rp, cleanup := redirectStderr()
@@ -563,7 +564,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		cleanup()
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, rp)
-		if !exited || code != 1 || !strings.Contains(buf.String(), `no string field "tool_response"`) {
+		if exited || buf.Len() != 0 {
 			t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
 		}
 		readStdinAll = origRead
@@ -594,7 +595,134 @@ func TestHandlePostToolCmd(t *testing.T) {
 		osGetwd = origGetwd
 	})
 
+	t.Run("no_change_compact_emits_nothing", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
+		termIsTerminalFn = func(int) bool { return false }
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"command":"echo hi","tool_response":"short output"}`), nil
+		}
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 500
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "/tmp", nil }
+		origHome := osUserHomeDir
+		osUserHomeDir = func() (string, error) { return "", errors.New("home") }
+		defer func() { osUserHomeDir = origHome }()
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if buf.Len() != 0 {
+			t.Fatalf("expected no stdout when compact mode has no material change, got %q", buf.String())
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	})
+
+	t.Run("compacted_output_silent_by_default", func(t *testing.T) {
+		termIsTerminalFn = func(int) bool { return false }
+		payload, err := json.Marshal(map[string]string{
+			"command":       "git status",
+			"tool_response": strings.Repeat("line\n", 300),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 40
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "", errors.New("no wd") }
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if buf.Len() != 0 {
+			t.Fatalf("expected silent default output, got %q", buf.String())
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	})
+
+	t.Run("large_compacted_output_auto_emits_hook_json", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "")
+		termIsTerminalFn = func(int) bool { return false }
+		payload, err := json.Marshal(map[string]string{
+			"command":       "git status",
+			"tool_response": strings.Repeat("line\n", 2000),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 40
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "", errors.New("no wd") }
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, `"continue":false`) || !strings.Contains(out, `"hookEventName":"PostToolUse"`) {
+			t.Fatalf("expected auto replacement for high-savings output, got %q", out)
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	})
+
+	t.Run("large_compacted_output_silent_mode_emits_nothing", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "silent")
+		termIsTerminalFn = func(int) bool { return false }
+		payload, err := json.Marshal(map[string]string{
+			"command":       "git status",
+			"tool_response": strings.Repeat("line\n", 2000),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 40
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "", errors.New("no wd") }
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handlePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if buf.Len() != 0 {
+			t.Fatalf("expected explicit silent mode to suppress replacement, got %q", buf.String())
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+	})
+
 	t.Run("compacted_output_emits_hook_json", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 		termIsTerminalFn = func(int) bool { return false }
 		payload, err := json.Marshal(map[string]string{
 			"command":       "git status",
@@ -608,6 +736,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		}
 		cfg := config.Defaults()
 		cfg.Filter.PassthroughMaxChars = 40
+		cfg.Hooks.CodexPostToolMinTokens = 0
 		configLoadFn = func() (*config.Config, error) { return cfg, nil }
 		osGetwd = func() (string, error) { return "", errors.New("no wd") }
 		oldStdout := os.Stdout
@@ -628,6 +757,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 	})
 
 	t.Run("compacted_output_without_command_uses_generic_context", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 		termIsTerminalFn = func(int) bool { return false }
 		payload, err := json.Marshal(map[string]string{
 			"tool_response": strings.Repeat("line\n", 300),
@@ -638,6 +768,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		readStdinAll = func() ([]byte, error) { return payload, nil }
 		cfg := config.Defaults()
 		cfg.Filter.PassthroughMaxChars = 40
+		cfg.Hooks.CodexPostToolMinTokens = 0
 		configLoadFn = func() (*config.Config, error) { return cfg, nil }
 		oldStdout := os.Stdout
 		r, w, _ := os.Pipe()
@@ -656,6 +787,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 	})
 
 	t.Run("encode_error_exits", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 		termIsTerminalFn = func(int) bool { return false }
 		payload, err := json.Marshal(map[string]string{
 			"command":       "git status",
@@ -667,6 +799,7 @@ func TestHandlePostToolCmd(t *testing.T) {
 		readStdinAll = func() ([]byte, error) { return payload, nil }
 		cfg := config.Defaults()
 		cfg.Filter.PassthroughMaxChars = 40
+		cfg.Hooks.CodexPostToolMinTokens = 0
 		configLoadFn = func() (*config.Config, error) { return cfg, nil }
 		osGetwd = func() (string, error) { return "/tmp", nil }
 
@@ -693,6 +826,64 @@ func TestHandlePostToolCmd(t *testing.T) {
 	})
 }
 
+func TestPostToolWatchdogHelpers(t *testing.T) {
+	stop := startCodexPostToolWatchdog(nil, 0)
+	stop()
+
+	origExit := exitFn
+	defer func() { exitFn = origExit }()
+	exited := make(chan int, 1)
+	exitFn = func(code int) { exited <- code }
+
+	stop = startCodexPostToolWatchdog([]byte(`{"session_id":"wd"}`), time.Millisecond)
+	defer stop()
+	select {
+	case code := <-exited:
+		if code != 0 {
+			t.Fatalf("exit code=%d", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watchdog did not fire")
+	}
+}
+
+func TestPostToolReplacementDecisionHelpers(t *testing.T) {
+	if postToolBelowMinTokens("abc", 0) {
+		t.Fatal("disabled min-token skip must be false")
+	}
+	if !postToolBelowMinTokens(strings.Repeat("a", 300), 100) {
+		t.Fatal("long low-token text should still skip below min tokens")
+	}
+	if postToolBelowMinTokens(strings.Repeat("word ", 1000), 100) {
+		t.Fatal("large token body must not skip below min tokens")
+	}
+
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
+	if !codexPostToolShouldEmitReplacement(true, 100, 100) {
+		t.Fatal("compact mode must emit changed replacement")
+	}
+	if codexPostToolShouldEmitReplacement(false, 1000, 1) {
+		t.Fatal("unchanged output must not emit replacement")
+	}
+	if codexPostToolShouldEmitReplacement(true, 1000, 0) {
+		t.Fatal("empty final output must not emit replacement")
+	}
+
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "auto")
+	if codexPostToolShouldEmitReplacement(true, 100, 100) {
+		t.Fatal("auto mode must reject non-saving replacement")
+	}
+	if codexPostToolAutoReplacementWorthIt(1000, 900) {
+		t.Fatal("small savings must not pass auto replacement threshold")
+	}
+	if codexPostToolAutoReplacementWorthIt(4000, 3000) {
+		t.Fatal("saved-token threshold must reject weak compaction")
+	}
+	if codexPostToolAutoReplacementWorthIt(1000, 1) {
+		t.Fatal("small original token estimate must not pass auto replacement threshold")
+	}
+}
+
 func TestHandleSubcommand_PostToolDispatch(t *testing.T) {
 	origTerm := termIsTerminalFn
 	origRead := readStdinAll
@@ -704,6 +895,7 @@ func TestHandleSubcommand_PostToolDispatch(t *testing.T) {
 	}()
 
 	termIsTerminalFn = func(int) bool { return false }
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 	payload, err := json.Marshal(map[string]string{
 		"command":       "git status",
 		"tool_response": strings.Repeat("x", 500),
@@ -716,6 +908,7 @@ func TestHandleSubcommand_PostToolDispatch(t *testing.T) {
 	}
 	cfg := config.Defaults()
 	cfg.Filter.PassthroughMaxChars = 20
+	cfg.Hooks.CodexPostToolMinTokens = 0
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
 
 	oldStdout := os.Stdout
@@ -756,6 +949,7 @@ func TestHandlePostToolCmdRecordsFlight(t *testing.T) {
 	}
 	cfg := config.Defaults()
 	cfg.Filter.PassthroughMaxChars = 500
+	cfg.Hooks.CodexPostToolMinTokens = 0
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
 	osGetwd = func() (string, error) { return tmp, nil }
 
@@ -777,6 +971,56 @@ func TestHandlePostToolCmdRecordsFlight(t *testing.T) {
 		!strings.Contains(text, `"route_mode":"hook"`) ||
 		!strings.Contains(text, `"flight"`) {
 		t.Fatalf("flight log missing hook fields: %s", text)
+	}
+}
+
+func TestHandlePostToolCmdArchivesSilentlyByDefault(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	origConfigLoad := configLoadFn
+	origGetwd := osGetwd
+	origHome := osUserHomeDir
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+		osUserHomeDir = origHome
+	}()
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	osGetwd = func() (string, error) { return home, nil }
+	termIsTerminalFn = func(int) bool { return false }
+	payload, err := json.Marshal(map[string]string{
+		"session_id":    "sess-silent-archive",
+		"tool_name":     "Bash",
+		"tool_use_id":   "tool-silent-archive",
+		"command":       "go test ./...",
+		"tool_response": strings.Repeat("line\n", 200),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readStdinAll = func() ([]byte, error) { return payload, nil }
+	cfg := config.Defaults()
+	cfg.Filter.PassthroughMaxChars = 40
+	cfg.Hooks.CodexPostToolMinTokens = 0
+	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	handlePostToolCmd(nil)
+	_ = w.Close()
+	os.Stdout = oldStdout
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	if buf.Len() != 0 {
+		t.Fatalf("expected silent archive by default, got %q", buf.String())
+	}
+	if _, err := os.Stat(filepath.Join(toolarchive.DefaultDir(home), "entries", "tool-silent-archive.json")); err != nil {
+		t.Fatalf("archive metadata missing: %v", err)
 	}
 }
 
@@ -946,8 +1190,10 @@ func TestHandlePostToolCmdCrossToolDedup(t *testing.T) {
 	osUserHomeDir = func() (string, error) { return home, nil }
 	osGetwd = func() (string, error) { return "/repo", nil }
 	termIsTerminalFn = func(int) bool { return false }
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 	cfg := config.Defaults()
 	cfg.Filter.PassthroughMaxChars = 500
+	cfg.Hooks.CodexPostToolMinTokens = 0
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
 	observeSessionStartTurnState("sess-hook-git")
 
@@ -987,7 +1233,25 @@ func TestHandleCodexHookCmd(t *testing.T) {
 	osUserHomeDir = func() (string, error) { return home, nil }
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
-	t.Run("session_start_adds_context", func(t *testing.T) {
+	t.Run("session_start_silent_by_default", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"s1","hook_event_name":"SessionStart","source":"startup"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"session-start"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if buf.Len() != 0 {
+			t.Fatalf("expected silent session hook output, got %q", buf.String())
+		}
+	})
+
+	t.Run("session_start_debug_adds_context", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "debug")
 		readStdinAll = func() ([]byte, error) {
 			return []byte(`{"session_id":"s1","hook_event_name":"SessionStart","source":"startup"}`), nil
 		}
@@ -1000,7 +1264,7 @@ func TestHandleCodexHookCmd(t *testing.T) {
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
 		out := buf.String()
-		if !strings.Contains(out, `"hookEventName":"SessionStart"`) || !strings.Contains(out, "Slimference hooks are active") {
+		if !strings.Contains(out, `"hookEventName":"SessionStart"`) || !strings.Contains(out, "Local hook debug mode is active") {
 			t.Fatalf("unexpected session hook output: %q", out)
 		}
 	})
@@ -1054,6 +1318,32 @@ func TestHandleCodexHookCmd(t *testing.T) {
 		_, _ = io.Copy(&buf, r)
 		if buf.Len() != 0 {
 			t.Fatalf("expected no output, got %q", buf.String())
+		}
+	})
+
+	t.Run("posttool_timeout_records_flight", func(t *testing.T) {
+		decisionsPath := filepath.Join(t.TempDir(), "decisions.jsonl")
+		t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"s-timeout","tool_name":"Bash","hook_event_name":"PostToolUse"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"posttool-timeout"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if buf.Len() != 0 {
+			t.Fatalf("expected no output, got %q", buf.String())
+		}
+		data, err := os.ReadFile(decisionsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), `"bypass_reason":"timeout_fail_open"`) || !strings.Contains(string(data), `"session_id":"s-timeout"`) {
+			t.Fatalf("timeout flight missing: %s", data)
 		}
 	})
 
@@ -1185,7 +1475,18 @@ func TestCodexHookEncodeErrorsAndFlightBranches(t *testing.T) {
 		name string
 		fn   func()
 	}{
-		{"session_start", func() { handleCodexSessionStartHook([]byte(`{"session_id":"s"}`)) }},
+		{"session_start", func() {
+			oldMode, hadMode := os.LookupEnv("SLIMFERENCE_CODEX_HOOK_MODE")
+			_ = os.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "debug")
+			defer func() {
+				if hadMode {
+					_ = os.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", oldMode)
+				} else {
+					_ = os.Unsetenv("SLIMFERENCE_CODEX_HOOK_MODE")
+				}
+			}()
+			handleCodexSessionStartHook([]byte(`{"session_id":"s"}`))
+		}},
 		{"permission_deny", func() {
 			handleCodexPermissionRequestHook([]byte(`{"tool_input":{"command":"rm -rf /"}}`))
 		}},
@@ -1244,8 +1545,8 @@ func TestHandleSubcommand_CodexHookDispatch(t *testing.T) {
 	os.Stdout = oldStdout
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), `"hookEventName":"SessionStart"`) {
-		t.Fatalf("codexhook subcommand output=%q", buf.String())
+	if buf.Len() != 0 {
+		t.Fatalf("codexhook session-start must be silent by default, output=%q", buf.String())
 	}
 }
 

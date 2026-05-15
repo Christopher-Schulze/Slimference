@@ -83,17 +83,22 @@ func InspectCodexHooks(home string) CodexHookState {
 		state.HooksJSONExists = true
 		state.PreEntry = strings.Contains(text, "codex-pre-tool.sh") ||
 			strings.Contains(text, "Slimference rewrite guard") ||
-			strings.Contains(text, "Local rewrite guard")
+			strings.Contains(text, "Local rewrite guard") ||
+			strings.Contains(text, "Output guard")
 		state.PostEntry = strings.Contains(text, "codex-post-tool.sh") ||
 			strings.Contains(text, "Slimference filter") ||
-			strings.Contains(text, "Local output filter")
+			strings.Contains(text, "Local output filter") ||
+			strings.Contains(text, "Output compactor")
 		state.ReadEntry = strings.Contains(text, "codex-read-tool.sh") ||
 			strings.Contains(text, "Slimference read cache") ||
-			strings.Contains(text, "Local read cache")
+			strings.Contains(text, "Local read cache") ||
+			strings.Contains(text, "Read cache")
 		state.SessionEntry = strings.Contains(text, "codex-session-start.sh") ||
-			strings.Contains(text, "Local session boundary")
+			strings.Contains(text, "Local session boundary") ||
+			strings.Contains(text, "Session boundary")
 		state.PermissionEntry = strings.Contains(text, "codex-permission-request.sh") ||
-			strings.Contains(text, "Local approval guard")
+			strings.Contains(text, "Local approval guard") ||
+			strings.Contains(text, "Approval guard")
 		state.UserPromptEntry = strings.Contains(text, "codex-user-prompt-submit.sh")
 		state.StopEntry = strings.Contains(text, "codex-stop.sh")
 	}
@@ -174,6 +179,7 @@ func VerifyCodexReport(home string) (lines []string, ok bool) {
 			if !state.Complete() {
 				ok = false
 			}
+			lines = append(lines, "codex   review note: if Codex reports hooks need review, open /hooks and approve the installed hook entries")
 			lines = append(lines, "codex   config-patch status not checked here (use `slimference integrate status --client codex`)")
 			return lines, ok
 		}

@@ -79,10 +79,11 @@ type AdminSecuritySuspendResponse struct {
 }
 
 type AdminLayer2Status struct {
-	HasCache    bool      `json:"has_cache"`
-	Compressing bool      `json:"compressing"`
-	LastRun     time.Time `json:"last_run"`
-	QueueDepth  int       `json:"queue_depth"`
+	HasCache    bool                     `json:"has_cache"`
+	Compressing bool                     `json:"compressing"`
+	LastRun     time.Time                `json:"last_run"`
+	QueueDepth  int                      `json:"queue_depth"`
+	CacheStats  summarization.CacheStats `json:"cache_stats"`
 	// Redaction (T109) reports cumulative outbound-redaction counters
 	// so operators can see what was stripped from Layer 2 traffic.
 	Redaction summarization.RedactionCounters `json:"redaction"`
@@ -231,10 +232,14 @@ type RepetitionStats struct {
 
 // ToolPruneStats exposes T103 tool-pruning usage tracker snapshot.
 type ToolPruneStats struct {
-	Sessions       int   `json:"sessions"`
-	PrunedTotal    int64 `json:"pruned_total"`
-	ReattachTotal  int64 `json:"reattach_total"`
-	TokensSavedSum int64 `json:"tokens_saved_sum"`
+	Sessions         int   `json:"sessions"`
+	PrunedTotal      int64 `json:"pruned_total"`
+	ReattachTotal    int64 `json:"reattach_total"`
+	MissTotal        int64 `json:"miss_total"`
+	RetryTotal       int64 `json:"retry_total"`
+	AlwaysKeepTotal  int64 `json:"always_keep_total"`
+	DisabledSessions int   `json:"disabled_sessions"`
+	TokensSavedSum   int64 `json:"tokens_saved_sum"`
 }
 
 // ServerStateStats exposes T78 per-session response-id store snapshot.
@@ -273,6 +278,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		cache := p.layer2.GetCache()
 		layer2.Compressing = cache.Compressing.Load()
 		layer2.QueueDepth = len(p.compressQueue)
+		layer2.CacheStats = p.layer2.CacheStats()
 		if cs := cache.Get(); cs != nil {
 			layer2.HasCache = true
 			layer2.LastRun = cs.CreatedAt
@@ -444,10 +450,14 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			}
 			s := p.toolPrune.Snapshot()
 			return ToolPruneStats{
-				Sessions:       s.Sessions,
-				PrunedTotal:    s.PrunedTotal,
-				ReattachTotal:  s.ReattachTotal,
-				TokensSavedSum: s.TokensSavedSum,
+				Sessions:         s.Sessions,
+				PrunedTotal:      s.PrunedTotal,
+				ReattachTotal:    s.ReattachTotal,
+				MissTotal:        s.MissTotal,
+				RetryTotal:       s.RetryTotal,
+				AlwaysKeepTotal:  s.AlwaysKeepTotal,
+				DisabledSessions: s.DisabledSessions,
+				TokensSavedSum:   s.TokensSavedSum,
 			}
 		}(),
 		ServerState: func() ServerStateStats {

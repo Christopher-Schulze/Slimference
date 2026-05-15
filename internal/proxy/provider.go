@@ -231,6 +231,34 @@ func codexInputItemToMessage(index int, itemRaw json.RawMessage) (types.Message,
 
 	itemType := rawJSONString(fields["type"])
 	role := rawJSONString(fields["role"])
+	raw := codexInputItemRaw{Fields: fields, ItemIndex: index, TextIndex: -1}
+
+	if codexLooksLikeToolOutput(itemType, fields) {
+		text, textPath := codexToolOutputText(fields)
+		raw.TextPath = textPath
+		msg := types.Message{Index: index, Role: "tool"}
+		msg.Content = []types.ContentBlock{{
+			Type:         "tool_result",
+			Text:         text,
+			ToolResultID: firstNonEmpty(rawJSONString(fields["call_id"]), rawJSONString(fields["id"])),
+			ToolName:     codexToolName(fields),
+			ToolInput:    codexToolInput(fields),
+			RawBlock:     raw,
+		}}
+		return msg, true, nil
+	}
+	if codexLooksLikeToolCall(itemType, fields) {
+		msg := types.Message{Index: index, Role: "assistant"}
+		msg.Content = []types.ContentBlock{{
+			Type:      "tool_use",
+			ToolUseID: firstNonEmpty(rawJSONString(fields["call_id"]), rawJSONString(fields["id"])),
+			ToolName:  codexToolName(fields),
+			ToolInput: codexToolInput(fields),
+			RawBlock:  raw,
+		}}
+		return msg, true, nil
+	}
+
 	if role == "" {
 		role = codexRoleForInputType(itemType)
 	}
@@ -238,31 +266,7 @@ func codexInputItemToMessage(index int, itemRaw json.RawMessage) (types.Message,
 		return types.Message{}, false, nil
 	}
 
-	raw := codexInputItemRaw{Fields: fields, ItemIndex: index, TextIndex: -1}
 	msg := types.Message{Index: index, Role: role}
-
-	switch itemType {
-	case "function_call":
-		msg.Content = []types.ContentBlock{{
-			Type:      "tool_use",
-			ToolUseID: firstNonEmpty(rawJSONString(fields["call_id"]), rawJSONString(fields["id"])),
-			ToolName:  rawJSONString(fields["name"]),
-			ToolInput: rawJSONText(fields["arguments"]),
-			RawBlock:  raw,
-		}}
-		return msg, true, nil
-	case "function_call_output":
-		text, textPath := codexOutputText(fields["output"])
-		raw.TextPath = textPath
-		msg.Role = "tool"
-		msg.Content = []types.ContentBlock{{
-			Type:         "tool_result",
-			Text:         text,
-			ToolResultID: firstNonEmpty(rawJSONString(fields["call_id"]), rawJSONString(fields["id"])),
-			RawBlock:     raw,
-		}}
-		return msg, true, nil
-	}
 
 	if contentRaw, ok := fields["content"]; ok {
 		text, textPath, textIndex := codexTextFromContent(contentRaw)
@@ -278,14 +282,136 @@ func codexInputItemToMessage(index int, itemRaw json.RawMessage) (types.Message,
 	return types.Message{}, false, nil
 }
 
+func codexLooksLikeToolCall(itemType string, fields map[string]json.RawMessage) bool {
+	switch itemType {
+	case "function_call", "local_shell_call", "shell_call", "tool_call", "mcp_call", "computer_call":
+		return true
+	}
+	if rawJSONString(fields["call_id"]) == "" && rawJSONString(fields["id"]) == "" {
+		return false
+	}
+	if len(fields["arguments"]) != 0 || len(fields["action"]) != 0 || len(fields["input"]) != 0 {
+		return true
+	}
+	return codexCommandLineFromFields(fields) != ""
+}
+
+func codexLooksLikeToolOutput(itemType string, fields map[string]json.RawMessage) bool {
+	switch itemType {
+	case "function_call_output", "local_shell_call_output", "shell_call_output", "tool_result", "tool_output", "mcp_call_output", "computer_call_output":
+		return true
+	}
+	if !strings.HasSuffix(itemType, "_output") && itemType != "output" {
+		return false
+	}
+	_, textPath := codexToolOutputText(fields)
+	return textPath != ""
+}
+
+func codexToolName(fields map[string]json.RawMessage) string {
+	if name := rawJSONString(fields["name"]); name != "" {
+		return name
+	}
+	if codexCommandLineFromFields(fields) != "" {
+		return "shell"
+	}
+	return ""
+}
+
+func codexToolInput(fields map[string]json.RawMessage) string {
+	for _, key := range []string{"arguments", "input", "action"} {
+		if len(fields[key]) != 0 {
+			return rawJSONText(fields[key])
+		}
+	}
+	obj := make(map[string]json.RawMessage)
+	for _, key := range []string{
+		"command", "cmd", "command_line", "cmdline", "shell_command", "argv", "args",
+		"path", "file_path", "filepath", "absolute_path",
+	} {
+		if len(fields[key]) != 0 {
+			obj[key] = fields[key]
+		}
+	}
+	if commandLine := codexCommandLineFromFields(fields); commandLine != "" {
+		data, _ := json.Marshal(commandLine)
+		obj["command"] = data
+	}
+	if len(obj) == 0 {
+		return ""
+	}
+	data, _ := json.Marshal(obj)
+	return string(data)
+}
+
+func codexCommandLineFromFields(fields map[string]json.RawMessage) string {
+	for _, key := range []string{"cmd", "command_line", "cmdline", "shell_command"} {
+		if s := strings.TrimSpace(rawJSONString(fields[key])); s != "" {
+			return s
+		}
+	}
+	if s := strings.TrimSpace(rawJSONString(fields["command"])); s != "" {
+		return s
+	}
+	if argv := rawJSONStringArray(fields["command"]); len(argv) > 0 {
+		return joinShellArgs(argv)
+	}
+	for _, key := range []string{"argv", "args"} {
+		if argv := rawJSONStringArray(fields[key]); len(argv) > 0 {
+			return joinShellArgs(argv)
+		}
+	}
+	for _, key := range []string{"action", "input"} {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(fields[key], &obj); err == nil {
+			if commandLine := codexCommandLineFromFields(obj); commandLine != "" {
+				return commandLine
+			}
+		}
+	}
+	return ""
+}
+
+func rawJSONStringArray(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var values []string
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil
+	}
+	return values
+}
+
+func codexToolOutputText(fields map[string]json.RawMessage) (string, string) {
+	for _, key := range []string{"output", "aggregated_output", "stdout", "stderr", "text"} {
+		raw := fields[key]
+		if len(raw) == 0 {
+			continue
+		}
+		if key == "output" {
+			text, textPath := codexOutputText(raw)
+			if textPath != "" {
+				return text, textPath
+			}
+		}
+		if s := rawJSONString(raw); s != "" {
+			return s, "field:" + key
+		}
+		if field, ok := singleCodexOutputTextField(raw); ok {
+			return rawJSONString(field.value), "field_object:" + key + ":" + field.name
+		}
+		if text := rawJSONText(raw); text != "" {
+			return text, "field:" + key
+		}
+	}
+	return "", ""
+}
+
 func codexRoleForInputType(itemType string) string {
 	switch itemType {
 	case "", "message":
 		return "user"
-	case "function_call":
-		return "assistant"
-	case "function_call_output":
-		return "tool"
 	default:
 		return ""
 	}
@@ -657,6 +783,23 @@ func codexMessageToInputItem(msg types.Message, raw codexInputItemRaw) (json.Raw
 		data, _ := json.Marshal(text)
 		fields["output"] = data
 	default:
+		if key, ok := strings.CutPrefix(raw.TextPath, "field:"); ok && key != "" {
+			data, _ := json.Marshal(text)
+			fields[key] = data
+		}
+		if rest, ok := strings.CutPrefix(raw.TextPath, "field_object:"); ok && rest != "" {
+			key, nested, ok := strings.Cut(rest, ":")
+			if ok && key != "" && nested != "" {
+				var obj map[string]json.RawMessage
+				if err := json.Unmarshal(fields[key], &obj); err != nil {
+					return nil, err
+				}
+				data, _ := json.Marshal(text)
+				obj[nested] = data
+				output, _ := json.Marshal(obj)
+				fields[key] = output
+			}
+		}
 		if key, ok := strings.CutPrefix(raw.TextPath, "output_field:"); ok && key != "" {
 			var obj map[string]json.RawMessage
 			if err := json.Unmarshal(fields["output"], &obj); err != nil {

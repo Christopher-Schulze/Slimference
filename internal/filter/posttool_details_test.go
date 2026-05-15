@@ -15,7 +15,7 @@ func TestExtractPostToolDetailsFromHookJSON_Metadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SessionID != "sess-1" || got.ToolName != "Bash" || got.ToolUseID != "tool-1" || got.CommandLine != "npm test" {
+	if got.SessionID != "sess-1" || got.ToolName != "Bash" || got.ToolUseID != "tool-1" || got.CommandLine != "npm test" || !got.HasToolResponse {
 		t.Fatalf("got=%+v", got)
 	}
 }

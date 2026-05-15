@@ -127,6 +127,19 @@ func TestEnsureCodexHooksFeatureBranches(t *testing.T) {
 			t.Fatalf("expected conflict, got %v", err)
 		}
 	})
+	t.Run("conflicting_current_hooks_false", func(t *testing.T) {
+		home := t.TempDir()
+		configPath := filepath.Join(home, ".codex", "config.toml")
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(configPath, []byte("[features]\nhooks = false\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureCodexHooksFeature(home); err == nil || !strings.Contains(err.Error(), "hooks=false") {
+			t.Fatalf("expected hooks conflict, got %v", err)
+		}
+	})
 	t.Run("already_true", func(t *testing.T) {
 		home := t.TempDir()
 		configPath := filepath.Join(home, ".codex", "config.toml")
@@ -200,6 +213,39 @@ func TestEnsureCodexHooksFeatureBranches(t *testing.T) {
 	})
 }
 
+func TestCodexHookEventAndManagedLineBranches(t *testing.T) {
+	t.Parallel()
+
+	if isCodexHookEvent("NotARealHook") {
+		t.Fatal("unknown hook event should not be accepted")
+	}
+	content := "model = \"gpt-5\"\n" + slimferenceCodexHooksLine + "\n"
+	cleaned := removeManagedCodexHooksLine(content, slimferenceCodexHooksLine)
+	if strings.Contains(cleaned, slimferenceCodexHooksLine) {
+		t.Fatalf("managed hooks line was not removed: %s", cleaned)
+	}
+	if !strings.Contains(cleaned, "model = \"gpt-5\"") {
+		t.Fatalf("unrelated config was removed: %s", cleaned)
+	}
+}
+
+func TestValidateCodexConfig_currentHooksFalseConflict(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("[features]\nhooks = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := validateCodexConfig(configPath)
+	if err == nil || !strings.Contains(err.Error(), "hooks=false") {
+		t.Fatalf("expected hooks=false conflict, got %v", err)
+	}
+}
+
 func TestInstallCodex_InstallHooksJSONError(t *testing.T) {
 	home := t.TempDir()
 	codexPath := filepath.Join(home, ".codex")
@@ -235,29 +281,6 @@ func TestPatchCodexConfig_MkdirError(t *testing.T) {
 	err := patchCodexConfig(home)
 	if err == nil {
 		t.Fatal("expected patchCodexConfig mkdir error")
-	}
-}
-
-func TestInstallCodexAgentsMD_OpenError(t *testing.T) {
-	home := t.TempDir()
-	agentsPath := filepath.Join(home, ".codex", "AGENTS.md")
-	if err := os.MkdirAll(agentsPath, 0o755); err != nil {
-		t.Fatalf("mkdir agents path: %v", err)
-	}
-	err := installCodexAgentsMD(home, "slimference")
-	if err == nil {
-		t.Fatal("expected AGENTS.md open error")
-	}
-}
-
-func TestInstallCodexAgentsMD_MkdirError(t *testing.T) {
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, ".codex"), []byte("blocker"), 0o644); err != nil {
-		t.Fatalf("write blocker: %v", err)
-	}
-	err := installCodexAgentsMD(home, "slimference")
-	if err == nil {
-		t.Fatal("expected AGENTS.md mkdir error")
 	}
 }
 

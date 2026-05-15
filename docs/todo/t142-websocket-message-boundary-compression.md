@@ -89,14 +89,16 @@ Default remains `tunnel` until T146/T140 live evidence and this task's inspect/s
 
 ### WP5 - Shadow compression
 
-- Run the normal HTTP request compression logic on reconstructed request JSON in memory.
-- Do not send the compressed result.
-- Record:
+- [x] Run a deterministic no-mutation shadow estimator on reconstructed JSON text in memory.
+- [x] Do not send the compressed result.
+- [x] Record:
   - would-compress input bytes/tokens.
   - applied layers.
   - expected net saving.
   - unsupported fields.
   - mutation blockers.
+- Full HTTP request compression replay remains pending until a live frame corpus
+  proves which WebSocket payloads are request-bearing Codex messages.
 - This is the evidence bridge between tunnel safety and mutation mode.
 
 ### WP6 - Mutation mode
@@ -153,11 +155,11 @@ Default remains `tunnel` until T146/T140 live evidence and this task's inspect/s
 
 - [x] Existing `tunnel` behavior remains byte-for-byte compatible and tested.
 - [x] `inspect` mode records frame shapes without raw content.
-- [ ] `shadow` mode reports would-save numbers without sending mutated bytes.
+- [x] `shadow` mode reports would-save numbers without sending mutated bytes.
 - [ ] `mutate` mode is blocked until at least one live Codex WebSocket corpus is captured and replayed.
 - [ ] Unknown or drifted message shapes fall back to tunnel, not best-effort mutation.
 - [ ] Flight records show `websocket_tunnel`, `websocket_inspect`, `websocket_shadow`, or `websocket_compact`.
-- [ ] `go run ./scripts/ci` passes with 100% coverage for new Go code.
+- [x] `go run ./scripts/ci` passes with 100% coverage for new Go code.
 
 ## Expected Upside
 
@@ -181,3 +183,12 @@ Default remains `tunnel` until T146/T140 live evidence and this task's inspect/s
   - RSV/compressed-extension frames are marked as blockers via `inspect_note`, not parsed as JSON.
   - `WebSocketTunnel` still uses byte tunnel by default; inspect mode only activates when an inspector is explicitly attached.
   - Focus tests: `go test ./internal/wscompact ./internal/proxy`; `internal/wscompact` coverage is 100%.
+- 2026-05-15 T142b:
+  - `FrameSummary` now includes a content-free `shadow` block for text payloads.
+  - JSON payloads get deterministic `json_compact` would-save bytes/tokens and
+    applied-layer labels without changing the raw frame.
+  - RSV/compressed-extension frames and non-JSON text frames emit explicit
+    shadow blockers.
+  - This is shadow evidence only; mutation remains blocked on live Codex frame
+    corpus and known-shape replay.
+  - Focus test: `go test ./internal/wscompact -cover`.

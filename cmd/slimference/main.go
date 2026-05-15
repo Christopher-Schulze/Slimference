@@ -828,20 +828,31 @@ func handlePostToolCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
 		exitFn(1)
 	}
+	cfg := config.Defaults()
+	if loaded, err := configLoadFn(); err == nil {
+		cfg = loaded
+	}
 	details, err := filter.ExtractPostToolDetailsFromHookJSON(payload)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		exitFn(1)
+		failOpenCodexPostTool(payload, err)
+		return
+	}
+	stopWatchdog := startCodexPostToolWatchdog(payload, postToolTimeoutDuration(cfg))
+	defer stopWatchdog()
+	if !details.HasToolResponse {
+		recordHookFlight("hook_post", details.SessionID, postToolFlightToolName(details), "skip_no_response", len(payload), len(payload), []int{0}, nil)
+		return
+	}
+	if minTokens := cfg.Hooks.CodexPostToolMinTokens; postToolBelowMinTokens(details.ToolResponse, minTokens) {
+		recordHookFlight("hook_post", details.SessionID, postToolFlightToolName(details), "skip_tiny", len(details.ToolResponse), len(details.ToolResponse), []int{0}, nil)
+		return
 	}
 
 	wd, err := osGetwd()
 	if err != nil {
 		wd = ""
 	}
-	maxOut := config.Defaults().Filter.PassthroughMaxChars
-	if cfg, err := configLoadFn(); err == nil {
-		maxOut = cfg.Filter.PassthroughMaxChars
-	}
+	maxOut := cfg.Filter.PassthroughMaxChars
 
 	readCtx := hookFileReadContext(wd, details)
 	compacted, changed := filter.CompactCapturedOutputWithContext(wd, details.CommandLine, details.ToolResponse, maxOut, readCtx)
@@ -850,7 +861,6 @@ func handlePostToolCmd(args []string) {
 		compacted = out
 		changed = true
 	}
-	recordHookFlight("hook_post", details.SessionID, details.ToolName, hookDecision(changed), len(details.ToolResponse), len(compacted), []int{0}, nil)
 
 	// T93 cross-session pattern mining: when the same (session, tool,
 	// command, output) tuple has been observed multiple times, replace
@@ -873,6 +883,8 @@ func handlePostToolCmd(args []string) {
 			}
 		}
 	}
+	recordHookFlight("hook_post", details.SessionID, postToolFlightToolName(details), hookDecision(changed), len(details.ToolResponse), len(compacted), []int{0}, nil)
+	emitReplacement := codexPostToolShouldEmitReplacement(changed, len(details.ToolResponse), len(compacted))
 
 	if home, err := osUserHomeDir(); err == nil {
 		turnID := currentHookTurnID(sessions.DefaultHookStateDir(home), details.SessionID)
@@ -886,6 +898,9 @@ func handlePostToolCmd(args []string) {
 			Preview:   string(compacted),
 		})
 		if archiveErr == nil && entry != nil {
+			if !emitReplacement {
+				return
+			}
 			out := codexPostToolReplacement(toolarchive.RenderContext(*entry))
 			if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 				fmt.Fprintf(os.Stderr, "encode posttool output: %v\n", err)
@@ -895,7 +910,7 @@ func handlePostToolCmd(args []string) {
 		}
 	}
 
-	if !changed || len(compacted) == 0 {
+	if !emitReplacement {
 		return
 	}
 
@@ -913,6 +928,50 @@ func handlePostToolCmd(args []string) {
 	}
 }
 
+func postToolBelowMinTokens(text string, minTokens int) bool {
+	if minTokens <= 0 {
+		return false
+	}
+	if len(text) < minTokens*2 {
+		return true
+	}
+	return filter.EstimateTokensFromText(text) < minTokens
+}
+
+func postToolTimeoutDuration(cfg *config.Config) time.Duration {
+	seconds := config.Defaults().Hooks.CodexPostToolTimeoutSeconds
+	if cfg != nil && cfg.Hooks.CodexPostToolTimeoutSeconds > 0 {
+		seconds = cfg.Hooks.CodexPostToolTimeoutSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func startCodexPostToolWatchdog(payload []byte, timeout time.Duration) func() {
+	if timeout <= 0 {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return
+		case <-timer.C:
+			recordCodexPostToolTimeout(payload, timeout)
+			exitFn(0)
+		}
+	}()
+	return func() { close(done) }
+}
+
+func postToolFlightToolName(details filter.PostToolPayload) string {
+	if details.ToolName != "" {
+		return details.ToolName
+	}
+	return "PostToolUse"
+}
+
 func codexPostToolReplacement(context string) map[string]interface{} {
 	return map[string]interface{}{
 		"continue":   false,
@@ -924,13 +983,66 @@ func codexPostToolReplacement(context string) map[string]interface{} {
 	}
 }
 
+const (
+	codexPostToolAutoReplaceMinOriginalTokens = 600
+	codexPostToolAutoReplaceMinSavedTokens    = 400
+	codexPostToolAutoReplaceMinSavingsPct     = 45
+)
+
+func codexPostToolShouldEmitReplacement(changed bool, originalBytes int, finalBytes int) bool {
+	if !changed || finalBytes <= 0 {
+		return false
+	}
+	switch codexHookMode() {
+	case "compact", "aggressive":
+		return true
+	case "auto":
+		if finalBytes >= originalBytes {
+			return false
+		}
+		return codexPostToolAutoReplacementWorthIt(originalBytes, finalBytes)
+	default:
+		return false
+	}
+}
+
+func codexPostToolAutoReplacementWorthIt(originalBytes int, finalBytes int) bool {
+	originalTokens := filter.EstimateTokensFromBytes(originalBytes)
+	if originalTokens < codexPostToolAutoReplaceMinOriginalTokens {
+		return false
+	}
+	savedTokens := filter.EstimateTokensFromBytes(originalBytes - finalBytes)
+	if savedTokens < codexPostToolAutoReplaceMinSavedTokens {
+		return false
+	}
+	return savedTokens*100/originalTokens >= codexPostToolAutoReplaceMinSavingsPct
+}
+
+func failOpenCodexPostTool(payload []byte, err error) {
+	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	toolName := extractJSONText(payload, "tool_name", "toolName")
+	if toolName == "" {
+		toolName = "PostToolUse"
+	}
+	recordHookFlight("hook_post", sessionID, toolName, "fail_open", len(payload), len(payload), []int{0}, err)
+}
+
+func recordCodexPostToolTimeout(payload []byte, timeout time.Duration) {
+	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	toolName := extractJSONText(payload, "tool_name", "toolName")
+	if toolName == "" {
+		toolName = "PostToolUse"
+	}
+	recordHookFlight("hook_post", sessionID, toolName, "timeout_fail_open", len(payload), len(payload), []int{0}, fmt.Errorf("posttool timeout after %s", timeout))
+}
+
 func handleCodexHookCmd(args []string) {
 	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: slimference codexhook <session-start|permission-request|user-prompt-submit|stop>   (pipe Codex hook JSON on stdin)")
+		fmt.Fprintln(os.Stderr, "usage: slimference codexhook <session-start|permission-request|user-prompt-submit|posttool-timeout|stop>   (pipe Codex hook JSON on stdin)")
 		exitFn(1)
 	}
 	if termIsTerminalFn(int(os.Stdin.Fd())) {
-		fmt.Fprintln(os.Stderr, "usage: slimference codexhook <session-start|permission-request|user-prompt-submit|stop>   (pipe Codex hook JSON on stdin)")
+		fmt.Fprintln(os.Stderr, "usage: slimference codexhook <session-start|permission-request|user-prompt-submit|posttool-timeout|stop>   (pipe Codex hook JSON on stdin)")
 		exitFn(1)
 	}
 	payload, err := readStdinAll()
@@ -945,6 +1057,8 @@ func handleCodexHookCmd(args []string) {
 		handleCodexPermissionRequestHook(payload)
 	case "user-prompt-submit":
 		handleCodexUserPromptSubmitHook(payload)
+	case "posttool-timeout":
+		recordCodexPostToolTimeout(payload, postToolTimeoutDuration(config.Defaults()))
 	case "stop":
 		handleCodexStopHook(payload)
 	default:
@@ -961,16 +1075,29 @@ func handleCodexSessionStartHook(payload []byte) {
 		source = "session"
 	}
 	recordHookFlight("codex_session_start", sessionID, "SessionStart", source, len(payload), len(payload), nil, nil)
+	if codexHookMode() != "debug" {
+		return
+	}
 	out := map[string]interface{}{
 		"continue": true,
 		"hookSpecificOutput": map[string]interface{}{
 			"hookEventName":     "SessionStart",
-			"additionalContext": "Slimference hooks are active. Trust compacted tool-result feedback and request explicit expansion only when the missing raw output is required.",
+			"additionalContext": "Local hook debug mode is active. Compact tool-result feedback may replace oversized raw output.",
 		},
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
 		exitFn(1)
+	}
+}
+
+func codexHookMode() string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_HOOK_MODE")))
+	switch mode {
+	case "debug", "compact", "aggressive", "auto", "silent":
+		return mode
+	default:
+		return "auto"
 	}
 }
 
@@ -1364,8 +1491,8 @@ func handleHookCmd(args []string) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Installed Codex hooks only (~/.codex/hooks.json + ~/.slimference/hooks + AGENTS.md fallback).")
-			fmt.Println("Enabled codex_hooks feature flag only; Codex base URLs were not modified.")
+			fmt.Println("Installed Codex hooks only (~/.codex/hooks.json + ~/.slimference/hooks).")
+			fmt.Println("Enabled hooks feature flag only; Codex base URLs were not modified.")
 			fmt.Println("Use `slimference integrate install --client codex` only for legacy config-patch mode.")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown install target: %s (want claude|codex)\n", args[1])
@@ -1388,7 +1515,7 @@ func handleHookCmd(args []string) {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				exitFn(1)
 			}
-			fmt.Println("Removed Slimference hooks from Codex (hooks.json + AGENTS.md fallback).")
+			fmt.Println("Removed Slimference hooks from Codex (hooks.json + ~/.slimference/hooks).")
 			fmt.Println("Codex config was not modified. Use `slimference integrate remove --client codex` to remove config-patch mode.")
 		default:
 			fmt.Fprintf(os.Stderr, "unknown remove target: %s\n", args[1])
@@ -2196,10 +2323,33 @@ func handleGainProxy(period string, flags gainCLIFlags) {
 	fmt.Printf("Provider cached tokens:          %s\n", formatTokensPlain(report.ProviderCachedTokens))
 	fmt.Printf("Provider output tokens:          %s\n", formatTokensPlain(report.ProviderOutputTokens))
 	fmt.Printf("Billable input savings estimate: %s\n", formatTokensPlain(report.BillableInputSavingsEstimate))
+	if report.ToolPruneSavedTokens > 0 || report.ToolPruneMisses > 0 || report.ToolPruneRetries > 0 {
+		fmt.Printf("Tool-prune saved tokens:        %s\n", formatTokensPlain(report.ToolPruneSavedTokens))
+		fmt.Printf("Tool-prune pruned tools:         %d\n", report.ToolPrunePrunedTools)
+		fmt.Printf("Tool-prune reattached/miss/retry: %d/%d/%d\n", report.ToolPruneReattached, report.ToolPruneMisses, report.ToolPruneRetries)
+	}
 	fmt.Printf("Cache-read discount equivalent:  %s\n", formatTokensPlain(report.CacheReadDiscountTokenEquivalent))
 	fmt.Printf("Net billable-equivalent estimate: %s\n", formatTokensPlain(report.NetBillableEquivalentEstimate))
 	if report.OutputReduceInputOverheadTokens > 0 {
 		fmt.Printf("Output-reduce input overhead:    %s\n", formatTokensPlain(report.OutputReduceInputOverheadTokens))
+	}
+	if len(report.PromptCacheHeat) > 0 {
+		fmt.Println("Prompt-cache heat:")
+		for i, row := range report.PromptCacheHeat {
+			if i >= 5 {
+				break
+			}
+			fmt.Printf("  %s requests=%d applied/skipped=%d/%d cached=%s read/create=%s/%s stable_max=%s\n",
+				row.StablePrefixHash,
+				row.Requests,
+				row.HintsApplied,
+				row.HintsSkipped,
+				formatTokensPlain(row.ProviderCachedTokens),
+				formatTokensPlain(row.CacheReadTokens),
+				formatTokensPlain(row.CacheCreateTokens),
+				formatTokensPlain(row.StablePrefixTokensMax),
+			)
+		}
 	}
 	fmt.Println("Provider cache credits are observed billing-equivalent credits, not claimed Slimference-caused token deletion.")
 }
@@ -2259,6 +2409,24 @@ func handleGainOutput(period string, flags gainCLIFlags) {
 		fmt.Println("Reasons:")
 		for _, key := range sortedStringIntKeys(report.Reasons) {
 			fmt.Printf("  %s: %d\n", key, report.Reasons[key])
+		}
+	}
+	if len(report.ProfileRows) > 0 {
+		fmt.Println("Profile rows:")
+		for _, row := range report.ProfileRows {
+			fmt.Printf(
+				"  %s/%s %s/%s: requests=%d applied=%d skipped=%d output=%s overhead=%s avg_overhead/apply=%.2f\n",
+				row.Provider,
+				row.Model,
+				row.Profile,
+				row.TaskShape,
+				row.Requests,
+				row.AppliedRequests,
+				row.SkippedRequests,
+				formatTokensPlain(row.OutputTokensObserved),
+				formatTokensPlain(row.InputOverheadTokens),
+				row.AvgInputOverheadPerApply,
+			)
 		}
 	}
 	fmt.Println("Savings need a live baseline; this report intentionally does not invent one.")

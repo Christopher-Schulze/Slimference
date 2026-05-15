@@ -8,8 +8,9 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
-// filePathRegex matches file paths that contain a dot or slash followed by a name.
-var filePathRegex = regexp.MustCompile(`[./][a-zA-Z0-9_\-/]+\.[a-zA-Z]{1,6}`)
+// filePathRegex matches relative and absolute file paths without chopping
+// leading path segments from values such as src/lib/util.go.
+var filePathRegex = regexp.MustCompile(`[a-zA-Z0-9_./\\-]+\.[a-zA-Z]{1,8}`)
 
 // funcNameRegex matches function declarations across Go, Python, and Rust.
 var funcNameRegex = regexp.MustCompile(`func\s+\w+|def\s+\w+|fn\s+\w+`)
@@ -57,8 +58,9 @@ func (v *CompressionValidator) Validate(original []types.Message, summary string
 			FailReason: "format violation: chain-of-thought artifacts detected in output",
 		}
 	}
+	sourceText := joinMessages(original)
 	// 1. FilePathPreservation: >90% of paths from original must appear in summary.
-	paths := extractFilePaths(joinMessages(original))
+	paths := extractFilePaths(sourceText)
 	if len(paths) > 0 {
 		found := 0
 		for _, p := range paths {
@@ -74,9 +76,15 @@ func (v *CompressionValidator) Validate(original []types.Message, summary string
 			}
 		}
 	}
+	if invented := inventedSummaryPaths(sourceText, paths, extractFilePaths(summary)); len(invented) > 0 {
+		return ValidationResult{
+			Valid:      false,
+			FailReason: "summary invented file path absent from source: " + invented[0],
+		}
+	}
 
 	// 2. FunctionNamePreservation: >80% of function names must appear in summary.
-	funcNames := extractFunctionNames(joinMessages(original))
+	funcNames := extractFunctionNames(sourceText)
 	if len(funcNames) > 0 {
 		found := 0
 		for _, fn := range funcNames {
@@ -134,6 +142,57 @@ func (v *CompressionValidator) Validate(original []types.Message, summary string
 	}
 
 	return ValidationResult{Valid: true}
+}
+
+func inventedSummaryPaths(sourceText string, sourcePaths, summaryPaths []string) []string {
+	if len(summaryPaths) == 0 {
+		return nil
+	}
+	source := make(map[string]struct{}, len(sourcePaths))
+	for _, p := range sourcePaths {
+		source[p] = struct{}{}
+	}
+	var invented []string
+	for _, p := range summaryPaths {
+		if _, ok := source[p]; ok {
+			continue
+		}
+		if !pathSeenInSource(sourceText, p, sourcePaths) {
+			invented = append(invented, p)
+		}
+	}
+	return invented
+}
+
+func pathSeenInSource(sourceText string, path string, sourcePaths []string) bool {
+	needle := normalizeSummaryPath(path)
+	if needle == "" {
+		return true
+	}
+	if strings.Contains(sourceText, needle) || strings.Contains(sourceText, "/"+needle) || strings.Contains(sourceText, "./"+needle) {
+		return true
+	}
+	for _, sourcePath := range sourcePaths {
+		source := normalizeSummaryPath(sourcePath)
+		if source == "" {
+			continue
+		}
+		if source == needle || strings.HasSuffix(source, "/"+needle) || strings.HasSuffix(needle, "/"+source) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeSummaryPath(path string) string {
+	path = strings.TrimSpace(path)
+	path = strings.Trim(path, "`'\",;:()[]{}")
+	for strings.HasPrefix(path, "./") {
+		path = strings.TrimPrefix(path, "./")
+	}
+	path = strings.TrimLeft(path, "/")
+	path = strings.TrimRight(path, ".")
+	return path
 }
 
 // extractFilePaths returns all unique file path strings found in text.

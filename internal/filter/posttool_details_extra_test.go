@@ -33,7 +33,11 @@ func TestExtractPostToolDetailsFromHookJSON_Fallbacks(t *testing.T) {
 	if _, err := ExtractPostToolDetailsFromHookJSON([]byte(`{`)); err == nil {
 		t.Fatal("expected invalid JSON error")
 	}
-	if _, err := ExtractPostToolDetailsFromHookJSON([]byte(`{"command":"x"}`)); err == nil {
-		t.Fatal("expected missing tool_response error")
+	got, err = ExtractPostToolDetailsFromHookJSON([]byte(`{"command":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HasToolResponse || got.ToolResponse != "" || got.CommandLine != "x" {
+		t.Fatalf("got=%+v", got)
 	}
 }

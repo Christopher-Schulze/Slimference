@@ -59,6 +59,42 @@ func TestCompressionWorker_jobBranchCovered(t *testing.T) {
 	p.wg.Wait()
 }
 
+func TestRunCompressionJob_skipsStaleCandidateHash(t *testing.T) {
+	p := New(config.Defaults())
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "first prefix"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "second prefix"}}},
+		{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "live tail"}}},
+	}
+	oldHash, ok := p.layer2.CompressionCandidateHash(msgs, 1)
+	if !ok {
+		t.Fatal("expected candidate hash")
+	}
+	newer := append([]types.Message(nil), msgs...)
+	newer[0].Content = append([]types.ContentBlock(nil), newer[0].Content...)
+	newer[0].Content[0].Text = "newer prefix"
+	newHash, ok := p.layer2.CompressionCandidateHash(newer, 1)
+	if !ok {
+		t.Fatal("expected newer candidate hash")
+	}
+	p.layer2.MarkCompressionCandidate("s1", newHash)
+
+	p.runCompressionJob(types.CompressJob{
+		Messages:     msgs,
+		Timestamp:    time.Now(),
+		SessionID:    "s1",
+		InputHash:    oldHash,
+		HasInputHash: true,
+	})
+
+	if got := p.layer2.CacheStats().StaleJobSkips; got != 1 {
+		t.Fatalf("stale job skips = %d, want 1", got)
+	}
+	if got := len(p.analyticsQueue); got != 0 {
+		t.Fatalf("stale job should not emit analytics, queue len=%d", got)
+	}
+}
+
 func TestAnalyticsWorker_requestProcessedFansOutToTUI(t *testing.T) {
 	p := New(config.Defaults())
 	ts := time.Now()

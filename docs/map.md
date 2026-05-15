@@ -23,12 +23,15 @@ analytics    <- types
 resilience   <- (stdlib only)
 sessions     <- types
 debug        <- (stdlib only)
+planner      <- types
+wscompact    <- (stdlib only)
+contentarchive <- (stdlib only)
 filter       <- types, compression (StripANSICodes, StripComments, LanguageFromPath)
 hooks        <- (stdlib only)
-readcache    <- (stdlib only)
+readcache    <- contentarchive
 checkpoints  <- analytics, debug, sessions, types
 toolarchive  <- (stdlib only)
-proxy        <- types, config, compression, summarization, caching, analytics, security, sessions, resilience, debug, checkpoints
+proxy        <- types, config, compression, summarization, caching, analytics, security, sessions, resilience, debug, planner, checkpoints, readcache, contentarchive, wscompact
 tui          <- types, analytics, sessions (via interface)
 cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints, toolarchive
 ```
@@ -69,7 +72,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 - `internal/filter/project_filters.go`: LoadMergedDenyPatterns() - project + user filter merge
 - `internal/filter/posttool_details.go`: PostToolUse payload extraction with optional `tool_name`, `tool_use_id`, and `session_id`
 - `internal/hooks/claude.go`: Claude Code PreToolUse structured contract + non-destructive settings.json merge/remove
-- `internal/hooks/codex.go`: Codex hooks.json PreToolUse/PostToolUse install, fail-fast preflight for malformed hooks/config conflicts, conflict-safe config.toml patch/remove, legacy AGENTS.md fallback
+- `internal/hooks/codex.go`: Codex hooks.json PreToolUse/PostToolUse install, fail-fast preflight for malformed hooks/config conflicts, conflict-safe config.toml patch/remove; never writes global `~/.codex/AGENTS.md`
 - `internal/hooks/verify.go`: authoritative Claude/Codex install verification against coherent scripts + config state
 
 ### Layer 1 - Deterministic Compression
@@ -81,10 +84,11 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 - `internal/compression/dedup_minhash.go`: L1.3 MinHash near-duplicate detection
 - `internal/compression/structure.go`: L1.4 regex-based code structure extraction
 - `internal/compression/delta.go`: L1.5 file revision delta encoding
-- `internal/compression/prompt_cache.go`: L1.6 Anthropic cache_control breakpoints
+- `internal/compression/prompt_cache.go`: L1.6 Anthropic cache_control breakpoints with stable-prefix token gate and high-value tool-result scoring
 - `internal/compression/ansi_strip.go`: L1.7 ANSI/progress bar removal
 - `internal/compression/tool_classifier.go`: L1.8 tool result type classification
 - `internal/compression/tool_compressor.go`: L1.9 per-type RTK-style compression
+- `internal/compression/stacktrace_compact.go`: T143d semantic test-failure / stacktrace compaction behind L1.9
 - `internal/compression/success_shortcircuit.go`: L1.10 success pattern detection
 - `internal/compression/image_replace.go`: L1.11 base64 image replacement
 - `internal/compression/repeated_collapse.go`: L1.12 identical tool call deduplication
@@ -94,11 +98,13 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 
 ### Layer 2 - MiniMax Summarization
 
-- `internal/summarization/layer2.go`: Layer2 coordinator, strict summary formatting, context-aware compression jobs, timeout-wrapped parent contexts, no post-cancel cache writes
+- `internal/summarization/layer2.go`: Layer2 coordinator, strict summary formatting, ROI candidate scoring, prefix-hash apply validation, context-aware compression jobs, timeout-wrapped parent contexts, no post-cancel cache writes
 - `internal/summarization/minimax.go`: MiniMax M2.7 API client with request-bound HTTP contexts and cancelable retry backoff
+- `internal/summarization/prompt_contract.go`: T144a task-shaped summary contract selector for coding/debug/review/planning/docs/live-E2E prompts
 - `internal/summarization/anchor.go`: Anchor point detection (5 types)
+- `internal/summarization/capsules.go`: archive-backed micro/phase/session context capsule schema, builders, and tier selectors
 - `internal/summarization/validator.go`: strict quality validation over structured content blocks
-- `internal/summarization/cache.go`: SummaryCache with atomic Compressing flag
+- `internal/summarization/cache.go`: session-keyed SummaryCache with atomic Compressing flag, candidate hashes, hash-mismatch and stale-job telemetry
 - `internal/summarization/progressive.go`: Multi-tier compression
 - `internal/summarization/adaptive_window.go`: L2.8 complexity-driven window sizing
 - `internal/summarization/priority.go`: L2.9 HIGH/MEDIUM/LOW priority classification
@@ -111,11 +117,14 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 ### Core Proxy (HTTP Handler)
 
 - `internal/proxy/proxy.go`: Proxy struct, New(), Start(), Shutdown(), worker-owned cancellation context, toggle atomics, listener readiness state, 32 MiB request-body hard fail
-- `internal/proxy/handler.go`: handleCompressibleRequest() hot path, zero-downside guard, context-aware overflow retry fallback, dependency-safe Layer 3 admission, analytics shutdown drain, shutdown-aware compression worker
+- `internal/proxy/handler.go`: handleCompressibleRequest() hot path, session-aware Layer 0 proxy pass, zero-downside guard, context-aware overflow retry fallback, dependency-safe Layer 3 admission, analytics shutdown drain, shutdown-aware compression worker
 - `internal/proxy/provider.go`: Provider detection, message extraction/reconstruction, safe OpenAI structured-content roundtrip without stringifying multimodal arrays, Codex `/v1/responses` and `/backend-api/codex/*` request-shape normalization
 - `internal/proxy/streaming.go`: SSE relay, token counting from stream events, 8 MiB per-line SSE cap, bounded non-streaming passthrough with safe local-502 behavior
 - `internal/proxy/admin.go`: daemon-admin HTTP surface for TUI attach mode, live status snapshot, provider/layer toggles, cache flush endpoint, read-cache, checkpoint, tool-archive, and Layer 2 status export
 - `internal/proxy/checkpoints.go`: async checkpoint capture bridge from analytics events into `internal/checkpoints`
+- `internal/proxy/planner_bridge.go`: proxy-to-planner fact bridge, recent-edit hook-state lookup, live-corpus confidence derivation, WebSocket shape fact lookup
+- `internal/planner/planner.go`: deterministic cross-layer compression plan, safety gates, and layer decisions
+- `internal/wscompact/`: inspect-only RFC 6455 frame summarizer, non-mutating JSON shadow estimator, and shape registry for WebSocket planner facts
 - `internal/checkpoints/checkpoints.go`: deterministic checkpoint store, trigger policy, ranked restore, persisted stats
 - `internal/toolarchive/toolarchive.go`: local archive store, `local-archive://*` references, bounded retrieval, persisted stats
 
@@ -125,7 +134,14 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 - `internal/analytics/prompt_cache.go`: persisted prompt-cache report reader and CSV/JSON export helpers for `stats prompt-cache`
 - `internal/analytics/persistence.go`: JSONL logging to ~/.slimference/analytics/
 - `internal/analytics/gain.go`: slimference gain - filter savings by period/command
-- `internal/analytics/proxy_gain.go`: `slimference gain --proxy` decision-log flight accounting for real proxied LLM requests
+- `internal/analytics/output_reduce.go`: `slimference gain --output` observed-output report with provider/model/profile/task-shape rows and no fake baseline savings
+- `internal/analytics/proxy_gain.go`: `slimference gain --proxy` decision-log flight accounting, provider-cache credits, tool-prune totals, output-reduce overhead, and prompt-cache heat rows for real proxied LLM requests
+- `internal/outputreduce/`: output-discipline injection, task-shape detection,
+  repair-followup detection, and provider/model/task-shape auto-downgrade
+- `internal/proxy/output_reduce_repair.go`: per-session one-shot repair signal
+  bridge from follow-up request text to the previous output-reduce bucket
+- `scripts/benchmarks/benchmark_corpus.go`: live-corpus category gate,
+  planner replay, layer-combination matrix, and failable scenario validators
 - `internal/debug/session.go`: SessionFileStats() for JSONL preview, ReplaySession() with non-summary skip
 - `internal/debug/decisions.go`: Recorder ring buffer, DecisionEntry, RequestSummary, guarded JSONL flush on marshal/write failure
 - `internal/tui/model.go`: BubbleTea model, arrow-first operator-console navigation, selectable dashboard/debug/setup actions, bounded shutdown, private debug-log export (`~/.slimference/exports`, 0700/0600)
@@ -148,7 +164,8 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 - `internal/security/patterns.go` + `secrets.go`: Secret detection and redaction
 - `internal/resilience/retry.go` + `health.go` + `latency.go`: HTTP resilience
 - `internal/sessions/logger.go` + `export.go`: Session log ring buffer
-- `internal/readcache/*.go`: session-scoped read-cache state, decision accounting, persisted stats under `~/.slimference/read-cache/`
+- `internal/readcache/*.go`: session-scoped read-cache state, proxy-visible read deltas, contentarchive-backed reread references, decision accounting, persisted stats under `~/.slimference/read-cache/`
+- `internal/contentarchive/`: local reversible content archive used by Layer 1 lossy transforms, capsules, and proxy-visible read deltas
 - `internal/checkpoints/checkpoints.go`: deterministic checkpoint state and ranked restore under `~/.slimference/checkpoints/`
 - `internal/toolarchive/toolarchive.go`: bounded large-result archive under `~/.slimference/tool-archive/`
 - `internal/util/safego.go`: Safe goroutine launch with panic recovery
@@ -193,7 +210,7 @@ GetPrefillSpeed() int
 
 | Channel | Element type | Buffer | Writer | Reader |
 |---------|-------------|--------|--------|--------|
-| compressQueue | types.CompressJob | 4 | proxy handler | compressionWorker |
+| compressQueue | types.CompressJob with session/input hash | 4 | proxy handler | compressionWorker |
 | analyticsQueue | types.AnalyticsEvent | 256 | proxy handler | analyticsWorker |
 | shutdownCh | struct{} | 0 | Proxy.Shutdown | all workers |
 | tuiSendFn (func) | types.RequestMetrics | N/A | proxy handler | tea.Program.Send |
@@ -289,7 +306,7 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 | Comment-strip whitelist               | `internal/compression/comment_strip.go::isWhitelistedComment` | T98 |
 | L1/L2 cross-direction coordinator     | `internal/compression/layer1.go::SetCoordinatorSubsume`| T100 |
 | Cache age histogram                   | `internal/caching/response_cache.go::AgeSnapshot`      | T102 |
-| Tool-definition usage tracker         | `internal/toolprune/`                                  | T103 |
+| Tool-definition usage tracker + safety retry | `internal/toolprune/`, `internal/proxy/tool_prune_retry.go` | T103/T151 |
 
 ### Admin surface additions (`/admin/status`)
 
@@ -302,6 +319,8 @@ JSONL files, one per day: `YYYY-MM-DD.jsonl`
 | `content_archive`         | entries / bytes / re_inject_count / evictions  | T76  |
 | `quality`                 | reread / cache_miss_spike / net_savings        | T77  |
 | `cache_age`               | count / p50 / p95 / p99 / max ms               | T102 |
+| `layer2.cache_stats`      | sessions / hash_mismatches / candidate_sets / stale_job_skips | T152 |
+| `tool_prune`              | sessions / pruned / reattach / miss / retry / disabled | T103/T151 |
 | `summarization`           | prompt version / examples / CoT / lineage / repair | T86/T87/T89/T90/T92 |
 | `coordinator`             | enabled flag + skipped_total                   | T100 |
 | `any_provider_degraded`   | composite degradation flag                     | T83  |

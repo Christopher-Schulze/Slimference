@@ -92,7 +92,7 @@ var codexCapabilityMatrix = []CodexCapabilityRange{
 }
 
 var codexHookFeatureMatrix = []CodexHookFeature{
-	{Event: "Config", Name: "codex_hooks feature flag", Status: CodexFeatureSupported, Notes: "required in config.toml for hook loading"},
+	{Event: "Config", Name: "hooks feature flag", Status: CodexFeatureSupported, Notes: "required in config.toml for hook loading"},
 	{Event: "SessionStart", Name: "additionalContext", Status: CodexFeatureSupported, Notes: "developer context injection for startup/resume/clear boundaries"},
 	{Event: "SessionStart", Name: "matcher", Status: CodexFeatureSupported, Notes: "matches source: startup, resume, clear"},
 	{Event: "PreToolUse", Name: "decision:block", Status: CodexFeatureSupported, Notes: "legacy block reason is honoured and remains Slimference's safe rewrite fallback"},

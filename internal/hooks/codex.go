@@ -12,16 +12,20 @@ import (
 
 var jsonMarshalIndentFn = json.MarshalIndent
 
-const slimferenceCodexHooksLine = "codex_hooks = true  # Slimference: enable lifecycle hooks"
+const (
+	slimferenceCodexHooksLine       = "hooks = true  # Slimference: enable lifecycle hooks"
+	slimferenceLegacyCodexHooksLine = "codex_hooks = true  # Slimference: enable lifecycle hooks"
+)
 const slimferenceCodexBaseURL = "http://127.0.0.1:8990"
 
-// codexMarkerBegin/End kept for backwards compatibility with old AGENTS.md installs.
+// codexMarkerBegin/End are read-only legacy markers. New installs must never
+// write ~/.codex/AGENTS.md.
 const codexMarkerBegin = "<!-- slimference:begin -->"
 const codexMarkerEnd = "<!-- slimference:end -->"
 
 // codexPreToolHookScript returns the shell script content for the Codex PreToolUse hook.
-// Codex 0.121.0 does not support updatedInput, so when a rewrite would apply we block
-// the tool call and instruct the model to rerun the command via slimference filter.
+// Default mode is silent: no visible block/retry feedback. The old block-and-rerun
+// rewrite path is available only via SLIMFERENCE_CODEX_HOOK_MODE=aggressive.
 func codexPreToolHookScript(slimferenceCmd string) string {
 	cmd := strings.TrimSpace(slimferenceCmd)
 	if cmd == "" {
@@ -31,6 +35,10 @@ func codexPreToolHookScript(slimferenceCmd string) string {
 	return fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
 INPUT=$(cat)
+MODE="${SLIMFERENCE_CODEX_HOOK_MODE:-silent}"
+if [[ "$MODE" != "aggressive" ]]; then
+  exit 0
+fi
 CMD=$(printf '%%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || true)
 if [[ -z "${CMD:-}" ]]; then
   exit 0
@@ -52,7 +60,7 @@ case "$STATUS" in
     if [[ -z "${REWRITTEN:-}" || "$REWRITTEN" == "$CMD" ]]; then
       exit 0
     fi
-    jq -nc --arg reason "Rerun this command through the local output filter: ${REWRITTEN}" '{decision:"block",reason:$reason}'
+    jq -nc --arg reason "Rerun compacted command: ${REWRITTEN}" '{decision:"block",reason:$reason}'
     ;;
   1)
     exit 0
@@ -84,8 +92,34 @@ func codexPostToolHookScript(slimferenceCmd string) string {
 	return fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
 INPUT=$(cat)
-printf '%%s' "$INPUT" | %s posttool
-`, q)
+TIMEOUT="${SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS:-4}"
+if ! [[ "$TIMEOUT" =~ ^[0-9]+$ ]] || [[ "$TIMEOUT" -lt 1 ]]; then
+  TIMEOUT=4
+fi
+TMP_OUT=$(mktemp)
+cleanup() {
+  rm -f "$TMP_OUT"
+}
+trap cleanup EXIT
+(
+  printf '%%s' "$INPUT" | %s posttool >"$TMP_OUT" 2>/dev/null
+) &
+PID=$!
+DEADLINE=$((SECONDS + TIMEOUT))
+while kill -0 "$PID" 2>/dev/null; do
+  if [[ "$SECONDS" -ge "$DEADLINE" ]]; then
+    kill "$PID" 2>/dev/null || true
+    sleep 0.1
+    kill -9 "$PID" 2>/dev/null || true
+    wait "$PID" 2>/dev/null || true
+    (printf '%%s' "$INPUT" | %s codexhook posttool-timeout >/dev/null 2>&1 || true) &
+    exit 0
+  fi
+  sleep 0.1
+done
+wait "$PID" 2>/dev/null || exit 0
+cat "$TMP_OUT"
+`, q, q)
 }
 
 func codexReadToolHookScript(slimferenceCmd string) string {
@@ -174,9 +208,6 @@ func InstallCodex(home string, slimferenceCmd string) error {
 		return fmt.Errorf("enable codex hooks feature: %w", err)
 	}
 
-	// Step 3: Also keep AGENTS.md block for backwards compat with older Codex versions
-	_ = installCodexAgentsMD(home, slimferenceCmd)
-
 	return nil
 }
 
@@ -195,19 +226,19 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 
 	hooksPath := filepath.Join(codexDir, "hooks.json")
 
-	existing, err := readExistingCodexHooksJSON(hooksPath)
+	root, existing, err := readExistingCodexHooksRoot(hooksPath)
 	if err != nil {
 		return err
 	}
 
 	existing["PreToolUse"] = mergeCodexHookEntries(existing["PreToolUse"],
 		map[string]interface{}{
-			"matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+			"matcher": "Bash",
 			"hooks": []interface{}{
 				map[string]interface{}{
 					"type":          "command",
 					"command":       fmt.Sprintf("bash %s", preScriptPath),
-					"statusMessage": "Local rewrite guard",
+					"statusMessage": "Output guard",
 				},
 			},
 		},
@@ -217,7 +248,7 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 				map[string]interface{}{
 					"type":          "command",
 					"command":       fmt.Sprintf("bash %s", readScriptPath),
-					"statusMessage": "Local read cache",
+					"statusMessage": "Read cache",
 				},
 			},
 		},
@@ -228,27 +259,27 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 			map[string]interface{}{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", CodexSessionStartHookScriptPath(home)),
-				"statusMessage": "Local session boundary",
+				"statusMessage": "Session boundary",
 			},
 		},
 	})
 	existing["PermissionRequest"] = mergeCodexHookEntries(existing["PermissionRequest"], map[string]interface{}{
-		"matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+		"matcher": "Bash",
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", CodexPermissionHookScriptPath(home)),
-				"statusMessage": "Local approval guard",
+				"statusMessage": "Approval guard",
 			},
 		},
 	})
 	existing["PostToolUse"] = mergeCodexHookEntries(existing["PostToolUse"], map[string]interface{}{
-		"matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+		"matcher": "Bash",
 		"hooks": []interface{}{
 			map[string]interface{}{
 				"type":          "command",
 				"command":       fmt.Sprintf("bash %s", postScriptPath),
-				"statusMessage": "Local output filter",
+				"statusMessage": "Output compactor",
 			},
 		},
 	})
@@ -270,7 +301,8 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 		},
 	})
 
-	data, err := jsonMarshalIndentFn(existing, "", "  ")
+	root["hooks"] = existing
+	data, err := jsonMarshalIndentFn(root, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -296,12 +328,22 @@ func ensureCodexHooksFeature(home string) error {
 		return err
 	}
 	content := string(data)
+	hadManagedLegacy := strings.Contains(content, slimferenceLegacyCodexHooksLine)
+	content = removeManagedCodexHooksLine(content, slimferenceLegacyCodexHooksLine)
 	state := parseCodexConfigState(content)
+	if state.Hooks != nil {
+		if !*state.Hooks {
+			return fmt.Errorf("conflicting hooks=false in config.toml")
+		}
+		return nil
+	}
 	if state.CodexHooks != nil {
 		if !*state.CodexHooks {
 			return fmt.Errorf("conflicting codex_hooks=false in config.toml")
 		}
-		return nil
+		if !hadManagedLegacy {
+			return nil
+		}
 	}
 	if strings.Contains(content, "[features]") {
 		content = strings.Replace(content, "[features]", "[features]\n"+slimferenceCodexHooksLine, 1)
@@ -326,7 +368,8 @@ func removeCodexHooksFeature(home string) error {
 	lines := strings.Split(string(data), "\n")
 	filtered := make([]string, 0, len(lines))
 	for _, line := range lines {
-		if strings.TrimSpace(line) == slimferenceCodexHooksLine {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == slimferenceCodexHooksLine || trimmed == slimferenceLegacyCodexHooksLine {
 			continue
 		}
 		filtered = append(filtered, line)
@@ -335,21 +378,54 @@ func removeCodexHooksFeature(home string) error {
 }
 
 func readExistingCodexHooksJSON(hooksPath string) (map[string]interface{}, error) {
+	_, hooksObj, err := readExistingCodexHooksRoot(hooksPath)
+	return hooksObj, err
+}
+
+func readExistingCodexHooksRoot(hooksPath string) (map[string]interface{}, map[string]interface{}, error) {
 	existing := make(map[string]interface{})
 	data, err := os.ReadFile(hooksPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return existing, nil
+			return map[string]interface{}{}, existing, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	if len(strings.TrimSpace(string(data))) == 0 {
-		return nil, fmt.Errorf("parse hooks.json: empty file")
+		return nil, nil, fmt.Errorf("parse hooks.json: empty file")
 	}
-	if err := json.Unmarshal(data, &existing); err != nil {
-		return nil, fmt.Errorf("parse hooks.json: %w", err)
+	root, hooksObj, err := parseCodexHooksRoot(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse hooks.json: %w", err)
 	}
-	return existing, nil
+	return root, hooksObj, nil
+}
+
+func parseCodexHooksRoot(data []byte) (map[string]interface{}, map[string]interface{}, error) {
+	root := make(map[string]interface{})
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, nil, err
+	}
+	if nested, ok := root["hooks"].(map[string]interface{}); ok {
+		return root, nested, nil
+	}
+	hooksObj := make(map[string]interface{})
+	for key, value := range root {
+		if isCodexHookEvent(key) {
+			hooksObj[key] = value
+			delete(root, key)
+		}
+	}
+	return root, hooksObj, nil
+}
+
+func isCodexHookEvent(name string) bool {
+	switch name {
+	case "SessionStart", "PreToolUse", "PermissionRequest", "PostToolUse", "UserPromptSubmit", "Stop":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateCodexConfig(configPath string) error {
@@ -363,6 +439,9 @@ func validateCodexConfig(configPath string) error {
 	state := parseCodexConfigState(string(data))
 	if state.HasOpenAIBaseURL && !isSlimferenceCodexBaseURL(state.OpenAIBaseURL) {
 		return fmt.Errorf("conflicting openai_base_url in config.toml: %q", state.OpenAIBaseURL)
+	}
+	if state.Hooks != nil && !*state.Hooks {
+		return fmt.Errorf("conflicting hooks=false in config.toml")
 	}
 	if state.CodexHooks != nil && !*state.CodexHooks {
 		return fmt.Errorf("conflicting codex_hooks=false in config.toml")
@@ -381,6 +460,7 @@ func patchCodexConfig(home string) error {
 	configPath := filepath.Join(codexDir, "config.toml")
 	data, _ := os.ReadFile(configPath)
 	content := string(data)
+	content = removeManagedCodexHooksLine(content, slimferenceLegacyCodexHooksLine)
 	if err := validateCodexConfig(configPath); err != nil {
 		return err
 	}
@@ -393,8 +473,8 @@ func patchCodexConfig(home string) error {
 		additions = append(additions, "\n# Slimference proxy endpoint\nopenai_base_url = "+strconv.Quote(slimferenceCodexBaseURL)+"\n")
 	}
 
-	// Add codex_hooks feature flag only if not already present.
-	if state.CodexHooks == nil {
+	// Add hooks feature flag only if not already present.
+	if state.Hooks == nil {
 		if strings.Contains(content, "[features]") {
 			// Insert after [features] line
 			content = strings.Replace(content, "[features]", "[features]\n"+slimferenceCodexHooksLine, 1)
@@ -408,29 +488,6 @@ func patchCodexConfig(home string) error {
 	}
 
 	return os.WriteFile(configPath, []byte(content), 0644)
-}
-
-// installCodexAgentsMD appends a Slimference block to ~/.codex/AGENTS.md (legacy fallback).
-func installCodexAgentsMD(home string, slimferenceCmd string) error {
-	p := filepath.Join(home, ".codex", "AGENTS.md")
-	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-		return err
-	}
-	prev, _ := os.ReadFile(p)
-	if strings.Contains(string(prev), codexMarkerBegin) {
-		return nil
-	}
-	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if len(prev) > 0 && !strings.HasSuffix(string(prev), "\n") {
-		_, _ = f.WriteString("\n")
-	}
-	block := CodexAgentsBlock(slimferenceCmd)
-	_, err = f.WriteString(strings.TrimPrefix(block, "\n"))
-	return err
 }
 
 // RemoveCodex removes all Slimference artifacts from the Codex configuration.
@@ -450,8 +507,9 @@ func RemoveCodex(home string) error {
 	_ = os.Remove(CodexStopHookScriptPath(home))
 	_ = removeCodexHooksFeature(home)
 
-	// Remove AGENTS.md block (legacy).
-	return removeCodexAgentsMD(home)
+	// Never touch ~/.codex/AGENTS.md. Historical Slimference blocks must be
+	// removed manually by the operator because that file is global user policy.
+	return nil
 }
 
 // removeCodexHooksJSON removes the Slimference entry from ~/.codex/hooks.json.
@@ -465,8 +523,8 @@ func removeCodexHooksJSON(home string) error {
 		return err
 	}
 
-	existing := make(map[string]interface{})
-	if err := json.Unmarshal(data, &existing); err != nil {
+	root, existing, err := parseCodexHooksRoot(data)
+	if err != nil {
 		return nil // not valid JSON, nothing to remove
 	}
 
@@ -477,7 +535,12 @@ func removeCodexHooksJSON(home string) error {
 	removeCodexHookEvent(existing, "UserPromptSubmit")
 	removeCodexHookEvent(existing, "Stop")
 
-	out, err := jsonMarshalIndentFn(existing, "", "  ")
+	if len(existing) == 0 {
+		delete(root, "hooks")
+	} else {
+		root["hooks"] = existing
+	}
+	out, err := jsonMarshalIndentFn(root, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -498,51 +561,6 @@ func unpatchCodexConfig(home string) error {
 	return os.WriteFile(configPath, []byte(result), 0644)
 }
 
-// removeCodexAgentsMD removes the Slimference block from ~/.codex/AGENTS.md.
-func removeCodexAgentsMD(home string) error {
-	p := filepath.Join(home, ".codex", "AGENTS.md")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	s := string(data)
-	i := strings.Index(s, codexMarkerBegin)
-	if i < 0 {
-		return nil
-	}
-	j := strings.Index(s[i:], codexMarkerEnd)
-	if j < 0 {
-		return fmt.Errorf("slimference: unclosed marker in AGENTS.md")
-	}
-	j += i + len(codexMarkerEnd)
-	out := strings.TrimSpace(s[:i] + s[j:])
-	return os.WriteFile(p, []byte(out+"\n"), 0644)
-}
-
-// CodexAgentsBlock returns the markdown block for AGENTS.md (legacy fallback).
-func CodexAgentsBlock(slimferenceCmd string) string {
-	cmd := strings.TrimSpace(slimferenceCmd)
-	if cmd == "" {
-		cmd = "slimference"
-	}
-	return `
-
-` + codexMarkerBegin + `
-## Slimference (shell output)
-
-When running shell commands, prefer wrapping them with:
-
-` + fmt.Sprintf("`%s filter`", cmd) + ` so that command output is compacted before it enters the context.
-
-Example: ` + fmt.Sprintf("`%s filter git status`", cmd) + ` instead of ` + "`git status`" + `.
-
-` + codexMarkerEnd + `
-`
-}
-
 // CodexHookInstalled checks whether the Codex hooks.json has a Slimference entry.
 func CodexHookInstalled(home string) bool {
 	hooksPath := filepath.Join(home, ".codex", "hooks.json")
@@ -551,11 +569,11 @@ func CodexHookInstalled(home string) bool {
 		return false
 	}
 	content := string(data)
-	hasPre := strings.Contains(content, "codex-pre-tool.sh") || strings.Contains(content, "Slimference rewrite guard") || strings.Contains(content, "Local rewrite guard")
-	hasPost := strings.Contains(content, "codex-post-tool.sh") || strings.Contains(content, "Slimference filter") || strings.Contains(content, "Local output filter")
-	hasRead := strings.Contains(content, "codex-read-tool.sh") || strings.Contains(content, "Slimference read cache") || strings.Contains(content, "Local read cache")
-	hasSession := strings.Contains(content, "codex-session-start.sh") || strings.Contains(content, "Local session boundary")
-	hasPermission := strings.Contains(content, "codex-permission-request.sh") || strings.Contains(content, "Local approval guard")
+	hasPre := strings.Contains(content, "codex-pre-tool.sh") || strings.Contains(content, "Slimference rewrite guard") || strings.Contains(content, "Local rewrite guard") || strings.Contains(content, "Output guard")
+	hasPost := strings.Contains(content, "codex-post-tool.sh") || strings.Contains(content, "Slimference filter") || strings.Contains(content, "Local output filter") || strings.Contains(content, "Output compactor")
+	hasRead := strings.Contains(content, "codex-read-tool.sh") || strings.Contains(content, "Slimference read cache") || strings.Contains(content, "Local read cache") || strings.Contains(content, "Read cache")
+	hasSession := strings.Contains(content, "codex-session-start.sh") || strings.Contains(content, "Local session boundary") || strings.Contains(content, "Session boundary")
+	hasPermission := strings.Contains(content, "codex-permission-request.sh") || strings.Contains(content, "Local approval guard") || strings.Contains(content, "Approval guard")
 	hasUserPrompt := strings.Contains(content, "codex-user-prompt-submit.sh")
 	hasStop := strings.Contains(content, "codex-stop.sh")
 	return hasPre && hasPost && hasRead && hasSession && hasPermission && hasUserPrompt && hasStop
@@ -646,7 +664,9 @@ func codexEntryHasSlimferenceHook(entry interface{}) bool {
 		}
 		if strings.Contains(statusMessage, "Slimference rewrite guard") || strings.Contains(statusMessage, "Slimference filter") || strings.Contains(statusMessage, "Slimference read cache") ||
 			strings.Contains(statusMessage, "Local rewrite guard") || strings.Contains(statusMessage, "Local output filter") || strings.Contains(statusMessage, "Local read cache") ||
-			strings.Contains(statusMessage, "Local session boundary") || strings.Contains(statusMessage, "Local approval guard") {
+			strings.Contains(statusMessage, "Local session boundary") || strings.Contains(statusMessage, "Local approval guard") ||
+			strings.Contains(statusMessage, "Output guard") || strings.Contains(statusMessage, "Output compactor") || strings.Contains(statusMessage, "Read cache") ||
+			strings.Contains(statusMessage, "Session boundary") || strings.Contains(statusMessage, "Approval guard") {
 			return true
 		}
 	}
@@ -665,7 +685,7 @@ func cleanCodexConfigAfterSlimference(content string) string {
 		if strings.HasPrefix(trimmed, "openai_base_url") && strings.Contains(trimmed, "8990") {
 			continue
 		}
-		if trimmed == slimferenceCodexHooksLine {
+		if trimmed == slimferenceCodexHooksLine || trimmed == slimferenceLegacyCodexHooksLine {
 			continue
 		}
 		if trimmed == "[features]" {
@@ -692,7 +712,7 @@ func collectFeaturesSection(lines []string, headerIndex int) (nextIndex int, ski
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if trimmed == "codex_hooks = true" {
+		if trimmed == "hooks = true" || trimmed == "codex_hooks = true" {
 			continue
 		}
 		entries++
@@ -700,11 +720,24 @@ func collectFeaturesSection(lines []string, headerIndex int) (nextIndex int, ski
 	return nextIndex, entries == 0
 }
 
+func removeManagedCodexHooksLine(content string, managedLine string) string {
+	lines := strings.Split(content, "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == managedLine {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
+}
+
 type codexConfigState struct {
 	HasOpenAIBaseURL  bool
 	OpenAIBaseURL     string
 	HasChatGPTBaseURL bool
 	ChatGPTBaseURL    string
+	Hooks             *bool
 	CodexHooks        *bool
 }
 
@@ -733,6 +766,11 @@ func parseCodexConfigState(content string) codexConfigState {
 			state.HasChatGPTBaseURL = true
 			if unquoted, err := strconv.Unquote(value); err == nil {
 				state.ChatGPTBaseURL = unquoted
+			}
+		case "hooks":
+			if parsed, err := strconv.ParseBool(value); err == nil {
+				parsedCopy := parsed
+				state.Hooks = &parsedCopy
 			}
 		case "codex_hooks":
 			if parsed, err := strconv.ParseBool(value); err == nil {

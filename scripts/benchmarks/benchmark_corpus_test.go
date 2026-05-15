@@ -48,6 +48,8 @@ const sampleEvidenceRecord = `{"req_id":"req_evidence","provider":"openai","mode
 
 const sampleErrorLatencyRecord = `{"req_id":"req_error","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"errors":["bad"],"proxy_latency_ms":2000}` + "\n"
 
+const sampleWebSocketRecord = `{"req_id":"req_ws","provider":"openai","model":"gpt-5","route_mode":"websocket","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":700,"final":650,"saved":350},"output_reduce":{"applied":true}}` + "\n"
+
 func TestLoadCategoryMetadata_Missing(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -248,6 +250,69 @@ func TestEvaluateCategory_PlannerReplayGateFailures(t *testing.T) {
 	}
 }
 
+func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "scenarios", CategoryMetadata{
+		Category:           "scenarios",
+		ExpectedSavingsMin: 0.10,
+		ScenarioValidators: []string{
+			"tool_heavy",
+			"cache_reuse",
+			"output_reduce",
+			"websocket",
+			"low_error",
+			"layer_combo_diversity",
+			"l2_summary",
+		},
+	}, []string{sampleEvidenceRecord, sampleWebSocketRecord})
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if len(res.Failures) != 0 {
+		t.Fatalf("expected scenario validators to pass, got %v", res.Failures)
+	}
+}
+
+func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "bad_scenarios", CategoryMetadata{
+		Category: "bad_scenarios",
+		ScenarioValidators: []string{
+			"cache_reuse",
+			"output_reduce",
+			"websocket",
+			"low_error",
+			"layer_combo_diversity",
+			"l2_summary",
+			"unknown_validator",
+		},
+	}, []string{sampleErrorLatencyRecord})
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	got := strings.Join(res.Failures, "\n")
+	for _, want := range []string{
+		"scenario cache_reuse",
+		"scenario output_reduce",
+		"scenario websocket",
+		"scenario low_error",
+		"scenario layer_combo_diversity",
+		"scenario l2_summary",
+		"unknown scenario validator",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures: %v", want, res.Failures)
+		}
+	}
+	if !res.GateConfigured {
+		t.Fatal("scenario validators must mark the gate as configured")
+	}
+}
+
 func TestEvaluateCategory_EvidenceGateFailures(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -416,6 +481,24 @@ func TestFormatCorpusReport_GateFailRendered(t *testing.T) {
 	s := FormatCorpusReport(report)
 	if !strings.Contains(s, "FAIL") || !strings.Contains(s, "savings_ratio") {
 		t.Fatalf("expected FAIL+ratio in render, got %q", s)
+	}
+}
+
+func TestFormatCorpusReport_RendersScenarioValidators(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "validator_render", CategoryMetadata{
+		Category:           "validator_render",
+		ExpectedSavingsMin: 0.30,
+		ScenarioValidators: []string{"tool_heavy", "low_error"},
+	}, []string{sampleHighSavingsRecord})
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	s := FormatCorpusReport(report)
+	if !strings.Contains(s, "validators:") || !strings.Contains(s, "tool_heavy, low_error") {
+		t.Fatalf("expected validators in render, got %q", s)
 	}
 }
 

@@ -39,6 +39,7 @@ type RequestFacts struct {
 	Layer2Acknowledged          bool
 	ProviderCacheSupported      bool
 	PreviousResponseIDAvailable bool
+	ToolPruneCooldown           bool
 	OutputReduceCooldown        bool
 	NegativeSavingsHistory      bool
 	WebSocketShapeKnown         bool
@@ -155,6 +156,9 @@ func decideL3(f RequestFacts) LayerDecision {
 	if !f.ProviderCacheSupported {
 		return decision(Layer3, ActionBypass, "provider_cache_unsupported", 0, "none", "high")
 	}
+	if isCodexChatGPT(f) && !f.PreviousResponseIDAvailable {
+		return decision(Layer3, ActionBypass, "codex_cache_accounting_only", 0, "none", "provider_reported")
+	}
 	if f.EstimatedInputTokens < 1000 && !f.PreviousResponseIDAvailable {
 		return decision(Layer3, ActionBypass, "prefix_too_small", 0, "none", "high")
 	}
@@ -169,8 +173,11 @@ func decideL4(f RequestFacts) LayerDecision {
 	if disabled(f, Layer4) {
 		return decision(Layer4, ActionBypass, "operator_disabled", 0, "none", "high")
 	}
-	if f.OutputReduceCooldown {
-		return decision(Layer4, ActionCheapOnly, "quality_cooldown_soften_profile", maxInt(f.ExpectedOutputTokens/10, 10), "medium", "high")
+	if strings.EqualFold(f.TaskShape, "exact_reply") {
+		return decision(Layer4, ActionBypass, "exact_reply", 0, "none", "high")
+	}
+	if f.OutputReduceCooldown || f.ToolPruneCooldown {
+		return decision(Layer4, ActionCheapOnly, "quality_cooldown_soften_layer4", maxInt(f.ExpectedOutputTokens/10, 10), "medium", "high")
 	}
 	if f.ExpectedOutputTokens >= 200 || f.EstimatedInputTokens >= 1000 {
 		return decision(Layer4, ActionRun, "output_tokens_or_task_size_justify_directive", maxInt(f.ExpectedOutputTokens/5, 20), "medium", confidenceFromCorpus(f))
@@ -183,6 +190,9 @@ func decideWebSocket(f RequestFacts) LayerDecision {
 		return decision(LayerWebSocket, ActionTunnel, "operator_disabled", 0, "none", "high")
 	}
 	if !strings.Contains(strings.ToLower(f.RouteMode), "websocket") {
+		if isCodexChatGPT(f) {
+			return decision(LayerWebSocket, ActionBypass, "codex_cli_http_provider", 0, "none", "high")
+		}
 		return decision(LayerWebSocket, ActionBypass, "not_websocket_route", 0, "none", "high")
 	}
 	if !f.WebSocketMutationRequested {
@@ -195,6 +205,10 @@ func decideWebSocket(f RequestFacts) LayerDecision {
 		return decision(LayerWebSocket, ActionShadow, "mutation_requires_high_live_corpus_confidence", f.EstimatedInputTokens/4, "medium", "medium")
 	}
 	return decision(LayerWebSocket, ActionMutate, "known_shape_and_high_corpus_confidence", f.EstimatedInputTokens/3, "high", "high")
+}
+
+func isCodexChatGPT(f RequestFacts) bool {
+	return strings.EqualFold(strings.TrimSpace(f.Provider), "codex_chatgpt")
 }
 
 func decision(layer Layer, action Action, reason string, expected int, risk, confidence string) LayerDecision {

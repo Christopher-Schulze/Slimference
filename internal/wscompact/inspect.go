@@ -1,6 +1,7 @@
 package wscompact
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -17,17 +18,30 @@ const (
 )
 
 type FrameSummary struct {
-	Direction    Direction `json:"direction"`
-	Opcode       string    `json:"opcode"`
-	Fin          bool      `json:"fin"`
-	Masked       bool      `json:"masked"`
-	PayloadBytes int64     `json:"payload_bytes"`
-	Fragmented   bool      `json:"fragmented,omitempty"`
-	JSON         bool      `json:"json,omitempty"`
-	JSONTopLevel string    `json:"json_top_level,omitempty"`
-	JSONKeys     []string  `json:"json_keys,omitempty"`
-	MessageType  string    `json:"message_type,omitempty"`
-	InspectNote  string    `json:"inspect_note,omitempty"`
+	Direction    Direction      `json:"direction"`
+	Opcode       string         `json:"opcode"`
+	Fin          bool           `json:"fin"`
+	Masked       bool           `json:"masked"`
+	PayloadBytes int64          `json:"payload_bytes"`
+	Fragmented   bool           `json:"fragmented,omitempty"`
+	JSON         bool           `json:"json,omitempty"`
+	JSONTopLevel string         `json:"json_top_level,omitempty"`
+	JSONKeys     []string       `json:"json_keys,omitempty"`
+	MessageType  string         `json:"message_type,omitempty"`
+	InspectNote  string         `json:"inspect_note,omitempty"`
+	Shadow       *ShadowSummary `json:"shadow,omitempty"`
+}
+
+type ShadowSummary struct {
+	Eligible         bool     `json:"eligible"`
+	OriginalBytes    int64    `json:"original_bytes,omitempty"`
+	CompressedBytes  int64    `json:"compressed_bytes,omitempty"`
+	SavedBytes       int64    `json:"saved_bytes,omitempty"`
+	OriginalTokens   int      `json:"original_tokens,omitempty"`
+	CompressedTokens int      `json:"compressed_tokens,omitempty"`
+	SavedTokens      int      `json:"saved_tokens,omitempty"`
+	AppliedLayers    []string `json:"applied_layers,omitempty"`
+	Blocker          string   `json:"blocker,omitempty"`
 }
 
 type Inspector interface {
@@ -168,6 +182,7 @@ func SummarizeFrame(frame Frame, direction Direction, payload []byte, fragmented
 	}
 	if frame.RSV {
 		summary.InspectNote = "reserved_bits_or_compressed_extension"
+		summary.Shadow = &ShadowSummary{Blocker: summary.InspectNote}
 		return summary
 	}
 	if frame.Opcode != 1 && frame.Opcode != 0 {
@@ -177,6 +192,7 @@ func SummarizeFrame(frame Frame, direction Direction, payload []byte, fragmented
 		return summary
 	}
 	applyJSONShape(&summary, payload)
+	applyShadowEstimate(&summary, payload)
 	return summary
 }
 
@@ -221,6 +237,48 @@ func applyJSONShape(summary *FrameSummary, payload []byte) {
 	default:
 		summary.JSONTopLevel = "scalar"
 	}
+}
+
+func applyShadowEstimate(summary *FrameSummary, payload []byte) {
+	if !summary.JSON {
+		if summary.InspectNote != "" {
+			summary.Shadow = &ShadowSummary{Blocker: summary.InspectNote}
+		}
+		return
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, payload); err != nil {
+		summary.Shadow = &ShadowSummary{Blocker: "json_compact_failed"}
+		return
+	}
+	originalBytes := int64(len(payload))
+	compressedBytes := int64(compacted.Len())
+	shadow := &ShadowSummary{
+		OriginalBytes:    originalBytes,
+		CompressedBytes:  compressedBytes,
+		OriginalTokens:   shadowEstimateTokens(originalBytes),
+		CompressedTokens: shadowEstimateTokens(compressedBytes),
+	}
+	if compressedBytes < originalBytes {
+		shadow.Eligible = true
+		shadow.SavedBytes = originalBytes - compressedBytes
+		shadow.SavedTokens = shadow.OriginalTokens - shadow.CompressedTokens
+		shadow.AppliedLayers = []string{"json_compact"}
+	} else {
+		shadow.Blocker = "no_savings"
+	}
+	summary.Shadow = shadow
+}
+
+func shadowEstimateTokens(bytes int64) int {
+	if bytes <= 0 {
+		return 0
+	}
+	tokens := int((bytes + 3) / 4)
+	if tokens < 1 {
+		return 1
+	}
+	return tokens
 }
 
 func firstStringField(obj map[string]any, keys ...string) string {

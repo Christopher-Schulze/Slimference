@@ -17,6 +17,7 @@ type Options struct {
 	SignatureMarker     string
 	MaxAddedBytes       int
 	TaskShape           TaskShape
+	InputTokens         int
 }
 
 type Stats struct {
@@ -43,8 +44,13 @@ func InjectBody(provider types.Provider, body []byte, opts Options) ([]byte, Sta
 	if stats.TaskShape == "" {
 		stats.TaskShape = DetectTaskShape(provider, body)
 	}
+	opts.TaskShape = stats.TaskShape
 	if stats.TaskShape == ShapeExactReply {
 		stats.Reason = "exact_reply"
+		return body, stats, nil
+	}
+	if reason := LowROISkipReason(stats.TaskShape, opts.InputTokens); reason != "" {
+		stats.Reason = reason
 		return body, stats, nil
 	}
 	if profile == ProfileOff {

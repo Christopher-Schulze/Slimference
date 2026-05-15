@@ -29,7 +29,7 @@ of any file that already exists, a timestamped backup is saved next to it
 slimference proxy install
 slimference proxy enable
 
-# 2. optional hook precision layer; enables only [features].codex_hooks=true
+# 2. optional hook precision layer; enables only [features].hooks=true
 slimference hook install codex
 
 # 3. legacy/config-patch mode only when explicitly desired
@@ -59,7 +59,7 @@ Hooks and transparent proxy readiness are separate dimensions; missing
 config-patch is not a broken state when `proxy install|enable` is the chosen
 product path. `hook install codex` does not write `openai_base_url` or
 `chatgpt_base_url`; it only writes Codex hook artifacts and the required
-`[features] codex_hooks = true` flag.
+`[features] hooks = true` flag.
 
 ## Failure-mode matrix
 
@@ -114,10 +114,10 @@ The installed hook set is:
 
 | Event | Slimference entry point | Purpose |
 |-------|--------------------------|---------|
-| `SessionStart` | `slimference codexhook session-start` | attach local Slimference state summary and mark session start |
-| `PreToolUse` | `slimference rewrite` / `slimference readhook` | deny/block where supported; no transparent command rewrite claim |
+| `SessionStart` | `slimference codexhook session-start` | mark session start silently by default; debug context only with `SLIMFERENCE_CODEX_HOOK_MODE=debug` |
+| `PreToolUse` | `slimference rewrite` / `slimference readhook` | Read cache stays active; Bash block-and-rerun rewrite only with `SLIMFERENCE_CODEX_HOOK_MODE=aggressive` |
 | `PermissionRequest` | `slimference codexhook permission-request` | map Layer-0 deny/ask policy into Codex allow/deny decisions |
-| `PostToolUse` | `slimference posttool` | archive raw output and return compact replacement feedback |
+| `PostToolUse` | `slimference posttool` | archive raw output and fail-open; default `auto` replaces only Bash outputs with >=600 original tokens, >=400 saved tokens, and >=45% savings; force with `SLIMFERENCE_CODEX_HOOK_MODE=compact`/`aggressive`, disable visible replacement with `silent` |
 | `UserPromptSubmit` | `slimference codexhook user-prompt-submit` | mark a new user turn for downstream state ownership |
 | `Stop` | `slimference codexhook stop` | flush/checkpoint hook-side telemetry |
 

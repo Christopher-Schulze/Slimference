@@ -131,6 +131,7 @@ func defaultsRaw() *Config {
 					GitModerateDiffLimit:      60,
 					TestMaxFailureLines:       40,
 				},
+				PlannerLiveCorpusConfidence: "unknown",
 			},
 		},
 		Cache: CacheConfig{
@@ -159,7 +160,10 @@ func defaultsRaw() *Config {
 		Filter: FilterConfig{
 			PassthroughMaxChars: 2000,
 		},
-		Hooks: HooksConfig{},
+		Hooks: HooksConfig{
+			CodexPostToolTimeoutSeconds: 4,
+			CodexPostToolMinTokens:      800,
+		},
 		Debug: DebugConfig{},
 	}
 }
@@ -360,6 +364,9 @@ coordinator_parallel = false
 # idle for more than the threshold are removed from the request
 # body and archived for reattachment. Default off.
 tool_prune_enabled = false
+# Extra exact tool names that must never be pruned. Shell/edit/read/safety,
+# browser, and MCP tool classes are always kept even when this list is empty.
+tool_prune_always_keep = []
 
 # T99: Layer 2 mid-exchange summarization. When on, long in-flight
 # exchanges exceeding the token threshold produce an in-progress
@@ -367,6 +374,13 @@ tool_prune_enabled = false
 mid_exchange_enabled = false
 # Token threshold for mid-exchange summarization (default 10000).
 mid_exchange_threshold_tokens = 10000
+
+# T149: planner live-corpus confidence. Leave unknown unless a real
+# operator corpus proves that higher-risk layers are safe for this ingress.
+planner_live_corpus_confidence = "unknown"
+# Optional metadata file or directory containing metadata.json with
+# synthetic/evidence_level/expected_request_count fields.
+planner_live_corpus_metadata_path = ""
 
 # T108: chunked Layer 1 pipeline (ANSI strip + line dedup +
 # repeated-line collapse) with bounded memory. The standalone API
@@ -417,6 +431,8 @@ passthrough_max_chars = 2000
 # Hook install (slimference hook install …) — optional path if "slimference" is not on PATH in the agent.
 [hooks]
 # slimference_command = "/usr/local/bin/slimference"
+codex_posttool_timeout_seconds = 4
+codex_posttool_min_tokens = 800
 
 # Future: filter decision JSONL path (SLIMFERENCE_DEBUG_DECISIONS_LOG overrides).
 [debug]

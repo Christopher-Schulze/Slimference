@@ -557,7 +557,9 @@ func TestHandleSubcommandAndPostToolEncodeCoverage(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.Filter.PassthroughMaxChars = 10
+	cfg.Hooks.CodexPostToolMinTokens = 0
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
 	defer func() { configLoadFn = config.Load }()
 	payload, err := json.Marshal(map[string]string{
 		"session_id":    "sess-1",

@@ -9,7 +9,7 @@ import (
 )
 
 // editToolNames matches tool names that perform file mutations.
-var editToolNames = regexp.MustCompile(`(?i)edit|write|create|delete`)
+var editToolNames = regexp.MustCompile(`(?i)apply_patch|patch|edit|write|create|delete`)
 
 // errorPatterns matches common error indicators in message content.
 var errorPatterns = regexp.MustCompile(`error|Error|ERROR|panic|FAIL|traceback|exception|fatal`)

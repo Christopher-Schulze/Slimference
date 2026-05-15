@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -33,9 +34,9 @@ func TestInjectOpenAIPromptCache(t *testing.T) {
 	cfg.Proxy.OpenAIPromptCache.MinTokens = 100
 	p := New(cfg)
 
-	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`)
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"system","content":"` + strings.Repeat("stable ", 100) + `"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"hi"}]}`)
 	out, decision := p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 200, "sess-1")
-	if !decision.Applied || decision.Key == "" || decision.Retention != "24h" {
+	if !decision.Applied || decision.Key == "" || decision.Retention != "24h" || decision.StablePrefixTokens == 0 || decision.StablePrefixHash == "" {
 		t.Fatalf("unexpected decision: %+v body=%s", decision, out)
 	}
 	text := string(out)
@@ -60,8 +61,8 @@ func TestInjectOpenAIPromptCacheDecisionBranches(t *testing.T) {
 		cfg.Proxy.OpenAIPromptCache.Enabled = true
 		cfg.Proxy.OpenAIPromptCache.MinTokens = 1000
 		p := New(cfg)
-		_, decision := p.injectOpenAIPromptCache(types.OpenAI, baseBody, "gpt-5", 10, "sess")
-		if decision.Reason != "below_min_tokens" {
+		_, decision := p.injectOpenAIPromptCache(types.OpenAI, []byte(`{"messages":[{"role":"system","content":"tiny"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"hi"}]}`), "gpt-5", 2000, "sess")
+		if decision.Reason != "stable_prefix_below_min_tokens" {
 			t.Fatalf("decision=%+v", decision)
 		}
 	})
@@ -75,6 +76,24 @@ func TestInjectOpenAIPromptCacheDecisionBranches(t *testing.T) {
 			t.Fatalf("decision=%+v body=%s", decision, out)
 		}
 	})
+	t.Run("unsupported_provider", func(t *testing.T) {
+		cfg := config.Defaults()
+		cfg.Proxy.OpenAIPromptCache.Enabled = true
+		p := New(cfg)
+		out, decision := p.injectOpenAIPromptCache(types.Anthropic, baseBody, "claude", 200, "sess")
+		if decision.Applied || decision.Reason != "unsupported_provider" || string(out) != string(baseBody) {
+			t.Fatalf("decision=%+v body=%s", decision, out)
+		}
+	})
+	t.Run("no_stable_prefix", func(t *testing.T) {
+		cfg := config.Defaults()
+		cfg.Proxy.OpenAIPromptCache.Enabled = true
+		p := New(cfg)
+		out, decision := p.injectOpenAIPromptCache(types.OpenAI, []byte(`{}`), "gpt-5", 200, "sess")
+		if decision.Applied || decision.Reason != "no_stable_prefix" || string(out) != `{}` {
+			t.Fatalf("decision=%+v body=%s", decision, out)
+		}
+	})
 	t.Run("rate_limited_no_change", func(t *testing.T) {
 		cfg := config.Defaults()
 		cfg.Proxy.OpenAIPromptCache.Enabled = true
@@ -83,8 +102,9 @@ func TestInjectOpenAIPromptCacheDecisionBranches(t *testing.T) {
 		cfg.Proxy.OpenAIPromptCache.MinTokens = 0
 		cfg.Proxy.OpenAIPromptCache.MaxRequestsPerKeyPerMinute = 1
 		p := New(cfg)
-		_, first := p.injectOpenAIPromptCache(types.OpenAI, baseBody, "gpt-5", 10, "sess")
-		_, second := p.injectOpenAIPromptCache(types.OpenAI, baseBody, "gpt-5", 10, "sess")
+		body := []byte(`{"model":"gpt-5","messages":[{"role":"system","content":"stable prefix"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"latest"}]}`)
+		_, first := p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 10, "sess")
+		_, second := p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 10, "sess")
 		if !first.Applied || second.Applied || second.Reason != "rate_limited" {
 			t.Fatalf("first=%+v second=%+v", first, second)
 		}
@@ -94,24 +114,103 @@ func TestInjectOpenAIPromptCacheDecisionBranches(t *testing.T) {
 func TestBuildOpenAIPromptCacheKeyBranches(t *testing.T) {
 	cfg := config.Defaults().Proxy.OpenAIPromptCache
 	cfg.PromptCacheKeyStrategy = ""
-	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-raw-secret"); got == "" || strings.Contains(got, "sess-raw-secret") {
+	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-raw-secret", "prefix-hash"); got == "" || strings.Contains(got, "sess-raw-secret") || strings.Contains(got, "prefix-hash") {
 		t.Fatalf("default/session key not hashed: %q", got)
 	}
 	cfg.PromptCacheKeyStrategy = "off"
-	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess"); got != "" {
+	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess", "prefix-hash"); got != "" {
 		t.Fatalf("off key=%q", got)
 	}
 	cfg.PromptCacheKeyStrategy = "static"
 	cfg.StaticPromptCacheKey = "  fixed-key  "
-	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess"); got != "fixed-key" {
+	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess", "prefix-hash"); got != "fixed-key" {
 		t.Fatalf("static key=%q", got)
 	}
 	cfg.PromptCacheKeyStrategy = "unknown"
-	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess"); got != "" {
+	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess", "prefix-hash"); got != "" {
 		t.Fatalf("unknown key=%q", got)
 	}
 	if got := hashedPromptCacheKey("session", "   "); got != "" {
 		t.Fatalf("empty hash key=%q", got)
+	}
+}
+
+func TestOpenAIStablePrefixPlannerKeyRotation(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Proxy.OpenAIPromptCache.Enabled = true
+	cfg.Proxy.OpenAIPromptCache.PromptCacheKeyStrategy = "model_session"
+	cfg.Proxy.OpenAIPromptCache.Retention = "off"
+	cfg.Proxy.OpenAIPromptCache.MinTokens = 10
+	p := New(cfg)
+
+	body := func(stable, latest, tools string) []byte {
+		return []byte(`{"model":"gpt-5","tools":[{"type":"function","function":{"name":"` + tools + `"}}],"messages":[{"role":"system","content":"` + stable + `"},{"role":"user","content":"old question"},{"role":"assistant","content":"old answer"},{"role":"user","content":"` + latest + `"}]}`)
+	}
+	_, first := p.injectOpenAIPromptCache(types.OpenAI, body(strings.Repeat("stable ", 30), "latest A", "read_file"), "gpt-5", 1000, "sess")
+	_, latestChanged := p.injectOpenAIPromptCache(types.OpenAI, body(strings.Repeat("stable ", 30), "latest B", "read_file"), "gpt-5", 1000, "sess")
+	_, stableChanged := p.injectOpenAIPromptCache(types.OpenAI, body(strings.Repeat("different ", 30), "latest A", "read_file"), "gpt-5", 1000, "sess")
+	_, toolChanged := p.injectOpenAIPromptCache(types.OpenAI, body(strings.Repeat("stable ", 30), "latest A", "write_file"), "gpt-5", 1000, "sess")
+
+	if !first.Applied || !latestChanged.Applied || !stableChanged.Applied || !toolChanged.Applied {
+		t.Fatalf("expected all multi-turn plans to apply: first=%+v latest=%+v stable=%+v tool=%+v", first, latestChanged, stableChanged, toolChanged)
+	}
+	if first.Key != latestChanged.Key {
+		t.Fatalf("latest user turn must not rotate key: first=%q latest=%q", first.Key, latestChanged.Key)
+	}
+	if first.Key == stableChanged.Key {
+		t.Fatalf("stable prefix change must rotate key: %q", first.Key)
+	}
+	if first.Key == toolChanged.Key {
+		t.Fatalf("tool schema change must rotate key: %q", first.Key)
+	}
+}
+
+func TestOpenAIStablePrefixPlannerOneTurnDoesNotUseTotalTokens(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Proxy.OpenAIPromptCache.Enabled = true
+	cfg.Proxy.OpenAIPromptCache.MinTokens = 10
+	p := New(cfg)
+
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"` + strings.Repeat("huge latest ", 100) + `"}]}`)
+	out, decision := p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 2000, "sess")
+	if decision.Applied || decision.Reason != "no_stable_prefix" || string(out) != string(body) {
+		t.Fatalf("one-turn request should not get cache hints from total tokens: decision=%+v body=%s", decision, out)
+	}
+}
+
+func TestPlanOpenAIStablePrefixBranches(t *testing.T) {
+	if plan := planOpenAIStablePrefix([]byte(`{`)); plan.Detected || plan.Reason != "invalid_json" {
+		t.Fatalf("invalid plan=%+v", plan)
+	}
+	body := []byte(`{
+		"instructions":"keep stable",
+		"system":"system text",
+		"developer":{"role":"developer","content":"dev text"},
+		"tools":[{"type":"function","function":{"name":"read_file"}}],
+		"input":[{"role":"system","content":"old"},{"role":"user","content":"latest"}],
+		"messages":[{"role":"system","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"latest"}]
+	}`)
+	plan := planOpenAIStablePrefix(body)
+	if !plan.Detected || plan.Hash == "" || plan.Tokens == 0 || plan.Reason != "planned" {
+		t.Fatalf("plan=%+v", plan)
+	}
+	if prefix, ok := stablePrefixArray(json.RawMessage(`[{"role":"user","content":"only"}]`)); ok || prefix != nil {
+		t.Fatalf("single latest user should not produce prefix: %+v ok=%v", prefix, ok)
+	}
+	if prefix, ok := stablePrefixArray(json.RawMessage(`[{"role":"assistant","content":"no user"}]`)); ok || prefix != nil {
+		t.Fatalf("no user should not produce prefix: %+v ok=%v", prefix, ok)
+	}
+	if prefix, ok := stablePrefixArray(json.RawMessage(`{"not":"array"}`)); ok || prefix != nil {
+		t.Fatalf("non-array should not produce prefix: %+v ok=%v", prefix, ok)
+	}
+	if role := rawMessageRole(json.RawMessage(`{`)); role != "" {
+		t.Fatalf("invalid role raw=%q", role)
+	}
+	if got := string(compactRawJSON(json.RawMessage(`{`))); got != "{" {
+		t.Fatalf("invalid compact fallback=%q", got)
+	}
+	if got := mustMarshalRawArray([]json.RawMessage{json.RawMessage(`{`)}); got != nil {
+		t.Fatalf("invalid raw array marshal should return nil: %s", got)
 	}
 }
 
@@ -123,7 +222,7 @@ func TestInjectOpenAIPromptCache_IdempotentAndScoped(t *testing.T) {
 	cfg.Proxy.OpenAIPromptCache.MinTokens = 0
 	p := New(cfg)
 
-	body := []byte(`{"model":"gpt-5","prompt_cache_key":"caller","prompt_cache_retention":"in_memory","messages":[]}`)
+	body := []byte(`{"model":"gpt-5","prompt_cache_key":"caller","prompt_cache_retention":"in_memory","messages":[{"role":"system","content":"stable"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"latest"}]}`)
 	out, decision := p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 100, "sess-1")
 	if decision.Applied || string(out) != string(body) {
 		t.Fatalf("caller-owned fields must be preserved, decision=%+v body=%s", decision, out)
@@ -231,7 +330,7 @@ func TestServeHTTP_OpenAIPromptCacheInjectionRetryReappliesServerState(t *testin
 	p := New(cfg)
 	p.serverState.Set("conv-cache", "resp_old")
 
-	body := `{"model":"gpt-5","metadata":{"conversation_id":"conv-cache"},"messages":[{"role":"user","content":"hello"}]}`
+	body := `{"model":"gpt-5","metadata":{"conversation_id":"conv-cache"},"messages":[{"role":"system","content":"stable prefix"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"hello"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()

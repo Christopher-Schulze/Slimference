@@ -27,9 +27,12 @@ func TestExtractPostToolPayloadFromHookJSON(t *testing.T) {
 func TestExtractPostToolPayloadFromHookJSON_missingResponse(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := ExtractPostToolPayloadFromHookJSON([]byte(`{"tool_input":{"command":"git status"}}`))
-	if err == nil {
-		t.Fatal("expected error when tool_response is absent")
+	command, toolResponse, err := ExtractPostToolPayloadFromHookJSON([]byte(`{"tool_input":{"command":"git status"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command != "git status" || toolResponse != "" {
+		t.Fatalf("command=%q toolResponse=%q", command, toolResponse)
 	}
 }
 
@@ -95,6 +98,15 @@ func TestPrimaryArgvForCapturedOutput(t *testing.T) {
 	}
 	if argv := primaryArgvForCapturedOutput("> out.txt"); argv != nil {
 		t.Fatalf("redirect-only command should return nil: %#v", argv)
+	}
+}
+
+func TestArgvForCapturedOutput_exportedWrapper(t *testing.T) {
+	t.Parallel()
+
+	argv := ArgvForCapturedOutput("cd repo && go test ./...")
+	if len(argv) != 2 || argv[0] != "cd" || argv[1] != "repo" {
+		t.Fatalf("exported wrapper argv=%#v", argv)
 	}
 }
 

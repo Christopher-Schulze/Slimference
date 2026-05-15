@@ -248,7 +248,7 @@ func TestHandleHookCmd_installCodex_success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.toml missing after hook install: %v", err)
 	}
-	if !strings.Contains(string(configData), "codex_hooks = true") || strings.Contains(string(configData), "openai_base_url") {
+	if !strings.Contains(string(configData), "hooks = true") || strings.Contains(string(configData), "openai_base_url") {
 		t.Fatalf("hook install must enable hooks only, got config.toml: %s", configData)
 	}
 }
@@ -317,7 +317,7 @@ func TestHandleHookCmd_installCodexDoesNotValidateConfigPatch(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "Enabled codex_hooks feature flag only") {
+	if !strings.Contains(buf.String(), "Enabled hooks feature flag only") {
 		t.Fatalf("expected feature-flag-only message, got %q", buf.String())
 	}
 	configData, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
@@ -325,7 +325,7 @@ func TestHandleHookCmd_installCodexDoesNotValidateConfigPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(configData), "openai_base_url = \"http://example.com\"") ||
-		!strings.Contains(string(configData), "codex_hooks = true") {
+		!strings.Contains(string(configData), "hooks = true") {
 		t.Fatalf("hook install changed config.toml: %s", configData)
 	}
 }
@@ -412,7 +412,7 @@ func TestHandleHookCmd_removeClaude_errorExits1(t *testing.T) {
 }
 
 // TestHandleHookCmd_removeCodex_errorExits1 covers hooks.RemoveCodex error path (main.go:406-409).
-func TestHandleHookCmd_removeCodex_errorExits1(t *testing.T) {
+func TestHandleHookCmd_removeCodex_ignoresAgentsDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod not applicable on windows")
 	}
@@ -433,12 +433,35 @@ func TestHandleHookCmd_removeCodex_errorExits1(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_removeCodex_errorExits1")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_removeCodex_ignoresAgentsDirectory")
 	cmd.Env = append(os.Environ(), "TP_HOOK_RCODEX_ERR=1", "TP_HOOK_RCODEX_HOME="+home)
-	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
-		t.Fatalf("want exit 1 from RemoveCodex error, got err=%v", err)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("RemoveCodex must ignore AGENTS.md directory, got err=%v", err)
+	}
+}
+
+func TestHandleHookCmd_removeCodex_errorExits(t *testing.T) {
+	origHome := osUserHomeDir
+	origRemove := removeCodexHookFn
+	defer func() {
+		osUserHomeDir = origHome
+		removeCodexHookFn = origRemove
+	}()
+	osUserHomeDir = func() (string, error) { return t.TempDir(), nil }
+	removeCodexHookFn = func(string) error { return errors.New("remove codex failed") }
+
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() {
+		handleHookCmd([]string{"remove", "codex"})
+	})
+	cleanup()
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 1 {
+		t.Fatalf("want exit 1, got exited=%v code=%d", exited, code)
+	}
+	if !strings.Contains(buf.String(), "remove codex failed") {
+		t.Fatalf("stderr: %q", buf.String())
 	}
 }
 

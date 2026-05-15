@@ -261,3 +261,61 @@ func TestPruneToolDefinitions_LargeBody_Savings(t *testing.T) {
 		t.Fatalf("pruned body (%d) should be smaller than original (%d)", len(out), len(body))
 	}
 }
+
+func TestDecideWithOptions_AlwaysKeepAndCooldown(t *testing.T) {
+	t.Parallel()
+	u := NewUsageTracker(1)
+	const session = "s"
+	u.ObserveTurn(session, []string{"Bash", "ColdTool", "CustomKeep"})
+	u.ObserveTurn(session, []string{"Other"})
+	u.ObserveTurn(session, []string{"Other"})
+
+	decision := u.DecideWithOptions(session, []string{"Bash", "ColdTool", "CustomKeep"}, DecisionOptions{
+		MinKeep:    1,
+		AlwaysKeep: []string{"CustomKeep"},
+	})
+	if !containsString(decision.Keep, "Bash") || !containsString(decision.Keep, "CustomKeep") {
+		t.Fatalf("always-keep tools missing: %+v", decision)
+	}
+	if !containsString(decision.Pruned, "ColdTool") {
+		t.Fatalf("cold tool should be pruned: %+v", decision)
+	}
+	if decision.AlwaysKept != 2 {
+		t.Fatalf("always kept = %d want 2", decision.AlwaysKept)
+	}
+
+	u.MarkMiss(session)
+	cooldown := u.DecideWithOptions(session, []string{"ColdTool"}, DecisionOptions{MinKeep: 1})
+	if cooldown.Reason != "quality_cooldown" || len(cooldown.Pruned) != 0 || !containsString(cooldown.Keep, "ColdTool") {
+		t.Fatalf("cooldown decision: %+v", cooldown)
+	}
+	snap := u.Snapshot()
+	if snap.MissTotal != 1 || snap.DisabledSessions != 1 {
+		t.Fatalf("snapshot after miss: %+v", snap)
+	}
+}
+
+func TestLooksLikeMissingToolError(t *testing.T) {
+	t.Parallel()
+	if !LooksLikeMissingToolError(400, []byte(`{"error":"unknown tool GetWeather"}`)) {
+		t.Fatal("expected unknown tool error to match")
+	}
+	if !LooksLikeMissingToolError(422, []byte(`tool_use id not found in tools`)) {
+		t.Fatal("expected not found in tools to match")
+	}
+	if LooksLikeMissingToolError(500, []byte(`unknown tool`)) {
+		t.Fatal("5xx should not trigger tool fallback")
+	}
+	if LooksLikeMissingToolError(400, []byte(`invalid prompt_cache_key`)) {
+		t.Fatal("unrelated 4xx should not trigger tool fallback")
+	}
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}

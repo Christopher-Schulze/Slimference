@@ -1,6 +1,6 @@
 # TASK 148: Output-reduce real-session aggressive autotuning
 
-Status: PENDING (planned 2026-05-13)
+Status: IN PROGRESS (T148a repair-turn detection and T148b profile-row reporting landed 2026-05-15; real A/B baseline still pending)
 Priority: P1
 Scope: `internal/outputreduce/`, `internal/quality/`, `internal/analytics/`, `internal/flight/`, `cmd/slimference/output_reduce_cmd.go`, `cmd/slimference/gain_cmd.go`, `tests/fixtures/output_reduce_corpus/`, `docs/output-reduce.md`.
 
@@ -61,12 +61,15 @@ Output-reduce has a real-session tuning loop:
 ### WP4 - Repair-turn detection
 
 - Detect negative outcomes:
-  - tool failure after response.
-  - apply_patch failure.
-  - user asks "what did you do" / "explain more" / "you skipped".
+  - [x] tool failure after response via HTTP error outcome.
+  - [x] apply_patch / malformed-patch follow-up wording.
+  - [x] user asks "what did you do" / "explain more" / "you skipped".
   - same task repeated.
-  - model outputs malformed patch/diff because directive was too strong.
-- Feed into auto-downgrade.
+  - [x] model outputs malformed patch/diff because directive was too strong
+    when the next turn reports patch/application failure.
+- [x] Feed into auto-downgrade for the previous provider/model/profile/task
+  bucket. The signal is one-shot per session, so stale repair text cannot keep
+  punishing older output-reduce decisions.
 
 ### WP5 - Quality validators
 
@@ -84,16 +87,22 @@ Output-reduce has a real-session tuning loop:
 - Keep global defaults conservative.
 - Allow `codex_aggressive` only where live data is positive.
 - Export a profile report for manual inspection before changing defaults.
+- Implemented 2026-05-15:
+  - `gain --output` now exports provider/model/profile/task-shape rows.
+  - Rows include request count, applied/skipped counts, directive input overhead, observed output tokens, applied-turn output tokens, and averages.
+  - Text, JSON, and CSV all expose the rows.
+  - The report stays baseline-honest: it does not infer output-token savings without comparable baseline data.
 
 ## Acceptance
 
 - [ ] `gain --output` can compare baseline and output-reduce sessions with confidence labels.
-- [ ] Repair-turn detection feeds the auto-tuner.
+- [x] Repair-turn detection feeds the auto-tuner.
 - [ ] Directive variants are provider/model/task-shape specific.
 - [ ] Output savings are not counted when quality validators fail.
 - [ ] Live corpus proves at least one promoted profile saves net output tokens.
 - [ ] Aggressive profile can auto-downgrade without operator intervention.
-- [ ] `go run ./scripts/ci` passes with 100% coverage for new Go code.
+- [x] `gain --output` exports provider/model/profile/task-shape rows for manual profile evolution without inventing savings.
+- [x] `go run ./scripts/ci` passes with 100% coverage for new Go code.
 
 ## Expected Upside
 
@@ -107,3 +116,25 @@ Output-reduce has a real-session tuning loop:
 - Do not hide important review/debug information to save tokens.
 - Do not claim savings without baseline or confidence label.
 
+## Implementation Notes
+
+- 2026-05-15 T148a:
+  - Added `repair_followup` task-shape detection for "you skipped" / "explain
+    more" / "what did you do" and German equivalents, plus patch/application
+    failure follow-up phrases.
+  - Output-reduce now skips repair follow-up turns with
+    `repair_followup_low_roi`, because adding brevity rules to a user asking
+    for missing detail is negative ROI.
+  - The proxy remembers the last applied output-reduce bucket per session. If
+    the next request is a repair/user-reask signal, it feeds that signal back
+    into the auto-tuner for the previous provider/model/profile/task-shape
+    bucket and can downgrade aggressive profiles.
+  - Focus tests: `go test ./internal/outputreduce ./internal/proxy -cover` at
+    100% for both packages.
+- 2026-05-15 T148b:
+  - Added output-reduce profile rows grouped by provider/model/profile/task
+    shape to `internal/analytics.OutputReduceReport`.
+  - `gain --output` prints the rows and exports them through JSON/CSV so manual
+    profile evolution can inspect exactly where overhead and output volume came
+    from before any default changes.
+  - Focus tests: `go test ./internal/analytics ./cmd/slimference -cover`.
