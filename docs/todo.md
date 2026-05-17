@@ -1227,6 +1227,37 @@ only and promotes the per-process Codex CLI runner for T209.
   Codex provider block. Desktop App routing still needs live proof
   before any "Codex Desktop app intercepted" claim. Detail:
   `docs/todo/t220-scoped-codex-routing-without-global-hosts.md`
+- [ ] **T221** Scoped Codex WSS Phase-F mode — recover the old
+  transparent path's WSS savings without global hosts/pfctl:
+  scoped `auto|wss|http|direct` transport policy, WSS-first after
+  proof, optional `supports_websockets=true`, local Codex WSS upgrades
+  through `wsmitm.Session`, Phase-F frame mutation, HTTP fallback, and
+  byte-equal fallback on schema drift. Detail:
+  `docs/todo/t221-scoped-codex-wss-phasef-mode.md`
+- [ ] **T222** Raw scoped WSS frontdoor — preserve Codex's original
+  HTTP/1.1 Upgrade header order/casing/subprotocol bytes before
+  entering the WSS Phase-F adapter, avoiding `net/http` request
+  reconstruction drift so scoped WSS can become the real future
+  default rather than a lab-only tunnel. Detail:
+  `docs/todo/t222-raw-scoped-wss-frontdoor.md`
+- [ ] **T223** Scoped upstream fingerprint parity — make scoped
+  Codex HTTP/WSS upstream dials use TLS/ALPN profile selection
+  independent of global transparent mode, prevent accidental Go
+  stdlib TLS on scoped Codex, then tune toward the live Codex
+  baseline. Detail:
+  `docs/todo/t223-scoped-upstream-fingerprint-parity.md`
+- [ ] **T224** Scoped indistinguishability audit — adapt the T198
+  capture/diff loop to compare native Codex vs scoped HTTP/WSS
+  Slimference routes across TLS, ALPN, HTTP/WSS headers, timing,
+  and mutation counters; this is the gate for promoting WSS-first
+  `auto`. Detail:
+  `docs/todo/t224-scoped-indistinguishability-audit.md`
+- [ ] **T225** Codex Desktop scoped proof and launcher — prove or
+  reject the shared provider route for Codex Desktop, and only build
+  a process-local launcher if it can catch Desktop conversation
+  traffic, preferably WSS-first, without Browser ChatGPT/ChatGPT.app
+  collateral. Detail:
+  `docs/todo/t225-codex-desktop-scoped-proof-and-launcher.md`
 
 ### Sequencing within Phase H
 
@@ -1254,6 +1285,22 @@ only and promotes the per-process Codex CLI runner for T209.
    the normal product path while Browser ChatGPT and ChatGPT.app must
    stay direct. T209 becomes scoped CLI first; Desktop app interception
    waits for scoped proof.
+11. **T221 before WSS claims** — scoped WSS is allowed only after the
+   existing T208 frame adapter runs on local provider WSS, not only
+   global transparent WSS. T221 defines `auto|wss|http|direct`; after
+   proof, `auto` should prefer WSS.
+12. **T222 before "old invisibility" claims** — raw Upgrade preservation
+   is required before scoped WSS can be compared fairly to the old
+   transparent dispatcher.
+13. **T223 before provider-side stealth claims** — scoped upstream dials
+   must use profile-aware TLS/ALPN before any fingerprint discussion is
+   serious.
+14. **T224 before any "indistinguishable" wording** — capture/diff proof
+   is the gate; architecture alone is not evidence. T224 is also the
+   gate for making WSS-first the Codex CLI default.
+15. **T225 after CLI proof** — Desktop follows only after scoped CLI/WSS
+   is stable, because Desktop proof is more stateful and easier to
+   confuse with Browser ChatGPT traffic.
 
 ### Acceptance for Phase H
 
@@ -1261,9 +1308,21 @@ only and promotes the per-process Codex CLI runner for T209.
   loaded, hooks present, hosts CLEAN (not patched).
 - Scoped Codex CLI test uses `slimference codex run` and leaves
   hosts/pfctl/Browser ChatGPT/ChatGPT.app untouched.
+- Scoped WSS mode, once enabled, uses `wsmitm.Session` + Phase-F frame
+  mutation and degrades unknown frame shapes to byte-equal bridge.
+- The intended final Codex CLI default is `transport=auto` with WSS preferred
+  after T224 proof; HTTP/direct remain fallback and comparison modes.
+- Scoped WSS raw frontdoor preserves original Upgrade headers except
+  unavoidable authority/path normalization.
+- Scoped Codex upstream dials use configurable TLS/ALPN profiles even
+  when global transparent mode is disabled.
+- Indistinguishability claims require a T224 capture report; docs use
+  "scoped / minimized drift" until then.
 - Shared Codex CLI/App test uses `slimference codex enable`, restarts
   Codex.app/app-server, verifies telemetry, then uses
   `slimference codex disable`.
+- Codex Desktop target is also WSS-first if scoped provider/launcher proof
+  confirms Desktop can be routed without global hosts/pfctl.
 - `slimference root-arm --global-chatgpt-hosts` is required before
   any global transparent lab test; bare `root-arm` refuses.
 - `slimference enable` exits 0 + SIGHUPs daemon → SNI-peek mode is
