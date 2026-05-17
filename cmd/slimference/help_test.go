@@ -104,9 +104,10 @@ func TestHelpTopLevelPromotesPhaseHOnly(t *testing.T) {
 	out := helpTopLevel()
 	required := []string{
 		"slimference install",
-		"slimference cert-trust",
-		"slimference root-arm",
-		"slimference enable",
+		"slimference status --preflight",
+		"slimference codex run",
+		"slimference codex enable",
+		"root-arm --global-chatgpt-hosts",
 	}
 	for _, want := range required {
 		if !strings.Contains(out, want) {
@@ -133,11 +134,10 @@ func TestLegacySubcommandHelpIsExplicitlyLegacy(t *testing.T) {
 	proxyHelp := helpForSubcommand("proxy")
 	for _, want := range []string{
 		"LEGACY/ADVANCED",
-		"Do not use this as the Phase H default Codex install path",
+		"Do not use proxy install/enable as",
 		"slimference install",
-		"slimference cert-trust",
-		"slimference root-arm",
-		"slimference enable",
+		"slimference proxy run codex --proxied",
+		"scoped CLI path",
 	} {
 		if !strings.Contains(proxyHelp, want) {
 			t.Fatalf("proxy help should contain %q\n%s", want, proxyHelp)
@@ -182,7 +182,7 @@ func TestHelpForSubcommandKnown(t *testing.T) {
 func TestFilterHelpDocumentsAdvancedWrapperOnly(t *testing.T) {
 	t.Parallel()
 	out := helpForSubcommand("filter")
-	for _, want := range []string{"ADVANCED manual wrapper", "not the Phase H default Codex routing path", "--stream", "child's exit code is propagated"} {
+	for _, want := range []string{"ADVANCED manual wrapper", "not the scoped Codex traffic path", "--stream", "child's exit code is propagated"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("filter help should contain %q\n%s", want, out)
 		}

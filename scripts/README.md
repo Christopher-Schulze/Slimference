@@ -7,7 +7,7 @@ Alle **Werkzeuge** dieses Repos (Coverage-Gates, Benchmark-Helfer, Utils, …) l
 | Pfad | Zweck |
 |------|--------|
 | `build/` | Ein lokales, einzelnes Slimference-Binary mit Release-Flags bauen (`-trimpath -ldflags "-s -w"`) |
-| `coverage/` | Coverage auswerten, Schwellen (z. B. 100 %) prüfen, CI-lokal spiegeln |
+| `coverage/` | Coverage auswerten, Schwellen (aktuell 99.5 % aggregate) prüfen, CI-lokal spiegeln |
 | `benchmarks/` | Benchmarks bündeln, `go test -bench` auswerten |
 | `utils/` | Kleine Hilfs-CLIs, einmalige Tasks, Generatoren |
 
@@ -31,7 +31,7 @@ Konkrete Kommandozeilen:
 ```bash
 go run ./scripts/build --install                # Optimiertes Binary nach ~/.local/bin/slimference
 go run ./scripts/build --out ./slimference      # Optimiertes lokales Binary
-go run ./scripts/coverage -min=100               # Coverage-Gate (100%)
+go run ./scripts/coverage -min=99.5              # Coverage-Gate (aggregate)
 go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s)
 go run ./scripts/benchmarks -- -benchtime=1s     # Schneller Durchlauf
 go run ./scripts/benchmarks -- -count=3          # 3 Runden für Stabilität

@@ -25,6 +25,12 @@ Closure: T70 restored the gate on 2026-04-29. `go run ./scripts/coverage
 -min=100` and `go run ./scripts/ci` now reproduce `100.0%` total statement
 coverage.
 
+Policy update on 2026-05-17: the maintainer changed the release bar from
+100.0% aggregate coverage to 99.5% aggregate coverage. The new bar keeps
+important product, safety, and regression paths covered while avoiding
+artificial tests for OS-dependent cleanup branches such as atomic file
+write `Close`/`Chmod` failures.
+
 ## Target State
 
 - `go run ./scripts/ci` passes on a clean checkout.

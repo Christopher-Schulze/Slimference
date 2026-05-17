@@ -35,11 +35,27 @@ var (
 // Idempotent: re-running root-arm is a no-op if both operations are
 // in place. Reversed by `slimference root-disarm`.
 func handleRootArmCmd(args []string) {
+	allowGlobalHosts := false
 	for _, a := range args {
-		if a == "--help" || a == "-h" {
+		switch a {
+		case "--help", "-h":
 			fmt.Print(rootArmHelp)
 			return
+		case "--global-chatgpt-hosts":
+			allowGlobalHosts = true
+		default:
+			fmt.Fprintf(os.Stderr, "root-arm: unknown flag %q\n", a)
+			exitFn(1)
+			return
 		}
+	}
+	if !allowGlobalHosts {
+		fmt.Fprintln(os.Stderr, "root-arm: refused by default because it routes chatgpt.com and api.openai.com machine-wide.")
+		fmt.Fprintln(os.Stderr, "          That also affects ChatGPT.app and browser ChatGPT sessions.")
+		fmt.Fprintln(os.Stderr, "          Scoped Codex path: `slimference codex run -- <prompt>` or `slimference codex enable`.")
+		fmt.Fprintln(os.Stderr, "          Lab-only global path: `slimference root-arm --global-chatgpt-hosts`.")
+		exitFn(1)
+		return
 	}
 	home, err := osUserHomeDir()
 	if err != nil || home == "" {
@@ -61,6 +77,9 @@ func handleRootArmCmd(args []string) {
 	fmt.Println("This will request administrator privileges to:")
 	fmt.Println("  1. Add marker-fenced entries to /etc/hosts")
 	fmt.Println("  2. Load a pfctl rdr anchor (port 443 → 127.0.0.1:8443)")
+	fmt.Println()
+	fmt.Println("GLOBAL LAB MODE: this routes chatgpt.com and api.openai.com")
+	fmt.Println("machine-wide. Browser ChatGPT and ChatGPT.app are in scope too.")
 	fmt.Println()
 	fmt.Println("(CA trust is handled separately via Keychain Access — macOS")
 	fmt.Println(" forbids non-interactive trust changes even as root.)")
@@ -215,11 +234,23 @@ func runWithAdminPrivileges(script, prompt string) error {
 	return nil
 }
 
-const rootArmHelp = `usage: slimference root-arm
+const rootArmHelp = `usage: slimference root-arm --global-chatgpt-hosts
+
+ADVANCED / GLOBAL LAB ONLY.
 
 Performs the macOS root-required steps to arm transparent MITM:
   1. Patch /etc/hosts (marker-fenced) for the Codex hosts
   2. Load pfctl rdr anchor: port 443 → 127.0.0.1:8443
+
+This is not app-scoped. It routes chatgpt.com and api.openai.com
+machine-wide, so Browser ChatGPT and ChatGPT.app also enter the
+transparent bridge. Use this only for explicit lab certification.
+
+For scoped Codex CLI runs, prefer:
+  slimference codex run -- <prompt>
+
+For the shared Codex CLI/App provider route, prefer:
+  slimference codex enable
 
 Triggers ONE macOS admin password dialog via osascript. Idempotent —
 re-running is harmless.
@@ -231,7 +262,8 @@ interaction for trust changes — even root cannot bypass.
 Reversed by: slimference root-disarm
 
 Flags:
-  --help, -h    this text
+  --global-chatgpt-hosts  acknowledge machine-wide ChatGPT/OpenAI routing
+  --help, -h              this text
 `
 
 const rootDisarmHelp = `usage: slimference root-disarm

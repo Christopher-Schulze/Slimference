@@ -4,16 +4,17 @@
 // expressed as a reversibility.Plan so install/uninstall are atomic
 // and round-trip-clean.
 //
-// Phase H architecture (2-surface):
+// Scoped Codex architecture:
 //
 //   - Install plan = CA + Keychain + launchd + hooks
-//   - Hosts plan  = /etc/hosts marker-fenced patch (runs at daemon
-//     lifecycle boundaries via internal/install/hosts_lifecycle.go)
+//   - Scoped CLI  = `slimference codex run -- <prompt>`
+//   - Shared route = `slimference codex enable|disable|status`
+//   - Hosts plan  = global lab-only /etc/hosts marker-fenced patch
 //
 // What this package does NOT touch: OPENAI_API_BASE env, HTTPS_PROXY
 // env, openai_base_url in ~/.codex/config.toml, macOS system network
 // proxy settings. Those are legacy/advanced surfaces the user
-// configures manually; the install path is universal-transparent.
+// configures manually; the install path stays Codex-scoped by default.
 package install
 
 import (

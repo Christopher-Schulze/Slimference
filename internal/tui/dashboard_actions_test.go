@@ -608,7 +608,7 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Done: Run slimference enable") {
+	if !strings.Contains(model.flashMsg, "Done: Run slimference codex enable") {
 		t.Fatalf("setup enter flash=%q", model.flashMsg)
 	}
 

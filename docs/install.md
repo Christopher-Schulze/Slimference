@@ -8,37 +8,55 @@ document.
 
 ```bash
 slimference install      # one-shot, atomic, reversible, Codex-only default
-slimference cert-trust   # one interactive macOS trust click for the local CA
-slimference root-arm     # privileged hosts + pfctl routing; do not run while testing in Codex
-slimference enable       # arm daemon-side transparent mode
-slimference disable      # disarm (restores /etc/hosts)
-slimference uninstall    # full removal, restores backups
 slimference status       # see what's currently armed
+slimference status --preflight
+slimference codex run -- <prompt>     # scoped one-shot Codex CLI, fail-open
+slimference codex enable              # optional shared Codex CLI/App route
+slimference codex status
+slimference codex disable
+
+# Global lab only, not the default because it also routes Browser ChatGPT
+# and ChatGPT.app:
+slimference cert-trust
+slimference root-arm --global-chatgpt-hosts
+slimference enable
+slimference disable
+slimference root-disarm
+slimference uninstall    # full removal, restores backups
 ```
 
 That's it. No environment variables. No `OPENAI_API_BASE`. No
-`HTTPS_PROXY`. The transparent MITM layer is universal.
+`HTTPS_PROXY`. No global `chatgpt.com` host route unless the operator
+explicitly asks for the global lab path.
 
-## 2-surface architecture
+## Scoped Codex architecture
 
-Slimference touches exactly TWO external surfaces:
+Slimference's default product path touches only scoped Codex surfaces:
 
 1. **Hook callouts** in `~/.codex/hooks.json` plus
    `~/.codex/config.toml` `[features].hooks=true` (out-of-band
    subprocess calls — never over network).
-2. **Transparent TLS-MITM** on port 443 via:
-   - local CA in macOS Keychain (root cert)
-   - `/etc/hosts` entries marker-fenced as `# slimference:start … #
-     slimference:end`.
+2. **Scoped Codex CLI traffic** via
+   `slimference codex run -- <prompt>`. This launches only
+   that Codex CLI process with the local `slimference-codex` provider. It
+   does not touch `/etc/hosts`, pfctl, macOS Network Proxy settings,
+   Browser ChatGPT, or ChatGPT.app.
+3. **Optional shared Codex CLI/App route** via `slimference codex enable`.
+   This writes a marker-owned provider block to `~/.codex/config.toml`:
+   `model_provider="slimference-codex"`,
+   `base_url="http://127.0.0.1:8990/backend-api/codex"`,
+   `requires_openai_auth=true`, `supports_websockets=false`, and
+   `wire_api="responses"`. It is reversible with
+   `slimference codex disable` and still leaves Browser ChatGPT,
+   ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
+   untouched.
 
-The user's Codex traffic to `chatgpt.com` and `api.openai.com` is
-redirected to loopback, terminated with our
-locally-signed leaf cert, inspected by `internal/proxy/transparent`,
-forwarded to the real upstream, and routed through the existing Phase F
-reducers when the frame schema is recognised. There is no
-`openai_base_url`, no system HTTPS proxy, no environment magic.
-**Everything is one on/off switch (`slimference enable` /
-`slimference disable`).**
+The global transparent TLS-MITM path still exists for lab certification:
+local CA in Keychain, `/etc/hosts`, pfctl, and the SNI listener on 8443.
+It is deliberately not the default now because `chatgpt.com` routing is
+host-wide on macOS. Even with byte-equal passthrough, Browser ChatGPT and
+ChatGPT.app enter Slimference's bridge, which violates the scoped product
+goal.
 
 Claude Code is deliberately **not** part of the product install. Its
 hook/parser code stays in tree for reference and possible future work,
@@ -51,12 +69,12 @@ CLI and Codex Desktop.
 
 | Event | What happens |
 |---|---|
-| Daemon process dies cleanly | daemon-side hosts patch is reverted on shutdown → Codex talks direct to chatgpt.com. **No breakage.** |
-| `kill -9` daemon | launchd KeepAlive restarts within seconds; hosts is dirty for that window. On restart, daemon idempotently re-applies hosts. |
-| Codex CLI/Desktop updates | Frame parser falls back to byte-equal bridge on schema drift. sniroute defaults unknown paths to `PassthroughTLS`. **No breakage.** |
-| `slimference disable` while traffic in flight | Engine accepts current connections, reverts /etc/hosts. New connections go direct. |
-| CA removed from Keychain externally | TLS handshake to chatgpt.com:443 (intercepted) fails until you re-`install` or fully `uninstall`. |
-| `slimference enable` while daemon down | Config flag is written; the next `slimference daemon start` picks it up. Privileged routing still requires `root-arm` or an equivalent root setup. |
+| Daemon unavailable during `slimference codex run` | The wrapper prints a warning and launches direct Codex. **No CLI breakage.** |
+| Daemon unavailable while persistent `codex enable` route is active | Only Codex CLI/App are affected. Run `slimference codex disable`, press `[r]` in TUI Setup, or restart the daemon. Browser ChatGPT, ChatGPT.app, Claude Code, and generic OpenAI clients remain direct. |
+| Codex CLI/Desktop updates | The scoped HTTP provider path avoids the WSS parser. If the separate global lab WSS path is used, frame parsing falls back to byte-equal bridge on schema drift. |
+| `slimference codex disable` while Codex is open | The marker-owned provider block is removed. New Codex CLI/App sessions go direct after config reload / app-server restart. |
+| `slimference disable` while global lab traffic is in flight | Engine accepts current connections, reverts daemon SNI mode. Use `root-disarm` to remove privileged hosts/pfctl routing. |
+| CA removed from Keychain externally | Only global lab MITM is affected. Scoped Codex provider routing does not need Keychain trust. |
 
 ## Human walkthrough
 
@@ -90,14 +108,48 @@ slimference status
 
 You should see CA material present, daemon running, hosts CLEAN.
 
-### 2. Arm transparent mode
+### 2. Run scoped Codex CLI
 
-Do not do this from an active Codex session unless you are deliberately
-testing interception and have a recovery shell open.
+This is the normal granular path. It affects only the spawned Codex CLI
+process; Browser ChatGPT, ChatGPT.app, and Claude Code stay direct.
+
+```bash
+slimference status --preflight
+slimference codex run -- "say hi"
+```
+
+Expected telemetry: Codex CLI flights appear under the daemon's proxy
+records with `provider=codex_chatgpt` and
+`path=/backend-api/codex/responses`. No `/etc/hosts`, pfctl, or Keychain
+trust is required for this path.
+
+### 3. Enable shared Codex CLI/App route
+
+Use this only when you want regular Codex CLI and Codex Desktop App
+sessions to use Slimference by default:
+
+```bash
+slimference codex enable
+slimference codex status
+```
+
+The route is shared because Codex exposes one active `model_provider`
+setting. Treat CLI/App as a single Codex switch until a separate
+Desktop-only launcher is live-proven. Disable it with:
+
+```bash
+slimference codex disable
+```
+
+### 4. Global transparent lab mode
+
+Do not do this unless you are deliberately testing the machine-wide
+transparent MITM path. It routes `chatgpt.com` and `api.openai.com`
+for the whole user session, including Browser ChatGPT and ChatGPT.app.
 
 ```bash
 slimference cert-trust
-slimference root-arm
+slimference root-arm --global-chatgpt-hosts
 slimference enable
 ```
 
@@ -105,7 +157,7 @@ What happens:
 
 1. `cert-trust` opens Keychain Access on the local root cert. The
    user must set it to "Always Trust" for SSL.
-2. `root-arm` writes the marker-fenced Codex-only IPv4 hosts block and
+2. `root-arm --global-chatgpt-hosts` writes the marker-fenced Codex-only IPv4 hosts block and
    installs the pfctl rdr anchor from port 443 to 127.0.0.1:8443. It
    does not write `api.anthropic.com` and does not install IPv6 `::1`
    mappings.
@@ -121,7 +173,7 @@ If the daemon is not running, the flag is still written; the next
 `slimference daemon start` (or boot via launchd) will apply hosts and
 arm the listener.
 
-### 3. Disarm
+### 5. Disarm global lab mode
 
 ```bash
 slimference disable
@@ -131,7 +183,7 @@ Writes `transparent.sni_peek_mode = false` and SIGHUPs the daemon.
 Use `slimference root-disarm` to remove the privileged hosts/pfctl
 routing block when you want Codex to go direct again.
 
-### 4. Uninstall
+### 6. Uninstall
 
 ```bash
 slimference uninstall
@@ -193,7 +245,7 @@ slimference_install:
       reverse: removes marker-fenced block
       inspect: present | absent
       idempotent: true
-      privilege: requires root; driven by `slimference root-arm` via one macOS admin prompt
+      privilege: requires root; driven by `slimference root-arm --global-chatgpt-hosts` via one macOS admin prompt
 
   commands:
     install:    install_plan.apply
@@ -201,8 +253,12 @@ slimference_install:
     enable:     write_config_field(transparent.sni_peek_mode = true) + SIGHUP daemon
     disable:    write_config_field(transparent.sni_peek_mode = false) + SIGHUP daemon
     cert-trust: open Keychain Access on ~/.slimference/ca/root.crt for interactive trust
-    root-arm:   privileged hosts + pfctl activation for Codex hosts
+    root-arm:   advanced global hosts + pfctl activation for Codex hosts; requires --global-chatgpt-hosts
     root-disarm: privileged hosts + pfctl deactivation
+    codex run:  one-shot scoped Codex CLI provider route with direct fallback
+    codex enable: write marker-owned shared Codex CLI/App provider route
+    codex disable: remove marker-owned shared Codex CLI/App provider route
+    codex status: inspect shared Codex provider route + daemon health
     status:     emit /admin/state JSON
 
   exit_codes:
@@ -225,6 +281,10 @@ slimference_install:
       marker_end:   "# slimference:end"
     - file: ~/.codex/hooks.json
       marker_field: slimference_managed
+    - file: ~/.codex/config.toml
+      marker_start: "# >>> slimference codex route >>>"
+      marker_end:   "# <<< slimference codex route <<<"
+      purpose: optional shared Codex CLI/App provider route
 
   not_touched:
     - env: OPENAI_API_BASE
@@ -240,20 +300,22 @@ slimference_install:
 
 ### Why we don't touch env vars or HTTPS_PROXY
 
-When transparent mode is armed, it intercepts Codex traffic to
-`chatgpt.com` and `api.openai.com`
-that originates on this machine. Setting `OPENAI_API_BASE` or
-`HTTPS_PROXY` on top of that would be redundant at best and could
-cause clients to dial a proxy on a port that doesn't exist (just
-`/etc/hosts`, no listener). The transparent path is universal — and
-that universality is what catches Codex 0.130's hardcoded WSS URL
-too.
+The scoped CLI path uses a per-process Codex provider override and does
+not require persistent env vars. Persistent `OPENAI_API_BASE` or
+`HTTPS_PROXY` would leak beyond the single intended process and recreate
+the multi-surface ambiguity Phase H removed.
+
+The transparent lab path is universal. That universality is why it can
+catch Codex 0.130's hardcoded WSS URL, and exactly why it is no longer
+the default for a machine where Browser ChatGPT and ChatGPT.app must stay
+direct.
 
 ## Verification
 
 ```bash
 slimference status              # human-readable table
 slimference status --preflight  # adds DoH upstream checks without Codex traffic
+slimference codex status        # scoped Codex provider route + daemon health
 slimference status --json | jq  # machine-readable
 curl http://127.0.0.1:8990/_slimference/admin/state | jq
 ```
@@ -269,14 +331,15 @@ The WSS transport block is under `/admin/state.wss`:
 Current pre-live proof stack (2026-05-17):
 
 - `go run ./scripts/ci` passes all 8 steps, including the formal
-  `go run ./scripts/coverage -min=100` gate. Reported statement coverage:
-  `100.0%` total. This is an aggregate gate; package-level coverage
-  lines can be below `100.0%` without failing the formal release check.
+  `go run ./scripts/coverage -min=99.5` aggregate gate. Reported
+  statement coverage is currently `99.9%` total. Package-level coverage
+  lines can be below the aggregate threshold without failing the formal
+  release check.
 - Targeted race check passes:
   `go test ./internal/proxy ./internal/summarization ./internal/filter ./internal/transparent ./internal/control/apps ./internal/install/installsteps ./internal/tui -race -count=1 -timeout 300s`.
 - Live Codex certification is still intentionally pending as T209. Do not
-  run `cert-trust`, `root-arm`, or `enable` from the active Codex Desktop
-  development session.
+  run `cert-trust`, `root-arm --global-chatgpt-hosts`, or `enable` from
+  the active Codex Desktop development session.
 
 The transparent listener readiness bit is
 `/admin/state.listener.bound_on_sni_peek` (default port 8443). Admin
@@ -298,9 +361,14 @@ Keychain, hosts, or pfctl.
 
 T209 starts from disarmed preflight state: admin health can be up on
 `127.0.0.1:8990`, but `:8443` should be off, hosts should be inactive,
-and CA trust should still require the explicit `cert-trust` step. The
-live sequence is `cert-trust` -> `root-arm` -> `enable` -> Codex CLI
-smoke -> `/admin/state` telemetry check -> `disable` -> `root-disarm`.
+and CA trust should still be untrusted unless a global lab test is
+explicitly approved. The scoped CLI sequence is
+`status --preflight` -> `codex run -- <prompt>` -> `/admin/state`
+telemetry check. The shared CLI/App proof sequence is
+`codex enable` -> restart Codex.app/app-server -> prompt -> telemetry
+check -> `codex disable`. The old global sequence is now lab-only:
+`cert-trust` -> `root-arm --global-chatgpt-hosts` -> `enable` -> smoke
+-> `disable` -> `root-disarm`.
 
 ## Dry-run
 

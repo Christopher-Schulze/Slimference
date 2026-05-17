@@ -18,11 +18,12 @@ SUBCOMMANDS:
   doctor       Run diagnostics (config, ports, upstreams, CLI drift)
   filter       Layer-0 command filter (slimference filter -- <cmd>)
   install      Atomic Codex-only install (CA + launchd + Codex hooks)
+  codex        Scoped Codex CLI/App routing (run|enable|disable|status)
   cert-trust   Open Keychain Access for the local CA trust step
-  root-arm     Privileged Codex hosts + pfctl routing helper
+  root-arm     Advanced global ChatGPT hosts + pfctl routing helper
   enable       Arm transparent MITM mode in the daemon config
   disable      Disarm transparent MITM mode in the daemon config
-  root-disarm  Remove privileged Codex hosts + pfctl routing helper
+  root-disarm  Remove global ChatGPT hosts + pfctl routing helper
   uninstall    Reverse the install plan
   status       Print install / daemon / routing state
   hook         Legacy hook install / remove / verify helpers
@@ -64,9 +65,14 @@ GLOBAL FLAGS:
 
 FIRST STEPS:
   1. slimference install      # Codex-only install, no hosts patch yet
-  2. slimference cert-trust   # one interactive Keychain trust click
-  3. slimference root-arm     # privileged hosts + pfctl helper
-  4. slimference enable       # arm daemon-side transparent MITM
+  2. slimference status --preflight
+  3. slimference codex run -- <prompt>
+  4. slimference codex enable # optional shared CLI/App route
+
+GLOBAL LAB ONLY:
+  slimference cert-trust
+  slimference root-arm --global-chatgpt-hosts
+  slimference enable
 
 MORE:
   Config: ~/.config/slimference/config.toml (override via SLIMFERENCE_CONFIG)
@@ -98,10 +104,9 @@ Captures full stdout+stderr, applies the configured filter pipeline
 the filtered output. The raw output is kept in the tee directory for
 recovery if the child fails.
 
-This is not the Phase H default Codex routing path. The default product
-surface stays: hooks for signal input, transparent SNI-MITM for traffic
-input. Hooks may call this wrapper internally, and humans can use it for
-manual diagnostics.
+This is not the scoped Codex traffic path. The normal CLI route is
+slimference codex run -- <prompt>. Hooks may call this
+wrapper internally, and humans can use it for manual diagnostics.
 
 Flags:
   --stream             T94 streaming-aware mode: ANSI strip + dedup
@@ -131,6 +136,8 @@ check-upstream   Compare installed CLI version against the supported range.
 
 Claude Code hooks are parked in Slimference. Use RTK for Claude Code.
 `
+	case "codex":
+		return codexHelpText
 	case "rewrite":
 		return `slimference rewrite -- <cmd> [args...]
 
@@ -281,7 +288,7 @@ should prefer 'slimference service <verb>' or '--no-tui' instead.
 
 Start the local Slimference daemon in the background. This only starts
 the admin/proxy process; transparent Codex routing still requires
-cert-trust, root-arm, and enable.
+	cert-trust, root-arm --global-chatgpt-hosts, and enable.
 `
 	case "stop":
 		return `slimference stop
@@ -298,20 +305,18 @@ cert-trust state.
 	case "proxy":
 		return `slimference proxy <install|enable|disable|status|uninstall|env|run> [args]
 
-LEGACY/ADVANCED. Do not use this as the Phase H default Codex install path.
+LEGACY/ADVANCED for lifecycle commands. Do not use proxy install/enable as
+the default Codex install path.
 The current Codex path is:
   slimference install
-  slimference cert-trust
-  slimference root-arm
-  slimference enable
-  slimference disable
-  slimference root-disarm
+  slimference status --preflight
+  slimference codex run -- <prompt>
+  slimference codex enable   # optional shared CLI/App route
   slimference uninstall
 
-The legacy proxy lifecycle keeps the older System-HTTPS-Proxy and
-per-process env helpers for diagnostics, regression work, and manual
-fallbacks. It is intentionally not used by slimference install, the TUI
-setup flow, or the live Codex certification path.
+The proxy lifecycle keeps the older System-HTTPS-Proxy helpers for
+diagnostics only. The per-process Codex runner is now the scoped CLI path when
+ChatGPT.app and Browser ChatGPT must stay untouched.
 
 Codex CLI launch helpers for T140 split testing:
   slimference proxy env codex --direct [-- <codex-args>...]
@@ -361,12 +366,12 @@ for manual fallback only.
 
 The Phase H default Codex path is handled by:
   slimference install
-  slimference cert-trust
-  slimference root-arm
-  slimference enable
+  slimference codex run -- <prompt>
+  slimference codex enable   # optional shared CLI/App route
 
-That path does not mutate Codex base URLs. Every integrate edit uses a fenced
-marker block so re-running install is a no-op and remove is exact.
+The one-shot run path does not mutate Codex base URLs. The optional shared
+route writes a separate marker-owned provider block. Every integrate edit uses
+a fenced marker block so re-running install is a no-op and remove is exact.
 
 Claude Code is parked: integrate no longer writes ANTHROPIC_BASE_URL or
 ~/.claude hooks. Use RTK for Claude Code.

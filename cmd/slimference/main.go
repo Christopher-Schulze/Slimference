@@ -21,7 +21,9 @@
 //	slimference posttool          # Compact PostToolUse hook JSON from stdin for Codex
 //	slimference codexhook <event> # Codex lifecycle hook entry points
 //	slimference install            # Install Codex-only Phase H surface
-//	slimference enable             # Arm transparent MITM once root-arm/cert trust are ready
+//	slimference codex run -- <prompt> # Scoped Codex CLI with fail-open
+//	slimference codex enable       # Optional shared Codex CLI/App route
+//	slimference enable             # Global lab: arm SNI-peek after explicit root-arm
 //	slimference debug paths        # Show resolved config / filter.db / tee paths
 //	slimference debug last         # Last Layer-0 row from filter.db (--json)
 //	slimference debug summary week # Aggregate filter_runs for today|week|month|all
@@ -52,6 +54,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/buildinfo"
+	"github.com/slimference/slimference/internal/codexroute"
 	"github.com/slimference/slimference/internal/compactsignal"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
@@ -621,6 +624,9 @@ func handleSubcommand(args []string) {
 	case "proxy":
 		handleProxyCmd(args[1:])
 
+	case "codex":
+		handleCodexCmd(args[1:])
+
 	case "install":
 		handleInstallCmd(args[1:])
 
@@ -647,7 +653,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, expand-body, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, expand-body, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, codex, proxy, version")
 		exitFn(1)
 	}
 }
@@ -3736,10 +3742,13 @@ func (ca *configAdapter) GetPrefillSpeed() int { return ca.cfg.Usage.EstimatedPr
 type serviceControlAdapter struct{}
 
 var (
-	tuiInstallCmdFn   = runInstallCmd
-	tuiEnableCmdFn    = runEnableCmd
-	tuiDisableCmdFn   = runDisableCmd
-	tuiUninstallCmdFn = runUninstallCmd
+	tuiInstallCmdFn            = runInstallCmd
+	tuiEnableCmdFn             = runEnableCmd
+	tuiDisableCmdFn            = runDisableCmd
+	tuiUninstallCmdFn          = runUninstallCmd
+	tuiCodexRouteEnableCmdFn   = runCodexEnableCmd
+	tuiCodexRouteDisableCmdFn  = runCodexDisableCmd
+	tuiCodexRouteHealthCheckFn = codexRouteHealthFn
 )
 
 func (sca *serviceControlAdapter) StartDaemon() error {
@@ -3855,6 +3864,40 @@ func (sca *serviceControlAdapter) DisableTransparent() error {
 
 func (sca *serviceControlAdapter) UninstallTransparent() error {
 	return sca.runInstallLifecycleCommand(tuiUninstallCmdFn, nil)
+}
+
+func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
+	home, err := osUserHomeDir()
+	if err != nil || home == "" {
+		return tui.CodexRouteStatus{Detail: "HOME unresolved"}
+	}
+	proxyURL := codexroute.ProxyURL("127.0.0.1", "8990")
+	status, err := codexRouteInspectFn(home, proxyURL)
+	out := tui.CodexRouteStatus{
+		Exists:     status.Exists,
+		Enabled:    status.Enabled,
+		Complete:   status.Complete,
+		Conflict:   status.Conflict,
+		LegacyKeys: status.LegacyKeys,
+	}
+	if err != nil {
+		out.Detail = err.Error()
+		return out
+	}
+	if err := tuiCodexRouteHealthCheckFn("127.0.0.1", "8990"); err != nil {
+		out.Detail = err.Error()
+		return out
+	}
+	out.DaemonReachable = true
+	return out
+}
+
+func (sca *serviceControlAdapter) EnableCodexRoute() error {
+	return sca.runInstallLifecycleCommand(tuiCodexRouteEnableCmdFn, nil)
+}
+
+func (sca *serviceControlAdapter) DisableCodexRoute() error {
+	return sca.runInstallLifecycleCommand(tuiCodexRouteDisableCmdFn, nil)
 }
 
 func (sca *serviceControlAdapter) runInstallLifecycleCommand(fn func([]string, installPrinter) int, args []string) error {

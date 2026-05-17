@@ -3,8 +3,11 @@
 Legacy investigation note. This file records why the old
 `openai_base_url` / `chatgpt_base_url` config-patch route stopped catching
 Codex ChatGPT-subscription conversation traffic. It is not the install
-guide. Current Phase H setup is documented in `docs/install.md` and uses
-Codex hooks plus transparent SNI-MITM only.
+guide. Current scoped Codex setup is documented in `docs/install.md` and
+uses Codex hooks plus `slimference codex run` for one-shot CLI traffic.
+`slimference codex enable` writes the reversible shared Codex CLI/App
+provider route. Transparent SNI-MITM remains global lab-only because it
+routes `chatgpt.com` machine-wide.
 
 ## TL;DR
 

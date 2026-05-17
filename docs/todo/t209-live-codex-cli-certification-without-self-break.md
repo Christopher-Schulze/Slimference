@@ -1,4 +1,4 @@
-# TASK 209: Live Codex CLI certification without self-break
+# TASK 209: Scoped Codex CLI live certification without self-break
 
 Status: BLOCKED
 Priority: P0 for release confidence
@@ -6,55 +6,64 @@ Scope: local macOS operator flow only; no code deletion
 
 ## Why
 
-The system must be certified against real Codex CLI traffic, but arming transparent MITM while the active coding session runs inside Codex can break the current session if CA trust, hosts, pfctl, or daemon state is wrong. The user explicitly said not to make Codex sharp while coding in Codex.
+The system must be certified against real Codex CLI traffic without
+routing Browser ChatGPT, ChatGPT.app, or Claude Code through Slimference.
+Global `/etc/hosts` routing is machine-wide and is no longer acceptable
+as the normal T209 path.
 
 ## Acceptance
 
-- Run from a recovery shell outside the active Codex session.
-- `slimference cert-trust` completed interactively and `status` reports CA trusted.
-- `slimference root-arm` applied Codex-only hosts and pfctl.
-- `slimference enable` turns on SNI-peek mode and daemon listener.
-- A real Codex CLI prompt succeeds through Slimference.
-- `/admin/state` shows Codex app detected, routed counter incremented, and no Claude routing.
-- `slimference disable` plus `slimference root-disarm` returns Codex to direct mode.
-- Re-running status confirms hosts inactive and daemon still healthy.
+- Run from a terminal that is not this active Codex session.
+- `slimference status --preflight` reports daemon healthy, hosts inactive,
+  `:8443=false`, Codex policy enabled, Claude policy disabled, DoH OK.
+- A real Codex CLI prompt succeeds via:
+  `slimference codex run -- <prompt>`.
+- `/admin/state`, decision log, or `gain --proxy` shows the Codex CLI
+  request through Slimference.
+- Browser ChatGPT and ChatGPT.app remain direct: no `/etc/hosts` patch,
+  no pfctl anchor, no `:8443` listener required, no Keychain trust needed.
+- Claude Code remains untouched and `api.anthropic.com` is not routed.
 
 ## Sub-Tasks
 
-- [ ] Prepare external recovery terminal.
-- [ ] Trust CA via Keychain GUI.
-- [ ] Run `root-arm` and verify hosts/pfctl.
-- [ ] Run `enable` and verify listener/state.
-- [ ] Execute one real Codex CLI conversation.
+- [ ] Prepare external non-Codex terminal.
+- [ ] Verify disarmed preflight state.
+- [ ] Execute one real scoped Codex CLI conversation with
+  `slimference codex run`.
 - [ ] Verify routed counters and logs.
-- [ ] Run `disable` and `root-disarm`.
-- [ ] Verify fail-open direct mode.
+- [ ] Verify hosts/pfctl stayed inactive.
+- [ ] Verify direct-mode browser/ChatGPT.app unaffected.
 
 ## Verification
 
 - Pending user-approved live arm window.
 - Pre-live code/docs proof completed 2026-05-17:
-  `go run ./scripts/ci` passes all 8 steps, formal coverage reports
-  `100.0%`, and targeted race passes for the touched runtime packages.
-  This is the formal total-coverage gate used by `scripts/ci`; some
-  individual packages can print less than `100.0%` while the aggregate
-  gate still passes.
+  `go run ./scripts/ci` passes all 8 steps. The formal coverage gate is
+  aggregate 99.5%; the current run reports 99.9% total. Some individual
+  packages can print less than 99.5% while the aggregate gate still
+  passes.
 
 ## Notes
 
-This task is intentionally not executed during active Codex development. It is a live-system certification task, not a unit-test substitute.
+This task is intentionally not executed during active Codex development.
+It is a live-system certification task, not a unit-test substitute.
 
-T208 is complete, so the code side is ready for certification: Codex
-WSS frames can route, mutate through Phase F, and report transport
-state under `/admin/state.wss`. Do not start this task until the user
-has an external recovery shell open and explicitly approves arming
-`cert-trust` / `root-arm` / `enable`.
+T208 is complete for the WSS/transparent code path, but T209 now uses
+the scoped CLI provider path first through `slimference codex run`.
+Do not use global
+`cert-trust` / `root-arm --global-chatgpt-hosts` / `enable` unless the
+user explicitly approves a separate global lab test.
 
 Pre-run hardening completed 2026-05-17:
 
-- `root-arm` is Codex-only and IPv4-only: `chatgpt.com` +
-  `api.openai.com` map to `127.0.0.1`; `api.anthropic.com` and
-  `::1` are deliberately not written.
+- `root-arm` now refuses by default and requires
+  `--global-chatgpt-hosts` because it routes `chatgpt.com` and
+  `api.openai.com` machine-wide.
+- `slimference codex run` wraps the existing provider override and
+  falls back to direct Codex if the Slimference daemon health check
+  fails.
+- `slimference codex enable|disable|status` manages the optional shared
+  Codex CLI/App provider block in `~/.codex/config.toml`.
 - Per-app policy path is canonical XDG config:
   `~/.config/slimference/apps.toml` (or next to `SLIMFERENCE_CONFIG`).
   Defaults: Codex CLI on, Codex Desktop on, Claude Code off.
@@ -67,17 +76,17 @@ Pre-run hardening completed 2026-05-17:
   so live Codex WSS can move from SNI-only passthrough into
   `MITMConversation` based on path, User-Agent, and
   `Sec-WebSocket-Protocol`.
-- This active Codex Desktop coding session is inside the same systemwide
-  `chatgpt.com` routing blast radius. T209 must be run from a separate
-  recovery terminal with a known-good direct-mode fallback.
+- This active Codex Desktop coding session, Browser ChatGPT, and
+  ChatGPT.app are all inside the same global `chatgpt.com` blast radius
+  if root-arm is used. T209 therefore avoids root-arm entirely.
 
 Current expected start point before the live arm window:
 
 - Daemon/admin health may be up on `127.0.0.1:8990`.
-- Transparent SNI listener on `:8443` should still be off.
-- `/etc/hosts` should be inactive for Slimference.
+- Transparent SNI listener on `:8443` should stay off for scoped CLI.
+- `/etc/hosts` should remain inactive for Slimference.
 - Codex CLI and Codex Desktop policy should be enabled.
 - Claude Code policy should remain disabled and no `api.anthropic.com`
   hosts entry should exist.
-- CA material may exist on disk, but Keychain trust is intentionally
-  completed interactively during T209 via `slimference cert-trust`.
+- CA material may exist on disk, but Keychain trust is not required for
+  scoped CLI T209. Trust is only for the separate global lab path.

@@ -63,12 +63,20 @@ payload is shorter and schema-safe.
 
 ### Client support
 
-- **Codex CLI + Codex Desktop**: default path is Phase H transparent
-  SNI-MITM, operated only through `slimference install`, `cert-trust`,
-  `root-arm`, `enable`, `disable`, `root-disarm`, `uninstall`, and `status`.
-  It uses Codex hooks for signal input and TLS routing for traffic input; it
-  does not mutate Codex base URLs, env vars, or macOS System Network Proxy
-  settings.
+- **Codex CLI**: default scoped path is `slimference install`, `status
+  --preflight`, then `slimference codex run -- <prompt>`.
+  This affects only that Codex CLI process and leaves Browser ChatGPT and
+  ChatGPT.app direct.
+- **Codex Desktop**: shared scoped routing is exposed by
+  `slimference codex enable|disable|status` through a marker-owned
+  `slimference-codex` provider block. Do not claim Desktop interception is
+  app-scoped until the live Desktop proof confirms Codex.app/app-server
+  reloads and uses that provider for conversation traffic.
+- **Global transparent lab**: `cert-trust`, `root-arm
+  --global-chatgpt-hosts`, `enable`, `disable`, and `root-disarm` still
+  exist for explicit lab certification. They route `chatgpt.com` and
+  `api.openai.com` machine-wide and therefore include Browser ChatGPT and
+  ChatGPT.app in the bridge.
 - **Claude Code**: code remains available in the repository, but the product
   binary parks it. `slimference install`, `hook`, `integrate`, TUI apps, and
   `/admin/apps` do not enable or modify Claude Code.
@@ -77,11 +85,9 @@ payload is shorter and schema-safe.
 
 ### Design invariants
 
-- **Explicit transparent MITM only when armed**: transparent mode is opt-in via
-  `slimference install`, `cert-trust`, `root-arm`, and `enable`; when armed it
-  uses the local trusted CA to terminate allowlisted LLM HTTPS hosts and
-  re-dials upstream with normal certificate validation. Legacy config-patch and
-  proxy/env helpers remain manual fallback surfaces only.
+- **Scoped before global**: the default Codex CLI path is per-process and
+  does not use `/etc/hosts`, pfctl, System Proxy settings, or persistent
+  env vars. Transparent MITM is explicit global lab mode only.
 - **Passthrough on failure**: if any layer errors, the original body is
   forwarded. See section 10.
 - **Bypass switch**: a single atomic flag collapses every provider + layer
@@ -785,27 +791,41 @@ exposed at `/admin/status.anthropic_version.unknown_seen_total`.
 ## 9. Install and integration
 
 `docs/install.md` is the install/uninstall SSOT. The current Phase H path is
-Codex-first and uses exactly two external surfaces:
+Codex-first and scoped:
 
 - hook callouts in `~/.codex/hooks.json`
-- transparent SNI-MITM for `chatgpt.com` and `api.openai.com`
+- per-process Codex CLI traffic through
+  `slimference codex run -- <prompt>`
+- optional shared Codex CLI/App traffic through
+  `slimference codex enable` / `slimference codex disable`, which writes
+  only a marker-owned `slimference-codex` provider block in
+  `~/.codex/config.toml`
 
-The user-facing commands are `slimference install`, `cert-trust`,
-`root-arm`, `enable`, `disable`, `root-disarm`, `uninstall`, and `status`.
+The normal user-facing commands are `slimference install`,
+`status --preflight`, `codex run`, `codex enable`, `codex disable`,
+`codex status`, `uninstall`, and
+`status`. Global transparent lab commands are `cert-trust`,
+`root-arm --global-chatgpt-hosts`, transparent `enable`, transparent `disable`, and
+`root-disarm`.
 Default install is Codex-only. Claude Code remains in tree, but is parked:
 `--with-claude` is a compatibility no-op, the app policy forces
 `claude_code=false`, `/admin/apps` rejects enabling it, and the SNI router
 always passes `api.anthropic.com` through.
 
-`internal/integrate`, `slimference integrate`, and `slimference proxy env/run`
-are legacy/advanced diagnostics for config-patch and per-process test flows.
-They remain available for manual fallback, but no default install, TUI setup
-action, or primary certification path should depend on `OPENAI_API_BASE`,
-`HTTPS_PROXY`, macOS System Network Proxy settings, or `openai_base_url`.
+`internal/integrate` and `slimference integrate` are legacy/advanced
+diagnostics for config-patch flows. `slimference codex run` is the current
+scoped one-shot CLI path; `slimference codex enable` is the shared scoped
+CLI/App route. The older proxy lifecycle and
+transparent-proxied helpers remain advanced diagnostics. No default install,
+TUI setup action, or primary certification path should depend on persistent
+`OPENAI_API_BASE`, persistent `HTTPS_PROXY`, macOS System Network Proxy
+settings, or persistent legacy `openai_base_url`.
 
-The TUI exposes the same Phase H lifecycle: dashboard arm/disarm visibility,
-Setup install/enable/disable/uninstall/status actions, Apps per-app routing,
-and Stats/Savings counters sourced from `/admin/state`.
+The TUI exposes the same scoped lifecycle: Setup shows install state, scoped
+Codex route state, daemon controls, and a direct `[r]` toggle for
+`slimference codex enable` / `slimference codex disable`. Apps shows
+per-app routing policy, with Claude Code parked. Stats/Savings counters come
+from `/admin/state`. Global transparent controls remain labelled as lab-only.
 
 ### Legacy `integrate install`
 
@@ -923,11 +943,15 @@ Fish uses `set -gx VAR value`; zsh / bash use `export VAR=value`.
 ```
 slimference                         # TUI
 slimference install                 # Codex-only install plan
-slimference cert-trust              # open Keychain Access for CA trust
-slimference root-arm                # privileged hosts + pfctl arm step
-slimference enable                  # enable SNI-peek daemon mode
-slimference disable                 # disable SNI-peek daemon mode
-slimference root-disarm             # privileged hosts + pfctl disarm step
+slimference status --preflight      # scoped Codex readiness checks
+slimference codex run -- <prompt>   # one-shot CLI with fail-open direct
+slimference codex enable            # shared Codex CLI/App route
+slimference codex disable           # remove shared route
+slimference cert-trust              # global lab: open Keychain Access
+slimference root-arm --global-chatgpt-hosts
+slimference enable                  # global lab: enable SNI-peek daemon mode
+slimference disable                 # global lab: disable SNI-peek daemon mode
+slimference root-disarm             # global lab: remove hosts + pfctl
 slimference status [--json]         # current setup state
 slimference uninstall               # reverse install plan
 slimference integrate status        # legacy/config-patch detection
@@ -1135,6 +1159,7 @@ Auto-generated in `docs/tui-keybindings.md` from
 | Views       | `s`         | stats view                     |
 | Views       | `d`         | debug log view                 |
 | Views       | `a`         | apps view; Codex CLI/Desktop toggles; Claude row parked until explicit Claude hosts opt-in |
+| Setup       | `r`         | enable/disable scoped Codex CLI/App route |
 | Layers      | `1/2/3`     | toggle Layer N                 |
 | Actions     | `f`         | flush caches                   |
 | Actions     | `b`         | **toggle bypass** (T67)        |
@@ -1542,8 +1567,8 @@ Full process in `docs/release-process.md`.
 
 ## 18. Testing Strategy
 
-- **Unit tests**: `*_test.go` alongside every file. Target: 100% of
-  production code (internal/ + cmd/).
+- **Unit tests**: `*_test.go` alongside every file. Target: high,
+  behavior-significant coverage of production code (internal/ + cmd/).
 - **Integration**: `tests/integration/` with `//go:build integration`
   tag; covers the full pipeline against a stub upstream.
 - **TypeScript supplemental**: `tests/ts/` with `bun:test` for schema
@@ -1556,11 +1581,13 @@ Full process in `docs/release-process.md`.
 ### Coverage headline
 
 Current formal release gate: `go run ./scripts/ci` runs
-`go run ./scripts/coverage -min=100` and passes at **100.0% total
-statement coverage** for the configured Go coverage profile. This is an
-aggregate gate. Individual package lines can report less than `100.0%`
-while the total gate remains green; do not describe that as a release
-failure unless `scripts/ci` itself exits non-zero.
+`go run ./scripts/coverage -min=99.5`. This is an aggregate gate for
+the configured Go coverage profile. Individual package lines can report
+less than the aggregate threshold while the total gate remains green; do
+not describe that as a release failure unless `scripts/ci` itself exits
+non-zero. The intent is to keep meaningful product/safety paths covered
+without spending engineering time on artificial tests for unreachable or
+OS-dependent cleanup branches.
 
 ### Benchmarks
 

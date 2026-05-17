@@ -11,7 +11,8 @@ import (
 )
 
 // handleIntegrateCmd dispatches the legacy/config-patch integration surface.
-// Phase H default installs use `slimference install|cert-trust|root-arm|enable`.
+// The scoped Codex CLI path uses `slimference install` plus
+// `slimference codex run`.
 func handleIntegrateCmd(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: slimference integrate <status|install|remove> [--client all|claude|codex] [--dry-run] [--json]  (legacy/config-patch mode)")
@@ -130,9 +131,9 @@ func runIntegrateInstall(opts integrate.Options, extra integrateExtra) {
 		fmt.Println()
 		fmt.Println("Preferred Phase H Codex path:")
 		fmt.Println("  1. `slimference install`")
-		fmt.Println("  2. `slimference cert-trust`")
-		fmt.Println("  3. `slimference root-arm`")
-		fmt.Println("  4. `slimference enable`")
+		fmt.Println("  2. `slimference status --preflight`")
+		fmt.Println("  3. `slimference codex run -- <prompt>`")
+		fmt.Println("  4. Optional shared CLI/App route: `slimference codex enable`")
 		fmt.Println()
 		fmt.Println("If you intentionally use legacy config-patch mode:")
 		fmt.Println("  1. `exec $SHELL -l`  (reload your shell so env/config edits apply)")

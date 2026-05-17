@@ -48,7 +48,7 @@ _slimference() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cword=$COMP_CWORD
 
-    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook codexhook hook debug daemon start stop restart service proxy integrate bypass layer2 completion expand checkpoint trust version"
+    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook codexhook hook debug daemon start stop restart service codex proxy integrate bypass layer2 completion expand checkpoint trust version"
     local periods="today week month all"
     local period_flags="--json --csv --by-command --by-parser --cache --output"
     local savings_flags="--json --csv --project"
@@ -129,6 +129,18 @@ _slimference() {
                 esac
             elif [ "$cword" -ge 4 ] && { [ "${COMP_WORDS[2]}" = "env" ] || [ "${COMP_WORDS[2]}" = "run" ]; } && [ "${COMP_WORDS[3]}" = "codex" ]; then
                 COMPREPLY=( $(compgen -W "--direct --proxied --host= --port= --" -- "$cur") )
+            fi
+            ;;
+        codex)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") )
+            elif [ "$cword" -ge 3 ]; then
+                case "${COMP_WORDS[2]}" in
+                    run) COMPREPLY=( $(compgen -W "--direct --host= --port= --" -- "$cur") ) ;;
+                    enable) COMPREPLY=( $(compgen -W "--host= --port= --dry-run" -- "$cur") ) ;;
+                    disable) COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") ) ;;
+                    status) COMPREPLY=( $(compgen -W "--json --host= --port=" -- "$cur") ) ;;
+                esac
             fi
             ;;
         completion)

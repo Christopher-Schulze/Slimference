@@ -10,7 +10,7 @@ Dieses Dokument ist **verbindlich** für alle automatisierten Agenten (Codex, Cl
 |--------|--------|
 | `spec+.md` | Technische **Soll-Spezifikation** v2 (implementierungsrelevant) |
 | `handover.md` (Repo-Root) §4 | **Implementierungsreihenfolge** + vollständiges Agent-Onboarding (über `spec+.md` §23); Alias: `docs/HANDOVER.md` → Link dorthin |
-| `docs/install.md` | **Install/Uninstall SSOT** (Phase H, 2026-05-16): humans + agents read this for `slimference install/uninstall/enable/disable/status`. Meta-Test `docs/install_spec_test.go` hält Spec ↔ Code synchron. |
+| `docs/install.md` | **Install/Uninstall SSOT** (Scoped Codex, 2026-05-17): humans + agents read this for `install`, `status --preflight`, scoped `codex run|enable|disable|status`, and global-lab `root-arm --global-chatgpt-hosts`. Meta-Test `docs/install_spec_test.go` hält Spec ↔ Code synchron. |
 | `docs/todo.md` | Arbeitsliste |
 | `spec.md` | Historisch v1 — **nicht** für neue Implementierung |
 
@@ -41,7 +41,7 @@ Dieses Dokument ist **verbindlich** für alle automatisierten Agenten (Codex, Cl
 
 | Ordner | Inhalt |
 |--------|--------|
-| `scripts/coverage/` | Coverage-Auswertung, Gates, Vergleich mit Schwellenwert (z. B. 100 %-Check für CI/lokal) |
+| `scripts/coverage/` | Coverage-Auswertung, Gates, Vergleich mit Schwellenwert (aktuell 99.5 % Aggregate-Gate für CI/lokal) |
 | `scripts/benchmarks/` | Benchmark-Runner, Auswertung von `go test -bench`, Vergleichsläufe |
 | `scripts/utils/` | Kleine Hilfs-CLIs (Codegen, einmalige Migrationen, Diagnose) |
 
@@ -57,13 +57,13 @@ Weitere Unterordner nach gleichem Muster (z. B. `scripts/lint/`, `scripts/releas
 
 ## 4. Tests: Go (Pflicht für Coverage) + TypeScript unter `tests/`
 
-Die Anforderungen **100 %-Coverage** und **Tests unter `tests/` in TypeScript** sind wie folgt **ohne Lücke** zusammengeführt:
+Die Anforderungen **hohe sinnvolle Go-Coverage** und **Tests unter `tests/` in TypeScript** sind wie folgt **ohne Lücke** zusammengeführt:
 
 ### 4.1 Go — Unit- und Paket-Tests (unverzichtbar)
 
 - **`internal/**` und `cmd/**`**: Unit- und Whitebox-Tests in **`*_test.go`** **neben dem Quellcode** (Go-Standard).
 - **Grund:** Unexportierte Symbole, `go test ./...`, **Coverage-Zählung** für genau diese Pakete — das geht nicht durch reine TS-Tests ersetzen.
-- **Ziel:** **100 %** Statement-/Branch-Coverage auf dem **gesamten produktionsrelevanten Go-Code** (`cmd/`, `internal/`), messbar mit `go test -cover`, ohne dauerhaftes Ausnehmen von Dateien (Ausnahmen nur wie unten §5).
+- **Ziel:** mindestens **99.5 % aggregate Statement-Coverage** auf dem **gesamten produktionsrelevanten Go-Code** (`cmd/`, `internal/`), messbar mit `go test -cover`, ohne dauerhaftes Ausnehmen von Dateien (Ausnahmen nur wie unten §5).
 
 ### 4.2 TypeScript — zusätzliche Tests unter `tests/ts/`
 
@@ -82,9 +82,9 @@ Die Anforderungen **100 %-Coverage** und **Tests unter `tests/` in TypeScript** 
 
 ---
 
-## 5. Testabdeckung (Go) — **100 %, ohne Schummeln**
+## 5. Testabdeckung (Go) — **99.5 %+ aggregate, ohne Schummeln**
 
-- **Ziel:** 100 % auf `cmd/` + `internal/` wie oben.
+- **Ziel:** mindestens 99.5 % aggregate auf `cmd/` + `internal/` wie oben. Wichtige Produktpfade, Safety-Branches und Regressionsrisiken brauchen echte Tests; künstliche Tests für nicht sinnvoll auslösbare OS-Fehlerkanten sind nicht Ziel.
 - **Nicht schummeln:** kein dauerhaftes Ausschließen ganzer Pakete aus Coverage ohne Ticket; generierter Code nur mit klarer Kennzeichnung und ggf. Freigabe.
 - **Qualität:** table-driven wo sinnvoll, `t.Parallel()` wo sicher, **harte** Rand- und Fehlerfälle, deterministisch (keine flaky Tests), aussagekräftige Fehlertexte.
 - **Lokale/CI-Prüfung:** z. B. `go test ./... -covermode=atomic -coverprofile=coverage.out`; ein Gate kann unter **`scripts/coverage/`** implementiert werden.
@@ -108,7 +108,7 @@ Die Anforderungen **100 %-Coverage** und **Tests unter `tests/` in TypeScript** 
 ## 8. Kurz-Checkliste vor Merge
 
 - [ ] Spec-konform zu `spec+.md` / relevante Punkte aus `handover.md`
-- [ ] `go test ./...` grün; **Coverage (Go)** den Projektzielen entsprechend (100 % Soll)
+- [ ] `go test ./...` grün; **Coverage (Go)** den Projektzielen entsprechend (99.5 %+ Aggregate-Gate)
 - [ ] Neue **Go**-Logik mit harten `*_test.go`-Tests
 - [ ] Neues **Tooling** nur unter **`scripts/<thema>/`**, vorzugsweise **Go**
 - [ ] Optional: **`tests/ts/`**-Tests ergänzend, ohne Go-Coverage zu ersetzen
@@ -117,41 +117,56 @@ Die Anforderungen **100 %-Coverage** und **Tests unter `tests/` in TypeScript** 
 
 ---
 
-## 9. Verdrahtungs-Doktrin (2-Surface, Phase H, 2026-05-16)
+## 9. Verdrahtungs-Doktrin (Scoped Codex, Phase I, 2026-05-17)
 
-Slimference darf den User-Stack nur an **zwei** Stellen anfassen:
+Slimference darf den User-Stack im Default nur so anfassen, dass
+ChatGPT.app und Browser-ChatGPT normal bleiben:
 
 1. **Signal IN** — Codex-Hooks in `~/.codex/hooks.json` plus
    `~/.codex/config.toml` `[features].hooks=true`.
    Out-of-band Subprozess-Calls, nie über Netzwerk. Claude-Code-Hooks
    bleiben im Code, sind aber Default-off und nur explizit opt-in.
-2. **Traffic IN** — Transparent SNI-MITM (`/etc/hosts` + CA in
-   Keychain + Port 443/8443). Universell, fängt auch Codex 0.130
-   WSS-Conversation ab.
+2. **Traffic IN (scoped CLI)** — `slimference codex run -- <prompt>`
+   startet nur diesen Codex-CLI-Prozess mit dem
+   lokalen `slimference-codex` Provider. Kein `/etc/hosts`, kein pfctl,
+   kein System-Proxy, kein Browser-/ChatGPT.app-Blast-Radius.
+3. **Traffic IN (global lab only)** — Transparent SNI-MITM
+   (`/etc/hosts` + CA in Keychain + Port 443/8443) bleibt im Code, ist
+   aber kein Default-Testpfad mehr. `slimference root-arm` verlangt
+   explizit `--global-chatgpt-hosts`, weil `chatgpt.com` machine-wide
+   auch Browser-ChatGPT und ChatGPT.app betrifft.
 
 **Verboten als Default-Install / Default-Test:**
 
-- `OPENAI_API_BASE` / `OPENAI_BASE_URL` / `CHATGPT_BASE_URL` Env-Vars
-- `HTTPS_PROXY` / `HTTP_PROXY` Env-Vars
-- `openai_base_url` Feld in `~/.codex/config.toml`
+- persistente `OPENAI_API_BASE` / `OPENAI_BASE_URL` /
+  `CHATGPT_BASE_URL` Env-Vars
+- persistente `HTTPS_PROXY` / `HTTP_PROXY` Env-Vars
+- persistentes `openai_base_url` Feld in `~/.codex/config.toml`
 - macOS System-Network-Proxy-Settings
+- unbestätigtes `slimference root-arm` ohne `--global-chatgpt-hosts`
 
 Diese Pfade bleiben im Code als **Legacy/Advanced**: Operatoren die
 sie manuell setzen, kriegen weiterhin Service. Aber: kein
 `slimference install` armiert sie, keine TUI bietet sie an, kein
-Integration-Test treibt sie als Primärpfad.
+Integration-Test treibt sie als Primärpfad. Der per-process Codex-CLI
+Runner ist die Ausnahme, weil er nicht persistent ist und genau einen
+Codex-Prozess scoped.
 
 **Single Entry Point:** Die Subcommands `slimference install`,
-`uninstall`, `enable`, `disable`, `status`, plus die beiden
-privilegierten Helfer `cert-trust` / `root-arm` sind die einzige
-operative Schnittstelle. Alles andere (`slimference proxy …`,
-`integrate`, `hook install …`) ist Legacy.
+`uninstall`, `status`, plus `slimference codex run|enable|disable|status`
+sind der normale scoped Codex-Pfad. `cert-trust`,
+`root-arm --global-chatgpt-hosts`, transparent `enable`, transparent `disable`, und
+`root-disarm` sind globale Lab-/Zertifizierungsbefehle. `proxy run`,
+`integrate`, und persistente Proxy-/URL-Patches außerhalb des
+marker-owned Codex-Route-Blocks bleiben Legacy.
 
-**Fail-open Mandat:** Daemon down → Codex läuft normal weiter
-(Hosts-Patch ist daemon-lifecycle-gebunden, wird beim Shutdown
-revertiert). Codex-Update → Frame-Parser degradiert zu byte-equal
-Bridge. Beide Eigenschaften sind in `docs/install.md` dokumentiert
-und in Tests verifiziert.
+**Fail-open Mandat:** `slimference codex run` fällt bei Daemonfehler
+direkt auf ungefilterten Codex zurück. `slimference codex enable`
+bleibt reversibel über `slimference codex disable`; Browser/ChatGPT.app
+bleiben immer direkt. Globaler Lab-Pfad mit Daemon down → Hosts-Patch
+wird beim Clean Shutdown revertiert; Codex-Update → Frame-Parser
+degradiert zu byte-equal Bridge. Diese Eigenschaften sind in
+`docs/install.md` dokumentiert und in Tests verifiziert.
 
 **Drift-Verbot:** Änderungen, die das Default-Install-Set um eine
 3. Surface erweitern, sind reviewable **nur** mit explizitem

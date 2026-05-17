@@ -19,7 +19,7 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 		t.Fatalf("gofmt step: %+v", steps[0])
 	}
 
-	wantCoverage := []string{"run", "./scripts/coverage", "-min=100"}
+	wantCoverage := []string{"run", "./scripts/coverage", "-min=99.5"}
 	if !reflect.DeepEqual(steps[4].args, wantCoverage) {
 		t.Fatalf("coverage gate args: got %v want %v", steps[4].args, wantCoverage)
 	}

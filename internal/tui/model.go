@@ -193,6 +193,18 @@ type TransparentStatus struct {
 	Detail             string
 }
 
+// CodexRouteStatus is the TUI-facing snapshot of the scoped
+// marker-owned Codex provider route in ~/.codex/config.toml.
+type CodexRouteStatus struct {
+	Exists          bool
+	Enabled         bool
+	Complete        bool
+	Conflict        string
+	LegacyKeys      bool
+	DaemonReachable bool
+	Detail          string
+}
+
 // Installed reports whether transparent mode is installed but not necessarily armed.
 func (s TransparentStatus) Installed() bool {
 	return s.CAExists && s.CATrusted && s.AutoStartInstalled
@@ -223,6 +235,12 @@ type ServiceControlInterface interface {
 	DisableTransparent() error
 	// UninstallTransparent disables routing and removes keychain trust / launchd.
 	UninstallTransparent() error
+	// CodexRouteStatus returns the scoped Codex CLI/App route state.
+	CodexRouteStatus() CodexRouteStatus
+	// EnableCodexRoute writes the marker-owned Codex provider route.
+	EnableCodexRoute() error
+	// DisableCodexRoute removes the marker-owned Codex provider route.
+	DisableCodexRoute() error
 	// InstallHook installs a hook for the given target ("claude" or "codex").
 	InstallHook(target string) error
 	// RemoveHook removes a hook for the given target.
@@ -282,6 +300,8 @@ type Model struct {
 
 	transparentStatus   TransparentStatus
 	transparentStatusAt time.Time
+	codexRouteStatus    CodexRouteStatus
+	codexRouteStatusAt  time.Time
 
 	// Flash message.
 	flashMsg    string
@@ -292,6 +312,7 @@ type Model struct {
 func (m *Model) SetServiceControl(svc ServiceControlInterface) {
 	m.svc = svc
 	m.refreshTransparentStatus(true)
+	m.refreshCodexRouteStatus(true)
 }
 
 // NewModel creates a TUI model wired to the given proxy. If a persisted
@@ -561,6 +582,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, flashTimer(3 * time.Second)
 			}
 
+		case "r":
+			if m.view == ViewSetup && m.svc != nil {
+				status := m.codexRouteStatus
+				if status.Enabled {
+					if err := m.svc.DisableCodexRoute(); err != nil {
+						m.setFlash("Codex route disable failed: " + err.Error())
+					} else {
+						m.setFlash("Codex route disabled")
+					}
+				} else {
+					if err := m.svc.EnableCodexRoute(); err != nil {
+						m.setFlash("Codex route enable failed: " + err.Error())
+					} else {
+						m.setFlash("Codex route enabled")
+					}
+				}
+				m.refreshCodexRouteStatus(true)
+				m.persistStateBestEffort()
+				return m, flashTimer(3 * time.Second)
+			}
+
 		case "a":
 			// Phase H: toggle Apps view from anywhere except Setup,
 			// where "a" remains the transparent-arm action.
@@ -662,6 +704,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.latestSnap = m.proxy.GetAnalytics()
 		m.refreshTransparentStatus(false)
+		m.refreshCodexRouteStatus(false)
 		return m, tickCmd()
 
 	case proxyEventMsg:
@@ -810,6 +853,19 @@ func (m *Model) refreshTransparentStatus(force bool) {
 	}
 	m.transparentStatus = m.svc.TransparentStatus()
 	m.transparentStatusAt = time.Now()
+}
+
+func (m *Model) refreshCodexRouteStatus(force bool) {
+	if m.svc == nil {
+		m.codexRouteStatus = CodexRouteStatus{}
+		m.codexRouteStatusAt = time.Time{}
+		return
+	}
+	if !force && !m.codexRouteStatusAt.IsZero() && time.Since(m.codexRouteStatusAt) < 2*time.Second {
+		return
+	}
+	m.codexRouteStatus = m.svc.CodexRouteStatus()
+	m.codexRouteStatusAt = time.Now()
 }
 
 func (m *Model) dashboardActions() []dashboardAction {
@@ -1071,10 +1127,10 @@ func (m *Model) setupSteps() []setupStep {
 			confirm: "Install Codex-only Slimference integration",
 		},
 		{
-			label:   "Run slimference enable (arm transparent MITM)",
-			check:   func() bool { return m.transparentStatus.ProxyArmed },
-			action:  func(m *Model) error { return m.svc.EnableTransparent() },
-			confirm: "Arm Codex transparent routing",
+			label:   "Run slimference codex enable (scoped CLI/App route)",
+			check:   func() bool { return m.codexRouteStatus.Complete },
+			action:  func(m *Model) error { return m.svc.EnableCodexRoute() },
+			confirm: "Enable scoped Codex provider route",
 		},
 		{
 			label:   "Install Codex hook",
@@ -1112,6 +1168,7 @@ func (m *Model) executeSetupStep() {
 		return
 	}
 	m.refreshTransparentStatus(true)
+	m.refreshCodexRouteStatus(true)
 	// Refresh hook status after install.
 	if home, err := userHomeDirFn(); err == nil {
 		claude, codex := hooks.InstalledStatus(home)
@@ -1122,6 +1179,7 @@ func (m *Model) executeSetupStep() {
 
 func (m *Model) enterSetupView() {
 	m.refreshTransparentStatus(true)
+	m.refreshCodexRouteStatus(true)
 	m.setupStep = 0
 	m.setupCursor = 0
 	if m.svc == nil {

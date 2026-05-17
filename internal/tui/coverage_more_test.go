@@ -118,7 +118,7 @@ func TestSetupSelectionHelpersAndFormatting(t *testing.T) {
 		CATrusted:          true,
 		AutoStartInstalled: true,
 		ProxyArmed:         true,
-	}})
+	}, codexRouteStatus: CodexRouteStatus{Exists: true, Enabled: true, Complete: true, DaemonReachable: true}})
 	done.hookStatus = HookStatus{Claude: true, Codex: true}
 	origHomeFn := userHomeDirFn
 	home := t.TempDir()

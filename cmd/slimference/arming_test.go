@@ -86,6 +86,36 @@ func TestHandleRootArmHelpDoesNotExit(t *testing.T) {
 	if !strings.Contains(out, "slimference root-arm") {
 		t.Fatalf("help output missing command name: %q", out)
 	}
+	if !strings.Contains(out, "--global-chatgpt-hosts") ||
+		!strings.Contains(out, "machine-wide") {
+		t.Fatalf("help output must expose the global-routing acknowledgement: %q", out)
+	}
+}
+
+func TestHandleRootArmRefusesDefaultGlobalRouting(t *testing.T) {
+	_, stderr := captureRootCommandOutput(t, func() {
+		code, exited := captureExit(func() { handleRootArmCmd(nil) })
+		if !exited || code != 1 {
+			t.Fatalf("exit=(%d,%v), want (1,true)", code, exited)
+		}
+	})
+	for _, want := range []string{"refused by default", "machine-wide", "ChatGPT.app", "--global-chatgpt-hosts"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q: %q", want, stderr)
+		}
+	}
+}
+
+func TestHandleRootArmRejectsUnknownFlag(t *testing.T) {
+	_, stderr := captureRootCommandOutput(t, func() {
+		code, exited := captureExit(func() { handleRootArmCmd([]string{"--bogus"}) })
+		if !exited || code != 1 {
+			t.Fatalf("exit=(%d,%v), want (1,true)", code, exited)
+		}
+	})
+	if !strings.Contains(stderr, "unknown flag") {
+		t.Fatalf("stderr missing unknown flag error: %q", stderr)
+	}
 }
 
 func TestHandleRootArmMissingHomeExits1(t *testing.T) {
@@ -94,7 +124,7 @@ func TestHandleRootArmMissingHomeExits1(t *testing.T) {
 	t.Cleanup(func() { osUserHomeDir = prevHome })
 
 	_, stderr := captureRootCommandOutput(t, func() {
-		code, exited := captureExit(func() { handleRootArmCmd(nil) })
+		code, exited := captureExit(func() { handleRootArmCmd([]string{"--global-chatgpt-hosts"}) })
 		if !exited || code != 1 {
 			t.Fatalf("exit=(%d,%v), want (1,true)", code, exited)
 		}
@@ -107,7 +137,7 @@ func TestHandleRootArmMissingHomeExits1(t *testing.T) {
 func TestHandleRootArmMissingCertExits1(t *testing.T) {
 	home := withTempHomeForRootCommand(t)
 	_, stderr := captureRootCommandOutput(t, func() {
-		code, exited := captureExit(func() { handleRootArmCmd(nil) })
+		code, exited := captureExit(func() { handleRootArmCmd([]string{"--global-chatgpt-hosts"}) })
 		if !exited || code != 1 {
 			t.Fatalf("exit=(%d,%v), want (1,true)", code, exited)
 		}
@@ -137,7 +167,7 @@ func TestHandleRootArmRunsAdminScriptThroughInjectedRunner(t *testing.T) {
 	t.Cleanup(func() { runWithAdminPrivilegesFn = prevRun })
 
 	out, stderr := captureRootCommandOutput(t, func() {
-		code, exited := captureExit(func() { handleRootArmCmd(nil) })
+		code, exited := captureExit(func() { handleRootArmCmd([]string{"--global-chatgpt-hosts"}) })
 		if exited {
 			t.Fatalf("unexpected exit %d", code)
 		}
@@ -172,7 +202,7 @@ func TestHandleRootArmAdminFailureExits1(t *testing.T) {
 	t.Cleanup(func() { runWithAdminPrivilegesFn = prevRun })
 
 	_, stderr := captureRootCommandOutput(t, func() {
-		code, exited := captureExit(func() { handleRootArmCmd(nil) })
+		code, exited := captureExit(func() { handleRootArmCmd([]string{"--global-chatgpt-hosts"}) })
 		if !exited || code != 1 {
 			t.Fatalf("exit=(%d,%v), want (1,true)", code, exited)
 		}

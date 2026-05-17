@@ -613,7 +613,7 @@ func (m *Model) renderSetupView() string {
 			s.BannerGood.Render("ARMED") + " " + s.Normal.Render("System HTTPS is routed through Slimference."),
 		)
 	} else if allReady {
-		message := "Transparent mode is installed. Arm it when you want traffic in the pipeline."
+		message := "Slimference is installed. Use the scoped Codex route when you want CLI/App traffic in the pipeline."
 		if m.svc == nil {
 			message = "ALL SET - Slimference is ready for daily use."
 		}
@@ -649,7 +649,7 @@ func (m *Model) renderSetupView() string {
 		steps := m.setupSteps()
 		stepLines := []string{
 			" " + s.PanelTitle.Render("SETUP STEPS"),
-			" " + s.Dim.Render("Codex-only: install, enable, disable, uninstall. Claude stays off."),
+			" " + s.Dim.Render("Codex-only: install, codex enable/disable, uninstall. Claude stays off."),
 			"",
 		}
 		for i, step := range steps {
@@ -673,8 +673,10 @@ func (m *Model) renderSetupView() string {
 			serviceLines = append(serviceLines, "  "+s.Muted.Render("○ STOPPED")+"  daemon not running")
 		}
 		serviceLines = append(serviceLines, renderTransparentStatusLine(s, transparent))
+		serviceLines = append(serviceLines, renderCodexRouteStatusLine(s, m.codexRouteStatus))
 		serviceLines = append(serviceLines, "")
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] enable/disable MITM  [u] uninstall  [p] start/stop  [o] restart"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] enable/disable Codex route  [p] start/stop  [o] restart"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] global lab MITM listener  [u] uninstall transparent assets"))
 		serviceLines = append(serviceLines, "  "+s.Muted.Render("[e] enable autostart  [w] disable autostart"))
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(serviceLines, "\n")))
 
@@ -725,13 +727,13 @@ func (m *Model) renderSetupView() string {
 
 		lines = append(lines, "")
 		commandLines := []string{
-			" " + s.PanelTitle.Render("COMMANDS (Phase H single entry point)"),
+			" " + s.PanelTitle.Render("COMMANDS (scoped Codex path)"),
 			"",
 			"  " + s.SetupCmd.Render("slimference install"),
-			"  " + s.SetupCmd.Render("slimference enable") + s.Dim.Render("    # arm transparent MITM"),
-			"  " + s.SetupCmd.Render("slimference disable") + s.Dim.Render("   # disarm"),
-			"  " + s.SetupCmd.Render("slimference uninstall") + s.Dim.Render(" # full revert"),
-			"  " + s.SetupCmd.Render("slimference status") + s.Dim.Render("    # CLI status table"),
+			"  " + s.SetupCmd.Render("slimference codex run -- <prompt>") + s.Dim.Render(" # one-shot CLI"),
+			"  " + s.SetupCmd.Render("slimference codex enable") + s.Dim.Render("         # CLI/App route"),
+			"  " + s.SetupCmd.Render("slimference codex disable") + s.Dim.Render("        # direct fallback"),
+			"  " + s.SetupCmd.Render("slimference codex status") + s.Dim.Render("         # route status"),
 		}
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(commandLines, "\n")))
 	}
@@ -1184,6 +1186,23 @@ func renderTransparentStatusLine(s Styles, status TransparentStatus) string {
 		return "  " + s.LogError.Render("● TRANSPARENT") + "  networksetup unavailable"
 	default:
 		return "  " + s.Muted.Render("○ TRANSPARENT") + "  not installed"
+	}
+}
+
+func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
+	switch {
+	case status.Complete && status.DaemonReachable:
+		return "  " + s.Saved.Render("● CODEX ROUTE") + "  scoped CLI/App route ready"
+	case status.Enabled && !status.DaemonReachable:
+		return "  " + s.LogError.Render("● CODEX ROUTE") + "  configured but daemon unreachable; press [r] to disable"
+	case status.Enabled && status.Conflict != "":
+		return "  " + s.BannerWarn.Render("● CODEX ROUTE") + "  configured with conflict: " + status.Conflict
+	case status.Enabled:
+		return "  " + s.BannerWarn.Render("● CODEX ROUTE") + "  configured but incomplete"
+	case status.Exists:
+		return "  " + s.Muted.Render("○ CODEX ROUTE") + "  disabled; press [r] to enable scoped CLI/App"
+	default:
+		return "  " + s.Muted.Render("○ CODEX ROUTE") + "  Codex config not found"
 	}
 }
 

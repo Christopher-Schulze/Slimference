@@ -31,7 +31,8 @@ the default flow.
 
 | Surface | Files | Classification | Cleanup decision |
 |---------|-------|----------------|------------------|
-| Phase H Codex install | `cmd/slimference/help.go`, `cmd/slimference/install_cmd.go`, `docs/install.md`, `docs/documentation.md` | current default | Keep as the only promoted path: `install`, `cert-trust`, `root-arm`, `enable`, `disable`, `root-disarm`, `uninstall`, `status`. Per-app policy lives under the XDG config dir as `apps.toml`. |
+| Scoped Codex CLI install/run | `cmd/slimference/help.go`, `cmd/slimference/install_cmd.go`, `cmd/slimference/codex_cmd.go`, `docs/install.md`, `docs/documentation.md` | current default for CLI | Keep promoted path: `install`, `status --preflight`, `codex run`, `codex enable`, `codex disable`, `uninstall`, `status`. `codex run` affects one Codex CLI process and leaves Browser ChatGPT/ChatGPT.app direct. |
+| Global transparent lab | `cmd/slimference/arming.go`, `cmd/slimference/install_cmd.go`, `docs/install.md`, `docs/transparent-mode.md` | keep-advanced + lab-only | `cert-trust`, `root-arm --global-chatgpt-hosts`, `enable`, `disable`, `root-disarm` remain for certification, but are no longer the default because hosts routing is machine-wide. |
 | Config-patch integration | `cmd/slimference/integrate_cmd.go`, `internal/integrate/*` | keep-advanced + hide-from-default | Kept for manual fallback only. Help and post-install output now label it `LEGACY/ADVANCED`; no default command points to it. |
 | Legacy proxy lifecycle + per-process env helpers | `cmd/slimference/proxy_cmd.go`, `cmd/slimference/help.go` | keep-advanced + hide-from-default | Kept for diagnostics/regression work. Subcommand help now states it is not the Phase H default path. |
 | Legacy CONNECT flag | `internal/config.Transparent.Enabled` | keep-advanced | Keep for backwards config compatibility. `SNIPeekMode` is the Phase H traffic flag. |
@@ -62,5 +63,5 @@ This task is intentionally separate from T208. T208 ships product
 value; T210 prevents old scaffolding from leaking back into the
 operator path.
 
-No `cert-trust`, `root-arm`, `enable`, hosts edit, Keychain edit, or
-GitHub operation was run for this cleanup.
+No `cert-trust`, `root-arm --global-chatgpt-hosts`, `enable`, hosts edit,
+Keychain edit, or GitHub operation was run for this cleanup.

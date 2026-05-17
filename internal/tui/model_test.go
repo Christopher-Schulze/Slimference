@@ -170,6 +170,9 @@ type mockServiceControl struct {
 	transparentDisabled  bool
 	transparentRemoved   bool
 	transparentStatus    TransparentStatus
+	codexRouteEnabled    bool
+	codexRouteDisabled   bool
+	codexRouteStatus     CodexRouteStatus
 	err                  error
 }
 
@@ -249,6 +252,24 @@ func (m *mockServiceControl) UninstallTransparent() error {
 	m.transparentStatus = TransparentStatus{}
 	return nil
 }
+func (m *mockServiceControl) CodexRouteStatus() CodexRouteStatus { return m.codexRouteStatus }
+func (m *mockServiceControl) EnableCodexRoute() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.codexRouteEnabled = true
+	m.codexRouteStatus = CodexRouteStatus{Exists: true, Enabled: true, Complete: true, DaemonReachable: true}
+	return nil
+}
+func (m *mockServiceControl) DisableCodexRoute() error {
+	if m.err != nil {
+		return m.err
+	}
+	m.codexRouteDisabled = true
+	m.codexRouteStatus.Enabled = false
+	m.codexRouteStatus.Complete = false
+	return nil
+}
 func (m *mockServiceControl) InstallHook(target string) error {
 	if m.err != nil {
 		return m.err
@@ -312,6 +333,40 @@ func TestUpdate_ToggleCodex(t *testing.T) {
 
 	if model.codexEnabled {
 		t.Error("codexEnabled should be false after toggling")
+	}
+}
+
+func TestUpdate_SetupCodexRouteToggle(t *testing.T) {
+	p := newMockProxy()
+	svc := &mockServiceControl{codexRouteStatus: CodexRouteStatus{Exists: true}}
+	m := NewModel(p)
+	m.SetServiceControl(svc)
+	m.view = ViewSetup
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model := updated.(Model)
+	if !svc.codexRouteEnabled || !strings.Contains(model.flashMsg, "Codex route enabled") {
+		t.Fatalf("enable route failed: svc=%+v flash=%q", svc, model.flashMsg)
+	}
+
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model = updated.(Model)
+	if !svc.codexRouteDisabled || !strings.Contains(model.flashMsg, "Codex route disabled") {
+		t.Fatalf("disable route failed: svc=%+v flash=%q", svc, model.flashMsg)
+	}
+}
+
+func TestUpdate_SetupCodexRouteToggleError(t *testing.T) {
+	p := newMockProxy()
+	svc := &mockServiceControl{err: fmt.Errorf("boom")}
+	m := NewModel(p)
+	m.SetServiceControl(svc)
+	m.view = ViewSetup
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	model := updated.(Model)
+	if !strings.Contains(model.flashMsg, "Codex route enable failed") {
+		t.Fatalf("missing route error flash: %q", model.flashMsg)
 	}
 }
 

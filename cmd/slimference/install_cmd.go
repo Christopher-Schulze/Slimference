@@ -126,9 +126,14 @@ func runInstallCmd(args []string, p installPrinter) int {
 	}
 	fmt.Fprintln(p.Out, "")
 	fmt.Fprintln(p.Out, "Install complete. Next:")
-	fmt.Fprintln(p.Out, "  slimference cert-trust   trust the local CA in Keychain Access")
-	fmt.Fprintln(p.Out, "  slimference root-arm     add Codex-only hosts + pfctl routing")
-	fmt.Fprintln(p.Out, "  slimference enable       arm daemon-side transparent MITM")
+	fmt.Fprintln(p.Out, "  slimference status --preflight")
+	fmt.Fprintln(p.Out, "  slimference codex run -- <prompt>")
+	fmt.Fprintln(p.Out, "  slimference codex enable   # optional shared CLI/App route")
+	fmt.Fprintln(p.Out, "")
+	fmt.Fprintln(p.Out, "Global lab only:")
+	fmt.Fprintln(p.Out, "  slimference cert-trust")
+	fmt.Fprintln(p.Out, "  slimference root-arm --global-chatgpt-hosts")
+	fmt.Fprintln(p.Out, "  slimference enable")
 	return 0
 }
 
@@ -180,7 +185,8 @@ func runUninstallCmd(args []string, p installPrinter) int {
 }
 
 // handleEnableCmd writes cfg.Transparent.SNIPeekMode=true and signals
-// the daemon (SIGHUP) so its hosts-lifecycle handler patches /etc/hosts.
+// the daemon (SIGHUP). A scoped Codex CLI run does not need this; the
+// global transparent lab path additionally requires root-arm.
 func handleEnableCmd(args []string) {
 	exitFn(runEnableCmd(args, defaultInstallPrinter()))
 }
@@ -377,7 +383,10 @@ func renderStatus(p installPrinter, s control.SetupState) {
 		}
 	} else {
 		fmt.Fprintln(p.Out, "")
-		fmt.Fprintln(p.Out, "Transparent MITM DISARMED. Arm with `cert-trust`, `root-arm`, then `enable`.")
+		fmt.Fprintln(p.Out, "Transparent MITM DISARMED.")
+		fmt.Fprintln(p.Out, "Scoped Codex CLI: `slimference codex run -- <prompt>`.")
+		fmt.Fprintln(p.Out, "Scoped Codex CLI/App: `slimference codex enable`.")
+		fmt.Fprintln(p.Out, "Global lab only: `cert-trust`, `root-arm --global-chatgpt-hosts`, then `enable`.")
 	}
 }
 
@@ -425,8 +434,9 @@ Atomic, reversible install. Performs:
 
 Claude Code is parked: install never writes ~/.claude or Claude hooks.
 
-Does NOT touch /etc/hosts (daemon-lifecycle, see ` + "`slimference enable`" + `).
-Does NOT touch OPENAI_API_BASE or HTTPS_PROXY (2-surface architecture).
+Does NOT touch /etc/hosts. Global transparent lab routing requires
+` + "`slimference root-arm --global-chatgpt-hosts`" + ` explicitly.
+Does NOT touch OPENAI_API_BASE or HTTPS_PROXY.
 
 Flags:
   --dry-run         show what would happen without changing anything
@@ -460,12 +470,16 @@ Flags:
 
 const enableDisableHelpText = `usage: slimference enable | disable [flags]
 
-Arms / disarms transparent MITM by writing cfg.Transparent.SNIPeekMode
-to the resolved config path and signaling the daemon (SIGHUP). The
-daemon's hosts-lifecycle handler patches / reverts /etc/hosts.
+Arms / disarms daemon-side SNI-peek mode by writing
+cfg.Transparent.SNIPeekMode to the resolved config path and signaling
+the daemon (SIGHUP). It does not create a scoped Codex route by itself.
 
 If the daemon is not running, the flag is still written; the next
-` + "`slimference daemon start`" + ` picks it up and patches hosts then.
+` + "`slimference daemon start`" + ` picks it up.
+
+Global transparent lab routing additionally requires:
+  slimference cert-trust
+  slimference root-arm --global-chatgpt-hosts
 
 Flags:
   --config=PATH     override config.toml location

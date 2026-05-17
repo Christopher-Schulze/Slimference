@@ -4,18 +4,32 @@ Current install/uninstall truth lives in `docs/install.md`. This file is
 retained as historical background for the older System-HTTPS-Proxy /
 CONNECT-MITM path and older `slimference proxy ...` commands.
 
-Current Phase H transparent mode is Codex-first and uses exactly two
+Historical Phase H transparent mode was Codex-first and used exactly two
 surfaces: Codex hook callouts plus transparent SNI-MITM
 (`/etc/hosts` + trusted local CA + pfctl/port 443 routing). It does
 not use `OPENAI_API_BASE`, `HTTPS_PROXY`, `openai_base_url`, or macOS
-System Network Proxy settings as the default path.
+System Network Proxy settings.
+
+2026-05-17 scope correction: global `chatgpt.com` hosts routing is not
+acceptable when Browser ChatGPT and ChatGPT.app must remain direct.
+Therefore the normal scoped Codex CLI path is now:
+
+```bash
+slimference install
+slimference status --preflight
+slimference codex run -- <prompt>
+slimference codex enable   # optional shared Codex CLI/App route
+```
+
+The global transparent path below is lab-only and requires an explicit
+acknowledgement flag:
 
 The legacy notes below are not normative for new installs. Use:
 
 ```bash
 slimference install
 slimference cert-trust
-slimference root-arm
+slimference root-arm --global-chatgpt-hosts
 slimference enable
 slimference disable
 slimference root-disarm
