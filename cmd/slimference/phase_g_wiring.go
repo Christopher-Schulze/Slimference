@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/slimference/slimference/internal/codexroute"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/control"
 	"github.com/slimference/slimference/internal/control/apps"
@@ -52,8 +53,9 @@ var startProxyHostsCleanup func()
 // applyHostsPatch returns a no-op cleanup for disabled/fail-open paths.
 var startProxyHostsArmed bool
 
-// startProxyPIDCleanup removes the daemon PID file written at startup.
-// Reset on every startProxyFn call.
+// startProxyPIDCleanup removes the daemon reload PID file written by
+// startProxyForDaemon. Foreground/TUI starts deliberately leave it nil
+// so they cannot steal the daemon's SIGHUP target.
 var startProxyPIDCleanup func()
 
 // phaseGAppsPath returns the canonical per-app policy TOML path. It
@@ -124,6 +126,14 @@ func buildProbes(p *proxy.Proxy, m *apps.Manager, cfg *config.Config) *control.P
 		Listener:     &control.PortListenerProbe{Port443: 443, Port8990: cfg.Proxy.ListenPort, PortSNIPeek: cfg.Transparent.SNIPeekPort},
 		NetworkRedir: &control.HostsFileNetworkProbe{},
 		Apps:         &control.AppsManagerProbe{Manager: m, Counters: phaseGCounters(p)},
+		CodexRoute: &codexRouteProbe{
+			home:               home,
+			proxyURL:           codexroute.ProxyURL("127.0.0.1", fmt.Sprintf("%d", cfg.Proxy.ListenPort)),
+			codexVersionFn:     codexVersionFn,
+			slimferenceVersion: version,
+			healthFn:           codexRouteHealthFn,
+			port:               fmt.Sprintf("%d", cfg.Proxy.ListenPort),
+		},
 		Savings: &proxy.SavingsProbe{
 			Proxy:               p,
 			USDPerMillionTokens: cfg.Analytics.GainUSDPerMillionTokens,

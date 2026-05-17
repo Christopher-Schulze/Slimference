@@ -106,7 +106,7 @@ func TestHelpTopLevelPromotesPhaseHOnly(t *testing.T) {
 		"slimference install",
 		"slimference status --preflight",
 		"slimference codex run",
-		"slimference codex enable",
+		"slimference enable",
 		"root-arm --global-chatgpt-hosts",
 	}
 	for _, want := range required {

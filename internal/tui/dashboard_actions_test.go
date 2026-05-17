@@ -143,11 +143,11 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	}
 
 	runAction("transparent")
-	if !svc.transparentEnabled || !strings.Contains(m.flashMsg, "Transparent proxy armed") {
+	if !svc.transparentEnabled || !strings.Contains(m.flashMsg, "Global lab armed") {
 		t.Fatalf("arm transparent failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
 	runAction("transparent")
-	if !svc.transparentDisabled || !strings.Contains(m.flashMsg, "Transparent proxy disarmed") {
+	if !svc.transparentDisabled || !strings.Contains(m.flashMsg, "Global lab disarmed") {
 		t.Fatalf("disarm transparent failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
 
@@ -202,7 +202,7 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 	})
 	enableFail.mainCursor = findDashboardActionIndex(enableFail.dashboardActions(), "transparent")
 	_ = enableFail.executeMainSelection()
-	if !strings.Contains(enableFail.flashMsg, "Arm transparent proxy failed") {
+	if !strings.Contains(enableFail.flashMsg, "Global lab arm failed") {
 		t.Fatalf("transparent enable failure flash=%q", enableFail.flashMsg)
 	}
 
@@ -215,7 +215,7 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 	})
 	disableFail.mainCursor = findDashboardActionIndex(disableFail.dashboardActions(), "transparent")
 	_ = disableFail.executeMainSelection()
-	if !strings.Contains(disableFail.flashMsg, "Disarm transparent proxy failed") {
+	if !strings.Contains(disableFail.flashMsg, "Global lab disarm failed") {
 		t.Fatalf("transparent disable failure flash=%q", disableFail.flashMsg)
 	}
 
@@ -608,7 +608,7 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Done: Run slimference codex enable") {
+	if !strings.Contains(model.flashMsg, "Done: Run slimference enable") {
 		t.Fatalf("setup enter flash=%q", model.flashMsg)
 	}
 

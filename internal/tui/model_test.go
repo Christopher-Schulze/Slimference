@@ -345,13 +345,13 @@ func TestUpdate_SetupCodexRouteToggle(t *testing.T) {
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	model := updated.(Model)
-	if !svc.codexRouteEnabled || !strings.Contains(model.flashMsg, "Codex route enabled") {
+	if !svc.codexRouteEnabled || !strings.Contains(model.flashMsg, "Codex Mode enabled") {
 		t.Fatalf("enable route failed: svc=%+v flash=%q", svc, model.flashMsg)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	model = updated.(Model)
-	if !svc.codexRouteDisabled || !strings.Contains(model.flashMsg, "Codex route disabled") {
+	if !svc.codexRouteDisabled || !strings.Contains(model.flashMsg, "Codex Mode disabled") {
 		t.Fatalf("disable route failed: svc=%+v flash=%q", svc, model.flashMsg)
 	}
 }

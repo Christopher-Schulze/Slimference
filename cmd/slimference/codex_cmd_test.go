@@ -20,6 +20,15 @@ func withCodexCmdStubs(t *testing.T) {
 	oldInspect := codexRouteInspectFn
 	oldHealth := codexRouteHealthFn
 	oldProxyRun := codexProxyRunFn
+	oldVersion := codexVersionFn
+	oldAuto := codexAutoFn
+	codexVersionFn = func() string { return "codex-test" }
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{
+			Transport:      codexroute.TransportHTTP,
+			FallbackReason: "wss certification missing",
+		}
+	}
 	t.Cleanup(func() {
 		codexRouteHomeFn = oldHome
 		codexRouteEnableFn = oldEnable
@@ -27,6 +36,8 @@ func withCodexCmdStubs(t *testing.T) {
 		codexRouteInspectFn = oldInspect
 		codexRouteHealthFn = oldHealth
 		codexProxyRunFn = oldProxyRun
+		codexVersionFn = oldVersion
+		codexAutoFn = oldAuto
 	})
 }
 
@@ -69,6 +80,28 @@ func TestCodexCmdRunUsesScopedWSSWhenRequested(t *testing.T) {
 	}
 }
 
+func TestCodexCmdRunAutoPromotesWSSWhenCertified(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{Transport: codexroute.TransportWSS, WSSCertified: true}
+	}
+	codexRouteHealthFn = func(host, port string) error { return nil }
+	var got []string
+	codexProxyRunFn = func(args []string, env proxyEnv) int {
+		got = append([]string(nil), args...)
+		return 0
+	}
+	p, _, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"run", "--transport=auto", "--", "exec", "hi"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if !strings.Contains(strings.Join(got, "\x00"), "--proxied-wss") {
+		t.Fatalf("expected WSS proxy args, got %#v", got)
+	}
+}
+
 func TestCodexCmdRunFallsBackDirectWhenDaemonDown(t *testing.T) {
 	withCodexCmdStubs(t)
 	codexRouteHealthFn = func(host, port string) error { return errors.New("dial refused") }
@@ -99,6 +132,23 @@ func TestCodexCmdEnableWSSDryRun(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "supports_websockets = true") {
 		t.Fatalf("dry-run missing WSS block: %q", out.String())
+	}
+}
+
+func TestCodexCmdEnableAutoUsesCertificationDecision(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return "/tmp/home", nil }
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{Transport: codexroute.TransportWSS, WSSCertified: true}
+	}
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"enable", "--transport=auto", "--dry-run"}, p); rc != 0 {
+		t.Fatalf("dry-run rc=%d stderr=%s", rc, errBuf.String())
+	}
+	text := out.String()
+	if !strings.Contains(text, "Auto transport -> wss (certified)") ||
+		!strings.Contains(text, "supports_websockets = true") {
+		t.Fatalf("auto WSS dry-run missing detail: %q", text)
 	}
 }
 

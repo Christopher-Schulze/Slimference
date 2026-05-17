@@ -983,7 +983,7 @@ Phase G does NOT redo those; it builds on them.
 Phase G's self-contained packages are now wired into the daemon, admin state,
 TUI, and Phase H install surface. The code-side proof stack is green:
 `go run ./scripts/ci` passes all 8 steps and the current formal aggregate
-coverage gate reports 99.8% against a 99.5% threshold. The only remaining
+coverage gate reports 99.7% against a 99.5% threshold. The only remaining
 P0 gap is T209 live Codex CLI certification, which must happen from a
 non-Codex shell rather than this active Codex session.
 
@@ -1054,7 +1054,7 @@ non-Codex shell rather than this active Codex session.
 - [x] **Release hygiene proof** (2026-05-17) — final pre-live stack
   verified locally: `go run ./scripts/ci` passes all 8 steps. After
   T220 the formal gate is a pragmatic 99.5% aggregate statement
-  threshold; the current run reports 99.8% total. No live arm or real
+  threshold; the current run reports 99.7% total. No live arm or real
   Codex traffic was run.
 - [x] **T217 Codex-only product lock / Claude parked** (2026-05-17)
   — product commands now refuse or no-op every Claude activation path:
@@ -1257,6 +1257,39 @@ only and promotes the per-process Codex CLI runner for T209.
   telemetry proof of the shared provider route, and launcher fallback
   only if Desktop ignores the scoped route. Detail:
   `docs/todo/t225-codex-desktop-scoped-proof-and-launcher.md`
+- [~] **T226** WSS-first auto promotion — pre-live auto gate is in code:
+  local WSS certification state can promote `auto` to WSS, while missing,
+  stale, parse-failed, or degraded proof falls back to HTTP. `/admin/state`,
+  `status`, `codex status`, and TUI Setup surface the decision. Remaining
+  work: live T224 proof. Detail:
+  `docs/todo/t226-wss-first-auto-promotion.md`
+- [~] **T227** Codex UX collapse — top-level `slimference enable|disable`
+  now operate on scoped Codex route; former global SNI mode is fenced under
+  `slimference lab enable|disable`; TUI Setup now separates Codex Mode from
+  global lab controls. Remaining work: Desktop observation warnings after
+  T225/T228 proof. Detail: `docs/todo/t227-codex-ux-collapse.md`
+- [ ] **T228** Codex Desktop zero-friction launcher — after T225 proof,
+  either polish the shared provider route reload flow or build the
+  smallest scoped Desktop launcher so users do not repeatedly restart
+  app-server processes by hand. Detail:
+  `docs/todo/t228-codex-desktop-zero-friction-launcher.md`
+- [ ] **T229** Codex hook hotpath socket — keep hooks as the Codex signal
+  layer, but move hook execution to daemon socket RPC with fail-open
+  fallback instead of repeatedly forking the full binary. Detail:
+  `docs/todo/t229-codex-hook-hotpath-socket.md`
+- [ ] **T230** Output-reduce v2 quality-gated max savings — expand the
+  output-side savings layer with semantic repetition kill, tool-echo
+  suppression, diff-aware budgeting, JSON/code canonicalization, and
+  streaming early-cut, all behind quality gates. Detail:
+  `docs/todo/t230-output-reduce-v2-quality-gated.md`
+- [ ] **T231** M-series performance profile — profile real scoped Codex
+  HTTP/WSS sessions on Apple Silicon before any SIMD/unsafe/build-flag
+  work; keep one stripped Go binary unless benchmarks prove otherwise.
+  Detail: `docs/todo/t231-m-series-performance-profile.md`
+- [~] **T232** Non-product surface governance — docs/help/TUI now separate
+  product scoped Codex from lab/global MITM; normal enable no longer arms
+  SNI-peek. Remaining work: T210 legacy retirement references. Detail:
+  `docs/todo/t232-nonproduct-surface-governance.md`
 
 ### Sequencing within Phase H
 
@@ -1300,6 +1333,22 @@ only and promotes the per-process Codex CLI runner for T209.
 15. **T225 after CLI proof** — Desktop follows only after scoped CLI/WSS
    is stable, because Desktop proof is more stateful and easier to
    confuse with Browser ChatGPT traffic.
+16. **T226 after T224** — WSS-first is the desired end state, but auto
+   promotion is only valid after live scoped raw-WSS proof for the
+   current Codex version.
+17. **T228 after T225 branch decision** — do not build a Desktop launcher
+   until real Desktop proof says the shared provider route is insufficient.
+18. **T227 after T226/T225 semantics are known** — collapse top-level UX
+   only after the transport and Desktop truth are clear enough to avoid
+   renaming confusion twice.
+19. **T229 after scoped route is stable** — hook hotpath socket improves
+   latency and signal quality, but it does not replace the provider route.
+20. **T230 after transport baseline** — output-reduce v2 needs a stable
+   Codex HTTP/WSS corpus so savings and quality can be measured honestly.
+21. **T231 after live proof** — performance work must use pprof from real
+   traffic; no M-series/SIMD/build-flag changes on vibes.
+22. **T232 continuously** — every future surface must be classified as
+   product, fallback, lab, or legacy before it enters docs/help/TUI.
 
 ### Acceptance for Phase H
 
@@ -1322,12 +1371,29 @@ only and promotes the per-process Codex CLI runner for T209.
   `slimference codex disable`.
 - Codex Desktop target is also WSS-first if scoped provider/launcher proof
   confirms Desktop can be routed without global hosts/pfctl.
+- After T226, `transport=auto` prefers WSS for certified Codex versions and
+  falls back to HTTP/direct only under explicit health/version gates.
+- After T227, normal `slimference enable|disable|status` means scoped Codex
+  route; global transparent MITM is lab-only and cannot be triggered by
+  product default UX.
+- After T228, Codex Desktop either reloads the shared scoped route with a
+  clean one-command flow or has a process-local launcher with direct fallback.
+- After T229, Codex hook events use daemon socket RPC on the hot path and fail
+  open when the daemon is unavailable.
+- After T230, output-reduce v2 reducers are individually gated, observable,
+  token-decreasing, and quality-rollback capable.
+- After T231, Apple Silicon performance claims are backed by real pprof and
+  benchmarks; the single stripped Go binary remains the default.
+- After T232, app-server, global MITM, proxy/env, and integrate paths are
+  visibly lab/debug/legacy, not normal product surfaces.
 - `slimference root-arm --global-chatgpt-hosts` is required before
   any global transparent lab test; bare `root-arm` refuses.
-- `slimference enable` exits 0 + SIGHUPs daemon → SNI-peek mode is
-  configured; actual global routing still requires explicit root-arm.
-- `slimference disable` turns off SNI-peek mode; `root-disarm` removes
-  the global hosts/pfctl lab route.
+- `slimference enable` writes the scoped Codex CLI/App provider route;
+  `slimference disable` removes it.
+- `slimference lab enable` exits 0 + SIGHUPs daemon → SNI-peek mode is
+  configured; actual global routing still requires explicit lab root-arm.
+- `slimference lab disable` turns off SNI-peek mode; `lab root-disarm`
+  removes the global hosts/pfctl lab route.
 - `slimference uninstall` runs Plan.Reverse and restores all touched
   files byte-equal to pre-install (modulo CA rotated aside).
 - **Daemon-down**: kill the daemon → hosts reverted automatically →

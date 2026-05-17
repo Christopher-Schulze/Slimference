@@ -314,29 +314,34 @@ func TestRunUninstallCmdHonoursSkipFlags(t *testing.T) {
 	}
 }
 
-func TestRunEnableWritesConfigAndAttemptsSignal(t *testing.T) {
+func TestRunEnableWritesScopedCodexRoute(t *testing.T) {
+	withCodexCmdStubs(t)
 	home := t.TempDir()
-	prev := osUserHomeDir
-	osUserHomeDir = func() (string, error) { return home, nil }
-	t.Cleanup(func() { osUserHomeDir = prev })
-	xdg := filepath.Join(home, ".config")
-	t.Setenv("XDG_CONFIG_HOME", xdg)
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfgPath := filepath.Join(home, ".codex", "config.toml")
+	if err := os.WriteFile(cfgPath, []byte("model = \"gpt-5\"\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	codexRouteHomeFn = func() (string, error) { return home, nil }
 
 	p, out, _ := newTestPrinter()
 	rc := runEnableCmd(nil, p)
 	if rc != 0 {
 		t.Fatalf("rc=%d out=%s", rc, out.String())
 	}
-	cfg := filepath.Join(xdg, "slimference", "config.toml")
-	data, err := os.ReadFile(cfg)
+	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		t.Fatalf("config not written: %v", err)
 	}
-	if !strings.Contains(string(data), "sni_peek_mode = true") {
+	if !strings.Contains(string(data), "slimference-codex") ||
+		!strings.Contains(string(data), "base_url = \"http://127.0.0.1:8990/backend-api/codex\"") {
 		t.Errorf("config wrong: %q", string(data))
 	}
-	if !strings.Contains(out.String(), "ENABLED") {
-		t.Errorf("output missing ENABLED: %q", out.String())
+	if !strings.Contains(out.String(), "Codex route enabled") ||
+		!strings.Contains(out.String(), "Browser ChatGPT and ChatGPT.app stay direct") {
+		t.Errorf("output missing scoped route: %q", out.String())
 	}
 }
 
@@ -345,7 +350,7 @@ func TestRunEnableHelpAndUnknownFlag(t *testing.T) {
 	if rc := runEnableCmd([]string{"--help"}, p); rc != 0 {
 		t.Fatalf("help rc=%d", rc)
 	}
-	if !strings.Contains(out.String(), "enable | disable") {
+	if !strings.Contains(out.String(), "slimference codex enable") {
 		t.Fatalf("help output mismatch: %q", out.String())
 	}
 	if rc := runEnableCmd([]string{"--bogus"}, p); rc != 2 {
@@ -356,9 +361,9 @@ func TestRunEnableHelpAndUnknownFlag(t *testing.T) {
 	}
 }
 
-func TestRunEnablePatchErrorAndSignalSentBranch(t *testing.T) {
+func TestRunLabEnablePatchErrorAndSignalSentBranch(t *testing.T) {
 	p, _, errBuf := newTestPrinter()
-	if rc := runEnableCmd([]string{"--config=" + t.TempDir()}, p); rc != 1 {
+	if rc := runLabEnableCmd([]string{"--config=" + t.TempDir()}, p); rc != 1 {
 		t.Fatalf("directory config should fail rc=%d", rc)
 	}
 	if !strings.Contains(errBuf.String(), "read:") {
@@ -386,7 +391,7 @@ func TestRunEnablePatchErrorAndSignalSentBranch(t *testing.T) {
 	}
 	p, out, errBuf := newTestPrinter()
 	cfg := filepath.Join(t.TempDir(), "config.toml")
-	if rc := runEnableCmd([]string{"--config=" + cfg}, p); rc != 0 {
+	if rc := runLabEnableCmd([]string{"--config=" + cfg}, p); rc != 0 {
 		t.Fatalf("enable rc=%d out=%s err=%s", rc, out.String(), errBuf.String())
 	}
 	if !strings.Contains(out.String(), "Daemon SIGHUP sent") {
@@ -397,13 +402,13 @@ func TestRunEnablePatchErrorAndSignalSentBranch(t *testing.T) {
 	}
 }
 
-func TestRunEnableCannotResolveConfigPath(t *testing.T) {
+func TestRunLabEnableCannotResolveConfigPath(t *testing.T) {
 	prev := enableDisableConfigPathFn
 	enableDisableConfigPathFn = func() string { return "" }
 	t.Cleanup(func() { enableDisableConfigPathFn = prev })
 
 	p, _, errBuf := newTestPrinter()
-	if rc := runEnableCmd(nil, p); rc != 1 {
+	if rc := runLabEnableCmd(nil, p); rc != 1 {
 		t.Fatalf("empty config path rc=%d", rc)
 	}
 	if !strings.Contains(errBuf.String(), "cannot resolve config path") {
@@ -411,7 +416,7 @@ func TestRunEnableCannotResolveConfigPath(t *testing.T) {
 	}
 }
 
-func TestRunEnableReportsSignalError(t *testing.T) {
+func TestRunLabEnableReportsSignalError(t *testing.T) {
 	prevSignal := signalPIDFn
 	signalPIDFn = func(int, os.Signal) error { return errors.New("signal denied") }
 	t.Cleanup(func() { signalPIDFn = prevSignal })
@@ -429,11 +434,36 @@ func TestRunEnableReportsSignalError(t *testing.T) {
 	}
 
 	p, out, errBuf := newTestPrinter()
-	if rc := runEnableCmd([]string{"--config=" + filepath.Join(t.TempDir(), "config.toml")}, p); rc != 0 {
+	if rc := runLabEnableCmd([]string{"--config=" + filepath.Join(t.TempDir(), "config.toml")}, p); rc != 0 {
 		t.Fatalf("enable rc=%d out=%s err=%s", rc, out.String(), errBuf.String())
 	}
 	if !strings.Contains(out.String(), "signal denied") {
 		t.Fatalf("signal error branch missing: %q", out.String())
+	}
+}
+
+func TestRunLabCmdHelpAndEnableHelp(t *testing.T) {
+	p, out, errBuf := newTestPrinter()
+	if rc := runLabCmd([]string{"--help"}, p); rc != 0 {
+		t.Fatalf("lab help rc=%d", rc)
+	}
+	if !strings.Contains(out.String(), "slimference lab") {
+		t.Fatalf("lab help missing: %q", out.String())
+	}
+	out.Reset()
+	if rc := runLabCmd([]string{"enable", "--help"}, p); rc != 0 {
+		t.Fatalf("lab enable help rc=%d err=%s", rc, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "slimference lab enable | disable") {
+		t.Fatalf("lab enable help missing: %q", out.String())
+	}
+	out.Reset()
+	errBuf.Reset()
+	if rc := runLabCmd([]string{"wat"}, p); rc != 2 {
+		t.Fatalf("unknown lab rc=%d", rc)
+	}
+	if !strings.Contains(errBuf.String(), "unknown subcommand") {
+		t.Fatalf("unknown lab error missing: %q", errBuf.String())
 	}
 }
 
@@ -457,12 +487,12 @@ func TestRunDisableWritesConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 
 	// Pre-enable first
-	if rc := runEnableCmd(nil, installPrinter{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}); rc != 0 {
+	if rc := runLabEnableCmd(nil, installPrinter{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}); rc != 0 {
 		t.Fatalf("pre-enable: rc=%d", rc)
 	}
 
 	p, out, _ := newTestPrinter()
-	rc := runDisableCmd(nil, p)
+	rc := runLabDisableCmd(nil, p)
 	if rc != 0 {
 		t.Fatalf("rc=%d", rc)
 	}
@@ -484,10 +514,10 @@ func TestRunEnableDisableRoundTrip(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 
 	pNull := installPrinter{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
-	if rc := runEnableCmd(nil, pNull); rc != 0 {
+	if rc := runLabEnableCmd(nil, pNull); rc != 0 {
 		t.Fatalf("enable rc=%d", rc)
 	}
-	if rc := runDisableCmd(nil, pNull); rc != 0 {
+	if rc := runLabDisableCmd(nil, pNull); rc != 0 {
 		t.Fatalf("disable rc=%d", rc)
 	}
 	data, _ := os.ReadFile(filepath.Join(xdg, "slimference", "config.toml"))

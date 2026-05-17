@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/slimference/slimference/internal/daemon"
 )
 
 func TestPatchSNIPeekModeCreatesNewFile(t *testing.T) {
@@ -26,6 +28,13 @@ func TestPatchSNIPeekModeCreatesNewFile(t *testing.T) {
 	if !strings.Contains(string(data), "sni_peek_mode = true") {
 		t.Errorf("expected sni_peek_mode = true in %q", string(data))
 	}
+}
+
+func stubReloadPIDWriter(t *testing.T) {
+	t.Helper()
+	prev := writePIDFileFn
+	writePIDFileFn = func() func() { return func() {} }
+	t.Cleanup(func() { writePIDFileFn = prev })
 }
 
 func TestPatchSNIPeekModeReplacesExistingKey(t *testing.T) {
@@ -132,6 +141,9 @@ func TestSignalDaemonReloadNoPidFile(t *testing.T) {
 	prev := osUserHomeDir
 	osUserHomeDir = func() (string, error) { return t.TempDir(), nil }
 	t.Cleanup(func() { osUserHomeDir = prev })
+	prevRunning := daemonIsRunningFn
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	t.Cleanup(func() { daemonIsRunningFn = prevRunning })
 
 	sent, err := signalDaemonReload()
 	if err != nil {
@@ -147,6 +159,9 @@ func TestSignalDaemonReloadStalePidIgnored(t *testing.T) {
 	prev := osUserHomeDir
 	osUserHomeDir = func() (string, error) { return dir, nil }
 	t.Cleanup(func() { osUserHomeDir = prev })
+	prevRunning := daemonIsRunningFn
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) { return false, nil, nil }
+	t.Cleanup(func() { daemonIsRunningFn = prevRunning })
 	prevSignal := signalPIDFn
 	signalPIDFn = func(pid int, sig os.Signal) error {
 		if pid != 2147483646 {
@@ -173,6 +188,82 @@ func TestSignalDaemonReloadStalePidIgnored(t *testing.T) {
 	}
 	if sent {
 		t.Error("expected sent=false for stale pid")
+	}
+}
+
+func TestSignalDaemonReloadFallsBackToCanonicalDaemonPID(t *testing.T) {
+	dir := t.TempDir()
+	prevHome := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { osUserHomeDir = prevHome })
+
+	prevRunning := daemonIsRunningFn
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 4242}, nil
+	}
+	t.Cleanup(func() { daemonIsRunningFn = prevRunning })
+
+	prevSignal := signalPIDFn
+	var got []int
+	signalPIDFn = func(pid int, sig os.Signal) error {
+		if sig != syscall.SIGHUP {
+			t.Fatalf("signal=%v, want SIGHUP", sig)
+		}
+		got = append(got, pid)
+		if pid == 2147483646 {
+			return syscall.ESRCH
+		}
+		return nil
+	}
+	t.Cleanup(func() { signalPIDFn = prevSignal })
+
+	pidDir := filepath.Join(dir, ".slimference", "run")
+	if err := os.MkdirAll(pidDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pidDir, "daemon.pid"),
+		[]byte("2147483646\n"), 0o600); err != nil {
+		t.Fatalf("write pid: %v", err)
+	}
+
+	sent, err := signalDaemonReload()
+	if err != nil {
+		t.Fatalf("signalDaemonReload: %v", err)
+	}
+	if !sent {
+		t.Fatal("expected canonical daemon PID fallback to send")
+	}
+	if len(got) != 2 || got[0] != 2147483646 || got[1] != 4242 {
+		t.Fatalf("signal attempts=%v, want [2147483646 4242]", got)
+	}
+}
+
+func TestSignalDaemonReloadMissingReloadPIDUsesCanonicalDaemonPID(t *testing.T) {
+	dir := t.TempDir()
+	prevHome := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { osUserHomeDir = prevHome })
+
+	prevRunning := daemonIsRunningFn
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return true, &daemon.PIDFile{PID: 4343}, nil
+	}
+	t.Cleanup(func() { daemonIsRunningFn = prevRunning })
+
+	prevSignal := signalPIDFn
+	var gotPID int
+	signalPIDFn = func(pid int, sig os.Signal) error {
+		gotPID = pid
+		return nil
+	}
+	t.Cleanup(func() { signalPIDFn = prevSignal })
+
+	sent, err := signalDaemonReload()
+	if err != nil {
+		t.Fatalf("signalDaemonReload: %v", err)
+	}
+	if !sent || gotPID != 4343 {
+		t.Fatalf("sent=%v pid=%d, want sent=true pid=4343", sent, gotPID)
 	}
 }
 

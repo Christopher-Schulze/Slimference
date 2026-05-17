@@ -19,10 +19,11 @@ SUBCOMMANDS:
   filter       Layer-0 command filter (slimference filter -- <cmd>)
   install      Atomic Codex-only install (CA + launchd + Codex hooks)
   codex        Scoped Codex CLI/App routing (run|enable|disable|status)
+  enable       Enable scoped Codex CLI/App route (alias: codex enable)
+  disable      Disable scoped Codex CLI/App route (alias: codex disable)
   cert-trust   Open Keychain Access for the local CA trust step
+  lab          Advanced global ChatGPT routing lab commands
   root-arm     Advanced global ChatGPT hosts + pfctl routing helper
-  enable       Arm transparent MITM mode in the daemon config
-  disable      Disarm transparent MITM mode in the daemon config
   root-disarm  Remove global ChatGPT hosts + pfctl routing helper
   uninstall    Reverse the install plan
   status       Print install / daemon / routing state
@@ -67,12 +68,12 @@ FIRST STEPS:
   1. slimference install      # Codex-only install, no hosts patch yet
   2. slimference status --preflight
   3. slimference codex run -- <prompt>
-  4. slimference codex enable # optional shared CLI/App route
+  4. slimference enable       # optional shared CLI/App route
 
 GLOBAL LAB ONLY:
-  slimference cert-trust
-  slimference root-arm --global-chatgpt-hosts
-  slimference enable
+  slimference lab cert-trust
+  slimference lab root-arm --global-chatgpt-hosts
+  slimference lab enable
 
 MORE:
   Config: ~/.config/slimference/config.toml (override via SLIMFERENCE_CONFIG)
@@ -287,8 +288,9 @@ should prefer 'slimference service <verb>' or '--no-tui' instead.
 		return `slimference start
 
 Start the local Slimference daemon in the background. This only starts
-the admin/proxy process; transparent Codex routing still requires
-	cert-trust, root-arm --global-chatgpt-hosts, and enable.
+the admin/proxy process. Scoped Codex routing uses slimference enable.
+Global transparent lab routing additionally requires lab cert-trust,
+lab root-arm --global-chatgpt-hosts, and lab enable.
 `
 	case "stop":
 		return `slimference stop

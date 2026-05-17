@@ -13,6 +13,7 @@ import (
 )
 
 func TestStartProxyForDaemon_TickerSuccessAndServerClosedIgnored(t *testing.T) {
+	stubReloadPIDWriter(t)
 	origConfigLoad := configLoadFn
 	origNewProxy := newProxyFn
 	origRunner := proxyStartRunnerFn
@@ -62,6 +63,7 @@ func TestStartProxyForDaemon_TickerSuccessAndServerClosedIgnored(t *testing.T) {
 }
 
 func TestStartProxyForDaemon_DeadlineSuccess(t *testing.T) {
+	stubReloadPIDWriter(t)
 	origConfigLoad := configLoadFn
 	origNewProxy := newProxyFn
 	origRunner := proxyStartRunnerFn
@@ -108,6 +110,7 @@ func TestStartProxyForDaemon_DeadlineSuccess(t *testing.T) {
 }
 
 func TestStartProxyForDaemon_RunnerErrorWins(t *testing.T) {
+	stubReloadPIDWriter(t)
 	origConfigLoad := configLoadFn
 	origNewProxy := newProxyFn
 	origRunner := proxyStartRunnerFn
@@ -200,6 +203,7 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestStartProxyForDaemon_TimeoutErrorContainsDuration(t *testing.T) {
+	stubReloadPIDWriter(t)
 	origConfigLoad := configLoadFn
 	origNewProxy := newProxyFn
 	origRunner := proxyStartRunnerFn

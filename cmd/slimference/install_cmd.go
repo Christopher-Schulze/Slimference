@@ -131,9 +131,9 @@ func runInstallCmd(args []string, p installPrinter) int {
 	fmt.Fprintln(p.Out, "  slimference codex enable   # optional shared CLI/App route")
 	fmt.Fprintln(p.Out, "")
 	fmt.Fprintln(p.Out, "Global lab only:")
-	fmt.Fprintln(p.Out, "  slimference cert-trust")
-	fmt.Fprintln(p.Out, "  slimference root-arm --global-chatgpt-hosts")
-	fmt.Fprintln(p.Out, "  slimference enable")
+	fmt.Fprintln(p.Out, "  slimference lab cert-trust")
+	fmt.Fprintln(p.Out, "  slimference lab root-arm --global-chatgpt-hosts")
+	fmt.Fprintln(p.Out, "  slimference lab enable")
 	return 0
 }
 
@@ -184,25 +184,33 @@ func runUninstallCmd(args []string, p installPrinter) int {
 	return 0
 }
 
-// handleEnableCmd writes cfg.Transparent.SNIPeekMode=true and signals
-// the daemon (SIGHUP). A scoped Codex CLI run does not need this; the
-// global transparent lab path additionally requires root-arm.
+// handleEnableCmd enables the scoped Codex CLI/App route. It is
+// intentionally not the global transparent MITM switch; that lab-only
+// path lives behind `slimference lab enable`.
 func handleEnableCmd(args []string) {
 	exitFn(runEnableCmd(args, defaultInstallPrinter()))
 }
 
 func runEnableCmd(args []string, p installPrinter) int {
-	return setSNIPeekMode(args, p, true, "enable")
+	return runCodexEnableCmd(args, p)
 }
 
-// handleDisableCmd writes cfg.Transparent.SNIPeekMode=false and signals
-// the daemon to revert /etc/hosts.
+// handleDisableCmd disables the scoped Codex CLI/App route. Global
+// transparent lab routing is disabled via `slimference lab disable`.
 func handleDisableCmd(args []string) {
 	exitFn(runDisableCmd(args, defaultInstallPrinter()))
 }
 
 func runDisableCmd(args []string, p installPrinter) int {
-	return setSNIPeekMode(args, p, false, "disable")
+	return runCodexDisableCmd(args, p)
+}
+
+func runLabEnableCmd(args []string, p installPrinter) int {
+	return setSNIPeekMode(args, p, true, "lab enable")
+}
+
+func runLabDisableCmd(args []string, p installPrinter) int {
+	return setSNIPeekMode(args, p, false, "lab disable")
 }
 
 func setSNIPeekMode(args []string, p installPrinter, target bool, verb string) int {
@@ -212,7 +220,7 @@ func setSNIPeekMode(args []string, p installPrinter, target bool, verb string) i
 		return 2
 	}
 	if f.help {
-		fmt.Fprint(p.Out, enableDisableHelpText)
+		fmt.Fprint(p.Out, labEnableDisableHelpText)
 		return 0
 	}
 	cfgPath := f.configPath
@@ -345,6 +353,24 @@ func renderStatus(p installPrinter, s control.SetupState) {
 		s.Listener.BoundOn443, s.Listener.BoundOnSNIPeek, 8990, s.Listener.BoundOn8990)
 	fmt.Fprintf(p.Out, "  Network  %s hosts_active=%v entries=%d\n",
 		mark(s.NetworkRedir.HostsActive), s.NetworkRedir.HostsActive, len(s.NetworkRedir.HostsEntries))
+	auto := s.CodexRoute.AutoTransport
+	if auto == "" {
+		auto = "unknown"
+	}
+	transport := s.CodexRoute.Transport
+	if transport == "" {
+		transport = "off"
+	}
+	fmt.Fprintf(p.Out, "  Codex    %s route_enabled=%v complete=%v transport=%s auto=%s wss_certified=%v daemon=%v\n",
+		mark(s.CodexRoute.Complete && s.CodexRoute.DaemonReachable),
+		s.CodexRoute.Enabled, s.CodexRoute.Complete, transport, auto,
+		s.CodexRoute.WSSCertified, s.CodexRoute.DaemonReachable)
+	if s.CodexRoute.FallbackReason != "" {
+		fmt.Fprintf(p.Out, "      auto fallback: %s\n", s.CodexRoute.FallbackReason)
+	}
+	if s.CodexRoute.DaemonError != "" {
+		fmt.Fprintf(p.Out, "      route daemon error: %s\n", s.CodexRoute.DaemonError)
+	}
 	fmt.Fprintln(p.Out, "  Apps")
 	for _, a := range s.Apps {
 		fmt.Fprintf(p.Out, "      %-20s enabled=%v detected=%v routed=%d bypassed=%d\n",
@@ -385,8 +411,8 @@ func renderStatus(p installPrinter, s control.SetupState) {
 		fmt.Fprintln(p.Out, "")
 		fmt.Fprintln(p.Out, "Transparent MITM DISARMED.")
 		fmt.Fprintln(p.Out, "Scoped Codex CLI: `slimference codex run -- <prompt>`.")
-		fmt.Fprintln(p.Out, "Scoped Codex CLI/App: `slimference codex enable`.")
-		fmt.Fprintln(p.Out, "Global lab only: `cert-trust`, `root-arm --global-chatgpt-hosts`, then `enable`.")
+		fmt.Fprintln(p.Out, "Scoped Codex CLI/App: `slimference enable`.")
+		fmt.Fprintln(p.Out, "Global lab only: `lab cert-trust`, `lab root-arm --global-chatgpt-hosts`, then `lab enable`.")
 	}
 }
 
@@ -408,9 +434,9 @@ func addStatusPreflight(s *control.SetupState, timeout time.Duration) {
 
 // enableDisableConfigPath returns the slimference config.toml path
 // the running daemon will actually read. This must match the loader's
-// precedence chain (env > XDG > legacy) so `slimference enable`
-// writes to the exact file the daemon reads on SIGHUP. Falls back to
-// the canonical XDG config path when no file exists yet.
+// precedence chain (env > XDG > legacy) so `slimference lab enable`
+// writes to the exact file the daemon reads on SIGHUP. Falls back to the
+// canonical XDG config path when no file exists yet.
 func enableDisableConfigPath() string {
 	if env := strings.TrimSpace(os.Getenv("SLIMFERENCE_CONFIG")); env != "" {
 		return env
@@ -470,16 +496,34 @@ Flags:
 
 const enableDisableHelpText = `usage: slimference enable | disable [flags]
 
-Arms / disarms daemon-side SNI-peek mode by writing
-cfg.Transparent.SNIPeekMode to the resolved config path and signaling
-the daemon (SIGHUP). It does not create a scoped Codex route by itself.
+Enables / disables the scoped Codex CLI/App route in ~/.codex/config.toml.
+This is the normal Codex-only path. It does not touch /etc/hosts, pfctl,
+system proxy settings, ChatGPT.app, browser ChatGPT, or Claude Code.
+
+Equivalent explicit commands:
+  slimference codex enable [flags]
+  slimference codex disable [flags]
+
+Flags:
+  --transport=http|wss  route transport (default http until live WSS certification)
+  --host=HOST           Slimference daemon host (default 127.0.0.1)
+  --port=PORT           Slimference daemon port (default 8990)
+  --dry-run             show the config block without writing
+  --help, -h            this text
+`
+
+const labEnableDisableHelpText = `usage: slimference lab enable | disable [flags]
+
+Advanced/global lab only. Arms / disarms daemon-side SNI-peek mode by
+writing cfg.Transparent.SNIPeekMode to the resolved config path and
+signaling the daemon (SIGHUP). This alone still does not patch hosts.
 
 If the daemon is not running, the flag is still written; the next
 ` + "`slimference daemon start`" + ` picks it up.
 
-Global transparent lab routing additionally requires:
-  slimference cert-trust
-  slimference root-arm --global-chatgpt-hosts
+Full global transparent lab routing additionally requires:
+  slimference lab cert-trust
+  slimference lab root-arm --global-chatgpt-hosts
 
 Flags:
   --config=PATH     override config.toml location

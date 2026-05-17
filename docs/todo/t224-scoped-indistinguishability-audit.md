@@ -78,8 +78,8 @@ Known limit:
 
 Pre-live runbook:
 
-1. Keep global lab mode off: no `cert-trust`, no
-   `root-arm --global-chatgpt-hosts`, no transparent `enable`.
+1. Keep global lab mode off: no `lab cert-trust`, no
+   `lab root-arm --global-chatgpt-hosts`, no `lab enable`.
 2. Capture native Codex direct baseline:
    `go run ./scripts/utils/indist_probe capture --label codex-native-direct --out research/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443`
 3. Trigger one small native Codex CLI prompt while capture is listening.

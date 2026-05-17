@@ -12,18 +12,18 @@ slimference status       # see what's currently armed
 slimference status --preflight
 slimference codex run -- <prompt>     # scoped one-shot Codex CLI, fail-open
 slimference codex run --transport=wss -- <prompt>  # scoped WSS power mode, pre-live-cert
-slimference codex enable              # optional shared Codex CLI/App route
-slimference codex enable --transport=wss  # optional shared WSS route, pre-live-cert
+slimference enable                    # optional shared Codex CLI/App route
+slimference enable --transport=wss    # optional shared WSS route, pre-live-cert
 slimference codex status
-slimference codex disable
+slimference disable
 
 # Global lab only, not the default because it also routes Browser ChatGPT
 # and ChatGPT.app:
-slimference cert-trust
-slimference root-arm --global-chatgpt-hosts
-slimference enable
-slimference disable
-slimference root-disarm
+slimference lab cert-trust
+slimference lab root-arm --global-chatgpt-hosts
+slimference lab enable
+slimference lab disable
+slimference lab root-disarm
 slimference uninstall    # full removal, restores backups
 ```
 
@@ -43,7 +43,8 @@ Slimference's default product path touches only scoped Codex surfaces:
    that Codex CLI process with the local `slimference-codex` provider. It
    does not touch `/etc/hosts`, pfctl, macOS Network Proxy settings,
    Browser ChatGPT, or ChatGPT.app.
-3. **Optional shared Codex CLI/App route** via `slimference codex enable`.
+3. **Optional shared Codex CLI/App route** via `slimference enable`
+   (alias: `slimference codex enable`).
    This writes a marker-owned provider block to `~/.codex/config.toml`:
    `model_provider="slimference-codex"`,
    `base_url="http://127.0.0.1:8990/backend-api/codex"`,
@@ -53,7 +54,7 @@ Slimference's default product path touches only scoped Codex surfaces:
    Explicit `--transport=wss` enables scoped Responses WebSockets and
    routes local Codex WSS upgrades through the Phase-F frame adapter. It
    is reversible with
-   `slimference codex disable` and still leaves Browser ChatGPT,
+   `slimference disable` (alias: `slimference codex disable`) and still leaves Browser ChatGPT,
    ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
    untouched.
 
@@ -63,6 +64,20 @@ It is deliberately not the default now because `chatgpt.com` routing is
 host-wide on macOS. Even with byte-equal passthrough, Browser ChatGPT and
 ChatGPT.app enter Slimference's bridge, which violates the scoped product
 goal.
+
+### Surface governance
+
+| Surface | Product role | Default install? | Normal command |
+|---|---:|---:|---|
+| Codex hooks | Signal/local output layer | yes | `slimference install` |
+| Scoped Codex provider route | Codex CLI/App traffic layer | optional | `slimference enable` |
+| One-shot scoped Codex CLI | Safe test/recovery path | no persistent state | `slimference codex run -- <prompt>` |
+| Global transparent MITM | Lab certification only | no | `slimference lab ...` |
+| Legacy proxy/env/integrate | Advanced compatibility | no | `slimference proxy ...`, `slimference integrate ...` |
+| Codex app-server/debug probes | Diagnostics until Desktop proof | no | T225/T228 only |
+
+Normal `enable` and `disable` never arm global routing. Global lab routing is
+always explicit and visually separate.
 
 Claude Code is deliberately **not** part of the product install. Its
 hook/parser code stays in tree for reference and possible future work,
@@ -95,7 +110,8 @@ What happens:
 1. Generates a local CA under `~/.slimference/ca/`.
 2. Prepares the Keychain trust step. On modern macOS the explicit
    "Always Trust" decision is interactive, so treat `slimference
-   cert-trust` as the supported trust path before live arming.
+   lab cert-trust` as the supported global-lab trust path before live
+   arming.
 3. Installs `~/Library/LaunchAgents/com.slimference.proxy.plist` and
    loads it via `launchctl`.
 4. Patches `~/.codex/hooks.json` + writes hook scripts to
@@ -143,9 +159,11 @@ runs post-101 frames through `wsmitm.Session` plus the Phase-F WSS
 adapter. Known Codex request/response frames can be compacted; unknown,
 binary, control, or malformed frames degrade to byte-equal forwarding.
 
-Until the live T224 capture passes, `--transport=auto` is intentionally an
-alias for the stable HTTP route. Raw scoped WSS is available for
-certification and power users, not yet the default claim.
+Until the live T224 capture passes, `--transport=auto` consults the local
+`~/.slimference/codex-wss-cert.json` proof file and falls back to the
+stable HTTP route when no green, version-matching WSS proof exists. Raw
+scoped WSS is available for certification and power users, not yet the
+default claim.
 
 ### 3. Enable shared Codex CLI/App route
 
@@ -153,7 +171,7 @@ Use this only when you want regular Codex CLI and Codex Desktop App
 sessions to use Slimference by default:
 
 ```bash
-slimference codex enable
+slimference enable
 slimference codex status
 ```
 
@@ -162,14 +180,14 @@ setting. Treat CLI/App as a single Codex switch until a separate
 Desktop-only launcher is live-proven. Disable it with:
 
 ```bash
-slimference codex disable
+slimference disable
 ```
 
 To persist WSS for both Codex CLI and any Desktop/App-server process that
 honors `~/.codex/config.toml`, use:
 
 ```bash
-slimference codex enable --transport=wss
+slimference enable --transport=wss
 ```
 
 This still does not touch Browser ChatGPT, ChatGPT.app, Claude Code, global
@@ -184,23 +202,23 @@ transparent MITM path. It routes `chatgpt.com` and `api.openai.com`
 for the whole user session, including Browser ChatGPT and ChatGPT.app.
 
 ```bash
-slimference cert-trust
-slimference root-arm --global-chatgpt-hosts
-slimference enable
+slimference lab cert-trust
+slimference lab root-arm --global-chatgpt-hosts
+slimference lab enable
 ```
 
 What happens:
 
-1. `cert-trust` opens Keychain Access on the local root cert. The
+1. `lab cert-trust` opens Keychain Access on the local root cert. The
    user must set it to "Always Trust" for SSL.
-2. `root-arm --global-chatgpt-hosts` writes the marker-fenced Codex-only IPv4 hosts block and
+2. `lab root-arm --global-chatgpt-hosts` writes the marker-fenced Codex-only IPv4 hosts block and
    installs the pfctl rdr anchor from port 443 to 127.0.0.1:8443. It
    does not write `api.anthropic.com` and does not install IPv6 `::1`
    mappings.
-3. `enable` sets `transparent.sni_peek_mode = true` in the resolved
+3. `lab enable` sets `transparent.sni_peek_mode = true` in the resolved
    config path. The canonical default is
    `~/.config/slimference/config.toml`.
-4. `enable` sends `SIGHUP` to the running daemon (PID read from
+4. `lab enable` sends `SIGHUP` to the running daemon (PID read from
    `~/.slimference/run/daemon.pid`).
 5. The daemon's SIGHUP handler reads the new flag and starts or stops
    the SNI-peek listener.
@@ -281,16 +299,18 @@ slimference_install:
       reverse: removes marker-fenced block
       inspect: present | absent
       idempotent: true
-      privilege: requires root; driven by `slimference root-arm --global-chatgpt-hosts` via one macOS admin prompt
+      privilege: requires root; driven by `slimference lab root-arm --global-chatgpt-hosts` via one macOS admin prompt
 
   commands:
     install:    install_plan.apply
     uninstall:  install_plan.reverse
-    enable:     write_config_field(transparent.sni_peek_mode = true) + SIGHUP daemon
-    disable:    write_config_field(transparent.sni_peek_mode = false) + SIGHUP daemon
-    cert-trust: open Keychain Access on ~/.slimference/ca/root.crt for interactive trust
-    root-arm:   advanced global hosts + pfctl activation for Codex hosts; requires --global-chatgpt-hosts
-    root-disarm: privileged hosts + pfctl deactivation
+    enable:     alias for codex enable; writes marker-owned shared Codex CLI/App provider route
+    disable:    alias for codex disable; removes marker-owned shared Codex CLI/App provider route
+    lab cert-trust: open Keychain Access on ~/.slimference/ca/root.crt for interactive trust
+    lab root-arm:   advanced global hosts + pfctl activation for Codex hosts; requires --global-chatgpt-hosts
+    lab enable:     write_config_field(transparent.sni_peek_mode = true) + SIGHUP daemon
+    lab disable:    write_config_field(transparent.sni_peek_mode = false) + SIGHUP daemon
+    lab root-disarm: privileged hosts + pfctl deactivation
     codex run:  one-shot scoped Codex CLI provider route with direct fallback
     codex enable: write marker-owned shared Codex CLI/App provider route
     codex disable: remove marker-owned shared Codex CLI/App provider route
@@ -365,11 +385,21 @@ The WSS transport block is under `/admin/state.wss`:
 - `degraded_sessions>0` or `parse_failures>0`: schema drift or malformed frames
   triggered fail-open byte bridging.
 
+The scoped product route block is under `/admin/state.codex_route`:
+
+- `enabled=true && complete=true && daemon_reachable=true`: shared Codex
+  CLI/App route is configured and the daemon is reachable.
+- `transport=http|wss`: the currently written marker-owned provider route.
+- `auto_transport=http|wss`, `wss_certified`, and `fallback_reason`: how
+  `--transport=auto` resolves right now.
+- `daemon_error` or `fallback_reason` non-empty: do not promote WSS by default
+  until the reason is cleared or live-certified.
+
 Current pre-live proof stack (2026-05-17):
 
 - `go run ./scripts/ci` passes all 8 steps, including the formal
   `go run ./scripts/coverage -min=99.5` aggregate gate. Reported
-  statement coverage is currently `99.8%` total. Package-level coverage
+  statement coverage is currently `99.7%` total. Package-level coverage
   lines can be below the aggregate threshold without failing the formal
   release check.
 - Targeted race check passes:
@@ -379,8 +409,9 @@ Current pre-live proof stack (2026-05-17):
   through the normal HTTP server, and the T224 parser can parse a
   synthetic WSS capture without tshark.
 - Live Codex certification is still intentionally pending as T209. Do not
-  run `cert-trust`, `root-arm --global-chatgpt-hosts`, or `enable` from
-  the active Codex Desktop development session.
+  run global lab commands (`lab cert-trust`,
+  `lab root-arm --global-chatgpt-hosts`, `lab enable`) from the active
+  Codex Desktop development session.
 
 The transparent listener readiness bit is
 `/admin/state.listener.bound_on_sni_peek` (default port 8443). Admin
@@ -407,10 +438,10 @@ explicitly approved. The scoped CLI sequence is
 `status --preflight` -> `codex run -- <prompt>` ->
 `codex run --transport=wss -- <prompt>` -> `/admin/state` telemetry and
 T224 capture check. The shared CLI/App proof sequence is
-`codex enable --transport=wss` -> restart Codex.app/app-server -> prompt
--> telemetry check -> `codex disable`. The old global sequence is now lab-only:
-`cert-trust` -> `root-arm --global-chatgpt-hosts` -> `enable` -> smoke
--> `disable` -> `root-disarm`.
+`enable --transport=wss` -> restart Codex.app/app-server -> prompt
+-> telemetry check -> `disable`. The old global sequence is now lab-only:
+`lab cert-trust` -> `lab root-arm --global-chatgpt-hosts` ->
+`lab enable` -> smoke -> `lab disable` -> `lab root-disarm`.
 
 ## Dry-run
 
@@ -471,14 +502,21 @@ slimference uninstall [flags]
   --help, -h        show help
 
 slimference enable | disable [flags]
-  --config=PATH     override config.toml location. CAUTION: must
-                    match the path the daemon was started with
-                    (default ~/.config/slimference/config.toml). If the
-                    daemon was launched via `slimference --config=X
-                    daemon start`, you MUST pass the same X here,
-                    otherwise the daemon's SIGHUP reads the wrong
-                    file. Use the default path unless you have a
-                    specific reason.
+  --transport=auto|http|wss  scoped Codex route transport. auto falls
+                    back to HTTP until local WSS certification is green.
+  --host=HOST       Slimference daemon host (default 127.0.0.1)
+  --port=PORT       Slimference daemon port (default 8990)
+  --dry-run         print marker-owned Codex config block only
+  --help, -h        show help
+
+slimference lab enable | disable [flags]
+  --config=PATH     override config.toml location. CAUTION: must match
+                    the path the daemon was started with (default
+                    ~/.config/slimference/config.toml). If the daemon
+                    was launched via `slimference --config=X daemon
+                    start`, you MUST pass the same X here, otherwise
+                    the daemon's SIGHUP reads the wrong file. Use the
+                    default path unless you have a specific reason.
   --help, -h        show help
 
 slimference status [flags]

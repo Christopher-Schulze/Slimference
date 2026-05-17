@@ -48,7 +48,7 @@ _slimference() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     cword=$COMP_CWORD
 
-    local top_level="config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook codexhook hook debug daemon start stop restart service codex proxy integrate bypass layer2 completion expand checkpoint trust version"
+    local top_level="install uninstall enable disable status cert-trust root-arm root-disarm lab config test doctor stats gain savings quality soak compress-preview watch filter rewrite posttool readhook codexhook hook debug daemon start stop restart service codex proxy integrate bypass layer2 completion expand checkpoint trust version"
     local periods="today week month all"
     local period_flags="--json --csv --by-command --by-parser --cache --output"
     local savings_flags="--json --csv --project"
@@ -136,10 +136,29 @@ _slimference() {
                 COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") )
             elif [ "$cword" -ge 3 ]; then
                 case "${COMP_WORDS[2]}" in
-                    run) COMPREPLY=( $(compgen -W "--direct --host= --port= --" -- "$cur") ) ;;
-                    enable) COMPREPLY=( $(compgen -W "--host= --port= --dry-run" -- "$cur") ) ;;
+                    run) COMPREPLY=( $(compgen -W "--direct --transport=auto --transport=http --transport=wss --host= --port= --" -- "$cur") ) ;;
+                    enable) COMPREPLY=( $(compgen -W "--transport=http --transport=wss --host= --port= --dry-run" -- "$cur") ) ;;
                     disable) COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") ) ;;
                     status) COMPREPLY=( $(compgen -W "--json --host= --port=" -- "$cur") ) ;;
+                esac
+            fi
+            ;;
+        enable)
+            COMPREPLY=( $(compgen -W "--transport=http --transport=wss --host= --port= --dry-run" -- "$cur") )
+            ;;
+        disable)
+            COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") )
+            ;;
+        status)
+            COMPREPLY=( $(compgen -W "--json --preflight" -- "$cur") )
+            ;;
+        lab)
+            if [ "$cword" -eq 2 ]; then
+                COMPREPLY=( $(compgen -W "cert-trust root-arm root-disarm enable disable" -- "$cur") )
+            elif [ "$cword" -ge 3 ]; then
+                case "${COMP_WORDS[2]}" in
+                    root-arm) COMPREPLY=( $(compgen -W "--global-chatgpt-hosts --help" -- "$cur") ) ;;
+                    enable|disable) COMPREPLY=( $(compgen -W "--config= --help" -- "$cur") ) ;;
                 esac
             fi
             ;;

@@ -144,6 +144,9 @@ func TestBuildProbesFieldsPopulated(t *testing.T) {
 	if probes.Apps == nil {
 		t.Error("Apps probe missing")
 	}
+	if probes.CodexRoute == nil {
+		t.Error("CodexRoute probe missing")
+	}
 	if probes.Savings == nil {
 		t.Error("Savings probe missing")
 	}

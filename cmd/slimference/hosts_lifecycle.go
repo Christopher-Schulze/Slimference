@@ -186,3 +186,5 @@ func writePIDFile() func() {
 		}
 	}
 }
+
+var writePIDFileFn = writePIDFile

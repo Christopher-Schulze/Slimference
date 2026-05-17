@@ -22,7 +22,7 @@ func Build(ctx context.Context, p Probes) SetupState {
 
 	// Run each probe in its own goroutine so the wall-clock budget
 	// is bounded by the slowest probe rather than the sum.
-	done := make(chan struct{}, 8)
+	done := make(chan struct{}, 9)
 	go func() {
 		if p.CA != nil {
 			state.CA = p.CA.ProbeCA(ctx)
@@ -60,6 +60,12 @@ func Build(ctx context.Context, p Probes) SetupState {
 		done <- struct{}{}
 	}()
 	go func() {
+		if p.CodexRoute != nil {
+			state.CodexRoute = p.CodexRoute.ProbeCodexRoute(ctx)
+		}
+		done <- struct{}{}
+	}()
+	go func() {
 		if p.Savings != nil {
 			state.Savings = p.Savings.ProbeSavings(ctx)
 		}
@@ -71,7 +77,7 @@ func Build(ctx context.Context, p Probes) SetupState {
 		}
 		done <- struct{}{}
 	}()
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 9; i++ {
 		<-done
 	}
 	state.UpdatedAt = now()

@@ -22,8 +22,8 @@
 //	slimference codexhook <event> # Codex lifecycle hook entry points
 //	slimference install            # Install Codex-only Phase H surface
 //	slimference codex run -- <prompt> # Scoped Codex CLI with fail-open
-//	slimference codex enable       # Optional shared Codex CLI/App route
-//	slimference enable             # Global lab: arm SNI-peek after explicit root-arm
+//	slimference enable             # Optional shared Codex CLI/App route
+//	slimference lab enable         # Global lab: arm SNI-peek after explicit root-arm
 //	slimference debug paths        # Show resolved config / filter.db / tee paths
 //	slimference debug last         # Last Layer-0 row from filter.db (--json)
 //	slimference debug summary week # Aggregate filter_runs for today|week|month|all
@@ -154,7 +154,10 @@ var (
 		startProxyHostsCleanup = applyHostsPatch(cfg)
 		_, sniCancel := startSNIPeekEngineFn(p, cfg, appsMgr)
 		startProxySNICancel = sniCancel
-		startProxyPIDCleanup = writePIDFile()
+		// Only the managed daemon may own ~/.slimference/run/daemon.pid.
+		// Foreground/TUI starts are short-lived and must not overwrite
+		// the SIGHUP target used by `slimference enable/disable`.
+		startProxyPIDCleanup = nil
 		runner := proxyStartRunnerFn
 		hasListener := proxyHasListenerFn
 		after := timeAfterFn
@@ -627,6 +630,9 @@ func handleSubcommand(args []string) {
 	case "codex":
 		handleCodexCmd(args[1:])
 
+	case "lab":
+		handleLabCmd(args[1:])
+
 	case "install":
 		handleInstallCmd(args[1:])
 
@@ -653,7 +659,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, expand-body, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, codex, proxy, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, expand-body, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, codex, lab, proxy, version")
 		exitFn(1)
 	}
 }
@@ -3743,8 +3749,8 @@ type serviceControlAdapter struct{}
 
 var (
 	tuiInstallCmdFn            = runInstallCmd
-	tuiEnableCmdFn             = runEnableCmd
-	tuiDisableCmdFn            = runDisableCmd
+	tuiEnableCmdFn             = runLabEnableCmd
+	tuiDisableCmdFn            = runLabDisableCmd
 	tuiUninstallCmdFn          = runUninstallCmd
 	tuiCodexRouteEnableCmdFn   = runCodexEnableCmd
 	tuiCodexRouteDisableCmdFn  = runCodexDisableCmd
@@ -3874,16 +3880,23 @@ func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
 	proxyURL := codexroute.ProxyURL("127.0.0.1", "8990")
 	status, err := codexRouteInspectFn(home, proxyURL, codexroute.Options{})
 	out := tui.CodexRouteStatus{
-		Exists:     status.Exists,
-		Enabled:    status.Enabled,
-		Complete:   status.Complete,
-		Conflict:   status.Conflict,
-		LegacyKeys: status.LegacyKeys,
+		Exists:            status.Exists,
+		Enabled:           status.Enabled,
+		Complete:          status.Complete,
+		Conflict:          status.Conflict,
+		LegacyKeys:        status.LegacyKeys,
+		Transport:         status.Transport,
+		CertificationPath: codexroute.CertificationPath(home),
 	}
 	if err != nil {
 		out.Detail = err.Error()
 		return out
 	}
+	auto := codexAutoFn(home)
+	out.AutoTransport = string(auto.Transport)
+	out.WSSCertified = auto.WSSCertified
+	out.FallbackReason = auto.FallbackReason
+	out.Detail = auto.LastWSSError
 	if err := tuiCodexRouteHealthCheckFn("127.0.0.1", "8990"); err != nil {
 		out.Detail = err.Error()
 		return out
@@ -4042,7 +4055,6 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 	startProxyHostsCleanup = applyHostsPatch(cfg)
 	_, sniCancel := startSNIPeekEngineFn(p, cfg, startProxyAppsManager)
 	startProxySNICancel = sniCancel
-	startProxyPIDCleanup = writePIDFile()
 	applyPersistedRuntimeState(p)
 
 	runner := proxyStartRunnerFn
@@ -4066,10 +4078,12 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 			return 0, nil, fmt.Errorf("proxy start: %w", err)
 		case <-ticker.C:
 			if hasListener(p) {
+				startProxyPIDCleanup = writePIDFileFn()
 				return cfg.Proxy.ListenPort, p.Shutdown, nil
 			}
 		case <-deadline:
 			if hasListener(p) {
+				startProxyPIDCleanup = writePIDFileFn()
 				return cfg.Proxy.ListenPort, p.Shutdown, nil
 			}
 			return 0, nil, fmt.Errorf("proxy start: timeout after %s", proxyStartTimeout)

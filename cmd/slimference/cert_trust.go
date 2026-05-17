@@ -91,7 +91,7 @@ the Slimference Root CA as "Always Trust" for SSL.
 Without this step, Codex clients reject the connection when transparent
 MITM is armed.
 
-Run after ` + "`slimference install`" + `, before ` + "`slimference enable`" + `.
+Run after ` + "`slimference install`" + `, before ` + "`slimference lab enable`" + `.
 
 Flags:
   --help, -h    this text

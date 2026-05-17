@@ -531,7 +531,7 @@ func TestReloadSNIPeekModeFromDiskMissingAndUnreadableConfig(t *testing.T) {
 	}
 }
 
-// TestEndToEndCLIDaemonSIGHUP: write config via runEnableCmd, send
+// TestEndToEndCLIDaemonSIGHUP: write config via runLabEnableCmd, send
 // SIGHUP to a fake daemon goroutine, observe reloadSNIPeekModeFromDisk
 // fires.
 func TestEndToEndCLIDaemonSIGHUP(t *testing.T) {
@@ -546,7 +546,7 @@ func TestEndToEndCLIDaemonSIGHUP(t *testing.T) {
 	// PID file, SIGHUP is skipped — that's the fail-open path.
 	bufOut := &bytes.Buffer{}
 	bufErr := &bytes.Buffer{}
-	rc := runEnableCmd(nil, installPrinter{Out: bufOut, Err: bufErr})
+	rc := runLabEnableCmd(nil, installPrinter{Out: bufOut, Err: bufErr})
 	if rc != 0 {
 		t.Fatalf("enable rc=%d err=%s", rc, bufErr.String())
 	}
@@ -558,7 +558,7 @@ func TestEndToEndCLIDaemonSIGHUP(t *testing.T) {
 	}
 
 	// Step 3: CLI disable.
-	rc = runDisableCmd(nil, installPrinter{Out: bufOut, Err: bufErr})
+	rc = runLabDisableCmd(nil, installPrinter{Out: bufOut, Err: bufErr})
 	if rc != 0 {
 		t.Fatalf("disable rc=%d err=%s", rc, bufErr.String())
 	}

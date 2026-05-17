@@ -196,13 +196,18 @@ type TransparentStatus struct {
 // CodexRouteStatus is the TUI-facing snapshot of the scoped
 // marker-owned Codex provider route in ~/.codex/config.toml.
 type CodexRouteStatus struct {
-	Exists          bool
-	Enabled         bool
-	Complete        bool
-	Conflict        string
-	LegacyKeys      bool
-	DaemonReachable bool
-	Detail          string
+	Exists            bool
+	Enabled           bool
+	Complete          bool
+	Conflict          string
+	LegacyKeys        bool
+	DaemonReachable   bool
+	Transport         string
+	AutoTransport     string
+	WSSCertified      bool
+	FallbackReason    string
+	CertificationPath string
+	Detail            string
 }
 
 // Installed reports whether transparent mode is installed but not necessarily armed.
@@ -589,13 +594,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if err := m.svc.DisableCodexRoute(); err != nil {
 						m.setFlash("Codex route disable failed: " + err.Error())
 					} else {
-						m.setFlash("Codex route disabled")
+						m.setFlash("Codex Mode disabled")
 					}
 				} else {
 					if err := m.svc.EnableCodexRoute(); err != nil {
 						m.setFlash("Codex route enable failed: " + err.Error())
 					} else {
-						m.setFlash("Codex route enabled")
+						m.setFlash("Codex Mode enabled")
 					}
 				}
 				m.refreshCodexRouteStatus(true)
@@ -621,22 +626,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				status := m.transparentStatus
 				if status.ProxyArmed {
 					if err := m.svc.DisableTransparent(); err != nil {
-						m.setFlash("Disarm failed: " + err.Error())
+						m.setFlash("Global lab disarm failed: " + err.Error())
 					} else {
-						m.setFlash("Transparent proxy disarmed")
+						m.setFlash("Global lab disarmed")
 					}
 				} else {
 					if !status.Installed() {
 						if err := m.svc.InstallTransparent(); err != nil {
-							m.setFlash("Install failed: " + err.Error())
+							m.setFlash("Global lab asset install failed: " + err.Error())
 							m.persistStateBestEffort()
 							return m, flashTimer(3 * time.Second)
 						}
 					}
 					if err := m.svc.EnableTransparent(); err != nil {
-						m.setFlash("Arm failed: " + err.Error())
+						m.setFlash("Global lab arm failed: " + err.Error())
 					} else {
-						m.setFlash("Transparent proxy armed")
+						m.setFlash("Global lab armed")
 					}
 				}
 				m.refreshTransparentStatus(true)
@@ -647,9 +652,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "u":
 			if m.view == ViewSetup && m.svc != nil {
 				if err := m.svc.UninstallTransparent(); err != nil {
-					m.setFlash("Transparent uninstall failed: " + err.Error())
+					m.setFlash("Slimference asset uninstall failed: " + err.Error())
 				} else {
-					m.setFlash("Transparent proxy uninstalled")
+					m.setFlash("Slimference assets uninstalled")
 				}
 				m.refreshTransparentStatus(true)
 				m.persistStateBestEffort()
@@ -912,13 +917,13 @@ func (m *Model) dashboardActions() []dashboardAction {
 			description: autoDesc,
 			state:       autoState,
 		})
-		transparentLabel := "Arm transparent proxy"
+		transparentLabel := "Open global lab"
 		transparentState := "off"
-		transparentDesc := "Route Codex HTTPS through Slimference without URL/proxy config hacks."
+		transparentDesc := "Advanced lab-only CA/hosts/pfctl mode; not the normal Codex path."
 		if transparent.ProxyArmed {
-			transparentLabel = "Disarm transparent proxy"
-			transparentState = fmt.Sprintf("armed · %d svc", transparent.ActiveServices)
-			transparentDesc = "Restore direct HTTPS routing while keeping the daemon and CA installed."
+			transparentLabel = "Close global lab"
+			transparentState = fmt.Sprintf("lab armed · %d svc", transparent.ActiveServices)
+			transparentDesc = "Restore machine-wide direct HTTPS routing."
 		} else if transparent.Installed() {
 			transparentState = "installed"
 		} else if transparent.CAExists || transparent.CATrusted || transparent.AutoStartInstalled {
@@ -1056,22 +1061,22 @@ func (m *Model) executeMainSelection() tea.Cmd {
 		status := m.transparentStatus
 		if status.ProxyArmed {
 			if err := m.svc.DisableTransparent(); err != nil {
-				m.setFlash("Disarm transparent proxy failed: " + err.Error())
+				m.setFlash("Global lab disarm failed: " + err.Error())
 			} else {
-				m.setFlash("Transparent proxy disarmed")
+				m.setFlash("Global lab disarmed")
 			}
 		} else {
 			if !status.Installed() {
 				if err := m.svc.InstallTransparent(); err != nil {
-					m.setFlash("Install transparent proxy failed: " + err.Error())
+					m.setFlash("Global lab asset install failed: " + err.Error())
 					m.persistStateBestEffort()
 					return flashTimer(3 * time.Second)
 				}
 			}
 			if err := m.svc.EnableTransparent(); err != nil {
-				m.setFlash("Arm transparent proxy failed: " + err.Error())
+				m.setFlash("Global lab arm failed: " + err.Error())
 			} else {
-				m.setFlash("Transparent proxy armed")
+				m.setFlash("Global lab armed")
 			}
 		}
 		m.refreshTransparentStatus(true)
@@ -1127,7 +1132,7 @@ func (m *Model) setupSteps() []setupStep {
 			confirm: "Install Codex-only Slimference integration",
 		},
 		{
-			label:   "Run slimference codex enable (scoped CLI/App route)",
+			label:   "Run slimference enable (Codex Mode: auto)",
 			check:   func() bool { return m.codexRouteStatus.Complete },
 			action:  func(m *Model) error { return m.svc.EnableCodexRoute() },
 			confirm: "Enable scoped Codex provider route",

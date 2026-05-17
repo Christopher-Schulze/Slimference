@@ -675,8 +675,8 @@ func (m *Model) renderSetupView() string {
 		serviceLines = append(serviceLines, renderTransparentStatusLine(s, transparent))
 		serviceLines = append(serviceLines, renderCodexRouteStatusLine(s, m.codexRouteStatus))
 		serviceLines = append(serviceLines, "")
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] enable/disable Codex route  [p] start/stop  [o] restart"))
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] global lab MITM listener  [u] uninstall transparent assets"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] enable/disable Codex Mode  [p] start/stop  [o] restart"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] global lab controls  [u] uninstall Slimference assets"))
 		serviceLines = append(serviceLines, "  "+s.Muted.Render("[e] enable autostart  [w] disable autostart"))
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(serviceLines, "\n")))
 
@@ -732,8 +732,8 @@ func (m *Model) renderSetupView() string {
 			"  " + s.SetupCmd.Render("slimference install"),
 			"  " + s.SetupCmd.Render("slimference codex run -- <prompt>") + s.Dim.Render(" # one-shot CLI"),
 			"  " + s.SetupCmd.Render("slimference codex run --transport=wss -- <prompt>") + s.Dim.Render(" # WSS cert"),
-			"  " + s.SetupCmd.Render("slimference codex enable") + s.Dim.Render("         # CLI/App route"),
-			"  " + s.SetupCmd.Render("slimference codex disable") + s.Dim.Render("        # direct fallback"),
+			"  " + s.SetupCmd.Render("slimference enable") + s.Dim.Render("                  # CLI/App route"),
+			"  " + s.SetupCmd.Render("slimference disable") + s.Dim.Render("                 # direct fallback"),
 			"  " + s.SetupCmd.Render("slimference codex status") + s.Dim.Render("         # route status"),
 		}
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(commandLines, "\n")))
@@ -1176,34 +1176,49 @@ func providerFlowLine(s Styles, label string, stats analytics.ProviderStats, lat
 func renderTransparentStatusLine(s Styles, status TransparentStatus) string {
 	switch {
 	case status.ProxyArmed && status.DaemonReachable:
-		return "  " + s.Saved.Render("● TRANSPARENT") + fmt.Sprintf("  armed on %d service(s), daemon reachable", status.ActiveServices)
+		return "  " + s.Saved.Render("● GLOBAL LAB") + fmt.Sprintf("  armed on %d service(s), daemon reachable", status.ActiveServices)
 	case status.ProxyArmed:
-		return "  " + s.LogError.Render("● TRANSPARENT") + fmt.Sprintf("  armed on %d service(s), daemon unreachable", status.ActiveServices)
+		return "  " + s.LogError.Render("● GLOBAL LAB") + fmt.Sprintf("  armed on %d service(s), daemon unreachable", status.ActiveServices)
 	case status.Installed():
-		return "  " + s.Saved.Render("● TRANSPARENT") + "  installed, currently disarmed"
+		return "  " + s.Saved.Render("● GLOBAL LAB") + "  assets installed, currently disarmed"
 	case status.CAExists || status.CATrusted || status.AutoStartInstalled:
-		return "  " + s.BannerWarn.Render("● TRANSPARENT") + "  partially installed"
+		return "  " + s.BannerWarn.Render("● GLOBAL LAB") + "  partially installed"
 	case status.NetworkUnavailable:
-		return "  " + s.LogError.Render("● TRANSPARENT") + "  networksetup unavailable"
+		return "  " + s.LogError.Render("● GLOBAL LAB") + "  networksetup unavailable"
 	default:
-		return "  " + s.Muted.Render("○ TRANSPARENT") + "  not installed"
+		return "  " + s.Muted.Render("○ GLOBAL LAB") + "  not installed"
 	}
 }
 
 func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
+	mode := status.Transport
+	if mode == "" {
+		mode = status.AutoTransport
+	}
+	if mode == "" {
+		mode = "auto"
+	}
+	modeText := " · " + mode
+	if status.WSSCertified {
+		modeText += " · WSS certified"
+	}
 	switch {
 	case status.Complete && status.DaemonReachable:
-		return "  " + s.Saved.Render("● CODEX ROUTE") + "  scoped CLI/App route ready"
+		return "  " + s.Saved.Render("● CODEX MODE") + "  scoped CLI/App route ready" + s.Dim.Render(modeText)
 	case status.Enabled && !status.DaemonReachable:
-		return "  " + s.LogError.Render("● CODEX ROUTE") + "  configured but daemon unreachable; press [r] to disable"
+		return "  " + s.LogError.Render("● CODEX MODE") + "  configured but daemon unreachable; press [r] to disable"
 	case status.Enabled && status.Conflict != "":
-		return "  " + s.BannerWarn.Render("● CODEX ROUTE") + "  configured with conflict: " + status.Conflict
+		return "  " + s.BannerWarn.Render("● CODEX MODE") + "  configured with conflict: " + status.Conflict
 	case status.Enabled:
-		return "  " + s.BannerWarn.Render("● CODEX ROUTE") + "  configured but incomplete"
+		return "  " + s.BannerWarn.Render("● CODEX MODE") + "  configured but incomplete" + s.Dim.Render(modeText)
 	case status.Exists:
-		return "  " + s.Muted.Render("○ CODEX ROUTE") + "  disabled; press [r] to enable scoped CLI/App"
+		suffix := ""
+		if status.FallbackReason != "" {
+			suffix = " · auto " + status.AutoTransport + " · " + status.FallbackReason
+		}
+		return "  " + s.Muted.Render("○ CODEX MODE") + "  disabled; press [r] to enable scoped CLI/App" + s.Dim.Render(suffix)
 	default:
-		return "  " + s.Muted.Render("○ CODEX ROUTE") + "  Codex config not found"
+		return "  " + s.Muted.Render("○ CODEX MODE") + "  Codex config not found"
 	}
 }
 

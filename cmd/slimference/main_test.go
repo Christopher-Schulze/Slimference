@@ -158,6 +158,7 @@ func TestHandleSubcommandPhaseHCommands(t *testing.T) {
 		{name: "enable", args: []string{"enable", "--help"}},
 		{name: "disable", args: []string{"disable", "--help"}},
 		{name: "status", args: []string{"status", "--help"}},
+		{name: "lab", args: []string{"lab", "--help"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, exited := captureExit(func() { handleSubcommand(tc.args) })
@@ -2729,6 +2730,7 @@ func TestServiceControlAdapterStartDaemonWaitError(t *testing.T) {
 }
 
 func TestStartProxyForDaemon(t *testing.T) {
+	stubReloadPIDWriter(t)
 	origConfigLoad := configLoadFn
 	origNewProxy := newProxyFn
 	origRunner := proxyStartRunnerFn

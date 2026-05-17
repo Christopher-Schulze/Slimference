@@ -1,0 +1,121 @@
+package codexroute
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestDecideAutoTransportNoCertificationFallsBackHTTP(t *testing.T) {
+	home := t.TempDir()
+	decision, err := DecideAutoTransport(home, "codex-1", "slim-1")
+	if err != nil {
+		t.Fatalf("DecideAutoTransport: %v", err)
+	}
+	if decision.Transport != TransportHTTP || decision.WSSCertified {
+		t.Fatalf("decision=%+v", decision)
+	}
+	if !strings.Contains(decision.FallbackReason, "missing") {
+		t.Fatalf("fallback reason=%q", decision.FallbackReason)
+	}
+}
+
+func TestDecideAutoTransportGreenCertificationPromotesWSS(t *testing.T) {
+	home := t.TempDir()
+	if err := SaveCertification(home, CertificationState{
+		CodexVersion:       "codex-1",
+		SlimferenceVersion: "slim-1",
+		Passed:             true,
+		FramesReencoded:    9,
+	}); err != nil {
+		t.Fatalf("SaveCertification: %v", err)
+	}
+	decision, err := DecideAutoTransport(home, "codex-1", "slim-1")
+	if err != nil {
+		t.Fatalf("DecideAutoTransport: %v", err)
+	}
+	if decision.Transport != TransportWSS || !decision.WSSCertified || decision.FallbackReason != "" {
+		t.Fatalf("decision=%+v", decision)
+	}
+	if decision.CertifiedCodex != "codex-1" || decision.CertifiedSlimference != "slim-1" {
+		t.Fatalf("version fields missing: %+v", decision)
+	}
+}
+
+func TestDecideAutoTransportRejectsStaleOrUnhealthyCertification(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		state   CertificationState
+		current string
+		want    string
+	}{
+		{
+			name: "codex version changed",
+			state: CertificationState{
+				CodexVersion:       "codex-1",
+				SlimferenceVersion: "slim-1",
+				Passed:             true,
+			},
+			current: "codex-2",
+			want:    "version changed",
+		},
+		{
+			name: "parse failures",
+			state: CertificationState{
+				CodexVersion:       "codex-1",
+				SlimferenceVersion: "slim-1",
+				Passed:             true,
+				ParseFailures:      1,
+			},
+			current: "codex-1",
+			want:    "parse failures",
+		},
+		{
+			name: "degraded sessions",
+			state: CertificationState{
+				CodexVersion:       "codex-1",
+				SlimferenceVersion: "slim-1",
+				Passed:             true,
+				DegradedSessions:   1,
+			},
+			current: "codex-1",
+			want:    "degraded sessions",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			if err := SaveCertification(home, tc.state); err != nil {
+				t.Fatalf("SaveCertification: %v", err)
+			}
+			decision, err := DecideAutoTransport(home, tc.current, "slim-1")
+			if err != nil {
+				t.Fatalf("DecideAutoTransport: %v", err)
+			}
+			if decision.Transport != TransportHTTP || decision.WSSCertified {
+				t.Fatalf("decision=%+v", decision)
+			}
+			if !strings.Contains(decision.FallbackReason, tc.want) {
+				t.Fatalf("reason=%q want contains %q", decision.FallbackReason, tc.want)
+			}
+		})
+	}
+}
+
+func TestDecideAutoTransportUnreadableCertificationFailsClosedToHTTP(t *testing.T) {
+	home := t.TempDir()
+	path := CertificationPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{not-json"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	decision, err := DecideAutoTransport(home, "codex-1", "slim-1")
+	if err != nil {
+		t.Fatalf("DecideAutoTransport should not fail hard: %v", err)
+	}
+	if decision.Transport != TransportHTTP || !strings.Contains(decision.FallbackReason, "unreadable") {
+		t.Fatalf("decision=%+v", decision)
+	}
+}

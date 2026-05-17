@@ -145,8 +145,8 @@ var (
 	renameAtomicFileFn = os.Rename
 )
 
-// pidFilePath returns the path Slimference writes its PID to. Used
-// by `slimference enable/disable` to SIGHUP the daemon.
+// pidFilePath returns the legacy reload PID path the managed daemon
+// writes for cheap SIGHUP reloads.
 func pidFilePath() string {
 	home, err := osUserHomeDir()
 	if err != nil || home == "" {
@@ -168,9 +168,13 @@ func signalPID(pid int, sig os.Signal) error {
 	return proc.Signal(sig)
 }
 
-// signalDaemonReload reads the PID file and sends SIGHUP. Returns
-// (sent=true, nil) on success; (false, nil) if no PID file exists
-// (daemon not running); (false, err) on filesystem / signal errors.
+// signalDaemonReload sends SIGHUP to the managed daemon. The legacy
+// reload PID file is tried first for compatibility; if it is missing or
+// stale, the canonical daemon PID record is used as a self-healing
+// fallback.
+//
+// Returns (sent=true, nil) on success; (false, nil) if no running daemon
+// can be resolved; (false, err) on filesystem / signal errors.
 func signalDaemonReload() (bool, error) {
 	path := pidFilePath()
 	if path == "" {
@@ -179,7 +183,7 @@ func signalDaemonReload() (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+			return signalDaemonReloadFromDaemonPID()
 		}
 		return false, err
 	}
@@ -187,6 +191,14 @@ func signalDaemonReload() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("malformed PID file %s: %w", path, err)
 	}
+	sent, err := signalDaemonReloadPID(pid)
+	if sent || err != nil {
+		return sent, err
+	}
+	return signalDaemonReloadFromDaemonPID()
+}
+
+func signalDaemonReloadPID(pid int) (bool, error) {
 	if err := signalPIDFn(pid, syscall.SIGHUP); err != nil {
 		// ESRCH = no such process
 		if errors.Is(err, syscall.ESRCH) || strings.Contains(err.Error(), "process already finished") {
@@ -195,6 +207,17 @@ func signalDaemonReload() (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func signalDaemonReloadFromDaemonPID() (bool, error) {
+	running, pf, err := daemonIsRunningFn()
+	if err != nil {
+		return false, err
+	}
+	if !running || pf == nil || pf.PID <= 0 {
+		return false, nil
+	}
+	return signalDaemonReloadPID(pf.PID)
 }
 
 // fetchSetupState calls the local /admin/state endpoint via HTTP.

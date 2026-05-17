@@ -22,17 +22,18 @@ import (
 // endpoint. Every sub-block is independently fillable; missing data
 // fills with the zero value so the renderer can show "unknown".
 type SetupState struct {
-	CA           CAState        `json:"ca"`
-	Daemon       DaemonState    `json:"daemon"`
-	Listener     ListenerState  `json:"listener"`
-	NetworkRedir NetworkState   `json:"network_redirect"`
-	Indist       IndistState    `json:"indistinguishability"`
-	Apps         []AppEntry     `json:"apps"`
-	Savings      SavingsSummary `json:"savings"`
-	WSS          WSSState       `json:"wss"`
-	Preflight    PreflightState `json:"preflight"`
-	UpdatedAt    time.Time      `json:"updated_at"`
-	LastError    string         `json:"last_error,omitempty"`
+	CA           CAState         `json:"ca"`
+	Daemon       DaemonState     `json:"daemon"`
+	Listener     ListenerState   `json:"listener"`
+	NetworkRedir NetworkState    `json:"network_redirect"`
+	Indist       IndistState     `json:"indistinguishability"`
+	Apps         []AppEntry      `json:"apps"`
+	CodexRoute   CodexRouteState `json:"codex_route"`
+	Savings      SavingsSummary  `json:"savings"`
+	WSS          WSSState        `json:"wss"`
+	Preflight    PreflightState  `json:"preflight"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+	LastError    string          `json:"last_error,omitempty"`
 }
 
 // CAState reports the local Slimference Root CA.
@@ -110,6 +111,30 @@ type AppEntry struct {
 	LastSeen time.Time  `json:"last_seen,omitempty"`
 }
 
+// CodexRouteState reports the scoped, marker-owned Codex provider route.
+// This is the product traffic path for Codex CLI / Codex Desktop App; it
+// is intentionally separate from NetworkState, which describes the
+// global lab-only /etc/hosts + pfctl surface.
+type CodexRouteState struct {
+	Path                        string `json:"path"`
+	Exists                      bool   `json:"exists"`
+	Enabled                     bool   `json:"enabled"`
+	Complete                    bool   `json:"complete"`
+	Conflict                    string `json:"conflict,omitempty"`
+	LegacyKeys                  bool   `json:"legacy_keys"`
+	BaseURL                     string `json:"base_url"`
+	Transport                   string `json:"transport"`
+	DaemonReachable             bool   `json:"daemon_reachable"`
+	DaemonError                 string `json:"daemon_error,omitempty"`
+	AutoTransport               string `json:"auto_transport"`
+	WSSCertified                bool   `json:"wss_certified"`
+	CertifiedCodexVersion       string `json:"certified_codex_version,omitempty"`
+	CertifiedSlimferenceVersion string `json:"certified_slimference_version,omitempty"`
+	CertificationPath           string `json:"certification_path,omitempty"`
+	FallbackReason              string `json:"fallback_reason,omitempty"`
+	LastWSSError                string `json:"last_wss_error,omitempty"`
+}
+
 // SavingsSummary rolls up Phase F counters for the dashboard tile.
 type SavingsSummary struct {
 	InputTokensSaved       int64   `json:"input_tokens_saved"`
@@ -160,6 +185,7 @@ type Probes struct {
 	NetworkRedir NetworkProbe
 	Indist       IndistProbe
 	Apps         AppsProbe
+	CodexRoute   CodexRouteProbe
 	Savings      SavingsProbe
 	WSS          WSSProbe
 	Clock        func() time.Time
@@ -186,6 +212,9 @@ type IndistProbe interface {
 }
 type AppsProbe interface {
 	ProbeApps(ctx context.Context) []AppEntry
+}
+type CodexRouteProbe interface {
+	ProbeCodexRoute(ctx context.Context) CodexRouteState
 }
 type SavingsProbe interface {
 	ProbeSavings(ctx context.Context) SavingsSummary
