@@ -150,9 +150,12 @@ func (s *Session) pump(ctx context.Context, dir Direction, src io.Reader,
 		}
 		s.countFrame(dir, len(frame.Raw))
 
-		// Pass-through for non-text frames + degraded mode.
-		if frame.Opcode != byte(wscompact.OpcodeText) || s.counters.Degraded.Load() ||
-			handler == nil || len(frame.Payload) == 0 {
+		// Pass-through for frames that Phase-F cannot safely mutate in
+		// their current wire shape. RSV frames are usually compressed
+		// by negotiated WebSocket extensions (e.g. permessage-deflate);
+		// they need extension-aware decode/re-encode before mutation.
+		if frame.Opcode != byte(wscompact.OpcodeText) || frame.RSV ||
+			s.counters.Degraded.Load() || handler == nil || len(frame.Payload) == 0 {
 			if _, err := dst.Write(frame.Raw); err != nil {
 				return fmt.Errorf("write frame raw: %w", err)
 			}
@@ -160,9 +163,19 @@ func (s *Session) pump(ctx context.Context, dir Direction, src io.Reader,
 			continue
 		}
 
-		// Parse the JSON envelope. On parse failure we degrade the
-		// rest of the session to byte-copy mode rather than block
-		// traffic on a schema change.
+		if !looksLikeJSONObject(frame.Payload) {
+			if _, err := dst.Write(frame.Raw); err != nil {
+				return fmt.Errorf("write non-envelope text frame raw: %w", err)
+			}
+			s.counters.FramesForwarded.Add(1)
+			continue
+		}
+
+		// Parse the JSON envelope. On malformed object-shaped JSON we
+		// degrade the rest of the session to byte-copy mode rather than
+		// block traffic on a schema change. Non-object text frames were
+		// forwarded above because Codex may use them as legal protocol
+		// sentinels that Phase-F cannot mutate.
 		env, err := Parse(frame.Payload)
 		if err != nil {
 			s.counters.ParseFailures.Add(1)

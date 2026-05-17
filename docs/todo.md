@@ -1296,6 +1296,16 @@ only and promotes the per-process Codex CLI runner for T209.
   Responses-shaped `input` bodies across HTTP and WSS. Live HTTP smoke now
   exits 0 with `stop_seq_injections=0`. Detail:
   `docs/todo/t233-responses-safe-stop-sequences.md`
+- [x] **T234** WSS non-envelope text passthrough — Codex 0.130 scoped WSS now
+  completes with legal non-envelope and RSV/compressed text frames forwarded
+  byte-equal without `parse_failures` or `degraded_sessions`; malformed
+  object-shaped envelopes still degrade fail-open. Detail:
+  `docs/todo/t234-wss-non-envelope-text-passthrough.md`
+- [~] **T235** WSS permessage-deflate Phase-F mutation — live scoped WSS now
+  proves the remaining value blocker is compressed Codex payloads. Implement
+  negotiated `permessage-deflate` decode/re-encode so Phase-F can mutate WSS
+  without stripping extensions or promoting global lab routing. Detail:
+  `docs/todo/t235-wss-permessage-deflate-phasef.md`
 
 ### Sequencing within Phase H
 
@@ -1357,6 +1367,14 @@ only and promotes the per-process Codex CLI runner for T209.
    product, fallback, lab, or legacy before it enters docs/help/TUI.
 23. **T233 before resuming T209** — no further scoped Codex HTTP/WSS live
    traffic until Responses-shaped bodies are proven to pass without `stop`.
+24. **T234 before WSS certification** — scoped WSS can answer correctly while
+   still losing all Phase-F value if one legal non-envelope text frame trips
+   degraded mode. Non-mutatable WSS payloads must pass through without
+   poisoning the session before T224 can fairly judge real mutation.
+25. **T235 before T226** — T234 proved Codex 0.130 WSS frames are safe to
+   bridge without degradation, but live payloads are compressed. WSS-first auto
+   promotion is invalid until `permessage-deflate` decode/re-encode produces
+   real `frames_reencoded>0` on scoped live Codex traffic.
 
 ### Acceptance for Phase H
 

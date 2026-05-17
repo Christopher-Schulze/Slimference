@@ -113,3 +113,183 @@ Remaining:
 - Resume T209/T224 with explicit WSS smoke and certification capture. Do not
   promote `auto` to WSS until WSS proof records `frames_reencoded > 0`,
   `parse_failures = 0`, and `degraded_sessions = 0`.
+
+---
+
+## 2026-05-18 — T209 Live Sequence Resumed (Phases 1–4)
+
+Driver: Claude Opus 4.7 (1M context) live audit after T233 fix landed.
+Pre-state ratified: HEAD `0488068 TASK 233: skip stop injection for Responses API`.
+Daemon PID `87481`, working tree clean, `~/.codex/config.toml` baseline SHA
+`0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`.
+
+Safety contract (unchanged):
+- No `slimference lab *`, no global hosts/pfctl/Keychain.
+- No `OPENAI_API_BASE`, `HTTPS_PROXY`, macOS System Proxy mutation.
+- Browser ChatGPT, ChatGPT.app, Claude Code untouched.
+
+### Phase 1 — Scoped HTTP smoke (per-process, no enable)
+
+Command:
+`slimference codex run --transport=http -- exec "Reply with exactly: PING"`
+
+Result:
+- Codex banner reports `provider: slimference-codex` (routing confirmed).
+- Response body: `PING`; exit 0.
+- `/admin/state.savings.stop_seq_injections` stayed at 0 (T233 verified live).
+- WSS counters all 0 (HTTP path bypasses raw WSS frontdoor, as designed).
+
+### Phase 2 — `slimference enable` (persistent scoped route)
+
+Command: `slimference enable`
+
+Result:
+- Marker block written to `~/.codex/config.toml` (+11 lines, 212 → 223).
+- Block content: `model_provider = "slimference-codex"`,
+  `base_url = "http://127.0.0.1:8990/backend-api/codex"`,
+  `supports_websockets = false`, `wire_api = "responses"`.
+- Backup written to
+  `~/.codex/config.toml.slimference-codex-route-backup-<timestamp>`.
+- `/admin/state.codex_route`: `enabled=true`, `complete=true`,
+  `transport="http"`, `auto_transport="http"`, `wss_certified=false`,
+  `fallback_reason="wss certification missing"`.
+- `status --preflight` confirmed: `:8443=false`, `hosts_active=false`,
+  `claude_code=enabled=false`. Scope contract held.
+
+### Phase 3 — Scoped WSS smoke (`--transport=wss`)
+
+Command:
+`slimference codex run --transport=wss -- exec "Reply with exactly: WSS_OK"`
+
+Result:
+- Codex banner reports `provider: slimference-codex`.
+- Response body: `WSS_OK`; exit 0.
+- WSS counter delta:
+  - `engine_active=true`, `mitm_bridged=1`, `passthrough_bridged=0`.
+  - `bytes_c2s=67617`, `bytes_s2c=99682`.
+  - `c2s_frames=2`, `s2c_frames=17`, `frames_forwarded=19`.
+  - **`frames_reencoded=0`**.
+  - **`parse_failures=1`**.
+  - **`degraded_sessions=1`**.
+  - `byte_bridge_only=true`, `mutation_active=false`.
+- `savings.stop_seq_injections=0` confirmed unchanged on WSS path too
+  (T233 fix holds at the second call site in `wsmitm_phasef.go:102`).
+
+Diagnosis:
+- Codex CLI 0.130 emits at least one WSS frame the `internal/proxy/wsmitm`
+  parser cannot decode. Bridge degrades to byte-equal fail-open: Codex
+  receives correct upstream answer, but Slimference cannot apply Phase-F
+  mutation to that session.
+- This is *defensive* behaviour as designed: parse failure → degrade →
+  byte-equal forward, never break the conversation to optimise.
+- T226 promotion criteria (`parse_failures=0`, `degraded_sessions=0`,
+  `frames_reencoded>0`) are therefore NOT met by Codex 0.130 today.
+  `auto=http` correctly stays pinned. `~/.slimference/codex-wss-cert.json`
+  must NOT be written.
+
+### Phase 4 — `slimference disable` (cleanup verify)
+
+Command: `slimference disable`
+
+Result:
+- Exit 0; "Codex route disabled: ... (removed_block)".
+- `~/.codex/config.toml` lines back to 212 (baseline).
+- SHA256 after disable: `0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`
+  — **bit-identical** to pre-enable baseline.
+- `/admin/state.codex_route.enabled=false`, `complete=false`,
+  `transport=""`.
+- Marker block fully removed; backup files preserved under
+  `~/.codex/config.toml.slimference-codex-route-backup-*`.
+
+### Decisions and next gates
+
+- Phases 1, 2, 4: PASS. Scoped Codex CLI is live-validated; T233 fix holds
+  in HTTP and WSS paths; enable/disable is reversible to bit-equality.
+- Phase 3: PARTIAL PASS. Codex functional via WSS bridge, but Phase-F
+  parser degrades on Codex 0.130. WSS-cert remains blocked.
+- Next task is T224: tshark capture of the actual WSS frame stream,
+  isolate which frame type / opcode / continuation pattern degrades the
+  parser, then patch `internal/proxy/wsmitm` to either decode or
+  intentionally pass through that frame class without recording it as a
+  parse failure.
+- T226 (auto promotion) stays blocked behind T224.
+- T225 (Desktop proof) is independent and can start in parallel.
+- `tshark` 4.6.5 is installed at `/opt/homebrew/bin/tshark`. ChmodBPF is
+  NOT installed, so `/dev/bpf*` is `crw------- root:wheel`. Captures
+  require either `sudo tshark ...` or the Wireshark installer's
+  "Install ChmodBPF" option.
+
+End live state ratified: daemon disarmed, route disabled,
+`~/.codex/config.toml` SHA equal to pre-Phase-2 baseline, working tree
+clean, no global side effects.
+
+---
+
+## 2026-05-18 — T234 WSS Parser Safety Fix
+
+Driver: Codex after T209 Phase 3 identified `parse_failures=1` and
+`degraded_sessions=1` on a successful scoped WSS run.
+
+Change:
+- `internal/proxy/wsmitm.Session` now treats legal text payloads that are not
+  JSON object envelopes as non-mutatable and forwards them byte-equal without
+  setting degraded mode.
+- RSV/compressed-extension text frames are explicitly forwarded byte-equal
+  without parse/degrade, matching the existing `wscompact` blocker semantics.
+- Malformed object-shaped JSON still increments `parse_failures`, sets
+  `degraded`, and byte-bridges the rest of the session.
+
+Verification before live:
+- `go test ./internal/proxy/wsmitm ./internal/proxy -run 'TestSession|TestWSPhaseF|TestMITMConversation' -count=1 -timeout 120s`
+  passed.
+- `go test ./... -count=1 -timeout 300s` passed.
+- `go vet ./...` passed.
+- `go run ./scripts/ci` passed all eight gates; aggregate coverage stayed above
+  the 99.5% gate.
+- `go run ./scripts/build --install` built the stripped product binary; repo
+  binary and `~/.local/bin/slimference` SHA256 matched.
+- Daemon restarted healthy on `:8990`; pidfiles matched the live daemon PID;
+  status remained disarmed (`:8443=false`, `:443=false`, `hosts_active=false`,
+  `codex_route.enabled=false`, `claude_code=false`).
+
+Live scoped WSS retries:
+- `./slimference codex run --transport=wss -- exec "Reply with exactly: WSS_OK"`
+  returned `WSS_OK`, exit 0.
+- WSS counters after the first retry:
+  - `mitm_bridged=1`
+  - `c2s_frames=2`, `s2c_frames=17`
+  - `frames_forwarded=19`
+  - `frames_reencoded=0`
+  - `parse_failures=0`
+  - `degraded_sessions=0`
+  - `byte_bridge_only=true`
+  - `mutation_active=false`
+  - `savings.stop_seq_injections=0`
+- Tool-using scoped WSS retries also returned correctly and kept
+  `parse_failures=0`, `degraded_sessions=0`, and `stop_seq_injections=0`.
+- `~/.codex/config.toml` remained bit-identical to the baseline SHA after every
+  run because `codex run` uses the per-process provider override.
+- Final clean-build retry after removing temporary diagnostics:
+  `./slimference codex run --transport=wss -- exec "Reply with exactly: FINAL_WSS_OK"`
+  returned `FINAL_WSS_OK`, exit 0. Counters:
+  `mitm_bridged=1`, `c2s_frames=2`, `s2c_frames=18`,
+  `frames_forwarded=20`, `frames_reencoded=0`, `parse_failures=0`,
+  `degraded_sessions=0`, `stop_seq_injections=0`.
+  Repo and installed binary SHA256 both
+  `6b6dd9078397f7a59a6b20e860173817cbe526cb0573036aeae12fd57dfb684f`.
+  Daemon PID `26546` ran without `SLIMFERENCE_WSS_FRAME_DUMP_DIR`.
+
+Diagnosis after parser fix:
+- T234 fixed the false-positive degradation.
+- `frames_reencoded=0` is now explained by the real blocker: Codex 0.130 WSS
+  uses compressed payloads (`permessage-deflate` / RSV1). Those frames are safe
+  to bridge but not yet mutation-capable.
+- A temporary env-gated frame dump was used during diagnosis and removed from
+  product code before commit.
+
+Decision:
+- T234 is complete as a parser-safety fix.
+- WSS auto-promotion remains blocked.
+- New T235 owns extension-aware `permessage-deflate` decode/re-encode so
+  Phase-F can mutate compressed scoped WSS traffic without stripping native
+  WebSocket extensions.

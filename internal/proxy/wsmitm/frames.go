@@ -12,8 +12,11 @@
 // as `json.RawMessage` so we forward bytes faithfully even when
 // OpenAI adds new fields.
 //
-// Fail-open: any frame we can't parse downgrades the session to a
-// pure passthrough tunnel. We never block traffic on schema drift.
+// Fail-open: malformed JSON envelope frames downgrade the session to a
+// pure passthrough tunnel. Compressed/RSV frames and text frames that are
+// not JSON envelopes are forwarded byte-equal without degrading because
+// they are valid WSS protocol payloads but not Phase-F mutation
+// candidates in their current wire shape.
 package wsmitm
 
 import (

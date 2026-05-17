@@ -1374,9 +1374,12 @@ tokens, output tokens, bypass count, and slowest request.
 
 Transparent WebSocket transport is fail-open. `internal/wscompact` still
 preserves raw frames for unknown, binary, malformed, RSV/compressed, and
-schema-drift cases. For known Codex WSS conversation envelopes,
-`internal/proxy/wsmitm` parses the frame and `PhaseFDispatcher` attaches a
-Phase F adapter:
+schema-drift cases. RSV/compressed frames are currently forwarded byte-equal
+without parser degradation; extension-aware `permessage-deflate`
+decode/re-encode is tracked separately before WSS can be promoted to a
+mutation-certified default. For known uncompressed Codex WSS conversation
+envelopes, `internal/proxy/wsmitm` parses the frame and `PhaseFDispatcher`
+attaches a Phase F adapter:
 
 - client-to-server request payloads run stale-read aging, obsolete-read prune,
   stop-sequence injection, and be-terse when existing config/cohort gates allow

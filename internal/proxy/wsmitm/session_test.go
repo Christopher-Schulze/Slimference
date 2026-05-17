@@ -238,7 +238,7 @@ func TestSessionForwardsNonTextFramesByteEqual(t *testing.T) {
 	<-done
 }
 
-func TestSessionDegradesOnParseFailure(t *testing.T) {
+func TestSessionForwardsNonEnvelopeTextWithoutDegrading(t *testing.T) {
 	client, clientPeer := newDuplexPair()
 	upstream, upstreamPeer := newDuplexPair()
 
@@ -255,12 +255,107 @@ func TestSessionDegradesOnParseFailure(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- session.Serve(ctx) }()
 
-	// Send a text frame with broken JSON. Bridge should pass it
-	// through unchanged and mark Degraded.
+	// Codex may send legal text frames that are not JSON envelopes
+	// (sentinels, extension payloads, etc.). They are not Phase-F
+	// mutation candidates and must not degrade the whole session.
 	writeTextFrame(t, clientPeer, `not json at all`)
 	got, _ := readOneTextFrame(t, upstreamPeer)
 	if got != `not json at all` {
-		t.Errorf("malformed frame mutated: %q", got)
+		t.Errorf("non-envelope frame mutated: %q", got)
+	}
+
+	writeTextFrame(t, clientPeer, `{"type":"request"}`)
+	_, _ = readOneTextFrame(t, upstreamPeer)
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if snap.Degraded {
+		t.Errorf("Degraded=true after non-envelope text")
+	}
+	if snap.ParseFailures != 0 {
+		t.Errorf("ParseFailures=%d", snap.ParseFailures)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("handler calls=%d want 1", calls.Load())
+	}
+}
+
+func TestSessionForwardsRSVTextWithoutDegrading(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	calls := atomic.Int32{}
+	session := &Session{
+		Client: client, Upstream: upstream,
+		ClientHandler: func(context.Context, Direction, *Envelope) (bool, error) {
+			calls.Add(1)
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	// FIN + RSV1 + text, payload "xyz". This models a permessage-
+	// deflate frame without requiring a full extension implementation.
+	if _, err := clientPeer.Write([]byte{0xc1, 0x03, 'x', 'y', 'z'}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := wscompact.ReadFrame(upstreamPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.RSV {
+		t.Fatalf("RSV bit was not preserved in raw forward: %+v", got)
+	}
+	if string(got.Payload) != "xyz" {
+		t.Fatalf("payload changed: %q", got.Payload)
+	}
+
+	writeTextFrame(t, clientPeer, `{"type":"request"}`)
+	_, _ = readOneTextFrame(t, upstreamPeer)
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if snap.Degraded {
+		t.Errorf("Degraded=true after RSV text")
+	}
+	if snap.ParseFailures != 0 {
+		t.Errorf("ParseFailures=%d", snap.ParseFailures)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("handler calls=%d want 1", calls.Load())
+	}
+}
+
+func TestSessionDegradesOnMalformedEnvelopeObject(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	calls := atomic.Int32{}
+	session := &Session{
+		Client: client, Upstream: upstream,
+		ClientHandler: func(context.Context, Direction, *Envelope) (bool, error) {
+			calls.Add(1)
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	writeTextFrame(t, clientPeer, `{"type":`)
+	got, _ := readOneTextFrame(t, upstreamPeer)
+	if got != `{"type":` {
+		t.Errorf("malformed envelope mutated: %q", got)
 	}
 
 	// Subsequent frames should now skip the handler (degraded mode).
@@ -279,7 +374,7 @@ func TestSessionDegradesOnParseFailure(t *testing.T) {
 		t.Errorf("ParseFailures=%d", snap.ParseFailures)
 	}
 	if calls.Load() != 0 {
-		t.Errorf("handler should not have been called after degrade")
+		t.Errorf("handler should not have been called after malformed envelope")
 	}
 }
 
@@ -518,7 +613,7 @@ func TestSessionParseFailureWriteErrorPropagates(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- session.Serve(context.Background()) }()
 
-	writeTextFrame(t, clientPeer, `not json`)
+	writeTextFrame(t, clientPeer, `{"type":`)
 	select {
 	case err := <-done:
 		if err == nil || !contains(err.Error(), "parse failure") {
