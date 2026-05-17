@@ -18,7 +18,7 @@ import (
 	"github.com/slimference/slimference/internal/wscompact"
 )
 
-func TestWSPhaseFRequestInjectsStopAndPreservesUnknownEnvelopeFields(t *testing.T) {
+func TestWSPhaseFRequestSkipsStopOnResponsesShape(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = true
 	p := New(cfg)
@@ -43,26 +43,19 @@ func TestWSPhaseFRequestInjectsStopAndPreservesUnknownEnvelopeFields(t *testing.
 	if err != nil {
 		t.Fatalf("handle: %v", err)
 	}
-	if !replace {
-		t.Fatal("expected request frame to be re-encoded")
+	if replace {
+		t.Fatal("Responses-shaped request must not be re-encoded for stop injection")
 	}
 
 	var body map[string]json.RawMessage
 	if err := json.Unmarshal(env.Body, &body); err != nil {
 		t.Fatalf("body JSON: %v", err)
 	}
-	if _, ok := body["stop"]; !ok {
-		t.Fatalf("stop field missing from mutated body: %s", env.Body)
+	if _, ok := body["stop"]; ok {
+		t.Fatalf("Responses-shaped request must not carry stop: %s", env.Body)
 	}
-	wire, err := env.Marshal()
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if !strings.Contains(string(wire), `"trace":"keep-me"`) {
-		t.Fatalf("unknown envelope field lost on re-encode: %s", wire)
-	}
-	if got := p.OutputReduceCountersSnapshot().StopSeqRequestsModified; got != 1 {
-		t.Fatalf("stop counter=%d, want 1", got)
+	if got := p.OutputReduceCountersSnapshot().StopSeqRequestsModified; got != 0 {
+		t.Fatalf("stop counter=%d, want 0", got)
 	}
 }
 
@@ -90,8 +83,8 @@ func TestWSPhaseFRepdetRewritesStreamedTextDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request handle: %v", err)
 	}
-	if !replace {
-		t.Fatal("request should mutate through stop-sequence injection")
+	if replace {
+		t.Fatal("Responses-shaped request should seed state without stop mutation")
 	}
 
 	resp := parseWSJSON(t, map[string]any{
@@ -227,8 +220,8 @@ func TestWSPhaseFRequestBodyVariants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request variant handle: %v", err)
 	}
-	if !replace || !strings.Contains(string(requestEnv.Request), `"stop"`) {
-		t.Fatalf("request variant not mutated: replace=%v request=%s", replace, requestEnv.Request)
+	if replace || strings.Contains(string(requestEnv.Request), `"stop"`) {
+		t.Fatalf("Responses-shaped request variant should not get stop: replace=%v request=%s", replace, requestEnv.Request)
 	}
 
 	rawBody := mustMarshal(map[string]any{
@@ -339,7 +332,7 @@ func TestWSPhaseFTerminalResponseRepdetRewrite(t *testing.T) {
 			"stream": true,
 		},
 	})
-	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &req); err != nil || !replace {
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &req); err != nil || replace {
 		t.Fatalf("request handle replace=%v err=%v", replace, err)
 	}
 
@@ -626,7 +619,7 @@ func findCodexWSSTreatmentConversation(t *testing.T, p *Proxy) string {
 	return ""
 }
 
-func TestMITMConversationMutatesRequestFrameWhenProxyConfigured(t *testing.T) {
+func TestMITMConversationForwardsResponsesRequestWithoutStop(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = true
 	p := New(cfg)
@@ -670,8 +663,8 @@ func TestMITMConversationMutatesRequestFrameWhenProxyConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read frame: %v", err)
 	}
-	if !strings.Contains(string(frame.Payload), `"stop"`) {
-		t.Fatalf("upstream frame was not mutated: %s", frame.Payload)
+	if strings.Contains(string(frame.Payload), `"stop"`) {
+		t.Fatalf("Responses request frame must not get stop: %s", frame.Payload)
 	}
 
 	_ = clientRemote.Close()
@@ -679,8 +672,8 @@ func TestMITMConversationMutatesRequestFrameWhenProxyConfigured(t *testing.T) {
 	_ = clientLocal.Close()
 	wg.Wait()
 
-	if got := p.OutputReduceCountersSnapshot().StopSeqRequestsModified; got != 1 {
-		t.Fatalf("stop counter=%d, want 1", got)
+	if got := p.OutputReduceCountersSnapshot().StopSeqRequestsModified; got != 0 {
+		t.Fatalf("stop counter=%d, want 0", got)
 	}
 }
 

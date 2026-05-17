@@ -57,15 +57,63 @@ func TestMergeIntoBodyOpenAIEmpty(t *testing.T) {
 }
 
 func TestMergeIntoBodyCodex(t *testing.T) {
-	body := []byte(`{"model":"gpt-5-codex"}`)
-	_, res := MergeIntoBody(types.CodexChatGPT, body)
+	body := []byte(`{"model":"gpt-5-codex","messages":[]}`)
+	out, res := MergeIntoBody(types.CodexChatGPT, body)
 	if res.FieldUsed != "stop" {
 		t.Fatalf("FieldUsed=%q want stop", res.FieldUsed)
+	}
+	if res.AddedCount != 4 {
+		t.Fatalf("AddedCount=%d want 4", res.AddedCount)
+	}
+	if got := unmarshalStop(t, out, "stop"); len(got) != 4 {
+		t.Fatalf("len(stop)=%d want 4", len(got))
+	}
+}
+
+func TestMergeIntoBodyOpenAIResponsesShapeSkipped(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","input":"hi"}`)
+	out, res := MergeIntoBody(types.OpenAI, body)
+	if !res.OK {
+		t.Fatal("Responses-shape body should be a safe no-op")
+	}
+	if res.AddedCount != 0 {
+		t.Fatalf("AddedCount=%d want 0", res.AddedCount)
+	}
+	if !reflect.DeepEqual(out, body) {
+		t.Fatalf("Responses-shape body mutated: got %s want %s", out, body)
+	}
+}
+
+func TestMergeIntoBodyCodexResponsesShapeSkipped(t *testing.T) {
+	body := []byte(`{"model":"gpt-5-codex","input":[{"type":"message","role":"user","content":"hi"}],"stream":true}`)
+	out, res := MergeIntoBody(types.CodexChatGPT, body)
+	if !res.OK {
+		t.Fatal("Codex Responses-shape body should be a safe no-op")
+	}
+	if res.AddedCount != 0 {
+		t.Fatalf("AddedCount=%d want 0", res.AddedCount)
+	}
+	if !reflect.DeepEqual(out, body) {
+		t.Fatalf("Codex Responses-shape body mutated: got %s want %s", out, body)
+	}
+}
+
+func TestMergeIntoBodyNoMessagesShapeSkipped(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","stop":"END"}`)
+	out, res := MergeIntoBody(types.OpenAI, body)
+	if !res.OK {
+		t.Fatal("no-messages body should be a safe no-op")
+	}
+	if res.AddedCount != 0 {
+		t.Fatalf("AddedCount=%d want 0", res.AddedCount)
+	}
+	if !reflect.DeepEqual(out, body) {
+		t.Fatalf("no-messages body mutated: got %s want %s", out, body)
 	}
 }
 
 func TestMergeIntoBodyPreservesUserStringForm(t *testing.T) {
-	body := []byte(`{"model":"gpt-5","stop":"END"}`)
+	body := []byte(`{"model":"gpt-5","messages":[],"stop":"END"}`)
 	out, res := MergeIntoBody(types.OpenAI, body)
 	if !res.OK {
 		t.Fatalf("res.OK=false")
@@ -83,7 +131,7 @@ func TestMergeIntoBodyPreservesUserStringForm(t *testing.T) {
 }
 
 func TestMergeIntoBodyPreservesUserArrayForm(t *testing.T) {
-	body := []byte(`{"stop":["FOO","BAR"]}`)
+	body := []byte(`{"messages":[],"stop":["FOO","BAR"]}`)
 	out, res := MergeIntoBody(types.OpenAI, body)
 	if !res.OK {
 		t.Fatalf("res.OK=false")
@@ -101,7 +149,7 @@ func TestMergeIntoBodyPreservesUserArrayForm(t *testing.T) {
 }
 
 func TestMergeIntoBodyUserFullCapNoAdds(t *testing.T) {
-	body := []byte(`{"stop":["A","B","C","D"]}`)
+	body := []byte(`{"messages":[],"stop":["A","B","C","D"]}`)
 	out, res := MergeIntoBody(types.OpenAI, body)
 	if !res.OK {
 		t.Fatalf("res.OK=false")
@@ -120,7 +168,7 @@ func TestMergeIntoBodyUserShadowsOurPhrase(t *testing.T) {
 	// in the addition loop (dup branch) and add only the remaining
 	// distinct phrases up to cap.
 	ours := PhrasesTopN(4)
-	body := []byte(`{"stop":` + mustJSON(t, []string{ours[1]}) + `}`)
+	body := []byte(`{"messages":[],"stop":` + mustJSON(t, []string{ours[1]}) + `}`)
 	out, res := MergeIntoBody(types.OpenAI, body)
 	got := unmarshalStop(t, out, "stop")
 	if len(got) != 4 {
@@ -151,7 +199,7 @@ func mustJSON(t *testing.T, v interface{}) string {
 }
 
 func TestMergeIntoBodyIdempotent(t *testing.T) {
-	body := []byte(`{"model":"claude"}`)
+	body := []byte(`{"model":"claude","messages":[]}`)
 	first, _ := MergeIntoBody(types.Anthropic, body)
 	second, res2 := MergeIntoBody(types.Anthropic, first)
 	if res2.AddedCount != 0 {
@@ -163,7 +211,7 @@ func TestMergeIntoBodyIdempotent(t *testing.T) {
 }
 
 func TestMergeIntoBodyDedupExistingUserEntries(t *testing.T) {
-	body := []byte(`{"stop":["FOO","FOO","BAR"]}`)
+	body := []byte(`{"messages":[],"stop":["FOO","FOO","BAR"]}`)
 	out, _ := MergeIntoBody(types.OpenAI, body)
 	got := unmarshalStop(t, out, "stop")
 	seen := map[string]int{}
@@ -178,7 +226,7 @@ func TestMergeIntoBodyDedupExistingUserEntries(t *testing.T) {
 }
 
 func TestMergeIntoBodyUserEmptyString(t *testing.T) {
-	body := []byte(`{"stop":""}`)
+	body := []byte(`{"messages":[],"stop":""}`)
 	out, res := MergeIntoBody(types.OpenAI, body)
 	if !res.OK {
 		t.Fatalf("res.OK=false")
@@ -204,7 +252,7 @@ func TestMergeIntoBodyMalformedStopField(t *testing.T) {
 	// stop is neither string nor array - decode fails for the field
 	// and we treat it as "user supplied something unrecognised" -> no
 	// new entries injected to avoid stomping the operator's intent.
-	body := []byte(`{"stop":12345}`)
+	body := []byte(`{"messages":[],"stop":12345}`)
 	out, res := MergeIntoBody(types.OpenAI, body)
 	if !res.OK {
 		t.Errorf("res.OK=false on unknown stop shape")

@@ -156,6 +156,98 @@ func TestOutstopWiredIntoOpenAIUpstream(t *testing.T) {
 	}
 }
 
+func TestOutstopWireSkipsOpenAIResponsesShape(t *testing.T) {
+	var captured atomic.Pointer[string]
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		s := string(body)
+		captured.Store(&s)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"resp_test","object":"response","output":[]}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.OpenAI.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = true
+	p := New(cfg)
+	body := `{"model":"gpt-5","input":"hi"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test")
+	req.Header.Set("User-Agent", "openai-python/2.0")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := captured.Load()
+	if got == nil {
+		t.Fatal("upstream did not receive body")
+	}
+	if *got != body {
+		t.Fatalf("Responses body mutated: got %s want %s", *got, body)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(*got), &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := raw["stop"]; present {
+		t.Fatalf("Responses body must not carry stop: %s", *got)
+	}
+	if got := p.OutputReduceCountersSnapshot().StopSeqRequestsModified; got != 0 {
+		t.Fatalf("stop counter=%d want 0", got)
+	}
+}
+
+func TestOutstopWireSkipsCodexResponsesPath(t *testing.T) {
+	var captured atomic.Pointer[string]
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		s := string(body)
+		captured.Store(&s)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"resp_codex","object":"response","output":[]}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = true
+	p := New(cfg)
+	body := `{"model":"gpt-5-codex","input":[{"type":"message","role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/backend-api/codex/responses", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test")
+	req.Header.Set("User-Agent", "codex/0.130.0")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := captured.Load()
+	if got == nil {
+		t.Fatal("upstream did not receive body")
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(*got), &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := raw["input"]; !present {
+		t.Fatalf("Codex Responses body lost input: %s", *got)
+	}
+	if _, present := raw["stop"]; present {
+		t.Fatalf("Codex Responses body must not carry stop: %s", *got)
+	}
+	if got := p.OutputReduceCountersSnapshot().StopSeqRequestsModified; got != 0 {
+		t.Fatalf("stop counter=%d want 0", got)
+	}
+}
+
 // TestStreamcutWiredClosesUpstreamOnCommentary proves T166 actually
 // closes the upstream body after detecting a trailing-commentary opener
 // in the SSE stream. The upstream emits substantial content followed by

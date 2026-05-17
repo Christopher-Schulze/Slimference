@@ -79,3 +79,37 @@ Post-fix live verification:
 - `slimference status --preflight` no longer changes the reload PID.
 - Live state remained disarmed: no hosts patch, no `:8443`, no `:443`, scoped
   Codex route disabled, Claude Code disabled.
+
+---
+
+## 2026-05-18 — T233 Responses-Safe Stop Injection
+
+Problem:
+- T209 scoped HTTP smoke reached the `slimference-codex` provider, but OpenAI
+  Responses upstream rejected the request with `Unsupported parameter: stop`.
+- Cause: `outstop.MergeIntoBody` injected Chat-Completions `stop` into
+  Responses-shaped Codex bodies.
+
+Fix:
+- `outstop.MergeIntoBody` now injects only when the top-level body has a
+  `messages` array and no `input` field.
+- Responses-shaped bodies (`input`) are safe no-ops for both OpenAI and
+  CodexChatGPT providers.
+- HTTP and WSS call sites inherit the guard through the shared outstop package.
+
+Verification:
+- Focused tests passed for `internal/outstop` and `internal/proxy`.
+- Full `go test ./... -count=1 -timeout 300s` passed.
+- `go vet ./...` passed.
+- `go run ./scripts/ci` passed all 8 gates; aggregate coverage was 99.6%.
+- Rebuilt and installed the stripped binary, then restarted daemon as PID
+  `87481`.
+- Live scoped HTTP smoke passed:
+  `slimference codex run --transport=http -- exec "Reply with exactly: PING"`
+  returned `PING`, exit 0.
+- `/admin/state.savings.stop_seq_injections` stayed at 0 for the live smoke.
+
+Remaining:
+- Resume T209/T224 with explicit WSS smoke and certification capture. Do not
+  promote `auto` to WSS until WSS proof records `frames_reencoded > 0`,
+  `parse_failures = 0`, and `degraded_sessions = 0`.

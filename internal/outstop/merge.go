@@ -27,6 +27,8 @@ type Result struct {
 // Anthropic: stop_sequences, capped at 4.
 // OpenAI / CodexChatGPT: stop, capped at 4 (Chat Completions limit).
 // Other providers: passthrough (returns body unchanged, OK=true).
+// Responses-API shaped requests (`input`, or no `messages` array) are
+// passthrough because the Responses API rejects Chat-Completions `stop`.
 //
 // Errors are deliberately swallowed: if the body is malformed JSON we
 // return the original bytes with OK=false so the caller forwards it
@@ -53,6 +55,10 @@ func MergeIntoBody(provider types.Provider, body []byte) ([]byte, Result) {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return body, res
 	}
+	if !supportsStopInjectionShape(raw) {
+		res.OK = true
+		return body, res
+	}
 
 	existing, hadField := decodeExistingStop(raw[res.FieldUsed])
 	merged, added := mergePreservingUser(existing, PhrasesTopN(4))
@@ -69,6 +75,18 @@ func MergeIntoBody(provider types.Provider, body []byte) ([]byte, Result) {
 	res.OK = true
 	res.AddedCount = added
 	return out, res
+}
+
+func supportsStopInjectionShape(raw map[string]json.RawMessage) bool {
+	if _, hasInput := raw["input"]; hasInput {
+		return false
+	}
+	messagesRaw, ok := raw["messages"]
+	if !ok {
+		return false
+	}
+	var messages []json.RawMessage
+	return json.Unmarshal(messagesRaw, &messages) == nil
 }
 
 // decodeExistingStop accepts both shapes the OpenAI/Anthropic APIs

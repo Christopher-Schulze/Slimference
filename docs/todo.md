@@ -1290,6 +1290,12 @@ only and promotes the per-process Codex CLI runner for T209.
   product scoped Codex from lab/global MITM; normal enable no longer arms
   SNI-peek. Remaining work: T210 legacy retirement references. Detail:
   `docs/todo/t232-nonproduct-surface-governance.md`
+- [x] **T233** Responses-safe stop-sequence injection — live T209 HTTP
+  smoke proved Codex 0.130 rejects Chat-Completions `stop` on Responses API
+  bodies. Fixed: `stop` injection remains for Chat Completions and skips
+  Responses-shaped `input` bodies across HTTP and WSS. Live HTTP smoke now
+  exits 0 with `stop_seq_injections=0`. Detail:
+  `docs/todo/t233-responses-safe-stop-sequences.md`
 
 ### Sequencing within Phase H
 
@@ -1349,6 +1355,8 @@ only and promotes the per-process Codex CLI runner for T209.
    traffic; no M-series/SIMD/build-flag changes on vibes.
 22. **T232 continuously** — every future surface must be classified as
    product, fallback, lab, or legacy before it enters docs/help/TUI.
+23. **T233 before resuming T209** — no further scoped Codex HTTP/WSS live
+   traffic until Responses-shaped bodies are proven to pass without `stop`.
 
 ### Acceptance for Phase H
 
