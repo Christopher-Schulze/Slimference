@@ -1227,18 +1227,19 @@ only and promotes the per-process Codex CLI runner for T209.
   Codex provider block. Desktop App routing still needs live proof
   before any "Codex Desktop app intercepted" claim. Detail:
   `docs/todo/t220-scoped-codex-routing-without-global-hosts.md`
-- [~] **T221** Scoped Codex WSS Phase-F mode — implementation path
+- [x] **T221** Scoped Codex WSS Phase-F mode — implementation path
   landed for explicit WSS certification mode: `codex run
   --transport=wss`, `codex enable --transport=wss`, scoped local WSS
   upgrades through `wsmitm.Session`, Phase-F frame mutation, debug
   route mode, and byte-equal fallback on schema drift. Default remains
   stable HTTP until T224 live capture promotes `auto`. Detail:
   `docs/todo/t221-scoped-codex-wss-phasef-mode.md`
-- [ ] **T222** Raw scoped WSS frontdoor — preserve Codex's original
-  HTTP/1.1 Upgrade header order/casing/subprotocol bytes before
-  entering the WSS Phase-F adapter, avoiding `net/http` request
-  reconstruction drift so scoped WSS can become the real future
-  default rather than a lab-only tunnel. Detail:
+- [x] **T222** Raw scoped WSS frontdoor — pre-live implementation
+  landed on the existing `:8990` listener. Codex WSS upgrades are read
+  before `net/http`, raw header order/casing/unknown fields are
+  preserved with only Host/request-target normalization, then the
+  stream enters the T208 Phase-F WSS adapter. `auto` still waits for
+  T224 live proof before preferring WSS. Detail:
   `docs/todo/t222-raw-scoped-wss-frontdoor.md`
 - [ ] **T223** Scoped upstream fingerprint parity — first closure landed:
   scoped HTTP and scoped WSS upstream dials now share the profile-aware
@@ -1246,17 +1247,15 @@ only and promotes the per-process Codex CLI runner for T209.
   Go stdlib TLS on the product path. Remaining: telemetry, route-specific
   ALPN tuning, and live capture baseline. Detail:
   `docs/todo/t223-scoped-upstream-fingerprint-parity.md`
-- [ ] **T224** Scoped indistinguishability audit — adapt the T198
-  capture/diff loop to compare native Codex vs scoped HTTP/WSS
-  Slimference routes across TLS, ALPN, HTTP/WSS headers, timing,
-  and mutation counters; this is the gate for promoting WSS-first
-  `auto`. Detail:
+- [ ] **T224** Scoped indistinguishability audit — pre-live runbook,
+  ignored capture path, promotion criteria, and synthetic WSS parser
+  smoke are prepared. Remaining work is the real native/scoped
+  HTTP/scoped raw-WSS tshark capture and diff during T209. Detail:
   `docs/todo/t224-scoped-indistinguishability-audit.md`
-- [ ] **T225** Codex Desktop scoped proof and launcher — prove or
-  reject the shared provider route for Codex Desktop, and only build
-  a process-local launcher if it can catch Desktop conversation
-  traffic, preferably WSS-first, without Browser ChatGPT/ChatGPT.app
-  collateral. Detail:
+- [ ] **T225** Codex Desktop scoped proof and launcher — pre-live
+  procedure is documented. Remaining work is real Desktop restart,
+  telemetry proof of the shared provider route, and launcher fallback
+  only if Desktop ignores the scoped route. Detail:
   `docs/todo/t225-codex-desktop-scoped-proof-and-launcher.md`
 
 ### Sequencing within Phase H

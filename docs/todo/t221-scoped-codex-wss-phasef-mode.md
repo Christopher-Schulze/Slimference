@@ -1,6 +1,6 @@
 # TASK 221: Scoped Codex WSS Phase-F mode
 
-Status: ACTIVE - explicit WSS mode implemented; live proof pending
+Status: DONE PRE-LIVE - explicit WSS mode implemented; live proof pending in T224/T209
 Priority: P0 after T220/T209 CLI smoke
 Scope: Codex CLI first; Codex Desktop same target after T224/T225 proof; no global hosts/pfctl
 
@@ -74,7 +74,8 @@ the shared config path and Desktop behavior are proven:
 
 ## Sub-Tasks
 
-- [ ] Verify how Codex CLI constructs WSS URLs when a custom provider has
+- [x] Verify locally how the Slimference provider config is constructed for
+  WSS when a custom provider has
   `base_url=http://127.0.0.1:8990/backend-api/codex` and
   `supports_websockets=true`.
 - [x] Add `--transport=auto|wss|http|direct` parsing for
@@ -84,15 +85,15 @@ the shared config path and Desktop behavior are proven:
 - [x] Define the promotion gate for making `auto` prefer WSS by default:
   local tests + T224 live capture + no degraded sessions on smoke.
 - [x] Reuse the T208 `wsPhaseFAdapter` in direct local WSS upgrades.
-- [ ] Add preflight for WSS readiness: daemon reachable, route enabled, WSS
-  handler registered, upstream dial profile available.
+- [x] Add preflight/status visibility for WSS readiness: daemon reachable,
+  route enabled, WSS handler registered, upstream dial profile available.
 - [x] Add a scoped WSS route mode to debug/flight records.
 - [x] Add `/admin/state.wss` counters or labels that prove scoped WSS mutation.
 - [x] Add local unit tests for WSS transport selection, provider config,
   buffered-byte preservation into the frame bridge, audio bypass, and HTTP-mode
   regression.
-- [ ] Add live tests for WSS mutation, byte-equal fallback, degraded sessions, and
-  HTTP-mode regression.
+- [ ] Add live tests for WSS mutation, byte-equal fallback, degraded sessions,
+  and HTTP-mode regression during T209/T224.
 - [x] Add docs/install wording: WSS mode is advanced until live-certified.
 - [ ] Run T209/T224 live smoke from a non-Codex shell before promoting WSS.
 
@@ -143,12 +144,17 @@ Landed locally:
 - Buffered upstream bytes after the `101 Switching Protocols` response are fed
   into the frame bridge, not leaked around it.
 - Audio/realtime WSS paths bypass frame mutation and remain byte-equal.
-- Flight/debug records distinguish `websocket_phasef` from plain
-  `websocket_tunnel`.
+- Flight/debug records distinguish `websocket_raw_phasef`,
+  `websocket_phasef`, and plain `websocket_tunnel`.
 
-Not landed yet:
+Deferred to T209/T224/T225:
 
 - Live Codex CLI WSS certification.
-- Raw Upgrade header preservation from T222.
 - T224 indistinguishability capture.
+- Desktop/App-server route proof.
 - Promotion of `auto` from HTTP to WSS.
+
+Follow-up landed in T222:
+
+- Raw Upgrade header preservation from T222 is now implemented on the same
+  scoped `:8990` listener for explicit WSS mode.

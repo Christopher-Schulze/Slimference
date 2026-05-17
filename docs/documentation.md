@@ -796,8 +796,8 @@ Codex-first and scoped:
 - hook callouts in `~/.codex/hooks.json`
 - per-process Codex CLI traffic through
   `slimference codex run -- <prompt>`; explicit
-  `--transport=wss` enables scoped Responses WebSockets before live
-  default promotion
+  `--transport=wss` enables scoped Responses WebSockets through the raw
+  local WSS frontdoor before live default promotion
 - optional shared Codex CLI/App traffic through
   `slimference codex enable` / `slimference codex disable`, which writes
   only a marker-owned `slimference-codex` provider block in
@@ -1387,6 +1387,16 @@ Phase F adapter:
 `/admin/state.wss` reports whether the engine is active, whether frames are
 only forwarded byte-equal, whether parser degradation occurred, and how many
 frames were re-encoded after mutation.
+
+Scoped Codex WSS has an additional pre-`net/http` frontdoor on the same
+loopback listener (`:8990`). It intercepts only
+`GET /backend-api/codex/responses` WebSocket upgrades whose offered
+subprotocol list includes `responses_websockets`. The captured Upgrade
+header is forwarded upstream with its original order, casing, subprotocol
+text, and unknown headers intact; only Host and absolute request-targets are
+normalised for the real upstream. Everything else is replayed into the normal
+HTTP server unchanged. This restores the old transparent dispatcher's
+raw-header property without reintroducing global `chatgpt.com` routing.
 
 ### Compression planner
 

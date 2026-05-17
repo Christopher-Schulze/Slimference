@@ -556,8 +556,9 @@ func (p *Proxy) Start() error {
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
+	serveLn := p.wrapRawScopedWSSListener(ln)
 	p.listenerMu.Lock()
-	p.listener = ln
+	p.listener = serveLn
 	p.listenerMu.Unlock()
 
 	slog.Info("proxy listening", "addr", addr)
@@ -572,7 +573,46 @@ func (p *Proxy) Start() error {
 	p.wg.Add(1)
 	go p.analyticsPeriodicFlush(analyticsFlushInterval)
 
-	return p.server.Serve(ln)
+	return p.server.Serve(serveLn)
+}
+
+func (p *Proxy) wrapRawScopedWSSListener(ln net.Listener) net.Listener {
+	if p == nil || p.webSocketTunnel == nil {
+		return ln
+	}
+	host, ok := p.upstreamHost(types.CodexChatGPT)
+	if !ok {
+		return ln
+	}
+	return &rawScopedWSSListener{
+		Listener:     ln,
+		Tunnel:       p.webSocketTunnel,
+		UpstreamHost: host,
+		OnIntercept:  p.recordRawScopedWSS,
+	}
+}
+
+func (p *Proxy) recordRawScopedWSS(path string, header []byte) {
+	if p == nil || p.debugRecorder == nil {
+		return
+	}
+	p.debugRecorder.Record(dbg.RequestSummary{
+		RequestID: newRequestIDFn(),
+		Timestamp: time.Now(),
+		Source:    "proxy",
+		Provider:  types.CodexChatGPT.String(),
+		Host:      "raw-scoped",
+		Path:      path,
+		RouteMode: "websocket_raw_phasef",
+		Plan: p.dryRunPlan(plannerInput{
+			provider:                   types.CodexChatGPT,
+			routeMode:                  "websocket_raw_phasef",
+			contentClasses:             []string{"websocket"},
+			webSocketShapeKnown:        p.webSocketShapeKnown(),
+			webSocketMutationRequested: p.webSocketTunnel != nil && p.webSocketTunnel.FrameBridge != nil,
+			liveCorpusConfidence:       p.plannerLiveCorpusConfidence(),
+		}),
+	})
 }
 
 // ServeHTTP is the main HTTP handler for all incoming requests.

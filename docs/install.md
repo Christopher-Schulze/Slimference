@@ -136,14 +136,16 @@ slimference codex run --transport=wss -- "say hi"
 ```
 
 This keeps the same Codex-only scope but asks Codex to use Responses
-WebSockets against the local provider. After the HTTP Upgrade succeeds,
-Slimference runs frames through `wsmitm.Session` and the Phase-F WSS
+WebSockets against the local provider. The daemon reads matching Codex
+Upgrade requests before `net/http` normalises them, forwards the raw
+header upstream with only Host/request-target normalization, and then
+runs post-101 frames through `wsmitm.Session` plus the Phase-F WSS
 adapter. Known Codex request/response frames can be compacted; unknown,
 binary, control, or malformed frames degrade to byte-equal forwarding.
 
 Until the live T224 capture passes, `--transport=auto` is intentionally an
-alias for the stable HTTP route. WSS is available for certification and
-power users, not yet the default claim.
+alias for the stable HTTP route. Raw scoped WSS is available for
+certification and power users, not yet the default claim.
 
 ### 3. Enable shared Codex CLI/App route
 
@@ -372,6 +374,10 @@ Current pre-live proof stack (2026-05-17):
   release check.
 - Targeted race check passes:
   `go test ./internal/proxy ./cmd/slimference ./internal/codexroute -race -count=1 -timeout 240s`.
+- Scoped raw WSS pre-live checks pass: raw Upgrade header order/casing is
+  preserved on the existing `:8990` listener, non-Codex requests replay
+  through the normal HTTP server, and the T224 parser can parse a
+  synthetic WSS capture without tshark.
 - Live Codex certification is still intentionally pending as T209. Do not
   run `cert-trust`, `root-arm --global-chatgpt-hosts`, or `enable` from
   the active Codex Desktop development session.
@@ -398,10 +404,11 @@ T209 starts from disarmed preflight state: admin health can be up on
 `127.0.0.1:8990`, but `:8443` should be off, hosts should be inactive,
 and CA trust should still be untrusted unless a global lab test is
 explicitly approved. The scoped CLI sequence is
-`status --preflight` -> `codex run -- <prompt>` -> `/admin/state`
-telemetry check. The shared CLI/App proof sequence is
-`codex enable` -> restart Codex.app/app-server -> prompt -> telemetry
-check -> `codex disable`. The old global sequence is now lab-only:
+`status --preflight` -> `codex run -- <prompt>` ->
+`codex run --transport=wss -- <prompt>` -> `/admin/state` telemetry and
+T224 capture check. The shared CLI/App proof sequence is
+`codex enable --transport=wss` -> restart Codex.app/app-server -> prompt
+-> telemetry check -> `codex disable`. The old global sequence is now lab-only:
 `cert-trust` -> `root-arm --global-chatgpt-hosts` -> `enable` -> smoke
 -> `disable` -> `root-disarm`.
 

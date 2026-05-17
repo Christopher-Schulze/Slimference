@@ -440,7 +440,7 @@ func TestRouteInitialHTTPNonWebSocketFallsBackAfterParse(t *testing.T) {
 	client := newScriptedConn(header)
 	upstream := newScriptedConn("")
 	d := &PhaseFDispatcher{Resolver: resolverFunc(func(r sniroute.Request) sniroute.Decision {
-		if r.UserAgent != "codex_cli_rs/0.130.0" || r.Subprotocol != "one" || r.IsWebSocket {
+		if r.UserAgent != "codex_cli_rs/0.130.0" || r.Subprotocol != "one, two" || r.IsWebSocket {
 			t.Fatalf("parsed request wrong: %+v", r)
 		}
 		return sniroute.MITMConversation
@@ -503,8 +503,12 @@ func TestReadAndParseHTTPHeaderEdges(t *testing.T) {
 		t.Fatal("non HTTP/1 request line should not parse")
 	}
 	parsed, ok := parseHTTPRequestHeader([]byte("GET /ws HTTP/1.1\nUpgrade: WebSocket\nSec-WebSocket-Protocol: responses_websockets=2026-02-06, other\n\n"))
-	if !ok || !parsed.websocket || parsed.subprotocol != "responses_websockets=2026-02-06" {
+	if !ok || !parsed.websocket || parsed.subprotocol != "responses_websockets=2026-02-06, other" {
 		t.Fatalf("parsed=%+v ok=%v", parsed, ok)
+	}
+	parsed, ok = parseHTTPRequestHeader([]byte("GET http://127.0.0.1:8990/backend-api/codex/responses?x=1 HTTP/1.1\r\nUpgrade: websocket\r\n\r\n"))
+	if !ok || parsed.path != "/backend-api/codex/responses?x=1" {
+		t.Fatalf("absolute-form target not normalised: %+v ok=%v", parsed, ok)
 	}
 	parsed, ok = parseHTTPRequestHeader([]byte("GET /plain HTTP/1.1\nHeader-Without-Colon\nUser-Agent: codex\n\nIgnored: after-blank\n"))
 	if !ok || parsed.userAgent != "codex" || parsed.path != "/plain" {

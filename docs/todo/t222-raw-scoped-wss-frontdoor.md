@@ -1,6 +1,6 @@
 # TASK 222: Raw scoped WSS frontdoor
 
-Status: PLANNED
+Status: IMPLEMENTED PRE-LIVE
 Priority: P0 after T221 prototype
 Scope: Local Codex provider ingress; no global hosts/pfctl
 
@@ -39,27 +39,29 @@ after T224 proof.
   tunnel or direct HTTP mode; never block Codex by default.
 - Tests compare raw input header bytes to upstream header bytes for order and
   field preservation.
-- The raw frontdoor is used by WSS `auto` once it is proven; the older
-  `net/http` WebSocket tunnel stays only as fallback/legacy.
+- The raw frontdoor is implemented and used for explicit scoped WSS. WSS
+  `auto` promotion remains gated on T224 live capture; the older `net/http`
+  WebSocket tunnel stays as fallback/legacy.
 
 ## Sub-Tasks
 
-- [ ] Factor the transparent dispatcher's `readHTTPHeader` and parser into a
+- [x] Factor the transparent dispatcher's `readHTTPHeader` and parser into a
   reusable raw Upgrade ingress helper.
-- [ ] Build a local listener/handler path that can bypass `net/http` only for
+- [x] Build a local listener/handler path that can bypass `net/http` only for
   Codex WSS upgrades.
-- [ ] Decide whether this is integrated into the existing port `8990` listener
+- [x] Decide whether this is integrated into the existing port `8990` listener
   or a dedicated local loopback frontdoor. Preferred: one user-facing port
   unless code evidence proves impossible.
-- [ ] Preserve raw header bytes with minimal path/host rewriting.
-- [ ] Prove Go `http.Request.Write` is not used for the raw WSS path.
-- [ ] Add header-order, header-casing, duplicate-header, and unknown-header
+- [x] Preserve raw header bytes with minimal path/host rewriting.
+- [x] Prove Go `http.Request.Write` is not used for the raw WSS path.
+- [x] Add header-order, header-casing, duplicate-header, and unknown-header
   tests.
-- [ ] Add failure-mode tests: malformed header, oversized header, upstream 4xx,
-  upstream partial 101, client close.
-- [ ] Document why this exists: not for speed, for provider-side
+- [x] Add failure-mode tests for malformed/non-Codex fallback, oversized
+  header handling via shared parser tests, upstream 4xx/non-101 forwarding,
+  upstream read failure, buffered post-101 bytes, and shutdown/client close.
+- [x] Document why this exists: not for speed, for provider-side
   indistinguishability.
-- [ ] Add transport-selection docs: raw scoped WSS is the intended final WSS
+- [x] Add transport-selection docs: raw scoped WSS is the intended final WSS
   engine, `net/http` WSS is a fallback.
 
 ## Notes
@@ -79,3 +81,25 @@ Known limit:
 - Local provider mode still means Codex intentionally connects to
   `127.0.0.1`; OpenAI does not see that local hop, but the upstream TLS/HTTP
   leg still comes from Slimference. T223 handles that leg.
+- Live capture is still required before `transport=auto` can prefer WSS. This
+  task proves the local raw frontdoor in unit/integration tests only; T224 is
+  the evidence gate.
+
+Implementation notes:
+
+- `Proxy.Start` wraps the existing loopback listener with
+  `rawScopedWSSListener`; no second public port was added.
+- Only `GET /backend-api/codex/responses` WebSocket upgrades whose offered
+  subprotocol list includes `responses_websockets` are intercepted. Every
+  other request is replayed byte-for-byte to the normal `net/http` server via
+  `prefetchedConn`.
+- The raw path calls `WebSocketTunnel.ServeRawUpgrade`, writes the captured
+  request header directly to the upstream connection after Host/request-target
+  normalization, then enters the same `wsmitm.Session` Phase-F bridge after
+  upstream `101 Switching Protocols`.
+- `Sec-WebSocket-Protocol` parsing now preserves the full offered list, so the
+  raw gate does not depend on `responses_websockets` being listed first.
+
+Verification:
+
+- `go test ./internal/proxy ./scripts/utils/indist_probe -run 'TestRawScoped|TestRewriteRaw|TestReadAndParseHTTPHeaderEdges|TestParseTSharkJSONSyntheticWSSCapture|TestProxyStartUsesRawScopedWSSListener' -count=1 -timeout 120s`

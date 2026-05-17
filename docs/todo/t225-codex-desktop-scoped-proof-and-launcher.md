@@ -1,6 +1,6 @@
 # TASK 225: Codex Desktop scoped proof and launcher
 
-Status: PLANNED
+Status: PREPARED PRE-LIVE
 Priority: P1 after Codex CLI scoped WSS proof
 Scope: Codex Desktop App only; Browser ChatGPT and ChatGPT.app stay direct
 
@@ -36,6 +36,8 @@ as a fallback or if Desktop itself chooses it.
 
 ## Sub-Tasks
 
+- [x] Identify the pre-live proof boundary: Desktop cannot be certified without
+  restarting/observing the real app-server process during the live window.
 - [ ] Identify the active Codex Desktop binary/app-server process and how it
   reads `~/.codex/config.toml`.
 - [ ] Test `slimference codex enable` with full app restart and minimal prompt.
@@ -65,3 +67,23 @@ Known limit:
 - If Codex Desktop hardcodes ChatGPT WSS and ignores all scoped provider/launcher
   options, then no safe scoped Desktop path exists. In that case Desktop remains
   global-lab only until upstream exposes a scoped config surface.
+
+Pre-live Desktop procedure:
+
+1. Start from scoped disarmed state: daemon up on `127.0.0.1:8990`, no global
+   hosts/pfctl, no Keychain trust requirement.
+2. Run `slimference codex enable --transport=wss`.
+3. Fully quit Codex Desktop and its app-server child, then restart the app.
+4. Send one minimal Codex Desktop conversation prompt.
+5. Check `/admin/state` and the debug flight recorder for
+   `route_mode=websocket_raw_phasef` or `route_mode=websocket_phasef` on
+   `/backend-api/codex/responses`.
+6. If no telemetry appears, repeat once with `slimference codex enable` (HTTP)
+   to determine whether Desktop honors the provider block at all.
+7. Always finish with `slimference codex disable` unless the operator wants to
+   leave shared Codex routing active.
+
+Do not build a launcher until this proof says it is needed. The launcher path
+is a fallback only; the preferred product is the marker-owned
+`~/.codex/config.toml` provider route because it avoids Browser ChatGPT and
+ChatGPT.app collateral without another surface.

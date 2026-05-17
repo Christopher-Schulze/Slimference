@@ -169,6 +169,42 @@ func TestParseTSharkJSONHappyPath(t *testing.T) {
 	}
 }
 
+func TestParseTSharkJSONSyntheticWSSCapture(t *testing.T) {
+	pkts := `[{"_source":{"layers":{
+		"tls": {"tls.record": {"tls.handshake": {
+			"tls.handshake.type": "1",
+			"tls.handshake.extensions_server_name": "chatgpt.com",
+			"tls.handshake.extensions_alpn_str": ["http/1.1"],
+			"tls.handshake.ciphersuite": ["0x1301", "0x1302"],
+			"tls.handshake.extension.type": ["0", "11", "10", "16"],
+			"tls.handshake.extensions_supported_group": ["0x001d"],
+			"tls.handshake.ja3": "771,4865-4866,0-11-10-16,29,0",
+			"tls.handshake.ja4": "t13d1511h1_synthetic"
+		}}},
+		"websocket": {
+			"websocket.extensions": "permessage-deflate; client_max_window_bits",
+			"websocket.subprotocol": "responses_websockets=2026-02-06",
+			"websocket.version": "13"
+		}
+	}}}]`
+	cap, err := parseTSharkJSON([]byte(pkts), "synthetic-wss")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cap.SNI != "chatgpt.com" || cap.JA3 == "" || cap.JA4 == "" {
+		t.Fatalf("TLS fields missing: %+v", cap)
+	}
+	if cap.WSSubprotocol != "responses_websockets=2026-02-06" {
+		t.Fatalf("WSSubprotocol=%q", cap.WSSubprotocol)
+	}
+	if cap.WSVersion != "13" {
+		t.Fatalf("WSVersion=%q", cap.WSVersion)
+	}
+	if !strings.Contains(cap.WSExtensions, "permessage-deflate") {
+		t.Fatalf("WSExtensions=%q", cap.WSExtensions)
+	}
+}
+
 func TestHTTP2PseudoHeaderOrder(t *testing.T) {
 	h := tsharkHTTP2{
 		Stream: []tsharkHTTP2Stream{

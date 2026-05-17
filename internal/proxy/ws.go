@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/slimference/slimference/internal/wscompact"
@@ -144,6 +145,59 @@ func (t *WebSocketTunnel) ServeUpgrade(clientConn net.Conn, r *http.Request, hos
 	pipeWebSocketBytes(clientConn, upstream, t.Inspector)
 }
 
+// ServeRawUpgrade handles a WebSocket Upgrade whose HTTP header was
+// captured before net/http normalised it. It forwards the original
+// header order/casing upstream, changing only authority where needed,
+// then enters the same post-101 bridge as ServeUpgrade.
+func (t *WebSocketTunnel) ServeRawUpgrade(ctx context.Context, clientConn net.Conn, rawHeader []byte, host, path string) {
+	if t.Dialer == nil {
+		t.logf("websocket raw: no dialer configured; dropping upgrade", "host", host)
+		return
+	}
+	upstream, err := t.Dialer(host, "443")
+	if err != nil {
+		t.logf("websocket raw: upstream dial failed", "host", host, "err", err)
+		_ = writeBadGateway(clientConn)
+		return
+	}
+	defer upstream.Close()
+
+	if _, err := upstream.Write(rewriteRawUpgradeHeader(rawHeader, host)); err != nil {
+		t.logf("websocket raw: forward request failed", "host", host, "err", err)
+		_ = writeBadGateway(clientConn)
+		return
+	}
+
+	upstreamReader := bufio.NewReader(upstream)
+	resp, err := http.ReadResponse(upstreamReader, nil)
+	if err != nil {
+		t.logf("websocket raw: read upstream response failed", "host", host, "err", err)
+		_ = writeBadGateway(clientConn)
+		return
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		_ = forwardResponse(clientConn, resp)
+		return
+	}
+	_ = forwardResponse(clientConn, resp)
+	if t.FrameBridge != nil && !t.IsAudioBypassPath(path) {
+		bridgeUpstream := net.Conn(upstream)
+		if upstreamReader.Buffered() > 0 {
+			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
+		}
+		if err := t.FrameBridge(ctx, clientConn, bridgeUpstream); err != nil {
+			t.logf("websocket raw: frame bridge ended", "host", host, "err", err)
+		}
+		return
+	}
+	flushBufferedUpstream(clientConn, upstreamReader)
+	if t.Inspector == nil {
+		pipeBytes(clientConn, upstream)
+		return
+	}
+	pipeWebSocketBytes(clientConn, upstream, t.Inspector)
+}
+
 type bufferedReadConn struct {
 	net.Conn
 	reader *bufio.Reader
@@ -180,6 +234,59 @@ func writeRequest(w io.Writer, r *http.Request, host string) error {
 	clone.URL.Scheme = "http" // Write does not emit scheme; this avoids a panic on absolute URLs.
 	clone.RequestURI = ""
 	return clone.Write(w)
+}
+
+func rewriteRawUpgradeHeader(header []byte, host string) []byte {
+	sep := "\r\n"
+	text := string(header)
+	if !strings.Contains(text, "\r\n") && strings.Contains(text, "\n") {
+		sep = "\n"
+	}
+	lines := strings.Split(text, sep)
+	if len(lines) == 0 {
+		return append([]byte(nil), header...)
+	}
+	lines[0] = rewriteRequestLineTarget(lines[0])
+	hostSeen := false
+	for i := 1; i < len(lines); i++ {
+		name, _, ok := strings.Cut(lines[i], ":")
+		if !ok || !strings.EqualFold(strings.TrimSpace(name), "host") {
+			continue
+		}
+		hostSeen = true
+		lines[i] = name + ": " + host
+	}
+	if !hostSeen && len(lines) > 1 {
+		next := make([]string, 0, len(lines)+1)
+		next = append(next, lines[0], "Host: "+host)
+		next = append(next, lines[1:]...)
+		lines = next
+	}
+	return []byte(strings.Join(lines, sep))
+}
+
+func rewriteRequestLineTarget(line string) string {
+	parts := strings.Split(line, " ")
+	if len(parts) != 3 {
+		return line
+	}
+	target := normaliseHTTPRequestTarget(parts[1])
+	if target == parts[1] {
+		return line
+	}
+	return parts[0] + " " + target + " " + parts[2]
+}
+
+func normaliseHTTPRequestTarget(target string) string {
+	u, err := url.Parse(target)
+	if err != nil || !u.IsAbs() {
+		return target
+	}
+	out := u.RequestURI()
+	if out == "" {
+		return "/"
+	}
+	return out
 }
 
 func forwardResponse(client net.Conn, resp *http.Response) error {

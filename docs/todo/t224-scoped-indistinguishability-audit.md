@@ -1,6 +1,6 @@
 # TASK 224: Scoped indistinguishability audit
 
-Status: PLANNED
+Status: PREPARED PRE-LIVE
 Priority: P0 before any "stealth" claim
 Scope: Evidence harness for scoped Codex HTTP and WSS modes
 
@@ -48,17 +48,19 @@ may prefer WSS for Codex CLI.
 
 ## Sub-Tasks
 
-- [ ] Adapt T198 scripts/docs for scoped Codex capture modes.
-- [ ] Define golden capture naming under ignored `research/indist/` or another
+- [x] Adapt T198 scripts/docs for scoped Codex capture modes.
+- [x] Define golden capture naming under ignored `research/indist/` or another
   approved non-committed evidence location.
-- [ ] Add report templates for baseline/scoped diff.
-- [ ] Add a local smoke that proves the audit tool can parse a synthetic WSS
+- [x] Add report templates for baseline/scoped diff.
+- [x] Add a local smoke that proves the audit tool can parse a synthetic WSS
   capture without tshark installed.
-- [ ] Add operator checklist for real tshark captures from an external terminal.
-- [ ] Add a transport-promotion section: exact evidence required before WSS is
+- [x] Add operator checklist for real tshark captures from an external terminal.
+- [x] Add a transport-promotion section: exact evidence required before WSS is
   default-preferred.
-- [ ] Update `docs/install.md` with honest claim language: "scoped and
+- [x] Update `docs/install.md` with honest claim language: "scoped and
   minimized drift", not "undetectable".
+- [ ] Run the real tshark native/scoped HTTP/scoped WSS captures during T209.
+- [ ] Attach the live diff result and promotion decision.
 
 ## Notes
 
@@ -73,3 +75,40 @@ Known limit:
 
 - If request bodies are compressed, body diff is expected. The audit must judge
   body changes semantically and by safety policy, not byte equality.
+
+Pre-live runbook:
+
+1. Keep global lab mode off: no `cert-trust`, no
+   `root-arm --global-chatgpt-hosts`, no transparent `enable`.
+2. Capture native Codex direct baseline:
+   `go run ./scripts/utils/indist_probe capture --label codex-native-direct --out research/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443`
+3. Trigger one small native Codex CLI prompt while capture is listening.
+4. Capture scoped HTTP:
+   `go run ./scripts/utils/indist_probe capture --label slimference-scoped-http --out research/indist/slimference-scoped-http.json --iface en0 --host chatgpt.com --port 443`
+5. Trigger `slimference codex run --transport=http -- "say hi"` from an
+   external terminal.
+6. Capture scoped raw WSS:
+   `go run ./scripts/utils/indist_probe capture --label slimference-scoped-wss --out research/indist/slimference-scoped-wss.json --iface en0 --host chatgpt.com --port 443`
+7. Trigger `slimference codex run --transport=wss -- "say hi"` from an
+   external terminal.
+8. Diff:
+   `go run ./scripts/utils/indist_probe diff research/indist/codex-native-direct.json research/indist/slimference-scoped-wss.json`
+9. Record `/admin/state.wss`: `frames_reencoded`, `frames_forwarded`,
+   `degraded_sessions`, `parse_failures`, `bytes_c2s`, `bytes_s2c`.
+
+Promotion criteria:
+
+- WSS may become the `transport=auto` preferred path only when scoped raw WSS
+  succeeds with `frames_reencoded>0`, `degraded_sessions=0`,
+  `parse_failures=0`, no unexplained TLS/ALPN/WSS drift, and no Browser
+  ChatGPT/ChatGPT.app traffic entering Slimference.
+- Explained body drift is allowed only when it is the intended Phase-F savings
+  mutation.
+- Any unexplained provider-visible drift keeps `auto` on HTTP.
+
+Verification:
+
+- Synthetic parser smoke is covered by
+  `TestParseTSharkJSONSyntheticWSSCapture`.
+- `research/indist/` is intentionally ignored; live capture artifacts stay out
+  of git unless the operator explicitly requests a scrubbed evidence fixture.

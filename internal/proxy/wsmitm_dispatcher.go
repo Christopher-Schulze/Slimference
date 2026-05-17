@@ -265,7 +265,7 @@ func parseHTTPRequestHeader(header []byte) (parsedHTTPRequestHeader, bool) {
 	if len(parts) < 3 || !strings.HasPrefix(parts[2], "HTTP/1.") {
 		return parsedHTTPRequestHeader{}, false
 	}
-	out := parsedHTTPRequestHeader{method: parts[0], path: parts[1]}
+	out := parsedHTTPRequestHeader{method: parts[0], path: normaliseHTTPRequestTarget(parts[1])}
 	for _, line := range lines[1:] {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -281,8 +281,7 @@ func parseHTTPRequestHeader(header []byte) (parsedHTTPRequestHeader, bool) {
 		case "user-agent":
 			out.userAgent = value
 		case "sec-websocket-protocol":
-			first, _, _ := strings.Cut(value, ",")
-			out.subprotocol = strings.TrimSpace(first)
+			out.subprotocol = value
 		case "upgrade":
 			out.websocket = strings.EqualFold(value, "websocket")
 		}

@@ -174,9 +174,12 @@ the fenced Slimference block.
 `slimference proxy env codex --proxied-wss` is the advanced scoped WebSocket
 variant. It uses the same per-process provider but sets
 `supports_websockets=true` so the local daemon receives Codex Responses WSS
-upgrades and routes frames through the Phase-F WSS adapter. This is for WSS
-certification and power-mode testing; the stable scoped default remains HTTP
-until the live indistinguishability audit promotes WSS.
+upgrades. Matching Codex conversation upgrades are intercepted before
+`net/http` normalises the request, forwarded upstream with raw header
+order/casing preserved except for authority/path normalization, and then
+routed through the Phase-F WSS adapter. This is for WSS certification and
+power-mode testing; the stable scoped default remains HTTP until the live
+indistinguishability audit promotes WSS.
 
 From Cloudflare's / OpenAI's perspective the request volume is unchanged;
 the request path, query, authorization, cookies, and user-agent are forwarded
@@ -198,9 +201,10 @@ instead of being rejected or rewritten.
 
 If the installed Codex build uses WebSocket responses, the local direct path
 arrives as `ws://127.0.0.1:8990/backend-api/codex/responses`. Slimference
-tunnels that upgrade to `chatgpt.com` and records `route_mode=websocket_tunnel`.
-The tunnel proves CLI/App routing and continuity; it does not yet compress
-WebSocket message frames.
+tunnels that upgrade to `chatgpt.com`. The normalised fallback route records
+`route_mode=websocket_phasef`; the raw pre-`net/http` route records
+`route_mode=websocket_raw_phasef`. Known Codex WSS frames can be compacted;
+unknown or malformed frames degrade to byte-equal forwarding.
 
 To reproduce the checked-in Codex reporting smoke corpus without touching
 your live Codex installation:

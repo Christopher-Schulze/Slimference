@@ -9,7 +9,7 @@ Alle **Werkzeuge** dieses Repos (Coverage-Gates, Benchmark-Helfer, Utils, …) l
 | `build/` | Ein lokales, einzelnes Slimference-Binary mit Release-Flags bauen (`-trimpath -ldflags "-s -w"`) |
 | `coverage/` | Coverage auswerten, Schwellen (aktuell 99.5 % aggregate) prüfen, CI-lokal spiegeln |
 | `benchmarks/` | Benchmarks bündeln, `go test -bench` auswerten |
-| `utils/` | Kleine Hilfs-CLIs, einmalige Tasks, Generatoren |
+| `utils/` | Kleine Hilfs-CLIs, einmalige Tasks, Generatoren; `utils/indist_probe` ist das tshark-basierte Capture/Diff-Werkzeug für T224 |
 
 Weitere Unterordner nur bei **klarem Thema** (z. B. `lint/`, `release/`).
 
@@ -46,4 +46,6 @@ go run ./scripts/utils combined-report ~/.slimference/analytics/2026-04-17.jsonl
   ~/.slimference/logs/decisions.jsonl \
   ~/.slimference/filter.db
 go run ./scripts/utils tls-probe --profile=chromium_stable --json
+go run ./scripts/utils/indist_probe capture --label codex-native-direct --out research/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443
+go run ./scripts/utils/indist_probe diff research/indist/codex-native-direct.json research/indist/slimference-scoped-wss.json
 ```

@@ -79,6 +79,42 @@ func TestWebSocketTunnel_AudioBypassExtra(t *testing.T) {
 	}
 }
 
+func TestRewriteRawUpgradeHeader(t *testing.T) {
+	t.Parallel()
+	raw := "GET http://127.0.0.1:8990/backend-api/codex/responses?x=1 HTTP/1.1\r\n" +
+		"x-first: one\r\n" +
+		"Host: 127.0.0.1:8990\r\n" +
+		"x-second: two\r\n\r\n"
+	got := string(rewriteRawUpgradeHeader([]byte(raw), "chatgpt.com"))
+	want := "GET /backend-api/codex/responses?x=1 HTTP/1.1\r\n" +
+		"x-first: one\r\n" +
+		"Host: chatgpt.com\r\n" +
+		"x-second: two\r\n\r\n"
+	if got != want {
+		t.Fatalf("raw rewrite mismatch:\n got %q\nwant %q", got, want)
+	}
+
+	noHost := "GET /backend-api/codex/responses HTTP/1.1\nUpgrade: websocket\n\n"
+	got = string(rewriteRawUpgradeHeader([]byte(noHost), "chatgpt.com"))
+	want = "GET /backend-api/codex/responses HTTP/1.1\nHost: chatgpt.com\nUpgrade: websocket\n\n"
+	if got != want {
+		t.Fatalf("missing-host rewrite mismatch:\n got %q\nwant %q", got, want)
+	}
+
+	duplicates := "GET /backend-api/codex/responses HTTP/1.1\r\n" +
+		"Host: 127.0.0.1:8990\r\n" +
+		"x-unknown: kept\r\n" +
+		"hOsT: localhost\r\n\r\n"
+	got = string(rewriteRawUpgradeHeader([]byte(duplicates), "chatgpt.com"))
+	want = "GET /backend-api/codex/responses HTTP/1.1\r\n" +
+		"Host: chatgpt.com\r\n" +
+		"x-unknown: kept\r\n" +
+		"hOsT: chatgpt.com\r\n\r\n"
+	if got != want {
+		t.Fatalf("duplicate-host rewrite mismatch:\n got %q\nwant %q", got, want)
+	}
+}
+
 func TestWebSocketTunnel_ServeUpgradeNoDialer(t *testing.T) {
 	t.Parallel()
 	wt := &WebSocketTunnel{}
