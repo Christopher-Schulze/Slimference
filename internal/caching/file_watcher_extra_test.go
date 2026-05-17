@@ -32,13 +32,18 @@ func TestFileWatcher_run_pruneTicker(t *testing.T) {
 	fw.trackedDirs["/tmp/stale"] = time.Now().Add(-pruneMaxAge - time.Second)
 	fw.mu.Unlock()
 
-	time.Sleep(20 * time.Millisecond)
-
-	fw.mu.RLock()
-	_, ok := fw.trackedDirs["/tmp/stale"]
-	fw.mu.RUnlock()
-	if ok {
-		t.Fatal("expected prune ticker to remove stale directory")
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		fw.mu.RLock()
+		_, ok := fw.trackedDirs["/tmp/stale"]
+		fw.mu.RUnlock()
+		if !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected prune ticker to remove stale directory")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	_ = w.Close()
 }

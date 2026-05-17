@@ -1555,11 +1555,12 @@ Full process in `docs/release-process.md`.
 
 ### Coverage headline
 
-2.3 total: **96.5%** across all packages. Production code in
-`internal/*` and `cmd/*` is effectively at 100%. The 3.5 pp gap lives
-in `scripts/{release,ci,coverage,benchmarks,utils}` tooling packages
-whose `main()` shells out to external binaries and is exercised
-manually or via the operator-driven release pipeline.
+Current formal release gate: `go run ./scripts/ci` runs
+`go run ./scripts/coverage -min=100` and passes at **100.0% total
+statement coverage** for the configured Go coverage profile. This is an
+aggregate gate. Individual package lines can report less than `100.0%`
+while the total gate remains green; do not describe that as a release
+failure unless `scripts/ci` itself exits non-zero.
 
 ### Benchmarks
 

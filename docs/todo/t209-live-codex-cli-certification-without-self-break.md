@@ -36,6 +36,9 @@ The system must be certified against real Codex CLI traffic, but arming transpar
 - Pre-live code/docs proof completed 2026-05-17:
   `go run ./scripts/ci` passes all 8 steps, formal coverage reports
   `100.0%`, and targeted race passes for the touched runtime packages.
+  This is the formal total-coverage gate used by `scripts/ci`; some
+  individual packages can print less than `100.0%` while the aggregate
+  gate still passes.
 
 ## Notes
 
@@ -67,3 +70,14 @@ Pre-run hardening completed 2026-05-17:
 - This active Codex Desktop coding session is inside the same systemwide
   `chatgpt.com` routing blast radius. T209 must be run from a separate
   recovery terminal with a known-good direct-mode fallback.
+
+Current expected start point before the live arm window:
+
+- Daemon/admin health may be up on `127.0.0.1:8990`.
+- Transparent SNI listener on `:8443` should still be off.
+- `/etc/hosts` should be inactive for Slimference.
+- Codex CLI and Codex Desktop policy should be enabled.
+- Claude Code policy should remain disabled and no `api.anthropic.com`
+  hosts entry should exist.
+- CA material may exist on disk, but Keychain trust is intentionally
+  completed interactively during T209 via `slimference cert-trust`.

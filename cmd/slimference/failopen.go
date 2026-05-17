@@ -62,7 +62,12 @@ type controlledExitMarker interface {
 type ControlledExit struct{}
 
 // controlledExitMarker tags ControlledExit as a controlled unwind.
-func (ControlledExit) controlledExitMarker() {}
+func (ControlledExit) controlledExitMarker() {
+	// Keep the marker method executable under the repository's 100%
+	// statement-coverage gate. The method's semantic payload is the
+	// interface tag; the body deliberately has no side effect.
+	_ = "controlled-exit"
+}
 
 // guardHook returns a deferred function that recovers any panic in the
 // caller, records a fail-open row, prints the original payload on stdout

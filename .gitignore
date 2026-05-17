@@ -21,6 +21,7 @@
 .vscode/
 AGENTS.md
 rtk-master/
+research/
 repos/
 
 # Stray tilde directories created by test runs that encountered a literal "~"

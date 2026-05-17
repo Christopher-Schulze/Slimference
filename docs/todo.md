@@ -75,7 +75,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] **Zusätzliche** Testsuites: **`tests/ts/`** (TypeScript) — 6 Tests mit `bun:test`: session fixture schema-Validierung (3 Tests) + CLI integration (3 Tests); alle grün
 - [x] `tests/integration/` (Go), `tests/fixtures/`: 3 Integration-Tests (`//go:build integration`) grün: CompressesLargeConversation (ratio=0.80, layers=[1]), PassthroughNonCompressiblePath, HealthEndpoint; Fixtures: `sample_session.jsonl`, `sample_config.toml`
 - [x] Tests: Stil/Qualität wie `AGENTS.md` §5
-- [x] **`research/rtk-ai/rtk/`**: nicht anfassen, nichts dorthin/davon verschieben (Fremdprojekt)
+- [x] **`research/rtk-ai/rtk/`**: nicht anfassen, nichts dorthin/davon verschieben (Fremdprojekt); `research/` ist gitignored, damit der lokale RTK-Snapshot nicht versehentlich staged wird
 
 ---
 
@@ -1167,7 +1167,9 @@ flips to the 2-surface model in one sweep (no transition period).
 - [!] **T209** Live Codex CLI certification without self-break —
   blocked until the user approves an external recovery shell / live
   arm window. Do not run `cert-trust`, `root-arm`, or `enable` from an
-  active Codex development session. Detail:
+  active Codex development session. Start from disarmed preflight state:
+  admin `:8990` may be healthy, SNI `:8443` off, hosts inactive, Codex
+  policy on, Claude policy off, CA trust still interactive. Detail:
   `docs/todo/t209-live-codex-cli-certification-without-self-break.md`
 - [x] **T210** (2026-05-17) — Legacy surface retirement audit. Remaining
   URL-redirect, env/proxy, system-proxy, config-patch, and debug-only

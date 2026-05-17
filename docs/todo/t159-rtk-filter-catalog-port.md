@@ -1,7 +1,7 @@
-# TASK 159: Port RTK filter catalog (60 TOMLs) for L0 parity
+# TASK 159: Port RTK filter catalog for L0 parity
 
-Status: TODO (planning 2026-05-15)
-Priority: P1
+Status: DONE (2026-05-17, superseded by T211 audit)
+Priority: P1, closed
 Scope: `internal/filter/builtins_toml/` (new), `internal/filter/`, `tests/fixtures/`, `docs/documentation.md`, `NOTICE.md` (new)
 
 ## Why
@@ -10,6 +10,15 @@ RTK ships 60+ embedded TOML filters covering ecosystems we currently do not (`gr
 
 **Why:** L0 token savings are proportional to ecosystem coverage. Every unported filter = a tool whose raw output blasts the context. RTK has done the empirical work of identifying the 60 highest-value commands; reuse it.
 **How to apply:** All ports embed via `//go:embed`, are gated by a built-in priority list (built-ins > TOML > passthrough), and ship with the same snapshot fixtures RTK uses (MIT-licensed input/output pairs).
+
+Closure note: the current RTK research snapshot at
+`research/rtk-ai/rtk/src/filters/` contains 59 TOML files, not the
+earlier planning estimate of 60+. Slimference currently embeds 59 TOML
+files under `internal/filter/builtins_toml/`, and the filename diff is
+empty. T211 is the current authority for RTK parity claims. The
+remaining RTK ideas are not missing TOML filters: they are parked
+Claude ergonomics, configurable transparent prefixes, and future
+non-Codex audits.
 
 ## Target State
 
@@ -27,14 +36,19 @@ RTK ships 60+ embedded TOML filters covering ecosystems we currently do not (`gr
 
 ## Acceptance
 
-- 60 filters from `research/rtk-ai/rtk/src/filters/*.toml` ported with byte-identical semantics on the RTK fixtures.
+- Current 59 filters from `research/rtk-ai/rtk/src/filters/*.toml`
+  ported into Slimference-owned embedded TOML files.
 - All snapshot tests green; running `go test ./internal/filter/...` passes.
 - `slimference filter -- <cmd>` for any of the 60 covered commands compacts output without panics on real-world runs (manual smoke-test list in the task notes).
 - `gain` analytics surface per-filter coverage and savings.
 - `NOTICE.md` present, MIT attribution clean.
 - 100% statement coverage maintained on `internal/filter/`.
 
-## Sub-Tasks
+## Original Planning Checklist
+
+Historical checklist retained for traceability. The live closure proof
+is T211 plus the current 59/59 filename-diff check; do not treat the
+unchecked historical planning bullets below as active missing P0 work.
 
 - [ ] Author `internal/filter/builtins_toml_loader.go` with `//go:embed` and lazy-once parsing.
 - [ ] Extend `internal/filter/pipeline.go` to insert embedded-TOML stage between built-ins and user-TOML.

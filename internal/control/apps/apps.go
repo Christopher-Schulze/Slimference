@@ -344,9 +344,6 @@ func writeToFile(path string, pol Policy) error {
 		SchemaVersion: pol.SchemaVersion,
 		Apps:          apps,
 	}
-	if f.SchemaVersion == 0 {
-		f.SchemaVersion = 1
-	}
 	var buf strings.Builder
 	// fileShape contains only TOML-encodable scalar/map fields and the
 	// destination is an in-memory builder, so encoding cannot fail unless

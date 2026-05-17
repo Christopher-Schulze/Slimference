@@ -270,7 +270,8 @@ Current pre-live proof stack (2026-05-17):
 
 - `go run ./scripts/ci` passes all 8 steps, including the formal
   `go run ./scripts/coverage -min=100` gate. Reported statement coverage:
-  `100.0%`.
+  `100.0%` total. This is an aggregate gate; package-level coverage
+  lines can be below `100.0%` without failing the formal release check.
 - Targeted race check passes:
   `go test ./internal/proxy ./internal/summarization ./internal/filter ./internal/transparent ./internal/control/apps ./internal/install/installsteps ./internal/tui -race -count=1 -timeout 300s`.
 - Live Codex certification is still intentionally pending as T209. Do not
@@ -294,6 +295,12 @@ non-loopback upstream IPs, Codex CLI/Desktop app policy is enabled, Claude
 Code remains inactive, and no `api.anthropic.com` hosts route is present in
 Codex-only mode. This preflight does not start Codex and does not arm
 Keychain, hosts, or pfctl.
+
+T209 starts from disarmed preflight state: admin health can be up on
+`127.0.0.1:8990`, but `:8443` should be off, hosts should be inactive,
+and CA trust should still require the explicit `cert-trust` step. The
+live sequence is `cert-trust` -> `root-arm` -> `enable` -> Codex CLI
+smoke -> `/admin/state` telemetry check -> `disable` -> `root-disarm`.
 
 ## Dry-run
 

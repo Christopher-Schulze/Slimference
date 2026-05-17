@@ -115,6 +115,7 @@ var (
 	daemonUninstallFn        = daemon.UninstallLaunchd
 	daemonFormatStatusFn     = daemon.FormatStatus
 	daemonRunFn              = runDaemonWithSlimferenceReload
+	daemonRunWithReloadFn    = daemon.RunDaemonWithReload
 	installClaudeHookFn      = hooks.InstallClaude
 	installCodexHookFn       = hooks.InstallCodex
 	removeClaudeHookFn       = hooks.RemoveClaude
@@ -4064,7 +4065,7 @@ func handleDaemonCmd(args []string) {
 }
 
 func runDaemonWithSlimferenceReload(start func() (int, func(context.Context) error, error)) error {
-	return daemon.RunDaemonWithReload(start, func() {
+	return daemonRunWithReloadFn(start, func() {
 		slog.Info("SIGHUP: reloading apps policy + SNIPeekMode")
 		reloadAppsManager(startProxyAppsManager)
 		reloadSNIPeekModeFromDisk(startProxyConfig)

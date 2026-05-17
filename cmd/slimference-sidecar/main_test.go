@@ -311,6 +311,29 @@ func TestAskEngine_NilForwardResponseReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestAskEngine_PassThroughDecision(t *testing.T) {
+	fe := newFakeEngine(t, func(env hookproto.Envelope) hookproto.Envelope {
+		resp := hookproto.NewEnvelope(env.Op, env.ID)
+		resp.Response = &hookproto.Response{ForwardRequest: &hookproto.ForwardRequestResponse{
+			PassThrough: true,
+		}}
+		return resp
+	})
+	defer fe.Close()
+	sc := newSidecarUnderTest(fe.path)
+	req := httptest.NewRequest(http.MethodPost, "http://x/", strings.NewReader(""))
+	dec, ok := sc.askEngine(req, nil, "http://x/")
+	if !ok {
+		t.Fatal("expected passthrough decision to return ok=true")
+	}
+	if !dec.passThrough {
+		t.Fatalf("passThrough=%v, want true", dec.passThrough)
+	}
+	if dec.method != "" || dec.urlOverride != "" || dec.bodyOverride != nil || dec.headerOverride != nil {
+		t.Fatalf("passthrough should not carry overrides: %+v", dec)
+	}
+}
+
 func TestAskEngine_EncodeFailureClosesAndReturnsFalse(t *testing.T) {
 	sock := shortSockPath(t)
 	ln, err := net.Listen("unix", sock)

@@ -43,6 +43,9 @@ The product target is now strict Codex-only: Codex CLI first, Codex Desktop App 
 - `go test ./cmd/slimference ./internal/hooks ./internal/control/apps ./internal/proxy/sniroute ./internal/install ./docs -count=1 -timeout 180s`
 - `go test ./internal/daemon ./cmd/slimference -race -run 'TestRunDaemon|TestReloadSNIPeek|TestEndToEndCLIDaemonSIGHUP|TestHandleDaemon|TestServiceControlAdapter' -count=1 -timeout 180s`
 - `go run ./scripts/ci` passes all 8 gates, including total coverage 100.0%.
+- Coverage wording is intentionally "total coverage": `scripts/ci`
+  enforces the aggregate `go run ./scripts/coverage -min=100` gate, not
+  per-package `100.0%` output for every package line.
 - Live-safe checks only: daemon running on `:8990`, `:8443` off,
   hosts inactive, DoH preflight OK for `chatgpt.com` +
   `api.openai.com`, and `disable` SIGHUP keeps the daemon alive.
