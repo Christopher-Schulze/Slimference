@@ -731,6 +731,7 @@ func (m *Model) renderSetupView() string {
 			"",
 			"  " + s.SetupCmd.Render("slimference install"),
 			"  " + s.SetupCmd.Render("slimference codex run -- <prompt>") + s.Dim.Render(" # one-shot CLI"),
+			"  " + s.SetupCmd.Render("slimference codex run --transport=wss -- <prompt>") + s.Dim.Render(" # WSS cert"),
 			"  " + s.SetupCmd.Render("slimference codex enable") + s.Dim.Render("         # CLI/App route"),
 			"  " + s.SetupCmd.Render("slimference codex disable") + s.Dim.Render("        # direct fallback"),
 			"  " + s.SetupCmd.Render("slimference codex status") + s.Dim.Render("         # route status"),

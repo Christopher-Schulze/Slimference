@@ -1,6 +1,6 @@
 # TASK 223: Scoped upstream fingerprint parity
 
-Status: PLANNED
+Status: PARTIAL - scoped profiled TLS wired; live parity proof pending
 Priority: P0 after T221/T222
 Scope: Upstream TLS/HTTP profile for scoped Codex paths
 
@@ -42,19 +42,19 @@ new path must apply the same discipline to every scoped Codex upstream leg.
 
 ## Sub-Tasks
 
-- [ ] Inventory current scoped HTTP and direct WSS upstream dial sites.
-- [ ] Remove the accidental coupling between profiled upstream TLS and
+- [x] Inventory current scoped HTTP and direct WSS upstream dial sites.
+- [x] Remove the accidental coupling between profiled upstream TLS and
   `cfg.Transparent.Enabled`.
-- [ ] Ensure `newUpstreamTransport` uses profile-aware TLS for scoped Codex
+- [x] Ensure `newUpstreamTransport` uses profile-aware TLS for scoped Codex
   HTTP even when global transparent mode is disabled.
-- [ ] Make `WebSocketTunnel` / raw WSS frontdoor use the same resolver and
+- [x] Make `WebSocketTunnel` use the same resolver and
   profile selection as normal HTTP upstream.
 - [ ] Decide per-route ALPN from route type, not from global transparent state.
 - [ ] Add active-profile telemetry to status/admin state.
-- [ ] Add profile-selection tests for HTTP scoped, WSS scoped, global
+- [ ] Add full profile-selection tests for HTTP scoped, WSS scoped, global
   transparent, and legacy direct paths.
 - [ ] Add a tshark/indist probe checklist for JA3/JA4/ALPN parity.
-- [ ] Add regression tests proving plain Go stdlib TLS is not silently used for
+- [x] Add regression tests proving plain Go stdlib TLS is not silently used for
   scoped Codex unless explicitly configured.
 
 ## Notes
@@ -74,3 +74,23 @@ Known limit:
 - uTLS can approximate common browser/client ClientHello profiles, but exact
   Codex Rustls/native fingerprint requires live capture and may not be perfectly
   reproducible with available profile primitives.
+
+## Implementation Update - 2026-05-17
+
+Landed locally:
+
+- `newUpstreamTransport` now always installs the profile-aware TLS dialer.
+  Scoped HTTP no longer silently falls back to Go stdlib TLS just because
+  `[transparent].enabled=false`.
+- The scoped WSS tunnel was already using `newProfiledWebSocketDialer`; the
+  T221 bridge keeps that dialer and adds Phase-F frame mutation after the
+  upstream `101`.
+- Focused tests cover the always-profiled HTTP transport and WSS dial path.
+
+Still open:
+
+- The active profile is not yet surfaced in `codex status` or
+  `/admin/state`.
+- ALPN is still profile/dialer driven, not tuned per route from a live Codex
+  baseline.
+- Exact Codex CLI/App fingerprint parity remains T224 live-capture work.

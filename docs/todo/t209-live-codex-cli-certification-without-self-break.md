@@ -39,7 +39,7 @@ as the normal T209 path.
 - Pending user-approved live arm window.
 - Pre-live code/docs proof completed 2026-05-17:
   `go run ./scripts/ci` passes all 8 steps. The formal coverage gate is
-  aggregate 99.5%; the current run reports 99.9% total. Some individual
+  aggregate 99.5%; the current run reports 99.8% total. Some individual
   packages can print less than 99.5% while the aggregate gate still
   passes.
 

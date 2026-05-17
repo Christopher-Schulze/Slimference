@@ -171,6 +171,13 @@ legacy config-patch mode via `slimference integrate install --client codex`
 still writes the prefixed `openai_base_url` and `chatgpt_base_url` values into
 the fenced Slimference block.
 
+`slimference proxy env codex --proxied-wss` is the advanced scoped WebSocket
+variant. It uses the same per-process provider but sets
+`supports_websockets=true` so the local daemon receives Codex Responses WSS
+upgrades and routes frames through the Phase-F WSS adapter. This is for WSS
+certification and power-mode testing; the stable scoped default remains HTTP
+until the live indistinguishability audit promotes WSS.
+
 From Cloudflare's / OpenAI's perspective the request volume is unchanged;
 the request path, query, authorization, cookies, and user-agent are forwarded
 as Codex sent them, except for normal upstream authority handling. Slimference

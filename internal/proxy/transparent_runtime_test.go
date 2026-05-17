@@ -13,26 +13,22 @@ import (
 	"github.com/slimference/slimference/internal/tlsdial"
 )
 
-func TestNewUpstreamTransport_TransparentGate(t *testing.T) {
+func TestNewUpstreamTransport_ProfiledTLSAlwaysOn(t *testing.T) {
 	t.Parallel()
 	resolver, err := tlsdial.NewResolver("chromium_stable", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Defaults()
-	if tr := newUpstreamTransport(cfg, resolver); tr.DialTLSContext != nil {
-		t.Fatal("direct mode must keep the standard TLS dial path")
-	}
-	cfg.Transparent.Enabled = true
 	tr := newUpstreamTransport(cfg, resolver)
 	if tr.DialTLSContext == nil {
-		t.Fatal("transparent mode must install the profiled TLS dial path")
+		t.Fatal("scoped HTTP and transparent mode must share the profiled TLS dial path")
 	}
 	if _, err := tr.DialTLSContext(context.Background(), "tcp", "bad-address"); err == nil {
-		t.Fatal("bad transparent TLS address must fail")
+		t.Fatal("bad profiled TLS address must fail")
 	}
 	if _, err := tr.DialTLSContext(context.Background(), "tcp", "127.0.0.1:1"); err == nil {
-		t.Fatal("closed transparent TLS upstream must fail")
+		t.Fatal("closed profiled TLS upstream must fail")
 	}
 }
 

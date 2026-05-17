@@ -1,6 +1,6 @@
 # TASK 221: Scoped Codex WSS Phase-F mode
 
-Status: PLANNED
+Status: ACTIVE - explicit WSS mode implemented; live proof pending
 Priority: P0 after T220/T209 CLI smoke
 Scope: Codex CLI first; Codex Desktop same target after T224/T225 proof; no global hosts/pfctl
 
@@ -77,19 +77,23 @@ the shared config path and Desktop behavior are proven:
 - [ ] Verify how Codex CLI constructs WSS URLs when a custom provider has
   `base_url=http://127.0.0.1:8990/backend-api/codex` and
   `supports_websockets=true`.
-- [ ] Add `--transport=auto|wss|http` parsing for `slimference codex run`.
-- [ ] Add a scoped route option for WSS without prematurely changing the
+- [x] Add `--transport=auto|wss|http|direct` parsing for
+  `slimference codex run`.
+- [x] Add a scoped route option for WSS without prematurely changing the
   default HTTP route.
-- [ ] Define the promotion gate for making `auto` prefer WSS by default:
+- [x] Define the promotion gate for making `auto` prefer WSS by default:
   local tests + T224 live capture + no degraded sessions on smoke.
-- [ ] Reuse the T208 `wsPhaseFAdapter` in direct local WSS upgrades.
+- [x] Reuse the T208 `wsPhaseFAdapter` in direct local WSS upgrades.
 - [ ] Add preflight for WSS readiness: daemon reachable, route enabled, WSS
   handler registered, upstream dial profile available.
-- [ ] Add a scoped WSS route mode to debug/flight records.
-- [ ] Add `/admin/state.wss` counters or labels that prove scoped WSS mutation.
-- [ ] Add tests for WSS mutation, byte-equal fallback, degraded sessions, and
+- [x] Add a scoped WSS route mode to debug/flight records.
+- [x] Add `/admin/state.wss` counters or labels that prove scoped WSS mutation.
+- [x] Add local unit tests for WSS transport selection, provider config,
+  buffered-byte preservation into the frame bridge, audio bypass, and HTTP-mode
+  regression.
+- [ ] Add live tests for WSS mutation, byte-equal fallback, degraded sessions, and
   HTTP-mode regression.
-- [ ] Add docs/install wording: WSS mode is advanced until live-certified.
+- [x] Add docs/install wording: WSS mode is advanced until live-certified.
 - [ ] Run T209/T224 live smoke from a non-Codex shell before promoting WSS.
 
 ## Notes
@@ -123,3 +127,28 @@ Benefit compared with old global transparent path:
 
 - Same class of WSS frame mutation, but scoped to Codex CLI/App provider route
   instead of machine-wide hosts/pfctl.
+
+## Implementation Update - 2026-05-17
+
+Landed locally:
+
+- `slimference codex run --transport=wss` now launches Codex with the scoped
+  provider override and `supports_websockets=true`.
+- `slimference codex enable --transport=wss` writes the marker-owned provider
+  block with `supports_websockets=true`.
+- `--transport=auto` is intentionally mapped to the current safe HTTP default
+  until T224 capture proof says WSS can be preferred.
+- Direct local WSS upgrades now enter `wsmitm.Session` through the existing
+  Phase-F adapter instead of the old inspect-only tunnel.
+- Buffered upstream bytes after the `101 Switching Protocols` response are fed
+  into the frame bridge, not leaked around it.
+- Audio/realtime WSS paths bypass frame mutation and remain byte-equal.
+- Flight/debug records distinguish `websocket_phasef` from plain
+  `websocket_tunnel`.
+
+Not landed yet:
+
+- Live Codex CLI WSS certification.
+- Raw Upgrade header preservation from T222.
+- T224 indistinguishability capture.
+- Promotion of `auto` from HTTP to WSS.

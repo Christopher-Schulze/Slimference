@@ -170,6 +170,26 @@ func TestProxyEnvCodex_Proxied(t *testing.T) {
 	}
 }
 
+func TestProxyEnvCodex_ProxiedWSS(t *testing.T) {
+	t.Parallel()
+	env, stdout, stderr, _, _, _ := newProxyEnv(t)
+	args := []string{"env", "codex", "--proxied-wss", "--host=127.0.0.1", "--port=8990", "prompt"}
+	if rc := proxyRun(args, env); rc != 0 {
+		t.Fatalf("expected rc=0, got %d stderr=%q", rc, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"scoped WSS mode",
+		"model_providers.slimference-codex.supports_websockets=true",
+		"model_providers.slimference-codex.base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
+		" prompt",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("proxied-wss env output missing %q in: %q", want, out)
+		}
+	}
+}
+
 func TestProxyEnvCodex_IPv6Proxied(t *testing.T) {
 	t.Parallel()
 	got := shellJoin(codexEnvCommand("proxied", "::1", "8990", nil))

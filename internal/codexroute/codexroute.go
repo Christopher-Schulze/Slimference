@@ -23,6 +23,23 @@ const (
 	providerID  = "slimference-codex"
 )
 
+// Transport selects how Codex should talk to the scoped provider.
+type Transport string
+
+const (
+	// TransportHTTP disables Codex WebSockets so traffic goes through
+	// the stable HTTP Responses path.
+	TransportHTTP Transport = "http"
+	// TransportWSS enables Codex WebSockets so traffic can use the
+	// scoped WSS Phase-F adapter.
+	TransportWSS Transport = "wss"
+)
+
+// Options controls the marker-owned provider block.
+type Options struct {
+	Transport Transport
+}
+
 // Event records a file operation outcome.
 type Event struct {
 	Path   string `json:"path"`
@@ -38,6 +55,7 @@ type Status struct {
 	Conflict   string `json:"conflict,omitempty"`
 	LegacyKeys bool   `json:"legacy_keys"`
 	BaseURL    string `json:"base_url"`
+	Transport  string `json:"transport"`
 }
 
 // ConfigPath returns ~/.codex/config.toml inside home.
@@ -52,6 +70,11 @@ func ProxyURL(host, port string) string {
 
 // Enable upserts the scoped Codex provider route.
 func Enable(home, proxyURL string) (Event, error) {
+	return EnableWithOptions(home, proxyURL, Options{Transport: TransportHTTP})
+}
+
+// EnableWithOptions upserts the scoped Codex provider route.
+func EnableWithOptions(home, proxyURL string, opts Options) (Event, error) {
 	path := ConfigPath(home)
 	content, exists, err := read(path)
 	if err != nil {
@@ -60,7 +83,8 @@ func Enable(home, proxyURL string) (Event, error) {
 	if !exists {
 		return Event{Path: path, Action: "skipped_codex_config_absent"}, nil
 	}
-	body := blockBody(proxyURL)
+	opts = normalizeOptions(opts)
+	body := blockBody(proxyURL, opts)
 	if fenceComplete(content, body) && routeConflict(stripFence(content)) == "" {
 		return Event{Path: path, Action: "skipped_idempotent"}, nil
 	}
@@ -98,42 +122,96 @@ func Disable(home string) (Event, error) {
 
 // Inspect reads the scoped Codex provider route status.
 func Inspect(home, proxyURL string) (Status, error) {
+	return InspectWithOptions(home, proxyURL, Options{})
+}
+
+// InspectWithOptions reads the scoped Codex provider route status.
+// An empty Transport accepts either HTTP or WSS and reports the detected
+// route mode. A non-empty Transport requires that exact managed block.
+func InspectWithOptions(home, proxyURL string, opts Options) (Status, error) {
 	path := ConfigPath(home)
 	content, exists, err := read(path)
 	if err != nil {
 		return Status{}, err
 	}
-	body := blockBody(proxyURL)
+	body := ""
+	if opts.Transport != "" {
+		body = blockBody(proxyURL, normalizeOptions(opts))
+	}
 	stripped := stripFence(content)
+	transport := detectTransport(content)
 	return Status{
 		Path:       path,
 		Exists:     exists,
 		Enabled:    hasFence(content),
-		Complete:   exists && fenceComplete(content, body) && routeConflict(stripped) == "",
+		Complete:   exists && routeComplete(content, proxyURL, body) && routeConflict(stripped) == "",
 		Conflict:   routeConflict(stripped),
 		LegacyKeys: hasLegacyKeys(stripped),
 		BaseURL:    integrate.CodexOpenAIBaseURL(proxyURL),
+		Transport:  transport,
 	}, nil
 }
 
 // PreviewBlock returns the exact fenced block Enable would write.
 func PreviewBlock(proxyURL string) string {
-	return renderBlock(blockBody(proxyURL))
+	return PreviewBlockWithOptions(proxyURL, Options{Transport: TransportHTTP})
 }
 
-func blockBody(proxyURL string) string {
+// PreviewBlockWithOptions returns the exact fenced block
+// EnableWithOptions would write.
+func PreviewBlockWithOptions(proxyURL string, opts Options) string {
+	return renderBlock(blockBody(proxyURL, normalizeOptions(opts)))
+}
+
+func blockBody(proxyURL string, opts Options) string {
+	supportsWebSockets := "false"
+	if opts.Transport == TransportWSS {
+		supportsWebSockets = "true"
+	}
 	return fmt.Sprintf(`model_provider = %s
 
 [model_providers.%s]
 name = "Slimference Codex"
 base_url = %s
 requires_openai_auth = true
-supports_websockets = false
+supports_websockets = %s
 wire_api = "responses"`,
 		strconv.Quote(providerID),
 		providerID,
 		strconv.Quote(integrate.CodexOpenAIBaseURL(proxyURL)),
+		supportsWebSockets,
 	)
+}
+
+func normalizeOptions(opts Options) Options {
+	if opts.Transport == "" {
+		opts.Transport = TransportHTTP
+	}
+	return opts
+}
+
+func routeComplete(content, proxyURL, exactBody string) bool {
+	if exactBody != "" {
+		return fenceComplete(content, exactBody)
+	}
+	return fenceComplete(content, blockBody(proxyURL, Options{Transport: TransportHTTP})) ||
+		fenceComplete(content, blockBody(proxyURL, Options{Transport: TransportWSS}))
+}
+
+func detectTransport(content string) string {
+	start := strings.Index(content, markerStart)
+	end := strings.Index(content, markerEnd)
+	if start < 0 || end < start {
+		return ""
+	}
+	block := content[start:end]
+	if strings.Contains(block, "supports_websockets = true") {
+		return string(TransportWSS)
+	}
+	if strings.Contains(block, "supports_websockets = false") {
+		return string(TransportHTTP)
+	}
+	return ""
 }
 
 func read(path string) (string, bool, error) {

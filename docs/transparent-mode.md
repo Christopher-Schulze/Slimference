@@ -165,12 +165,13 @@ Modern Codex appends `/responses` to the provider base URL, so the Codex
 backend prefix is required. The command is not written to `~/.codex/config.toml`;
 it only affects that one CLI process. This keeps Codex App direct while Codex
 CLI flows through Slimference. Setting `supports_websockets=false` on the custom
-provider is the clean path for compression: Codex uses HTTP directly, Slimference
-decodes Codex's `Content-Encoding: zstd` request body, runs the normal pipeline,
+provider is the stable HTTP path: Codex uses HTTP directly, Slimference decodes
+Codex's `Content-Encoding: zstd` request body, runs the normal pipeline,
 re-encodes zstd for upstream, and logs the processed request as
-`route_mode=upstream`. Default direct mode can still tunnel Codex's WebSocket
-transport byte-for-byte (`route_mode=websocket_tunnel`); that is the
-smoothest/invisibility-first path but does not inspect message frames. The
+`route_mode=upstream`. The advanced scoped WSS path sets
+`supports_websockets=true`; after the HTTP Upgrade it runs frames through
+`wsmitm.Session` and the Phase-F WSS adapter (`route_mode=websocket_phasef`).
+Unknown or malformed frame schemas degrade to byte-equal forwarding. The
 legacy `[proxy] direct_codex_websocket_policy = "force_https_fallback"` remains
 available only as a fallback proof mode for older launch commands.
 

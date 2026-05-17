@@ -51,6 +51,24 @@ func TestCodexCmdRunUsesProxiedWhenDaemonHealthy(t *testing.T) {
 	}
 }
 
+func TestCodexCmdRunUsesScopedWSSWhenRequested(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHealthFn = func(host, port string) error { return nil }
+	var got []string
+	codexProxyRunFn = func(args []string, env proxyEnv) int {
+		got = append([]string(nil), args...)
+		return 0
+	}
+	p, _, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"run", "--transport=wss", "--", "exec", "hi"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if !strings.Contains(strings.Join(got, "\x00"), "--proxied-wss") {
+		t.Fatalf("expected WSS proxy args, got %#v", got)
+	}
+}
+
 func TestCodexCmdRunFallsBackDirectWhenDaemonDown(t *testing.T) {
 	withCodexCmdStubs(t)
 	codexRouteHealthFn = func(host, port string) error { return errors.New("dial refused") }
@@ -69,6 +87,18 @@ func TestCodexCmdRunFallsBackDirectWhenDaemonDown(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "falling back to direct Codex") {
 		t.Fatalf("missing fallback warning: %q", errBuf.String())
+	}
+}
+
+func TestCodexCmdEnableWSSDryRun(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return "/tmp/home", nil }
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"enable", "--transport=wss", "--dry-run"}, p); rc != 0 {
+		t.Fatalf("dry-run rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "supports_websockets = true") {
+		t.Fatalf("dry-run missing WSS block: %q", out.String())
 	}
 }
 
@@ -160,6 +190,11 @@ func TestCodexCmdDryRunAndErrors(t *testing.T) {
 	if rc := runCodexCmd([]string{"status", "--bogus"}, p); rc != 2 || !strings.Contains(errBuf.String(), "unknown flag") {
 		t.Fatalf("bad flag rc=%d stderr=%q", rc, errBuf.String())
 	}
+	errBuf.Reset()
+	if rc := runCodexCmd([]string{"run", "--transport=bogus"}, p); rc != 2 ||
+		!strings.Contains(errBuf.String(), "transport must be auto") {
+		t.Fatalf("bad transport rc=%d stderr=%q", rc, errBuf.String())
+	}
 }
 
 func TestCodexCmdHelpAndErrorBranches(t *testing.T) {
@@ -195,7 +230,7 @@ func TestCodexCmdHelpAndErrorBranches(t *testing.T) {
 	}
 
 	codexRouteHomeFn = func() (string, error) { return "/tmp/home", nil }
-	codexRouteEnableFn = func(string, string) (codexroute.Event, error) {
+	codexRouteEnableFn = func(string, string, codexroute.Options) (codexroute.Event, error) {
 		return codexroute.Event{}, errors.New("enable failed")
 	}
 	errBuf.Reset()
@@ -211,7 +246,7 @@ func TestCodexCmdHelpAndErrorBranches(t *testing.T) {
 		t.Fatalf("disable error rc=%d err=%q", rc, errBuf.String())
 	}
 
-	codexRouteInspectFn = func(string, string) (codexroute.Status, error) {
+	codexRouteInspectFn = func(string, string, codexroute.Options) (codexroute.Status, error) {
 		return codexroute.Status{}, errors.New("inspect failed")
 	}
 	errBuf.Reset()
@@ -231,7 +266,7 @@ func TestCodexStatusHumanBranches(t *testing.T) {
 	codexRouteHomeFn = func() (string, error) { return "/tmp/home", nil }
 	p, out, _ := newTestPrinter()
 
-	codexRouteInspectFn = func(string, string) (codexroute.Status, error) {
+	codexRouteInspectFn = func(string, string, codexroute.Options) (codexroute.Status, error) {
 		return codexroute.Status{Exists: true, Enabled: true, Complete: true, BaseURL: "http://127.0.0.1:8990/backend-api/codex"}, nil
 	}
 	codexRouteHealthFn = func(string, string) error { return nil }
@@ -248,7 +283,7 @@ func TestCodexStatusHumanBranches(t *testing.T) {
 	}
 
 	out.Reset()
-	codexRouteInspectFn = func(string, string) (codexroute.Status, error) {
+	codexRouteInspectFn = func(string, string, codexroute.Options) (codexroute.Status, error) {
 		return codexroute.Status{
 			Exists:     true,
 			Enabled:    false,
@@ -313,7 +348,7 @@ func TestServiceControlAdapterCodexRoute(t *testing.T) {
 		return 0
 	}
 	osUserHomeDir = func() (string, error) { return "/tmp/home", nil }
-	codexRouteInspectFn = func(home, proxyURL string) (codexroute.Status, error) {
+	codexRouteInspectFn = func(home, proxyURL string, opts codexroute.Options) (codexroute.Status, error) {
 		return codexroute.Status{Exists: true, Enabled: true, Complete: true}, nil
 	}
 	tuiCodexRouteHealthCheckFn = func(host, port string) error { return nil }

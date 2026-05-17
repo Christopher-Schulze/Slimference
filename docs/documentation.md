@@ -795,11 +795,14 @@ Codex-first and scoped:
 
 - hook callouts in `~/.codex/hooks.json`
 - per-process Codex CLI traffic through
-  `slimference codex run -- <prompt>`
+  `slimference codex run -- <prompt>`; explicit
+  `--transport=wss` enables scoped Responses WebSockets before live
+  default promotion
 - optional shared Codex CLI/App traffic through
   `slimference codex enable` / `slimference codex disable`, which writes
   only a marker-owned `slimference-codex` provider block in
-  `~/.codex/config.toml`
+  `~/.codex/config.toml`; explicit `codex enable --transport=wss` writes
+  `supports_websockets=true`
 
 The normal user-facing commands are `slimference install`,
 `status --preflight`, `codex run`, `codex enable`, `codex disable`,
@@ -945,7 +948,9 @@ slimference                         # TUI
 slimference install                 # Codex-only install plan
 slimference status --preflight      # scoped Codex readiness checks
 slimference codex run -- <prompt>   # one-shot CLI with fail-open direct
+slimference codex run --transport=wss -- <prompt>
 slimference codex enable            # shared Codex CLI/App route
+slimference codex enable --transport=wss
 slimference codex disable           # remove shared route
 slimference cert-trust              # global lab: open Keychain Access
 slimference root-arm --global-chatgpt-hosts

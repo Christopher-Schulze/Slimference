@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"io"
 	"log/slog"
@@ -18,18 +19,21 @@ import (
 // pre-made loopback connection.
 type WebSocketDialer func(host, port string) (net.Conn, error)
 
+// WebSocketFrameBridge receives the post-upgrade client and upstream
+// streams. Implementations may parse and mutate frames or fall back to
+// byte-equal forwarding.
+type WebSocketFrameBridge func(ctx context.Context, client, upstream net.Conn) error
+
 // WebSocketTunnel handles `Upgrade: websocket` requests intercepted
 // by the MITM dispatch. Once the upgrade handshake succeeds against
-// upstream, frames flow byte-for-byte in both directions until either
-// side closes. Compression on `responses`-shaped streams is a follow-up
-// (Layer 1/2 on WebSocket message boundaries); for now this is a pure
-// tunnel so Codex Desktop's `responses_websocket` traffic completes
-// rather than being denied.
+// upstream, frames either pass through byte-equal or, for scoped Codex
+// conversation WSS, run through the Phase-F frame bridge.
 type WebSocketTunnel struct {
 	Dialer      WebSocketDialer
 	Logger      *slog.Logger
 	BypassPaths []string
 	Inspector   wscompact.Inspector
+	FrameBridge WebSocketFrameBridge
 }
 
 // IsWebSocketUpgrade reports whether the request is asking for a
@@ -122,20 +126,42 @@ func (t *WebSocketTunnel) ServeUpgrade(clientConn net.Conn, r *http.Request, hos
 	// pump below will fail on the very next write and we exit cleanly;
 	// no separate err handling needed.
 	_ = forwardResponse(clientConn, resp)
-	// Push any bytes already buffered by upstreamReader into the
-	// client side first, then enter the bidirectional pump. If the
-	// client write fails here the pump will return immediately on the
-	// next iteration; no separate err handling needed.
-	if buffered := upstreamReader.Buffered(); buffered > 0 {
-		bytes, _ := upstreamReader.Peek(buffered)
-		_, _ = clientConn.Write(bytes)
-		_, _ = upstreamReader.Discard(buffered)
+	if t.FrameBridge != nil && !t.IsAudioBypassPath(r.URL.Path) {
+		bridgeUpstream := net.Conn(upstream)
+		if upstreamReader.Buffered() > 0 {
+			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
+		}
+		if err := t.FrameBridge(r.Context(), clientConn, bridgeUpstream); err != nil {
+			t.logf("websocket: frame bridge ended", "host", host, "err", err)
+		}
+		return
 	}
+	flushBufferedUpstream(clientConn, upstreamReader)
 	if t.Inspector == nil {
 		pipeBytes(clientConn, upstream)
 		return
 	}
 	pipeWebSocketBytes(clientConn, upstream, t.Inspector)
+}
+
+type bufferedReadConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *bufferedReadConn) Read(p []byte) (int, error) {
+	if c.reader != nil && c.reader.Buffered() > 0 {
+		return c.reader.Read(p)
+	}
+	return c.Conn.Read(p)
+}
+
+func flushBufferedUpstream(clientConn net.Conn, upstreamReader *bufio.Reader) {
+	if buffered := upstreamReader.Buffered(); buffered > 0 {
+		bytes, _ := upstreamReader.Peek(buffered)
+		_, _ = clientConn.Write(bytes)
+		_, _ = upstreamReader.Discard(buffered)
+	}
 }
 
 func (t *WebSocketTunnel) logf(msg string, args ...any) {

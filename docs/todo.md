@@ -983,7 +983,7 @@ Phase G does NOT redo those; it builds on them.
 Phase G's self-contained packages are now wired into the daemon, admin state,
 TUI, and Phase H install surface. The code-side proof stack is green:
 `go run ./scripts/ci` passes all 8 steps and the current formal aggregate
-coverage gate reports 99.9% against a 99.5% threshold. The only remaining
+coverage gate reports 99.8% against a 99.5% threshold. The only remaining
 P0 gap is T209 live Codex CLI certification, which must happen from a
 non-Codex shell rather than this active Codex session.
 
@@ -1054,7 +1054,7 @@ non-Codex shell rather than this active Codex session.
 - [x] **Release hygiene proof** (2026-05-17) — final pre-live stack
   verified locally: `go run ./scripts/ci` passes all 8 steps. After
   T220 the formal gate is a pragmatic 99.5% aggregate statement
-  threshold; the current run reports 99.9% total. No live arm or real
+  threshold; the current run reports 99.8% total. No live arm or real
   Codex traffic was run.
 - [x] **T217 Codex-only product lock / Claude parked** (2026-05-17)
   — product commands now refuse or no-op every Claude activation path:
@@ -1227,12 +1227,12 @@ only and promotes the per-process Codex CLI runner for T209.
   Codex provider block. Desktop App routing still needs live proof
   before any "Codex Desktop app intercepted" claim. Detail:
   `docs/todo/t220-scoped-codex-routing-without-global-hosts.md`
-- [ ] **T221** Scoped Codex WSS Phase-F mode — recover the old
-  transparent path's WSS savings without global hosts/pfctl:
-  scoped `auto|wss|http|direct` transport policy, WSS-first after
-  proof, optional `supports_websockets=true`, local Codex WSS upgrades
-  through `wsmitm.Session`, Phase-F frame mutation, HTTP fallback, and
-  byte-equal fallback on schema drift. Detail:
+- [~] **T221** Scoped Codex WSS Phase-F mode — implementation path
+  landed for explicit WSS certification mode: `codex run
+  --transport=wss`, `codex enable --transport=wss`, scoped local WSS
+  upgrades through `wsmitm.Session`, Phase-F frame mutation, debug
+  route mode, and byte-equal fallback on schema drift. Default remains
+  stable HTTP until T224 live capture promotes `auto`. Detail:
   `docs/todo/t221-scoped-codex-wss-phasef-mode.md`
 - [ ] **T222** Raw scoped WSS frontdoor — preserve Codex's original
   HTTP/1.1 Upgrade header order/casing/subprotocol bytes before
@@ -1240,11 +1240,11 @@ only and promotes the per-process Codex CLI runner for T209.
   reconstruction drift so scoped WSS can become the real future
   default rather than a lab-only tunnel. Detail:
   `docs/todo/t222-raw-scoped-wss-frontdoor.md`
-- [ ] **T223** Scoped upstream fingerprint parity — make scoped
-  Codex HTTP/WSS upstream dials use TLS/ALPN profile selection
-  independent of global transparent mode, prevent accidental Go
-  stdlib TLS on scoped Codex, then tune toward the live Codex
-  baseline. Detail:
+- [ ] **T223** Scoped upstream fingerprint parity — first closure landed:
+  scoped HTTP and scoped WSS upstream dials now share the profile-aware
+  TLS resolver independent of global transparent mode, preventing silent
+  Go stdlib TLS on the product path. Remaining: telemetry, route-specific
+  ALPN tuning, and live capture baseline. Detail:
   `docs/todo/t223-scoped-upstream-fingerprint-parity.md`
 - [ ] **T224** Scoped indistinguishability audit — adapt the T198
   capture/diff loop to compare native Codex vs scoped HTTP/WSS

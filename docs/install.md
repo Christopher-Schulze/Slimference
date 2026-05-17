@@ -11,7 +11,9 @@ slimference install      # one-shot, atomic, reversible, Codex-only default
 slimference status       # see what's currently armed
 slimference status --preflight
 slimference codex run -- <prompt>     # scoped one-shot Codex CLI, fail-open
+slimference codex run --transport=wss -- <prompt>  # scoped WSS power mode, pre-live-cert
 slimference codex enable              # optional shared Codex CLI/App route
+slimference codex enable --transport=wss  # optional shared WSS route, pre-live-cert
 slimference codex status
 slimference codex disable
 
@@ -45,8 +47,12 @@ Slimference's default product path touches only scoped Codex surfaces:
    This writes a marker-owned provider block to `~/.codex/config.toml`:
    `model_provider="slimference-codex"`,
    `base_url="http://127.0.0.1:8990/backend-api/codex"`,
-   `requires_openai_auth=true`, `supports_websockets=false`, and
-   `wire_api="responses"`. It is reversible with
+   `requires_openai_auth=true`, transport-dependent
+   `supports_websockets=<false|true>`, and `wire_api="responses"`.
+   The default transport is stable HTTP (`supports_websockets=false`).
+   Explicit `--transport=wss` enables scoped Responses WebSockets and
+   routes local Codex WSS upgrades through the Phase-F frame adapter. It
+   is reversible with
    `slimference codex disable` and still leaves Browser ChatGPT,
    ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
    untouched.
@@ -71,7 +77,7 @@ CLI and Codex Desktop.
 |---|---|
 | Daemon unavailable during `slimference codex run` | The wrapper prints a warning and launches direct Codex. **No CLI breakage.** |
 | Daemon unavailable while persistent `codex enable` route is active | Only Codex CLI/App are affected. Run `slimference codex disable`, press `[r]` in TUI Setup, or restart the daemon. Browser ChatGPT, ChatGPT.app, Claude Code, and generic OpenAI clients remain direct. |
-| Codex CLI/Desktop updates | The scoped HTTP provider path avoids the WSS parser. If the separate global lab WSS path is used, frame parsing falls back to byte-equal bridge on schema drift. |
+| Codex CLI/Desktop updates | The scoped HTTP provider path avoids the WSS parser. Scoped WSS and global lab WSS both fall back to byte-equal frame bridging on schema drift; savings disappear until the parser is updated, but unknown frames are not blocked. |
 | `slimference codex disable` while Codex is open | The marker-owned provider block is removed. New Codex CLI/App sessions go direct after config reload / app-server restart. |
 | `slimference disable` while global lab traffic is in flight | Engine accepts current connections, reverts daemon SNI mode. Use `root-disarm` to remove privileged hosts/pfctl routing. |
 | CA removed from Keychain externally | Only global lab MITM is affected. Scoped Codex provider routing does not need Keychain trust. |
@@ -123,6 +129,22 @@ records with `provider=codex_chatgpt` and
 `path=/backend-api/codex/responses`. No `/etc/hosts`, pfctl, or Keychain
 trust is required for this path.
 
+Advanced WSS certification mode:
+
+```bash
+slimference codex run --transport=wss -- "say hi"
+```
+
+This keeps the same Codex-only scope but asks Codex to use Responses
+WebSockets against the local provider. After the HTTP Upgrade succeeds,
+Slimference runs frames through `wsmitm.Session` and the Phase-F WSS
+adapter. Known Codex request/response frames can be compacted; unknown,
+binary, control, or malformed frames degrade to byte-equal forwarding.
+
+Until the live T224 capture passes, `--transport=auto` is intentionally an
+alias for the stable HTTP route. WSS is available for certification and
+power users, not yet the default claim.
+
 ### 3. Enable shared Codex CLI/App route
 
 Use this only when you want regular Codex CLI and Codex Desktop App
@@ -140,6 +162,18 @@ Desktop-only launcher is live-proven. Disable it with:
 ```bash
 slimference codex disable
 ```
+
+To persist WSS for both Codex CLI and any Desktop/App-server process that
+honors `~/.codex/config.toml`, use:
+
+```bash
+slimference codex enable --transport=wss
+```
+
+This still does not touch Browser ChatGPT, ChatGPT.app, Claude Code, global
+proxy settings, `/etc/hosts`, or pfctl. Desktop behavior remains a proof
+item: do not claim Desktop interception until daemon telemetry shows real
+Codex Desktop traffic.
 
 ### 4. Global transparent lab mode
 
@@ -322,7 +356,8 @@ curl http://127.0.0.1:8990/_slimference/admin/state | jq
 
 The WSS transport block is under `/admin/state.wss`:
 
-- `engine_active=true`: the SNI-peek dispatcher is installed in the daemon.
+- `engine_active=true`: a WSS dispatcher is installed in the daemon. This can
+  be the scoped Codex WSS bridge or the global SNI-peek dispatcher.
 - `frames_forwarded>0 && frames_reencoded=0`: byte-equal bridge only.
 - `frames_reencoded>0`: Phase F mutation happened on WSS frames.
 - `degraded_sessions>0` or `parse_failures>0`: schema drift or malformed frames
@@ -332,11 +367,11 @@ Current pre-live proof stack (2026-05-17):
 
 - `go run ./scripts/ci` passes all 8 steps, including the formal
   `go run ./scripts/coverage -min=99.5` aggregate gate. Reported
-  statement coverage is currently `99.9%` total. Package-level coverage
+  statement coverage is currently `99.8%` total. Package-level coverage
   lines can be below the aggregate threshold without failing the formal
   release check.
 - Targeted race check passes:
-  `go test ./internal/proxy ./internal/summarization ./internal/filter ./internal/transparent ./internal/control/apps ./internal/install/installsteps ./internal/tui -race -count=1 -timeout 300s`.
+  `go test ./internal/proxy ./cmd/slimference ./internal/codexroute -race -count=1 -timeout 240s`.
 - Live Codex certification is still intentionally pending as T209. Do not
   run `cert-trust`, `root-arm --global-chatgpt-hosts`, or `enable` from
   the active Codex Desktop development session.

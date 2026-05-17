@@ -1,12 +1,16 @@
 # TASK 142: Codex WebSocket message-boundary compression
 
-Status: IN PROGRESS (T142a inspect-only frame parser landed 2026-05-14; shadow/mutation still blocked on live frame corpus)
+Status: SUPERSEDED BY T208/T221 FOR MUTATION (T142a inspect-only frame parser landed 2026-05-14; scoped WSS mutation now tracked in T221/T224)
 Priority: P0
 Scope: `internal/proxy/ws.go`, `internal/proxy/connect.go`, `internal/wscompact/`, `internal/flight/`, `internal/sessions/`, `cmd/slimference/proxy_cmd.go`, `cmd/slimference/debug_cmd.go`, `tests/fixtures/websocket_corpus/`, `docs/transparent-mode.md`.
 
 ## Why
 
-The current Codex WebSocket path is intentionally a byte-for-byte tunnel. That is correct for product safety: it preserves Codex's internal protocol without pretending we understand message boundaries. It also means the largest current gap is real: WebSocket traffic can be routed and observed at connection level, but request JSON inside the stream is not compressed.
+Historical note: this task was opened when the Codex WebSocket path was an
+intentional byte-for-byte tunnel. T208 later added the WSS Phase-F adapter and
+T221 wires it into scoped Codex WSS mode. The remaining truth from this task is
+the safety posture: unknown or ambiguous frames must fall back to byte-equal
+forwarding, and live-corpus proof gates any default promotion.
 
 The target is not a blind frame mutator. The target is a staged, inspect-first WebSocket pipeline that only mutates known, versioned, proven-safe Codex request messages, and falls back to byte tunnel on anything ambiguous.
 
@@ -27,7 +31,9 @@ WebSocket support has four modes:
 3. `shadow`: compute would-compress deltas and quality checks; send original bytes upstream.
 4. `mutate`: compress known request messages only when every gate passes.
 
-Default remains `tunnel` until T146/T140 live evidence and this task's inspect/shadow acceptance are met.
+Default remains HTTP / non-WSS until T224 live evidence promotes scoped WSS.
+When explicit WSS mode is used, unknown schemas still degrade to byte-equal
+forwarding.
 
 ## Work Packages
 

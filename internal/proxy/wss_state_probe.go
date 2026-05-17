@@ -6,14 +6,14 @@ import (
 	"github.com/slimference/slimference/internal/control"
 )
 
-// SetWSSDispatcher installs the active transparent WebSocket
-// dispatcher for /admin/state telemetry. Passing nil clears it.
+// SetWSSDispatcher installs the active WebSocket dispatcher for
+// /admin/state telemetry. Passing nil clears it.
 func (p *Proxy) SetWSSDispatcher(d *PhaseFDispatcher) {
 	p.wssDispatcherPtr.Store(d)
 }
 
-// WSSDispatcher returns the currently running transparent WebSocket
-// dispatcher, or nil when SNIPeekMode is disabled / failed open.
+// WSSDispatcher returns the currently wired WebSocket dispatcher, or
+// nil before proxy construction / after explicit clearing.
 func (p *Proxy) WSSDispatcher() *PhaseFDispatcher {
 	return p.wssDispatcherPtr.Load()
 }

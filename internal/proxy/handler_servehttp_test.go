@@ -11,10 +11,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/types"
+	"github.com/slimference/slimference/internal/wscompact"
 )
 
 var errReadBodyTest = errors.New("read body failed")
@@ -100,6 +102,66 @@ func TestServeHTTP_DirectCodexWebSocketUpgradeTunnels(t *testing.T) {
 	summaries := p.DebugRecorder().Last(1, false)
 	if len(summaries) != 1 || summaries[0].RouteMode != "websocket_tunnel" {
 		t.Fatalf("missing websocket flight summary: %#v", summaries)
+	}
+}
+
+func TestServeHTTP_DirectCodexWebSocketUpgradeUsesPhaseFBridge(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	p := New(cfg)
+	seenPayload := make(chan string, 1)
+	p.webSocketTunnel.Dialer = func(string, string) (net.Conn, error) {
+		client, upstream := net.Pipe()
+		go func() {
+			defer upstream.Close()
+			br := bufio.NewReader(upstream)
+			if _, err := http.ReadRequest(br); err != nil {
+				seenPayload <- "read-error:" + err.Error()
+				return
+			}
+			_, _ = io.WriteString(upstream, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+			frame, err := wscompact.ReadFrame(br)
+			if err != nil {
+				seenPayload <- "frame-error:" + err.Error()
+				return
+			}
+			seenPayload <- string(frame.Payload)
+		}()
+		return client, nil
+	}
+	srv := httptest.NewServer(p)
+	defer srv.Close()
+
+	addr := strings.TrimPrefix(srv.URL, "http://")
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, _ = io.WriteString(conn, "GET /backend-api/codex/responses HTTP/1.1\r\nHost: 127.0.0.1:8990\r\nUser-Agent: codex/0.130.0\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	if resp.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if _, err := wscompact.WriteFrame(conn, true, wscompact.OpcodeText, nil, []byte(`{"type":"ping"}`)); err != nil {
+		t.Fatalf("write frame: %v", err)
+	}
+	select {
+	case got := <-seenPayload:
+		if got != `{"type":"ping"}` {
+			t.Fatalf("upstream payload = %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream did not receive WSS frame")
+	}
+	_ = conn.Close()
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 || summaries[0].RouteMode != "websocket_phasef" {
+		t.Fatalf("missing websocket phasef flight summary: %#v", summaries)
 	}
 }
 

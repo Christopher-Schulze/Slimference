@@ -194,9 +194,9 @@ type Proxy struct {
 	// implicit "all apps enabled" policy.
 	appsManagerPtr atomic.Pointer[apps.Manager]
 
-	// wssDispatcherPtr points at the transparent SNI dispatcher when
-	// SNIPeekMode is active. /admin/state reads it for WSS bridge and
-	// mutation telemetry; nil means the WSS engine is not running.
+	// wssDispatcherPtr points at the active WSS dispatcher used by the
+	// scoped Codex route and, when enabled, transparent SNI mode.
+	// /admin/state reads it for WSS bridge and mutation telemetry.
 	wssDispatcherPtr atomic.Pointer[PhaseFDispatcher]
 
 	// adminState holds the probe set used by the /admin/state
@@ -294,11 +294,17 @@ func New(cfg *config.Config) *Proxy {
 	p.httpClients[types.OpenAI] = upstreamClient
 	p.httpClients[types.CodexChatGPT] = upstreamClient
 	p.webSocketShapes = wscompact.NewShapeRegistry()
+	scopedWSSDispatcher := &PhaseFDispatcher{Proxy: p}
 	p.webSocketTunnel = &WebSocketTunnel{
 		Dialer:      newProfiledWebSocketDialer(tlsResolver),
 		Logger:      slog.Default(),
 		BypassPaths: cfg.Transparent.AudioBypassPaths,
 		Inspector:   p.webSocketShapes,
+		FrameBridge: func(ctx context.Context, client, upstream net.Conn) error {
+			p.SetWSSDispatcher(scopedWSSDispatcher)
+			scopedWSSDispatcher.counters.mitmBridged.Add(1)
+			return scopedWSSDispatcher.runWSMITM(ctx, client, upstream)
+		},
 	}
 
 	// Layer 1: Deterministic compressor.
@@ -450,14 +456,12 @@ func newUpstreamTransport(cfg *config.Config, resolver tlsdial.Resolver) *http.T
 		ResponseHeaderTimeout: 120 * time.Second, // SSE streams can be long
 		DisableCompression:    true,              // we handle our own compression
 	}
-	if cfg.Transparent.Enabled {
-		transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
-			}
-			return tlsdial.Dial(ctx, network, host, port, resolver.Resolve(host))
+	transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			return nil, err
 		}
+		return tlsdial.Dial(ctx, network, host, port, resolver.Resolve(host))
 	}
 	return transport
 }
@@ -696,6 +700,11 @@ func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer clientConn.Close()
+	routeMode := "websocket_tunnel"
+	mutationRequested := p.webSocketTunnel.FrameBridge != nil && !p.webSocketTunnel.IsAudioBypassPath(r.URL.Path)
+	if mutationRequested {
+		routeMode = "websocket_phasef"
+	}
 	if p.debugRecorder != nil {
 		p.debugRecorder.Record(dbg.RequestSummary{
 			RequestID: newRequestIDFn(),
@@ -704,13 +713,13 @@ func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Requ
 			Provider:  provider.String(),
 			Host:      r.Host,
 			Path:      r.URL.Path,
-			RouteMode: "websocket_tunnel",
+			RouteMode: routeMode,
 			Plan: p.dryRunPlan(plannerInput{
 				provider:                   provider,
-				routeMode:                  "websocket_tunnel",
+				routeMode:                  routeMode,
 				contentClasses:             []string{"websocket"},
 				webSocketShapeKnown:        p.webSocketShapeKnown(),
-				webSocketMutationRequested: false,
+				webSocketMutationRequested: mutationRequested,
 				liveCorpusConfidence:       p.plannerLiveCorpusConfidence(),
 			}),
 		})

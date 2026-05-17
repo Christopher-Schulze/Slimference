@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -197,6 +198,107 @@ func TestWebSocketTunnel_BufferedBytesAfterUpgradeFlushed(t *testing.T) {
 		t.Fatalf("unexpected buffered bytes %q", buf)
 	}
 	clientA.Close()
+}
+
+func TestWebSocketTunnel_FrameBridgeReadsBufferedBytes(t *testing.T) {
+	t.Parallel()
+	upstreamA, upstreamB := net.Pipe()
+	defer upstreamA.Close()
+	defer upstreamB.Close()
+	go func() {
+		br := bufio.NewReader(upstreamA)
+		_, _ = http.ReadRequest(br)
+		_, _ = upstreamA.Write([]byte(
+			"HTTP/1.1 101 Switching Protocols\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n\r\n" +
+				"FRAME"))
+	}()
+	seen := make(chan string, 1)
+	wt := &WebSocketTunnel{
+		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
+		FrameBridge: func(ctx context.Context, client, upstream net.Conn) error {
+			buf := make([]byte, 5)
+			_, err := io.ReadFull(upstream, buf)
+			if err != nil {
+				return err
+			}
+			seen <- string(buf)
+			return nil
+		},
+	}
+	clientA, clientB := net.Pipe()
+	defer clientA.Close()
+	defer clientB.Close()
+	r := httptest.NewRequest("GET", "/backend-api/codex/responses", nil)
+	r.Header.Set("Upgrade", "websocket")
+	r.Header.Set("Connection", "Upgrade")
+	go wt.ServeUpgrade(clientB, r, "chatgpt.com")
+	resp, err := http.ReadResponse(bufio.NewReader(clientA), r)
+	if err != nil {
+		t.Fatalf("read 101: %v", err)
+	}
+	resp.Body.Close()
+	select {
+	case got := <-seen:
+		if got != "FRAME" {
+			t.Fatalf("buffered bytes = %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("frame bridge did not receive buffered bytes")
+	}
+}
+
+func TestWebSocketTunnel_AudioBypassSkipsFrameBridge(t *testing.T) {
+	t.Parallel()
+	upstreamA, upstreamB := net.Pipe()
+	defer upstreamA.Close()
+	defer upstreamB.Close()
+	go func() {
+		br := bufio.NewReader(upstreamA)
+		_, _ = http.ReadRequest(br)
+		_, _ = upstreamA.Write([]byte(
+			"HTTP/1.1 101 Switching Protocols\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n\r\n"))
+		_, _ = io.Copy(upstreamA, upstreamA)
+	}()
+	bridgeCalled := make(chan struct{}, 1)
+	wt := &WebSocketTunnel{
+		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
+		FrameBridge: func(ctx context.Context, client, upstream net.Conn) error {
+			bridgeCalled <- struct{}{}
+			return nil
+		},
+	}
+	clientA, clientB := net.Pipe()
+	defer clientA.Close()
+	defer clientB.Close()
+	r := httptest.NewRequest("GET", "/v1/realtime", nil)
+	r.Header.Set("Upgrade", "websocket")
+	r.Header.Set("Connection", "Upgrade")
+	go wt.ServeUpgrade(clientB, r, "api.openai.com")
+	br := bufio.NewReader(clientA)
+	resp, err := http.ReadResponse(br, r)
+	if err != nil {
+		t.Fatalf("read 101: %v", err)
+	}
+	resp.Body.Close()
+	if _, err := clientA.Write([]byte("PING")); err != nil {
+		t.Fatalf("write ping: %v", err)
+	}
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(br, buf); err != nil {
+		t.Fatalf("read echo: %v", err)
+	}
+	if string(buf) != "PING" {
+		t.Fatalf("echo = %q", buf)
+	}
+	select {
+	case <-bridgeCalled:
+		t.Fatal("audio bypass must not enter frame bridge")
+	default:
+	}
 }
 
 func TestWebSocketTunnel_BidirectionalPipe(t *testing.T) {

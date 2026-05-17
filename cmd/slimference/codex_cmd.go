@@ -15,19 +15,20 @@ import (
 
 var (
 	codexRouteHomeFn    = os.UserHomeDir
-	codexRouteEnableFn  = codexroute.Enable
+	codexRouteEnableFn  = codexroute.EnableWithOptions
 	codexRouteDisableFn = codexroute.Disable
-	codexRouteInspectFn = codexroute.Inspect
+	codexRouteInspectFn = codexroute.InspectWithOptions
 	codexRouteHealthFn  = defaultProxyHealthCheck
 	codexProxyRunFn     = proxyRun
 )
 
 type codexRouteFlags struct {
-	host   string
-	port   string
-	json   bool
-	dryRun bool
-	help   bool
+	host      string
+	port      string
+	transport string
+	json      bool
+	dryRun    bool
+	help      bool
 }
 
 func handleCodexCmd(args []string) {
@@ -64,13 +65,19 @@ func runCodexRunCmd(args []string, p installPrinter) int {
 		fmt.Fprint(p.Out, codexRunHelpText)
 		return 0
 	}
+	if strings.HasPrefix(flags.transport, "invalid:") {
+		fmt.Fprintf(p.Err, "codex run: transport must be auto, http, wss, or direct\n")
+		return 2
+	}
 	mode := "proxied"
-	if direct {
+	if direct || flags.transport == "direct" {
 		mode = "direct"
 	} else if err := codexRouteHealthFn(flags.host, flags.port); err != nil {
 		fmt.Fprintf(p.Err, "codex run: Slimference daemon unreachable at %s:%s (%v); falling back to direct Codex.\n",
 			flags.host, flags.port, err)
 		mode = "direct"
+	} else if flags.transport == "wss" {
+		mode = "proxied-wss"
 	}
 	proxyArgs := []string{"run", "codex", "--" + mode, "--host=" + flags.host, "--port=" + flags.port}
 	if len(codexArgs) > 0 {
@@ -98,10 +105,10 @@ func runCodexEnableCmd(args []string, p installPrinter) int {
 	proxyURL := codexroute.ProxyURL(flags.host, flags.port)
 	if flags.dryRun {
 		fmt.Fprintf(p.Out, "Dry-run: would write scoped Codex route to %s\n\n%s",
-			codexroute.ConfigPath(home), codexroute.PreviewBlock(proxyURL))
+			codexroute.ConfigPath(home), codexroute.PreviewBlockWithOptions(proxyURL, codexRouteOptions(flags.transport)))
 		return 0
 	}
-	evt, err := codexRouteEnableFn(home, proxyURL)
+	evt, err := codexRouteEnableFn(home, proxyURL, codexRouteOptions(flags.transport))
 	if err != nil {
 		fmt.Fprintf(p.Err, "codex enable: %v\n", err)
 		return 1
@@ -161,7 +168,7 @@ func runCodexStatusCmd(args []string, p installPrinter) int {
 		return 1
 	}
 	proxyURL := codexroute.ProxyURL(flags.host, flags.port)
-	status, err := codexRouteInspectFn(home, proxyURL)
+	status, err := codexRouteInspectFn(home, proxyURL, codexroute.Options{})
 	if err != nil {
 		fmt.Fprintf(p.Err, "codex status: %v\n", err)
 		return 1
@@ -189,7 +196,7 @@ func runCodexStatusCmd(args []string, p installPrinter) int {
 }
 
 func parseCodexRouteFlags(args []string) (codexRouteFlags, error) {
-	f := codexRouteFlags{host: "127.0.0.1", port: "8990"}
+	f := codexRouteFlags{host: "127.0.0.1", port: "8990", transport: "http"}
 	for _, a := range args {
 		switch {
 		case a == "--help" || a == "-h":
@@ -202,6 +209,12 @@ func parseCodexRouteFlags(args []string) (codexRouteFlags, error) {
 			f.host = strings.TrimPrefix(a, "--host=")
 		case strings.HasPrefix(a, "--port="):
 			f.port = strings.TrimPrefix(a, "--port=")
+		case strings.HasPrefix(a, "--transport="):
+			t := strings.TrimPrefix(a, "--transport=")
+			if t != "http" && t != "wss" {
+				return f, fmt.Errorf("transport must be http or wss")
+			}
+			f.transport = t
 		default:
 			return f, fmt.Errorf("unknown flag %q", a)
 		}
@@ -210,7 +223,7 @@ func parseCodexRouteFlags(args []string) (codexRouteFlags, error) {
 }
 
 func parseCodexRunFlags(args []string) (codexRouteFlags, bool, []string) {
-	f := codexRouteFlags{host: "127.0.0.1", port: "8990"}
+	f := codexRouteFlags{host: "127.0.0.1", port: "8990", transport: "http"}
 	direct := false
 	var codexArgs []string
 	for i := 0; i < len(args); i++ {
@@ -223,15 +236,33 @@ func parseCodexRunFlags(args []string) (codexRouteFlags, bool, []string) {
 			f.help = true
 		case a == "--direct":
 			direct = true
+			f.transport = "direct"
 		case strings.HasPrefix(a, "--host="):
 			f.host = strings.TrimPrefix(a, "--host=")
 		case strings.HasPrefix(a, "--port="):
 			f.port = strings.TrimPrefix(a, "--port=")
+		case strings.HasPrefix(a, "--transport="):
+			t := strings.TrimPrefix(a, "--transport=")
+			if t == "auto" {
+				t = "http"
+			}
+			if t == "http" || t == "wss" || t == "direct" {
+				f.transport = t
+				continue
+			}
+			f.transport = "invalid:" + t
 		default:
 			codexArgs = append(codexArgs, a)
 		}
 	}
 	return f, direct, codexArgs
+}
+
+func codexRouteOptions(transport string) codexroute.Options {
+	if transport == "wss" {
+		return codexroute.Options{Transport: codexroute.TransportWSS}
+	}
+	return codexroute.Options{Transport: codexroute.TransportHTTP}
 }
 
 func codexProxyEnv(p installPrinter) proxyEnv {
@@ -258,6 +289,9 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 	fmt.Fprintf(w, "  Config   exists=%v enabled=%v complete=%v\n", s.Exists, s.Enabled, s.Complete)
 	fmt.Fprintf(w, "  Path     %s\n", s.Path)
 	fmt.Fprintf(w, "  BaseURL  %s\n", s.BaseURL)
+	if s.Transport != "" {
+		fmt.Fprintf(w, "  Transport %s\n", s.Transport)
+	}
 	fmt.Fprintf(w, "  Daemon   reachable=%v\n", daemonReachable)
 	if daemonErr != "" {
 		fmt.Fprintf(w, "           %s\n", daemonErr)
@@ -293,18 +327,24 @@ Commands:
   status    show route config + daemon health
 `
 
-const codexRunHelpText = `usage: slimference codex run [--direct] [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]
+const codexRunHelpText = `usage: slimference codex run [--transport=http|wss|direct|auto] [--direct] [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]
 
 Runs one Codex CLI process. Default mode health-checks Slimference and
 uses the scoped provider override. If the daemon is unreachable it
 falls back to direct Codex automatically.
+
+Transport:
+  http    stable scoped Responses path, WebSockets disabled (current default)
+  wss     scoped Responses WebSocket path with Phase-F frame mutation
+  auto    alias for the current safe default until live WSS certification
+  direct  no Slimference route
 `
 
-const codexEnableHelpText = `usage: slimference codex enable [--host=127.0.0.1] [--port=8990] [--dry-run]
+const codexEnableHelpText = `usage: slimference codex enable [--transport=http|wss] [--host=127.0.0.1] [--port=8990] [--dry-run]
 
 Writes a marker-owned provider block into ~/.codex/config.toml:
 model_provider="slimference-codex", base_url=http://127.0.0.1:8990/backend-api/codex,
-requires_openai_auth=true, supports_websockets=false, wire_api="responses".
+requires_openai_auth=true, supports_websockets=<transport dependent>, wire_api="responses".
 
 This is scoped to Codex. It does not touch /etc/hosts, pf, system proxy,
 Browser ChatGPT, ChatGPT.app, Claude Code, or generic OpenAI clients.

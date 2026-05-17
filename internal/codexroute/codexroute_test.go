@@ -79,6 +79,40 @@ func TestEnableWritesProviderBlockBeforeFirstTable(t *testing.T) {
 	}
 }
 
+func TestEnableWithOptionsWritesWSSProviderBlock(t *testing.T) {
+	home := t.TempDir()
+	path := writeCodexConfig(t, home, "model = \"gpt-5\"\n")
+	evt, err := EnableWithOptions(home, ProxyURL("127.0.0.1", "8990"), Options{Transport: TransportWSS})
+	if err != nil {
+		t.Fatalf("EnableWithOptions: %v", err)
+	}
+	if evt.Action != "wrote_block" || evt.Path != path {
+		t.Fatalf("event=%+v", evt)
+	}
+	gotBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	got := string(gotBytes)
+	if !strings.Contains(got, "supports_websockets = true") {
+		t.Fatalf("WSS provider block missing websocket support:\n%s", got)
+	}
+	status, err := Inspect(home, ProxyURL("127.0.0.1", "8990"))
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	if !status.Complete || status.Transport != string(TransportWSS) {
+		t.Fatalf("bad WSS status: %+v", status)
+	}
+	httpStatus, err := InspectWithOptions(home, ProxyURL("127.0.0.1", "8990"), Options{Transport: TransportHTTP})
+	if err != nil {
+		t.Fatalf("InspectWithOptions HTTP: %v", err)
+	}
+	if httpStatus.Complete {
+		t.Fatalf("HTTP-specific inspect must not mark WSS block complete: %+v", httpStatus)
+	}
+}
+
 func TestEnableIsIdempotent(t *testing.T) {
 	home := t.TempDir()
 	writeCodexConfig(t, home, "suppress_unstable_features_warning = true\n")
@@ -200,7 +234,7 @@ func TestBackupFailuresPropagate(t *testing.T) {
 	})
 	t.Run("disable", func(t *testing.T) {
 		home := t.TempDir()
-		writeCodexConfig(t, home, renderBlock(blockBody(ProxyURL("127.0.0.1", "8990"))))
+		writeCodexConfig(t, home, renderBlock(blockBody(ProxyURL("127.0.0.1", "8990"), Options{Transport: TransportHTTP})))
 		codexDir := filepath.Join(home, ".codex")
 		if err := os.Chmod(codexDir, 0o500); err != nil {
 			t.Fatalf("chmod: %v", err)
@@ -233,7 +267,7 @@ func TestFenceAndLegacyEdgeHelpers(t *testing.T) {
 		}
 	})
 	t.Run("top fence keeps later user content", func(t *testing.T) {
-		got := stripFence(renderBlock(blockBody(ProxyURL("127.0.0.1", "8990"))) + "\nmodel = \"gpt-5\"\n")
+		got := stripFence(renderBlock(blockBody(ProxyURL("127.0.0.1", "8990"), Options{Transport: TransportHTTP})) + "\nmodel = \"gpt-5\"\n")
 		if got != "model = \"gpt-5\"\n" {
 			t.Fatalf("bad strip result %q", got)
 		}

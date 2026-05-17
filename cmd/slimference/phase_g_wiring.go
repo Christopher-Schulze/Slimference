@@ -190,11 +190,13 @@ func startSNIPeekEngine(p *proxy.Proxy, cfg *config.Config, m *apps.Manager) (*t
 	signer := tlsca.NewSigner(ca, cfg.Transparent.CertCacheSize)
 
 	resolver := sniroute.New(m)
-	dispatcher := &proxy.PhaseFDispatcher{
-		Proxy:        p,
-		UpstreamDial: proxy.DefaultUpstreamDial(),
-		Resolver:     resolver,
+	dispatcher := p.WSSDispatcher()
+	if dispatcher == nil {
+		dispatcher = &proxy.PhaseFDispatcher{}
 	}
+	dispatcher.Proxy = p
+	dispatcher.UpstreamDial = proxy.DefaultUpstreamDial()
+	dispatcher.Resolver = resolver
 	p.SetWSSDispatcher(dispatcher)
 	engine := &transparent.Engine{
 		Listener:   ln,

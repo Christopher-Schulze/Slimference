@@ -321,18 +321,19 @@ ChatGPT.app and Browser ChatGPT must stay untouched.
 Codex CLI launch helpers for T140 split testing:
   slimference proxy env codex --direct [-- <codex-args>...]
   slimference proxy env codex --proxied [-- <codex-args>...]
+  slimference proxy env codex --proxied-wss [-- <codex-args>...]
   slimference proxy env codex --transparent-proxied [-- <codex-args>...]
   slimference proxy run codex --proxied [-- <codex-args>...]
 
 The direct helper clears HTTP(S)/ALL proxy env and sets NO_PROXY=*.
 The proxied helper leaves the macOS System HTTPS proxy untouched and launches
 Codex with a per-process custom provider named slimference-codex pointing at
-the local daemon. That provider disables Responses WebSockets, so the CLI uses
-HTTP directly without retrying fallback. This keeps Codex App direct. The
-transparent-proxied helper is the CONNECT/MITM variant for explicit CA-path
-tests. proxy env prints the exact shell command. proxy run executes Codex
-directly with the same one-process environment. Neither mode mutates Codex
-config.
+the local daemon. --proxied disables Responses WebSockets so the CLI uses
+HTTP directly. --proxied-wss enables Responses WebSockets for scoped WSS
+certification and Phase-F frame mutation. The transparent-proxied helper is
+the CONNECT/MITM variant for explicit CA-path tests. proxy env prints the exact
+shell command. proxy run executes Codex directly with the same one-process
+environment. Neither mode mutates Codex config.
 `
 	case "config":
 		return `slimference config <init|show>

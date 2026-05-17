@@ -3872,7 +3872,7 @@ func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
 		return tui.CodexRouteStatus{Detail: "HOME unresolved"}
 	}
 	proxyURL := codexroute.ProxyURL("127.0.0.1", "8990")
-	status, err := codexRouteInspectFn(home, proxyURL)
+	status, err := codexRouteInspectFn(home, proxyURL, codexroute.Options{})
 	out := tui.CodexRouteStatus{
 		Exists:     status.Exists,
 		Enabled:    status.Enabled,

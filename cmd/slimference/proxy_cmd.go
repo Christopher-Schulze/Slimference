@@ -429,6 +429,9 @@ func proxyEnvCmd(args []string, env proxyEnv) int {
 		fmt.Fprintln(env.Stdout, "# Codex CLI proxied mode: per-process custom provider override; macOS System HTTPS proxy remains untouched.")
 		fmt.Fprintln(env.Stdout, "# WebSockets are disabled for this one Codex process so requests use HTTP directly instead of retrying fallback.")
 		fmt.Fprintln(env.Stdout, "# Codex App stays direct unless you separately run `slimference proxy enable`.")
+	case "proxied-wss":
+		fmt.Fprintln(env.Stdout, "# Codex CLI scoped WSS mode: per-process custom provider override with Responses WebSockets enabled.")
+		fmt.Fprintln(env.Stdout, "# macOS system routing remains untouched; only this Codex process uses Slimference.")
 	case "transparent-proxied":
 		fmt.Fprintln(env.Stdout, "# Codex CLI transparent-proxied mode: process-local HTTP(S)_PROXY through CONNECT/MITM.")
 		fmt.Fprintln(env.Stdout, "# Requires a running Slimference daemon with [transparent].enabled=true and the local CA trusted.")
@@ -457,7 +460,7 @@ func proxyRunClientCmd(args []string, env proxyEnv) int {
 
 func parseCodexProxyArgs(args []string, stderr io.Writer, verb string) (mode, host, port string, codexArgs []string, ok bool) {
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, "usage: slimference proxy %s codex <--direct|--proxied|--transparent-proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]\n", verb)
+		fmt.Fprintf(stderr, "usage: slimference proxy %s codex <--direct|--proxied|--proxied-wss|--transparent-proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]\n", verb)
 		return "", "", "", nil, false
 	}
 	client, rest := args[0], args[1:]
@@ -476,19 +479,25 @@ func parseCodexProxyArgs(args []string, stderr io.Writer, verb string) (mode, ho
 		switch {
 		case a == "--direct":
 			if mode != "" {
-				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, or --transparent-proxied\n", verb)
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
 				return "", "", "", nil, false
 			}
 			mode = "direct"
 		case a == "--proxied":
 			if mode != "" {
-				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, or --transparent-proxied\n", verb)
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
 				return "", "", "", nil, false
 			}
 			mode = "proxied"
+		case a == "--proxied-wss":
+			if mode != "" {
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
+				return "", "", "", nil, false
+			}
+			mode = "proxied-wss"
 		case a == "--transparent-proxied":
 			if mode != "" {
-				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, or --transparent-proxied\n", verb)
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
 				return "", "", "", nil, false
 			}
 			mode = "transparent-proxied"
@@ -504,7 +513,7 @@ func parseCodexProxyArgs(args []string, stderr io.Writer, verb string) (mode, ho
 		}
 	}
 	if mode == "" {
-		fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, or --transparent-proxied\n", verb)
+		fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
 		return "", "", "", nil, false
 	}
 	return mode, host, port, codexArgs, true
@@ -534,8 +543,12 @@ func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
 			"NO_PROXY=*",
 			"no_proxy=*",
 		)
-	case "proxied":
+	case "proxied", "proxied-wss":
 		target := "http://" + net.JoinHostPort(host, port)
+		supportsWebSockets := "false"
+		if mode == "proxied-wss" {
+			supportsWebSockets = "true"
+		}
 		base = append(base,
 			"-u", "HTTP_PROXY",
 			"-u", "HTTPS_PROXY",
@@ -552,7 +565,7 @@ func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
 			"-c", "model_providers.slimference-codex.name="+strconv.Quote("Slimference Codex"),
 			"-c", "model_providers.slimference-codex.base_url="+strconv.Quote(integrate.CodexOpenAIBaseURL(target)),
 			"-c", "model_providers.slimference-codex.requires_openai_auth=true",
-			"-c", "model_providers.slimference-codex.supports_websockets=false",
+			"-c", "model_providers.slimference-codex.supports_websockets="+supportsWebSockets,
 			"-c", "model_providers.slimference-codex.wire_api="+strconv.Quote("responses"),
 		)
 		base = append(base, codexArgs...)
