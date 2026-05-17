@@ -112,7 +112,7 @@ func parsePromptDocument(s string) (body, version string) {
 // summarizer wired by default, they return zero.
 func ExamplePromptCount(lang string) int64  { _ = lang; return 0 }
 func ExamplePromptCounts() map[string]int64 { return map[string]int64{} }
-func ResetExamplePromptCounts()             { _ = ExamplePromptCounts() }
+func ResetExamplePromptCounts()             { return }
 
 // defaultCoTTags lists the historical chain-of-thought wrapper tags
 // the StripCoTTags helper recognises. Kept for callers that still
@@ -125,7 +125,7 @@ var defaultCoTTags = []string{"think", "thinking", "reasoning", "scratchpad"}
 // has no CoT; stubs return zero.
 func CoTTagCount(tag string) int64   { _ = tag; return 0 }
 func CoTTagCounts() map[string]int64 { return map[string]int64{} }
-func ResetCoTTagCounts()             { _ = CoTTagCounts() }
+func ResetCoTTagCounts()             { return }
 
 // StripCoTTags strips a fixed set of XML-style tags from s. Kept as a
 // general utility (extract output never contains them but callers may
@@ -157,7 +157,7 @@ func StripCoTTags(s string, tags []string) string {
 func RecordLineageStats(summary string)          { _ = summary }
 func LineageMarkerRate() float64                 { return 0 }
 func LineageMarkerCounts() (marked, total int64) { return 0, 0 }
-func ResetLineageMarkerStats()                   { _, _ = LineageMarkerCounts() }
+func ResetLineageMarkerStats()                   { return }
 
 var (
 	promptOverrideMu      sync.RWMutex
