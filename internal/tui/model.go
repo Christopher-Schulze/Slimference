@@ -32,6 +32,7 @@ const (
 	ViewStats                 // detailed statistics
 	ViewDebug                 // debug log tail
 	ViewSetup                 // install wizard / service management
+	ViewApps                  // per-app routing toggles (Phase H)
 )
 
 // ProxyInterface defines the subset of proxy.Proxy the TUI requires.
@@ -59,6 +60,24 @@ type ProxyInterface interface {
 	// T67: bypass flag. Bypass() reports state, SetBypass toggles.
 	Bypass() bool
 	SetBypass(enabled bool)
+
+	// Phase H — per-app routing.
+	// AppEntries returns the current state of every known app.
+	AppEntries() []AppEntry
+	// SetAppEnabled flips the policy for one app. Errors propagate.
+	SetAppEnabled(id string, enabled bool) error
+}
+
+// AppEntry is a per-app row for the Apps view. Mirrors
+// internal/control.AppEntry without dragging that import into the
+// TUI's surface.
+type AppEntry struct {
+	ID       string
+	Enabled  bool
+	Detected bool
+	BinPath  string
+	Routed   int64
+	Bypassed int64
 }
 
 // HookStatus records which LLM agent hooks are currently installed.
@@ -160,7 +179,6 @@ type SessionLoggerInterface interface {
 type ProxyConfigInterface interface {
 	GetListenPort() int
 	GetPrefillSpeed() int
-	GetMiniMaxTrustClass() string
 }
 
 // TransparentStatus is the TUI-facing snapshot of system transparent-mode state.
@@ -258,6 +276,10 @@ type Model struct {
 	setupCursor int    // selected setup row for arrow navigation (0-indexed)
 	setupAction string // pending action description
 
+	// Apps view state (Phase H).
+	appsCursor int    // selected app row in ViewApps (0-indexed)
+	appsFlash  string // ephemeral flash for the apps screen ("toggled" etc.)
+
 	transparentStatus   TransparentStatus
 	transparentStatusAt time.Time
 
@@ -309,10 +331,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "c":
-			m.claudeEnabled = !m.claudeEnabled
-			m.proxy.SetProviderEnabled(types.Anthropic, m.claudeEnabled)
-			m.persistStateBestEffort()
-			m.setFlash(fmt.Sprintf("Claude Code: %s", onOff(m.claudeEnabled)))
+			m.claudeEnabled = false
+			m.setFlash("Claude Code is disabled in Codex-only mode")
 
 		case "x":
 			m.codexEnabled = !m.codexEnabled
@@ -345,6 +365,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.enterSetupView()
 			}
 			m.persistStateBestEffort()
+
+		case " ":
+			// Phase H: space toggles the selected app's enabled state.
+			if m.view == ViewApps {
+				entries := m.proxy.AppEntries()
+				if len(entries) == 0 {
+					return m, nil
+				}
+				if m.appsCursor >= len(entries) {
+					m.appsCursor = len(entries) - 1
+				}
+				e := entries[m.appsCursor]
+				if appEntryIsClaudeCode(e) {
+					m.appsFlash = "Claude Code parked: Codex-only hosts are active; explicit Claude opt-in needed later"
+					return m, nil
+				}
+				if err := m.proxy.SetAppEnabled(e.ID, !e.Enabled); err != nil {
+					m.appsFlash = "error: " + err.Error()
+				} else {
+					state := "enabled"
+					if e.Enabled {
+						state = "disabled"
+					}
+					m.appsFlash = e.ID + " " + state
+				}
+				return m, nil
+			}
 
 		case "1":
 			if m.view == ViewSetup {
@@ -413,6 +460,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
+			if m.view == ViewApps {
+				if m.appsCursor > 0 {
+					m.appsCursor--
+				}
+				return m, nil
+			}
 
 		case "down", "j":
 			if m.view == ViewMain {
@@ -433,6 +486,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view == ViewSetup && m.svc != nil {
 				m.moveSetupCursor(1)
 				m.persistStateBestEffort()
+				return m, nil
+			}
+			if m.view == ViewApps {
+				entries := m.proxy.AppEntries()
+				if m.appsCursor < len(entries)-1 {
+					m.appsCursor++
+				}
 				return m, nil
 			}
 
@@ -502,6 +562,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "a":
+			// Phase H: toggle Apps view from anywhere except Setup,
+			// where "a" remains the transparent-arm action.
+			if m.view != ViewSetup {
+				if m.view == ViewApps {
+					m.view = ViewMain
+				} else {
+					m.view = ViewApps
+					m.appsCursor = 0
+					m.appsFlash = ""
+				}
+				m.persistStateBestEffort()
+				return m, nil
+			}
 			if m.view == ViewSetup && m.svc != nil {
 				status := m.transparentStatus
 				if status.ProxyArmed {
@@ -616,6 +689,8 @@ func (m Model) View() string {
 		return m.renderDebugView()
 	case ViewSetup:
 		return m.renderSetupView()
+	case ViewApps:
+		return m.renderAppsView()
 	default:
 		return m.renderMainView()
 	}
@@ -783,7 +858,7 @@ func (m *Model) dashboardActions() []dashboardAction {
 		})
 		transparentLabel := "Arm transparent proxy"
 		transparentState := "off"
-		transparentDesc := "Route Codex and Claude HTTPS through Slimference without modifying their installs."
+		transparentDesc := "Route Codex HTTPS through Slimference without URL/proxy config hacks."
 		if transparent.ProxyArmed {
 			transparentLabel = "Disarm transparent proxy"
 			transparentState = fmt.Sprintf("armed · %d svc", transparent.ActiveServices)
@@ -804,16 +879,9 @@ func (m *Model) dashboardActions() []dashboardAction {
 	actions = append(actions,
 		dashboardAction{
 			group:       "Providers",
-			id:          "claude",
-			label:       "Claude Code",
-			description: "Toggle Anthropic traffic through the Slimference proxy pipeline.",
-			state:       onOff(m.claudeEnabled),
-		},
-		dashboardAction{
-			group:       "Providers",
 			id:          "codex",
-			label:       "Codex",
-			description: "Toggle OpenAI Codex traffic through the Slimference proxy pipeline.",
+			label:       "Codex CLI / Desktop",
+			description: "Toggle Codex traffic through the Slimference proxy pipeline.",
 			state:       onOff(m.codexEnabled),
 		},
 		dashboardAction{
@@ -826,7 +894,7 @@ func (m *Model) dashboardActions() []dashboardAction {
 		dashboardAction{
 			group:       "Compression",
 			id:          "layer2",
-			label:       "Layer 2 MiniMax",
+			label:       "Layer 2 semantic",
 			description: "Async semantic compression and summary cache reuse.",
 			state:       onOff(m.layer2Enabled),
 		},
@@ -951,10 +1019,6 @@ func (m *Model) executeMainSelection() tea.Cmd {
 			}
 		}
 		m.refreshTransparentStatus(true)
-	case "claude":
-		m.claudeEnabled = !m.claudeEnabled
-		m.proxy.SetProviderEnabled(types.Anthropic, m.claudeEnabled)
-		m.setFlash(fmt.Sprintf("Claude Code: %s", onOff(m.claudeEnabled)))
 	case "codex":
 		m.codexEnabled = !m.codexEnabled
 		m.proxy.SetProviderEnabled(types.OpenAI, m.codexEnabled)
@@ -1001,28 +1065,22 @@ func (m *Model) setupSteps() []setupStep {
 	}
 	steps := []setupStep{
 		{
-			label:   "Install transparent proxy (CA + daemon)",
+			label:   "Run slimference install (CA + launchd + Codex hooks)",
 			check:   func() bool { return m.transparentStatus.Installed() },
 			action:  func(m *Model) error { return m.svc.InstallTransparent() },
-			confirm: "Install CA trust and launchd daemon",
+			confirm: "Install Codex-only Slimference integration",
 		},
 		{
-			label:   "Arm system HTTPS proxy",
+			label:   "Run slimference enable (arm transparent MITM)",
 			check:   func() bool { return m.transparentStatus.ProxyArmed },
 			action:  func(m *Model) error { return m.svc.EnableTransparent() },
-			confirm: "Route system HTTPS through Slimference",
+			confirm: "Arm Codex transparent routing",
 		},
 		{
-			label:   "Install Codex hook (legacy fallback)",
+			label:   "Install Codex hook",
 			check:   func() bool { return m.hookStatus.Codex },
 			action:  func(m *Model) error { return m.svc.InstallHook("codex") },
-			confirm: "Install Codex hook fallback",
-		},
-		{
-			label:   "Install Claude Code hook (legacy fallback)",
-			check:   func() bool { return m.hookStatus.Claude },
-			action:  func(m *Model) error { return m.svc.InstallHook("claude") },
-			confirm: "Install Claude Code hook fallback",
+			confirm: "Install Codex lifecycle hook",
 		},
 		{
 			label: "Repair auto-start service (launchd only)",

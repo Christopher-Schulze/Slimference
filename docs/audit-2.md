@@ -1,7 +1,7 @@
 # Audit 2 - Post-Remediation Fresh-Eyes Review
 
 Date: 2026-04-17
-Scope: entire Slimference repository except `rtk-master/`
+Scope: entire Slimference repository except the RTK reference tree now at `research/rtk-ai/rtk/`
 Comparison baseline: `docs/audit-1.md`
 
 ---

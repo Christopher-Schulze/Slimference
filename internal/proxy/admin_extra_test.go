@@ -58,6 +58,16 @@ func TestAdminStatusSnapshot_WithoutLayer2(t *testing.T) {
 	}
 }
 
+func TestAdminStatusSnapshot_WithoutQualityAB(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	p := New(config.Defaults())
+	p.qualityAB = nil
+	got := p.adminStatusSnapshot()
+	if got.QualityAB.Enabled || got.QualityAB.ControlTotal != 0 || got.QualityAB.TreatmentTotal != 0 {
+		t.Fatalf("unexpected qualityab telemetry without harness: %+v", got.QualityAB)
+	}
+}
+
 func TestAdminStatusSnapshot_PromptCacheProviderTelemetry(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.Defaults()

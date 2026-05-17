@@ -34,13 +34,31 @@ func ResetPromptCacheBreakpointsCounter() {
 	promptCacheBreakpointsInjected.Store(0)
 }
 
+// PromptCacheHint biases breakpoint placement. ColdHint = current
+// content-scoring heuristic (default). HotHint = the caller knows the
+// prefix has been stable across previous turns and the cache is
+// likely warm, so push breakpoints to the latest positions in the
+// stable prefix to maximise cached-token volume.
+type PromptCacheHint int
+
+const (
+	PromptCacheHintCold PromptCacheHint = iota
+	PromptCacheHintHot
+)
+
 // OptimizeCacheBreakpoints injects Anthropic prompt cache breakpoints into
 // messages. It places `cache_control: {type: "ephemeral"}` on the last content
 // block of up to maxCacheBreakpoints messages inside the stable prefix
-// (index < stableBoundary). Breakpoints are selected by expected cache value:
-// large tool results first, then late stable assistant/user turns, with
-// deterministic tie-breaking. This keeps T45's "multiple depth" intent while
-// avoiding uniform placement on low-value tiny messages.
+// (index < stableBoundary).
+//
+// Cold path: breakpoints selected by expected cache value (large tool
+// results first, then late stable assistant/user turns) with
+// deterministic tie-breaking.
+//
+// Hot path: when the caller's prompt-cache stability tracker reports
+// the prefix has matched the previous turn, breakpoints are pushed to
+// the LATEST positions in the stable prefix so the most tokens flow
+// into the cached chunk on the next request.
 //
 // Only runs when the stable prefix is >= minStablePrefixTokens estimated
 // tokens - below that the caching overhead outweighs the win.
@@ -48,6 +66,12 @@ func ResetPromptCacheBreakpointsCounter() {
 // messages is never mutated; a shallow slice copy + per-touched-message
 // deep content copy is returned.
 func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []types.Message {
+	return OptimizeCacheBreakpointsHint(messages, stableBoundary, PromptCacheHintCold)
+}
+
+// OptimizeCacheBreakpointsHint is the hint-aware variant. Backwards
+// compatible with OptimizeCacheBreakpoints (cold = current behaviour).
+func OptimizeCacheBreakpointsHint(messages []types.Message, stableBoundary int, hint PromptCacheHint) []types.Message {
 	if len(messages) == 0 || stableBoundary <= 0 {
 		return messages
 	}
@@ -64,7 +88,12 @@ func OptimizeCacheBreakpoints(messages []types.Message, stableBoundary int) []ty
 		return messages
 	}
 
-	selected := selectCacheBreakpointIndices(messages, stableBoundary)
+	var selected []int
+	if hint == PromptCacheHintHot {
+		selected = lateBreakpointIndices(messages, stableBoundary)
+	} else {
+		selected = selectCacheBreakpointIndices(messages, stableBoundary)
+	}
 
 	// Work on a shallow copy of the slice so we do not mutate the caller's
 	// slice header.
@@ -127,6 +156,32 @@ func selectCacheBreakpointIndices(messages []types.Message, stableBoundary int) 
 	}
 	sort.Ints(selected)
 	return selected
+}
+
+// lateBreakpointIndices selects the maxCacheBreakpoints latest
+// indices in the stable prefix that have non-empty content. Used
+// under PromptCacheHintHot to maximise cached-token volume when the
+// caller is confident the prefix will repeat byte-identically on the
+// next request. Skips empty-content messages because Anthropic's
+// cache marker must attach to a real content block.
+func lateBreakpointIndices(messages []types.Message, stableBoundary int) []int {
+	end := stableBoundary
+	if end > len(messages) {
+		end = len(messages)
+	}
+	var picked []int
+	for i := end - 1; i >= 0 && len(picked) < maxCacheBreakpoints; i-- {
+		if len(messages[i].Content) == 0 {
+			continue
+		}
+		picked = append(picked, i)
+	}
+	// Output in ascending order so downstream attachment of
+	// cache_control blocks proceeds in document order.
+	for i, j := 0, len(picked)-1; i < j; i, j = i+1, j-1 {
+		picked[i], picked[j] = picked[j], picked[i]
+	}
+	return picked
 }
 
 func cacheBreakpointScore(message types.Message, index, stableBoundary int) int {

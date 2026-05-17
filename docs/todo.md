@@ -1,7 +1,7 @@
 # Slimference - Master TODO
 
 **Normative Spec:** `spec+.md` · **Sequenz + vollständiges Onboarding:** `handover.md` (Repo-Root) §4 (steht über `spec+.md` §23); Kurzlink: `docs/HANDOVER.md`.  
-**RTK (`rtk-master/`):** nur Referenz beim Portieren — keine zweite Spec.
+**RTK (`research/rtk-ai/rtk/`):** nur Referenz beim Portieren — keine zweite Spec.
 
 ---
 
@@ -75,7 +75,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] **Zusätzliche** Testsuites: **`tests/ts/`** (TypeScript) — 6 Tests mit `bun:test`: session fixture schema-Validierung (3 Tests) + CLI integration (3 Tests); alle grün
 - [x] `tests/integration/` (Go), `tests/fixtures/`: 3 Integration-Tests (`//go:build integration`) grün: CompressesLargeConversation (ratio=0.80, layers=[1]), PassthroughNonCompressiblePath, HealthEndpoint; Fixtures: `sample_session.jsonl`, `sample_config.toml`
 - [x] Tests: Stil/Qualität wie `AGENTS.md` §5
-- [x] **`rtk-master/`**: nicht anfassen, nichts dorthin/davon verschieben (Fremdprojekt)
+- [x] **`research/rtk-ai/rtk/`**: nicht anfassen, nichts dorthin/davon verschieben (Fremdprojekt)
 
 ---
 
@@ -805,7 +805,9 @@ Required order: T137 -> T133 -> T134 -> T135 -> T136 -> T138 -> T139 -> T141 -> 
 
 Phase AB is the maximum-upside track after the current Codex CLI/App path is certified. The goal is not "more knobs"; it is a controlled optimizer that turns every provider-supported reuse mechanism, every deterministic compaction lever, and every safe LLM summarization opportunity into measured savings without quality loss. All tasks below are gated by T146 live-corpus evidence and by T149 planner/safety decisions before default-on.
 
-Required order: T146 baseline corpus expansion -> T142 inspect-only WebSocket frame corpus -> T149 planner spine -> T143/T144/T145/T148/T147 in parallel-safe slices -> T142 mutation mode only after frame-shape proof. WebSocket mutation is never enabled by default from static assumptions.
+Required order: T146 baseline corpus expansion -> T142 inspect-only WebSocket frame corpus -> T149 planner spine -> T155 total-cost control plane -> T143/T144/T145/T148/T147 in parallel-safe slices -> T142 mutation mode only after frame-shape proof. WebSocket mutation is never enabled by default from static assumptions.
+
+- [~] T155 - Total cost and usage maxxing control plane: 2026-05-15 user-directed P0 umbrella for end-to-end cost/usage optimization beyond input-only savings. Owns mechanism attribution, logical layer naming, deterministic context compiler, output-token governor, cache/state reuse, reversible tool-prune, live evidence gates, and default-on safety across T143/T145/T148/T149/T151/T153/T154. Detail: `docs/todo/t155-total-cost-and-usage-maxxing-control-plane.md`
 
 - [ ] T142 - Codex WebSocket message-boundary compression: T142a inspect-only foundation and T142b shadow estimator landed, and T149g added the non-mutating shape registry. `internal/wscompact` parses RFC 6455 frames without mutation, reassembles fragmented text for redacted shape summaries, marks RSV/compressed frames as blockers, reports JSON `json_compact` would-save bytes/tokens, and `WebSocketTunnel` can attach the inspector while preserving byte-for-byte default tunnel behavior. Remaining: live Codex frame corpus and mutation mode. Detail: `docs/todo/t142-websocket-message-boundary-compression.md`
 - [ ] T143 - Layer 1 semantic deterministic compaction frontier: T143a reversible path dictionary, T143b/T143e multi-language structure extraction, T143c local-tokenizer structure budget gate, and T143d semantic stacktrace/test-failure compaction landed. Remaining: provider-context-specific budgets, config/schema deltas, and quality/live-corpus gates. Detail: `docs/todo/t143-l1-semantic-deterministic-frontier.md`
@@ -862,3 +864,402 @@ User-directed track from 2026-05-15. Scope includes every high-upside lever exce
 - Removing MiniMax as a provider entirely (operator may have a relationship; T121 makes it explicit-opt-in instead).
 - Cross-machine corpus distribution beyond the maintainer's own scrubbed sessions (T118 stays repo-local).
 - Auto-detect-and-rewrite of the operator's existing config to flip defaults (T121 preserves explicit prior opt-in; only fresh installs see the new default).
+
+---
+
+## Phase F — Output-Token Reduction & Deterministic Maxx (planned 2026-05-16)
+
+Token-Spar-Hebel jenseits L0-L4-Input-Kompression. Output-Tokens sind 3-5× teurer als Input — der bisher größte ungenutzte Hebel. Plus eine Reihe Input-side-Wins, die L0/L1/L2/L3 strukturell verstärken. Alle Tasks sind deterministisch, kein neuer LLM-Pfad, kein MiniMax. Reihenfolge unten = Implementierungspriorität (Hebel × Aufwand × Quality-Risiko).
+
+### Top-3 Output-Reduction (P0, ship first; 20-40% Output-Token-Reduktion kumulativ, 0 Quality-Risk)
+
+- [x] T165 - Stop-Sequence-Engineering: shipped 2026-05-16. `internal/outstop/` + injection in `handler.go` step 8.7; 100% coverage; env override `SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS=0`. Detail: `docs/todo/t165-output-stop-sequence-engineering.md`
+- [x] T166 - Streaming Trailing-Commentary Cutter: shipped 2026-05-16. `internal/outstop/streamcut/` + `streamingRelayWithCutter`; closes upstream body on fire. 100% coverage; env `SLIMFERENCE_OUTPUT_REDUCE_STREAMCUT=0`. Deviations: first ~15 bytes of opener reach client (server-side generation stop, not client byte-rewrite). Detail: `docs/todo/t166-streaming-trailing-commentary-cutter.md`
+- [x] T167 - Streaming Repetition Detector: shipped 2026-05-16. Index + Rabin-Karp matcher + Rewrite in `internal/outstop/repdet/`; non-streaming Anthropic responses are now actually rewritten into `[unchanged: …]` markers via `passthroughAnthropicWithRepdet`. Streaming + OpenAI / Codex rewrite paths deferred (Deviations documented). 100% engine coverage; env `SLIMFERENCE_OUTPUT_REDUCE_REPDET=0`. Detail: `docs/todo/t167-streaming-repetition-detector.md`
+
+### Input-side aggressive reclamation (P0-P1; 15-30% per long iterative session)
+
+- [x] T170 - Stale-File-Read Aging: shipped 2026-05-16. `internal/staleread/AgeMessages` + wire in `handler.go` step 2.5. Default-on toggle `[compression.output_reduce] stale_read_aging_enabled`; env `SLIMFERENCE_INPUT_REDUCE_STALE_AGING=0` disables. Detail: `docs/todo/t170-stale-file-read-aging.md`
+- [x] T174 - Multi-Turn Obsolete-Message Pruning: shipped 2026-05-16. `internal/staleread/PruneObsoleteReads` + wire in `handler.go` step 2.6. Default-on toggle `obsolete_read_prune_enabled`; env `SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE=0` disables. Detail: `docs/todo/t174-multi-turn-anchor-obsolete-pruning.md`
+- [ ] T171 - Tool-Argument Hashing: 15s TTL cache for deterministic repeat calls (git status, ls, pwd, …); short-circuit via PreToolUse. Detail: `docs/todo/t171-tool-argument-hashing-repeat-calls.md`
+- [ ] T172 - Cross-Tool Dedup: detect overlapping content between adjacent tool_results; mark second occurrence. Detail: `docs/todo/t172-cross-tool-dedup-conversation-window.md`
+
+### Codex-hook-leveraged (P1; modern hook surface)
+
+- [ ] T175 - PreCompact Output-Aggression Coupling: extend t164 marker beyond sliding-window to also escalate output-side aggression (stop-seqs, t169 hint). Detail: `docs/todo/t175-precompact-coupling-output-aggression.md`
+- [ ] T177 - PostToolUse Just-in-Time Awareness: 10-token reminder appended after significant compactions to prevent redundant re-runs. Detail: `docs/todo/t177-posttooluse-just-in-time-awareness.md`
+- [ ] T178 - SessionStart Resume Aggressive Pruning: when source=resume, compress pre-resume history harder for the next 3 turns. Detail: `docs/todo/t178-sessionstart-resume-aggressive-pruning.md`
+- [ ] T176 - **Speculative** Codex Custom Tools (slimference_dedup_read): register tools the agent prefers over Read; biggest potential, highest uncertainty. Detail: `docs/todo/t176-codex-custom-tools-dedup-read.md`
+
+### Output-side polish (P2-P3; small but free)
+
+- [ ] T168 - Streaming Markdown-Overhead Normalizer: collapse \n{3,} → \n\n, drop standalone --- rules. Detail: `docs/todo/t168-streaming-markdown-overhead-normalizer.md`
+- [x] T169 - **Quality-gated** Be-Terse System-Prompt Hint: shipped 2026-05-16 default-off. `internal/beterse` + cohort-routed via T186 harness. Auto-rollback on 5pp failure-rate delta over 50+ samples. Detail: `docs/todo/t169-be-terse-system-prompt-hint-gated.md`
+- [ ] T173 - System-Prompt Extractive Compression: apply internal/extract to system prompt itself; benefit stacks with prompt-cache. Detail: `docs/todo/t173-system-prompt-extractive-compression.md`
+- [ ] T179 - In-flight JSON Canonicalize: drop whitespace in ```json fenced output blocks. Detail: `docs/todo/t179-inflight-json-canonicalize.md`
+- [ ] T181 - Per-Tool Output Budget: inject per-tool max_tokens (ls=100, cat=500, apply_patch=50, …) on the assistant reply after each tool. Detail: `docs/todo/t181-per-tool-output-budget.md`
+
+### Infrastructure & polish (P3; latency/distribution wins, no token-impact)
+
+- [ ] T180 - SSE Chunk Coalescing: aggregate 1-3-token deltas into 5-20ms windows; pure latency win. Detail: `docs/todo/t180-sse-chunk-coalescing.md`
+- [ ] T182 - Binary Split (slimference-hook): tiny hook-only binary (≤4 MB) for ≤10 ms cold-start hook latency. Depends on T156. Detail: `docs/todo/t182-binary-split-hook-client.md`
+
+### Sequencing notes (Phase F)
+
+- **T165 + T166 + T167** ship together as the "output-reduction quartet" — they share the streaming pipeline and stop-phrase registry.
+- **T170 → T174** is the canonical aging order: aging first (lossless), then obsolete-pruning (drops content the model genuinely needs replaced).
+- **T169 last** of the top-tier despite high leverage: requires Quality A/B harness which depends on T118-style live-corpus telemetry.
+- **T176 speculative**: schedule only after T165-T174 land so we have a stable baseline to measure custom-tool adoption against.
+- **T182** depends on T156 (Unix-socket daemon protocol) — sequence accordingly.
+
+### Out of scope (Phase F)
+
+- Embedding-based RAG retrieval (would require a model and breaks deterministic-only).
+- Cross-process / cross-machine cache sharing (single-machine only for now).
+- Anything that requires Codex contract changes beyond what 0.130 already exposes (until Codex 0.131+ ships).
+
+## Phase G — Live ChatGPT-Sub WebSocket conversation interception (planned 2026-05-16)
+
+The piece that connects everything else: Codex 0.130 + ChatGPT subscription auth ships its model conversations over `wss://chatgpt.com/backend-api/codex/responses`. The chatgpt-base URL is hardcoded in `codex-rs/model-provider-info/src/lib.rs` (`CHATGPT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"`), and the WebSocket connect path in `codex-rs/codex-api/src/endpoint/responses_websocket.rs` does NOT honor `HTTPS_PROXY`. The legacy `openai_base_url` / `chatgpt_base_url` config keys only affect sideband endpoints (memories, plugins, login). To intercept the conversation traffic with ChatGPT-sub auth, we need a transparent TLS-MITM listener with the Slimference CA trusted in macOS Keychain.
+
+User-visible goal (verbatim from the user):
+
+> "Es muss sowieso eine Art Proxy haben, dass die TUI installieren / Status checken / entfernen kann, kann sagen für welche Anwendungen er laufen soll (Codex CLI / Codex Desktop / Claude Code), Statistiken zeigen. Browser-Use, Computer-Use, Mikrofon-Transcription bleibt untouched. Traffic an OpenAI muss von normalem Codex-Traffic ununterscheidbar sein."
+
+Phase G builds on the existing T122/T123/T131/T133/T139 transparent-mode foundations (CODE-COMPLETE, LIVE-CERTIFICATION pending) and closes the gap to a live working install on Codex 0.130 + ChatGPT subscription on macOS.
+
+### Tasks
+
+- [ ] **T187** - Phase G epic: live ChatGPT-sub WebSocket conversation interception. Pulls T188-T196 into one shippable target. Detail: `docs/todo/t187-phase-g-live-chatgpt-sub-interception-epic.md`
+- [ ] **T188** - Responses-API WebSocket conversation MITM wire: terminate `wss://chatgpt.com/backend-api/codex/responses`, decode frames via wscompact, route through Phase F handlers (T165/T166/T167/T170/T174/T169/T183/T184/T185/T186), re-encode to real upstream. Bypass-on-schema-drift fail-open. Detail: `docs/todo/t188-responses-websocket-mitm-wire.md`
+- [ ] **T189** - Smart SNI + path router: per-domain, per-path, per-app routing decisions. Codex conversation → MITM; voice / computer-use / image-gen / plugin / memories / browser → transparent TCP-bridge passthrough. DoH-backed upstream resolver. Per-app toggle. Detail: `docs/todo/t189-smart-sni-path-router.md`
+- [ ] **T190** - Indistinguishability live audit: capture Codex 0.130 baseline traffic, diff against ours. Refresh uTLS profile catalog with `codex_cli_rs_0_130` and `codex_desktop_app_<ver>` profiles. HTTP/2 SETTINGS frame parity. WebSocket extension list parity. Header order parity. Timing budget hold. Golden file under `research/indist/`. Detail: `docs/todo/t190-indistinguishability-live-audit.md`
+- [ ] **T191** - TUI Setup Wizard v2: install / status / per-app toggle / uninstall flows in the existing TUI. State model under `internal/control/`. One-screen dashboard with setup status, per-app integration, today's savings. Detail: `docs/todo/t191-tui-setup-wizard-v2.md`
+- [ ] **T192** - Stats Dashboard v2: overview tile + detail screen + period filter (today/week/month/all). Per-app, per-mechanism, per-cohort breakdown. Cost estimation via per-provider pricing table. Detail: `docs/todo/t192-stats-dashboard-v2.md`
+- [ ] **T193** - Per-app activation state machine: explicit independent toggles for Codex CLI / Codex Desktop App / Claude Code. UA + process-owner detection cascade. Config under `~/.config/slimference/apps.toml` with hot-reload. Detail: `docs/todo/t193-per-app-activation-state-machine.md`
+- [ ] **T194** - Codex Desktop sideband bypass certification: explicit inventory of every Codex Desktop App endpoint family, captured corpus, replay-test, runtime safety guard. Voice / computer-use / image-gen / plugin / memories / browser must never reach our MITM path. Detail: `docs/todo/t194-codex-desktop-sideband-bypass-certification.md`
+- [ ] **T195** - Resource footprint budget: RSS ≤ 200 MB hard ceiling, p95 added latency ≤ 25 ms, ≤ 0.5 % idle CPU. Benchmark suite + telemetry + auto-degradation policy. Detail: `docs/todo/t195-resource-footprint-budget.md`
+- [ ] **T196** - Full reversibility audit: every install step has clean uninstall. Snapshot-diff E2E test. Atomic rollback on partial-install failure. Detail: `docs/todo/t196-full-reversibility-audit-mitm.md`
+
+### Sequencing
+
+1. **T190 first (preconditions)** — capture Codex 0.130 baseline traffic so all later work knows the target wire shape. Without this, T188 / T189 are speculative.
+2. **T188 + T189 in parallel** — the wire and the router. Both implement against the captured corpus from T190.
+3. **T194** — runs continuously with T188/T189 to catch routing regressions before they ship.
+4. **T191 + T193** — TUI surface; can be developed against the existing daemon while wire matures.
+5. **T192** — stats; depends on T191 admin endpoints.
+6. **T195 + T196** — last-mile guards; run before any release.
+7. **T187** — the epic; closed when all of the above pass live verification on a fresh Mac.
+
+### Existing related (CODE-COMPLETE / LIVE-CERTIFICATION pending)
+
+- T122 transparent-mode foundations
+- T123 TLS fingerprint mimicry
+- T131 transparent runtime closure
+- T133 TUI daemon control plane v1
+- T139 TLS provider-edge proof
+- T140 (open: live Codex/App proof)
+
+Phase G does NOT redo those; it builds on them.
+
+### Constraints (load-bearing)
+
+- **Indistinguishability**: outbound traffic to OpenAI must look identical to normal Codex traffic at TLS / HTTP/2 / WebSocket / header / timing / body layers. Verified via captured-baseline diff harness.
+- **Sideband bypass**: voice / realtime / computer-use / image-gen / plugin / memories / browser traffic must never touch the compression pipeline. Verified via per-endpoint replay tests + runtime guard.
+- **Reversibility**: every install step undoable to byte-equal pre-state. Verified via snapshot-diff E2E.
+- **Footprint**: ≤ 200 MB RSS, ≤ 25 ms p95 added latency, ≤ 0.5 % idle CPU. Verified via benchmark suite.
+- **Fail-open**: any wire-shape parse failure downgrades the affected session to pure tunnel. Never block traffic.
+- **Per-app toggle**: independent Codex CLI / Codex Desktop App / Claude Code state. Default Codex CLI + Desktop App ON, Claude Code OFF.
+
+### Out of scope (Phase G)
+
+- Linux / Windows port (macOS arm64 only for v1).
+- iPhone/iPad Codex app (out of scope - mobile traffic is not interceptable from a Mac).
+- Anything that requires kernel extensions or system-extension capability (only userspace + standard `security`/`launchctl`/`/etc/hosts` mechanisms).
+- Distribution / signing / notarization of the Slimference binary itself (existing release process covers).
+
+## Phase G Wire-Up — connect the new packages to the live daemon + TUI (shipped 2026-05-17)
+
+Phase G's self-contained packages are now wired into the daemon, admin state,
+TUI, and Phase H install surface. The code-side proof stack is green:
+`go run ./scripts/ci` passes all 8 steps, the formal coverage gate reports
+`100.0%`, and the targeted touched-package race check passes. The only
+remaining P0 gap is T209 live Codex CLI certification, which must happen from
+an external recovery shell rather than this active Codex session.
+
+### Tasks
+
+- [x] **T197/T207** TUI wiring to Phase G / Phase H packages —
+  superseded and completed by the Phase H visible-surface collapse:
+  Apps view, per-app toggle, arm/disarm dashboard tile, setup actions
+  routed through top-level `install/enable/disable/uninstall`, and
+  stats/state surfaced through `/admin/state`. Detail:
+  `docs/todo/t197-tui-wire-phase-g.md` and
+  `docs/todo/t207-phase-h-tui-legacy-collapse.md`
+- [x] **T198** (2026-05-16) — `scripts/utils/indist_probe/` operator
+  tool with three subcommands: `capture` (wraps tshark, filters by
+  host+port, parses JSON output into `indist.Capture`), `diff` (calls
+  `indist.Diff()` → exit 1 on drift, 0 on indistinguishable),
+  `lock-golden` (copies to `research/indist/<target>/baseline.json`).
+  Parser handles JA3, JA4, SNI, ALPN, cipher/extension/curve lists,
+  GREASE detection, HTTP/2 pseudo-header order. Tests cover the
+  parser without requiring tshark at test-time.
+- [x] **T199 Phase A+B+C1** (2026-05-16) — Proxy accessors
+  (`SetAppsManager`, `AppsManager`, `OutputReduceCountersSnapshot`,
+  `SetStateProvider`); `/admin/state` + `/admin/apps` endpoints;
+  `SavingsProbe` + `NoopIndistProbe`; `cmd/slimference` startup
+  builds `apps.Manager` at `~/.config/slimference/apps.toml` and wires the
+  full probe set; SIGHUP reloads apps policy; `transparent.Engine`
+  with byte-equal `PhaseFDispatcher` bridge, gated behind new
+  `cfg.Transparent.SNIPeekMode` + `SNIPeekPort` (default 8443, off).
+  All tests + race-clean.
+- [x] **T208 WSS Phase-F Mutation** (2026-05-17) — Codex WSS
+  MITMConversation frames now run through a real Phase-F adapter:
+  request envelopes apply stale-read aging, obsolete-read prune,
+  stop-sequence injection, and be-terse where the existing gates allow;
+  response deltas/completions apply streamcut + repdet. Unknown frames
+  remain byte-equal fail-open. `/admin/state.wss` exposes engine,
+  bridge, degraded, forwarded, and re-encoded counters. Detail:
+  `docs/todo/t208-wss-phase-f-mutation-adapter.md`
+- [x] **MiniMax cleanup in TUI** (2026-05-16) — user-facing labels
+  replaced with neutral "Layer 2 semantic" wording.
+  `GetMiniMaxTrustClass` removed from `ProxyConfigInterface`. Backing
+  analytics fields stay (`MiniMaxCalls`, `MiniMaxAvgLatencyMs`) until
+  a broader Layer 2 refactor.
+- [x] **TUI Phase H expansion** (2026-05-16) — `ViewApps` (key `a`)
+  shows per-app routing with space-toggle. New ARM/DISARM tile on
+  main dashboard left panel. Apps tab visible in `renderViewTabs`.
+  Footer key-hint expanded to `[a] apps [s] stats [i] setup [b]
+  bypass [q] quit`. Quick-Start panel and commands panel updated to
+  the Phase H single-entry-point CLI (`slimference install/enable/
+  disable/uninstall/status`). `ProxyInterface` gained `AppEntries()`
+  + `SetAppEnabled()`; remote adapter POSTs `/admin/apps`; in-proc
+  proxyAdapter goes directly through `apps.Manager`.
+- [x] **`slimference cert-trust` subcommand** (2026-05-16) — guides
+  the one interactive macOS-Keychain step `slimference install`
+  cannot automate. Auto-opens Keychain Access on the cert file +
+  prints the sudo one-liner alternative.
+- [x] **Phase H live-smoke-test** (2026-05-16) — verified end-to-end
+  against real Codex 0.130 binary: install → 11 hook scripts +
+  hooks.json populated with 8 events (PermissionRequest, PostCompact,
+  PostToolUse, PreCompact, PreToolUse, SessionStart, Stop,
+  UserPromptSubmit) + config.toml [features].hooks=true ; daemon
+  starts + `/admin/state` returns full SetupState ; `enable` writes
+  config + SIGHUPs daemon ; clean shutdown reverts hosts (fail-open
+  works even without root). Uninstall round-trip restores byte-equal
+  state modulo CA rotated aside. CLI `--no-autostart` / `--no-hooks`
+  bugfix: `runUninstallCmd` now propagates these flags so symmetric
+  install/uninstall is honoured.
+- [x] **Release hygiene proof** (2026-05-17) — final pre-live stack
+  verified locally: `go run ./scripts/ci` passes all 8 steps, formal
+  statement coverage reports `100.0%`, and targeted race passes for
+  proxy/summarization/filter/transparent/apps/installsteps/TUI. No
+  live arm or real Codex traffic was run.
+- [x] **T217 Codex-only product lock / Claude parked** (2026-05-17)
+  — product commands now refuse or no-op every Claude activation path:
+  `install --with-claude`, `uninstall --with-claude`,
+  `hook install/remove claude`, `integrate --client=claude`,
+  `readhook claude`, `/admin/apps claude_code=true`, apps policy reload
+  with stale `claude_code=true`, and Anthropic SNI routing. Claude code
+  remains in-tree but is not installed, removed, toggled on, or routed.
+  Detached daemon SIGHUP now reloads without exiting, and explicit
+  hosts/SNI armed-state tracking prevents no-op cleanups from blocking
+  a later `enable`.
+  Detail: `docs/todo/t217-codex-only-product-lock-claude-parked.md`
+- [x] **T218 Single-binary stripped local build default** (2026-05-17)
+  — Slimference stays one binary, no split. Local builds now use
+  `go run ./scripts/build`, which wraps `go build -trimpath -ldflags
+  "-s -w"` and optionally syncs to `~/.local/bin/slimference`; docs and
+  spec build snippets point at the stripped path. Detail:
+  `docs/todo/t218-single-binary-stripped-local-build-default.md`
+
+### Sequencing (revised 2026-05-16 — Phase H takes precedence)
+
+Phase H is the user-facing single-entry-point delivery. T199 Phase A+B+C1
+already landed (proxy seam + daemon wiring + transparent.Engine).
+T208 now supplies the Phase F frame-mutation adapter on top of the
+Phase H 2-surface architecture. The only remaining P0 proof is T209:
+real Codex CLI traffic through the armed local MITM path outside this
+active Codex session.
+
+1. **Phase H first** (T200 epic, see below) — single entry point,
+   2-surface consolidation, README. The user-visible product.
+2. **T208/T209** — frame mutation is implemented; live certification
+   waits for the safe external arm window.
+3. **T198 tshark probe** — operator audit tool, orthogonal and shipped.
+
+### Out of scope for Phase G Wire-Up
+
+- Live capture of HTTP/2 SETTINGS or WS Upgrade headers - tshark
+  passive trace cannot decrypt TLS without keys. Documented in T198
+  Deviations; TLS-layer indist subset (JA3/JA4/ALPN/cipher/extension/
+  curve/GREASE) is sufficient for v1 audit.
+- TUI rewrite. The existing 7 800 LOC stays; we extend.
+- New Phase F mechanisms. Phase G is plumbing for what Phase F shipped.
+
+## Phase H — Single Entry Point + 2-Surface Consolidation (shipped 2026-05-17)
+
+### Why
+
+The user's mandate (2026-05-16): **one install command, one uninstall
+command, one README, fail-open if daemon down, fail-open on Codex
+update**. Today there are four surfaces touching Codex
+(Hooks + URL-redirect + HTTPS_PROXY + transparent SNI-MITM). Phase H
+collapses to **two** (Hooks + transparent SNI-MITM) — zero technical
+drawback because transparent SNI-MITM is the only universal path that
+also catches Codex 0.130's hardcoded WSS conversation URL.
+
+The other two surfaces (URL-redirect, HTTPS_PROXY) stay in tree as
+documented advanced/legacy hooks, but **no default install, no TUI
+affordance, no integration test** exercises them anymore. Test matrix
+flips to the 2-surface model in one sweep (no transition period).
+
+### Tasks
+
+- [x] **T200** Phase H epic (planning done) — operative surface design,
+  fail-open semantics, sequencing of T201-T204. Detail:
+  `docs/todo/t200-phase-h-single-entry-point-epic.md`
+- [x] **T201** (2026-05-16) — `internal/install` package with `Plan()`
+  + `HostsPlan()` backed by reversibility.Plan; CLI subcommands
+  `install / uninstall / enable / disable / status` with `--dry-run`
+  + `--json`. Step wrappers under `internal/install/installsteps/`
+  (KeychainTrust, HooksCodex, HooksClaude). Tests + fmt + vet clean.
+- [x] **T202** (2026-05-16) — `applyHostsPatch` + `writePIDFile` +
+  `reloadSNIPeekModeFromDisk` in `cmd/slimference/hosts_lifecycle.go`.
+  Hosts patch armed at daemon start (if SNIPeekMode=true) and
+  reverted on shutdown BEFORE SNI listener cancel. SIGHUP re-reads
+  config and flips hosts on/off accordingly. `signalDaemonReload`
+  in CLI uses PID file to send SIGHUP.
+- [x] **T203** (2026-05-16) — `docs/install.md` SSOT with human TL;DR,
+  agent-readable YAML spec, fail-open table, recovery instructions.
+  Meta-test `docs/install_spec_test.go` parses the YAML block and
+  asserts every named Step exists in `internal/install.Plan()`.
+- [x] **T204** (2026-05-16) — `agents.md` §9 Verdrahtungs-Doktrin
+  documenting the 2-surface architecture and forbidding legacy
+  surfaces in defaults. Test matrix is Codex-first: Codex CLI /
+  Codex Desktop are the default targets; Claude Code is retained as
+  opt-in code only, not a default install or default live route.
+  Legacy fields in `internal/config/defaults.go` annotated with
+  `// Legacy:` comments.
+- [x] **T205** (2026-05-17) — Codex-only Phase H default. Default
+  `install.Plan()` installs `hooks.codex` + `notice.codex` only;
+  `--with-claude` is now parked/no-op in the product command path.
+  Default hosts are `chatgpt.com` + `api.openai.com`. Detail:
+  `docs/todo/t205-codex-only-phase-h-default.md`
+- [x] **T206** (2026-05-17) — Config path single source. Phase H
+  commands now honor `SLIMFERENCE_CONFIG` first and otherwise write
+  canonical XDG config (`~/.config/slimference/config.toml`) instead
+  of drifting to legacy `~/.slimference/config.toml`; admin-port and
+  SIGHUP reload use the same resolver. Detail:
+  `docs/todo/t206-config-path-single-source.md`
+- [x] **T207** (2026-05-17) — TUI visible-surface collapse. TUI setup
+  and service adapter call top-level `install/enable/disable/uninstall`
+  lifecycle commands; quick-start and setup copy no longer point at
+  legacy `proxy` commands; Claude is rendered off/opt-in in the default
+  UX. Detail: `docs/todo/t207-phase-h-tui-legacy-collapse.md`
+- [x] **T208** (2026-05-17) — WSS Phase F mutation adapter. Codex WSS
+  request frames now feed the existing Phase F input reducers, response
+  deltas/completions run streamcut + repdet, and schema drift still
+  degrades byte-equal. `/admin/state.wss` distinguishes active engine,
+  byte bridge, degraded sessions, forwarded frames, and re-encoded
+  mutation frames. Detail:
+  `docs/todo/t208-wss-phase-f-mutation-adapter.md`
+- [!] **T209** Live Codex CLI certification without self-break —
+  blocked until the user approves an external recovery shell / live
+  arm window. Do not run `cert-trust`, `root-arm`, or `enable` from an
+  active Codex development session. Detail:
+  `docs/todo/t209-live-codex-cli-certification-without-self-break.md`
+- [x] **T210** (2026-05-17) — Legacy surface retirement audit. Remaining
+  URL-redirect, env/proxy, system-proxy, config-patch, and debug-only
+  paths are classified as keep-advanced, hide-from-default, deprecate,
+  or remove-after-certification. Default help/docs now promote only
+  Phase H commands; no legacy code was deleted. Detail:
+  `docs/todo/t210-legacy-surface-retirement-audit.md`
+- [x] **T211** RTK current delta audit + port queue — compared the
+  current embedded RTK research snapshot against Slimference's Layer-0
+  filter/rewrite/proxy surface. Result: parser catalog parity, Codex
+  stronger through proxy/WSS, future Claude-only gaps isolated. Detail:
+  `docs/todo/t211-rtk-current-delta-audit-port-queue.md`
+- [x] **T212** Claude Code max hook mode, default-off — built the
+  RTK-style Claude Code maximum path behind explicit opt-in:
+  Bash rewrite + Read hook + default-off Claude PostToolUse
+  `updatedToolOutput` replacement, metrics, and fail-open guards.
+  Grep/Glob/LS stay future-only until real payload capture. Claude
+  stays unarmed during Codex-first testing. Detail:
+  `docs/todo/t212-claude-code-max-hook-mode-default-off.md`
+- [x] **T213** Codex maximum tool-output extraction — squeezed the
+  maximum possible savings out of Codex despite unsupported
+  `updatedInput`: proxy-side Layer-0 adoption metrics, broader tool
+  output shape support, WSS request-frame Layer-0 adoption, savings
+  probe accounting, and a final Layer-2 incremental anchor-index
+  hardening found during 100 % CI closure. Detail:
+  `docs/todo/t213-codex-maximum-tool-output-extraction.md`
+- [x] **T214** Explicit wrapper polish, advanced only — made
+  `slimference filter` / `rewrite` excellent as the hook-internal and
+  human-optional wrapper without promoting it to a third default
+  integration surface; help/completion now only advertise implemented
+  flags. Detail:
+  `docs/todo/t214-explicit-wrapper-polish-advanced-only.md`
+- [x] **T215** DoH fallback + live-arm preflight — reduced T209 live
+  test risk by adding upstream resolver fallback and `status --preflight`
+  DoH checks. Detail:
+  `docs/todo/t215-doh-fallback-live-arm-preflight.md`
+- [x] **T216** Claude toggle UX truth — removed the misleading
+  impression that the Claude app toggle alone can route Anthropic
+  traffic while the Codex-only hosts patch deliberately excludes
+  `api.anthropic.com`. Detail:
+  `docs/todo/t216-claude-toggle-ux-truth.md`
+
+### Sequencing within Phase H
+
+1. **T201 first** — the CLI subcommand IS the entry point. Without it,
+   the rest of Phase H has nothing to expose.
+2. **T202 alongside T201** — needed before `enable` is safe to run in
+   production. The fail-open guarantee depends on shutdown-revert.
+3. **T203 alongside T201+T202** — README written as the commands
+   solidify, not afterwards. Final truth-table once T202 is done.
+4. **T204 last** — only after T201/T202 are solid, flip the test
+   matrix in one sweep.
+5. **T215 before T209** — it lowers live-arm risk without touching the
+   active Codex session.
+6. **T213 before T209 where possible** — Codex maximum extraction must
+   be fixture-proven before the live certification window.
+7. **T211 before any RTK port claim** — no "RTK parity" statement is
+   valid until the current research snapshot is compared command by
+   command.
+8. **T212/T216 are Claude-prep only** — implement and verify offline,
+   but keep Claude off for the Codex-first live test unless the user
+   explicitly changes scope.
+9. **T214 after T213/T212 surfaces are stable** — wrapper polish should
+   document and expose the final internal behavior, not pre-empt it.
+
+### Acceptance for Phase H
+
+- `slimference install` exits 0 → SetupState: CA installed, launchd
+  loaded, hooks present, hosts CLEAN (not patched).
+- `slimference enable` exits 0 + SIGHUPs daemon → hosts patched and
+  transparent.Engine intercepting on next conversation.
+- `slimference disable` reverts hosts byte-equal; Codex talks direct.
+- `slimference uninstall` runs Plan.Reverse and restores all touched
+  files byte-equal to pre-install (modulo CA rotated aside).
+- **Daemon-down**: kill the daemon → hosts reverted automatically →
+  Codex works normally.
+- **Codex-update**: simulate unknown WS frame schema → wsmitm.Session
+  degrades to byte-equal bridge → conversation succeeds.
+- `docs/install.md` exists; the YAML spec block parses; every named
+  Step exists in `internal/install.Plan()` (verified by meta-test).
+- Golden integration coverage is Codex-first. Claude Code remains
+  opt-in and should not be part of the default Phase H certification
+  matrix.
+
+### Out of scope for Phase H
+
+- Removing legacy URL-redirect / HTTPS_PROXY code paths from the tree.
+  They stay as advanced/manual options. Only defaults + tests +
+  visible UI affordances flip.
+- Live Phase F certification on real Codex WSS traffic (T209). The
+  frame adapter is implemented in T208; arming the local machine is
+  deferred until an external recovery shell is ready.
+- New Phase F mechanisms (Phase H is delivery wiring, not feature
+  work).
+- Cross-platform install paths (Linux / Windows). macOS only.

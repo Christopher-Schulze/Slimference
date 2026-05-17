@@ -15,6 +15,10 @@ func TestDetectProvider_CodexBackendPath(t *testing.T) {
 		{"/backend-api/codex/responses", types.CodexChatGPT},
 		{"/backend-api/codex/conversations", types.CodexChatGPT},
 		{"/backend-api/codex/", types.CodexChatGPT},
+		{"/backend-api", types.CodexChatGPT},
+		{"/backend-api/", types.CodexChatGPT},
+		{"/backend-api/mcp", types.CodexChatGPT},
+		{"/backend-api/connectors/tools", types.CodexChatGPT},
 		{"/v1/messages", types.Anthropic},
 		{"/v1/chat/completions", types.OpenAI},
 		{"/unknown", types.OpenAI}, // fallback

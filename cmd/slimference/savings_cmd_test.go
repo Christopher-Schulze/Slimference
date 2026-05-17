@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -426,6 +427,199 @@ func TestAccumulateProxyFlightsReplayErrorIsIgnored(t *testing.T) {
 	accumulateProxyFlightsFromDecisionLog(&out, cfg, "today", time.Now())
 	if out.ProxyRequests != 0 {
 		t.Fatalf("replay error should leave summary unchanged: %+v", out)
+	}
+}
+
+func TestComputeSavingsDecisionMechanismBreakdown(t *testing.T) {
+	now := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
+	cfg := config.Defaults()
+	cfg.Analytics.LogDir = t.TempDir()
+	cfg.Analytics.GainUSDPerMillionTokens = 2.5
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	prevPath := resolveFilterDBPathFn
+	t.Cleanup(func() {
+		replaySessionFn = prevReplay
+		resolveFilterDBPathFn = prevPath
+	})
+	resolveFilterDBPathFn = func() (string, error) { return "/no/such/file.db", nil }
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return []dbg.RequestSummary{
+			{
+				RequestID:            "hook-1",
+				Timestamp:            now,
+				SessionID:            "sess-1",
+				Source:               "hook_post",
+				ProviderOutputTokens: 12,
+				CacheReadTokens:      4,
+				CacheCreateTokens:    2,
+				Tokens: dbg.TokenCounts{
+					Original: 1000,
+					Final:    250,
+					Saved:    750,
+				},
+				Mechanisms: []dbg.MechanismAccounting{
+					{Name: "codex_posttool_compaction", Layer: 1, Source: "decision_entry", Count: 1, OriginalTokens: 1000, FinalTokens: 300, SavedTokens: 700, NetTokens: 700},
+					{Name: "codex_archive_replacement", Layer: 1, Source: "decision_entry", Count: 1, OriginalTokens: 300, FinalTokens: 250, SavedTokens: 50, NetTokens: 50},
+					{Name: "zero_effect"},
+					{Name: "request_total", Count: 1, OriginalTokens: 1000, FinalTokens: 250, SavedTokens: 750, NetTokens: 750},
+				},
+			},
+			{
+				RequestID:  "hook-2",
+				Timestamp:  now,
+				SessionID:  "zzz",
+				Source:     "hook_post",
+				Tokens:     dbg.TokenCounts{Original: 20, Final: 10, Saved: 10},
+				Mechanisms: []dbg.MechanismAccounting{{Name: "aaa_tie", NetTokens: 5}, {Name: "bbb_tie", NetTokens: 5}},
+			},
+			{
+				RequestID: "hook-3",
+				Timestamp: now,
+				SessionID: "aaa",
+				Source:    "hook_post",
+				Tokens:    dbg.TokenCounts{Original: 30, Final: 20, Saved: 10},
+			},
+			{
+				RequestID: "old",
+				Timestamp: now.AddDate(0, 0, -2),
+				Tokens:    dbg.TokenCounts{Original: 999, Final: 1, Saved: 998},
+			},
+		}, nil
+	}
+
+	got := computeSavings(cfg, "today", "", now)
+	if got.DecisionRequests != 3 || got.DecisionOriginalTokens != 1050 || got.DecisionFinalTokens != 280 || got.DecisionNetSavedTokens != 770 {
+		t.Fatalf("bad decision totals: %+v", got)
+	}
+	if got.DecisionOutputTokens != 12 || got.DecisionCacheReadTokens != 4 || got.DecisionCacheCreateTokens != 2 {
+		t.Fatalf("bad output/cache totals: %+v", got)
+	}
+	if got.DecisionEstimatedCostBeforeUSD <= 0 || got.DecisionEstimatedCostAfterUSD <= 0 || got.DecisionEstimatedCostSavedUSD <= 0 {
+		t.Fatalf("missing decision cost estimates: %+v", got)
+	}
+	if len(got.DecisionSessions) != 3 || got.DecisionSessions[0].SessionID != "sess-1" || got.DecisionSessions[0].NetSavedTokens != 750 || got.DecisionSessions[1].SessionID != "aaa" {
+		t.Fatalf("bad decision sessions: %+v", got.DecisionSessions)
+	}
+	if got.DecisionSessions[0].CostBeforeUSD <= 0 || got.DecisionSessions[0].CostAfterUSD <= 0 || got.DecisionSessions[0].CostSavedUSD <= 0 {
+		t.Fatalf("missing session cost estimates: %+v", got.DecisionSessions[0])
+	}
+	if len(got.Mechanisms) != 4 {
+		t.Fatalf("mechanisms=%d: %+v", len(got.Mechanisms), got.Mechanisms)
+	}
+	if got.Mechanisms[0].Name != "codex_posttool_compaction" || got.Mechanisms[0].NetTokens != 700 {
+		t.Fatalf("top mechanism: %+v", got.Mechanisms)
+	}
+	text := formatSavingsText(got)
+	for _, want := range []string{"Decision-log requests", "Decision net saved tokens", "Decision cost before/after", "codex_posttool_compaction", "session sess-1"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestEstimateCostUSD(t *testing.T) {
+	before, after, saved := estimateCostUSD(100, 20, 30, 10, 2.5)
+	if !nearFloat(before, 0.0003) || !nearFloat(after, 0.0002025) || !nearFloat(saved, 0.0000975) {
+		t.Fatalf("cost estimates: before=%v after=%v saved=%v", before, after, saved)
+	}
+	before, after, saved = estimateCostUSD(10, 0, 999, 999, 2.5)
+	if !nearFloat(before, 0.000025) || after != 0 || !nearFloat(saved, 0.000025) {
+		t.Fatalf("clamped cost estimates: before=%v after=%v saved=%v", before, after, saved)
+	}
+	before, after, saved = estimateCostUSD(10, 0, -20, 0, 2.5)
+	if !nearFloat(before, 0.000025) || !nearFloat(after, 0.000025) || saved != 0 {
+		t.Fatalf("negative savings cost estimates: before=%v after=%v saved=%v", before, after, saved)
+	}
+}
+
+func nearFloat(got, want float64) bool {
+	return math.Abs(got-want) < 0.0000000001
+}
+
+func TestDecisionSessionIDFallbacks(t *testing.T) {
+	if got := decisionSessionID(dbg.RequestSummary{SessionID: " sess "}); got != "sess" {
+		t.Fatalf("session id: %q", got)
+	}
+	if got := decisionSessionID(dbg.RequestSummary{Source: " hook_post "}); got != "no-session:hook_post" {
+		t.Fatalf("source fallback: %q", got)
+	}
+	if got := decisionSessionID(dbg.RequestSummary{}); got != "no-session:unknown" {
+		t.Fatalf("unknown fallback: %q", got)
+	}
+}
+
+func TestAccumulateDecisionMechanismsBranches(t *testing.T) {
+	cfg := config.Defaults()
+	out := SavingsSummary{}
+	accumulateDecisionMechanismsFromDecisionLog(&out, cfg, "today", time.Now())
+	if out.DecisionRequests != 0 {
+		t.Fatalf("empty decisions_log should not mutate summary: %+v", out)
+	}
+
+	cfg.Debug.DecisionsLog = filepath.Join(t.TempDir(), "decisions.jsonl")
+	prevReplay := replaySessionFn
+	t.Cleanup(func() { replaySessionFn = prevReplay })
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) {
+		return nil, errors.New("replay")
+	}
+	accumulateDecisionMechanismsFromDecisionLog(&out, cfg, "today", time.Now())
+	if out.DecisionRequests != 0 {
+		t.Fatalf("replay error should not mutate summary: %+v", out)
+	}
+
+	replaySessionFn = func(string) ([]dbg.RequestSummary, error) { return nil, nil }
+	accumulateDecisionMechanismsFromDecisionLog(&out, cfg, "bad-period", time.Now())
+	if out.DecisionRequests != 0 {
+		t.Fatalf("bad period should not mutate summary: %+v", out)
+	}
+}
+
+func TestFormatSavingsTextDecisionCacheAndSigned(t *testing.T) {
+	if got := formatSignedInt64Plain(42); got != "42" {
+		t.Fatalf("positive signed format: %q", got)
+	}
+	if got := formatSignedInt64Plain(-42); got != "-42" {
+		t.Fatalf("negative signed format: %q", got)
+	}
+	s := SavingsSummary{
+		Period:                         "today",
+		DecisionRequests:               1,
+		DecisionOriginalTokens:         100,
+		DecisionFinalTokens:            80,
+		DecisionAddedTokens:            5,
+		DecisionNetSavedTokens:         20,
+		DecisionOutputTokens:           7,
+		DecisionCacheReadTokens:        11,
+		DecisionCacheCreateTokens:      3,
+		DecisionEstimatedCostBeforeUSD: 0.10,
+		DecisionEstimatedCostAfterUSD:  0.07,
+		DecisionEstimatedCostSavedUSD:  0.03,
+		Mechanisms: []SavingsMechanismSummary{
+			{Name: "m00", NetTokens: 10, SavedTokens: 10, Count: 1},
+			{Name: "m01", NetTokens: 9, SavedTokens: 9, Count: 1},
+			{Name: "m02", NetTokens: 8, SavedTokens: 8, Count: 1},
+			{Name: "m03", NetTokens: 7, SavedTokens: 7, Count: 1},
+			{Name: "m04", NetTokens: 6, SavedTokens: 6, Count: 1},
+			{Name: "m05", NetTokens: 5, SavedTokens: 5, Count: 1},
+			{Name: "m06", NetTokens: 4, SavedTokens: 4, Count: 1},
+			{Name: "negative", NetTokens: -5, AddedTokens: 5, Count: 1},
+			{Name: "hidden", NetTokens: -6, AddedTokens: 6, Count: 1},
+		},
+		DecisionSessions: []SavingsSessionSummary{
+			{SessionID: "s0", NetSavedTokens: 10, OriginalTokens: 100, FinalTokens: 90, CostBeforeUSD: 0.10, CostAfterUSD: 0.09, Requests: 1},
+			{SessionID: "s1", NetSavedTokens: 9, OriginalTokens: 100, FinalTokens: 91, Requests: 1},
+			{SessionID: "s2", NetSavedTokens: 8, OriginalTokens: 100, FinalTokens: 92, Requests: 1},
+			{SessionID: "s3", NetSavedTokens: 7, OriginalTokens: 100, FinalTokens: 93, Requests: 1},
+			{SessionID: "s4", NetSavedTokens: 6, OriginalTokens: 100, FinalTokens: 94, Requests: 1},
+			{SessionID: "hidden", NetSavedTokens: 5, OriginalTokens: 100, FinalTokens: 95, Requests: 1},
+		},
+	}
+	text := formatSavingsText(s)
+	for _, want := range []string{"Decision output tokens", "Decision cache read/create", "Decision cost before/after", "cost=~$0.1000/~$0.0900", "net=-5"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text missing %q: %s", want, text)
+		}
 	}
 }
 

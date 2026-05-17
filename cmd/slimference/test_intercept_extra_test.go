@@ -34,7 +34,7 @@ func TestTestIntercept_listenErrorExits1(t *testing.T) {
 	defer func() { os.Stdout = oldStdout }()
 
 	code, exited := captureExit(func() {
-		testIntercept(cfg, "claude")
+		testIntercept(cfg, "codex")
 	})
 
 	_ = wp.Close()

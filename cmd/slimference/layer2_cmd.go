@@ -148,8 +148,6 @@ func handleLayer2Status() {
 	enabled := cfg.Compression.Layer2Enabled
 	redaction := cfg.Compression.Summary.OutboundRedaction
 	redaction = effectiveRedaction(redaction)
-	apiKeySet := cfg.Compression.MiniMax.APIKey() != ""
-	provider := cfg.Compression.MiniMax.BaseURL
 
 	status := "disabled"
 	if enabled {
@@ -157,21 +155,15 @@ func handleLayer2Status() {
 	}
 
 	fmt.Printf("Layer 2 status: %s\n", status)
-	fmt.Printf("  Provider:      %s\n", provider)
-	fmt.Printf("  Model:         %s\n", cfg.Compression.MiniMax.Model)
-	fmt.Printf("  API key:       %s\n", boolStr(apiKeySet, "configured", "not set"))
+	fmt.Printf("  Engine:        in-process deterministic extractive compactor\n")
 	fmt.Printf("  Redaction:     %s\n", redaction)
 	fmt.Printf("  Min tokens:    %d\n", cfg.Compression.MinTokensForLayer2)
 	fmt.Printf("  Policy ack:    %s\n", boolStr(layer2PolicyAcknowledged(), "recorded", "missing"))
 
 	if enabled {
 		fmt.Println()
-		fmt.Println("  Data flows to an external third-party provider (MiniMax).")
-		fmt.Println("  Review: docs/data-policy.md")
+		fmt.Println("  Runs locally only. No network egress, no API tokens, no provider data flow.")
 		fmt.Println("  Disable: slimference layer2 disable")
-		if !layer2PolicyAcknowledged() {
-			fmt.Println("  Acknowledge: slimference layer2 acknowledge")
-		}
 	}
 }
 

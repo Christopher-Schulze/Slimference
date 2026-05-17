@@ -96,6 +96,7 @@ func renderViewTabs(s Styles, current ViewMode) string {
 	}{
 		{mode: ViewMain, label: "Dashboard"},
 		{mode: ViewStats, label: "Stats"},
+		{mode: ViewApps, label: "Apps"},
 		{mode: ViewDebug, label: "Debug"},
 		{mode: ViewSetup, label: "Setup"},
 	}

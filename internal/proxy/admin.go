@@ -15,6 +15,7 @@ import (
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/quality"
+	"github.com/slimference/slimference/internal/qualityab"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/repetition"
 	"github.com/slimference/slimference/internal/summarization"
@@ -41,6 +42,12 @@ const (
 	AdminFlushPath           = AdminBasePath + "/flush"
 	AdminSecuritySuspendPath = AdminBasePath + "/security/suspend"
 	AdminBypassPath          = AdminBasePath + "/bypass"
+	// AdminStatePath (T199) returns the aggregated control.SetupState
+	// snapshot used by the TUI install dashboard and external auditors.
+	AdminStatePath = AdminBasePath + "/state"
+	// AdminAppsPath (T199) accepts POST {id, enabled} to toggle the
+	// per-app routing policy. GET returns the current Policy.
+	AdminAppsPath = AdminBasePath + "/apps"
 )
 
 // AdminBypassRequest is the POST body for toggling the master bypass
@@ -183,6 +190,12 @@ type AdminStatus struct {
 	ToolPrune         ToolPruneStats                      `json:"tool_prune"`
 	ServerState       ServerStateStats                    `json:"server_state"`
 	OutputReduce      outputreduce.Snapshot               `json:"output_reduce"`
+	// OutputReduceCounters surfaces T165/T166/T167 wire counters
+	// (stop-sequence injection, streamcut fire, repdet rewrite).
+	OutputReduceCounters OutputReduceTelemetry `json:"output_reduce_counters"`
+	// QualityAB surfaces T186 cohort routing + auto-rollback state
+	// for the T169 be-terse hint and future gated levers.
+	QualityAB qualityab.QualityABTelemetry `json:"quality_ab"`
 }
 
 // AnthropicVersionStats reports T62 version-negotiation telemetry.
@@ -380,7 +393,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			"analytics": len(p.analyticsQueue),
 		},
 		CacheEntries:      p.responseCache.Len(),
-		MiniMaxConfigured: p.config.Compression.MiniMax.APIKey() != "",
+		MiniMaxConfigured: false,
 		ListenPort:        p.config.Proxy.ListenPort,
 		PrefillSpeed:      p.config.Usage.EstimatedPrefillSpeed,
 		Analytics:         analyticsSnap,
@@ -476,6 +489,13 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 				return outputreduce.Snapshot{}
 			}
 			return p.outputReduce.Snapshot()
+		}(),
+		OutputReduceCounters: p.outputReduceCounters.Snapshot(),
+		QualityAB: func() qualityab.QualityABTelemetry {
+			if p.qualityAB == nil {
+				return qualityab.QualityABTelemetry{}
+			}
+			return p.qualityAB.Snapshot()
 		}(),
 	}
 }

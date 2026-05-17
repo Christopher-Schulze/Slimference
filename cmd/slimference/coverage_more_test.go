@@ -467,13 +467,13 @@ func TestHandleReadHookCmd_ArgAndEncodeEdges(t *testing.T) {
 	osUserHomeDir = func() (string, error) { return home, nil }
 	payload := []byte(`{"session_id":"s1","tool_input":{"file_path":"` + file + `"}}`)
 	readStdinAll = func() ([]byte, error) { return payload, nil }
-	handleReadHookCmd([]string{"", "--", "claude"})
+	handleReadHookCmd([]string{"", "--", "codex"})
 	readStdinAll = func() ([]byte, error) { return payload, nil }
 
 	_, w, _ := os.Pipe()
 	_ = w.Close()
 	os.Stdout = w
-	code, exited := captureExit(func() { handleReadHookCmd([]string{"", "--", "claude"}) })
+	code, exited := captureExit(func() { handleReadHookCmd([]string{"", "--", "codex"}) })
 	os.Stdout = origStdout
 	if !exited || code != 1 {
 		t.Fatalf("readhook encode exit=%v code=%d", exited, code)
@@ -491,7 +491,7 @@ func TestHandleReadHookCmd_ArgAndEncodeEdges(t *testing.T) {
 	readStdinAll = func() ([]byte, error) {
 		return []byte(`{"session_id":"s2","tool_input":{"file_path":"` + file + `"}}`), nil
 	}
-	code, exited = captureExit(func() { handleReadHookCmd([]string{"claude"}) })
+	code, exited = captureExit(func() { handleReadHookCmd([]string{"codex"}) })
 	if !exited || code != 1 {
 		t.Fatalf("readhook evaluate exit=%v code=%d", exited, code)
 	}
@@ -520,7 +520,7 @@ func TestHandleSubcommandAndPostToolEncodeCoverage(t *testing.T) {
 	readStdinAll = func() ([]byte, error) {
 		return []byte(`{"session_id":"s1","tool_input":{"file_path":"` + file + `"}}`), nil
 	}
-	handleSubcommand([]string{"readhook", "claude"})
+	handleSubcommand([]string{"readhook", "codex"})
 
 	if _, err := checkpoints.Capture(checkpoints.DefaultDir(home), checkpoints.CaptureInput{Trigger: checkpoints.TriggerManual}); err != nil {
 		t.Fatal(err)

@@ -56,6 +56,19 @@ func isolateIntegrateEnv(t *testing.T) string {
 	return home
 }
 
+func prepareCodexConfig(t *testing.T, home string) string {
+	t.Helper()
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("model = \"gpt-5.2\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestHandleIntegrateCmd_MissingVerbExits1(t *testing.T) {
 	origExit := exitFn
 	defer func() { exitFn = origExit }()
@@ -123,24 +136,34 @@ func TestHandleIntegrateCmd_InstallDryRunNoWrites(t *testing.T) {
 
 func TestHandleIntegrateCmd_InstallRemoveRoundTrip(t *testing.T) {
 	home := isolateIntegrateEnv(t)
-	// Claude-only to avoid depending on a ~/.codex/ directory fixture.
+	cfgPath := prepareCodexConfig(t, home)
 	captureIntegrate(t, func() {
-		handleIntegrateCmd([]string{"install", "--client=claude", "--no-hook"})
+		handleIntegrateCmd([]string{"install", "--client=codex", "--no-hook"})
 	})
-	rc := filepath.Join(home, ".zshrc")
-	if _, err := os.Stat(rc); err != nil {
-		t.Fatalf("install did not create rc file: %v", err)
-	}
-	content, _ := os.ReadFile(rc)
-	if !strings.Contains(string(content), "ANTHROPIC_BASE_URL") {
-		t.Fatalf("rc missing env export: %s", content)
+	content, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(content), "openai_base_url") ||
+		!strings.Contains(string(content), "chatgpt_base_url") {
+		t.Fatalf("codex config missing proxy URLs: %s", content)
 	}
 	captureIntegrate(t, func() {
-		handleIntegrateCmd([]string{"remove", "--client=claude", "--no-hook"})
+		handleIntegrateCmd([]string{"remove", "--client=codex", "--no-hook"})
 	})
-	content, _ = os.ReadFile(rc)
+	content, _ = os.ReadFile(cfgPath)
 	if strings.Contains(string(content), ">>> slimference integration >>>") {
 		t.Fatalf("remove left fence: %s", content)
+	}
+}
+
+func TestHandleIntegrateCmd_ClaudeClientParkedNoWrites(t *testing.T) {
+	home := isolateIntegrateEnv(t)
+	_, stderr := captureIntegrate(t, func() {
+		handleIntegrateCmd([]string{"install", "--client=claude"})
+	})
+	if !strings.Contains(stderr, "Claude Code is parked") {
+		t.Fatalf("missing parked warning: %q", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".zshrc")); !os.IsNotExist(err) {
+		t.Fatalf("Claude install path must not write .zshrc, stat err=%v", err)
 	}
 }
 
@@ -227,8 +250,9 @@ func TestHandleIntegrateCmd_BadFlagExits1(t *testing.T) {
 
 func TestHandleIntegrateCmd_EmergencyOffRunsRemove(t *testing.T) {
 	home := isolateIntegrateEnv(t)
+	cfgPath := prepareCodexConfig(t, home)
 	// Pre-wire so emergency-off has something to strip.
-	opts := integrate.Options{HomeDir: home, Client: "claude"}
+	opts := integrate.Options{HomeDir: home, Client: "codex"}
 	integrate.Install(opts)
 	// Stub the daemon stop + uninstall to isolate from real launchctl.
 	origStop := daemonStopFn
@@ -244,8 +268,7 @@ func TestHandleIntegrateCmd_EmergencyOffRunsRemove(t *testing.T) {
 		handleIntegrateCmd([]string{"emergency-off"})
 	})
 
-	rc := filepath.Join(home, ".zshrc")
-	content, _ := os.ReadFile(rc)
+	content, _ := os.ReadFile(cfgPath)
 	if strings.Contains(string(content), ">>> slimference integration >>>") {
 		t.Fatalf("emergency-off left fence: %s", content)
 	}
@@ -267,6 +290,7 @@ func TestHandleIntegrateCmd_JSONRemove(t *testing.T) {
 // Report.Errors list, not crash.
 func TestRunIntegrateInstall_HookErrorsCaptured(t *testing.T) {
 	home := isolateIntegrateEnv(t)
+	prepareCodexConfig(t, home)
 	origClaude := installClaudeHookFn
 	origCodex := installCodexHookFn
 	t.Cleanup(func() {
@@ -279,12 +303,14 @@ func TestRunIntegrateInstall_HookErrorsCaptured(t *testing.T) {
 	stdout, stderr := captureIntegrate(t, func() {
 		handleIntegrateCmd([]string{"install", "--client=all"})
 	})
-	// Install should have still wired the files.
-	if _, err := os.Stat(filepath.Join(home, ".zshrc")); err != nil {
-		t.Fatal("install skipped rc write on hook error")
+	if _, err := os.Stat(filepath.Join(home, ".codex", "config.toml")); err != nil {
+		t.Fatal("install skipped codex config on hook error")
 	}
-	if !strings.Contains(stderr, "claude-broken") {
-		t.Fatalf("stderr missing claude error: %q", stderr)
+	if strings.Contains(stderr, "claude-broken") {
+		t.Fatalf("Claude hook must not run while parked: %q", stderr)
+	}
+	if !strings.Contains(stderr, "codex-broken") {
+		t.Fatalf("stderr missing codex error: %q", stderr)
 	}
 	_ = stdout // stdout carries the report; errors go to stderr
 }
@@ -308,7 +334,7 @@ func TestRunIntegrateInstall_JSONOutputHookErrors(t *testing.T) {
 func TestRunIntegrateRemove_JSONOutput(t *testing.T) {
 	isolateIntegrateEnv(t)
 	stdout, _ := captureIntegrate(t, func() {
-		handleIntegrateCmd([]string{"remove", "--client=claude", "--json"})
+		handleIntegrateCmd([]string{"remove", "--client=codex", "--json"})
 	})
 	var rep integrate.Report
 	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
@@ -332,8 +358,10 @@ func TestRunIntegrateRemove_HookErrorsCaptured(t *testing.T) {
 	_, stderr := captureIntegrate(t, func() {
 		handleIntegrateCmd([]string{"remove", "--client=all"})
 	})
-	if !strings.Contains(stderr, "rm-claude-boom") ||
-		!strings.Contains(stderr, "rm-codex-boom") {
+	if strings.Contains(stderr, "rm-claude-boom") {
+		t.Fatalf("Claude hook remove must not run while parked: %q", stderr)
+	}
+	if !strings.Contains(stderr, "rm-codex-boom") {
 		t.Fatalf("stderr missing errors: %q", stderr)
 	}
 }
@@ -382,8 +410,10 @@ func TestRunIntegrateEmergencyOff_HookErrorsCaptured(t *testing.T) {
 	_, stderr := captureIntegrate(t, func() {
 		handleIntegrateCmd([]string{"emergency-off"})
 	})
-	if !strings.Contains(stderr, "emergency-rm-claude") ||
-		!strings.Contains(stderr, "emergency-rm-codex") {
+	if strings.Contains(stderr, "emergency-rm-claude") {
+		t.Fatalf("Claude hook remove must not run while parked: %q", stderr)
+	}
+	if !strings.Contains(stderr, "emergency-rm-codex") {
 		t.Fatalf("stderr missing hook errors: %q", stderr)
 	}
 }

@@ -39,4 +39,7 @@ func TestInstallClaude_WiresReadMatcher(t *testing.T) {
 	if !strings.Contains(text, "slimference-read-cache.sh") {
 		t.Fatalf("expected read-cache hook script in settings: %s", text)
 	}
+	if !strings.Contains(text, `"PostToolUse"`) || !strings.Contains(text, "slimference-posttool.sh") {
+		t.Fatalf("expected default-off PostToolUse hook script in settings: %s", text)
+	}
 }

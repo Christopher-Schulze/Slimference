@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/control"
 	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/proxy"
@@ -319,6 +321,64 @@ func (a *remoteProxyAdapter) SetBypass(enabled bool) {
 	if err == nil {
 		resp.Body.Close()
 	}
+}
+
+// AppEntries fetches the current per-app routing state from
+// /admin/state. The TUI calls this whenever the Apps view renders.
+// Errors yield an empty slice — the view then shows "No apps".
+func (a *remoteProxyAdapter) AppEntries() []tui.AppEntry {
+	req, err := http.NewRequest(http.MethodGet,
+		"http://"+a.cfg.ListenAddr()+proxy.AdminStatePath, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	var state control.SetupState
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		return nil
+	}
+	out := make([]tui.AppEntry, 0, len(state.Apps))
+	for _, ae := range state.Apps {
+		out = append(out, tui.AppEntry{
+			ID:       string(ae.ID),
+			Enabled:  ae.Enabled,
+			Detected: ae.Detected,
+			BinPath:  ae.BinPath,
+			Routed:   ae.Routed,
+			Bypassed: ae.Bypassed,
+		})
+	}
+	return out
+}
+
+// SetAppEnabled POSTs to /admin/apps. Returns an error if the daemon
+// is unreachable OR the daemon returned non-2xx (typically "apps
+// manager not wired" pre-install).
+func (a *remoteProxyAdapter) SetAppEnabled(id string, enabled bool) error {
+	body, _ := json.Marshal(proxy.AdminAppsRequest{ID: id, Enabled: enabled})
+	req, err := http.NewRequest(http.MethodPost,
+		"http://"+a.cfg.ListenAddr()+proxy.AdminAppsPath,
+		bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("admin returned %d", resp.StatusCode)
+	}
+	return nil
 }
 
 type fileSessionLogger struct {

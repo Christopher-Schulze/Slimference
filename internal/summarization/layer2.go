@@ -46,15 +46,13 @@ type Layer2 struct {
 }
 
 func NewLayer2(cfg *config.CompressionConfig) *Layer2 {
-	mm := NewMiniMaxClient(cfg.MiniMax)
-	// MiniMax is reliably greedy at temperature=0; mark the capability
-	// so require_deterministic gates can evaluate it correctly. T88.
-	mm.SetCapabilities(capProvider{
-		SupportsSeed:                cfg.MiniMax.EnableSeed,
-		SupportsMinCompletionTokens: cfg.MiniMax.EnableMinTokens,
-		SupportsTemperatureZero:     true,
-	})
-	chain := NewFallbackChain(mm)
+	// Deterministic in-process extractive summarizer. Zero network
+	// round-trip, zero API tokens, sub-millisecond on typical inputs.
+	// Capability surface signals strict determinism so
+	// RequireDeterministic gates always pass.
+	es := NewExtractSummarizer(extractConfigFromSummary(cfg.Summary))
+
+	chain := NewFallbackChain(es)
 	chain.SetRequireDeterministic(cfg.Summary.RequireDeterministic)
 	sc := NewSessionCache(defaultMaxSessions)
 	return &Layer2{
@@ -251,7 +249,7 @@ func (l *Layer2) runCompressionJob(ctx context.Context, sessionID string, messag
 			// Only compress the delta since the last covered message.
 			newStart := existingRange[1] + 1
 			if newStart <= boundaryIdx {
-				toSummarize = filterNonAnchored(messages[newStart:boundaryIdx+1], allAnchorIndices)
+				toSummarize = filterNonAnchoredRange(messages[newStart:boundaryIdx+1], allAnchorIndices, newStart)
 				startIdx = newStart
 				existingSummaryPrefix = existing.Summary + "\n"
 			} else {
@@ -274,18 +272,7 @@ func (l *Layer2) runCompressionJob(ctx context.Context, sessionID string, messag
 	inputText := existingSummaryPrefix + l.FormatMessagesForSummarization(toSummarize)
 	inputText = capSummarizationInput(inputText, maxLayer2InputTokens)
 	inputText = preprocessInput(inputText)
-	if ctx.Err() != nil {
-		return
-	}
 	origTokens := estimateTokens(inputText)
-
-	// Cap input to prevent quality degradation on very long conversations.
-	// M2.7 has 200k context but quality drops past ~120k input tokens.
-	if origTokens > maxLayer2InputTokens {
-		// Truncate from the oldest messages, keeping the most recent content.
-		inputText = capSummarizationInput(inputText, maxLayer2InputTokens)
-		origTokens = estimateTokens(inputText)
-	}
 
 	targetTokens := computeAdaptiveTargetFromText(origTokens, inputText, len(toSummarize), l.cfg.Summary.TargetRatio)
 
@@ -369,9 +356,7 @@ applySummary:
 
 	anchorMsgs := make([]types.Message, 0, len(allAnchorIndices))
 	for _, idx := range allAnchorIndices {
-		if idx < len(messages) {
-			anchorMsgs = append(anchorMsgs, deepCopyMessage(messages[idx]))
-		}
+		anchorMsgs = append(anchorMsgs, deepCopyMessage(messages[idx]))
 	}
 
 	cached := &CachedSummary{
@@ -790,11 +775,12 @@ func shouldFenceSummarizationBlock(text string) bool {
 }
 
 func (l *Layer2) jobTimeout() time.Duration {
-	timeout := l.cfg.MiniMax.ConnectTimeout() + l.cfg.MiniMax.ResponseTimeout() + 5*time.Second
-	if timeout <= 0 {
-		return 35 * time.Second
-	}
-	return timeout
+	// Deterministic in-process compactor: no network hops. A small
+	// fixed budget covers the per-call extract pipeline plus
+	// metadata bookkeeping. Keep enough headroom for huge Unicode-heavy
+	// contexts where race builds and CJK token accounting are materially
+	// slower than byte-oriented ASCII paths.
+	return 15 * time.Second
 }
 
 const (

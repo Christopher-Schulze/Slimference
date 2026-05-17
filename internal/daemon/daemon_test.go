@@ -546,6 +546,56 @@ func TestRunDaemon_Success(t *testing.T) {
 	})
 }
 
+func TestRunDaemonWithReload_SIGHUPReloadsAndKeepsRunning(t *testing.T) {
+	withTempDir(t, func() {
+		origIsRunningFn := isRunningFn
+		origTryAcquireLock := TryAcquireLock
+		origSignalNotifyFn := signalNotifyFn
+		origSignalStopFn := signalStopFn
+		isRunningFn = func() (bool, *PIDFile, error) { return false, nil, nil }
+		released := false
+		TryAcquireLock = func() (func(), error) {
+			return func() { released = true }, nil
+		}
+		signalNotifyFn = func(c chan<- os.Signal, _ ...os.Signal) {
+			go func() {
+				c <- syscall.SIGHUP
+				c <- syscall.SIGTERM
+			}()
+		}
+		signalStopFn = func(chan<- os.Signal) {}
+		defer func() {
+			isRunningFn = origIsRunningFn
+			TryAcquireLock = origTryAcquireLock
+			signalNotifyFn = origSignalNotifyFn
+			signalStopFn = origSignalStopFn
+		}()
+
+		reloads := 0
+		shutdownCalled := false
+		err := RunDaemonWithReload(func() (int, func(context.Context) error, error) {
+			return 8990, func(context.Context) error {
+				shutdownCalled = true
+				return nil
+			}, nil
+		}, func() {
+			reloads++
+		})
+		if err != nil {
+			t.Fatalf("RunDaemonWithReload: %v", err)
+		}
+		if reloads != 1 {
+			t.Fatalf("reloads=%d, want 1", reloads)
+		}
+		if !shutdownCalled {
+			t.Fatal("shutdown should be called after SIGTERM")
+		}
+		if !released {
+			t.Fatal("lock closer should run")
+		}
+	})
+}
+
 func TestTryAcquireLock_StaleSocketRecovery(t *testing.T) {
 	withTempDir(t, func() {
 		path := LockPath()

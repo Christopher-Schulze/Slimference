@@ -244,72 +244,6 @@ func TestHandleLayer2Disable_badConfig(t *testing.T) {
 	}
 }
 
-func TestHandleLayer2Status(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "test.toml")
-	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
-	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	explicitConfigPath = cfgPath
-	defer func() { explicitConfigPath = "" }()
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleLayer2Status()
-	_ = w.Close()
-	os.Stdout = old
-
-	buf := make([]byte, 8192)
-	n, _ := r.Read(buf)
-	out := string(buf[:n])
-	if !strings.Contains(out, "disabled") {
-		t.Fatalf("expected disabled status, got: %q", out)
-	}
-	if !strings.Contains(out, "MiniMax-M2.7") {
-		t.Fatalf("expected model name, got: %q", out)
-	}
-}
-
-func TestHandleLayer2Status_enabled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "test.toml")
-	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"MINIMAX_API_KEY\"\n"
-	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	explicitConfigPath = cfgPath
-	defer func() { explicitConfigPath = "" }()
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleLayer2Status()
-	_ = w.Close()
-	os.Stdout = old
-
-	buf := make([]byte, 8192)
-	n, _ := r.Read(buf)
-	out := string(buf[:n])
-	if !strings.Contains(out, "enabled") {
-		t.Fatalf("expected enabled status, got: %q", out)
-	}
-	if !strings.Contains(out, "external third-party") {
-		t.Fatalf("expected external warning, got: %q", out)
-	}
-	if !strings.Contains(out, "docs/data-policy.md") {
-		t.Fatalf("expected data policy link, got: %q", out)
-	}
-	if !strings.Contains(out, "Policy ack:    missing") || !strings.Contains(out, "slimference layer2 acknowledge") {
-		t.Fatalf("expected missing acknowledgement hint, got: %q", out)
-	}
-}
-
 func TestHandleLayer2AcknowledgeAndStatus(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -574,32 +508,6 @@ func TestHandleLayer2Cmd_statusViaDispatch(t *testing.T) {
 	}
 }
 
-func TestHandleLayer2Status_noApiKey(t *testing.T) {
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "test.toml")
-	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\nmodel = \"MiniMax-M2.7\"\napi_key_env = \"SLIMFERENCE_NONEXISTENT_KEY\"\n"
-	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	explicitConfigPath = cfgPath
-	defer func() { explicitConfigPath = "" }()
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleLayer2Status()
-	_ = w.Close()
-	os.Stdout = old
-
-	buf := make([]byte, 4096)
-	n, _ := r.Read(buf)
-	out := string(buf[:n])
-	if !strings.Contains(out, "not set") {
-		t.Fatalf("expected 'not set' for missing API key, got: %q", out)
-	}
-}
-
 func TestHandleLayer2Enable_writeError(t *testing.T) {
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "test.toml")
@@ -756,8 +664,11 @@ func TestHandleLayer2Disable_emptyResolvedPath(t *testing.T) {
 	buf := make([]byte, 8192)
 	n, _ := r.Read(buf)
 	out := string(buf[:n])
-	if !strings.Contains(out, "disabled (config written") {
-		t.Fatalf("expected disable write from default-on config, got: %q", out)
+	// 2026-05-15: Layer 2 defaults to OFF (deterministic-only ships by
+	// default). handleLayer2Disable correctly reports "already disabled"
+	// when the default config has layer2_enabled=false.
+	if !strings.Contains(out, "already disabled") {
+		t.Fatalf("expected already-disabled with deterministic-default config, got: %q", out)
 	}
 }
 

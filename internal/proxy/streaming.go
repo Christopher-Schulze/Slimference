@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/slimference/slimference/internal/outstop/streamcut"
 )
 
 var errUpstreamResponseBodyTooLarge = errors.New("upstream response body too large")
@@ -60,6 +62,13 @@ func streamingRelay(ctx context.Context, w http.ResponseWriter, upstreamResp *ht
 	return outputTokens
 }
 
+// streamCutFire describes a streamcut termination event. Zero value
+// means the cutter did not fire on this response.
+type streamCutFire struct {
+	Fired         bool
+	BytesObserved int64
+}
+
 // cacheUsage captures provider-reported prompt-cache accounting for a single
 // request. Anthropic reports cache_read/cache_creation input tokens; OpenAI
 // and Codex expose cached input tokens through usage token-details fields.
@@ -77,6 +86,16 @@ type cacheUsage struct {
 // extraction. Returns the scanned output token count alongside the cache
 // usage. T23: prompt-cache observability.
 func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstreamResp *http.Response, provider string) (outputTokens int, usage cacheUsage) {
+	outputTokens, usage, _ = streamingRelayWithCutter(ctx, w, upstreamResp, provider, nil)
+	return outputTokens, usage
+}
+
+// streamingRelayWithCutter is streamingRelayWithUsage augmented with a
+// streamcut.Cutter. When the cutter fires, the relay writes its
+// synthetic terminator, closes the upstream body to stop further
+// generation, and returns. Pass cutter=nil for the legacy passthrough
+// behaviour.
+func streamingRelayWithCutter(ctx context.Context, w http.ResponseWriter, upstreamResp *http.Response, provider string, cutter *streamcut.Cutter) (outputTokens int, usage cacheUsage, fire streamCutFire) {
 	defer upstreamResp.Body.Close()
 
 	// Copy upstream response headers to the client. This relay writes
@@ -100,23 +119,25 @@ func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstrea
 	// Allow large SSE events for big tool outputs while still keeping a hard cap.
 	scanner.Buffer(make([]byte, 0, 64*1024), maxSSELineSize)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-
-		// Write to client immediately.
+	// writeLine sends one SSE line to the client with a trailing
+	// newline and flushes. Returns false on write error so the relay
+	// can bail.
+	writeLine := func(line []byte) bool {
 		if _, err := w.Write(line); err != nil {
 			slog.Debug("stream write error", "error", err)
-			return outputTokens, usage
+			return false
 		}
 		if _, err := w.Write([]byte("\n")); err != nil {
 			slog.Debug("stream write error", "error", err)
-			return outputTokens, usage
+			return false
 		}
 		if canFlush {
 			flusher.Flush()
 		}
+		return true
+	}
 
-		// Count output tokens from SSE data events.
+	accountFor := func(line []byte) {
 		outputTokens += extractOutputTokensFromSSE(line, provider)
 		switch provider {
 		case "anthropic":
@@ -137,6 +158,54 @@ func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstrea
 		}
 	}
 
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		if cutter != nil {
+			emit, terminate := cutter.Forward(line)
+			if terminate {
+				fire.Fired = true
+				if len(emit) > 0 {
+					if _, err := w.Write(emit); err != nil {
+						slog.Debug("stream terminator write error", "error", err)
+					}
+					if canFlush {
+						flusher.Flush()
+					}
+				}
+				_ = upstreamResp.Body.Close()
+				slog.Debug("streamcut fired", "provider", provider, "bytes", fire.BytesObserved)
+				return outputTokens, usage, fire
+			}
+			if emit != nil {
+				if !writeLine(emit) {
+					return outputTokens, usage, fire
+				}
+				accountFor(emit)
+				fire.BytesObserved += int64(len(emit)) + 1
+			}
+			continue
+		}
+
+		if !writeLine(line) {
+			return outputTokens, usage, fire
+		}
+		accountFor(line)
+		fire.BytesObserved += int64(len(line)) + 1
+	}
+
+	// Drain any text-delta lines that stayed in the holdback after a
+	// natural stream end (no fire). Skipped when fire already
+	// emitted the terminator and cleared the queue.
+	if cutter != nil && !fire.Fired {
+		for _, line := range cutter.Flush() {
+			if !writeLine(line) {
+				return outputTokens, usage, fire
+			}
+			fire.BytesObserved += int64(len(line)) + 1
+		}
+	}
+
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			slog.Debug("stream relay stopped: client context done", "reason", err)
@@ -147,7 +216,7 @@ func streamingRelayWithUsage(ctx context.Context, w http.ResponseWriter, upstrea
 		}
 	}
 
-	return outputTokens, usage
+	return outputTokens, usage, fire
 }
 
 // extractAnthropicCacheUsage parses a single SSE line and returns any

@@ -1,6 +1,33 @@
-# Transparent mode
+# Transparent mode (legacy notes)
 
-Transparent mode is the system-level intercept path. Once installed it routes every HTTPS-based LLM client (Codex Desktop, ChatGPT Desktop, Claude Code, Codex CLI, Anthropic SDK, anything that respects the macOS System-HTTPS-Proxy) through the local Slimference daemon without any per-app configuration. The clean off-switch (`slimference proxy disable`) drops the system back to direct connections; apps reconnect automatically on the next request.
+Current install/uninstall truth lives in `docs/install.md`. This file is
+retained as historical background for the older System-HTTPS-Proxy /
+CONNECT-MITM path and older `slimference proxy ...` commands.
+
+Current Phase H transparent mode is Codex-first and uses exactly two
+surfaces: Codex hook callouts plus transparent SNI-MITM
+(`/etc/hosts` + trusted local CA + pfctl/port 443 routing). It does
+not use `OPENAI_API_BASE`, `HTTPS_PROXY`, `openai_base_url`, or macOS
+System Network Proxy settings as the default path.
+
+The legacy notes below are not normative for new installs. Use:
+
+```bash
+slimference install
+slimference cert-trust
+slimference root-arm
+slimference enable
+slimference disable
+slimference root-disarm
+slimference uninstall
+```
+
+Transparent mode is the system-level intercept path. Once installed it
+routes Codex HTTPS/WSS traffic for `chatgpt.com` and `api.openai.com`
+through the local Slimference daemon without per-app URL overrides. The
+clean off-switch (`slimference disable` plus `slimference root-disarm`)
+drops Codex back to direct connections; apps reconnect automatically on
+the next request.
 
 This document covers what transparent mode does, what it deliberately does NOT do, the trust model, and the lifecycle commands.
 
@@ -12,7 +39,10 @@ This document covers what transparent mode does, what it deliberately does NOT d
 
 - **Catches all HTTPS** for the configured allowlist of LLM hosts (`api.openai.com`, `api.anthropic.com`, `chatgpt.com` etc.). Compression layers run as if the request had arrived through a config-patched direct port.
 - **Tunnels everything else** via raw TCP relay so iCloud, GitHub, package mirrors, and everything else on your machine keep working unaffected.
-- **Honours WebSocket upgrades** so Codex Desktop's `responses_websocket` traffic completes end-to-end. The tunnel is byte-for-byte by default; T142 adds an inspect-only frame parser that can record opcode/direction/JSON-shape metadata without mutating frames. Compression on WS message boundaries remains blocked until live Codex frame-shape evidence proves the internal protocol is stable enough.
+- **Honours WebSocket upgrades** so Codex CLI/Desktop `responses_websocket`
+  traffic completes end-to-end. In the Phase H SNI path, known Codex WSS
+  request/response envelopes run through the WSS Phase F adapter; unknown
+  or malformed frames degrade to byte-equal forwarding.
 - **Bypasses WebRTC** for audio. The macOS System-HTTPS-Proxy setting only affects HTTP/HTTPS; UDP / SRTP audio streams continue native. This is the property that makes transparent mode safe for Codex Desktop's microphone transcription feature.
 - **Uses per-host TLS profiles upstream** in transparent mode. Defaults map `chatgpt.com` to `chromium_stable` and the API hosts to `node_stable` intent aliases, currently backed by maintained uTLS Chromium profiles.
 

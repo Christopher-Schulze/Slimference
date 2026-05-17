@@ -53,6 +53,7 @@ _slimference() {
     local period_flags="--json --csv --by-command --by-parser --cache --output"
     local savings_flags="--json --csv --project"
     local quality_flags="--json --url"
+    local filter_flags="--stream --"
     local bypass_verbs="on off status"
     local bypass_scoped_flags="--duration= --next-request --next-request="
 
@@ -73,12 +74,15 @@ _slimference() {
                 COMPREPLY=( $(compgen -W "anthropic openai" -- "$cur") )
             fi
             ;;
+        filter)
+            COMPREPLY=( $(compgen -W "$filter_flags" -- "$cur") )
+            ;;
         hook)
             if [ "$cword" -eq 2 ]; then
                 COMPREPLY=( $(compgen -W "install remove verify status check-upstream" -- "$cur") )
             elif [ "$cword" -eq 3 ]; then
                 case "${COMP_WORDS[2]}" in
-                    install|remove) COMPREPLY=( $(compgen -W "claude codex" -- "$cur") ) ;;
+                    install|remove) COMPREPLY=( $(compgen -W "codex" -- "$cur") ) ;;
                 esac
             fi
             ;;

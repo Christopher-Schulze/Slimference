@@ -21,12 +21,16 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/buildinfo"
 	"github.com/slimference/slimference/internal/caching"
+	"github.com/slimference/slimference/internal/compactsignal"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/control/apps"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/outputreduce"
+	"github.com/slimference/slimference/internal/promptcache"
 	"github.com/slimference/slimference/internal/quality"
+	"github.com/slimference/slimference/internal/qualityab"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/summarization"
@@ -64,6 +68,21 @@ type Proxy struct {
 	responseCache   *caching.ResponseCache
 	fileWatcher     *caching.FileWatcher
 	secretsDetector *security.Detector
+
+	// compactSignals reads PreCompact/PostCompact markers written by
+	// the Codex hooks. When a recent PreCompact marker exists for the
+	// active session, the proxy escalates Layer-1 aggression on the
+	// next request (smaller sliding window, lower thresholds). See
+	// internal/compactsignal/store.go.
+	compactSignals *compactsignal.Store
+
+	// promptCacheStability tracks per-session prefix-hash stability
+	// across turns. When the same prefix hash repeats, the proxy
+	// pushes Anthropic cache breakpoints to the latest stable
+	// position, maximising the cached-token volume eligible for the
+	// 90% prompt-cache discount on the next request. See
+	// internal/promptcache/stability.go.
+	promptCacheStability *promptcache.Tracker
 
 	// Analytics.
 	analytics     *analytics.Analytics
@@ -142,7 +161,14 @@ type Proxy struct {
 	// constructed; live wiring is gated by [proxy] server_state_enabled.
 	serverState *sessions.ResponseStateStore
 	// outputReduce tracks T130 prompt-injection overhead and observed output.
-	outputReduce          *outputreduce.Tracker
+	outputReduce *outputreduce.Tracker
+	// outputReduceCounters tracks T185 cumulative counters for the
+	// T165/T166/T167 mechanisms. Atomic, no lock, snapshot-on-read.
+	outputReduceCounters OutputReduceCounters
+	// qualityAB hosts T186 cohort routing and outcome tracking for
+	// T169 be-terse hint and future gated levers. nil when not
+	// constructed.
+	qualityAB             *qualityab.Harness
 	outputReduceRepairMu  sync.Mutex
 	outputReduceRepair    map[string]pendingOutputReduceSignal
 	openAIPromptCacheMu   sync.Mutex
@@ -161,6 +187,22 @@ type Proxy struct {
 	// SetTUISendFn is called before Start() and the goroutines launch.
 	tuiSendMu sync.RWMutex
 	tuiSendFn func(types.RequestMetrics)
+
+	// appsManagerPtr holds the per-app policy manager (T193). Lock-
+	// free atomic pointer so SIGHUP-reload doesn't block traffic. nil
+	// until SetAppsManager wires it; routing then falls back to the
+	// implicit "all apps enabled" policy.
+	appsManagerPtr atomic.Pointer[apps.Manager]
+
+	// wssDispatcherPtr points at the transparent SNI dispatcher when
+	// SNIPeekMode is active. /admin/state reads it for WSS bridge and
+	// mutation telemetry; nil means the WSS engine is not running.
+	wssDispatcherPtr atomic.Pointer[PhaseFDispatcher]
+
+	// adminState holds the probe set used by the /admin/state
+	// endpoint. Wired by cmd/slimference at startup; nil before
+	// then so the handler responds 503.
+	adminState adminStateProvider
 }
 
 // recoverMiddleware wraps an HTTP handler with panic recovery (spec §17.2).
@@ -207,6 +249,7 @@ func New(cfg *config.Config) *Proxy {
 		toolPrune:          toolprune.NewUsageTracker(20),
 		serverState:        sessions.NewResponseStateStore(1024),
 		outputReduceRepair: make(map[string]pendingOutputReduceSignal),
+		qualityAB:          qualityab.New(qualityab.Options{}),
 		outputReduce: outputreduce.NewTrackerWithAutoTune(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile, outputreduce.AutoTuneConfig{
 			Enabled:             cfg.Compression.OutputReduce.AutoTuneEnabled,
 			MinSamples:          cfg.Compression.OutputReduce.AutoTuneMinSamples,
@@ -215,6 +258,20 @@ func New(cfg *config.Config) *Proxy {
 			CooldownTurns:       cfg.Compression.OutputReduce.CooldownTurns,
 		}),
 	}
+
+	// PreCompact/PostCompact signal store. Rooted at the user's home
+	// so the hook subprocesses and the proxy share the same path
+	// without coordination. Failure to resolve home is silent: the
+	// proxy continues with the signal store disabled (HasRecentSignal
+	// will return false on every probe).
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		p.compactSignals = compactsignal.DefaultStore(home)
+	}
+
+	// Prefix-stability tracker for the Anthropic prompt-cache
+	// breakpoint optimiser (L3). Defaults: 1024 sessions in LRU,
+	// 30 min TTL.
+	p.promptCacheStability = promptcache.NewTracker(0, 0)
 
 	// Default all toggles to enabled.
 	p.providerEnabled[types.Anthropic].Store(true)
@@ -351,6 +408,8 @@ func New(cfg *config.Config) *Proxy {
 	mux.HandleFunc(AdminSecuritySuspendPath, p.adminSecuritySuspendHandler)
 	mux.HandleFunc(AdminBypassPath, p.adminBypassHandler)
 	mux.HandleFunc(AdminFlushPath, p.adminFlushHandler)
+	mux.HandleFunc(AdminStatePath, p.adminStateHandler)
+	mux.HandleFunc(AdminAppsPath, p.adminAppsHandler)
 	mux.HandleFunc("/", p.ServeHTTP)
 
 	var handler http.Handler = mux
@@ -699,6 +758,11 @@ func (p *Proxy) hasBypassedTool(body []byte) bool {
 }
 
 // isCompressiblePath returns true for the endpoints that support message compression.
+// Specific allowlist: only paths that we know carry the chat/responses message
+// shape are matched. Adjacent Codex Desktop App endpoints (realtime/voice
+// calls, image generation, model listings, memories, computer-use plugin
+// installs, etc.) all share the `/backend-api/codex/` prefix but DO NOT
+// carry the messages shape - they pass through byte-equal.
 func isCompressiblePath(path string) bool {
 	clean := strings.TrimSuffix(path, "/")
 	// Anthropic: POST /v1/messages (not /v1/messages/batches)
@@ -709,10 +773,19 @@ func isCompressiblePath(path string) bool {
 	if clean == "/v1/chat/completions" {
 		return true
 	}
-	// Codex: these paths may carry Responses API conversation input. The
-	// provider-specific gate below keeps generic OpenAI /v1/responses traffic
-	// passthrough unless UA/body detection proves it is Codex.
-	return clean == "/v1/responses" || strings.HasPrefix(clean, "/backend-api/codex/")
+	// OpenAI Responses API (and Codex via openai_base_url override).
+	if clean == "/v1/responses" {
+		return true
+	}
+	// Codex ChatGPT subscription wire. Only the responses endpoint
+	// carries the conversation message shape. Realtime / voice
+	// (/backend-api/codex/realtime/*), models listing
+	// (/backend-api/codex/models), memories
+	// (/backend-api/codex/memories/*), and plugin / image / computer-
+	// use sidebands all share the same prefix but are NOT message
+	// traffic - tightening here keeps voice + image + computer-use
+	// + plugin flows untouched.
+	return clean == "/backend-api/codex/responses"
 }
 
 func isProviderCompressiblePath(provider types.Provider, path string) bool {
@@ -723,7 +796,7 @@ func isProviderCompressiblePath(provider types.Provider, path string) bool {
 	case types.OpenAI:
 		return clean == "/v1/chat/completions"
 	case types.CodexChatGPT:
-		return clean == "/v1/responses" || strings.HasPrefix(clean, "/backend-api/codex/")
+		return clean == "/v1/responses" || clean == "/backend-api/codex/responses"
 	default:
 		return false
 	}

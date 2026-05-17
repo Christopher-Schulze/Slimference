@@ -275,9 +275,6 @@ func shadowEstimateTokens(bytes int64) int {
 		return 0
 	}
 	tokens := int((bytes + 3) / 4)
-	if tokens < 1 {
-		return 1
-	}
 	return tokens
 }
 

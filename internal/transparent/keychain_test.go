@@ -157,6 +157,22 @@ func TestKeychain_IsTrustedFalse(t *testing.T) {
 	}
 }
 
+func TestKeychain_IsTrustedKnownUntrustedOutput(t *testing.T) {
+	t.Parallel()
+	mock := newMockExec()
+	mock.errs["security verify-cert -c /path"] = errors.New("verify failed")
+	mock.out["security verify-cert -c /path"] = []byte("CSSMERR_TP_NOT_TRUSTED")
+	k := NewKeychain()
+	k.SetExec(mock.run)
+	ok, err := k.IsTrusted("/path")
+	if err != nil {
+		t.Fatalf("known untrusted output should not be an error: %v", err)
+	}
+	if ok {
+		t.Fatal("expected trusted=false")
+	}
+}
+
 func TestKeychain_SetExecNilNoOp(t *testing.T) {
 	t.Parallel()
 	k := NewKeychain()

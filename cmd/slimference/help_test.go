@@ -99,6 +99,64 @@ func TestHelpTopLevelContainsKeywords(t *testing.T) {
 	}
 }
 
+func TestHelpTopLevelPromotesPhaseHOnly(t *testing.T) {
+	t.Parallel()
+	out := helpTopLevel()
+	required := []string{
+		"slimference install",
+		"slimference cert-trust",
+		"slimference root-arm",
+		"slimference enable",
+	}
+	for _, want := range required {
+		if !strings.Contains(out, want) {
+			t.Fatalf("top-level help should promote %q", want)
+		}
+	}
+	forbidden := []string{
+		"slimference proxy install",
+		"slimference proxy enable",
+		"slimference integrate install",
+		"OPENAI_API_BASE",
+		"HTTPS_PROXY",
+		"openai_base_url",
+	}
+	for _, bad := range forbidden {
+		if strings.Contains(out, bad) {
+			t.Fatalf("top-level help must not promote legacy surface %q", bad)
+		}
+	}
+}
+
+func TestLegacySubcommandHelpIsExplicitlyLegacy(t *testing.T) {
+	t.Parallel()
+	proxyHelp := helpForSubcommand("proxy")
+	for _, want := range []string{
+		"LEGACY/ADVANCED",
+		"Do not use this as the Phase H default Codex install path",
+		"slimference install",
+		"slimference cert-trust",
+		"slimference root-arm",
+		"slimference enable",
+	} {
+		if !strings.Contains(proxyHelp, want) {
+			t.Fatalf("proxy help should contain %q\n%s", want, proxyHelp)
+		}
+	}
+
+	integrateHelp := helpForSubcommand("integrate")
+	for _, want := range []string{
+		"LEGACY/ADVANCED config-patch mode",
+		"manual fallback only",
+		"does not mutate Codex base URLs",
+		"Claude Code is parked",
+	} {
+		if !strings.Contains(integrateHelp, want) {
+			t.Fatalf("integrate help should contain %q\n%s", want, integrateHelp)
+		}
+	}
+}
+
 func TestHelpForSubcommandKnown(t *testing.T) {
 	t.Parallel()
 	topics := []string{"doctor", "filter", "hook", "rewrite", "posttool", "codexhook", "readhook",
@@ -118,6 +176,21 @@ func TestHelpForSubcommandKnown(t *testing.T) {
 				t.Fatalf("help for %q does not mention topic: %q", topic, out)
 			}
 		})
+	}
+}
+
+func TestFilterHelpDocumentsAdvancedWrapperOnly(t *testing.T) {
+	t.Parallel()
+	out := helpForSubcommand("filter")
+	for _, want := range []string{"ADVANCED manual wrapper", "not the Phase H default Codex routing path", "--stream", "child's exit code is propagated"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("filter help should contain %q\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{"--pipeline", "--dry-run"} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("filter help should not advertise unimplemented %q\n%s", notWant, out)
+		}
 	}
 }
 

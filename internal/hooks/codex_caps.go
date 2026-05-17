@@ -42,6 +42,14 @@ const (
 	CodexCapPermissionRequestDecision CodexCapability = "permission_request_decision"
 	CodexCapPostToolReplaceResult     CodexCapability = "posttool_replace_result"
 	CodexCapLifecycleContext          CodexCapability = "lifecycle_additional_context"
+
+	// CodexCapCompactionHooks means Codex emits PreCompact + PostCompact
+	// hook events with full JSON-schema-validated input/output. Verified
+	// via direct binary inspection of codex 0.130 on 2026-05-15.
+	// PreCompact fires before Codex's own compaction (trigger=manual|auto);
+	// PostCompact fires after. Both let Slimference signal its proxy to
+	// escalate aggressive compaction in parallel.
+	CodexCapCompactionHooks CodexCapability = "compaction_hooks"
 )
 
 type CodexFeatureStatus string
@@ -76,18 +84,24 @@ type CodexCapabilityRange struct {
 // version supports which Slimference-relevant hook feature. It must be
 // updated when Codex ships changes to its hook contract; the upstream
 // reference is https://developers.openai.com/codex/hooks (probed
-// 2026-05-01).
+// 2026-05-01) plus direct binary schema dumps for live verification.
 //
-// Current state (2026-05-01): the only capability advertised across
-// every supported version is decision_block. transparent_rewrite and
-// permission_decision are listed in Codex's hook contract but parsed-
-// only (fail open), so Slimference does not rely on them yet.
+// 2026-05-15 update: codex 0.130 binary inspection confirmed
+// PreCompact + PostCompact events ship with full JSON schemas
+// (pre-compact.command.{input,output}, post-compact.command.{input,output}).
+// These were previously listed as "unprobed".
 var codexCapabilityMatrix = []CodexCapabilityRange{
 	{
 		Min:          "0.117.0",
-		Max:          "",
+		Max:          "0.130.0",
 		Capabilities: []CodexCapability{CodexCapDecisionBlock, CodexCapPermissionRequestDecision, CodexCapPostToolReplaceResult, CodexCapLifecycleContext},
 		Notes:        "official hooks contract supports lifecycle context, PermissionRequest allow/deny, PostToolUse result replacement, and decision/block; updatedInput remains parsed-only",
+	},
+	{
+		Min:          "0.130.0",
+		Max:          "",
+		Capabilities: []CodexCapability{CodexCapDecisionBlock, CodexCapPermissionRequestDecision, CodexCapPostToolReplaceResult, CodexCapLifecycleContext, CodexCapCompactionHooks},
+		Notes:        "0.130 adds PreCompact and PostCompact hooks verified via binary schema dump on 2026-05-15",
 	},
 }
 
@@ -116,8 +130,15 @@ var codexHookFeatureMatrix = []CodexHookFeature{
 	{Event: "Stop", Name: "decision:block", Status: CodexFeatureSupported, Notes: "continues the turn with the reason as the continuation prompt"},
 	{Event: "Stop", Name: "continue:false", Status: CodexFeatureSupported, Notes: "takes precedence over continuation decisions"},
 	{Event: "Stop", Name: "matcher", Status: CodexFeatureParsedFailOpen, Notes: "ignored for this event"},
-	{Event: "PreCompact", Name: "event", Status: CodexFeatureUnprobed, Notes: "not present in the current official hook page"},
-	{Event: "PostCompact", Name: "event", Status: CodexFeatureUnprobed, Notes: "not present in the current official hook page"},
+	{Event: "PreCompact", Name: "event", Status: CodexFeatureSupported, Notes: "verified via codex 0.130 binary schema dump (pre-compact.command.{input,output}); fires with trigger=manual|auto before Codex's own compaction"},
+	{Event: "PreCompact", Name: "input.trigger", Status: CodexFeatureSupported, Notes: "values: manual, auto — auto fires when context approaches auto_compact_token_limit"},
+	{Event: "PreCompact", Name: "input.session_id", Status: CodexFeatureSupported, Notes: "required field for correlation"},
+	{Event: "PreCompact", Name: "input.turn_id", Status: CodexFeatureSupported, Notes: "required field; Codex extension"},
+	{Event: "PreCompact", Name: "output.continue:false", Status: CodexFeatureSupported, Notes: "blocks Codex's own compaction; Slimference proxy escalates aggressive compaction on next request instead"},
+	{Event: "PreCompact", Name: "output.systemMessage", Status: CodexFeatureSupported, Notes: "schema-supported; injects a system message"},
+	{Event: "PostCompact", Name: "event", Status: CodexFeatureSupported, Notes: "verified via codex 0.130 binary schema dump (post-compact.command.{input,output}); fires after Codex compaction completes"},
+	{Event: "PostCompact", Name: "input.trigger", Status: CodexFeatureSupported, Notes: "values: manual, auto — same semantics as PreCompact"},
+	{Event: "PostCompact", Name: "output.continue:false", Status: CodexFeatureSupported, Notes: "schema-supported; can abort the post-compaction flow"},
 }
 
 func CodexHookFeatureMatrix() []CodexHookFeature {

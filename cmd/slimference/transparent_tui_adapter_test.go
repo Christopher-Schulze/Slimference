@@ -20,12 +20,20 @@ func withTransparentAdapterStubs(t *testing.T, net *fakeNetworkManager, kc *fake
 	origKeychain := newTransparentKeychainFn
 	origLaunch := newTransparentLaunchFn
 	origHealth := transparentProxyHealthFn
+	origInstall := tuiInstallCmdFn
+	origEnable := tuiEnableCmdFn
+	origDisable := tuiDisableCmdFn
+	origUninstall := tuiUninstallCmdFn
 	t.Cleanup(func() {
 		proxyRunFn = origRun
 		newTransparentNetworkFn = origNet
 		newTransparentKeychainFn = origKeychain
 		newTransparentLaunchFn = origLaunch
 		transparentProxyHealthFn = origHealth
+		tuiInstallCmdFn = origInstall
+		tuiEnableCmdFn = origEnable
+		tuiDisableCmdFn = origDisable
+		tuiUninstallCmdFn = origUninstall
 	})
 	newTransparentNetworkFn = func() proxyNetworkManager { return net }
 	newTransparentKeychainFn = func() proxyKeychain { return kc }
@@ -38,20 +46,20 @@ func TestServiceControlAdapterTransparentCommands(t *testing.T) {
 	t.Setenv("HOME", home)
 	withTransparentAdapterStubs(t, &fakeNetworkManager{}, &fakeKeychain{}, &fakeLaunchAgent{})
 
-	var calls [][]string
-	proxyRunFn = func(args []string, env proxyEnv) int {
-		calls = append(calls, append([]string(nil), args...))
-		if env.Home != home {
-			t.Fatalf("env home=%q want %q", env.Home, home)
+	var calls []string
+	stub := func(name string) func([]string, installPrinter) int {
+		return func(_ []string, p installPrinter) int {
+			calls = append(calls, name)
+			if p.Out == nil || p.Err == nil {
+				t.Fatal("install lifecycle command missing printer writers")
+			}
+			return 0
 		}
-		if got := env.CADirFn(); got != filepath.Join(home, ".slimference") {
-			t.Fatalf("ca dir=%q", got)
-		}
-		if env.Stdout == nil || env.Stderr == nil || env.Stdin == nil || env.LoadCA == nil || env.HealthCheck == nil {
-			t.Fatal("proxy command env missing required dependencies")
-		}
-		return 0
 	}
+	tuiInstallCmdFn = stub("install")
+	tuiEnableCmdFn = stub("enable")
+	tuiDisableCmdFn = stub("disable")
+	tuiUninstallCmdFn = stub("uninstall")
 
 	adapter := &serviceControlAdapter{}
 	for _, run := range []struct {
@@ -68,7 +76,7 @@ func TestServiceControlAdapterTransparentCommands(t *testing.T) {
 		}
 	}
 
-	want := [][]string{{"install"}, {"enable"}, {"disable"}, {"uninstall"}}
+	want := []string{"install", "enable", "disable", "uninstall"}
 	if !reflect.DeepEqual(calls, want) {
 		t.Fatalf("transparent command calls=%v want %v", calls, want)
 	}
@@ -88,36 +96,36 @@ func TestServiceControlAdapterTransparentCommandErrors(t *testing.T) {
 
 	tests := []struct {
 		name string
-		run  func(args []string, env proxyEnv) int
+		run  func(args []string, p installPrinter) int
 		want string
 	}{
 		{
 			name: "stderr",
-			run: func(_ []string, env proxyEnv) int {
-				fmt.Fprint(env.Stderr, "stderr boom")
+			run: func(_ []string, p installPrinter) int {
+				fmt.Fprint(p.Err, "stderr boom")
 				return 1
 			},
 			want: "stderr boom",
 		},
 		{
 			name: "stdout",
-			run: func(_ []string, env proxyEnv) int {
-				fmt.Fprint(env.Stdout, "stdout boom")
+			run: func(_ []string, p installPrinter) int {
+				fmt.Fprint(p.Out, "stdout boom")
 				return 1
 			},
 			want: "stdout boom",
 		},
 		{
 			name: "fallback",
-			run: func(_ []string, _ proxyEnv) int {
+			run: func(_ []string, _ installPrinter) int {
 				return 7
 			},
-			want: "proxy enable failed with exit 7",
+			want: "install lifecycle command failed with exit 7",
 		},
 	}
 
 	for _, tc := range tests {
-		proxyRunFn = tc.run
+		tuiEnableCmdFn = tc.run
 		err := adapter.EnableTransparent()
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("%s error=%v want %q", tc.name, err, tc.want)

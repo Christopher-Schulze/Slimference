@@ -304,8 +304,6 @@ func TestLayer2_ApplyToMessagesSession(t *testing.T) {
 
 func TestLayer2_ShouldTriggerCompressionSession_Compressing(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	t.Setenv("TEST_KEY", "test")
 	l := NewLayer2(cfg)
 	l.SetCompressingSession("s1", true)
@@ -317,8 +315,6 @@ func TestLayer2_ShouldTriggerCompressionSession_Compressing(t *testing.T) {
 
 func TestLayer2_ShouldTriggerCompressionSession_Stale(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	t.Setenv("TEST_KEY", "test")
 	l := NewLayer2(cfg)
 	l.sessions.Store("s1", &CachedSummary{
@@ -334,8 +330,6 @@ func TestLayer2_ShouldTriggerCompressionSession_Stale(t *testing.T) {
 
 func TestLayer2_ShouldTriggerCompressionSession_CoveredFraction(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	t.Setenv("TEST_KEY", "test")
 	l := NewLayer2(cfg)
 	l.sessions.Store("s1", &CachedSummary{
@@ -351,8 +345,6 @@ func TestLayer2_ShouldTriggerCompressionSession_CoveredFraction(t *testing.T) {
 
 func TestLayer2_ShouldTriggerCompressionSession_FullyCovered(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	t.Setenv("TEST_KEY", "test")
 	l := NewLayer2(cfg)
 	msgs := makeTestMessages(20)
@@ -369,8 +361,6 @@ func TestLayer2_ShouldTriggerCompressionSession_FullyCovered(t *testing.T) {
 
 func TestLayer2_ShouldTriggerCompressionSession_TooFewMessages(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	t.Setenv("TEST_KEY", "test")
 	cfg.MinMessagesForCompression = 100
 	l := NewLayer2(cfg)
@@ -382,8 +372,6 @@ func TestLayer2_ShouldTriggerCompressionSession_TooFewMessages(t *testing.T) {
 
 func TestLayer2_ShouldTriggerCompressionSession_MinTokensGate(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	t.Setenv("TEST_KEY", "test")
 	cfg.MinTokensForLayer2 = 999999
 	l := NewLayer2(cfg)
@@ -395,8 +383,6 @@ func TestLayer2_ShouldTriggerCompressionSession_MinTokensGate(t *testing.T) {
 
 func TestLayer2_ShouldTriggerCompressionSession_AdaptiveToolOutputROI(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	cfg.MinTokensForLayer2 = 15000
 	cfg.MinMessagesForCompression = 3
 	cfg.SlidingWindow = 2
@@ -431,8 +417,6 @@ func TestLayer2_ShouldTriggerCompressionSession_AdaptiveToolOutputROI(t *testing
 
 func TestLayer2_ScoreBackgroundCandidateSessionTelemetry(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	cfg.MinTokensForLayer2 = 15000
 	cfg.MinMessagesForCompression = 3
 	cfg.SlidingWindow = 2
@@ -465,14 +449,19 @@ func TestLayer2_ScoreBackgroundCandidateSessionTelemetry(t *testing.T) {
 func TestLayer2_BackgroundCandidateBranchCoverage(t *testing.T) {
 	cfg := testCompressionConfig()
 	l := NewLayer2(cfg)
-	if got := l.ScoreBackgroundCandidateSession("s1", makeTestMessages(10), 2); got.Reason != "provider_unconfigured" {
-		t.Fatalf("provider branch mismatch: %+v", got)
+	// 2026-05-15: with ExtractSummarizer as the primary, in-process
+	// deterministic provider, the chain is always configured even
+	// without MiniMax credentials. So the "provider_unconfigured"
+	// gate from the old MiniMax-only world no longer fires.
+	// The eligible path produces a "stale_or_missing_summary" reason
+	// instead — the new correct behaviour because we now have a
+	// summarization engine that needs no API key.
+	if got := l.ScoreBackgroundCandidateSession("s1", makeTestMessages(10), 2); got.Reason != "stale_or_missing_summary" {
+		t.Fatalf("expected stale_or_missing_summary with always-on extract provider, got %+v", got)
 	}
 
 	t.Setenv("TEST_KEY_BRANCH", "test-key")
 	cfg = testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY_BRANCH"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	cfg.SlidingWindow = 2
 	cfg.MinMessagesForCompression = 20
 	l = NewLayer2(cfg)
@@ -597,19 +586,19 @@ func TestLayer2CandidateHashHelpers(t *testing.T) {
 
 func TestLayer2_ShouldTriggerCompressionSession_NoProvider(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.BaseURL = ""
-	cfg.MiniMax.APIKeyEnv = ""
 	l := NewLayer2(cfg)
 	msgs := makeTestMessages(20)
-	if l.ShouldTriggerCompressionSession("s1", msgs) {
-		t.Fatal("no provider should not trigger")
+	// 2026-05-15: ExtractSummarizer is always configured (no API key
+	// needed). With it in the chain, compression CAN trigger even
+	// without any MiniMax credentials. Previously this test asserted
+	// the opposite under the MiniMax-only assumption.
+	if !l.ShouldTriggerCompressionSession("s1", msgs) {
+		t.Fatal("expected compression to trigger via always-on extract provider")
 	}
 }
 
 func TestLayer2_ShouldTriggerCompressionSession_BoundaryZero(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	t.Setenv("TEST_KEY", "test")
 	cfg.MinMessagesForCompression = 0
 	cfg.SlidingWindow = 1
@@ -629,8 +618,6 @@ func TestLayer2_ShouldTriggerCompressionSession_BoundaryZero(t *testing.T) {
 
 func TestLayer2_RunCompressionJobSession(t *testing.T) {
 	cfg := testCompressionConfig()
-	cfg.MiniMax.APIKeyEnv = "TEST_KEY"
-	cfg.MiniMax.BaseURL = "http://127.0.0.1:1"
 	t.Setenv("TEST_KEY", "test")
 	l := NewLayer2(cfg)
 	msgs := makeTestMessages(5)
@@ -753,10 +740,6 @@ func testCompressionConfig() *config.CompressionConfig {
 		SlidingWindow:             5,
 		MinMessagesForCompression: 3,
 		MinTokensForLayer2:        0,
-		MiniMax: config.MiniMaxConfig{
-			BaseURL:   "http://127.0.0.1:1",
-			APIKeyEnv: "NONEXISTENT_KEY_FOR_TEST",
-		},
 	}
 }
 

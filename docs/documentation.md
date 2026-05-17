@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 2.3.0
-Last updated: 2026-05-14
+Last updated: 2026-05-17
 
 Comprehensive reference for the Slimference token-optimising proxy. This
 document is re-written for the 2.3 line; sections follow current code
@@ -17,10 +17,10 @@ source in one hop.
 3. [Request Lifecycle](#3-request-lifecycle)
 4. [Layer 0 - Pre-Entry Filter](#4-layer-0-pre-entry-filter)
 5. [Layer 1 - Deterministic Compression](#5-layer-1-deterministic-compression)
-6. [Layer 2 - OpenAI-Compatible Summarisation](#6-layer-2-openai-compatible-summarisation)
+6. [Layer 2 - Background Semantic Summarisation](#6-layer-2-background-semantic-summarisation)
 7. [Layer 3 - Response Cache](#7-layer-3-response-cache)
 8. [Provider Support](#8-provider-support)
-9. [Auto-Integration (Claude Code + Codex)](#9-auto-integration-claude-code--codex)
+9. [Install and integration](#9-install-and-integration)
 10. [Bypass and Fallback](#10-bypass-and-fallback)
 11. [Security](#11-security)
 12. [Observability](#12-observability)
@@ -36,72 +36,81 @@ source in one hop.
 
 ## 1. Overview
 
-Slimference is a Go reverse proxy plus a set of CLI shims that reduce token
-usage when working with Claude Code and OpenAI Codex. It sits on
-`127.0.0.1:8990`, receives HTTP requests from both clients, applies four
-layers of compression to the conversation history, forwards the result to
-the real upstream (`api.anthropic.com`, `chatgpt.com`), and streams the
-response back unchanged.
+Slimference is a Go reverse proxy plus local install tooling that reduces
+token usage for Codex-first workflows. The current production target is Codex
+CLI first and Codex Desktop next. Claude Code support remains in the tree for
+reference, but the shipped product path parks it completely: no install, no
+hooks, no `~/.claude` writes, and no Anthropic routing. The admin/control plane
+listens on `127.0.0.1:8990`; the transparent
+SNI listener defaults to `127.0.0.1:8443` when armed. Request bodies can run
+through deterministic compression, background summarisation, output reduction,
+and cache layers before the daemon re-dials the real upstream.
 
-The proxy is **transparent**: request shape, headers, streaming semantics,
-and response bytes are preserved end-to-end. Only the conversation body
-bytes shrink.
+The proxy is **fail-open transparent**: request shape, headers, streaming
+semantics, and unknown payloads are preserved. Known conversation bodies and
+known output frames may shrink when a deterministic reducer proves the mutated
+payload is shorter and schema-safe.
 
 ### Why it works
 
 | Problem                                          | Slimference answer                          |
 |--------------------------------------------------|---------------------------------------------|
 | Large tool outputs repeated across turns         | Exact + MinHash dedup (Layer 1)             |
-| Long sessions exceed the context window          | Adaptive summarisation via MiniMax (L2)     |
+| Long sessions exceed the context window          | Background semantic summarisation (L2)      |
 | Identical requests re-cost tokens                | Response cache + prompt-cache breakpoints   |
 | Verbose shell / git / test output                | 24 built-in filters + TOML DSL (Layer 0)    |
 | Compression costs latency on small requests      | Thresholds + latency-budget guard (T54)     |
 
 ### Client support
 
-- **Claude Code**: via `ANTHROPIC_BASE_URL=http://127.0.0.1:8990` (supported
-  since Claude Code 1.0). Full proxy access to request + response bodies.
-- **Codex**: default path is transparent mode (`slimference proxy
-  install|enable`): local CA + daemon + macOS HTTPS proxy, with no Codex
-  config mutation. Legacy/config-patch mode remains available via
-  `slimference integrate install --client codex`, which writes
-  `openai_base_url` + `chatgpt_base_url` in `~/.codex/config.toml`.
+- **Codex CLI + Codex Desktop**: default path is Phase H transparent
+  SNI-MITM, operated only through `slimference install`, `cert-trust`,
+  `root-arm`, `enable`, `disable`, `root-disarm`, `uninstall`, and `status`.
+  It uses Codex hooks for signal input and TLS routing for traffic input; it
+  does not mutate Codex base URLs, env vars, or macOS System Network Proxy
+  settings.
+- **Claude Code**: code remains available in the repository, but the product
+  binary parks it. `slimference install`, `hook`, `integrate`, TUI apps, and
+  `/admin/apps` do not enable or modify Claude Code.
 - **Generic OpenAI API**: `api.openai.com/v1/chat/completions` routed by
   path detection when no Codex UA is present.
 
 ### Design invariants
 
-- **Explicit transparent MITM only when armed**: legacy/config-patch mode
-  terminates plain HTTP on loopback. Transparent mode is opt-in via
-  `slimference proxy install|enable`; when armed it uses the local trusted CA
-  to terminate allowlisted LLM HTTPS hosts and re-dials upstream with normal
-  certificate validation.
+- **Explicit transparent MITM only when armed**: transparent mode is opt-in via
+  `slimference install`, `cert-trust`, `root-arm`, and `enable`; when armed it
+  uses the local trusted CA to terminate allowlisted LLM HTTPS hosts and
+  re-dials upstream with normal certificate validation. Legacy config-patch and
+  proxy/env helpers remain manual fallback surfaces only.
 - **Passthrough on failure**: if any layer errors, the original body is
   forwarded. See section 10.
 - **Bypass switch**: a single atomic flag collapses every provider + layer
   toggle to off, making the proxy a pure relay.
 - **`encoding/json` only**: no third-party JSON library.
-- **Hot path budget ≤ 5 ms**: all Layer 1 sub-layers benchmarked.
+- **Hot path budget ≤ 5 ms**: all Layer 1 sub-layers benchmarked. Layer 2 runs
+  as a bounded background optimizer and is not a request-path prerequisite.
 
 ---
 
 ## 2. Architecture
 
 ```
-┌─────────────┐        ┌─────────────────────────────────────┐
-│ Claude Code │──env──▶│                                     │
-└─────────────┘        │     slimference (127.0.0.1:8990)    │
-┌─────────────┐        │                                     │
-│    Codex    │──cfg──▶│  ┌──────── request pipeline ────┐   │
-└─────────────┘        │  │ detect → L1 → L2 → L3 cache  │   │──HTTPS──▶ api.anthropic.com
-                       │  └──────────────────────────────┘   │
-                       │                                     │──HTTPS──▶ chatgpt.com
-                       │  ┌──────── response pipeline ───┐   │
-                       │  │ stream relay + cache update  │   │──HTTPS──▶ api.openai.com
-                       │  └──────────────────────────────┘   │
-                       │                                     │
-                       │  admin, TUI, analytics, debug       │
-                       └─────────────────────────────────────┘
+┌─────────────┐       hooks        ┌─────────────────────────────────────┐
+│ Codex CLI   │───────────────────▶│ slimference admin/control :8990     │
+│ Codex App   │                    │                                     │
+└─────────────┘       TLS/SNI      │ transparent SNI listener :8443      │
+      │        chatgpt.com:443     │  ┌──── request/WSS pipeline ────┐   │
+      └───────────────────────────▶│  │ detect → L1/F → L2 → L3      │   │──HTTPS──▶ chatgpt.com
+                                   │  └──────────────────────────────┘   │──HTTPS──▶ api.openai.com
+                                   │  ┌──── response pipeline ───────┐   │
+                                   │  │ streamcut/repdet + cache     │   │
+                                   │  └──────────────────────────────┘   │
+                                   │                                     │
+                                   │  TUI, admin state, analytics, debug │
+                                   └─────────────────────────────────────┘
+
+Claude Code support stays in the codebase as parked legacy/reference plumbing.
+It is not installed, toggled on, or routed by the Phase H path.
 ```
 
 The proxy process also owns:
@@ -149,8 +158,9 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
     `prompt_cache_key` and model-gated `prompt_cache_retention` injection
     for generic OpenAI API requests only; CodexChatGPT backend routes stay
     untouched until live proof.
-11. **Layer 2** — MiniMax summarisation when `len(tokens) >=
-    min_tokens_for_layer2` AND latency budget permits (T54).
+11. **Layer 2** — background semantic summarisation when
+    `len(tokens) >= min_tokens_for_layer2`, provider prerequisites pass, and
+    latency policy permits (T54/T152).
 12. **Upstream call** via the per-provider HTTP client. Streaming is
     preserved.
 13. **Overflow recovery** (spec+.md §17.4): on HTTP 400 with context-
@@ -176,10 +186,12 @@ the body was not yet stashed, returns 502.
 
 ## 4. Layer 0 - Pre-Entry Filter
 
-Layer 0 runs **outside** the HTTP proxy, invoked by Claude Code's and
-Codex's hook mechanisms. `~/.codex/hooks.json` and Claude's settings
-file point at `~/.slimference/hooks/*.sh`, which invoke
-`slimference filter`, `slimference rewrite`, and `slimference posttool`.
+Layer 0 runs **outside** the HTTP proxy. In product mode it is invoked by
+Codex hooks only: `~/.codex/hooks.json` points at
+`~/.slimference/hooks/*.sh`, which invoke `slimference filter`,
+`slimference rewrite`, `slimference posttool`, `slimference codexhook`,
+and `slimference readhook codex`. Claude hook code remains in-tree but no
+public install path writes `~/.claude`.
 
 ### Pipeline
 
@@ -305,7 +317,7 @@ shorter-than-original guard still decides whether the compacted block is used.
 
 ### Layer 2 task-shaped contracts (T144a)
 
-Before MiniMax or any OpenAI-compatible fallback sees a summarization request,
+Before any configured Layer 2 provider sees a summarization request,
 `prompt_contract.go` classifies the transcript as coding, debugging, review,
 planning, documentation, live E2E, or generic. The selected contract is appended
 to the model-agnostic system prompt and preserves exact paths, commands,
@@ -353,14 +365,14 @@ original body locally retrievable.
 
 ---
 
-## 6. Layer 2 - OpenAI-Compatible Summarisation
+## 6. Layer 2 - Background Semantic Summarisation
 
-`internal/summarization/layer2.go` calls the configured
-OpenAI-compatible `/v1/chat/completions` endpoint to summarise old tool
-outputs and conversation tails. The default endpoint is MiniMax M2.7,
-but `[compression.minimax]` is now only a historical section name:
-`base_url`, `model`, and `api_key_env` can point at another compatible
-provider without code changes.
+`internal/summarization/layer2.go` runs as a background-only semantic
+optimizer. Its default local fallback is deterministic extractive
+summarisation; an OpenAI-compatible `/v1/chat/completions` endpoint can still
+be configured for higher semantic compression. `[compression.minimax]` is now a
+historical section name: `base_url`, `model`, and `api_key_env` can point at
+another compatible provider without code changes.
 
 ### Decision rule (T54)
 
@@ -370,7 +382,7 @@ if budget_ms > 0 and projected > budget: skip "latency_budget"
 else:                                    run
 ```
 
-Where projected latency = EMA(observed MiniMax latencies) ×
+Where projected latency = EMA(observed Layer 2 latencies) ×
 `layer2_latency_projection_multiplier`. The EMA seeds with 400 ms so
 the guard is conservative on a cold start.
 
@@ -391,7 +403,7 @@ request completes, `ScoreBackgroundCandidateSession` checks provider
 availability, compressible-prefix size, recent edit/error anchors,
 projected savings, and existing summary coverage. Eligible jobs enter
 the bounded `compressQueue` with a session candidate hash. The worker
-drops stale hashes before calling MiniMax, and `ApplyToMessagesSession`
+drops stale hashes before running the summariser, and `ApplyToMessagesSession`
 only replaces messages when the cached summary hash still matches the
 live covered prefix. Hash mismatch, stale worker job, provider failure,
 timeout, validation failure, and anchor-loss validation all fail open to
@@ -408,7 +420,8 @@ Provider/runtime knobs:
 
 - `SLIMFERENCE_MINIMAX_BASE_URL`, `SLIMFERENCE_MINIMAX_MODEL`, and
   `SLIMFERENCE_MINIMAX_API_KEY_ENV` override the summariser endpoint,
-  model, and secret env var for fast provider swaps.
+  model, and secret env var for fast provider swaps. Names are legacy
+  compatibility, not a default product claim.
 - `SLIMFERENCE_MINIMAX_API_KEY` is a direct key override and switches
   `api_key_env` to itself instead of being silently ignored.
 - `temperature` defaults to `0` and `top_p` to `1` for deterministic
@@ -769,42 +782,40 @@ exposed at `/admin/status.anthropic_version.unknown_seen_total`.
 
 ---
 
-## 9. Auto-Integration (Claude Code + Codex)
+## 9. Install and integration
 
-`internal/integrate` and `slimference integrate` (T65) implement the explicit
-legacy/config-patch path. The preferred Codex CLI/App path is transparent mode:
-`slimference proxy install` installs the local CA + daemon support and
-`slimference proxy enable` arms macOS HTTPS proxy routing without touching
-`~/.codex`.
+`docs/install.md` is the install/uninstall SSOT. The current Phase H path is
+Codex-first and uses exactly two external surfaces:
 
-The TUI exposes the same transparent lifecycle. The Setup view starts with
-**Install transparent proxy (CA + daemon)** and **Arm system HTTPS proxy**;
-Codex/Claude hooks are legacy fallback steps after that. The Dashboard can arm
-or disarm transparent mode directly. Setup shortcuts are `[a]` arm/disarm,
-`[u]` uninstall transparent, `[p]` daemon start/stop, `[o]` restart, `[e]`
-enable autostart, and `[w]` disable autostart. Daemon start/restart waits for
-the pid/status file before reporting success, so the next status refresh is not
-racy. The status shown there is a
-cached snapshot of CA, keychain trust, launchd, system proxy, daemon
-reachability, and networksetup health.
+- hook callouts in `~/.codex/hooks.json`
+- transparent SNI-MITM for `chatgpt.com` and `api.openai.com`
 
-For CLI-only split testing, `slimference proxy run codex --proxied` starts
-Codex with a non-mutating one-process environment that points only that Codex
-CLI process at `127.0.0.1:8990`; the Codex App remains direct as long as macOS
-System-HTTPS-Proxy is off. `slimference proxy env codex --proxied` prints the
-same command instead of executing it. The helper launches Codex with a
-per-process custom provider named `slimference-codex`, sets its base URL to
-`http://127.0.0.1:8990/backend-api/codex`, marks it
-`requires_openai_auth=true`, and sets `supports_websockets=false`. That avoids
-the current Codex CLI WebSocket retry/fallback delay and sends HTTP Responses
-traffic directly through Slimference's zstd-aware compression pipeline. Default
-direct mode still tunnels Codex's WebSocket transport byte-for-byte.
+The user-facing commands are `slimference install`, `cert-trust`,
+`root-arm`, `enable`, `disable`, `root-disarm`, `uninstall`, and `status`.
+Default install is Codex-only. Claude Code remains in tree, but is parked:
+`--with-claude` is a compatibility no-op, the app policy forces
+`claude_code=false`, `/admin/apps` rejects enabling it, and the SNI router
+always passes `api.anthropic.com` through.
 
-### What `integrate install` does
+`internal/integrate`, `slimference integrate`, and `slimference proxy env/run`
+are legacy/advanced diagnostics for config-patch and per-process test flows.
+They remain available for manual fallback, but no default install, TUI setup
+action, or primary certification path should depend on `OPENAI_API_BASE`,
+`HTTPS_PROXY`, macOS System Network Proxy settings, or `openai_base_url`.
+
+The TUI exposes the same Phase H lifecycle: dashboard arm/disarm visibility,
+Setup install/enable/disable/uninstall/status actions, Apps per-app routing,
+and Stats/Savings counters sourced from `/admin/state`.
+
+### Legacy `integrate install`
+
+`slimference integrate` is legacy/advanced config-patch mode and is not the
+Phase H path. While Claude is parked, the command normalizes `all` to Codex,
+rejects `--client=claude` without writing files, and never writes
+`ANTHROPIC_BASE_URL`.
 
 | Client / Surface | Wire point                                 | File            |
 |------------------|--------------------------------------------|-----------------|
-| Claude Code      | `export ANTHROPIC_BASE_URL=...`            | shell rc        |
 | Codex            | `openai_base_url` + `chatgpt_base_url`     | config.toml     |
 | Hooks            | Optional Codex lifecycle + tool hooks      | hooks.json etc. |
 
@@ -812,7 +823,8 @@ Every edit uses fenced marker comments:
 
 ```
 # >>> slimference integration >>>
-export ANTHROPIC_BASE_URL=http://127.0.0.1:8990
+openai_base_url = "http://127.0.0.1:8990/backend-api/codex"
+chatgpt_base_url = "http://127.0.0.1:8990/backend-api/"
 # <<< slimference integration <<<
 ```
 
@@ -860,11 +872,15 @@ body can be recovered from the archived original. Unsupported/fail-open fields
 such as `PreToolUse.updatedInput` remain disabled until a live Codex build
 proves they are honored.
 
-The TUI Debug view includes a **Hook Turn State** card for this optional layer.
-It reads the latest file-backed state from `~/.slimference/turn-state/` and
-shows the active session/turn, tool count, read/edit file counts, and the last
-git path-list observation. This is diagnostic only; missing hook state does not
-change proxy behaviour.
+### Parked Claude Code hook code
+
+Claude Code hook code is retained for audit/history, but no public product
+entrypoint activates it. `slimference hook install claude`,
+`slimference hook remove claude`, `slimference integrate --client=claude`,
+`slimference readhook claude`, and top-level `slimference claudeposttool`
+are parked/rejected. The TUI row is parked, the apps manager refuses
+`claude_code=true`, and `api.anthropic.com` remains outside the hosts patch.
+Claude Code optimization is intentionally delegated to RTK for now.
 
 Persistent hook/read-cache/repetition/tool-archive storage now uses the shared
 `internal/sessions.SafeSessionID` convention for non-empty session ids and
@@ -905,18 +921,16 @@ Fish uses `set -gx VAR value`; zsh / bash use `export VAR=value`.
 ### Verbs
 
 ```
-slimference proxy install                     # default transparent Codex path
-slimference proxy enable                      # arm system HTTPS proxy
-slimference proxy env codex --direct          # print Codex CLI direct env command
-slimference proxy env codex --proxied         # print CLI-only proxy env command
-slimference proxy env codex --transparent-proxied # print CLI CONNECT/MITM env command
-slimference                                    # TUI control plane for install/arm/disarm
-slimference integrate status                  # detect legacy/config-patch state
-slimference integrate install                 # legacy wire-up
-slimference integrate install --dry-run       # show diff, no writes
-slimference integrate install --client=codex  # one client only
-slimference integrate remove                  # clean teardown
-slimference integrate emergency-off           # remove + stop daemon + uninstall launchd
+slimference                         # TUI
+slimference install                 # Codex-only install plan
+slimference cert-trust              # open Keychain Access for CA trust
+slimference root-arm                # privileged hosts + pfctl arm step
+slimference enable                  # enable SNI-peek daemon mode
+slimference disable                 # disable SNI-peek daemon mode
+slimference root-disarm             # privileged hosts + pfctl disarm step
+slimference status [--json]         # current setup state
+slimference uninstall               # reverse install plan
+slimference integrate status        # legacy/config-patch detection
 ```
 
 ### Doctor integration
@@ -1120,8 +1134,7 @@ Auto-generated in `docs/tui-keybindings.md` from
 | Navigation  | `enter`     | execute highlighted action     |
 | Views       | `s`         | stats view                     |
 | Views       | `d`         | debug log view                 |
-| Providers   | `c`         | toggle Claude Code             |
-| Providers   | `x`         | toggle Codex                   |
+| Views       | `a`         | apps view; Codex CLI/Desktop toggles; Claude row parked until explicit Claude hosts opt-in |
 | Layers      | `1/2/3`     | toggle Layer N                 |
 | Actions     | `f`         | flush caches                   |
 | Actions     | `b`         | **toggle bypass** (T67)        |
@@ -1280,7 +1293,7 @@ slimference help [subcommand]
 
 | Verb          | Purpose                                                                |
 |---------------|------------------------------------------------------------------------|
-| `integrate`   | status, install, remove, emergency-off; wire Claude + Codex + hooks.   |
+| `integrate`   | Legacy/advanced config-patch mode; Codex-only while Claude is parked.  |
 | `bypass`      | on, off, status — master bypass via admin API.                         |
 | `service`     | install, uninstall, start, stop, restart, status, logs; start/restart wait for daemon status (launchd). |
 | `daemon`      | Run as long-lived daemon (invoked by launchd; users prefer `--no-tui`).|
@@ -1290,7 +1303,7 @@ slimference help [subcommand]
 | `rewrite`     | Rewrite captured output (used by PreToolUse hook).                     |
 | `posttool`    | Codex PostToolUse entry point (stdin JSON).                            |
 | `codexhook`   | Codex lifecycle hook entry point for session, permission, prompt, stop. |
-| `readhook`    | Claude Read-hook entry point.                                          |
+| `readhook`    | Codex Read-hook entry point: `slimference readhook codex`.             |
 | `expand`      | Retrieve archived tool result by id (T40).                             |
 | `expand-body` | Retrieve one Go function/method body from an archived AST read (T125). |
 | `checkpoint`  | Smart-compaction checkpoint tools: list, show, restore (T39).          |
@@ -1329,18 +1342,21 @@ tokens, output tokens, bypass count, and slowest request.
 
 ### WebSocket inspection
 
-Transparent WebSocket transport remains byte-for-byte by default. The
-`internal/wscompact` package adds an inspect-only frame reader that can be
-attached to the tunnel without mutation. It preserves raw bytes, decodes
-frame metadata, reassembles fragmented text messages for shape inspection,
-records opcode/direction/payload length/JSON top-level keys/message type, and
-marks RSV/compressed-extension frames as inspect-only blockers. Frame summaries
-also carry a non-mutating `shadow` block: JSON text payloads are compacted in
-memory with stdlib `json.Compact` only for accounting, while the original frame
-bytes are still written unchanged. The shadow block records would-save
-bytes/tokens, applied layers (`json_compact`), and explicit blockers for
-non-JSON or RSV/compressed-extension frames. Full request-pipeline shadow replay
-and mutation remain blocked on live Codex frame-shape evidence.
+Transparent WebSocket transport is fail-open. `internal/wscompact` still
+preserves raw frames for unknown, binary, malformed, RSV/compressed, and
+schema-drift cases. For known Codex WSS conversation envelopes,
+`internal/proxy/wsmitm` parses the frame and `PhaseFDispatcher` attaches a
+Phase F adapter:
+
+- client-to-server request payloads run stale-read aging, obsolete-read prune,
+  stop-sequence injection, and be-terse when existing config/cohort gates allow
+- server-to-client text deltas run streamcut and repdet
+- terminal response payloads run the existing Codex/OpenAI response repdet
+  helper
+
+`/admin/state.wss` reports whether the engine is active, whether frames are
+only forwarded byte-equal, whether parser degradation occurred, and how many
+frames were re-encoded after mutation.
 
 ### Compression planner
 
@@ -1428,10 +1444,10 @@ closed.
 ### From source (macOS M-series, recommended)
 
 ```bash
-go build -o $HOME/.local/bin/slimference ./cmd/slimference
+go run ./scripts/build --install
 slimference doctor
-slimference proxy install
-slimference proxy enable
+slimference install
+slimference status
 ```
 
 ### From a release archive
@@ -1512,6 +1528,9 @@ default from `version.go` and ignore the tag.
 
 - `-trimpath` strips absolute paths.
 - `-s -w` strips debug sections.
+- `go run ./scripts/build` is the canonical local build helper and
+  always emits the single Slimference binary with those flags. It does
+  not split the product into multiple runtime binaries.
 - `CGO_ENABLED=0` — Slimference has no C dependencies (SQLite via
   `modernc.org/sqlite` is pure Go).
 

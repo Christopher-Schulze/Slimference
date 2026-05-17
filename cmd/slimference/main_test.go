@@ -17,6 +17,7 @@ import (
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/control/apps"
 	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/filter"
@@ -78,6 +79,35 @@ func TestRunTUI_Layer2PolicyError(t *testing.T) {
 	}
 }
 
+func TestCodexPostToolDecisionEntriesLayerAndArchiveReplacement(t *testing.T) {
+	details := filter.PostToolPayload{
+		ToolName:    "Bash",
+		CommandLine: "sed -n '1,200p' docs/todo.md",
+	}
+	originalBytes := len(strings.Repeat("raw output line\n", 400))
+	compactedBytes := len(strings.Repeat("preview line\n", 120))
+	contextBytes := len("compacted bash output: archive=local-archive://tool-1")
+
+	entries := codexPostToolDecisionEntries(details, originalBytes, compactedBytes, contextBytes)
+	if len(entries) != 2 {
+		t.Fatalf("entries=%d want 2: %+v", len(entries), entries)
+	}
+	if entries[0].Layer != 1 || entries[0].SubLayer != "codex_posttool_compaction" {
+		t.Fatalf("bad compaction entry: %+v", entries[0])
+	}
+	if entries[1].Layer != 1 || entries[1].SubLayer != "codex_archive_replacement" {
+		t.Fatalf("bad replacement entry: %+v", entries[1])
+	}
+	var net int
+	for _, entry := range entries {
+		net += entry.SavedTokens
+	}
+	wantNet := filter.EstimateTokensFromBytes(originalBytes) - filter.EstimateTokensFromBytes(contextBytes)
+	if net != wantNet {
+		t.Fatalf("net=%d want %d entries=%+v", net, wantNet, entries)
+	}
+}
+
 // TestIsServerClosed verifies the server closed error detection.
 func TestIsServerClosed(t *testing.T) {
 	tests := []struct {
@@ -115,6 +145,153 @@ func TestHandleSubcommand_Version(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "slimference v") {
 		t.Fatalf("stdout: %q", out)
+	}
+}
+
+func TestHandleSubcommandPhaseHCommands(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "install", args: []string{"install", "--help"}},
+		{name: "uninstall", args: []string{"uninstall", "--help"}},
+		{name: "enable", args: []string{"enable", "--help"}},
+		{name: "disable", args: []string{"disable", "--help"}},
+		{name: "status", args: []string{"status", "--help"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, exited := captureExit(func() { handleSubcommand(tc.args) })
+			if !exited || code != 0 {
+				t.Fatalf("exit=(%d,%v), want (0,true)", code, exited)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "start", args: []string{"start", "--help"}, want: "slimference start"},
+		{name: "stop", args: []string{"stop", "--help"}, want: "slimference stop"},
+		{name: "restart", args: []string{"restart", "--help"}, want: "slimference restart"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, _ := captureRootCommandOutput(t, func() {
+				code, exited := captureExit(func() { handleSubcommand(tc.args) })
+				if exited {
+					t.Fatalf("unexpected exit %d", code)
+				}
+			})
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("output missing %q: %q", tc.want, out)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "cert-trust", args: []string{"cert-trust", "--help"}, want: "slimference cert-trust"},
+		{name: "root-arm", args: []string{"root-arm", "--help"}, want: "slimference root-arm"},
+		{name: "root-disarm", args: []string{"root-disarm", "--help"}, want: "slimference root-disarm"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, _ := captureRootCommandOutput(t, func() {
+				code, exited := captureExit(func() { handleSubcommand(tc.args) })
+				if exited {
+					t.Fatalf("unexpected exit %d", code)
+				}
+			})
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("output missing %q: %q", tc.want, out)
+			}
+		})
+	}
+}
+
+func TestHandleSubcommandLifecycleRejectsUnexpectedArgs(t *testing.T) {
+	for _, command := range []string{"start", "stop", "restart"} {
+		t.Run(command, func(t *testing.T) {
+			code, exited := captureExit(func() { handleSubcommand([]string{command, "--wat"}) })
+			if !exited || code != 2 {
+				t.Fatalf("exit=(%d,%v), want (2,true)", code, exited)
+			}
+		})
+	}
+}
+
+func TestProxyAdapterAppEntriesAndSetAppEnabled(t *testing.T) {
+	p := proxy.New(config.Defaults())
+	adapter := &proxyAdapter{p: p}
+	if got := adapter.AppEntries(); got != nil {
+		t.Fatalf("nil manager entries=%v", got)
+	}
+	if err := adapter.SetAppEnabled("codex_cli", true); err == nil {
+		t.Fatal("expected error when apps manager is not wired")
+	}
+
+	manager, err := apps.NewManager(filepath.Join(t.TempDir(), "apps.toml"))
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	p.SetAppsManager(manager)
+	entries := adapter.AppEntries()
+	if len(entries) != len(apps.KnownApps) {
+		t.Fatalf("entries=%d want %d", len(entries), len(apps.KnownApps))
+	}
+	if err := adapter.SetAppEnabled("codex_cli", false); err != nil {
+		t.Fatalf("SetAppEnabled: %v", err)
+	}
+	if manager.Policy().IsEnabled(apps.AppID("codex_cli")) {
+		t.Fatal("codex_cli should be disabled")
+	}
+}
+
+func TestServiceControlAdapterRunTransparentProxyCommandErrors(t *testing.T) {
+	orig := proxyRunFn
+	t.Cleanup(func() { proxyRunFn = orig })
+	adapter := &serviceControlAdapter{}
+	for _, tc := range []struct {
+		name string
+		run  func([]string, proxyEnv) int
+		want string
+	}{
+		{
+			name: "stderr",
+			run: func(_ []string, env proxyEnv) int {
+				fmt.Fprint(env.Stderr, "proxy stderr")
+				return 2
+			},
+			want: "proxy stderr",
+		},
+		{
+			name: "stdout",
+			run: func(_ []string, env proxyEnv) int {
+				fmt.Fprint(env.Stdout, "proxy stdout")
+				return 3
+			},
+			want: "proxy stdout",
+		},
+		{
+			name: "fallback",
+			run: func(_ []string, _ proxyEnv) int {
+				return 4
+			},
+			want: "proxy install failed with exit 4",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			proxyRunFn = tc.run
+			err := adapter.runTransparentProxyCommand("install")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err=%v want %q", err, tc.want)
+			}
+		})
+	}
+	proxyRunFn = func(_ []string, _ proxyEnv) int { return 0 }
+	if err := adapter.runTransparentProxyCommand("install"); err != nil {
+		t.Fatalf("success path err=%v", err)
 	}
 }
 
@@ -213,6 +390,11 @@ func TestGetLayer2Status_withCache(t *testing.T) {
 
 // exitPanic is the sentinel type panicked by the injected exitFn.
 type exitPanic struct{ code int }
+
+// controlledExitMarker tags exitPanic as a controlled-unwind value so
+// failopen.guardHook re-raises it instead of treating it as a runtime
+// panic (t164 fail-open contract).
+func (exitPanic) controlledExitMarker() {}
 
 // captureExit runs fn and returns the exit code + whether exitFn was called.
 // exitFn is temporarily overridden to panic with exitPanic{code}; the deferred
@@ -491,6 +673,10 @@ func (p *testTUIProxy) Config() tui.ProxyConfigInterface {
 // Bypass / SetBypass satisfy the T67 additions to tui.ProxyInterface.
 func (p *testTUIProxy) Bypass() bool   { return false }
 func (p *testTUIProxy) SetBypass(bool) {}
+
+// AppEntries / SetAppEnabled satisfy the Phase H additions.
+func (p *testTUIProxy) AppEntries() []tui.AppEntry       { return nil }
+func (p *testTUIProxy) SetAppEnabled(string, bool) error { return nil }
 
 func TestHandlePostToolCmd(t *testing.T) {
 	origTerm := termIsTerminalFn
@@ -844,6 +1030,301 @@ func TestPostToolWatchdogHelpers(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("watchdog did not fire")
+	}
+}
+
+func TestHandleClaudePostToolCmd(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	origGetwd := osGetwd
+	origConfigLoad := configLoadFn
+	defer func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+		osGetwd = origGetwd
+		configLoadFn = origConfigLoad
+	}()
+
+	t.Run("default_off_reads_nothing_and_emits_nothing", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CLAUDE_HOOK_MODE", "")
+		readCalled := false
+		readStdinAll = func() ([]byte, error) {
+			readCalled = true
+			return []byte(`{}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleClaudePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if readCalled || buf.Len() != 0 {
+			t.Fatalf("default-off should not read or emit, read=%v stdout=%q", readCalled, buf.String())
+		}
+		readStdinAll = origRead
+	})
+
+	t.Run("max_updates_tool_output", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CLAUDE_HOOK_MODE", "max")
+		termIsTerminalFn = func(int) bool { return false }
+		payload, err := json.Marshal(map[string]string{
+			"tool_name":     "Bash",
+			"command":       "go test ./...",
+			"tool_response": strings.Repeat("very noisy output line\n", 100),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 80
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "/tmp", nil }
+
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleClaudePostToolCmd([]string{"--"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, `"updatedToolOutput"`) || !strings.Contains(out, `"hookEventName":"PostToolUse"`) {
+			t.Fatalf("expected Claude updatedToolOutput JSON, got %q", out)
+		}
+		if !strings.Contains(out, `"stdout"`) || !strings.Contains(out, `"interrupted":false`) || !strings.Contains(out, `"isImage":false`) {
+			t.Fatalf("expected Claude Bash output shape, got %q", out)
+		}
+		if strings.Contains(out, strings.Repeat("very noisy output line\n", 10)) {
+			t.Fatalf("expected compacted output, got %q", out)
+		}
+		readStdinAll = origRead
+		configLoadFn = origConfigLoad
+		osGetwd = origGetwd
+		termIsTerminalFn = origTerm
+	})
+}
+
+func TestHandleClaudePostToolCmdFailOpenAndSkipBranches(t *testing.T) {
+	origTerm := termIsTerminalFn
+	origRead := readStdinAll
+	origGetwd := osGetwd
+	origConfigLoad := configLoadFn
+	origStdout := os.Stdout
+	t.Cleanup(func() {
+		termIsTerminalFn = origTerm
+		readStdinAll = origRead
+		osGetwd = origGetwd
+		configLoadFn = origConfigLoad
+		os.Stdout = origStdout
+	})
+
+	runNoOutput := func(t *testing.T, payload []byte, cfg *config.Config) {
+		t.Helper()
+		t.Setenv("SLIMFERENCE_CLAUDE_HOOK_MODE", "max")
+		termIsTerminalFn = func(int) bool { return false }
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		if cfg == nil {
+			cfg = config.Defaults()
+		}
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "", errors.New("cwd unavailable") }
+
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = w
+		handleClaudePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = origStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if buf.Len() != 0 {
+			t.Fatalf("expected no stdout, got %q", buf.String())
+		}
+	}
+
+	t.Run("invalid_arg_exits_before_mode_check", func(t *testing.T) {
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handleClaudePostToolCmd([]string{"--bad"}) })
+		cleanup()
+		var stderr bytes.Buffer
+		_, _ = io.Copy(&stderr, rp)
+		if !exited || code != 1 || !strings.Contains(stderr.String(), "usage: slimference claudeposttool") {
+			t.Fatalf("exit=(%d,%v) stderr=%q", code, exited, stderr.String())
+		}
+	})
+
+	t.Run("terminal_exits", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CLAUDE_HOOK_MODE", "max")
+		termIsTerminalFn = func(int) bool { return true }
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handleClaudePostToolCmd(nil) })
+		cleanup()
+		var stderr bytes.Buffer
+		_, _ = io.Copy(&stderr, rp)
+		if !exited || code != 1 || !strings.Contains(stderr.String(), "pipe Claude PostToolUse") {
+			t.Fatalf("exit=(%d,%v) stderr=%q", code, exited, stderr.String())
+		}
+	})
+
+	t.Run("read_error_exits", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CLAUDE_HOOK_MODE", "max")
+		termIsTerminalFn = func(int) bool { return false }
+		readStdinAll = func() ([]byte, error) { return nil, errors.New("stdin boom") }
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handleClaudePostToolCmd(nil) })
+		cleanup()
+		var stderr bytes.Buffer
+		_, _ = io.Copy(&stderr, rp)
+		if !exited || code != 1 || !strings.Contains(stderr.String(), "stdin boom") {
+			t.Fatalf("exit=(%d,%v) stderr=%q", code, exited, stderr.String())
+		}
+	})
+
+	t.Run("parse_fail_open", func(t *testing.T) {
+		runNoOutput(t, []byte(`{`), nil)
+	})
+
+	t.Run("skip_no_response", func(t *testing.T) {
+		runNoOutput(t, []byte(`{"session_id":"s","tool_name":"Bash"}`), nil)
+	})
+
+	t.Run("skip_tiny", func(t *testing.T) {
+		cfg := config.Defaults()
+		cfg.Hooks.CodexPostToolMinTokens = 1000
+		runNoOutput(t, []byte(`{"session_id":"s","tool_name":"Bash","tool_response":"tiny"}`), cfg)
+	})
+
+	t.Run("passthrough_when_unchanged", func(t *testing.T) {
+		cfg := config.Defaults()
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		cfg.Filter.PassthroughMaxChars = 10_000
+		runNoOutput(t, []byte(`{"session_id":"s","tool_name":"Bash","tool_response":"already short"}`), cfg)
+	})
+
+	t.Run("cross_tool_dedup_replaces_output", func(t *testing.T) {
+		home := t.TempDir()
+		prevHome := osUserHomeDir
+		osUserHomeDir = func() (string, error) { return home, nil }
+		t.Cleanup(func() { osUserHomeDir = prevHome })
+		observeSessionStartTurnState("sess-claude-dedup")
+		paths := []string{
+			"a.go", "b.go", "cmd/main.go", "internal/proxy/x.go", "internal/proxy/y.go",
+			"internal/hooks/a.go", "internal/hooks/b.go", "docs/install.md", "docs/todo.md", "README.md",
+		}
+		statusText := " M " + strings.Join(paths, "\n?? ") + "\n"
+		diffText := strings.Join(paths, "\n") + "\n"
+
+		cfg := config.Defaults()
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		cfg.Filter.PassthroughMaxChars = 10_000
+		firstPayload, err := json.Marshal(map[string]string{
+			"session_id":    "sess-claude-dedup",
+			"tool_name":     "Bash",
+			"command":       "git status --short",
+			"cwd":           "/repo",
+			"tool_response": statusText,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SLIMFERENCE_CLAUDE_HOOK_MODE", "max")
+		termIsTerminalFn = func(int) bool { return false }
+		readStdinAll = func() ([]byte, error) { return firstPayload, nil }
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "/repo", nil }
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = w
+		handleClaudePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = origStdout
+		_, _ = io.Copy(io.Discard, r)
+
+		termIsTerminalFn = func(int) bool { return false }
+		secondPayload, err := json.Marshal(map[string]string{
+			"session_id":    "sess-claude-dedup",
+			"tool_name":     "Bash",
+			"command":       "git diff --name-only",
+			"cwd":           "/repo",
+			"tool_response": diffText,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) {
+			return secondPayload, nil
+		}
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "/repo", nil }
+		r, w, err = os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = w
+		handleClaudePostToolCmd(nil)
+		_ = w.Close()
+		os.Stdout = origStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, "git paths already shown") || !strings.Contains(out, "updatedToolOutput") {
+			t.Fatalf("expected cross-tool dedup replacement, got %q", out)
+		}
+	})
+
+	t.Run("encode_error_exits", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CLAUDE_HOOK_MODE", "max")
+		termIsTerminalFn = func(int) bool { return false }
+		payload, err := json.Marshal(map[string]string{
+			"tool_name":     "Bash",
+			"command":       "go test ./...",
+			"tool_response": strings.Repeat("very noisy output line\n", 100),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		readStdinAll = func() ([]byte, error) { return payload, nil }
+		cfg := config.Defaults()
+		cfg.Filter.PassthroughMaxChars = 80
+		cfg.Hooks.CodexPostToolMinTokens = 0
+		configLoadFn = func() (*config.Config, error) { return cfg, nil }
+		osGetwd = func() (string, error) { return "/tmp", nil }
+
+		_, closedOut, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = closedOut.Close()
+		os.Stdout = closedOut
+		rp, cleanup := redirectStderr()
+		code, exited := captureExit(func() { handleClaudePostToolCmd(nil) })
+		cleanup()
+		os.Stdout = origStdout
+		var stderr bytes.Buffer
+		_, _ = io.Copy(&stderr, rp)
+		if !exited || code != 1 || !strings.Contains(stderr.String(), "encode claudeposttool output") {
+			t.Fatalf("exit=(%d,%v) stderr=%q", code, exited, stderr.String())
+		}
+	})
+}
+
+func TestHandleSubcommandClaudePostToolIsNotExposed(t *testing.T) {
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { handleSubcommand([]string{"claudeposttool"}) })
+	cleanup()
+	var stderr bytes.Buffer
+	_, _ = io.Copy(&stderr, rp)
+	if !exited || code != 1 || !strings.Contains(stderr.String(), "unknown command") {
+		t.Fatalf("exit=(%d,%v) stderr=%q", code, exited, stderr.String())
 	}
 }
 
@@ -1272,7 +1753,8 @@ func TestHandleCodexHookCmd(t *testing.T) {
 	osUserHomeDir = func() (string, error) { return home, nil }
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
-	t.Run("session_start_silent_by_default", func(t *testing.T) {
+	t.Run("session_start_silent_only_in_silent_mode", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "silent")
 		readStdinAll = func() ([]byte, error) {
 			return []byte(`{"session_id":"s1","hook_event_name":"SessionStart","source":"startup"}`), nil
 		}
@@ -1285,7 +1767,70 @@ func TestHandleCodexHookCmd(t *testing.T) {
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, r)
 		if buf.Len() != 0 {
-			t.Fatalf("expected silent session hook output, got %q", buf.String())
+			t.Fatalf("silent mode must emit no output, got %q", buf.String())
+		}
+	})
+
+	t.Run("session_start_auto_injects_light_awareness", func(t *testing.T) {
+		// Default mode (auto) now injects a short awareness preamble so
+		// the model trusts compact tool-result formats. Saves tokens
+		// by preventing speculative re-runs.
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "auto")
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"s1","hook_event_name":"SessionStart","source":"startup"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"session-start"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, `"hookEventName":"SessionStart"`) {
+			t.Fatalf("auto-mode session-start must emit hookEventName, got %q", out)
+		}
+		if !strings.Contains(out, "Slimference may compact") {
+			t.Fatalf("auto-mode awareness preamble missing, got %q", out)
+		}
+	})
+
+	t.Run("session_start_compact_full_awareness", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "compact")
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"sc","hook_event_name":"SessionStart","source":"startup"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"session-start"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, "Slimference is compacting tool outputs") {
+			t.Fatalf("compact-mode awareness missing, got %q", out)
+		}
+	})
+
+	t.Run("session_start_aggressive_full_awareness", func(t *testing.T) {
+		t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "aggressive")
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"sa","hook_event_name":"SessionStart","source":"startup"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"session-start"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		out := buf.String()
+		if !strings.Contains(out, "aggressively compacting") {
+			t.Fatalf("aggressive-mode awareness missing, got %q", out)
 		}
 	})
 
@@ -1400,6 +1945,100 @@ func TestHandleCodexHookCmd(t *testing.T) {
 		_, _ = io.Copy(&buf, r)
 		if !strings.Contains(buf.String(), `"continue":true`) {
 			t.Fatalf("unexpected stop output: %q", buf.String())
+		}
+	})
+
+	t.Run("pre_compact_writes_marker", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"sc1","turn_id":"t9","hook_event_name":"PreCompact","trigger":"auto","cwd":"/x","model":"o4","transcript_path":null}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"pre-compact"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if !strings.Contains(buf.String(), `"continue":true`) {
+			t.Fatalf("pre-compact output should be continue:true, got %q", buf.String())
+		}
+		marker := filepath.Join(home, ".slimference", "run", "compact", "pre", "sc1.json")
+		data, err := os.ReadFile(marker)
+		if err != nil {
+			t.Fatalf("pre-compact marker not written: %v", err)
+		}
+		got := string(data)
+		for _, want := range []string{`"phase":"pre"`, `"session_id":"sc1"`, `"turn_id":"t9"`, `"trigger":"auto"`} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("marker missing %q in %q", want, got)
+			}
+		}
+	})
+
+	t.Run("post_compact_writes_marker_and_records_trigger", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"sc2","turn_id":"t10","hook_event_name":"PostCompact","trigger":"manual","cwd":"/x","model":"o4","transcript_path":null}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"post-compact"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		if !strings.Contains(buf.String(), `"continue":true`) {
+			t.Fatalf("post-compact output should be continue:true, got %q", buf.String())
+		}
+		marker := filepath.Join(home, ".slimference", "run", "compact", "post", "sc2.json")
+		data, err := os.ReadFile(marker)
+		if err != nil {
+			t.Fatalf("post-compact marker not written: %v", err)
+		}
+		got := string(data)
+		for _, want := range []string{`"phase":"post"`, `"session_id":"sc2"`, `"trigger":"manual"`} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("marker missing %q in %q", want, got)
+			}
+		}
+	})
+
+	t.Run("pre_compact_with_empty_session_skips_marker", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"hook_event_name":"PreCompact","trigger":"auto"}`), nil
+		}
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"pre-compact"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		// Hook must still emit continue:true; marker silently skipped.
+		if !strings.Contains(buf.String(), `"continue":true`) {
+			t.Fatalf("empty-session pre-compact must still emit continue:true, got %q", buf.String())
+		}
+	})
+
+	t.Run("pre_compact_unknown_trigger_defaults", func(t *testing.T) {
+		readStdinAll = func() ([]byte, error) {
+			return []byte(`{"session_id":"sc3","turn_id":"t11"}`), nil
+		}
+		oldStdout := os.Stdout
+		_, w, _ := os.Pipe()
+		os.Stdout = w
+		handleCodexHookCmd([]string{"pre-compact"})
+		_ = w.Close()
+		os.Stdout = oldStdout
+		marker := filepath.Join(home, ".slimference", "run", "compact", "pre", "sc3.json")
+		data, err := os.ReadFile(marker)
+		if err != nil {
+			t.Fatalf("read marker: %v", err)
+		}
+		if !strings.Contains(string(data), `"trigger":"unknown"`) {
+			t.Fatalf("expected trigger:unknown fallback, got %s", string(data))
 		}
 	})
 }
@@ -1572,6 +2211,11 @@ func TestHandleSubcommand_CodexHookDispatch(t *testing.T) {
 		termIsTerminalFn = origTerm
 		readStdinAll = origRead
 	}()
+	// silent mode keeps the legacy zero-output session-start behavior so
+	// dispatch tests can verify the routing without the awareness preamble
+	// interfering. Active modes (auto/compact/aggressive) inject the
+	// preamble — covered by TestHandleCodexHookCmd subtests.
+	t.Setenv("SLIMFERENCE_CODEX_HOOK_MODE", "silent")
 	termIsTerminalFn = func(int) bool { return false }
 	readStdinAll = func() ([]byte, error) {
 		return []byte(`{"session_id":"s","source":"startup"}`), nil
@@ -1585,7 +2229,7 @@ func TestHandleSubcommand_CodexHookDispatch(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	if buf.Len() != 0 {
-		t.Fatalf("codexhook session-start must be silent by default, output=%q", buf.String())
+		t.Fatalf("codexhook session-start must be silent in silent mode, output=%q", buf.String())
 	}
 }
 

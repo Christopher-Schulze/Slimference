@@ -32,6 +32,21 @@ func TestInstalledStatus_claudeOnly(t *testing.T) {
 	}
 }
 
+func TestInstalledStatusClaudeMissingPostToolScript(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	if err := InstallClaude(home, "slimference"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, ".claude", "hooks", "slimference-posttool.sh")); err != nil {
+		t.Fatal(err)
+	}
+	claude, _ := InstalledStatus(home)
+	if claude {
+		t.Fatal("claude install must be incomplete without posttool script")
+	}
+}
+
 func TestInstalledStatus_codexOnly(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -62,20 +77,23 @@ func TestInstalledStatus_both(t *testing.T) {
 	}
 }
 
-func TestVerifyReport_missingClaudeScript(t *testing.T) {
+func TestVerifyReport_missingClaudeScriptDoesNotFail(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	lines, ok := VerifyReport(home)
-	if ok {
-		t.Fatal("want ok=false when claude hook missing")
+	if err := InstallCodex(home, "slimference"); err != nil {
+		t.Fatal(err)
 	}
-	var sawMissing bool
+	lines, ok := VerifyReport(home)
+	if !ok {
+		t.Fatal("want ok=true when only Claude hooks are missing in Codex-only mode")
+	}
+	var sawParked bool
 	for _, ln := range lines {
-		if strings.Contains(ln, "MISSING") && strings.Contains(ln, "slimference-rewrite.sh") {
-			sawMissing = true
+		if strings.Contains(ln, "claude") && strings.Contains(ln, "parked") {
+			sawParked = true
 		}
 	}
-	if !sawMissing {
+	if !sawParked {
 		t.Fatalf("lines: %#v", lines)
 	}
 }
@@ -94,7 +112,7 @@ func TestVerifyReport_codexFileWithoutMarker(t *testing.T) {
 	}
 	lines, ok := VerifyReport(home)
 	if ok {
-		t.Fatal("claude script missing => ok=false")
+		t.Fatal("codex hooks.json without slimference entries => ok=false")
 	}
 	var sawNoHook bool
 	for _, ln := range lines {
@@ -233,6 +251,30 @@ func TestClaudeHookScript_customCommand(t *testing.T) {
 	}
 }
 
+func TestClaudePostToolHookScript_DefaultOffMaxOptIn(t *testing.T) {
+	t.Parallel()
+	s := ClaudePostToolHookScript("/opt/bin/slimference")
+	modeGate := strings.Index(s, `SLIMFERENCE_CLAUDE_HOOK_MODE:-off`)
+	postToolCall := strings.Index(s, `claudeposttool`)
+	inputRead := strings.Index(s, `INPUT=$(cat)`)
+	if modeGate == -1 || postToolCall == -1 || inputRead == -1 || modeGate > inputRead || modeGate > postToolCall {
+		t.Fatalf("expected off-by-default mode gate before claudeposttool call:\n%s", s)
+	}
+	for _, want := range []string{"max", "compact", "aggressive", "auto"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("expected %q mode in script:\n%s", want, s)
+		}
+	}
+}
+
+func TestClaudePostToolHookScript_DefaultCommand(t *testing.T) {
+	t.Parallel()
+	s := ClaudePostToolHookScript("")
+	if !strings.Contains(s, "slimference") || !strings.Contains(s, "claudeposttool") {
+		t.Fatalf("default posttool script:\n%s", s)
+	}
+}
+
 func TestCodexPreToolHookScript_DefaultSilentAggressiveOptIn(t *testing.T) {
 	t.Parallel()
 	s := codexPreToolHookScript("/opt/bin/slimference")
@@ -302,12 +344,26 @@ func TestInstallRemoveClaude(t *testing.T) {
 	if _, err := os.Stat(readPath); err != nil {
 		t.Fatal(err)
 	}
+	postPath := filepath.Join(home, ".claude", "hooks", "slimference-posttool.sh")
+	if _, err := os.Stat(postPath); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err != nil {
 		t.Fatal(err)
 	}
-	lines, ok := VerifyReport(home)
-	if !ok {
-		t.Fatalf("verify should see claude: ok=%v %#v", ok, lines)
+	claude, _ := InstalledStatus(home)
+	if !claude {
+		t.Fatal("InstalledStatus should see Claude hook while legacy code remains available")
+	}
+	lines, _ := VerifyReport(home)
+	var sawParked bool
+	for _, ln := range lines {
+		if strings.Contains(ln, "claude") && strings.Contains(ln, "parked") {
+			sawParked = true
+		}
+	}
+	if !sawParked {
+		t.Fatalf("VerifyReport should mark Claude parked: %#v", lines)
 	}
 	if err := RemoveClaude(home); err != nil {
 		t.Fatal(err)
@@ -317,6 +373,9 @@ func TestInstallRemoveClaude(t *testing.T) {
 	}
 	if _, err := os.Stat(readPath); !os.IsNotExist(err) {
 		t.Fatal("read script should be removed")
+	}
+	if _, err := os.Stat(postPath); !os.IsNotExist(err) {
+		t.Fatal("posttool script should be removed")
 	}
 }
 
@@ -354,6 +413,32 @@ func TestInstallClaude_mkdirError(t *testing.T) {
 	if err := InstallClaude(home, ""); err == nil {
 		t.Fatal("expected error when .claude is a file, not a dir")
 	}
+}
+
+func TestInstallClaude_readAndPostToolWriteErrors(t *testing.T) {
+	t.Parallel()
+	t.Run("read_script_path_is_directory", func(t *testing.T) {
+		t.Parallel()
+		home := t.TempDir()
+		hookDir := filepath.Join(home, ".claude", "hooks")
+		if err := os.MkdirAll(filepath.Join(hookDir, "slimference-read-cache.sh"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := InstallClaude(home, "slimference"); err == nil {
+			t.Fatal("expected write error when read hook path is a directory")
+		}
+	})
+	t.Run("posttool_script_path_is_directory", func(t *testing.T) {
+		t.Parallel()
+		home := t.TempDir()
+		hookDir := filepath.Join(home, ".claude", "hooks")
+		if err := os.MkdirAll(filepath.Join(hookDir, "slimference-posttool.sh"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := InstallClaude(home, "slimference"); err == nil {
+			t.Fatal("expected write error when posttool hook path is a directory")
+		}
+	})
 }
 
 func TestInstallCodex_mkdirError(t *testing.T) {
@@ -461,7 +546,7 @@ func TestMergeClaudeSettings_readFileError(t *testing.T) {
 	}
 	// Use a directory as settingsPath - reading a dir is a non-ENOENT error.
 	dirPath := t.TempDir()
-	if err := mergeClaudeSettings(dirPath, "/some/script.sh", "/some/read.sh"); err == nil {
+	if err := mergeClaudeSettings(dirPath, "/some/script.sh", "/some/read.sh", "/some/post.sh"); err == nil {
 		t.Fatal("expected ReadFile error when settingsPath is a directory")
 	}
 }
@@ -552,7 +637,7 @@ func TestMergeClaudeSettings_mkdirError(t *testing.T) {
 	settingsPath := filepath.Join(blocked, "sub", "settings.json")
 	// ReadFile returns IsNotExist (path component "sub" doesn't exist) -> proceeds.
 	// MkdirAll("blocked/sub", 0755) -> fails (blocked is 0555 = no write).
-	err := mergeClaudeSettings(settingsPath, "script.sh", "read.sh")
+	err := mergeClaudeSettings(settingsPath, "script.sh", "read.sh", "post.sh")
 	if err == nil {
 		t.Fatal("expected error when MkdirAll fails due to read-only parent")
 	}
@@ -599,7 +684,7 @@ func TestMergeClaudeSettings_readError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = os.Chmod(p, 0644) }()
-	if err := mergeClaudeSettings(p, "/bin/tp", "/bin/read"); err == nil {
+	if err := mergeClaudeSettings(p, "/bin/tp", "/bin/read", "/bin/post"); err == nil {
 		t.Fatal("expected error reading permission-denied file")
 	}
 }
@@ -1457,7 +1542,8 @@ func TestRemoveCodex_fullCleanup(t *testing.T) {
 func TestVerifyReport_codexLegacyUpgrade(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
-	// Install claude hook so ok=true.
+	// Install Claude hook to prove it is still reported, but it no
+	// longer controls VerifyReport's ok bit in Codex-only mode.
 	if err := InstallClaude(home, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -1471,8 +1557,8 @@ func TestVerifyReport_codexLegacyUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	lines, ok := VerifyReport(home)
-	if !ok {
-		t.Fatalf("claude installed, should be ok: %v", lines)
+	if ok {
+		t.Fatalf("legacy Codex block should still require hook upgrade: %v", lines)
 	}
 	var sawLegacy bool
 	for _, ln := range lines {

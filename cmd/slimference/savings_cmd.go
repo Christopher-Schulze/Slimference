@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
+	dbg "github.com/slimference/slimference/internal/debug"
 )
 
 var _ = config.Defaults // keep config import alive even if no direct calls remain
@@ -25,26 +27,66 @@ type savingsFlags struct {
 // and Layer 3 cache savings into a single canonical view. Returned by
 // `slimference savings <period>` and surfaced via /admin if needed.
 type SavingsSummary struct {
-	Period                           string  `json:"period"`
-	Project                          string  `json:"project,omitempty"`
-	Layer0Runs                       int64   `json:"layer0_runs"`
-	Layer0SavedTokens                int64   `json:"layer0_saved_tokens"`
-	Layer0SavedUSD                   float64 `json:"layer0_saved_usd"`
-	ProxyOrigTokens                  int64   `json:"proxy_orig_tokens"`
-	ProxyCompTokens                  int64   `json:"proxy_comp_tokens"`
-	ProxySavedTokens                 int64   `json:"proxy_saved_tokens"`
-	ProxyRequests                    int64   `json:"proxy_requests"`
-	ProviderReportedRequests         int64   `json:"provider_reported_requests"`
-	ProviderInputTokens              int64   `json:"provider_input_tokens"`
-	ProviderCachedTokens             int64   `json:"provider_cached_tokens"`
-	ProviderOutputTokens             int64   `json:"provider_output_tokens"`
-	OutputReduceInputOverheadTokens  int64   `json:"output_reduce_input_overhead_tokens"`
-	CacheReadDiscountTokenEquivalent int64   `json:"cache_read_discount_token_equivalent"`
-	NetBillableEquivalentTokens      int64   `json:"net_billable_equivalent_tokens"`
-	CacheHits                        int64   `json:"cache_hits"`
-	TotalSavedTokens                 int64   `json:"total_saved_tokens"`
-	TotalSavedUSD                    float64 `json:"total_saved_usd"`
-	USDPerMillion                    float64 `json:"usd_per_million_tokens"`
+	Period                           string                    `json:"period"`
+	Project                          string                    `json:"project,omitempty"`
+	Layer0Runs                       int64                     `json:"layer0_runs"`
+	Layer0SavedTokens                int64                     `json:"layer0_saved_tokens"`
+	Layer0SavedUSD                   float64                   `json:"layer0_saved_usd"`
+	ProxyOrigTokens                  int64                     `json:"proxy_orig_tokens"`
+	ProxyCompTokens                  int64                     `json:"proxy_comp_tokens"`
+	ProxySavedTokens                 int64                     `json:"proxy_saved_tokens"`
+	ProxyRequests                    int64                     `json:"proxy_requests"`
+	ProviderReportedRequests         int64                     `json:"provider_reported_requests"`
+	ProviderInputTokens              int64                     `json:"provider_input_tokens"`
+	ProviderCachedTokens             int64                     `json:"provider_cached_tokens"`
+	ProviderOutputTokens             int64                     `json:"provider_output_tokens"`
+	OutputReduceInputOverheadTokens  int64                     `json:"output_reduce_input_overhead_tokens"`
+	CacheReadDiscountTokenEquivalent int64                     `json:"cache_read_discount_token_equivalent"`
+	NetBillableEquivalentTokens      int64                     `json:"net_billable_equivalent_tokens"`
+	CacheHits                        int64                     `json:"cache_hits"`
+	TotalSavedTokens                 int64                     `json:"total_saved_tokens"`
+	TotalSavedUSD                    float64                   `json:"total_saved_usd"`
+	USDPerMillion                    float64                   `json:"usd_per_million_tokens"`
+	DecisionRequests                 int64                     `json:"decision_requests"`
+	DecisionOriginalTokens           int64                     `json:"decision_original_tokens"`
+	DecisionFinalTokens              int64                     `json:"decision_final_tokens"`
+	DecisionAddedTokens              int64                     `json:"decision_added_tokens"`
+	DecisionNetSavedTokens           int64                     `json:"decision_net_saved_tokens"`
+	DecisionOutputTokens             int64                     `json:"decision_output_tokens"`
+	DecisionCacheReadTokens          int64                     `json:"decision_cache_read_tokens"`
+	DecisionCacheCreateTokens        int64                     `json:"decision_cache_create_tokens"`
+	DecisionEstimatedCostBeforeUSD   float64                   `json:"decision_estimated_cost_before_usd"`
+	DecisionEstimatedCostAfterUSD    float64                   `json:"decision_estimated_cost_after_usd"`
+	DecisionEstimatedCostSavedUSD    float64                   `json:"decision_estimated_cost_saved_usd"`
+	Mechanisms                       []SavingsMechanismSummary `json:"mechanisms,omitempty"`
+	DecisionSessions                 []SavingsSessionSummary   `json:"decision_sessions,omitempty"`
+}
+
+type SavingsMechanismSummary struct {
+	Name           string `json:"name"`
+	Layer          int    `json:"layer,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Count          int64  `json:"count"`
+	OriginalTokens int64  `json:"original_tokens"`
+	FinalTokens    int64  `json:"final_tokens"`
+	SavedTokens    int64  `json:"saved_tokens"`
+	AddedTokens    int64  `json:"added_tokens"`
+	NetTokens      int64  `json:"net_tokens"`
+}
+
+type SavingsSessionSummary struct {
+	SessionID         string  `json:"session_id"`
+	Requests          int64   `json:"requests"`
+	OriginalTokens    int64   `json:"original_tokens"`
+	FinalTokens       int64   `json:"final_tokens"`
+	AddedTokens       int64   `json:"added_tokens"`
+	NetSavedTokens    int64   `json:"net_saved_tokens"`
+	OutputTokens      int64   `json:"output_tokens"`
+	CacheReadTokens   int64   `json:"cache_read_tokens"`
+	CacheCreateTokens int64   `json:"cache_create_tokens"`
+	CostBeforeUSD     float64 `json:"cost_before_usd"`
+	CostAfterUSD      float64 `json:"cost_after_usd"`
+	CostSavedUSD      float64 `json:"cost_saved_usd"`
 }
 
 func parseSavingsArgs(args []string) (period string, f savingsFlags, err error) {
@@ -133,6 +175,7 @@ func computeSavings(cfg *config.Config, period, project string, now time.Time) S
 
 	if project == "" {
 		accumulateProxyFlightsFromDecisionLog(&out, cfg, period, now)
+		accumulateDecisionMechanismsFromDecisionLog(&out, cfg, period, now)
 	}
 
 	out.TotalSavedTokens = out.Layer0SavedTokens + out.ProxySavedTokens
@@ -140,7 +183,136 @@ func computeSavings(cfg *config.Config, period, project string, now time.Time) S
 	if out.USDPerMillion > 0 {
 		out.TotalSavedUSD = float64(out.TotalSavedTokens) / 1_000_000.0 * out.USDPerMillion
 	}
+	computeDecisionCostEstimates(&out)
 	return out
+}
+
+func computeDecisionCostEstimates(out *SavingsSummary) {
+	if out.USDPerMillion <= 0 {
+		return
+	}
+	out.DecisionEstimatedCostBeforeUSD, out.DecisionEstimatedCostAfterUSD, out.DecisionEstimatedCostSavedUSD = estimateCostUSD(
+		out.DecisionOriginalTokens,
+		out.DecisionOutputTokens,
+		out.DecisionNetSavedTokens,
+		out.DecisionCacheReadTokens,
+		out.USDPerMillion,
+	)
+	for i := range out.DecisionSessions {
+		before, after, saved := estimateCostUSD(
+			out.DecisionSessions[i].OriginalTokens,
+			out.DecisionSessions[i].OutputTokens,
+			out.DecisionSessions[i].NetSavedTokens,
+			out.DecisionSessions[i].CacheReadTokens,
+			out.USDPerMillion,
+		)
+		out.DecisionSessions[i].CostBeforeUSD = before
+		out.DecisionSessions[i].CostAfterUSD = after
+		out.DecisionSessions[i].CostSavedUSD = saved
+	}
+}
+
+func accumulateDecisionMechanismsFromDecisionLog(out *SavingsSummary, cfg *config.Config, period string, now time.Time) {
+	path := strings.TrimSpace(cfg.Debug.DecisionsLog)
+	if path == "" {
+		return
+	}
+	path = filepath.Clean(config.ExpandHomePath(path))
+	summaries, err := replaySessionFn(path)
+	if err != nil {
+		return
+	}
+	start, end, err := analytics.FilterGainWindow(period, now)
+	if err != nil {
+		return
+	}
+	byName := map[string]*SavingsMechanismSummary{}
+	bySession := map[string]*SavingsSessionSummary{}
+	for _, summary := range summaries {
+		if summary.Timestamp.IsZero() || summary.Timestamp.Before(start) || summary.Timestamp.After(end) {
+			continue
+		}
+		summary.EnsureMechanisms()
+		out.DecisionRequests++
+		out.DecisionOriginalTokens += int64(summary.Tokens.Original)
+		out.DecisionFinalTokens += int64(summary.Tokens.Final)
+		out.DecisionNetSavedTokens += int64(summary.Tokens.Saved)
+		out.DecisionOutputTokens += int64(maxSavingsInt(summary.ProviderOutputTokens, summary.OutputTokens))
+		out.DecisionCacheReadTokens += int64(summary.CacheReadTokens + summary.ProviderCachedTokens)
+		out.DecisionCacheCreateTokens += int64(summary.CacheCreateTokens)
+		sessionID := decisionSessionID(summary)
+		sessionRow := bySession[sessionID]
+		if sessionRow == nil {
+			sessionRow = &SavingsSessionSummary{SessionID: sessionID}
+			bySession[sessionID] = sessionRow
+		}
+		sessionRow.Requests++
+		sessionRow.OriginalTokens += int64(summary.Tokens.Original)
+		sessionRow.FinalTokens += int64(summary.Tokens.Final)
+		sessionRow.NetSavedTokens += int64(summary.Tokens.Saved)
+		sessionRow.OutputTokens += int64(maxSavingsInt(summary.ProviderOutputTokens, summary.OutputTokens))
+		sessionRow.CacheReadTokens += int64(summary.CacheReadTokens + summary.ProviderCachedTokens)
+		sessionRow.CacheCreateTokens += int64(summary.CacheCreateTokens)
+		for _, mechanism := range summary.Mechanisms {
+			if mechanism.Name == "" || mechanism.Name == "request_total" {
+				continue
+			}
+			if mechanism.OriginalTokens == 0 &&
+				mechanism.FinalTokens == 0 &&
+				mechanism.SavedTokens == 0 &&
+				mechanism.AddedTokens == 0 &&
+				mechanism.NetTokens == 0 {
+				continue
+			}
+			row := byName[mechanism.Name]
+			if row == nil {
+				row = &SavingsMechanismSummary{
+					Name:   mechanism.Name,
+					Layer:  mechanism.Layer,
+					Source: mechanism.Source,
+				}
+				byName[mechanism.Name] = row
+			}
+			row.Count += int64(maxSavingsInt(mechanism.Count, 1))
+			row.OriginalTokens += int64(mechanism.OriginalTokens)
+			row.FinalTokens += int64(mechanism.FinalTokens)
+			row.SavedTokens += int64(mechanism.SavedTokens)
+			row.AddedTokens += int64(mechanism.AddedTokens)
+			row.NetTokens += int64(mechanism.NetTokens)
+			out.DecisionAddedTokens += int64(mechanism.AddedTokens)
+			sessionRow.AddedTokens += int64(mechanism.AddedTokens)
+		}
+	}
+	out.Mechanisms = out.Mechanisms[:0]
+	for _, row := range byName {
+		out.Mechanisms = append(out.Mechanisms, *row)
+	}
+	sort.Slice(out.Mechanisms, func(i, j int) bool {
+		if out.Mechanisms[i].NetTokens == out.Mechanisms[j].NetTokens {
+			return out.Mechanisms[i].Name < out.Mechanisms[j].Name
+		}
+		return out.Mechanisms[i].NetTokens > out.Mechanisms[j].NetTokens
+	})
+	out.DecisionSessions = out.DecisionSessions[:0]
+	for _, row := range bySession {
+		out.DecisionSessions = append(out.DecisionSessions, *row)
+	}
+	sort.Slice(out.DecisionSessions, func(i, j int) bool {
+		if out.DecisionSessions[i].NetSavedTokens == out.DecisionSessions[j].NetSavedTokens {
+			return out.DecisionSessions[i].SessionID < out.DecisionSessions[j].SessionID
+		}
+		return out.DecisionSessions[i].NetSavedTokens > out.DecisionSessions[j].NetSavedTokens
+	})
+}
+
+func decisionSessionID(summary dbg.RequestSummary) string {
+	if strings.TrimSpace(summary.SessionID) != "" {
+		return strings.TrimSpace(summary.SessionID)
+	}
+	if strings.TrimSpace(summary.Source) != "" {
+		return "no-session:" + strings.TrimSpace(summary.Source)
+	}
+	return "no-session:unknown"
 }
 
 func accumulateProxyFlightsFromDecisionLog(out *SavingsSummary, cfg *config.Config, period string, now time.Time) {
@@ -207,6 +379,62 @@ func formatSavingsText(s SavingsSummary) string {
 		sb.WriteString(fmt.Sprintf("Provider output tokens:     %s\n", formatInt64Plain(s.ProviderOutputTokens)))
 		sb.WriteString(fmt.Sprintf("Cache-read billable equiv.: %s\n", formatInt64Plain(s.CacheReadDiscountTokenEquivalent)))
 	}
+	if s.DecisionRequests > 0 {
+		sb.WriteString(fmt.Sprintf("Decision-log requests:       %d\n", s.DecisionRequests))
+		sb.WriteString(fmt.Sprintf("Decision original tokens:    %s\n", formatInt64Plain(s.DecisionOriginalTokens)))
+		sb.WriteString(fmt.Sprintf("Decision final tokens:       %s\n", formatInt64Plain(s.DecisionFinalTokens)))
+		sb.WriteString(fmt.Sprintf("Decision added tokens:       %s\n", formatInt64Plain(s.DecisionAddedTokens)))
+		sb.WriteString(fmt.Sprintf("Decision net saved tokens:   %s\n", formatInt64Plain(s.DecisionNetSavedTokens)))
+		if s.DecisionOutputTokens > 0 {
+			sb.WriteString(fmt.Sprintf("Decision output tokens:      %s\n", formatInt64Plain(s.DecisionOutputTokens)))
+		}
+		if s.DecisionCacheReadTokens > 0 || s.DecisionCacheCreateTokens > 0 {
+			sb.WriteString(fmt.Sprintf("Decision cache read/create:  %s / %s\n", formatInt64Plain(s.DecisionCacheReadTokens), formatInt64Plain(s.DecisionCacheCreateTokens)))
+		}
+		if s.DecisionEstimatedCostBeforeUSD > 0 || s.DecisionEstimatedCostAfterUSD > 0 || s.DecisionEstimatedCostSavedUSD > 0 {
+			sb.WriteString(fmt.Sprintf("Decision cost before/after:  ~$%.4f / ~$%.4f (saved ~$%.4f)\n",
+				s.DecisionEstimatedCostBeforeUSD,
+				s.DecisionEstimatedCostAfterUSD,
+				s.DecisionEstimatedCostSavedUSD,
+			))
+		}
+		for i, mechanism := range s.Mechanisms {
+			if i >= 8 {
+				break
+			}
+			sb.WriteString(fmt.Sprintf("  mechanism %-28s net=%s saved=%s added=%s count=%d\n",
+				mechanism.Name,
+				formatSignedInt64Plain(mechanism.NetTokens),
+				formatInt64Plain(mechanism.SavedTokens),
+				formatInt64Plain(mechanism.AddedTokens),
+				mechanism.Count,
+			))
+		}
+		for i, session := range s.DecisionSessions {
+			if i >= 5 {
+				break
+			}
+			if session.CostBeforeUSD > 0 || session.CostAfterUSD > 0 || session.CostSavedUSD > 0 {
+				sb.WriteString(fmt.Sprintf("  session %-28s net=%s original=%s final=%s cost=~$%.4f/~$%.4f requests=%d\n",
+					session.SessionID,
+					formatSignedInt64Plain(session.NetSavedTokens),
+					formatInt64Plain(session.OriginalTokens),
+					formatInt64Plain(session.FinalTokens),
+					session.CostBeforeUSD,
+					session.CostAfterUSD,
+					session.Requests,
+				))
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("  session %-28s net=%s original=%s final=%s requests=%d\n",
+				session.SessionID,
+				formatSignedInt64Plain(session.NetSavedTokens),
+				formatInt64Plain(session.OriginalTokens),
+				formatInt64Plain(session.FinalTokens),
+				session.Requests,
+			))
+		}
+	}
 	sb.WriteString(fmt.Sprintf("Layer 3 cache hits:         %d\n", s.CacheHits))
 	sb.WriteString(strings.Repeat("-", 60) + "\n")
 	sb.WriteString(fmt.Sprintf("Total tokens saved:         %s\n", formatInt64Plain(s.TotalSavedTokens)))
@@ -222,8 +450,8 @@ func formatSavingsText(s SavingsSummary) string {
 // formatSavingsCSV emits a single-row CSV summary.
 func formatSavingsCSV(s SavingsSummary) string {
 	var sb strings.Builder
-	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,total_saved_tokens,total_saved_usd\n")
-	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f\n",
+	sb.WriteString("period,project,layer0_runs,layer0_saved_tokens,proxy_requests,provider_reported_requests,proxy_orig_tokens,proxy_comp_tokens,proxy_saved_tokens,provider_input_tokens,provider_cached_tokens,provider_output_tokens,output_reduce_input_overhead_tokens,cache_read_discount_token_equivalent,net_billable_equivalent_tokens,cache_hits,decision_requests,decision_original_tokens,decision_final_tokens,decision_added_tokens,decision_net_saved_tokens,decision_output_tokens,decision_cache_read_tokens,decision_cache_create_tokens,decision_estimated_cost_before_usd,decision_estimated_cost_after_usd,decision_estimated_cost_saved_usd,total_saved_tokens,total_saved_usd\n")
+	sb.WriteString(fmt.Sprintf("%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%.4f,%.4f,%d,%.4f\n",
 		s.Period,
 		s.Project,
 		s.Layer0Runs,
@@ -240,6 +468,17 @@ func formatSavingsCSV(s SavingsSummary) string {
 		s.CacheReadDiscountTokenEquivalent,
 		s.NetBillableEquivalentTokens,
 		s.CacheHits,
+		s.DecisionRequests,
+		s.DecisionOriginalTokens,
+		s.DecisionFinalTokens,
+		s.DecisionAddedTokens,
+		s.DecisionNetSavedTokens,
+		s.DecisionOutputTokens,
+		s.DecisionCacheReadTokens,
+		s.DecisionCacheCreateTokens,
+		s.DecisionEstimatedCostBeforeUSD,
+		s.DecisionEstimatedCostAfterUSD,
+		s.DecisionEstimatedCostSavedUSD,
 		s.TotalSavedTokens,
 		s.TotalSavedUSD,
 	))
@@ -248,6 +487,44 @@ func formatSavingsCSV(s SavingsSummary) string {
 
 func formatInt64Plain(n int64) string {
 	return formatTokensPlain64(n)
+}
+
+func formatSignedInt64Plain(n int64) string {
+	if n < 0 {
+		return "-" + formatTokensPlain64(-n)
+	}
+	return formatTokensPlain64(n)
+}
+
+func estimateCostUSD(inputTokens, outputTokens, savedTokens, cacheReadTokens int64, usdPerMillion float64) (float64, float64, float64) {
+	beforeTokens := inputTokens + outputTokens
+	savedEquivalentTokens := savedTokens + cacheReadDiscountEquivalent(cacheReadTokens)
+	if savedEquivalentTokens < 0 {
+		savedEquivalentTokens = 0
+	}
+	if savedEquivalentTokens > beforeTokens {
+		savedEquivalentTokens = beforeTokens
+	}
+	afterTokens := beforeTokens - savedEquivalentTokens
+	return tokensToUSD(beforeTokens, usdPerMillion), tokensToUSD(afterTokens, usdPerMillion), tokensToUSD(savedEquivalentTokens, usdPerMillion)
+}
+
+func cacheReadDiscountEquivalent(tokens int64) int64 {
+	return int64(float64(tokens) * 0.9)
+}
+
+func tokensToUSD(tokens int64, usdPerMillion float64) float64 {
+	if tokens <= 0 || usdPerMillion <= 0 {
+		return 0
+	}
+	return float64(tokens) / 1_000_000.0 * usdPerMillion
+}
+
+func maxSavingsInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // handleSavingsCmd implements `slimference savings [today|week|month|all]`.

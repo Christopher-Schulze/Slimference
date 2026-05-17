@@ -29,7 +29,15 @@ func defaultsRaw() *Config {
 			},
 		},
 		Transparent: TransparentConfig{
-			Enabled:        false,
+			// Legacy: CONNECT-based MITM. Phase H (2026-05-16) does not
+			// auto-arm this. Kept for advanced users who manually
+			// configure HTTPS_PROXY. New installs use SNIPeekMode below.
+			Enabled: false,
+			// Phase H primary Traffic-IN switch. Off by default so
+			// `slimference install` is silent until the user runs
+			// `slimference enable`. See docs/install.md.
+			SNIPeekMode:    false,
+			SNIPeekPort:    8443,
 			InterceptHosts: []string{"api.openai.com", "api.anthropic.com", "chatgpt.com"},
 			CertCacheSize:  256,
 			AudioBypassPaths: []string{
@@ -51,8 +59,14 @@ func defaultsRaw() *Config {
 			CodexChatGPT: ProviderUpstream{BaseURL: "https://chatgpt.com"},
 		},
 		Compression: CompressionConfig{
-			Layer1Enabled:                     true,
-			Layer2Enabled:                     true,
+			Layer1Enabled: true,
+			// Layer 2 (MiniMax-backed semantic summarization) defaults
+			// to OFF: Slimference ships deterministic-only by default
+			// (decision 2026-05-15). Users who explicitly opt into
+			// model-based summarization can flip layer2_enabled=true in
+			// their config. MiniMax code is preserved for that opt-in
+			// path but is not on the default token-saving hot path.
+			Layer2Enabled:                     false,
 			Layer3Enabled:                     true,
 			SlidingWindow:                     5,
 			MinMessagesForCompression:         8,
@@ -68,18 +82,6 @@ func defaultsRaw() *Config {
 				"svelte",
 			},
 			DedupSimilarityThreshold: 0.85,
-			MiniMax: MiniMaxConfig{
-				BaseURL:                "https://api.minimax.io/v1",
-				APIKeyEnv:              "MINIMAX_API_KEY",
-				Model:                  "MiniMax-M2.7",
-				Temperature:            0,
-				TopP:                   1,
-				MaxRetries:             3,
-				ConnectTimeoutSeconds:  5,
-				ResponseTimeoutSeconds: 30,
-				RateLimitRPM:           10,
-				EnableReasoningSplit:   true,
-			},
 			Summary: SummaryConfig{
 				// Mode=balanced is the default operating profile. The
 				// numeric fields stay zero so ApplyL2OperatingMode can
@@ -103,6 +105,16 @@ func defaultsRaw() *Config {
 				MinNetSavingsPct:     15,
 				MaxFailureRateDelta:  0.05,
 				CooldownTurns:        50,
+				// T165/T166/T167: deterministic output-token
+				// reductions default-on. Operators can disable
+				// individually via env or TOML.
+				StopSequencesEnabled:       true,
+				StreamCutEnabled:           true,
+				RepetitionDetectionEnabled: true,
+				StaleReadAgingEnabled:      true,
+				StaleReadAgingMinTurnGap:   3,
+				ObsoleteReadPruneEnabled:   true,
+				BeTerseHintEnabled:         false,
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,

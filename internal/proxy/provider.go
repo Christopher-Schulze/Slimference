@@ -12,10 +12,10 @@ import (
 )
 
 // detectProvider determines the upstream provider from the HTTP request.
-// T66: Codex CLI (ChatGPT subscription product) posts to /backend-api/codex/*
-// against chatgpt.com - we recognise that path prefix FIRST so it takes
-// precedence over the generic OpenAI fallback. When the path is ambiguous
-// (Codex also sends /v1/responses through openai_base_url), the
+// T66: Codex CLI (ChatGPT subscription product) posts to /backend-api/*
+// against chatgpt.com - we recognise that path prefix FIRST so Codex app
+// and connector routes do not fall through to api.openai.com. When the path
+// is ambiguous (Codex also sends /v1/responses through openai_base_url), the
 // User-Agent header disambiguates: Codex's native UA contains "codex",
 // Claude Code's UA contains "claude-code".
 func detectProvider(path string, body []byte) types.Provider {
@@ -25,7 +25,7 @@ func detectProvider(path string, body []byte) types.Provider {
 // detectProviderWithUA is the UA-aware variant used on the hot path. The
 // public detectProvider wraps it with an empty UA for tests that don't care.
 func detectProviderWithUA(path string, body []byte, userAgent string) types.Provider {
-	if strings.Contains(path, "/backend-api/codex/") {
+	if path == "/backend-api" || strings.HasPrefix(path, "/backend-api/") {
 		return types.CodexChatGPT
 	}
 	if strings.Contains(path, "/messages") {
@@ -290,7 +290,7 @@ func codexLooksLikeToolCall(itemType string, fields map[string]json.RawMessage) 
 	if rawJSONString(fields["call_id"]) == "" && rawJSONString(fields["id"]) == "" {
 		return false
 	}
-	if len(fields["arguments"]) != 0 || len(fields["action"]) != 0 || len(fields["input"]) != 0 {
+	if len(fields["arguments"]) != 0 || len(fields["action"]) != 0 || len(fields["input"]) != 0 || len(fields["parameters"]) != 0 {
 		return true
 	}
 	return codexCommandLineFromFields(fields) != ""
@@ -319,7 +319,7 @@ func codexToolName(fields map[string]json.RawMessage) string {
 }
 
 func codexToolInput(fields map[string]json.RawMessage) string {
-	for _, key := range []string{"arguments", "input", "action"} {
+	for _, key := range []string{"arguments", "input", "action", "parameters"} {
 		if len(fields[key]) != 0 {
 			return rawJSONText(fields[key])
 		}
@@ -361,7 +361,7 @@ func codexCommandLineFromFields(fields map[string]json.RawMessage) string {
 			return joinShellArgs(argv)
 		}
 	}
-	for _, key := range []string{"action", "input"} {
+	for _, key := range []string{"action", "input", "parameters"} {
 		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(fields[key], &obj); err == nil {
 			if commandLine := codexCommandLineFromFields(obj); commandLine != "" {
@@ -384,7 +384,7 @@ func rawJSONStringArray(raw json.RawMessage) []string {
 }
 
 func codexToolOutputText(fields map[string]json.RawMessage) (string, string) {
-	for _, key := range []string{"output", "aggregated_output", "stdout", "stderr", "text"} {
+	for _, key := range []string{"output", "aggregated_output", "stdout", "stderr", "text", "content", "result", "tool_response"} {
 		raw := fields[key]
 		if len(raw) == 0 {
 			continue
@@ -496,7 +496,7 @@ func singleCodexOutputTextField(raw json.RawMessage) (codexOutputField, bool) {
 		return codexOutputField{}, false
 	}
 	var selected codexOutputField
-	for _, key := range []string{"output", "stdout", "text", "content", "stderr"} {
+	for _, key := range []string{"output", "stdout", "text", "content", "stderr", "result", "tool_response"} {
 		value, ok := obj[key]
 		if !ok {
 			continue
@@ -725,6 +725,11 @@ func messagesToCodexInputJSON(originalInput json.RawMessage, messages []types.Me
 	for _, msg := range messages {
 		rawItem, ok := firstCodexInputRaw(msg)
 		if !ok {
+			var err error
+			rawItem, ok, err = recoverCodexInputRawFromOriginal(msg, originalItems)
+			_ = err // originalItems came from a successfully decoded JSON array.
+		}
+		if !ok {
 			continue
 		}
 		if rawItem.ItemIndex < 0 || rawItem.ItemIndex >= len(items) {
@@ -741,6 +746,18 @@ func messagesToCodexInputJSON(originalInput json.RawMessage, messages []types.Me
 		return originalInput, nil
 	}
 	return json.Marshal(items)
+}
+
+func recoverCodexInputRawFromOriginal(msg types.Message, originalItems []json.RawMessage) (codexInputItemRaw, bool, error) {
+	if msg.Index < 0 || msg.Index >= len(originalItems) {
+		return codexInputItemRaw{}, false, nil
+	}
+	original, ok, err := codexInputItemToMessage(msg.Index, originalItems[msg.Index])
+	if err != nil || !ok {
+		return codexInputItemRaw{}, false, err
+	}
+	rawItem, found := firstCodexInputRaw(original)
+	return rawItem, found, nil
 }
 
 func firstCodexInputRaw(msg types.Message) (codexInputItemRaw, bool) {

@@ -1,7 +1,7 @@
 # Audit 1 - Production Readiness Baseline
 
 Date: 2026-04-17
-Scope: entire Slimference repository except `rtk-master/`
+Scope: entire Slimference repository except the RTK reference tree now at `research/rtk-ai/rtk/`
 Intent: establish a hard baseline for remediation and later comparison
 
 ---

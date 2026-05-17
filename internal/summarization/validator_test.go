@@ -287,3 +287,30 @@ func TestValidator_ErrorPreservationBelow50(t *testing.T) {
 		t.Errorf("FailReason = %q, want 'error string preservation'", result.FailReason)
 	}
 }
+
+func TestValidatorRejectsCoTArtifacts(t *testing.T) {
+	t.Parallel()
+	v := NewCompressionValidator()
+	msgs := buildValidatorMessages(t, strings.Repeat("plain source content ", 80))
+	result := v.Validate(msgs, "- <think>hidden reasoning</think>"+strings.Repeat(" word", 40), 500)
+	if result.Valid {
+		t.Fatal("expected CoT artifact to fail validation")
+	}
+	if !strings.Contains(result.FailReason, "chain-of-thought") {
+		t.Fatalf("unexpected fail reason: %q", result.FailReason)
+	}
+}
+
+func TestJoinMessagesIncludesToolUseFields(t *testing.T) {
+	msgs := []types.Message{{
+		Content: []types.ContentBlock{{
+			Type:      "tool_use",
+			ToolName:  "apply_patch",
+			ToolInput: `{"file":"internal/proxy/wsmitm_phasef.go"}`,
+		}},
+	}}
+	joined := joinMessages(msgs)
+	if !strings.Contains(joined, "apply_patch") || !strings.Contains(joined, "wsmitm_phasef.go") {
+		t.Fatalf("tool-use fields missing from joined messages: %q", joined)
+	}
+}

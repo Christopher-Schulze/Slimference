@@ -233,12 +233,8 @@ func TestServiceControlAdapter_HookOperations(t *testing.T) {
 	cfg.Hooks.SlimferenceCommand = "/custom/slimference"
 	configLoadFn = func() (*config.Config, error) { return cfg, nil }
 
-	installClaudeCalled := false
 	installClaudeHookFn = func(home, cmd string) error {
-		installClaudeCalled = true
-		if home != "/tmp/home" || cmd != "/custom/slimference" {
-			t.Fatalf("unexpected claude args: home=%q cmd=%q", home, cmd)
-		}
+		t.Fatalf("Claude installer must not be called while parked: home=%q cmd=%q", home, cmd)
 		return nil
 	}
 	installCodexHookFn = func(home, cmd string) error {
@@ -247,11 +243,8 @@ func TestServiceControlAdapter_HookOperations(t *testing.T) {
 		}
 		return nil
 	}
-	if err := (&serviceControlAdapter{}).InstallHook("claude"); err != nil {
-		t.Fatalf("InstallHook claude: %v", err)
-	}
-	if !installClaudeCalled {
-		t.Fatal("expected claude installer call")
+	if err := (&serviceControlAdapter{}).InstallHook("claude"); err == nil || !strings.Contains(err.Error(), "parked") {
+		t.Fatalf("expected parked Claude install error, got %v", err)
 	}
 	if err := (&serviceControlAdapter{}).InstallHook("codex"); err != nil {
 		t.Fatalf("InstallHook codex: %v", err)
@@ -261,9 +254,7 @@ func TestServiceControlAdapter_HookOperations(t *testing.T) {
 	}
 
 	removeClaudeHookFn = func(home string) error {
-		if home != "/tmp/home" {
-			t.Fatalf("unexpected remove claude home: %q", home)
-		}
+		t.Fatalf("Claude remover must not be called while parked: home=%q", home)
 		return nil
 	}
 	removeCodexHookFn = func(home string) error {
@@ -272,8 +263,8 @@ func TestServiceControlAdapter_HookOperations(t *testing.T) {
 		}
 		return nil
 	}
-	if err := (&serviceControlAdapter{}).RemoveHook("claude"); err != nil {
-		t.Fatalf("RemoveHook claude: %v", err)
+	if err := (&serviceControlAdapter{}).RemoveHook("claude"); err == nil || !strings.Contains(err.Error(), "parked") {
+		t.Fatalf("expected parked Claude remove error, got %v", err)
 	}
 	if err := (&serviceControlAdapter{}).RemoveHook("codex"); err != nil {
 		t.Fatalf("RemoveHook codex: %v", err)
@@ -283,10 +274,10 @@ func TestServiceControlAdapter_HookOperations(t *testing.T) {
 	}
 
 	osUserHomeDir = func() (string, error) { return "", errors.New("no home") }
-	if err := (&serviceControlAdapter{}).InstallHook("claude"); err == nil || !strings.Contains(err.Error(), "home") {
+	if err := (&serviceControlAdapter{}).InstallHook("codex"); err == nil || !strings.Contains(err.Error(), "home") {
 		t.Fatalf("expected home error, got %v", err)
 	}
-	if err := (&serviceControlAdapter{}).RemoveHook("claude"); err == nil || !strings.Contains(err.Error(), "home") {
+	if err := (&serviceControlAdapter{}).RemoveHook("codex"); err == nil || !strings.Contains(err.Error(), "home") {
 		t.Fatalf("expected home error, got %v", err)
 	}
 }

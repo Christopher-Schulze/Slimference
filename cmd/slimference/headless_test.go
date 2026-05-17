@@ -59,9 +59,12 @@ func stubRuntimeForHeadless(t *testing.T, shutdown func(context.Context) error) 
 	return code
 }
 
-// exitSentinel is panicked by the stub exitFn so runHeadless unwinds past its
-// post-exit code paths without actually terminating the test process.
-type exitSentinel struct{}
+// exitSentinel is panicked by the stub exitFn so runHeadless unwinds
+// past its post-exit code paths without actually terminating the test
+// process. Type alias of ControlledExit (defined in failopen.go) so
+// guardHook identifies these as controlled unwinds and re-raises rather
+// than treating them as fail-open panics.
+type exitSentinel = ControlledExit
 
 func recoverExit(t *testing.T) {
 	t.Helper()
@@ -76,11 +79,18 @@ func recoverExit(t *testing.T) {
 func TestRunHeadless_CleanShutdownExit0(t *testing.T) {
 	feedSignalAsync(t, 10*time.Millisecond)
 	code := stubRuntimeForHeadless(t, func(ctx context.Context) error { return nil })
+	canceled := false
+	prevCancel := startProxySNICancel
+	startProxySNICancel = func() { canceled = true }
+	t.Cleanup(func() { startProxySNICancel = prevCancel })
 
 	defer recoverExit(t)
 	runHeadless(nil)
 	if *code != 0 {
 		t.Fatalf("exit code = %d, want 0", *code)
+	}
+	if !canceled {
+		t.Fatal("expected SNI cancel to run during clean shutdown")
 	}
 }
 

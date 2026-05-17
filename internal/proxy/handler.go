@@ -21,15 +21,21 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/slimference/slimference/internal/analytics"
+	"github.com/slimference/slimference/internal/beterse"
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/contentarchive"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/outputreduce"
+	"github.com/slimference/slimference/internal/outstop"
+	"github.com/slimference/slimference/internal/outstop/streamcut"
 	"github.com/slimference/slimference/internal/planner"
+	"github.com/slimference/slimference/internal/promptcache"
+	"github.com/slimference/slimference/internal/qualityab"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
+	"github.com/slimference/slimference/internal/staleread"
 	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/toolprune"
@@ -205,8 +211,62 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		p.config.Compression.Tuning.AdaptiveWindowMax,
 	)
 	effectiveWindow := windowDecision.Size
-	if effectiveWindow != p.config.Compression.SlidingWindow {
+
+	// PreCompact-signal escalation: if the Codex hook recently wrote a
+	// pre-compaction marker for this session (within precompactSignalTTL),
+	// shrink the sliding window further so Layer-1 has more old
+	// messages to compact. This is the single hottest moment to save
+	// tokens — Codex is about to compact anyway, and our deterministic
+	// compaction is provably better.
+	if p.hasRecentPreCompactSignal(sessionID) {
+		shrunk := precompactShrinkWindow(effectiveWindow)
+		if shrunk < effectiveWindow {
+			log.Debug("precompact_signal_active",
+				"session_id", sessionID,
+				"effective_window_before", effectiveWindow,
+				"effective_window_after", shrunk)
+			effectiveWindow = shrunk
+		}
+	} else if effectiveWindow != p.config.Compression.SlidingWindow {
 		log.Debug("adaptive_window", "decision", windowDecision.String())
+	}
+
+	// --- 2.5. Stale-read aging (T170) ---
+	// Replace superseded older Read tool_results with `[stale read: …]`
+	// markers. Runs before secret detection (cheaper scan input) and
+	// before compression layers (so L1/L2 see the aged content).
+	// Lossless: the most-recent read of any given path always survives.
+	if p.config.Compression.OutputReduce.StaleReadAgingEnabled {
+		aged, agingStats := staleread.AgeMessages(messages, staleread.Options{
+			MinTurnGap: p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
+		})
+		if agingStats.BlocksReplaced > 0 {
+			messages = aged
+			p.outputReduceCounters.RecordStaleReadAging(agingStats.BlocksReplaced, agingStats.BytesReplaced)
+			log.Debug("stale-read aging applied",
+				"blocks_replaced", agingStats.BlocksReplaced,
+				"bytes_replaced", agingStats.BytesReplaced,
+				"paths_aged", agingStats.PathsAged,
+			)
+		}
+	}
+
+	// --- 2.6. Multi-turn obsolete-read pruning (T174) ---
+	// Replace reads that happened before a subsequent file mutation
+	// with `[obsolete: <path> edited at turn N]`. Pairs with t170:
+	// staleread.AgeMessages keeps the most-recent read; this prunes
+	// any read older than a mutation regardless of newer reads.
+	if p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
+		pruned, pruneStats := staleread.PruneObsoleteReads(messages, staleread.ObsoleteOptions{})
+		if pruneStats.BlocksReplaced > 0 {
+			messages = pruned
+			p.outputReduceCounters.RecordObsoleteReadPrune(pruneStats.BlocksReplaced, pruneStats.BytesReplaced)
+			log.Debug("obsolete-read prune applied",
+				"blocks_replaced", pruneStats.BlocksReplaced,
+				"bytes_replaced", pruneStats.BytesReplaced,
+				"paths_pruned", pruneStats.PathsPruned,
+			)
+		}
 	}
 
 	// --- 3. Secret detection ---
@@ -283,6 +343,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			compressedMessages = l0Messages
 			layer0Savings = saved
 			appliedLayers = append(appliedLayers, 0)
+			p.outputReduceCounters.RecordProxyLayer0(saved)
 			log.Debug("proxy layer0 applied", "saved", saved)
 		}
 	}
@@ -350,7 +411,15 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	if provider == types.Anthropic && p.isLayerEnabled(1) {
 		stableBoundary := compression.CompressiblePrefixEnd(compressedMessages, effectiveWindow)
 		if stableBoundary > 0 {
-			compressedMessages = compression.OptimizeCacheBreakpoints(compressedMessages, stableBoundary)
+			hint := compression.PromptCacheHintCold
+			if obs := p.observePromptCacheStability(sessionID, compressedMessages, stableBoundary); obs.Confidence == promptcache.ConfidenceHot {
+				hint = compression.PromptCacheHintHot
+				log.Debug("prompt_cache_stability_hot",
+					"session_id", sessionID,
+					"hit_count", obs.HitCount,
+					"stable_boundary", stableBoundary)
+			}
+			compressedMessages = compression.OptimizeCacheBreakpointsHint(compressedMessages, stableBoundary, hint)
 		}
 	}
 
@@ -658,6 +727,49 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// --- 8.7 Trailing-commentary stop-sequence injection (T165) ---
+	// Inject curated phrases into the upstream-bound body after all
+	// body mutations so server-state rewrites do not stomp our edit.
+	// Cache key (computed upstream in 8.5) is on the pre-injection
+	// body so cached responses stay reachable regardless of stop-seq
+	// policy.
+	if p.config.Compression.OutputReduce.StopSequencesEnabled {
+		if injected, res := outstop.MergeIntoBody(provider, upstreamBody); res.OK && res.AddedCount > 0 {
+			upstreamBody = injected
+			p.outputReduceCounters.RecordStopSeqInjection(res.AddedCount)
+			log.Debug("outstop merged",
+				"provider", provider.String(),
+				"field", res.FieldUsed,
+				"added", res.AddedCount,
+			)
+		}
+	}
+
+	// --- 8.8 Be-terse hint injection (T169, qualityab-gated) ---
+	// Gated by config toggle (default off) + per-session cohort
+	// routing via internal/qualityab. Treatment cohort gets the
+	// hint; control cohort sees the original body. Harness
+	// auto-rolls-back when treatment failure rate exceeds control's
+	// by 5pp on 50+ samples.
+	abCohort := qualityab.CohortControl
+	beterseInjected := false
+	if p.config.Compression.OutputReduce.BeTerseHintEnabled && p.qualityAB != nil {
+		abCohort = p.qualityAB.Cohort(sessionID)
+		if abCohort == qualityab.CohortTreatment {
+			if injected, res := beterse.Inject(provider, upstreamBody, p.config.Compression.OutputReduce.BeTerseHintText); res.Applied {
+				upstreamBody = injected
+				beterseInjected = true
+				p.outputReduceCounters.RecordBeTerseInjection(res.Bytes)
+				log.Debug("be-terse hint injected",
+					"provider", provider.String(),
+					"field", res.FieldUsed,
+					"bytes", res.Bytes,
+					"cohort", string(abCohort),
+				)
+			}
+		}
+	}
+
 	// --- 9. Forward to upstream ---
 	upstreamResp, err := p.doUpstreamRequest(r, provider, upstreamBody)
 	if err == nil && promptCacheDecision.Applied && upstreamResp != nil && peekPromptCacheUnsupportedError(upstreamResp) {
@@ -715,15 +827,54 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	p.pipelineHist.Upstream.Record(time.Since(upstreamStart))
 	p.healthMon.record(provider, upstreamResp.StatusCode < 500)
 
+	// Report be-terse cohort outcome to the qualityab harness so
+	// auto-rollback can fire if treatment-side failures pile up.
+	// Treatment outcomes are only recorded when the hint was
+	// actually injected - if Inject returned !Applied (e.g. body
+	// shape mismatch), the request didn't carry the lever and
+	// reporting it as treatment would misattribute the result.
+	// Control cohort always records (we need its baseline).
+	if p.config.Compression.OutputReduce.BeTerseHintEnabled && p.qualityAB != nil {
+		recordCohort := abCohort
+		if abCohort == qualityab.CohortTreatment && !beterseInjected {
+			recordCohort = qualityab.CohortControl
+		}
+		outcome := qualityab.OutcomeSuccess
+		if upstreamResp.StatusCode >= 400 {
+			outcome = qualityab.OutcomeUpstreamError
+		}
+		p.qualityAB.RecordOutcome(recordCohort, outcome)
+	}
+
 	// --- 9. Stream / passthrough response ---
 	var outputTokens int
 	var responseBody []byte
 	var upstreamCacheUsage cacheUsage
 
 	if isStreamingRequest(body) {
-		outputTokens, upstreamCacheUsage = streamingRelayWithUsage(r.Context(), w, upstreamResp, provider.String())
+		var cutter *streamcut.Cutter
+		if p.config.Compression.OutputReduce.StreamCutEnabled {
+			// 3-line holdback (T184): the trailing-commentary opener
+			// is queued, so when the cutter fires the opener bytes
+			// never reach the client. Lossless for natural stream
+			// ends - Flush emits any queued lines.
+			cutter = streamcut.NewCutterWithHoldback(provider.String(), 3)
+		}
+		var fire streamCutFire
+		outputTokens, upstreamCacheUsage, fire = streamingRelayWithCutter(r.Context(), w, upstreamResp, provider.String(), cutter)
+		if fire.Fired {
+			p.outputReduceCounters.RecordStreamcutFire(fire.BytesObserved)
+			log.Debug("streamcut terminated upstream", "bytes_observed", fire.BytesObserved)
+		}
 	} else {
-		responseBody = passthrough(w, upstreamResp)
+		// T167: for non-streaming responses we build a per-request
+		// repdet Index from the prompt's tool_result / long text
+		// blocks and rewrite any verbatim echo into a
+		// "[unchanged: <name>]" marker before forwarding to the
+		// client. Per-provider helpers handle their own wire shape;
+		// providers we don't recognise fall through to plain
+		// passthrough so we never break a response to optimise.
+		responseBody = p.passthroughWithOptionalRepdet(w, upstreamResp, provider, messages, log)
 		outputTokens = estimateTokensFromText(string(responseBody))
 		upstreamCacheUsage = extractCacheUsageFromBody(provider.String(), responseBody)
 		if upstreamCacheUsage.OutputTokens > 0 {
@@ -945,6 +1096,20 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		"latency_ms", fmt.Sprintf("%.2f", proxyLatencyMs),
 		"proxy_overhead_ms", fmt.Sprintf("%.2f", float64(time.Since(start).Microseconds())/1000.0),
 	)
+}
+
+func (p *Proxy) passthroughWithOptionalRepdet(w http.ResponseWriter, upstreamResp *http.Response, provider types.Provider, messages []types.Message, log *slog.Logger) []byte {
+	if !p.config.Compression.OutputReduce.RepetitionDetectionEnabled {
+		return passthrough(w, upstreamResp)
+	}
+	switch provider {
+	case types.Anthropic:
+		return p.passthroughAnthropicWithRepdet(w, upstreamResp, messages, log)
+	case types.OpenAI, types.CodexChatGPT:
+		return p.passthroughOpenAIWithRepdet(w, upstreamResp, messages, log)
+	default:
+		return passthrough(w, upstreamResp)
+	}
 }
 
 // serveStageACacheHit writes a cached response for a Stage A hit (pre-compression).
@@ -1432,7 +1597,7 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 			"analytics": len(p.analyticsQueue),
 		},
 		CacheEntries:      p.responseCache.Len(),
-		MiniMaxConfigured: p.config.Compression.MiniMax.APIKey() != "",
+		MiniMaxConfigured: false,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

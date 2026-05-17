@@ -97,6 +97,17 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 		fn   func() ([]byte, bool)
 	}
 	filters := []filterEntry{
+		// Tier-1: strict structured JSON parsers. Parse the wire
+		// schema directly; refuse to match on anything else. Beats
+		// every regex-based Tier-2 below on accuracy and savings, so
+		// they sit at the top. RTK's catalog has no Tier-1 — this is
+		// where we surpass it.
+		{"tier1_sarif", func() ([]byte, bool) { return TryCompactSARIF(argv, stdout) }},
+		{"tier1_go_test_json", func() ([]byte, bool) { return TryCompactGoTestJSON(argv, stdout) }},
+		{"tier1_vitest_jest_json", func() ([]byte, bool) { return TryCompactVitestJSON(argv, stdout) }},
+		{"tier1_pytest_json", func() ([]byte, bool) { return TryCompactPytestJSON(argv, stdout) }},
+		{"tier1_cargo_test_json", func() ([]byte, bool) { return TryCompactCargoTestJSON(argv, stdout) }},
+		// Tier-2: hand-written Go compactors (regex/heuristic-based).
 		{"git_status", func() ([]byte, bool) { return TryCompactGitStatus(argv, stdout) }},
 		{"git_diff", func() ([]byte, bool) { return TryCompactGitDiff(argv, stdout) }},
 		{"git_log", func() ([]byte, bool) { return TryCompactGitLog(argv, stdout) }},
@@ -151,6 +162,21 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 			OutBytes: len(out),
 		})
 		return out, "toml_rule"
+	}
+	// Embedded RTK-derived filter catalog (MIT, see NOTICE.md). Loaded
+	// once via //go:embed. Sits BELOW the user/project TOML so explicit
+	// user overrides always win, and BELOW the Go built-ins so curated
+	// hand-written compactors (git-status etc.) win over generic
+	// catalog filters.
+	if name, rule := FirstMatchingBuiltinTOMLRule(argv); rule != nil {
+		out := ApplyTOMLRule(stdout, rule)
+		globalObservability.Record(FilterStats{
+			Name:     "builtin_toml:" + name,
+			Matched:  true,
+			InBytes:  inBytes,
+			OutBytes: len(out),
+		})
+		return out, "builtin_toml:" + name
 	}
 	return stdout, ""
 }

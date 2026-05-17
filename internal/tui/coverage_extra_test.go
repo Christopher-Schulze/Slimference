@@ -55,10 +55,10 @@ func TestModel_SetupSteps_ServiceInstallCheckTrue(t *testing.T) {
 	model := NewModel(newMockProxy())
 	model.SetServiceControl(&mockServiceControl{})
 	steps := model.setupSteps()
-	if len(steps) != 5 {
+	if len(steps) != 4 {
 		t.Fatalf("unexpected step count: %d", len(steps))
 	}
-	if !steps[4].check() {
+	if !steps[3].check() {
 		t.Fatal("expected launchd step to report installed service")
 	}
 }
@@ -235,7 +235,7 @@ func TestRenderTransparentStatusLineStates(t *testing.T) {
 	}
 }
 
-func TestSetupSteps_ClaudeActionAndPartialState(t *testing.T) {
+func TestSetupSteps_ServiceActionAndPartialState(t *testing.T) {
 	model := NewModel(newMockProxy())
 	svc := &mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}}
 	model.SetServiceControl(svc)
@@ -253,7 +253,7 @@ func TestSetupSteps_ClaudeActionAndPartialState(t *testing.T) {
 
 	steps := model.setupSteps()
 	if err := steps[3].action(&model); err != nil {
-		t.Fatalf("claude action failed: %v", err)
+		t.Fatalf("service action failed: %v", err)
 	}
 }
 
@@ -266,7 +266,7 @@ func TestSetupSteps_ActionClosures(t *testing.T) {
 	if err := steps[2].action(&model); err != nil {
 		t.Fatalf("codex action failed: %v", err)
 	}
-	if err := steps[4].action(&model); err != nil {
+	if err := steps[3].action(&model); err != nil {
 		t.Fatalf("service action failed: %v", err)
 	}
 	if !svc.installed {

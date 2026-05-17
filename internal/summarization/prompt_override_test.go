@@ -22,18 +22,6 @@ func TestPromptVersion_ReturnsConfigured(t *testing.T) {
 	}
 }
 
-func TestSetPromptOverride_AffectsBuildSystemPrompt(t *testing.T) {
-	SetPromptOverride("CUSTOM HEADER REPLACE\n", "v9")
-	t.Cleanup(func() { SetPromptOverride("", "") })
-	got := buildSystemPrompt("ambiguous")
-	if !strings.Contains(got, "CUSTOM HEADER REPLACE") {
-		t.Fatalf("override not applied: %s", got[:200])
-	}
-	if strings.Contains(got, "deterministic information extractor") {
-		t.Fatalf("default header should be replaced: %s", got[:200])
-	}
-}
-
 func TestParsePromptDocument_VersionExtracted(t *testing.T) {
 	body, version := parsePromptDocument("# version: v3.2\n\nMain body line\nSecond line\n")
 	if version != "v3.2" {
@@ -46,8 +34,8 @@ func TestParsePromptDocument_VersionExtracted(t *testing.T) {
 
 func TestParsePromptDocument_NoVersion(t *testing.T) {
 	body, version := parsePromptDocument("Plain body\nLine 2\n")
-	if version != "" {
-		t.Fatalf("expected empty version, got %q", version)
+	if version != "custom" {
+		t.Fatalf("expected custom version, got %q", version)
 	}
 	if !strings.HasPrefix(body, "Plain body") {
 		t.Fatalf("body wrong: %q", body)
@@ -83,5 +71,11 @@ func TestLoadPromptOverrideFromPath_HappyPath(t *testing.T) {
 func TestLoadPromptOverrideFromPath_MissingFile(t *testing.T) {
 	if _, err := LoadPromptOverrideFromPath(filepath.Join(t.TempDir(), "missing.txt")); err == nil {
 		t.Fatal("expected read error")
+	}
+}
+
+func TestLoadPromptOverrideFromPath_EmptyPath(t *testing.T) {
+	if _, err := LoadPromptOverrideFromPath(""); err == nil {
+		t.Fatal("expected empty path error")
 	}
 }

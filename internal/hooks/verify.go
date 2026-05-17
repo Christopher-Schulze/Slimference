@@ -51,13 +51,19 @@ func claudeHookInstalled(home string) bool {
 	if _, err := os.Stat(readScript); err != nil {
 		return false
 	}
+	postToolScript := filepath.Join(home, ".claude", "hooks", "slimference-posttool.sh")
+	if _, err := os.Stat(postToolScript); err != nil {
+		return false
+	}
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
 		return os.IsNotExist(err)
 	}
 	text := string(data)
-	return strings.Contains(text, "slimference-rewrite.sh") && strings.Contains(text, "slimference-read-cache.sh")
+	return strings.Contains(text, "slimference-rewrite.sh") &&
+		strings.Contains(text, "slimference-read-cache.sh") &&
+		strings.Contains(text, "slimference-posttool.sh")
 }
 
 func codexStatusInstalled(home string) bool {
@@ -131,33 +137,33 @@ func executableFileExists(path string) (exists bool, executable bool) {
 	return true, info.Mode().Perm()&0o111 != 0
 }
 
-// VerifyReport lists hook files and SHA-256 hashes. ok is false when a hook installation
-// is missing or internally inconsistent for any target that appears to be installed.
+// VerifyReport lists active hook files and SHA-256 hashes. Slimference's
+// public product mode is Codex-only; Claude Code hook logic remains in this
+// package for reference/legacy callers, but the default report does not fail
+// when Claude hooks are absent.
 func VerifyReport(home string) (lines []string, ok bool) {
 	ok = true
 	claudeScript := filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh")
 	if b, err := os.ReadFile(claudeScript); err == nil {
 		sum := sha256.Sum256(b)
-		lines = append(lines, fmt.Sprintf("claude  %s  sha256=%s", claudeScript, hex.EncodeToString(sum[:])))
-	} else {
-		lines = append(lines, fmt.Sprintf("claude  %s  MISSING", claudeScript))
-		ok = false
+		lines = append(lines, fmt.Sprintf("claude  %s  parked sha256=%s", claudeScript, hex.EncodeToString(sum[:])))
 	}
 	readScript := filepath.Join(home, ".claude", "hooks", "slimference-read-cache.sh")
 	if b, err := os.ReadFile(readScript); err == nil {
 		sum := sha256.Sum256(b)
-		lines = append(lines, fmt.Sprintf("claude  %s  sha256=%s", readScript, hex.EncodeToString(sum[:])))
+		lines = append(lines, fmt.Sprintf("claude  %s  parked sha256=%s", readScript, hex.EncodeToString(sum[:])))
+	}
+	postToolScript := filepath.Join(home, ".claude", "hooks", "slimference-posttool.sh")
+	if b, err := os.ReadFile(postToolScript); err == nil {
+		sum := sha256.Sum256(b)
+		lines = append(lines, fmt.Sprintf("claude  %s  parked sha256=%s", postToolScript, hex.EncodeToString(sum[:])))
 	} else {
-		lines = append(lines, fmt.Sprintf("claude  %s  MISSING", readScript))
-		ok = false
+		lines = append(lines, "claude  parked (Codex-only mode; no ~/.claude writes expected)")
 	}
 
 	codexLines, codexOK := VerifyCodexReport(home)
 	lines = append(lines, codexLines...)
-	codexState := InspectCodexHooks(home)
-	if codexState.PreEntry || codexState.PostEntry || codexState.ReadEntry {
-		ok = ok && codexOK
-	}
+	ok = ok && codexOK
 	return lines, ok
 }
 

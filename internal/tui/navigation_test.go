@@ -75,19 +75,19 @@ func TestUpdate_SetupArrowNavigation(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(Model)
-	if model.setupStep != 5 || model.setupCursor != 4 {
+	if model.setupStep != 4 || model.setupCursor != 3 {
 		t.Fatalf("fourth down selection: step=%d cursor=%d", model.setupStep, model.setupCursor)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
 	model = updated.(Model)
-	if model.setupStep != 5 || model.setupCursor != 4 {
+	if model.setupStep != 4 || model.setupCursor != 3 {
 		t.Fatalf("down should clamp at last step: step=%d cursor=%d", model.setupStep, model.setupCursor)
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyUp})
 	model = updated.(Model)
-	if model.setupStep != 4 || model.setupCursor != 3 {
+	if model.setupStep != 3 || model.setupCursor != 2 {
 		t.Fatalf("up selection: step=%d cursor=%d", model.setupStep, model.setupCursor)
 	}
 }

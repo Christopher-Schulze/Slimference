@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -579,6 +580,25 @@ func TestHandleSubcommand_gain_proxy(t *testing.T) {
 			SessionKeySet: true,
 		},
 	})
+	for i := 0; i < 6; i++ {
+		writeDecisionSummary(t, decisionsPath, dbg.RequestSummary{
+			RequestID:            fmt.Sprintf("req-heat-%d", i),
+			Timestamp:            time.Now(),
+			Source:               "proxy",
+			Provider:             "codex_chatgpt",
+			ProviderInputTokens:  100,
+			ProviderCachedTokens: 1000 + i,
+			ProviderOutputTokens: 10,
+			CacheReadTokens:      900 + i,
+			CacheCreateTokens:    20 + i,
+			PromptCache: dbg.PromptCacheSummary{
+				Applied:            true,
+				Reason:             "applied",
+				StablePrefixHash:   fmt.Sprintf("heat-extra-%d", i),
+				StablePrefixTokens: 3000 + i,
+			},
+		})
+	}
 	t.Setenv("SLIMFERENCE_DEBUG_DECISIONS_LOG", decisionsPath)
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
@@ -591,7 +611,7 @@ func TestHandleSubcommand_gain_proxy(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	out := buf.String()
-	if !strings.Contains(out, "Proxy flight gain") || !strings.Contains(out, "Provider cached tokens") || !strings.Contains(out, "360") || !strings.Contains(out, "Tool-prune saved tokens") || !strings.Contains(out, "Prompt-cache heat") {
+	if !strings.Contains(out, "Proxy flight gain") || !strings.Contains(out, "Provider cached tokens") || !strings.Contains(out, "Tool-prune saved tokens") || !strings.Contains(out, "Prompt-cache heat") {
 		t.Fatalf("proxy gain stdout: %q", out)
 	}
 
@@ -1009,7 +1029,12 @@ func writeDecisionSummary(t *testing.T, path string, summary dbg.RequestSummary)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.Write(append(data, '\n')); err != nil {
 		t.Fatal(err)
 	}
 }

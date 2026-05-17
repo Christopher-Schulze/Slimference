@@ -27,53 +27,43 @@ func TestHandleSubcommand_hook_status(t *testing.T) {
 	}
 }
 
-func TestHandleSubcommand_hook_installRemove_claude_and_codex(t *testing.T) {
+func TestHandleSubcommand_hook_installRemove_codexOnly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-	handleSubcommand([]string{"hook", "install", "claude"})
+	handleSubcommand([]string{"hook", "install", "codex"})
 	_ = w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "Installed Claude") {
-		t.Fatalf("install claude: %q", buf.String())
-	}
-
-	r2, w2, _ := os.Pipe()
-	os.Stdout = w2
-	handleSubcommand([]string{"hook", "install", "codex"})
-	_ = w2.Close()
-	os.Stdout = old
-	buf.Reset()
-	_, _ = io.Copy(&buf, r2)
 	if !strings.Contains(buf.String(), "Installed Codex hooks") {
 		t.Fatalf("install codex: %q", buf.String())
 	}
 
-	r3, w3, _ := os.Pipe()
-	os.Stdout = w3
-	handleSubcommand([]string{"hook", "remove", "claude"})
-	_ = w3.Close()
-	os.Stdout = old
-	buf.Reset()
-	_, _ = io.Copy(&buf, r3)
-	if !strings.Contains(buf.String(), "Removed Claude Code") {
-		t.Fatalf("remove claude: %q", buf.String())
-	}
-
-	r4, w4, _ := os.Pipe()
-	os.Stdout = w4
+	r2, w2, _ := os.Pipe()
+	os.Stdout = w2
 	handleSubcommand([]string{"hook", "remove", "codex"})
-	_ = w4.Close()
+	_ = w2.Close()
 	os.Stdout = old
 	buf.Reset()
-	_, _ = io.Copy(&buf, r4)
+	_, _ = io.Copy(&buf, r2)
 	if !strings.Contains(buf.String(), "Removed Slimference hooks from Codex") {
 		t.Fatalf("remove codex: %q", buf.String())
+	}
+
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { handleSubcommand([]string{"hook", "install", "claude"}) })
+	cleanup()
+	var stderr bytes.Buffer
+	_, _ = io.Copy(&stderr, rp)
+	if !exited || code != 2 || !strings.Contains(stderr.String(), "Claude Code hooks are parked") {
+		t.Fatalf("install claude parked exit=(%d,%v) stderr=%q", code, exited, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
+		t.Fatalf("hook install claude must not create ~/.claude, stat err=%v", err)
 	}
 }
 
@@ -85,7 +75,7 @@ func TestHandleSubcommand_hook_verify_afterInstall(t *testing.T) {
 	old := os.Stdout
 	r0, w0, _ := os.Pipe()
 	os.Stdout = w0
-	handleSubcommand([]string{"hook", "install", "claude"})
+	handleSubcommand([]string{"hook", "install", "codex"})
 	_ = w0.Close()
 	os.Stdout = old
 	_, _ = io.Copy(io.Discard, r0)
@@ -204,23 +194,23 @@ func TestHandleHookCmd_verifyNotOkExits1(t *testing.T) {
 	}
 }
 
-// TestHandleHookCmd_installClaude_success covers hooks.InstallClaude success path (main.go:382).
-// Uses a temp HOME so the install writes to a temp dir.
-func TestHandleHookCmd_installClaude_success(t *testing.T) {
+// TestHandleHookCmd_installClaude_parked ensures the public CLI never writes
+// Claude Code hooks while Slimference is in Codex-only product mode.
+func TestHandleHookCmd_installClaude_parked(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"hook", "install", "claude"})
-	_ = w.Close()
-	os.Stdout = old
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { handleSubcommand([]string{"hook", "install", "claude"}) })
+	cleanup()
 	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "Installed Claude") {
-		t.Fatalf("expected install message, got: %q", buf.String())
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 2 || !strings.Contains(buf.String(), "Claude Code hooks are parked") {
+		t.Fatalf("exit=(%d,%v) stderr=%q", code, exited, buf.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
+		t.Fatalf("Claude hook install must not create ~/.claude, stat err=%v", err)
 	}
 }
 
@@ -253,8 +243,9 @@ func TestHandleHookCmd_installCodex_success(t *testing.T) {
 	}
 }
 
-// TestHandleHookCmd_removeClaude_success covers hooks.RemoveClaude success path (main.go:404).
-func TestHandleHookCmd_removeClaude_success(t *testing.T) {
+// TestHandleHookCmd_removeClaude_parked ensures the public CLI does not
+// modify existing Claude Code files while parked.
+func TestHandleHookCmd_removeClaude_parked(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
@@ -266,16 +257,16 @@ func TestHandleHookCmd_removeClaude_success(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"hook", "remove", "claude"})
-	_ = w.Close()
-	os.Stdout = old
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { handleSubcommand([]string{"hook", "remove", "claude"}) })
+	cleanup()
 	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "Removed Claude Code") {
-		t.Fatalf("expected remove message, got: %q", buf.String())
+	_, _ = io.Copy(&buf, rp)
+	if !exited || code != 2 || !strings.Contains(buf.String(), "Claude Code hooks are parked") {
+		t.Fatalf("exit=(%d,%v) stderr=%q", code, exited, buf.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "hooks", "slimference-rewrite.sh")); err != nil {
+		t.Fatalf("parked remove must not delete Claude hook file: %v", err)
 	}
 }
 
@@ -330,9 +321,8 @@ func TestHandleHookCmd_installCodexDoesNotValidateConfigPatch(t *testing.T) {
 	}
 }
 
-// TestHandleHookCmd_installClaude_errorExits1 covers hooks.InstallClaude error path (main.go:378-381).
-// Makes HOME an unwritable dir so MkdirAll fails inside InstallClaude.
-func TestHandleHookCmd_installClaude_errorExits1(t *testing.T) {
+// TestHandleHookCmd_installClaude_parkedExits2 covers the parked Claude branch.
+func TestHandleHookCmd_installClaude_parkedExits2(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod not applicable on windows")
 	}
@@ -349,12 +339,12 @@ func TestHandleHookCmd_installClaude_errorExits1(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(roHome, 0o755) })
-	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_installClaude_errorExits1")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_installClaude_parkedExits2")
 	cmd.Env = append(os.Environ(), "TP_HOOK_ICLAUDE_ERR=1", "TP_HOOK_ICLAUDE_HOME="+roHome)
 	err := cmd.Run()
 	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
-		t.Fatalf("want exit 1 from InstallClaude error, got err=%v", err)
+	if !errors.As(err, &ee) || ee.ExitCode() != 2 {
+		t.Fatalf("want exit 2 from parked Claude install, got err=%v", err)
 	}
 }
 
@@ -384,9 +374,8 @@ func TestHandleHookCmd_installCodex_errorExits1(t *testing.T) {
 	}
 }
 
-// TestHandleHookCmd_removeClaude_errorExits1 covers hooks.RemoveClaude error path (main.go:400-403).
-// Makes settings.json contain invalid JSON so stripClaudePreToolUse fails.
-func TestHandleHookCmd_removeClaude_errorExits1(t *testing.T) {
+// TestHandleHookCmd_removeClaude_parkedExits2 covers the parked Claude remove branch.
+func TestHandleHookCmd_removeClaude_parkedExits2(t *testing.T) {
 	if os.Getenv("TP_HOOK_RCLAUDE_ERR") == "1" {
 		t.Setenv("HOME", os.Getenv("TP_HOOK_RCLAUDE_HOME"))
 		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
@@ -402,12 +391,12 @@ func TestHandleHookCmd_removeClaude_errorExits1(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte("not json {{{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_removeClaude_errorExits1")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHandleHookCmd_removeClaude_parkedExits2")
 	cmd.Env = append(os.Environ(), "TP_HOOK_RCLAUDE_ERR=1", "TP_HOOK_RCLAUDE_HOME="+home)
 	err := cmd.Run()
 	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
-		t.Fatalf("want exit 1 from RemoveClaude error, got err=%v", err)
+	if !errors.As(err, &ee) || ee.ExitCode() != 2 {
+		t.Fatalf("want exit 2 from parked Claude remove, got err=%v", err)
 	}
 }
 

@@ -35,11 +35,28 @@ type mockProxy struct {
 	listenPort     int
 	prefillSpeed   int
 	bypass         bool
+	appEntries     []AppEntry
+	appErr         error
 }
 
 // Bypass + SetBypass satisfy the T67 additions to ProxyInterface.
 func (m *mockProxy) Bypass() bool           { return m.bypass }
 func (m *mockProxy) SetBypass(enabled bool) { m.bypass = enabled }
+
+// AppEntries + SetAppEnabled satisfy the Phase H additions.
+func (m *mockProxy) AppEntries() []AppEntry { return m.appEntries }
+func (m *mockProxy) SetAppEnabled(id string, enabled bool) error {
+	if m.appErr != nil {
+		return m.appErr
+	}
+	for i := range m.appEntries {
+		if m.appEntries[i].ID == id {
+			m.appEntries[i].Enabled = enabled
+			return nil
+		}
+	}
+	return nil
+}
 
 func newMockProxy() *mockProxy {
 	return &mockProxy{
@@ -133,14 +150,12 @@ func (m *mockProxy) Config() ProxyConfigInterface {
 }
 
 type mockConfig struct {
-	port       int
-	speed      int
-	trustClass string
+	port  int
+	speed int
 }
 
-func (c *mockConfig) GetListenPort() int           { return c.port }
-func (c *mockConfig) GetPrefillSpeed() int         { return c.speed }
-func (c *mockConfig) GetMiniMaxTrustClass() string { return c.trustClass }
+func (c *mockConfig) GetListenPort() int   { return c.port }
+func (c *mockConfig) GetPrefillSpeed() int { return c.speed }
 
 // mockServiceControl implements ServiceControlInterface for testing.
 type mockServiceControl struct {
@@ -268,8 +283,9 @@ func TestNewModel_Defaults(t *testing.T) {
 	}
 }
 
-// TestUpdate_ToggleClaude verifies that pressing 'c' toggles Claude.
-func TestUpdate_ToggleClaude(t *testing.T) {
+// TestUpdate_ToggleClaudeDisabled verifies that pressing 'c' keeps Claude disabled
+// in Codex-only mode.
+func TestUpdate_ToggleClaudeDisabled(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	m := NewModel(p)
@@ -277,18 +293,11 @@ func TestUpdate_ToggleClaude(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
 	model := updated.(Model)
 
-	if model.claudeEnabled {
-		t.Error("claudeEnabled should be false after toggling")
+	if model.claudeEnabled || !p.claudeEnabled {
+		t.Errorf("Claude UI should be disabled without changing proxy policy; model=%v proxy=%v", model.claudeEnabled, p.claudeEnabled)
 	}
-	if p.claudeEnabled {
-		t.Error("proxy should have been toggled off too")
-	}
-
-	// Toggle back.
-	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
-	model2 := updated2.(Model)
-	if !model2.claudeEnabled {
-		t.Error("claudeEnabled should be true after toggling back")
+	if !strings.Contains(model.flashMsg, "Claude Code is disabled") {
+		t.Errorf("expected disabled flash, got %q", model.flashMsg)
 	}
 }
 
@@ -1784,7 +1793,7 @@ func TestView_SetupView_withSvc_stepSelected(t *testing.T) {
 	updated2, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	model2 := updated2.(Model)
 	output := model2.View()
-	if !strings.Contains(output, "Install Claude Code hook") {
+	if !strings.Contains(output, "Run slimference install") {
 		t.Errorf("selected step should show in output, got: %s", output)
 	}
 }

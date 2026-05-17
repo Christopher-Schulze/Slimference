@@ -138,6 +138,17 @@ type TransparentConfig struct {
 	TLSProfiles map[string]string `toml:"tls_profiles"`
 	// DefaultTLSProfile is used when TLSProfiles has no host match.
 	DefaultTLSProfile string `toml:"default_tls_profile"`
+	// SNIPeekMode enables the T199 transparent.Engine that listens on
+	// a raw TCP port, peeks the TLS ClientHello SNI, terminates TLS
+	// with the local CA, and routes via internal/proxy/sniroute. This
+	// is the path required for clients that ignore the system HTTPS
+	// proxy (e.g. Codex 0.130's WebSocket transport). Off by default
+	// so existing CONNECT-MITM deployments are unaffected.
+	SNIPeekMode bool `toml:"sni_peek_mode"`
+	// SNIPeekPort is the TCP port the SNI-peek listener binds. Use 443
+	// for production (requires root or pfctl rdr); 8443 for dev. Zero
+	// is treated as "disabled" even when SNIPeekMode is true.
+	SNIPeekPort int `toml:"sni_peek_port"`
 }
 
 // UpstreamConfig holds upstream API base URLs.
@@ -175,7 +186,6 @@ type CompressionConfig struct {
 	StructureMinTokens       int                `toml:"structure_min_tokens"`
 	StructureLanguages       []string           `toml:"structure_languages"`
 	DedupSimilarityThreshold float64            `toml:"dedup_similarity_threshold"`
-	MiniMax                  MiniMaxConfig      `toml:"minimax"`
 	Summary                  SummaryConfig      `toml:"summary"`
 	OutputReduce             OutputReduceConfig `toml:"output_reduce"`
 	Tuning                   TuningConfig       `toml:"tuning"`
@@ -203,6 +213,53 @@ type OutputReduceConfig struct {
 	MinNetSavingsPct     float64 `toml:"min_net_savings_pct"`
 	MaxFailureRateDelta  float64 `toml:"max_failure_rate_delta"`
 	CooldownTurns        int     `toml:"cooldown_turns"`
+	// StopSequencesEnabled (T165) injects a curated trailing-commentary
+	// stop-sequence list into every Anthropic/OpenAI request so the
+	// model halts at the API boundary before emitting "Hope this
+	// helps!", "Let me know if…", etc. Default true; the underlying
+	// phrase set lives in internal/outstop. Env override:
+	// SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS=0 disables.
+	StopSequencesEnabled bool `toml:"stop_sequences_enabled"`
+	// StreamCutEnabled (T166) attaches a streaming-side cutter that
+	// closes the upstream connection mid-response once the same
+	// commentary patterns appear past a minimum-content threshold.
+	// Acts as a safety net for cases the API stop_sequences (cap 4)
+	// fail to cover. Default true. Env override:
+	// SLIMFERENCE_OUTPUT_REDUCE_STREAMCUT=0 disables.
+	StreamCutEnabled bool `toml:"streamcut_enabled"`
+	// RepetitionDetectionEnabled (T167) builds a per-request index of
+	// the prompt's tool_result and code-fence content; the proxy then
+	// rewrites verbatim echoes in the response into compact
+	// "[unchanged: <name>:L<from>-<to>]" markers. Default true. Env
+	// override: SLIMFERENCE_OUTPUT_REDUCE_REPDET=0 disables.
+	RepetitionDetectionEnabled bool `toml:"repetition_detection_enabled"`
+	// StaleReadAgingEnabled (T170) replaces older Read(...) tool_results
+	// in the conversation with `[stale read: <path> superseded by
+	// turn N]` markers when a newer read of the same path exists.
+	// Lossless aging - the model has the current content from the
+	// newer read, the older one is redundant. Default true. Env
+	// override: SLIMFERENCE_INPUT_REDUCE_STALE_AGING=0 disables.
+	StaleReadAgingEnabled bool `toml:"stale_read_aging_enabled"`
+	// StaleReadAgingMinTurnGap is the minimum message-distance
+	// between the old and new read before aging fires. Default 3.
+	StaleReadAgingMinTurnGap int `toml:"stale_read_aging_min_turn_gap"`
+	// ObsoleteReadPruneEnabled (T174) replaces tool_result reads
+	// that happened before a subsequent file mutation
+	// (apply_patch/Write/Edit) with `[obsolete: <path> edited at
+	// turn N]`. Default true. Env override:
+	// SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE=0 disables.
+	ObsoleteReadPruneEnabled bool `toml:"obsolete_read_prune_enabled"`
+	// BeTerseHintEnabled (T169) injects a curated be-terse hint into
+	// the system prompt for sessions routed to the qualityab
+	// treatment cohort. **Default off** because this lever can
+	// degrade quality. Operators opt in by flipping the toggle; the
+	// harness auto-rolls-back if treatment-side failures exceed
+	// control's by 5pp on 50+ samples. Env override:
+	// SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT=1 enables.
+	BeTerseHintEnabled bool `toml:"be_terse_hint_enabled"`
+	// BeTerseHintText overrides the default hint. Empty falls back
+	// to beterse.DefaultHint.
+	BeTerseHintText string `toml:"be_terse_hint_text"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
@@ -359,54 +416,7 @@ type StaircaseStep struct {
 	Threshold  float64 `toml:"threshold"`
 }
 
-// MiniMaxConfig holds settings for the OpenAI-compatible summarization API.
-// The TOML section keeps the historical "minimax" name because MiniMax M2.x
-// is the default provider, but BaseURL/Model/APIKeyEnv can point at any
-// compatible /chat/completions endpoint.
-type MiniMaxConfig struct {
-	BaseURL                string  `toml:"base_url"`
-	APIKeyEnv              string  `toml:"api_key_env"`
-	Model                  string  `toml:"model"`
-	Temperature            float64 `toml:"temperature"`
-	TopP                   float64 `toml:"top_p"`
-	MaxRetries             int     `toml:"max_retries"`
-	ConnectTimeoutSeconds  int     `toml:"connect_timeout_seconds"`
-	ResponseTimeoutSeconds int     `toml:"response_timeout_seconds"`
-	RateLimitRPM           int     `toml:"rate_limit_rpm"`
-	// EnableMinTokens emits the `min_tokens` request field (T91). Off by
-	// default because MiniMax's contract for this field is not publicly
-	// documented; flip after live verification.
-	EnableMinTokens bool `toml:"enable_min_tokens"`
-	// EnableSeed emits the `seed` request field for stable summaries (T91).
-	// Off by default to keep the wire shape unchanged until opt-in.
-	EnableSeed bool `toml:"enable_seed"`
-	// EnableReasoningSplit emits MiniMax's OpenAI-compatible
-	// `reasoning_split` request field so M2.x thinking content is returned
-	// outside message.content. Disable for non-MiniMax providers that reject
-	// extra fields.
-	EnableReasoningSplit bool `toml:"enable_reasoning_split"`
-	// TrustClass overrides the provider trust label. When set to
-	// "upstream_provider", a self-hosted endpoint is no longer flagged as
-	// external. T121.
-	TrustClass string `toml:"trust_class"`
-}
-
-// APIKey resolves the MiniMax API key from the configured environment variable.
-func (m MiniMaxConfig) APIKey() string {
-	return os.Getenv(m.APIKeyEnv)
-}
-
-// ConnectTimeout returns the connect timeout as a duration.
-func (m MiniMaxConfig) ConnectTimeout() time.Duration {
-	return time.Duration(m.ConnectTimeoutSeconds) * time.Second
-}
-
-// ResponseTimeout returns the response timeout as a duration.
-func (m MiniMaxConfig) ResponseTimeout() time.Duration {
-	return time.Duration(m.ResponseTimeoutSeconds) * time.Second
-}
-
-// SummaryConfig controls quality thresholds for MiniMax summaries.
+// SummaryConfig controls quality thresholds for deterministic summarizer outputs.
 //
 // Mode (T36) selects a coherent operating profile on top of which the
 // individual knobs (TargetRatio / MaxRatio / MinRatio / Strict) act as
@@ -705,49 +715,41 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH")); v != "" {
 		cfg.Compression.PromptOverridePath = v
 	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_API_KEY_ENV")); v != "" {
-		cfg.Compression.MiniMax.APIKeyEnv = v
-	} else if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_API_KEY")); v != "" {
-		// Direct key override: switch APIKeyEnv so MiniMaxConfig.APIKey()
-		// resolves the explicit Slimference variable instead of silently
-		// ignoring it when api_key_env is still MINIMAX_API_KEY.
-		cfg.Compression.MiniMax.APIKeyEnv = "SLIMFERENCE_MINIMAX_API_KEY"
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.StopSequencesEnabled = b
+		}
 	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_BASE_URL")); v != "" {
-		cfg.Compression.MiniMax.BaseURL = v
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_STREAMCUT")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.StreamCutEnabled = b
+		}
 	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_MODEL")); v != "" {
-		cfg.Compression.MiniMax.Model = v
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_REPDET")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.RepetitionDetectionEnabled = b
+		}
 	}
-	if n, ok := envIntOK("SLIMFERENCE_MINIMAX_MAX_RETRIES"); ok {
-		cfg.Compression.MiniMax.MaxRetries = n
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.StaleReadAgingEnabled = b
+		}
 	}
-	if n, ok := envIntOK("SLIMFERENCE_MINIMAX_CONNECT_TIMEOUT_SECONDS"); ok {
-		cfg.Compression.MiniMax.ConnectTimeoutSeconds = n
+	if n, ok := envIntOK("SLIMFERENCE_INPUT_REDUCE_STALE_AGING_MIN_TURN_GAP"); ok && n > 0 {
+		cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = n
 	}
-	if n, ok := envIntOK("SLIMFERENCE_MINIMAX_RESPONSE_TIMEOUT_SECONDS"); ok {
-		cfg.Compression.MiniMax.ResponseTimeoutSeconds = n
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = b
+		}
 	}
-	if n, ok := envIntOK("SLIMFERENCE_MINIMAX_RATE_LIMIT_RPM"); ok {
-		cfg.Compression.MiniMax.RateLimitRPM = n
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.BeTerseHintEnabled = b
+		}
 	}
-	if f, ok := envFloatOK("SLIMFERENCE_MINIMAX_TEMPERATURE"); ok {
-		cfg.Compression.MiniMax.Temperature = f
-	}
-	if f, ok := envFloatOK("SLIMFERENCE_MINIMAX_TOP_P"); ok {
-		cfg.Compression.MiniMax.TopP = f
-	}
-	if b, ok := envBoolOK("SLIMFERENCE_MINIMAX_ENABLE_SEED"); ok {
-		cfg.Compression.MiniMax.EnableSeed = b
-	}
-	if b, ok := envBoolOK("SLIMFERENCE_MINIMAX_ENABLE_MIN_TOKENS"); ok {
-		cfg.Compression.MiniMax.EnableMinTokens = b
-	}
-	if b, ok := envBoolOK("SLIMFERENCE_MINIMAX_ENABLE_REASONING_SPLIT"); ok {
-		cfg.Compression.MiniMax.EnableReasoningSplit = b
-	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_MINIMAX_TRUST_CLASS")); v != "" {
-		cfg.Compression.MiniMax.TrustClass = v
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT")); v != "" {
+		cfg.Compression.OutputReduce.BeTerseHintText = v
 	}
 }
 
@@ -833,36 +835,6 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Analytics.GainUSDPerMillionTokens < 0 {
 		return fmt.Errorf("analytics.gain_usd_per_million_tokens must be >= 0, got %v", cfg.Analytics.GainUSDPerMillionTokens)
-	}
-	if strings.TrimSpace(cfg.Compression.MiniMax.BaseURL) == "" {
-		return fmt.Errorf("compression.minimax.base_url must not be empty")
-	}
-	if strings.TrimSpace(cfg.Compression.MiniMax.APIKeyEnv) == "" {
-		return fmt.Errorf("compression.minimax.api_key_env must not be empty")
-	}
-	if strings.TrimSpace(cfg.Compression.MiniMax.Model) == "" {
-		return fmt.Errorf("compression.minimax.model must not be empty")
-	}
-	if cfg.Compression.MiniMax.Temperature < 0 || cfg.Compression.MiniMax.Temperature > 2 {
-		return fmt.Errorf("compression.minimax.temperature must be 0.0-2.0, got %v", cfg.Compression.MiniMax.Temperature)
-	}
-	if cfg.Compression.MiniMax.TopP <= 0 || cfg.Compression.MiniMax.TopP > 1 {
-		return fmt.Errorf("compression.minimax.top_p must be >0.0 and <=1.0, got %v", cfg.Compression.MiniMax.TopP)
-	}
-	if cfg.Compression.MiniMax.MaxRetries < 0 {
-		return fmt.Errorf("compression.minimax.max_retries must be >= 0, got %d", cfg.Compression.MiniMax.MaxRetries)
-	}
-	if cfg.Compression.MiniMax.ConnectTimeoutSeconds <= 0 {
-		return fmt.Errorf("compression.minimax.connect_timeout_seconds must be > 0, got %d", cfg.Compression.MiniMax.ConnectTimeoutSeconds)
-	}
-	if cfg.Compression.MiniMax.ResponseTimeoutSeconds <= 0 {
-		return fmt.Errorf("compression.minimax.response_timeout_seconds must be > 0, got %d", cfg.Compression.MiniMax.ResponseTimeoutSeconds)
-	}
-	if cfg.Compression.MiniMax.RateLimitRPM < 0 {
-		return fmt.Errorf("compression.minimax.rate_limit_rpm must be >= 0, got %d", cfg.Compression.MiniMax.RateLimitRPM)
-	}
-	if tc := cfg.Compression.MiniMax.TrustClass; tc != "" && tc != "upstream_provider" && tc != "external_third_party" && tc != "unknown" {
-		return fmt.Errorf("compression.minimax.trust_class must be upstream_provider/external_third_party/unknown, got %q", tc)
 	}
 	or := cfg.Compression.OutputReduce
 	if or.Profile != "" && or.Profile != "auto" && or.Profile != "off" && or.Profile != "mild" && or.Profile != "standard" &&

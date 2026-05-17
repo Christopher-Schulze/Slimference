@@ -151,10 +151,6 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 		t.Fatalf("disarm transparent failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
 
-	runAction("claude")
-	if m.claudeEnabled || !strings.Contains(m.flashMsg, "Claude Code: OFF") {
-		t.Fatalf("claude toggle flash=%q enabled=%v", m.flashMsg, m.claudeEnabled)
-	}
 	runAction("codex")
 	if m.codexEnabled || !strings.Contains(m.flashMsg, "Codex: OFF") {
 		t.Fatalf("codex toggle flash=%q enabled=%v", m.flashMsg, m.codexEnabled)
@@ -300,7 +296,7 @@ func TestRenderMainViewAndHelperCoverage(t *testing.T) {
 	m.height = 40
 
 	view := m.renderMainView()
-	for _, needle := range []string{"CONTROL SURFACE", "PROVIDER MAP", "TRAFFIC", "daemon live", "Claude Code", "Layer 2 MiniMax"} {
+	for _, needle := range []string{"CONTROL SURFACE", "PROVIDER MAP", "TRAFFIC", "daemon live", "Claude Code", "Layer 2 semantic"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
@@ -612,7 +608,7 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Done: Arm system HTTPS proxy") {
+	if !strings.Contains(model.flashMsg, "Done: Run slimference enable") {
 		t.Fatalf("setup enter flash=%q", model.flashMsg)
 	}
 

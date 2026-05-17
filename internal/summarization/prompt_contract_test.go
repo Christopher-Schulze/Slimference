@@ -33,23 +33,19 @@ func TestPickSummaryTaskContract(t *testing.T) {
 
 func TestTaskContractPrompt(t *testing.T) {
 	t.Parallel()
-	for _, contract := range []SummaryTaskContract{ContractGeneric, ContractCoding, ContractDebug, ContractReview, ContractPlan, ContractDocs, ContractLiveE2E} {
-		prompt := taskContractPrompt(contract)
-		if !strings.Contains(prompt, "TASK CONTRACT:") {
-			t.Fatalf("contract %s missing header: %q", contract, prompt)
+	tests := map[SummaryTaskContract]string{
+		ContractGeneric: "TASK CONTRACT: generic",
+		ContractCoding:  "TASK CONTRACT: coding implementation",
+		ContractDebug:   "TASK CONTRACT: debugging/failure analysis",
+		ContractReview:  "TASK CONTRACT: code review/audit",
+		ContractPlan:    "TASK CONTRACT: planning/architecture",
+		ContractDocs:    "TASK CONTRACT: documentation",
+		ContractLiveE2E: "TASK CONTRACT: live E2E/testing",
+	}
+	for contract, want := range tests {
+		got := taskContractPrompt(contract)
+		if !strings.Contains(got, want) {
+			t.Fatalf("contract %s prompt=%q missing %q", contract, got, want)
 		}
-	}
-}
-
-func TestBuildSystemPromptIncludesTaskContract(t *testing.T) {
-	t.Parallel()
-	SetPromptOverride("", "")
-	ResetExamplePromptCounts()
-	prompt := buildSystemPrompt("go test failed with panic: exact error")
-	if !strings.Contains(prompt, "TASK CONTRACT: debugging/failure analysis") {
-		t.Fatalf("debug contract missing:\n%s", prompt)
-	}
-	if !strings.Contains(prompt, "Preserve exact error text") {
-		t.Fatalf("debug preservation rule missing:\n%s", prompt)
 	}
 }

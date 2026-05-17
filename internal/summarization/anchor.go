@@ -175,6 +175,20 @@ func filterNonAnchored(messages []types.Message, anchorIndices []int) []types.Me
 	return result
 }
 
+func filterNonAnchoredRange(messages []types.Message, anchorIndices []int, start int) []types.Message {
+	if start == 0 {
+		return filterNonAnchored(messages, anchorIndices)
+	}
+	relative := make([]int, 0, len(anchorIndices))
+	end := start + len(messages)
+	for _, idx := range anchorIndices {
+		if idx >= start && idx < end {
+			relative = append(relative, idx-start)
+		}
+	}
+	return filterNonAnchored(messages, relative)
+}
+
 // fullText concatenates all text content blocks in a message.
 func fullText(msg types.Message) string {
 	var sb strings.Builder

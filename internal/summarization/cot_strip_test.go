@@ -39,18 +39,18 @@ func TestStripCoTTags_AllFamilies(t *testing.T) {
 		t.Fatalf("final bullet missing: %q", got)
 	}
 	for _, tag := range defaultCoTTags {
-		if CoTTagCount(tag) == 0 {
-			t.Fatalf("counter for %q did not advance", tag)
+		if CoTTagCount(tag) != 0 {
+			t.Fatalf("legacy counter for %q should stay zero", tag)
 		}
 	}
 }
 
-func TestStripCoTTags_WithAttributes(t *testing.T) {
+func TestStripCoTTags_WithAttributesIsNoOp(t *testing.T) {
 	ResetCoTTagCounts()
 	in := `<think id="x">step 1</think>` + "\n- bullet"
 	got := StripCoTTags(in, []string{"think"})
-	if strings.Contains(got, "<think") {
-		t.Fatalf("attributed tag not stripped: %q", got)
+	if got != in {
+		t.Fatalf("attributed tag should be unchanged by legacy helper: %q", got)
 	}
 }
 
@@ -61,8 +61,8 @@ func TestStripCoTTags_NestedFixedPoint(t *testing.T) {
 	if strings.Contains(got, "<think") || strings.Contains(got, "<reasoning") {
 		t.Fatalf("nested not collapsed: %q", got)
 	}
-	if CoTTagCount("think") == 0 || CoTTagCount("reasoning") == 0 {
-		t.Fatal("counters did not advance for nested tags")
+	if CoTTagCount("think") != 0 || CoTTagCount("reasoning") != 0 {
+		t.Fatal("legacy counters should stay zero")
 	}
 }
 
@@ -75,12 +75,12 @@ func TestStripCoTTags_NoMatchKeepsOriginal(t *testing.T) {
 	}
 }
 
-func TestStripCoTTags_TrailingWhitespaceClosing(t *testing.T) {
+func TestStripCoTTags_MalformedClosingTruncatesAtOpenTag(t *testing.T) {
 	ResetCoTTagCounts()
 	in := "<think>step</think >\n- bullet"
 	got := StripCoTTags(in, []string{"think"})
-	if strings.Contains(got, "<think") {
-		t.Fatalf("close with trailing space not stripped: %q", got)
+	if got != "" {
+		t.Fatalf("malformed close should truncate at open tag, got %q", got)
 	}
 }
 
@@ -104,8 +104,8 @@ func TestCoTTagCounts_ReturnsCopy(t *testing.T) {
 func TestResetCoTTagCounts_ClearsAll(t *testing.T) {
 	ResetCoTTagCounts()
 	StripCoTTags("<think>x</think><reasoning>y</reasoning>", []string{"think", "reasoning"})
-	if CoTTagCount("think") == 0 {
-		t.Fatal("expected non-zero before reset")
+	if CoTTagCount("think") != 0 {
+		t.Fatal("legacy counters should stay zero before reset")
 	}
 	ResetCoTTagCounts()
 	if CoTTagCount("think") != 0 || CoTTagCount("reasoning") != 0 {

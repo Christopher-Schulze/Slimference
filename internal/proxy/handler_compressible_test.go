@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slimference/slimference/internal/compactsignal"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/types"
@@ -821,5 +822,64 @@ func TestServeHTTP_compressQueueFullSkipsEnqueue(t *testing.T) {
 	t.Cleanup(func() { _ = res.Body.Close() })
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+}
+
+func TestServeHTTPPrecompactSignalShrinksWindow(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"ok","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.SlidingWindow = 4
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+	if err := p.compactSignals.WriteMarker(compactsignal.PhasePre, "anthropic:trace-pre", "", "test"); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(anthropicLongConversationJSON(10)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-trace-id", "trace-pre")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServeHTTPAnthropicPromptCacheHotBranch(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"ok","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.SlidingWindow = 1
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+	body := anthropicLongConversationJSON(4)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("anthropic-trace-id", "trace-hot")
+		rec := httptest.NewRecorder()
+		p.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("run %d status %d body %s", i, rec.Code, rec.Body.String())
+		}
 	}
 }

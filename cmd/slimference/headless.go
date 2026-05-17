@@ -58,9 +58,36 @@ func runHeadless(args []string) {
 	signalNotifyFn(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signalStopFn(sigCh)
 
-	sig := <-sigCh
+	hupCh := make(chan os.Signal, 1)
+	signalNotifyFn(hupCh, syscall.SIGHUP)
+	defer signalStopFn(hupCh)
+
+	var sig os.Signal
+hupLoop:
+	for {
+		select {
+		case s := <-sigCh:
+			sig = s
+			break hupLoop
+		case <-hupCh:
+			slog.Info("SIGHUP: reloading apps policy + SNIPeekMode")
+			reloadAppsManager(startProxyAppsManager)
+			reloadSNIPeekModeFromDisk(cfg)
+		}
+	}
 	slog.Info("signal received", "signal", sig.String())
 
+	// Revert /etc/hosts BEFORE shutdown so a clean exit always leaves
+	// the system reachable. Order matters: hosts → SNI listener → proxy.
+	if startProxyHostsCleanup != nil {
+		startProxyHostsCleanup()
+	}
+	if startProxySNICancel != nil {
+		startProxySNICancel()
+	}
+	if startProxyPIDCleanup != nil {
+		startProxyPIDCleanup()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeoutHL)
 	defer cancel()
 	if err := shutdownFn(ctx); err != nil {

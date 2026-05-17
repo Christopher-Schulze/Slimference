@@ -107,7 +107,6 @@ func (m *Model) renderStatsView() string {
 		" " + renderKPIRow(s,
 			fmt.Sprintf("%d requests", snap.TotalRequests),
 			fmt.Sprintf("%d errors", snap.Errors),
-			fmt.Sprintf("%d MiniMax calls", snap.MiniMaxCalls),
 			renderSessionDuration(snap.SessionStart),
 		),
 	})
@@ -123,7 +122,7 @@ func (m *Model) renderStatsView() string {
 	rows := [][]string{
 		{"Total Input", formatTokens(snap.TotalInputTokens), formatTokens(snap.TotalInputTokens - snap.SavedInputTokens), fmt.Sprintf("%d%%", ratio)},
 		{"Layer 1 (determ)", "-", "-", formatTokens(snap.Layer1Savings)},
-		{"Layer 2 (MiniMax)", "-", "-", formatTokens(snap.Layer2Savings)},
+		{"Layer 2 (semantic)", "-", "-", formatTokens(snap.Layer2Savings)},
 		{"Layer 3 (cache)", "-", "-", formatTokens(snap.Layer3Savings)},
 		{"Total Output", formatTokens(snap.TotalOutputTokens), "(passthru)", "-"},
 	}
@@ -248,7 +247,7 @@ func (m *Model) renderStatsView() string {
 		latRows = append(latRows, []string{"OpenAI", fmt.Sprintf("%.0fms", snap.LatencyOpenAIMs), fmt.Sprintf("~%.1fs", ttft)})
 	}
 	if snap.MiniMaxAvgLatencyMs > 0 {
-		latRows = append(latRows, []string{"MiniMax (async)", fmt.Sprintf("%.0fms", snap.MiniMaxAvgLatencyMs), "-"})
+		latRows = append(latRows, []string{"Layer 2 (async)", fmt.Sprintf("%.0fms", snap.MiniMaxAvgLatencyMs), "-"})
 	}
 	if len(latRows) == 0 {
 		appendCard("LATENCY", []string{s.Muted.Render("  No requests yet.")})
@@ -598,7 +597,7 @@ func (m *Model) renderSetupView() string {
 
 	var lines []string
 
-	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Setup Wizard"))
+	lines = append(lines, " "+s.Title.Render("SLIMFERENCE")+" "+s.Dim.Render("/ Setup"))
 	lines = append(lines, " "+renderViewTabs(s, m.view))
 	lines = append(lines, rule)
 
@@ -607,7 +606,7 @@ func (m *Model) renderSetupView() string {
 	if m.svc != nil {
 		transparent = m.transparentStatus
 	}
-	allReady := transparent.Installed() || (m.svc == nil && m.hookStatus.Claude && m.hookStatus.Codex)
+	allReady := transparent.Installed() || (m.svc == nil && m.hookStatus.Codex)
 	statusCard := ""
 	if transparent.ProxyArmed {
 		statusCard = s.Card.Width(innerWidth - 2).Render(
@@ -634,9 +633,6 @@ func (m *Model) renderSetupView() string {
 				missing = append(missing, "launchd daemon")
 			}
 		} else {
-			if !m.hookStatus.Claude {
-				missing = append(missing, "Claude Code hook")
-			}
 			if !m.hookStatus.Codex {
 				missing = append(missing, "Codex hook")
 			}
@@ -653,7 +649,7 @@ func (m *Model) renderSetupView() string {
 		steps := m.setupSteps()
 		stepLines := []string{
 			" " + s.PanelTitle.Render("SETUP STEPS"),
-			" " + s.Dim.Render("Select a setup step with ↑/↓ and apply it with Enter."),
+			" " + s.Dim.Render("Codex-only: install, enable, disable, uninstall. Claude stays off."),
 			"",
 		}
 		for i, step := range steps {
@@ -678,7 +674,8 @@ func (m *Model) renderSetupView() string {
 		}
 		serviceLines = append(serviceLines, renderTransparentStatusLine(s, transparent))
 		serviceLines = append(serviceLines, "")
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] arm/disarm transparent proxy  [u] uninstall transparent  [p] daemon start/stop  [o] restart  [e] enable autostart  [w] disable autostart"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] enable/disable MITM  [u] uninstall  [p] start/stop  [o] restart"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[e] enable autostart  [w] disable autostart"))
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(serviceLines, "\n")))
 
 	} else {
@@ -696,8 +693,7 @@ func (m *Model) renderSetupView() string {
 		}
 		_, cfgErr := os.Stat(configPath())
 		checklistLines = append(checklistLines, check("Config file", cfgErr == nil))
-		checklistLines = append(checklistLines, check("MiniMax API key (MINIMAX_API_KEY)", os.Getenv("MINIMAX_API_KEY") != ""))
-		checklistLines = append(checklistLines, check("Claude Code hook installed", m.hookStatus.Claude))
+		// Layer 2 API key removed from required checklist (Phase H: not part of 2-surface install).
 		checklistLines = append(checklistLines, check("Codex hook installed", m.hookStatus.Codex))
 		port := m.proxy.Config().GetListenPort()
 		checklistLines = append(checklistLines, check(fmt.Sprintf("Proxy listening on :%d", port), true))
@@ -729,11 +725,13 @@ func (m *Model) renderSetupView() string {
 
 		lines = append(lines, "")
 		commandLines := []string{
-			" " + s.PanelTitle.Render("COMMANDS"),
+			" " + s.PanelTitle.Render("COMMANDS (Phase H single entry point)"),
 			"",
-			"  " + s.SetupCmd.Render("slimference proxy install"),
-			"  " + s.SetupCmd.Render("slimference proxy enable"),
-			"  " + s.SetupCmd.Render("slimference proxy disable"),
+			"  " + s.SetupCmd.Render("slimference install"),
+			"  " + s.SetupCmd.Render("slimference enable") + s.Dim.Render("    # arm transparent MITM"),
+			"  " + s.SetupCmd.Render("slimference disable") + s.Dim.Render("   # disarm"),
+			"  " + s.SetupCmd.Render("slimference uninstall") + s.Dim.Render(" # full revert"),
+			"  " + s.SetupCmd.Render("slimference status") + s.Dim.Render("    # CLI status table"),
 		}
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(commandLines, "\n")))
 	}
@@ -754,8 +752,11 @@ func configPath() string {
 	if p := os.Getenv("SLIMFERENCE_CONFIG"); p != "" {
 		return p
 	}
+	if p := os.Getenv("XDG_CONFIG_HOME"); p != "" {
+		return filepath.Join(p, "slimference", "config.toml")
+	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".slimference", "config.toml")
+	return filepath.Join(home, ".config", "slimference", "config.toml")
 }
 
 // renderRequestLog renders the recent request log lines.
@@ -918,7 +919,10 @@ func (m *Model) renderFooterBar() string {
 		k("←/→", "views"),
 		k("↑/↓", "select"),
 		k("enter", "apply"),
+		k("a", "apps"),
+		k("s", "stats"),
 		k("i", "setup"),
+		k("b", "bypass"),
 		k("q", "quit"),
 	}
 	return " " + strings.Join(parts, sep)
@@ -940,19 +944,27 @@ func (m *Model) buildLeftPanel(width int) []string {
 	var lines []string
 	add := func(str string) { lines = append(lines, pad(str)) }
 
-	allReady := m.hookStatus.Claude && m.hookStatus.Codex
+	allReady := m.hookStatus.Codex
 	if allReady {
-		add(" " + s.Saved.Render("● READY") + "  " + s.Dim.Render("all agent hooks installed"))
+		add(" " + s.Saved.Render("● READY") + "  " + s.Dim.Render("Codex hook installed"))
 	} else {
 		missing := []string{}
-		if !m.hookStatus.Claude {
-			missing = append(missing, "Claude")
-		}
 		if !m.hookStatus.Codex {
 			missing = append(missing, "Codex")
 		}
 		add(" " + s.Warning.Render("● SETUP") + "  " + s.Dim.Render("missing: "+strings.Join(missing, ", ")))
 		add(" " + s.Dim.Render("  open Setup with ←/→ to complete installation"))
+	}
+
+	// Phase H — transparent MITM arm/disarm tile. Renders prominently
+	// so the user always sees whether traffic is being intercepted.
+	if m.transparentStatus.ProxyArmed {
+		add(" " + s.Saved.Render("● MITM ARMED") + "  " + s.Dim.Render("intercepting Codex"))
+	} else {
+		add(" " + s.Muted.Render("○ MITM DISARMED") + "  " + s.Dim.Render("press [i] then [a] to arm"))
+	}
+	if m.proxy.Bypass() {
+		add(" " + s.Warning.Render("● BYPASS") + "  " + s.Dim.Render("all traffic passes through unmodified (press [b])"))
 	}
 	add("")
 
@@ -979,23 +991,16 @@ func (m *Model) buildLeftPanel(width int) []string {
 		add("")
 	}
 
-	claudeHealth := m.proxy.GetProviderHealth(types.Anthropic)
 	codexHealth := m.proxy.GetProviderHealth(types.OpenAI)
 	add(" " + s.PanelTitle.Render("AGENT HEALTH"))
-	add(" " + renderProviderBadge(s, "Claude Code", m.claudeEnabled) + "  " + renderHealthDot(s, claudeHealth.Status))
-	add(" " + renderProviderBadge(s, "Codex", m.codexEnabled) + "  " + renderHealthDot(s, codexHealth.Status))
+	add(" " + renderProviderBadge(s, "Codex CLI / Desktop", m.codexEnabled) + "  " + renderHealthDot(s, codexHealth.Status))
+	add(" " + s.Muted.Render("○ Claude Code  [OFF]  opt-in later"))
 	add("")
 
 	l2Status := m.proxy.GetLayer2Status()
 	add(" " + s.PanelTitle.Render("BACKGROUND"))
 	add(renderLayerLine(s, 1, "Deterministic", m.layer1Enabled, snap.Layer1Savings, ""))
-	l2Label := "MiniMax"
-	trustOverride := m.proxy.Config().GetMiniMaxTrustClass()
-	miniMaxTrust := types.EffectiveTrustClass(types.MiniMax, trustOverride)
-	if miniMaxTrust == types.TrustClassExternalThirdParty {
-		l2Label = "MiniMax [external]"
-	}
-	add(renderLayerLine(s, 2, l2Label, m.layer2Enabled, snap.Layer2Savings, l2Summary(l2Status)))
+	add(renderLayerLine(s, 2, "Semantic", m.layer2Enabled, snap.Layer2Savings, l2Summary(l2Status)))
 	add(renderLayerLine(s, 3, "Cache", m.layer3Enabled, snap.Layer3Savings, fmt.Sprintf("hits: %d/%d", snap.CacheHits, snap.TotalRequests)))
 	add("")
 
@@ -1102,20 +1107,21 @@ func (m *Model) buildRightPanel(width int) []string {
 	add("")
 
 	add(" " + s.PanelTitle.Render("PROVIDER MAP"))
-	add(providerFlowLine(s, "Claude Code", snap.PerProvider[types.Anthropic], snap.LatencyAnthropicMs))
 	add(providerFlowLine(s, "Codex", snap.PerProvider[types.OpenAI], snap.LatencyOpenAIMs))
 	add("")
 
 	// LIVE log or QUICK START
-	if snap.TotalRequests == 0 && !m.hookStatus.Claude && !m.hookStatus.Codex {
+	if snap.TotalRequests == 0 && !m.hookStatus.Codex {
 		add(" " + s.PanelTitle.Render("QUICK START"))
 		add("")
-		add(" " + s.Normal.Render("1. Install transparent mode:"))
-		add("   " + s.SetupCmd.Render("$ slimference proxy install"))
-		add("   " + s.SetupCmd.Render("$ slimference proxy enable"))
+		add(" " + s.Normal.Render("1. Install + arm:"))
+		add("   " + s.SetupCmd.Render("$ slimference install"))
+		add("   " + s.SetupCmd.Render("$ slimference enable"))
 		add("")
-		add(" " + s.Normal.Render("2. Start Claude Code or Codex CLI"))
+		add(" " + s.Normal.Render("2. Start Codex CLI"))
 		add(" " + s.Muted.Render("   Requests appear here automatically."))
+		add("")
+		add(" " + s.Dim.Render("   Press [a] for per-app routing toggles."))
 	} else {
 		maxLog := 6
 		if m.height >= 30 {

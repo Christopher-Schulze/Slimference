@@ -15,7 +15,8 @@ Three files are tracked in git despite being covered by `.gitignore`:
 - `tokenproxy.test` (20 MB test binary)
 
 The user wants **everything else tracked**. Only the MiniMax-key file
-(`.env.local`) and (after T18 closure) `rtk-master/` may be ignored.
+(`.env.local`) and the RTK reference tree (now `research/rtk-ai/rtk/`)
+may be ignored.
 
 ---
 
@@ -64,4 +65,4 @@ The user wants **everything else tracked**. Only the MiniMax-key file
 - Repo clone is ~40 MB lighter.
 - No build artefact or coverage dump is tracked.
 - `.gitignore` contains only intentional ignores: local secrets, build artefacts,
-  IDE files, `rtk-master/` (after T18 closure).
+  IDE files, and the RTK reference tree.

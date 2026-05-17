@@ -283,3 +283,25 @@ func TestInspectorFuncNilAndOpcodeNames(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyShadowEstimateEdges(t *testing.T) {
+	t.Parallel()
+
+	nonJSON := FrameSummary{JSON: false}
+	applyShadowEstimate(&nonJSON, []byte("plain"))
+	if nonJSON.Shadow != nil {
+		t.Fatalf("non-json without inspect note should not get shadow: %+v", nonJSON.Shadow)
+	}
+
+	badJSON := FrameSummary{JSON: true}
+	applyShadowEstimate(&badJSON, []byte(`{not-json`))
+	if badJSON.Shadow == nil || badJSON.Shadow.Blocker != "json_compact_failed" {
+		t.Fatalf("bad-json blocker = %+v", badJSON.Shadow)
+	}
+
+	noSavings := FrameSummary{JSON: true}
+	applyShadowEstimate(&noSavings, []byte(`{"x":1}`))
+	if noSavings.Shadow == nil || noSavings.Shadow.Blocker != "no_savings" {
+		t.Fatalf("no-savings blocker = %+v", noSavings.Shadow)
+	}
+}

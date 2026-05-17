@@ -215,6 +215,17 @@ func InstallCodex(home string, slimferenceCmd string) error {
 	if err := os.WriteFile(stopScriptPath, []byte(codexLifecycleHookScript(slimferenceCmd, "stop")), 0755); err != nil {
 		return fmt.Errorf("write stop hook script: %w", err)
 	}
+	// PreCompact + PostCompact: verified to exist in codex 0.130 via
+	// binary schema dump. Provide high-leverage compaction-boundary
+	// signals to Slimference's proxy.
+	preCompactScriptPath := CodexPreCompactHookScriptPath(home)
+	if err := os.WriteFile(preCompactScriptPath, []byte(codexLifecycleHookScript(slimferenceCmd, "pre-compact")), 0755); err != nil {
+		return fmt.Errorf("write pre-compact hook script: %w", err)
+	}
+	postCompactScriptPath := CodexPostCompactHookScriptPath(home)
+	if err := os.WriteFile(postCompactScriptPath, []byte(codexLifecycleHookScript(slimferenceCmd, "post-compact")), 0755); err != nil {
+		return fmt.Errorf("write post-compact hook script: %w", err)
+	}
 
 	// Step 2: Write/update ~/.codex/hooks.json
 	if err := installCodexHooksJSONWithScripts(home, preScriptPath, postScriptPath, readScriptPath); err != nil {
@@ -313,6 +324,31 @@ func installCodexHooksJSONWithScripts(home string, preScriptPath string, postScr
 				"type":    "command",
 				"command": fmt.Sprintf("bash %s", CodexStopHookScriptPath(home)),
 				"timeout": 30,
+			},
+		},
+	})
+	// PreCompact + PostCompact hooks (codex 0.130+, verified via binary
+	// schema dump). Codex permits these events without a matcher
+	// (compaction is not tool-scoped). The script generator emits a
+	// lifecycle-style bash wrapper that pipes the JSON payload to
+	// `slimference codexhook pre-compact` / `post-compact`.
+	existing["PreCompact"] = mergeCodexHookEntries(existing["PreCompact"], map[string]interface{}{
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":          "command",
+				"command":       fmt.Sprintf("bash %s", CodexPreCompactHookScriptPath(home)),
+				"statusMessage": "Pre-compaction signal",
+				"timeout":       30,
+			},
+		},
+	})
+	existing["PostCompact"] = mergeCodexHookEntries(existing["PostCompact"], map[string]interface{}{
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":          "command",
+				"command":       fmt.Sprintf("bash %s", CodexPostCompactHookScriptPath(home)),
+				"statusMessage": "Post-compaction marker",
+				"timeout":       30,
 			},
 		},
 	})
@@ -521,6 +557,8 @@ func RemoveCodex(home string) error {
 	_ = os.Remove(CodexPermissionHookScriptPath(home))
 	_ = os.Remove(CodexUserPromptHookScriptPath(home))
 	_ = os.Remove(CodexStopHookScriptPath(home))
+	_ = os.Remove(CodexPreCompactHookScriptPath(home))
+	_ = os.Remove(CodexPostCompactHookScriptPath(home))
 	_ = removeCodexHooksFeature(home)
 
 	// Never touch ~/.codex/AGENTS.md. Historical Slimference blocks must be
@@ -550,6 +588,8 @@ func removeCodexHooksJSON(home string) error {
 	removeCodexHookEvent(existing, "PostToolUse")
 	removeCodexHookEvent(existing, "UserPromptSubmit")
 	removeCodexHookEvent(existing, "Stop")
+	removeCodexHookEvent(existing, "PreCompact")
+	removeCodexHookEvent(existing, "PostCompact")
 
 	if len(existing) == 0 {
 		delete(root, "hooks")
@@ -625,6 +665,23 @@ func CodexStopHookScriptPath(home string) string {
 	return filepath.Join(home, ".slimference", "hooks", "codex-stop.sh")
 }
 
+// CodexPreCompactHookScriptPath returns the path to the installed Codex
+// PreCompact hook script. PreCompact fires before Codex's own
+// compaction; we use it as a high-leverage trigger to escalate
+// Slimference's proxy-side compaction. Verified via codex 0.130 binary
+// schema dump (pre-compact.command.input).
+func CodexPreCompactHookScriptPath(home string) string {
+	return filepath.Join(home, ".slimference", "hooks", "codex-pre-compact.sh")
+}
+
+// CodexPostCompactHookScriptPath returns the path to the installed
+// Codex PostCompact hook script. PostCompact fires after Codex
+// compacts; we record the boundary so analytics can show the
+// before/after token state.
+func CodexPostCompactHookScriptPath(home string) string {
+	return filepath.Join(home, ".slimference", "hooks", "codex-post-compact.sh")
+}
+
 func mergeCodexHookEntries(existing interface{}, slimferenceEntries ...map[string]interface{}) []interface{} {
 	entries, _ := existing.([]interface{})
 	filtered := make([]interface{}, 0, len(entries)+len(slimferenceEntries))
@@ -675,14 +732,17 @@ func codexEntryHasSlimferenceHook(entry interface{}) bool {
 			strings.Contains(command, "codex-session-start.sh") ||
 			strings.Contains(command, "codex-permission-request.sh") ||
 			strings.Contains(command, "codex-user-prompt-submit.sh") ||
-			strings.Contains(command, "codex-stop.sh") {
+			strings.Contains(command, "codex-stop.sh") ||
+			strings.Contains(command, "codex-pre-compact.sh") ||
+			strings.Contains(command, "codex-post-compact.sh") {
 			return true
 		}
 		if strings.Contains(statusMessage, "Slimference rewrite guard") || strings.Contains(statusMessage, "Slimference filter") || strings.Contains(statusMessage, "Slimference read cache") ||
 			strings.Contains(statusMessage, "Local rewrite guard") || strings.Contains(statusMessage, "Local output filter") || strings.Contains(statusMessage, "Local read cache") ||
 			strings.Contains(statusMessage, "Local session boundary") || strings.Contains(statusMessage, "Local approval guard") ||
 			strings.Contains(statusMessage, "Output guard") || strings.Contains(statusMessage, "Output compactor") || strings.Contains(statusMessage, "Read cache") ||
-			strings.Contains(statusMessage, "Session boundary") || strings.Contains(statusMessage, "Approval guard") {
+			strings.Contains(statusMessage, "Session boundary") || strings.Contains(statusMessage, "Approval guard") ||
+			strings.Contains(statusMessage, "Pre-compaction signal") || strings.Contains(statusMessage, "Post-compaction marker") {
 			return true
 		}
 	}

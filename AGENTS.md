@@ -10,14 +10,15 @@ Dieses Dokument ist **verbindlich** für alle automatisierten Agenten (Codex, Cl
 |--------|--------|
 | `spec+.md` | Technische **Soll-Spezifikation** v2 (implementierungsrelevant) |
 | `handover.md` (Repo-Root) §4 | **Implementierungsreihenfolge** + vollständiges Agent-Onboarding (über `spec+.md` §23); Alias: `docs/HANDOVER.md` → Link dorthin |
+| `docs/install.md` | **Install/Uninstall SSOT** (Phase H, 2026-05-16): humans + agents read this for `slimference install/uninstall/enable/disable/status`. Meta-Test `docs/install_spec_test.go` hält Spec ↔ Code synchron. |
 | `docs/todo.md` | Arbeitsliste |
 | `spec.md` | Historisch v1 — **nicht** für neue Implementierung |
 
 ---
 
-## 2. Fremd- und Referenzcode: `rtk-master/`
+## 2. Fremd- und Referenzcode: `research/rtk-ai/rtk/`
 
-- Das Verzeichnis **`rtk-master/`** ist ein **eingebettetes Fremdprojekt** (RTK, Rust/inspiration only).
+- Das Verzeichnis **`research/rtk-ai/rtk/`** ist ein **eingebettetes Fremdprojekt** (RTK, Rust/inspiration only).
 - **Nicht bearbeiten, nicht verschieben, nicht in unsere Ordnerstruktur integrieren** — kein Refactoring, keine „Aufräum“-Commits, keine Tests von dort ins Slimference-Layout übernehmen.
 - **Nur Inspiration** beim Portieren von Ideen nach Go; die **Spezifikation** für Slimference ist **`spec+.md`**, nicht RTK.
 
@@ -92,15 +93,15 @@ Die Anforderungen **100 %-Coverage** und **Tests unter `tests/` in TypeScript** 
 
 ## 6. Bestehende TypeScript-Dateien
 
-- TS/JS **außerhalb** unseres `tests/ts/`-Layouts (z. B. nur in **`rtk-master/`**): **nicht anfassen** (siehe §2).
+- TS/JS **außerhalb** unseres `tests/ts/`-Layouts (z. B. nur in **`research/rtk-ai/rtk/`**): **nicht anfassen** (siehe §2).
 - Migration älterer TS-Tests → Go oder konsolidiert nach `tests/ts/`: in **`docs/todo.md`** nachziehen, wenn konkret.
 
 ---
 
 ## 7. Repository-Scan (Tooling-Verschiebung)
 
-- **Slimference-Root** (ohne `rtk-master/`): Es gibt **keine** bestehenden Shell-Skripte oder Tooling-Artefakte im Root, die nach `scripts/` **verschoben** werden müssten — das Layout ist vorbereitet (`scripts/coverage/`, `scripts/benchmarks/`, `scripts/utils/`).
-- **`rtk-master/scripts/`** etc.: **nicht** nach `scripts/` kopieren oder verschieben (Fremdprojekt, §2).
+- **Slimference-Root** (ohne `research/rtk-ai/rtk/`): Es gibt **keine** bestehenden Shell-Skripte oder Tooling-Artefakte im Root, die nach `scripts/` **verschoben** werden müssten — das Layout ist vorbereitet (`scripts/coverage/`, `scripts/benchmarks/`, `scripts/utils/`).
+- **`research/rtk-ai/rtk/scripts/`** etc.: **nicht** nach `scripts/` kopieren oder verschieben (Fremdprojekt, §2).
 
 ---
 
@@ -111,7 +112,50 @@ Die Anforderungen **100 %-Coverage** und **Tests unter `tests/` in TypeScript** 
 - [ ] Neue **Go**-Logik mit harten `*_test.go`-Tests
 - [ ] Neues **Tooling** nur unter **`scripts/<thema>/`**, vorzugsweise **Go**
 - [ ] Optional: **`tests/ts/`**-Tests ergänzend, ohne Go-Coverage zu ersetzen
-- [ ] **`rtk-master/`** unverändert gelassen
+- [ ] **`research/rtk-ai/rtk/`** unverändert gelassen
+- [ ] Bei Install-/Uninstall-Änderungen: `docs/install.md` aktuell + Meta-Test `go test ./docs/` grün
+
+---
+
+## 9. Verdrahtungs-Doktrin (2-Surface, Phase H, 2026-05-16)
+
+Slimference darf den User-Stack nur an **zwei** Stellen anfassen:
+
+1. **Signal IN** — Codex-Hooks in `~/.codex/hooks.json` plus
+   `~/.codex/config.toml` `[features].hooks=true`.
+   Out-of-band Subprozess-Calls, nie über Netzwerk. Claude-Code-Hooks
+   bleiben im Code, sind aber Default-off und nur explizit opt-in.
+2. **Traffic IN** — Transparent SNI-MITM (`/etc/hosts` + CA in
+   Keychain + Port 443/8443). Universell, fängt auch Codex 0.130
+   WSS-Conversation ab.
+
+**Verboten als Default-Install / Default-Test:**
+
+- `OPENAI_API_BASE` / `OPENAI_BASE_URL` / `CHATGPT_BASE_URL` Env-Vars
+- `HTTPS_PROXY` / `HTTP_PROXY` Env-Vars
+- `openai_base_url` Feld in `~/.codex/config.toml`
+- macOS System-Network-Proxy-Settings
+
+Diese Pfade bleiben im Code als **Legacy/Advanced**: Operatoren die
+sie manuell setzen, kriegen weiterhin Service. Aber: kein
+`slimference install` armiert sie, keine TUI bietet sie an, kein
+Integration-Test treibt sie als Primärpfad.
+
+**Single Entry Point:** Die Subcommands `slimference install`,
+`uninstall`, `enable`, `disable`, `status`, plus die beiden
+privilegierten Helfer `cert-trust` / `root-arm` sind die einzige
+operative Schnittstelle. Alles andere (`slimference proxy …`,
+`integrate`, `hook install …`) ist Legacy.
+
+**Fail-open Mandat:** Daemon down → Codex läuft normal weiter
+(Hosts-Patch ist daemon-lifecycle-gebunden, wird beim Shutdown
+revertiert). Codex-Update → Frame-Parser degradiert zu byte-equal
+Bridge. Beide Eigenschaften sind in `docs/install.md` dokumentiert
+und in Tests verifiziert.
+
+**Drift-Verbot:** Änderungen, die das Default-Install-Set um eine
+3. Surface erweitern, sind reviewable **nur** mit explizitem
+`Phase-H-Override`-Tag in der Änderungsbeschreibung.
 
 ---
 

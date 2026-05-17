@@ -17,10 +17,40 @@ func TestIsCompressiblePath(t *testing.T) {
 		{"/v1/chat/completions", true},
 		{"/v1/responses", true},
 		{"/backend-api/codex/responses", true},
+		{"/backend-api/codex/responses/", true},
 		{"/v1/messages/", true},
 		{"/v1/chat/completions/", true},
 		{"/v1/messages/batches", false},
 		{"/health", false},
+		// Voice / audio / realtime / vision paths must NOT be intercepted:
+		// Codex desktop app + Claude voice/computer-use should pass through
+		// byte-equal so we never break those flows.
+		{"/v1/audio/transcriptions", false},
+		{"/v1/audio/speech", false},
+		{"/v1/audio/translations", false},
+		{"/v1/realtime", false},
+		{"/v1/images/generations", false},
+		{"/v1/embeddings", false},
+		{"/v1/files", false},
+		{"/v1/threads", false},
+		{"/v1/assistants", false},
+		// Anthropic non-message endpoints
+		{"/v1/messages/count_tokens", false},
+		{"/v1/complete", false}, // legacy completion API
+		// Codex Desktop App specific non-conversation endpoints under
+		// /backend-api/codex/* — these must NOT be compressed because
+		// they carry non-message shapes (realtime call setup,
+		// model listings, memories, plugin manifests, image gen).
+		{"/backend-api/codex/realtime/calls", false},
+		{"/backend-api/codex/realtime/calls/abc-123", false},
+		{"/backend-api/codex/models", false},
+		{"/backend-api/codex/memories/trace_summarize", false},
+		{"/backend-api/codex/responses/compact", false},
+		{"/backend-api/codex/plugins", false},
+		{"/backend-api/codex/plugins/install", false},
+		{"/backend-api/codex/images/generations", false},
+		// Codex Desktop App WebSocket control plane:
+		{"/backend-api/wham/remote/control/server", false},
 	}
 	for _, tc := range tests {
 		if got := isCompressiblePath(tc.path); got != tc.want {
@@ -64,7 +94,16 @@ func TestIsProviderCompressiblePath(t *testing.T) {
 		{types.OpenAI, "/v1/responses", false},
 		{types.CodexChatGPT, "/v1/responses", true},
 		{types.CodexChatGPT, "/backend-api/codex/responses", true},
+		{types.CodexChatGPT, "/backend-api/codex/responses/", true},
 		{types.CodexChatGPT, "/v1/chat/completions", false},
+		// Codex Desktop App sidebands - all untouched:
+		{types.CodexChatGPT, "/backend-api/codex/realtime/calls", false},
+		{types.CodexChatGPT, "/backend-api/codex/models", false},
+		{types.CodexChatGPT, "/backend-api/codex/memories/trace_summarize", false},
+		{types.CodexChatGPT, "/backend-api/codex/responses/compact", false},
+		{types.CodexChatGPT, "/backend-api/codex/plugins", false},
+		{types.CodexChatGPT, "/backend-api/codex/plugins/install", false},
+		{types.CodexChatGPT, "/backend-api/codex/images/generations", false},
 		{types.Provider(99), "/v1/messages", false},
 	}
 	for _, tc := range tests {

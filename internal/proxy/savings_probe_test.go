@@ -1,0 +1,99 @@
+package proxy
+
+import (
+	"context"
+	"testing"
+
+	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/qualityab"
+)
+
+func TestSavingsProbeNilSafe(t *testing.T) {
+	var s *SavingsProbe
+	got := s.ProbeSavings(context.Background())
+	if got.OutputTokensSaved != 0 {
+		t.Fatalf("nil probe should yield zero summary, got %+v", got)
+	}
+
+	s2 := &SavingsProbe{Proxy: nil}
+	got2 := s2.ProbeSavings(context.Background())
+	if got2.OutputTokensSaved != 0 {
+		t.Fatalf("probe with nil proxy should yield zero summary, got %+v", got2)
+	}
+}
+
+func TestSavingsProbeMapsCounters(t *testing.T) {
+	p := New(config.Defaults())
+
+	p.outputReduceCounters.RecordStreamcutFire(2048)
+	p.outputReduceCounters.RecordRepdetRewrite(2, 1024)
+	p.outputReduceCounters.RecordStaleReadAging(3, 256)
+	p.outputReduceCounters.RecordObsoleteReadPrune(1, 128)
+	p.outputReduceCounters.RecordStopSeqInjection(4)
+	p.outputReduceCounters.RecordBeTerseInjection(64)
+
+	probe := &SavingsProbe{Proxy: p, USDPerMillionTokens: 6.0}
+	got := probe.ProbeSavings(context.Background())
+
+	if got.StreamcutFires != 1 {
+		t.Errorf("streamcut fires=%d", got.StreamcutFires)
+	}
+	if got.RepdetRewrites != 1 || got.RepdetBytesSaved != 1024 {
+		t.Errorf("repdet mismatch: %+v", got)
+	}
+	if got.StaleReadBlocks != 3 || got.ObsoletePruneBlocks != 1 {
+		t.Errorf("stale/obsolete mismatch: %+v", got)
+	}
+	if got.StopSeqInjections != 1 || got.BeterseInjections != 1 {
+		t.Errorf("injection counts mismatch: %+v", got)
+	}
+	// Output tokens = sum of bytes-style fields: 1024 + 2048 + 256 + 128 = 3456
+	if got.OutputTokensSaved != 3456 {
+		t.Errorf("OutputTokensSaved=%d want 3456", got.OutputTokensSaved)
+	}
+	// CostUSD = 3456 / 1_000_000 * 6.0 = 0.020736
+	if got.CostUSD < 0.0207 || got.CostUSD > 0.0208 {
+		t.Errorf("CostUSD=%v out of range", got.CostUSD)
+	}
+}
+
+func TestSavingsProbeZeroUSDOmitsCost(t *testing.T) {
+	p := New(config.Defaults())
+
+	p.outputReduceCounters.RecordRepdetRewrite(1, 512)
+	probe := &SavingsProbe{Proxy: p, USDPerMillionTokens: 0}
+	got := probe.ProbeSavings(context.Background())
+	if got.CostUSD != 0 {
+		t.Fatalf("zero rate should yield zero cost, got %v", got.CostUSD)
+	}
+}
+
+func TestSavingsProbePropagatesQualityAB(t *testing.T) {
+	p := New(config.Defaults())
+
+	if p.qualityAB == nil {
+		t.Fatal("expected qualityAB harness in default proxy")
+	}
+	// Force a rollback by feeding enough Control + Treatment outcomes
+	// that the treatment failure rate dominates. Easier: assert that
+	// the snapshot fields propagate as-is.
+	probe := &SavingsProbe{Proxy: p}
+	got := probe.ProbeSavings(context.Background())
+	ab := p.qualityAB.Snapshot()
+	if got.QualityABRolledBack != ab.RolledBack {
+		t.Errorf("rolled_back mismatch")
+	}
+	if got.QualityABControlFail != ab.ControlFailRate {
+		t.Errorf("control fail mismatch")
+	}
+}
+
+func TestNoopIndistProbeReturnsZero(t *testing.T) {
+	var p NoopIndistProbe
+	got := p.ProbeIndist(context.Background())
+	if got.GoldenLocked || got.GoldenSHA != "" || len(got.Drift) != 0 {
+		t.Fatalf("noop probe should return zero state, got %+v", got)
+	}
+}
+
+var _ qualityab.QualityABTelemetry // keep the import live regardless of inlining

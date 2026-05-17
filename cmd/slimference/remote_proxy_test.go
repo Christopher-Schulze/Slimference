@@ -15,6 +15,8 @@ import (
 
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/control"
+	"github.com/slimference/slimference/internal/control/apps"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/types"
@@ -282,5 +284,94 @@ func TestRemoteProxyAdapter_RefreshAndPostEdgeCases(t *testing.T) {
 		cfg.Proxy.ListenPort = 1
 		a := newRemoteProxyAdapter(cfg)
 		a.post(proxy.AdminFlushPath, struct{}{})
+	})
+}
+
+func TestRemoteProxyAdapterAppsEndpoints(t *testing.T) {
+	var gotReq proxy.AdminAppsRequest
+	state := control.SetupState{
+		Apps: []control.AppEntry{{
+			ID:       apps.AppCodexCLI,
+			Enabled:  true,
+			Detected: true,
+			BinPath:  "/usr/local/bin/codex",
+			Routed:   7,
+			Bypassed: 1,
+		}},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case proxy.AdminStatePath:
+			_ = json.NewEncoder(w).Encode(state)
+		case proxy.AdminAppsPath:
+			if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+				t.Fatalf("decode apps request: %v", err)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := testRemoteConfig(t, filepath.Join(t.TempDir(), "log.jsonl"), srv.URL)
+	a := newRemoteProxyAdapter(cfg)
+	entries := a.AppEntries()
+	if len(entries) != 1 || entries[0].ID != string(apps.AppCodexCLI) || !entries[0].Enabled || entries[0].BinPath == "" {
+		t.Fatalf("app entries: %+v", entries)
+	}
+	if err := a.SetAppEnabled(string(apps.AppCodexCLI), false); err != nil {
+		t.Fatalf("SetAppEnabled: %v", err)
+	}
+	if gotReq.ID != string(apps.AppCodexCLI) || gotReq.Enabled {
+		t.Fatalf("apps request: %+v", gotReq)
+	}
+}
+
+func TestRemoteProxyAdapterAppsErrorBranches(t *testing.T) {
+	t.Run("state non-200 and bad json", func(t *testing.T) {
+		count := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			count++
+			if count == 1 {
+				w.WriteHeader(http.StatusTeapot)
+				return
+			}
+			_, _ = w.Write([]byte("{"))
+		}))
+		defer srv.Close()
+		cfg := testRemoteConfig(t, filepath.Join(t.TempDir(), "log.jsonl"), srv.URL)
+		a := newRemoteProxyAdapter(cfg)
+		if got := a.AppEntries(); got != nil {
+			t.Fatalf("non-200 entries=%+v", got)
+		}
+		if got := a.AppEntries(); got != nil {
+			t.Fatalf("bad-json entries=%+v", got)
+		}
+	})
+
+	t.Run("set non-2xx", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+		cfg := testRemoteConfig(t, filepath.Join(t.TempDir(), "log.jsonl"), srv.URL)
+		a := newRemoteProxyAdapter(cfg)
+		if err := a.SetAppEnabled("codex_cli", true); err == nil || !strings.Contains(err.Error(), "500") {
+			t.Fatalf("err=%v want 500", err)
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		cfg := config.Defaults()
+		cfg.Proxy.ListenAddress = "127.0.0.1"
+		cfg.Proxy.ListenPort = 1
+		a := newRemoteProxyAdapter(cfg)
+		if got := a.AppEntries(); got != nil {
+			t.Fatalf("transport error entries=%+v", got)
+		}
+		if err := a.SetAppEnabled("codex_cli", true); err == nil {
+			t.Fatal("expected transport error")
+		}
 	})
 }

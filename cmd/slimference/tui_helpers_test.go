@@ -124,9 +124,9 @@ func TestProxyAdapter_smoke(t *testing.T) {
 	if a.Config().GetListenPort() != cfg.Proxy.ListenPort {
 		t.Fatal("config adapter")
 	}
-	if tc := a.Config().GetMiniMaxTrustClass(); tc != cfg.Compression.MiniMax.TrustClass {
-		t.Fatalf("GetMiniMaxTrustClass = %q, want %q", tc, cfg.Compression.MiniMax.TrustClass)
-	}
+	// GetMiniMaxTrustClass removed in Phase H — TrustClass concept is
+	// deprecated since the 2-surface architecture has no third-party
+	// summarization provider. The config adapter no longer exposes it.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := a.Shutdown(ctx); err != nil {

@@ -108,6 +108,10 @@ func (k *Keychain) IsTrusted(certPath string) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
+	if strings.Contains(string(out), "CSSMERR_TP_NOT_TRUSTED") ||
+		strings.Contains(strings.ToLower(string(out)), "not trusted") {
+		return false, nil
+	}
 	// When the cert is untrusted, `security` returns a non-zero exit
 	// code; we still surface stdout/stderr so the caller can render
 	// it for the operator.

@@ -61,7 +61,7 @@ The daemon keeps running, logging, and collecting analytics even when the TUI is
 ### 1. Build
 
 ```bash
-go build -o ./slimference ./cmd/slimference
+go run ./scripts/build --out ./slimference
 ```
 
 ### 2. Check the setup
@@ -182,7 +182,7 @@ go test ./...
 Build the binary:
 
 ```bash
-go build -o ./slimference ./cmd/slimference
+go run ./scripts/build --out ./slimference
 ```
 
 The repository also includes Go tooling under [`scripts/`](./scripts/README.md) and deeper technical documentation in [`docs/documentation.md`](./docs/documentation.md).

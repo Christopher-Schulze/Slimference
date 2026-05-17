@@ -184,6 +184,18 @@ type ProxyLifecycle interface {
 
 // RunDaemon starts the proxy in background mode and waits for signals.
 func RunDaemon(startProxy func() (port int, shutdown func(ctx context.Context) error, err error)) error {
+	return RunDaemonWithReload(startProxy, nil)
+}
+
+// RunDaemonWithReload starts the proxy in background mode and waits for
+// signals. SIGINT/SIGTERM shut the daemon down; SIGHUP invokes reloadFn
+// and keeps serving. This matters for the CLI `enable`/`disable` flow:
+// those commands signal a live daemon to re-read runtime config instead
+// of killing the process.
+func RunDaemonWithReload(
+	startProxy func() (port int, shutdown func(ctx context.Context) error, err error),
+	reloadFn func(),
+) error {
 	// Check if already running via PID file.
 	running, existing, _ := isRunningFn()
 	if running {
@@ -211,11 +223,21 @@ func RunDaemon(startProxy func() (port int, shutdown func(ctx context.Context) e
 
 	// Wait for signal.
 	sigCh := make(chan os.Signal, 1)
-	signalNotifyFn(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signalNotifyFn(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signalStopFn(sigCh)
-	<-sigCh
+	var sig os.Signal
+	for {
+		sig = <-sigCh
+		if sig == syscall.SIGHUP {
+			if reloadFn != nil {
+				reloadFn()
+			}
+			continue
+		}
+		break
+	}
 
-	fmt.Println("\nShutting down...")
+	fmt.Printf("\nShutting down after %s...\n", sig.String())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = shutdown(ctx)

@@ -80,6 +80,90 @@ func TestApplyEnvHooksDebug(t *testing.T) {
 	}
 }
 
+func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
+	t.Setenv("SLIMFERENCE_DEBUG_LEVEL", "trace")
+	t.Setenv("SLIMFERENCE_DEBUG_FORMAT", "json")
+	t.Setenv("SLIMFERENCE_DEBUG_MAX_ENTRIES", "42")
+	t.Setenv("SLIMFERENCE_L2_MODE", "extractive")
+	t.Setenv("SLIMFERENCE_L2_REQUIRE_DETERMINISTIC", "off")
+	t.Setenv("SLIMFERENCE_L2_OUTBOUND_REDACTION", "strict")
+	t.Setenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH", "/tmp/prompt.md")
+	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING", "on")
+	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING_MIN_TURN_GAP", "9")
+	t.Setenv("SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE", "yes")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT", "true")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT", "be terse")
+
+	cfg := Defaults()
+	applyEnvOverrides(cfg)
+	if cfg.Debug.Level != "trace" || cfg.Debug.Format != "json" || cfg.Debug.MaxEntries != 42 {
+		t.Fatalf("debug env not applied: %+v", cfg.Debug)
+	}
+	if cfg.Compression.Summary.Mode != "extractive" ||
+		cfg.Compression.Summary.RequireDeterministic ||
+		cfg.Compression.Summary.OutboundRedaction != "strict" ||
+		cfg.Compression.PromptOverridePath != "/tmp/prompt.md" {
+		t.Fatalf("layer2 env not applied: %+v", cfg.Compression)
+	}
+	or := cfg.Compression.OutputReduce
+	if !or.StaleReadAgingEnabled || or.StaleReadAgingMinTurnGap != 9 ||
+		!or.ObsoleteReadPruneEnabled || !or.BeTerseHintEnabled || or.BeTerseHintText != "be terse" {
+		t.Fatalf("output-reduce env not applied: %+v", or)
+	}
+}
+
+func TestApplyEnvOutputReduceToggles(t *testing.T) {
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS", "0")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_STREAMCUT", "false")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_REPDET", "no")
+	cfg := Defaults()
+	applyEnvOverrides(cfg)
+	or := cfg.Compression.OutputReduce
+	if or.StopSequencesEnabled {
+		t.Errorf("stop sequences not disabled by env")
+	}
+	if or.StreamCutEnabled {
+		t.Errorf("streamcut not disabled by env")
+	}
+	if or.RepetitionDetectionEnabled {
+		t.Errorf("repdet not disabled by env")
+	}
+}
+
+func TestApplyEnvOutputReduceTogglesEnable(t *testing.T) {
+	// Defaults are true; env value "1" should keep them true.
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS", "1")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_STREAMCUT", "true")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_REPDET", "yes")
+	cfg := Defaults()
+	applyEnvOverrides(cfg)
+	or := cfg.Compression.OutputReduce
+	if !or.StopSequencesEnabled || !or.StreamCutEnabled || !or.RepetitionDetectionEnabled {
+		t.Errorf("env enable should leave defaults on: %+v", or)
+	}
+}
+
+func TestApplyEnvOutputReduceTogglesGarbage(t *testing.T) {
+	// Unparseable env values must leave defaults intact.
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS", "xyzzy")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_STREAMCUT", "garbage")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_REPDET", "??")
+	cfg := Defaults()
+	applyEnvOverrides(cfg)
+	or := cfg.Compression.OutputReduce
+	if !or.StopSequencesEnabled || !or.StreamCutEnabled || !or.RepetitionDetectionEnabled {
+		t.Errorf("unparseable env should leave defaults on: %+v", or)
+	}
+}
+
+func TestDefaultsEnableOutputReduceToggles(t *testing.T) {
+	d := Defaults()
+	or := d.Compression.OutputReduce
+	if !or.StopSequencesEnabled || !or.StreamCutEnabled || !or.RepetitionDetectionEnabled {
+		t.Errorf("defaults should enable all output-reduce toggles, got %+v", or)
+	}
+}
+
 func TestApplyEnvPassthroughMaxChars(t *testing.T) {
 	t.Setenv("SLIMFERENCE_FILTER_PASSTHROUGH_MAX_CHARS", "4096")
 	cfg := Defaults()
@@ -95,6 +179,36 @@ func TestApplyEnvGainUsdPerMillion(t *testing.T) {
 	applyEnvOverrides(cfg)
 	if cfg.Analytics.GainUSDPerMillionTokens != 2.5 {
 		t.Fatalf("gain usd: %v", cfg.Analytics.GainUSDPerMillionTokens)
+	}
+}
+
+func TestEnvPrimitiveParsers(t *testing.T) {
+	t.Setenv("CFG_INT_OK", " 12 ")
+	if got, ok := envIntOK("CFG_INT_OK"); !ok || got != 12 {
+		t.Fatalf("envIntOK=%d,%v want 12,true", got, ok)
+	}
+	t.Setenv("CFG_INT_BAD", "nope")
+	if _, ok := envIntOK("CFG_INT_BAD"); ok {
+		t.Fatal("bad int should not parse")
+	}
+	t.Setenv("CFG_FLOAT_OK", "2.75")
+	if got, ok := envFloatOK("CFG_FLOAT_OK"); !ok || got != 2.75 {
+		t.Fatalf("envFloatOK=%v,%v want 2.75,true", got, ok)
+	}
+	t.Setenv("CFG_FLOAT_BAD", "nope")
+	if _, ok := envFloatOK("CFG_FLOAT_BAD"); ok {
+		t.Fatal("bad float should not parse")
+	}
+	if _, ok := envFloatOK("CFG_FLOAT_EMPTY"); ok {
+		t.Fatal("empty float should not parse")
+	}
+	t.Setenv("CFG_BOOL_ON", "yes")
+	if got, ok := envBoolOK("CFG_BOOL_ON"); !ok || !got {
+		t.Fatalf("envBoolOK yes=%v,%v want true,true", got, ok)
+	}
+	t.Setenv("CFG_BOOL_BAD", "")
+	if _, ok := envBoolOK("CFG_BOOL_BAD"); ok {
+		t.Fatal("empty bool should not parse")
 	}
 }
 
@@ -409,113 +523,6 @@ func TestDefaultConfigPath(t *testing.T) {
 	}
 }
 
-// TestApplyEnvOverrides_MinimaxProvider covers OpenAI-compatible summarizer env overrides.
-func TestApplyEnvOverrides_MinimaxProvider(t *testing.T) {
-	t.Setenv("SLIMFERENCE_MINIMAX_API_KEY", "test-key-xyz")
-	t.Setenv("SLIMFERENCE_MINIMAX_BASE_URL", "https://integrate.api.nvidia.com/v1")
-	t.Setenv("SLIMFERENCE_MINIMAX_MODEL", "nvidia/nemotron-3-super-120b-a12b")
-	t.Setenv("SLIMFERENCE_MINIMAX_TEMPERATURE", "0.1")
-	t.Setenv("SLIMFERENCE_MINIMAX_TOP_P", "0.9")
-	t.Setenv("SLIMFERENCE_MINIMAX_MAX_RETRIES", "4")
-	t.Setenv("SLIMFERENCE_MINIMAX_CONNECT_TIMEOUT_SECONDS", "6")
-	t.Setenv("SLIMFERENCE_MINIMAX_RESPONSE_TIMEOUT_SECONDS", "44")
-	t.Setenv("SLIMFERENCE_MINIMAX_RATE_LIMIT_RPM", "22")
-	t.Setenv("SLIMFERENCE_MINIMAX_ENABLE_SEED", "true")
-	t.Setenv("SLIMFERENCE_MINIMAX_ENABLE_MIN_TOKENS", "on")
-	t.Setenv("SLIMFERENCE_MINIMAX_ENABLE_REASONING_SPLIT", "false")
-	t.Setenv("SLIMFERENCE_MINIMAX_TRUST_CLASS", "upstream_provider")
-	t.Setenv("SLIMFERENCE_L2_REQUIRE_DETERMINISTIC", "yes")
-	t.Setenv("SLIMFERENCE_L2_OUTBOUND_REDACTION", "strict")
-	t.Setenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH", "/tmp/prompt.txt")
-	cfg := Defaults()
-	applyEnvOverrides(cfg)
-	if cfg.Compression.MiniMax.APIKeyEnv != "SLIMFERENCE_MINIMAX_API_KEY" || cfg.Compression.MiniMax.APIKey() != "test-key-xyz" {
-		t.Fatalf("direct key override not wired: env=%q key=%q", cfg.Compression.MiniMax.APIKeyEnv, cfg.Compression.MiniMax.APIKey())
-	}
-	if cfg.Compression.MiniMax.BaseURL != "https://integrate.api.nvidia.com/v1" {
-		t.Fatalf("base url: %q", cfg.Compression.MiniMax.BaseURL)
-	}
-	if cfg.Compression.MiniMax.Model != "nvidia/nemotron-3-super-120b-a12b" {
-		t.Fatalf("model: %q", cfg.Compression.MiniMax.Model)
-	}
-	if cfg.Compression.MiniMax.Temperature != 0.1 || cfg.Compression.MiniMax.TopP != 0.9 {
-		t.Fatalf("sampling: %+v", cfg.Compression.MiniMax)
-	}
-	if cfg.Compression.MiniMax.MaxRetries != 4 || cfg.Compression.MiniMax.ConnectTimeoutSeconds != 6 ||
-		cfg.Compression.MiniMax.ResponseTimeoutSeconds != 44 || cfg.Compression.MiniMax.RateLimitRPM != 22 {
-		t.Fatalf("runtime knobs: %+v", cfg.Compression.MiniMax)
-	}
-	if !cfg.Compression.MiniMax.EnableSeed || !cfg.Compression.MiniMax.EnableMinTokens || cfg.Compression.MiniMax.EnableReasoningSplit {
-		t.Fatalf("cap flags: %+v", cfg.Compression.MiniMax)
-	}
-	if cfg.Compression.MiniMax.TrustClass != "upstream_provider" ||
-		!cfg.Compression.Summary.RequireDeterministic ||
-		cfg.Compression.Summary.OutboundRedaction != "strict" ||
-		cfg.Compression.PromptOverridePath != "/tmp/prompt.txt" {
-		t.Fatalf("l2 fields not overridden: %+v %+v", cfg.Compression.MiniMax, cfg.Compression.Summary)
-	}
-}
-
-func TestApplyEnvOverrides_MinimaxAPIKeyEnvWins(t *testing.T) {
-	t.Setenv("SLIMFERENCE_MINIMAX_API_KEY", "ignored")
-	t.Setenv("SLIMFERENCE_MINIMAX_API_KEY_ENV", "NVIDIA_API_KEY")
-	t.Setenv("NVIDIA_API_KEY", "nv-key")
-	cfg := Defaults()
-	applyEnvOverrides(cfg)
-	if cfg.Compression.MiniMax.APIKeyEnv != "NVIDIA_API_KEY" || cfg.Compression.MiniMax.APIKey() != "nv-key" {
-		t.Fatalf("api key env override failed: env=%q key=%q", cfg.Compression.MiniMax.APIKeyEnv, cfg.Compression.MiniMax.APIKey())
-	}
-}
-
-func TestApplyEnvOverrides_InvalidNumericMiniMax(t *testing.T) {
-	t.Setenv("SLIMFERENCE_MINIMAX_MAX_RETRIES", "nope")
-	t.Setenv("SLIMFERENCE_MINIMAX_TEMPERATURE", "nope")
-	cfg := Defaults()
-	wantRetries := cfg.Compression.MiniMax.MaxRetries
-	wantTemp := cfg.Compression.MiniMax.Temperature
-	applyEnvOverrides(cfg)
-	if cfg.Compression.MiniMax.MaxRetries != wantRetries || cfg.Compression.MiniMax.Temperature != wantTemp {
-		t.Fatalf("invalid numeric env should be ignored: %+v", cfg.Compression.MiniMax)
-	}
-}
-
-// TestApplyEnvOverrides_DebugFields covers the SLIMFERENCE_DEBUG_LEVEL, DEBUG_FORMAT, and DEBUG_MAX_ENTRIES branches.
-func TestApplyEnvOverrides_DebugFields(t *testing.T) {
-	t.Setenv("SLIMFERENCE_DEBUG_LEVEL", "verbose")
-	t.Setenv("SLIMFERENCE_DEBUG_FORMAT", "json")
-	t.Setenv("SLIMFERENCE_DEBUG_MAX_ENTRIES", "500")
-	cfg := Defaults()
-	applyEnvOverrides(cfg)
-	if cfg.Debug.Level != "verbose" {
-		t.Errorf("Debug.Level: want verbose, got %q", cfg.Debug.Level)
-	}
-	if cfg.Debug.Format != "json" {
-		t.Errorf("Debug.Format: want json, got %q", cfg.Debug.Format)
-	}
-	if cfg.Debug.MaxEntries != 500 {
-		t.Errorf("Debug.MaxEntries: want 500, got %d", cfg.Debug.MaxEntries)
-	}
-}
-
-// TestLoad_InvalidTOML verifies that a malformed config file returns an error.
-func TestMiniMaxConfig_helpers(t *testing.T) {
-	t.Setenv("TP_TEST_MINIMAX_KEY", "k9-secret")
-	m := MiniMaxConfig{
-		APIKeyEnv:              "TP_TEST_MINIMAX_KEY",
-		ConnectTimeoutSeconds:  7,
-		ResponseTimeoutSeconds: 42,
-	}
-	if got := m.APIKey(); got != "k9-secret" {
-		t.Fatalf("APIKey: %q", got)
-	}
-	if m.ConnectTimeout() != 7*time.Second {
-		t.Fatalf("ConnectTimeout: %v", m.ConnectTimeout())
-	}
-	if m.ResponseTimeout() != 42*time.Second {
-		t.Fatalf("ResponseTimeout: %v", m.ResponseTimeout())
-	}
-}
-
 func TestCacheConfig_ResponseCacheTTL(t *testing.T) {
 	t.Parallel()
 	c := CacheConfig{ResponseCacheTTLSeconds: 600}
@@ -784,72 +791,13 @@ func TestExpandHome_BareTildeHomeDirError(t *testing.T) {
 	}
 }
 
-func TestValidate_TrustClass(t *testing.T) {
+func TestDefaults_Layer2Disabled(t *testing.T) {
+	// 2026-05-15: Slimference ships deterministic-only by default.
+	// Layer 2 (model-backed semantic summarization) is opt-in.
+	// Supersedes the T129 default-on policy.
 	cfg := Defaults()
-	cfg.Compression.MiniMax.TrustClass = "upstream_provider"
-	if err := validate(cfg); err != nil {
-		t.Fatalf("upstream_provider should be valid: %v", err)
-	}
-	cfg.Compression.MiniMax.TrustClass = "external_third_party"
-	if err := validate(cfg); err != nil {
-		t.Fatalf("external_third_party should be valid: %v", err)
-	}
-	cfg.Compression.MiniMax.TrustClass = ""
-	if err := validate(cfg); err != nil {
-		t.Fatalf("empty should be valid: %v", err)
-	}
-	cfg.Compression.MiniMax.TrustClass = "banana"
-	if err := validate(cfg); err == nil {
-		t.Fatal("banana should be rejected")
-	}
-}
-
-func TestValidate_MiniMaxFields(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*Config)
-	}{
-		{"base_url", func(c *Config) { c.Compression.MiniMax.BaseURL = "" }},
-		{"api_key_env", func(c *Config) { c.Compression.MiniMax.APIKeyEnv = "" }},
-		{"model", func(c *Config) { c.Compression.MiniMax.Model = "" }},
-		{"temperature_low", func(c *Config) { c.Compression.MiniMax.Temperature = -0.01 }},
-		{"temperature_high", func(c *Config) { c.Compression.MiniMax.Temperature = 2.01 }},
-		{"top_p_low", func(c *Config) { c.Compression.MiniMax.TopP = 0 }},
-		{"top_p_high", func(c *Config) { c.Compression.MiniMax.TopP = 1.01 }},
-		{"max_retries", func(c *Config) { c.Compression.MiniMax.MaxRetries = -1 }},
-		{"connect_timeout", func(c *Config) { c.Compression.MiniMax.ConnectTimeoutSeconds = 0 }},
-		{"response_timeout", func(c *Config) { c.Compression.MiniMax.ResponseTimeoutSeconds = 0 }},
-		{"rate_limit", func(c *Config) { c.Compression.MiniMax.RateLimitRPM = -1 }},
-	}
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := Defaults()
-			tc.mutate(cfg)
-			if err := validate(cfg); err == nil {
-				t.Fatal("expected validation error")
-			}
-		})
-	}
-}
-
-func TestLoad_TrustClassRejected(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "config-*.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Fprint(f, "[compression.minimax]\ntrust_class = \"invalid\"\n")
-	f.Close()
-	t.Setenv("SLIMFERENCE_CONFIG", f.Name())
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() must reject invalid trust_class")
-	}
-}
-
-func TestDefaults_Layer2Enabled(t *testing.T) {
-	cfg := Defaults()
-	if !cfg.Compression.Layer2Enabled {
-		t.Fatal("Layer2Enabled must be true by default (T129)")
+	if cfg.Compression.Layer2Enabled {
+		t.Fatal("Layer2Enabled must be false by default — deterministic-only ships by default; users opt into model-based summarization explicitly")
 	}
 }
 

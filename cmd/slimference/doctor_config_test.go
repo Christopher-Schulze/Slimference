@@ -176,20 +176,26 @@ func TestHandleSubcommand_doctor_failingChecks(t *testing.T) {
 // the T88 doctor warning when require_deterministic is on but
 // enable_seed is off (main.go::handleDoctorCmd Determinism gate
 // branch FAIL).
-func TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOff(t *testing.T) {
+func TestHandleSubcommandDoctorDeterminismGateOn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
 	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
-	body := []byte(`[compression.summary]
+	body := []byte(`[upstream.anthropic]
+base_url = "` + srv.URL + `"
+
+[upstream.openai]
+base_url = "` + srv.URL + `"
+
+[compression.summary]
 require_deterministic = true
-[compression.minimax]
-enable_seed = false
 `)
 	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -199,9 +205,8 @@ enable_seed = false
 	os.Stdout = old
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "Determinism gate") || !strings.Contains(out, "MiniMax will be skipped") {
-		t.Fatalf("expected determinism gate FAIL line, got: %s", out)
+	if !strings.Contains(buf.String(), "on (deterministic compactor)") {
+		t.Fatalf("determinism gate output missing: %q", buf.String())
 	}
 }
 
@@ -294,34 +299,6 @@ outbound_redaction = "novel-mode"
 
 // TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOn covers
 // the success branch of the T88 determinism gate.
-func TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOn(t *testing.T) {
-	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
-	body := []byte(`[compression.summary]
-require_deterministic = true
-[compression.minimax]
-enable_seed = true
-`)
-	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "Determinism gate") || !strings.Contains(out, "temperature=0 + seed") {
-		t.Fatalf("expected determinism gate OK line, got: %s", out)
-	}
-}
 
 // TestHandleSubcommand_doctor_configFileMissingBranch covers the
 // "not found at ... (using defaults)" branch in the Config file check (main.go:604-606).
@@ -748,70 +725,6 @@ func TestHandleConfigCmd_writeFileError(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "write config") {
 		t.Fatalf("stderr: %q", buf.String())
-	}
-}
-
-func TestHandleSubcommand_doctor_trustOverrideUpstream(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "doctor.toml")
-	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\ntrust_class = \"upstream_provider\"\n"
-	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "upstream provider (operator override)") {
-		t.Fatalf("expected upstream override, got: %q", out)
-	}
-}
-
-func TestHandleSubcommand_doctor_trustUnknownOverride(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "doctor.toml")
-	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\ntrust_class = \"unknown\"\n"
-	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "external third-party provider") {
-		t.Fatalf("expected external third-party fallback for unknown override, got: %q", out)
 	}
 }
 

@@ -6,7 +6,7 @@ import "fmt"
 // stays scannable in a standard terminal window. Deeper detail lives in the
 // per-subcommand help and in docs/documentation.md.
 func helpTopLevel() string {
-	return fmt.Sprintf(`slimference - Claude/Codex token-optimizing proxy (v%s)
+	return fmt.Sprintf(`slimference - Codex token-optimizing proxy (v%s)
 
 USAGE:
   slimference                        Start TUI + proxy (requires TTY)
@@ -17,11 +17,19 @@ USAGE:
 SUBCOMMANDS:
   doctor       Run diagnostics (config, ports, upstreams, CLI drift)
   filter       Layer-0 command filter (slimference filter -- <cmd>)
-  hook         Install / remove / verify Claude and Codex hooks
+  install      Atomic Codex-only install (CA + launchd + Codex hooks)
+  cert-trust   Open Keychain Access for the local CA trust step
+  root-arm     Privileged Codex hosts + pfctl routing helper
+  enable       Arm transparent MITM mode in the daemon config
+  disable      Disarm transparent MITM mode in the daemon config
+  root-disarm  Remove privileged Codex hosts + pfctl routing helper
+  uninstall    Reverse the install plan
+  status       Print install / daemon / routing state
+  hook         Legacy hook install / remove / verify helpers
   rewrite      Rewrite captured output with the filter pipeline
   posttool     Codex PostToolUse hook entry point (stdin JSON)
   codexhook    Codex lifecycle hook entry points (stdin JSON)
-  readhook     Claude Read-hook entry point (stdin JSON)
+  readhook     Codex Read-hook entry point (stdin JSON)
   expand       Retrieve an archived tool result by id
   expand-body  Retrieve one Go function/method body from an archived read
   checkpoint   Manage smart-compaction checkpoints
@@ -33,8 +41,8 @@ SUBCOMMANDS:
   debug        Decision-chain JSONL tools (paths|last|summary|tail|replay)
   service      Daemon lifecycle (install|uninstall|start|stop|status|logs)
   daemon       Run as a long-lived daemon (invoked by launchd/systemd)
-  proxy        Transparent CA/daemon/System-HTTPS-Proxy lifecycle and CLI env helpers
-  integrate    Wire Claude Code and Codex to this proxy (status|install|remove|emergency-off)
+  proxy        Legacy transparent/System-HTTPS-Proxy lifecycle and CLI env helpers
+  integrate    Legacy advanced client wiring (status|install|remove|emergency-off)
   bypass       Toggle the master bypass flag (on|off|status)
   output-reduce Toggle T130 output-token discipline injection
   config       Config file tools (init|show)
@@ -47,7 +55,7 @@ GLOBAL FLAGS:
   --no-tui / --headless   Run proxy foreground, no BubbleTea UI
   --port <n>              Override listen port (default 8990)
   --no-layer1             Disable Layer 1 deterministic compression
-  --no-layer2             Disable Layer 2 MiniMax summarisation
+  --no-layer2             Disable Layer 2 semantic summarisation
   --no-layer3             Disable Layer 3 response cache
   --sliding-window <n>    Override Layer 1 sliding window size
   --log-level <lvl>       debug | info | warn | error
@@ -55,12 +63,14 @@ GLOBAL FLAGS:
   --version, -V           Print version
 
 FIRST STEPS:
-  1. slimference doctor         # verify config, ports, upstreams
-  2. slimference proxy install  # install local CA + daemon for transparent mode
-  3. slimference proxy enable   # arm system HTTPS proxy when you want interception
+  1. slimference install      # Codex-only install, no hosts patch yet
+  2. slimference cert-trust   # one interactive Keychain trust click
+  3. slimference root-arm     # privileged hosts + pfctl helper
+  4. slimference enable       # arm daemon-side transparent MITM
 
 MORE:
-  Config: ~/.slimference/config.toml (override via SLIMFERENCE_CONFIG)
+  Config: ~/.config/slimference/config.toml (override via SLIMFERENCE_CONFIG)
+  Install docs: docs/install.md
   Docs:   docs/documentation.md
   Spec:   spec+.md
 `, version)
@@ -73,34 +83,43 @@ func helpForSubcommand(topic string) string {
 	case "doctor":
 		return `slimference doctor
 
-Run a quick diagnostic sweep. Checks: config file, listen port, MiniMax API
-key, Anthropic/OpenAI upstream reachability, analytics log directory, and
-Claude/Codex CLI version drift against the supported range.
+Run a quick diagnostic sweep. Checks: config file, listen port, upstream
+reachability, analytics log directory, and Codex CLI version drift against
+the supported range.
 
 Exits 0 on all checks green, 1 on any fail.
 `
 	case "filter":
 		return `slimference filter [--stream] [--] <cmd> [args...]
 
-Run <cmd> under the Layer-0 command filter. Captures full stdout+stderr,
-applies the configured filter pipeline (24 built-ins plus TOML rules),
-persists a row in filter.db, and prints the filtered output. The raw
-output is kept in the tee directory for recovery if the filter fails.
+ADVANCED manual wrapper. Run <cmd> under the Layer-0 command filter.
+Captures full stdout+stderr, applies the configured filter pipeline
+(24 built-ins plus TOML rules), persists a row in filter.db, and prints
+the filtered output. The raw output is kept in the tee directory for
+recovery if the child fails.
+
+This is not the Phase H default Codex routing path. The default product
+surface stays: hooks for signal input, transparent SNI-MITM for traffic
+input. Hooks may call this wrapper internally, and humans can use it for
+manual diagnostics.
 
 Flags:
   --stream             T94 streaming-aware mode: ANSI strip + dedup
                        consecutive identical lines on the fly. Suitable
                        for tail -f / docker logs --follow style inputs.
-  --pipeline <name>    Use a named pipeline from config instead of defaults
-  --project <dir>      Tag the row with a project label
-  --dry-run            Run the command, emit filter stats, do not mutate output
 
 The child's exit code is propagated verbatim.
+
+Examples:
+  slimference filter -- git status --short
+  slimference filter -- go test ./...
+  slimference filter -- rg "TODO|FIXME" .
+  slimference filter --stream -- docker logs --follow app
 `
 	case "hook":
-		return `slimference hook <install|remove|verify|status|check-upstream> [claude|codex]
+		return `slimference hook <install|remove|verify|status|check-upstream> [codex]
 
-	install   Write Claude Code and/or Codex hook wrappers (SHA-256 pinned).
+	install   Write Codex hook wrappers (SHA-256 pinned).
 	          For Codex, enables only hooks=true; does not patch base URLs.
 	          Codex hooks default to silent mode; set SLIMFERENCE_CODEX_HOOK_MODE=compact
 	          only when you explicitly want visible PostToolUse replacement blocks.
@@ -109,12 +128,17 @@ The child's exit code is propagated verbatim.
 	verify    Check hook checksums only. Codex config-patch state lives under integrate.
 	status    Report installed / missing / drifted state.
 check-upstream   Compare installed CLI version against the supported range.
+
+Claude Code hooks are parked in Slimference. Use RTK for Claude Code.
 `
 	case "rewrite":
 		return `slimference rewrite -- <cmd> [args...]
 
 Pipe hook JSON on stdin with field "command", or pass the command after
 '--'. Prints the rewritten command line. Used by Claude PreToolUse hooks.
+Compound commands are rewritten segment-by-segment when safe, e.g.
+'git add . && go test ./...' becomes two explicit slimference filter
+invocations. Unsafe or excluded commands pass through with exit code 1.
 `
 	case "posttool":
 		return `slimference posttool
@@ -137,11 +161,14 @@ for checkpoint/debug continuity. Set
 SLIMFERENCE_CODEX_HOOK_MODE=debug to emit SessionStart debug context.
 `
 	case "readhook":
-		return `slimference readhook
+		return `slimference readhook codex
 
-Claude Read-hook entry point. Reads hook JSON on stdin, looks up the
+Codex Read-hook entry point. Reads hook JSON on stdin, looks up the
 file in the Read-cache, emits a delta-encoded patch when available, and
 updates the cache.
+
+Claude Code is parked. Slimference does not install or expose Claude hooks
+in the active Codex-only product path.
 `
 	case "expand":
 		return `slimference expand <id>
@@ -249,13 +276,42 @@ Invoked by the OS service supervisor (launchd/systemd). Runs the proxy
 foreground with JSON logging and platform-specific integration. Users
 should prefer 'slimference service <verb>' or '--no-tui' instead.
 `
+	case "start":
+		return `slimference start
+
+Start the local Slimference daemon in the background. This only starts
+the admin/proxy process; transparent Codex routing still requires
+cert-trust, root-arm, and enable.
+`
+	case "stop":
+		return `slimference stop
+
+Stop the local Slimference daemon. Clean shutdown reverts daemon-managed
+hosts state before the process exits.
+`
+	case "restart":
+		return `slimference restart
+
+Restart the local Slimference daemon. Does not change root-arm or
+cert-trust state.
+`
 	case "proxy":
 		return `slimference proxy <install|enable|disable|status|uninstall|env|run> [args]
 
-Transparent macOS mode. install creates/trusts the local CA and installs
-the daemon, enable arms the System HTTPS proxy, disable restores direct
-routing, status reports CA/launchd/networksetup/daemon state, and uninstall
-disarms + removes trust/launchd artifacts.
+LEGACY/ADVANCED. Do not use this as the Phase H default Codex install path.
+The current Codex path is:
+  slimference install
+  slimference cert-trust
+  slimference root-arm
+  slimference enable
+  slimference disable
+  slimference root-disarm
+  slimference uninstall
+
+The legacy proxy lifecycle keeps the older System-HTTPS-Proxy and
+per-process env helpers for diagnostics, regression work, and manual
+fallbacks. It is intentionally not used by slimference install, the TUI
+setup flow, or the live Codex certification path.
 
 Codex CLI launch helpers for T140 split testing:
   slimference proxy env codex --direct [-- <codex-args>...]
@@ -276,7 +332,7 @@ config.
 	case "config":
 		return `slimference config <init|show>
 
-init   Write a default config.toml to ~/.slimference/config.toml (respects
+init   Write a default config.toml to ~/.config/slimference/config.toml (respects
        SLIMFERENCE_CONFIG).
 show   Print the resolved effective config (TOML + ENV merged).
 `
@@ -299,16 +355,25 @@ Tools around the trust model ported from RTK. See docs/rtk-parity.md.
 	case "integrate":
 		return `slimference integrate <status|install|remove|emergency-off> [flags]
 
-	Legacy/config-patch mode. Install writes ANTHROPIC_BASE_URL into your
-	shell rc and openai_base_url + chatgpt_base_url into ~/.codex/config.toml,
-	then optionally installs hooks. Transparent proxy mode is handled by
-	"slimference proxy install|enable" and does not mutate Codex config.
-	Every edit uses a fenced marker block so re-running install is a no-op
-	and remove is exact.
+LEGACY/ADVANCED config-patch mode. Install can write Codex base URL fields
+into ~/.codex/config.toml, then optionally install Codex hooks. This is kept
+for manual fallback only.
+
+The Phase H default Codex path is handled by:
+  slimference install
+  slimference cert-trust
+  slimference root-arm
+  slimference enable
+
+That path does not mutate Codex base URLs. Every integrate edit uses a fenced
+marker block so re-running install is a no-op and remove is exact.
+
+Claude Code is parked: integrate no longer writes ANTHROPIC_BASE_URL or
+~/.claude hooks. Use RTK for Claude Code.
 
 Flags:
   --dry-run            Print intended writes without touching anything.
-  --client <name>      Narrow to claude | codex | daemon | all (default all).
+  --client <name>      Narrow to codex | daemon | all. claude is accepted as a parked no-op.
   --json               Emit machine-readable JSON.
   --no-hook            Skip hook install/remove (config only).
   --proxy-url <url>    Override http://127.0.0.1:8990.

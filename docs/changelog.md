@@ -2,6 +2,366 @@
 
 ## Unreleased
 
+### 2026-05-16 - Phase G round 7: wsmitm.Session + wscompact.WriteFrame
+
+The final wire piece that closes Phase G's compression hot-path:
+
+- **wscompact.WriteFrame** (new in `internal/wscompact/write.go`): RFC
+  6455 frame encoder supporting all opcodes (continuation, text, binary,
+  close, ping, pong), masked + unmasked emission, every length
+  encoding (7-bit / 16-bit ext / 64-bit ext). Mask key length is
+  validated; caller's payload buffer is never mutated. 97.4% coverage.
+
+- **wsmitm.Session** (new in `internal/proxy/wsmitm/session.go`):
+  bidirectional WebSocket bridge with per-direction FrameHandler hooks.
+  Reads RFC 6455 frames via wscompact.ReadFrame, parses JSON text
+  payloads via wsmitm.Parse, invokes the handler (which can mutate the
+  Envelope and signal `replace=true` to trigger re-encoding), then
+  emits the result via wscompact.WriteFrame. Non-text frames
+  (ping/pong/binary/close) and empty payloads pass through byte-equal.
+  On JSON parse failure the session latches into **degraded mode**: all
+  subsequent frames in both directions are forwarded byte-equal without
+  inspection, so a schema change on either side cannot block live
+  traffic. Atomic per-session counters surface to operator telemetry
+  (c2s/s2c frames + bytes, parse failures, reencoded vs forwarded
+  count, degraded flag). 96.3% coverage.
+
+- Session.Serve has a documented "first-direction-wins" semantic: it
+  returns when the first pump goroutine ends; the caller is responsible
+  for closing both Client and Upstream to release the remaining
+  goroutine. Production wrappers `defer` the close. Tests close the
+  in-memory pipes explicitly.
+
+This connects every piece we built today: TCP-Accept →
+transparent.Engine (SNI peek, TLS terminate) → sniroute.Resolver
+(decide MITM vs passthrough) → wsmitm.Session (bridge with Phase F
+hooks) → re-encoded frame to upstream.
+
+### 2026-05-16 - Phase G round 6: transparent listener engine
+
+- **internal/proxy/transparent/Engine** anchors the Phase G data path.
+  Accepts TCP connections from a caller-provided net.Listener, peeks
+  the TLS ClientHello to extract SNI + ALPN (RFC 5246 / 6066 parser
+  inline so we never need to complete the handshake for off-domain
+  traffic), performs TLS termination with our CA-signed leaf via
+  injectable LeafCertProvider, runs the request through the SNI
+  router, dispatches to either an MITM handler or a passthrough
+  bridge.
+
+- Hardened: bounded concurrency via semaphore (default 256, tunable),
+  handshake timeout (default 5s, covers both peek + TLS), fail-open
+  on every error path, atomic per-engine telemetry counters
+  (accepted/served/mitm/passthrough/rejected/errors), context-driven
+  shutdown that waits for in-flight handshakes to finish.
+
+- Resolver elevated to an interface so tests can stub the rare
+  Reject path; production satisfies it with the existing
+  sniroute.Resolver.
+
+- 90.5% coverage; race-clean under -race; remaining gap is deeply
+  defensive TLS-parser overflow branches that valid handshakes never
+  hit.
+
+### 2026-05-16 - Phase G rounds 4-5: WSS frame parser + indistinguishability harness
+
+Round 4: tshark already installed (v4.6.5). Two more autonomous packages
+landed:
+
+- **T188 WSS frame parser** under `internal/proxy/wsmitm/`. Schema
+  derived from openai/codex Rust source (codex-api/src/sse/responses.rs
+  + codex-api/src/endpoint/responses_websocket.rs) read 2026-05-16.
+  Recognises 18 frame kinds (request, ping, response.created,
+  response.output_text.delta, response.completed/incomplete/failed,
+  reasoning deltas, function-call-args deltas, codex.rate_limits,
+  error, pong, ...). Fail-open: unknown frame kinds map to
+  FrameKindUnknown so callers downgrade the session to pure
+  passthrough rather than blocking. Envelope.Raw preserves the original
+  bytes so byte-equal forwarding is possible when no Phase F mutation
+  fires. 100% coverage; race-clean.
+
+- **T190 indistinguishability harness** under `internal/indist/`. The
+  diff engine + Capture data model that the operator-side tshark
+  wrapper will populate. Captures TLS ClientHello (JA3/JA4, ALPN,
+  cipher/extension/curve ordering, GREASE), HTTP/2 SETTINGS frame,
+  HTTP/2 pseudo-header order, plus WS Upgrade headers (extensions,
+  subprotocol, version). `Diff(baseline, proxy)` returns a Report
+  whose `OK()` is true iff every fingerprintable field matches.
+  Fingerprint is a sha256 hash of every load-bearing field,
+  deterministic across runs (timing fields explicitly excluded). 100%
+  coverage; race-clean.
+
+Pending: a real tshark-driven capture of Codex 0.130 traffic on a
+fresh Mac to lock the golden file under `research/indist/codex-0.130/`.
+The harness is ready to receive captures the moment an operator runs
+it.
+
+### 2026-05-16 - Phase G round 3: launchd + file-backup + concrete probes
+
+Two more rounds landed on top of round 2:
+
+**Round 4 — concrete reversibility Steps:**
+- `LaunchdInstall` under `internal/control/reversibility/steps/`. Renders
+  the user-scope LaunchAgent plist, runs `launchctl load -w` via a
+  swappable command path (tests inject a no-op stub). Apply cleans up
+  the plist on launchctl failure so re-runs aren't blocked. Reverse
+  runs `launchctl unload` (best-effort) + removes the plist. Idempotent
+  Inspect against the plist file's presence. ~94% coverage; race-clean.
+- `FileBackup` - generic Apply-patch / Reverse-restore step for any
+  config file (`~/.codex/config.toml`, `~/.codex/hooks.json`,
+  `~/.claude/settings.json` etc.). Pre-patch snapshot lands in
+  `<BackupDir>/<basename>.slimference.<unix-ns>.bak`; second Apply
+  preserves the OLDEST snapshot (the genuinely-pristine pre-install
+  state). Reverse restores byte-equal. Patch function is caller-supplied
+  + must be idempotent. ~93% coverage; race-clean.
+
+**Round 5 — concrete probes for state aggregator:**
+- `FileCAProbe` + `KeychainCAProbe` under `internal/control/probes.go`.
+  FileCAProbe reads `<Dir>/ca/root.crt`, parses, computes SHA-256
+  fingerprint, reports NotBefore/NotAfter/DaysUntilExpiry. KeychainCAProbe
+  composes with a caller-supplied `Looker` function so the live keychain
+  call (`security find-certificate`) is swappable in tests.
+- `HTTPDaemonProbe` - hits `/admin/health` with 500ms timeout, reports
+  PID + version + running/healthy.
+- `PortListenerProbe` - dial-checks 443/8990 via swappable Dial. Default
+  dialer uses net.Dialer with 50ms timeout. Inlined itoa() to avoid the
+  strconv import for this single use site.
+- `HostsFileNetworkProbe` - reads /etc/hosts (or override), reports
+  which Slimference targets currently resolve to a loopback address.
+- `AppsManagerProbe` - wraps internal/control/apps.Manager + optional
+  AppCounters to emit one AppEntry per known app with Enabled / Detected
+  / Routed / Bypassed fields.
+- `MemoryAppCounters` - atomic in-memory implementation of AppCounters;
+  the proxy will plug it into the SNI router so per-app routing decisions
+  feed straight into the TUI dashboard.
+
+Full Round 5 coverage: 100% of the internal/control package.
+
+Total Phase G round 3 contribution: ~1500 LOC code + ~2300 LOC tests
+across 6 new files. Full test suite green; gofmt clean; vet clean;
+race-clean.
+
+### 2026-05-16 - Phase G round 2: concrete Steps + state aggregator + inventory
+
+Building on the foundation packages, three more deliverables landed today:
+
+- **T196 concrete steps** under `internal/control/reversibility/steps/`:
+  - `CAGenerate` - materialises (or re-uses) the local Slimference Root CA
+    under `<Dir>/ca/`. Apply is idempotent; Reverse moves the files aside
+    with a timestamped `.bak.<unix>` suffix (preserves operator's ability
+    to recover the previously-trusted fingerprint). Inspect reports
+    present/partial/absent.
+  - `HostsPatch` - modifies `/etc/hosts` with a fenced Slimference-managed
+    block. Atomic writes via tmp-rename. Pre-install backup at
+    `<path>.slimference.bak`. Reverse restores from backup (byte-equal)
+    or falls back to stripping the fenced block. Marker-fenced so manual
+    edits outside the fence survive.
+  - 95%+ statement coverage; race-clean; gofmt + vet clean.
+
+- **T191 control state aggregator** under `internal/control/`:
+  - `SetupState` JSON-shaped snapshot with seven sub-blocks (CA, daemon,
+    listener, network redirect, indist proof, per-app, savings).
+  - `Probes` interface struct - one method per state field so callers
+    swap probes independently.
+  - `Build(ctx, Probes)` runs all probes in parallel goroutines under
+    a 100 ms budget; nil probes leave the field at zero (renderer shows
+    "unknown").
+  - `IsHealthy()` rolls up to a single bool (CA + daemon + listener +
+    network redirect must all be present for healthy).
+  - 100% coverage; race-clean.
+
+- **T194 inventory codification** under `internal/proxy/sniroute/`:
+  - `CodexEndpointInventory` - 27 entries covering every Codex Desktop
+    App / OpenAI / Anthropic endpoint family we have observed, each
+    tagged with its purpose, expected routing decision, and the Codex
+    version we first saw it in.
+  - `LookupEndpoint(host, path)` - returns the matching entry (most-
+    specific first).
+  - `VerifyDecision(host, path, decision)` - runtime safety guard that
+    returns false + a reason when the live router disagrees with the
+    inventory. Wires into `internal/proxy/wsmitm` (when built) to log
+    structured warnings on routing drift.
+  - Inventory ↔ router consistency test ensures the static inventory
+    cannot drift from the live routing table.
+  - 100% coverage; race-clean.
+
+Full test suite green; gofmt clean; vet clean. Total new code in this
+round: ~1 200 LOC + ~1 800 LOC tests across 6 files.
+
+### 2026-05-16 - Phase G foundations: T193 + T189 + T196
+
+Three load-bearing foundation packages for the Phase G live-conversation
+interception path, built ahead of the wire-level work (T188 / T190).
+
+- **T193** `internal/control/apps/` — per-app activation state machine.
+  `AppID` enum, `Policy` schema, `Manager` with atomic snapshot + OnChange
+  listeners, TOML loader/writer at `~/.config/slimference/apps.toml`,
+  UA-prefix and on-disk binary detection cascade. Defaults: Codex CLI on,
+  Codex Desktop App on, Claude Code off. 98.4% coverage, race-clean.
+- **T189** `internal/proxy/sniroute/` — routing-table evaluator. Decides
+  MITM vs passthrough per request based on SNI, path, method, WebSocket
+  subprotocol, and per-app policy. Routes Codex conversation traffic
+  (HTTP POST or WSS upgrade with `responses_websockets` subprotocol) to
+  MITM; routes all Codex Desktop sideband traffic (realtime/voice,
+  computer-use, image-gen, plugins, memories, models, analytics, browser
+  web UI) to passthrough. 100% coverage, race-clean.
+- **T196** `internal/control/reversibility/` — atomic install/uninstall
+  framework. `Step` interface, `Plan` with LIFO rollback on partial
+  failure, `Inspect` reports per-step + overall state. 100% coverage,
+  race-clean.
+
+These three packages do not yet wire into the live `:443` listener -
+that is the next iteration (T188 wire + transparent listener bind).
+They provide the gates and bookkeeping that every later piece consumes.
+
+### 2026-05-16 - Codex Desktop App routing audit + path tightening
+
+After reading the openai/codex source on GitHub, discovered our prior
+`/backend-api/codex/*` prefix match was over-broad. The Codex Desktop
+App (2026) emits multiple endpoints under that prefix that are NOT
+chat-completion conversation traffic and must not be intercepted:
+
+- `/backend-api/codex/realtime/calls` (voice / realtime upgrade)
+- `/backend-api/codex/realtime/calls/<id>` (call management)
+- `/backend-api/codex/models` (GET model listings)
+- `/backend-api/codex/memories/trace_summarize` (memory subsystem)
+- `/backend-api/codex/responses/compact` (Codex's own conversation
+  compaction sideband - already-compressed input, don't double-compress)
+- `/backend-api/codex/plugins`, `/backend-api/codex/plugins/install`
+- `/backend-api/codex/images/generations` (image generation via
+  gpt-image-1.5)
+
+`isCompressiblePath` now matches only the exact
+`/backend-api/codex/responses` endpoint (and trailing-slash variant)
+for Codex traffic. `isProviderCompressiblePath` mirrors the
+tightening. All other Desktop-App sideband endpoints pass through
+byte-equal via `handlePassthrough`.
+
+Verified with six integration tests in
+`internal/proxy/codex_desktop_safety_test.go`:
+
+- Vision (`input_image` content parts) flows byte-equal through the
+  Responses-API conversation endpoint; image URL and `detail` field
+  survive the parse / re-marshal round-trip.
+- `web_search` tool calls (`function_call` / `function_call_output`
+  with name=`web_search`) pass through untouched - our staleread /
+  prune mechanisms allowlist only `Read` and the apply_patch family,
+  so Codex's tool conventions never trigger them.
+- `computer_call` / `computer_call_output` items (screenshot, click,
+  type) flow untouched - screenshot base64 payloads in the
+  `computer_call_output` shape survive round-trip.
+- Realtime voice call setup (`POST /backend-api/codex/realtime/calls`)
+  is no longer intercepted; body reaches upstream byte-equal.
+- Image generation (`POST /backend-api/codex/images/generations`)
+  passes through.
+- Models listing (`GET /backend-api/codex/models`) passes through
+  unmodified.
+
+### 2026-05-16 - Option C: T186 Quality A/B Harness + T169 Be-Terse Hint
+
+- New `internal/qualityab/` package: lightweight Quality A/B harness
+  for gated output-reduce levers. Deterministic FNV-64 cohort routing
+  (control vs treatment), per-cohort atomic outcome counters
+  (success / upstream error / retry), one-way auto-rollback latch
+  when treatment failure rate exceeds control's by 5pp on 50+ samples.
+  100% coverage, race-detector-clean.
+- New `internal/beterse/` package: deterministic injector for the
+  curated be-terse hint ("Reply concisely. No preambles, no closing
+  remarks. Show your work directly."). Supports both Anthropic
+  (`system` string or array of content blocks) and OpenAI / Codex
+  (`messages` with role=system) wire shapes. Idempotent; 100% coverage.
+- Wired into `handler.go` step 8.8: when `BeTerseHintEnabled` is on,
+  the per-session cohort decides; treatment cohort gets the hint,
+  control sees the original body. Outcome (HTTP status >=400 → failure,
+  otherwise success) is reported to the harness on every response so
+  auto-rollback can fire.
+- New toggles `[compression.output_reduce] be_terse_hint_enabled`
+  (default **off** - this lever has Quality risk) and
+  `be_terse_hint_text` for custom wording, plus env-var equivalents
+  (`SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT`,
+  `SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT`).
+- Telemetry: `/admin/status.output_reduce_counters.beterse_*` for
+  injection counters; `/admin/status.quality_ab` for cohort state +
+  rollback flag.
+- E2E wire tests assert treatment cohort gets the hint, control
+  doesn't, and the master toggle short-circuits both.
+
+### 2026-05-16 - Option B: T170 / T174 (Input-side reclamation)
+
+- New `internal/filetracker/` package: per-session FileMutationTracker
+  with `RecordRead` / `RecordMutation` / `Get` / `All` / `Forget`.
+  Content-hashed via sha256, race-detector-clean, 100% coverage.
+  Shared substrate for T170, T174, and future T177 PostToolUse JIT.
+- New `internal/staleread/` package with two engines, both 100%
+  covered:
+  - `AgeMessages` (T170): replaces superseded older `Read` tool_results
+    with `[stale read: <path> superseded by turn N]` markers when a
+    newer read of the same path exists. Lossless aging.
+  - `PruneObsoleteReads` (T174): replaces reads that happened before a
+    subsequent `apply_patch` / `Write` / `Edit` of the same path with
+    `[obsolete: <path> edited at turn N]` markers. The model retains
+    the post-mutation state via later messages.
+- Wired into `handler.go` steps 2.5 (aging) and 2.6 (obsolete-prune),
+  before secret detection and compression layers so L1/L2 see the
+  reduced messages.
+- Two new toggles under `[compression.output_reduce]`
+  (`stale_read_aging_enabled`, `obsolete_read_prune_enabled`) plus
+  `stale_read_aging_min_turn_gap` and env-var equivalents
+  (`SLIMFERENCE_INPUT_REDUCE_STALE_AGING`,
+  `SLIMFERENCE_INPUT_REDUCE_STALE_AGING_MIN_TURN_GAP`,
+  `SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE`).
+- Telemetry: `output_reduce_counters.stale_read_*` and
+  `output_reduce_counters.obsolete_read_*` in /admin/status.
+- E2E wire tests show real reductions on synthetic sessions
+  (~186 bytes saved by aging, ~239 bytes by pruning).
+
+### 2026-05-16 - Option A: T183 / T184 / T185 (Output-Reduction Sprint follow-ups)
+
+- **T183**: OpenAI / Codex non-streaming responses now go through repdet
+  rewriting too. Added `passthroughOpenAIWithRepdet` + `rewriteOpenAIResponseBody`
+  supporting both Chat Completions (`choices[].message.content`) and
+  Responses API (`output[].content[].text`) shapes. Handler dispatch
+  splits Anthropic / OpenAI / Codex into per-provider helpers.
+- **T184**: Streamcut now uses a 3-line holdback queue
+  (`NewCutterWithHoldback`) so the trailing-commentary opener never
+  reaches the client. Substantive deltas older than the holdback flow
+  through normally; on natural stream end `Flush` drains the queue.
+  Refactored `streamingRelayWithCutter` around the new `Forward` /
+  `Flush` API.
+- **T185**: New `OutputReduceCounters` struct on `Proxy` with atomic
+  monotonic counters for stop-seq injections, streamcut fires, repdet
+  rewrites and bytes saved. Surfaced under
+  `/admin/status.output_reduce_counters` with a stable JSON shape.
+  Race-detector clean under concurrent load.
+- All three packages stay at 100% unit-test coverage; new wire tests
+  cover OpenAI repdet rewrite, streamcut delay-buffer suppression
+  (opener no longer in client view, substantive content preserved),
+  and admin telemetry round-trip.
+
+### 2026-05-16 - T165 / T166 / T167 Output-Reduction Sprint
+
+- Added `internal/outstop/` with a versioned trailing-commentary phrase
+  registry and `MergeIntoBody` that injects `stop_sequences` (Anthropic) /
+  `stop` (OpenAI, Codex ChatGPT) capped at four entries, preserving any
+  user-supplied list. Idempotent; user-supplied stop entries kept first.
+- Added `internal/outstop/streamcut/` cutter that watches SSE deltas and,
+  once the response carries >=80 chars of substantive content, closes the
+  upstream HTTP body and emits a synthetic provider-shaped terminator the
+  first time a phrase-library opener appears in the most recent 96 bytes.
+  Stops upstream generation - we no longer pay for the trailing fluff.
+- Added `internal/outstop/repdet/` Rabin-Karp repetition detector (100-byte
+  windows, 200-byte confirmed-match floor) plus per-request prompt indexer
+  and `passthroughAnthropicWithRepdet` that rewrites verbatim echoes in
+  non-streaming Anthropic responses into `[unchanged: <name>]` markers.
+  Streaming and OpenAI / Codex rewrite paths are follow-ups.
+- Three new operator toggles under `[compression.output_reduce]`
+  (`stop_sequences_enabled`, `streamcut_enabled`,
+  `repetition_detection_enabled`) and env-var equivalents
+  (`SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS`,
+  `SLIMFERENCE_OUTPUT_REDUCE_STREAMCUT`,
+  `SLIMFERENCE_OUTPUT_REDUCE_REPDET`); all default `true`.
+- 100% statement coverage on all three new packages; end-to-end wire test
+  asserts `stop_sequences` reaches the upstream Anthropic stub.
+
 ### 2026-05-15 - T154 Read/File Delta Maximizer
 
 - Extended read-cache decisions from hook-only reads into proxy-visible

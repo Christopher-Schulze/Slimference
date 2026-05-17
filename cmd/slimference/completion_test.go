@@ -27,7 +27,7 @@ func TestHandleCompletionCmd_bashPrintsScript(t *testing.T) {
 		"config test doctor stats gain",
 		"service proxy integrate",
 		"install remove verify status check-upstream",
-		"claude codex",
+		"install|remove) COMPREPLY=( $(compgen -W \"codex\"",
 		"install enable disable status uninstall env",
 		"--direct --proxied --host= --port= --",
 		"prompt-cache",

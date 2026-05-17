@@ -4553,15 +4553,15 @@ Slimference/
 ### Build
 
 ```bash
-# Development build (pure Go; regex-based structure extraction; modernc.org/sqlite needs no CGO)
-go build -o slimference ./cmd/slimference
+# Local build (single binary, stripped by default)
+go run ./scripts/build --out ./slimference
 
 # Release build (optimized, stripped)
-go build -ldflags="-s -w -X main.version=2.0.0" -o slimference ./cmd/slimference
+go build -trimpath -ldflags="-s -w -X github.com/slimference/slimference/internal/buildinfo.Version=2.0.0" -o slimference ./cmd/slimference
 
 # macOS universal binary (Apple Silicon + Intel) — CGO not required for Slimference dependencies
-GOOS=darwin GOARCH=arm64 go build -o slimference-darwin-arm64 ./cmd/slimference
-GOOS=darwin GOARCH=amd64 go build -o slimference-darwin-amd64 ./cmd/slimference
+GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o slimference-darwin-arm64 ./cmd/slimference
+GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o slimference-darwin-amd64 ./cmd/slimference
 lipo -create -output slimference slimference-darwin-arm64 slimference-darwin-amd64
 ```
 

@@ -10,11 +10,11 @@ import (
 	"github.com/slimference/slimference/internal/integrate"
 )
 
-// handleIntegrateCmd dispatches `slimference integrate <status|install|remove>`.
-// T65 one-shot installer for Claude Code + Codex wiring.
+// handleIntegrateCmd dispatches the legacy/config-patch integration surface.
+// Phase H default installs use `slimference install|cert-trust|root-arm|enable`.
 func handleIntegrateCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: slimference integrate <status|install|remove> [--client all|claude|codex] [--dry-run] [--json]")
+		fmt.Fprintln(os.Stderr, "usage: slimference integrate <status|install|remove> [--client all|claude|codex] [--dry-run] [--json]  (legacy/config-patch mode)")
 		exitFn(1)
 		return
 	}
@@ -99,18 +99,19 @@ func runIntegrateStatus(opts integrate.Options, extra integrateExtra) {
 }
 
 func runIntegrateInstall(opts integrate.Options, extra integrateExtra) {
+	var ok bool
+	opts, ok = codexOnlyIntegrateOptions(opts)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "integrate: Claude Code is parked; no files changed. Use RTK for Claude Code.")
+		return
+	}
 	rep := integrate.Install(opts)
 
 	// Hooks: delegate to the existing internal/hooks package. We always
-	// try both client hooks unless --client narrows it.
+	// install only Codex hooks while Claude Code is parked.
 	if extra.InstallHook && !opts.DryRun {
 		home, _ := osUserHomeDir()
 		slimCmd := "slimference"
-		if opts.Client == "all" || opts.Client == "claude" {
-			if err := installClaudeHookFn(home, slimCmd); err != nil {
-				rep.Errors = append(rep.Errors, fmt.Sprintf("claude hook: %v", err))
-			}
-		}
 		if opts.Client == "all" || opts.Client == "codex" {
 			if err := installCodexHookFn(home, slimCmd); err != nil {
 				rep.Errors = append(rep.Errors, fmt.Sprintf("codex hook: %v", err))
@@ -125,22 +126,30 @@ func runIntegrateInstall(opts integrate.Options, extra integrateExtra) {
 	renderIntegrateReport("Install", rep)
 	if !opts.DryRun {
 		fmt.Println()
-		fmt.Println("Next steps:")
-		fmt.Println("  1. `exec $SHELL -l`  (reload your shell so the env var takes effect)")
+		fmt.Println("Legacy config-patch mode complete.")
+		fmt.Println()
+		fmt.Println("Preferred Phase H Codex path:")
+		fmt.Println("  1. `slimference install`")
+		fmt.Println("  2. `slimference cert-trust`")
+		fmt.Println("  3. `slimference root-arm`")
+		fmt.Println("  4. `slimference enable`")
+		fmt.Println()
+		fmt.Println("If you intentionally use legacy config-patch mode:")
+		fmt.Println("  1. `exec $SHELL -l`  (reload your shell so env/config edits apply)")
 		fmt.Println("  2. `slimference service install` if the daemon is not yet running")
-		fmt.Println("  3. Launch Claude Code / Codex - traffic now flows through Slimference.")
 	}
 }
 
 func runIntegrateRemove(opts integrate.Options, extra integrateExtra) {
+	var ok bool
+	opts, ok = codexOnlyIntegrateOptions(opts)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "integrate: Claude Code is parked; no files changed. Use RTK for Claude Code.")
+		return
+	}
 	rep := integrate.Remove(opts)
 	if extra.InstallHook && !opts.DryRun {
 		home, _ := osUserHomeDir()
-		if opts.Client == "all" || opts.Client == "claude" {
-			if err := removeClaudeHookFn(home); err != nil {
-				rep.Errors = append(rep.Errors, fmt.Sprintf("claude hook remove: %v", err))
-			}
-		}
 		if opts.Client == "all" || opts.Client == "codex" {
 			if err := removeCodexHookFn(home); err != nil {
 				rep.Errors = append(rep.Errors, fmt.Sprintf("codex hook remove: %v", err))
@@ -154,20 +163,17 @@ func runIntegrateRemove(opts integrate.Options, extra integrateExtra) {
 	renderIntegrateReport("Remove", rep)
 	if !opts.DryRun {
 		fmt.Println()
-		fmt.Println("Reload your shell (`exec $SHELL -l`) so ANTHROPIC_BASE_URL is unset.")
+		fmt.Println("Reload your shell (`exec $SHELL -l`) if legacy config-patch state was active.")
 	}
 }
 
 func runIntegrateEmergencyOff(opts integrate.Options, extra integrateExtra) {
 	// Emergency-off = remove + attempt daemon stop. We do not fail loud on
 	// the daemon stop - user may already have unloaded it.
-	opts.Client = "all"
+	opts.Client = "codex"
 	rep := integrate.Remove(opts)
 	if extra.InstallHook && !opts.DryRun {
 		home, _ := osUserHomeDir()
-		if err := removeClaudeHookFn(home); err != nil {
-			rep.Errors = append(rep.Errors, fmt.Sprintf("claude hook remove: %v", err))
-		}
 		if err := removeCodexHookFn(home); err != nil {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("codex hook remove: %v", err))
 		}
@@ -191,7 +197,17 @@ func runIntegrateEmergencyOff(opts integrate.Options, extra integrateExtra) {
 	}
 	renderIntegrateReport("Emergency-off", rep)
 	fmt.Println()
-	fmt.Println("All Slimference wiring removed. Reload your shell to continue.")
+	fmt.Println("Legacy/config-patch wiring removed. Reload your shell to continue.")
+}
+
+func codexOnlyIntegrateOptions(opts integrate.Options) (integrate.Options, bool) {
+	switch opts.Client {
+	case "claude":
+		return opts, false
+	case "all":
+		opts.Client = "codex"
+	}
+	return opts, true
 }
 
 func renderIntegrateReport(title string, rep integrate.Report) {

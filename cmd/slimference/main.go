@@ -20,7 +20,8 @@
 //	slimference rewrite -- <cmd>   # Print command line; or pipe hook JSON (field "command") on stdin
 //	slimference posttool          # Compact PostToolUse hook JSON from stdin for Codex
 //	slimference codexhook <event> # Codex lifecycle hook entry points
-//	slimference hook install claude # Install Claude Code / Codex hooks (v1)
+//	slimference install            # Install Codex-only Phase H surface
+//	slimference enable             # Arm transparent MITM once root-arm/cert trust are ready
 //	slimference debug paths        # Show resolved config / filter.db / tee paths
 //	slimference debug last         # Last Layer-0 row from filter.db (--json)
 //	slimference debug summary week # Aggregate filter_runs for today|week|month|all
@@ -51,8 +52,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/buildinfo"
+	"github.com/slimference/slimference/internal/compactsignal"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/control/apps"
 	"github.com/slimference/slimference/internal/crosstool"
 	"github.com/slimference/slimference/internal/daemon"
 	dbg "github.com/slimference/slimference/internal/debug"
@@ -92,32 +95,36 @@ var (
 	testInterceptTimeout         = 60 * time.Second
 	testInterceptShutdownTimeout = 5 * time.Second
 	exitFn                       = os.Exit
-	resolveFilterDBPathFn        = resolveFilterDBPath
-	resolveTeeDirFn              = resolveTeeDir
-	filterDefaultDataDirFn       = filter.DefaultDataDir
-	writeGainByCommandCSV        = analytics.WriteGainByCommandCSV
-	writeGainByParserCSV         = analytics.WriteGainByParserCSV
-	writeGainSummaryCSV          = analytics.WriteGainSummaryCSV
-	writeOutputReduceCSV         = analytics.WriteOutputReduceCSV
-	writePromptCacheCSV          = analytics.WritePromptCacheCSV
-	writeProxyFlightGainCSV      = analytics.WriteProxyFlightGainCSV
-	replaySessionFn              = dbg.ReplaySession
-	daemonIsRunningFn            = daemon.IsRunning
-	daemonStopFn                 = daemon.StopDaemon
-	daemonInstallLaunchdFn       = daemon.InstallLaunchd
-	daemonUninstallFn            = daemon.UninstallLaunchd
-	daemonFormatStatusFn         = daemon.FormatStatus
-	daemonRunFn                  = daemon.RunDaemon
-	installClaudeHookFn          = hooks.InstallClaude
-	installCodexHookFn           = hooks.InstallCodex
-	removeClaudeHookFn           = hooks.RemoveClaude
-	removeCodexHookFn            = hooks.RemoveCodex
-	loadTUIStateFn               = tui.LoadPersistedState
-	proxyRunFn                   = proxyRun
-	newTransparentNetworkFn      = func() proxyNetworkManager { return transparent.NewManager() }
-	newTransparentKeychainFn     = func() proxyKeychain { return transparent.NewKeychain() }
-	newTransparentLaunchFn       = func() proxyLaunchAgent { return transparent.NewLaunchAgent() }
-	transparentProxyHealthFn     = defaultProxyHealthCheck
+	// recordHookFlightImpl is the testable indirection through which
+	// failopen.go records degraded-session telemetry. Tests inject a
+	// capture function; production points at recordHookFlight.
+	recordHookFlightImpl     = recordHookFlight
+	resolveFilterDBPathFn    = resolveFilterDBPath
+	resolveTeeDirFn          = resolveTeeDir
+	filterDefaultDataDirFn   = filter.DefaultDataDir
+	writeGainByCommandCSV    = analytics.WriteGainByCommandCSV
+	writeGainByParserCSV     = analytics.WriteGainByParserCSV
+	writeGainSummaryCSV      = analytics.WriteGainSummaryCSV
+	writeOutputReduceCSV     = analytics.WriteOutputReduceCSV
+	writePromptCacheCSV      = analytics.WritePromptCacheCSV
+	writeProxyFlightGainCSV  = analytics.WriteProxyFlightGainCSV
+	replaySessionFn          = dbg.ReplaySession
+	daemonIsRunningFn        = daemon.IsRunning
+	daemonStopFn             = daemon.StopDaemon
+	daemonInstallLaunchdFn   = daemon.InstallLaunchd
+	daemonUninstallFn        = daemon.UninstallLaunchd
+	daemonFormatStatusFn     = daemon.FormatStatus
+	daemonRunFn              = runDaemonWithSlimferenceReload
+	installClaudeHookFn      = hooks.InstallClaude
+	installCodexHookFn       = hooks.InstallCodex
+	removeClaudeHookFn       = hooks.RemoveClaude
+	removeCodexHookFn        = hooks.RemoveCodex
+	loadTUIStateFn           = tui.LoadPersistedState
+	proxyRunFn               = proxyRun
+	newTransparentNetworkFn  = func() proxyNetworkManager { return transparent.NewManager() }
+	newTransparentKeychainFn = func() proxyKeychain { return transparent.NewKeychain() }
+	newTransparentLaunchFn   = func() proxyLaunchAgent { return transparent.NewLaunchAgent() }
+	transparentProxyHealthFn = defaultProxyHealthCheck
 
 	// runTUI sub-components: injectable for test coverage of post-startup paths.
 	configLoadFn = func() (*config.Config, error) {
@@ -135,6 +142,15 @@ var (
 	newTickerFn        = time.NewTicker
 	startProxyFn       = func(cfg *config.Config) (func(ctx context.Context) error, error) {
 		p := newProxyFn(cfg)
+		ensureSlimDataDir()
+		startProxyInstance = p
+		startProxyConfig = cfg
+		appsMgr := wirePhaseG(p, cfg)
+		startProxyAppsManager = appsMgr
+		startProxyHostsCleanup = applyHostsPatch(cfg)
+		_, sniCancel := startSNIPeekEngineFn(p, cfg, appsMgr)
+		startProxySNICancel = sniCancel
+		startProxyPIDCleanup = writePIDFile()
 		runner := proxyStartRunnerFn
 		hasListener := proxyHasListenerFn
 		after := timeAfterFn
@@ -560,12 +576,21 @@ func handleSubcommand(args []string) {
 		handleDaemonCmd(args[1:])
 
 	case "start":
+		if handleNoArgLifecycleHelpOrError("start", args[1:]) {
+			return
+		}
 		handleStartCmd()
 
 	case "stop":
+		if handleNoArgLifecycleHelpOrError("stop", args[1:]) {
+			return
+		}
 		handleStopCmd()
 
 	case "restart":
+		if handleNoArgLifecycleHelpOrError("restart", args[1:]) {
+			return
+		}
 		handleRestartCmd()
 
 	case "service":
@@ -595,11 +620,49 @@ func handleSubcommand(args []string) {
 	case "proxy":
 		handleProxyCmd(args[1:])
 
+	case "install":
+		handleInstallCmd(args[1:])
+
+	case "uninstall":
+		handleUninstallCmd(args[1:])
+
+	case "enable":
+		handleEnableCmd(args[1:])
+
+	case "disable":
+		handleDisableCmd(args[1:])
+
+	case "status":
+		handleStatusCmd(args[1:])
+
+	case "cert-trust":
+		handleCertTrustCmd(args[1:])
+
+	case "root-arm":
+		handleRootArmCmd(args[1:])
+
+	case "root-disarm":
+		handleRootDisarmCmd(args[1:])
+
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, expand-body, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, proxy, version")
 		exitFn(1)
 	}
+}
+
+func handleNoArgLifecycleHelpOrError(command string, args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
+		fmt.Fprint(os.Stdout, helpForSubcommand(command))
+		return true
+	}
+	fmt.Fprintf(os.Stderr, "%s: unexpected argument %q\n", command, args[0])
+	fmt.Fprintf(os.Stderr, "usage: slimference %s\n", command)
+	exitFn(2)
+	return true
 }
 
 // syncPermissionDeny merges global [filter] deny_patterns with project .slimference/filters.toml (cwd).
@@ -751,6 +814,10 @@ func handleFilterCmd(args []string) {
 }
 
 func handleRewriteCmd(args []string) {
+	// Panic-safety: any unexpected runtime error in the rewrite
+	// pipeline degrades to silent passthrough so the user's shell never
+	// breaks because slimference crashed. t164 fail-open contract.
+	defer guardHook(FailOpenRewrite, nil)()
 	// rewriteEmit applies the §4.2 rewrite pipeline to cmdLine and exits with
 	// the appropriate hook exit code:
 	//   0 = rewrite applied, stdout contains rewritten command
@@ -828,6 +895,10 @@ func handlePostToolCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
 		exitFn(1)
 	}
+	// Panic-safety guard for the heavy posttool compaction pipeline.
+	// Engages after payload is read so the recovery has bytes to emit.
+	// t164 fail-open contract.
+	defer guardHook(FailOpenPostTool, payload)()
 	cfg := config.Defaults()
 	if loaded, err := configLoadFn(); err == nil {
 		cfg = loaded
@@ -840,11 +911,11 @@ func handlePostToolCmd(args []string) {
 	stopWatchdog := startCodexPostToolWatchdog(payload, postToolTimeoutDuration(cfg))
 	defer stopWatchdog()
 	if !details.HasToolResponse {
-		recordHookFlight("hook_post", details.SessionID, postToolFlightToolName(details), "skip_no_response", len(payload), len(payload), []int{0}, nil)
+		recordHookFlight("hook_post", details.SessionID, postToolFlightToolName(details), "skip_no_response", len(payload), len(payload), []int{1}, nil)
 		return
 	}
 	if minTokens := cfg.Hooks.CodexPostToolMinTokens; postToolBelowMinTokens(details.ToolResponse, minTokens) {
-		recordHookFlight("hook_post", details.SessionID, postToolFlightToolName(details), "skip_tiny", len(details.ToolResponse), len(details.ToolResponse), []int{0}, nil)
+		recordHookFlight("hook_post", details.SessionID, postToolFlightToolName(details), "skip_tiny", len(details.ToolResponse), len(details.ToolResponse), []int{1}, nil)
 		return
 	}
 
@@ -932,8 +1003,77 @@ func handlePostToolCmd(args []string) {
 	}
 }
 
+func handleClaudePostToolCmd(args []string) {
+	for _, arg := range args {
+		if arg != "" && arg != "--" {
+			fmt.Fprintln(os.Stderr, "usage: slimference claudeposttool   (pipe Claude PostToolUse hook JSON on stdin)")
+			exitFn(1)
+		}
+	}
+	if !claudePostToolEnabled() {
+		return
+	}
+	if termIsTerminalFn(int(os.Stdin.Fd())) {
+		fmt.Fprintln(os.Stderr, "usage: slimference claudeposttool   (pipe Claude PostToolUse hook JSON on stdin)")
+		exitFn(1)
+	}
+	payload, err := readStdinAll()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
+		exitFn(1)
+	}
+	defer guardHook(FailOpenPostTool, payload)()
+	cfg := config.Defaults()
+	if loaded, err := configLoadFn(); err == nil {
+		cfg = loaded
+	}
+	details, err := filter.ExtractPostToolDetailsFromHookJSON(payload)
+	if err != nil {
+		recordHookFlight("hook_post_claude", "", "PostToolUse", "parse_fail_open", len(payload), len(payload), []int{1}, err)
+		return
+	}
+	if !details.HasToolResponse {
+		recordHookFlight("hook_post_claude", details.SessionID, postToolFlightToolName(details), "skip_no_response", len(payload), len(payload), []int{1}, nil)
+		return
+	}
+	if minTokens := cfg.Hooks.CodexPostToolMinTokens; postToolBelowMinTokens(details.ToolResponse, minTokens) {
+		recordHookFlight("hook_post_claude", details.SessionID, postToolFlightToolName(details), "skip_tiny", len(details.ToolResponse), len(details.ToolResponse), []int{1}, nil)
+		return
+	}
+
+	wd, err := osGetwd()
+	if err != nil {
+		wd = ""
+	}
+	compacted, changed := filter.CompactCapturedOutputWithContext(wd, details.CommandLine, details.ToolResponse, cfg.Filter.PassthroughMaxChars, hookFileReadContext(wd, details))
+	if out, ok := applyPostToolCrossToolDedup(wd, details); ok {
+		compacted = out
+		changed = true
+	}
+	if !changed || len(compacted) >= len(details.ToolResponse) {
+		recordHookFlight("hook_post_claude", details.SessionID, postToolFlightToolName(details), "passthrough", len(details.ToolResponse), len(details.ToolResponse), []int{1}, nil)
+		return
+	}
+
+	recordHookFlightEntries(
+		"hook_post_claude",
+		details.SessionID,
+		postToolFlightToolName(details),
+		"compressed",
+		len(details.ToolResponse),
+		len(compacted),
+		[]int{1},
+		claudePostToolDecisionEntries(details, len(details.ToolResponse), len(compacted)),
+		nil,
+	)
+	if err := json.NewEncoder(os.Stdout).Encode(claudePostToolReplacement(string(compacted))); err != nil {
+		fmt.Fprintf(os.Stderr, "encode claudeposttool output: %v\n", err)
+		exitFn(1)
+	}
+}
+
 func recordCodexPostToolAccounting(details filter.PostToolPayload, changed bool, originalBytes int, finalBytes int, entries []dbg.DecisionEntry) {
-	recordHookFlightEntries("hook_post", details.SessionID, postToolFlightToolName(details), hookDecision(changed), originalBytes, finalBytes, []int{0}, entries, nil)
+	recordHookFlightEntries("hook_post", details.SessionID, postToolFlightToolName(details), hookDecision(changed), originalBytes, finalBytes, []int{1}, entries, nil)
 }
 
 func codexPostToolDecisionEntries(details filter.PostToolPayload, originalBytes int, compactedBytes int, contextBytes int) []dbg.DecisionEntry {
@@ -942,7 +1082,7 @@ func codexPostToolDecisionEntries(details filter.PostToolPayload, originalBytes 
 	contextTokens := filter.EstimateTokensFromBytes(contextBytes)
 	entries := []dbg.DecisionEntry{{
 		ContentType:  "tool_result",
-		Layer:        0,
+		Layer:        1,
 		SubLayer:     "codex_posttool_compaction",
 		Action:       "compressed",
 		Reason:       postToolFlightToolName(details),
@@ -957,10 +1097,21 @@ func codexPostToolDecisionEntries(details filter.PostToolPayload, originalBytes 
 	if contextAdded > 0 {
 		entries = append(entries, dbg.DecisionEntry{
 			ContentType:  "tool_result",
-			Layer:        0,
+			Layer:        1,
 			SubLayer:     "codex_hook_replacement_context",
 			Action:       "overhead",
 			Reason:       "replacement metadata and archive pointer",
+			TokensBefore: compactedTokens,
+			TokensAfter:  contextTokens,
+			SavedTokens:  -contextAdded,
+		})
+	} else if contextAdded < 0 {
+		entries = append(entries, dbg.DecisionEntry{
+			ContentType:  "tool_result",
+			Layer:        1,
+			SubLayer:     "codex_archive_replacement",
+			Action:       "replacement",
+			Reason:       "archive context shorter than compacted preview",
 			TokensBefore: compactedTokens,
 			TokensAfter:  contextTokens,
 			SavedTokens:  -contextAdded,
@@ -1039,6 +1190,52 @@ func codexPostToolReplacement(context string) map[string]interface{} {
 	}
 }
 
+func claudePostToolReplacement(output string) map[string]interface{} {
+	return map[string]interface{}{
+		"hookSpecificOutput": map[string]interface{}{
+			"hookEventName": "PostToolUse",
+			"updatedToolOutput": map[string]interface{}{
+				"stdout":      output,
+				"stderr":      "",
+				"interrupted": false,
+				"isImage":     false,
+			},
+		},
+	}
+}
+
+func claudePostToolDecisionEntries(details filter.PostToolPayload, originalBytes int, compactedBytes int) []dbg.DecisionEntry {
+	originalTokens := filter.EstimateTokensFromBytes(originalBytes)
+	compactedTokens := filter.EstimateTokensFromBytes(compactedBytes)
+	return []dbg.DecisionEntry{{
+		ContentType:  "tool_result",
+		Layer:        1,
+		SubLayer:     "claude_posttool_updated_output",
+		Action:       "compressed",
+		Reason:       postToolFlightToolName(details),
+		TokensBefore: originalTokens,
+		TokensAfter:  compactedTokens,
+		SavedTokens:  originalTokens - compactedTokens,
+		Settings: map[string]string{
+			"command": details.CommandLine,
+			"mode":    claudeHookMode(),
+		},
+	}}
+}
+
+func claudePostToolEnabled() bool {
+	switch claudeHookMode() {
+	case "max", "compact", "aggressive", "auto":
+		return true
+	default:
+		return false
+	}
+}
+
+func claudeHookMode() string {
+	return strings.ToLower(strings.TrimSpace(os.Getenv("SLIMFERENCE_CLAUDE_HOOK_MODE")))
+}
+
 const (
 	codexPostToolAutoReplaceMinOriginalTokens = 600
 	codexPostToolAutoReplaceMinSavedTokens    = 400
@@ -1080,7 +1277,11 @@ func failOpenCodexPostTool(payload []byte, err error) {
 	if toolName == "" {
 		toolName = "PostToolUse"
 	}
-	recordHookFlight("hook_post", sessionID, toolName, "fail_open", len(payload), len(payload), []int{0}, err)
+	// Preserve the legacy decision label ("fail_open" with no reason
+	// suffix) for backward compatibility with existing telemetry
+	// dashboards; new fail-open paths use failOpenPassthrough() with a
+	// categorised reason.
+	recordHookFlight("hook_post", sessionID, toolName, "fail_open", len(payload), len(payload), []int{1}, err)
 }
 
 func recordCodexPostToolTimeout(payload []byte, timeout time.Duration) {
@@ -1089,7 +1290,9 @@ func recordCodexPostToolTimeout(payload []byte, timeout time.Duration) {
 	if toolName == "" {
 		toolName = "PostToolUse"
 	}
-	recordHookFlight("hook_post", sessionID, toolName, "timeout_fail_open", len(payload), len(payload), []int{0}, fmt.Errorf("posttool timeout after %s", timeout))
+	// Preserve legacy "timeout_fail_open" decision label for the same
+	// reason as failOpenCodexPostTool above.
+	recordHookFlight("hook_post", sessionID, toolName, "timeout_fail_open", len(payload), len(payload), []int{1}, fmt.Errorf("posttool timeout after %s", timeout))
 }
 
 func handleCodexHookCmd(args []string) {
@@ -1106,6 +1309,9 @@ func handleCodexHookCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
 		exitFn(1)
 	}
+	// Lifecycle hooks must never break the session: t164 fail-open
+	// contract. Any panic in the lifecycle handler degrades silently.
+	defer guardHook(FailOpenCodexLifecycle, payload)()
 	switch args[0] {
 	case "session-start":
 		handleCodexSessionStartHook(payload)
@@ -1117,6 +1323,10 @@ func handleCodexHookCmd(args []string) {
 		recordCodexPostToolTimeout(payload, postToolTimeoutDuration(config.Defaults()))
 	case "stop":
 		handleCodexStopHook(payload)
+	case "pre-compact":
+		handleCodexPreCompactHook(payload)
+	case "post-compact":
+		handleCodexPostCompactHook(payload)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown codexhook event: %s\n", args[0])
 		exitFn(1)
@@ -1131,19 +1341,49 @@ func handleCodexSessionStartHook(payload []byte) {
 		source = "session"
 	}
 	recordHookFlight("codex_session_start", sessionID, "SessionStart", source, len(payload), len(payload), nil, nil)
-	if codexHookMode() != "debug" {
+	context := slimferenceAwarenessContext(codexHookMode())
+	if context == "" {
 		return
 	}
 	out := map[string]interface{}{
 		"continue": true,
 		"hookSpecificOutput": map[string]interface{}{
 			"hookEventName":     "SessionStart",
-			"additionalContext": "Local hook debug mode is active. Compact tool-result feedback may replace oversized raw output.",
+			"additionalContext": context,
 		},
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
 		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
 		exitFn(1)
+	}
+}
+
+// slimferenceAwarenessContext returns the SessionStart additionalContext
+// text to inject into the model's session for the given hook mode. The
+// text tells the model that tool outputs may be pre-compacted by
+// Slimference so it does not retry "to see the full output" — a common
+// failure mode that wastes tokens. Returns "" when the mode should not
+// inject anything (silent / auto without aggressive flag).
+//
+// Mode semantics (mirrors the lifecycle hook script case statement):
+//
+//	silent      -> no injection
+//	auto        -> short hint that compaction may occur
+//	compact     -> explicit summary of what to expect
+//	aggressive  -> fullest description of the contract
+//	debug       -> debug-mode banner (legacy text preserved for fixtures)
+func slimferenceAwarenessContext(mode string) string {
+	switch mode {
+	case "debug":
+		return "Local hook debug mode is active. Compact tool-result feedback may replace oversized raw output."
+	case "compact":
+		return "Slimference is compacting tool outputs. Results from `git`, build/test runners, linters, and `grep`/`rg` may arrive as short structured summaries with markers like `[git status] 3 staged, 1 untracked` or `FAILED\\n<errors>`. Trust the summary; do not re-run a tool to see fuller output — the original was already captured and is recoverable via `slimference debug tail`."
+	case "aggressive":
+		return "Slimference is aggressively compacting tool outputs and prompt history. Tool results may appear as one-line summaries (`[tool] ok`, `[git status] 3 staged, 1 untracked`) or pre-extracted error blocks (`FAILED\\n<errors>`). Earlier file reads return delta-only context. Do not re-run a tool just to confirm output: the original is archived and surfaced via `slimference debug tail`. Trust archive markers like `[archived #ID preview …]` as proof the full result existed."
+	case "auto":
+		return "Slimference may compact some tool outputs in this session. Trust short structured summaries (`[tool] ok`, `FAILED\\n<errors>`); the full raw output is archived locally if needed."
+	default:
+		return ""
 	}
 }
 
@@ -1217,6 +1457,68 @@ func handleCodexStopHook(payload []byte) {
 	}
 }
 
+// handleCodexPreCompactHook handles Codex 0.130+ PreCompact events.
+// PreCompact fires before Codex's own compaction runs (auto when
+// context approaches auto_compact_token_limit, or manual on explicit
+// request). Slimference records the boundary so analytics can show
+// the "compaction signal -> next request" gap, and writes a marker
+// file the daemon can poll to escalate proxy-side compaction
+// aggressiveness on the next request from this session.
+//
+// Output: continue:true (default; we never block Codex's compaction).
+// All work happens off the hot path so the user does not see latency.
+//
+// Schema reference: pre-compact.command.{input,output} in codex 0.130.
+func handleCodexPreCompactHook(payload []byte) {
+	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	turnID := extractJSONText(payload, "turn_id")
+	trigger := extractJSONText(payload, "trigger")
+	if trigger == "" {
+		trigger = "unknown"
+	}
+	writeCompactionMarker("pre", sessionID, turnID, trigger)
+	recordHookFlight("codex_pre_compact", sessionID, "PreCompact", "trigger:"+trigger, len(payload), len(payload), nil, nil)
+	out := map[string]interface{}{"continue": true}
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
+		exitFn(1)
+	}
+}
+
+// handleCodexPostCompactHook handles Codex 0.130+ PostCompact events.
+// PostCompact fires after Codex's compaction completes. Slimference
+// records the boundary so analytics can correlate the before/after
+// token state and surface compaction frequency in `slimference gain`.
+// Output: continue:true.
+func handleCodexPostCompactHook(payload []byte) {
+	sessionID := extractJSONText(payload, "session_id", "conversation_id")
+	turnID := extractJSONText(payload, "turn_id")
+	trigger := extractJSONText(payload, "trigger")
+	if trigger == "" {
+		trigger = "unknown"
+	}
+	writeCompactionMarker("post", sessionID, turnID, trigger)
+	recordHookFlight("codex_post_compact", sessionID, "PostCompact", "trigger:"+trigger, len(payload), len(payload), nil, nil)
+	out := map[string]interface{}{"continue": true}
+	if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+		fmt.Fprintf(os.Stderr, "encode codexhook output: %v\n", err)
+		exitFn(1)
+	}
+}
+
+// writeCompactionMarker writes a small JSON marker under
+// ~/.slimference/run/compact/<phase>/<session_id>.json so the proxy
+// daemon can poll for compaction-imminent signals on the next request.
+// Best-effort: I/O failure is swallowed because the hook contract must
+// never break on a bookkeeping side-effect.
+func writeCompactionMarker(phase, sessionID, turnID, trigger string) {
+	home, err := osUserHomeDir()
+	if err != nil {
+		return
+	}
+	_ = compactsignal.DefaultStore(home).WriteMarker(phase, sessionID, turnID, trigger)
+}
+
 func extractJSONText(payload []byte, keys ...string) string {
 	var v interface{}
 	if err := json.Unmarshal(payload, &v); err != nil {
@@ -1252,21 +1554,26 @@ func findJSONText(v interface{}, key string) (string, bool) {
 }
 
 func handleReadHookCmd(args []string) {
-	mode := "claude"
+	mode := ""
 	for _, arg := range args {
 		switch arg {
 		case "", "--":
 		case "claude":
-			mode = "claude"
+			fmt.Fprintln(os.Stderr, "readhook: Claude Code is parked; Slimference is Codex-only")
+			exitFn(2)
 		case "codex":
 			mode = "codex"
 		default:
-			fmt.Fprintln(os.Stderr, "usage: slimference readhook [claude|codex]   (pipe Read hook JSON on stdin)")
+			fmt.Fprintln(os.Stderr, "usage: slimference readhook codex   (pipe Codex Read hook JSON on stdin)")
 			exitFn(1)
 		}
 	}
+	if mode == "" {
+		fmt.Fprintln(os.Stderr, "usage: slimference readhook codex   (pipe Codex Read hook JSON on stdin)")
+		exitFn(1)
+	}
 	if termIsTerminalFn(int(os.Stdin.Fd())) {
-		fmt.Fprintln(os.Stderr, "usage: slimference readhook [claude|codex]   (pipe Read hook JSON on stdin)")
+		fmt.Fprintln(os.Stderr, "usage: slimference readhook codex   (pipe Codex Read hook JSON on stdin)")
 		exitFn(1)
 	}
 
@@ -1275,6 +1582,10 @@ func handleReadHookCmd(args []string) {
 		fmt.Fprintf(os.Stderr, "read stdin: %v\n", err)
 		exitFn(1)
 	}
+	// Panic-safety: readhook is on the Read tool hot path, runs many
+	// times per session. A bug here would brick file reads, which is a
+	// worst-case UX outcome. t164 fail-open contract.
+	defer guardHook(FailOpenReadHook, payload)()
 	req, err := readcache.ExtractRequest(payload)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -1547,16 +1858,13 @@ func handleHookCmd(args []string) {
 	switch args[0] {
 	case "install":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: slimference hook install <claude|codex>")
+			fmt.Fprintln(os.Stderr, "usage: slimference hook install codex")
 			exitFn(1)
 		}
 		switch args[1] {
 		case "claude":
-			if err := hooks.InstallClaude(home, tpCmd); err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				exitFn(1)
-			}
-			fmt.Println("Installed Claude Code hook (~/.claude/hooks/slimference-rewrite.sh).")
+			fmt.Fprintln(os.Stderr, "Claude Code hooks are parked; Slimference installs Codex hooks only.")
+			exitFn(2)
 		case "codex":
 			if err := installCodexHookFn(home, tpCmd); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -1566,21 +1874,18 @@ func handleHookCmd(args []string) {
 			fmt.Println("Enabled hooks feature flag only; Codex base URLs were not modified.")
 			fmt.Println("Use `slimference integrate install --client codex` only for legacy config-patch mode.")
 		default:
-			fmt.Fprintf(os.Stderr, "unknown install target: %s (want claude|codex)\n", args[1])
+			fmt.Fprintf(os.Stderr, "unknown install target: %s (want codex; claude is parked)\n", args[1])
 			exitFn(1)
 		}
 	case "remove":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: slimference hook remove <claude|codex>")
+			fmt.Fprintln(os.Stderr, "usage: slimference hook remove codex")
 			exitFn(1)
 		}
 		switch args[1] {
 		case "claude":
-			if err := hooks.RemoveClaude(home); err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				exitFn(1)
-			}
-			fmt.Println("Removed Claude Code Slimference hook files.")
+			fmt.Fprintln(os.Stderr, "Claude Code hooks are parked; Slimference will not modify ~/.claude.")
+			exitFn(2)
 		case "codex":
 			if err := removeCodexHookFn(home); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -1677,15 +1982,13 @@ func handleTestCmd(args []string) {
 	}
 
 	switch args[0] {
-	case "minimax":
-		testMiniMax(cfg)
 	case "anthropic":
 		testUpstream("Anthropic", cfg.Upstream.Anthropic.BaseURL)
 	case "openai":
 		testUpstream("OpenAI", cfg.Upstream.OpenAI.BaseURL)
 	case "intercept":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: slimference test intercept <claude|codex>")
+			fmt.Fprintln(os.Stderr, "usage: slimference test intercept codex")
 			exitFn(1)
 		}
 		testIntercept(cfg, args[1])
@@ -1707,31 +2010,14 @@ func testUpstream(name, baseURL string) {
 	fmt.Printf("OK - HTTP %d\n", resp.StatusCode)
 }
 
-func testMiniMax(cfg *config.Config) {
-	apiKey := cfg.Compression.MiniMax.APIKey()
-	if apiKey == "" {
-		fmt.Printf("FAIL: %s env var not set\n", cfg.Compression.MiniMax.APIKeyEnv)
-		exitFn(1)
-	}
-	fmt.Printf("Testing MiniMax connectivity (%s)...\n", cfg.Compression.MiniMax.BaseURL)
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(strings.TrimSuffix(cfg.Compression.MiniMax.BaseURL, "/v1"))
-	if err != nil {
-		fmt.Printf("FAIL: %v\n", err)
-		exitFn(1)
-	}
-	defer resp.Body.Close()
-	fmt.Printf("OK - HTTP %d (API key present)\n", resp.StatusCode)
-}
-
 func testIntercept(cfg *config.Config, provider string) {
 	fmt.Printf("Starting intercept test for %s...\n", provider)
 	fmt.Printf("Listening on %s\n\n", cfg.ListenURL())
 
 	switch provider {
 	case "claude":
-		fmt.Println("In another terminal run:")
-		fmt.Printf("  ANTHROPIC_BASE_URL=%s claude 'say hi'\n\n", cfg.ListenURL())
+		fmt.Fprintln(os.Stderr, "test intercept: Claude Code is parked; use RTK for Claude Code")
+		exitFn(2)
 	case "codex":
 		fmt.Println("Add to ~/.codex/config.toml:")
 		fmt.Printf("  openai_base_url = \"%s\"\n", cfg.ListenURL())
@@ -1784,7 +2070,7 @@ func testIntercept(cfg *config.Config, provider string) {
 	case <-time.After(testInterceptTimeout):
 		fmt.Println("FAIL - no request received within 60 seconds")
 		fmt.Println("Troubleshooting:")
-		fmt.Printf("  1. Is ANTHROPIC_BASE_URL set to %s?\n", cfg.ListenURL())
+		fmt.Printf("  1. Is Codex configured to use %s?\n", cfg.ListenURL())
 		fmt.Printf("  2. Is the CLI configured to use %s?\n", cfg.ListenURL())
 		fmt.Println("  3. Try: curl " + cfg.ListenURL() + "/health")
 		shutdown()
@@ -1836,11 +2122,8 @@ func handleDoctorCmd() {
 		return fmt.Sprintf("%s (port %d)", cfg.ListenAddr(), cfg.Proxy.ListenPort), true
 	})
 
-	check("MiniMax API key", func() (string, bool) {
-		if cfg.Compression.MiniMax.APIKey() == "" {
-			return fmt.Sprintf("not set (%s env var missing) - Layer 2 disabled", cfg.Compression.MiniMax.APIKeyEnv), false
-		}
-		return "present", true
+	check("Layer 2 engine", func() (string, bool) {
+		return "in-process deterministic compactor", true
 	})
 
 	check("Anthropic upstream", func() (string, bool) {
@@ -1908,14 +2191,9 @@ func handleDoctorCmd() {
 		if !cfg.Compression.Summary.RequireDeterministic {
 			return "off (no strict-determinism check)", true
 		}
-		// Strict mode: MiniMax is the only deterministic provider in
-		// the chain today. Warn loudly when EnableSeed is off because
-		// the MiniMax client will not emit `seed` and a future
-		// fallback would silently break reproducibility.
-		if !cfg.Compression.MiniMax.EnableSeed {
-			return "require_deterministic=on but [compression.minimax] enable_seed=false - MiniMax will be skipped", false
-		}
-		return "on (MiniMax: temperature=0 + seed)", true
+		// The in-process deterministic compactor is pure by
+		// construction; strict mode is trivially satisfied.
+		return "on (deterministic compactor)", true
 	})
 
 	check("Prompt override", func() (string, bool) {
@@ -1951,17 +2229,9 @@ func handleDoctorCmd() {
 	// the operator must explicitly acknowledge the data flow.
 	warn("L2 provider trust", func() string {
 		if !cfg.Compression.Layer2Enabled {
-			return "Layer 2 disabled (no outbound data)"
+			return "Layer 2 disabled"
 		}
-		trustClass := types.EffectiveTrustClass(types.MiniMax, cfg.Compression.MiniMax.TrustClass)
-		if trustClass == types.TrustClassUpstreamProvider {
-			return fmt.Sprintf("%s is labelled as upstream provider (operator override)", types.MiniMax)
-		}
-		redaction := cfg.Compression.Summary.OutboundRedaction
-		if redaction == "" {
-			redaction = summarization.RedactionModeDefault
-		}
-		return fmt.Sprintf("Layer 2 enabled - outbound to %s (%s external third-party provider). Redaction: %s. See docs/data-policy.md", types.MiniMax, trustClass, redaction)
+		return "Layer 2 enabled - runs in-process, deterministic, no outbound data"
 	})
 
 	check("Content archive", func() (string, bool) {
@@ -3418,18 +3688,58 @@ func (a *proxyAdapter) Config() tui.ProxyConfigInterface {
 func (a *proxyAdapter) Bypass() bool           { return a.p.Bypass() }
 func (a *proxyAdapter) SetBypass(enabled bool) { a.p.SetBypass(enabled) }
 
+// AppEntries returns the per-app routing state from the in-process
+// AppsManager. In-process callers don't go through HTTP (unlike the
+// remote adapter); they read the manager directly.
+func (a *proxyAdapter) AppEntries() []tui.AppEntry {
+	m := a.p.AppsManager()
+	if m == nil {
+		return nil
+	}
+	pol := m.Policy()
+	detected := m.DetectedBinaries()
+	out := make([]tui.AppEntry, 0)
+	for _, id := range apps.KnownApps {
+		entry := tui.AppEntry{
+			ID:      string(id),
+			Enabled: pol.IsEnabled(id),
+		}
+		if paths, ok := detected[id]; ok && len(paths) > 0 {
+			entry.Detected = true
+			entry.BinPath = paths[0]
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// SetAppEnabled updates the in-process AppsManager.
+func (a *proxyAdapter) SetAppEnabled(id string, enabled bool) error {
+	m := a.p.AppsManager()
+	if m == nil {
+		return fmt.Errorf("apps manager not wired")
+	}
+	return m.SetEnabled(apps.AppID(id), enabled)
+}
+
 // configAdapter adapts config.Config to tui.ProxyConfigInterface.
 type configAdapter struct {
 	cfg *config.Config
 }
 
-func (ca *configAdapter) GetListenPort() int           { return ca.cfg.Proxy.ListenPort }
-func (ca *configAdapter) GetPrefillSpeed() int         { return ca.cfg.Usage.EstimatedPrefillSpeed }
-func (ca *configAdapter) GetMiniMaxTrustClass() string { return ca.cfg.Compression.MiniMax.TrustClass }
+func (ca *configAdapter) GetListenPort() int   { return ca.cfg.Proxy.ListenPort }
+func (ca *configAdapter) GetPrefillSpeed() int { return ca.cfg.Usage.EstimatedPrefillSpeed }
 
 // serviceControlAdapter implements tui.ServiceControlInterface by calling daemon package functions
 // and spawning subprocesses for hook install/remove.
 type serviceControlAdapter struct{}
+
+var (
+	tuiInstallCmdFn   = runInstallCmd
+	tuiEnableCmdFn    = runEnableCmd
+	tuiDisableCmdFn   = runDisableCmd
+	tuiUninstallCmdFn = runUninstallCmd
+)
 
 func (sca *serviceControlAdapter) StartDaemon() error {
 	running, existing, _ := daemonIsRunningFn()
@@ -3531,19 +3841,36 @@ func (sca *serviceControlAdapter) TransparentStatus() tui.TransparentStatus {
 }
 
 func (sca *serviceControlAdapter) InstallTransparent() error {
-	return sca.runTransparentProxyCommand("install")
+	return sca.runInstallLifecycleCommand(tuiInstallCmdFn, nil)
 }
 
 func (sca *serviceControlAdapter) EnableTransparent() error {
-	return sca.runTransparentProxyCommand("enable")
+	return sca.runInstallLifecycleCommand(tuiEnableCmdFn, nil)
 }
 
 func (sca *serviceControlAdapter) DisableTransparent() error {
-	return sca.runTransparentProxyCommand("disable")
+	return sca.runInstallLifecycleCommand(tuiDisableCmdFn, nil)
 }
 
 func (sca *serviceControlAdapter) UninstallTransparent() error {
-	return sca.runTransparentProxyCommand("uninstall")
+	return sca.runInstallLifecycleCommand(tuiUninstallCmdFn, nil)
+}
+
+func (sca *serviceControlAdapter) runInstallLifecycleCommand(fn func([]string, installPrinter) int, args []string) error {
+	var stdout strings.Builder
+	var stderr strings.Builder
+	rc := fn(args, installPrinter{Out: &stdout, Err: &stderr})
+	if rc == 0 {
+		return nil
+	}
+	msg := strings.TrimSpace(stderr.String())
+	if msg == "" {
+		msg = strings.TrimSpace(stdout.String())
+	}
+	if msg == "" {
+		msg = fmt.Sprintf("install lifecycle command failed with exit %d", rc)
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 func (sca *serviceControlAdapter) runTransparentProxyCommand(args ...string) error {
@@ -3582,6 +3909,9 @@ func proxyCommandEnv(stdout io.Writer, stderr io.Writer, stdin io.Reader) proxyE
 }
 
 func (sca *serviceControlAdapter) InstallHook(target string) error {
+	if target == "claude" {
+		return fmt.Errorf("Claude Code hooks are parked; Slimference installs Codex hooks only")
+	}
 	home, err := osUserHomeDir()
 	if err != nil {
 		return fmt.Errorf("home: %w", err)
@@ -3591,8 +3921,6 @@ func (sca *serviceControlAdapter) InstallHook(target string) error {
 		tpCmd = strings.TrimSpace(cfg.Hooks.SlimferenceCommand)
 	}
 	switch target {
-	case "claude":
-		return installClaudeHookFn(home, tpCmd)
 	case "codex":
 		return installCodexHookFn(home, tpCmd)
 	default:
@@ -3601,13 +3929,14 @@ func (sca *serviceControlAdapter) InstallHook(target string) error {
 }
 
 func (sca *serviceControlAdapter) RemoveHook(target string) error {
+	if target == "claude" {
+		return fmt.Errorf("Claude Code hooks are parked; Slimference will not modify ~/.claude")
+	}
 	home, err := osUserHomeDir()
 	if err != nil {
 		return fmt.Errorf("home: %w", err)
 	}
 	switch target {
-	case "claude":
-		return removeClaudeHookFn(home)
 	case "codex":
 		return removeCodexHookFn(home)
 	default:
@@ -3662,6 +3991,14 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 	_ = ensureLayer2PolicyAcknowledged(cfg, false, nil, io.Discard, os.Stderr)
 	setupLogging(cfg)
 	p := newProxyFn(cfg)
+	ensureSlimDataDir()
+	startProxyInstance = p
+	startProxyConfig = cfg
+	startProxyAppsManager = wirePhaseG(p, cfg)
+	startProxyHostsCleanup = applyHostsPatch(cfg)
+	_, sniCancel := startSNIPeekEngineFn(p, cfg, startProxyAppsManager)
+	startProxySNICancel = sniCancel
+	startProxyPIDCleanup = writePIDFile()
 	applyPersistedRuntimeState(p)
 
 	runner := proxyStartRunnerFn
@@ -3724,6 +4061,14 @@ func handleDaemonCmd(args []string) {
 		fmt.Fprintln(os.Stderr, "Usage: slimference daemon [logs [--path | --stream=stdout|stderr | --since=<dur> | --lines=<N>]]")
 		exitFn(1)
 	}
+}
+
+func runDaemonWithSlimferenceReload(start func() (int, func(context.Context) error, error)) error {
+	return daemon.RunDaemonWithReload(start, func() {
+		slog.Info("SIGHUP: reloading apps policy + SNIPeekMode")
+		reloadAppsManager(startProxyAppsManager)
+		reloadSNIPeekModeFromDisk(startProxyConfig)
+	})
 }
 
 // handleDaemonLogsCmd implements `slimference daemon logs [flags]`.

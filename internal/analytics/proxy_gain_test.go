@@ -177,12 +177,20 @@ func TestWriteProxyFlightGainCSV(t *testing.T) {
 		Requests:                      2,
 		ProviderCachedTokens:          500,
 		NetBillableEquivalentEstimate: 730,
+		PromptCacheHeat: []PromptCacheHeatRow{{
+			StablePrefixHash:     "hot-a",
+			ProviderCachedTokens: 900,
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "provider_cached_tokens") || !strings.Contains(out, "prompt_cache_heat_keys") || !strings.Contains(out, "730") {
+	if !strings.Contains(out, "provider_cached_tokens") ||
+		!strings.Contains(out, "prompt_cache_heat_keys") ||
+		!strings.Contains(out, "730") ||
+		!strings.Contains(out, "hot-a") ||
+		!strings.Contains(out, "900") {
 		t.Fatalf("csv output: %q", out)
 	}
 	if err := WriteProxyFlightGainCSV(promptCacheErrWriter{}, ProxyFlightGainSummary{}); err == nil {
@@ -192,12 +200,28 @@ func TestWriteProxyFlightGainCSV(t *testing.T) {
 
 func TestSortedPromptCacheHeatTieBreaks(t *testing.T) {
 	t.Parallel()
+	if rows := sortedPromptCacheHeat(nil); rows != nil {
+		t.Fatalf("empty heat map should return nil, got %+v", rows)
+	}
+
 	rows := sortedPromptCacheHeat(map[string]*PromptCacheHeatRow{
 		"b": {StablePrefixHash: "b", Requests: 1, HintsApplied: 1},
 		"a": {StablePrefixHash: "a", Requests: 1, HintsApplied: 1},
 		"c": {StablePrefixHash: "c", Requests: 1, CacheReadTokens: 1},
+		"d": {StablePrefixHash: "d", Requests: 1, HintsApplied: 2},
+		"e": {StablePrefixHash: "e", Requests: 2, HintsApplied: 1},
 	})
-	if got := []string{rows[0].StablePrefixHash, rows[1].StablePrefixHash, rows[2].StablePrefixHash}; got[0] != "c" || got[1] != "a" || got[2] != "b" {
+	if got := []string{rows[0].StablePrefixHash, rows[1].StablePrefixHash, rows[2].StablePrefixHash, rows[3].StablePrefixHash, rows[4].StablePrefixHash}; got[0] != "c" || got[1] != "d" || got[2] != "e" || got[3] != "a" || got[4] != "b" {
 		t.Fatalf("unexpected order: %+v", got)
+	}
+}
+
+func TestAccumulatePromptCacheHeatEmptyInputs(t *testing.T) {
+	t.Parallel()
+	heat := map[string]*PromptCacheHeatRow{}
+	accumulatePromptCacheHeat(heat, nil)
+	accumulatePromptCacheHeat(heat, &dbg.FlightRequestSummary{})
+	if len(heat) != 0 {
+		t.Fatalf("empty heat inputs should not create rows: %+v", heat)
 	}
 }

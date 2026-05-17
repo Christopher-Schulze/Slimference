@@ -202,18 +202,14 @@ func TestLayer2_AddFallbackProvider(t *testing.T) {
 	fb := &stubSummarizer{name: "fallback-1", configured: true, result: "- fb result"}
 	l.AddFallbackProvider(fb)
 
+	// Default chain holds the in-process extract primary. AddFallbackProvider appends.
 	providers := l.chain.Providers()
 	if len(providers) != 2 {
-		t.Fatalf("expected 2 providers (primary + fallback), got %d", len(providers))
+		t.Fatalf("expected 2 providers (extract primary + new fallback), got %d", len(providers))
 	}
-	if providers[1].Name() != "fallback-1" {
-		t.Fatalf("second provider should be fallback-1, got %s", providers[1].Name())
+	if providers[len(providers)-1].Name() != "fallback-1" {
+		t.Fatalf("last provider should be fallback-1, got %s", providers[len(providers)-1].Name())
 	}
-}
-
-func TestMiniMaxClient_implementsSummarizer(t *testing.T) {
-	cfg := config.Defaults().Compression
-	var _ Summarizer = NewMiniMaxClient(cfg.MiniMax)
 }
 
 // determStub implements Summarizer + CapabilityProvider with a

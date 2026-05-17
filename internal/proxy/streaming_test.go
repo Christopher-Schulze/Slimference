@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/slimference/slimference/internal/outstop/streamcut"
 )
 
 var errPassthroughRead = errors.New("upstream body read fail")
@@ -261,6 +263,48 @@ func TestPassthrough(t *testing.T) {
 	if rec.Header().Get("X-Up") != "1" {
 		t.Fatal("header not copied")
 	}
+}
+
+func TestStreamingRelayCutterTerminateWriteError(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"choices":[{"delta":{"content":"` + strings.Repeat("Substantive content. ", 5) + `"}}]}`,
+		`data: {"choices":[{"delta":{"content":"\nHope this helps with your task."}}]}`,
+		"",
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+	rec := httptest.NewRecorder()
+	_, _, fire := streamingRelayWithCutter(context.Background(), &streamFailWriter{rec: rec}, resp, "openai", streamcut.NewCutterWithHoldback("openai", 3))
+	if !fire.Fired {
+		t.Fatal("expected streamcut fire even when terminator write fails")
+	}
+}
+
+func TestStreamingRelayCutterEmitWriteError(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`data: {"choices":[{"delta":{"content":"hello"}}]}` + "\n")),
+	}
+	rec := httptest.NewRecorder()
+	streamingRelayWithCutter(context.Background(), &streamFailWriter{rec: rec}, resp, "openai", streamcut.NewCutterWithHoldback("openai", 0))
+}
+
+func TestStreamingRelayCutterFlushSuccessAndWriteError(t *testing.T) {
+	body := `data: {"choices":[{"delta":{"content":"hello"}}]}` + "\n"
+	okResp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}
+	rec := httptest.NewRecorder()
+	_, _, fire := streamingRelayWithCutter(context.Background(), rec, okResp, "openai", streamcut.NewCutterWithHoldback("openai", 3))
+	if fire.Fired {
+		t.Fatal("short natural stream should flush without firing")
+	}
+	if !strings.Contains(rec.Body.String(), "hello") {
+		t.Fatalf("flush did not emit held line: %q", rec.Body.String())
+	}
+
+	failResp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}
+	streamingRelayWithCutter(context.Background(), &streamFailWriter{rec: httptest.NewRecorder()}, failResp, "openai", streamcut.NewCutterWithHoldback("openai", 3))
 }
 
 func TestPassthrough_upstreamReadError(t *testing.T) {

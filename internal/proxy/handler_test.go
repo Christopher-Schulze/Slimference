@@ -112,9 +112,11 @@ func TestHealthHandler(t *testing.T) {
 	if body.PID <= 0 {
 		t.Errorf("pid = %d, want positive process id", body.PID)
 	}
-	// Default config enables L1+L2+L3 (T129 re-flipped L2 default-on).
-	if !body.Layers["1"] || !body.Layers["2"] || !body.Layers["3"] {
-		t.Errorf("layers = %v, want L1=true L2=true L3=true (T129 defaults)", body.Layers)
+	// 2026-05-15: Slimference ships deterministic-only by default.
+	// L1 + L3 are on; L2 (MiniMax-backed semantic summarization) is
+	// opt-in. Supersedes T129's default-on policy.
+	if !body.Layers["1"] || body.Layers["2"] || !body.Layers["3"] {
+		t.Errorf("layers = %v, want L1=true L2=false L3=true (deterministic-only defaults)", body.Layers)
 	}
 	// Both providers should be enabled.
 	if !body.Providers["anthropic"] || !body.Providers["openai"] {

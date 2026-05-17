@@ -40,49 +40,6 @@ func TestTestUpstream_ok(t *testing.T) {
 	}
 }
 
-func TestTestMiniMax_ok(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	t.Setenv("MINIMAX_API_KEY", "secret-key")
-	cfg := config.Defaults()
-	cfg.Compression.MiniMax.BaseURL = srv.URL + "/v1"
-
-	old := os.Stdout
-	pr, pw, _ := os.Pipe()
-	os.Stdout = pw
-	testMiniMax(cfg)
-	_ = pw.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, pr)
-	if !strings.Contains(buf.String(), "OK - HTTP 200") {
-		t.Fatalf("stdout: %q", buf.String())
-	}
-}
-
-func TestTestMiniMax_noAPIKeyExits1(t *testing.T) {
-	if os.Getenv("TP_MINIMAX_NOKEY") == "1" {
-		t.Setenv("MINIMAX_API_KEY", "")
-		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
-		cfg, err := config.Load()
-		if err != nil {
-			t.Fatal(err)
-		}
-		testMiniMax(cfg)
-		return
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestTestMiniMax_noAPIKeyExits1")
-	cmd.Env = append(os.Environ(), "TP_MINIMAX_NOKEY=1")
-	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
-		t.Fatalf("want exit 1, got err=%v", err)
-	}
-}
-
 func TestHandleTestCmd_upstreamAndMinimax(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -107,92 +64,21 @@ func TestHandleTestCmd_upstreamAndMinimax(t *testing.T) {
 		}
 	}
 
-	t.Setenv("MINIMAX_API_KEY", "k")
-	cfgPath := filepath.Join(t.TempDir(), "minimax-cmd.toml")
-	content := fmt.Sprintf(`[proxy]
-listen_address = "127.0.0.1"
-listen_port = 8990
-
-[compression]
-sliding_window = 4
-
-[compression.minimax]
-base_url = %q
-api_key_env = "MINIMAX_API_KEY"
-`, srv.URL+"/v1")
-	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-
-	old := os.Stdout
-	pr, pw, _ := os.Pipe()
-	os.Stdout = pw
-	handleTestCmd([]string{"minimax"})
-	_ = pw.Close()
-	os.Stdout = old
-	var buf2 bytes.Buffer
-	_, _ = io.Copy(&buf2, pr)
-	if !strings.Contains(buf2.String(), "OK - HTTP 200") {
-		t.Fatalf("minimax: %q", buf2.String())
-	}
 }
 
-// TestTestIntercept_claude exercises testIntercept in-process so coverage is attributed
-// (subprocess-based tests do not contribute to -cover profiles).
-func TestTestIntercept_claude(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-
-	t.Setenv("SLIMFERENCE_LISTEN_ADDRESS", "127.0.0.1")
-	t.Setenv("SLIMFERENCE_LISTEN_PORT", strconv.Itoa(port))
+func TestTestIntercept_claudeParked(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
-
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	done := make(chan struct{})
-	go func() {
-		testIntercept(cfg, "claude")
-		close(done)
-	}()
-
-	client := &http.Client{Timeout: 2 * time.Second}
-	url := fmt.Sprintf("http://127.0.0.1:%d/", port)
-	ok := false
-	for range 100 {
-		req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(`{}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		req.Header.Set("User-Agent", "slimference-test-intercept")
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer test-token")
-		resp, err := client.Do(req)
-		if err == nil {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				ok = true
-				break
-			}
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	if !ok {
-		t.Fatal("intercept server did not respond with 200")
-	}
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("testIntercept did not finish")
+	rp, cleanup := redirectStderr()
+	code, exited := captureExit(func() { testIntercept(cfg, "claude") })
+	cleanup()
+	var stderr bytes.Buffer
+	_, _ = io.Copy(&stderr, rp)
+	if !exited || code != 2 || !strings.Contains(stderr.String(), "Claude Code is parked") {
+		t.Fatalf("exit=(%d,%v) stderr=%q", code, exited, stderr.String())
 	}
 }
 
@@ -310,27 +196,6 @@ func TestTestUpstream_connRefusedExits1(t *testing.T) {
 }
 
 // TestTestMiniMax_connRefusedExits1 covers testMiniMax error path (main.go:516-519).
-func TestTestMiniMax_connRefusedExits1(t *testing.T) {
-	if os.Getenv("TP_MINIMAX_FAIL") == "1" {
-		t.Setenv("MINIMAX_API_KEY", "dummy-key")
-		t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
-		cfg, err := config.Load()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "config: %v\n", err)
-			os.Exit(1)
-		}
-		cfg.Compression.MiniMax.BaseURL = "http://127.0.0.1:1/v1"
-		testMiniMax(cfg)
-		return
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestTestMiniMax_connRefusedExits1")
-	cmd.Env = append(os.Environ(), "TP_MINIMAX_FAIL=1")
-	err := cmd.Run()
-	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
-		t.Fatalf("want exit 1, got err=%v", err)
-	}
-}
 
 // TestHandleTestCmd_configLoadErrorExits1 covers handleTestCmd config load error (main.go:471-474).
 func TestHandleTestCmd_configLoadErrorExits1(t *testing.T) {
@@ -369,7 +234,7 @@ func TestHandleTestCmd_interceptCallsTestIntercept(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		handleTestCmd([]string{"intercept", "claude"})
+		handleTestCmd([]string{"intercept", "codex"})
 		close(done)
 	}()
 
@@ -477,7 +342,7 @@ func TestTestIntercept_timeout(t *testing.T) {
 	defer func() { os.Stdout = old }()
 
 	code, exited := captureExit(func() {
-		testIntercept(cfg, "claude")
+		testIntercept(cfg, "codex")
 	})
 	_ = wp.Close()
 	os.Stdout = old

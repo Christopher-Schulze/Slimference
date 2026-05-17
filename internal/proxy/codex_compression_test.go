@@ -252,6 +252,26 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 		t.Fatalf("direct stdout object rewrite should preserve metadata: %s", out)
 	}
 
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"tool_result","call_id":"call_content","content":"tool content\n"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Content[0].Text != "tool content\n" {
+		t.Fatalf("top-level content tool result mapping: ok=%v msg=%#v", ok, msg)
+	}
+	msg.Content[0].Text = "compact content\n"
+	raw, ok = msg.Content[0].RawBlock.(codexInputItemRaw)
+	if !ok {
+		t.Fatal("expected content raw block")
+	}
+	out, err = codexMessageToInputItem(msg, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"content":"compact content\n"`) {
+		t.Fatalf("content rewrite should preserve field name: %s", out)
+	}
+
 	for _, rawOutput := range []json.RawMessage{
 		json.RawMessage(`{`),
 		json.RawMessage(`{"stdout":"out","stderr":"err"}`),
@@ -343,6 +363,7 @@ func TestCodexToolShapeHelpers(t *testing.T) {
 		{map[string]json.RawMessage{"input": json.RawMessage(`{"command":["/bin/sh","-c","git status --short"]}`)}, `/bin/sh -c "git status --short"`},
 		{map[string]json.RawMessage{"action": json.RawMessage(`{"command_line":"make test"}`)}, "make test"},
 		{map[string]json.RawMessage{"action": json.RawMessage(`{"args":["go","test","./..."]}`)}, "go test ./..."},
+		{map[string]json.RawMessage{"parameters": json.RawMessage(`{"cmd":"git diff --stat"}`)}, "git diff --stat"},
 	}
 	for _, tc := range commandCases {
 		if got := codexCommandLineFromFields(tc.fields); got != tc.want {
@@ -365,6 +386,9 @@ func TestCodexToolShapeHelpers(t *testing.T) {
 		{map[string]json.RawMessage{"text": json.RawMessage(`"text\n"`)}, "text\n", "field:text"},
 		{map[string]json.RawMessage{"aggregated_output": json.RawMessage(`{"stdout":"wrapped\n","exit_code":0}`)}, "wrapped\n", "field_object:aggregated_output:stdout"},
 		{map[string]json.RawMessage{"stdout": json.RawMessage(`{"unexpected":true}`)}, `{"unexpected":true}`, "field:stdout"},
+		{map[string]json.RawMessage{"content": json.RawMessage(`"content\n"`)}, "content\n", "field:content"},
+		{map[string]json.RawMessage{"result": json.RawMessage(`{"tool_response":"result text\n"}`)}, "result text\n", "field_object:result:tool_response"},
+		{map[string]json.RawMessage{"tool_response": json.RawMessage(`"direct response\n"`)}, "direct response\n", "field:tool_response"},
 	}
 	for _, tc := range outputCases {
 		text, path := codexToolOutputText(tc.fields)
@@ -414,12 +438,20 @@ func TestMessagesToCodexInputJSON_Fallbacks(t *testing.T) {
 	}
 
 	originalItems := json.RawMessage(`[{"type":"message","role":"user","content":"unchanged"}]`)
-	out, err = messagesToCodexInputJSON(originalItems, []types.Message{{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "no raw"}}}})
+	out, err = messagesToCodexInputJSON(originalItems, []types.Message{{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "no raw"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"content":"no raw"`) || strings.Contains(string(out), "unchanged") {
+		t.Fatalf("missing raw item should recover the original input slot and rewrite: %s", out)
+	}
+
+	out, err = messagesToCodexInputJSON(originalItems, []types.Message{{Index: 99, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "orphan rawless"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(out) != string(originalItems) {
-		t.Fatalf("missing raw item should preserve original input: %s", out)
+		t.Fatalf("unrecoverable rawless item should preserve original input: %s", out)
 	}
 
 	_, err = messagesToCodexInputJSON(json.RawMessage(`{}`), []types.Message{{

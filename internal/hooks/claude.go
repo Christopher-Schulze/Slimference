@@ -80,6 +80,28 @@ printf '%%s' "$INPUT" | %s readhook
 `, q)
 }
 
+// ClaudePostToolHookScript returns the bash hook body for Claude PostToolUse
+// output replacement. It is intentionally default-off: installing Claude hooks
+// prepares the max hook path without mutating Claude sessions until
+// SLIMFERENCE_CLAUDE_HOOK_MODE is set to max/compact/aggressive/auto.
+func ClaudePostToolHookScript(slimferenceCmd string) string {
+	cmd := strings.TrimSpace(slimferenceCmd)
+	if cmd == "" {
+		cmd = "slimference"
+	}
+	q := bashSingleQuoted(cmd)
+	return fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+MODE="${SLIMFERENCE_CLAUDE_HOOK_MODE:-off}"
+case "$MODE" in
+  max|compact|aggressive|auto) ;;
+  *) exit 0 ;;
+esac
+INPUT=$(cat)
+printf '%%s' "$INPUT" | %s claudeposttool
+`, q)
+}
+
 func bashSingleQuoted(s string) string {
 	return `'` + strings.ReplaceAll(s, `'`, `'"'"'`) + `'`
 }
@@ -99,8 +121,12 @@ func InstallClaude(home string, slimferenceCmd string) error {
 	if err := os.WriteFile(readScriptPath, []byte(ClaudeReadHookScript(slimferenceCmd)), 0755); err != nil {
 		return err
 	}
+	postToolScriptPath := filepath.Join(hookDir, "slimference-posttool.sh")
+	if err := os.WriteFile(postToolScriptPath, []byte(ClaudePostToolHookScript(slimferenceCmd)), 0755); err != nil {
+		return err
+	}
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	return mergeClaudeSettings(settingsPath, scriptPath, readScriptPath)
+	return mergeClaudeSettings(settingsPath, scriptPath, readScriptPath, postToolScriptPath)
 }
 
 // RemoveClaude removes the hook script and drops PreToolUse from settings when present.
@@ -109,11 +135,13 @@ func RemoveClaude(home string) error {
 	_ = os.Remove(scriptPath)
 	readScriptPath := filepath.Join(home, ".claude", "hooks", "slimference-read-cache.sh")
 	_ = os.Remove(readScriptPath)
+	postToolScriptPath := filepath.Join(home, ".claude", "hooks", "slimference-posttool.sh")
+	_ = os.Remove(postToolScriptPath)
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	return stripClaudePreToolUse(settingsPath)
+	return stripClaudeHooks(settingsPath)
 }
 
-func mergeClaudeSettings(settingsPath, scriptPath, readScriptPath string) error {
+func mergeClaudeSettings(settingsPath, scriptPath, readScriptPath, postToolScriptPath string) error {
 	var root map[string]interface{}
 	data, err := os.ReadFile(settingsPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -153,6 +181,19 @@ func mergeClaudeSettings(settingsPath, scriptPath, readScriptPath string) error 
 		},
 	})
 	hooksObj["PreToolUse"] = entries
+
+	postEntries, _ := hooksObj["PostToolUse"].([]interface{})
+	postEntries = removeClaudeSlimferenceHooks(postEntries, postToolScriptPath)
+	postEntries = append(postEntries, map[string]interface{}{
+		"matcher": "Bash",
+		"hooks": []interface{}{
+			map[string]interface{}{
+				"type":    "command",
+				"command": "bash " + postToolScriptPath,
+			},
+		},
+	})
+	hooksObj["PostToolUse"] = postEntries
 	root["hooks"] = hooksObj
 	out, _ := json.MarshalIndent(root, "", "  ")
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0755); err != nil {
@@ -162,6 +203,10 @@ func mergeClaudeSettings(settingsPath, scriptPath, readScriptPath string) error 
 }
 
 func stripClaudePreToolUse(settingsPath string) error {
+	return stripClaudeHooks(settingsPath)
+}
+
+func stripClaudeHooks(settingsPath string) error {
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -184,6 +229,13 @@ func stripClaudePreToolUse(settingsPath string) error {
 		delete(hooksObj, "PreToolUse")
 	} else {
 		hooksObj["PreToolUse"] = entries
+	}
+	postEntries, _ := hooksObj["PostToolUse"].([]interface{})
+	postEntries = removeClaudeSlimferenceHooks(postEntries, filepath.Join(filepath.Dir(settingsPath), "hooks", "slimference-posttool.sh"))
+	if len(postEntries) == 0 {
+		delete(hooksObj, "PostToolUse")
+	} else {
+		hooksObj["PostToolUse"] = postEntries
 	}
 	if len(hooksObj) == 0 {
 		delete(root, "hooks")
@@ -234,5 +286,9 @@ func isClaudeSlimferenceHook(hook interface{}, scriptPath string) bool {
 	if command == "" {
 		return false
 	}
-	return strings.Contains(command, filepath.Base(scriptPath)) || strings.Contains(command, "slimference-rewrite.sh")
+	base := filepath.Base(scriptPath)
+	return strings.Contains(command, base) ||
+		strings.Contains(command, "slimference-rewrite.sh") ||
+		strings.Contains(command, "slimference-read-cache.sh") ||
+		strings.Contains(command, "slimference-posttool.sh")
 }
