@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/slimference/slimference/internal/codexroute"
+	"github.com/slimference/slimference/internal/control"
+	"github.com/slimference/slimference/internal/proxy"
 )
 
 func withCodexCmdStubs(t *testing.T) {
@@ -22,6 +28,10 @@ func withCodexCmdStubs(t *testing.T) {
 	oldProxyRun := codexProxyRunFn
 	oldVersion := codexVersionFn
 	oldAuto := codexAutoFn
+	oldCertSave := codexCertSaveFn
+	oldSetupState := codexSetupStateFn
+	oldVersionOut := codexVersionOutFn
+	oldNow := codexNowFn
 	codexVersionFn = func() string { return "codex-test" }
 	codexAutoFn = func(home string) codexroute.AutoDecision {
 		return codexroute.AutoDecision{
@@ -29,6 +39,12 @@ func withCodexCmdStubs(t *testing.T) {
 			FallbackReason: "wss certification missing",
 		}
 	}
+	codexCertSaveFn = func(string, codexroute.CertificationState) error { return nil }
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		return passingCodexCertificationState(), nil
+	}
+	codexVersionOutFn = func() ([]byte, error) { return []byte("codex-cli 0.130.0\n"), nil }
+	codexNowFn = func() time.Time { return time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() {
 		codexRouteHomeFn = oldHome
 		codexRouteEnableFn = oldEnable
@@ -38,6 +54,10 @@ func withCodexCmdStubs(t *testing.T) {
 		codexProxyRunFn = oldProxyRun
 		codexVersionFn = oldVersion
 		codexAutoFn = oldAuto
+		codexCertSaveFn = oldCertSave
+		codexSetupStateFn = oldSetupState
+		codexVersionOutFn = oldVersionOut
+		codexNowFn = oldNow
 	})
 }
 
@@ -120,6 +140,38 @@ func TestCodexCmdRunFallsBackDirectWhenDaemonDown(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "falling back to direct Codex") {
 		t.Fatalf("missing fallback warning: %q", errBuf.String())
+	}
+}
+
+func TestCodexCmdRunAutoHomeUnresolvedAndDirectFlag(t *testing.T) {
+	withCodexCmdStubs(t)
+	var got []string
+	codexProxyRunFn = func(args []string, env proxyEnv) int {
+		got = append([]string(nil), args...)
+		return 0
+	}
+	codexRouteHomeFn = func() (string, error) { return "", errors.New("no home") }
+	codexRouteHealthFn = func(host, port string) error { return nil }
+	p, _, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"run", "--transport=auto", "--", "exec", "hi"}, p); rc != 0 {
+		t.Fatalf("auto rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "HOME unresolved") ||
+		!strings.Contains(strings.Join(got, "\x00"), "--proxied") {
+		t.Fatalf("auto fallback args=%#v stderr=%q", got, errBuf.String())
+	}
+
+	got = nil
+	errBuf.Reset()
+	codexRouteHealthFn = func(host, port string) error {
+		t.Fatalf("health check must not run for --direct")
+		return nil
+	}
+	if rc := runCodexCmd([]string{"run", "--direct", "exec", "hi"}, p); rc != 0 {
+		t.Fatalf("direct rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if !strings.Contains(strings.Join(got, "\x00"), "--direct") {
+		t.Fatalf("direct args=%#v", got)
 	}
 }
 
@@ -257,6 +309,7 @@ func TestCodexCmdHelpAndErrorBranches(t *testing.T) {
 		{"enable", "--help"},
 		{"disable", "--help"},
 		{"status", "--help"},
+		{"certify", "--help"},
 	} {
 		out.Reset()
 		errBuf.Reset()
@@ -311,17 +364,387 @@ func TestCodexCmdHelpAndErrorBranches(t *testing.T) {
 	}
 }
 
+func TestRunCodexCertifyWSSHappyPath(t *testing.T) {
+	withCodexCmdStubs(t)
+	home := t.TempDir()
+	codexRouteHomeFn = func() (string, error) { return home, nil }
+	var savedHome string
+	var saved codexroute.CertificationState
+	var saveCalled int
+	codexCertSaveFn = func(gotHome string, state codexroute.CertificationState) error {
+		saveCalled++
+		savedHome = gotHome
+		saved = state
+		return nil
+	}
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"certify", "wss", "--operator", "opus-verify", "--notes=T226 issue"}, p)
+	if rc != 0 {
+		t.Fatalf("certify rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if saveCalled != 1 || savedHome != home {
+		t.Fatalf("saveCalled=%d savedHome=%q want %q", saveCalled, savedHome, home)
+	}
+	if saved.SchemaVersion != codexroute.CertificationSchemaVersion ||
+		saved.Transport != string(codexroute.TransportWSS) ||
+		saved.RouteProfile != codexroute.RouteProfileScopedRawWSS ||
+		saved.CodexVersion != "0.130.0" ||
+		saved.SlimferenceVersion != version ||
+		!saved.Passed ||
+		saved.FramesReencoded != 7 ||
+		saved.DegradedSessions != 0 ||
+		saved.ParseFailures != 0 ||
+		!saved.Timestamp.Equal(codexNowFn().UTC()) ||
+		saved.Operator != "opus-verify" ||
+		saved.Notes != "T226 issue" {
+		t.Fatalf("bad certification state: %+v", saved)
+	}
+	if !strings.Contains(out.String(), "Codex WSS certification written") ||
+		!strings.Contains(out.String(), "Live frames_reencoded at issue: 7") {
+		t.Fatalf("bad output: %q", out.String())
+	}
+}
+
+func TestRunCodexCertifyWSSFailsOnEachCriterion(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		mutate    func(*control.SetupState)
+		criterion string
+		value     string
+		threshold string
+	}{
+		{
+			name: "parse failures",
+			mutate: func(s *control.SetupState) {
+				s.WSS.ParseFailures = 1
+			},
+			criterion: "wss.parse_failures", value: "got=1", threshold: "want=0",
+		},
+		{
+			name: "degraded sessions",
+			mutate: func(s *control.SetupState) {
+				s.WSS.DegradedSessions = 1
+			},
+			criterion: "wss.degraded_sessions", value: "got=1", threshold: "want=0",
+		},
+		{
+			name: "compression errors",
+			mutate: func(s *control.SetupState) {
+				s.WSS.CompressionErrors = 1
+			},
+			criterion: "wss.compression_errors", value: "got=1", threshold: "want=0",
+		},
+		{
+			name: "frames reencoded",
+			mutate: func(s *control.SetupState) {
+				s.WSS.FramesReencoded = 0
+			},
+			criterion: "wss.frames_reencoded", value: "got=0", threshold: "want=>0",
+		},
+		{
+			name: "compressed messages mutated",
+			mutate: func(s *control.SetupState) {
+				s.WSS.CompressedMessagesMutated = 0
+			},
+			criterion: "wss.compressed_messages_mutated", value: "got=0", threshold: "want=>0",
+		},
+		{
+			name: "mutation active",
+			mutate: func(s *control.SetupState) {
+				s.WSS.MutationActive = false
+			},
+			criterion: "wss.mutation_active", value: "got=false", threshold: "want=true",
+		},
+		{
+			name: "byte bridge only",
+			mutate: func(s *control.SetupState) {
+				s.WSS.ByteBridgeOnly = true
+			},
+			criterion: "wss.byte_bridge_only", value: "got=true", threshold: "want=false",
+		},
+		{
+			name: "daemon reachable",
+			mutate: func(s *control.SetupState) {
+				s.CodexRoute.DaemonReachable = false
+			},
+			criterion: "codex_route.daemon_reachable", value: "got=false", threshold: "want=true",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withCodexCmdStubs(t)
+			codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+			state := passingCodexCertificationState()
+			tc.mutate(&state)
+			codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+				return state, nil
+			}
+			saveCalled := false
+			codexCertSaveFn = func(string, codexroute.CertificationState) error {
+				saveCalled = true
+				return nil
+			}
+			p, _, errBuf := newTestPrinter()
+			rc := runCodexCmd([]string{"certify", "wss"}, p)
+			errText := errBuf.String()
+			if rc != 1 || saveCalled {
+				t.Fatalf("rc=%d saveCalled=%v stderr=%s", rc, saveCalled, errText)
+			}
+			for _, want := range []string{tc.criterion, tc.value, tc.threshold} {
+				if !strings.Contains(errText, want) {
+					t.Fatalf("stderr missing %q: %s", want, errText)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCodexCertifyWSSDryRunDoesNotWrite(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+	codexCertSaveFn = func(string, codexroute.CertificationState) error {
+		t.Fatalf("dry-run must not write certification")
+		return nil
+	}
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"certify", "wss", "--dry-run", "--operator=dry", "--notes", "no write"}, p)
+	if rc != 0 {
+		t.Fatalf("dry-run rc=%d stderr=%s", rc, errBuf.String())
+	}
+	var got codexroute.CertificationState
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode dry-run JSON: %v\n%s", err, out.String())
+	}
+	if got.Transport != string(codexroute.TransportWSS) || got.FramesReencoded != 7 ||
+		got.Operator != "dry" || got.Notes != "no write" {
+		t.Fatalf("bad dry-run cert: %+v", got)
+	}
+}
+
+func TestRunCodexCertifyWSSDryRunWriterError(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+	errBuf := &bytes.Buffer{}
+	p := installPrinter{Out: codexErrWriter{}, Err: errBuf}
+	if rc := runCodexCmd([]string{"certify", "wss", "--dry-run"}, p); rc != 1 ||
+		!strings.Contains(errBuf.String(), "encode dry-run JSON") {
+		t.Fatalf("rc/stderr=%d %q", rc, errBuf.String())
+	}
+}
+
+func TestRunCodexCertifyWSSRejectsNonWSSSubject(t *testing.T) {
+	withCodexCmdStubs(t)
+	p, _, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"certify", "http"}, p)
+	if rc != 2 || !strings.Contains(errBuf.String(), "subject must be wss") {
+		t.Fatalf("rc=%d stderr=%s", rc, errBuf.String())
+	}
+}
+
+func TestRunCodexCertifyErrorsBeforeWrite(t *testing.T) {
+	t.Run("home unresolved", func(t *testing.T) {
+		withCodexCmdStubs(t)
+		codexRouteHomeFn = func() (string, error) { return "", errors.New("no home") }
+		p, _, errBuf := newTestPrinter()
+		if rc := runCodexCmd([]string{"certify", "wss"}, p); rc != 1 ||
+			!strings.Contains(errBuf.String(), "HOME unresolved") {
+			t.Fatalf("rc/stderr=%d %q", rc, errBuf.String())
+		}
+	})
+	t.Run("codex version command fails", func(t *testing.T) {
+		withCodexCmdStubs(t)
+		codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+		codexVersionOutFn = func() ([]byte, error) { return nil, errors.New("missing codex") }
+		p, _, errBuf := newTestPrinter()
+		if rc := runCodexCmd([]string{"certify", "wss"}, p); rc != 1 ||
+			!strings.Contains(errBuf.String(), "codex --version failed") {
+			t.Fatalf("rc/stderr=%d %q", rc, errBuf.String())
+		}
+	})
+	t.Run("codex version parse fails", func(t *testing.T) {
+		withCodexCmdStubs(t)
+		codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+		codexVersionOutFn = func() ([]byte, error) { return []byte("codex-cli\n"), nil }
+		p, _, errBuf := newTestPrinter()
+		if rc := runCodexCmd([]string{"certify", "wss"}, p); rc != 1 ||
+			!strings.Contains(errBuf.String(), "unexpected codex --version output") {
+			t.Fatalf("rc/stderr=%d %q", rc, errBuf.String())
+		}
+	})
+	t.Run("admin state fails", func(t *testing.T) {
+		withCodexCmdStubs(t)
+		codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+		codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+			return control.SetupState{}, errors.New("daemon down")
+		}
+		p, _, errBuf := newTestPrinter()
+		if rc := runCodexCmd([]string{"certify", "wss"}, p); rc != 1 ||
+			!strings.Contains(errBuf.String(), "admin state unavailable") {
+			t.Fatalf("rc/stderr=%d %q", rc, errBuf.String())
+		}
+	})
+	t.Run("save fails", func(t *testing.T) {
+		withCodexCmdStubs(t)
+		codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+		codexCertSaveFn = func(string, codexroute.CertificationState) error {
+			return errors.New("disk full")
+		}
+		p, _, errBuf := newTestPrinter()
+		if rc := runCodexCmd([]string{"certify", "wss"}, p); rc != 1 ||
+			!strings.Contains(errBuf.String(), "disk full") {
+			t.Fatalf("rc/stderr=%d %q", rc, errBuf.String())
+		}
+	})
+}
+
+func TestRunCodexCertifyParsesHostAndPort(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+	var gotHost, gotPort string
+	codexSetupStateFn = func(host, port string, timeout time.Duration) (control.SetupState, error) {
+		gotHost, gotPort = host, port
+		return passingCodexCertificationState(), nil
+	}
+	p, _, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"certify", "wss", "--host=::1", "--port=19090", "--dry-run"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if gotHost != "::1" || gotPort != "19090" {
+		t.Fatalf("host/port=%q/%q", gotHost, gotPort)
+	}
+}
+
+func TestParseCodexCLIVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		out     string
+		want    string
+		wantErr bool
+	}{
+		{name: "normal", out: "codex-cli 0.130.0\n", want: "0.130.0"},
+		{name: "build metadata", out: "codex-cli 0.130.0+abcd extra\n", want: "0.130.0+abcd"},
+		{name: "leading blank", out: "\n codex 0.131.0 \n", want: "0.131.0"},
+		{name: "empty", out: "", wantErr: true},
+		{name: "garbage", out: "codex-cli\n", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseCodexCLIVersion([]byte(tc.out))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got %q", got)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("parse=%q err=%v want=%q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCurrentCodexVersionUsesParsedCLIOutput(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexVersionOutFn = func() ([]byte, error) { return []byte("codex-cli 0.130.0\n"), nil }
+	if got := currentCodexVersion(); got != "0.130.0" {
+		t.Fatalf("currentCodexVersion=%q", got)
+	}
+	codexVersionOutFn = func() ([]byte, error) { return nil, errors.New("missing") }
+	if got := currentCodexVersion(); got != "unknown" {
+		t.Fatalf("currentCodexVersion on command error=%q", got)
+	}
+	codexVersionOutFn = func() ([]byte, error) { return []byte("garbage\n"), nil }
+	if got := currentCodexVersion(); got != "unknown" {
+		t.Fatalf("currentCodexVersion on parse error=%q", got)
+	}
+}
+
+func TestParseCodexCertifyFlagsRejectsBadShapes(t *testing.T) {
+	for _, args := range [][]string{
+		{"wss", "extra"},
+		{"wss", "--unknown"},
+		{"wss", "--operator"},
+		{"wss", "--notes"},
+	} {
+		if _, err := parseCodexCertifyFlags(args); err == nil {
+			t.Fatalf("parseCodexCertifyFlags(%v) expected error", args)
+		}
+	}
+}
+
+func TestFetchCodexSetupState(t *testing.T) {
+	state := passingCodexCertificationState()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != proxy.AdminStatePath {
+			t.Fatalf("path=%q want %q", r.URL.Path, proxy.AdminStatePath)
+		}
+		if err := json.NewEncoder(w).Encode(state); err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+	}))
+	defer server.Close()
+	host, port := splitHTTPTestServer(t, server)
+	got, err := fetchCodexSetupState(host, port, time.Second)
+	if err != nil {
+		t.Fatalf("fetchCodexSetupState: %v", err)
+	}
+	if !got.CodexRoute.DaemonReachable || got.WSS.FramesReencoded != state.WSS.FramesReencoded {
+		t.Fatalf("bad state: %+v", got)
+	}
+}
+
+func TestFetchCodexSetupStateErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		handler http.HandlerFunc
+		want    string
+	}{
+		{
+			name: "non ok",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "nope", http.StatusTeapot)
+			},
+			want: "admin returned 418",
+		},
+		{
+			name: "bad json",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte("{bad"))
+			},
+			want: "invalid character",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(tc.handler)
+			defer server.Close()
+			host, port := splitHTTPTestServer(t, server)
+			_, err := fetchCodexSetupState(host, port, time.Second)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err=%v want contains %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestFetchCodexSetupStateRequestAndDialErrors(t *testing.T) {
+	if _, err := fetchCodexSetupState("bad host\n", "8990", time.Second); err == nil {
+		t.Fatalf("expected bad host request error")
+	}
+	if _, err := fetchCodexSetupState("127.0.0.1", "1", 50*time.Millisecond); err == nil {
+		t.Fatalf("expected dial error")
+	}
+}
+
 func TestCodexStatusHumanBranches(t *testing.T) {
 	withCodexCmdStubs(t)
 	codexRouteHomeFn = func() (string, error) { return "/tmp/home", nil }
 	p, out, _ := newTestPrinter()
 
 	codexRouteInspectFn = func(string, string, codexroute.Options) (codexroute.Status, error) {
-		return codexroute.Status{Exists: true, Enabled: true, Complete: true, BaseURL: "http://127.0.0.1:8990/backend-api/codex"}, nil
+		return codexroute.Status{Exists: true, Enabled: true, Complete: true, Transport: "wss", BaseURL: "http://127.0.0.1:8990/backend-api/codex"}, nil
 	}
 	codexRouteHealthFn = func(string, string) error { return nil }
 	if rc := runCodexCmd([]string{"status"}, p); rc != 0 ||
-		!strings.Contains(out.String(), "route is ready") {
+		!strings.Contains(out.String(), "route is ready") ||
+		!strings.Contains(out.String(), "Transport wss") {
 		t.Fatalf("ready status rc=%d out=%q", rc, out.String())
 	}
 
@@ -372,6 +795,41 @@ func TestCodexProxyEnvCarriesPrinter(t *testing.T) {
 	if env.LoadCA == nil || env.HealthCheck == nil || env.RunCommand == nil {
 		t.Fatalf("missing proxy env dependencies")
 	}
+	if !strings.HasSuffix(env.CADirFn(), ".slimference") {
+		t.Fatalf("bad CA dir: %q", env.CADirFn())
+	}
+}
+
+func passingCodexCertificationState() control.SetupState {
+	return control.SetupState{
+		CodexRoute: control.CodexRouteState{
+			DaemonReachable: true,
+		},
+		WSS: control.WSSState{
+			ParseFailures:             0,
+			DegradedSessions:          0,
+			CompressionErrors:         0,
+			FramesReencoded:           7,
+			CompressedMessagesMutated: 2,
+			MutationActive:            true,
+			ByteBridgeOnly:            false,
+		},
+	}
+}
+
+func splitHTTPTestServer(t *testing.T, server *httptest.Server) (string, string) {
+	t.Helper()
+	host, port, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatalf("split test server URL %q: %v", server.URL, err)
+	}
+	return host, port
+}
+
+type codexErrWriter struct{}
+
+func (codexErrWriter) Write([]byte) (int, error) {
+	return 0, errors.New("forced write error")
 }
 
 func TestServiceControlAdapterCodexRoute(t *testing.T) {

@@ -1,6 +1,6 @@
 # TASK 226: WSS-first auto promotion
 
-Status: PARTIAL - pre-live auto gate + status surfaces implemented; live promotion pending
+Status: PARTIAL - pre-live auto gate, status surfaces, and certify issuer implemented; live promotion pending
 Priority: P0 after T224 CLI live proof
 Scope: Codex CLI first; Codex Desktop only after T225/T228 proof
 
@@ -67,6 +67,9 @@ Persistent shared route fallback:
 - [ ] Record WSS proof outcome after T224: native baseline hash, scoped WSS
   capture hash, `frames_reencoded`, `degraded_sessions`, `parse_failures`,
   timestamp, and operator decision.
+- [x] Add `slimference codex certify wss` to issue the local proof only from
+  a green live daemon observation, with `--dry-run`, `--operator`, `--notes`,
+  host/port flags, Codex CLI version parsing, and no manual cert-file writes.
 - [x] Teach `codex run --transport=auto` to consult certification state before
   choosing WSS. Recent daemon WSS health remains a live-certification input.
 - [x] Teach `codex enable --transport=auto` to write WSS only when the shared
@@ -79,8 +82,10 @@ Persistent shared route fallback:
 - [x] Add TUI/status/admin visibility for the auto decision:
   `Codex Mode`, `transport`, `auto_transport`, `wss_certified`,
   `fallback_reason`, and daemon reachability.
-- [x] Add tests for no-cert, green-cert, stale-version, parse-failure,
-  degraded-session, daemon-down, and explicit `--transport=wss` override.
+- [x] Add tests for no-cert, green-cert, stale-version, Slimference-version
+  drift, schema/transport/profile mismatch, parse-failure, degraded-session,
+  daemon-down, explicit `--transport=wss` override, and every certify
+  criterion failure.
 - [ ] After implementation, run T224/T209 live proof before marking Done.
 
 ## Pre-Live Implementation Notes
@@ -93,6 +98,11 @@ Persistent shared route fallback:
 - Explicit `--transport=wss` remains an operator override for T224/T209.
 - `/admin/state.codex_route`, `slimference status`, `slimference codex
   status`, and TUI Setup now show the route mode and WSS certification state.
+- `slimference codex certify wss` is the only supported writer for
+  `~/.slimference/codex-wss-cert.json`. It refuses proof issuance unless the
+  current `/admin/state` snapshot reports daemon reachability,
+  `frames_reencoded>0`, `compressed_messages_mutated>0`, mutation active,
+  byte-bridge-only false, and zero parse/degrade/compression errors.
 
 ## Benefits
 

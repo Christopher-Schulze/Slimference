@@ -1,15 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/slimference/slimference/internal/codexroute"
+	"github.com/slimference/slimference/internal/control"
+	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/tlsca"
 	"github.com/slimference/slimference/internal/transparent"
 )
@@ -23,6 +29,10 @@ var (
 	codexProxyRunFn     = proxyRun
 	codexVersionFn      = currentCodexVersion
 	codexAutoFn         = resolveCodexAutoTransport
+	codexCertSaveFn     = codexroute.SaveCertification
+	codexSetupStateFn   = fetchCodexSetupState
+	codexVersionOutFn   = defaultCodexCLIVersionOutput
+	codexNowFn          = time.Now
 )
 
 type codexRouteFlags struct {
@@ -32,6 +42,23 @@ type codexRouteFlags struct {
 	json      bool
 	dryRun    bool
 	help      bool
+}
+
+type codexCertifyFlags struct {
+	subject  string
+	host     string
+	port     string
+	operator string
+	notes    string
+	dryRun   bool
+	help     bool
+}
+
+type codexCertCriterion struct {
+	name string
+	got  string
+	want string
+	pass bool
 }
 
 func handleCodexCmd(args []string) {
@@ -52,6 +79,8 @@ func runCodexCmd(args []string, p installPrinter) int {
 		return runCodexDisableCmd(args[1:], p)
 	case "status":
 		return runCodexStatusCmd(args[1:], p)
+	case "certify":
+		return runCodexCertifyCmd(args[1:], p)
 	case "--help", "-h", "help":
 		fmt.Fprint(p.Out, codexHelpText)
 		return 0
@@ -222,6 +251,83 @@ func runCodexStatusCmd(args []string, p installPrinter) int {
 	return 0
 }
 
+func runCodexCertifyCmd(args []string, p installPrinter) int {
+	flags, err := parseCodexCertifyFlags(args)
+	if err != nil {
+		fmt.Fprintf(p.Err, "codex certify: %v\n", err)
+		return 2
+	}
+	if flags.help {
+		fmt.Fprint(p.Out, codexCertifyHelpText)
+		return 0
+	}
+	if flags.subject != "wss" {
+		fmt.Fprintln(p.Err, "codex certify: subject must be wss")
+		return 2
+	}
+	home, err := codexRouteHomeFn()
+	if err != nil || home == "" {
+		fmt.Fprintln(p.Err, "codex certify: HOME unresolved")
+		return 1
+	}
+	versionOut, err := codexVersionOutFn()
+	if err != nil {
+		fmt.Fprintf(p.Err, "codex certify: codex --version failed: %v\n", err)
+		return 1
+	}
+	codexVersion, err := parseCodexCLIVersion(versionOut)
+	if err != nil {
+		fmt.Fprintf(p.Err, "codex certify: %v\n", err)
+		return 1
+	}
+	state, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
+	if err != nil {
+		fmt.Fprintf(p.Err, "codex certify: admin state unavailable at %s:%s: %v\n", flags.host, flags.port, err)
+		return 1
+	}
+	failures := codexWSSCertificationFailures(state)
+	if len(failures) > 0 {
+		fmt.Fprintln(p.Err, "codex certify: WSS proof is not green")
+		for _, f := range failures {
+			fmt.Fprintf(p.Err, "  %s got=%s want=%s\n", f.name, f.got, f.want)
+		}
+		return 1
+	}
+	cert := codexroute.CertificationState{
+		SchemaVersion:      codexroute.CertificationSchemaVersion,
+		Transport:          string(codexroute.TransportWSS),
+		RouteProfile:       codexroute.RouteProfileScopedRawWSS,
+		CodexVersion:       codexVersion,
+		SlimferenceVersion: version,
+		Passed:             true,
+		FramesReencoded:    state.WSS.FramesReencoded,
+		DegradedSessions:   0,
+		ParseFailures:      0,
+		LastError:          "",
+		Timestamp:          codexNowFn().UTC(),
+		Operator:           flags.operator,
+		Notes:              flags.notes,
+	}
+	if flags.dryRun {
+		enc := json.NewEncoder(p.Out)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(cert); err != nil {
+			fmt.Fprintf(p.Err, "codex certify: encode dry-run JSON: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+	if err := codexCertSaveFn(home, cert); err != nil {
+		fmt.Fprintf(p.Err, "codex certify: write certification: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(p.Out, "Codex WSS certification written: %s (codex=%s slimference=%s)\n",
+		codexroute.CertificationPath(home), codexVersion, version)
+	fmt.Fprintf(p.Out, "Live frames_reencoded at issue: %d\n", state.WSS.FramesReencoded)
+	fmt.Fprintln(p.Out, "Run `slimference codex status` to confirm wss_certified=true.")
+	return 0
+}
+
 func parseCodexRouteFlags(args []string) (codexRouteFlags, error) {
 	f := codexRouteFlags{host: "127.0.0.1", port: "8990", transport: "auto"}
 	for _, a := range args {
@@ -282,6 +388,47 @@ func parseCodexRunFlags(args []string) (codexRouteFlags, bool, []string) {
 	return f, direct, codexArgs
 }
 
+func parseCodexCertifyFlags(args []string) (codexCertifyFlags, error) {
+	f := codexCertifyFlags{host: "127.0.0.1", port: "8990"}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--help" || a == "-h":
+			f.help = true
+		case a == "--dry-run":
+			f.dryRun = true
+		case strings.HasPrefix(a, "--host="):
+			f.host = strings.TrimPrefix(a, "--host=")
+		case strings.HasPrefix(a, "--port="):
+			f.port = strings.TrimPrefix(a, "--port=")
+		case strings.HasPrefix(a, "--operator="):
+			f.operator = strings.TrimPrefix(a, "--operator=")
+		case a == "--operator":
+			if i+1 >= len(args) {
+				return f, fmt.Errorf("--operator requires a value")
+			}
+			i++
+			f.operator = args[i]
+		case strings.HasPrefix(a, "--notes="):
+			f.notes = strings.TrimPrefix(a, "--notes=")
+		case a == "--notes":
+			if i+1 >= len(args) {
+				return f, fmt.Errorf("--notes requires a value")
+			}
+			i++
+			f.notes = args[i]
+		case strings.HasPrefix(a, "--"):
+			return f, fmt.Errorf("unknown flag %q", a)
+		default:
+			if f.subject != "" {
+				return f, fmt.Errorf("unexpected argument %q", a)
+			}
+			f.subject = a
+		}
+	}
+	return f, nil
+}
+
 func codexRouteOptions(transport string) codexroute.Options {
 	if transport == "wss" {
 		return codexroute.Options{Transport: codexroute.TransportWSS}
@@ -295,15 +442,81 @@ func resolveCodexAutoTransport(home string) codexroute.AutoDecision {
 }
 
 func currentCodexVersion() string {
-	out, err := exec.Command("codex", "--version").Output()
+	out, err := codexVersionOutFn()
 	if err != nil {
 		return "unknown"
 	}
-	line := strings.TrimSpace(string(out))
-	if line == "" {
+	version, err := parseCodexCLIVersion(out)
+	if err != nil {
 		return "unknown"
 	}
-	return strings.Split(line, "\n")[0]
+	return version
+}
+
+func defaultCodexCLIVersionOutput() ([]byte, error) {
+	bin := strings.TrimSpace(os.Getenv("CODEX_BIN"))
+	if bin == "" {
+		bin = "codex"
+	}
+	return exec.Command(bin, "--version").Output()
+}
+
+func parseCodexCLIVersion(out []byte) (string, error) {
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if len(fields) < 2 {
+			return "", fmt.Errorf("unexpected codex --version output %q", strings.TrimSpace(line))
+		}
+		return fields[1], nil
+	}
+	return "", fmt.Errorf("empty codex --version output")
+}
+
+func fetchCodexSetupState(host, port string, timeout time.Duration) (control.SetupState, error) {
+	addr := net.JoinHostPort(host, port)
+	url := "http://" + addr + proxy.AdminStatePath
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return control.SetupState{}, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return control.SetupState{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return control.SetupState{}, fmt.Errorf("admin returned %d", resp.StatusCode)
+	}
+	var state control.SetupState
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		return control.SetupState{}, err
+	}
+	return state, nil
+}
+
+func codexWSSCertificationFailures(state control.SetupState) []codexCertCriterion {
+	criteria := []codexCertCriterion{
+		{name: "wss.parse_failures", got: fmt.Sprint(state.WSS.ParseFailures), want: "0", pass: state.WSS.ParseFailures == 0},
+		{name: "wss.degraded_sessions", got: fmt.Sprint(state.WSS.DegradedSessions), want: "0", pass: state.WSS.DegradedSessions == 0},
+		{name: "wss.compression_errors", got: fmt.Sprint(state.WSS.CompressionErrors), want: "0", pass: state.WSS.CompressionErrors == 0},
+		{name: "wss.frames_reencoded", got: fmt.Sprint(state.WSS.FramesReencoded), want: ">0", pass: state.WSS.FramesReencoded > 0},
+		{name: "wss.compressed_messages_mutated", got: fmt.Sprint(state.WSS.CompressedMessagesMutated), want: ">0", pass: state.WSS.CompressedMessagesMutated > 0},
+		{name: "wss.mutation_active", got: fmt.Sprint(state.WSS.MutationActive), want: "true", pass: state.WSS.MutationActive},
+		{name: "wss.byte_bridge_only", got: fmt.Sprint(state.WSS.ByteBridgeOnly), want: "false", pass: !state.WSS.ByteBridgeOnly},
+		{name: "codex_route.daemon_reachable", got: fmt.Sprint(state.CodexRoute.DaemonReachable), want: "true", pass: state.CodexRoute.DaemonReachable},
+	}
+	failures := make([]codexCertCriterion, 0, len(criteria))
+	for _, c := range criteria {
+		if !c.pass {
+			failures = append(failures, c)
+		}
+	}
+	return failures
 }
 
 func codexProxyEnv(p installPrinter) proxyEnv {
@@ -357,9 +570,9 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 	}
 }
 
-const codexUsageLine = "usage: slimference codex <run|enable|disable|status> [flags]\n"
+const codexUsageLine = "usage: slimference codex <run|enable|disable|status|certify> [flags]\n"
 
-const codexHelpText = `usage: slimference codex <run|enable|disable|status> [flags]
+const codexHelpText = `usage: slimference codex <run|enable|disable|status|certify> [flags]
 
 Codex-scoped routing. This is the product path: it only touches Codex
 CLI / Codex Desktop App config and never routes Browser ChatGPT,
@@ -370,6 +583,7 @@ Commands:
   enable    persist the shared Codex CLI/App provider route
   disable   remove the shared Codex CLI/App provider route
   status    show route config + daemon health
+  certify   issue local WSS auto-promotion proof after live mutation
 `
 
 const codexRunHelpText = `usage: slimference codex run [--transport=http|wss|direct|auto] [--direct] [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]
@@ -406,4 +620,12 @@ const codexStatusHelpText = `usage: slimference codex status [--json] [--host=12
 
 Shows whether the scoped Codex provider route is configured and whether
 the Slimference daemon is reachable.
+`
+
+const codexCertifyHelpText = `usage: slimference codex certify wss [--dry-run] [--operator NAME] [--notes TEXT] [--host=127.0.0.1] [--port=8990]
+
+Writes ~/.slimference/codex-wss-cert.json only when the live daemon has
+already observed scoped Codex WSS Phase-F mutation with zero parser,
+degradation, or compression errors. The proof is local and version-bound;
+auto falls back to HTTP after Codex or Slimference version drift.
 `

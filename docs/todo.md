@@ -1260,8 +1260,9 @@ only and promotes the per-process Codex CLI runner for T209.
 - [~] **T226** WSS-first auto promotion — pre-live auto gate is in code:
   local WSS certification state can promote `auto` to WSS, while missing,
   stale, parse-failed, or degraded proof falls back to HTTP. `/admin/state`,
-  `status`, `codex status`, and TUI Setup surface the decision. Remaining
-  work: live T224 proof. Detail:
+  `status`, `codex status`, TUI Setup, and `codex certify wss` surface or
+  issue the decision. Remaining work: live T224/T209 proof issuance and
+  auto-WSS smoke. Detail:
   `docs/todo/t226-wss-first-auto-promotion.md`
 - [~] **T227** Codex UX collapse — top-level `slimference enable|disable`
   now operate on scoped Codex route; former global SNI mode is fenced under

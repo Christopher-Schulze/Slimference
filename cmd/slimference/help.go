@@ -18,7 +18,7 @@ SUBCOMMANDS:
   doctor       Run diagnostics (config, ports, upstreams, CLI drift)
   filter       Layer-0 command filter (slimference filter -- <cmd>)
   install      Atomic Codex-only install (CA + launchd + Codex hooks)
-  codex        Scoped Codex CLI/App routing (run|enable|disable|status)
+  codex        Scoped Codex CLI/App routing (run|enable|disable|status|certify)
   enable       Enable scoped Codex CLI/App route (alias: codex enable)
   disable      Disable scoped Codex CLI/App route (alias: codex disable)
   cert-trust   Open Keychain Access for the local CA trust step

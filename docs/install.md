@@ -12,6 +12,7 @@ slimference status       # see what's currently armed
 slimference status --preflight
 slimference codex run -- <prompt>     # scoped one-shot Codex CLI, fail-open
 slimference codex run --transport=wss -- <prompt>  # scoped WSS power mode, pre-live-cert
+slimference codex certify wss --dry-run  # inspect WSS auto-promotion proof
 slimference enable                    # optional shared Codex CLI/App route
 slimference enable --transport=wss    # optional shared WSS route, pre-live-cert
 slimference codex status
@@ -165,6 +166,21 @@ Until the live T224 capture passes, `--transport=auto` consults the local
 stable HTTP route when no green, version-matching WSS proof exists. Raw
 scoped WSS is available for certification and power users, not yet the
 default claim.
+
+After a live scoped WSS run has actually mutated Phase-F frames, issue the
+local proof through the CLI, never by hand:
+
+```bash
+slimference codex certify wss --dry-run
+slimference codex certify wss --operator "operator-name" --notes "live proof"
+```
+
+The command reads `/admin/state`, requires zero WSS parser, degradation, and
+compression errors, requires `frames_reencoded>0` plus
+`compressed_messages_mutated>0`, and writes a version-bound
+`~/.slimference/codex-wss-cert.json` only when the daemon is reachable and
+the current observation cycle is green. `--transport=auto` promotes to WSS
+only for the same Codex CLI version and Slimference version tuple.
 
 ### 3. Enable shared Codex CLI/App route
 
@@ -407,6 +423,8 @@ The scoped product route block is under `/admin/state.codex_route`:
 - `transport=http|wss`: the currently written marker-owned provider route.
 - `auto_transport=http|wss`, `wss_certified`, and `fallback_reason`: how
   `--transport=auto` resolves right now.
+- `certification_path`: local proof file consumed by
+  `slimference codex certify wss` and `--transport=auto`.
 - `daemon_error` or `fallback_reason` non-empty: do not promote WSS by default
   until the reason is cleared or live-certified.
 
@@ -523,6 +541,13 @@ slimference enable | disable [flags]
   --port=PORT       Slimference daemon port (default 8990)
   --dry-run         print marker-owned Codex config block only
   --help, -h        show help
+
+slimference codex certify wss [flags]
+  --dry-run         print the certification JSON without writing it
+  --operator NAME   record the local operator that verified the live proof
+  --notes TEXT      record short local proof notes
+  --host=HOST       Slimference daemon host (default 127.0.0.1)
+  --port=PORT       Slimference daemon port (default 8990)
 
 slimference lab enable | disable [flags]
   --config=PATH     override config.toml location. CAUTION: must match

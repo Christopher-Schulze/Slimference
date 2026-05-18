@@ -806,7 +806,7 @@ Codex-first and scoped:
 
 The normal user-facing commands are `slimference install`,
 `status --preflight`, `codex run`, `codex enable`, `codex disable`,
-`codex status`, `uninstall`, and
+`codex status`, `codex certify wss`, `uninstall`, and
 `status`. Global transparent lab commands are `cert-trust`,
 `root-arm --global-chatgpt-hosts`, transparent `enable`, transparent `disable`, and
 `root-disarm`.
@@ -1412,6 +1412,14 @@ text, and unknown headers intact; only Host and absolute request-targets are
 normalised for the real upstream. Everything else is replayed into the normal
 HTTP server unchanged. This restores the old transparent dispatcher's
 raw-header property without reintroducing global `chatgpt.com` routing.
+
+WSS auto-promotion is local-proof gated. `slimference codex certify wss`
+reads `/admin/state`, refuses to write when WSS parse failures, degraded
+sessions, compression errors, byte-bridge-only state, or missing mutation are
+present, and writes `~/.slimference/codex-wss-cert.json` only with
+`frames_reencoded>0`, `compressed_messages_mutated>0`, and daemon reachability.
+`--transport=auto` consumes that proof through `internal/codexroute` and falls
+back to HTTP after Codex CLI or Slimference version drift.
 
 ### Compression planner
 

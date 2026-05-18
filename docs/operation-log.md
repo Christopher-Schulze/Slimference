@@ -400,3 +400,97 @@ Post-review hardening:
   `go test ./... -count=1 -timeout 300s`,
   `go vet ./...`, and `go run ./scripts/ci` all passed. CI aggregate coverage
   remained 99.5%.
+
+---
+
+## 2026-05-18 — Post-Commit Verify of T235 + Caps (HEAD a2e3d92)
+
+Driver: Claude Opus 4.7 live, after Codex committed T235 with
+permessage-deflate codec plus 16/64 MiB cap fix as
+`a2e3d92 TASK 235: permessage-deflate Phase-F for scoped Codex WSS`.
+
+Pre-state:
+- HEAD `a2e3d92`, working tree clean.
+- Daemon PID `74071` had been running 7h04m on stale pre-cap binary
+  SHA `603addfe18e907ea2ea4490d87da6d815d6959a501c44851f0994281efd13c4d`.
+- All earlier Opus live retries ran against the pre-cap binary.
+
+Re-build + restart to ratify HEAD source actually runs in the daemon:
+- `go run ./scripts/build --install` produced new stripped binary at
+  `./slimference` and `~/.local/bin/slimference`, SHA
+  `8ae76d230658d23571126f3fef16bfe602af0efc423f4d0e5325ae82c1426e5b`.
+- Old daemon `74071` SIGTERM'd cleanly.
+- Fresh daemon spawned via `nohup ~/.local/bin/slimference daemon`.
+- New daemon PID `89080`, HTTP 200 on `/_slimference/admin/state`.
+- Note: this daemon is not launchd-managed; it inherits the
+  reload-PID owner discipline from the earlier PID-drift fix. Reload
+  PID file matches running PID.
+
+Live smoke A — sentinel prompt on post-cap binary:
+- `slimference enable` → marker block written, route enabled.
+- `slimference codex run --transport=wss -- exec "Reply with exactly: POST_COMMIT_OK"`
+  returned `POST_COMMIT_OK`, exit 0.
+- `slimference disable` → marker removed.
+- Counters delta from baseline 0:
+    parse_failures = 0
+    degraded_sessions = 0
+    compression_errors = 0
+    compressed_messages_inspected = 3061
+    compressed_messages_mutated = 0
+    frames_reencoded = 0
+    stop_seq_injections = 0
+    mitm_bridged = 3
+- `~/.codex/config.toml` SHA after disable:
+  `0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`
+  — bit-identical to baseline.
+
+Live smoke B — tool-use prompt on post-cap binary:
+- `slimference enable`.
+- `slimference codex run --transport=wss -- exec "Run 'git ls-files | head -3' then reply with exactly: TOOL_USE_OK"`.
+- Codex executed the shell tool (visible output `AGENTS.md\nCLAUDE.md\n`),
+  returned `TOOL_USE_OK`, exit 0.
+- `slimference disable`.
+- Counters delta from smoke A end:
+    compressed_messages_inspected: 3061 -> 3125 (+64)
+    parse_failures = 0
+    degraded_sessions = 0
+    compression_errors = 0
+    frames_reencoded = 0
+    compressed_messages_mutated = 0
+    stop_seq_injections = 0
+    mitm_bridged = 3 -> 4 (+1)
+- `~/.codex/config.toml` SHA after disable:
+  `0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`.
+- Daemon `89080` still healthy, HTTP 200.
+
+Interpretation:
+- Post-cap binary is FUNCTIONALLY safe. The Phase-F pipeline runs end
+  to end (3125 compressed messages inspected, 0 parse failures, 0
+  degrade events, 0 compression errors). Caps are not triggered by
+  normal Codex CLI traffic (well below 16 MiB).
+- Neither Opus smoke produced a Phase-F mutation. Both prompts were
+  short, with at most a single tool call. Codex's original L0_GIT_OK
+  proof on pre-cap binary did mutate — that proof used a longer flow
+  with repeated tool calls and produced
+  `frames_reencoded=1, compressed_messages_mutated=1,
+  input_tokens_saved=1035` cumulative. Layer-0 dedup needs a reuse
+  candidate; trivial sentinel prompts do not create one.
+- Conclusion: live smokes confirm the post-cap binary is stable and
+  reversal is bit-perfect. They do NOT prove mutation continuity on
+  the post-cap binary. The T226 certify command path will perform
+  that proof properly — its acceptance criterion includes
+  `frames_reencoded > 0` at issue time, so the cert can only be
+  written when a live mutation has actually occurred against the
+  current binary + Codex version tuple.
+
+End live state ratified:
+- HEAD `a2e3d92`, working tree clean.
+- Binary `8ae76d23...26e5b` in both `./slimference` and
+  `~/.local/bin/slimference`.
+- Daemon PID `89080` healthy on `:8990`.
+- `~/.slimference/run/daemon.pid` matches running PID.
+- `:8443=false`, `:443=false`, hosts inactive, route disabled.
+- `~/.codex/config.toml` SHA baseline preserved.
+- Claude Code untouched.
+- No global lab. No `/etc/hosts`/pf/Keychain side effects.
+- Ready for Codex to land T226 certify command on top of this state.

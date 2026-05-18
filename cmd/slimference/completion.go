@@ -133,13 +133,14 @@ _slimference() {
             ;;
         codex)
             if [ "$cword" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") )
+                COMPREPLY=( $(compgen -W "run enable disable status certify" -- "$cur") )
             elif [ "$cword" -ge 3 ]; then
                 case "${COMP_WORDS[2]}" in
                     run) COMPREPLY=( $(compgen -W "--direct --transport=auto --transport=http --transport=wss --host= --port= --" -- "$cur") ) ;;
                     enable) COMPREPLY=( $(compgen -W "--transport=http --transport=wss --host= --port= --dry-run" -- "$cur") ) ;;
                     disable) COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") ) ;;
                     status) COMPREPLY=( $(compgen -W "--json --host= --port=" -- "$cur") ) ;;
+                    certify) COMPREPLY=( $(compgen -W "wss --dry-run --operator= --notes= --host= --port=" -- "$cur") ) ;;
                 esac
             fi
             ;;

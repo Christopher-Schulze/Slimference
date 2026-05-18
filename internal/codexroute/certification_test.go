@@ -48,8 +48,60 @@ func TestDecideAutoTransportRejectsStaleOrUnhealthyCertification(t *testing.T) {
 		name    string
 		state   CertificationState
 		current string
+		slim    string
 		want    string
 	}{
+		{
+			name: "schema mismatch",
+			state: CertificationState{
+				SchemaVersion:      99,
+				Transport:          string(TransportWSS),
+				RouteProfile:       RouteProfileScopedRawWSS,
+				CodexVersion:       "codex-1",
+				SlimferenceVersion: "slim-1",
+				Passed:             true,
+			},
+			current: "codex-1",
+			slim:    "slim-1",
+			want:    "schema mismatch",
+		},
+		{
+			name: "transport mismatch",
+			state: CertificationState{
+				Transport:          string(TransportHTTP),
+				RouteProfile:       RouteProfileScopedRawWSS,
+				CodexVersion:       "codex-1",
+				SlimferenceVersion: "slim-1",
+				Passed:             true,
+			},
+			current: "codex-1",
+			slim:    "slim-1",
+			want:    "transport mismatch",
+		},
+		{
+			name: "route profile mismatch",
+			state: CertificationState{
+				Transport:          string(TransportWSS),
+				RouteProfile:       "other",
+				CodexVersion:       "codex-1",
+				SlimferenceVersion: "slim-1",
+				Passed:             true,
+			},
+			current: "codex-1",
+			slim:    "slim-1",
+			want:    "route profile mismatch",
+		},
+		{
+			name: "not passed",
+			state: CertificationState{
+				CodexVersion:       "codex-1",
+				SlimferenceVersion: "slim-1",
+				Passed:             false,
+			},
+			current: "codex-1",
+			slim:    "slim-1",
+			want:    "did not pass",
+		},
 		{
 			name: "codex version changed",
 			state: CertificationState{
@@ -58,7 +110,19 @@ func TestDecideAutoTransportRejectsStaleOrUnhealthyCertification(t *testing.T) {
 				Passed:             true,
 			},
 			current: "codex-2",
+			slim:    "slim-1",
 			want:    "version changed",
+		},
+		{
+			name: "slimference version changed",
+			state: CertificationState{
+				CodexVersion:       "codex-1",
+				SlimferenceVersion: "slim-1",
+				Passed:             true,
+			},
+			current: "codex-1",
+			slim:    "slim-2",
+			want:    "slimference version changed",
 		},
 		{
 			name: "parse failures",
@@ -69,6 +133,7 @@ func TestDecideAutoTransportRejectsStaleOrUnhealthyCertification(t *testing.T) {
 				ParseFailures:      1,
 			},
 			current: "codex-1",
+			slim:    "slim-1",
 			want:    "parse failures",
 		},
 		{
@@ -80,6 +145,7 @@ func TestDecideAutoTransportRejectsStaleOrUnhealthyCertification(t *testing.T) {
 				DegradedSessions:   1,
 			},
 			current: "codex-1",
+			slim:    "slim-1",
 			want:    "degraded sessions",
 		},
 	} {
@@ -88,7 +154,7 @@ func TestDecideAutoTransportRejectsStaleOrUnhealthyCertification(t *testing.T) {
 			if err := SaveCertification(home, tc.state); err != nil {
 				t.Fatalf("SaveCertification: %v", err)
 			}
-			decision, err := DecideAutoTransport(home, tc.current, "slim-1")
+			decision, err := DecideAutoTransport(home, tc.current, tc.slim)
 			if err != nil {
 				t.Fatalf("DecideAutoTransport: %v", err)
 			}
