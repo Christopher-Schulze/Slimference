@@ -98,6 +98,14 @@ func (t *WebSocketTunnel) IsAudioBypassPath(p string) bool {
 // identifying headers, do NOT override Connection / Host, and do NOT
 // rewrite the WebSocket-Key. Headers go through verbatim.
 func (t *WebSocketTunnel) ServeUpgrade(clientConn net.Conn, r *http.Request, host string) {
+	t.ServeUpgradeWithBridge(clientConn, r, host, true)
+}
+
+// ServeUpgradeWithBridge is ServeUpgrade with an explicit frame-bridge gate.
+// CONNECT/MITM callers use this to forward non-conversation WebSockets
+// byte-equal while still allowing the scoped Codex conversation route to
+// reuse Phase-F.
+func (t *WebSocketTunnel) ServeUpgradeWithBridge(clientConn net.Conn, r *http.Request, host string, bridgeFrames bool) {
 	if t.Dialer == nil {
 		t.logf("websocket: no dialer configured; dropping upgrade", "host", host)
 		return
@@ -133,7 +141,7 @@ func (t *WebSocketTunnel) ServeUpgrade(clientConn net.Conn, r *http.Request, hos
 	// pump below will fail on the very next write and we exit cleanly;
 	// no separate err handling needed.
 	_ = forwardResponse(clientConn, resp)
-	if t.FrameBridge != nil && !t.IsAudioBypassPath(r.URL.Path) {
+	if bridgeFrames && t.FrameBridge != nil && !t.IsAudioBypassPath(r.URL.Path) {
 		bridgeUpstream := net.Conn(upstream)
 		if upstreamReader.Buffered() > 0 {
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}

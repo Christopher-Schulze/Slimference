@@ -105,6 +105,11 @@ Desktop route exists. In that branch, the release claim is still honest:
 Codex CLI gets Slimference savings, Codex Desktop remains native with no
 drawbacks, and the launch center says so plainly.
 
+T238 pre-live code has narrowed the Desktop release branch to one explicit
+live ceremony: process-local proxy launch plus lsof and `/admin/state.wss`.
+T240 must not accept a cosmetic provider badge, sideband-only routing, or
+base-URL env injection as Desktop savings evidence.
+
 ## Deviations
 
 None yet.

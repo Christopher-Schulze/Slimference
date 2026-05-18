@@ -20,7 +20,10 @@ func TestParseCodexLaunchDesktopFlagsDefaults(t *testing.T) {
 	if f.host != "127.0.0.1" || f.port != "8990" {
 		t.Fatalf("defaults host=%q port=%q", f.host, f.port)
 	}
-	if f.probe || f.help || f.appPath != "" || len(f.extra) != 0 {
+	if f.transport != codexDesktopTransportProxy {
+		t.Fatalf("default transport=%q want proxy", f.transport)
+	}
+	if f.probe || f.help || f.appPath != "" || f.insecureSkipTrustCheck || len(f.extra) != 0 {
 		t.Fatalf("unexpected non-zero: %+v", f)
 	}
 }
@@ -30,15 +33,17 @@ func TestParseCodexLaunchDesktopFlagsAll(t *testing.T) {
 		"--probe",
 		"--host=10.0.0.5",
 		"--port=9000",
+		"--transport=base-url",
 		"--app=/opt/Codex.app",
 		"--env=FOO=bar",
 		"--env=BAZ=qux",
+		"--insecure-skip-cert-trust-check",
 	}
 	f, err := parseCodexLaunchDesktopFlags(args)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !f.probe || f.host != "10.0.0.5" || f.port != "9000" || f.appPath != "/opt/Codex.app" {
+	if !f.probe || !f.insecureSkipTrustCheck || f.host != "10.0.0.5" || f.port != "9000" || f.transport != codexDesktopTransportBaseURL || f.appPath != "/opt/Codex.app" {
 		t.Fatalf("flags=%+v", f)
 	}
 	if len(f.extra) != 2 || f.extra[0] != "FOO=bar" || f.extra[1] != "BAZ=qux" {
@@ -61,6 +66,9 @@ func TestParseCodexLaunchDesktopFlagsRejectsBadEnv(t *testing.T) {
 	}
 	if _, err := parseCodexLaunchDesktopFlags([]string{"--bogus"}); err == nil {
 		t.Fatal("expected error on unknown flag")
+	}
+	if _, err := parseCodexLaunchDesktopFlags([]string{"--transport=bad"}); err == nil {
+		t.Fatal("expected error on invalid transport")
 	}
 }
 
@@ -142,6 +150,40 @@ func TestBuildCodexDesktopLaunchEnvExtraAppliesLast(t *testing.T) {
 	// in order; many libc loaders pick the last occurrence.
 }
 
+func TestBuildCodexDesktopProxyEnvScopedAndNoBaseURLOverrides(t *testing.T) {
+	base := []string{
+		"PATH=/usr/bin",
+		"HTTPS_PROXY=http://old",
+		"OPENAI_BASE_URL=http://old-base",
+		"UNRELATED=keep",
+	}
+	got := buildCodexDesktopProxyEnv("http://127.0.0.1:8990", base, []string{"HTTPS_PROXY=http://operator"})
+	wantPresent := map[string]bool{
+		"PATH=/usr/bin":                     false,
+		"UNRELATED=keep":                    false,
+		"HTTP_PROXY=http://127.0.0.1:8990":  false,
+		"HTTPS_PROXY=http://127.0.0.1:8990": false,
+		"WSS_PROXY=http://127.0.0.1:8990":   false,
+		"ALL_PROXY=http://127.0.0.1:8990":   false,
+		"NO_PROXY=127.0.0.1,localhost,::1":  false,
+		"CODEX_NETWORK_PROXY_ACTIVE=1":      false,
+		"HTTPS_PROXY=http://operator":       false,
+	}
+	for _, kv := range got {
+		if _, ok := wantPresent[kv]; ok {
+			wantPresent[kv] = true
+		}
+		if strings.HasPrefix(kv, "OPENAI_BASE_URL=") {
+			t.Fatalf("proxy mode must not leak base-url override: %v", got)
+		}
+	}
+	for kv, seen := range wantPresent {
+		if !seen {
+			t.Errorf("missing env entry %q in %v", kv, got)
+		}
+	}
+}
+
 func TestFilterCodexDesktopOverrideEnv(t *testing.T) {
 	env := []string{
 		"PATH=/usr/bin",
@@ -151,6 +193,25 @@ func TestFilterCodexDesktopOverrideEnv(t *testing.T) {
 	}
 	got := filterCodexDesktopOverrideEnv(env)
 	want := []string{"CHATGPT_CODEX_BASE_URL=http://x", "OPENAI_BASE_URL=http://x"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("filter[%d] = %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestFilterCodexDesktopProxyEnv(t *testing.T) {
+	env := []string{
+		"PATH=/usr/bin",
+		"HTTPS_PROXY=http://x",
+		"FOO=bar",
+		"NO_PROXY=127.0.0.1",
+	}
+	got := filterCodexDesktopProxyEnv(env)
+	want := []string{"HTTPS_PROXY=http://x", "NO_PROXY=127.0.0.1"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
@@ -195,11 +256,18 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 	}
 
 	prevStart := codexDesktopStartFn
-	t.Cleanup(func() { codexDesktopStartFn = prevStart })
+	prevCA := codexDesktopCATrustFn
+	t.Cleanup(func() {
+		codexDesktopStartFn = prevStart
+		codexDesktopCATrustFn = prevCA
+	})
 	startCalled := false
 	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
 		startCalled = true
 		return 0
+	}
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
 	}
 
 	var out, errBuf bytes.Buffer
@@ -217,20 +285,64 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &probe); err != nil {
 		t.Fatalf("json: %v\nraw: %s", err, out.String())
 	}
-	wantURL := "http://192.0.2.1:4444/backend-api/codex"
-	if probe.OverrideURL != wantURL {
-		t.Errorf("OverrideURL=%q want %q", probe.OverrideURL, wantURL)
+	wantProxy := "http://192.0.2.1:4444"
+	if probe.Transport != codexDesktopTransportProxy {
+		t.Errorf("Transport=%q want proxy", probe.Transport)
 	}
 	if probe.Binary != bin {
 		t.Errorf("Binary=%q want %q", probe.Binary, bin)
 	}
-	if len(probe.EnvOverride) != len(codexDesktopEnvOverrideKeys) {
-		t.Errorf("EnvOverride entries=%d want %d", len(probe.EnvOverride), len(codexDesktopEnvOverrideKeys))
+	if probe.ProxyURL != wantProxy {
+		t.Errorf("ProxyURL=%q want %q", probe.ProxyURL, wantProxy)
+	}
+	if !probe.CATrust.Trusted {
+		t.Errorf("CA trust not propagated: %+v", probe.CATrust)
+	}
+	if len(probe.EnvOverride) != len(codexDesktopProxyEnvKeys) {
+		t.Errorf("EnvOverride entries=%d want %d", len(probe.EnvOverride), len(codexDesktopProxyEnvKeys))
 	}
 	for _, kv := range probe.EnvOverride {
-		if !strings.HasSuffix(kv, "="+wantURL) {
-			t.Errorf("env entry %q does not end with override URL", kv)
+		if strings.HasPrefix(kv, "NO_PROXY=") || strings.HasPrefix(kv, "no_proxy=") || strings.HasPrefix(kv, "CODEX_NETWORK_PROXY_ACTIVE=") {
+			continue
 		}
+		if !strings.HasSuffix(kv, "="+wantProxy) {
+			t.Errorf("env entry %q does not end with proxy URL", kv)
+		}
+	}
+}
+
+func TestRunCodexLaunchDesktopBaseURLProbeEmitsDiagnosticEnv(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--transport=base-url", "--probe", "--app=" + app, "--host=192.0.2.9", "--port=4999"},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var probe codexLaunchDesktopProbe
+	if err := json.Unmarshal(out.Bytes(), &probe); err != nil {
+		t.Fatalf("json: %v\nraw: %s", err, out.String())
+	}
+	wantURL := "http://192.0.2.9:4999/backend-api/codex"
+	if probe.Transport != codexDesktopTransportBaseURL || probe.OverrideURL != wantURL || probe.ProxyURL != "" {
+		t.Fatalf("probe=%+v", probe)
+	}
+	if len(probe.EnvOverride) != len(codexDesktopEnvOverrideKeys) {
+		t.Fatalf("base-url env count=%d want %d", len(probe.EnvOverride), len(codexDesktopEnvOverrideKeys))
+	}
+	if probe.CATrust.Exists || probe.CATrust.Trusted || probe.CATrust.Path != "" {
+		t.Fatalf("base-url diagnostic mode must not report CA gate: %+v", probe.CATrust)
 	}
 }
 
@@ -247,11 +359,16 @@ func TestRunCodexLaunchDesktopSpawnsViaInjectedStartFn(t *testing.T) {
 
 	prevStart := codexDesktopStartFn
 	prevBaseEnv := codexDesktopBaseEnvFn
+	prevCA := codexDesktopCATrustFn
 	t.Cleanup(func() {
 		codexDesktopStartFn = prevStart
 		codexDesktopBaseEnvFn = prevBaseEnv
+		codexDesktopCATrustFn = prevCA
 	})
 	codexDesktopBaseEnvFn = func() []string { return []string{"PATH=/usr/bin"} }
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
+	}
 
 	var (
 		seenBinary string
@@ -285,7 +402,7 @@ func TestRunCodexLaunchDesktopSpawnsViaInjectedStartFn(t *testing.T) {
 		if kv == "FOO=bar" {
 			hasFoo = true
 		}
-		for _, k := range codexDesktopEnvOverrideKeys {
+		for _, k := range codexDesktopProxyEnvKeys {
 			if strings.HasPrefix(kv, k+"=") {
 				overrides++
 			}
@@ -297,8 +414,108 @@ func TestRunCodexLaunchDesktopSpawnsViaInjectedStartFn(t *testing.T) {
 	if !hasFoo {
 		t.Error("extra env FOO=bar must be appended")
 	}
-	if overrides != len(codexDesktopEnvOverrideKeys) {
-		t.Errorf("override count=%d want %d", overrides, len(codexDesktopEnvOverrideKeys))
+	if overrides != len(codexDesktopProxyEnvKeys) {
+		t.Errorf("override count=%d want %d", overrides, len(codexDesktopProxyEnvKeys))
+	}
+}
+
+func TestRunCodexLaunchDesktopRefusesProxyWithoutTrustedCA(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevStart := codexDesktopStartFn
+	prevCA := codexDesktopCATrustFn
+	t.Cleanup(func() {
+		codexDesktopStartFn = prevStart
+		codexDesktopCATrustFn = prevCA
+	})
+	startCalled := false
+	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+		startCalled = true
+		return 0
+	}
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: false}
+	}
+
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd([]string{"--app=" + app}, installPrinter{Out: &out, Err: &errBuf})
+	if rc != 1 {
+		t.Fatalf("rc=%d want 1", rc)
+	}
+	if startCalled {
+		t.Fatal("launcher must not spawn when CA trust gate fails")
+	}
+	if !strings.Contains(errBuf.String(), "cert-trust") {
+		t.Fatalf("stderr missing cert-trust remediation: %q", errBuf.String())
+	}
+}
+
+func TestRunCodexLaunchDesktopRefusesProxyWithMissingCA(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevCA := codexDesktopCATrustFn
+	t.Cleanup(func() { codexDesktopCATrustFn = prevCA })
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/missing.crt", Exists: false, Trusted: false}
+	}
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd([]string{"--app=" + app}, installPrinter{Out: &out, Err: &errBuf})
+	if rc != 1 {
+		t.Fatalf("rc=%d want 1", rc)
+	}
+	if !strings.Contains(errBuf.String(), "install") {
+		t.Fatalf("stderr missing install remediation: %q", errBuf.String())
+	}
+}
+
+func TestRunCodexLaunchDesktopInsecureSkipTrustCheckSpawns(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevStart := codexDesktopStartFn
+	prevCA := codexDesktopCATrustFn
+	t.Cleanup(func() {
+		codexDesktopStartFn = prevStart
+		codexDesktopCATrustFn = prevCA
+	})
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: false}
+	}
+	spawned := false
+	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+		spawned = true
+		return 0
+	}
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--app=" + app, "--insecure-skip-cert-trust-check"},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 0 || !spawned {
+		t.Fatalf("rc=%d spawned=%v stderr=%q", rc, spawned, errBuf.String())
 	}
 }
 
@@ -321,6 +538,71 @@ func TestRunCodexLaunchDesktopBadFlag(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "unknown flag") {
 		t.Errorf("stderr missing 'unknown flag': %q", errBuf.String())
+	}
+}
+
+func TestEmitCodexDesktopProbeWriterError(t *testing.T) {
+	var errBuf bytes.Buffer
+	rc := emitCodexDesktopProbe(
+		installPrinter{Out: failingCodexDesktopWriter{}, Err: &errBuf},
+		"/Applications/Codex.app/Contents/MacOS/Codex",
+		codexDesktopTransportProxy,
+		"http://127.0.0.1:8990/backend-api/codex",
+		"http://127.0.0.1:8990",
+		[]string{"HTTPS_PROXY=http://127.0.0.1:8990"},
+		codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true},
+	)
+	if rc != 1 || !strings.Contains(errBuf.String(), "probe encode") {
+		t.Fatalf("rc=%d err=%q", rc, errBuf.String())
+	}
+}
+
+type failingCodexDesktopWriter struct{}
+
+func (failingCodexDesktopWriter) Write([]byte) (int, error) {
+	return 0, errors.New("write failed")
+}
+
+func TestCodexDesktopCATrustStateBranches(t *testing.T) {
+	prevHome := osUserHomeDir
+	prevKeychain := newTransparentKeychainFn
+	t.Cleanup(func() {
+		osUserHomeDir = prevHome
+		newTransparentKeychainFn = prevKeychain
+	})
+
+	osUserHomeDir = func() (string, error) { return "", errors.New("home") }
+	if got := codexDesktopCATrustState(); !strings.Contains(got.Error, "home") {
+		t.Fatalf("home error state=%+v", got)
+	}
+
+	home := t.TempDir()
+	osUserHomeDir = func() (string, error) { return home, nil }
+	missing := codexDesktopCATrustState()
+	if missing.Exists || missing.Trusted || !strings.Contains(missing.Error, "no such file") {
+		t.Fatalf("missing state=%+v", missing)
+	}
+
+	cert := filepath.Join(home, ".slimference", "ca", "root.crt")
+	if err := os.MkdirAll(filepath.Dir(cert), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cert, []byte("cert"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newTransparentKeychainFn = func() proxyKeychain {
+		return &fakeKeychain{trusted: true}
+	}
+	trusted := codexDesktopCATrustState()
+	if !trusted.Exists || !trusted.Trusted || trusted.Path != cert {
+		t.Fatalf("trusted state=%+v", trusted)
+	}
+	newTransparentKeychainFn = func() proxyKeychain {
+		return &fakeKeychain{trusted: false, verifyErr: errors.New("verify failed")}
+	}
+	untrusted := codexDesktopCATrustState()
+	if !untrusted.Exists || untrusted.Trusted || !strings.Contains(untrusted.Error, "verify failed") {
+		t.Fatalf("untrusted state=%+v", untrusted)
 	}
 }
 

@@ -61,6 +61,27 @@ type codexCertCriterion struct {
 	pass bool
 }
 
+type codexDesktopStatusFlags struct {
+	host string
+	port string
+	json bool
+	help bool
+}
+
+type codexDesktopStatusOutput struct {
+	Mode                 string              `json:"mode"`
+	FailureClass         string              `json:"failure_class,omitempty"`
+	ProxyURL             string              `json:"proxy_url"`
+	CATrust              codexDesktopCAState `json:"ca_trust"`
+	DaemonReachable      bool                `json:"daemon_reachable"`
+	DaemonError          string              `json:"daemon_error,omitempty"`
+	WSS                  control.WSSState    `json:"wss"`
+	LiveProofRequired    bool                `json:"live_proof_required"`
+	ConversationObserved bool                `json:"conversation_observed"`
+	LaunchCommand        string              `json:"launch_command"`
+	Notes                []string            `json:"notes,omitempty"`
+}
+
 func handleCodexCmd(args []string) {
 	exitFn(runCodexCmd(args, defaultInstallPrinter()))
 }
@@ -81,6 +102,8 @@ func runCodexCmd(args []string, p installPrinter) int {
 		return runCodexStatusCmd(args[1:], p)
 	case "certify":
 		return runCodexCertifyCmd(args[1:], p)
+	case "desktop":
+		return runCodexDesktopCmd(args[1:], p)
 	case "launch-desktop":
 		return runCodexLaunchDesktopCmd(args[1:], p)
 	case "--help", "-h", "help":
@@ -330,6 +353,45 @@ func runCodexCertifyCmd(args []string, p installPrinter) int {
 	return 0
 }
 
+func runCodexDesktopCmd(args []string, p installPrinter) int {
+	if len(args) == 0 {
+		fmt.Fprint(p.Out, codexDesktopHelpText)
+		return 0
+	}
+	switch args[0] {
+	case "status":
+		return runCodexDesktopStatusCmd(args[1:], p)
+	case "--help", "-h", "help":
+		fmt.Fprint(p.Out, codexDesktopHelpText)
+		return 0
+	default:
+		fmt.Fprintf(p.Err, "codex desktop: unknown subcommand %q\n", args[0])
+		fmt.Fprint(p.Err, codexDesktopUsageLine)
+		return 2
+	}
+}
+
+func runCodexDesktopStatusCmd(args []string, p installPrinter) int {
+	flags, err := parseCodexDesktopStatusFlags(args)
+	if err != nil {
+		fmt.Fprintf(p.Err, "codex desktop status: %v\n", err)
+		return 2
+	}
+	if flags.help {
+		fmt.Fprint(p.Out, codexDesktopStatusHelpText)
+		return 0
+	}
+	out := buildCodexDesktopStatus(flags)
+	if flags.json {
+		enc := json.NewEncoder(p.Out)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+		return 0
+	}
+	renderCodexDesktopStatus(p.Out, out)
+	return 0
+}
+
 func parseCodexRouteFlags(args []string) (codexRouteFlags, error) {
 	f := codexRouteFlags{host: "127.0.0.1", port: "8990", transport: "auto"}
 	for _, a := range args {
@@ -429,6 +491,99 @@ func parseCodexCertifyFlags(args []string) (codexCertifyFlags, error) {
 		}
 	}
 	return f, nil
+}
+
+func parseCodexDesktopStatusFlags(args []string) (codexDesktopStatusFlags, error) {
+	f := codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"}
+	for _, a := range args {
+		switch {
+		case a == "--help" || a == "-h":
+			f.help = true
+		case a == "--json":
+			f.json = true
+		case strings.HasPrefix(a, "--host="):
+			f.host = strings.TrimPrefix(a, "--host=")
+		case strings.HasPrefix(a, "--port="):
+			f.port = strings.TrimPrefix(a, "--port=")
+		default:
+			return f, fmt.Errorf("unknown flag %q", a)
+		}
+	}
+	return f, nil
+}
+
+func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOutput {
+	proxyURL := fmt.Sprintf("http://%s:%s", flags.host, flags.port)
+	out := codexDesktopStatusOutput{
+		Mode:              "not_ready",
+		ProxyURL:          proxyURL,
+		CATrust:           codexDesktopCATrustFn(),
+		LiveProofRequired: true,
+		LaunchCommand:     "slimference codex launch-desktop --transport=proxy",
+	}
+	state, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
+	if err != nil {
+		out.FailureClass = "daemon_unreachable"
+		out.DaemonError = err.Error()
+		out.Notes = append(out.Notes, "start the Slimference daemon before launching Codex Desktop in proxy mode")
+		return out
+	}
+	out.DaemonReachable = true
+	out.WSS = state.WSS
+	out.ConversationObserved = state.WSS.MITMBridged > 0 && state.WSS.CompressedMessagesInspected > 0
+	switch {
+	case !out.CATrust.Exists:
+		out.FailureClass = "ca_missing"
+		out.Notes = append(out.Notes, "run `slimference install` to create the local CA")
+	case !out.CATrust.Trusted:
+		out.FailureClass = "ca_untrusted"
+		out.Notes = append(out.Notes, "run `slimference cert-trust` before launching Codex Desktop in proxy mode")
+	case out.ConversationObserved:
+		if state.WSS.ParseFailures != 0 || state.WSS.DegradedSessions != 0 || state.WSS.CompressionErrors != 0 {
+			out.Mode = "proxy_wss_needs_review"
+			out.FailureClass = "wss_errors"
+			out.Notes = append(out.Notes, "WSS counters show errors; review before treating this as zero-drawdown")
+			break
+		}
+		out.Mode = "ready_for_live_desktop_probe"
+		out.Notes = append(out.Notes,
+			"WSS counters are cumulative and may include Codex CLI traffic",
+			"Desktop proof still requires a pre/post counter diff plus lsof on the spawned Codex.app process",
+		)
+	default:
+		out.Mode = "ready_for_live_desktop_probe"
+		out.Notes = append(out.Notes, "launch Codex Desktop through the proxy mode and verify lsof plus /admin/state.wss")
+	}
+	return out
+}
+
+func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
+	fmt.Fprintln(w, "Slimference Codex Desktop")
+	fmt.Fprintln(w, "-------------------------")
+	fmt.Fprintf(w, "  Mode      %s\n", out.Mode)
+	if out.FailureClass != "" {
+		fmt.Fprintf(w, "  Gate      %s\n", out.FailureClass)
+	}
+	fmt.Fprintf(w, "  Proxy     %s\n", out.ProxyURL)
+	fmt.Fprintf(w, "  CA        exists=%v trusted=%v\n", out.CATrust.Exists, out.CATrust.Trusted)
+	if out.CATrust.Path != "" {
+		fmt.Fprintf(w, "            %s\n", out.CATrust.Path)
+	}
+	if out.CATrust.Error != "" {
+		fmt.Fprintf(w, "            %s\n", out.CATrust.Error)
+	}
+	fmt.Fprintf(w, "  Daemon    reachable=%v\n", out.DaemonReachable)
+	if out.DaemonError != "" {
+		fmt.Fprintf(w, "            %s\n", out.DaemonError)
+	}
+	fmt.Fprintf(w, "  WSS       mitm=%d inspected=%d mutated=%d parse_failures=%d degraded=%d compression_errors=%d\n",
+		out.WSS.MITMBridged, out.WSS.CompressedMessagesInspected, out.WSS.CompressedMessagesMutated,
+		out.WSS.ParseFailures, out.WSS.DegradedSessions, out.WSS.CompressionErrors)
+	fmt.Fprintf(w, "  Proof     live_required=%v conversation_observed=%v\n", out.LiveProofRequired, out.ConversationObserved)
+	fmt.Fprintf(w, "  Launch    %s\n", out.LaunchCommand)
+	for _, note := range out.Notes {
+		fmt.Fprintf(w, "  Note      %s\n", note)
+	}
 }
 
 func codexRouteOptions(transport string) codexroute.Options {
@@ -572,9 +727,9 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 	}
 }
 
-const codexUsageLine = "usage: slimference codex <run|enable|disable|status|certify|launch-desktop> [flags]\n"
+const codexUsageLine = "usage: slimference codex <run|enable|disable|status|certify|desktop|launch-desktop> [flags]\n"
 
-const codexHelpText = `usage: slimference codex <run|enable|disable|status|certify|launch-desktop> [flags]
+const codexHelpText = `usage: slimference codex <run|enable|disable|status|certify|desktop|launch-desktop> [flags]
 
 Codex-scoped routing. This is the product path: it only touches Codex
 CLI / Codex Desktop App config and never routes Browser ChatGPT,
@@ -586,7 +741,8 @@ Commands:
   disable         remove the shared Codex CLI/App provider route
   status          show route config + daemon health
   certify         issue local WSS auto-promotion proof after live mutation
-  launch-desktop  spawn Codex.app with scoped env override (--probe to inspect)
+  desktop         show Desktop proxy readiness and live-proof status
+  launch-desktop  spawn Codex.app with process-local proxy env (--probe to inspect)
 `
 
 const codexRunHelpText = `usage: slimference codex run [--transport=http|wss|direct|auto] [--direct] [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]
@@ -623,6 +779,23 @@ const codexStatusHelpText = `usage: slimference codex status [--json] [--host=12
 
 Shows whether the scoped Codex provider route is configured and whether
 the Slimference daemon is reachable.
+`
+
+const codexDesktopUsageLine = "usage: slimference codex desktop <status> [flags]\n"
+
+const codexDesktopHelpText = `usage: slimference codex desktop <status> [flags]
+
+Desktop-specific scoped proxy readiness. This command is read-only and
+does not launch Codex.app.
+
+Commands:
+  status  show CA trust, daemon, and WSS proof state
+`
+
+const codexDesktopStatusHelpText = `usage: slimference codex desktop status [--json] [--host=127.0.0.1] [--port=8990]
+
+Reports whether the process-local HTTPS_PROXY Desktop launcher is ready
+and whether a live Desktop conversation WSS proof has already been seen.
 `
 
 const codexCertifyHelpText = `usage: slimference codex certify wss [--dry-run] [--operator NAME] [--notes TEXT] [--host=127.0.0.1] [--port=8990]

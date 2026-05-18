@@ -1121,3 +1121,55 @@ Suggested commit shape (two commits):
     - cmd/slimference/completion.go
     - docs/operation-log.md
     - docs/todo/t228-*.md (status update: implemented-infrastructure, conversation-blocked-upstream)
+
+## 2026-05-18 - T238 Desktop process-local proxy pre-live implementation
+
+Context:
+- User goal: maximum Slimference benefit with zero drawdown. Codex CLI is already
+  certified auto-WSS. Codex Desktop must either prove a scoped process-local
+  route or remain honestly direct-only.
+- This work was done from inside Codex Desktop, so live Desktop launch/lsof
+  proof was intentionally deferred to an external terminal/operator. No
+  Codex.app process was spawned for the proof in this phase.
+
+Implemented pre-live:
+- Added `[transparent].scoped_desktop_proxy=true` default. This only exposes
+  loopback CONNECT for process-local clients when existing CA material is
+  present. It does not generate CA material on daemon start, and it does not
+  arm hosts, pfctl, macOS system proxy, or Codex config.
+- `proxy.New` now wires CONNECT/MITM when either global transparent mode is
+  enabled or scoped Desktop proxy mode is usable. In scoped mode the allowlist
+  is `chatgpt.com` only.
+- CONNECT WebSocket upgrades now have an explicit Phase-F gate. Phase-F frame
+  mutation is allowed only for `chatgpt.com/backend-api/codex/responses` with
+  the Codex `responses_websockets` protocol. Other Desktop sideband WebSockets
+  are tunneled byte-equal.
+- `WebSocketTunnel` now supports `ServeUpgradeWithBridge(..., bridgeFrames)`
+  so callers can forward the upgrade while disabling frame mutation.
+- `slimference codex launch-desktop` now defaults to `--transport=proxy`.
+  It injects only process-local proxy env (`HTTP_PROXY`, `HTTPS_PROXY`,
+  `WSS_PROXY`, `ALL_PROXY`, lowercase variants, `NO_PROXY`, and
+  `CODEX_NETWORK_PROXY_ACTIVE`) and refuses to spawn when the CA is missing or
+  untrusted. `--transport=base-url` remains diagnostic/future-proof only.
+- Added `slimference codex desktop status [--json]` for the handoff surface:
+  CA trust, daemon reachability, WSS counters, live-proof-required flag, and
+  conversation-observed flag.
+
+Local verification:
+- `go test ./cmd/slimference ./internal/proxy ./internal/config -count=1
+  -timeout 180s` passed.
+- Added tests for proxy env construction, CA launch refusal, probe JSON,
+  scoped CONNECT activation without CA auto-generation, WSS bridge gating, and
+  Desktop status gates.
+
+Still requires external live proof:
+- Rebuild/install/restart daemon.
+- Run `slimference cert-trust` if CA trust is missing.
+- Run `slimference codex launch-desktop --transport=proxy` from a quiet
+  external terminal, send a Desktop chat prompt, and collect lsof plus
+  `/admin/state.wss`.
+- Accept Desktop Slimference mode only if app-server traffic reaches
+  `127.0.0.1:8990`, no direct conversation socket to `chatgpt.com:443` remains,
+  and WSS counters stay clean with real mutation before savings are claimed.
+- If Codex.app bypasses proxy env, mark Desktop direct-only and keep all
+  Desktop savings hidden.

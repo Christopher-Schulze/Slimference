@@ -53,6 +53,49 @@ func TestNew_TransparentEnabledWiresConnectInterceptor(t *testing.T) {
 	}
 }
 
+func TestNew_ScopedDesktopProxyWiresConnectOnlyWithExistingCA(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Transparent.Enabled = false
+	cfg.Transparent.ScopedDesktopProxy = true
+	cfg.Transparent.CADir = t.TempDir()
+	if _, err := newTransparentSigner(cfg); err != nil {
+		t.Fatalf("prepare CA: %v", err)
+	}
+
+	p := New(cfg)
+	req := httptest.NewRequest(http.MethodConnect, "http://chatgpt.com:443", nil)
+	req.Host = "chatgpt.com:443"
+	rec := httptest.NewRecorder()
+	p.server.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("CONNECT without Hijacker status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if !strings.Contains(rec.Body.String(), "hijack not supported") {
+		t.Fatalf("CONNECT did not reach scoped interceptor, body = %q", rec.Body.String())
+	}
+}
+
+func TestNew_ScopedDesktopProxyMissingCADoesNotGenerateOrWire(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Transparent.Enabled = false
+	cfg.Transparent.ScopedDesktopProxy = true
+	cfg.Transparent.CADir = t.TempDir()
+
+	p := New(cfg)
+	req := httptest.NewRequest(http.MethodConnect, "http://chatgpt.com:443", nil)
+	req.Host = "chatgpt.com:443"
+	rec := httptest.NewRecorder()
+	p.server.Handler.ServeHTTP(rec, req)
+	if rec.Code == http.StatusInternalServerError && strings.Contains(rec.Body.String(), "hijack not supported") {
+		t.Fatalf("missing CA must not wire scoped CONNECT interceptor")
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Transparent.CADir, "ca", "root.crt")); !os.IsNotExist(err) {
+		t.Fatalf("scoped desktop proxy must not generate CA on daemon start, stat err=%v", err)
+	}
+}
+
 func TestNew_TransparentInvalidCADirFallsBackToMux(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
@@ -69,6 +112,34 @@ func TestNew_TransparentInvalidCADirFallsBackToMux(t *testing.T) {
 	p.server.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("fallback mux health status = %d, want 200", rec.Code)
+	}
+}
+
+func TestShouldBridgeCodexConversationWSS(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		host  string
+		path  string
+		proto string
+		want  bool
+	}{
+		{name: "conversation no protocol", host: "chatgpt.com", path: "/backend-api/codex/responses", want: true},
+		{name: "conversation responses protocol", host: "chatgpt.com", path: "/backend-api/codex/responses", proto: "responses_websockets=2026-02-06", want: true},
+		{name: "sideband", host: "chatgpt.com", path: "/backend-api/accounts/check", want: false},
+		{name: "wrong protocol", host: "chatgpt.com", path: "/backend-api/codex/responses", proto: "chatgpt-sideband", want: false},
+		{name: "wrong host", host: "api.openai.com", path: "/backend-api/codex/responses", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			if tc.proto != "" {
+				req.Header.Set("Sec-WebSocket-Protocol", tc.proto)
+			}
+			if got := shouldBridgeCodexConversationWSS(tc.host, req); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
 	}
 }
 

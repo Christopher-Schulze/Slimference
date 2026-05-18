@@ -28,6 +28,9 @@ func TestDefaults_TransparentConfig(t *testing.T) {
 	if cfg.Transparent.Enabled {
 		t.Fatal("transparent mode must be opt-in by default")
 	}
+	if !cfg.Transparent.ScopedDesktopProxy {
+		t.Fatal("scoped desktop proxy should default on for process-local launcher support")
+	}
 	if cfg.Transparent.CertCacheSize != 256 {
 		t.Fatalf("cert cache size = %d, want 256", cfg.Transparent.CertCacheSize)
 	}

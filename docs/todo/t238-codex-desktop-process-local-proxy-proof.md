@@ -1,6 +1,6 @@
 # TASK 238: Codex Desktop process-local proxy proof
 
-Status: PLANNED
+Status: IMPLEMENTED-PRE-LIVE
 Priority: P0 before any Desktop Slimference product claim
 Scope: Codex Desktop App only; Browser ChatGPT, ChatGPT.app, Claude Code, and
 direct Finder/Spotlight Codex.app launches must stay untouched
@@ -83,37 +83,37 @@ or inferred savings is not a product outcome.
 
 - [x] Reconcile stale Desktop docs: record that base-URL env injection is
   process-local but insufficient for current Codex.app conversation routing.
-- [ ] Decouple CONNECT/MITM ingress from global `transparent.enabled` so a
+- [x] Decouple CONNECT/MITM ingress from global `transparent.enabled` so a
   scoped Desktop proxy mode can run without arming global lab routing.
-- [ ] Add a product-scoped proxy profile for Codex Desktop:
+- [x] Add a product-scoped proxy profile for Codex Desktop:
   intercept `chatgpt.com` only, use existing WSS Phase-F bridge, and bypass
   audio/realtime paths.
-- [ ] Extend `codex launch-desktop` with a proxy transport mode that injects
+- [x] Extend `codex launch-desktop` with a proxy transport mode that injects
   `HTTP_PROXY`, `HTTPS_PROXY`, `WSS_PROXY`, `ALL_PROXY`, lowercase variants,
   and `NO_PROXY=127.0.0.1,localhost,::1`.
-- [ ] Keep the existing base-URL launcher mode as diagnostic/future-proof, but
+- [x] Keep the existing base-URL launcher mode as diagnostic/future-proof, but
   do not present it as the active Desktop conversation route.
-- [ ] Add CA trust preflight: refuse proxy launch with a clear instruction when
+- [x] Add CA trust preflight: refuse proxy launch with a clear instruction when
   the Slimference CA is not trusted.
-- [ ] Add `--probe` output that shows exactly which env keys would be injected
+- [x] Add `--probe` output that shows exactly which env keys would be injected
   without spawning Codex.app.
-- [ ] Add status observation fields for Desktop launch mode: direct,
+- [~] Add status observation fields for Desktop launch mode: direct,
   slimference-launched, proxy-env-present, proxy-connected, last WSS route,
   last telemetry timestamp.
-- [ ] Add tests for env construction, CA preflight, CONNECT routing activation,
+- [x] Add tests for env construction, CA preflight, CONNECT routing activation,
   WSS upgrade handoff, bypass paths, and fail-open behavior.
 - [ ] Run controlled live proof from outside the active Codex Desktop session:
   launch via Slimference, send one prompt, collect `lsof`, `/admin/state.wss`,
   config hash, and direct Browser/ChatGPT.app control evidence.
 - [ ] If minimal prompt proves routing but not mutation, run a Desktop prompt
   with enough repeated context/tool output to trigger Phase-F mutation.
-- [ ] Add explicit failure-class reporting:
+- [~] Add explicit failure-class reporting:
   `proxy_env_not_inherited`, `connect_not_attempted`, `tls_untrusted`,
   `cert_pinned`, `wss_bypassed_proxy`, `wss_parse_drift`,
   `proxied_but_no_mutation_candidate`, `passed`.
-- [ ] Add a `codex desktop status` or equivalent probe output so T239 can render
+- [x] Add a `codex desktop status` or equivalent probe output so T239 can render
   Desktop truth without scraping logs.
-- [ ] Document the final branch decision in `docs/install.md` and the operation
+- [~] Document the final branch decision in `docs/install.md` and the operation
   log: proven proxy mode, direct-only limitation, or upstream-required blocker.
 
 ## Engineering Plan
@@ -163,10 +163,20 @@ Known current state:
 - Codex.app direct launch: works normally and stays direct.
 - Current launcher: process-local base-URL env injection, useful as a probe,
   not sufficient for conversation routing on Codex.app 0.131.0-alpha.9.
-- Existing Slimference CONNECT/MITM code can already terminate CONNECT and feed
-  WebSocket upgrades into the WSS Phase-F bridge, but it is wired only when
-  `transparent.enabled=true`. T238 must make a scoped Desktop product path
-  instead of re-promoting global lab mode.
+- T238 pre-live implementation added `[transparent].scoped_desktop_proxy=true`.
+  When local CA material already exists, the daemon accepts process-local
+  CONNECT on the normal loopback port without enabling global transparent mode,
+  hosts, pfctl, or system proxy settings. It does not generate CA material just
+  because the scoped Desktop ingress is enabled.
+- `slimference codex launch-desktop` defaults to `--transport=proxy`, injects
+  process-local proxy env only, refuses launch when CA trust is missing, and
+  keeps `--transport=base-url` as diagnostic/future-proof mode.
+- `slimference codex desktop status` is the read-only handoff surface for
+  Desktop proof: it reports CA gate, daemon reachability, WSS counters, and
+  whether a live Desktop conversation has been observed.
+- The WebSocket bridge gate now permits Phase-F only for
+  `chatgpt.com/backend-api/codex/responses` with the Codex
+  `responses_websockets` subprotocol. Sideband WSS stays byte-equal.
 
 Live proof must not be run from this active Codex Desktop session unless the
 operator explicitly accepts the risk of focus/process disruption. A separate

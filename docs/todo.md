@@ -1320,11 +1320,13 @@ only and promotes the per-process Codex CLI runner for T209.
   rename from `slimference-codex` to `Slimference` for user-facing provider
   labels. No routing, proxy, savings, or app-scope behavior changed. Detail:
   `docs/todo/t237-codex-provider-display-name.md`
-- [ ] **T238** Codex Desktop process-local proxy proof — prove or reject
-  Codex.app conversation routing through a per-process proxy launch mode using
-  the current Codex Desktop proxy/WSS capability surface. Must not touch
-  Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS system
-  proxy, or `~/.codex/config.toml`. Detail:
+- [~] **T238** Codex Desktop process-local proxy proof — pre-live code path
+  is implemented: daemon exposes process-local CONNECT when CA material exists,
+  `codex launch-desktop --transport=proxy` injects scoped proxy env and refuses
+  untrusted CA, `codex desktop status` reports the proof gates, and Phase-F is
+  allowed only for Codex conversation WSS. Remaining: external live Desktop
+  proof/rejection. Must not touch Browser ChatGPT, ChatGPT.app, Claude Code,
+  `/etc/hosts`, pfctl, macOS system proxy, or `~/.codex/config.toml`. Detail:
   `docs/todo/t238-codex-desktop-process-local-proxy-proof.md`
 - [ ] **T239** Slimference launch center TUI — collapse normal user UX into a
   small launch/control center with exactly the useful surfaces: Launch Codex

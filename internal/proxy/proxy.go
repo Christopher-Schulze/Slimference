@@ -419,16 +419,34 @@ func New(cfg *config.Config) *Proxy {
 	mux.HandleFunc("/", p.ServeHTTP)
 
 	var handler http.Handler = mux
-	if cfg.Transparent.Enabled {
-		if signer, err := newTransparentSigner(cfg); err != nil {
-			slog.Error("transparent proxy disabled: CA init failed", "error", err)
+	if cfg.Transparent.Enabled || cfg.Transparent.ScopedDesktopProxy {
+		var (
+			signer *tlsca.Signer
+			err    error
+		)
+		if cfg.Transparent.Enabled {
+			signer, err = newTransparentSigner(cfg)
 		} else {
-			connect := NewConnectInterceptor(signer, mux, cfg.Transparent.InterceptHosts)
+			signer, err = newExistingTransparentSigner(cfg)
+		}
+		if err != nil {
+			if cfg.Transparent.Enabled {
+				slog.Error("transparent proxy disabled: CA init failed", "error", err)
+			} else {
+				slog.Info("scoped desktop proxy inactive: CA not installed", "error", err)
+			}
+		} else {
+			hosts := cfg.Transparent.InterceptHosts
+			if !cfg.Transparent.Enabled {
+				hosts = []string{"chatgpt.com"}
+			}
+			connect := NewConnectInterceptor(signer, mux, hosts)
 			connect.SetLogger(slog.Default())
 			connect.SetDebugRecorder(p.debugRecorder)
 			connect.SetWebSocketTunnel(p.webSocketTunnel)
+			connect.SetWebSocketPhaseFDecider(shouldBridgeCodexConversationWSS)
 			handler = connect
-			slog.Info("transparent proxy enabled", "intercept_hosts", cfg.Transparent.InterceptHosts)
+			slog.Info("connect proxy enabled", "transparent", cfg.Transparent.Enabled, "scoped_desktop_proxy", cfg.Transparent.ScopedDesktopProxy, "intercept_hosts", hosts)
 		}
 	}
 
@@ -473,21 +491,62 @@ func newProfiledWebSocketDialer(resolver tlsdial.Resolver) WebSocketDialer {
 }
 
 func newTransparentSigner(cfg *config.Config) (*tlsca.Signer, error) {
-	caDir := strings.TrimSpace(cfg.Transparent.CADir)
-	if caDir == "" {
-		home, err := proxyUserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("resolve home for transparent CA: %w", err)
-		}
-		caDir = filepath.Join(home, ".slimference")
-	} else {
-		caDir = config.ExpandHomePath(caDir)
+	caDir, err := transparentCADir(cfg)
+	if err != nil {
+		return nil, err
 	}
 	ca, err := tlsca.LoadOrGenerateCA(caDir)
 	if err != nil {
 		return nil, err
 	}
 	return tlsca.NewSigner(ca, cfg.Transparent.CertCacheSize), nil
+}
+
+func newExistingTransparentSigner(cfg *config.Config) (*tlsca.Signer, error) {
+	caDir, err := transparentCADir(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(filepath.Join(caDir, "ca", "root.key")); err != nil {
+		return nil, fmt.Errorf("transparent CA key missing: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(caDir, "ca", "root.crt")); err != nil {
+		return nil, fmt.Errorf("transparent CA cert missing: %w", err)
+	}
+	return newTransparentSigner(cfg)
+}
+
+func transparentCADir(cfg *config.Config) (string, error) {
+	caDir := strings.TrimSpace(cfg.Transparent.CADir)
+	if caDir != "" {
+		return config.ExpandHomePath(caDir), nil
+	}
+	home, err := proxyUserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home for transparent CA: %w", err)
+	}
+	return filepath.Join(home, ".slimference"), nil
+}
+
+func shouldBridgeCodexConversationWSS(host string, r *http.Request) bool {
+	if !strings.EqualFold(host, "chatgpt.com") {
+		return false
+	}
+	if r == nil || strings.TrimRight(r.URL.Path, "/") != "/backend-api/codex/responses" {
+		return false
+	}
+	protocols := r.Header.Values("Sec-WebSocket-Protocol")
+	if len(protocols) == 0 {
+		return true
+	}
+	for _, header := range protocols {
+		for _, part := range strings.Split(header, ",") {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(part)), "responses_websockets") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // SetTUISendFn wires up the TUI event delivery function after the TUI program is created.

@@ -297,6 +297,56 @@ func TestWebSocketTunnel_FrameBridgeReadsBufferedBytes(t *testing.T) {
 	}
 }
 
+func TestWebSocketTunnel_ServeUpgradeWithBridgeDisabled(t *testing.T) {
+	t.Parallel()
+	upstreamA, upstreamB := net.Pipe()
+	defer upstreamA.Close()
+	defer upstreamB.Close()
+	go func() {
+		br := bufio.NewReader(upstreamA)
+		_, _ = http.ReadRequest(br)
+		_, _ = upstreamA.Write([]byte(
+			"HTTP/1.1 101 Switching Protocols\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n\r\n" +
+				"FRAME"))
+	}()
+	bridgeCalled := make(chan struct{}, 1)
+	wt := &WebSocketTunnel{
+		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
+		FrameBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
+			bridgeCalled <- struct{}{}
+			return nil
+		},
+	}
+	clientA, clientB := net.Pipe()
+	defer clientA.Close()
+	defer clientB.Close()
+	r := httptest.NewRequest("GET", "/backend-api/accounts/check", nil)
+	r.Header.Set("Upgrade", "websocket")
+	r.Header.Set("Connection", "Upgrade")
+	go wt.ServeUpgradeWithBridge(clientB, r, "chatgpt.com", false)
+	br := bufio.NewReader(clientA)
+	resp, err := http.ReadResponse(br, r)
+	if err != nil {
+		t.Fatalf("read 101: %v", err)
+	}
+	resp.Body.Close()
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(br, buf); err != nil {
+		t.Fatalf("read forwarded bytes: %v", err)
+	}
+	if string(buf) != "FRAME" {
+		t.Fatalf("forwarded bytes=%q", buf)
+	}
+	select {
+	case <-bridgeCalled:
+		t.Fatal("frame bridge must not run when bridgeFrames=false")
+	case <-time.After(50 * time.Millisecond):
+	}
+	clientA.Close()
+}
+
 func TestWebSocketTunnel_ServeRawUpgradeExtractsExtensions(t *testing.T) {
 	t.Parallel()
 	upstreamA, upstreamB := net.Pipe()

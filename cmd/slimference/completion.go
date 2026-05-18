@@ -133,7 +133,7 @@ _slimference() {
             ;;
         codex)
             if [ "$cword" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "run enable disable status certify launch-desktop" -- "$cur") )
+                COMPREPLY=( $(compgen -W "run enable disable status certify desktop launch-desktop" -- "$cur") )
             elif [ "$cword" -ge 3 ]; then
                 case "${COMP_WORDS[2]}" in
                     run) COMPREPLY=( $(compgen -W "--direct --transport=auto --transport=http --transport=wss --host= --port= --" -- "$cur") ) ;;
@@ -141,7 +141,8 @@ _slimference() {
                     disable) COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") ) ;;
                     status) COMPREPLY=( $(compgen -W "--json --host= --port=" -- "$cur") ) ;;
                     certify) COMPREPLY=( $(compgen -W "wss --dry-run --operator= --notes= --host= --port=" -- "$cur") ) ;;
-                    launch-desktop) COMPREPLY=( $(compgen -W "--probe --host= --port= --app= --env=" -- "$cur") ) ;;
+                    desktop) COMPREPLY=( $(compgen -W "status --json --host= --port=" -- "$cur") ) ;;
+                    launch-desktop) COMPREPLY=( $(compgen -W "--transport=proxy --transport=base-url --probe --host= --port= --app= --env= --insecure-skip-cert-trust-check" -- "$cur") ) ;;
                 esac
             fi
             ;;

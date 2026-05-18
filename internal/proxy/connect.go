@@ -41,6 +41,7 @@ type ConnectInterceptor struct {
 	logger             *slog.Logger
 	tlsServerHandshake func(net.Conn, *tls.Config) (*tls.Conn, error)
 	webSocketTunnel    *WebSocketTunnel
+	webSocketPhaseF    func(host string, req *http.Request) bool
 	debugRecorder      *dbg.Recorder
 }
 
@@ -108,6 +109,13 @@ func (ci *ConnectInterceptor) SetWebSocketTunnel(t *WebSocketTunnel) {
 	if t != nil {
 		ci.webSocketTunnel = t
 	}
+}
+
+// SetWebSocketPhaseFDecider controls whether a CONNECT-intercepted
+// WebSocket upgrade may enter the Phase-F frame bridge. Nil preserves the
+// historical behaviour: every intercepted WebSocket may bridge.
+func (ci *ConnectInterceptor) SetWebSocketPhaseFDecider(fn func(host string, req *http.Request) bool) {
+	ci.webSocketPhaseF = fn
 }
 
 func (ci *ConnectInterceptor) SetDebugRecorder(r *dbg.Recorder) {
@@ -229,12 +237,22 @@ func (ci *ConnectInterceptor) servePlaintextOnTLS(tlsConn net.Conn, host string)
 		req.URL.Scheme = "https"
 		req.RequestURI = ""
 		if IsWebSocketUpgrade(req) && ci.webSocketTunnel != nil {
-			ci.recordFlight(host, req.URL.Path, "websocket_tunnel", "upgrade", nil)
+			bridgeFrames := true
+			if ci.webSocketPhaseF != nil {
+				bridgeFrames = ci.webSocketPhaseF(host, req)
+			}
+			routeMode := "websocket_tunnel"
+			reason := "upgrade_passthrough"
+			if bridgeFrames {
+				routeMode = "websocket_phasef"
+				reason = "conversation_upgrade"
+			}
+			ci.recordFlight(host, req.URL.Path, routeMode, reason, nil)
 			clientConn := net.Conn(tlsConn)
 			if br.Buffered() > 0 {
 				clientConn = &bufferedNetConn{Conn: tlsConn, reader: br}
 			}
-			ci.webSocketTunnel.ServeUpgrade(clientConn, req, host)
+			ci.webSocketTunnel.ServeUpgradeWithBridge(clientConn, req, host, bridgeFrames)
 			return
 		}
 		rw := newMITMResponseWriter(tlsConn)

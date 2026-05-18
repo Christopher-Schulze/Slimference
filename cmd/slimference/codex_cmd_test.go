@@ -32,6 +32,7 @@ func withCodexCmdStubs(t *testing.T) {
 	oldSetupState := codexSetupStateFn
 	oldVersionOut := codexVersionOutFn
 	oldNow := codexNowFn
+	oldDesktopCA := codexDesktopCATrustFn
 	codexVersionFn = func() string { return "codex-test" }
 	codexAutoFn = func(home string) codexroute.AutoDecision {
 		return codexroute.AutoDecision{
@@ -45,6 +46,9 @@ func withCodexCmdStubs(t *testing.T) {
 	}
 	codexVersionOutFn = func() ([]byte, error) { return []byte("codex-cli 0.130.0\n"), nil }
 	codexNowFn = func() time.Time { return time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC) }
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
+	}
 	t.Cleanup(func() {
 		codexRouteHomeFn = oldHome
 		codexRouteEnableFn = oldEnable
@@ -58,6 +62,7 @@ func withCodexCmdStubs(t *testing.T) {
 		codexSetupStateFn = oldSetupState
 		codexVersionOutFn = oldVersionOut
 		codexNowFn = oldNow
+		codexDesktopCATrustFn = oldDesktopCA
 	})
 }
 
@@ -771,6 +776,137 @@ func TestCodexStatusHumanBranches(t *testing.T) {
 		!strings.Contains(out.String(), "Conflict top-level model_provider") ||
 		!strings.Contains(out.String(), "Legacy") {
 		t.Fatalf("disabled status rc=%d out=%q", rc, out.String())
+	}
+}
+
+func TestCodexDesktopStatusJSONReadyForLiveProbe(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		state := passingCodexCertificationState()
+		state.WSS.MITMBridged = 0
+		state.WSS.CompressedMessagesInspected = 0
+		return state, nil
+	}
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "ready_for_live_desktop_probe" || got.FailureClass != "" || !got.LiveProofRequired {
+		t.Fatalf("status=%+v", got)
+	}
+	if !got.CATrust.Trusted || !got.DaemonReachable {
+		t.Fatalf("readiness not propagated: %+v", got)
+	}
+}
+
+func TestCodexDesktopStatusReportsObservedConversationStillRequiresLiveProof(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		state := passingCodexCertificationState()
+		state.WSS.MITMBridged = 2
+		state.WSS.CompressedMessagesInspected = 9
+		return state, nil
+	}
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "ready_for_live_desktop_probe") ||
+		!strings.Contains(out.String(), "conversation_observed=true") ||
+		!strings.Contains(out.String(), "pre/post counter diff") {
+		t.Fatalf("human status missing cumulative-counter warning: %q", out.String())
+	}
+}
+
+func TestCodexDesktopStatusReportsGates(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: false, Trusted: false}
+	}
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "ca_missing") {
+		t.Fatalf("status missing ca gate: %q", out.String())
+	}
+
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		return control.SetupState{}, errors.New("down")
+	}
+	out.Reset()
+	if rc := runCodexCmd([]string{"desktop", "status"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "daemon_unreachable") {
+		t.Fatalf("status missing daemon gate: %q", out.String())
+	}
+}
+
+func TestCodexDesktopStatusReportsUntrustedAndWSSErrors(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: false}
+	}
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json", "--host=127.0.0.2", "--port=19090"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var untrusted codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &untrusted); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if untrusted.FailureClass != "ca_untrusted" || untrusted.ProxyURL != "http://127.0.0.2:19090" {
+		t.Fatalf("untrusted status=%+v", untrusted)
+	}
+
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
+	}
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		state := passingCodexCertificationState()
+		state.WSS.MITMBridged = 1
+		state.WSS.CompressedMessagesInspected = 1
+		state.WSS.ParseFailures = 1
+		return state, nil
+	}
+	out.Reset()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var wssErr codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &wssErr); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if wssErr.Mode != "proxy_wss_needs_review" || wssErr.FailureClass != "wss_errors" {
+		t.Fatalf("wss error status=%+v", wssErr)
+	}
+}
+
+func TestRunCodexDesktopCmdHelpAndErrors(t *testing.T) {
+	withCodexCmdStubs(t)
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop"}, p); rc != 0 || !strings.Contains(out.String(), "usage: slimference codex desktop") {
+		t.Fatalf("desktop help rc=%d out=%q", rc, out.String())
+	}
+	out.Reset()
+	if rc := runCodexCmd([]string{"desktop", "--help"}, p); rc != 0 || !strings.Contains(out.String(), "Desktop-specific") {
+		t.Fatalf("desktop --help rc=%d out=%q", rc, out.String())
+	}
+	if rc := runCodexCmd([]string{"desktop", "bogus"}, p); rc != 2 || !strings.Contains(errBuf.String(), "unknown subcommand") {
+		t.Fatalf("desktop unknown rc=%d err=%q", rc, errBuf.String())
+	}
+	errBuf.Reset()
+	if rc := runCodexCmd([]string{"desktop", "status", "--bogus"}, p); rc != 2 || !strings.Contains(errBuf.String(), "unknown flag") {
+		t.Fatalf("desktop status bad flag rc=%d err=%q", rc, errBuf.String())
+	}
+	out.Reset()
+	if rc := runCodexCmd([]string{"desktop", "status", "--help"}, p); rc != 0 || !strings.Contains(out.String(), "codex desktop status") {
+		t.Fatalf("desktop status help rc=%d out=%q", rc, out.String())
 	}
 }
 

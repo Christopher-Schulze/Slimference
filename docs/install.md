@@ -13,6 +13,8 @@ slimference status --preflight
 slimference codex run -- <prompt>     # scoped one-shot Codex CLI, fail-open
 slimference codex run --transport=wss -- <prompt>  # scoped WSS power mode, pre-live-cert
 slimference codex certify wss --dry-run  # inspect WSS auto-promotion proof
+slimference codex desktop status      # Desktop proxy readiness / live-proof status
+slimference codex launch-desktop --probe  # inspect process-local Desktop proxy env
 slimference enable                    # optional shared Codex CLI/App route
 slimference enable --transport=wss    # optional shared WSS route, pre-live-cert
 slimference codex status
@@ -28,9 +30,10 @@ slimference lab root-disarm
 slimference uninstall    # full removal, restores backups
 ```
 
-That's it. No environment variables. No `OPENAI_API_BASE`. No
-`HTTPS_PROXY`. No global `chatgpt.com` host route unless the operator
-explicitly asks for the global lab path.
+That's it. No persistent environment variables. No `OPENAI_API_BASE`.
+No system-wide `HTTPS_PROXY`. No global `chatgpt.com` host route unless
+the operator explicitly asks for the global lab path. The Desktop launcher's
+proxy variables are process-local to the spawned Codex.app only.
 
 ## Scoped Codex architecture
 
@@ -58,6 +61,14 @@ Slimference's default product path touches only scoped Codex surfaces:
    `slimference disable` (alias: `slimference codex disable`) and still leaves Browser ChatGPT,
    ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
    untouched.
+4. **Process-local Codex Desktop proxy launch** via
+   `slimference codex launch-desktop --transport=proxy`.
+   This does not write Codex config, shell startup files, macOS system proxy,
+   `/etc/hosts`, or pfctl. It sets HTTP(S)/WSS proxy variables only on the
+   spawned Codex.app process tree. Normal Finder/Spotlight Codex.app launches
+   remain direct. This path is pre-live-proof until an external Desktop session
+   shows conversation WSS in `/admin/state.wss` with zero parser/degrade/
+   compression errors.
 
 The global transparent TLS-MITM path still exists for lab certification:
 local CA in Keychain, `/etc/hosts`, pfctl, and the SNI listener on 8443.
@@ -73,9 +84,10 @@ goal.
 | Codex hooks | Signal/local output layer | yes | `slimference install` |
 | Scoped Codex provider route | Codex CLI/App traffic layer | optional | `slimference enable` |
 | One-shot scoped Codex CLI | Safe test/recovery path | no persistent state | `slimference codex run -- <prompt>` |
+| Process-local Codex Desktop launcher | Desktop proof candidate | no persistent state | `slimference codex launch-desktop --transport=proxy` |
 | Global transparent MITM | Lab certification only | no | `slimference lab ...` |
 | Legacy proxy/env/integrate | Advanced compatibility | no | `slimference proxy ...`, `slimference integrate ...` |
-| Codex app-server/debug probes | Diagnostics until Desktop proof | no | T225/T228 only |
+| Base-URL Desktop launcher mode | Diagnostic/future-proof only | no | `slimference codex launch-desktop --transport=base-url --probe` |
 
 Normal `enable` and `disable` never arm global routing. Global lab routing is
 always explicit and visually separate.
@@ -93,6 +105,8 @@ CLI and Codex Desktop.
 |---|---|
 | Daemon unavailable during `slimference codex run` | The wrapper prints a warning and launches direct Codex. **No CLI breakage.** |
 | Daemon unavailable while persistent `codex enable` route is active | Only Codex CLI/App are affected. Run `slimference codex disable`, press `[r]` in TUI Setup, or restart the daemon. Browser ChatGPT, ChatGPT.app, Claude Code, and generic OpenAI clients remain direct. |
+| CA missing or untrusted during Desktop proxy launch | `slimference codex launch-desktop --transport=proxy` refuses before spawning Codex.app and prints the repair command. Direct Codex.app remains native. |
+| Codex Desktop ignores process-local proxy env | Desktop is reported direct-only; no Desktop savings claim is made. CLI savings continue. |
 | Codex CLI/Desktop updates | The scoped HTTP provider path avoids the WSS parser. Scoped WSS and global lab WSS both fall back to byte-equal frame bridging on schema drift; savings disappear until the parser is updated, but unknown frames are not blocked. |
 | `slimference codex disable` while Codex is open | The marker-owned provider block is removed. New Codex CLI/App sessions go direct after config reload / app-server restart. |
 | `slimference disable` while global lab traffic is in flight | Engine accepts current connections, reverts daemon SNI mode. Use `root-disarm` to remove privileged hosts/pfctl routing. |
@@ -203,7 +217,61 @@ Expected proof counters before cert issue: `frames_reencoded>0`,
 deterministic way to produce a long `git status --short` tool result; it does
 not touch the Slimference checkout or any global network setting.
 
-### 3. Enable shared Codex CLI/App route
+### 3. Launch Codex Desktop through process-local proxy mode
+
+This is the Desktop proof candidate. It is scoped to one spawned Codex.app
+process tree and requires the local Slimference CA to be trusted because the
+daemon terminates TLS inside the CONNECT tunnel.
+
+First inspect the exact env without launching:
+
+```bash
+slimference codex desktop status
+slimference codex launch-desktop --transport=proxy --probe
+```
+
+If the CA is missing or untrusted, the launcher refuses the real spawn and
+prints the repair step:
+
+```bash
+slimference install
+slimference cert-trust
+```
+
+When the gate is green, launch:
+
+```bash
+slimference codex launch-desktop --transport=proxy
+```
+
+The launcher sets `HTTP_PROXY`, `HTTPS_PROXY`, `WSS_PROXY`, `ALL_PROXY`,
+lowercase variants, `NO_PROXY=127.0.0.1,localhost,::1`, and
+`CODEX_NETWORK_PROXY_ACTIVE=1` only on the spawned process. It does not set
+the old base-URL override keys in proxy mode. The daemon accepts CONNECT on
+the normal loopback port and MITMs only `chatgpt.com`; the WSS frame bridge is
+enabled only for `/backend-api/codex/responses` with the Codex
+`responses_websockets` subprotocol. Other Desktop sideband WebSockets pass
+byte-equal.
+
+Live proof is still required before claiming Desktop savings:
+
+```bash
+lsof -nP -p <codex-app-server-pid> -iTCP -sTCP:ESTABLISHED
+curl -s http://127.0.0.1:8990/_slimference/admin/state | jq '.wss'
+slimference codex desktop status --json
+```
+
+The proof must show the spawned app-server connected to `127.0.0.1:8990`,
+no direct conversation socket to `chatgpt.com:443`, WSS activity with
+`parse_failures=0`, `degraded_sessions=0`, and `compression_errors=0`, plus
+mutation counters before any Desktop savings claim. Relaunching Codex.app from
+Finder/Spotlight must return to direct ChatGPT routing.
+
+`--transport=base-url` remains available only as a diagnostic/future-proof
+probe for upstream Codex versions that might later add a conversation base-URL
+env hook. It is not the current Desktop product route.
+
+### 4. Enable shared Codex CLI/App route
 
 Use this only when you want regular Codex CLI and Codex Desktop App
 sessions to use Slimference by default:
@@ -233,7 +301,7 @@ proxy settings, `/etc/hosts`, or pfctl. Desktop behavior remains a proof
 item: do not claim Desktop interception until daemon telemetry shows real
 Codex Desktop traffic.
 
-### 4. Global transparent lab mode
+### 5. Global transparent lab mode
 
 Do not do this unless you are deliberately testing the machine-wide
 transparent MITM path. It routes `chatgpt.com` and `api.openai.com`
@@ -265,7 +333,7 @@ If the daemon is not running, the flag is still written; the next
 `slimference daemon start` (or boot via launchd) will apply hosts and
 arm the listener.
 
-### 5. Disarm global lab mode
+### 6. Disarm global lab mode
 
 ```bash
 slimference disable
@@ -275,7 +343,7 @@ Writes `transparent.sni_peek_mode = false` and SIGHUPs the daemon.
 Use `slimference root-disarm` to remove the privileged hosts/pfctl
 routing block when you want Codex to go direct again.
 
-### 6. Uninstall
+### 7. Uninstall
 
 ```bash
 slimference uninstall

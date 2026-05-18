@@ -33,6 +33,10 @@ func defaultsRaw() *Config {
 			// auto-arm this. Kept for advanced users who manually
 			// configure HTTPS_PROXY. New installs use SNIPeekMode below.
 			Enabled: false,
+			// Process-local Codex Desktop launcher support. This does not
+			// mutate system proxy settings and only serves clients that
+			// explicitly inherit HTTPS_PROXY from `codex launch-desktop`.
+			ScopedDesktopProxy: true,
 			// Phase H primary Traffic-IN switch. Off by default so
 			// `slimference install` is silent until the user runs
 			// `slimference enable`. See docs/install.md.
@@ -216,6 +220,10 @@ max_requests_per_key_per_minute = 15
 # config-patch mode remains byte-for-byte unchanged until explicitly enabled
 # by slimference proxy enable / operator config.
 enabled = false
+# T238: process-local Codex Desktop HTTPS_PROXY ingress on the daemon port.
+# This does not change system proxy, /etc/hosts, or Codex config; only a
+# launcher-spawned process that inherits HTTPS_PROXY uses it.
+scoped_desktop_proxy = true
 intercept_hosts = ["api.openai.com", "api.anthropic.com", "chatgpt.com"]
 cert_cache_size = 256
 # Empty means ~/.slimference; the CA files live below ca/.

@@ -121,6 +121,11 @@ type TransparentConfig struct {
 	// Enabled wires the CONNECT interceptor into the live proxy server.
 	// Default false keeps config-patch mode unchanged.
 	Enabled bool `toml:"enabled"`
+	// ScopedDesktopProxy wires the same loopback CONNECT ingress for
+	// process-local Codex.app launchers without touching system proxy,
+	// /etc/hosts, or ~/.codex/config.toml. It only activates when the
+	// local CA already exists; cert trust is enforced by the launcher.
+	ScopedDesktopProxy bool `toml:"scoped_desktop_proxy"`
 	// InterceptHosts are MITM/compression targets. Empty means MITM all
 	// CONNECT hosts and should only be used for dedicated test setups.
 	InterceptHosts []string `toml:"intercept_hosts"`

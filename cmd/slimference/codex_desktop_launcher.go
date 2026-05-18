@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// Codex Desktop scoped launcher (T228).
+// Codex Desktop scoped launcher (T228/T238).
 //
 // Codex Desktop App reads ~/.codex/config.toml `model_provider` for
 // sideband endpoints (memories, plugins, login) but the ChatGPT-auth
@@ -19,10 +19,11 @@ import (
 // redirect conversation traffic on its own.
 //
 // This launcher spawns Codex.app's main binary directly with a scoped
-// env that defensively sets the candidate base-URL variables. The
-// effect is process-local: only the spawned Codex.app inherits the
-// env. Browser ChatGPT, ChatGPT.app, Claude Code, and any Codex.app
-// launched later via Finder / Spotlight remain unaffected.
+// env. The production candidate uses HTTP(S)_PROXY against Slimference's
+// loopback CONNECT ingress. The effect is process-local: only the
+// spawned Codex.app inherits the env. Browser ChatGPT, ChatGPT.app,
+// Claude Code, and any Codex.app launched later via Finder / Spotlight
+// remain unaffected.
 //
 // EMPIRICAL FINDING (2026-05-18, against Codex.app 0.131.0-alpha.9 at
 // /Applications/Codex.app/Contents/Resources/codex):
@@ -40,18 +41,10 @@ import (
 //     CHATGPT_BASE_URL handling exists in the current Codex Desktop
 //     Rust binary for the conversation route.
 //
-// This launcher is therefore retained as:
-//   1. A diagnostic surface (`--probe`) that emits the candidate
-//      override env without spawning.
-//   2. A future-proof spawn path: if a later Codex version adds an
-//      env hook for the conversation endpoint with one of our
-//      candidate names, the launcher already injects it.
-//   3. A spawn surface that does NOT touch /etc/hosts, pf, Keychain,
-//      system proxy, or ~/.codex/config.toml.
-//
-// For current Codex Desktop, conversation traffic redirection requires
-// either upstream adding an env / config hook, or a global-lab MITM
-// (out of scope for this product path).
+// The base-URL env mode is therefore retained as a diagnostic surface
+// (`--transport=base-url --probe`) and future-proof spawn path. The
+// default proxy mode is the only current Desktop route candidate that
+// does not require global hosts/pf/system-proxy changes.
 //
 // Reverse: quit Codex.app. Relaunching from Finder / Spotlight gives
 // direct ChatGPT routing because no env is inherited.
@@ -59,6 +52,8 @@ import (
 const (
 	defaultCodexDesktopAppPath     = "/Applications/Codex.app"
 	defaultCodexDesktopExecRelPath = "Contents/MacOS/Codex"
+	codexDesktopTransportProxy     = "proxy"
+	codexDesktopTransportBaseURL   = "base-url"
 )
 
 var (
@@ -66,6 +61,7 @@ var (
 	codexDesktopStatFn    = func(name string) (fs.FileInfo, error) { return os.Stat(name) }
 	codexDesktopStartFn   = startCodexDesktopProcess
 	codexDesktopBaseEnvFn = os.Environ
+	codexDesktopCATrustFn = codexDesktopCATrustState
 )
 
 // codexDesktopEnvOverrideKeys is the set of env names this launcher
@@ -82,13 +78,36 @@ var codexDesktopEnvOverrideKeys = []string{
 	"API_BASE_URL",
 }
 
+var codexDesktopProxyEnvKeys = []string{
+	"HTTP_PROXY",
+	"HTTPS_PROXY",
+	"WSS_PROXY",
+	"ALL_PROXY",
+	"http_proxy",
+	"https_proxy",
+	"wss_proxy",
+	"all_proxy",
+	"NO_PROXY",
+	"no_proxy",
+	"CODEX_NETWORK_PROXY_ACTIVE",
+}
+
 type codexLaunchDesktopFlags struct {
-	host    string
-	port    string
-	appPath string
-	extra   []string
-	probe   bool
-	help    bool
+	host                   string
+	port                   string
+	transport              string
+	appPath                string
+	extra                  []string
+	probe                  bool
+	insecureSkipTrustCheck bool
+	help                   bool
+}
+
+type codexDesktopCAState struct {
+	Path    string `json:"path"`
+	Exists  bool   `json:"exists"`
+	Trusted bool   `json:"trusted"`
+	Error   string `json:"error,omitempty"`
 }
 
 func handleCodexLaunchDesktopCmd(args []string) {
@@ -119,10 +138,27 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 
 	proxyURL := fmt.Sprintf("http://%s:%s", flags.host, flags.port)
 	overrideURL := proxyURL + "/backend-api/codex"
-	env := buildCodexDesktopLaunchEnv(overrideURL, codexDesktopBaseEnvFn(), flags.extra)
+	env := buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), flags.extra)
+	ca := codexDesktopCATrustFn()
+	if flags.transport == codexDesktopTransportBaseURL {
+		env = buildCodexDesktopLaunchEnv(overrideURL, codexDesktopBaseEnvFn(), flags.extra)
+		ca = codexDesktopCAState{}
+	}
 
 	if flags.probe {
-		return emitCodexDesktopProbe(p, binary, overrideURL, env)
+		return emitCodexDesktopProbe(p, binary, flags.transport, overrideURL, proxyURL, env, ca)
+	}
+
+	if flags.transport == codexDesktopTransportProxy && !flags.insecureSkipTrustCheck && !ca.Trusted {
+		if !ca.Exists {
+			fmt.Fprintf(p.Err, "codex launch-desktop: Slimference CA missing at %s; run `slimference install` first.\n", ca.Path)
+		} else {
+			fmt.Fprintln(p.Err, "codex launch-desktop: Slimference CA is not trusted for TLS; run `slimference cert-trust` first.")
+		}
+		if ca.Error != "" {
+			fmt.Fprintf(p.Err, "  trust probe: %s\n", ca.Error)
+		}
+		return 1
 	}
 
 	return codexDesktopStartFn(p, binary, env)
@@ -157,6 +193,45 @@ func buildCodexDesktopLaunchEnv(overrideURL string, base []string, extra []strin
 	return out
 }
 
+func buildCodexDesktopProxyEnv(proxyURL string, base []string, extra []string) []string {
+	overrideKeys := make(map[string]struct{}, len(codexDesktopProxyEnvKeys)+len(codexDesktopEnvOverrideKeys))
+	for _, k := range codexDesktopProxyEnvKeys {
+		overrideKeys[k] = struct{}{}
+	}
+	for _, k := range codexDesktopEnvOverrideKeys {
+		overrideKeys[k] = struct{}{}
+	}
+
+	out := make([]string, 0, len(base)+len(codexDesktopProxyEnvKeys)+len(extra))
+	for _, kv := range base {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			out = append(out, kv)
+			continue
+		}
+		if _, hit := overrideKeys[kv[:eq]]; hit {
+			continue
+		}
+		out = append(out, kv)
+	}
+	noProxy := "127.0.0.1,localhost,::1"
+	out = append(out,
+		"HTTP_PROXY="+proxyURL,
+		"HTTPS_PROXY="+proxyURL,
+		"WSS_PROXY="+proxyURL,
+		"ALL_PROXY="+proxyURL,
+		"http_proxy="+proxyURL,
+		"https_proxy="+proxyURL,
+		"wss_proxy="+proxyURL,
+		"all_proxy="+proxyURL,
+		"NO_PROXY="+noProxy,
+		"no_proxy="+noProxy,
+		"CODEX_NETWORK_PROXY_ACTIVE=1",
+	)
+	out = append(out, extra...)
+	return out
+}
+
 // filterCodexDesktopOverrideEnv returns only the entries that were
 // injected by this launcher. Used by --probe so the operator sees the
 // scoped override surface without dumping their entire shell env.
@@ -178,17 +253,46 @@ func filterCodexDesktopOverrideEnv(env []string) []string {
 	return out
 }
 
-type codexLaunchDesktopProbe struct {
-	Binary      string   `json:"binary"`
-	OverrideURL string   `json:"override_url"`
-	EnvOverride []string `json:"env_override"`
+func filterCodexDesktopProxyEnv(env []string) []string {
+	keys := make(map[string]struct{}, len(codexDesktopProxyEnvKeys))
+	for _, k := range codexDesktopProxyEnvKeys {
+		keys[k] = struct{}{}
+	}
+	var out []string
+	for _, kv := range env {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		if _, hit := keys[kv[:eq]]; hit {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
-func emitCodexDesktopProbe(p installPrinter, binary, overrideURL string, env []string) int {
+type codexLaunchDesktopProbe struct {
+	Binary      string              `json:"binary"`
+	Transport   string              `json:"transport"`
+	OverrideURL string              `json:"override_url,omitempty"`
+	ProxyURL    string              `json:"proxy_url,omitempty"`
+	EnvOverride []string            `json:"env_override"`
+	CATrust     codexDesktopCAState `json:"ca_trust,omitempty"`
+}
+
+func emitCodexDesktopProbe(p installPrinter, binary, transport, overrideURL, proxyURL string, env []string, ca codexDesktopCAState) int {
 	probe := codexLaunchDesktopProbe{
 		Binary:      binary,
+		Transport:   transport,
 		OverrideURL: overrideURL,
-		EnvOverride: filterCodexDesktopOverrideEnv(env),
+		ProxyURL:    proxyURL,
+		EnvOverride: filterCodexDesktopProxyEnv(env),
+		CATrust:     ca,
+	}
+	if transport == codexDesktopTransportBaseURL {
+		probe.ProxyURL = ""
+		probe.EnvOverride = filterCodexDesktopOverrideEnv(env)
+		probe.CATrust = codexDesktopCAState{}
 	}
 	enc := json.NewEncoder(p.Out)
 	enc.SetIndent("", "  ")
@@ -197,6 +301,26 @@ func emitCodexDesktopProbe(p installPrinter, binary, overrideURL string, env []s
 		return 1
 	}
 	return 0
+}
+
+func codexDesktopCATrustState() codexDesktopCAState {
+	home, err := osUserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return codexDesktopCAState{Error: "home unresolved"}
+	}
+	cert := filepath.Join(home, ".slimference", "ca", "root.crt")
+	state := codexDesktopCAState{Path: cert}
+	if _, err := os.Stat(cert); err != nil {
+		state.Error = err.Error()
+		return state
+	}
+	state.Exists = true
+	trusted, err := newTransparentKeychainFn().IsTrusted(cert)
+	if err != nil {
+		state.Error = err.Error()
+	}
+	state.Trusted = trusted
+	return state
 }
 
 func startCodexDesktopProcess(p installPrinter, binary string, env []string) int {
@@ -220,7 +344,7 @@ func startCodexDesktopProcess(p installPrinter, binary string, env []string) int
 }
 
 func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error) {
-	f := codexLaunchDesktopFlags{host: "127.0.0.1", port: "8990"}
+	f := codexLaunchDesktopFlags{host: "127.0.0.1", port: "8990", transport: codexDesktopTransportProxy}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -228,6 +352,10 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 			f.help = true
 		case a == "--probe":
 			f.probe = true
+		case a == "--insecure-skip-cert-trust-check":
+			f.insecureSkipTrustCheck = true
+		case strings.HasPrefix(a, "--transport="):
+			f.transport = strings.TrimPrefix(a, "--transport=")
 		case strings.HasPrefix(a, "--host="):
 			f.host = strings.TrimPrefix(a, "--host=")
 		case strings.HasPrefix(a, "--port="):
@@ -244,24 +372,32 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 			return f, fmt.Errorf("unknown flag %q", a)
 		}
 	}
+	switch f.transport {
+	case codexDesktopTransportProxy, codexDesktopTransportBaseURL:
+	default:
+		return f, fmt.Errorf("invalid --transport %q (want proxy or base-url)", f.transport)
+	}
 	return f, nil
 }
 
-const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--probe] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
+const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--transport=proxy|base-url] [--probe] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
 
-Spawns Codex.app's main binary with a scoped env that redirects the
-ChatGPT-auth conversation endpoint to the local Slimference daemon.
-The effect is process-local: only the launched Codex.app inherits the
-env. Browser ChatGPT, ChatGPT.app, Claude Code, and any Codex.app
-relaunched from Finder/Spotlight remain on direct ChatGPT routing.
+Spawns Codex.app's main binary with a scoped env. Default transport=proxy
+sets HTTP(S)/WSS proxy variables only on the launched app process and
+requires the Slimference CA to be trusted. Browser ChatGPT, ChatGPT.app,
+Claude Code, and any Codex.app relaunched from Finder/Spotlight remain on
+direct routing.
 
 Flags:
-  --probe         emit the override env as JSON without spawning
-  --host=<host>   slimference daemon host (default 127.0.0.1)
-  --port=<port>   slimference daemon port (default 8990)
-  --app=<path>    override path to Codex.app bundle (default /Applications/Codex.app)
-  --env KEY=VAL   add or override an env entry (repeatable)
-  --help, -h      this text
+  --transport=<mode>  proxy (default) or base-url diagnostic mode
+  --probe             emit scoped env and CA state as JSON without spawning
+  --host=<host>       slimference daemon host (default 127.0.0.1)
+  --port=<port>       slimference daemon port (default 8990)
+  --app=<path>        override path to Codex.app bundle (default /Applications/Codex.app)
+  --env KEY=VAL       add or override an env entry (repeatable)
+  --insecure-skip-cert-trust-check
+                      spawn despite an untrusted CA; diagnostics only
+  --help, -h          this text
 
 Reverse: quit Codex.app (Cmd+Q). Relaunching from Finder/Spotlight does
 not inherit the override and returns to direct ChatGPT routing.

@@ -174,6 +174,20 @@ The existing `enable` / `disable` commands remain useful, but they move under
 Manage. The normal daily decision is simply: launch through Slimference or
 launch normally.
 
+T238 pre-live implementation now provides the Desktop status and launch command
+surface that this TUI should consume:
+
+- `slimference codex desktop status --json` for CA, daemon, WSS counters, and
+  Desktop live-proof state.
+- `slimference codex launch-desktop --transport=proxy` for the optimized
+  Desktop launch candidate.
+- `slimference codex launch-desktop --transport=base-url --probe` for
+  diagnostic/future upstream env-hook checks only.
+
+Do not wire the Launch Codex App button as a success path until the T238
+external live proof resolves. Until then it should show "ready for live proof"
+or "direct-only" based on `codex desktop status`, never a Desktop savings claim.
+
 ## Deviations
 
 None yet.

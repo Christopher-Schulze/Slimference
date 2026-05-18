@@ -67,11 +67,12 @@ payload is shorter and schema-safe.
   --preflight`, then `slimference codex run -- <prompt>`.
   This affects only that Codex CLI process and leaves Browser ChatGPT and
   ChatGPT.app direct.
-- **Codex Desktop**: shared scoped routing is exposed by
-  `slimference codex enable|disable|status` through a marker-owned
-  `slimference-codex` provider block. Do not claim Desktop interception is
-  app-scoped until the live Desktop proof confirms Codex.app/app-server
-  reloads and uses that provider for conversation traffic.
+- **Codex Desktop**: the app remains direct when launched normally from
+  Finder/Spotlight. The process-local proof path is
+  `slimference codex launch-desktop --transport=proxy`, which sets proxy env
+  only for that spawned app process. Desktop savings must not be claimed until
+  live `lsof` plus `/admin/state.wss` prove conversation WSS reaches the daemon
+  with zero parser/degrade/compression errors and real mutation counters.
 - **Global transparent lab**: `cert-trust`, `root-arm
   --global-chatgpt-hosts`, `enable`, `disable`, and `root-disarm` still
   exist for explicit lab certification. They route `chatgpt.com` and
@@ -1328,6 +1329,7 @@ slimference help [subcommand]
 | `service`     | install, uninstall, start, stop, restart, status, logs; start/restart wait for daemon status (launchd). |
 | `daemon`      | Run as long-lived daemon (invoked by launchd; users prefer `--no-tui`).|
 | `proxy`       | Transparent CA/daemon/System-HTTPS-Proxy lifecycle plus Codex env helpers. |
+| `codex`       | Scoped Codex run, enable/disable/status, WSS certify, Desktop status/launch. |
 | `doctor`      | Full diagnostic sweep + integration checks.                            |
 | `filter`      | Layer-0 filter wrapper: `slimference filter -- <cmd>`.                 |
 | `rewrite`     | Rewrite captured output (used by PreToolUse hook).                     |
@@ -1412,6 +1414,19 @@ text, and unknown headers intact; only Host and absolute request-targets are
 normalised for the real upstream. Everything else is replayed into the normal
 HTTP server unchanged. This restores the old transparent dispatcher's
 raw-header property without reintroducing global `chatgpt.com` routing.
+
+Codex Desktop proxy launch reuses the same loopback listener without arming
+global transparent mode. `[transparent].scoped_desktop_proxy=true` allows
+CONNECT on `127.0.0.1:8990` only when the local CA material already exists;
+the daemon does not generate CA material just because this scoped listener is
+enabled. `slimference codex launch-desktop --transport=proxy` injects
+HTTP(S)/WSS proxy variables into the spawned Codex.app process tree and refuses
+to spawn unless the CA is trusted, unless an explicit diagnostic skip flag is
+used. The CONNECT profile MITMs only `chatgpt.com`; Phase-F frame mutation is
+allowed only for `/backend-api/codex/responses` with the Codex
+`responses_websockets` subprotocol. Sideband WebSockets stay byte-equal.
+`slimference codex desktop status` reports the CA gate, daemon reachability,
+WSS counters, and whether a live Desktop conversation proof has been observed.
 
 WSS auto-promotion is local-proof gated. `slimference codex certify wss`
 reads `/admin/state`, refuses to write when WSS parse failures, degraded
