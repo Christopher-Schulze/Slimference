@@ -1372,24 +1372,36 @@ tokens, output tokens, bypass count, and slowest request.
 
 ### WebSocket inspection
 
-Transparent WebSocket transport is fail-open. `internal/wscompact` still
-preserves raw frames for unknown, binary, malformed, RSV/compressed, and
-schema-drift cases. RSV/compressed frames are currently forwarded byte-equal
-without parser degradation; extension-aware `permessage-deflate`
-decode/re-encode is tracked separately before WSS can be promoted to a
-mutation-certified default. For known uncompressed Codex WSS conversation
-envelopes, `internal/proxy/wsmitm` parses the frame and `PhaseFDispatcher`
-attaches a Phase F adapter:
+Transparent WebSocket transport is fail-open. `internal/wscompact` preserves
+raw frames for unknown, binary, malformed, unsupported-extension, and
+schema-drift cases. For negotiated `permessage-deflate` with a supported
+profile, `internal/proxy/wsmitm` inflates complete text messages, runs the
+Phase F adapter on the JSON envelope, and re-encodes with RSV1 only when a
+mutation actually happens. Unmodified compressed messages are forwarded
+byte-equal after their plaintext has advanced the destination-side rolling
+dictionary, so later context-takeover mutations remain decodable. Reassembled
+compressed payloads and inflated plaintext payloads are size-bounded; hitting
+either cap fails open to byte-equal forwarding and disables compressed mutation
+for that direction without parser degradation. For known
+Codex WSS conversation envelopes, `PhaseFDispatcher` attaches a Phase F
+adapter:
 
 - client-to-server request payloads run stale-read aging, obsolete-read prune,
-  stop-sequence injection, and be-terse when existing config/cohort gates allow
-- server-to-client text deltas run streamcut and repdet
+  stop-sequence guards, proxy Layer 0 captured-output compaction, and be-terse
+  when existing config/cohort gates allow
+- server-to-client output item frames teach the adapter session-local tool-call
+  metadata, so later client-to-server `function_call_output` frames can compact
+  tool output even when Codex splits the request state across WSS messages
+- server-to-client text deltas run repdet
 - terminal response payloads run the existing Codex/OpenAI response repdet
   helper
+- WSS streamcut is intentionally disabled until T236 proves a terminal-safe
+  Codex WSS early-cut sequence. HTTP/SSE streamcut is unchanged.
 
 `/admin/state.wss` reports whether the engine is active, whether frames are
-only forwarded byte-equal, whether parser degradation occurred, and how many
-frames were re-encoded after mutation.
+only forwarded byte-equal, whether parser degradation occurred, how many
+compressed messages were inspected/mutated/bypassed, Phase-F request/response
+event counts, and how many frames were re-encoded after mutation.
 
 Scoped Codex WSS has an additional pre-`net/http` frontdoor on the same
 loopback listener (`:8990`). It intercepts only

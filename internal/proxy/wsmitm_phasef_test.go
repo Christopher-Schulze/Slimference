@@ -104,9 +104,17 @@ func TestWSPhaseFRepdetRewritesStreamedTextDelta(t *testing.T) {
 	if got := p.OutputReduceCountersSnapshot().RepdetResponsesRewritten; got != 1 {
 		t.Fatalf("repdet counter=%d, want 1", got)
 	}
+	snap := adapter.snapshot()
+	if snap.RequestsSeen != 1 ||
+		snap.RequestBodiesSeen != 1 ||
+		snap.RequestMessagesIndexed != 1 ||
+		snap.ResponseTextDeltasSeen != 1 ||
+		snap.Mutations != 1 {
+		t.Fatalf("unexpected Phase-F adapter telemetry: %+v", snap)
+	}
 }
 
-func TestWSPhaseFStreamcutBlanksTrailingCommentaryDelta(t *testing.T) {
+func TestWSPhaseFDoesNotStreamcutWSSDelta(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StreamCutEnabled = true
 	p := New(cfg)
@@ -120,14 +128,14 @@ func TestWSPhaseFStreamcutBlanksTrailingCommentaryDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("response handle: %v", err)
 	}
-	if !replace {
-		t.Fatal("expected streamcut to re-encode trailing commentary delta")
+	if replace {
+		t.Fatal("WSS streamcut must stay disabled until terminal-safe semantics are certified")
 	}
-	if resp.Delta != "" {
-		t.Fatalf("delta not blanked after streamcut fire: %q", resp.Delta)
+	if !strings.Contains(resp.Delta, "Hope this helps") {
+		t.Fatalf("WSS delta was unexpectedly changed: %q", resp.Delta)
 	}
-	if got := p.OutputReduceCountersSnapshot().StreamcutFired; got != 1 {
-		t.Fatalf("streamcut counter=%d, want 1", got)
+	if got := p.OutputReduceCountersSnapshot().StreamcutFired; got != 0 {
+		t.Fatalf("HTTP streamcut counter should not be used by WSS, got %d", got)
 	}
 }
 
@@ -256,6 +264,54 @@ func TestWSPhaseFRequestBodyVariants(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFTopLevelUnknownRequestBodySeedsState(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.RepetitionDetectionEnabled = true
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	promptText := strings.Repeat("top level prompt block ", 20)
+
+	env := parseWSJSON(t, map[string]any{
+		"model": "gpt-5-codex",
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": promptText,
+		}},
+		"stream": true,
+	})
+	if env.Kind != wsmitm.FrameKindUnknown {
+		t.Fatalf("precondition: top-level Responses body should parse unknown, got %q", env.Kind)
+	}
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("top-level request handle: %v", err)
+	}
+	if replace {
+		t.Fatal("top-level Responses request should seed state without stop mutation")
+	}
+
+	resp := parseWSJSON(t, map[string]any{
+		"type":  string(wsmitm.FrameKindResponseOutputTextDelta),
+		"delta": "Echo: " + promptText,
+	})
+	replace, err = adapter.handle(context.Background(), wsmitm.DirServerToClient, &resp)
+	if err != nil {
+		t.Fatalf("delta handle: %v", err)
+	}
+	if !replace || !strings.Contains(resp.Delta, "[unchanged: prompt-text]") {
+		t.Fatalf("top-level request did not seed repdet replace=%v delta=%q", replace, resp.Delta)
+	}
+
+	snap := adapter.snapshot()
+	if snap.RequestsSeen != 1 || snap.RequestBodiesSeen != 1 ||
+		snap.RequestMessagesIndexed != 1 || snap.ResponseTextDeltasSeen != 1 ||
+		snap.Mutations != 1 {
+		t.Fatalf("unexpected top-level request telemetry: %+v", snap)
+	}
+}
+
 func TestWSRequestBodyNoBodyAndMalformedRawReplacement(t *testing.T) {
 	env := wsmitm.Envelope{Kind: wsmitm.FrameKindRequest, Raw: json.RawMessage(`{"type":"request"}`), Fields: map[string]json.RawMessage{}}
 	if _, _, ok := wsRequestBody(&env); ok {
@@ -276,7 +332,7 @@ func TestWSRequestBodyNoBodyAndMalformedRawReplacement(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFStreamcutAfterFiringBlanksSubsequentDelta(t *testing.T) {
+func TestWSPhaseFStreamcutStaysDisabledAfterMultipleWSSDeltas(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StreamCutEnabled = true
 	p := New(cfg)
@@ -286,8 +342,8 @@ func TestWSPhaseFStreamcutAfterFiringBlanksSubsequentDelta(t *testing.T) {
 		"type":  string(wsmitm.FrameKindResponseOutputTextDelta),
 		"delta": strings.Repeat("substantive answer ", 8) + "\nHope this helps",
 	})
-	if replace, _ := adapter.handle(context.Background(), wsmitm.DirServerToClient, &first); !replace {
-		t.Fatal("precondition: first delta should fire streamcut")
+	if replace, _ := adapter.handle(context.Background(), wsmitm.DirServerToClient, &first); replace {
+		t.Fatal("first WSS delta should not fire streamcut")
 	}
 	second := parseWSJSON(t, map[string]any{
 		"type":  string(wsmitm.FrameKindResponseOutputTextDelta),
@@ -297,8 +353,8 @@ func TestWSPhaseFStreamcutAfterFiringBlanksSubsequentDelta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second handle: %v", err)
 	}
-	if !replace || second.Delta != "" || string(second.Fields["delta"]) != `""` {
-		t.Fatalf("second delta not blanked: replace=%v delta=%q fields=%s", replace, second.Delta, second.Fields["delta"])
+	if replace || second.Delta != "trailing words after cut" {
+		t.Fatalf("second WSS delta changed: replace=%v delta=%q", replace, second.Delta)
 	}
 	empty := parseWSJSON(t, map[string]any{
 		"type":  string(wsmitm.FrameKindResponseOutputTextDelta),
@@ -309,7 +365,10 @@ func TestWSPhaseFStreamcutAfterFiringBlanksSubsequentDelta(t *testing.T) {
 		t.Fatalf("empty handle: %v", err)
 	}
 	if replace {
-		t.Fatal("empty delta after streamcut should not be re-encoded")
+		t.Fatal("empty WSS delta should not be re-encoded by streamcut")
+	}
+	if got := p.OutputReduceCountersSnapshot().StreamcutFired; got != 0 {
+		t.Fatalf("WSS streamcut counter=%d, want 0", got)
 	}
 }
 
@@ -435,8 +494,8 @@ func TestWSPhaseFAdditionalNoOpAndHelperBranches(t *testing.T) {
 	if wsEnvelopeLooksLikeRequestBody(&wsmitm.Envelope{Raw: json.RawMessage(`[]`), Fields: map[string]json.RawMessage{}}) {
 		t.Fatal("non-object raw envelope must not look like request body")
 	}
-	if wsStreamcutLine(&wsmitm.Envelope{Kind: wsmitm.FrameKindResponseOutputTextDelta, Delta: "x"}) == nil {
-		t.Fatal("streamcut line should marshal")
+	if !wsEnvelopeLooksLikeRequestBody(&wsmitm.Envelope{Raw: json.RawMessage(`{"model":"m","stream":true}`), Fields: map[string]json.RawMessage{"model": json.RawMessage(`"m"`), "stream": json.RawMessage(`true`)}}) {
+		t.Fatal("model+stream raw envelope should look like a request body")
 	}
 }
 
@@ -550,6 +609,188 @@ func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 	}
 	snap := p.OutputReduceCountersSnapshot()
 	if snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
+		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+}
+
+func TestWSPhaseFRequestCompactsCodexResponseItemPayloadLayer0(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	var status strings.Builder
+	for i := 0; i < 120; i++ {
+		status.WriteString(" M internal/proxy/wrapped_wss_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	body := mustMarshal(map[string]any{
+		"model":           "gpt-5-codex",
+		"conversation_id": "conv-layer0-wss-wrapper",
+		"input": []map[string]any{
+			{"type": "message", "role": "user", "content": "check git status"},
+			{"type": "response_item", "payload": map[string]any{
+				"type":      "function_call",
+				"call_id":   "call_status",
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "git status --short"},
+			}},
+			{"type": "response_item", "payload": map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_status",
+				"output":  status.String(),
+			}},
+		},
+		"stream": true,
+	})
+
+	mutated, _, changed := adapter.applyInputPipeline(body)
+	if !changed {
+		t.Fatal("expected WSS Layer 0 compaction for response_item payload")
+	}
+	if !strings.Contains(string(mutated), "[git status]") || strings.Contains(string(mutated), "wrapped_wss_119.go") {
+		t.Fatalf("wrapped tool output was not compacted: %s", mutated)
+	}
+	var out struct {
+		Input []struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Output string `json:"output"`
+			} `json:"payload"`
+			Output string `json:"output"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(mutated, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Input[2].Type != "response_item" || !strings.Contains(out.Input[2].Payload.Output, "[git status]") {
+		t.Fatalf("wrapper payload was not preserved and rewritten: %s", mutated)
+	}
+	if out.Input[2].Output != "" {
+		t.Fatalf("wrapper top-level output must stay absent: %s", mutated)
+	}
+	snap := p.OutputReduceCountersSnapshot()
+	if snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
+		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+}
+
+func TestWSPhaseFRequestCompactsToolOutputAcrossResponsesRequests(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	callEnv := parseWSJSON(t, map[string]any{
+		"model": "gpt-5-codex",
+		"input": []map[string]any{
+			{"type": "response_item", "payload": map[string]any{
+				"type":      "function_call",
+				"call_id":   "call_status",
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "git -C /tmp/slimf-l0-live status --short"},
+			}},
+		},
+		"stream": true,
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &callEnv); err != nil || replace {
+		t.Fatalf("function-call-only request should only seed state, replace=%v err=%v", replace, err)
+	}
+
+	var status strings.Builder
+	for i := 0; i < 120; i++ {
+		status.WriteString("?? synthetic_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	outputEnv := parseWSJSON(t, map[string]any{
+		"model": "gpt-5-codex",
+		"input": []map[string]any{
+			{"type": "response_item", "payload": map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_status",
+				"output":  status.String(),
+			}},
+		},
+		"stream": true,
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &outputEnv)
+	if err != nil {
+		t.Fatalf("tool-output request handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected cross-request WSS Layer 0 compaction")
+	}
+	if !strings.Contains(string(outputEnv.Raw), "[git status]") || strings.Contains(string(outputEnv.Raw), "synthetic_119.go") {
+		t.Fatalf("cross-request tool output was not compacted: %s", outputEnv.Raw)
+	}
+	snap := p.OutputReduceCountersSnapshot()
+	if snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
+		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+	telemetry := adapter.snapshot()
+	if telemetry.RequestsSeen != 2 || telemetry.RequestMessagesIndexed != 2 || telemetry.Mutations != 1 {
+		t.Fatalf("unexpected adapter telemetry: %+v", telemetry)
+	}
+}
+
+func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	itemDone := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseOutputItemDone),
+		"item": map[string]any{
+			"type":      "function_call",
+			"call_id":   "call_status",
+			"name":      "exec_command",
+			"arguments": map[string]any{"cmd": "git -C /tmp/slimf-l0-live status --short"},
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &itemDone); err != nil || replace {
+		t.Fatalf("server tool item should only seed state, replace=%v err=%v", replace, err)
+	}
+
+	var status strings.Builder
+	for i := 0; i < 120; i++ {
+		status.WriteString("?? server_synthetic_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	outputEnv := parseWSJSON(t, map[string]any{
+		"model": "gpt-5-codex",
+		"input": []map[string]any{
+			{"type": "response_item", "payload": map[string]any{
+				"type":    "function_call_output",
+				"call_id": "call_status",
+				"output":  status.String(),
+			}},
+		},
+		"stream": true,
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &outputEnv)
+	if err != nil {
+		t.Fatalf("tool-output request handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected WSS Layer 0 compaction from server-side tool call item")
+	}
+	if !strings.Contains(string(outputEnv.Raw), "[git status]") || strings.Contains(string(outputEnv.Raw), "server_synthetic_119.go") {
+		t.Fatalf("server-seeded tool output was not compacted: %s", outputEnv.Raw)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
 		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
 	}
 }

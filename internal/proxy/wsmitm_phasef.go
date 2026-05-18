@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 
 	"github.com/slimference/slimference/internal/beterse"
 	"github.com/slimference/slimference/internal/outstop"
 	"github.com/slimference/slimference/internal/outstop/repdet"
-	"github.com/slimference/slimference/internal/outstop/streamcut"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
 	"github.com/slimference/slimference/internal/qualityab"
 	"github.com/slimference/slimference/internal/staleread"
@@ -19,11 +19,43 @@ import (
 type wsPhaseFAdapter struct {
 	p *Proxy
 
-	mu             sync.Mutex
-	messages       []types.Message
-	repdetIndex    *repdet.Index
-	streamCutter   *streamcut.Cutter
-	streamcutFired bool
+	mu          sync.Mutex
+	messages    []types.Message
+	repdetIndex *repdet.Index
+	toolUses    map[string]types.ContentBlock
+	counters    wsPhaseFCounters
+}
+
+type wsPhaseFCounters struct {
+	requestsSeen           atomic.Int64
+	requestBodiesSeen      atomic.Int64
+	requestMessagesIndexed atomic.Int64
+	responseTextDeltasSeen atomic.Int64
+	terminalResponsesSeen  atomic.Int64
+	mutations              atomic.Int64
+}
+
+type wsPhaseFTelemetry struct {
+	RequestsSeen           int64
+	RequestBodiesSeen      int64
+	RequestMessagesIndexed int64
+	ResponseTextDeltasSeen int64
+	TerminalResponsesSeen  int64
+	Mutations              int64
+}
+
+func (a *wsPhaseFAdapter) snapshot() wsPhaseFTelemetry {
+	if a == nil {
+		return wsPhaseFTelemetry{}
+	}
+	return wsPhaseFTelemetry{
+		RequestsSeen:           a.counters.requestsSeen.Load(),
+		RequestBodiesSeen:      a.counters.requestBodiesSeen.Load(),
+		RequestMessagesIndexed: a.counters.requestMessagesIndexed.Load(),
+		ResponseTextDeltasSeen: a.counters.responseTextDeltasSeen.Load(),
+		TerminalResponsesSeen:  a.counters.terminalResponsesSeen.Load(),
+		Mutations:              a.counters.mutations.Load(),
+	}
 }
 
 func (d *PhaseFDispatcher) newWSPhaseFAdapter() *wsPhaseFAdapter {
@@ -31,36 +63,58 @@ func (d *PhaseFDispatcher) newWSPhaseFAdapter() *wsPhaseFAdapter {
 }
 
 func (a *wsPhaseFAdapter) handle(_ context.Context, dir wsmitm.Direction, env *wsmitm.Envelope) (bool, error) {
-	if a == nil || a.p == nil || a.p.config == nil || env == nil || env.Kind == wsmitm.FrameKindUnknown || env.Kind.IsControl() {
+	if a == nil || a.p == nil || a.p.config == nil || env == nil || env.Kind.IsControl() {
 		return false, nil
 	}
 	switch dir {
 	case wsmitm.DirClientToServer:
-		if env.Kind != wsmitm.FrameKindRequest {
+		if env.Kind != wsmitm.FrameKindRequest && !wsRequestBodyCandidate(env) {
 			return false, nil
 		}
 		return a.handleRequest(env), nil
 	case wsmitm.DirServerToClient:
+		if env.Kind == wsmitm.FrameKindUnknown {
+			return false, nil
+		}
 		return a.handleResponse(env), nil
 	default:
 		return false, nil
 	}
 }
 
+func wsRequestBodyCandidate(env *wsmitm.Envelope) bool {
+	return jsonObject(env.Body) || jsonObject(env.Request) || wsEnvelopeLooksLikeRequestBody(env)
+}
+
 func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
+	a.counters.requestsSeen.Add(1)
 	body, replace, ok := wsRequestBody(env)
 	if !ok {
 		return false
 	}
+	a.counters.requestBodiesSeen.Add(1)
 	mutated, messages, changed := a.applyInputPipeline(body)
+	if len(messages) > 0 {
+		a.counters.requestMessagesIndexed.Add(1)
+	}
 	a.mu.Lock()
 	a.messages = messages
 	a.repdetIndex = buildRepdetIndex(messages)
+	if a.toolUses == nil {
+		a.toolUses = make(map[string]types.ContentBlock)
+	}
+	for id, use := range proxyToolUseIndex(messages) {
+		a.toolUses[id] = use
+	}
 	a.mu.Unlock()
 	if !changed {
 		return false
 	}
-	return replace(mutated) == nil
+	if replace(mutated) != nil {
+		return false
+	}
+	a.counters.mutations.Add(1)
+	return true
 }
 
 func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Message, bool) {
@@ -90,7 +144,8 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 				}
 			}
 		}
-		if l0Messages, saved := applyProxyLayer0WithSession(messages, wsCodexSessionID(out)); saved > 0 {
+		rememberedToolUses := a.loadToolUses()
+		if l0Messages, saved := applyProxyLayer0WithSessionAndToolUses(messages, wsCodexSessionID(out), rememberedToolUses); saved > 0 {
 			if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, l0Messages); rebuildErr == nil {
 				out = rebuilt
 				messages = l0Messages
@@ -117,51 +172,66 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 }
 
 func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
-	mutated := false
-	if a.applyStreamcut(env) {
-		mutated = true
+	a.rememberToolUsesFromResponse(env)
+	if env.Kind.IsTextDelta() {
+		a.counters.responseTextDeltasSeen.Add(1)
 	}
+	if env.Kind.IsTerminal() {
+		a.counters.terminalResponsesSeen.Add(1)
+	}
+	mutated := false
 	if a.applyRepdetDelta(env) {
 		mutated = true
 	}
 	if a.applyRepdetResponse(env) {
 		mutated = true
 	}
+	if mutated {
+		a.counters.mutations.Add(1)
+	}
 	return mutated
 }
 
-func (a *wsPhaseFAdapter) applyStreamcut(env *wsmitm.Envelope) bool {
-	if !a.p.config.Compression.OutputReduce.StreamCutEnabled || !env.Kind.IsTextDelta() {
-		return false
+func (a *wsPhaseFAdapter) rememberToolUsesFromResponse(env *wsmitm.Envelope) {
+	if a == nil || env == nil {
+		return
+	}
+	a.rememberToolUseItem(env.Item)
+	if len(env.Response) == 0 {
+		return
+	}
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(env.Response, &response); err != nil {
+		return
+	}
+	var output []json.RawMessage
+	if err := json.Unmarshal(response["output"], &output); err != nil {
+		return
+	}
+	for _, item := range output {
+		a.rememberToolUseItem(item)
+	}
+}
+
+func (a *wsPhaseFAdapter) rememberToolUseItem(raw json.RawMessage) {
+	if a == nil || len(raw) == 0 {
+		return
+	}
+	msg, ok, err := codexInputItemToMessage(0, raw)
+	if err != nil || !ok {
+		return
+	}
+	toolUses := proxyToolUseIndex([]types.Message{msg})
+	if len(toolUses) == 0 {
+		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.streamcutFired {
-		if env.Delta == "" {
-			return false
-		}
-		a.blankDelta(env)
-		return true
+	if a.toolUses == nil {
+		a.toolUses = make(map[string]types.ContentBlock, len(toolUses))
 	}
-	if env.Delta == "" {
-		return false
-	}
-	if a.streamCutter == nil {
-		a.streamCutter = streamcut.NewCutterWithHoldback(types.CodexChatGPT.String(), 0)
-	}
-	if !a.streamCutter.Observe(wsStreamcutLine(env)) {
-		return false
-	}
-	a.streamcutFired = true
-	a.p.outputReduceCounters.RecordStreamcutFire(int64(len(env.Delta)))
-	a.blankDelta(env)
-	return true
-}
-
-func (a *wsPhaseFAdapter) blankDelta(env *wsmitm.Envelope) {
-	env.Delta = ""
-	if env.Fields != nil {
-		env.Fields["delta"] = json.RawMessage(`""`)
+	for id, use := range toolUses {
+		a.toolUses[id] = use
 	}
 }
 
@@ -207,6 +277,22 @@ func (a *wsPhaseFAdapter) loadRepdetIndex() *repdet.Index {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.repdetIndex
+}
+
+func (a *wsPhaseFAdapter) loadToolUses() map[string]types.ContentBlock {
+	if a == nil {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.toolUses) == 0 {
+		return nil
+	}
+	out := make(map[string]types.ContentBlock, len(a.toolUses))
+	for id, use := range a.toolUses {
+		out[id] = use
+	}
+	return out
 }
 
 type wsRequestReplacer func([]byte) error
@@ -260,18 +346,6 @@ func wsEnvelopeLooksLikeRequestBody(env *wsmitm.Envelope) bool {
 func jsonObject(raw json.RawMessage) bool {
 	trimmed := bytes.TrimSpace(raw)
 	return len(trimmed) > 0 && trimmed[0] == '{'
-}
-
-func wsStreamcutLine(env *wsmitm.Envelope) []byte {
-	body, _ := json.Marshal(map[string]string{
-		"type":  string(env.Kind),
-		"delta": env.Delta,
-	})
-	line := make([]byte, 0, len(body)+8)
-	line = append(line, "data: "...)
-	line = append(line, body...)
-	line = append(line, '\n', '\n')
-	return line
 }
 
 func wsCodexSessionID(body []byte) string {

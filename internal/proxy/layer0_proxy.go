@@ -19,7 +19,16 @@ func applyProxyLayer0(messages []types.Message) ([]types.Message, int) {
 }
 
 func applyProxyLayer0WithSession(messages []types.Message, sessionID string) ([]types.Message, int) {
+	return applyProxyLayer0WithSessionAndToolUses(messages, sessionID, nil)
+}
+
+func applyProxyLayer0WithSessionAndToolUses(messages []types.Message, sessionID string, rememberedToolUses map[string]types.ContentBlock) ([]types.Message, int) {
 	toolUses := proxyToolUseIndex(messages)
+	for id, use := range rememberedToolUses {
+		if _, ok := toolUses[id]; !ok {
+			toolUses[id] = use
+		}
+	}
 	var out []types.Message
 	saved := 0
 

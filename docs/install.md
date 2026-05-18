@@ -156,8 +156,9 @@ WebSockets against the local provider. The daemon reads matching Codex
 Upgrade requests before `net/http` normalises them, forwards the raw
 header upstream with only Host/request-target normalization, and then
 runs post-101 frames through `wsmitm.Session` plus the Phase-F WSS
-adapter. Known Codex request/response frames can be compacted; unknown,
-binary, control, or malformed frames degrade to byte-equal forwarding.
+adapter. Known Codex request/response frames can be compacted, including
+Responses `response_item.payload` wrappers and split WSS tool-call state;
+unknown, binary, control, or malformed frames degrade to byte-equal forwarding.
 
 Until the live T224 capture passes, `--transport=auto` consults the local
 `~/.slimference/codex-wss-cert.json` proof file and falls back to the
@@ -382,8 +383,22 @@ The WSS transport block is under `/admin/state.wss`:
   be the scoped Codex WSS bridge or the global SNI-peek dispatcher.
 - `frames_forwarded>0 && frames_reencoded=0`: byte-equal bridge only.
 - `frames_reencoded>0`: Phase F mutation happened on WSS frames.
+- `compressed_messages_inspected>0`: negotiated `permessage-deflate` payloads
+  were decoded successfully.
+- `compressed_messages_mutated>0`: a decoded compressed message was changed and
+  re-encoded with RSV1.
+- `compression_errors>0`: the codec failed and the session fell back to
+  byte-equal forwarding for that compressed direction. This also covers
+  compressed/inflated message size caps; normal Codex traffic should keep it 0.
+- `phasef_requests`, `phasef_text_deltas`, `phasef_terminal_responses`, and
+  `phasef_mutations`: request/response envelopes reached the Phase F adapter
+  and whether one of them changed the frame body.
 - `degraded_sessions>0` or `parse_failures>0`: schema drift or malformed frames
   triggered fail-open byte bridging.
+
+WSS streamcut is intentionally not part of the scoped WSS product path yet. The
+HTTP/SSE streamcut relay remains enabled, but Codex WSS early-cut needs the
+terminal-safe T236 proof before it can be enabled.
 
 The scoped product route block is under `/admin/state.codex_route`:
 

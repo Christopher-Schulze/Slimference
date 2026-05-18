@@ -85,6 +85,33 @@ func writeTextFrame(t *testing.T, w io.Writer, payload string) {
 	}
 }
 
+func compressedTextFrame(t *testing.T, deflater *wscompact.DeflateContext, payload string) []byte {
+	t.Helper()
+	compressed, err := deflater.Deflate([]byte(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := wscompact.WriteFrameWithOptions(&out, wscompact.WriteFrameOptions{
+		Fin:     true,
+		Opcode:  wscompact.OpcodeText,
+		Payload: compressed,
+		RSV1:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
+}
+
+func testDeflateProfile(noContext bool) wscompact.WSExtensionProfile {
+	return wscompact.WSExtensionProfile{
+		PermessageDeflate:       true,
+		Supported:               true,
+		ClientNoContextTakeover: noContext,
+		ServerNoContextTakeover: noContext,
+	}
+}
+
 // readOneTextFrame reads a single text frame from r and returns its
 // payload + Opcode. Helper for assertions.
 func readOneTextFrame(t *testing.T, r io.Reader) (string, byte) {
@@ -330,8 +357,420 @@ func TestSessionForwardsRSVTextWithoutDegrading(t *testing.T) {
 	if snap.ParseFailures != 0 {
 		t.Errorf("ParseFailures=%d", snap.ParseFailures)
 	}
+	if snap.CompressedMessagesBypassed != 1 {
+		t.Errorf("CompressedMessagesBypassed=%d want 1", snap.CompressedMessagesBypassed)
+	}
+	if snap.CompressedMessagesInspected != 0 {
+		t.Errorf("CompressedMessagesInspected=%d want 0", snap.CompressedMessagesInspected)
+	}
 	if calls.Load() != 1 {
 		t.Errorf("handler calls=%d want 1", calls.Load())
+	}
+}
+
+func TestSessionDecompressesAndMutatesNoContextTakeover(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	session := &Session{
+		Client:     client,
+		Upstream:   upstream,
+		Extensions: testDeflateProfile(true),
+		ClientHandler: func(_ context.Context, _ Direction, env *Envelope) (bool, error) {
+			env.ItemID = "rewritten"
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	sourceDeflater := wscompact.NewDeflateContext(true)
+	raw := compressedTextFrame(t, sourceDeflater, `{"type":"request","item_id":"original"}`)
+	if _, err := clientPeer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := wscompact.ReadFrame(upstreamPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.RSV1 {
+		t.Fatalf("mutated compressed frame lost RSV1: %+v", out)
+	}
+	destinationInflater := wscompact.NewInflateContext(true)
+	plain, err := destinationInflater.Inflate(out.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(plain), `"item_id":"rewritten"`) {
+		t.Fatalf("mutation missing from decompressed payload: %s", plain)
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if got := snap.FramesReencoded; got != 1 {
+		t.Fatalf("FramesReencoded=%d want 1", got)
+	}
+	if snap.CompressedMessagesInspected != 1 || snap.CompressedMessagesMutated != 1 || snap.CompressionErrors != 0 {
+		t.Fatalf("unexpected compressed telemetry: %+v", snap)
+	}
+}
+
+func TestSessionCompressedReplaceFalseKeepsContextForLaterMutation(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	session := &Session{
+		Client:     client,
+		Upstream:   upstream,
+		Extensions: testDeflateProfile(false),
+		ClientHandler: func(_ context.Context, _ Direction, env *Envelope) (bool, error) {
+			if env.ItemID == "first" {
+				return false, nil
+			}
+			env.ItemID = "second-mutated"
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	sourceDeflater := wscompact.NewDeflateContext(false)
+	firstRaw := compressedTextFrame(t, sourceDeflater, `{"type":"request","item_id":"first","body":"shared-history-shared-history-shared-history"}`)
+	secondRaw := compressedTextFrame(t, sourceDeflater, `{"type":"request","item_id":"second","body":"shared-history-tail"}`)
+
+	if _, err := clientPeer.Write(firstRaw); err != nil {
+		t.Fatal(err)
+	}
+	forwardedFirst := make([]byte, len(firstRaw))
+	if _, err := io.ReadFull(upstreamPeer, forwardedFirst); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(forwardedFirst, firstRaw) {
+		t.Fatalf("replace=false frame was not byte-equal")
+	}
+
+	firstFrame, err := wscompact.ReadFrame(bytes.NewReader(forwardedFirst))
+	if err != nil {
+		t.Fatal(err)
+	}
+	destinationInflater := wscompact.NewInflateContext(false)
+	if _, err := destinationInflater.Inflate(firstFrame.Payload); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := clientPeer.Write(secondRaw); err != nil {
+		t.Fatal(err)
+	}
+	secondFrame, err := wscompact.ReadFrame(upstreamPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainSecond, err := destinationInflater.Inflate(secondFrame.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(plainSecond), `"item_id":"second-mutated"`) {
+		t.Fatalf("mutated context payload missing: %s", plainSecond)
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if snap.ParseFailures != 0 || snap.Degraded {
+		t.Fatalf("unexpected parser degradation: %+v", snap)
+	}
+	if snap.FramesReencoded != 1 {
+		t.Fatalf("FramesReencoded=%d want 1", snap.FramesReencoded)
+	}
+	if snap.CompressedMessagesInspected != 2 || snap.CompressedMessagesMutated != 1 || snap.CompressionErrors != 0 {
+		t.Fatalf("unexpected compressed telemetry: %+v", snap)
+	}
+}
+
+func TestSessionCompressedNonObjectForwardedWithoutDegrading(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	calls := atomic.Int32{}
+	session := &Session{
+		Client:     client,
+		Upstream:   upstream,
+		Extensions: testDeflateProfile(true),
+		ClientHandler: func(context.Context, Direction, *Envelope) (bool, error) {
+			calls.Add(1)
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	sourceDeflater := wscompact.NewDeflateContext(true)
+	raw := compressedTextFrame(t, sourceDeflater, `not an envelope`)
+	if _, err := clientPeer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len(raw))
+	if _, err := io.ReadFull(upstreamPeer, got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, raw) {
+		t.Fatal("compressed non-object text was not byte-equal")
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if snap.Degraded || snap.ParseFailures != 0 || calls.Load() != 0 {
+		t.Fatalf("unexpected non-object handling: snap=%+v calls=%d", snap, calls.Load())
+	}
+	if snap.CompressedMessagesInspected != 1 || snap.CompressedMessagesMutated != 0 || snap.CompressionErrors != 0 {
+		t.Fatalf("unexpected compressed telemetry: %+v", snap)
+	}
+}
+
+func TestSessionCompressedPayloadLimitBypassesAndBlocks(t *testing.T) {
+	oldCompressedLimit := compressedMessagePayloadLimitBytes
+	compressedMessagePayloadLimitBytes = 4
+	t.Cleanup(func() { compressedMessagePayloadLimitBytes = oldCompressedLimit })
+
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	calls := atomic.Int32{}
+	session := &Session{
+		Client:     client,
+		Upstream:   upstream,
+		Extensions: testDeflateProfile(true),
+		ClientHandler: func(context.Context, Direction, *Envelope) (bool, error) {
+			calls.Add(1)
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	sourceDeflater := wscompact.NewDeflateContext(true)
+	raw := compressedTextFrame(t, sourceDeflater, `{"type":"request","item_id":"too-large"}`)
+	if _, err := clientPeer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len(raw))
+	if _, err := io.ReadFull(upstreamPeer, got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, raw) {
+		t.Fatal("oversized compressed frame was not byte-equal")
+	}
+
+	second := compressedTextFrame(t, sourceDeflater, `{"type":"request","item_id":"blocked"}`)
+	if _, err := clientPeer.Write(second); err != nil {
+		t.Fatal(err)
+	}
+	gotSecond := make([]byte, len(second))
+	if _, err := io.ReadFull(upstreamPeer, gotSecond); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotSecond, second) {
+		t.Fatal("blocked compressed direction did not stay byte-equal")
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if snap.Degraded || snap.ParseFailures != 0 || calls.Load() != 0 {
+		t.Fatalf("oversized compressed message should fail open: snap=%+v calls=%d", snap, calls.Load())
+	}
+	if snap.CompressionErrors != 1 || snap.CompressedMessagesInspected != 0 || snap.CompressedMessagesMutated != 0 {
+		t.Fatalf("unexpected oversized compressed telemetry: %+v", snap)
+	}
+	if snap.CompressedMessagesBypassed != 2 {
+		t.Fatalf("CompressedMessagesBypassed=%d want 2", snap.CompressedMessagesBypassed)
+	}
+}
+
+func TestSessionInflatedPayloadLimitBypassesAndBlocks(t *testing.T) {
+	oldInflatedLimit := inflatedMessagePayloadLimitBytes
+	inflatedMessagePayloadLimitBytes = 8
+	t.Cleanup(func() { inflatedMessagePayloadLimitBytes = oldInflatedLimit })
+
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	calls := atomic.Int32{}
+	session := &Session{
+		Client:     client,
+		Upstream:   upstream,
+		Extensions: testDeflateProfile(true),
+		ClientHandler: func(context.Context, Direction, *Envelope) (bool, error) {
+			calls.Add(1)
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	sourceDeflater := wscompact.NewDeflateContext(true)
+	raw := compressedTextFrame(t, sourceDeflater, `{"type":"request","item_id":"inflated-too-large"}`)
+	if _, err := clientPeer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len(raw))
+	if _, err := io.ReadFull(upstreamPeer, got); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, raw) {
+		t.Fatal("over-limit inflated frame was not byte-equal")
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if snap.Degraded || snap.ParseFailures != 0 || calls.Load() != 0 {
+		t.Fatalf("inflated limit should fail open: snap=%+v calls=%d", snap, calls.Load())
+	}
+	if snap.CompressionErrors != 1 || snap.CompressedMessagesInspected != 0 || snap.CompressedMessagesMutated != 0 {
+		t.Fatalf("unexpected inflated-limit telemetry: %+v", snap)
+	}
+}
+
+func TestSessionFragmentedCompressedMessageWithInterleavedPing(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	session := &Session{
+		Client:     client,
+		Upstream:   upstream,
+		Extensions: testDeflateProfile(true),
+		ClientHandler: func(_ context.Context, _ Direction, env *Envelope) (bool, error) {
+			env.ItemID = "fragment-mutated"
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	sourceDeflater := wscompact.NewDeflateContext(true)
+	compressed, err := sourceDeflater.Deflate([]byte(`{"type":"request","item_id":"fragment-original"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := len(compressed) / 2
+	if _, err := wscompact.WriteFrameWithOptions(clientPeer, wscompact.WriteFrameOptions{
+		Fin:     false,
+		Opcode:  wscompact.OpcodeText,
+		Payload: compressed[:cut],
+		RSV1:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wscompact.WriteFrame(clientPeer, true, wscompact.OpcodePing, nil, []byte("p")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wscompact.WriteFrame(clientPeer, true, wscompact.OpcodeContinuation, nil, compressed[cut:]); err != nil {
+		t.Fatal(err)
+	}
+
+	ping, err := wscompact.ReadFrame(upstreamPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ping.Opcode != byte(wscompact.OpcodePing) {
+		t.Fatalf("interleaved control frame not forwarded first: %+v", ping)
+	}
+	first, err := wscompact.ReadFrame(upstreamPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := wscompact.ReadFrame(upstreamPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.RSV1 || first.Fin || second.Opcode != byte(wscompact.OpcodeContinuation) || !second.Fin {
+		t.Fatalf("fragment shape not preserved enough: first=%+v second=%+v", first, second)
+	}
+	destinationInflater := wscompact.NewInflateContext(true)
+	plain, err := destinationInflater.Inflate(append(append([]byte(nil), first.Payload...), second.Payload...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(string(plain), `"item_id":"fragment-mutated"`) {
+		t.Fatalf("fragment mutation missing: %s", plain)
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if snap.CompressedMessagesInspected != 1 || snap.CompressedMessagesMutated != 1 || snap.FramesReencoded != 2 {
+		t.Fatalf("unexpected fragmented compressed telemetry: %+v", snap)
+	}
+}
+
+func TestSessionDecompressedMalformedObjectJSONDegrades(t *testing.T) {
+	client, clientPeer := newDuplexPair()
+	upstream, upstreamPeer := newDuplexPair()
+
+	session := &Session{
+		Client:     client,
+		Upstream:   upstream,
+		Extensions: testDeflateProfile(true),
+		ClientHandler: func(context.Context, Direction, *Envelope) (bool, error) {
+			return true, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- session.Serve(ctx) }()
+
+	sourceDeflater := wscompact.NewDeflateContext(true)
+	raw := compressedTextFrame(t, sourceDeflater, `{"type":`)
+	if _, err := clientPeer.Write(raw); err != nil {
+		t.Fatal(err)
+	}
+	forwarded := make([]byte, len(raw))
+	if _, err := io.ReadFull(upstreamPeer, forwarded); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(forwarded, raw) {
+		t.Fatal("malformed compressed frame not forwarded byte-equal")
+	}
+
+	cancel()
+	closeAll(client, clientPeer, upstream, upstreamPeer)
+	<-done
+
+	snap := session.Snapshot()
+	if !snap.Degraded || snap.ParseFailures != 1 {
+		t.Fatalf("expected compressed malformed degrade: %+v", snap)
+	}
+	if snap.CompressedMessagesInspected != 1 || snap.CompressionErrors != 0 {
+		t.Fatalf("unexpected compressed malformed telemetry: %+v", snap)
 	}
 }
 

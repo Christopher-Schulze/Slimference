@@ -233,6 +233,14 @@ func codexInputItemToMessage(index int, itemRaw json.RawMessage) (types.Message,
 	role := rawJSONString(fields["role"])
 	raw := codexInputItemRaw{Fields: fields, ItemIndex: index, TextIndex: -1}
 
+	if itemType == "response_item" {
+		nested, ok, err := codexResponseItemPayloadToMessage(index, fields)
+		if err != nil || !ok {
+			return nested, ok, err
+		}
+		return nested, true, nil
+	}
+
 	if codexLooksLikeToolOutput(itemType, fields) {
 		text, textPath := codexToolOutputText(fields)
 		raw.TextPath = textPath
@@ -280,6 +288,30 @@ func codexInputItemToMessage(index int, itemRaw json.RawMessage) (types.Message,
 	}
 
 	return types.Message{}, false, nil
+}
+
+func codexResponseItemPayloadToMessage(index int, fields map[string]json.RawMessage) (types.Message, bool, error) {
+	payload := fields["payload"]
+	if len(payload) == 0 {
+		return types.Message{}, false, nil
+	}
+	msg, ok, err := codexInputItemToMessage(index, payload)
+	if err != nil || !ok {
+		return msg, ok, err
+	}
+	for i := range msg.Content {
+		raw, ok := msg.Content[i].RawBlock.(codexInputItemRaw)
+		if !ok {
+			continue
+		}
+		raw.Fields = fields
+		raw.ItemIndex = index
+		if raw.TextPath != "" {
+			raw.TextPath = "payload:" + raw.TextPath
+		}
+		msg.Content[i].RawBlock = raw
+	}
+	return msg, true, nil
 }
 
 func codexLooksLikeToolCall(itemType string, fields map[string]json.RawMessage) bool {
@@ -779,6 +811,25 @@ func codexMessageToInputItem(msg types.Message, raw codexInputItemRaw) (json.Raw
 				break
 			}
 		}
+	}
+
+	if nestedPath, ok := strings.CutPrefix(raw.TextPath, "payload:"); ok && nestedPath != "" {
+		var payloadFields map[string]json.RawMessage
+		if err := json.Unmarshal(fields["payload"], &payloadFields); err != nil {
+			return nil, err
+		}
+		nestedRaw := codexInputItemRaw{
+			Fields:    payloadFields,
+			ItemIndex: raw.ItemIndex,
+			TextPath:  nestedPath,
+			TextIndex: raw.TextIndex,
+		}
+		payload, err := codexMessageToInputItem(msg, nestedRaw)
+		if err != nil {
+			return nil, err
+		}
+		fields["payload"] = payload
+		return json.Marshal(fields)
 	}
 
 	switch raw.TextPath {

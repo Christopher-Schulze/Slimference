@@ -60,6 +60,9 @@ type Frame struct {
 	Raw     []byte
 	Payload []byte
 	Fin     bool
+	RSV1    bool
+	RSV2    bool
+	RSV3    bool
 	RSV     bool
 	Opcode  byte
 	Masked  bool
@@ -155,11 +158,17 @@ func ReadFrame(r io.Reader) (Frame, error) {
 			decoded[i] ^= maskKey[i%4]
 		}
 	}
+	rsv1 := header[0]&0x40 != 0
+	rsv2 := header[0]&0x20 != 0
+	rsv3 := header[0]&0x10 != 0
 	return Frame{
 		Raw:     raw,
 		Payload: decoded,
 		Fin:     header[0]&0x80 != 0,
-		RSV:     header[0]&0x70 != 0,
+		RSV1:    rsv1,
+		RSV2:    rsv2,
+		RSV3:    rsv3,
+		RSV:     rsv1 || rsv2 || rsv3,
 		Opcode:  header[0] & 0x0f,
 		Masked:  masked,
 	}, nil

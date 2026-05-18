@@ -34,7 +34,7 @@ func TestRawScopedWSSListenerInterceptsBeforeNetHTTP(t *testing.T) {
 			}()
 			return upClient, nil
 		},
-		FrameBridge: func(context.Context, net.Conn, net.Conn) error {
+		FrameBridge: func(context.Context, net.Conn, net.Conn, WebSocketBridgeOptions) error {
 			return nil
 		},
 	}

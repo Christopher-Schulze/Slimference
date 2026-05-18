@@ -36,7 +36,7 @@ func TestWSSProbeNilAndEmptyDispatcherBranches(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFRemainingRepdetAndStreamcutBranches(t *testing.T) {
+func TestWSPhaseFRemainingRepdetAndRequestBodyBranches(t *testing.T) {
 	p := New(config.Defaults())
 	p.config.Compression.OutputReduce.RepetitionDetectionEnabled = true
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
@@ -47,9 +47,15 @@ func TestWSPhaseFRemainingRepdetAndStreamcutBranches(t *testing.T) {
 		t.Fatal("nil repdet index must not rewrite terminal response")
 	}
 
-	line := wsStreamcutLine(&wsmitm.Envelope{Kind: wsmitm.FrameKindResponseOutputTextDelta, Delta: "hello"})
-	if !strings.HasPrefix(string(line), "data: ") || !strings.HasSuffix(string(line), "\n\n") {
-		t.Fatalf("streamcut line malformed: %q", line)
+	env := &wsmitm.Envelope{
+		Raw: json.RawMessage(`{"model":"gpt-5-codex","stream":true}`),
+		Fields: map[string]json.RawMessage{
+			"model":  json.RawMessage(`"gpt-5-codex"`),
+			"stream": json.RawMessage(`true`),
+		},
+	}
+	if !wsEnvelopeLooksLikeRequestBody(env) {
+		t.Fatal("model+stream envelope should be treated as a request body candidate")
 	}
 }
 

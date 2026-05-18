@@ -13,6 +13,7 @@ import (
 	"github.com/slimference/slimference/internal/proxy/sniroute"
 	"github.com/slimference/slimference/internal/proxy/transparent"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
+	"github.com/slimference/slimference/internal/wscompact"
 )
 
 // PhaseFDispatcher implements transparent.Dispatcher. It receives a
@@ -72,45 +73,75 @@ type DispatcherCounters struct {
 	// because individual Session.Snapshot is per-conversation and
 	// disappears when the conversation ends. These tick whenever a
 	// frame parses/passes through.
-	wsmitmC2SFrames     atomic.Int64
-	wsmitmS2CFrames     atomic.Int64
-	wsmitmParseFailures atomic.Int64
-	wsmitmDegraded      atomic.Int64
-	wsmitmReencoded     atomic.Int64
-	wsmitmForwarded     atomic.Int64
+	wsmitmC2SFrames           atomic.Int64
+	wsmitmS2CFrames           atomic.Int64
+	wsmitmParseFailures       atomic.Int64
+	wsmitmDegraded            atomic.Int64
+	wsmitmReencoded           atomic.Int64
+	wsmitmForwarded           atomic.Int64
+	wsmitmCompressedInspected atomic.Int64
+	wsmitmCompressedMutated   atomic.Int64
+	wsmitmCompressedBypassed  atomic.Int64
+	wsmitmCompressionErrors   atomic.Int64
+	wsmitmPhaseFRequests      atomic.Int64
+	wsmitmPhaseFRequestBodies atomic.Int64
+	wsmitmPhaseFIndexed       atomic.Int64
+	wsmitmPhaseFTextDeltas    atomic.Int64
+	wsmitmPhaseFTerminals     atomic.Int64
+	wsmitmPhaseFMutations     atomic.Int64
 }
 
 // DispatcherTelemetry is the snapshot type for /admin/state.
 type DispatcherTelemetry struct {
-	PassthroughBridged  int64 `json:"passthrough_bridged"`
-	MITMBridged         int64 `json:"mitm_bridged"`
-	Rejected            int64 `json:"rejected"`
-	UpstreamDialFail    int64 `json:"upstream_dial_failures"`
-	BytesC2S            int64 `json:"bytes_c2s"`
-	BytesS2C            int64 `json:"bytes_s2c"`
-	WSMITMC2SFrames     int64 `json:"wsmitm_c2s_frames"`
-	WSMITMS2CFrames     int64 `json:"wsmitm_s2c_frames"`
-	WSMITMParseFailures int64 `json:"wsmitm_parse_failures"`
-	WSMITMDegraded      int64 `json:"wsmitm_degraded_sessions"`
-	WSMITMReencoded     int64 `json:"wsmitm_reencoded_frames"`
-	WSMITMForwarded     int64 `json:"wsmitm_forwarded_frames"`
+	PassthroughBridged        int64 `json:"passthrough_bridged"`
+	MITMBridged               int64 `json:"mitm_bridged"`
+	Rejected                  int64 `json:"rejected"`
+	UpstreamDialFail          int64 `json:"upstream_dial_failures"`
+	BytesC2S                  int64 `json:"bytes_c2s"`
+	BytesS2C                  int64 `json:"bytes_s2c"`
+	WSMITMC2SFrames           int64 `json:"wsmitm_c2s_frames"`
+	WSMITMS2CFrames           int64 `json:"wsmitm_s2c_frames"`
+	WSMITMParseFailures       int64 `json:"wsmitm_parse_failures"`
+	WSMITMDegraded            int64 `json:"wsmitm_degraded_sessions"`
+	WSMITMReencoded           int64 `json:"wsmitm_reencoded_frames"`
+	WSMITMForwarded           int64 `json:"wsmitm_forwarded_frames"`
+	WSMITMCompressedInspected int64 `json:"wsmitm_compressed_messages_inspected"`
+	WSMITMCompressedMutated   int64 `json:"wsmitm_compressed_messages_mutated"`
+	WSMITMCompressedBypassed  int64 `json:"wsmitm_compressed_messages_bypassed"`
+	WSMITMCompressionErrors   int64 `json:"wsmitm_compression_errors"`
+	WSMITMPhaseFRequests      int64 `json:"wsmitm_phasef_requests"`
+	WSMITMPhaseFRequestBodies int64 `json:"wsmitm_phasef_request_bodies"`
+	WSMITMPhaseFIndexed       int64 `json:"wsmitm_phasef_request_messages_indexed"`
+	WSMITMPhaseFTextDeltas    int64 `json:"wsmitm_phasef_text_deltas"`
+	WSMITMPhaseFTerminals     int64 `json:"wsmitm_phasef_terminal_responses"`
+	WSMITMPhaseFMutations     int64 `json:"wsmitm_phasef_mutations"`
 }
 
 // Snapshot returns a value-copy of the counters.
 func (d *PhaseFDispatcher) Snapshot() DispatcherTelemetry {
 	return DispatcherTelemetry{
-		PassthroughBridged:  d.counters.passthroughBridged.Load(),
-		MITMBridged:         d.counters.mitmBridged.Load(),
-		Rejected:            d.counters.rejected.Load(),
-		UpstreamDialFail:    d.counters.upstreamDialFail.Load(),
-		BytesC2S:            d.counters.bytesC2S.Load(),
-		BytesS2C:            d.counters.bytesS2C.Load(),
-		WSMITMC2SFrames:     d.counters.wsmitmC2SFrames.Load(),
-		WSMITMS2CFrames:     d.counters.wsmitmS2CFrames.Load(),
-		WSMITMParseFailures: d.counters.wsmitmParseFailures.Load(),
-		WSMITMDegraded:      d.counters.wsmitmDegraded.Load(),
-		WSMITMReencoded:     d.counters.wsmitmReencoded.Load(),
-		WSMITMForwarded:     d.counters.wsmitmForwarded.Load(),
+		PassthroughBridged:        d.counters.passthroughBridged.Load(),
+		MITMBridged:               d.counters.mitmBridged.Load(),
+		Rejected:                  d.counters.rejected.Load(),
+		UpstreamDialFail:          d.counters.upstreamDialFail.Load(),
+		BytesC2S:                  d.counters.bytesC2S.Load(),
+		BytesS2C:                  d.counters.bytesS2C.Load(),
+		WSMITMC2SFrames:           d.counters.wsmitmC2SFrames.Load(),
+		WSMITMS2CFrames:           d.counters.wsmitmS2CFrames.Load(),
+		WSMITMParseFailures:       d.counters.wsmitmParseFailures.Load(),
+		WSMITMDegraded:            d.counters.wsmitmDegraded.Load(),
+		WSMITMReencoded:           d.counters.wsmitmReencoded.Load(),
+		WSMITMForwarded:           d.counters.wsmitmForwarded.Load(),
+		WSMITMCompressedInspected: d.counters.wsmitmCompressedInspected.Load(),
+		WSMITMCompressedMutated:   d.counters.wsmitmCompressedMutated.Load(),
+		WSMITMCompressedBypassed:  d.counters.wsmitmCompressedBypassed.Load(),
+		WSMITMCompressionErrors:   d.counters.wsmitmCompressionErrors.Load(),
+		WSMITMPhaseFRequests:      d.counters.wsmitmPhaseFRequests.Load(),
+		WSMITMPhaseFRequestBodies: d.counters.wsmitmPhaseFRequestBodies.Load(),
+		WSMITMPhaseFIndexed:       d.counters.wsmitmPhaseFIndexed.Load(),
+		WSMITMPhaseFTextDeltas:    d.counters.wsmitmPhaseFTextDeltas.Load(),
+		WSMITMPhaseFTerminals:     d.counters.wsmitmPhaseFTerminals.Load(),
+		WSMITMPhaseFMutations:     d.counters.wsmitmPhaseFMutations.Load(),
 	}
 }
 
@@ -153,7 +184,7 @@ func (d *PhaseFDispatcher) Handle(ctx context.Context, dec sniroute.Decision,
 		defer upstream.Close()
 		if d.Resolver == nil {
 			d.counters.mitmBridged.Add(1)
-			return d.runWSMITM(ctx, conn, upstream)
+			return d.runWSMITM(ctx, conn, upstream, WebSocketBridgeOptions{})
 		}
 		return d.routeInitialHTTP(ctx, dec, req, conn, upstream)
 	default:
@@ -219,8 +250,14 @@ func (d *PhaseFDispatcher) routeInitialHTTP(ctx context.Context, initial snirout
 		if _, err := client.Write(respHeader); err != nil {
 			return err
 		}
+		opts := WebSocketBridgeOptions{
+			Extensions: wscompact.NegotiatePermessageDeflate(
+				strings.Join(rawHTTPHeaderValues(header, "Sec-WebSocket-Extensions"), ", "),
+				strings.Join(rawHTTPHeaderValues(respHeader, "Sec-WebSocket-Extensions"), ", "),
+			),
+		}
 		d.counters.mitmBridged.Add(1)
-		return d.runWSMITM(ctx, client, upstream)
+		return d.runWSMITM(ctx, client, upstream, opts)
 	}
 
 	// Non-WebSocket HTTP conversation mutation is intentionally not
@@ -296,7 +333,7 @@ func parseHTTPRequestHeader(header []byte) (parsedHTTPRequestHeader, bool) {
 //
 // Counters surface to /admin/state via Snapshot() so an operator can
 // watch frame throughput live.
-func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.Conn) error {
+func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
 	if d.BridgeTimeout > 0 {
 		dl := time.Now().Add(d.BridgeTimeout)
 		_ = client.SetDeadline(dl)
@@ -308,6 +345,7 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 		Upstream:        upstream,
 		ClientHandler:   adapter.handle,
 		UpstreamHandler: adapter.handle,
+		Extensions:      opts.Extensions,
 	}
 	err := sess.Serve(ctx)
 	snap := sess.Snapshot()
@@ -316,6 +354,17 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 	d.counters.wsmitmParseFailures.Add(snap.ParseFailures)
 	d.counters.wsmitmReencoded.Add(snap.FramesReencoded)
 	d.counters.wsmitmForwarded.Add(snap.FramesForwarded)
+	d.counters.wsmitmCompressedInspected.Add(snap.CompressedMessagesInspected)
+	d.counters.wsmitmCompressedMutated.Add(snap.CompressedMessagesMutated)
+	d.counters.wsmitmCompressedBypassed.Add(snap.CompressedMessagesBypassed)
+	d.counters.wsmitmCompressionErrors.Add(snap.CompressionErrors)
+	phaseF := adapter.snapshot()
+	d.counters.wsmitmPhaseFRequests.Add(phaseF.RequestsSeen)
+	d.counters.wsmitmPhaseFRequestBodies.Add(phaseF.RequestBodiesSeen)
+	d.counters.wsmitmPhaseFIndexed.Add(phaseF.RequestMessagesIndexed)
+	d.counters.wsmitmPhaseFTextDeltas.Add(phaseF.ResponseTextDeltasSeen)
+	d.counters.wsmitmPhaseFTerminals.Add(phaseF.TerminalResponsesSeen)
+	d.counters.wsmitmPhaseFMutations.Add(phaseF.Mutations)
 	d.counters.bytesC2S.Add(snap.C2SBytes)
 	d.counters.bytesS2C.Add(snap.S2CBytes)
 	if snap.Degraded {

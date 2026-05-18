@@ -10,6 +10,10 @@ import (
 )
 
 func makeFrame(opcode byte, fin bool, masked bool, payload []byte) []byte {
+	return makeFrameWithFirst(opcode, fin, masked, payload)
+}
+
+func makeFrameWithFirst(opcode byte, fin bool, masked bool, payload []byte) []byte {
 	first := opcode
 	if fin {
 		first |= 0x80
@@ -217,6 +221,36 @@ func TestInspectStream_ControlBinaryNonJSONAndRSV(t *testing.T) {
 	}
 	if summaries[8].Shadow == nil || summaries[8].Shadow.Blocker != "no_savings" {
 		t.Fatalf("scalar shadow=%+v", summaries[8].Shadow)
+	}
+}
+
+func TestReadFrame_RSVBitsSplit(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		first      byte
+		wantRSV1   bool
+		wantRSV2   bool
+		wantRSV3   bool
+		wantAnyRSV bool
+	}{
+		{name: "rsv1", first: 0xc1, wantRSV1: true, wantAnyRSV: true},
+		{name: "rsv2", first: 0xa1, wantRSV2: true, wantAnyRSV: true},
+		{name: "rsv3", first: 0x91, wantRSV3: true, wantAnyRSV: true},
+		{name: "all", first: 0xf1, wantRSV1: true, wantRSV2: true, wantRSV3: true, wantAnyRSV: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := []byte{tc.first, 0x02, 'x', 'y'}
+			frame, err := ReadFrame(bytes.NewReader(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if frame.RSV1 != tc.wantRSV1 || frame.RSV2 != tc.wantRSV2 ||
+				frame.RSV3 != tc.wantRSV3 || frame.RSV != tc.wantAnyRSV {
+				t.Fatalf("RSV split mismatch: %+v", frame)
+			}
+		})
 	}
 }
 

@@ -18,6 +18,17 @@ const (
 	OpcodePong         WSOpcode = 0xa
 )
 
+// WriteFrameOptions controls a single RFC 6455 frame emission.
+type WriteFrameOptions struct {
+	Fin     bool
+	Opcode  WSOpcode
+	MaskKey []byte
+	Payload []byte
+	RSV1    bool
+	RSV2    bool
+	RSV3    bool
+}
+
 // WriteFrame encodes a single RFC 6455 frame and writes it to w.
 // `fin` marks the final frame of a message; `opcode` selects the
 // frame type. When `maskKey` is non-nil, the payload is XOR-masked
@@ -28,18 +39,39 @@ const (
 // payloadLen is naturally bounded by Go's slice length and encoded
 // into the WebSocket 64-bit extended length field when needed.
 func WriteFrame(w io.Writer, fin bool, opcode WSOpcode, maskKey []byte, payload []byte) (int, error) {
-	if maskKey != nil && len(maskKey) != 4 {
+	return WriteFrameWithOptions(w, WriteFrameOptions{
+		Fin:     fin,
+		Opcode:  opcode,
+		MaskKey: maskKey,
+		Payload: payload,
+	})
+}
+
+// WriteFrameWithOptions is WriteFrame plus explicit RSV bit control
+// for negotiated WebSocket extensions such as permessage-deflate.
+func WriteFrameWithOptions(w io.Writer, opts WriteFrameOptions) (int, error) {
+	if opts.MaskKey != nil && len(opts.MaskKey) != 4 {
 		return 0, errInvalidMaskKey
 	}
 
 	header := make([]byte, 0, 14)
-	first := byte(opcode) & 0x0f
-	if fin {
+	first := byte(opts.Opcode) & 0x0f
+	if opts.Fin {
 		first |= 0x80
+	}
+	if opts.RSV1 {
+		first |= 0x40
+	}
+	if opts.RSV2 {
+		first |= 0x20
+	}
+	if opts.RSV3 {
+		first |= 0x10
 	}
 	header = append(header, first)
 
-	masked := maskKey != nil
+	payload := opts.Payload
+	masked := opts.MaskKey != nil
 	lenByte := byte(0)
 	if masked {
 		lenByte |= 0x80
@@ -59,14 +91,14 @@ func WriteFrame(w io.Writer, fin bool, opcode WSOpcode, maskKey []byte, payload 
 		header = append(header, ext[:]...)
 	}
 	if masked {
-		header = append(header, maskKey...)
+		header = append(header, opts.MaskKey...)
 	}
 
 	if masked {
 		// Don't mutate the caller's payload buffer; clone first.
 		masked := make([]byte, len(payload))
 		for i, b := range payload {
-			masked[i] = b ^ maskKey[i%4]
+			masked[i] = b ^ opts.MaskKey[i%4]
 		}
 		payload = masked
 	}

@@ -96,6 +96,16 @@ func TestAdminStateHandlerReturnsWSSMutationTelemetry(t *testing.T) {
 	d.counters.wsmitmForwarded.Add(2)
 	d.counters.wsmitmReencoded.Add(1)
 	d.counters.wsmitmDegraded.Add(1)
+	d.counters.wsmitmCompressedInspected.Add(4)
+	d.counters.wsmitmCompressedMutated.Add(1)
+	d.counters.wsmitmCompressedBypassed.Add(2)
+	d.counters.wsmitmCompressionErrors.Add(1)
+	d.counters.wsmitmPhaseFRequests.Add(3)
+	d.counters.wsmitmPhaseFRequestBodies.Add(2)
+	d.counters.wsmitmPhaseFIndexed.Add(2)
+	d.counters.wsmitmPhaseFTextDeltas.Add(5)
+	d.counters.wsmitmPhaseFTerminals.Add(1)
+	d.counters.wsmitmPhaseFMutations.Add(1)
 	p.SetWSSDispatcher(d)
 	p.SetStateProvider(&control.Probes{WSS: WSSProbe{Proxy: p}})
 
@@ -117,6 +127,20 @@ func TestAdminStateHandlerReturnsWSSMutationTelemetry(t *testing.T) {
 	}
 	if got.WSS.DegradedSessions != 1 {
 		t.Fatalf("DegradedSessions=%d, want 1", got.WSS.DegradedSessions)
+	}
+	if got.WSS.CompressedMessagesInspected != 4 ||
+		got.WSS.CompressedMessagesMutated != 1 ||
+		got.WSS.CompressedMessagesBypassed != 2 ||
+		got.WSS.CompressionErrors != 1 {
+		t.Fatalf("compressed WSS telemetry not propagated: %+v", got.WSS)
+	}
+	if got.WSS.PhaseFRequests != 3 ||
+		got.WSS.PhaseFRequestBodies != 2 ||
+		got.WSS.PhaseFRequestMessagesIndexed != 2 ||
+		got.WSS.PhaseFTextDeltas != 5 ||
+		got.WSS.PhaseFTerminalResponses != 1 ||
+		got.WSS.PhaseFMutations != 1 {
+		t.Fatalf("Phase-F WSS telemetry not propagated: %+v", got.WSS)
 	}
 }
 

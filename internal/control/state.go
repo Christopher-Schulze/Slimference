@@ -157,21 +157,31 @@ type SavingsSummary struct {
 // while this block tells operators whether WSS frames are bridged
 // byte-equal, degraded, or actually re-encoded after mutation.
 type WSSState struct {
-	EngineActive       bool  `json:"engine_active"`
-	PassthroughBridged int64 `json:"passthrough_bridged"`
-	MITMBridged        int64 `json:"mitm_bridged"`
-	Rejected           int64 `json:"rejected"`
-	UpstreamDialFail   int64 `json:"upstream_dial_failures"`
-	BytesC2S           int64 `json:"bytes_c2s"`
-	BytesS2C           int64 `json:"bytes_s2c"`
-	C2SFrames          int64 `json:"c2s_frames"`
-	S2CFrames          int64 `json:"s2c_frames"`
-	ParseFailures      int64 `json:"parse_failures"`
-	DegradedSessions   int64 `json:"degraded_sessions"`
-	FramesReencoded    int64 `json:"frames_reencoded"`
-	FramesForwarded    int64 `json:"frames_forwarded"`
-	MutationActive     bool  `json:"mutation_active"`
-	ByteBridgeOnly     bool  `json:"byte_bridge_only"`
+	EngineActive                 bool  `json:"engine_active"`
+	PassthroughBridged           int64 `json:"passthrough_bridged"`
+	MITMBridged                  int64 `json:"mitm_bridged"`
+	Rejected                     int64 `json:"rejected"`
+	UpstreamDialFail             int64 `json:"upstream_dial_failures"`
+	BytesC2S                     int64 `json:"bytes_c2s"`
+	BytesS2C                     int64 `json:"bytes_s2c"`
+	C2SFrames                    int64 `json:"c2s_frames"`
+	S2CFrames                    int64 `json:"s2c_frames"`
+	ParseFailures                int64 `json:"parse_failures"`
+	DegradedSessions             int64 `json:"degraded_sessions"`
+	FramesReencoded              int64 `json:"frames_reencoded"`
+	FramesForwarded              int64 `json:"frames_forwarded"`
+	CompressedMessagesInspected  int64 `json:"compressed_messages_inspected"`
+	CompressedMessagesMutated    int64 `json:"compressed_messages_mutated"`
+	CompressedMessagesBypassed   int64 `json:"compressed_messages_bypassed"`
+	CompressionErrors            int64 `json:"compression_errors"`
+	PhaseFRequests               int64 `json:"phasef_requests"`
+	PhaseFRequestBodies          int64 `json:"phasef_request_bodies"`
+	PhaseFRequestMessagesIndexed int64 `json:"phasef_request_messages_indexed"`
+	PhaseFTextDeltas             int64 `json:"phasef_text_deltas"`
+	PhaseFTerminalResponses      int64 `json:"phasef_terminal_responses"`
+	PhaseFMutations              int64 `json:"phasef_mutations"`
+	MutationActive               bool  `json:"mutation_active"`
+	ByteBridgeOnly               bool  `json:"byte_bridge_only"`
 }
 
 // Probes is the dependency surface Build() uses. Every method must be

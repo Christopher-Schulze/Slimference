@@ -83,6 +83,85 @@ func TestExtractMessages_CodexInputSkipsUnsupportedItemsLosslessly(t *testing.T)
 	}
 }
 
+func TestExtractMessages_CodexResponseItemPayloadRoundTrip(t *testing.T) {
+	t.Parallel()
+	var status strings.Builder
+	for i := 0; i < 80; i++ {
+		status.WriteString(" M internal/proxy/wrapped_")
+		status.WriteString(strconv.Itoa(i))
+		status.WriteString(".go\n")
+	}
+	bodyMap := map[string]any{
+		"model": "gpt-5-codex",
+		"input": []any{
+			map[string]any{
+				"type": "message",
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "input_text", "text": "check git status"},
+				},
+			},
+			map[string]any{
+				"type": "response_item",
+				"payload": map[string]any{
+					"type":      "function_call",
+					"call_id":   "call_status",
+					"name":      "exec_command",
+					"arguments": map[string]any{"cmd": "git status --short"},
+				},
+			},
+			map[string]any{
+				"type": "response_item",
+				"payload": map[string]any{
+					"type":    "function_call_output",
+					"call_id": "call_status",
+					"output":  status.String(),
+				},
+			},
+		},
+		"stream": true,
+	}
+	body, err := json.Marshal(bodyMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, _, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 3 || msgs[1].Content[0].ToolName != "exec_command" || msgs[2].Content[0].Type != "tool_result" {
+		t.Fatalf("unexpected wrapper extraction: %#v", msgs)
+	}
+	msgs[2].Content[0].Text = "[git status]\n M internal/proxy/wrapped_0.go\n[... 79 files omitted ...]\n"
+	out, err := reconstructBody(types.CodexChatGPT, body, msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Input []struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Type   string `json:"type"`
+				Output string `json:"output"`
+			} `json:"payload"`
+			Output string `json:"output"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal(out, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Input[2].Type != "response_item" || decoded.Input[2].Payload.Type != "function_call_output" {
+		t.Fatalf("wrapper identity was not preserved: %s", out)
+	}
+	if !strings.Contains(decoded.Input[2].Payload.Output, "[git status]") || strings.Contains(decoded.Input[2].Payload.Output, "wrapped_79.go") {
+		t.Fatalf("payload output was not rewritten compactly: %q", decoded.Input[2].Payload.Output)
+	}
+	if decoded.Input[2].Output != "" {
+		t.Fatalf("rewrite leaked to wrapper top-level output: %s", out)
+	}
+}
+
 func TestExtractMessages_CodexMessagesShapeUsesOpenAIParser(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"model":"codex-test","messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"call_x","content":"tool out"}],"store":true}`)

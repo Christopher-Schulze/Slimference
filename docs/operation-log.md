@@ -293,3 +293,110 @@ Decision:
 - New T235 owns extension-aware `permessage-deflate` decode/re-encode so
   Phase-F can mutate compressed scoped WSS traffic without stripping native
   WebSocket extensions.
+
+---
+
+## 2026-05-18 — T235 permessage-deflate Phase-F Mutation
+
+Driver: Codex after T234 proved safe byte-equal WSS bridging but no mutation
+on compressed Codex 0.130 payloads.
+
+Scope contract:
+- No global lab commands, no `/etc/hosts`, no pfctl, no Keychain trust, no
+  system proxy.
+- No Claude hooks, no Anthropic routing.
+- No manual write to `~/.slimference/codex-wss-cert.json`; T226 owns
+  certification persistence.
+- WSS streamcut remains disabled and split to T236.
+
+Change:
+- `internal/wscompact` now parses negotiated `permessage-deflate` profiles,
+  splits RSV1/RSV2/RSV3 bits, writes RSV1 frames deliberately, and implements
+  RFC 7692 raw-deflate inflate/deflate with sync-flush tail handling.
+- `internal/proxy/wsmitm.Session` can inflate complete compressed text
+  messages, run the Phase-F handler, and re-encode only when mutation happens.
+  Unmodified compressed frames are forwarded byte-equal after their plaintext
+  advances the destination-side rolling dictionary, preserving context takeover
+  for later mutated messages.
+- Reassembled compressed payloads and inflated plaintext payloads are bounded.
+  Size-cap hits fail open to byte-equal forwarding, record `compression_errors`,
+  and block further compressed mutation for that direction without degrading the
+  session.
+- `ServeRawUpgrade`, `ServeUpgrade`, and the transparent WSS dispatcher pass the
+  negotiated WebSocket extension profile into the bridge instead of stripping
+  `Sec-WebSocket-Extensions`.
+- Codex Responses `response_item.payload` wrappers are now reconstructed after
+  mutation.
+- The WSS Phase-F adapter keeps session-local tool-call metadata learned from
+  server-to-client output item frames, then applies it when later
+  client-to-server `function_call_output` frames arrive. This matches Codex
+  Responses WSS, where tool-call metadata and tool output are split across
+  directions and turns.
+- `/admin/state.wss` exposes compressed-message and Phase-F mutation counters:
+  `compressed_messages_inspected`, `compressed_messages_mutated`,
+  `compressed_messages_bypassed`, `compression_errors`,
+  `phasef_requests`, `phasef_request_bodies`,
+  `phasef_request_messages_indexed`, `phasef_text_deltas`,
+  `phasef_terminal_responses`, and `phasef_mutations`.
+
+Safety decision:
+- Output streamcut over WSS was tested and rejected for T235: blanking deltas
+  produced re-encoded frames but hung Codex CLI. HTTP/SSE streamcut remains
+  unchanged; WSS terminal-safe streamcut is T236.
+
+Verification:
+- Focused WSS/codec tests passed:
+  `go test ./internal/wscompact ./internal/proxy/wsmitm ./internal/proxy -count=1 -timeout 120s`.
+- Focused cross-direction tool-state tests passed:
+  `go test ./internal/proxy -run 'TestApplyProxyLayer0WithRememberedToolUse|TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem|TestWSPhaseFRequestCompactsToolOutputAcrossResponsesRequests|TestWSPhaseFRequestCompactsCodexResponseItemPayloadLayer0' -count=1 -timeout 60s`.
+- Full `go test ./... -count=1 -timeout 300s` passed.
+- `go vet ./...` passed.
+- `go run ./scripts/ci` passed all eight gates; aggregate coverage was 99.5%.
+- Focused race checks passed for the WSS/session paths:
+  `go test -race ./internal/wscompact ./internal/proxy/wsmitm ./internal/proxy -run 'TestSession|TestWSPhaseF|TestApplyProxyLayer0|TestExtractMessages_Codex|TestServeRawUpgradeExtractsExtensions|TestPhaseFAdapterReceivesNegotiatedProfile' -count=1 -timeout 180s`
+  and `go test -race ./internal/wscompact -count=1 -timeout 120s`.
+
+Live scoped WSS proof:
+- Simple codec sanity:
+  `./slimference codex run --transport=wss -- exec "Reply with exactly: T235_CODEC_OK"`
+  returned `T235_CODEC_OK`, exit 0, with `parse_failures=0`,
+  `degraded_sessions=0`, and `compression_errors=0`.
+- Mutation proof 1:
+  `./slimference codex run --transport=wss -- exec "<two-step git status prompt>"`
+  returned `L0_GIT_OK`, exit 0.
+  Counters: `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `phasef_mutations=1`, `input_tokens_saved=1059`, `parse_failures=0`,
+  `degraded_sessions=0`, `compression_errors=0`, `streamcut_fires=0`,
+  `stop_seq_injections=0`, `codex_route.enabled=false`.
+- Mutation proof 2 after daemon restart:
+  same prompt returned `L0_GIT_OK`, exit 0.
+  Counters: `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `phasef_mutations=1`, `input_tokens_saved=1035`, `parse_failures=0`,
+  `degraded_sessions=0`, `compression_errors=0`, `streamcut_fires=0`,
+  `stop_seq_injections=0`, `codex_route.enabled=false`.
+- `~/.codex/config.toml` stayed bit-identical to baseline SHA
+  `0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`
+  after the scoped runs.
+
+Decision:
+- T235 acceptance is met.
+- T226 is unblocked to record version-matched WSS certification through the
+  product certification path and then promote `transport=auto` to WSS for the
+  certified Codex/Slimference tuple.
+- T236 remains open and must pass before WSS streamcut joins the default WSS
+  savings set.
+
+Post-review hardening:
+- Added compressed-message and inflated-plaintext size caps after review noted
+  the reassembly buffer had no explicit bound.
+- Cap hits forward byte-equal, record `compression_errors`, block further
+  compressed mutation for that direction, and do not increment
+  `parse_failures` or `degraded_sessions`.
+- Added focused fail-open tests for both cap paths.
+- Re-verified after the hardening:
+  `go test ./internal/proxy/wsmitm -run 'TestSessionCompressedPayloadLimitBypassesAndBlocks|TestSessionInflatedPayloadLimitBypassesAndBlocks|TestSessionDecompressesAndMutatesNoContextTakeover|TestSessionCompressedReplaceFalseKeepsContextForLaterMutation' -count=1 -timeout 60s`,
+  `go test ./internal/wscompact ./internal/proxy/wsmitm ./internal/proxy -count=1 -timeout 120s`,
+  `go test -race ./internal/wscompact ./internal/proxy/wsmitm -count=1 -timeout 120s`,
+  `go test ./... -count=1 -timeout 300s`,
+  `go vet ./...`, and `go run ./scripts/ci` all passed. CI aggregate coverage
+  remained 99.5%.

@@ -23,7 +23,13 @@ type WebSocketDialer func(host, port string) (net.Conn, error)
 // WebSocketFrameBridge receives the post-upgrade client and upstream
 // streams. Implementations may parse and mutate frames or fall back to
 // byte-equal forwarding.
-type WebSocketFrameBridge func(ctx context.Context, client, upstream net.Conn) error
+type WebSocketFrameBridge func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error
+
+// WebSocketBridgeOptions carries handshake metadata into the post-101
+// frame bridge.
+type WebSocketBridgeOptions struct {
+	Extensions wscompact.WSExtensionProfile
+}
 
 // WebSocketTunnel handles `Upgrade: websocket` requests intercepted
 // by the MITM dispatch. Once the upgrade handshake succeeds against
@@ -132,7 +138,13 @@ func (t *WebSocketTunnel) ServeUpgrade(clientConn net.Conn, r *http.Request, hos
 		if upstreamReader.Buffered() > 0 {
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
 		}
-		if err := t.FrameBridge(r.Context(), clientConn, bridgeUpstream); err != nil {
+		opts := WebSocketBridgeOptions{
+			Extensions: wscompact.NegotiatePermessageDeflate(
+				strings.Join(r.Header.Values("Sec-WebSocket-Extensions"), ", "),
+				strings.Join(resp.Header.Values("Sec-WebSocket-Extensions"), ", "),
+			),
+		}
+		if err := t.FrameBridge(r.Context(), clientConn, bridgeUpstream, opts); err != nil {
 			t.logf("websocket: frame bridge ended", "host", host, "err", err)
 		}
 		return
@@ -185,7 +197,13 @@ func (t *WebSocketTunnel) ServeRawUpgrade(ctx context.Context, clientConn net.Co
 		if upstreamReader.Buffered() > 0 {
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
 		}
-		if err := t.FrameBridge(ctx, clientConn, bridgeUpstream); err != nil {
+		opts := WebSocketBridgeOptions{
+			Extensions: wscompact.NegotiatePermessageDeflate(
+				strings.Join(rawHTTPHeaderValues(rawHeader, "Sec-WebSocket-Extensions"), ", "),
+				strings.Join(resp.Header.Values("Sec-WebSocket-Extensions"), ", "),
+			),
+		}
+		if err := t.FrameBridge(ctx, clientConn, bridgeUpstream, opts); err != nil {
 			t.logf("websocket raw: frame bridge ended", "host", host, "err", err)
 		}
 		return
@@ -263,6 +281,23 @@ func rewriteRawUpgradeHeader(header []byte, host string) []byte {
 		lines = next
 	}
 	return []byte(strings.Join(lines, sep))
+}
+
+func rawHTTPHeaderValues(header []byte, name string) []string {
+	sep := "\r\n"
+	text := string(header)
+	if !strings.Contains(text, "\r\n") && strings.Contains(text, "\n") {
+		sep = "\n"
+	}
+	var values []string
+	for _, line := range strings.Split(text, sep) {
+		field, value, ok := strings.Cut(line, ":")
+		if !ok || !strings.EqualFold(strings.TrimSpace(field), name) {
+			continue
+		}
+		values = append(values, strings.TrimSpace(value))
+	}
+	return values
 }
 
 func rewriteRequestLineTarget(line string) string {

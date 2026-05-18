@@ -321,7 +321,7 @@ func TestRunWSMITMTimeoutBranchWithEmptyStreams(t *testing.T) {
 	client := newScriptedConn("")
 	upstream := newScriptedConn("")
 	d := &PhaseFDispatcher{BridgeTimeout: time.Millisecond}
-	if err := d.runWSMITM(context.Background(), client, upstream); err != nil {
+	if err := d.runWSMITM(context.Background(), client, upstream, WebSocketBridgeOptions{}); err != nil {
 		t.Fatalf("runWSMITM: %v", err)
 	}
 }

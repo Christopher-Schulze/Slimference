@@ -300,10 +300,10 @@ func New(cfg *config.Config) *Proxy {
 		Logger:      slog.Default(),
 		BypassPaths: cfg.Transparent.AudioBypassPaths,
 		Inspector:   p.webSocketShapes,
-		FrameBridge: func(ctx context.Context, client, upstream net.Conn) error {
+		FrameBridge: func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
 			p.SetWSSDispatcher(scopedWSSDispatcher)
 			scopedWSSDispatcher.counters.mitmBridged.Add(1)
-			return scopedWSSDispatcher.runWSMITM(ctx, client, upstream)
+			return scopedWSSDispatcher.runWSMITM(ctx, client, upstream, opts)
 		},
 	}
 

@@ -1301,11 +1301,19 @@ only and promotes the per-process Codex CLI runner for T209.
   byte-equal without `parse_failures` or `degraded_sessions`; malformed
   object-shaped envelopes still degrade fail-open. Detail:
   `docs/todo/t234-wss-non-envelope-text-passthrough.md`
-- [~] **T235** WSS permessage-deflate Phase-F mutation — live scoped WSS now
-  proves the remaining value blocker is compressed Codex payloads. Implement
-  negotiated `permessage-deflate` decode/re-encode so Phase-F can mutate WSS
-  without stripping extensions or promoting global lab routing. Detail:
+- [x] **T235** WSS permessage-deflate Phase-F mutation — live scoped WSS now
+  decodes negotiated `permessage-deflate`, mutates request-side Phase-F payloads,
+  and re-encodes RSV1 frames without stripping extensions, poisoning context
+  takeover, or promoting global lab routing. Two live Codex CLI WSS runs proved
+  `frames_reencoded=1`, `phasef_mutations=1`, `parse_failures=0`,
+  `degraded_sessions=0`, `compression_errors=0`, and request-side input savings
+  above 1k tokens each. Detail:
   `docs/todo/t235-wss-permessage-deflate-phasef.md`
+- [ ] **T236** WSS terminal-safe streamcut — WSS streamcut is deliberately
+  disabled after live proof showed delta blanking can hang Codex CLI. Re-enable
+  only after Slimference can emit a valid Codex WSS terminal sequence or prove a
+  safer no-hang early-cut mechanism across two live runs. Detail:
+  `docs/todo/t236-wss-terminal-safe-streamcut.md`
 
 ### Sequencing within Phase H
 
@@ -1371,10 +1379,15 @@ only and promotes the per-process Codex CLI runner for T209.
    still losing all Phase-F value if one legal non-envelope text frame trips
    degraded mode. Non-mutatable WSS payloads must pass through without
    poisoning the session before T224 can fairly judge real mutation.
-25. **T235 before T226** — T234 proved Codex 0.130 WSS frames are safe to
-   bridge without degradation, but live payloads are compressed. WSS-first auto
-   promotion is invalid until `permessage-deflate` decode/re-encode produces
-   real `frames_reencoded>0` on scoped live Codex traffic.
+25. **T235 before T226** — T235 is now satisfied: scoped WSS preserved native
+   `permessage-deflate`, re-encoded a real mutated frame on two independent
+   Codex CLI runs, and kept parser/degrade/compression errors at 0. T226 may now
+   record version-matched certification through the product path and promote
+   `transport=auto` to WSS for that certified tuple.
+26. **T236 before WSS streamcut** — the HTTP streamcut mechanism closes SSE and
+   emits an SSE terminator. WSS cannot reuse that by blanking deltas: live Codex
+   CLI hung. WSS streamcut stays off until a protocol-correct terminal sequence
+   is captured, implemented, and live-certified.
 
 ### Acceptance for Phase H
 
@@ -1382,8 +1395,9 @@ only and promotes the per-process Codex CLI runner for T209.
   loaded, hooks present, hosts CLEAN (not patched).
 - Scoped Codex CLI test uses `slimference codex run` and leaves
   hosts/pfctl/Browser ChatGPT/ChatGPT.app untouched.
-- Scoped WSS mode, once enabled, uses `wsmitm.Session` + Phase-F frame
-  mutation and degrades unknown frame shapes to byte-equal bridge.
+- Scoped WSS mode uses `wsmitm.Session` + Phase-F frame mutation, handles
+  negotiated `permessage-deflate`, and degrades unknown frame shapes to
+  byte-equal bridge.
 - The intended final Codex CLI default is `transport=auto` with WSS preferred
   after T224 proof; HTTP/direct remain fallback and comparison modes.
 - Scoped WSS raw frontdoor preserves original Upgrade headers except
@@ -1408,6 +1422,8 @@ only and promotes the per-process Codex CLI runner for T209.
   open when the daemon is unavailable.
 - After T230, output-reduce v2 reducers are individually gated, observable,
   token-decreasing, and quality-rollback capable.
+- WSS output streamcut is not part of the default WSS savings set until T236
+  proves terminal-safe behavior. HTTP streamcut remains enabled and tested.
 - After T231, Apple Silicon performance claims are backed by real pprof and
   benchmarks; the single stripped Go binary remains the default.
 - After T232, app-server, global MITM, proxy/env, and integrate paths are

@@ -115,6 +115,18 @@ func TestRewriteRawUpgradeHeader(t *testing.T) {
 	}
 }
 
+func TestRawHTTPHeaderValues(t *testing.T) {
+	t.Parallel()
+	raw := []byte("GET / HTTP/1.1\r\n" +
+		"Sec-WebSocket-Extensions: permessage-deflate\r\n" +
+		"x: y\r\n" +
+		"sec-websocket-extensions: x-test; q=\"a,b\"\r\n\r\n")
+	got := rawHTTPHeaderValues(raw, "Sec-WebSocket-Extensions")
+	if strings.Join(got, "|") != `permessage-deflate|x-test; q="a,b"` {
+		t.Fatalf("values=%q", got)
+	}
+}
+
 func TestWebSocketTunnel_ServeUpgradeNoDialer(t *testing.T) {
 	t.Parallel()
 	wt := &WebSocketTunnel{}
@@ -253,7 +265,7 @@ func TestWebSocketTunnel_FrameBridgeReadsBufferedBytes(t *testing.T) {
 	seen := make(chan string, 1)
 	wt := &WebSocketTunnel{
 		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
-		FrameBridge: func(ctx context.Context, client, upstream net.Conn) error {
+		FrameBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
 			buf := make([]byte, 5)
 			_, err := io.ReadFull(upstream, buf)
 			if err != nil {
@@ -285,6 +297,52 @@ func TestWebSocketTunnel_FrameBridgeReadsBufferedBytes(t *testing.T) {
 	}
 }
 
+func TestWebSocketTunnel_ServeRawUpgradeExtractsExtensions(t *testing.T) {
+	t.Parallel()
+	upstreamA, upstreamB := net.Pipe()
+	defer upstreamA.Close()
+	defer upstreamB.Close()
+	go func() {
+		br := bufio.NewReader(upstreamA)
+		_, _ = http.ReadRequest(br)
+		_, _ = upstreamA.Write([]byte(
+			"HTTP/1.1 101 Switching Protocols\r\n" +
+				"Upgrade: websocket\r\n" +
+				"Connection: Upgrade\r\n" +
+				"Sec-WebSocket-Extensions: permessage-deflate; client_no_context_takeover; server_no_context_takeover\r\n\r\n"))
+	}()
+	seen := make(chan wscompact.WSExtensionProfile, 1)
+	wt := &WebSocketTunnel{
+		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
+		FrameBridge: func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
+			seen <- opts.Extensions
+			return nil
+		},
+	}
+	clientA, clientB := net.Pipe()
+	defer clientA.Close()
+	defer clientB.Close()
+	raw := []byte("GET /backend-api/codex/responses HTTP/1.1\r\n" +
+		"Host: 127.0.0.1:8990\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n\r\n")
+	go wt.ServeRawUpgrade(context.Background(), clientB, raw, "chatgpt.com", "/backend-api/codex/responses")
+	resp, err := http.ReadResponse(bufio.NewReader(clientA), nil)
+	if err != nil {
+		t.Fatalf("read 101: %v", err)
+	}
+	resp.Body.Close()
+	select {
+	case profile := <-seen:
+		if !profile.Supported || !profile.ClientNoContextTakeover || !profile.ServerNoContextTakeover {
+			t.Fatalf("profile=%+v", profile)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("frame bridge did not receive extension profile")
+	}
+}
+
 func TestWebSocketTunnel_AudioBypassSkipsFrameBridge(t *testing.T) {
 	t.Parallel()
 	upstreamA, upstreamB := net.Pipe()
@@ -302,7 +360,7 @@ func TestWebSocketTunnel_AudioBypassSkipsFrameBridge(t *testing.T) {
 	bridgeCalled := make(chan struct{}, 1)
 	wt := &WebSocketTunnel{
 		Dialer: func(host, port string) (net.Conn, error) { return upstreamB, nil },
-		FrameBridge: func(ctx context.Context, client, upstream net.Conn) error {
+		FrameBridge: func(ctx context.Context, client, upstream net.Conn, _ WebSocketBridgeOptions) error {
 			bridgeCalled <- struct{}{}
 			return nil
 		},

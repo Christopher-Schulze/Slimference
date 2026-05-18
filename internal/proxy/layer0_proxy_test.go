@@ -50,6 +50,30 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	}
 }
 
+func TestApplyProxyLayer0WithRememberedToolUse(t *testing.T) {
+	t.Parallel()
+
+	var status strings.Builder
+	for i := 0; i < 80; i++ {
+		status.WriteString("?? synthetic_")
+		status.WriteString(string(rune('a' + i%26)))
+		status.WriteString(".go\n")
+	}
+	messages := []types.Message{
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-status", Text: status.String()}}},
+	}
+	remembered := map[string]types.ContentBlock{
+		"call-status": {Type: "tool_use", ToolUseID: "call-status", ToolName: "exec_command", ToolInput: `{"cmd":"git -C /tmp/slimf status --short"}`},
+	}
+	out, saved := applyProxyLayer0WithSessionAndToolUses(messages, "sess", remembered)
+	if saved <= 0 {
+		t.Fatalf("expected remembered tool use to produce savings, got %d", saved)
+	}
+	if !strings.Contains(out[0].Content[0].Text, "[git status]") || strings.Contains(out[0].Content[0].Text, "synthetic_z.go") {
+		t.Fatalf("remembered tool use did not compact status output: %q", out[0].Content[0].Text)
+	}
+}
+
 func TestProxyResolveToolUseBranches(t *testing.T) {
 	t.Parallel()
 
