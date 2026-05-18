@@ -171,7 +171,7 @@ func blockBody(proxyURL string, opts Options) string {
 	return fmt.Sprintf(`model_provider = %s
 
 [model_providers.%s]
-name = "Slimference Codex"
+name = "Slimference"
 base_url = %s
 requires_openai_auth = true
 supports_websockets = %s

@@ -154,7 +154,7 @@ launches Codex with per-process config overrides:
 model_provider = "slimference-codex"
 
 [model_providers.slimference-codex]
-name = "Slimference Codex"
+name = "Slimference"
 base_url = "http://127.0.0.1:8990/backend-api/codex"
 requires_openai_auth = true
 supports_websockets = false

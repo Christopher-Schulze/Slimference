@@ -562,7 +562,7 @@ func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
 		base = append(base,
 			"codex",
 			"-c", "model_provider="+strconv.Quote("slimference-codex"),
-			"-c", "model_providers.slimference-codex.name="+strconv.Quote("Slimference Codex"),
+			"-c", "model_providers.slimference-codex.name="+strconv.Quote("Slimference"),
 			"-c", "model_providers.slimference-codex.base_url="+strconv.Quote(integrate.CodexOpenAIBaseURL(target)),
 			"-c", "model_providers.slimference-codex.requires_openai_auth=true",
 			"-c", "model_providers.slimference-codex.supports_websockets="+supportsWebSockets,
