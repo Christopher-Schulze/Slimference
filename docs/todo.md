@@ -1254,10 +1254,9 @@ only and promotes the per-process Codex CLI runner for T209.
   smoke are prepared. Remaining work is the real native/scoped
   HTTP/scoped raw-WSS tshark capture and diff during T209. Detail:
   `docs/todo/t224-scoped-indistinguishability-audit.md`
-- [ ] **T225** Codex Desktop scoped proof and launcher — pre-live
-  procedure is documented. Remaining work is real Desktop restart,
-  telemetry proof of the shared provider route, and launcher fallback
-  only if Desktop ignores the scoped route. Detail:
+- [ ] **T225** Codex Desktop scoped proof and launcher — provider/base-URL
+  proof is partial and insufficient for current Desktop conversation routing.
+  Remaining Desktop proof moved to T238 process-local proxy mode. Detail:
   `docs/todo/t225-codex-desktop-scoped-proof-and-launcher.md`
 - [x] **T226** WSS-first auto promotion — local WSS certification state now
   promotes `auto` to WSS for the current Codex/Slimference version tuple.
@@ -1270,11 +1269,11 @@ only and promotes the per-process Codex CLI runner for T209.
   now operate on scoped Codex route; former global SNI mode is fenced under
   `slimference lab enable|disable`; TUI Setup now separates Codex Mode from
   global lab controls. Remaining work: Desktop observation warnings after
-  T225/T228 proof. Detail: `docs/todo/t227-codex-ux-collapse.md`
-- [ ] **T228** Codex Desktop zero-friction launcher — after T225 proof,
-  either polish the shared provider route reload flow or build the
-  smallest scoped Desktop launcher so users do not repeatedly restart
-  app-server processes by hand. Detail:
+  T238 proof. Detail: `docs/todo/t227-codex-ux-collapse.md`
+- [ ] **T228** Codex Desktop zero-friction launcher — base-URL launcher
+  shipped as a diagnostic/future-proof process-local spawn, but current
+  Codex.app ignores it for conversation routing. T238 owns proxy launcher
+  proof. Detail:
   `docs/todo/t228-codex-desktop-zero-friction-launcher.md`
 - [ ] **T229** Codex hook hotpath socket — keep hooks as the Codex signal
   layer, but move hook execution to daemon socket RPC with fail-open
@@ -1317,6 +1316,22 @@ only and promotes the per-process Codex CLI runner for T209.
   only after Slimference can emit a valid Codex WSS terminal sequence or prove a
   safer no-hang early-cut mechanism across two live runs. Detail:
   `docs/todo/t236-wss-terminal-safe-streamcut.md`
+- [x] **T237** Codex provider display name — shipped as a cosmetic-only
+  rename from `slimference-codex` to `Slimference` for user-facing provider
+  labels. No routing, proxy, savings, or app-scope behavior changed. Detail:
+  `docs/todo/t237-codex-provider-display-name.md`
+- [ ] **T238** Codex Desktop process-local proxy proof — prove or reject
+  Codex.app conversation routing through a per-process proxy launch mode using
+  the current Codex Desktop proxy/WSS capability surface. Must not touch
+  Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS system
+  proxy, or `~/.codex/config.toml`. Detail:
+  `docs/todo/t238-codex-desktop-process-local-proxy-proof.md`
+- [ ] **T239** Slimference launch center TUI — collapse normal user UX into a
+  small launch/control center with exactly the useful surfaces: Launch Codex
+  CLI, Launch Codex App, Savings, Status, and Manage Slimference. No separate
+  "open direct" action; direct mode is simply launching Codex normally outside
+  Slimference. Detail:
+  `docs/todo/t239-slimference-launch-center-tui.md`
 
 ### Sequencing within Phase H
 
@@ -1364,8 +1379,10 @@ only and promotes the per-process Codex CLI runner for T209.
    scoped raw-WSS Phase-F mutation proof for the current Codex/Slimference
    version tuple. T224 capture/diff remains the separate gate for
    indistinguishability wording, not for local auto transport selection.
-17. **T228 after T225 branch decision** — do not build a Desktop launcher
-   until real Desktop proof says the shared provider route is insufficient.
+17. **T228/T238 after T225 branch decision** — T228 already proved that
+   base-URL env injection is process-local but insufficient for current
+   Codex.app conversation routing. T238 is the next Desktop branch: prove or
+   reject process-local proxy routing before any Desktop product claim.
 18. **T227 after T226/T225 semantics are known** — collapse top-level UX
    only after the transport and Desktop truth are clear enough to avoid
    renaming confusion twice.
@@ -1422,6 +1439,12 @@ only and promotes the per-process Codex CLI runner for T209.
   product default UX.
 - After T228, Codex Desktop either reloads the shared scoped route with a
   clean one-command flow or has a process-local launcher with direct fallback.
+- After T238, Codex Desktop either has a proven process-local proxy launch mode
+  that routes conversation WSS through Slimference without global collateral, or
+  the product truth explicitly says Desktop remains direct until upstream
+  exposes a usable route.
+- After T239, the normal human surface is the launch center: Launch Codex CLI,
+  Launch Codex App, Savings, Status, and Manage Slimference.
 - After T229, Codex hook events use daemon socket RPC on the hot path and fail
   open when the daemon is unavailable.
 - After T230, output-reduce v2 reducers are individually gated, observable,

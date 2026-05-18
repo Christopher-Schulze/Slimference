@@ -1,6 +1,6 @@
 # TASK 225: Codex Desktop scoped proof and launcher
 
-Status: PREPARED PRE-LIVE
+Status: PARTIAL - provider/base-URL routes insufficient; process-local proxy proof moved to T238
 Priority: P1 after Codex CLI scoped WSS proof
 Scope: Codex Desktop App only; Browser ChatGPT and ChatGPT.app stay direct
 
@@ -16,6 +16,12 @@ The preferred Desktop end-state is also WSS-first, because Desktop is likely to
 benefit most from the native conversation stream shape. HTTP is acceptable only
 as a fallback or if Desktop itself chooses it.
 
+2026-05-18 update: the shared provider/base-URL branch is no longer the main
+Desktop bet. T228 proved process-local env injection reaches Codex.app's
+app-server, but current Codex.app still keeps conversation traffic on hardcoded
+`chatgpt.com` routes. T238 now owns the next credible branch: process-local
+proxy launch using the Desktop binary's proxy/WSS capability surface.
+
 ## Acceptance
 
 - `slimference codex enable` is live-tested against Codex Desktop/App-server
@@ -24,8 +30,8 @@ as a fallback or if Desktop itself chooses it.
   and transport was captured.
 - If Desktop supports scoped WSS through the provider route, WSS becomes the
   preferred Desktop transport after T224-style capture proof.
-- If Desktop ignores the route, build or document a scoped launcher that affects
-  only Codex Desktop/App-server.
+- If Desktop ignores the route, T238 must prove or reject a scoped process-local
+  proxy launcher that affects only Codex Desktop/App-server.
 - The launcher must not set global environment variables, macOS System Proxy, or
   `/etc/hosts`.
 - The launcher must have a visible off switch and a direct-mode fallback.
@@ -43,11 +49,12 @@ as a fallback or if Desktop itself chooses it.
 - [ ] Test `slimference codex enable` with full app restart and minimal prompt.
 - [ ] Inspect admin/debug telemetry to determine HTTP vs WSS route.
 - [ ] Prefer WSS if Desktop exposes both transports; keep HTTP as fallback.
-- [ ] If config route fails, test process-local launcher candidates:
-  app-specific env, Chromium/Electron proxy flags, app-server child process env,
-  or wrapper script.
-- [ ] Add `slimference codex app-run` only if a launcher is proven necessary and
-  non-global.
+- [x] If config route fails, test process-local base-URL launcher candidates:
+  env reaches app-server, but current Codex.app conversation routing ignores
+  the base-URL override.
+- [ ] Hand off remaining Desktop launcher proof to T238 process-local proxy mode.
+- [ ] Add a product Desktop launch action only if T238 proves it is non-global
+  and catches conversation traffic.
 - [ ] Ensure any launcher can revert to direct Desktop without deleting user
   config or touching global network state.
 - [ ] Add status/preflight checks that warn when Desktop route is configured but
@@ -62,11 +69,14 @@ Benefit:
 - Avoids falling back to global `chatgpt.com` hijack just to make Desktop work.
 - Aligns Desktop with the same WSS-first maximum-savings target as CLI.
 
-Known limit:
+Known limits:
 
 - If Codex Desktop hardcodes ChatGPT WSS and ignores all scoped provider/launcher
   options, then no safe scoped Desktop path exists. In that case Desktop remains
   global-lab only until upstream exposes a scoped config surface.
+- Current base-URL env injection is already proven insufficient for Codex.app
+  0.131.0-alpha.9 conversation routing. Do not re-run that path as the primary
+  proof unless the Desktop version changes.
 
 Pre-live Desktop procedure:
 
@@ -83,7 +93,6 @@ Pre-live Desktop procedure:
 7. Always finish with `slimference codex disable` unless the operator wants to
    leave shared Codex routing active.
 
-Do not build a launcher until this proof says it is needed. The launcher path
-is a fallback only; the preferred product is the marker-owned
-`~/.codex/config.toml` provider route because it avoids Browser ChatGPT and
-ChatGPT.app collateral without another surface.
+Do not claim Desktop savings from provider/base-URL routing. The active next
+proof is T238: a process-local proxy launcher that must prove both positive
+routing and zero collateral.
