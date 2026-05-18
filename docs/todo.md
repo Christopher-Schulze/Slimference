@@ -1332,6 +1332,11 @@ only and promotes the per-process Codex CLI runner for T209.
   "open direct" action; direct mode is simply launching Codex normally outside
   Slimference. Detail:
   `docs/todo/t239-slimference-launch-center-tui.md`
+- [ ] **T240** Codex zero-drawdown release certification — final product seal
+  after T238/T239: prove CLI, Desktop, direct fallback, Browser ChatGPT,
+  ChatGPT.app, uninstall/repair, savings truth, and version-drift fallback as
+  one reproducible macOS arm64 release ceremony. Detail:
+  `docs/todo/t240-codex-zero-drawdown-release-certification.md`
 
 ### Sequencing within Phase H
 
@@ -1383,29 +1388,35 @@ only and promotes the per-process Codex CLI runner for T209.
    base-URL env injection is process-local but insufficient for current
    Codex.app conversation routing. T238 is the next Desktop branch: prove or
    reject process-local proxy routing before any Desktop product claim.
-18. **T227 after T226/T225 semantics are known** — collapse top-level UX
+18. **T239 after T238 branch decision** — the launch center can ship once the
+   Desktop button truth is known: proven process-local proxy, or honest
+   direct-only Desktop fallback. Do not design ambiguous Desktop states.
+19. **T240 after T239** — final release certification comes after the launch
+   center exists, because the user-facing path itself must be what gets
+   certified.
+20. **T227 after T226/T238/T239 semantics are known** — collapse top-level UX
    only after the transport and Desktop truth are clear enough to avoid
    renaming confusion twice.
-19. **T229 after scoped route is stable** — hook hotpath socket improves
+21. **T229 after scoped route is stable** — hook hotpath socket improves
    latency and signal quality, but it does not replace the provider route.
-20. **T230 after transport baseline** — output-reduce v2 needs a stable
+22. **T230 after transport baseline** — output-reduce v2 needs a stable
    Codex HTTP/WSS corpus so savings and quality can be measured honestly.
-21. **T231 after live proof** — performance work must use pprof from real
+23. **T231 after live proof** — performance work must use pprof from real
    traffic; no M-series/SIMD/build-flag changes on vibes.
-22. **T232 continuously** — every future surface must be classified as
+24. **T232 continuously** — every future surface must be classified as
    product, fallback, lab, or legacy before it enters docs/help/TUI.
-23. **T233 before resuming T209** — no further scoped Codex HTTP/WSS live
+25. **T233 before resuming T209** — no further scoped Codex HTTP/WSS live
    traffic until Responses-shaped bodies are proven to pass without `stop`.
-24. **T234 before WSS certification** — scoped WSS can answer correctly while
+26. **T234 before WSS certification** — scoped WSS can answer correctly while
    still losing all Phase-F value if one legal non-envelope text frame trips
    degraded mode. Non-mutatable WSS payloads must pass through without
    poisoning the session before T224 can fairly judge real mutation.
-25. **T235 before T226** — T235 is now satisfied: scoped WSS preserved native
+27. **T235 before T226** — T235 is now satisfied: scoped WSS preserved native
    `permessage-deflate`, re-encoded real mutated frames, and kept
    parser/degrade/compression errors at 0. T226 recorded version-matched
    certification through the product path and promotes `transport=auto` to WSS
    for that certified tuple.
-26. **T236 before WSS streamcut** — the HTTP streamcut mechanism closes SSE and
+28. **T236 before WSS streamcut** — the HTTP streamcut mechanism closes SSE and
    emits an SSE terminator. WSS cannot reuse that by blanking deltas: live Codex
    CLI hung. WSS streamcut stays off until a protocol-correct terminal sequence
    is captured, implemented, and live-certified.
@@ -1445,6 +1456,9 @@ only and promotes the per-process Codex CLI runner for T209.
   exposes a usable route.
 - After T239, the normal human surface is the launch center: Launch Codex CLI,
   Launch Codex App, Savings, Status, and Manage Slimference.
+- After T240, the release claim is evidence-backed: Slimference can be enabled,
+  used, repaired, disabled, and uninstalled without making Codex less capable,
+  less stable, more expensive, or more confusing.
 - After T229, Codex hook events use daemon socket RPC on the hot path and fail
   open when the daemon is unavailable.
 - After T230, output-reduce v2 reducers are individually gated, observable,

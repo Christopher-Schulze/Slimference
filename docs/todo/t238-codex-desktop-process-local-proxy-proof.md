@@ -25,6 +25,22 @@ binary contains proxy and WSS proxy surfaces (`HTTP_PROXY`, `HTTPS_PROXY`,
 `network-proxy/*`, and `responses_websocket`). This makes the route plausible
 enough to engineer and live-prove, but not enough to claim success.
 
+## Target State
+
+One of two final states is acceptable:
+
+1. **Desktop Slimference mode proven:** `slimference codex launch-desktop
+   --transport=proxy` starts Codex.app with process-local proxy env, the
+   conversation WSS stream reaches Slimference, WSS Phase-F remains clean, and
+   direct Finder/Spotlight launches remain native.
+2. **Desktop direct-only truth proven:** Codex.app ignores or bypasses every
+   scoped process-local proxy route. Slimference reports Desktop as direct-only
+   and keeps all Desktop savings claims off until upstream exposes a usable
+   route.
+
+No third state is allowed. "Probably working", sideband-only, cosmetic badge,
+or inferred savings is not a product outcome.
+
 ## Acceptance
 
 - Codex.app launched through Slimference can be tested without modifying
@@ -43,6 +59,25 @@ enough to engineer and live-prove, but not enough to claim success.
   direct-only instead of faking success.
 - Any CA trust requirement is explicit, reversible, and visible in Status.
 - Any parse drift or unsupported frame shape fails open to byte-equal tunnel.
+
+## Decision Tree
+
+1. Build scoped proxy launch support without enabling it by default.
+2. Run `--probe` first and verify only the spawned Codex.app process tree would
+   receive proxy env.
+3. Refuse real launch if the CA is not trusted, unless the operator passes an
+   explicit debug override that does not become the product path.
+4. Launch Codex.app from a quiet external terminal, not from the active Codex
+   Desktop session.
+5. Send one minimal Desktop prompt.
+6. Check `lsof` and `/admin/state.wss`.
+7. If conversation WSS is proxied and clean, run a mutation-triggering Desktop
+   prompt before claiming savings.
+8. Quit the Slimference-launched app and relaunch Codex.app from Finder.
+9. Prove Finder launch is direct again.
+10. While Slimference-launched Codex.app is running, prove Browser ChatGPT and
+    ChatGPT.app remain direct.
+11. If any step fails, Desktop remains direct-only with a precise reason.
 
 ## Sub-Tasks
 
@@ -70,8 +105,55 @@ enough to engineer and live-prove, but not enough to claim success.
 - [ ] Run controlled live proof from outside the active Codex Desktop session:
   launch via Slimference, send one prompt, collect `lsof`, `/admin/state.wss`,
   config hash, and direct Browser/ChatGPT.app control evidence.
+- [ ] If minimal prompt proves routing but not mutation, run a Desktop prompt
+  with enough repeated context/tool output to trigger Phase-F mutation.
+- [ ] Add explicit failure-class reporting:
+  `proxy_env_not_inherited`, `connect_not_attempted`, `tls_untrusted`,
+  `cert_pinned`, `wss_bypassed_proxy`, `wss_parse_drift`,
+  `proxied_but_no_mutation_candidate`, `passed`.
+- [ ] Add a `codex desktop status` or equivalent probe output so T239 can render
+  Desktop truth without scraping logs.
 - [ ] Document the final branch decision in `docs/install.md` and the operation
   log: proven proxy mode, direct-only limitation, or upstream-required blocker.
+
+## Engineering Plan
+
+1. **Scoped ingress:** keep the existing global lab CONNECT/MITM code intact,
+   but add a product-scoped Desktop proxy profile that can be enabled without
+   `transparent.enabled`, `sni_peek_mode`, hosts, pfctl, or macOS system proxy.
+2. **Host policy:** intercept only `chatgpt.com` for Desktop proof. Keep all
+   other CONNECT hosts byte-equal passthrough or blocked by explicit allowlist,
+   depending on the existing proxy policy.
+3. **WSS reuse:** reuse the existing `WebSocketTunnel` and Phase-F dispatcher.
+   Do not fork a second WSS parser or a Desktop-only mutation path.
+4. **Env set:** inject `HTTP_PROXY`, `HTTPS_PROXY`, `WSS_PROXY`, `ALL_PROXY`,
+   lowercase variants, `NO_PROXY`, and any Codex-specific proxy guard env found
+   in the binary inspection only into the spawned process.
+5. **Trust gate:** product path requires Slimference CA trusted in Keychain.
+   The launcher must fail before spawn if trust is missing, with one clear
+   repair command.
+6. **Observation:** persist a Desktop launch observation record containing app
+   version, app-server PID, env mode, first loopback connect timestamp, WSS
+   route mode, parse/degrade/compression counters, and direct-control checks.
+7. **Fallback:** if the proxy path fails, leave the machine in the exact direct
+   state and record the failure class. Do not retry by arming global lab mode.
+8. **Docs:** `docs/install.md`, `docs/todo.md`, and operation log must say the
+   same thing: Desktop proven, or Desktop direct-only.
+
+## Live Proof Matrix
+
+| Proof | Required Evidence |
+|---|---|
+| Spawn scope | app-server env contains proxy keys; normal Finder launch env does not |
+| Loopback route | `lsof` shows app-server connected to `127.0.0.1:<port>` |
+| No direct conversation | no app-server direct `chatgpt.com:443` conversation socket during Slimference launch |
+| WSS parser health | `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0` |
+| Savings eligibility | `compressed_messages_inspected>0` and mutation counters advance on a mutation prompt |
+| Browser untouched | browser process remains direct to `chatgpt.com:443` |
+| ChatGPT.app untouched | ChatGPT.app process remains direct if running |
+| Direct fallback | Finder/Spotlight Codex.app relaunch returns direct |
+| Config unchanged | `~/.codex/config.toml` hash unchanged |
+| Global untouched | hosts inactive, pf unchanged, system proxy unchanged |
 
 ## Notes
 
@@ -89,6 +171,10 @@ Known current state:
 Live proof must not be run from this active Codex Desktop session unless the
 operator explicitly accepts the risk of focus/process disruption. A separate
 terminal or a quiet window is required for the proof ceremony.
+
+T238 intentionally does not add a new normal user surface. It only proves the
+Desktop branch and exposes enough status for T239 to render the right button
+behavior.
 
 ## Deviations
 
