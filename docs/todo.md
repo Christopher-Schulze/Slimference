@@ -1232,14 +1232,16 @@ only and promotes the per-process Codex CLI runner for T209.
   --transport=wss`, `codex enable --transport=wss`, scoped local WSS
   upgrades through `wsmitm.Session`, Phase-F frame mutation, debug
   route mode, and byte-equal fallback on schema drift. Default remains
-  stable HTTP until T224 live capture promotes `auto`. Detail:
+  stable HTTP until version-bound T226 certification promotes `auto`.
+  T224 remains the capture/diff gate for indistinguishability wording. Detail:
   `docs/todo/t221-scoped-codex-wss-phasef-mode.md`
 - [x] **T222** Raw scoped WSS frontdoor — pre-live implementation
   landed on the existing `:8990` listener. Codex WSS upgrades are read
   before `net/http`, raw header order/casing/unknown fields are
   preserved with only Host/request-target normalization, then the
-  stream enters the T208 Phase-F WSS adapter. `auto` still waits for
-  T224 live proof before preferring WSS. Detail:
+  stream enters the T208 Phase-F WSS adapter. `auto` now waits for the
+  version-bound T226 local WSS cert before preferring WSS; T224 remains
+  the indistinguishability capture gate. Detail:
   `docs/todo/t222-raw-scoped-wss-frontdoor.md`
 - [ ] **T223** Scoped upstream fingerprint parity — first closure landed:
   scoped HTTP and scoped WSS upstream dials now share the profile-aware
@@ -1257,12 +1259,12 @@ only and promotes the per-process Codex CLI runner for T209.
   telemetry proof of the shared provider route, and launcher fallback
   only if Desktop ignores the scoped route. Detail:
   `docs/todo/t225-codex-desktop-scoped-proof-and-launcher.md`
-- [~] **T226** WSS-first auto promotion — pre-live auto gate is in code:
-  local WSS certification state can promote `auto` to WSS, while missing,
-  stale, parse-failed, or degraded proof falls back to HTTP. `/admin/state`,
-  `status`, `codex status`, TUI Setup, and `codex certify wss` surface or
-  issue the decision. Remaining work: live T224/T209 proof issuance and
-  auto-WSS smoke. Detail:
+- [x] **T226** WSS-first auto promotion — local WSS certification state now
+  promotes `auto` to WSS for the current Codex/Slimference version tuple.
+  Live scoped Codex CLI WSS proof issued the cert after real Phase-F mutation
+  (`frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `parse_failures=0`, `degraded_sessions=0`), auto-WSS survived daemon restart,
+  and Codex-version drift falls back to HTTP. Detail:
   `docs/todo/t226-wss-first-auto-promotion.md`
 - [~] **T227** Codex UX collapse — top-level `slimference enable|disable`
   now operate on scoped Codex route; former global SNI mode is fenced under
@@ -1344,8 +1346,8 @@ only and promotes the per-process Codex CLI runner for T209.
    waits for scoped proof.
 11. **T221 before WSS claims** — scoped WSS is allowed only after the
    existing T208 frame adapter runs on local provider WSS, not only
-   global transparent WSS. T221 defines `auto|wss|http|direct`; after
-   proof, `auto` should prefer WSS.
+   global transparent WSS. T221 defines `auto|wss|http|direct`; T226 now
+   makes `auto` prefer WSS only for certified Codex/Slimference tuples.
 12. **T222 before "old invisibility" claims** — raw Upgrade preservation
    is required before scoped WSS can be compared fairly to the old
    transparent dispatcher.
@@ -1358,9 +1360,10 @@ only and promotes the per-process Codex CLI runner for T209.
 15. **T225 after CLI proof** — Desktop follows only after scoped CLI/WSS
    is stable, because Desktop proof is more stateful and easier to
    confuse with Browser ChatGPT traffic.
-16. **T226 after T224** — WSS-first is the desired end state, but auto
-   promotion is only valid after live scoped raw-WSS proof for the
-   current Codex version.
+16. **T226 after T235** — WSS-first auto promotion is valid only after live
+   scoped raw-WSS Phase-F mutation proof for the current Codex/Slimference
+   version tuple. T224 capture/diff remains the separate gate for
+   indistinguishability wording, not for local auto transport selection.
 17. **T228 after T225 branch decision** — do not build a Desktop launcher
    until real Desktop proof says the shared provider route is insufficient.
 18. **T227 after T226/T225 semantics are known** — collapse top-level UX
@@ -1381,10 +1384,10 @@ only and promotes the per-process Codex CLI runner for T209.
    degraded mode. Non-mutatable WSS payloads must pass through without
    poisoning the session before T224 can fairly judge real mutation.
 25. **T235 before T226** — T235 is now satisfied: scoped WSS preserved native
-   `permessage-deflate`, re-encoded a real mutated frame on two independent
-   Codex CLI runs, and kept parser/degrade/compression errors at 0. T226 may now
-   record version-matched certification through the product path and promote
-   `transport=auto` to WSS for that certified tuple.
+   `permessage-deflate`, re-encoded real mutated frames, and kept
+   parser/degrade/compression errors at 0. T226 recorded version-matched
+   certification through the product path and promotes `transport=auto` to WSS
+   for that certified tuple.
 26. **T236 before WSS streamcut** — the HTTP streamcut mechanism closes SSE and
    emits an SSE terminator. WSS cannot reuse that by blanking deltas: live Codex
    CLI hung. WSS streamcut stays off until a protocol-correct terminal sequence
@@ -1412,7 +1415,7 @@ only and promotes the per-process Codex CLI runner for T209.
   `slimference codex disable`.
 - Codex Desktop target is also WSS-first if scoped provider/launcher proof
   confirms Desktop can be routed without global hosts/pfctl.
-- After T226, `transport=auto` prefers WSS for certified Codex versions and
+- T226 done: `transport=auto` prefers WSS for certified Codex versions and
   falls back to HTTP/direct only under explicit health/version gates.
 - After T227, normal `slimference enable|disable|status` means scoped Codex
   route; global transparent MITM is lab-only and cannot be triggered by

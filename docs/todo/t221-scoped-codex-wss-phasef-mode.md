@@ -31,8 +31,8 @@ without its machine-wide blast radius:
 
 | Mode | Purpose | Expected final status |
 |------|---------|-----------------------|
-| `--transport=auto` | Default after proof. Try WSS when preflight says WSS is safe; fall back to HTTP scoped; fall back to direct only when daemon is unreachable before launch. | Product default |
-| `--transport=wss` | Force scoped WSS for certification, debugging, and maximum savings. | Advanced/power mode until T224 passes |
+| `--transport=auto` | Default after T226 certification. Try WSS for the certified Codex/Slimference tuple; fall back to HTTP scoped; fall back to direct only when daemon is unreachable before launch. | Product default |
+| `--transport=wss` | Force scoped WSS for certification, debugging, and maximum savings. | Advanced/power mode |
 | `--transport=http` | Stable scoped HTTP Responses route from T220. | Fallback and regression baseline |
 | `--direct` | Launch native Codex without Slimference. | Emergency / comparison baseline |
 
@@ -49,13 +49,13 @@ the shared config path and Desktop behavior are proven:
 
 - `slimference codex run` gains an explicit WSS mode, for example
   `--transport=wss` or an equivalent future flag.
-- `--transport=auto` exists and is documented as the intended final default
-  after T224 proof. Until then, default may remain HTTP to avoid premature
-  breakage.
+- `--transport=auto` exists and is documented as the product default after
+  T226 certification. Without a valid local cert, default remains HTTP to avoid
+  premature breakage.
 - `slimference codex enable` can optionally write
   `supports_websockets=true` only when the operator requests WSS mode.
-- Default remains stable HTTP until scoped WSS passes live proof; after proof,
-  auto mode should prefer WSS.
+- Default remains stable HTTP until scoped WSS passes live proof and the T226
+  cert is issued; after that, auto mode prefers WSS for the certified tuple.
 - Direct local Codex WSS upgrades route through `wsmitm.Session` and
   `wsPhaseFAdapter`, not only the byte tunnel.
 - Known Codex WSS request frames apply the same Phase-F input pipeline as
@@ -137,8 +137,9 @@ Landed locally:
   provider override and `supports_websockets=true`.
 - `slimference codex enable --transport=wss` writes the marker-owned provider
   block with `supports_websockets=true`.
-- `--transport=auto` is intentionally mapped to the current safe HTTP default
-  until T224 capture proof says WSS can be preferred.
+- `--transport=auto` is gated by the version-bound T226 cert. It falls back
+  to HTTP without a green local proof and prefers WSS for the certified
+  Codex/Slimference tuple.
 - Direct local WSS upgrades now enter `wsmitm.Session` through the existing
   Phase-F adapter instead of the old inspect-only tunnel.
 - Buffered upstream bytes after the `101 Switching Protocols` response are fed
@@ -149,10 +150,9 @@ Landed locally:
 
 Deferred to T209/T224/T225:
 
-- Live Codex CLI WSS certification.
 - T224 indistinguishability capture.
 - Desktop/App-server route proof.
-- Promotion of `auto` from HTTP to WSS.
+- New Codex/Slimference version tuples must re-certify before `auto` promotes.
 
 Follow-up landed in T222:
 

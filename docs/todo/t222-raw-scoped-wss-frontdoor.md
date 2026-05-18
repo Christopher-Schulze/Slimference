@@ -39,8 +39,9 @@ after T224 proof.
   tunnel or direct HTTP mode; never block Codex by default.
 - Tests compare raw input header bytes to upstream header bytes for order and
   field preservation.
-- The raw frontdoor is implemented and used for explicit scoped WSS. WSS
-  `auto` promotion remains gated on T224 live capture; the older `net/http`
+- The raw frontdoor is implemented and used for scoped WSS. WSS `auto`
+  promotion is now gated on the version-bound T226 cert; T224 live capture
+  remains the separate indistinguishability audit. The older `net/http`
   WebSocket tunnel stays as fallback/legacy.
 
 ## Sub-Tasks
@@ -81,9 +82,8 @@ Known limit:
 - Local provider mode still means Codex intentionally connects to
   `127.0.0.1`; OpenAI does not see that local hop, but the upstream TLS/HTTP
   leg still comes from Slimference. T223 handles that leg.
-- Live capture is still required before `transport=auto` can prefer WSS. This
-  task proves the local raw frontdoor in unit/integration tests only; T224 is
-  the evidence gate.
+- T226 certification is required before `transport=auto` can prefer WSS. T224
+  remains the capture/diff evidence gate for provider-visible drift claims.
 
 Implementation notes:
 

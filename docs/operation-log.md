@@ -494,3 +494,250 @@ End live state ratified:
 - Claude Code untouched.
 - No global lab. No `/etc/hosts`/pf/Keychain side effects.
 - Ready for Codex to land T226 certify command on top of this state.
+
+---
+
+## 2026-05-18 — T226 Live Verify (Phase 1: Negative-Path Hardening, Positive-Path Blocked)
+
+Driver: Claude Opus 4.7 live, after Codex committed T226 as
+`f0041e1 TASK 226: scoped Codex WSS auto-promotion via codex certify command`.
+
+Goal of this phase: rebuild on T226 binary, restart daemon, generate a
+live Phase-F mutation, then run `slimference codex certify wss` to
+issue the cert and verify auto=WSS promotion.
+
+What landed:
+- Build + install: stripped binary at `./slimference` and
+  `~/.local/bin/slimference`, SHA
+  `1581a83c077ada5aa26ea3fc751af37b53ca4f8a0c0ab53e352b7fd4d20afa17`.
+- Daemon restarted: old PID 89080 SIGTERM'd, fresh PID `7290` running
+  the T226 binary on :8990, HTTP 200.
+- `slimference codex --help` now lists `certify` subcommand.
+
+Mutation-trigger attempts (3 prompts, all returned correct responses,
+none triggered Phase-F mutation):
+
+1. `exec "Execute the shell command 'git ls-files | head -5' a first
+   time, then execute the EXACT same shell command a second time.
+   After both executions reply with exactly: REUSE_OK"`
+   - Codex executed git ls-files ONCE (model planner optimised away
+     the redundant call). Response: `REUSE_OK`, exit 0.
+   - Counters: parse_failures=0, degraded_sessions=0,
+     compression_errors=0, frames_reencoded=0,
+     compressed_messages_mutated=0, compressed_messages_inspected=844.
+
+2. `exec "Output the exact line 'REPDET_TEST_LINE' fifteen times,
+   each on its own line, then the final line 'REUSE_OK'. No
+   commentary, no other text."`
+   - Codex emitted 15 identical lines + REUSE_OK, exit 0.
+   - Counters: same green flags, frames_reencoded still 0,
+     compressed_messages_inspected 936, repdet_rewrites=0,
+     repdet_bytes_saved=0. Repdet did not fire on a single-turn
+     repeated literal pattern (likely requires multi-turn context or
+     a different trigger shape).
+
+Both attempts confirm: post-T226 binary is functionally safe (Phase-F
+pipeline inspects every compressed message, no parse / degrade /
+compression errors, caps unhit), but neither prompt generated a
+StaleReadAging, ObsoleteReadPrune, Layer-0 dedup, or Repdet
+mutation. Codex's original L0_GIT_OK proof on the pre-cap binary
+(saving 1059 input tokens cumulative) was almost certainly a
+multi-turn / multi-tool-call setup not reproducible from a single
+`codex exec` prompt.
+
+Negative-path verification of the certify command (HARD GREEN):
+
+- `slimference codex certify wss --dry-run` (with live state showing
+  frames_reencoded=0): refused with exit code 1 and printed:
+    codex certify: WSS proof is not green
+      wss.frames_reencoded got=0 want=>0
+      wss.compressed_messages_mutated got=0 want=>0
+      wss.mutation_active got=false want=true
+      wss.byte_bridge_only got=true want=false
+  No file written.
+
+- `slimference codex certify wss` (live, no flags): identical refusal,
+  exit code 1, no file written.
+
+- `~/.slimference/codex-wss-cert.json`: absent (verified by `ls`).
+
+- `slimference codex status --json`:
+    auto.transport         = "http"
+    auto.wss_certified     = false
+    auto.fallback_reason   = "wss certification missing"
+    auto.certification_path = "/Users/christopher/.slimference/codex-wss-cert.json"
+
+- CODEX_BIN override accepted: stub script returning
+  `codex-cli 0.99.0-drift-test` was honored by the certify command's
+  version probe. Drift falsification of an EXISTING cert cannot be
+  observed live until a cert exists; the eight DecideAutoTransport
+  fallback branches are covered by Codex's certification_test.go
+  contract.
+
+State after the live phase:
+- Daemon PID `7290` healthy on :8990, T226 binary.
+- `slimference disable` returned the marker block.
+- `~/.codex/config.toml` SHA after disable:
+  `0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`
+  — bit-identical to baseline.
+- `:8443=false`, `:443=false`, hosts inactive, route disabled.
+- No `~/.slimference/codex-wss-cert.json`.
+- Drift-test stub removed.
+- Working tree before this op-log append: clean. Will be one modified
+  file (this op-log) afterwards.
+- No global lab, no /etc/hosts, no pfctl, no Keychain, no env routing.
+- Claude Code untouched.
+
+Decision and handoff:
+- T226 NEGATIVE PATHS are LIVE-VERIFIED and behave exactly as
+  specified. The cert command refuses correctly, exits 1, lists every
+  violated criterion with got/want values, never touches the
+  filesystem on refusal.
+- T226 POSITIVE PATH (live cert issue + auto=WSS proof + drift
+  falsification of an existing cert) is BLOCKED on producing a real
+  Phase-F mutation. From a single `codex exec` prompt this is not
+  reliably reproducible.
+- Next handover: Codex must specify a reproducible mutation trigger.
+  Two viable shapes:
+    (a) A multi-turn Codex session prompt that exercises
+        StaleReadAging or ObsoleteReadPrune via re-reading the same
+        file across turns. Sequence:
+          slimference codex run --transport=wss -- exec "..."
+          slimference codex run --transport=wss -- exec "..." (resume)
+        Document the exact two prompts that triggered L0_GIT_OK
+        originally so Opus can reproduce it byte-for-byte.
+    (b) A repdet-triggering single-turn prompt that is known to fire
+        applyRepdetDelta or applyRepdetResponse on Codex 0.130. The
+        prompt must produce a response stream whose pattern shape
+        matches what wsmitm_phasef.go:183-188 detects. The 15-line
+        identical literal did not match.
+- Once Codex supplies the trigger, Opus runs:
+    1. The trigger prompt -> confirm /admin/state.wss shows
+       frames_reencoded>0 and compressed_messages_mutated>0 in a
+       single observation cycle.
+    2. `slimference codex certify wss --dry-run` -> JSON shape check.
+    3. `slimference codex certify wss --operator "opus-verify"
+       --notes "T226 live issue"` -> writes the cert.
+    4. `slimference codex status --json` -> auto.wss_certified=true.
+    5. Two `--transport=auto` runs with daemon restart between.
+    6. Drift falsification: stub codex version via CODEX_BIN, observe
+       DecideAutoTransport fallback to http with correct
+       fallback_reason.
+    7. Append "T226 WSS Auto Promotion" final section to this log.
+
+Ratified end state for Codex handover:
+- HEAD `f0041e1`, working tree has this op-log append as the only
+  modification.
+- Binary `1581a83c...0afa17` in both binary paths.
+- Daemon PID `7290` healthy.
+- `~/.codex/config.toml` SHA equal to baseline.
+- No cert file.
+- Codex CLI fully functional via slimference scoped path; verified by
+  three live runs returning correct sentinel responses with exit 0.
+
+---
+
+## 2026-05-18 — T226 Live Verify (Phase 2: Real Mutation, Cert Issue, Auto-WSS Promotion)
+
+Driver: Codex live, continuing from Opus Phase 1 evidence on
+`f0041e1 TASK 226: scoped Codex WSS auto-promotion via codex certify command`.
+
+Initial state:
+- Daemon PID `7290` healthy on `:8990`.
+- Binary SHA in both `./slimference` and `~/.local/bin/slimference`:
+  `1581a83c077ada5aa26ea3fc751af37b53ca4f8a0c0ab53e352b7fd4d20afa17`.
+- `~/.codex/config.toml` SHA:
+  `0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`.
+- `:8443=false`, `:443=false`, hosts inactive, route disabled.
+- No `~/.slimference/codex-wss-cert.json`.
+- `slimference codex certify wss --dry-run` correctly refused because
+  `frames_reencoded=0`, `compressed_messages_mutated=0`,
+  `mutation_active=false`, and `byte_bridge_only=true`.
+
+Real mutation trigger:
+
+1. Created a temporary Git repo:
+   `tmpdir=/tmp/slimf-l0-live.5lN7we`,
+   `git -C "$tmpdir" init -q`, then 160 untracked
+   `synthetic_*.go` files.
+2. Ran:
+   `slimference codex run --transport=wss -- exec "Run exactly this shell command once: git -C /tmp/slimf-l0-live.5lN7we status --short . After the command finishes, reply with exactly: L0_LIVE_OK"`.
+3. Codex executed:
+   `/opt/homebrew/bin/bash -lc 'git -C /tmp/slimf-l0-live.5lN7we status --short .'`
+   and returned `L0_LIVE_OK`, exit 0.
+
+Counter snapshot after the live WSS mutation:
+- `mitm_bridged=5`
+- `c2s_frames=11`
+- `s2c_frames=990`
+- `frames_reencoded=1`
+- `compressed_messages_inspected=1001`
+- `compressed_messages_mutated=1`
+- `compressed_messages_bypassed=0`
+- `compression_errors=0`
+- `phasef_requests=11`
+- `phasef_request_bodies=11`
+- `phasef_request_messages_indexed=8`
+- `phasef_text_deltas=926`
+- `phasef_terminal_responses=9`
+- `phasef_mutations=1`
+- `mutation_active=true`
+- `byte_bridge_only=false`
+- `parse_failures=0`
+- `degraded_sessions=0`
+- `input_tokens_saved=939`
+- `stop_seq_injections=0`
+
+Cert issue:
+- `slimference codex certify wss --dry-run --operator codex-live --notes "T226 real scoped WSS Layer-0 git status trigger"` printed a valid JSON proof:
+  `schema_version=1`, `transport=wss`,
+  `route_profile=scoped_raw_wss_phasef`, `codex_version=0.130.0`,
+  `slimference_version=2.0.2`, `passed=true`, `frames_reencoded=1`,
+  `degraded_sessions=0`, `parse_failures=0`.
+- `slimference codex certify wss --operator codex-live --notes "T226 real scoped WSS Layer-0 git status trigger"` wrote:
+  `/Users/christopher/.slimference/codex-wss-cert.json`.
+- Cert JSON verified with `jq`; timestamp:
+  `2026-05-18T09:45:38.152136Z`.
+
+Auto-WSS proof:
+- `slimference codex status --json` reported:
+  `auto.transport=wss`, `auto.wss_certified=true`,
+  `certified_codex_version=0.130.0`,
+  `certified_slimference_version=2.0.2`.
+- `slimference status --preflight` reported:
+  `Codex route_enabled=false complete=false transport=off auto=wss wss_certified=true daemon=true`.
+- `slimference codex run --transport=auto -- exec "Reply with exactly: AUTO_WSS_OK"`
+  returned `AUTO_WSS_OK`, exit 0. WSS counters advanced:
+  `mitm_bridged 5 -> 6`, `c2s_frames 11 -> 13`,
+  `compressed_messages_inspected 1001 -> 1019`, with
+  `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`.
+
+Version-drift falsification:
+- A temporary `CODEX_BIN` stub returning `codex-cli 0.130.1` made
+  `slimference codex status --json` resolve:
+  `auto.transport=http`, `auto.wss_certified=false`,
+  `fallback_reason="codex version changed since wss certification"`.
+- Stub removed after the check.
+
+Daemon-restart persistence:
+- `slimference restart` stopped PID `7290` and started PID `12310` on `:8990`.
+- `~/.slimference/run/daemon.pid` contains `12310`; `ps` confirms
+  `/Users/christopher/CODE/Slimference/slimference daemon`.
+- After restart, `slimference codex status --json` still reported
+  `auto.transport=wss`, `auto.wss_certified=true`.
+- `slimference codex run --transport=auto -- exec "Reply with exactly: AUTO_RESTART_OK"`
+  returned `AUTO_RESTART_OK`, exit 0. Fresh-daemon WSS counters:
+  `mitm_bridged=1`, `c2s_frames=2`, `s2c_frames=16`,
+  `compressed_messages_inspected=18`, `parse_failures=0`,
+  `degraded_sessions=0`, `compression_errors=0`.
+
+Final state:
+- Daemon PID `12310` healthy on `:8990`.
+- `~/.codex/config.toml` SHA remains
+  `0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`.
+- `:8443=false`, `:443=false`, hosts inactive, route disabled.
+- Claude Code untouched; no Anthropic routing, no Claude hooks.
+- No global lab, no `/etc/hosts`, no pfctl, no Keychain, no system proxy.
+- T226 positive path is complete: real scoped Codex CLI WSS mutation,
+  cert issue, auto-WSS promotion, daemon-restart persistence, and version
+  drift fallback are all live-verified.

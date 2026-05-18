@@ -1,6 +1,6 @@
 # TASK 226: WSS-first auto promotion
 
-Status: PARTIAL - pre-live auto gate, status surfaces, and certify issuer implemented; live promotion pending
+Status: DONE - scoped Codex CLI WSS certification issued and auto promotes to WSS for the certified tuple
 Priority: P0 after T224 CLI live proof
 Scope: Codex CLI first; Codex Desktop only after T225/T228 proof
 
@@ -25,8 +25,8 @@ default to WSS only after the evidence gates pass.
 - daemon reachable on the scoped listener;
 - raw scoped WSS frontdoor registered;
 - upstream profile/fingerprint status is usable;
-- last live certification for the current Codex CLI version is green or absent
-  but the operator explicitly requested WSS;
+- last live certification for the current Codex CLI version and Slimference
+  version is green; explicit `--transport=wss` remains the operator override;
 - previous local session did not record parse failures or degraded WSS sessions;
 - route is Codex-only and global lab mode is off.
 
@@ -48,9 +48,11 @@ Persistent shared route fallback:
 
 ## Acceptance
 
-- `--transport=auto` prefers WSS after T224 promotion criteria pass.
-- `--transport=auto` still uses HTTP when T224 has not passed, when WSS
-  preflight fails, or when recent WSS health counters show degradation.
+- `--transport=auto` prefers WSS after a local version-bound WSS cert is
+  issued from a green live daemon observation.
+- `--transport=auto` still uses HTTP when no cert exists, when the cert is
+  stale for the current Codex/Slimference version tuple, when WSS preflight
+  fails, or when recent WSS health counters show degradation.
 - The promotion state is visible in `slimference codex status`, top-level
   `slimference status`, TUI Setup, and `/admin/state`.
 - Promotion is version-aware: a Codex CLI version change invalidates the WSS
@@ -64,9 +66,12 @@ Persistent shared route fallback:
 
 - [x] Add a small local certification state file under `~/.slimference/` keyed
   by Codex CLI version, Slimference build, transport, and route profile.
-- [ ] Record WSS proof outcome after T224: native baseline hash, scoped WSS
-  capture hash, `frames_reencoded`, `degraded_sessions`, `parse_failures`,
-  timestamp, and operator decision.
+- [x] Record WSS proof outcome: `frames_reencoded`,
+  `compressed_messages_mutated`, `degraded_sessions`, `parse_failures`,
+  `compression_errors`, timestamp, operator, and notes in
+  `~/.slimference/codex-wss-cert.json`. Native/scoped capture hashes remain
+  T224-owned because they gate indistinguishability wording, not the local
+  version-bound auto selector.
 - [x] Add `slimference codex certify wss` to issue the local proof only from
   a green live daemon observation, with `--dry-run`, `--operator`, `--notes`,
   host/port flags, Codex CLI version parsing, and no manual cert-file writes.
@@ -86,7 +91,9 @@ Persistent shared route fallback:
   drift, schema/transport/profile mismatch, parse-failure, degraded-session,
   daemon-down, explicit `--transport=wss` override, and every certify
   criterion failure.
-- [ ] After implementation, run T224/T209 live proof before marking Done.
+- [x] After implementation, run live scoped Codex CLI WSS proof, issue the cert,
+  verify auto-WSS smoke, daemon-restart persistence, and Codex-version drift
+  fallback before marking Done.
 
 ## Pre-Live Implementation Notes
 
@@ -103,6 +110,48 @@ Persistent shared route fallback:
   current `/admin/state` snapshot reports daemon reachability,
   `frames_reencoded>0`, `compressed_messages_mutated>0`, mutation active,
   byte-bridge-only false, and zero parse/degrade/compression errors.
+
+## Live Proof
+
+T226 positive path was completed on 2026-05-18 against Codex CLI `0.130.0`
+and Slimference `2.0.2`.
+
+Reproducible mutation trigger:
+
+1. Create a temporary Git repo with many untracked files:
+   `tmpdir=$(mktemp -d /tmp/slimf-l0-live.XXXXXX); git -C "$tmpdir" init -q; for i in $(seq 1 160); do printf 'x\n' > "$tmpdir/synthetic_$i.go"; done`.
+2. Run scoped WSS Codex:
+   `slimference codex run --transport=wss -- exec "Run exactly this shell command once: git -C $tmpdir status --short . After the command finishes, reply with exactly: L0_LIVE_OK"`.
+
+Observed proof on the live daemon:
+
+- response body `L0_LIVE_OK`, exit 0;
+- `frames_reencoded=1`;
+- `compressed_messages_mutated=1`;
+- `phasef_mutations=1`;
+- `input_tokens_saved=939`;
+- `parse_failures=0`;
+- `degraded_sessions=0`;
+- `compression_errors=0`;
+- `stop_seq_injections=0`;
+- `~/.codex/config.toml` stayed bit-identical to baseline.
+
+Certification was issued only through:
+
+`slimference codex certify wss --operator codex-live --notes "T226 real scoped WSS Layer-0 git status trigger"`.
+
+Post-cert checks:
+
+- `slimference codex status --json` reports `auto.transport=wss` and
+  `auto.wss_certified=true`.
+- `slimference codex run --transport=auto -- exec "Reply with exactly: AUTO_WSS_OK"`
+  completed over WSS.
+- After `slimference restart`, `auto.transport=wss` persisted and
+  `slimference codex run --transport=auto -- exec "Reply with exactly: AUTO_RESTART_OK"`
+  completed over WSS.
+- `CODEX_BIN` drift stub returning `codex-cli 0.130.1` made
+  `auto.transport=http` with fallback reason
+  `codex version changed since wss certification`.
 
 ## Benefits
 

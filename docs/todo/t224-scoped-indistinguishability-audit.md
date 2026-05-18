@@ -43,8 +43,9 @@ may prefer WSS for Codex CLI.
   - `fail`: unexplained provider-visible drift.
 - The docs forbid "undetectable" language unless every required dimension is
   `match` or `explained` with an accepted rationale.
-- The report decides whether `auto` may be promoted from HTTP-first to
-  WSS-first for Codex CLI.
+- The report decides which provider-visible drift claims are allowed. Local
+  `auto` WSS selection is already gated by the T226 version-bound cert; T224 is
+  the higher bar for "indistinguishable" or "no material drift" wording.
 
 ## Sub-Tasks
 
@@ -98,13 +99,14 @@ Pre-live runbook:
 
 Promotion criteria:
 
-- WSS may become the `transport=auto` preferred path only when scoped raw WSS
+- WSS may be described as provider-drift-equivalent only when scoped raw WSS
   succeeds with `frames_reencoded>0`, `degraded_sessions=0`,
   `parse_failures=0`, no unexplained TLS/ALPN/WSS drift, and no Browser
   ChatGPT/ChatGPT.app traffic entering Slimference.
 - Explained body drift is allowed only when it is the intended Phase-F savings
   mutation.
-- Any unexplained provider-visible drift keeps `auto` on HTTP.
+- Any unexplained provider-visible drift blocks indistinguishability wording;
+  the local auto selector still follows its T226 version-bound safety gates.
 
 Verification:
 

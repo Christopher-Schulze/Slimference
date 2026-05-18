@@ -165,8 +165,8 @@ when later request frames carry matching tool outputs.
 - [x] Run full gates.
 - [x] Rebuild/install/restart daemon.
 - [x] Run live scoped WSS mutation proof and append operation-log evidence.
-- [x] Leave T226 blocked until the criteria passed twice; T226 may now consume
-  the proof through the certification path.
+- [x] Keep T226 blocked until the criteria passed twice; T226 later consumed
+  the proof through the certification path and issued the local WSS cert.
 - [x] Split unsafe WSS streamcut terminal behavior into T236 and keep it off in
   WSS Phase-F.
 

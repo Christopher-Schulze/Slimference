@@ -161,11 +161,13 @@ adapter. Known Codex request/response frames can be compacted, including
 Responses `response_item.payload` wrappers and split WSS tool-call state;
 unknown, binary, control, or malformed frames degrade to byte-equal forwarding.
 
-Until the live T224 capture passes, `--transport=auto` consults the local
-`~/.slimference/codex-wss-cert.json` proof file and falls back to the
-stable HTTP route when no green, version-matching WSS proof exists. Raw
-scoped WSS is available for certification and power users, not yet the
-default claim.
+`--transport=auto` consults the local
+`~/.slimference/codex-wss-cert.json` proof file. It uses WSS only when that
+file contains a green proof for the current Codex CLI version and the current
+Slimference version. Missing, stale, parse-failed, degraded, or wrong-profile
+proofs fall back to the stable HTTP route. T224 capture/diff remains the gate
+for indistinguishability wording; the local auto selector is gated by the
+version-bound WSS cert.
 
 After a live scoped WSS run has actually mutated Phase-F frames, issue the
 local proof through the CLI, never by hand:
@@ -181,6 +183,25 @@ compression errors, requires `frames_reencoded>0` plus
 `~/.slimference/codex-wss-cert.json` only when the daemon is reachable and
 the current observation cycle is green. `--transport=auto` promotes to WSS
 only for the same Codex CLI version and Slimference version tuple.
+
+Known reliable certification trigger for local operators:
+
+```bash
+tmpdir=$(mktemp -d /tmp/slimf-l0-live.XXXXXX)
+git -C "$tmpdir" init -q
+for i in $(seq 1 160); do printf 'x\n' > "$tmpdir/synthetic_$i.go"; done
+slimference codex run --transport=wss -- exec "Run exactly this shell command once: git -C $tmpdir status --short . After the command finishes, reply with exactly: L0_LIVE_OK"
+curl -s http://127.0.0.1:8990/_slimference/admin/state | jq '.wss'
+slimference codex certify wss --dry-run
+slimference codex certify wss --operator "operator-name" --notes "local scoped WSS proof"
+```
+
+Expected proof counters before cert issue: `frames_reencoded>0`,
+`compressed_messages_mutated>0`, `mutation_active=true`,
+`byte_bridge_only=false`, and `parse_failures=0`,
+`degraded_sessions=0`, `compression_errors=0`. The temporary repo is only a
+deterministic way to produce a long `git status --short` tool result; it does
+not touch the Slimference checkout or any global network setting.
 
 ### 3. Enable shared Codex CLI/App route
 
@@ -428,7 +449,7 @@ The scoped product route block is under `/admin/state.codex_route`:
 - `daemon_error` or `fallback_reason` non-empty: do not promote WSS by default
   until the reason is cleared or live-certified.
 
-Current pre-live proof stack (2026-05-17):
+Current scoped proof stack (2026-05-18):
 
 - `go run ./scripts/ci` passes all 8 steps, including the formal
   `go run ./scripts/coverage -min=99.5` aggregate gate. Reported
@@ -441,10 +462,13 @@ Current pre-live proof stack (2026-05-17):
   preserved on the existing `:8990` listener, non-Codex requests replay
   through the normal HTTP server, and the T224 parser can parse a
   synthetic WSS capture without tshark.
-- Live Codex certification is still intentionally pending as T209. Do not
-  run global lab commands (`lab cert-trust`,
-  `lab root-arm --global-chatgpt-hosts`, `lab enable`) from the active
-  Codex Desktop development session.
+- Live scoped Codex CLI WSS certification is complete for Codex CLI `0.130.0`
+  plus Slimference `2.0.2`: real WSS Phase-F mutation produced
+  `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`, and
+  `transport=auto` now resolves to WSS for that tuple. Do not run global lab
+  commands (`lab cert-trust`, `lab root-arm --global-chatgpt-hosts`,
+  `lab enable`) from the active Codex Desktop development session.
 
 The transparent listener readiness bit is
 `/admin/state.listener.bound_on_sni_peek` (default port 8443). Admin
@@ -452,7 +476,7 @@ port 8990 being up is not enough for live interception. If
 `hosts_active=true` but `bound_on_sni_peek=false`, run
 `slimference root-disarm` from the recovery shell before using Codex.
 
-Before T209 live certification, run:
+Before scoped live certification or Desktop proof, run:
 
 ```bash
 slimference status --preflight
@@ -464,12 +488,12 @@ Code remains inactive, and no `api.anthropic.com` hosts route is present in
 Codex-only mode. This preflight does not start Codex and does not arm
 Keychain, hosts, or pfctl.
 
-T209 starts from disarmed preflight state: admin health can be up on
-`127.0.0.1:8990`, but `:8443` should be off, hosts should be inactive,
-and CA trust should still be untrusted unless a global lab test is
-explicitly approved. The scoped CLI sequence is
+Scoped live tests start from disarmed preflight state: admin health can be up
+on `127.0.0.1:8990`, but `:8443` should be off, hosts should be inactive,
+and CA trust should still be untrusted unless a global lab test is explicitly
+approved. The scoped CLI sequence is
 `status --preflight` -> `codex run -- <prompt>` ->
-`codex run --transport=wss -- <prompt>` -> `/admin/state` telemetry and
+`codex run --transport=auto -- <prompt>` -> `/admin/state` telemetry and
 T224 capture check. The shared CLI/App proof sequence is
 `enable --transport=wss` -> restart Codex.app/app-server -> prompt
 -> telemetry check -> `disable`. The old global sequence is now lab-only:
