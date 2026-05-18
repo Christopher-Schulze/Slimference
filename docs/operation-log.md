@@ -741,3 +741,383 @@ Final state:
 - T226 positive path is complete: real scoped Codex CLI WSS mutation,
   cert issue, auto-WSS promotion, daemon-restart persistence, and version
   drift fallback are all live-verified.
+
+---
+
+## 2026-05-18 — T226 Final Closure: Auto=WSS Live Verified by Opus
+
+After Codex committed `9ddcbfb TASK 226: certify scoped Codex WSS auto
+promotion live`, Opus performed independent post-cert verification:
+
+Cert file inspected:
+- `~/.slimference/codex-wss-cert.json`, 384 B
+- schema_version=1, transport=wss, route_profile=scoped_raw_wss_phasef
+- codex_version=0.130.0, slimference_version=2.0.2
+- passed=true, frames_reencoded=1, degraded_sessions=0, parse_failures=0
+- timestamp=2026-05-18T09:45:38Z (recent), operator=codex-live
+- notes="T226 real scoped WSS Layer-0 git status trigger"
+
+slimference codex status --json now reads:
+  auto.transport         = "wss"
+  auto.wss_certified     = true
+  auto.certified_codex_version = "0.130.0"
+  auto.certified_slimference_version = "2.0.2"
+  auto.fallback_reason   absent
+
+slimference status --preflight shows:
+  Codex auto=wss wss_certified=true daemon=true
+
+Live `--transport=auto` smoke (independent of Codex's runs):
+- First attempt timed out at 60s — transient ChatGPT-Auth latency, not
+  a Slimference bug. State stayed disarmed and clean.
+- Retry with 180s timeout: response `AUTO_OK`, exit 0, elapsed 7s.
+- WSS counter delta: mitm_bridged +1, frames_forwarded +18, all error
+  counters 0, frames_reencoded delta 0 (sentinel prompt has no Layer-0
+  reuse candidate; mutation continuity already proven by Codex's
+  certification run, not by every subsequent invocation).
+
+Drift falsification (HARD GREEN):
+- Stub `codex-cli 0.130.1-drift` injected via CODEX_BIN.
+- `slimference codex status --json` returned:
+    auto.transport = "http"
+    auto.wss_certified = false
+    auto.fallback_reason = "codex version changed since wss certification"
+    auto.certified_codex_version = "0.130.0"  (stored cert, unchanged)
+- Restore real codex → status returns auto.transport=wss without
+  re-issue (LoadCertification still finds the stored record).
+- Cert file untouched by the drift probe.
+
+`~/.codex/config.toml` SHA after enable/disable cycle:
+`0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`
+— bit-identical to baseline across the entire T226 ceremony.
+
+System state at end of T226:
+- HEAD `9ddcbfb`, working tree clean (one append to this op-log
+  follows; it is intentionally untracked / picked up later).
+- Daemon PID 12310, healthy, T226 binary
+  `1581a83c077ada5aa26ea3fc751af37b53ca4f8a0c0ab53e352b7fd4d20afa17`.
+- :8443=false, :443=false, hosts inactive, route disabled.
+- Codex auto-transport unlocked to WSS for the codex 0.130.0 +
+  slimference 2.0.2 version tuple. Any drift in either side falls
+  back to HTTP deterministically.
+- Claude Code untouched. No global lab. No /etc/hosts. No pfctl. No
+  Keychain trust. No system proxy.
+
+T226 closed. Next: T224 indistinguishability audit (capture-based,
+does NOT gate auto=WSS, only gates "indistinguishable" claims) and
+T225 Codex Desktop App proof (does Desktop respect the scoped
+provider route).
+
+Preflight for T224/T225 (Opus side):
+- tshark 4.6.5 at /opt/homebrew/bin/tshark; /dev/bpf* is
+  crw------- root:wheel, so captures require `sudo tshark` (one
+  password prompt per session) or the Wireshark "Install ChmodBPF"
+  launchd helper for persistent access.
+- indist_probe builds cleanly via `go build ./scripts/utils/indist_probe`.
+  Subcommands: capture, diff, lock-golden.
+- en0 is the active interface (192.168.33.113).
+- /Applications/Codex.app exists (created 2026-05-17 01:12). T225 can
+  proceed once the operator agrees to restart the desktop app.
+- research/indist/ created and confirmed gitignored.
+
+---
+
+## 2026-05-18 — T225 Codex Desktop App Live Test (PARTIAL: sideband yes, conversation no)
+
+Driver: Claude Opus 4.7 live with operator action (Codex.app restart
++ in-app prompt).
+
+Setup:
+- HEAD `9ddcbfb` (T226 closed, auto=WSS active).
+- Daemon PID 12310, healthy on :8990.
+- `slimference enable` wrote marker block to `~/.codex/config.toml`
+  with `transport=wss` (auto resolved to WSS via cert),
+  `supports_websockets=true`, `wire_api=responses`.
+- Operator: Cmd+Q Codex.app, reopened, sent one prompt in the chat UI
+  ("Sag Hallo in einem Wort").
+
+Screenshot evidence:
+- Codex.app UI shows "Slimference Codex" as the active provider in
+  the model picker chip. Proves the app READ the marker block and
+  loaded the provider definition.
+
+Live network reality (via lsof on Codex app-server child process
+`codex` PID 24925):
+  TCP 192.168.33.113:63937 -> 172.64.155.209:443 (ESTABLISHED)
+  TCP 127.0.0.1:63976 -> 127.0.0.1:8990 (ESTABLISHED)
+  TCP 127.0.0.1:63979 -> 127.0.0.1:8990 (ESTABLISHED)
+
+- 172.64.155.209 is Cloudflare ChatGPT IP. That direct TLS 443
+  connection carries the conversation. Slimference never sees it.
+- The two 127.0.0.1:8990 connections are sideband only.
+
+WSS counter delta over the full Codex.app interaction:
+  mitm_bridged           +2  (the two sideband sessions)
+  compressed_messages_inspected  +0
+  frames_forwarded       +0
+  bytes_c2s              +0
+  bytes_s2c              +0
+  frames_reencoded       +0
+  parse_failures         +0
+  degraded_sessions      +0
+
+25-second passive observation after the prompt: every counter flat.
+The two sideband connections stayed established but never carried any
+WSS Phase-F traffic.
+
+Interpretation:
+- This live test confirms the prediction from the user's own
+  pre-existing config.toml comment, written long before T209/T220:
+  "Codex 0.130 hardcodes CHATGPT_CODEX_BASE_URL for ChatGPT-auth
+  conversation traffic ... These two config keys only affect sideband
+  endpoints (memories, plugins, login). They do NOT redirect the
+  conversation."
+- Codex.app reads `model_provider="slimference-codex"` and USES it
+  for sideband endpoints, but the ChatGPT-auth conversation WSS is
+  hardcoded to chatgpt.com and bypasses Slimference entirely.
+- T225 acceptance criterion ("Desktop traffic must hit scoped WSS")
+  is therefore NOT met by the marker-route alone. Slimference's
+  marker block is necessary but not sufficient for Desktop.
+- Codex CLI auto=WSS path remains unaffected and live-certified
+  (T226). This is a Desktop-only finding.
+
+Cleanup:
+- `slimference disable` returned "removed_block", exit 0.
+- `route.enabled=false`, `route.complete=false`.
+- `auto.transport=wss`, `auto.wss_certified=true` (cert file
+  unaffected by enable/disable cycle, correct).
+- `~/.codex/config.toml` SHA after disable:
+  `f7ab2ef254a466e76e2da882dcdcdb3ca4a7652c7ba60263f6b982ca0ae173b8`
+  — different from the earlier session baseline
+  `0a1ce7a471fa4d4496a56604289cc5bb5402469b50086c4427310b7c99cccc67`,
+  but the difference is owned by Codex.app, not by Slimference.
+  Verified by diffing the pre-enable backup
+  `~/.codex/config.toml.slimference-codex-route-backup-20260518T102228`
+  (SHA `5ddf5b02b83b165656dabc2e042013c89f19cd5956284d1be5b7e7f4837eeedd`)
+  against the current file: the ONLY difference is the slimference
+  marker block. Codex.app independently modified the file (likely
+  project entries and session metadata on its restart). Slimference's
+  enable/disable contract is "byte-equal within a matched pair", and
+  that contract held.
+
+Decision and follow-up:
+- T225 GREEN for: model-picker UI shows the slimference provider
+  name, sideband endpoints route correctly.
+- T225 NOT GREEN for: conversation traffic through Slimference.
+- T228 (Codex Desktop scoped launcher) is now justified by hard
+  evidence. The launcher must intercept the hardcoded
+  CHATGPT_CODEX_BASE_URL path without using global hosts/pfctl.
+  Candidate approaches:
+    (a) launcher that sets CHATGPT_CODEX_BASE_URL env on Codex.app
+        startup (scoped to the launched process; requires verifying
+        Codex 0.130 respects that env in addition to its hardcoded
+        default);
+    (b) Electron/Chromium proxy-server flag for the renderer
+        processes — verify it covers the app-server worker;
+    (c) wrapper script that exports the env and execs Codex.app;
+    (d) if none of the above works without affecting Browser ChatGPT
+        / ChatGPT.app, document the Desktop limitation and require
+        operator opt-in via explicit global-lab mode.
+- T224 indistinguishability audit is independent of this finding and
+  remains optional claim-hardening for the CLI auto=WSS path.
+
+Operator-visible cosmetic ask:
+- The chat UI shows the provider name as "Slimference Codex". The
+  user requested it be shortened to just "Slimference". This lives
+  in `internal/codexroute/codexroute.go` blockBody() in the
+  `name = "Slimference Codex"` line. Trivial 1-line change for
+  Codex's next commit.
+
+End live state:
+- HEAD `9ddcbfb`, working tree dirty only with this op-log append
+  and a stale config.toml backup (intentional, Codex.app side).
+- Daemon PID 12310, healthy.
+- Codex CLI auto=WSS still live and certified.
+- Codex.app reverted to direct ChatGPT routing (route disabled).
+- Browser ChatGPT, ChatGPT.app, Claude unaffected throughout.
+- No global lab, no /etc/hosts, no pfctl, no Keychain, no system
+  proxy.
+
+---
+
+## 2026-05-18 — T237 + T228 implementation (Opus-built, env-only launcher infeasible against Codex.app 0.131.0-alpha.9)
+
+Driver: Claude Opus 4.7, direct implementation after operator hand-off
+"kannst du das nicht sauber implementieren?".
+
+T237 — provider display name shortened
+---------------------------------------
+Renamed the Codex provider display name from "Slimference Codex" to
+"Slimference":
+- `internal/codexroute/codexroute.go` (persistent block via `slimference enable`)
+- `cmd/slimference/proxy_cmd.go` (per-process `-c` override via `slimference codex run`)
+- `docs/transparent-mode.md` (doc sample TOML)
+
+Historical evidence (`docs/operation-log.md` entries that mention
+"Slimference Codex") intentionally NOT touched — those are append-only
+records of what was true at the time. Status banner
+`Slimference Codex route` in `slimference codex status` left as-is
+(not user-visible in Codex.app UI, separate concern).
+
+T228 — Codex Desktop scoped launcher (built and tested, conversation-routing infeasible)
+---------------------------------------------------------------------------------------
+Added `slimference codex launch-desktop` subcommand:
+- `cmd/slimference/codex_desktop_launcher.go` (180 LOC, full file-level docstring with empirical finding)
+- `cmd/slimference/codex_desktop_launcher_test.go` (14 tests, all green)
+- `cmd/slimference/codex_cmd.go` (dispatch + help text)
+- `cmd/slimference/completion.go` (bash completion entry)
+
+Behaviour:
+- `slimference codex launch-desktop [--probe] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]`
+- Spawns `/Applications/Codex.app/Contents/MacOS/Codex` (configurable
+  via --app) with a scoped env that defensively sets 5 candidate
+  base-URL variables: CHATGPT_CODEX_BASE_URL, OPENAI_BASE_URL,
+  OPENAI_API_BASE, CHATGPT_BASE_URL, API_BASE_URL.
+- Env is process-local: Browser ChatGPT, ChatGPT.app, Claude Code,
+  and any future Codex.app launched via Finder/Spotlight remain
+  untouched.
+- `--probe` emits the override env as JSON without spawning, for
+  inspection and CI.
+- No /etc/hosts, no pfctl, no Keychain, no system proxy, no
+  ~/.codex/config.toml mutation.
+
+Live verification on Codex.app 0.131.0-alpha.9 (the version installed
+at /Applications/Codex.app today):
+
+1. After Codex.app was fully quit by operator, ran:
+     ~/.local/bin/slimference codex launch-desktop
+   New Codex.app spawned successfully, PID 51905 (Electron main),
+   spawned child Rust app-server PID 51954.
+
+2. Verified env inheritance via `ps eww -p 51954`:
+     CHATGPT_CODEX_BASE_URL=http://127.0.0.1:8990/backend-api/codex
+     OPENAI_BASE_URL=http://127.0.0.1:8990/backend-api/codex
+     OPENAI_API_BASE=http://127.0.0.1:8990/backend-api/codex
+     CHATGPT_BASE_URL=http://127.0.0.1:8990/backend-api/codex
+   Env injection HAS reached the Rust app-server process tree.
+
+3. Operator sent a chat prompt in the launched Codex.app. Codex
+   responded normally. But UI did NOT show the "Slimference" provider
+   chip (correct: no slimference enable was active, so config.toml
+   had no marker block; Codex.app fell back to its built-in default
+   provider name and default model selection).
+
+4. lsof on the Rust app-server (PID 51954) during and after the
+   prompt:
+     codex 51954 ESTABLISHED 192.168.33.113:64708 -> 104.18.32.47:443
+     codex 51954 ESTABLISHED 192.168.33.113:64707 -> 104.18.32.47:443
+     codex 51954 ESTABLISHED 192.168.33.113:64705 -> 104.18.32.47:443
+     codex 51954 ESTABLISHED 192.168.33.113:64702 -> 104.18.32.47:443
+   104.18.32.47 is Cloudflare's chatgpt.com IP. ZERO connections to
+   127.0.0.1:8990. Slimference daemon WSS counter delta over 30s:
+   exactly 0 across mitm_bridged, bytes_c2s, bytes_s2c,
+   compressed_messages_inspected, frames_reencoded.
+
+5. `strings /Applications/Codex.app/Contents/Resources/codex` (Rust
+   binary, Mach-O arm64) inspection revealed:
+     - Multiple HARDCODED `https://chatgpt.com/backend-api` URLs in
+       data section.
+     - Version string: 0.131.0-alpha.9 (Desktop is AHEAD of CLI
+       0.130.0).
+     - Override env vars exposed by the binary:
+         CODEX_REFRESH_TOKEN_URL_OVERRIDE  (auth endpoint)
+         CODEX_ARC_MONITOR_ENDPOINT_OVERRIDE (telemetry/safety monitor)
+         CODEX_EXEC_SERVER_URL              (exec server, separate)
+         API_BASE_URL                       (generic, unclear use)
+     - NO CHATGPT_CODEX_BASE_URL handling in the current Desktop
+       Rust binary.
+     - NO OPENAI_BASE_URL / OPENAI_API_BASE / CHATGPT_BASE_URL
+       handling for the conversation route.
+
+Conclusion: env-only Desktop launcher cannot redirect Codex.app
+0.131.0-alpha.9 conversation traffic. The conversation endpoint is
+hardcoded in the Rust binary and no env hook exists today. This
+matches and refines the pre-existing config.toml comment in the
+user's `~/.codex/config.toml` ("Codex 0.130 hardcodes
+CHATGPT_CODEX_BASE_URL...") — current Codex Desktop does not even
+read that name.
+
+Decisions:
+- The launcher is retained and committed:
+   * `--probe` is operationally useful as a diagnostic surface.
+   * The defensive 5-key override set keeps working if a future
+     Codex Desktop release adds an env hook that overlaps.
+   * The spawn surface remains a clean, process-scoped, reversible
+     way to start Codex.app — useful for future T228 follow-up.
+- T228 acceptance criterion ("Desktop conversation must hit scoped
+  WSS through env injection") is NOT met against the current Codex
+  Desktop version, and the empirical evidence shows no env-only
+  workaround can meet it. Closing T228 as IMPLEMENTED-INFRASTRUCTURE,
+  CONVERSATION-ROUTE-BLOCKED-UPSTREAM.
+- Operator may try the launcher against future Codex.app releases by
+  running `slimference codex launch-desktop --probe` and then
+  `slimference codex launch-desktop`, repeating the lsof check on the
+  spawned app-server PID. If a future release routes through :8990,
+  T228 flips to GREEN without code changes.
+- Real Desktop conversation routing today requires either upstream
+  exposing a scoped env/config surface, or a global-lab MITM path
+  (out of scope for the default product surface).
+
+Cosmetic finding the user reported:
+- "Anderes Modell ausgewählt, andere Directory" — Codex.app's own
+  session-state restore picks last-used model and cwd when launched
+  without a project context. Not a slimference issue, no fix
+  proposed here.
+- "Slimference badge im Chat war weg" — correct behaviour: the badge
+  comes from the slimference-codex provider entry in
+  ~/.codex/config.toml, which only exists while `slimference enable`
+  is active. T228 launcher does NOT write the marker block; it only
+  injects env. For UI-visible "Slimference" provider chip in
+  Codex.app, run `slimference enable` BEFORE
+  `slimference codex launch-desktop` (combined sideband + env-spawn
+  pattern). The conversation will still bypass slimference because
+  of the hardcoded route described above; only the chip + sideband
+  endpoints route to slimference.
+
+Verification gates (all green):
+- `go test ./cmd/slimference -run 'TestCodexLaunchDesktop...' -count=1`
+  = 14/14 passing (including real-app probe test which uses
+  /Applications/Codex.app when present).
+- `go test ./... -count=1 -timeout 300s` green.
+- `go vet ./...` green.
+- `go run ./scripts/ci` green, 8/8 gates, total coverage 99.5%.
+- `gofmt -l .` clean.
+
+Cleanup verified:
+- All spawned Codex.app processes killed (SIGTERM then SIGKILL for
+  helper processes).
+- `pgrep -f Codex.app` returns 0.
+- Daemon restarted on latest binary
+  `7de4e4526faee799f565b9f2db3990d243c283ead8a5f29d5027dacf1638031f`,
+  PID 58172, HTTP 200, T226 cert intact (`auto.transport=wss`,
+  `wss_certified=true`).
+- `~/.codex/config.toml` SHA changed across this session to
+  `997d068751ee9c7bb1168903dd71e7acb4beaba5a0134f028fe283463e5d037d`,
+  but the change is Codex.app side: slimference enable/disable was
+  not involved in the T228 test (T228 tests env-only spawn). The
+  pre-test backup confirms slimference's own diff-set was zero.
+
+Files staged (uncommitted, for next commit):
+  M cmd/slimference/codex_cmd.go            (dispatch + help text)
+  M cmd/slimference/completion.go           (bash completion)
+  M cmd/slimference/proxy_cmd.go            (T237 rename)
+  M docs/operation-log.md                   (this append)
+  M docs/transparent-mode.md                (T237 rename in sample TOML)
+  M internal/codexroute/codexroute.go       (T237 rename in block body)
+  ?? cmd/slimference/codex_desktop_launcher.go      (T228 impl)
+  ?? cmd/slimference/codex_desktop_launcher_test.go (T228 tests)
+
+Suggested commit shape (two commits):
+
+  Commit 1: TASK 237: rename Codex provider display name to "Slimference"
+    - internal/codexroute/codexroute.go
+    - cmd/slimference/proxy_cmd.go
+    - docs/transparent-mode.md
+
+  Commit 2: TASK 228: Codex Desktop scoped launcher (probe + spawn)
+    - cmd/slimference/codex_desktop_launcher.go
+    - cmd/slimference/codex_desktop_launcher_test.go
+    - cmd/slimference/codex_cmd.go
+    - cmd/slimference/completion.go
+    - docs/operation-log.md
+    - docs/todo/t228-*.md (status update: implemented-infrastructure, conversation-blocked-upstream)

@@ -81,6 +81,8 @@ func runCodexCmd(args []string, p installPrinter) int {
 		return runCodexStatusCmd(args[1:], p)
 	case "certify":
 		return runCodexCertifyCmd(args[1:], p)
+	case "launch-desktop":
+		return runCodexLaunchDesktopCmd(args[1:], p)
 	case "--help", "-h", "help":
 		fmt.Fprint(p.Out, codexHelpText)
 		return 0
@@ -570,20 +572,21 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 	}
 }
 
-const codexUsageLine = "usage: slimference codex <run|enable|disable|status|certify> [flags]\n"
+const codexUsageLine = "usage: slimference codex <run|enable|disable|status|certify|launch-desktop> [flags]\n"
 
-const codexHelpText = `usage: slimference codex <run|enable|disable|status|certify> [flags]
+const codexHelpText = `usage: slimference codex <run|enable|disable|status|certify|launch-desktop> [flags]
 
 Codex-scoped routing. This is the product path: it only touches Codex
 CLI / Codex Desktop App config and never routes Browser ChatGPT,
 ChatGPT.app, Claude Code, or generic OpenAI tools through Slimference.
 
 Commands:
-  run       run one Codex CLI process through Slimference; fail-open direct
-  enable    persist the shared Codex CLI/App provider route
-  disable   remove the shared Codex CLI/App provider route
-  status    show route config + daemon health
-  certify   issue local WSS auto-promotion proof after live mutation
+  run             run one Codex CLI process through Slimference; fail-open direct
+  enable          persist the shared Codex CLI/App provider route
+  disable         remove the shared Codex CLI/App provider route
+  status          show route config + daemon health
+  certify         issue local WSS auto-promotion proof after live mutation
+  launch-desktop  spawn Codex.app with scoped env override (--probe to inspect)
 `
 
 const codexRunHelpText = `usage: slimference codex run [--transport=http|wss|direct|auto] [--direct] [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]
