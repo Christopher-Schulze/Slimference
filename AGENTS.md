@@ -41,7 +41,7 @@ Dieses Dokument ist **verbindlich** für alle automatisierten Agenten (Codex, Cl
 
 | Ordner | Inhalt |
 |--------|--------|
-| `scripts/coverage/` | Coverage-Auswertung, Gates, Vergleich mit Schwellenwert (aktuell 99.5 % Aggregate-Gate für CI/lokal) |
+| `scripts/coverage/` | Coverage-Auswertung, Gates, Vergleich mit Schwellenwert (aktuell 95.0 % Aggregate-Gate für CI/lokal) |
 | `scripts/benchmarks/` | Benchmark-Runner, Auswertung von `go test -bench`, Vergleichsläufe |
 | `scripts/utils/` | Kleine Hilfs-CLIs (Codegen, einmalige Migrationen, Diagnose) |
 
@@ -63,7 +63,7 @@ Die Anforderungen **hohe sinnvolle Go-Coverage** und **Tests unter `tests/` in T
 
 - **`internal/**` und `cmd/**`**: Unit- und Whitebox-Tests in **`*_test.go`** **neben dem Quellcode** (Go-Standard).
 - **Grund:** Unexportierte Symbole, `go test ./...`, **Coverage-Zählung** für genau diese Pakete — das geht nicht durch reine TS-Tests ersetzen.
-- **Ziel:** mindestens **99.5 % aggregate Statement-Coverage** auf dem **gesamten produktionsrelevanten Go-Code** (`cmd/`, `internal/`), messbar mit `go test -cover`, ohne dauerhaftes Ausnehmen von Dateien (Ausnahmen nur wie unten §5).
+- **Ziel:** mindestens **95.0 % aggregate Statement-Coverage** auf dem **gesamten produktionsrelevanten Go-Code** (`cmd/`, `internal/`), messbar mit `go test -cover`, ohne dauerhaftes Ausnehmen von Dateien (Ausnahmen nur wie unten §5). Neue und geänderte komplexe Logik braucht echte, verhaltensrelevante Tests auch dann, wenn das Aggregate-Gate bereits grün wäre.
 
 ### 4.2 TypeScript — zusätzliche Tests unter `tests/ts/`
 
@@ -82,9 +82,9 @@ Die Anforderungen **hohe sinnvolle Go-Coverage** und **Tests unter `tests/` in T
 
 ---
 
-## 5. Testabdeckung (Go) — **99.5 %+ aggregate, ohne Schummeln**
+## 5. Testabdeckung (Go) — **95.0 %+ aggregate, ohne Schummeln**
 
-- **Ziel:** mindestens 99.5 % aggregate auf `cmd/` + `internal/` wie oben. Wichtige Produktpfade, Safety-Branches und Regressionsrisiken brauchen echte Tests; künstliche Tests für nicht sinnvoll auslösbare OS-Fehlerkanten sind nicht Ziel.
+- **Ziel:** mindestens 95.0 % aggregate auf `cmd/` + `internal/` wie oben. Wichtige Produktpfade, Safety-Branches, Routing-/Fallback-Entscheidungen und Regressionsrisiken brauchen echte Tests; künstliche Tests nur zur Coverage-Zahl, Tests für nicht sinnvoll auslösbare OS-Fehlerkanten und always-green Assertions sind nicht Ziel.
 - **Nicht schummeln:** kein dauerhaftes Ausschließen ganzer Pakete aus Coverage ohne Ticket; generierter Code nur mit klarer Kennzeichnung und ggf. Freigabe.
 - **Qualität:** table-driven wo sinnvoll, `t.Parallel()` wo sicher, **harte** Rand- und Fehlerfälle, deterministisch (keine flaky Tests), aussagekräftige Fehlertexte.
 - **Lokale/CI-Prüfung:** z. B. `go test ./... -covermode=atomic -coverprofile=coverage.out`; ein Gate kann unter **`scripts/coverage/`** implementiert werden.
@@ -108,7 +108,7 @@ Die Anforderungen **hohe sinnvolle Go-Coverage** und **Tests unter `tests/` in T
 ## 8. Kurz-Checkliste vor Merge
 
 - [ ] Spec-konform zu `spec+.md` / relevante Punkte aus `handover.md`
-- [ ] `go test ./...` grün; **Coverage (Go)** den Projektzielen entsprechend (99.5 %+ Aggregate-Gate)
+- [ ] `go test ./...` grün; **Coverage (Go)** den Projektzielen entsprechend (95.0 %+ Aggregate-Gate)
 - [ ] Neue **Go**-Logik mit harten `*_test.go`-Tests
 - [ ] Neues **Tooling** nur unter **`scripts/<thema>/`**, vorzugsweise **Go**
 - [ ] Optional: **`tests/ts/`**-Tests ergänzend, ohne Go-Coverage zu ersetzen

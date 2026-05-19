@@ -1,5 +1,5 @@
 // Command coverage runs go test with coverage and optionally enforces a minimum total %.
-// Usage (from module root): go run ./scripts/coverage -min=99.5
+// Usage (from module root): go run ./scripts/coverage -min=95.0
 package main
 
 import (
@@ -20,7 +20,7 @@ func main() {
 // it without os.Exit. Returns the process exit code.
 func run(args []string, stdout, stderr *os.File) int {
 	fs := flag.NewFlagSet("coverage", flag.ContinueOnError)
-	minPct := fs.Float64("min", 0, "if >0, exit 1 when total coverage is below this percent (e.g. 99.5)")
+	minPct := fs.Float64("min", 0, "if >0, exit 1 when total coverage is below this percent (e.g. 95.0)")
 	keep := fs.Bool("keep", false, "do not delete the generated coverage profile")
 	if err := fs.Parse(args); err != nil {
 		return 2

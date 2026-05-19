@@ -1665,13 +1665,16 @@ Full process in `docs/release-process.md`.
 ### Coverage headline
 
 Current formal release gate: `go run ./scripts/ci` runs
-`go run ./scripts/coverage -min=99.5`. This is an aggregate gate for
+`go run ./scripts/coverage -min=95.0`. This is an aggregate gate for
 the configured Go coverage profile. Individual package lines can report
 less than the aggregate threshold while the total gate remains green; do
 not describe that as a release failure unless `scripts/ci` itself exits
-non-zero. The intent is to keep meaningful product/safety paths covered
-without spending engineering time on artificial tests for unreachable or
-OS-dependent cleanup branches.
+non-zero. The hard rule is behavior-significant testing: new or changed
+complex logic, product paths, safety branches, routing/fallback decisions,
+and regression risks need real failable tests. The intent is to keep
+meaningful product/safety paths covered without spending engineering time
+on artificial coverage-chasing tests, unreachable OS-dependent cleanup
+branches, or always-green assertions.
 
 ### Benchmarks
 

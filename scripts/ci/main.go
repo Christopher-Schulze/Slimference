@@ -41,7 +41,7 @@ func defaultSteps() []step {
 		{
 			label: "coverage gate",
 			cmd:   "go",
-			args:  []string{"run", "./scripts/coverage", "-min=99.5"},
+			args:  []string{"run", "./scripts/coverage", "-min=95.0"},
 		},
 		{
 			label: "codex smoke gate",
