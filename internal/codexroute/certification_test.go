@@ -164,6 +164,16 @@ func TestDecideAutoTransportRejectsStaleOrUnhealthyCertification(t *testing.T) {
 			if !strings.Contains(decision.FallbackReason, tc.want) {
 				t.Fatalf("reason=%q want contains %q", decision.FallbackReason, tc.want)
 			}
+			wantRecert := strings.Contains(tc.name, "version changed")
+			if decision.NeedsRecert != wantRecert {
+				t.Fatalf("needs_recert=%v want %v for %s", decision.NeedsRecert, wantRecert, tc.name)
+			}
+			if wantRecert && decision.RecertCommand != "slimference codex certify wss" {
+				t.Fatalf("recert command=%q", decision.RecertCommand)
+			}
+			if decision.CurrentCodex != tc.current || decision.CurrentSlimference != tc.slim {
+				t.Fatalf("current tuple codex=%q slim=%q", decision.CurrentCodex, decision.CurrentSlimference)
+			}
 		})
 	}
 }

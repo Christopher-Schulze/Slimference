@@ -1343,9 +1343,11 @@ only and promotes the per-process Codex CLI runner for T209.
   ChatGPT.app, uninstall/repair, savings truth, and version-drift fallback as
   one reproducible macOS arm64 release ceremony. Detail:
   `docs/todo/t240-codex-zero-drawdown-release-certification.md`
-- [ ] **T241** Codex update-resilient certification — keep the strict WSS
+- [~] **T241** Codex update-resilient certification — keep the strict WSS
   version-tuple guard, but add guided recert/status UX so Codex CLI updates
   pause savings safely and can be re-certified without manual archaeology.
+  First status hardening is landed: `codex status --json` now exposes
+  current/certified tuples, `needs_recert`, and the recert action.
   Detail: `docs/todo/t241-codex-update-resilient-certification.md`
 - [ ] **T242** Codex Desktop root-store and proxy compatibility matrix — run
   the `--with-ca-env` Desktop probe, test Codex's managed network-proxy

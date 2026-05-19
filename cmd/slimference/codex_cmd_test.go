@@ -778,6 +778,66 @@ func TestCodexStatusHumanBranches(t *testing.T) {
 		!strings.Contains(out.String(), "Legacy") {
 		t.Fatalf("disabled status rc=%d out=%q", rc, out.String())
 	}
+
+	out.Reset()
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{
+			Transport:            codexroute.TransportHTTP,
+			NeedsRecert:          true,
+			CurrentCodex:         "0.131.0",
+			CurrentSlimference:   "2.0.2",
+			CertifiedCodex:       "0.130.0",
+			CertifiedSlimference: "2.0.2",
+			FallbackReason:       "codex version changed since wss certification",
+			RecertCommand:        "slimference codex certify wss",
+		}
+	}
+	if rc := runCodexCmd([]string{"status"}, p); rc != 0 ||
+		!strings.Contains(out.String(), "current codex=0.131.0 slimference=2.0.2") ||
+		!strings.Contains(out.String(), "certified codex=0.130.0 slimference=2.0.2") ||
+		!strings.Contains(out.String(), "WSS savings paused after version drift") ||
+		!strings.Contains(out.String(), "slimference codex certify wss") {
+		t.Fatalf("recert status rc=%d out=%q", rc, out.String())
+	}
+}
+
+func TestCodexStatusJSONIncludesRecertState(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return "/tmp/home", nil }
+	codexRouteInspectFn = func(string, string, codexroute.Options) (codexroute.Status, error) {
+		return codexroute.Status{Exists: true, BaseURL: "http://127.0.0.1:8990/backend-api/codex"}, nil
+	}
+	codexRouteHealthFn = func(string, string) error { return nil }
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{
+			Transport:            codexroute.TransportHTTP,
+			NeedsRecert:          true,
+			CurrentCodex:         "0.131.0",
+			CurrentSlimference:   "2.0.2",
+			CertifiedCodex:       "0.130.0",
+			CertifiedSlimference: "2.0.2",
+			CertificationPath:    "/tmp/home/.slimference/codex-wss-cert.json",
+			FallbackReason:       "codex version changed since wss certification",
+			RecertCommand:        "slimference codex certify wss",
+		}
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"status", "--json"}, p); rc != 0 {
+		t.Fatalf("status rc=%d stderr=%s", rc, errBuf.String())
+	}
+	var got struct {
+		Auto codexroute.AutoDecision `json:"auto"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode status: %v\n%s", err, out.String())
+	}
+	if !got.Auto.NeedsRecert ||
+		got.Auto.CurrentCodex != "0.131.0" ||
+		got.Auto.CertifiedCodex != "0.130.0" ||
+		got.Auto.RecertCommand != "slimference codex certify wss" {
+		t.Fatalf("bad auto recert state: %+v", got.Auto)
+	}
 }
 
 func TestCodexDesktopStatusJSONReadyForLiveProbe(t *testing.T) {

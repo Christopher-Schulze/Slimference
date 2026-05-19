@@ -1452,7 +1452,10 @@ sessions, compression errors, byte-bridge-only state, or missing mutation are
 present, and writes `~/.slimference/codex-wss-cert.json` only with
 `frames_reencoded>0`, `compressed_messages_mutated>0`, and daemon reachability.
 `--transport=auto` consumes that proof through `internal/codexroute` and falls
-back to HTTP after Codex CLI or Slimference version drift.
+back to HTTP after Codex CLI or Slimference version drift. The auto decision
+also exposes the current tuple, certified tuple, `needs_recert`, and
+`recert_command` so status and the TUI can show a precise repair path without
+weakening the certification gate.
 
 ### Compression planner
 

@@ -39,11 +39,15 @@ type CertificationState struct {
 type AutoDecision struct {
 	Transport            Transport `json:"transport"`
 	WSSCertified         bool      `json:"wss_certified"`
+	NeedsRecert          bool      `json:"needs_recert"`
+	CurrentCodex         string    `json:"current_codex_version,omitempty"`
+	CurrentSlimference   string    `json:"current_slimference_version,omitempty"`
 	CertifiedCodex       string    `json:"certified_codex_version,omitempty"`
 	CertifiedSlimference string    `json:"certified_slimference_version,omitempty"`
 	CertificationPath    string    `json:"certification_path"`
 	FallbackReason       string    `json:"fallback_reason,omitempty"`
 	LastWSSError         string    `json:"last_wss_error,omitempty"`
+	RecertCommand        string    `json:"recert_command,omitempty"`
 }
 
 // CertificationPath returns the local WSS-certification file.
@@ -98,9 +102,11 @@ func SaveCertification(home string, state CertificationState) error {
 // construction: no green, version-matching local WSS proof means HTTP.
 func DecideAutoTransport(home, codexVersion, slimferenceVersion string) (AutoDecision, error) {
 	decision := AutoDecision{
-		Transport:         TransportHTTP,
-		CertificationPath: CertificationPath(home),
-		FallbackReason:    "wss certification missing",
+		Transport:          TransportHTTP,
+		CurrentCodex:       strings.TrimSpace(codexVersion),
+		CurrentSlimference: strings.TrimSpace(slimferenceVersion),
+		CertificationPath:  CertificationPath(home),
+		FallbackReason:     "wss certification missing",
 	}
 	state, exists, err := LoadCertification(home)
 	if err != nil {
@@ -129,8 +135,12 @@ func DecideAutoTransport(home, codexVersion, slimferenceVersion string) (AutoDec
 		decision.FallbackReason = "recent wss degraded sessions recorded"
 	case !sameVersion(state.CodexVersion, codexVersion):
 		decision.FallbackReason = "codex version changed since wss certification"
+		decision.NeedsRecert = true
+		decision.RecertCommand = "slimference codex certify wss"
 	case !sameVersion(state.SlimferenceVersion, slimferenceVersion):
 		decision.FallbackReason = "slimference version changed since wss certification"
+		decision.NeedsRecert = true
+		decision.RecertCommand = "slimference codex certify wss"
 	default:
 		decision.Transport = TransportWSS
 		decision.WSSCertified = true

@@ -213,6 +213,10 @@ compression errors, requires `frames_reencoded>0` plus
 `~/.slimference/codex-wss-cert.json` only when the daemon is reachable and
 the current observation cycle is green. `--transport=auto` promotes to WSS
 only for the same Codex CLI version and Slimference version tuple.
+When Codex or Slimference updates, `slimference codex status --json` reports
+the current tuple, the certified tuple, `auto.needs_recert=true`, and
+`auto.recert_command`. Until a new proof is issued, `transport=auto` stays on
+HTTP instead of running uncertified WSS.
 
 Known reliable certification trigger for local operators:
 

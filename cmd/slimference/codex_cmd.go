@@ -729,8 +729,17 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 		fmt.Fprintf(w, "  Transport %s\n", s.Transport)
 	}
 	fmt.Fprintf(w, "  Auto     %s certified=%v\n", auto.Transport, auto.WSSCertified)
+	if auto.CurrentCodex != "" || auto.CurrentSlimference != "" || auto.CertifiedCodex != "" || auto.CertifiedSlimference != "" {
+		fmt.Fprintf(w, "           current codex=%s slimference=%s\n", auto.CurrentCodex, auto.CurrentSlimference)
+		if auto.CertifiedCodex != "" || auto.CertifiedSlimference != "" {
+			fmt.Fprintf(w, "           certified codex=%s slimference=%s\n", auto.CertifiedCodex, auto.CertifiedSlimference)
+		}
+	}
 	if auto.FallbackReason != "" {
 		fmt.Fprintf(w, "           %s\n", auto.FallbackReason)
+	}
+	if auto.NeedsRecert {
+		fmt.Fprintf(w, "           WSS savings paused after version drift; recert action: %s\n", auto.RecertCommand)
 	}
 	fmt.Fprintf(w, "  Daemon   reachable=%v\n", daemonReachable)
 	if daemonErr != "" {

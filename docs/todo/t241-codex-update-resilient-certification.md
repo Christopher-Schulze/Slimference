@@ -33,7 +33,7 @@ longer than necessary.
 
 ## Sub-Tasks
 
-- [ ] Add a `needs_recert` field to Codex status JSON with current/expected
+- [x] Add a `needs_recert` field to Codex status JSON with current/expected
   Codex and Slimference versions.
 - [ ] Add a one-command guided recert entry point, likely
   `slimference codex recertify wss`, that drives a known mutation trigger and
@@ -51,6 +51,16 @@ longer than necessary.
 This task makes updates boring. It must not weaken the version tuple guard.
 The desired behavior is: updates never make Codex worse; they may temporarily
 drop WSS savings until the new tuple is proven.
+
+2026-05-19 status hardening landed:
+
+- `codexroute.AutoDecision` now carries the current Codex/Slimference tuple,
+  the certified tuple, `needs_recert`, and `recert_command`.
+- `slimference codex status --json` exposes those fields through its existing
+  `auto` object.
+- Human `slimference codex status` prints the current tuple, certified tuple,
+  fallback reason, and recert action when version drift pauses WSS savings.
+  This keeps the strict tuple guard intact while making the repair path visible.
 
 ## Deviations
 
