@@ -122,7 +122,7 @@ CLI and Codex Desktop.
 |---|---|
 | Daemon unavailable during `slimference codex run` | The wrapper prints a warning and launches direct Codex. **No CLI breakage.** |
 | Daemon unavailable while persistent `codex enable` route is active | Only Codex CLI/App are affected. Run `slimference codex disable`, press `[r]` in TUI Setup, or restart the daemon. Browser ChatGPT, ChatGPT.app, Claude Code, and generic OpenAI clients remain direct. |
-| CA missing or untrusted during Desktop proxy launch | `slimference codex launch-desktop --transport=proxy` refuses before spawning Codex.app and prints the repair command. Direct Codex.app remains native. |
+| CA missing during Desktop proxy launch | `slimference codex launch-desktop --transport=proxy --with-ca-env` refuses before spawning Codex.app and prints the repair command. Direct Codex.app remains native. |
 | Codex Desktop ignores process-local proxy env | Desktop is reported direct-only; no Desktop savings claim is made. CLI savings continue. |
 | Codex CLI/Desktop updates | `transport=auto` is WSS-first. It uses certified WSS Phase-F when green, WSS byte-equal bridge when mutation proof is stale but the bridge proof is clean, HTTP only when WSS bridge is unsafe, and direct only when the daemon cannot serve the scoped run. Background recert tries to restore Phase-F savings without blocking the user. |
 | `slimference codex disable` while Codex is open | The marker-owned provider block is removed. New Codex CLI/App sessions go direct after config reload / app-server restart. |
@@ -140,10 +140,9 @@ slimference install
 What happens:
 
 1. Generates a local CA under `~/.slimference/ca/`.
-2. Prepares the Keychain trust step. On modern macOS the explicit
-   "Always Trust" decision is interactive, so treat `slimference
-   lab cert-trust` as the supported global-lab trust path before live
-   arming.
+2. Leaves macOS Keychain untouched by default. CLI WSS does not need CA
+   trust, and Desktop proof first uses process-local
+   `CODEX_CA_CERTIFICATE` from the launched app process.
 3. Installs `~/Library/LaunchAgents/com.slimference.proxy.plist` and
    loads it via `launchctl`.
 4. Patches `~/.codex/hooks.json` + writes hook scripts to
@@ -260,38 +259,39 @@ checkout or any global network setting.
 ### 3. Launch Codex Desktop through process-local proxy mode
 
 This is the Desktop proof candidate. It is scoped to one spawned Codex.app
-process tree and requires the local Slimference CA to be trusted because the
-daemon terminates TLS inside the CONNECT tunnel.
+process tree. The preferred path does **not** require macOS Keychain trust:
+it injects Codex's own process-local `CODEX_CA_CERTIFICATE` hook plus generic
+CA bundle hints into the launched app process.
 
 First inspect the exact env without launching:
 
 ```bash
 slimference codex desktop status
-slimference codex launch-desktop --transport=proxy --probe
+slimference codex launch-desktop --transport=proxy --with-ca-env --probe
 ```
 
-If the CA is missing or untrusted, the launcher refuses the real spawn and
-prints the repair step:
+If the CA material is missing, the launcher refuses the real spawn and prints
+the repair step:
 
 ```bash
 slimference install
-slimference cert-trust
 ```
 
 When the gate is green, launch:
 
 ```bash
-slimference codex launch-desktop --transport=proxy
+slimference codex launch-desktop --transport=proxy --with-ca-env
 ```
 
 The launcher sets `HTTP_PROXY`, `HTTPS_PROXY`, `WSS_PROXY`, `ALL_PROXY`,
-lowercase variants, `NO_PROXY=127.0.0.1,localhost,::1`, and
-`CODEX_NETWORK_PROXY_ACTIVE=1` only on the spawned process. It does not set
-the old base-URL override keys in proxy mode. The daemon accepts CONNECT on
-the normal loopback port and MITMs only `chatgpt.com`; the WSS frame bridge is
-enabled only for `/backend-api/codex/responses` with the Codex
-`responses_websockets` subprotocol. Other Desktop sideband WebSockets pass
-byte-equal.
+lowercase variants, `NO_PROXY=127.0.0.1,localhost,::1`,
+`CODEX_NETWORK_PROXY_ACTIVE=1`, `CODEX_CA_CERTIFICATE`, `SSL_CERT_FILE`,
+`CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` only on the
+spawned process. It does not set the old base-URL override keys in proxy mode.
+The daemon accepts CONNECT on the normal loopback port and MITMs only
+`chatgpt.com`; the WSS frame bridge is enabled only for
+`/backend-api/codex/responses` with the Codex `responses_websockets`
+subprotocol. Other Desktop sideband WebSockets pass byte-equal.
 
 Live proof is still required before claiming Desktop savings:
 
@@ -319,10 +319,12 @@ slimference codex launch-desktop --transport=proxy --with-ca-env --probe
 slimference codex launch-desktop --transport=proxy --with-ca-env
 ```
 
-`--with-ca-env` adds only process-local CA hints (`SSL_CERT_FILE`,
-`CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`). It does not
-modify shell startup files, Codex config, system proxy, `/etc/hosts`, or pfctl.
-It remains diagnostic until live bytes and WSS counters prove success.
+`--with-ca-env` adds only process-local CA hints. `CODEX_CA_CERTIFICATE` is
+first because current Codex exposes that hook in its Rust WSS client; generic
+`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
+`NODE_EXTRA_CA_CERTS` follow for fallback TLS stacks. It does not modify shell
+startup files, Codex config, system proxy, Keychain, `/etc/hosts`, or pfctl. It
+remains diagnostic until live bytes and WSS counters prove success.
 
 `--transport=base-url` remains available only as a diagnostic/future-proof
 probe for upstream Codex versions that might later add a conversation base-URL
@@ -411,8 +413,8 @@ Reverses the install plan in LIFO order:
 1. `hooks.codex` reverted
 2. `notice.codex` removed if still marker-owned
 3. `launchd` unloaded + plist removed
-4. CA removed from Keychain when supported by the selected Keychain
-   runner
+4. CA trust removed from Keychain when present and supported by the selected
+   Keychain runner
 5. CA material rotated aside to `~/.slimference/ca.bak.<unix>/`
 
 `--with-claude` is accepted for old automation but does not remove
@@ -435,12 +437,6 @@ slimference_install:
       reverse: moves files aside to ~/.slimference/ca.bak.<unix>/
       inspect: present | absent | rotated
       idempotent: true
-    - step: ca.keychain
-      apply: adds ~/.slimference/ca/root.crt as trusted SSL root in macOS Keychain
-      reverse: removes the entry by SHA-1 fingerprint
-      inspect: present | absent
-      idempotent: true
-      privilege: prompts for password
     - step: launchd.install
       apply: writes ~/Library/LaunchAgents/com.slimference.proxy.plist; loads it
       reverse: unloads + removes plist
@@ -466,6 +462,7 @@ slimference_install:
 
   commands:
     install:    install_plan.apply
+    install --with-keychain: install_plan.apply plus optional ca.keychain trust step for Desktop/lab fallback
     uninstall:  install_plan.reverse
     enable:     alias for codex enable; writes marker-owned shared Codex CLI/App provider route
     disable:    alias for codex disable; removes marker-owned shared Codex CLI/App provider route
@@ -578,11 +575,10 @@ The scoped product route block is under `/admin/state.codex_route`:
 
 Current scoped proof stack (2026-05-18):
 
-- `go run ./scripts/ci` passes all 8 steps, including the formal
-  `go run ./scripts/coverage -min=99.5` aggregate gate. Reported
-  statement coverage is currently `99.7%` total. Package-level coverage
-  lines can be below the aggregate threshold without failing the formal
-  release check.
+- `go run ./scripts/ci` uses the formal
+  `go run ./scripts/coverage -min=95.0` aggregate gate. Behavior-critical
+  product paths still require real tests; the project does not chase
+  artificial coverage for impossible OS edge branches.
 - Targeted race check passes:
   `go test ./internal/proxy ./cmd/slimference ./internal/codexroute -race -count=1 -timeout 240s`.
 - Scoped raw WSS pre-live checks pass: raw Upgrade header order/casing is
@@ -677,13 +673,15 @@ slimference install [flags]
   --no-hooks        skip the hook integrations
   --with-claude     compatibility no-op; Claude Code is parked
   --no-autostart    skip the launchd plist install
-  --no-keychain     skip the macOS Keychain trust step
-  --system          install CA into the system Keychain (requires admin)
+  --with-keychain   opt into macOS Keychain trust for Desktop/lab fallback
+  --no-keychain     compatibility no-op; default install already skips Keychain
+  --system          with --with-keychain, install CA into System Keychain
   --help, -h        show help
 
 slimference uninstall [flags]
   --dry-run         show what would happen without changing anything
-  --keep-ca         leave CA in Keychain (and on disk)
+  --keep-ca         skip Keychain trust cleanup; CA material still rotates aside
+  --no-keychain     skip Keychain trust cleanup
   --with-claude     compatibility no-op; Slimference does not own ~/.claude
   --system          uninstall from the system Keychain
   --help, -h        show help

@@ -29,6 +29,12 @@ direct; Slimference launch is optimized. Persistent enable/disable commands
 remain available under Manage for supported scoped config routes and recovery,
 but they are not the main mental model.
 
+Install is unified: the default product action is "Install Slimference for
+Codex" and prepares both CLI and Desktop support. There are no default
+checkboxes for "CLI only" versus "Desktop only". Status can say Desktop support
+is prepared but blocked/unproven, but it must not create a half-installed
+mental model.
+
 ## Target State
 
 Running `slimference` opens a compact launch center. The user can start the
@@ -40,12 +46,19 @@ The launch center is not a settings maze. It is a cockpit:
 
 1. **Launch Codex CLI** starts the proven CLI path.
 2. **Launch Codex App** is a capability-gated TUI menu item: it starts the
-   proven Desktop path when available, exposes an explicit diagnostic probe when
-   a safe probe exists, and otherwise says Desktop is currently direct-only.
+   proven Desktop path when available, exposes an explicit process-local custom
+   CA env probe when a safe probe exists, and otherwise says Desktop is
+   currently direct-only.
 3. **Savings** shows actual measured savings and separates estimates.
 4. **Status** shows whether the machine is safe, healthy, and scoped.
 5. **Manage Slimference** handles install, repair, uninstall, enable/disable,
    logs, and advanced lab controls behind explicit wording.
+
+CLI WSS must not be blocked by CA trust. The launch center should explain this
+plainly: scoped Codex CLI WSS does not need a macOS trusted CA or custom CA env.
+Desktop process-local proxy diagnostics first use `CODEX_CA_CERTIFICATE` /
+`SSL_CERT_FILE` only for the spawned Codex.app process. Keychain trust belongs
+to fallback Desktop/Lab branches only, and is tracked by T245.
 
 ## Acceptance
 
@@ -56,12 +69,15 @@ The launch center is not a settings maze. It is a cockpit:
   - Status
   - Manage Slimference
 - There is no top-level "direct open" action.
+- Manage Slimference has one default Install/Repair/Uninstall product flow for
+  Codex as a whole. It must not ask the user to choose CLI-only or Desktop-only
+  during the default install.
 - Launch Codex CLI starts the existing safe Codex CLI product path with
   `transport=auto` and shows WSS certification/fallback state.
 - Launch Codex App uses the T238 branch decision:
   - if process-local proxy proof passes, launch Codex.app in Slimference mode;
-  - if `--with-ca-env` is still untested, show it as an experimental probe, not
-    as normal Slimference Desktop mode;
+  - if `--with-ca-env` with `CODEX_CA_CERTIFICATE` is still untested, show it
+    as an explicit Desktop proof probe, not as normal Slimference Desktop mode;
   - if proof fails, keep the menu item visible but disabled/blocked with a
     concise reason and do not pretend savings are active.
 - Savings shows total, today, session, route, and mechanism attribution where
@@ -69,6 +85,8 @@ The launch center is not a settings maze. It is a cockpit:
 - Status shows daemon, CA trust, WSS cert, Codex CLI version, Codex Desktop
   version, route mode, config drift, listener state, and last Desktop/CLI
   observation.
+- Status separates CA state from CLI WSS health: missing CA may be yellow for
+  Desktop/Lab readiness, but must not make Launch Codex CLI red.
 - Manage Slimference contains Install, Repair, Uninstall, enable/disable
   recovery actions, Repair CLI WSS, bounded logs, and lab/advanced controls
   fenced away from normal use.
@@ -96,9 +114,11 @@ The launch center is not a settings maze. It is a cockpit:
 
 - If T238 passed: launches Codex.app with the proven process-local proxy mode.
 - If T238 found only zero-byte CONNECT sessions: displays
-  `tls_trust_rejected` and offers only the explicit CA-env diagnostic branch.
+  `tls_trust_rejected` and offers only the explicit process-local custom-CA-env
+  diagnostic branch from T242.
 - If T238 failed or is unproven: displays direct-only state and why.
-- Shows whether CA trust is required and present.
+- Shows whether process-local custom CA env is available, whether Keychain trust
+  is irrelevant/needed/trusted, and whether either state actually proved bytes.
 - Shows whether the currently running Codex.app was Slimference-launched or
   direct-launched.
 - Does not restart or kill Codex.app without explicit confirmation.
@@ -123,10 +143,18 @@ The launch center is not a settings maze. It is a cockpit:
 
 ### Manage Slimference
 
-- Product actions: Install, Repair, Uninstall, Enable scoped route, Disable
-  scoped route, Repair CLI WSS, Restart daemon, View logs.
-- Advanced actions: CA trust, global lab enable/disable/root-arm/root-disarm,
-  clearly labelled as lab/global.
+- Product actions: Install Slimference for Codex, Repair Slimference for Codex,
+  Uninstall Slimference, Enable scoped route, Disable scoped route, Repair CLI
+  WSS, Restart daemon, View logs.
+- Advanced/conditional actions: CA trust for Desktop/Lab only, global lab
+  enable/disable/root-arm/root-disarm, clearly labelled as lab/global.
+- Install/Repair prepares both CLI and Desktop support together. It reports
+  Desktop capability as prepared/proven/blocked rather than installed/uninstalled
+  separately.
+- CA actions must say why they are not required for CLI WSS, show whether the
+  process-local `CODEX_CA_CERTIFICATE` path is available, show the certificate
+  subject/fingerprint, use SSL-only trust for Keychain fallback, and provide a
+  matching remove/repair action through T245.
 - Every destructive or global action has a confirmation and shows the blast
   radius before execution.
 - Repair CLI WSS is a manual override for T241 auto-recert. It must call the
@@ -149,8 +177,14 @@ The launch center is not a settings maze. It is a cockpit:
   because the current Desktop route is blocked.
 - [~] Fold current install/enable/disable/repair/uninstall controls into Manage
   Slimference with clear product vs lab separation.
+- [ ] Make the default Install/Repair flow unified for Codex CLI and Desktop:
+  no default per-app checkboxes, no half-installed product state, Desktop shown
+  as capability-gated after install.
 - [ ] Add Manage Slimference "Repair CLI WSS" as a manual override wired to the
   T241 shared recert core, not a separate implementation.
+- [ ] Add Manage Slimference "Desktop custom CA probe" and
+  "Repair/Remove Desktop-Lab Keychain Trust" as capability-gated T245 actions;
+  do not show either as required for CLI WSS.
 - [~] Show savings truth without mixing hook estimates, proxy savings, cache
   savings, and Desktop-unproven traffic.
 - [x] Add tests for menu structure, action routing, status wording, and no
@@ -197,6 +231,9 @@ surface that this TUI should consume:
   Desktop live-proof state.
 - `slimference codex launch-desktop --transport=proxy` for the optimized
   Desktop launch candidate.
+- `slimference codex launch-desktop --transport=proxy --with-ca-env` for the
+  preferred Desktop proof branch that injects `CODEX_CA_CERTIFICATE` and generic
+  CA hints only into the spawned Codex.app process.
 - `slimference codex launch-desktop --transport=base-url --probe` for
   diagnostic/future upstream env-hook checks only.
 
@@ -223,6 +260,9 @@ claim.
 - T241/T243 update: Manage Slimference must gain "Repair CLI WSS" and the
   Launch Center status should show WSS Phase-F active, WSS bridge repairing,
   HTTP fallback, or direct fallback using the shared transport ladder.
+- T245 update: Manage Slimference must show custom CA and Keychain trust as
+  Desktop/Lab-only. The user should never think installing or trusting a CA is
+  required for CLI WSS savings.
 - Remaining polish is depth, not architecture: embedded prompt entry for CLI,
   richer Status/Manage rows, full Desktop branch matrix tests, and final T240
   live release certification.

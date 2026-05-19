@@ -19,18 +19,19 @@ import (
 // installFlags is the shared flag set for install/uninstall/enable/
 // disable. Each subcommand consumes the subset it needs.
 type installFlags struct {
-	dryRun      bool
-	json        bool
-	noHooks     bool
-	withClaude  bool
-	noAutoStart bool
-	noKeychain  bool
-	keepCA      bool
-	systemScope bool
-	preflight   bool
-	help        bool
-	configPath  string
-	rest        []string
+	dryRun       bool
+	json         bool
+	noHooks      bool
+	withClaude   bool
+	noAutoStart  bool
+	withKeychain bool
+	noKeychain   bool
+	keepCA       bool
+	systemScope  bool
+	preflight    bool
+	help         bool
+	configPath   string
+	rest         []string
 }
 
 var installPlanFn = install.Plan
@@ -50,6 +51,8 @@ func parseInstallFlags(args []string) (installFlags, error) {
 			f.withClaude = true
 		case a == "--no-autostart":
 			f.noAutoStart = true
+		case a == "--with-keychain":
+			f.withKeychain = true
 		case a == "--no-keychain":
 			f.noKeychain = true
 		case a == "--keep-ca":
@@ -101,6 +104,7 @@ func runInstallCmd(args []string, p installPrinter) int {
 	opts := install.Options{
 		SkipHooks:     f.noHooks,
 		SkipAutoStart: f.noAutoStart,
+		WithKeychain:  f.withKeychain,
 		SkipKeychain:  f.noKeychain,
 		Version:       version,
 	}
@@ -152,13 +156,15 @@ func runUninstallCmd(args []string, p installPrinter) int {
 		fmt.Fprint(p.Out, uninstallHelpText)
 		return 0
 	}
-	// Uninstall must mirror the Steps that were installed. The flags
-	// match install: --no-hooks / --no-autostart / --no-keychain skip
-	// the corresponding Steps. --keep-ca additionally skips the
-	// keychain Step on top of --no-keychain semantics.
+	// Uninstall is intentionally a cleanup superset: default install no
+	// longer trusts the CA in Keychain, but uninstall still attempts the
+	// idempotent keychain Reverse so old or opt-in trust is removed.
+	// --no-hooks / --no-autostart / --no-keychain skip the corresponding
+	// Steps. --keep-ca additionally skips the keychain Step.
 	opts := install.Options{
 		SkipHooks:     f.noHooks,
 		SkipAutoStart: f.noAutoStart,
+		WithKeychain:  !f.noKeychain && !f.keepCA,
 		SkipKeychain:  f.noKeychain || f.keepCA,
 	}
 	if f.systemScope {
@@ -345,7 +351,7 @@ func renderStatus(p installPrinter, s control.SetupState) {
 	fmt.Fprintln(p.Out, "Slimference status")
 	fmt.Fprintln(p.Out, "------------------")
 	fmt.Fprintf(p.Out, "  CA       %s installed=%v in_keychain=%v fingerprint=%s\n",
-		mark(s.CA.Installed && s.CA.InKeychain), s.CA.Installed, s.CA.InKeychain, s.CA.Fingerprint)
+		mark(s.CA.Installed), s.CA.Installed, s.CA.InKeychain, s.CA.Fingerprint)
 	fmt.Fprintf(p.Out, "  Daemon   %s running=%v pid=%d health=%v\n",
 		mark(s.Daemon.Running && s.Daemon.HealthOK), s.Daemon.Running, s.Daemon.PID, s.Daemon.HealthOK)
 	fmt.Fprintf(p.Out, "  Listener %s :443=%v :8443=%v :%d=%v\n",
@@ -454,9 +460,12 @@ const installHelpText = `usage: slimference install [flags]
 
 Atomic, reversible install. Performs:
   1. ca.generate     local CA under ~/.slimference/ca
-  2. ca.keychain     root cert added to macOS Keychain (prompts for password)
-  3. launchd.install ~/Library/LaunchAgents/com.slimference.proxy.plist
-  4. hooks.codex     ~/.codex hook scripts + hooks.json entries
+  2. launchd.install ~/Library/LaunchAgents/com.slimference.proxy.plist
+  3. hooks.codex     ~/.codex hook scripts + hooks.json entries
+
+Keychain trust is NOT part of the default install. CLI WSS does not need it;
+Codex Desktop first uses process-local CODEX_CA_CERTIFICATE via
+` + "`slimference codex launch-desktop --transport=proxy --with-ca-env`" + `.
 
 Claude Code is parked: install never writes ~/.claude or Claude hooks.
 
@@ -470,8 +479,9 @@ Flags:
   --no-hooks        skip the hook integrations
   --with-claude     accepted for old scripts; no-op while Claude is parked
   --no-autostart    skip the launchd plist install
-  --no-keychain     skip the macOS Keychain trust step
-  --system          install CA into the system Keychain (requires admin)
+  --with-keychain   opt into macOS Keychain trust for Desktop/lab fallback
+  --no-keychain     accepted for old scripts; default install already skips Keychain
+  --system          with --with-keychain, install CA into System Keychain
   --help, -h        this text
 `
 
@@ -480,14 +490,15 @@ const uninstallHelpText = `usage: slimference uninstall [flags]
 Reverses the install plan in LIFO order:
   1. hooks.codex reverted
   2. launchd unloaded + plist removed
-  3. CA removed from Keychain
+  3. CA trust removed from Keychain when present
   4. CA material rotated aside to ~/.slimference/ca.bak.<unix>/
 
 Claude Code is parked: uninstall never writes or removes ~/.claude.
 
 Flags:
   --dry-run         show what would happen without changing anything
-  --keep-ca         leave CA in Keychain (and on disk)
+  --keep-ca         skip Keychain trust cleanup; CA material still rotates aside
+  --no-keychain     skip Keychain trust cleanup
   --with-claude     accepted for old scripts; no-op while Claude is parked
   --system          uninstall from the system Keychain
   --json            machine-readable output (with --dry-run)

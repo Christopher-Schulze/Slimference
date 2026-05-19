@@ -1433,13 +1433,15 @@ Codex Desktop proxy launch reuses the same loopback listener without arming
 global transparent mode. `[transparent].scoped_desktop_proxy=true` allows
 CONNECT on `127.0.0.1:8990` only when the local CA material already exists;
 the daemon does not generate CA material just because this scoped listener is
-enabled. `slimference codex launch-desktop --transport=proxy` injects
-HTTP(S)/WSS proxy variables into the spawned Codex.app process tree and refuses
-to spawn unless the CA is trusted, unless an explicit diagnostic skip flag is
-used. `--with-ca-env` is an explicit diagnostic root-store probe that also
-injects `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
-`NODE_EXTRA_CA_CERTS` for that spawned process only. The CONNECT profile MITMs
-only `chatgpt.com`; Phase-F frame mutation is allowed only for
+enabled. `slimference codex launch-desktop --transport=proxy --with-ca-env`
+injects HTTP(S)/WSS proxy variables plus process-local CA hints into the
+spawned Codex.app process tree. `CODEX_CA_CERTIFICATE` is injected first
+because current Codex exposes that Rust WSS custom-CA hook; generic
+`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
+`NODE_EXTRA_CA_CERTS` follow for fallback TLS stacks. Without `--with-ca-env`,
+the launcher still requires macOS Keychain trust unless an explicit diagnostic
+skip flag is used. The CONNECT profile MITMs only `chatgpt.com`; Phase-F frame
+mutation is allowed only for
 `/backend-api/codex/responses` with the Codex `responses_websockets`
 subprotocol. Sideband WebSockets stay byte-equal.
 `slimference codex desktop status` reports the CA gate, daemon reachability,

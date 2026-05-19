@@ -1,13 +1,27 @@
-# TASK 193: Per-app activation state machine
+# TASK 193: Per-app activation state machine (superseded)
 
-Status: PLANNING 2026-05-16
-Priority: P0 (the explicit "per-app toggle" piece the user named)
+Status: SUPERSEDED 2026-05-20 by T239/T245
+Priority: Historical only (superseded by launch-based UX)
 Scope: new `internal/control/apps.go`, `~/.config/slimference/apps.toml`,
        wiring in `internal/proxy/sniroute/` (T189), TUI screen in T191
 
+## Supersession
+
+This is no longer the product target. The current product UX is launch-based,
+not toggle-based:
+
+- normal Codex CLI/App launch means native direct mode;
+- Slimference TUI launch means Slimference mode;
+- install/repair is one unified Codex product flow, not CLI/App checkboxes;
+- Desktop is capability-gated by T242 and may be prepared but blocked/unproven;
+- Claude remains parked and is not part of the normal Codex product path.
+
+This old per-app state-machine idea is retained only as historical context. Do
+not use it to reintroduce a default independent toggle matrix.
+
 ## Why
 
-User wants explicit independent toggles for:
+Original 2026-05-16 assumption was explicit independent toggles for:
 - Codex CLI
 - Codex Desktop App
 - (planned) Claude Code

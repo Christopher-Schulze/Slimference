@@ -31,6 +31,35 @@ func TestPlanFullComposition(t *testing.T) {
 	insp := plan.Inspect(context.Background())
 	want := []string{
 		"ca.generate",
+		"launchd.install",
+		"hooks.codex",
+		"notice.codex",
+	}
+	if len(insp.Order) != len(want) {
+		t.Fatalf("expected %d steps, got %d (%v)", len(want), len(insp.Order), insp.Order)
+	}
+	for i, name := range want {
+		if insp.Order[i] != name {
+			t.Errorf("step %d: got %q want %q", i, insp.Order[i], name)
+		}
+	}
+}
+
+func TestPlanWithKeychainComposition(t *testing.T) {
+	home := t.TempDir()
+	plan, err := Plan(Options{
+		Home:           home,
+		BinaryPath:     "/usr/local/bin/slimference",
+		WithKeychain:   true,
+		KeychainRunner: stubKeychainRunner,
+		SkipLoad:       true,
+	})
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	insp := plan.Inspect(context.Background())
+	want := []string{
+		"ca.generate",
 		"ca.keychain",
 		"launchd.install",
 		"hooks.codex",
@@ -78,8 +107,8 @@ func TestPlanSkipHooks(t *testing.T) {
 		t.Fatalf("Plan: %v", err)
 	}
 	insp := plan.Inspect(context.Background())
-	if len(insp.Order) != 3 {
-		t.Fatalf("expected 3 steps with SkipHooks (notices ride hooks), got %d (%v)", len(insp.Order), insp.Order)
+	if len(insp.Order) != 2 {
+		t.Fatalf("expected 2 steps with SkipHooks (notices ride hooks), got %d (%v)", len(insp.Order), insp.Order)
 	}
 	for _, name := range insp.Order {
 		if name == "hooks.codex" || name == "hooks.claude" ||

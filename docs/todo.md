@@ -920,7 +920,7 @@ Token-Spar-Hebel jenseits L0-L4-Input-Kompression. Output-Tokens sind 3-5× teur
 
 ## Phase G — Live ChatGPT-Sub WebSocket conversation interception (planned 2026-05-16)
 
-The piece that connects everything else: Codex 0.130 + ChatGPT subscription auth ships its model conversations over `wss://chatgpt.com/backend-api/codex/responses`. The chatgpt-base URL is hardcoded in `codex-rs/model-provider-info/src/lib.rs` (`CHATGPT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"`), and the WebSocket connect path in `codex-rs/codex-api/src/endpoint/responses_websocket.rs` does NOT honor `HTTPS_PROXY`. The legacy `openai_base_url` / `chatgpt_base_url` config keys only affect sideband endpoints (memories, plugins, login). To intercept the conversation traffic with ChatGPT-sub auth, we need a transparent TLS-MITM listener with the Slimference CA trusted in macOS Keychain.
+The piece that connects everything else: Codex 0.130 + ChatGPT subscription auth ships its model conversations over `wss://chatgpt.com/backend-api/codex/responses`. The chatgpt-base URL is hardcoded in `codex-rs/model-provider-info/src/lib.rs` (`CHATGPT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"`), and the legacy `openai_base_url` / `chatgpt_base_url` config keys only affect sideband endpoints (memories, plugins, login) in the ChatGPT-auth path. Current product work supersedes the old global-Keychain-first idea: CLI uses the scoped WSS provider path; Desktop proof uses process-local proxy env plus `CODEX_CA_CERTIFICATE` first, with Keychain/global transparent mode kept as explicit fallback/lab only.
 
 User-visible goal (verbatim from the user):
 
@@ -934,9 +934,14 @@ Phase G builds on the existing T122/T123/T131/T133/T139 transparent-mode foundat
 - [ ] **T188** - Responses-API WebSocket conversation MITM wire: terminate `wss://chatgpt.com/backend-api/codex/responses`, decode frames via wscompact, route through Phase F handlers (T165/T166/T167/T170/T174/T169/T183/T184/T185/T186), re-encode to real upstream. Bypass-on-schema-drift fail-open. Detail: `docs/todo/t188-responses-websocket-mitm-wire.md`
 - [ ] **T189** - Smart SNI + path router: per-domain, per-path, per-app routing decisions. Codex conversation → MITM; voice / computer-use / image-gen / plugin / memories / browser → transparent TCP-bridge passthrough. DoH-backed upstream resolver. Per-app toggle. Detail: `docs/todo/t189-smart-sni-path-router.md`
 - [ ] **T190** - Indistinguishability live audit: capture Codex 0.130 baseline traffic, diff against ours. Refresh uTLS profile catalog with `codex_cli_rs_0_130` and `codex_desktop_app_<ver>` profiles. HTTP/2 SETTINGS frame parity. WebSocket extension list parity. Header order parity. Timing budget hold. Golden file under `research/indist/`. Detail: `docs/todo/t190-indistinguishability-live-audit.md`
-- [ ] **T191** - TUI Setup Wizard v2: install / status / per-app toggle / uninstall flows in the existing TUI. State model under `internal/control/`. One-screen dashboard with setup status, per-app integration, today's savings. Detail: `docs/todo/t191-tui-setup-wizard-v2.md`
+- [!] **T191** - SUPERSEDED by T239/T245. The old setup wizard with per-app
+  install/toggle UI is not the product target. Current UX is Launch Center plus
+  one unified Codex install/repair flow and capability-gated Desktop status.
+  Detail: `docs/todo/t191-tui-setup-wizard-v2.md`
 - [ ] **T192** - Stats Dashboard v2: overview tile + detail screen + period filter (today/week/month/all). Per-app, per-mechanism, per-cohort breakdown. Cost estimation via per-provider pricing table. Detail: `docs/todo/t192-stats-dashboard-v2.md`
-- [ ] **T193** - Per-app activation state machine: explicit independent toggles for Codex CLI / Codex Desktop App / Claude Code. UA + process-owner detection cascade. Config under `~/.config/slimference/apps.toml` with hot-reload. Detail: `docs/todo/t193-per-app-activation-state-machine.md`
+- [!] **T193** - SUPERSEDED by T239/T245. Independent per-app toggles are not
+  the normal product UX; launch path and capability state replace them. Detail:
+  `docs/todo/t193-per-app-activation-state-machine.md`
 - [ ] **T194** - Codex Desktop sideband bypass certification: explicit inventory of every Codex Desktop App endpoint family, captured corpus, replay-test, runtime safety guard. Voice / computer-use / image-gen / plugin / memories / browser must never reach our MITM path. Detail: `docs/todo/t194-codex-desktop-sideband-bypass-certification.md`
 - [ ] **T195** - Resource footprint budget: RSS ≤ 200 MB hard ceiling, p95 added latency ≤ 25 ms, ≤ 0.5 % idle CPU. Benchmark suite + telemetry + auto-degradation policy. Detail: `docs/todo/t195-resource-footprint-budget.md`
 - [ ] **T196** - Full reversibility audit: every install step has clean uninstall. Snapshot-diff E2E test. Atomic rollback on partial-install failure. Detail: `docs/todo/t196-full-reversibility-audit-mitm.md`
@@ -1278,16 +1283,21 @@ only and promotes the per-process Codex CLI runner for T209.
   `docs/todo/t228-codex-desktop-zero-friction-launcher.md`
 - [ ] **T229** Codex hook hotpath socket — keep hooks as the Codex signal
   layer, but move hook execution to daemon socket RPC with fail-open
-  fallback instead of repeatedly forking the full binary. Detail:
+  fallback instead of repeatedly forking the full binary. Schedule after the
+  WSS ladder and daemon lifecycle are stable unless hook latency becomes the
+  measured UX bottleneck. Detail:
   `docs/todo/t229-codex-hook-hotpath-socket.md`
 - [ ] **T230** Output-reduce v2 quality-gated max savings — expand the
   output-side savings layer with semantic repetition kill, tool-echo
   suppression, diff-aware budgeting, JSON/code canonicalization, and
-  streaming early-cut, all behind quality gates. Detail:
+  streaming early-cut, all behind quality gates and route-aware attribution.
+  Detail:
   `docs/todo/t230-output-reduce-v2-quality-gated.md`
-- [ ] **T231** M-series performance profile — profile real scoped Codex
-  HTTP/WSS sessions on Apple Silicon before any SIMD/unsafe/build-flag
-  work; keep one stripped Go binary unless benchmarks prove otherwise.
+- [ ] **T231** M-series performance profile — deliberately defer performance
+  optimization until the product path is otherwise release-ready; then profile
+  real scoped Codex HTTP/WSS sessions on Apple Silicon before any
+  SIMD/unsafe/build-flag work. Keep one stripped Go binary unless benchmarks
+  prove otherwise.
   Detail: `docs/todo/t231-m-series-performance-profile.md`
 - [~] **T232** Non-product surface governance — docs/help/TUI now separate
   product scoped Codex from lab/global MITM; normal enable no longer arms
@@ -1325,24 +1335,28 @@ only and promotes the per-process Codex CLI runner for T209.
   process-local proxy env reaches Codex.app's Rust app-server and CONNECT
   reaches Slimference, but Codex.app closes before application bytes flow.
   `codex desktop status` classifies this as `desktop_tls_blocked` /
-  `tls_trust_rejected`; `--with-ca-env` is available only as the next
-  diagnostic root-store probe. Must not touch Browser ChatGPT, ChatGPT.app,
-  Claude Code, `/etc/hosts`, pfctl, macOS system proxy, or
+  `tls_trust_rejected`; `--with-ca-env` plus `CODEX_CA_CERTIFICATE` is the
+  next diagnostic root-store probe before any Keychain fallback. Must not touch
+  Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS system
+  proxy, or
   `~/.codex/config.toml`. Detail:
   `docs/todo/t238-codex-desktop-process-local-proxy-proof.md`
 - [~] **T239** Slimference launch center TUI — first implementation landed in
   the existing BubbleTea TUI: top-level Launch Center now exposes exactly
   Launch Codex CLI, Launch Codex App, Savings, Status, and Manage Slimference.
   No separate "open direct" action; direct mode is launching Codex normally
-  outside Slimference. The Launch Codex App menu item is visible and
-  capability-gated from `codex desktop status` (proven, diagnostic, or
+  outside Slimference. Default Install/Repair is unified for Codex and prepares
+  CLI plus Desktop support together; no default CLI/App checkbox split. The
+  Launch Codex App menu item is visible and capability-gated from
+  `codex desktop status` (proven, custom-CA-env diagnostic, or
   blocked/direct-only). Remaining work: embedded prompt input, richer Status /
   Manage detail, and final T240 live certification. Detail:
   `docs/todo/t239-slimference-launch-center-tui.md`
 - [ ] **T240** Codex zero-drawdown release certification — final product seal
   after T238/T239/T241/T242/T243: prove CLI, Desktop, WSS-first fallback
-  ladder, Browser ChatGPT, ChatGPT.app, uninstall/repair, savings truth, and
-  version-drift fallback as one reproducible macOS arm64 release ceremony.
+  ladder, unified install/repair, Browser ChatGPT, ChatGPT.app, savings truth,
+  CA-env/Keychain truth, and version-drift fallback as one reproducible macOS
+  arm64 release ceremony.
   Detail:
   `docs/todo/t240-codex-zero-drawdown-release-certification.md`
 - [x] **T241** Codex update-resilient certification — keep the strict WSS
@@ -1353,9 +1367,10 @@ only and promotes the per-process Codex CLI runner for T209.
   0.131.0` recert is green with Phase-F mutation and config hash stability.
   Detail: `docs/todo/t241-codex-update-resilient-certification.md`
 - [ ] **T242** Codex Desktop root-store and proxy compatibility matrix — run
-  the `--with-ca-env` Desktop probe, test Codex's managed network-proxy
-  surfaces, and settle whether current Desktop can ever route conversation
-  through Slimference without global lab or upstream changes. Detail:
+  the `--with-ca-env` Desktop probe with `CODEX_CA_CERTIFICATE` first, test
+  Codex's managed network-proxy and endpoint-hook surfaces, and settle whether
+  current Desktop can route conversation through Slimference without global lab
+  or upstream changes. Detail:
   `docs/todo/t242-codex-desktop-root-store-probe.md`
 - [~] **T243** WSS-first auto transport ladder — `transport=auto` now prefers
   `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct for scoped
@@ -1369,6 +1384,13 @@ only and promotes the per-process Codex CLI runner for T209.
   hardening, stale PID diagnostics, and release-cert evidence that rebuilds
   cannot strand daemon/control commands. Detail:
   `docs/todo/t244-daemon-lifecycle-atomic-install.md`
+- [ ] **T245** Desktop custom CA and macOS trust UX — keep unified install
+  usable for Codex CLI and Desktop, but do not make CA env or Keychain trust a
+  prerequisite for scoped CLI WSS. Desktop proxy proof tries process-local
+  `CODEX_CA_CERTIFICATE` first; Keychain trust is only a Desktop/Lab fallback
+  and must be guided, explicit, reversible, SSL-only, and capability-gated in
+  Manage Slimference.
+  Detail: `docs/todo/t245-macos-ca-trust-ux.md`
 
 ### Sequencing within Phase H
 
@@ -1421,8 +1443,9 @@ only and promotes the per-process Codex CLI runner for T209.
    Codex.app conversation routing. T238 is the next Desktop branch: prove or
    reject process-local proxy routing before any Desktop product claim.
 18. **T239 after T238 branch decision** — the launch center can ship once the
-   Desktop button truth is known: proven process-local proxy, or honest
-   direct-only Desktop fallback. Do not design ambiguous Desktop states.
+   Desktop button truth is known: proven process-local proxy, custom-CA-env
+   diagnostic, or honest direct-only Desktop fallback. Do not design ambiguous
+   Desktop states or per-app install checkboxes in the default flow.
 19. **T240 after T239** — final release certification comes after the launch
    center exists, because the user-facing path itself must be what gets
    certified.
@@ -1457,18 +1480,30 @@ only and promotes the per-process Codex CLI runner for T209.
    the UX gets shared CLI/TUI/background recert, bounded logs, locks, cooldowns,
    and real mutation proof.
 30. **T242 before Desktop success claims** — the Desktop menu item remains part
-   of the TUI, but success is gated on bytes/WSS proof. If root-store probes
+   of the TUI, but success is gated on bytes/WSS proof. The first proof branch
+   is process-local proxy plus `CODEX_CA_CERTIFICATE`; if root-store probes
    fail, Desktop remains direct-only until OpenAI exposes a usable hook or root
    store behavior changes.
 31. **T243 before T240** — WSS remains the standard. `transport=auto` must try
    certified WSS Phase-F first, WSS byte-equal bridge second, HTTP third, and
    direct only as final fail-open. Version drift should trigger T241 auto-recert
    while staying on WSS bridge when bridge proof is clean.
+32. **T245 before any Desktop/Lab installer claim** — scoped Codex CLI WSS
+   does not need CA env or a macOS trusted CA. The TUI may expose
+   process-local custom CA env for Desktop proof and may install/repair/remove
+   Keychain trust only for Desktop fallback or global lab, with an explicit
+   admin prompt and reversible cleanup. Do not block normal CLI WSS install,
+   launch, or recert on CA/Keychain state.
 
 ### Acceptance for Phase H
 
-- `slimference install` exits 0 → SetupState: CA installed, launchd
-  loaded, hooks present, hosts CLEAN (not patched).
+- `slimference install` exits 0 → SetupState: daemon/autostart state known,
+  hooks present where selected, hosts CLEAN (not patched), and Codex product
+  support prepared for both CLI and Desktop without default per-app checkboxes.
+  Scoped Codex CLI WSS is usable without CA env or macOS CA trust. Desktop
+  proxy proof uses process-local custom CA env first; Keychain trust is
+  optional and only required for Desktop/Lab TLS-MITM fallback branches that
+  actually need OS trust.
 - Scoped Codex CLI test uses `slimference codex run` and leaves
   hosts/pfctl/Browser ChatGPT/ChatGPT.app untouched.
 - Scoped WSS mode uses `wsmitm.Session` + Phase-F frame mutation, handles
@@ -1482,11 +1517,12 @@ only and promotes the per-process Codex CLI runner for T209.
   when global transparent mode is disabled.
 - Indistinguishability claims require a T224 capture report; docs use
   "scoped / minimized drift" until then.
-- Shared Codex CLI/App test uses `slimference codex enable`, restarts
-  Codex.app/app-server, verifies telemetry, then uses
-  `slimference codex disable`.
+- Shared Codex CLI/App test uses the Launch Center paths: Launch Codex CLI via
+  `transport=auto`; Launch Codex App via the T242 capability-gated branch; then
+  verifies direct normal launches outside Slimference remain native.
 - Codex Desktop target is also WSS-first if scoped provider/launcher proof
-  confirms Desktop can be routed without global hosts/pfctl.
+  confirms Desktop can be routed without global hosts/pfctl, preferably through
+  process-local proxy plus `CODEX_CA_CERTIFICATE` and without Keychain.
 - T226 done: `transport=auto` prefers WSS for certified Codex versions. T243
   supersedes the old fallback ordering so stale Phase-F certs prefer WSS
   byte-equal bridge before HTTP/direct when bridge proof is clean.
@@ -1498,9 +1534,11 @@ only and promotes the per-process Codex CLI runner for T209.
 - After T238, Codex Desktop either has a proven process-local proxy launch mode
   that routes conversation WSS through Slimference without global collateral, or
   the product truth explicitly says Desktop remains direct until upstream
-  exposes a usable route.
+  exposes a usable route. The next proof branch is process-local
+  `CODEX_CA_CERTIFICATE`, not Keychain-first.
 - After T239, the normal human surface is the launch center: Launch Codex CLI,
-  Launch Codex App, Savings, Status, and Manage Slimference.
+  Launch Codex App, Savings, Status, and Manage Slimference. Install/Repair is
+  one Codex product flow, not separate CLI/App installation.
 - After T240, the release claim is evidence-backed: Slimference can be enabled,
   used, repaired, disabled, and uninstalled without making Codex less capable,
   less stable, more expensive, or more confusing.

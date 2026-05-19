@@ -193,20 +193,22 @@ func TestBuildCodexDesktopProxyEnvScopedAndNoBaseURLOverrides(t *testing.T) {
 func TestAppendCodexDesktopCAEnvIsExplicitAndExtraWins(t *testing.T) {
 	base := []string{
 		"PATH=/usr/bin",
+		"CODEX_CA_CERTIFICATE=/old/codex-root.crt",
 		"SSL_CERT_FILE=/old/root.crt",
 		"HTTPS_PROXY=http://127.0.0.1:8990",
 		"NOEQUAL",
 	}
 	got := appendCodexDesktopCAEnv(base, "/tmp/slimference-root.crt", []string{"SSL_CERT_FILE=/operator/root.crt"})
 	wantPresent := map[string]bool{
-		"PATH=/usr/bin":                                 false,
-		"HTTPS_PROXY=http://127.0.0.1:8990":             false,
-		"NOEQUAL":                                       false,
-		"SSL_CERT_FILE=/tmp/slimference-root.crt":       false,
-		"CURL_CA_BUNDLE=/tmp/slimference-root.crt":      false,
-		"REQUESTS_CA_BUNDLE=/tmp/slimference-root.crt":  false,
-		"NODE_EXTRA_CA_CERTS=/tmp/slimference-root.crt": false,
-		"SSL_CERT_FILE=/operator/root.crt":              false,
+		"PATH=/usr/bin":                     false,
+		"HTTPS_PROXY=http://127.0.0.1:8990": false,
+		"NOEQUAL":                           false,
+		"CODEX_CA_CERTIFICATE=/tmp/slimference-root.crt": false,
+		"SSL_CERT_FILE=/tmp/slimference-root.crt":        false,
+		"CURL_CA_BUNDLE=/tmp/slimference-root.crt":       false,
+		"REQUESTS_CA_BUNDLE=/tmp/slimference-root.crt":   false,
+		"NODE_EXTRA_CA_CERTS=/tmp/slimference-root.crt":  false,
+		"SSL_CERT_FILE=/operator/root.crt":               false,
 	}
 	for _, kv := range got {
 		if _, ok := wantPresent[kv]; ok {
@@ -214,6 +216,9 @@ func TestAppendCodexDesktopCAEnvIsExplicitAndExtraWins(t *testing.T) {
 		}
 		if kv == "SSL_CERT_FILE=/old/root.crt" {
 			t.Fatalf("old CA env must be removed: %v", got)
+		}
+		if kv == "CODEX_CA_CERTIFICATE=/old/codex-root.crt" {
+			t.Fatalf("old Codex CA env must be removed: %v", got)
 		}
 	}
 	for kv, seen := range wantPresent {
@@ -251,12 +256,13 @@ func TestFilterCodexDesktopProxyEnv(t *testing.T) {
 		"PATH=/usr/bin",
 		"NOEQUAL",
 		"HTTPS_PROXY=http://x",
+		"CODEX_CA_CERTIFICATE=/tmp/root.crt",
 		"SSL_CERT_FILE=/tmp/root.crt",
 		"FOO=bar",
 		"NO_PROXY=127.0.0.1",
 	}
 	got := filterCodexDesktopProxyEnv(env)
-	want := []string{"HTTPS_PROXY=http://x", "SSL_CERT_FILE=/tmp/root.crt", "NO_PROXY=127.0.0.1"}
+	want := []string{"HTTPS_PROXY=http://x", "CODEX_CA_CERTIFICATE=/tmp/root.crt", "SSL_CERT_FILE=/tmp/root.crt", "NO_PROXY=127.0.0.1"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
@@ -298,6 +304,7 @@ func TestRunCodexLaunchDesktopProbeWithCAEnvEmitsRootHints(t *testing.T) {
 	}
 	joined := strings.Join(probe.EnvOverride, "\n")
 	for _, want := range []string{
+		"CODEX_CA_CERTIFICATE=/tmp/root.crt",
 		"SSL_CERT_FILE=/tmp/root.crt",
 		"CURL_CA_BUNDLE=/tmp/root.crt",
 		"REQUESTS_CA_BUNDLE=/tmp/root.crt",
@@ -542,6 +549,46 @@ func TestRunCodexLaunchDesktopRefusesProxyWithoutTrustedCA(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "cert-trust") {
 		t.Fatalf("stderr missing cert-trust remediation: %q", errBuf.String())
+	}
+}
+
+func TestRunCodexLaunchDesktopWithCAEnvAllowsUntrustedKeychain(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevStart := codexDesktopStartFn
+	prevCA := codexDesktopCATrustFn
+	t.Cleanup(func() {
+		codexDesktopStartFn = prevStart
+		codexDesktopCATrustFn = prevCA
+	})
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: false, Error: "keychain untrusted"}
+	}
+	var seenEnv []string
+	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+		seenEnv = env
+		return 0
+	}
+
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--app=" + app, "--with-ca-env"},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	joined := strings.Join(seenEnv, "\n")
+	if !strings.Contains(joined, "CODEX_CA_CERTIFICATE=/tmp/root.crt") {
+		t.Fatalf("spawn env missing Codex CA hook: %s", joined)
 	}
 }
 

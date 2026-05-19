@@ -5,7 +5,8 @@ state, tests, certified-tuple live proof, and successful recert restore proof
 landed; fallback-branch live proof and non-CLI passthrough audits remain
 Priority: P0 after T241 recert core design, before T240 release seal
 Scope: Codex CLI transport selection only; Desktop adopts the same ladder only
-after T242 proves Desktop can route bytes through Slimference safely
+after T242 proves Desktop can route bytes through Slimference safely, preferably
+through process-local proxy env plus `CODEX_CA_CERTIFICATE`
 
 ## Why
 
@@ -62,6 +63,10 @@ capability proof is green.
 - If no current bridge proof exists, `auto` may perform a cheap bridge health
   probe or use the most recent valid bridge state, but it must not block the
   user's interactive launch for a long proof run.
+- Bridge probing should be opportunistic and cheap: use bounded exact-reply or
+  minimal WSS handshake/byte observations, persist the result with a short TTL,
+  and let T241 run the heavier mutation proof in the background. The goal is to
+  make `http` a rare fallback, not the normal post-update state.
 - `http` is selected only when WSS bridge is unavailable or unsafe:
   - daemon reachable but WSS handshake fails;
   - upstream WSS dial fails;
@@ -93,6 +98,9 @@ capability proof is green.
   `transport=auto`; the auto resolver chooses the best safe mode.
 - Normal direct Codex launches remain direct. This ladder applies only to
   Slimference-launched scoped Codex CLI sessions.
+- Desktop gets this same priority order only after T242 proves real Desktop
+  conversation bytes through Slimference. CA env present, Keychain trust, or
+  CONNECT acceptance alone do not qualify Desktop for this ladder.
 - Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS system
   proxy, and persistent shell env remain untouched.
 - Audio, Realtime, Voice, and non-conversation WSS paths are passthrough only.
@@ -121,6 +129,9 @@ capability proof is green.
   bridge counters, exact-reply sentinel, and failure reason.
 - [ ] Add a cheap WSS bridge smoke/probe that does not mutate payloads and can
   prove handshake/upstream/bytes without running the full Phase-F recert.
+- [ ] Make the bridge smoke/probe non-blocking where possible: launch-center
+  refresh and first CLI launch may start it in the background, but interactive
+  Codex work should proceed through the best known safe state.
 - [x] Update `transport=auto` resolution order to prefer `wss_bridge` before
   `http` whenever Phase-F cert is stale but bridge proof is green.
 - [x] Integrate T241 recert state so active/failed recert attempts influence
@@ -143,6 +154,9 @@ capability proof is green.
 - [ ] Add tests proving Audio/Realtime/Voice routes remain passthrough and do
   not affect WSS savings state.
 - [ ] Add bounded transport-decision logging and log-rotation tests.
+- [ ] Add live negative-branch runbook and evidence capture for:
+  simulated Codex drift -> WSS bridge, bridge proof expiry -> cheap probe,
+  forced WSS bridge failure -> HTTP, daemon down -> direct.
 - [x] Update `docs/install.md`, `docs/documentation.md`, and T240 release
   evidence requirements with the final ladder.
 - [~] Run live Codex CLI proof:
@@ -182,6 +196,18 @@ Open engineering questions to settle before code:
   counters inside a bounded recent window.
 - Whether auto-recognition of "WSS unsafe" should be sticky. Recommended:
   sticky with cooldown, but repairable by TUI force repair.
+
+Engineering bias for the remaining work:
+
+- Treat `wss_phasef` as the steady state and spend extra effort to keep it
+  there: reliable T241 mutation trigger, tuple-scoped bridge proof, cooldown
+  instead of panic fallback, and exact reasons in status.
+- Treat `wss_bridge` as the safety net, not a product victory. It preserves the
+  native WSS route but does not claim Phase-F savings.
+- Treat `http` as emergency compatibility. It is valid, but it should only
+  appear when WSS itself is unsafe, not when mutation merely needs repair.
+- Treat `direct` as fail-open. It protects Codex UX; it is not a Slimference
+  savings mode.
 
 2026-05-19 implementation pass:
 

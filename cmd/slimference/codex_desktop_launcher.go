@@ -46,10 +46,11 @@ import (
 // default proxy mode is the only current Desktop route candidate that
 // does not require global hosts/pf/system-proxy changes.
 //
-// `--with-ca-env` is an explicit diagnostic matrix branch. It injects
-// process-local CA bundle hints used by common TLS stacks. It is not the
-// product default until a live Codex Desktop run proves bytes and WSS
-// frames actually flow through Slimference.
+// `--with-ca-env` is the preferred Desktop compatibility probe. It injects
+// Codex's own process-local custom CA hook first, followed by generic CA bundle
+// hints used by common TLS stacks. It is not a Desktop savings claim until a
+// live Codex Desktop run proves bytes and WSS frames actually flow through
+// Slimference.
 //
 // Reverse: quit Codex.app. Relaunching from Finder / Spotlight gives
 // direct ChatGPT routing because no env is inherited.
@@ -98,6 +99,7 @@ var codexDesktopProxyEnvKeys = []string{
 }
 
 var codexDesktopCAEnvKeys = []string{
+	"CODEX_CA_CERTIFICATE",
 	"SSL_CERT_FILE",
 	"CURL_CA_BUNDLE",
 	"REQUESTS_CA_BUNDLE",
@@ -166,11 +168,21 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 		return emitCodexDesktopProbe(p, binary, flags.transport, overrideURL, proxyURL, env, ca)
 	}
 
-	if flags.transport == codexDesktopTransportProxy && !flags.insecureSkipTrustCheck && !ca.Trusted {
+	if flags.transport == codexDesktopTransportProxy && !flags.insecureSkipTrustCheck && flags.withCAEnv && !ca.Exists {
+		fmt.Fprintf(p.Err, "codex launch-desktop: Slimference CA missing at %s; run `slimference install` first.\n", ca.Path)
+		if ca.Error != "" {
+			fmt.Fprintf(p.Err, "  CA probe: %s\n", ca.Error)
+		}
+		return 1
+	}
+
+	if flags.transport == codexDesktopTransportProxy && !flags.insecureSkipTrustCheck && !flags.withCAEnv && !ca.Trusted {
 		if !ca.Exists {
 			fmt.Fprintf(p.Err, "codex launch-desktop: Slimference CA missing at %s; run `slimference install` first.\n", ca.Path)
 		} else {
-			fmt.Fprintln(p.Err, "codex launch-desktop: Slimference CA is not trusted for TLS; run `slimference cert-trust` first.")
+			fmt.Fprintln(p.Err, "codex launch-desktop: Slimference CA is not trusted for TLS.")
+			fmt.Fprintln(p.Err, "  preferred: retry with `--with-ca-env` for Codex process-local CA trust.")
+			fmt.Fprintln(p.Err, "  fallback:  run `slimference cert-trust` for macOS Keychain trust.")
 		}
 		if ca.Error != "" {
 			fmt.Fprintf(p.Err, "  trust probe: %s\n", ca.Error)
@@ -437,16 +449,16 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--transport=proxy|base-url] [--probe] [--with-ca-env] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
 
 Spawns Codex.app's main binary with a scoped env. Default transport=proxy
-sets HTTP(S)/WSS proxy variables only on the launched app process and
-requires the Slimference CA to be trusted. Browser ChatGPT, ChatGPT.app,
-Claude Code, and any Codex.app relaunched from Finder/Spotlight remain on
-direct routing.
+sets HTTP(S)/WSS proxy variables only on the launched app process. Browser
+ChatGPT, ChatGPT.app, Claude Code, and any Codex.app relaunched from
+Finder/Spotlight remain on direct routing.
 
 Flags:
   --transport=<mode>  proxy (default) or base-url diagnostic mode
   --probe             emit scoped env and CA state as JSON without spawning
-  --with-ca-env       proxy-mode diagnostic: also inject SSL_CERT_FILE,
-                      CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, NODE_EXTRA_CA_CERTS
+  --with-ca-env       proxy-mode Desktop probe: inject CODEX_CA_CERTIFICATE
+                      first, then SSL_CERT_FILE, CURL_CA_BUNDLE,
+                      REQUESTS_CA_BUNDLE, NODE_EXTRA_CA_CERTS
   --host=<host>       slimference daemon host (default 127.0.0.1)
   --port=<port>       slimference daemon port (default 8990)
   --app=<path>        override path to Codex.app bundle (default /Applications/Codex.app)

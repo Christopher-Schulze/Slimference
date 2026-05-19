@@ -44,6 +44,15 @@ diagnose, and recover without hanging the operator.
     safe order;
   - stuck uninterruptible macOS processes are classified explicitly as OS-level
     `dyld_start` hang requiring reboot, not silently retried.
+- The Launch Center / Manage Slimference surfaces daemon health without
+  frightening the user with irrelevant old stuck processes. Old `U`/`UE`
+  processes are reported as "requires reboot to clear" when detected, while the
+  current healthy daemon PID remains the actionable state.
+- Build/install/restart documentation must distinguish:
+  - developer local rebuild;
+  - product repair/restart;
+  - release certification ceremony;
+  - reboot-only cleanup for already stuck macOS processes.
 - `docs/operation-log.md` records the exact live failure class, current stuck
   PIDs if still present, the atomic-install fix, and remaining lifecycle work.
 - T240 release certification includes one rebuild/install/restart proof after
@@ -58,6 +67,14 @@ diagnose, and recover without hanging the operator.
   and restart flows.
 - [ ] Add a release-safe rebuild command or documented ceremony that avoids
   racing the daemon against binary replacement.
+- [ ] Add Manage Slimference "Restart daemon" / "Repair daemon" wording that
+  uses the hardened lifecycle path and never starts duplicate daemons.
+- [ ] Ensure install/repair lifecycle state is product-level, not per-app:
+  `installed/prepared` covers Codex CLI and Desktop support together, while
+  route capability states live under Status.
+- [ ] Add stale process classifier for old `dyld_start` / uninterruptible
+  process evidence: report, do not retry-loop, recommend reboot only when the
+  current daemon is healthy but old kernel-state processes remain.
 - [ ] Add live macOS evidence: build, install, restart daemon, run
   `slimference version`, confirm no new stuck processes.
 - [ ] Decide whether the old `slimference.dyld-stuck-*` file should be
@@ -73,6 +90,18 @@ until gone.
 
 This task is separate from Codex routing. It is release hygiene: no user should
 have to understand dyld, PIDs, or half-copied binaries to update Slimference.
+
+Install UX is also deliberately unified at this lifecycle layer. A normal
+install prepares Slimference for Codex as a product, including CLI launch,
+Desktop launch/probe support, daemon/autostart, bounded logs, and repair state.
+It must not create default CLI-only/Desktop-only partial installs. Desktop
+capability can remain blocked by T242, but the installed product state remains
+single and repairable.
+
+T244 is also the guard against false debugging. If the current daemon is healthy
+and old stuck processes consume 0 CPU, the product should say exactly that
+instead of forcing unnecessary repair or killing attempts that cannot work in
+macOS uninterruptible state.
 
 ## Deviations
 

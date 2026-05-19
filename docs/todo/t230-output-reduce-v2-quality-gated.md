@@ -1,7 +1,7 @@
 # TASK 230: Output-reduce v2 quality-gated max savings
 
 Status: PLANNED
-Priority: P1 after T209/T224 live proof establishes transport baseline
+Priority: P1 after T243/T240 establish a stable transport/release baseline
 Scope: Response/output side savings for Codex; provider-neutral where safe
 
 ## Why
@@ -13,6 +13,11 @@ mutation can hide useful information if it is too aggressive.
 
 This task expands output-reduce only where quality can be protected by
 deterministic guards, schema awareness, A/B metrics, or exact fallback.
+
+T230 is the next large savings lever after WSS correctness. It should not race
+the transport proof. The system must first know which route is active
+(`wss_phasef`, `wss_bridge`, `http`, or `direct`) so output savings and quality
+signals can be attributed correctly.
 
 ## Target State
 
@@ -45,6 +50,9 @@ and disabled automatically if quality metrics degrade.
 - Quality A/B can compare control/treatment and auto-disable a reducer on
   failure-rate regression.
 - Tests include broken-code counterexamples where a reducer must not fire.
+- Release integration proves reducers never fire on Audio/Realtime/Voice or
+  exact-reply prompts, and never hide code/test/diff payloads the user asked to
+  see.
 
 ## Sub-Tasks
 
@@ -68,6 +76,8 @@ and disabled automatically if quality metrics degrade.
 - [ ] Add `/admin/state.output_reduce_v2` and debug flight event fields.
 - [ ] Add live-corpus gate with synthetic fixtures first, then real scrubbed
   corpus after T209.
+- [ ] Add route-aware attribution so T240/TUI can say which savings came from
+  WSS Phase-F, output-reduce, prompt-cache, hook/readhook, or estimates.
 
 ## Benefits
 
@@ -93,4 +103,7 @@ Expected savings over direct baseline:
 - Semantic reducers can overmatch. Guard: start deterministic/verbatim-near
   only; no embedding dependency in v1.
 - Do not hide code/test details. Guard: diff/error preservation tests.
-
+- Do not chase "max savings" by making answers dumber. The target is fewer
+  useless output tokens, not fewer useful facts. Any reducer that correlates
+  with repair turns, re-asks, malformed patches, or missing error details must
+  auto-soften or disable.

@@ -64,6 +64,12 @@ _slimference() {
 
     local sub="${COMP_WORDS[1]}"
     case "$sub" in
+        install)
+            COMPREPLY=( $(compgen -W "--dry-run --json --no-hooks --with-claude --no-autostart --with-keychain --no-keychain --system --help" -- "$cur") )
+            ;;
+        uninstall)
+            COMPREPLY=( $(compgen -W "--dry-run --keep-ca --with-claude --no-keychain --system --json --help" -- "$cur") )
+            ;;
         config)
             if [ "$cword" -eq 2 ]; then
                 COMPREPLY=( $(compgen -W "init show" -- "$cur") )

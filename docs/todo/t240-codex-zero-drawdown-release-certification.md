@@ -15,14 +15,21 @@ or Claude Code.
 T238/T242 prove or reject the Desktop routing branch. T241 makes Codex CLI WSS
 Phase-F certification automatically repairable after updates. T243 makes
 `transport=auto` WSS-first with byte-equal WSS bridge before HTTP fallback.
-T239 builds the human launch center. T240 certifies the whole user-facing
-system as one release ceremony.
+T239 builds the human launch center and unified Codex install UX. T245 keeps CA
+truth honest: not required for scoped CLI WSS, process-local custom CA env first
+for Desktop proof, Keychain trust only for Desktop/Lab fallback branches that
+prove they can use it. T240 certifies the whole user-facing system as one
+release ceremony.
 
 ## Acceptance
 
 - Fresh build is installed and daemon is restarted from the installed binary.
 - `slimference` launch center opens and exposes exactly:
   Launch Codex CLI, Launch Codex App, Savings, Status, Manage Slimference.
+- Install/Repair is unified for Codex. The default product flow prepares both
+  CLI and Desktop support and does not show CLI/App install checkboxes. Desktop
+  is capability-gated after install, not treated as a separate half-installed
+  product.
 - Launch Codex CLI runs through `transport=auto`, uses `wss_phasef` for the
   certified tuple, returns correct model output, records clean counters, and
   measures real WSS Phase-F savings.
@@ -31,7 +38,8 @@ system as one release ceremony.
   being repaired while T243 keeps the session on WSS byte-equal bridge when the
   bridge is safe.
 - Launch Codex App follows the T238 branch:
-  - if Desktop proxy mode is proven, it launches through Slimference and records
+  - if Desktop proxy mode is proven with process-local `CODEX_CA_CERTIFICATE`
+    or an equivalent supported hook, it launches through Slimference and records
     clean WSS counters;
   - if Desktop proxy mode is rejected by T242, it reports Desktop direct-only or
     root-store blocked and makes no savings claim.
@@ -43,12 +51,20 @@ system as one release ceremony.
 - Savings output is source-labelled and contains no fake Desktop numbers.
 - Status output identifies daemon, binary SHA, CA trust, route mode, WSS cert,
   drift fallback, config path, global lab state, and last observation.
+- Status proves missing CA env or Keychain trust is not a CLI WSS failure. CA
+  state is reported as Desktop/Lab readiness only unless the active test is a
+  Desktop/Lab TLS-MITM probe.
 - Repair fixes missing/partial local Slimference state without mutating unrelated
   Codex, Browser, ChatGPT.app, or Claude state.
 - Disable returns scoped Codex route to direct mode.
 - Uninstall reverses Slimference-managed files and leaves Codex usable.
 - Version drift test proves Codex/Slimference tuple mismatch follows the final
   ladder: `wss_phasef -> wss_bridge -> http -> direct`.
+- CA test proves scoped CLI WSS works with CA absent, present, or removed. If
+  Desktop proxy mode uses process-local custom CA env, prove no Keychain prompt
+  is needed. If Desktop proxy mode needs Keychain trust, prove the T245 guided
+  flow and removal path. If Desktop remains direct-only, prove the TUI does not
+  ask for CA during normal CLI use.
 - Full CI remains green with coverage >= 99.5%.
 - Operation log contains the exact evidence and final branch decision.
 
@@ -59,6 +75,8 @@ system as one release ceremony.
 - [ ] Restart daemon and verify PID, health, listener state, and disarmed global
   lab state.
 - [ ] Run launch-center smoke from a terminal.
+- [ ] Run unified Install/Repair state proof: one product install prepares CLI
+  and Desktop support together, with no default CLI/App checkbox split.
 - [ ] Run Launch Codex CLI exact-reply smoke.
 - [ ] Run Launch Codex CLI mutation-triggering smoke and verify WSS mutation
   counters.
@@ -69,6 +87,9 @@ system as one release ceremony.
 - [ ] Force WSS bridge failure in a controlled test and verify HTTP fallback is
   used only after bridge is unsafe.
 - [ ] Run Launch Codex App according to T238 final branch decision.
+- [ ] If T242 is still open, run the Desktop custom-CA-env probe first:
+  `launch-desktop --transport=proxy --with-ca-env`, verify
+  `CODEX_CA_CERTIFICATE`, lsof, WSS counters, and direct controls.
 - [ ] Prove direct fallback: normal `codex` and Finder/Spotlight Codex.app still
   work without Slimference env/config/global routing.
 - [ ] Prove Browser ChatGPT direct while Slimference session is active.
@@ -78,6 +99,8 @@ system as one release ceremony.
   policy.
 - [ ] Verify Savings output by source and period.
 - [ ] Verify Status output and repair recommendations.
+- [ ] Verify CA wording and behavior: CLI WSS independent of CA; Desktop/Lab CA
+  branch explicit, reversible, and not advertised as savings proof.
 - [ ] Run Repair against a controlled partial state and verify it fixes only
   Slimference-owned state.
 - [ ] Run Disable and verify `~/.codex/config.toml` returns to baseline.
@@ -102,6 +125,7 @@ system as one release ceremony.
 | ChatGPT.app | lsof/direct proof or not-running note |
 | Savings | `savings`/`gain` output with source attribution |
 | Status | JSON and human output snapshots |
+| CA / Trust | absent/present/remove proof, custom-CA-env proof, CLI independence, Desktop/Lab branch need |
 | Repair | before/after state diff |
 | Disable | config hash before/after |
 | Uninstall | managed-file diff and Codex direct smoke |
@@ -119,6 +143,13 @@ The task can pass with Desktop direct-only if T238 proves no safe process-local
 Desktop route exists. In that branch, the release claim is still honest:
 Codex CLI gets Slimference savings, Codex Desktop remains native with no
 drawbacks, and the launch center says so plainly.
+
+The task can also pass with CA trust absent for the normal product path. CA is
+not the thing that makes CLI WSS work. The release-critical thing is that CLI
+WSS Phase-F and WSS bridge are scoped, certified, repairable, and reversible.
+CA only matters for Desktop/Lab TLS termination if T242 proves a usable client
+trust path. The preferred Desktop path uses process-local `CODEX_CA_CERTIFICATE`
+before any Keychain trust prompt.
 
 T238 pre-live code has narrowed the Desktop release branch to one explicit
 live ceremony: process-local proxy launch plus lsof and `/admin/state.wss`.

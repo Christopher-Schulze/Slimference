@@ -1,7 +1,8 @@
 # TASK 229: Codex hook hotpath socket
 
 Status: PLANNED
-Priority: P1 after WSS/CLI proof; can run before Desktop proof
+Priority: P1 after T243 fallback matrix and T244 lifecycle hardening; can run
+before Desktop proof if hook latency is the next visible UX cost
 Scope: Codex hooks only; Claude Code remains parked/off
 
 ## Why
@@ -15,6 +16,10 @@ The current hook path can fork the full Slimference binary. That is functional
 but not elegant: cold-start latency accumulates across many hook events. The
 daemon already exists; hooks should talk to it over a local Unix socket and fall
 back to the binary path only when the daemon is unavailable.
+
+This is a UX/latency/stability task, not a transport replacement. It should make
+Slimference feel invisible by removing hook process churn, but model
+conversation traffic still belongs to the scoped provider/WSS route.
 
 ## Target State
 
@@ -30,6 +35,8 @@ back to the binary path only when the daemon is unavailable.
 
 - Hook hot path p95 is below 5 ms for daemon-reachable local events excluding
   actual file IO and compression work.
+- Hook cold-start/fork overhead is measured before and after implementation so
+  the claimed win is evidence-backed, not assumed.
 - `SessionStart`, `PreToolUse Read`, `PostToolUse`, `PermissionRequest`, and
   `Stop` all have socket request/response contracts.
 - Hook response format remains exactly what current Codex expects.
@@ -52,6 +59,8 @@ back to the binary path only when the daemon is unavailable.
   malformed_count.
 - [ ] Add tests for every event branch and fallback path.
 - [ ] Benchmark hook p50/p95 before/after.
+- [ ] Add release-gate smoke proving socket failure cannot prevent Codex CLI
+  from continuing normally.
 
 ## Benefits
 
@@ -66,4 +75,6 @@ back to the binary path only when the daemon is unavailable.
 - Hook layer must not become a third traffic surface. Guard: hooks feed signal
   and local output compression only; model traffic still goes through scoped
   provider route.
-
+- Do not start this before T243/T244 are stable unless profiling shows hooks
+  are the active bottleneck. A faster hook path is valuable, but a broken
+  transport ladder or daemon lifecycle would hurt UX more.

@@ -1,7 +1,9 @@
 # TASK 231: M-series performance profile
 
-Status: PLANNED
-Priority: P2 after transport/product proof
+Status: PLANNED - deliberately deferred until the product path is otherwise
+release-ready, except for low-risk profiling scaffolding
+Priority: P2 after T240 release proof and after T230 has a measurable output
+baseline
 Scope: macOS arm64 performance, binary build flags, hot-path profiling
 
 ## Why
@@ -13,6 +15,10 @@ latency dominates. Blind SIMD/Rust/unsafe work is therefore the wrong default.
 Performance work should be driven by real Codex HTTP/WSS sessions and pprof,
 not guesses. The goal is less latency and fewer allocations without increasing
 maintenance risk or binary complexity.
+
+This task is not allowed to distract from WSS correctness, Desktop truth, or
+daemon lifecycle. It becomes high-value only when the product path is stable
+enough that performance profiles reflect the real final workload.
 
 ## Current Evidence
 
@@ -33,6 +39,9 @@ maintenance risk or binary complexity.
 - Optional M-series flags are benchmark-gated, not assumed.
 - pprof captures real scoped Codex HTTP and WSS sessions.
 - Allocation reductions target measured hot spots only.
+- No Rust port, SIMD, unsafe, assembly, architecture-specific build flags,
+  pooling, or ring-buffer rewrite before profiles prove a real bottleneck and a
+  simple Go fix is insufficient.
 
 ## Acceptance
 
@@ -51,6 +60,8 @@ maintenance risk or binary complexity.
   using captured or synthetic fixtures.
 - [ ] Add pprof instructions or command wrapper for daemon CPU/heap profiles.
 - [ ] Profile real T209/T224 CLI sessions after live proof.
+- [ ] Re-run profiles after T243/T240 when the final WSS-first ladder and
+  release ceremony are stable; only then decide what to optimize.
 - [ ] Profile output-reduce v2 reducers when T230 lands.
 - [ ] Investigate high-allocation candidates:
   JSON minify, ANSI strip long bodies, comment strip, WSS frame buffers,
@@ -72,4 +83,6 @@ maintenance risk or binary complexity.
 - Architecture-specific flags can hurt portability or performance. Guard:
   benchmark on target hardware before changing defaults.
 - Unsafe/SIMD adds maintenance cost. Guard: require proof and fallback.
-
+- Premature concurrency can create races and worse latency. Guard: only add
+  goroutines/pools/ring buffers where pprof or benchmarks show contention,
+  allocation churn, or large repeated buffers on the real WSS path.

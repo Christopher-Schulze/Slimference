@@ -1,0 +1,160 @@
+# TASK 245: Desktop custom CA and macOS trust UX
+
+Status: PARTIAL - default install is Keychain-free; TUI CA management remains
+planned
+Priority: P0 before T240 if T242 keeps a Desktop proxy branch alive; otherwise
+P1 lab-polish
+Scope: process-local custom CA env first, macOS arm64 Keychain fallback/lab UX,
+install/repair/remove semantics, and status truth for Desktop process-local
+proxy and global lab paths only
+
+## Why
+
+The user wants one simple Slimference entry point that can launch Codex CLI and
+Codex Desktop without degrading native behavior. Product install should prepare
+both Codex surfaces together. It should not ask the user to choose "CLI only"
+versus "Desktop only" during the normal install flow, because that creates
+half-installed state, confusing status, and avoidable repair branches.
+
+Unified install means one product install/repair/uninstall surface. It does not
+mean every powerful trust primitive must be installed for every user up front.
+
+Scoped Codex CLI WSS does not require macOS Keychain CA trust or a local CA env.
+The CLI product path is:
+
+1. Codex CLI is launched through Slimference.
+2. Codex talks to the local Slimference route.
+3. Slimference talks upstream to OpenAI/ChatGPT using its own upstream TLS
+   client.
+
+There is no local TLS interception of the Codex CLI process in that scoped path,
+so the macOS CA is not a prerequisite for WSS Phase-F savings, WSS byte-equal
+bridge, auto-recert, or the T243 fallback ladder.
+
+CA material is only relevant when Slimference terminates TLS for a client that
+expects a normal `chatgpt.com` certificate. In the current product plan that is
+limited to:
+
+- Codex Desktop process-local proxy diagnostics from T238/T242;
+- global transparent lab mode;
+- future Desktop branch if T242 proves Codex.app can be made to trust the local
+  CA or another safe root-store hook.
+
+Therefore the correct UX is unified install with conditional trust:
+
+1. Product install prepares daemon, CLI path, Desktop launcher/probe path,
+   logs/status/repair, and Slimference-owned CA material.
+2. Product install does not force Keychain trust by default.
+3. Desktop proof first tries process-local `CODEX_CA_CERTIFICATE` /
+   `SSL_CERT_FILE` env from the TUI launcher. This is scoped to the launched
+   Codex.app process and avoids a Keychain prompt if Codex honors it.
+4. Keychain trust remains an explicit fallback/lab action only when a chosen
+   Desktop/Lab branch actually requires OS trust.
+
+## Acceptance
+
+- Normal `slimference` install/launch center works for Codex CLI WSS without
+  requiring Keychain CA trust.
+- Normal install prepares both Codex CLI and Codex Desktop support together.
+  There are no default CLI/App install checkboxes and no "Desktop not
+  installed" state. Desktop can be `prepared but blocked`, `diagnostic`, or
+  `proven`, but not half-installed.
+- `Launch Codex CLI` and `slimference codex run --transport=auto -- ...` never
+  fail solely because CA trust is missing.
+- `Manage Slimference` can show CA state as:
+  - not needed for CLI WSS;
+  - process-local custom CA env available for Desktop probe;
+  - Keychain not needed for current path;
+  - Keychain needed only for Desktop/Lab fallback;
+  - trusted in Keychain;
+  - installed but not trusted;
+  - stale/mismatched;
+  - remove available.
+- Process-local custom CA env must be explicit in status/probe output but does
+  not require OS authorization because it affects only the spawned Codex.app
+  process tree.
+- Keychain trust install is never silent. It must require an explicit user
+  action and an OS authorization prompt when writing to the System Keychain.
+- Trust scope is as narrow as macOS allows for this use case:
+  `security add-trusted-cert -d -r trustRoot -p ssl ...` or an equivalent
+  Keychain flow. Do not request code-signing or all-purpose trust.
+- The TUI uses the existing command surfaces instead of a parallel flow:
+  Desktop `launch-desktop --transport=proxy --with-ca-env` for the preferred
+  scoped proof; `cert-trust` / `lab cert-trust` if they remain the Keychain
+  owner, or a consolidated `manage trust-ca` command if code is later unified.
+- The TUI prints the exact blast radius before trust:
+  "This only helps Desktop/Lab TLS interception. CLI WSS does not need it.
+  The preferred Desktop probe uses process-local CA env first. Browser ChatGPT
+  and ChatGPT.app remain direct unless you explicitly enter global lab mode."
+- The TUI offers removal/repair:
+  - repair regenerates or re-adds the current Slimference CA;
+  - remove deletes only Slimference-owned CA entries by exact subject/fingerprint;
+  - dry-run shows the exact certificate subject, fingerprint, and Keychain.
+- T242 must not classify Desktop as green merely because custom CA env is set
+  or Keychain trust is present. Desktop success still requires real bytes/WSS
+  counters through Slimference.
+- T240 release certification records whether CA trust was absent, present, or
+  removed, and proves CLI WSS behavior is independent of that state.
+- Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and macOS
+  system proxy are not touched by CA install alone.
+
+## Sub-Tasks
+
+- [ ] Audit the current CA commands and status probes:
+  `slimference cert-trust`, any `lab cert-trust` alias, `status --preflight`,
+  and `codex desktop status --json`.
+- [x] Audit `codex launch-desktop --with-ca-env` and ensure
+  `CODEX_CA_CERTIFICATE` is the first-class Codex-specific CA variable.
+- [ ] Resolve CA probe inconsistency: current preflight may report
+  `in_keychain=false` while Desktop status reports `trusted=true`. Establish
+  one authoritative trust probe or explicitly label the difference.
+- [x] Rework install/status vocabulary:
+  "Slimference for Codex: installed/prepared" covers both CLI and Desktop
+  support; Desktop capability state is separate from install state.
+- [ ] Add TUI Manage rows:
+  "CA: not needed for CLI", "Desktop custom CA env: available/missing",
+  "Keychain trust: not needed/needed/trusted/stale", "Repair CA material",
+  "Trust CA in Keychain", and "Remove Slimference CA".
+- [ ] Ensure Keychain actions are hidden or labelled advanced unless T242 is
+  running a Desktop/Lab probe that actually needs OS trust.
+- [ ] Implement dry-run output for CA add/remove with subject, fingerprint,
+  Keychain path, and SSL-only trust policy.
+- [ ] Implement or verify exact removal by Slimference CA subject and
+  fingerprint; never delete arbitrary local root certificates.
+- [~] Add tests for CLI launch/status not requiring CA trust. Current patch
+  covers default install and Desktop launch gating; explicit CLI/TUI wording
+  tests remain.
+- [ ] Add tests for TUI state wording: missing CA must not make CLI WSS red.
+- [ ] Add tests for Desktop/Lab custom-CA-env wording, Keychain fallback
+  wording, and reversible removal.
+- [x] Update `docs/install.md` so users understand:
+  one install prepares CLI and Desktop support; CLI WSS needs no CA; Desktop
+  first tries process-local custom CA env; Desktop/Lab Keychain trust is
+  explicit fallback/lab; normal app/browser launches remain native/direct.
+- [ ] Feed final CA state and commands into T240 evidence table.
+
+## Notes
+
+This task deliberately avoids "security theatre". A trusted local CA is a real
+powerful primitive. It is justified only when Slimference is actually doing
+local TLS termination for a scoped Desktop/Lab experiment. It is not needed for
+the scoped CLI WSS route that currently delivers the real savings.
+
+The installer should be unified. Unified means one product console and one
+repair surface, not per-app install checkboxes and not one unconditional trust
+mutation. The right model is:
+
+- product install prepares Slimference for Codex CLI and Desktop together;
+- CLI WSS works immediately without CA;
+- Desktop Slimference launch is capability-gated by T242 and tries
+  process-local custom CA env first;
+- Keychain trust is prompted only when the chosen Desktop/Lab path requires it;
+- removal is one explicit Manage action.
+
+If T242 ultimately proves current Codex.app cannot use the local CA even with
+`CODEX_CA_CERTIFICATE`, Keychain trust becomes lab-only until OpenAI changes
+Codex.app root-store behavior or exposes a supported endpoint/proxy hook.
+
+## Deviations
+
+None yet.

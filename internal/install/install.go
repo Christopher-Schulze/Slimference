@@ -6,7 +6,8 @@
 //
 // Scoped Codex architecture:
 //
-//   - Install plan = CA + Keychain + launchd + hooks
+//   - Install plan = CA material + launchd + hooks
+//   - Desktop/lab CA trust = explicit opt-in Keychain step
 //   - Scoped CLI  = `slimference codex run -- <prompt>`
 //   - Shared route = `slimference codex enable|disable|status`
 //   - Hosts plan  = global lab-only /etc/hosts marker-fenced patch
@@ -55,8 +56,12 @@ type Options struct {
 	WithClaudeHooks bool
 	// SkipAutoStart disables the launchd.install Step.
 	SkipAutoStart bool
-	// SkipKeychain disables the ca.keychain Step (tests + CI without
-	// macOS Keychain access).
+	// WithKeychain opts into the ca.keychain Step. Default install keeps
+	// Keychain untouched because the CLI WSS path does not need it and the
+	// Desktop path first tries process-local CODEX_CA_CERTIFICATE.
+	WithKeychain bool
+	// SkipKeychain force-disables the ca.keychain Step. It is retained for
+	// backwards-compatible flags and tests; it wins over WithKeychain.
 	SkipKeychain bool
 	// KeychainScope chooses user vs system Keychain. Defaults to user.
 	KeychainScope installsteps.KeychainScope
@@ -74,9 +79,9 @@ type Options struct {
 //
 // Steps (in apply order):
 //  1. ca.generate    — CA material under <Home>/.slimference/ca/
-//  2. ca.keychain    — root cert added to macOS Keychain as trusted root
-//  3. launchd.install — ~/Library/LaunchAgents/com.slimference.proxy.plist
-//  4. hooks.codex    — ~/.codex/hooks.json + ~/.slimference/hooks/codex-*.sh
+//  2. optional ca.keychain — only when Options.WithKeychain is true
+//  3. launchd.install     — ~/Library/LaunchAgents/com.slimference.proxy.plist
+//  4. hooks.codex         — ~/.codex/hooks.json + ~/.slimference/hooks/codex-*.sh
 //  5. no Claude Code steps; that path is parked and not installed
 //
 // Reverse order (LIFO): hooks.codex → launchd → keychain → ca.
@@ -99,7 +104,7 @@ func Plan(opts Options) (*reversibility.Plan, error) {
 
 	stepList = append(stepList, &steps.CAGenerate{Dir: caDir})
 
-	if !opts.SkipKeychain {
+	if opts.WithKeychain && !opts.SkipKeychain {
 		stepList = append(stepList, &installsteps.KeychainTrust{
 			CertPath: caCertPath,
 			Scope:    opts.KeychainScope,

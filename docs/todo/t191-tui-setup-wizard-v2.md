@@ -1,10 +1,27 @@
-# TASK 191: TUI Setup Wizard v2 (install/status/per-app/uninstall)
+# TASK 191: TUI Setup Wizard v2 (superseded)
 
-Status: PLANNING 2026-05-16
+Status: SUPERSEDED 2026-05-20 by T239/T245
 Priority: P0 (the user-facing surface for the whole Phase G feature)
 Scope: `internal/tui/`, `cmd/slimference/proxy_cmd.go`, `cmd/slimference/
        integrate_cmd.go`, new `internal/control/` (consolidated state),
        refresh of `docs/transparent-mode.md`
+
+## Supersession
+
+This is no longer the product target. It is retained as historical context for
+Phase G. The current UX is T239/T245:
+
+- one `slimference` Launch Center;
+- one unified "Install Slimference for Codex" product flow;
+- no default CLI-only/Desktop-only install checkboxes;
+- no normal independent per-app toggle screen;
+- Launch Codex CLI via `transport=auto`;
+- Launch Codex App as capability-gated Desktop proof or direct-only truth;
+- process-local custom CA env first for Desktop proof, Keychain fallback/lab
+  only.
+
+Do not implement this file's old Keychain-first, `/etc/hosts`, or per-app
+toggle mockups as product UX.
 
 ## Why
 

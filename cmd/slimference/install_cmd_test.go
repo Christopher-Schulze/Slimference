@@ -29,12 +29,12 @@ func newTestPrinter() (installPrinter, *bytes.Buffer, *bytes.Buffer) {
 func TestParseInstallFlagsAccepted(t *testing.T) {
 	f, err := parseInstallFlags([]string{
 		"--dry-run", "--json", "--no-hooks", "--no-autostart", "extra",
-		"--with-claude", "--no-keychain", "--keep-ca", "--system", "--preflight", "--config=/tmp/x",
+		"--with-claude", "--with-keychain", "--no-keychain", "--keep-ca", "--system", "--preflight", "--config=/tmp/x",
 	})
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !f.dryRun || !f.json || !f.noHooks || !f.withClaude || !f.noAutoStart || !f.noKeychain ||
+	if !f.dryRun || !f.json || !f.noHooks || !f.withClaude || !f.noAutoStart || !f.withKeychain || !f.noKeychain ||
 		!f.keepCA || !f.systemScope || f.configPath != "/tmp/x" || len(f.rest) != 1 || f.rest[0] != "extra" {
 		t.Errorf("flags not all set: %+v", f)
 	}
@@ -104,6 +104,60 @@ func TestRunInstallCmdDryRunHuman(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "ca.generate") {
 		t.Errorf("dry-run output missing step: %q", out.String())
+	}
+}
+
+func TestRunInstallCmdDefaultSkipsKeychain(t *testing.T) {
+	home := t.TempDir()
+	prev := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { osUserHomeDir = prev })
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	p, out, errBuf := newTestPrinter()
+	rc := runInstallCmd([]string{"--dry-run", "--json", "--no-autostart", "--no-hooks"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d out=%s err=%s", rc, out.String(), errBuf.String())
+	}
+	var got struct {
+		Order []string `json:"order"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out.String())
+	}
+	for _, name := range got.Order {
+		if name == "ca.keychain" {
+			t.Fatalf("default install must not include Keychain trust: %v", got.Order)
+		}
+	}
+}
+
+func TestRunInstallCmdWithKeychainOptIn(t *testing.T) {
+	home := t.TempDir()
+	prev := osUserHomeDir
+	osUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { osUserHomeDir = prev })
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	p, out, errBuf := newTestPrinter()
+	rc := runInstallCmd([]string{"--dry-run", "--json", "--with-keychain", "--no-autostart", "--no-hooks"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d out=%s err=%s", rc, out.String(), errBuf.String())
+	}
+	var got struct {
+		Order []string `json:"order"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v\n%s", err, out.String())
+	}
+	want := []string{"ca.generate", "ca.keychain"}
+	if len(got.Order) != len(want) {
+		t.Fatalf("order=%v want %v", got.Order, want)
+	}
+	for i := range want {
+		if got.Order[i] != want[i] {
+			t.Fatalf("order=%v want %v", got.Order, want)
+		}
 	}
 }
 
@@ -727,6 +781,17 @@ func TestRenderStatusHuman(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "pid=4242") {
 		t.Errorf("PID missing: %q", out.String())
+	}
+}
+
+func TestRenderStatusCAMaterialIsNotKeychainGated(t *testing.T) {
+	p, out, _ := newTestPrinter()
+	renderStatus(p, control.SetupState{
+		CA: control.CAState{Installed: true, InKeychain: false, Fingerprint: "abc"},
+	})
+	text := out.String()
+	if !strings.Contains(text, "CA       ✓ installed=true in_keychain=false") {
+		t.Fatalf("CA material should be green without Keychain trust: %q", text)
 	}
 }
 
