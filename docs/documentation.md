@@ -1151,9 +1151,19 @@ percentiles on demand.
 
 ## 13. TUI
 
-`internal/tui` is a BubbleTea UI with three primary views: Dashboard
-(default), Stats, Debug. Hooks + service lifecycle are managed from
-within.
+`internal/tui` is a BubbleTea UI with a Launch Center as the default view.
+The top-level user surface is intentionally small: Launch Codex CLI, Launch
+Codex App, Savings, Status, and Manage Slimference. The implementation reuses
+the existing Stats, Apps, Debug, and Setup views behind those entries instead
+of creating a second TUI.
+
+Launch Codex CLI opens the proven scoped wrapper path with
+`transport=auto`. Launch Codex App is capability-gated from
+`codex desktop status`: it may launch a diagnostic proxy session, but if the
+current machine is in `desktop_tls_blocked` / `tls_trust_rejected` state the
+TUI refuses to sell it as a savings path and leaves normal Finder/Spotlight
+Codex.app launches direct. Manage Slimference owns install, repair, route,
+daemon, CA, and lab controls.
 
 ### Keybindings
 

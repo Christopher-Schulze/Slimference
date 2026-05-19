@@ -1,6 +1,6 @@
 # TASK 239: Slimference launch center TUI
 
-Status: PLANNED
+Status: PARTIAL - launch-center entrypoint implemented in existing TUI
 Priority: P0 after T238/T242 Desktop capability branch is known enough to gate
 the Launch Codex App menu item honestly
 Scope: User-facing Slimference launch and management UX for Codex CLI and
@@ -86,7 +86,9 @@ The launch center is not a settings maze. It is a cockpit:
 - Shows Slimference WSS certification tuple and fallback reason.
 - Defaults to `transport=auto`.
 - Lets the user enter or paste a prompt.
-- Starts `slimference codex run --transport=auto -- exec ...`.
+- Opens an interactive Terminal session through
+  `slimference codex run --transport=auto --`; one-shot `exec ...` remains
+  available when the user runs it directly.
 - If Slimference daemon is unhealthy, explains fail-open and offers direct run.
 
 ### Launch Codex App
@@ -129,29 +131,29 @@ The launch center is not a settings maze. It is a cockpit:
 
 ## Sub-Tasks
 
-- [ ] Design the final launch-center state model using existing
+- [x] Design the final launch-center state model using existing
   `/admin/state`, `/admin/status`, `codex status`, and savings surfaces.
-- [ ] Add a route-mode vocabulary shared by CLI, TUI, and docs:
+- [~] Add a route-mode vocabulary shared by CLI, TUI, and docs:
   direct, slimference-cli-wss, slimference-cli-http, desktop-direct,
   desktop-proxy-proven, desktop-proxy-unproven, lab-global.
-- [ ] Implement top-level menu entries exactly as accepted; do not add a
+- [x] Implement top-level menu entries exactly as accepted; do not add a
   direct-open item.
-- [ ] Implement Launch Codex CLI as a guided wrapper around
+- [x] Implement Launch Codex CLI as a guided wrapper around
   `slimference codex run --transport=auto --`.
-- [ ] Implement Launch Codex App as a capability-gated menu item: proven launch,
+- [x] Implement Launch Codex App as a capability-gated menu item: proven launch,
   diagnostic CA-env probe, or blocked/direct-only state. Do not hide it just
   because the current Desktop route is blocked.
-- [ ] Fold current install/enable/disable/repair/uninstall controls into Manage
+- [~] Fold current install/enable/disable/repair/uninstall controls into Manage
   Slimference with clear product vs lab separation.
-- [ ] Show savings truth without mixing hook estimates, proxy savings, cache
+- [~] Show savings truth without mixing hook estimates, proxy savings, cache
   savings, and Desktop-unproven traffic.
-- [ ] Add tests for menu structure, action routing, status wording, and no
+- [x] Add tests for menu structure, action routing, status wording, and no
   accidental lab/global activation from product actions.
-- [ ] Add focused UX tests for the T238 branches: Desktop proven, Desktop
+- [~] Add focused UX tests for the T238 branches: Desktop proven, Desktop
   unproven, Desktop failed by cert trust, Desktop failed by WSS bypass.
 - [ ] Add golden text tests for user-facing wording so the app never claims
   Desktop savings before proof.
-- [ ] Update `docs/install.md` with the human flow: normal launch is direct,
+- [x] Update `docs/install.md` with the human flow: normal launch is direct,
   Slimference launch goes through the launch center.
 
 ## Implementation Order
@@ -198,6 +200,24 @@ steering wheel, but its state must be capability-gated: proven, diagnostic, or
 blocked/direct-only based on `codex desktop status`, never a Desktop savings
 claim.
 
+2026-05-19 implementation landing:
+
+- The existing BubbleTea TUI was consolidated, not duplicated. `ViewMain` is now
+  the Launch Center and renders exactly the five accepted entries.
+- `Launch Codex CLI` opens a new Terminal session running
+  `slimference codex run --transport=auto --`, which starts the interactive
+  Codex CLI through the scoped wrapper. Normal daily CLI launch can come from
+  the TUI without a persistent shell alias.
+- `Launch Codex App` consumes `codex desktop status`; when the current live
+  state is `tls_trust_rejected`, the TUI blocks the Slimference Desktop launch
+  and tells the operator normal Finder launch remains direct.
+- `Savings` opens the existing Stats view. `Status` refreshes daemon, route,
+  Desktop, and lab state. `Manage Slimference` opens the existing Setup view
+  rather than creating a parallel management UI.
+- Remaining polish is depth, not architecture: embedded prompt entry for CLI,
+  richer Status/Manage rows, full Desktop branch matrix tests, and final T240
+  live release certification.
+
 ## Deviations
 
-None yet.
+None.

@@ -3,7 +3,6 @@ package tui
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,35 +21,39 @@ func findDashboardActionIndex(actions []dashboardAction, id string) int {
 	return -1
 }
 
-func TestDashboardActions_ServiceAndAutoStartStates(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
+func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 	m := NewModel(newMockProxy())
-	svc := &mockServiceControl{}
+	svc := &mockServiceControl{
+		codexRouteStatus: CodexRouteStatus{
+			DaemonReachable: true,
+			AutoTransport:   "wss",
+			WSSCertified:    true,
+		},
+		codexDesktopStatus: CodexDesktopStatus{
+			Mode:         "desktop_tls_blocked",
+			FailureClass: "tls_trust_rejected",
+		},
+	}
 	m.SetServiceControl(svc)
 
 	actions := m.dashboardActions()
-	if got := findDashboardActionIndex(actions, "daemon"); got < 0 || actions[got].label != "Start daemon" {
-		t.Fatalf("daemon action=%v", actions)
+	want := []string{"launch_cli", "launch_app", "savings", "status", "manage"}
+	if len(actions) != len(want) {
+		t.Fatalf("actions=%v want %d launch-center entries", actions, len(want))
 	}
-	if got := findDashboardActionIndex(actions, "autostart"); got < 0 || actions[got].label != "Enable auto-start" {
-		t.Fatalf("autostart action=%v", actions)
+	for i, id := range want {
+		if actions[i].id != id {
+			t.Fatalf("action[%d]=%q want %q in %v", i, actions[i].id, id, actions)
+		}
 	}
-
-	svc.running = true
-	if err := os.MkdirAll(filepath.Join(home, "Library", "LaunchAgents"), 0o755); err != nil {
-		t.Fatal(err)
+	if actions[0].label != "Launch Codex CLI" || actions[0].state != "auto=WSS" {
+		t.Fatalf("CLI action=%+v", actions[0])
 	}
-	if err := os.WriteFile(filepath.Join(home, "Library", "LaunchAgents", "com.slimference.daemon.plist"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
+	if actions[1].label != "Launch Codex App" || actions[1].state != "blocked" {
+		t.Fatalf("App action=%+v", actions[1])
 	}
-	actions = m.dashboardActions()
-	if got := findDashboardActionIndex(actions, "daemon"); got < 0 || actions[got].label != "Stop daemon" || !strings.Contains(actions[got].state, "PID 1234") {
-		t.Fatalf("running daemon action=%v", actions)
-	}
-	if got := findDashboardActionIndex(actions, "autostart"); got < 0 || actions[got].label != "Disable auto-start" {
-		t.Fatalf("running autostart action=%v", actions)
+	if got := findDashboardActionIndex(actions, "daemon"); got >= 0 {
+		t.Fatalf("legacy daemon action must not be top-level: %v", actions[got])
 	}
 }
 
@@ -76,6 +79,18 @@ func TestDashboardActions_AutoStartInstalledErrorAndCursorMoves(t *testing.T) {
 	if got := clampIndex(1, 3); got != 1 {
 		t.Fatalf("clamp keep=%d", got)
 	}
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{
+		{999, "999"},
+		{1500, "1.5K"},
+		{1_500_000, "1.5M"},
+	} {
+		if got := formatTokenCount(tc.n); got != tc.want {
+			t.Fatalf("formatTokenCount(%d)=%q want %q", tc.n, got, tc.want)
+		}
+	}
 
 	m.moveMainCursor(1)
 	if m.mainCursor != 1 {
@@ -91,14 +106,65 @@ func TestDashboardActions_AutoStartInstalledErrorAndCursorMoves(t *testing.T) {
 	}
 }
 
-func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+func TestLaunchCenterStateVocabularyBranches(t *testing.T) {
+	model := NewModel(newMockProxy())
 
+	model.codexRouteStatus = CodexRouteStatus{DaemonReachable: true, AutoTransport: "http"}
+	if got := model.codexCLIState(); got != "auto=http" {
+		t.Fatalf("CLI state=%q", got)
+	}
+	model.codexRouteStatus = CodexRouteStatus{FallbackReason: "codex version changed"}
+	if got := model.codexCLIState(); got != "recert needed" {
+		t.Fatalf("CLI recert state=%q", got)
+	}
+
+	for _, tc := range []struct {
+		status CodexDesktopStatus
+		state  string
+		desc   string
+	}{
+		{CodexDesktopStatus{FailureClass: "ca_missing"}, "CA needed", "CA"},
+		{CodexDesktopStatus{FailureClass: "ca_untrusted"}, "CA needed", "CA trust"},
+		{CodexDesktopStatus{FailureClass: "daemon_unreachable"}, "daemon off", "daemon"},
+		{CodexDesktopStatus{Mode: "ready_for_live_desktop_probe"}, "diagnostic", "diagnostic"},
+		{CodexDesktopStatus{Mode: "proxy_wss_needs_review", ConversationObserved: true}, "review", "review"},
+	} {
+		model.codexDesktopStatus = tc.status
+		if got := model.codexAppState(); got != tc.state {
+			t.Fatalf("app state=%q want %q for %+v", got, tc.state, tc.status)
+		}
+		if got := model.codexAppDescription(); !strings.Contains(got, tc.desc) {
+			t.Fatalf("app desc=%q want %q for %+v", got, tc.desc, tc.status)
+		}
+	}
+
+	model.transparentStatus = TransparentStatus{ProxyArmed: true}
+	if got := model.statusState(); got != "lab armed" {
+		t.Fatalf("status state=%q", got)
+	}
+	if got := model.manageState(); got != "lab armed" {
+		t.Fatalf("manage state=%q", got)
+	}
+	model.transparentStatus = TransparentStatus{}
+	model.codexRouteStatus = CodexRouteStatus{DaemonReachable: true}
+	model.codexDesktopStatus = CodexDesktopStatus{FailureClass: "ca_missing"}
+	if got := model.statusDescription(); !strings.Contains(got, "Desktop gate") {
+		t.Fatalf("status desc=%q", got)
+	}
+}
+
+func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	proxy := newMockProxy()
+	proxy.snap = analytics.AnalyticsSnapshot{SavedInputTokens: 1500}
 	m := NewModel(proxy)
-	svc := &mockServiceControl{}
+	svc := &mockServiceControl{
+		codexRouteStatus: CodexRouteStatus{DaemonReachable: true, AutoTransport: "wss", WSSCertified: true},
+		codexDesktopStatus: CodexDesktopStatus{
+			Mode: "ready_for_live_desktop_probe",
+		},
+	}
 	m.SetServiceControl(svc)
+	m.latestSnap = proxy.snap
 
 	runAction := func(id string) {
 		actions := m.dashboardActions()
@@ -110,66 +176,26 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 		_ = m.executeMainSelection()
 	}
 
-	runAction("daemon")
-	if !svc.started || !strings.Contains(m.flashMsg, "Daemon started") {
-		t.Fatalf("start failed: svc=%+v flash=%q", svc, m.flashMsg)
+	runAction("launch_cli")
+	if !svc.codexCLILaunched || !strings.Contains(m.flashMsg, "Codex CLI launched") {
+		t.Fatalf("launch CLI failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
-
-	svc.running = true
-	runAction("daemon")
-	if !svc.stopped || !strings.Contains(m.flashMsg, "Daemon stopped") {
-		t.Fatalf("stop failed: svc=%+v flash=%q", svc, m.flashMsg)
+	runAction("launch_app")
+	if !svc.codexAppLaunched || !strings.Contains(m.flashMsg, "Codex App launch requested") {
+		t.Fatalf("launch App failed: svc=%+v flash=%q", svc, m.flashMsg)
 	}
-
-	runAction("restart")
-	if !svc.restarted || !strings.Contains(m.flashMsg, "Daemon restarted") {
-		t.Fatalf("restart failed: svc=%+v flash=%q", svc, m.flashMsg)
+	runAction("savings")
+	if m.view != ViewStats || !strings.Contains(m.flashMsg, "Savings opened") {
+		t.Fatalf("savings action view=%v flash=%q", m.view, m.flashMsg)
 	}
-
-	runAction("autostart")
-	if !svc.installed || !strings.Contains(m.flashMsg, "Auto-start enabled") {
-		t.Fatalf("enable autostart failed: svc=%+v flash=%q", svc, m.flashMsg)
+	m.view = ViewMain
+	runAction("status")
+	if !strings.Contains(m.flashMsg, "Status: CLI auto=WSS") {
+		t.Fatalf("status flash=%q", m.flashMsg)
 	}
-
-	if err := os.MkdirAll(filepath.Join(home, "Library", "LaunchAgents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "Library", "LaunchAgents", "com.slimference.daemon.plist"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runAction("autostart")
-	if !svc.removed || !strings.Contains(m.flashMsg, "Auto-start disabled") {
-		t.Fatalf("disable autostart failed: svc=%+v flash=%q", svc, m.flashMsg)
-	}
-
-	runAction("transparent")
-	if !svc.transparentEnabled || !strings.Contains(m.flashMsg, "Global lab armed") {
-		t.Fatalf("arm transparent failed: svc=%+v flash=%q", svc, m.flashMsg)
-	}
-	runAction("transparent")
-	if !svc.transparentDisabled || !strings.Contains(m.flashMsg, "Global lab disarmed") {
-		t.Fatalf("disarm transparent failed: svc=%+v flash=%q", svc, m.flashMsg)
-	}
-
-	runAction("codex")
-	if m.codexEnabled || !strings.Contains(m.flashMsg, "Codex: OFF") {
-		t.Fatalf("codex toggle flash=%q enabled=%v", m.flashMsg, m.codexEnabled)
-	}
-	runAction("layer1")
-	if m.layer1Enabled || !strings.Contains(m.flashMsg, "Layer 1: OFF") {
-		t.Fatalf("layer1 toggle flash=%q enabled=%v", m.flashMsg, m.layer1Enabled)
-	}
-	runAction("layer2")
-	if m.layer2Enabled || !strings.Contains(m.flashMsg, "Layer 2: OFF") {
-		t.Fatalf("layer2 toggle flash=%q enabled=%v", m.flashMsg, m.layer2Enabled)
-	}
-	runAction("layer3")
-	if m.layer3Enabled || !strings.Contains(m.flashMsg, "Layer 3: OFF") {
-		t.Fatalf("layer3 toggle flash=%q enabled=%v", m.flashMsg, m.layer3Enabled)
-	}
-	runAction("flush")
-	if !proxy.flushed || !strings.Contains(m.flashMsg, "All caches flushed") {
-		t.Fatalf("flush failed: flushed=%v flash=%q", proxy.flushed, m.flashMsg)
+	runAction("manage")
+	if m.view != ViewSetup || !strings.Contains(m.flashMsg, "Manage Slimference opened") {
+		t.Fatalf("manage action view=%v flash=%q", m.view, m.flashMsg)
 	}
 }
 
@@ -183,40 +209,47 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 	svc := &mockServiceControl{err: os.ErrPermission}
 	m.SetServiceControl(svc)
 
-	for _, id := range []string{"daemon", "restart", "autostart", "transparent"} {
+	for _, id := range []string{"launch_cli", "launch_app"} {
 		m.mainCursor = findDashboardActionIndex(m.dashboardActions(), id)
 		_ = m.executeMainSelection()
-		if !strings.Contains(m.flashMsg, "failed") {
+		if !strings.Contains(m.flashMsg, "failed") && !strings.Contains(m.flashMsg, "blocked") {
 			t.Fatalf("expected failure flash for %s, got %q", id, m.flashMsg)
 		}
 	}
 
 	enableFail := NewModel(newMockProxy())
 	enableFail.SetServiceControl(&mockServiceControl{
-		err: errors.New("boom"),
-		transparentStatus: TransparentStatus{
-			CAExists:           true,
-			CATrusted:          true,
-			AutoStartInstalled: true,
+		codexDesktopStatus: CodexDesktopStatus{
+			Mode:         "desktop_tls_blocked",
+			FailureClass: "tls_trust_rejected",
 		},
 	})
-	enableFail.mainCursor = findDashboardActionIndex(enableFail.dashboardActions(), "transparent")
+	enableFail.mainCursor = findDashboardActionIndex(enableFail.dashboardActions(), "launch_app")
 	_ = enableFail.executeMainSelection()
-	if !strings.Contains(enableFail.flashMsg, "Global lab arm failed") {
-		t.Fatalf("transparent enable failure flash=%q", enableFail.flashMsg)
+	if !strings.Contains(enableFail.flashMsg, "tls_trust_rejected") {
+		t.Fatalf("desktop blocked flash=%q", enableFail.flashMsg)
 	}
 
 	disableFail := NewModel(newMockProxy())
 	disableFail.SetServiceControl(&mockServiceControl{
 		err: errors.New("boom"),
-		transparentStatus: TransparentStatus{
-			ProxyArmed: true,
-		},
 	})
-	disableFail.mainCursor = findDashboardActionIndex(disableFail.dashboardActions(), "transparent")
+	disableFail.mainCursor = findDashboardActionIndex(disableFail.dashboardActions(), "launch_app")
 	_ = disableFail.executeMainSelection()
-	if !strings.Contains(disableFail.flashMsg, "Global lab disarm failed") {
-		t.Fatalf("transparent disable failure flash=%q", disableFail.flashMsg)
+	if !strings.Contains(disableFail.flashMsg, "Codex App launch blocked") {
+		t.Fatalf("desktop launch failure flash=%q", disableFail.flashMsg)
+	}
+
+	noSvc := NewModel(newMockProxy())
+	noSvc.mainCursor = findDashboardActionIndex(noSvc.dashboardActions(), "launch_cli")
+	_ = noSvc.executeMainSelection()
+	if !strings.Contains(noSvc.flashMsg, "service adapter missing") {
+		t.Fatalf("missing service CLI flash=%q", noSvc.flashMsg)
+	}
+	noSvc.mainCursor = findDashboardActionIndex(noSvc.dashboardActions(), "launch_app")
+	_ = noSvc.executeMainSelection()
+	if !strings.Contains(noSvc.flashMsg, "service adapter missing") {
+		t.Fatalf("missing service app flash=%q", noSvc.flashMsg)
 	}
 
 	_ = m.executeDebugSelection()
@@ -248,7 +281,7 @@ func TestUpdate_ArrowDrivenDashboardAndDebug(t *testing.T) {
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updated.(Model)
-	if !strings.Contains(model.flashMsg, "Daemon restarted") {
+	if !strings.Contains(model.flashMsg, "Codex App launch requested") {
 		t.Fatalf("enter on dashboard flash=%q", model.flashMsg)
 	}
 
@@ -296,7 +329,7 @@ func TestRenderMainViewAndHelperCoverage(t *testing.T) {
 	m.height = 40
 
 	view := m.renderMainView()
-	for _, needle := range []string{"CONTROL SURFACE", "PROVIDER MAP", "TRAFFIC", "daemon live", "Claude Code", "Layer 2 semantic"} {
+	for _, needle := range []string{"LAUNCH CENTER", "Launch Codex CLI", "PROVIDER MAP", "TRAFFIC", "daemon live", "Claude Code"} {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
@@ -469,7 +502,7 @@ func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 	}
 
 	view := m.renderMainView()
-	for _, needle := range []string{"QUICK START", "operator notice", "CONTROL SURFACE", "Flow"} {
+	for _, needle := range []string{"QUICK START", "operator notice", "LAUNCH CENTER", "Flow"} {
 		if !strings.Contains(strings.ToUpper(view), strings.ToUpper(needle)) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}
@@ -500,29 +533,20 @@ func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 }
 
 func TestExecuteSelection_ErrorBranches(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
 	m := NewModel(newMockProxy())
-	svc := &mockServiceControl{running: true, err: os.ErrPermission}
+	svc := &mockServiceControl{err: os.ErrPermission}
 	m.SetServiceControl(svc)
 
-	m.mainCursor = findDashboardActionIndex(m.dashboardActions(), "daemon")
+	m.mainCursor = findDashboardActionIndex(m.dashboardActions(), "launch_cli")
 	_ = m.executeMainSelection()
-	if !strings.Contains(m.flashMsg, "Stop failed") {
-		t.Fatalf("daemon stop failure flash=%q", m.flashMsg)
+	if !strings.Contains(m.flashMsg, "Codex CLI launch failed") {
+		t.Fatalf("CLI launch failure flash=%q", m.flashMsg)
 	}
 
-	if err := os.MkdirAll(filepath.Join(home, "Library", "LaunchAgents"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "Library", "LaunchAgents", "com.slimference.daemon.plist"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	m.mainCursor = findDashboardActionIndex(m.dashboardActions(), "autostart")
+	m.mainCursor = findDashboardActionIndex(m.dashboardActions(), "launch_app")
 	_ = m.executeMainSelection()
-	if !strings.Contains(m.flashMsg, "Disable auto-start failed") {
-		t.Fatalf("autostart disable failure flash=%q", m.flashMsg)
+	if !strings.Contains(m.flashMsg, "Codex App launch blocked") {
+		t.Fatalf("App launch failure flash=%q", m.flashMsg)
 	}
 
 	m.debugCursor = 99

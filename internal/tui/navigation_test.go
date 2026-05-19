@@ -102,7 +102,7 @@ func TestView_SetupView_ShowsArrowHintsAndTabs(t *testing.T) {
 	m.enterSetupView()
 
 	output := m.View()
-	for _, needle := range []string{"Dashboard", "Stats", "Debug", "Setup", "[↑/↓]", "[←/→]", "enable autostart"} {
+	for _, needle := range []string{"Launch", "Stats", "Debug", "Setup", "[↑/↓]", "[←/→]", "enable autostart"} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("setup view missing %q in output: %s", needle, output)
 		}

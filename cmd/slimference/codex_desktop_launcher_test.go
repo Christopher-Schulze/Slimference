@@ -611,6 +611,18 @@ func TestRunCodexLaunchDesktopHelp(t *testing.T) {
 	}
 }
 
+func TestHandleCodexLaunchDesktopCmdHelp(t *testing.T) {
+	oldExit := exitFn
+	t.Cleanup(func() { exitFn = oldExit })
+	got := -1
+	exitFn = func(code int) { got = code }
+
+	handleCodexLaunchDesktopCmd([]string{"--help"})
+	if got != 0 {
+		t.Fatalf("exit=%d want 0", got)
+	}
+}
+
 func TestRunCodexLaunchDesktopBadFlag(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd([]string{"--unknown"}, installPrinter{Out: &out, Err: &errBuf})

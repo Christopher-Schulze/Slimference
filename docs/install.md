@@ -37,6 +37,22 @@ proxy variables are process-local to the spawned Codex.app only.
 
 ## Scoped Codex architecture
 
+Running `slimference` with no arguments opens the Launch Center TUI. The normal
+human entrypoints there are:
+
+- Launch Codex CLI
+- Launch Codex App
+- Savings
+- Status
+- Manage Slimference
+
+There is no separate "open direct" action. Direct mode is the native launch:
+`codex` in a normal shell or Codex.app from Finder/Spotlight. Slimference mode
+is the launch path chosen inside the TUI. The Desktop item is visible but
+capability-gated; when `codex desktop status` reports
+`desktop_tls_blocked` / `tls_trust_rejected`, the TUI blocks the Slimference
+Desktop launch claim and keeps normal Desktop direct.
+
 Slimference's default product path touches only scoped Codex surfaces:
 
 1. **Hook callouts** in `~/.codex/hooks.json` plus

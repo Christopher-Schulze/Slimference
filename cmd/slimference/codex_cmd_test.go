@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1046,5 +1047,138 @@ func TestServiceControlAdapterCodexRoute(t *testing.T) {
 	status := adapter.CodexRouteStatus()
 	if !status.Exists || !status.Enabled || !status.Complete || !status.DaemonReachable {
 		t.Fatalf("bad route status: %+v", status)
+	}
+}
+
+func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
+	oldExecutable := osExecutable
+	oldLaunch := tuiLaunchCommandFn
+	t.Cleanup(func() {
+		osExecutable = oldExecutable
+		tuiLaunchCommandFn = oldLaunch
+	})
+
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	var gotName string
+	var gotArgs []string
+	tuiLaunchCommandFn = func(name string, args ...string) error {
+		gotName = name
+		gotArgs = append([]string(nil), args...)
+		return nil
+	}
+
+	msg, err := (&serviceControlAdapter{}).LaunchCodexCLI()
+	if err != nil {
+		t.Fatalf("LaunchCodexCLI: %v", err)
+	}
+	if !strings.Contains(msg, "Codex CLI launched") {
+		t.Fatalf("msg=%q", msg)
+	}
+	if gotName != "osascript" || len(gotArgs) != 2 || !strings.Contains(gotArgs[1], "codex run --transport=auto --") {
+		t.Fatalf("launch command name=%q args=%v", gotName, gotArgs)
+	}
+
+	osExecutable = func() (string, error) { return "", errors.New("no executable") }
+	if _, err := (&serviceControlAdapter{}).LaunchCodexCLI(); err == nil || !strings.Contains(err.Error(), "no executable") {
+		t.Fatalf("executable error=%v", err)
+	}
+
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	tuiLaunchCommandFn = func(string, ...string) error { return errors.New("osascript denied") }
+	if _, err := (&serviceControlAdapter{}).LaunchCodexCLI(); err == nil || !strings.Contains(err.Error(), "osascript denied") {
+		t.Fatalf("launch error=%v", err)
+	}
+}
+
+func TestServiceControlAdapterDesktopStatusAndBlockedLaunch(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		state := control.SetupState{}
+		state.WSS.MITMBridged = 14
+		return state, nil
+	}
+
+	adapter := &serviceControlAdapter{}
+	status := adapter.CodexDesktopStatus()
+	if status.Mode != "desktop_tls_blocked" || status.FailureClass != "tls_trust_rejected" {
+		t.Fatalf("desktop status=%+v", status)
+	}
+	if _, err := adapter.LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "tls_trust_rejected") {
+		t.Fatalf("LaunchCodexApp err=%v", err)
+	}
+}
+
+func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
+	withCodexCmdStubs(t)
+	oldLaunchDesktop := tuiCodexLaunchDesktopCmdFn
+	t.Cleanup(func() { tuiCodexLaunchDesktopCmdFn = oldLaunchDesktop })
+
+	var gotArgs []string
+	tuiCodexLaunchDesktopCmdFn = func(args []string, _ installPrinter) int {
+		gotArgs = append([]string(nil), args...)
+		return 0
+	}
+	msg, err := (&serviceControlAdapter{}).LaunchCodexApp()
+	if err != nil {
+		t.Fatalf("LaunchCodexApp success: %v", err)
+	}
+	if !strings.Contains(msg, "diagnostic proxy") {
+		t.Fatalf("msg=%q", msg)
+	}
+	if strings.Join(gotArgs, " ") != "--transport=proxy" {
+		t.Fatalf("args=%v", gotArgs)
+	}
+
+	tuiCodexLaunchDesktopCmdFn = func(_ []string, p installPrinter) int {
+		fmt.Fprint(p.Err, "spawn denied")
+		return 1
+	}
+	if _, err := (&serviceControlAdapter{}).LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "spawn denied") {
+		t.Fatalf("stderr failure err=%v", err)
+	}
+
+	tuiCodexLaunchDesktopCmdFn = func(_ []string, _ installPrinter) int { return 7 }
+	if _, err := (&serviceControlAdapter{}).LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "exit 7") {
+		t.Fatalf("fallback failure err=%v", err)
+	}
+}
+
+func TestServiceControlAdapterLaunchCodexAppPreflightFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ca   codexDesktopCAState
+		err  error
+		want string
+	}{
+		{
+			name: "ca missing",
+			ca:   codexDesktopCAState{},
+			want: "ca_missing",
+		},
+		{
+			name: "ca untrusted",
+			ca:   codexDesktopCAState{Exists: true},
+			want: "ca_untrusted",
+		},
+		{
+			name: "daemon unreachable",
+			ca:   codexDesktopCAState{Exists: true, Trusted: true},
+			err:  errors.New("offline"),
+			want: "daemon_unreachable",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withCodexCmdStubs(t)
+			codexDesktopCATrustFn = func() codexDesktopCAState { return tc.ca }
+			if tc.err != nil {
+				codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+					return control.SetupState{}, tc.err
+				}
+			}
+			_, err := (&serviceControlAdapter{}).LaunchCodexApp()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err=%v want %q", err, tc.want)
+			}
+		})
 	}
 }

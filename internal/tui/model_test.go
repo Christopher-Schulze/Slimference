@@ -173,6 +173,9 @@ type mockServiceControl struct {
 	codexRouteEnabled    bool
 	codexRouteDisabled   bool
 	codexRouteStatus     CodexRouteStatus
+	codexDesktopStatus   CodexDesktopStatus
+	codexCLILaunched     bool
+	codexAppLaunched     bool
 	err                  error
 }
 
@@ -253,6 +256,23 @@ func (m *mockServiceControl) UninstallTransparent() error {
 	return nil
 }
 func (m *mockServiceControl) CodexRouteStatus() CodexRouteStatus { return m.codexRouteStatus }
+func (m *mockServiceControl) CodexDesktopStatus() CodexDesktopStatus {
+	return m.codexDesktopStatus
+}
+func (m *mockServiceControl) LaunchCodexCLI() (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	m.codexCLILaunched = true
+	return "Codex CLI launched via Slimference transport=auto", nil
+}
+func (m *mockServiceControl) LaunchCodexApp() (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	m.codexAppLaunched = true
+	return "Codex App launch requested through Slimference diagnostic proxy", nil
+}
 func (m *mockServiceControl) EnableCodexRoute() error {
 	if m.err != nil {
 		return m.err

@@ -972,7 +972,7 @@ func (m *Model) buildLeftPanel(width int) []string {
 	add("")
 
 	actions := m.dashboardActions()
-	add(" " + s.PanelTitle.Render("CONTROL SURFACE"))
+	add(" " + s.PanelTitle.Render("LAUNCH CENTER"))
 	currentGroup := ""
 	for i, action := range actions {
 		if action.group != currentGroup {

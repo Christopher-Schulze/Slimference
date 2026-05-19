@@ -1361,3 +1361,30 @@ Decision remains unchanged for current live Desktop use:
 - Desktop Slimference savings are not claimed until bytes and WSS frames flow.
 - Codex CLI remains the proven Slimference savings path; current WSS auto cert
   is paused by the live Codex CLI update to 0.131.0 until recertification.
+
+---
+
+## 2026-05-19 — T239 Launch Center Consolidation
+
+Driver: user requested the already-existing TUI be consolidated rather than a
+fourth/parallel UI being created.
+
+Implemented in the existing BubbleTea TUI:
+- Default `ViewMain` now renders `LAUNCH CENTER` with exactly five primary
+  entries: `Launch Codex CLI`, `Launch Codex App`, `Savings`, `Status`, and
+  `Manage Slimference`.
+- The old top-level daemon/route/layer/global-lab action list is no longer the
+  default mental model. The existing Stats and Setup views remain as backing
+  surfaces behind `Savings` and `Manage Slimference`.
+- `Launch Codex CLI` opens a macOS Terminal session running
+  `slimference codex run --transport=auto --`.
+- `Launch Codex App` consumes the same Desktop capability state as
+  `slimference codex desktop status`; if the machine is in
+  `tls_trust_rejected`, the TUI blocks the Slimference Desktop launch claim and
+  states that normal Finder launch remains direct.
+- No direct-open menu item was added. Direct mode remains native launch outside
+  Slimference.
+
+Verification:
+- `go test ./internal/tui ./cmd/slimference -count=1` passed after the
+  consolidation.

@@ -43,6 +43,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -3755,6 +3756,10 @@ var (
 	tuiCodexRouteEnableCmdFn   = runCodexEnableCmd
 	tuiCodexRouteDisableCmdFn  = runCodexDisableCmd
 	tuiCodexRouteHealthCheckFn = codexRouteHealthFn
+	tuiCodexLaunchDesktopCmdFn = runCodexLaunchDesktopCmd
+	tuiLaunchCommandFn         = func(name string, args ...string) error {
+		return exec.Command(name, args...).Run()
+	}
 )
 
 func (sca *serviceControlAdapter) StartDaemon() error {
@@ -3903,6 +3908,60 @@ func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
 	}
 	out.DaemonReachable = true
 	return out
+}
+
+func (sca *serviceControlAdapter) CodexDesktopStatus() tui.CodexDesktopStatus {
+	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
+	detail := status.DaemonError
+	if detail == "" && len(status.Notes) > 0 {
+		detail = status.Notes[0]
+	}
+	return tui.CodexDesktopStatus{
+		Mode:                 status.Mode,
+		FailureClass:         status.FailureClass,
+		DaemonReachable:      status.DaemonReachable,
+		CATrusted:            status.CATrust.Trusted,
+		CAExists:             status.CATrust.Exists,
+		ConversationObserved: status.ConversationObserved,
+		Detail:               detail,
+	}
+}
+
+func (sca *serviceControlAdapter) LaunchCodexCLI() (string, error) {
+	binary, err := osExecutable()
+	if err != nil {
+		return "", fmt.Errorf("executable: %w", err)
+	}
+	cmdLine := shellQuote(binary) + " codex run --transport=auto --"
+	script := "tell application \"Terminal\" to do script " + strconv.Quote(cmdLine)
+	if err := tuiLaunchCommandFn("osascript", "-e", script); err != nil {
+		return "", fmt.Errorf("open Terminal: %w", err)
+	}
+	return "Codex CLI launched via Slimference transport=auto", nil
+}
+
+func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
+	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
+	switch status.FailureClass {
+	case "tls_trust_rejected":
+		return "", fmt.Errorf("Desktop Slimference blocked: tls_trust_rejected; normal Finder launch remains direct")
+	case "ca_missing", "ca_untrusted", "daemon_unreachable":
+		return "", fmt.Errorf("%s", status.FailureClass)
+	}
+	var stdout strings.Builder
+	var stderr strings.Builder
+	rc := tuiCodexLaunchDesktopCmdFn([]string{"--transport=proxy"}, installPrinter{Out: &stdout, Err: &stderr})
+	if rc != 0 {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			msg = fmt.Sprintf("codex launch-desktop failed with exit %d", rc)
+		}
+		return "", fmt.Errorf("%s", msg)
+	}
+	return "Codex App launch requested through Slimference diagnostic proxy", nil
 }
 
 func (sca *serviceControlAdapter) EnableCodexRoute() error {

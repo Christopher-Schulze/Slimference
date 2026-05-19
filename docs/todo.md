@@ -1329,12 +1329,14 @@ only and promotes the per-process Codex CLI runner for T209.
   Claude Code, `/etc/hosts`, pfctl, macOS system proxy, or
   `~/.codex/config.toml`. Detail:
   `docs/todo/t238-codex-desktop-process-local-proxy-proof.md`
-- [ ] **T239** Slimference launch center TUI — collapse normal user UX into a
-  small launch/control center with exactly the useful surfaces: Launch Codex
-  CLI, Launch Codex App, Savings, Status, and Manage Slimference. No separate
-  "open direct" action; direct mode is simply launching Codex normally outside
-  Slimference. The Launch Codex App menu item stays visible but must be
-  capability-gated: proven, diagnostic, or blocked/direct-only. Detail:
+- [~] **T239** Slimference launch center TUI — first implementation landed in
+  the existing BubbleTea TUI: top-level Launch Center now exposes exactly
+  Launch Codex CLI, Launch Codex App, Savings, Status, and Manage Slimference.
+  No separate "open direct" action; direct mode is launching Codex normally
+  outside Slimference. The Launch Codex App menu item is visible and
+  capability-gated from `codex desktop status` (proven, diagnostic, or
+  blocked/direct-only). Remaining work: embedded prompt input, richer Status /
+  Manage detail, and final T240 live certification. Detail:
   `docs/todo/t239-slimference-launch-center-tui.md`
 - [ ] **T240** Codex zero-drawdown release certification — final product seal
   after T238/T239: prove CLI, Desktop, direct fallback, Browser ChatGPT,

@@ -243,17 +243,73 @@ func TestSetupSteps_ServiceActionAndPartialState(t *testing.T) {
 	actions := model.dashboardActions()
 	foundPartial := false
 	for _, action := range actions {
-		if action.id == "transparent" && action.state == "partial" {
+		if action.id == "manage" && action.state == "partial" {
 			foundPartial = true
 		}
 	}
 	if !foundPartial {
-		t.Fatalf("transparent partial dashboard action missing: %+v", actions)
+		t.Fatalf("partial manage dashboard action missing: %+v", actions)
 	}
 
 	steps := model.setupSteps()
 	if err := steps[3].action(&model); err != nil {
 		t.Fatalf("service action failed: %v", err)
+	}
+}
+
+func TestRenderCodexRouteStatusLineBranches(t *testing.T) {
+	styles := NewStyles()
+	cases := []struct {
+		name   string
+		status CodexRouteStatus
+		want   string
+	}{
+		{
+			name: "ready certified",
+			status: CodexRouteStatus{
+				Complete:        true,
+				DaemonReachable: true,
+				AutoTransport:   "wss",
+				WSSCertified:    true,
+			},
+			want: "route ready",
+		},
+		{
+			name:   "daemon unreachable",
+			status: CodexRouteStatus{Enabled: true},
+			want:   "daemon unreachable",
+		},
+		{
+			name:   "conflict",
+			status: CodexRouteStatus{Enabled: true, DaemonReachable: true, Conflict: "foreign"},
+			want:   "conflict",
+		},
+		{
+			name:   "incomplete",
+			status: CodexRouteStatus{Enabled: true, DaemonReachable: true, AutoTransport: "http"},
+			want:   "incomplete",
+		},
+		{
+			name: "disabled with fallback",
+			status: CodexRouteStatus{
+				Exists:         true,
+				AutoTransport:  "http",
+				FallbackReason: "codex version changed",
+			},
+			want: "version changed",
+		},
+		{
+			name:   "missing",
+			status: CodexRouteStatus{},
+			want:   "not found",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := renderCodexRouteStatusLine(styles, tc.status); !strings.Contains(got, tc.want) {
+				t.Fatalf("line=%q want %q", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -210,6 +210,17 @@ type CodexRouteStatus struct {
 	Detail            string
 }
 
+// CodexDesktopStatus is the TUI-facing Codex.app proxy capability state.
+type CodexDesktopStatus struct {
+	Mode                 string
+	FailureClass         string
+	DaemonReachable      bool
+	CATrusted            bool
+	CAExists             bool
+	ConversationObserved bool
+	Detail               string
+}
+
 // Installed reports whether transparent mode is installed but not necessarily armed.
 func (s TransparentStatus) Installed() bool {
 	return s.CAExists && s.CATrusted && s.AutoStartInstalled
@@ -242,6 +253,12 @@ type ServiceControlInterface interface {
 	UninstallTransparent() error
 	// CodexRouteStatus returns the scoped Codex CLI/App route state.
 	CodexRouteStatus() CodexRouteStatus
+	// CodexDesktopStatus returns the process-local Desktop launch capability state.
+	CodexDesktopStatus() CodexDesktopStatus
+	// LaunchCodexCLI opens the proven scoped Codex CLI path.
+	LaunchCodexCLI() (string, error)
+	// LaunchCodexApp opens the capability-gated process-local Desktop path.
+	LaunchCodexApp() (string, error)
 	// EnableCodexRoute writes the marker-owned Codex provider route.
 	EnableCodexRoute() error
 	// DisableCodexRoute removes the marker-owned Codex provider route.
@@ -303,10 +320,12 @@ type Model struct {
 	appsCursor int    // selected app row in ViewApps (0-indexed)
 	appsFlash  string // ephemeral flash for the apps screen ("toggled" etc.)
 
-	transparentStatus   TransparentStatus
-	transparentStatusAt time.Time
-	codexRouteStatus    CodexRouteStatus
-	codexRouteStatusAt  time.Time
+	transparentStatus    TransparentStatus
+	transparentStatusAt  time.Time
+	codexRouteStatus     CodexRouteStatus
+	codexRouteStatusAt   time.Time
+	codexDesktopStatus   CodexDesktopStatus
+	codexDesktopStatusAt time.Time
 
 	// Flash message.
 	flashMsg    string
@@ -318,6 +337,7 @@ func (m *Model) SetServiceControl(svc ServiceControlInterface) {
 	m.svc = svc
 	m.refreshTransparentStatus(true)
 	m.refreshCodexRouteStatus(true)
+	m.refreshCodexDesktopStatus(true)
 }
 
 // NewModel creates a TUI model wired to the given proxy. If a persisted
@@ -710,6 +730,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.latestSnap = m.proxy.GetAnalytics()
 		m.refreshTransparentStatus(false)
 		m.refreshCodexRouteStatus(false)
+		m.refreshCodexDesktopStatus(false)
 		return m, tickCmd()
 
 	case proxyEventMsg:
@@ -873,108 +894,171 @@ func (m *Model) refreshCodexRouteStatus(force bool) {
 	m.codexRouteStatusAt = time.Now()
 }
 
-func (m *Model) dashboardActions() []dashboardAction {
-	actions := make([]dashboardAction, 0, 9)
-	if m.svc != nil {
-		running, pid, port := m.svc.DaemonStatus()
-		transparent := m.transparentStatus
-		daemonLabel := "Start daemon"
-		daemonState := fmt.Sprintf("idle · :%d", m.proxy.Config().GetListenPort())
-		daemonDescription := "Run Slimference permanently in the background."
-		if running {
-			daemonLabel = "Stop daemon"
-			daemonState = fmt.Sprintf("PID %d · :%d", pid, port)
-			daemonDescription = "Stop the background proxy cleanly."
-		}
-		actions = append(actions,
-			dashboardAction{
-				group:       "Operations",
-				id:          "daemon",
-				label:       daemonLabel,
-				description: daemonDescription,
-				state:       daemonState,
-			},
-			dashboardAction{
-				group:       "Operations",
-				id:          "restart",
-				label:       "Restart daemon",
-				description: "Recycle the background service without leaving monitor mode.",
-				state:       "safe restart",
-			},
-		)
-		autoLabel := "Enable auto-start"
-		autoState := "disabled"
-		autoDesc := "Install the launchd service so Slimference starts automatically."
-		if m.autoStartInstalled() {
-			autoLabel = "Disable auto-start"
-			autoState = "enabled"
-			autoDesc = "Remove the launchd service and return to manual startup."
-		}
-		actions = append(actions, dashboardAction{
-			group:       "Operations",
-			id:          "autostart",
-			label:       autoLabel,
-			description: autoDesc,
-			state:       autoState,
-		})
-		transparentLabel := "Open global lab"
-		transparentState := "off"
-		transparentDesc := "Advanced lab-only CA/hosts/pfctl mode; not the normal Codex path."
-		if transparent.ProxyArmed {
-			transparentLabel = "Close global lab"
-			transparentState = fmt.Sprintf("lab armed · %d svc", transparent.ActiveServices)
-			transparentDesc = "Restore machine-wide direct HTTPS routing."
-		} else if transparent.Installed() {
-			transparentState = "installed"
-		} else if transparent.CAExists || transparent.CATrusted || transparent.AutoStartInstalled {
-			transparentState = "partial"
-		}
-		actions = append(actions, dashboardAction{
-			group:       "Operations",
-			id:          "transparent",
-			label:       transparentLabel,
-			description: transparentDesc,
-			state:       transparentState,
-		})
+func (m *Model) refreshCodexDesktopStatus(force bool) {
+	if m.svc == nil {
+		m.codexDesktopStatus = CodexDesktopStatus{}
+		m.codexDesktopStatusAt = time.Time{}
+		return
 	}
-	actions = append(actions,
+	if !force && !m.codexDesktopStatusAt.IsZero() && time.Since(m.codexDesktopStatusAt) < 2*time.Second {
+		return
+	}
+	m.codexDesktopStatus = m.svc.CodexDesktopStatus()
+	m.codexDesktopStatusAt = time.Now()
+}
+
+func (m *Model) dashboardActions() []dashboardAction {
+	return []dashboardAction{
 		dashboardAction{
-			group:       "Providers",
-			id:          "codex",
-			label:       "Codex CLI / Desktop",
-			description: "Toggle Codex traffic through the Slimference proxy pipeline.",
-			state:       onOff(m.codexEnabled),
+			group:       "Launch",
+			id:          "launch_cli",
+			label:       "Launch Codex CLI",
+			description: "Open the proven scoped Codex CLI path with transport=auto.",
+			state:       m.codexCLIState(),
 		},
 		dashboardAction{
-			group:       "Compression",
-			id:          "layer1",
-			label:       "Layer 1 deterministic",
-			description: "Regex, dedup, delta, tool compression, and prompt-breakpoint shaping.",
-			state:       onOff(m.layer1Enabled),
+			group:       "Launch",
+			id:          "launch_app",
+			label:       "Launch Codex App",
+			description: m.codexAppDescription(),
+			state:       m.codexAppState(),
 		},
 		dashboardAction{
-			group:       "Compression",
-			id:          "layer2",
-			label:       "Layer 2 semantic",
-			description: "Async semantic compression and summary cache reuse.",
-			state:       onOff(m.layer2Enabled),
+			group:       "Inspect",
+			id:          "savings",
+			label:       "Savings",
+			description: "Open measured savings. Desktop savings stay unavailable until live proof exists.",
+			state:       m.savingsState(),
 		},
 		dashboardAction{
-			group:       "Compression",
-			id:          "layer3",
-			label:       "Layer 3 cache",
-			description: "Forward-request response cache with dependency invalidation.",
-			state:       onOff(m.layer3Enabled),
+			group:       "Inspect",
+			id:          "status",
+			label:       "Status",
+			description: m.statusDescription(),
+			state:       m.statusState(),
 		},
 		dashboardAction{
-			group:       "Maintenance",
-			id:          "flush",
-			label:       "Flush caches",
-			description: "Clear response, summary, and read-cache state.",
-			state:       "clear",
+			group:       "Manage",
+			id:          "manage",
+			label:       "Manage Slimference",
+			description: "Install, repair, uninstall, route controls, daemon, CA, and lab actions.",
+			state:       m.manageState(),
 		},
-	)
-	return actions
+	}
+}
+
+func (m *Model) codexCLIState() string {
+	status := m.codexRouteStatus
+	switch {
+	case status.WSSCertified && status.AutoTransport == "wss":
+		return "auto=WSS"
+	case status.FallbackReason != "":
+		return "recert needed"
+	case !status.DaemonReachable:
+		return "daemon off"
+	case status.AutoTransport != "":
+		return "auto=" + status.AutoTransport
+	default:
+		return "ready"
+	}
+}
+
+func (m *Model) codexAppState() string {
+	status := m.codexDesktopStatus
+	switch status.FailureClass {
+	case "tls_trust_rejected":
+		return "blocked"
+	case "ca_missing", "ca_untrusted":
+		return "CA needed"
+	case "daemon_unreachable":
+		return "daemon off"
+	}
+	switch status.Mode {
+	case "ready_for_live_desktop_probe":
+		return "diagnostic"
+	case "proxy_wss_needs_review":
+		return "review"
+	case "":
+		return "unknown"
+	default:
+		return status.Mode
+	}
+}
+
+func (m *Model) codexAppDescription() string {
+	status := m.codexDesktopStatus
+	switch status.FailureClass {
+	case "tls_trust_rejected":
+		return "Desktop proxy reaches Slimference, but Codex.app rejects TLS before bytes flow; normal app launch remains direct."
+	case "ca_missing":
+		return "Desktop proxy needs the Slimference CA before a diagnostic launch can run."
+	case "ca_untrusted":
+		return "Desktop proxy needs CA trust before a diagnostic launch can run."
+	case "daemon_unreachable":
+		return "Start or repair the Slimference daemon before Desktop proxy diagnostics."
+	}
+	if status.Mode == "ready_for_live_desktop_probe" {
+		return "Run the process-local Desktop proxy diagnostic; savings are not claimed until WSS bytes are proven."
+	}
+	if status.ConversationObserved {
+		return "Desktop proxy saw WSS traffic but still needs zero-drawdown review before product use."
+	}
+	return "Capability-gated Desktop Slimference launch; direct Finder launch is always unaffected."
+}
+
+func (m *Model) savingsState() string {
+	snap := m.latestSnap
+	if snap.SavedInputTokens <= 0 {
+		return "no data"
+	}
+	return fmt.Sprintf("%s saved", formatTokenCount(snap.SavedInputTokens))
+}
+
+func (m *Model) statusState() string {
+	if m.transparentStatus.ProxyArmed {
+		return "lab armed"
+	}
+	if !m.codexRouteStatus.DaemonReachable {
+		return "needs repair"
+	}
+	if m.codexRouteStatus.FallbackReason != "" {
+		return "recert needed"
+	}
+	return "healthy"
+}
+
+func (m *Model) statusDescription() string {
+	if m.codexRouteStatus.FallbackReason != "" {
+		return "Codex CLI savings are paused safely: " + m.codexRouteStatus.FallbackReason
+	}
+	if m.codexDesktopStatus.FailureClass != "" {
+		return "Desktop gate: " + m.codexDesktopStatus.FailureClass
+	}
+	return "Show daemon, route, WSS cert, Desktop gate, CA, and lab safety state."
+}
+
+func (m *Model) manageState() string {
+	if m.transparentStatus.ProxyArmed {
+		return "lab armed"
+	}
+	if m.autoStartInstalled() {
+		return "installed"
+	}
+	if m.transparentStatus.CAExists || m.transparentStatus.CATrusted || m.transparentStatus.AutoStartInstalled {
+		return "partial"
+	}
+	return "available"
+}
+
+func formatTokenCount(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fK", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }
 
 func clampIndex(current int, total int) int {
@@ -1022,86 +1106,58 @@ func (m *Model) executeMainSelection() tea.Cmd {
 	m.mainCursor = clampIndex(m.mainCursor, len(actions))
 	item := actions[m.mainCursor]
 	switch item.id {
-	case "daemon":
-		running, _, _ := m.svc.DaemonStatus()
-		if running {
-			if err := m.svc.StopDaemon(); err != nil {
-				m.setFlash("Stop failed: " + err.Error())
-			} else {
-				m.setFlash("Daemon stopped")
-			}
-		} else {
-			if err := m.svc.StartDaemon(); err != nil {
-				m.setFlash("Start failed: " + err.Error())
-			} else {
-				m.setFlash("Daemon started")
-			}
+	case "launch_cli":
+		if m.svc == nil {
+			m.setFlash("Codex CLI launch unavailable: service adapter missing")
+			break
 		}
-	case "restart":
-		if err := m.svc.RestartDaemon(); err != nil {
-			m.setFlash("Restart failed: " + err.Error())
+		msg, err := m.svc.LaunchCodexCLI()
+		if err != nil {
+			m.setFlash("Codex CLI launch failed: " + err.Error())
 		} else {
-			m.setFlash("Daemon restarted")
+			m.setFlash(msg)
 		}
-	case "autostart":
-		if m.autoStartInstalled() {
-			if err := m.svc.UninstallService(); err != nil {
-				m.setFlash("Disable auto-start failed: " + err.Error())
-			} else {
-				m.setFlash("Auto-start disabled")
-			}
+	case "launch_app":
+		m.refreshCodexDesktopStatus(true)
+		if m.codexDesktopStatus.FailureClass == "tls_trust_rejected" {
+			m.setFlash("Codex App Slimference blocked: tls_trust_rejected; normal Finder launch stays direct")
+			break
+		}
+		if m.svc == nil {
+			m.setFlash("Codex App launch unavailable: service adapter missing")
+			break
+		}
+		msg, err := m.svc.LaunchCodexApp()
+		if err != nil {
+			m.setFlash("Codex App launch blocked: " + err.Error())
 		} else {
-			if err := m.svc.InstallService(); err != nil {
-				m.setFlash("Enable auto-start failed: " + err.Error())
-			} else {
-				m.setFlash("Auto-start enabled")
-			}
+			m.setFlash(msg)
 		}
-	case "transparent":
-		status := m.transparentStatus
-		if status.ProxyArmed {
-			if err := m.svc.DisableTransparent(); err != nil {
-				m.setFlash("Global lab disarm failed: " + err.Error())
-			} else {
-				m.setFlash("Global lab disarmed")
-			}
-		} else {
-			if !status.Installed() {
-				if err := m.svc.InstallTransparent(); err != nil {
-					m.setFlash("Global lab asset install failed: " + err.Error())
-					m.persistStateBestEffort()
-					return flashTimer(3 * time.Second)
-				}
-			}
-			if err := m.svc.EnableTransparent(); err != nil {
-				m.setFlash("Global lab arm failed: " + err.Error())
-			} else {
-				m.setFlash("Global lab armed")
-			}
-		}
+	case "savings":
+		m.view = ViewStats
+		m.setFlash("Savings opened")
+	case "status":
 		m.refreshTransparentStatus(true)
-	case "codex":
-		m.codexEnabled = !m.codexEnabled
-		m.proxy.SetProviderEnabled(types.OpenAI, m.codexEnabled)
-		m.setFlash(fmt.Sprintf("Codex: %s", onOff(m.codexEnabled)))
-	case "layer1":
-		m.layer1Enabled = !m.layer1Enabled
-		m.proxy.SetLayerEnabled(1, m.layer1Enabled)
-		m.setFlash(fmt.Sprintf("Layer 1: %s", onOff(m.layer1Enabled)))
-	case "layer2":
-		m.layer2Enabled = !m.layer2Enabled
-		m.proxy.SetLayerEnabled(2, m.layer2Enabled)
-		m.setFlash(fmt.Sprintf("Layer 2: %s", onOff(m.layer2Enabled)))
-	case "layer3":
-		m.layer3Enabled = !m.layer3Enabled
-		m.proxy.SetLayerEnabled(3, m.layer3Enabled)
-		m.setFlash(fmt.Sprintf("Layer 3: %s", onOff(m.layer3Enabled)))
-	case "flush":
-		m.proxy.FlushCaches()
-		m.setFlash("All caches flushed")
+		m.refreshCodexRouteStatus(true)
+		m.refreshCodexDesktopStatus(true)
+		m.setFlash(m.launchCenterStatusFlash())
+	case "manage":
+		m.view = ViewSetup
+		m.enterSetupView()
+		m.setFlash("Manage Slimference opened")
 	}
 	m.persistStateBestEffort()
 	return flashTimer(3 * time.Second)
+}
+
+func (m *Model) launchCenterStatusFlash() string {
+	cli := m.codexCLIState()
+	app := m.codexAppState()
+	lab := "disarmed"
+	if m.transparentStatus.ProxyArmed {
+		lab = "armed"
+	}
+	return fmt.Sprintf("Status: CLI %s; App %s; lab %s", cli, app, lab)
 }
 
 func (m *Model) executeDebugSelection() tea.Cmd {
