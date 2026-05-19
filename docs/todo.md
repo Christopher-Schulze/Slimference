@@ -1263,7 +1263,8 @@ only and promotes the per-process Codex CLI runner for T209.
   Live scoped Codex CLI WSS proof issued the cert after real Phase-F mutation
   (`frames_reencoded=1`, `compressed_messages_mutated=1`,
   `parse_failures=0`, `degraded_sessions=0`), auto-WSS survived daemon restart,
-  and Codex-version drift falls back to HTTP. Detail:
+  and Codex-version drift is safely detected. T243 upgrades the fallback
+  ordering from HTTP-first to WSS-bridge-first. Detail:
   `docs/todo/t226-wss-first-auto-promotion.md`
 - [~] **T227** Codex UX collapse — top-level `slimference enable|disable`
   now operate on scoped Codex route; former global SNI mode is fenced under
@@ -1339,21 +1340,27 @@ only and promotes the per-process Codex CLI runner for T209.
   Manage detail, and final T240 live certification. Detail:
   `docs/todo/t239-slimference-launch-center-tui.md`
 - [ ] **T240** Codex zero-drawdown release certification — final product seal
-  after T238/T239: prove CLI, Desktop, direct fallback, Browser ChatGPT,
-  ChatGPT.app, uninstall/repair, savings truth, and version-drift fallback as
-  one reproducible macOS arm64 release ceremony. Detail:
+  after T238/T239/T241/T242/T243: prove CLI, Desktop, WSS-first fallback
+  ladder, Browser ChatGPT, ChatGPT.app, uninstall/repair, savings truth, and
+  version-drift fallback as one reproducible macOS arm64 release ceremony.
+  Detail:
   `docs/todo/t240-codex-zero-drawdown-release-certification.md`
 - [~] **T241** Codex update-resilient certification — keep the strict WSS
-  version-tuple guard, but add guided recert/status UX so Codex CLI updates
-  pause savings safely and can be re-certified without manual archaeology.
-  First status hardening is landed: `codex status --json` now exposes
-  current/certified tuples, `needs_recert`, and the recert action.
+  version-tuple guard, but make WSS Phase-F savings practically self-healing:
+  shared `recertify wss` core, background auto-recert, TUI Repair CLI WSS,
+  bounded recert logs, lock/backoff, and live mutation proof. First status
+  hardening is landed: `codex status --json` now exposes current/certified
+  tuples, `needs_recert`, and the recert action.
   Detail: `docs/todo/t241-codex-update-resilient-certification.md`
 - [ ] **T242** Codex Desktop root-store and proxy compatibility matrix — run
   the `--with-ca-env` Desktop probe, test Codex's managed network-proxy
   surfaces, and settle whether current Desktop can ever route conversation
   through Slimference without global lab or upstream changes. Detail:
   `docs/todo/t242-codex-desktop-root-store-probe.md`
+- [ ] **T243** WSS-first auto transport ladder — make `transport=auto` prefer
+  `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct. WSS remains
+  the standard; HTTP is only fallback after WSS bridge is unsafe. Detail:
+  `docs/todo/t243-wss-first-auto-transport-ladder.md`
 
 ### Sequencing within Phase H
 
@@ -1437,13 +1444,18 @@ only and promotes the per-process Codex CLI runner for T209.
    emits an SSE terminator. WSS cannot reuse that by blanking deltas: live Codex
    CLI hung. WSS streamcut stays off until a protocol-correct terminal sequence
    is captured, implemented, and live-certified.
-29. **T241 before T240** — Codex CLI updates must not silently lose WSS value
-   without a clear repair path. The strict tuple guard stays; the UX gets a
-   guided recert path.
+29. **T241 before T243/T240** — Codex CLI updates must not silently lose WSS
+   Phase-F value without an automatic repair path. The strict tuple guard stays;
+   the UX gets shared CLI/TUI/background recert, bounded logs, locks, cooldowns,
+   and real mutation proof.
 30. **T242 before Desktop success claims** — the Desktop menu item remains part
    of the TUI, but success is gated on bytes/WSS proof. If root-store probes
    fail, Desktop remains direct-only until OpenAI exposes a usable hook or root
    store behavior changes.
+31. **T243 before T240** — WSS remains the standard. `transport=auto` must try
+   certified WSS Phase-F first, WSS byte-equal bridge second, HTTP third, and
+   direct only as final fail-open. Version drift should trigger T241 auto-recert
+   while staying on WSS bridge when bridge proof is clean.
 
 ### Acceptance for Phase H
 
@@ -1467,8 +1479,9 @@ only and promotes the per-process Codex CLI runner for T209.
   `slimference codex disable`.
 - Codex Desktop target is also WSS-first if scoped provider/launcher proof
   confirms Desktop can be routed without global hosts/pfctl.
-- T226 done: `transport=auto` prefers WSS for certified Codex versions and
-  falls back to HTTP/direct only under explicit health/version gates.
+- T226 done: `transport=auto` prefers WSS for certified Codex versions. T243
+  supersedes the old fallback ordering so stale Phase-F certs prefer WSS
+  byte-equal bridge before HTTP/direct when bridge proof is clean.
 - After T227, normal `slimference enable|disable|status` means scoped Codex
   route; global transparent MITM is lab-only and cannot be triggered by
   product default UX.
@@ -1483,6 +1496,9 @@ only and promotes the per-process Codex CLI runner for T209.
 - After T240, the release claim is evidence-backed: Slimference can be enabled,
   used, repaired, disabled, and uninstalled without making Codex less capable,
   less stable, more expensive, or more confusing.
+- After T243, `transport=auto` resolves through the final ladder:
+  `wss_phasef -> wss_bridge -> http -> direct`, and Status/TUI show green,
+  yellow, orange, or red with exact reasons and bounded logs.
 - After T229, Codex hook events use daemon socket RPC on the hot path and fail
   open when the daemon is unavailable.
 - After T230, output-reduce v2 reducers are individually gated, observable,

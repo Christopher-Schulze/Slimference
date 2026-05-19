@@ -29,6 +29,10 @@ and may have a solvable hook.
   Desktop savings.
 - If bytes remain zero, classify Desktop as direct-only until upstream changes
   its root-store or exposes a route hook.
+- If Desktop bytes flow but Phase-F mutation is not yet proven, classify
+  Desktop as WSS byte-equal bridge, not as a savings path. The T243 ladder
+  applies to Desktop only after T242 proves process-local Desktop routing can
+  carry real conversation bytes through Slimference.
 - Investigate Codex's own managed `network.proxy_url` / permission-profile
   proxy path from the OpenAI Codex source tree and prove whether it applies only
   to command sandbox traffic or can ever affect Desktop conversation routing.
@@ -57,6 +61,11 @@ and may have a solvable hook.
 The menu item is not pointless. It is the user-facing steering surface. What is
 forbidden is presenting a blocked route as active savings. The item should stay
 visible and capability-gated.
+
+T243's WSS-first ladder is CLI-first. Desktop adopts it only after this task
+proves the TLS/root-store barrier is gone. Until then, normal Finder/Spotlight
+Codex.app remains the correct direct path and the TUI Desktop launch remains
+blocked or diagnostic.
 
 ## Deviations
 

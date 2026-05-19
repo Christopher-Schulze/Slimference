@@ -70,7 +70,8 @@ The launch center is not a settings maze. It is a cockpit:
   version, route mode, config drift, listener state, and last Desktop/CLI
   observation.
 - Manage Slimference contains Install, Repair, Uninstall, enable/disable
-  recovery actions, logs, and lab/advanced controls fenced away from normal use.
+  recovery actions, Repair CLI WSS, bounded logs, and lab/advanced controls
+  fenced away from normal use.
 - Browser ChatGPT, ChatGPT.app, and Claude Code are explicitly shown as
   untouched/direct unless the user enters a lab path.
 - All actions are reversible and fail open.
@@ -123,11 +124,14 @@ The launch center is not a settings maze. It is a cockpit:
 ### Manage Slimference
 
 - Product actions: Install, Repair, Uninstall, Enable scoped route, Disable
-  scoped route, Restart daemon, View logs.
+  scoped route, Repair CLI WSS, Restart daemon, View logs.
 - Advanced actions: CA trust, global lab enable/disable/root-arm/root-disarm,
   clearly labelled as lab/global.
 - Every destructive or global action has a confirmation and shows the blast
   radius before execution.
+- Repair CLI WSS is a manual override for T241 auto-recert. It must call the
+  same recert core as background auto-repair and `slimference codex recertify
+  wss`; no separate TUI-only repair logic is allowed.
 
 ## Sub-Tasks
 
@@ -145,6 +149,8 @@ The launch center is not a settings maze. It is a cockpit:
   because the current Desktop route is blocked.
 - [~] Fold current install/enable/disable/repair/uninstall controls into Manage
   Slimference with clear product vs lab separation.
+- [ ] Add Manage Slimference "Repair CLI WSS" as a manual override wired to the
+  T241 shared recert core, not a separate implementation.
 - [~] Show savings truth without mixing hook estimates, proxy savings, cache
   savings, and Desktop-unproven traffic.
 - [x] Add tests for menu structure, action routing, status wording, and no
@@ -214,6 +220,9 @@ claim.
 - `Savings` opens the existing Stats view. `Status` refreshes daemon, route,
   Desktop, and lab state. `Manage Slimference` opens the existing Setup view
   rather than creating a parallel management UI.
+- T241/T243 update: Manage Slimference must gain "Repair CLI WSS" and the
+  Launch Center status should show WSS Phase-F active, WSS bridge repairing,
+  HTTP fallback, or direct fallback using the shared transport ladder.
 - Remaining polish is depth, not architecture: embedded prompt entry for CLI,
   richer Status/Manage rows, full Desktop branch matrix tests, and final T240
   live release certification.

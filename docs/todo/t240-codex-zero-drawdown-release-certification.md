@@ -1,7 +1,7 @@
 # TASK 240: Codex zero-drawdown release certification
 
 Status: PLANNED
-Priority: P0 after T238, T239, T241, and T242 branch decisions
+Priority: P0 after T238, T239, T241, T242, and T243 branch decisions
 Scope: Final macOS arm64 product proof for Codex CLI and Codex Desktop UX
 
 ## Why
@@ -13,18 +13,23 @@ the route is proven and no collateral impact on Browser ChatGPT, ChatGPT.app,
 or Claude Code.
 
 T238/T242 prove or reject the Desktop routing branch. T241 makes Codex CLI WSS
-certification resilient to updates. T239 builds the human launch center. T240
-certifies the whole user-facing system as one release ceremony.
+Phase-F certification automatically repairable after updates. T243 makes
+`transport=auto` WSS-first with byte-equal WSS bridge before HTTP fallback.
+T239 builds the human launch center. T240 certifies the whole user-facing
+system as one release ceremony.
 
 ## Acceptance
 
 - Fresh build is installed and daemon is restarted from the installed binary.
 - `slimference` launch center opens and exposes exactly:
   Launch Codex CLI, Launch Codex App, Savings, Status, Manage Slimference.
-- Launch Codex CLI runs through `transport=auto`, uses WSS for the certified
-  tuple, returns correct model output, and records clean counters.
+- Launch Codex CLI runs through `transport=auto`, uses `wss_phasef` for the
+  certified tuple, returns correct model output, records clean counters, and
+  measures real WSS Phase-F savings.
 - If Codex CLI updated, the guided recert path from T241 has either issued a
-  new WSS cert or Status clearly says WSS savings are paused with HTTP fallback.
+  new WSS cert automatically or Status clearly says WSS Phase-F savings are
+  being repaired while T243 keeps the session on WSS byte-equal bridge when the
+  bridge is safe.
 - Launch Codex App follows the T238 branch:
   - if Desktop proxy mode is proven, it launches through Slimference and records
     clean WSS counters;
@@ -42,8 +47,8 @@ certifies the whole user-facing system as one release ceremony.
   Codex, Browser, ChatGPT.app, or Claude state.
 - Disable returns scoped Codex route to direct mode.
 - Uninstall reverses Slimference-managed files and leaves Codex usable.
-- Version drift test proves Codex/Slimference tuple mismatch falls back to a
-  safe direct or HTTP path.
+- Version drift test proves Codex/Slimference tuple mismatch follows the final
+  ladder: `wss_phasef -> wss_bridge -> http -> direct`.
 - Full CI remains green with coverage >= 99.5%.
 - Operation log contains the exact evidence and final branch decision.
 
@@ -57,6 +62,12 @@ certifies the whole user-facing system as one release ceremony.
 - [ ] Run Launch Codex CLI exact-reply smoke.
 - [ ] Run Launch Codex CLI mutation-triggering smoke and verify WSS mutation
   counters.
+- [ ] Simulate Codex/Slimference cert drift and verify `transport=auto` selects
+  WSS byte-equal bridge while T241 auto-recert runs.
+- [ ] Verify successful T241 recert restores `wss_phasef` on the next
+  Slimference-launched Codex CLI session.
+- [ ] Force WSS bridge failure in a controlled test and verify HTTP fallback is
+  used only after bridge is unsafe.
 - [ ] Run Launch Codex App according to T238 final branch decision.
 - [ ] Prove direct fallback: normal `codex` and Finder/Spotlight Codex.app still
   work without Slimference env/config/global routing.
@@ -95,6 +106,7 @@ certifies the whole user-facing system as one release ceremony.
 | Disable | config hash before/after |
 | Uninstall | managed-file diff and Codex direct smoke |
 | Drift | fallback reason and transport |
+| WSS ladder | `wss_phasef`, `wss_bridge`, `http`, `direct` branch evidence |
 | CI | command list and pass/fail |
 
 ## Notes
