@@ -432,6 +432,9 @@ func proxyEnvCmd(args []string, env proxyEnv) int {
 	case "proxied-wss":
 		fmt.Fprintln(env.Stdout, "# Codex CLI scoped WSS mode: per-process custom provider override with Responses WebSockets enabled.")
 		fmt.Fprintln(env.Stdout, "# macOS system routing remains untouched; only this Codex process uses Slimference.")
+	case "proxied-wss-bridge":
+		fmt.Fprintln(env.Stdout, "# Codex CLI scoped WSS bridge mode: native WebSockets stay enabled but Phase-F mutation is bypassed.")
+		fmt.Fprintln(env.Stdout, "# macOS system routing remains untouched; only this Codex process uses Slimference.")
 	case "transparent-proxied":
 		fmt.Fprintln(env.Stdout, "# Codex CLI transparent-proxied mode: process-local HTTP(S)_PROXY through CONNECT/MITM.")
 		fmt.Fprintln(env.Stdout, "# Requires a running Slimference daemon with [transparent].enabled=true and the local CA trusted.")
@@ -460,7 +463,7 @@ func proxyRunClientCmd(args []string, env proxyEnv) int {
 
 func parseCodexProxyArgs(args []string, stderr io.Writer, verb string) (mode, host, port string, codexArgs []string, ok bool) {
 	if len(args) == 0 {
-		fmt.Fprintf(stderr, "usage: slimference proxy %s codex <--direct|--proxied|--proxied-wss|--transparent-proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]\n", verb)
+		fmt.Fprintf(stderr, "usage: slimference proxy %s codex <--direct|--proxied|--proxied-wss|--proxied-wss-bridge|--transparent-proxied> [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]\n", verb)
 		return "", "", "", nil, false
 	}
 	client, rest := args[0], args[1:]
@@ -479,25 +482,31 @@ func parseCodexProxyArgs(args []string, stderr io.Writer, verb string) (mode, ho
 		switch {
 		case a == "--direct":
 			if mode != "" {
-				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, --proxied-wss-bridge, or --transparent-proxied\n", verb)
 				return "", "", "", nil, false
 			}
 			mode = "direct"
 		case a == "--proxied":
 			if mode != "" {
-				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, --proxied-wss-bridge, or --transparent-proxied\n", verb)
 				return "", "", "", nil, false
 			}
 			mode = "proxied"
 		case a == "--proxied-wss":
 			if mode != "" {
-				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, --proxied-wss-bridge, or --transparent-proxied\n", verb)
 				return "", "", "", nil, false
 			}
 			mode = "proxied-wss"
+		case a == "--proxied-wss-bridge":
+			if mode != "" {
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, --proxied-wss-bridge, or --transparent-proxied\n", verb)
+				return "", "", "", nil, false
+			}
+			mode = "proxied-wss-bridge"
 		case a == "--transparent-proxied":
 			if mode != "" {
-				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
+				fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, --proxied-wss-bridge, or --transparent-proxied\n", verb)
 				return "", "", "", nil, false
 			}
 			mode = "transparent-proxied"
@@ -513,7 +522,7 @@ func parseCodexProxyArgs(args []string, stderr io.Writer, verb string) (mode, ho
 		}
 	}
 	if mode == "" {
-		fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, or --transparent-proxied\n", verb)
+		fmt.Fprintf(stderr, "proxy %s codex: choose exactly one of --direct, --proxied, --proxied-wss, --proxied-wss-bridge, or --transparent-proxied\n", verb)
 		return "", "", "", nil, false
 	}
 	return mode, host, port, codexArgs, true
@@ -543,11 +552,15 @@ func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
 			"NO_PROXY=*",
 			"no_proxy=*",
 		)
-	case "proxied", "proxied-wss":
+	case "proxied", "proxied-wss", "proxied-wss-bridge":
 		target := "http://" + net.JoinHostPort(host, port)
+		baseURL := integrate.CodexOpenAIBaseURL(target)
 		supportsWebSockets := "false"
-		if mode == "proxied-wss" {
+		if mode == "proxied-wss" || mode == "proxied-wss-bridge" {
 			supportsWebSockets = "true"
+		}
+		if mode == "proxied-wss-bridge" {
+			baseURL = strings.TrimRight(target, "/") + "/backend-api/codex-bridge"
 		}
 		base = append(base,
 			"-u", "HTTP_PROXY",
@@ -563,7 +576,7 @@ func codexEnvCommand(mode, host, port string, codexArgs []string) []string {
 			"codex",
 			"-c", "model_provider="+strconv.Quote("slimference-codex"),
 			"-c", "model_providers.slimference-codex.name="+strconv.Quote("Slimference"),
-			"-c", "model_providers.slimference-codex.base_url="+strconv.Quote(integrate.CodexOpenAIBaseURL(target)),
+			"-c", "model_providers.slimference-codex.base_url="+strconv.Quote(baseURL),
 			"-c", "model_providers.slimference-codex.requires_openai_auth=true",
 			"-c", "model_providers.slimference-codex.supports_websockets="+supportsWebSockets,
 			"-c", "model_providers.slimference-codex.wire_api="+strconv.Quote("responses"),

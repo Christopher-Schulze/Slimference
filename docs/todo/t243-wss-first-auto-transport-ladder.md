@@ -1,6 +1,7 @@
 # TASK 243: WSS-first auto transport ladder
 
-Status: PLANNED
+Status: PARTIAL - CLI auto ladder, WSS bridge path, bridge proof state, TUI
+state, and tests landed; live proof and non-CLI passthrough audits remain
 Priority: P0 after T241 recert core design, before T240 release seal
 Scope: Codex CLI transport selection only; Desktop adopts the same ladder only
 after T242 proves Desktop can route bytes through Slimference safely
@@ -108,40 +109,40 @@ capability proof is green.
 
 ## Sub-Tasks
 
-- [ ] Introduce explicit transport mode vocabulary:
+- [x] Introduce explicit transport mode vocabulary:
   `wss_phasef`, `wss_bridge`, `http`, `direct`.
-- [ ] Extend `codexroute.AutoDecision` or its successor with selected mode,
+- [x] Extend `codexroute.AutoDecision` or its successor with selected mode,
   rejected modes, bridge proof state, recert state, and exact fallback reason.
 - [ ] Keep existing `transport=wss` power mode available, but define whether it
   means "force WSS Phase-F when certified" or "force WSS transport with bridge
   fallback"; document the operator-facing behavior before implementation.
-- [ ] Add WSS bridge proof storage under `~/.slimference/` with tuple, timestamp,
+- [x] Add WSS bridge proof storage under `~/.slimference/` with tuple, timestamp,
   bridge counters, exact-reply sentinel, and failure reason.
 - [ ] Add a cheap WSS bridge smoke/probe that does not mutate payloads and can
   prove handshake/upstream/bytes without running the full Phase-F recert.
-- [ ] Update `transport=auto` resolution order to prefer `wss_bridge` before
+- [x] Update `transport=auto` resolution order to prefer `wss_bridge` before
   `http` whenever Phase-F cert is stale but bridge proof is green.
-- [ ] Integrate T241 recert state so active/failed recert attempts influence
+- [x] Integrate T241 recert state so active/failed recert attempts influence
   auto mode without duplicating recert logic.
-- [ ] Update proxy run flags and route profile labels so telemetry can
+- [x] Update proxy run flags and route profile labels so telemetry can
   distinguish `websocket_phasef` from `websocket_bridge`.
-- [ ] Ensure `wss_bridge` bypasses Phase-F mutation, output streamcut, response
+- [x] Ensure `wss_bridge` bypasses Phase-F mutation, output streamcut, response
   pruning, and any re-encoding that is not required by the tunnel.
-- [ ] Add status JSON and human output for green/yellow/orange/red ladder
+- [x] Add status JSON and human output for green/yellow/orange/red ladder
   states.
-- [ ] Update TUI launch-center state display:
+- [x] Update TUI launch-center state display:
   "WSS Savings active", "WSS native bridge - repairing savings", "HTTP fallback
   - WSS unsafe", and "Direct fallback - repair daemon".
-- [ ] Add tests for every ladder branch:
+- [x] Add tests for every ladder branch:
   certified Phase-F; stale cert plus bridge proof; recert running plus bridge
   proof; recert failed plus bridge proof; bridge unsafe -> HTTP; daemon down ->
   direct.
-- [ ] Add tests proving `wss_bridge` does not call Phase-F mutators and does
+- [x] Add tests proving `wss_bridge` does not call Phase-F mutators and does
   not increment mutation/re-encoding counters.
 - [ ] Add tests proving Audio/Realtime/Voice routes remain passthrough and do
   not affect WSS savings state.
 - [ ] Add bounded transport-decision logging and log-rotation tests.
-- [ ] Update `docs/install.md`, `docs/documentation.md`, and T240 release
+- [x] Update `docs/install.md`, `docs/documentation.md`, and T240 release
   evidence requirements with the final ladder.
 - [ ] Run live Codex CLI proof:
   - certified tuple -> `wss_phasef`;
@@ -180,6 +181,24 @@ Open engineering questions to settle before code:
   counters inside a bounded recent window.
 - Whether auto-recognition of "WSS unsafe" should be sticky. Recommended:
   sticky with cooldown, but repairable by TUI force repair.
+
+2026-05-19 implementation pass:
+
+- `codexroute.AutoMode` now exposes `wss_phasef`, `wss_bridge`, `http`, and
+  `direct`; `AutoDecision` includes rejected modes, bridge proof path, recert
+  path/status, and repair command.
+- `transport=auto` selects certified WSS Phase-F first. If the Phase-F cert is
+  stale but `codex-wss-bridge.json` is green for the current tuple, it selects
+  `wss_bridge` before HTTP.
+- `slimference codex run --transport=auto` maps `wss_bridge` to
+  `proxy run codex --proxied-wss-bridge`, which routes through the
+  `/backend-api/codex-bridge/responses` alias and canonicalizes upstream to the
+  native Codex WSS path.
+- The bridge dispatcher calls `wsmitm.Session` with no Phase-F handlers. It is
+  intentionally byte-equal compatibility mode: no mutation, no output streamcut,
+  no response pruning, no savings claim.
+- TUI Launch Center shows WSS savings, WSS bridge/repairing, HTTP fallback, and
+  daemon repair states through the existing five-item surface.
 
 ## Deviations
 

@@ -30,6 +30,11 @@ func withCodexCmdStubs(t *testing.T) {
 	oldVersion := codexVersionFn
 	oldAuto := codexAutoFn
 	oldCertSave := codexCertSaveFn
+	oldBridgeSave := codexBridgeSaveFn
+	oldRecertSave := codexRecertSaveFn
+	oldAutoRecert := codexAutoRecertFn
+	oldRecertTrigger := codexRecertTriggerFn
+	oldRecertRunCommand := recertRunCommandFn
 	oldSetupState := codexSetupStateFn
 	oldVersionOut := codexVersionOutFn
 	oldNow := codexNowFn
@@ -42,6 +47,12 @@ func withCodexCmdStubs(t *testing.T) {
 		}
 	}
 	codexCertSaveFn = func(string, codexroute.CertificationState) error { return nil }
+	codexBridgeSaveFn = func(string, codexroute.BridgeProofState) error { return nil }
+	codexRecertSaveFn = func(string, codexroute.RecertState) error { return nil }
+	codexAutoRecertFn = func(string, string, string, codexroute.AutoDecision) {}
+	codexRecertTriggerFn = func(codexRecertTriggerInput) (codexRecertTriggerResult, error) {
+		return codexRecertTriggerResult{}, nil
+	}
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		return passingCodexCertificationState(), nil
 	}
@@ -60,6 +71,11 @@ func withCodexCmdStubs(t *testing.T) {
 		codexVersionFn = oldVersion
 		codexAutoFn = oldAuto
 		codexCertSaveFn = oldCertSave
+		codexBridgeSaveFn = oldBridgeSave
+		codexRecertSaveFn = oldRecertSave
+		codexAutoRecertFn = oldAutoRecert
+		codexRecertTriggerFn = oldRecertTrigger
+		recertRunCommandFn = oldRecertRunCommand
 		codexSetupStateFn = oldSetupState
 		codexVersionOutFn = oldVersionOut
 		codexNowFn = oldNow
@@ -110,7 +126,7 @@ func TestCodexCmdRunAutoPromotesWSSWhenCertified(t *testing.T) {
 	withCodexCmdStubs(t)
 	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
 	codexAutoFn = func(home string) codexroute.AutoDecision {
-		return codexroute.AutoDecision{Transport: codexroute.TransportWSS, WSSCertified: true}
+		return codexroute.AutoDecision{Mode: codexroute.AutoModeWSSPhaseF, Transport: codexroute.TransportWSS, WSSCertified: true}
 	}
 	codexRouteHealthFn = func(host, port string) error { return nil }
 	var got []string
@@ -125,6 +141,77 @@ func TestCodexCmdRunAutoPromotesWSSWhenCertified(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(got, "\x00"), "--proxied-wss") {
 		t.Fatalf("expected WSS proxy args, got %#v", got)
+	}
+}
+
+func TestCodexCmdRunAutoUsesWSSBridgeBeforeHTTP(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+	startedRecert := false
+	codexAutoRecertFn = func(string, string, string, codexroute.AutoDecision) {
+		startedRecert = true
+	}
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{
+			Mode:               codexroute.AutoModeWSSBridge,
+			Transport:          codexroute.TransportWSS,
+			WSSBridgeAvailable: true,
+			NeedsRecert:        true,
+			FallbackReason:     "codex version changed since wss certification",
+			RecertCommand:      "slimference codex recertify wss",
+		}
+	}
+	codexRouteHealthFn = func(host, port string) error { return nil }
+	var got []string
+	codexProxyRunFn = func(args []string, env proxyEnv) int {
+		got = append([]string(nil), args...)
+		return 0
+	}
+	p, _, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"run", "--transport=auto", "--", "exec", "hi"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if !strings.Contains(strings.Join(got, "\x00"), "--proxied-wss-bridge") {
+		t.Fatalf("expected WSS bridge proxy args, got %#v", got)
+	}
+	if !startedRecert {
+		t.Fatal("auto WSS drift should start background recert")
+	}
+}
+
+func TestCodexCmdRunAutoDoesNotRecertWhenDaemonDown(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexRouteHomeFn = func() (string, error) { return t.TempDir(), nil }
+	startedRecert := false
+	codexAutoRecertFn = func(string, string, string, codexroute.AutoDecision) {
+		startedRecert = true
+	}
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{
+			Mode:               codexroute.AutoModeWSSBridge,
+			Transport:          codexroute.TransportWSS,
+			WSSBridgeAvailable: true,
+			NeedsRecert:        true,
+			FallbackReason:     "codex version changed since wss certification",
+		}
+	}
+	codexRouteHealthFn = func(host, port string) error { return errors.New("dial refused") }
+	var got []string
+	codexProxyRunFn = func(args []string, env proxyEnv) int {
+		got = append([]string(nil), args...)
+		return 0
+	}
+	p, _, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"run", "--transport=auto", "--", "exec", "hi"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if startedRecert {
+		t.Fatal("auto recert must not start when the daemon health check already failed")
+	}
+	if !strings.Contains(strings.Join(got, "\x00"), "--direct") {
+		t.Fatalf("expected direct fallback args, got %#v", got)
 	}
 }
 
@@ -663,6 +750,28 @@ func TestCurrentCodexVersionUsesParsedCLIOutput(t *testing.T) {
 	}
 }
 
+func TestCodexCmdAdditionalDispatchAndParseErrors(t *testing.T) {
+	withCodexCmdStubs(t)
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"launch-desktop", "--help"}, p); rc != 0 {
+		t.Fatalf("launch-desktop help rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "launch-desktop") {
+		t.Fatalf("missing launcher help: %q", out.String())
+	}
+	out.Reset()
+	errBuf.Reset()
+	if rc := runCodexCmd([]string{"certify", "wss", "--unknown"}, p); rc != 2 {
+		t.Fatalf("certify bad flag rc=%d", rc)
+	}
+	if !strings.Contains(errBuf.String(), "unknown flag") {
+		t.Fatalf("missing bad flag error: %q", errBuf.String())
+	}
+	if _, err := parseCodexRouteFlags([]string{"--transport=wss-bridge"}); err == nil {
+		t.Fatal("codex route flags must reject wss-bridge outside run-internal transport")
+	}
+}
+
 func TestParseCodexCertifyFlagsRejectsBadShapes(t *testing.T) {
 	for _, args := range [][]string{
 		{"wss", "extra"},
@@ -789,14 +898,14 @@ func TestCodexStatusHumanBranches(t *testing.T) {
 			CertifiedCodex:       "0.130.0",
 			CertifiedSlimference: "2.0.2",
 			FallbackReason:       "codex version changed since wss certification",
-			RecertCommand:        "slimference codex certify wss",
+			RecertCommand:        "slimference codex recertify wss",
 		}
 	}
 	if rc := runCodexCmd([]string{"status"}, p); rc != 0 ||
 		!strings.Contains(out.String(), "current codex=0.131.0 slimference=2.0.2") ||
 		!strings.Contains(out.String(), "certified codex=0.130.0 slimference=2.0.2") ||
-		!strings.Contains(out.String(), "WSS savings paused after version drift") ||
-		!strings.Contains(out.String(), "slimference codex certify wss") {
+		!strings.Contains(out.String(), "WSS savings repair needed") ||
+		!strings.Contains(out.String(), "slimference codex recertify wss") {
 		t.Fatalf("recert status rc=%d out=%q", rc, out.String())
 	}
 }
@@ -818,7 +927,7 @@ func TestCodexStatusJSONIncludesRecertState(t *testing.T) {
 			CertifiedSlimference: "2.0.2",
 			CertificationPath:    "/tmp/home/.slimference/codex-wss-cert.json",
 			FallbackReason:       "codex version changed since wss certification",
-			RecertCommand:        "slimference codex certify wss",
+			RecertCommand:        "slimference codex recertify wss",
 		}
 	}
 
@@ -835,7 +944,7 @@ func TestCodexStatusJSONIncludesRecertState(t *testing.T) {
 	if !got.Auto.NeedsRecert ||
 		got.Auto.CurrentCodex != "0.131.0" ||
 		got.Auto.CertifiedCodex != "0.130.0" ||
-		got.Auto.RecertCommand != "slimference codex certify wss" {
+		got.Auto.RecertCommand != "slimference codex recertify wss" {
 		t.Fatalf("bad auto recert state: %+v", got.Auto)
 	}
 }
@@ -1240,5 +1349,72 @@ func TestServiceControlAdapterLaunchCodexAppPreflightFailures(t *testing.T) {
 				t.Fatalf("err=%v want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestServiceControlAdapterRepairCodexWSS(t *testing.T) {
+	withCodexCmdStubs(t)
+	calls := 0
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		calls++
+		if calls == 1 {
+			return control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}, nil
+		}
+		return recertPostState(7, 2), nil
+	}
+
+	msg, err := (&serviceControlAdapter{}).RepairCodexWSS()
+	if err != nil {
+		t.Fatalf("RepairCodexWSS: %v", err)
+	}
+	if !strings.Contains(msg, "Codex WSS recertified") {
+		t.Fatalf("msg=%q", msg)
+	}
+
+	codexRecertTriggerFn = func(codexRecertTriggerInput) (codexRecertTriggerResult, error) {
+		return codexRecertTriggerResult{}, errors.New("trigger denied")
+	}
+	if _, err := (&serviceControlAdapter{}).RepairCodexWSS(); err == nil || !strings.Contains(err.Error(), "trigger denied") {
+		t.Fatalf("expected repair error, got %v", err)
+	}
+}
+
+func TestServiceControlAdapterCodexRouteStatusStartsAutoRecertAfterHealth(t *testing.T) {
+	withCodexCmdStubs(t)
+	oldHome := osUserHomeDir
+	oldHealth := tuiCodexRouteHealthCheckFn
+	t.Cleanup(func() {
+		osUserHomeDir = oldHome
+		tuiCodexRouteHealthCheckFn = oldHealth
+	})
+	osUserHomeDir = func() (string, error) { return t.TempDir(), nil }
+	codexRouteInspectFn = func(home, proxyURL string, opts codexroute.Options) (codexroute.Status, error) {
+		return codexroute.Status{Exists: true, Enabled: true, Complete: true}, nil
+	}
+	codexAutoFn = func(home string) codexroute.AutoDecision {
+		return codexroute.AutoDecision{
+			Mode:           codexroute.AutoModeHTTP,
+			Transport:      codexroute.TransportHTTP,
+			NeedsRecert:    true,
+			RecertCommand:  "slimference codex recertify wss",
+			FallbackReason: "codex version changed since wss certification",
+		}
+	}
+	started := false
+	codexAutoRecertFn = func(string, string, string, codexroute.AutoDecision) {
+		started = true
+	}
+	tuiCodexRouteHealthCheckFn = func(host, port string) error { return nil }
+
+	status := (&serviceControlAdapter{}).CodexRouteStatus()
+	if !status.DaemonReachable || !status.NeedsRecert || !started {
+		t.Fatalf("status=%+v started=%v", status, started)
+	}
+
+	started = false
+	tuiCodexRouteHealthCheckFn = func(host, port string) error { return errors.New("offline") }
+	status = (&serviceControlAdapter{}).CodexRouteStatus()
+	if status.DaemonReachable || started {
+		t.Fatalf("offline status=%+v started=%v", status, started)
 	}
 }

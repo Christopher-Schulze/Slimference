@@ -1347,19 +1347,20 @@ only and promotes the per-process Codex CLI runner for T209.
   `docs/todo/t240-codex-zero-drawdown-release-certification.md`
 - [~] **T241** Codex update-resilient certification — keep the strict WSS
   version-tuple guard, but make WSS Phase-F savings practically self-healing:
-  shared `recertify wss` core, background auto-recert, TUI Repair CLI WSS,
-  bounded recert logs, lock/backoff, and live mutation proof. First status
-  hardening is landed: `codex status --json` now exposes current/certified
-  tuples, `needs_recert`, and the recert action.
+  shared `recertify wss` core, background auto-recert from Slimference-launched
+  paths, TUI Repair CLI WSS, bounded recert logs, lock/backoff, delta-window
+  proof evaluation, and bridge-proof fallback are landed. Remaining work is
+  one live `codex-cli 0.131.0` recert ceremony plus operation-log evidence.
   Detail: `docs/todo/t241-codex-update-resilient-certification.md`
 - [ ] **T242** Codex Desktop root-store and proxy compatibility matrix — run
   the `--with-ca-env` Desktop probe, test Codex's managed network-proxy
   surfaces, and settle whether current Desktop can ever route conversation
   through Slimference without global lab or upstream changes. Detail:
   `docs/todo/t242-codex-desktop-root-store-probe.md`
-- [ ] **T243** WSS-first auto transport ladder — make `transport=auto` prefer
-  `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct. WSS remains
-  the standard; HTTP is only fallback after WSS bridge is unsafe. Detail:
+- [~] **T243** WSS-first auto transport ladder — `transport=auto` now prefers
+  `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct for scoped
+  Codex CLI. WSS remains the standard; HTTP is only fallback after WSS bridge is
+  unsafe. Remaining work is live proof and non-CLI passthrough audit. Detail:
   `docs/todo/t243-wss-first-auto-transport-ladder.md`
 
 ### Sequencing within Phase H

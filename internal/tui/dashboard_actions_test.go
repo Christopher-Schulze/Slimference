@@ -27,6 +27,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 		codexRouteStatus: CodexRouteStatus{
 			DaemonReachable: true,
 			AutoTransport:   "wss",
+			AutoMode:        "wss_phasef",
 			WSSCertified:    true,
 		},
 		codexDesktopStatus: CodexDesktopStatus{
@@ -46,7 +47,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 			t.Fatalf("action[%d]=%q want %q in %v", i, actions[i].id, id, actions)
 		}
 	}
-	if actions[0].label != "Launch Codex CLI" || actions[0].state != "auto=WSS" {
+	if actions[0].label != "Launch Codex CLI" || actions[0].state != "WSS savings" {
 		t.Fatalf("CLI action=%+v", actions[0])
 	}
 	if actions[1].label != "Launch Codex App" || actions[1].state != "blocked" {
@@ -113,8 +114,8 @@ func TestLaunchCenterStateVocabularyBranches(t *testing.T) {
 	if got := model.codexCLIState(); got != "auto=http" {
 		t.Fatalf("CLI state=%q", got)
 	}
-	model.codexRouteStatus = CodexRouteStatus{FallbackReason: "codex version changed"}
-	if got := model.codexCLIState(); got != "recert needed" {
+	model.codexRouteStatus = CodexRouteStatus{FallbackReason: "codex version changed", NeedsRecert: true}
+	if got := model.codexCLIState(); got != "repairing" {
 		t.Fatalf("CLI recert state=%q", got)
 	}
 
@@ -158,7 +159,12 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	proxy.snap = analytics.AnalyticsSnapshot{SavedInputTokens: 1500}
 	m := NewModel(proxy)
 	svc := &mockServiceControl{
-		codexRouteStatus: CodexRouteStatus{DaemonReachable: true, AutoTransport: "wss", WSSCertified: true},
+		codexRouteStatus: CodexRouteStatus{
+			DaemonReachable: true,
+			AutoTransport:   "wss",
+			AutoMode:        "wss_phasef",
+			WSSCertified:    true,
+		},
 		codexDesktopStatus: CodexDesktopStatus{
 			Mode: "ready_for_live_desktop_probe",
 		},
@@ -190,7 +196,7 @@ func TestExecuteMainSelection_AllDashboardActions(t *testing.T) {
 	}
 	m.view = ViewMain
 	runAction("status")
-	if !strings.Contains(m.flashMsg, "Status: CLI auto=WSS") {
+	if !strings.Contains(m.flashMsg, "Status: CLI WSS savings") {
 		t.Fatalf("status flash=%q", m.flashMsg)
 	}
 	runAction("manage")

@@ -76,6 +76,30 @@ func TestWriteFrameWithOptionsRSV1(t *testing.T) {
 	}
 }
 
+func TestWriteFrameWithOptionsRSV2AndRSV3(t *testing.T) {
+	var buf bytes.Buffer
+	n, err := WriteFrameWithOptions(&buf, WriteFrameOptions{
+		Fin:     true,
+		Opcode:  OpcodeBinary,
+		Payload: []byte("reserved"),
+		RSV2:    true,
+		RSV3:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != buf.Len() {
+		t.Fatalf("n=%d len=%d", n, buf.Len())
+	}
+	frame, err := ReadFrame(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !frame.RSV || frame.RSV1 || !frame.RSV2 || !frame.RSV3 {
+		t.Fatalf("RSV2/RSV3 bits not preserved: %+v", frame)
+	}
+}
+
 func TestWriteFrameMediumPayload126Boundary(t *testing.T) {
 	// Exactly 126 bytes forces the 2-byte extended length encoding.
 	payload := make([]byte, 126)

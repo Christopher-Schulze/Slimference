@@ -3899,14 +3899,23 @@ func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
 	}
 	auto := codexAutoFn(home)
 	out.AutoTransport = string(auto.Transport)
+	out.AutoMode = string(auto.Mode)
 	out.WSSCertified = auto.WSSCertified
+	out.WSSBridgeAvailable = auto.WSSBridgeAvailable
+	out.NeedsRecert = auto.NeedsRecert
 	out.FallbackReason = auto.FallbackReason
+	out.BridgeProofPath = auto.BridgeProofPath
+	out.RecertStatus = auto.RecertStatus
+	out.RecertCommand = auto.RecertCommand
 	out.Detail = auto.LastWSSError
 	if err := tuiCodexRouteHealthCheckFn("127.0.0.1", "8990"); err != nil {
 		out.Detail = err.Error()
 		return out
 	}
 	out.DaemonReachable = true
+	if auto.NeedsRecert {
+		codexAutoRecertFn(home, "127.0.0.1", "8990", auto)
+	}
 	return out
 }
 
@@ -3962,6 +3971,27 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 		return "", fmt.Errorf("%s", msg)
 	}
 	return "Codex App launch requested through Slimference diagnostic proxy", nil
+}
+
+func (sca *serviceControlAdapter) RepairCodexWSS() (string, error) {
+	var stdout strings.Builder
+	var stderr strings.Builder
+	rc := runCodexRecertifyCmd([]string{"wss", "--force", "--operator=tui", "--notes=TUI Repair CLI WSS"}, installPrinter{Out: &stdout, Err: &stderr})
+	if rc != 0 {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			msg = fmt.Sprintf("codex recertify failed with exit %d", rc)
+		}
+		return "", fmt.Errorf("%s", msg)
+	}
+	msg := strings.TrimSpace(stdout.String())
+	if msg == "" {
+		msg = "Codex CLI WSS repaired"
+	}
+	return msg, nil
 }
 
 func (sca *serviceControlAdapter) EnableCodexRoute() error {

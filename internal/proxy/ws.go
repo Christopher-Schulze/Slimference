@@ -41,6 +41,7 @@ type WebSocketTunnel struct {
 	BypassPaths []string
 	Inspector   wscompact.Inspector
 	FrameBridge WebSocketFrameBridge
+	ByteBridge  WebSocketFrameBridge
 }
 
 // IsWebSocketUpgrade reports whether the request is asking for a
@@ -141,7 +142,20 @@ func (t *WebSocketTunnel) ServeUpgradeWithBridge(clientConn net.Conn, r *http.Re
 	// pump below will fail on the very next write and we exit cleanly;
 	// no separate err handling needed.
 	_ = forwardResponse(clientConn, resp)
-	if bridgeFrames && t.FrameBridge != nil && !t.IsAudioBypassPath(r.URL.Path) {
+	if bridgeFrames && !t.IsAudioBypassPath(r.URL.Path) {
+		frameBridge := t.FrameBridge
+		if isCodexBridgePath(r.URL.Path) && t.ByteBridge != nil {
+			frameBridge = t.ByteBridge
+		}
+		if frameBridge == nil {
+			flushBufferedUpstream(clientConn, upstreamReader)
+			if t.Inspector == nil {
+				pipeBytes(clientConn, upstream)
+				return
+			}
+			pipeWebSocketBytes(clientConn, upstream, t.Inspector)
+			return
+		}
 		bridgeUpstream := net.Conn(upstream)
 		if upstreamReader.Buffered() > 0 {
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
@@ -152,7 +166,7 @@ func (t *WebSocketTunnel) ServeUpgradeWithBridge(clientConn net.Conn, r *http.Re
 				strings.Join(resp.Header.Values("Sec-WebSocket-Extensions"), ", "),
 			),
 		}
-		if err := t.FrameBridge(r.Context(), clientConn, bridgeUpstream, opts); err != nil {
+		if err := frameBridge(r.Context(), clientConn, bridgeUpstream, opts); err != nil {
 			t.logf("websocket: frame bridge ended", "host", host, "err", err)
 		}
 		return
@@ -200,7 +214,20 @@ func (t *WebSocketTunnel) ServeRawUpgrade(ctx context.Context, clientConn net.Co
 		return
 	}
 	_ = forwardResponse(clientConn, resp)
-	if t.FrameBridge != nil && !t.IsAudioBypassPath(path) {
+	if !t.IsAudioBypassPath(path) {
+		frameBridge := t.FrameBridge
+		if isCodexBridgePath(path) && t.ByteBridge != nil {
+			frameBridge = t.ByteBridge
+		}
+		if frameBridge == nil {
+			flushBufferedUpstream(clientConn, upstreamReader)
+			if t.Inspector == nil {
+				pipeBytes(clientConn, upstream)
+				return
+			}
+			pipeWebSocketBytes(clientConn, upstream, t.Inspector)
+			return
+		}
 		bridgeUpstream := net.Conn(upstream)
 		if upstreamReader.Buffered() > 0 {
 			bridgeUpstream = &bufferedReadConn{Conn: upstream, reader: upstreamReader}
@@ -211,7 +238,7 @@ func (t *WebSocketTunnel) ServeRawUpgrade(ctx context.Context, clientConn net.Co
 				strings.Join(resp.Header.Values("Sec-WebSocket-Extensions"), ", "),
 			),
 		}
-		if err := t.FrameBridge(ctx, clientConn, bridgeUpstream, opts); err != nil {
+		if err := frameBridge(ctx, clientConn, bridgeUpstream, opts); err != nil {
 			t.logf("websocket raw: frame bridge ended", "host", host, "err", err)
 		}
 		return
@@ -258,6 +285,8 @@ func writeRequest(w io.Writer, r *http.Request, host string) error {
 	clone.Host = host
 	clone.URL.Host = host
 	clone.URL.Scheme = "http" // Write does not emit scheme; this avoids a panic on absolute URLs.
+	clone.URL.Path = canonicalCodexBridgePath(clone.URL.Path)
+	clone.URL.RawPath = ""
 	clone.RequestURI = ""
 	return clone.Write(w)
 }
@@ -313,7 +342,7 @@ func rewriteRequestLineTarget(line string) string {
 	if len(parts) != 3 {
 		return line
 	}
-	target := normaliseHTTPRequestTarget(parts[1])
+	target := canonicalCodexBridgePath(normaliseHTTPRequestTarget(parts[1]))
 	if target == parts[1] {
 		return line
 	}
@@ -330,6 +359,25 @@ func normaliseHTTPRequestTarget(target string) string {
 		return "/"
 	}
 	return out
+}
+
+func isCodexBridgePath(path string) bool {
+	clean := path
+	if idx := strings.Index(clean, "?"); idx >= 0 {
+		clean = clean[:idx]
+	}
+	clean = strings.TrimSuffix(clean, "/")
+	return clean == "/backend-api/codex-bridge/responses"
+}
+
+func canonicalCodexBridgePath(path string) string {
+	if strings.HasPrefix(path, "/backend-api/codex-bridge/") {
+		return "/backend-api/codex/" + strings.TrimPrefix(path, "/backend-api/codex-bridge/")
+	}
+	if path == "/backend-api/codex-bridge" {
+		return "/backend-api/codex"
+	}
+	return path
 }
 
 func forwardResponse(client net.Conn, resp *http.Response) error {

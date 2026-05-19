@@ -21,18 +21,22 @@ import (
 )
 
 var (
-	codexRouteHomeFn    = os.UserHomeDir
-	codexRouteEnableFn  = codexroute.EnableWithOptions
-	codexRouteDisableFn = codexroute.Disable
-	codexRouteInspectFn = codexroute.InspectWithOptions
-	codexRouteHealthFn  = defaultProxyHealthCheck
-	codexProxyRunFn     = proxyRun
-	codexVersionFn      = currentCodexVersion
-	codexAutoFn         = resolveCodexAutoTransport
-	codexCertSaveFn     = codexroute.SaveCertification
-	codexSetupStateFn   = fetchCodexSetupState
-	codexVersionOutFn   = defaultCodexCLIVersionOutput
-	codexNowFn          = time.Now
+	codexRouteHomeFn     = os.UserHomeDir
+	codexRouteEnableFn   = codexroute.EnableWithOptions
+	codexRouteDisableFn  = codexroute.Disable
+	codexRouteInspectFn  = codexroute.InspectWithOptions
+	codexRouteHealthFn   = defaultProxyHealthCheck
+	codexProxyRunFn      = proxyRun
+	codexVersionFn       = currentCodexVersion
+	codexAutoFn          = resolveCodexAutoTransport
+	codexCertSaveFn      = codexroute.SaveCertification
+	codexBridgeSaveFn    = codexroute.SaveBridgeProof
+	codexRecertSaveFn    = codexroute.SaveRecertState
+	codexAutoRecertFn    = startCodexAutoRecert
+	codexRecertTriggerFn = defaultCodexRecertTrigger
+	codexSetupStateFn    = fetchCodexSetupState
+	codexVersionOutFn    = defaultCodexCLIVersionOutput
+	codexNowFn           = time.Now
 )
 
 type codexRouteFlags struct {
@@ -102,6 +106,8 @@ func runCodexCmd(args []string, p installPrinter) int {
 		return runCodexStatusCmd(args[1:], p)
 	case "certify":
 		return runCodexCertifyCmd(args[1:], p)
+	case "recertify":
+		return runCodexRecertifyCmd(args[1:], p)
 	case "desktop":
 		return runCodexDesktopCmd(args[1:], p)
 	case "launch-desktop":
@@ -118,22 +124,31 @@ func runCodexCmd(args []string, p installPrinter) int {
 
 func runCodexRunCmd(args []string, p installPrinter) int {
 	flags, direct, codexArgs := parseCodexRunFlags(args)
+	var autoHome string
+	var autoDecision codexroute.AutoDecision
+	autoNeedsRecert := false
 	if flags.help {
 		fmt.Fprint(p.Out, codexRunHelpText)
 		return 0
 	}
 	if strings.HasPrefix(flags.transport, "invalid:") {
-		fmt.Fprintf(p.Err, "codex run: transport must be auto, http, wss, or direct\n")
+		fmt.Fprintf(p.Err, "codex run: transport must be auto, http, wss, wss-bridge, or direct\n")
 		return 2
 	}
 	if flags.transport == "auto" {
 		home, err := codexRouteHomeFn()
 		if err == nil && home != "" {
 			decision := codexAutoFn(home)
+			autoHome = home
+			autoDecision = decision
+			autoNeedsRecert = decision.NeedsRecert
 			flags.transport = string(decision.Transport)
+			if decision.Mode == codexroute.AutoModeWSSBridge {
+				flags.transport = string(codexroute.TransportWSS) + "-bridge"
+			}
 			if decision.FallbackReason != "" {
 				fmt.Fprintf(p.Err, "codex run: auto transport -> %s (%s)\n",
-					flags.transport, decision.FallbackReason)
+					decision.Mode, decision.FallbackReason)
 			}
 		} else {
 			flags.transport = string(codexroute.TransportHTTP)
@@ -149,6 +164,11 @@ func runCodexRunCmd(args []string, p installPrinter) int {
 		mode = "direct"
 	} else if flags.transport == "wss" {
 		mode = "proxied-wss"
+	} else if flags.transport == "wss-bridge" {
+		mode = "proxied-wss-bridge"
+	}
+	if mode != "direct" && autoNeedsRecert && autoHome != "" {
+		codexAutoRecertFn(autoHome, flags.host, flags.port, autoDecision)
 	}
 	proxyArgs := []string{"run", "codex", "--" + mode, "--host=" + flags.host, "--port=" + flags.port}
 	if len(codexArgs) > 0 {
@@ -346,6 +366,13 @@ func runCodexCertifyCmd(args []string, p installPrinter) int {
 		fmt.Fprintf(p.Err, "codex certify: write certification: %v\n", err)
 		return 1
 	}
+	if len(codexWSSBridgeFailures(state)) == 0 {
+		bridgeFlags := codexRecertifyFlags{operator: flags.operator, notes: flags.notes}
+		if err := codexBridgeSaveFn(home, codexBridgeProofFromState(state, codexVersion, bridgeFlags)); err != nil {
+			fmt.Fprintf(p.Err, "codex certify: write bridge proof: %v\n", err)
+			return 1
+		}
+	}
 	fmt.Fprintf(p.Out, "Codex WSS certification written: %s (codex=%s slimference=%s)\n",
 		codexroute.CertificationPath(home), codexVersion, version)
 	fmt.Fprintf(p.Out, "Live frames_reencoded at issue: %d\n", state.WSS.FramesReencoded)
@@ -440,7 +467,7 @@ func parseCodexRunFlags(args []string) (codexRouteFlags, bool, []string) {
 			f.port = strings.TrimPrefix(a, "--port=")
 		case strings.HasPrefix(a, "--transport="):
 			t := strings.TrimPrefix(a, "--transport=")
-			if t == "auto" || t == "http" || t == "wss" || t == "direct" {
+			if t == "auto" || t == "http" || t == "wss" || t == "wss-bridge" || t == "direct" {
 				f.transport = t
 				continue
 			}
@@ -728,7 +755,8 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 	if s.Transport != "" {
 		fmt.Fprintf(w, "  Transport %s\n", s.Transport)
 	}
-	fmt.Fprintf(w, "  Auto     %s certified=%v\n", auto.Transport, auto.WSSCertified)
+	fmt.Fprintf(w, "  Auto     %s transport=%s certified=%v bridge=%v\n",
+		auto.Mode, auto.Transport, auto.WSSCertified, auto.WSSBridgeAvailable)
 	if auto.CurrentCodex != "" || auto.CurrentSlimference != "" || auto.CertifiedCodex != "" || auto.CertifiedSlimference != "" {
 		fmt.Fprintf(w, "           current codex=%s slimference=%s\n", auto.CurrentCodex, auto.CurrentSlimference)
 		if auto.CertifiedCodex != "" || auto.CertifiedSlimference != "" {
@@ -739,7 +767,10 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 		fmt.Fprintf(w, "           %s\n", auto.FallbackReason)
 	}
 	if auto.NeedsRecert {
-		fmt.Fprintf(w, "           WSS savings paused after version drift; recert action: %s\n", auto.RecertCommand)
+		fmt.Fprintf(w, "           WSS savings repair needed; recert action: %s\n", auto.RecertCommand)
+	}
+	if auto.RecertStatus != "" {
+		fmt.Fprintf(w, "           recert status=%s attempt=%s\n", auto.RecertStatus, auto.RecertAttemptID)
 	}
 	fmt.Fprintf(w, "  Daemon   reachable=%v\n", daemonReachable)
 	if daemonErr != "" {
@@ -761,9 +792,9 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 	}
 }
 
-const codexUsageLine = "usage: slimference codex <run|enable|disable|status|certify|desktop|launch-desktop> [flags]\n"
+const codexUsageLine = "usage: slimference codex <run|enable|disable|status|certify|recertify|desktop|launch-desktop> [flags]\n"
 
-const codexHelpText = `usage: slimference codex <run|enable|disable|status|certify|desktop|launch-desktop> [flags]
+const codexHelpText = `usage: slimference codex <run|enable|disable|status|certify|recertify|desktop|launch-desktop> [flags]
 
 Codex-scoped routing. This is the product path: it only touches Codex
 CLI / Codex Desktop App config and never routes Browser ChatGPT,
@@ -775,20 +806,22 @@ Commands:
   disable         remove the shared Codex CLI/App provider route
   status          show route config + daemon health
   certify         issue local WSS auto-promotion proof after live mutation
+  recertify       run guided WSS repair; refresh Phase-F cert or bridge proof
   desktop         show Desktop proxy readiness and live-proof status
   launch-desktop  spawn Codex.app with process-local proxy env (--probe to inspect)
 `
 
-const codexRunHelpText = `usage: slimference codex run [--transport=http|wss|direct|auto] [--direct] [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]
+const codexRunHelpText = `usage: slimference codex run [--transport=http|wss|wss-bridge|direct|auto] [--direct] [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]
 
 Runs one Codex CLI process. Default mode health-checks Slimference and
 uses the scoped provider override. If the daemon is unreachable it
 falls back to direct Codex automatically.
 
 Transport:
-  http    stable scoped Responses path, WebSockets disabled (current default)
+  http    stable scoped Responses path, WebSockets disabled
   wss     scoped Responses WebSocket path with Phase-F frame mutation
-  auto    alias for the current safe default until live WSS certification
+  wss-bridge scoped Responses WebSocket path with byte-equal frame bridge
+  auto    WSS-first ladder: wss_phasef -> wss_bridge -> http -> direct
   direct  no Slimference route
 `
 
@@ -837,5 +870,15 @@ const codexCertifyHelpText = `usage: slimference codex certify wss [--dry-run] [
 Writes ~/.slimference/codex-wss-cert.json only when the live daemon has
 already observed scoped Codex WSS Phase-F mutation with zero parser,
 degradation, or compression errors. The proof is local and version-bound;
-auto falls back to HTTP after Codex or Slimference version drift.
+auto starts recert repair after Codex or Slimference version drift and uses
+WSS bridge before HTTP when bridge proof is available.
+`
+
+const codexRecertifyHelpText = `usage: slimference codex recertify wss [--dry-run] [--no-write] [--force] [--json] [--operator NAME] [--notes TEXT] [--timeout=180s] [--host=127.0.0.1] [--port=8990]
+
+Runs the guided Codex CLI WSS repair sequence. A green Phase-F proof writes
+~/.slimference/codex-wss-cert.json and restores max-savings auto=WSS. If
+Phase-F mutation does not fire but WSS bytes/frames are clean, the command
+writes ~/.slimference/codex-wss-bridge.json so auto can keep native WSS
+instead of falling straight to HTTP.
 `

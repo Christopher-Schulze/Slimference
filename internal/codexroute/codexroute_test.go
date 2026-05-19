@@ -259,6 +259,30 @@ func TestBackupAndAtomicPrimitiveErrors(t *testing.T) {
 	}
 }
 
+func TestWriteAtomicPreservesExistingFileMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+	if err := writeAtomic(path, []byte("new"), 0o644); err != nil {
+		t.Fatalf("writeAtomic: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != "new" {
+		t.Fatalf("content=%q", got)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode()&os.ModePerm != 0o600 {
+		t.Fatalf("mode=%o", info.Mode()&os.ModePerm)
+	}
+}
+
 func TestFenceAndLegacyEdgeHelpers(t *testing.T) {
 	t.Run("unterminated fence drops managed tail", func(t *testing.T) {
 		got := stripFence("model = \"gpt-5\"\n\n" + markerStart + "\npartial\n")

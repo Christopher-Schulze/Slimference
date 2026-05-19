@@ -65,10 +65,19 @@ func (p *codexRouteProbe) ProbeCodexRoute(ctx context.Context) control.CodexRout
 	}
 	auto, _ := codexroute.DecideAutoTransport(p.home, codexVersion, p.slimferenceVersion)
 	out.AutoTransport = string(auto.Transport)
+	out.AutoMode = string(auto.Mode)
 	out.WSSCertified = auto.WSSCertified
+	out.WSSBridgeAvailable = auto.WSSBridgeAvailable
+	out.NeedsRecert = auto.NeedsRecert
 	out.CertifiedCodexVersion = auto.CertifiedCodex
 	out.CertifiedSlimferenceVersion = auto.CertifiedSlimference
+	out.BridgeCodexVersion = auto.BridgeCodex
+	out.BridgeSlimferenceVersion = auto.BridgeSlimference
 	out.CertificationPath = auto.CertificationPath
+	out.BridgeProofPath = auto.BridgeProofPath
+	out.RecertStatePath = auto.RecertStatePath
+	out.RecertStatus = auto.RecertStatus
+	out.RecertCommand = auto.RecertCommand
 	out.FallbackReason = auto.FallbackReason
 	out.LastWSSError = auto.LastWSSError
 	return out

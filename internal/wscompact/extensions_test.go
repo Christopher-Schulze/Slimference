@@ -75,6 +75,7 @@ func TestNegotiatePermessageDeflateUnsupported(t *testing.T) {
 		accept string
 	}{
 		{name: "missing", accept: ""},
+		{name: "only empty tokens", accept: " , "},
 		{name: "unknown extension", accept: "x-unknown"},
 		{name: "bad window", accept: "permessage-deflate; server_max_window_bits=12"},
 		{name: "invalid window", accept: "permessage-deflate; client_max_window_bits=bogus"},

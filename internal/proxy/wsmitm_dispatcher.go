@@ -373,6 +373,39 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 	return err
 }
 
+// runWSBridge keeps Codex on the native WSS path while disabling all
+// Phase-F mutation handlers. It still parses WebSocket framing and
+// permessage-deflate enough to surface bridge health counters.
+func (d *PhaseFDispatcher) runWSBridge(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
+	if d.BridgeTimeout > 0 {
+		dl := time.Now().Add(d.BridgeTimeout)
+		_ = client.SetDeadline(dl)
+		_ = upstream.SetDeadline(dl)
+	}
+	sess := &wsmitm.Session{
+		Client:     client,
+		Upstream:   upstream,
+		Extensions: opts.Extensions,
+	}
+	err := sess.Serve(ctx)
+	snap := sess.Snapshot()
+	d.counters.wsmitmC2SFrames.Add(snap.C2SFrames)
+	d.counters.wsmitmS2CFrames.Add(snap.S2CFrames)
+	d.counters.wsmitmParseFailures.Add(snap.ParseFailures)
+	d.counters.wsmitmReencoded.Add(snap.FramesReencoded)
+	d.counters.wsmitmForwarded.Add(snap.FramesForwarded)
+	d.counters.wsmitmCompressedInspected.Add(snap.CompressedMessagesInspected)
+	d.counters.wsmitmCompressedMutated.Add(snap.CompressedMessagesMutated)
+	d.counters.wsmitmCompressedBypassed.Add(snap.CompressedMessagesBypassed)
+	d.counters.wsmitmCompressionErrors.Add(snap.CompressionErrors)
+	d.counters.bytesC2S.Add(snap.C2SBytes)
+	d.counters.bytesS2C.Add(snap.S2CBytes)
+	if snap.Degraded {
+		d.counters.wsmitmDegraded.Add(1)
+	}
+	return err
+}
+
 // bridge copies bytes both directions between client and upstream
 // until either side closes. The first goroutine to finish closes the
 // other half to unblock its peer.

@@ -128,19 +128,20 @@ _slimference() {
                     install|enable|disable|status|uninstall) COMPREPLY=( $(compgen -W "--yes --system --no-launchd --host= --port=" -- "$cur") ) ;;
                 esac
             elif [ "$cword" -ge 4 ] && { [ "${COMP_WORDS[2]}" = "env" ] || [ "${COMP_WORDS[2]}" = "run" ]; } && [ "${COMP_WORDS[3]}" = "codex" ]; then
-                COMPREPLY=( $(compgen -W "--direct --proxied --host= --port= --" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--direct --proxied --proxied-wss --proxied-wss-bridge --transparent-proxied --host= --port= --" -- "$cur") )
             fi
             ;;
         codex)
             if [ "$cword" -eq 2 ]; then
-                COMPREPLY=( $(compgen -W "run enable disable status certify desktop launch-desktop" -- "$cur") )
+                COMPREPLY=( $(compgen -W "run enable disable status certify recertify desktop launch-desktop" -- "$cur") )
             elif [ "$cword" -ge 3 ]; then
                 case "${COMP_WORDS[2]}" in
-                    run) COMPREPLY=( $(compgen -W "--direct --transport=auto --transport=http --transport=wss --host= --port= --" -- "$cur") ) ;;
+                    run) COMPREPLY=( $(compgen -W "--direct --transport=auto --transport=http --transport=wss --transport=wss-bridge --host= --port= --" -- "$cur") ) ;;
                     enable) COMPREPLY=( $(compgen -W "--transport=http --transport=wss --host= --port= --dry-run" -- "$cur") ) ;;
                     disable) COMPREPLY=( $(compgen -W "--dry-run" -- "$cur") ) ;;
                     status) COMPREPLY=( $(compgen -W "--json --host= --port=" -- "$cur") ) ;;
                     certify) COMPREPLY=( $(compgen -W "wss --dry-run --operator= --notes= --host= --port=" -- "$cur") ) ;;
+                    recertify) COMPREPLY=( $(compgen -W "wss --dry-run --no-write --force --json --operator= --notes= --timeout= --host= --port=" -- "$cur") ) ;;
                     desktop) COMPREPLY=( $(compgen -W "status --json --host= --port=" -- "$cur") ) ;;
                     launch-desktop) COMPREPLY=( $(compgen -W "--transport=proxy --transport=base-url --probe --with-ca-env --host= --port= --app= --env= --insecure-skip-cert-trust-check" -- "$cur") ) ;;
                 esac

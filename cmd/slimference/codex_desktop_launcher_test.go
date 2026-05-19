@@ -160,11 +160,13 @@ func TestBuildCodexDesktopProxyEnvScopedAndNoBaseURLOverrides(t *testing.T) {
 		"HTTPS_PROXY=http://old",
 		"OPENAI_BASE_URL=http://old-base",
 		"UNRELATED=keep",
+		"NOEQUAL",
 	}
 	got := buildCodexDesktopProxyEnv("http://127.0.0.1:8990", base, []string{"HTTPS_PROXY=http://operator"})
 	wantPresent := map[string]bool{
 		"PATH=/usr/bin":                     false,
 		"UNRELATED=keep":                    false,
+		"NOEQUAL":                           false,
 		"HTTP_PROXY=http://127.0.0.1:8990":  false,
 		"HTTPS_PROXY=http://127.0.0.1:8990": false,
 		"WSS_PROXY=http://127.0.0.1:8990":   false,
@@ -193,11 +195,13 @@ func TestAppendCodexDesktopCAEnvIsExplicitAndExtraWins(t *testing.T) {
 		"PATH=/usr/bin",
 		"SSL_CERT_FILE=/old/root.crt",
 		"HTTPS_PROXY=http://127.0.0.1:8990",
+		"NOEQUAL",
 	}
 	got := appendCodexDesktopCAEnv(base, "/tmp/slimference-root.crt", []string{"SSL_CERT_FILE=/operator/root.crt"})
 	wantPresent := map[string]bool{
 		"PATH=/usr/bin":                                 false,
 		"HTTPS_PROXY=http://127.0.0.1:8990":             false,
+		"NOEQUAL":                                       false,
 		"SSL_CERT_FILE=/tmp/slimference-root.crt":       false,
 		"CURL_CA_BUNDLE=/tmp/slimference-root.crt":      false,
 		"REQUESTS_CA_BUNDLE=/tmp/slimference-root.crt":  false,
@@ -225,6 +229,7 @@ func TestAppendCodexDesktopCAEnvIsExplicitAndExtraWins(t *testing.T) {
 func TestFilterCodexDesktopOverrideEnv(t *testing.T) {
 	env := []string{
 		"PATH=/usr/bin",
+		"NOEQUAL",
 		"CHATGPT_CODEX_BASE_URL=http://x",
 		"FOO=bar",
 		"OPENAI_BASE_URL=http://x",
@@ -244,6 +249,7 @@ func TestFilterCodexDesktopOverrideEnv(t *testing.T) {
 func TestFilterCodexDesktopProxyEnv(t *testing.T) {
 	env := []string{
 		"PATH=/usr/bin",
+		"NOEQUAL",
 		"HTTPS_PROXY=http://x",
 		"SSL_CERT_FILE=/tmp/root.crt",
 		"FOO=bar",
@@ -553,7 +559,7 @@ func TestRunCodexLaunchDesktopRefusesProxyWithMissingCA(t *testing.T) {
 	prevCA := codexDesktopCATrustFn
 	t.Cleanup(func() { codexDesktopCATrustFn = prevCA })
 	codexDesktopCATrustFn = func() codexDesktopCAState {
-		return codexDesktopCAState{Path: "/tmp/missing.crt", Exists: false, Trusted: false}
+		return codexDesktopCAState{Path: "/tmp/missing.crt", Exists: false, Trusted: false, Error: "probe failed"}
 	}
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd([]string{"--app=" + app}, installPrinter{Out: &out, Err: &errBuf})
@@ -562,6 +568,9 @@ func TestRunCodexLaunchDesktopRefusesProxyWithMissingCA(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "install") {
 		t.Fatalf("stderr missing install remediation: %q", errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "probe failed") {
+		t.Fatalf("stderr missing probe error: %q", errBuf.String())
 	}
 }
 
@@ -717,6 +726,18 @@ func TestStartCodexDesktopProcessSpawnsRealBinary(t *testing.T) {
 	// /bin/echo exits immediately; wait a beat so the process reaper
 	// doesn't leave a zombie for parallel tests.
 	time.Sleep(50 * time.Millisecond)
+}
+
+func TestStartCodexDesktopProcessSpawnFailure(t *testing.T) {
+	var out, errBuf bytes.Buffer
+	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},
+		filepath.Join(t.TempDir(), "missing-binary"), []string{"PATH=/usr/bin"})
+	if rc != 1 {
+		t.Fatalf("rc=%d want 1", rc)
+	}
+	if !strings.Contains(errBuf.String(), "spawn failed") {
+		t.Fatalf("stderr missing spawn failure: %q", errBuf.String())
+	}
 }
 
 // Sanity: probe path on real Codex.app (if present) does not invoke

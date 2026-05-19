@@ -96,6 +96,21 @@ func TestInflateCorruptionBlocksContext(t *testing.T) {
 	}
 }
 
+func TestInflateWithLimitBlocksOversizedPlaintext(t *testing.T) {
+	deflater := NewDeflateContext(true)
+	inflater := NewInflateContext(true)
+	compressed, err := deflater.Deflate([]byte("0123456789"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inflater.InflateWithLimit(compressed, 4); err == nil {
+		t.Fatal("expected inflate limit error")
+	}
+	if !inflater.Blocked() {
+		t.Fatal("inflater should block after oversized plaintext")
+	}
+}
+
 func TestDeflateBlockedBranches(t *testing.T) {
 	var nilDeflater *DeflateContext
 	if !nilDeflater.Blocked() {

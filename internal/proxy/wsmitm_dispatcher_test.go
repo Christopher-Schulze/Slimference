@@ -326,6 +326,15 @@ func TestRunWSMITMTimeoutBranchWithEmptyStreams(t *testing.T) {
 	}
 }
 
+func TestRunWSBridgeTimeoutBranchWithEmptyStreams(t *testing.T) {
+	client := newScriptedConn("")
+	upstream := newScriptedConn("")
+	d := &PhaseFDispatcher{BridgeTimeout: time.Millisecond}
+	if err := d.runWSBridge(context.Background(), client, upstream, WebSocketBridgeOptions{}); err != nil {
+		t.Fatalf("runWSBridge: %v", err)
+	}
+}
+
 func TestDispatcherUnknownDecisionIsNoop(t *testing.T) {
 	d := &PhaseFDispatcher{}
 	err := d.Handle(context.Background(), sniroute.Decision("garbage"),

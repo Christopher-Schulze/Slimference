@@ -305,6 +305,11 @@ func New(cfg *config.Config) *Proxy {
 			scopedWSSDispatcher.counters.mitmBridged.Add(1)
 			return scopedWSSDispatcher.runWSMITM(ctx, client, upstream, opts)
 		},
+		ByteBridge: func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
+			p.SetWSSDispatcher(scopedWSSDispatcher)
+			scopedWSSDispatcher.counters.mitmBridged.Add(1)
+			return scopedWSSDispatcher.runWSBridge(ctx, client, upstream, opts)
+		},
 	}
 
 	// Layer 1: Deterministic compressor.
@@ -662,13 +667,13 @@ func (p *Proxy) recordRawScopedWSS(path string, header []byte) {
 		Provider:  types.CodexChatGPT.String(),
 		Host:      "raw-scoped",
 		Path:      path,
-		RouteMode: "websocket_raw_phasef",
+		RouteMode: rawScopedWSSRouteMode(path),
 		Plan: p.dryRunPlan(plannerInput{
 			provider:                   types.CodexChatGPT,
-			routeMode:                  "websocket_raw_phasef",
+			routeMode:                  rawScopedWSSRouteMode(path),
 			contentClasses:             []string{"websocket"},
 			webSocketShapeKnown:        p.webSocketShapeKnown(),
-			webSocketMutationRequested: p.webSocketTunnel != nil && p.webSocketTunnel.FrameBridge != nil,
+			webSocketMutationRequested: p.webSocketTunnel != nil && p.webSocketTunnel.FrameBridge != nil && !isCodexBridgePath(path),
 			liveCorpusConfidence:       p.plannerLiveCorpusConfidence(),
 		}),
 	})
@@ -801,6 +806,10 @@ func (p *Proxy) handleDirectWebSocketUpgrade(w http.ResponseWriter, r *http.Requ
 	defer clientConn.Close()
 	routeMode := "websocket_tunnel"
 	mutationRequested := p.webSocketTunnel.FrameBridge != nil && !p.webSocketTunnel.IsAudioBypassPath(r.URL.Path)
+	if isCodexBridgePath(r.URL.Path) {
+		routeMode = "websocket_bridge"
+		mutationRequested = false
+	}
 	if mutationRequested {
 		routeMode = "websocket_phasef"
 	}
@@ -915,6 +924,7 @@ func isProviderCompressiblePath(provider types.Provider, path string) bool {
 // Codex's /backend-api/codex/* paths hit the real ChatGPT backend rather
 // than api.openai.com (which would 404 the Codex-specific routes).
 func (p *Proxy) upstreamURL(provider types.Provider, path, rawQuery string) string {
+	path = canonicalCodexBridgePath(path)
 	var base string
 	switch provider {
 	case types.Anthropic:

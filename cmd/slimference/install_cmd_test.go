@@ -467,6 +467,20 @@ func TestRunLabCmdHelpAndEnableHelp(t *testing.T) {
 	}
 }
 
+func TestRunLabCmdDelegatesGlobalLabSubcommandHelp(t *testing.T) {
+	for _, args := range [][]string{
+		{"cert-trust", "--help"},
+		{"root-arm", "--help"},
+		{"root-disarm", "--help"},
+	} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			if rc := runLabCmd(args, defaultInstallPrinter()); rc != 0 {
+				t.Fatalf("runLabCmd(%v) rc=%d", args, rc)
+			}
+		})
+	}
+}
+
 func TestHandleEnableDisableCmdExitCodes(t *testing.T) {
 	code, exited := captureExit(func() { handleEnableCmd([]string{"--bogus"}) })
 	if !exited || code != 2 {

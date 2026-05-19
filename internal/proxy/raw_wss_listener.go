@@ -79,7 +79,7 @@ func isRawScopedCodexWSS(h parsedHTTPRequestHeader) bool {
 	if idx := strings.Index(path, "?"); idx >= 0 {
 		path = path[:idx]
 	}
-	if path != "/backend-api/codex/responses" {
+	if path != "/backend-api/codex/responses" && path != "/backend-api/codex-bridge/responses" {
 		return false
 	}
 	for _, protocol := range strings.Split(h.subprotocol, ",") {
@@ -88,4 +88,11 @@ func isRawScopedCodexWSS(h parsedHTTPRequestHeader) bool {
 		}
 	}
 	return false
+}
+
+func rawScopedWSSRouteMode(path string) string {
+	if isCodexBridgePath(path) {
+		return "websocket_raw_bridge"
+	}
+	return "websocket_raw_phasef"
 }

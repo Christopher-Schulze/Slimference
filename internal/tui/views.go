@@ -1199,8 +1199,13 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 		mode = "auto"
 	}
 	modeText := " · " + mode
-	if status.WSSCertified {
-		modeText += " · WSS certified"
+	switch {
+	case status.WSSCertified && status.AutoMode == "wss_phasef":
+		modeText += " · WSS savings active"
+	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
+		modeText += " · WSS bridge"
+	case status.NeedsRecert:
+		modeText += " · repair needed"
 	}
 	switch {
 	case status.Complete && status.DaemonReachable:

@@ -1,7 +1,8 @@
 # TASK 241: Codex automatic WSS recertification engine
 
-Status: PARTIAL - status/JSON drift visibility landed; auto-recert engine
-planned
+Status: PARTIAL - shared recert engine, TUI repair, background launch-center
+auto-recert, lock/backoff, bounded logs, and tests landed; live recert proof
+still pending
 Priority: P0 before T243 full WSS-first auto ladder and before T240 release seal
 Scope: Codex CLI WSS Phase-F savings resilience across Codex CLI and
 Slimference updates, with one shared recert core for CLI, TUI, and background
@@ -73,7 +74,7 @@ keeps Codex on WSS byte-equal bridge before any HTTP fallback.
   `~/.slimference/` with current tuple, certified tuple, last attempt, last
   success, last failure reason, retry-after, and last counters.
 - Logs are bounded and useful:
-  - path: `~/.slimference/logs/recert.log`;
+  - path: `~/.slimference/logs/codex-wss-recert.log`;
   - max active file size: 2 MiB;
   - one rotated backup is enough;
   - no prompt bodies, secrets, auth tokens, or large tool outputs;
@@ -92,31 +93,31 @@ keeps Codex on WSS byte-equal bridge before any HTTP fallback.
 
 - [x] Add a `needs_recert` field to Codex status JSON with current/expected
   Codex and Slimference versions.
-- [ ] Add `slimference codex recertify wss` with dry-run, force, no-write,
+- [x] Add `slimference codex recertify wss` with dry-run, force, no-write,
   operator, notes, host, port, timeout, and JSON output.
-- [ ] Extract a shared recert core that can be called from CLI, TUI, and
+- [x] Extract a shared recert core that can be called from CLI, TUI, and
   background auto-repair without duplicating criteria or state transitions.
-- [ ] Implement deterministic real Codex mutation trigger using a temporary
-  repo and a long repeated `git status --short` / tool-output pattern proven to
-  trip Phase-F on current Codex.
-- [ ] Snapshot WSS counters before and after the trigger and evaluate only the
+- [x] Implement deterministic real Codex mutation trigger candidate using a
+  temporary repo and repeated `git status --short` / tool-output turns; live
+  proof on the current Codex tuple remains the final sub-task below.
+- [x] Snapshot WSS counters before and after the trigger and evaluate only the
   delta window for pass/fail.
-- [ ] Persist recert state under `~/.slimference/` with tuple, attempt id, last
+- [x] Persist recert state under `~/.slimference/` with tuple, attempt id, last
   success, last failure, cooldown, counters, and cert path.
-- [ ] Add a bounded recert logger with 2 MiB cap, one backup rotation, no
+- [x] Add a bounded recert logger with 2 MiB cap, one backup rotation, no
   secrets, no prompt dumps, and machine-readable event classes.
-- [ ] Add per-tuple lock and cooldown/backoff so auto-recert cannot spam Codex
+- [x] Add per-tuple lock and cooldown/backoff so auto-recert cannot spam Codex
   API calls or overlap with itself.
-- [ ] Add background auto-recert triggers from Slimference TUI startup, Launch
+- [x] Add background auto-recert triggers from Slimference TUI startup, Launch
   Center refresh, and Launch Codex CLI selection; keep normal direct Codex
   launches completely untouched.
-- [ ] Add TUI Status/Manage wording and a "Repair CLI WSS" action that calls
+- [x] Add TUI Status/Manage wording and a "Repair CLI WSS" action that calls
   the same recert core with explicit user intent.
-- [ ] Keep certify criteria unchanged; do not lower the gate for convenience.
-- [ ] Add tests for Codex drift, Slimference drift, missing daemon, mutation
+- [x] Keep certify criteria unchanged; do not lower the gate for convenience.
+- [x] Add tests for Codex drift, Slimference drift, missing daemon, mutation
   not observed, duplicate lock, cooldown, log rotation, no-write, dry-run,
   certify refusal, and successful recert.
-- [ ] Add tests proving auto-recert failure leaves the next auto decision to
+- [x] Add tests proving auto-recert failure leaves the next auto decision to
   T243's WSS bridge path rather than immediately forcing HTTP.
 - [ ] Run one live recert against the current `codex-cli 0.131.0` and append
   evidence.
@@ -158,6 +159,22 @@ Open design constraints for implementation:
 - Do not claim Desktop savings from this task; Desktop is T242/T240.
 - Do not optimize Audio/Realtime/Voice; passthrough only.
 - Do not add a second TUI or a second launcher surface.
+
+2026-05-19 implementation pass:
+
+- `slimference codex recertify wss` now owns the repair flow. It supports
+  dry-run, JSON, force, no-write, operator/notes, host/port, and timeout.
+- The command creates a temporary git repo, drives real Codex CLI WSS turns,
+  reads `/admin/state` before and after, and evaluates only WSS counter deltas.
+- Phase-F success writes `codex-wss-cert.json`; clean byte-equal WSS without
+  mutation writes `codex-wss-bridge.json` so T243 can keep native WSS.
+- Recert state is persisted at `~/.slimference/codex-wss-recert.json`; logs are
+  bounded at `~/.slimference/logs/codex-wss-recert.log` with one `.1` rotation.
+- `transport=auto` and the TUI Launch Center start background recert only after
+  daemon health is green. Direct Codex launches outside Slimference are
+  untouched.
+- Manual TUI repair calls the same core with `--force` for user-intent repair,
+  but force does not bypass the active lock.
 
 ## Deviations
 

@@ -196,18 +196,24 @@ type TransparentStatus struct {
 // CodexRouteStatus is the TUI-facing snapshot of the scoped
 // marker-owned Codex provider route in ~/.codex/config.toml.
 type CodexRouteStatus struct {
-	Exists            bool
-	Enabled           bool
-	Complete          bool
-	Conflict          string
-	LegacyKeys        bool
-	DaemonReachable   bool
-	Transport         string
-	AutoTransport     string
-	WSSCertified      bool
-	FallbackReason    string
-	CertificationPath string
-	Detail            string
+	Exists             bool
+	Enabled            bool
+	Complete           bool
+	Conflict           string
+	LegacyKeys         bool
+	DaemonReachable    bool
+	Transport          string
+	AutoTransport      string
+	AutoMode           string
+	WSSCertified       bool
+	WSSBridgeAvailable bool
+	NeedsRecert        bool
+	FallbackReason     string
+	CertificationPath  string
+	BridgeProofPath    string
+	RecertStatus       string
+	RecertCommand      string
+	Detail             string
 }
 
 // CodexDesktopStatus is the TUI-facing Codex.app proxy capability state.
@@ -259,6 +265,8 @@ type ServiceControlInterface interface {
 	LaunchCodexCLI() (string, error)
 	// LaunchCodexApp opens the capability-gated process-local Desktop path.
 	LaunchCodexApp() (string, error)
+	// RepairCodexWSS runs the guided CLI WSS recertification repair.
+	RepairCodexWSS() (string, error)
 	// EnableCodexRoute writes the marker-owned Codex provider route.
 	EnableCodexRoute() error
 	// DisableCodexRoute removes the marker-owned Codex provider route.
@@ -950,12 +958,16 @@ func (m *Model) dashboardActions() []dashboardAction {
 func (m *Model) codexCLIState() string {
 	status := m.codexRouteStatus
 	switch {
-	case status.WSSCertified && status.AutoTransport == "wss":
-		return "auto=WSS"
-	case status.FallbackReason != "":
-		return "recert needed"
+	case status.WSSCertified && status.AutoMode == "wss_phasef":
+		return "WSS savings"
+	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
+		return "WSS bridge"
+	case status.NeedsRecert:
+		return "repairing"
 	case !status.DaemonReachable:
 		return "daemon off"
+	case status.FallbackReason != "":
+		return "HTTP fallback"
 	case status.AutoTransport != "":
 		return "auto=" + status.AutoTransport
 	default:
@@ -1021,13 +1033,28 @@ func (m *Model) statusState() string {
 	if !m.codexRouteStatus.DaemonReachable {
 		return "needs repair"
 	}
+	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
+		return "WSS savings"
+	}
+	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
+		return "WSS bridge"
+	}
+	if m.codexRouteStatus.NeedsRecert {
+		return "repairing"
+	}
 	if m.codexRouteStatus.FallbackReason != "" {
-		return "recert needed"
+		return "fallback"
 	}
 	return "healthy"
 }
 
 func (m *Model) statusDescription() string {
+	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
+		return "Codex CLI runs WSS Phase-F savings on the current version tuple."
+	}
+	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
+		return "Codex CLI stays on native WSS while Phase-F savings repair runs."
+	}
 	if m.codexRouteStatus.FallbackReason != "" {
 		return "Codex CLI savings are paused safely: " + m.codexRouteStatus.FallbackReason
 	}
@@ -1198,6 +1225,14 @@ func (m *Model) setupSteps() []setupStep {
 			check:   func() bool { return m.hookStatus.Codex },
 			action:  func(m *Model) error { return m.svc.InstallHook("codex") },
 			confirm: "Install Codex lifecycle hook",
+		},
+		{
+			label: "Repair Codex CLI WSS savings",
+			check: func() bool {
+				return m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef"
+			},
+			action:  func(m *Model) error { _, err := m.svc.RepairCodexWSS(); return err },
+			confirm: "Repair CLI WSS certification",
 		},
 		{
 			label: "Repair auto-start service (launchd only)",

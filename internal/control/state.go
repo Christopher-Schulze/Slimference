@@ -127,10 +127,19 @@ type CodexRouteState struct {
 	DaemonReachable             bool   `json:"daemon_reachable"`
 	DaemonError                 string `json:"daemon_error,omitempty"`
 	AutoTransport               string `json:"auto_transport"`
+	AutoMode                    string `json:"auto_mode"`
 	WSSCertified                bool   `json:"wss_certified"`
+	WSSBridgeAvailable          bool   `json:"wss_bridge_available"`
+	NeedsRecert                 bool   `json:"needs_recert"`
 	CertifiedCodexVersion       string `json:"certified_codex_version,omitempty"`
 	CertifiedSlimferenceVersion string `json:"certified_slimference_version,omitempty"`
+	BridgeCodexVersion          string `json:"bridge_codex_version,omitempty"`
+	BridgeSlimferenceVersion    string `json:"bridge_slimference_version,omitempty"`
 	CertificationPath           string `json:"certification_path,omitempty"`
+	BridgeProofPath             string `json:"bridge_proof_path,omitempty"`
+	RecertStatePath             string `json:"recert_state_path,omitempty"`
+	RecertStatus                string `json:"recert_status,omitempty"`
+	RecertCommand               string `json:"recert_command,omitempty"`
 	FallbackReason              string `json:"fallback_reason,omitempty"`
 	LastWSSError                string `json:"last_wss_error,omitempty"`
 }

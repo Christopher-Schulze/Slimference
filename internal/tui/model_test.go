@@ -176,6 +176,7 @@ type mockServiceControl struct {
 	codexDesktopStatus   CodexDesktopStatus
 	codexCLILaunched     bool
 	codexAppLaunched     bool
+	codexWSSRepaired     bool
 	err                  error
 }
 
@@ -272,6 +273,15 @@ func (m *mockServiceControl) LaunchCodexApp() (string, error) {
 	}
 	m.codexAppLaunched = true
 	return "Codex App launch requested through Slimference diagnostic proxy", nil
+}
+func (m *mockServiceControl) RepairCodexWSS() (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	m.codexWSSRepaired = true
+	m.codexRouteStatus.WSSCertified = true
+	m.codexRouteStatus.AutoMode = "wss_phasef"
+	return "Codex CLI WSS repaired", nil
 }
 func (m *mockServiceControl) EnableCodexRoute() error {
 	if m.err != nil {

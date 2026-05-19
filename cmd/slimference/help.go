@@ -18,7 +18,7 @@ SUBCOMMANDS:
   doctor       Run diagnostics (config, ports, upstreams, CLI drift)
   filter       Layer-0 command filter (slimference filter -- <cmd>)
   install      Atomic Codex-only install (CA + launchd + Codex hooks)
-  codex        Scoped Codex CLI/App routing (run|desktop|launch-desktop|certify)
+  codex        Scoped Codex CLI/App routing (run|desktop|launch-desktop|certify|recertify)
   enable       Enable scoped Codex CLI/App route (alias: codex enable)
   disable      Disable scoped Codex CLI/App route (alias: codex disable)
   cert-trust   Open Keychain Access for the local CA trust step
@@ -324,6 +324,7 @@ Codex CLI launch helpers for T140 split testing:
   slimference proxy env codex --direct [-- <codex-args>...]
   slimference proxy env codex --proxied [-- <codex-args>...]
   slimference proxy env codex --proxied-wss [-- <codex-args>...]
+  slimference proxy env codex --proxied-wss-bridge [-- <codex-args>...]
   slimference proxy env codex --transparent-proxied [-- <codex-args>...]
   slimference proxy run codex --proxied [-- <codex-args>...]
 
@@ -332,7 +333,8 @@ The proxied helper leaves the macOS System HTTPS proxy untouched and launches
 Codex with a per-process custom provider named slimference-codex pointing at
 the local daemon. --proxied disables Responses WebSockets so the CLI uses
 HTTP directly. --proxied-wss enables Responses WebSockets for scoped WSS
-certification and Phase-F frame mutation. The transparent-proxied helper is
+certification and Phase-F frame mutation. --proxied-wss-bridge keeps native
+Responses WebSockets but bypasses Phase-F mutation. The transparent-proxied helper is
 the CONNECT/MITM variant for explicit CA-path tests. proxy env prints the exact
 shell command. proxy run executes Codex directly with the same one-process
 environment. Neither mode mutates Codex config.

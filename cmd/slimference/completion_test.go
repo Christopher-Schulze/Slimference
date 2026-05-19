@@ -30,7 +30,7 @@ func TestHandleCompletionCmd_bashPrintsScript(t *testing.T) {
 		"install remove verify status check-upstream",
 		"install|remove) COMPREPLY=( $(compgen -W \"codex\"",
 		"install enable disable status uninstall env",
-		"--direct --proxied --host= --port= --",
+		"--direct --proxied --proxied-wss --proxied-wss-bridge",
 		"prompt-cache",
 		"paths last summary tail replay",
 		"--path --stream=stdout",

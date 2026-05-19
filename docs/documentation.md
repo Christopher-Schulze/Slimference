@@ -1163,7 +1163,8 @@ Launch Codex CLI opens the proven scoped wrapper path with
 current machine is in `desktop_tls_blocked` / `tls_trust_rejected` state the
 TUI refuses to sell it as a savings path and leaves normal Finder/Spotlight
 Codex.app launches direct. Manage Slimference owns install, repair, route,
-daemon, CA, and lab controls.
+daemon, CA, lab controls, and the guided "Repair Codex CLI WSS savings" action
+that calls the same recert core as the CLI/background path.
 
 ### Keybindings
 
@@ -1451,11 +1452,20 @@ reads `/admin/state`, refuses to write when WSS parse failures, degraded
 sessions, compression errors, byte-bridge-only state, or missing mutation are
 present, and writes `~/.slimference/codex-wss-cert.json` only with
 `frames_reencoded>0`, `compressed_messages_mutated>0`, and daemon reachability.
-`--transport=auto` consumes that proof through `internal/codexroute` and falls
-back to HTTP after Codex CLI or Slimference version drift. The auto decision
-also exposes the current tuple, certified tuple, `needs_recert`, and
-`recert_command` so status and the TUI can show a precise repair path without
-weakening the certification gate.
+`--transport=auto` consumes that proof through `internal/codexroute` using the
+explicit ladder `wss_phasef -> wss_bridge -> http -> direct`. Version drift now
+sets `needs_recert=true` and starts the shared recert path after daemon health is
+green; if a clean byte-equal WSS bridge proof exists, the active user session
+stays on WSS bridge while repair runs instead of jumping directly to HTTP.
+
+`slimference codex recertify wss` is the shared repair core for CLI, background
+auto-recert, and TUI Manage. It creates a temporary repo, runs real Codex CLI
+turns through scoped WSS, evaluates only the `/admin/state.wss` delta window,
+and writes either the Phase-F cert or the lower-risk
+`~/.slimference/codex-wss-bridge.json` proof. It persists bounded repair state in
+`~/.slimference/codex-wss-recert.json` and a 2 MiB rotating log at
+`~/.slimference/logs/codex-wss-recert.log`. Bridge mode bypasses Phase-F
+handlers and streamcut; it is compatibility mode, not a savings claim.
 
 ### Compression planner
 
