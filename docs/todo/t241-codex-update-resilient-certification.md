@@ -1,8 +1,8 @@
 # TASK 241: Codex automatic WSS recertification engine
 
-Status: PARTIAL - shared recert engine, TUI repair, background launch-center
-auto-recert, lock/backoff, bounded logs, and tests landed; live recert proof
-still pending
+Status: DONE - shared recert engine, TUI repair, background launch-center
+auto-recert, lock/backoff, bounded logs, deterministic live trigger, tests, and
+live `codex-cli 0.131.0` proof are complete
 Priority: P0 before T243 full WSS-first auto ladder and before T240 release seal
 Scope: Codex CLI WSS Phase-F savings resilience across Codex CLI and
 Slimference updates, with one shared recert core for CLI, TUI, and background
@@ -119,7 +119,7 @@ keeps Codex on WSS byte-equal bridge before any HTTP fallback.
   certify refusal, and successful recert.
 - [x] Add tests proving auto-recert failure leaves the next auto decision to
   T243's WSS bridge path rather than immediately forcing HTTP.
-- [ ] Run one live recert against the current `codex-cli 0.131.0` and append
+- [x] Run one live recert against the current `codex-cli 0.131.0` and append
   evidence.
 
 ## Notes
@@ -175,6 +175,27 @@ Open design constraints for implementation:
   untouched.
 - Manual TUI repair calls the same core with `--force` for user-intent repair,
   but force does not bypass the active lock.
+
+2026-05-19 live closure:
+
+- The original three-turn small-status trigger was too weak in live traffic:
+  it produced clean WSS bridge movement but no Phase-F mutation.
+- The recert trigger now creates a temporary git repo with 160 untracked files
+  and prompts Codex to run `git -C <temp> status --short`. That produces a
+  large, realistic tool result that reliably exercises Phase-F without
+  synthetic counters.
+- The internal trigger starts Codex from the stable caller workdir, uses
+  `--ignore-user-config` and `--ephemeral`, and addresses the temporary repo
+  via `git -C` so `~/.codex/config.toml` remains bit-identical.
+- Live `slimference codex recertify wss --force --no-write --json` on
+  `codex-cli 0.131.0` returned `phasef_passed=true`,
+  `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `parse_failures=0`, `degraded_sessions=0`, and `compression_errors=0`.
+- Config hash before and after the live no-write recert stayed
+  `1c4708b7348841a3fb6b75a82fbd25ea59d170af7f3d8f6fb46e3ead46301d56`.
+- `slimference codex status --json` now reports `auto.mode=wss_phasef`,
+  `auto.wss_certified=true`, and `needs_recert=false` for Codex 0.131.0 plus
+  Slimference 2.0.2.
 
 ## Deviations
 

@@ -1345,12 +1345,12 @@ only and promotes the per-process Codex CLI runner for T209.
   version-drift fallback as one reproducible macOS arm64 release ceremony.
   Detail:
   `docs/todo/t240-codex-zero-drawdown-release-certification.md`
-- [~] **T241** Codex update-resilient certification — keep the strict WSS
+- [x] **T241** Codex update-resilient certification — keep the strict WSS
   version-tuple guard, but make WSS Phase-F savings practically self-healing:
   shared `recertify wss` core, background auto-recert from Slimference-launched
   paths, TUI Repair CLI WSS, bounded recert logs, lock/backoff, delta-window
-  proof evaluation, and bridge-proof fallback are landed. Remaining work is
-  one live `codex-cli 0.131.0` recert ceremony plus operation-log evidence.
+  proof evaluation, and bridge-proof fallback are landed. Live `codex-cli
+  0.131.0` recert is green with Phase-F mutation and config hash stability.
   Detail: `docs/todo/t241-codex-update-resilient-certification.md`
 - [ ] **T242** Codex Desktop root-store and proxy compatibility matrix — run
   the `--with-ca-env` Desktop probe, test Codex's managed network-proxy
@@ -1360,8 +1360,15 @@ only and promotes the per-process Codex CLI runner for T209.
 - [~] **T243** WSS-first auto transport ladder — `transport=auto` now prefers
   `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct for scoped
   Codex CLI. WSS remains the standard; HTTP is only fallback after WSS bridge is
-  unsafe. Remaining work is live proof and non-CLI passthrough audit. Detail:
+  unsafe. Live certified-tuple and recert-restore proofs are green; remaining
+  work is fallback-branch live proof and non-CLI passthrough audit. Detail:
   `docs/todo/t243-wss-first-auto-transport-ladder.md`
+- [ ] **T244** Daemon lifecycle and atomic install hardening — atomic
+  `scripts/build --install` replacement landed after a macOS `dyld_start`
+  hang from in-place binary overwrite. Remaining work: managed restart/stop
+  hardening, stale PID diagnostics, and release-cert evidence that rebuilds
+  cannot strand daemon/control commands. Detail:
+  `docs/todo/t244-daemon-lifecycle-atomic-install.md`
 
 ### Sequencing within Phase H
 

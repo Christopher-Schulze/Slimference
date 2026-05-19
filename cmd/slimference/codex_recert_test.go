@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -199,6 +200,44 @@ func TestCodexRecertifyNoWriteSkipsCertAndBridgeWrites(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Codex WSS recertified") {
 		t.Fatalf("missing success output: %q", out.String())
+	}
+}
+
+func TestCodexRecertifyUsesInjectableLogWriter(t *testing.T) {
+	withCodexCmdStubs(t)
+	home := t.TempDir()
+	codexRouteHomeFn = func() (string, error) { return home, nil }
+	codexVersionOutFn = func() ([]byte, error) { return []byte("codex-cli 0.131.0\n"), nil }
+	codexRecertTriggerFn = func(codexRecertTriggerInput) (codexRecertTriggerResult, error) {
+		return codexRecertTriggerResult{}, nil
+	}
+	calls := 0
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		calls++
+		if calls == 1 {
+			return control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}, nil
+		}
+		return recertPostState(7, 2), nil
+	}
+	var lines []string
+	codexRecertLogFn = func(gotHome, line string) {
+		if gotHome != home {
+			t.Fatalf("log home=%q want %q", gotHome, home)
+		}
+		lines = append(lines, line)
+	}
+
+	p, _, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"recertify", "wss", "--no-write"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%s", rc, errBuf.String())
+	}
+	if len(lines) != 2 ||
+		!strings.Contains(lines[0], "start attempt=") ||
+		!strings.Contains(lines[1], "finish attempt=") {
+		t.Fatalf("unexpected recert log lines: %#v", lines)
+	}
+	if _, err := os.Stat(codexroute.RecertLogPath(home)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("test recert must use injected logger instead of writing the real log path, stat err=%v", err)
 	}
 }
 
@@ -591,12 +630,48 @@ func TestDefaultCodexRecertTriggerUsesScopedWSSRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("trigger: %v", err)
 	}
-	if len(result.PromptSequence) != 3 || len(calls) != 3 {
+	if len(result.PromptSequence) != 1 || len(calls) != 1 {
 		t.Fatalf("result=%+v calls=%v", result, calls)
 	}
-	if !strings.Contains(strings.Join(calls[0], "\x00"), "--transport=wss") ||
-		!strings.Contains(strings.Join(calls[1], "\x00"), "resume") {
+	joined := strings.Join(calls[0], "\x00")
+	if !strings.Contains(joined, "--transport=wss") ||
+		!strings.Contains(joined, "--ignore-user-config") ||
+		!strings.Contains(joined, "--ephemeral") ||
+		!strings.Contains(joined, "git -C ") ||
+		!strings.Contains(joined, "status --short") {
 		t.Fatalf("bad scoped WSS calls: %v", calls)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	gotCD := ""
+	for i := 0; i+1 < len(calls[0]); i++ {
+		if calls[0][i] == "--cd" {
+			gotCD = calls[0][i+1]
+			break
+		}
+	}
+	if gotCD != cwd {
+		t.Fatalf("recert trigger must start Codex from stable cwd to avoid temp project trust writes, --cd=%q want %q", gotCD, cwd)
+	}
+	if strings.Contains(gotCD, "slimference-codex-recert") {
+		t.Fatalf("recert trigger must not --cd into the temp repo: %q", gotCD)
+	}
+}
+
+func TestSeedCodexRecertRepoCreatesLongStatusTrigger(t *testing.T) {
+	dir := t.TempDir()
+	if err := seedCodexRecertRepo(dir); err != nil {
+		t.Fatalf("seed recert repo: %v", err)
+	}
+	out, err := exec.Command("git", "-C", dir, "status", "--short").Output()
+	if err != nil {
+		t.Fatalf("git status: %v", err)
+	}
+	lines := strings.Count(strings.TrimSpace(string(out)), "\n") + 1
+	if lines < 120 || !strings.Contains(string(out), "?? synthetic_159.go") {
+		t.Fatalf("status trigger too small: lines=%d out=%s", lines, out)
 	}
 }
 

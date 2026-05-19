@@ -1559,6 +1559,10 @@ slimference install
 slimference status
 ```
 
+`--install` writes the new binary to a same-directory temporary file and then
+atomically renames it over `~/.local/bin/slimference`, so new processes never
+observe a partially copied executable.
+
 ### From a release archive
 
 ```bash
@@ -1640,6 +1644,8 @@ default from `version.go` and ignore the tag.
 - `go run ./scripts/build` is the canonical local build helper and
   always emits the single Slimference binary with those flags. It does
   not split the product into multiple runtime binaries.
+- `go run ./scripts/build --install` installs through temp-file plus atomic
+  rename instead of truncating the existing executable in place.
 - `CGO_ENABLED=0` — Slimference has no C dependencies (SQLite via
   `modernc.org/sqlite` is pure Go).
 

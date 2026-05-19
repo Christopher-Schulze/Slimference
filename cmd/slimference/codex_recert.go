@@ -128,7 +128,7 @@ func runCodexRecertifyCmd(args []string, p installPrinter) int {
 		SlimferenceVersion: version,
 		StartedAt:          started,
 	})
-	appendCodexRecertLog(home, "start attempt="+attemptID+" codex="+codexVersion+" slimference="+version)
+	codexRecertLogFn(home, "start attempt="+attemptID+" codex="+codexVersion+" slimference="+version)
 	pre, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
 	if err != nil {
 		return finishCodexRecertError(p, flags, home, attemptID, codexVersion, "preflight admin state unavailable: "+err.Error())
@@ -191,7 +191,7 @@ func runCodexRecertifyCmd(args []string, p installPrinter) int {
 		CompressionErrors:  delta.WSS.CompressionErrors,
 		LastError:          lastErr,
 	})
-	appendCodexRecertLog(home, fmt.Sprintf(
+	codexRecertLogFn(home, fmt.Sprintf(
 		"finish attempt=%s status=%s phasef=%v bridge=%v bytes_c2s=%d bytes_s2c=%d frames_forwarded=%d frames_reencoded=%d compressed_mutated=%d parse_failures=%d degraded_sessions=%d compression_errors=%d",
 		attemptID,
 		status,
@@ -292,17 +292,23 @@ func defaultCodexRecertTrigger(input codexRecertTriggerInput) (codexRecertTrigge
 	if err := seedCodexRecertRepo(dir); err != nil {
 		return codexRecertTriggerResult{}, err
 	}
+	workdir, err := os.Getwd()
+	if err != nil {
+		return codexRecertTriggerResult{}, fmt.Errorf("resolve recert workdir: %w", err)
+	}
+	if workdir == "" {
+		return codexRecertTriggerResult{}, errors.New("resolve recert workdir: empty")
+	}
+	statusCmd := "git -C " + shellQuote(dir) + " status --short"
 	prompts := []string{
-		"Run exactly `git status --short && git ls-files | head -20`, then reply exactly RECERT_TURN_1_OK.",
-		"Run exactly `git status --short && git ls-files | head -20` again, then reply exactly RECERT_TURN_2_OK.",
-		"Run exactly `git status --short && git ls-files | head -20` one final time, then reply exactly RECERT_DONE.",
+		"Run exactly `" + statusCmd + "`, then reply exactly RECERT_DONE.",
 	}
 	for i, prompt := range prompts {
 		args := []string{"codex", "run", "--transport=wss", "--host=" + input.Host, "--port=" + input.Port, "--"}
 		if i == 0 {
-			args = append(args, "exec", "--cd", dir, "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
+			args = append(args, "exec", "--ignore-user-config", "--ephemeral", "--cd", workdir, "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
 		} else {
-			args = append(args, "exec", "resume", "--last", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
+			args = append(args, "exec", "resume", "--last", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", prompt)
 		}
 		if err := recertRunCommandFn(input.Timeout, args...); err != nil {
 			return codexRecertTriggerResult{PromptSequence: prompts}, err
@@ -315,17 +321,14 @@ func seedCodexRecertRepo(dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("slimference recert\n"), 0o644); err != nil {
 		return err
 	}
-	for i := 0; i < 24; i++ {
-		name := fmt.Sprintf("recert-%02d.txt", i)
-		body := strings.Repeat("RECERT_STALE_READ_AGING_SENTINEL\n", 12)
+	for i := 0; i < 160; i++ {
+		name := fmt.Sprintf("synthetic_%03d.go", i)
+		body := "package synthetic\n// RECERT_LAYER0_STATUS_SENTINEL\n"
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			return err
 		}
 	}
 	if err := exec.Command("git", "-C", dir, "init", "-q").Run(); err != nil {
-		return err
-	}
-	if err := exec.Command("git", "-C", dir, "add", ".").Run(); err != nil {
 		return err
 	}
 	return nil
@@ -479,7 +482,7 @@ func finishCodexRecertError(p installPrinter, flags codexRecertifyFlags, home, a
 		RetryAfter:         now.Add(30 * time.Minute),
 		LastError:          msg,
 	})
-	appendCodexRecertLog(home, "error attempt="+attemptID+" "+msg)
+	codexRecertLogFn(home, "error attempt="+attemptID+" "+msg)
 	if flags.json {
 		enc := json.NewEncoder(p.Out)
 		enc.SetIndent("", "  ")
@@ -570,7 +573,7 @@ func startCodexAutoRecert(home, host, port string, decision codexroute.AutoDecis
 		cmd.Stderr = devNull
 	}
 	if err := cmd.Start(); err == nil {
-		appendCodexRecertLog(home, "auto-start pid="+fmt.Sprint(cmd.Process.Pid)+" reason="+decision.FallbackReason)
+		codexRecertLogFn(home, "auto-start pid="+fmt.Sprint(cmd.Process.Pid)+" reason="+decision.FallbackReason)
 	}
 	if devNull != nil {
 		_ = devNull.Close()

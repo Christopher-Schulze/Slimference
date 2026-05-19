@@ -34,6 +34,7 @@ var (
 	codexRecertSaveFn    = codexroute.SaveRecertState
 	codexAutoRecertFn    = startCodexAutoRecert
 	codexRecertTriggerFn = defaultCodexRecertTrigger
+	codexRecertLogFn     = appendCodexRecertLog
 	codexSetupStateFn    = fetchCodexSetupState
 	codexVersionOutFn    = defaultCodexCLIVersionOutput
 	codexNowFn           = time.Now

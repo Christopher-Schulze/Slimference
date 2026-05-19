@@ -1,7 +1,8 @@
 # TASK 243: WSS-first auto transport ladder
 
 Status: PARTIAL - CLI auto ladder, WSS bridge path, bridge proof state, TUI
-state, and tests landed; live proof and non-CLI passthrough audits remain
+state, tests, certified-tuple live proof, and successful recert restore proof
+landed; fallback-branch live proof and non-CLI passthrough audits remain
 Priority: P0 after T241 recert core design, before T240 release seal
 Scope: Codex CLI transport selection only; Desktop adopts the same ladder only
 after T242 proves Desktop can route bytes through Slimference safely
@@ -144,10 +145,10 @@ capability proof is green.
 - [ ] Add bounded transport-decision logging and log-rotation tests.
 - [x] Update `docs/install.md`, `docs/documentation.md`, and T240 release
   evidence requirements with the final ladder.
-- [ ] Run live Codex CLI proof:
-  - certified tuple -> `wss_phasef`;
+- [~] Run live Codex CLI proof:
+  - [x] certified tuple -> `wss_phasef`;
   - simulated cert drift -> `wss_bridge` while auto-recert runs;
-  - successful recert -> `wss_phasef` restored;
+  - [x] successful recert -> `wss_phasef` restored;
   - forced WSS bridge failure -> `http`;
   - daemon down -> direct fail-open.
 
@@ -199,6 +200,24 @@ Open engineering questions to settle before code:
   no response pruning, no savings claim.
 - TUI Launch Center shows WSS savings, WSS bridge/repairing, HTTP fallback, and
   daemon repair states through the existing five-item surface.
+
+2026-05-19 live proof update:
+
+- The current certified tuple is `codex-cli 0.131.0` plus Slimference 2.0.2.
+- `slimference codex recertify wss --force --no-write --json` produced a real
+  Phase-F mutation with `frames_reencoded=1`,
+  `compressed_messages_mutated=1`, `parse_failures=0`,
+  `degraded_sessions=0`, and `compression_errors=0`.
+- `~/.codex/config.toml` stayed bit-identical before and after the recert
+  trigger, proving the strengthened trigger does not add temporary project
+  trust entries.
+- `slimference codex status --json` resolved `auto.mode=wss_phasef`,
+  `auto.transport=wss`, `auto.wss_certified=true`, and `needs_recert=false`.
+- A live `slimference codex run --transport=auto -- exec ...` returned its
+  sentinel through provider `slimference-codex`, confirming that the normal
+  launch path selects the WSS Phase-F lane. Remaining T243 live work is the
+  negative branch matrix: simulated drift to bridge, forced bridge failure to
+  HTTP, daemon-down direct fail-open, and Audio/Realtime/Voice passthrough.
 
 ## Deviations
 

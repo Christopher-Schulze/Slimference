@@ -1388,3 +1388,126 @@ Implemented in the existing BubbleTea TUI:
 Verification:
 - `go test ./internal/tui ./cmd/slimference -count=1` passed after the
   consolidation.
+
+---
+
+## 2026-05-19 — T241/T243 Live Recert Closure and WSS-First Proof
+
+Driver: Codex hardening pass after T239/T243 implementation and the live Codex
+CLI update from 0.130.0 to 0.131.0.
+
+Problem found:
+- The initial T241 recert trigger was too weak. Small `git status` prompts
+  produced clean WSS bridge traffic but no Phase-F mutation, so the strict WSS
+  cert correctly stayed unavailable.
+- A stronger manual live trigger proved the real shape needed for current Codex
+  CLI: a large untracked-file `git status --short` result.
+
+Implementation hardening:
+- `slimference codex recertify wss` now seeds a temporary git repo with 160
+  untracked `synthetic_*.go` files.
+- The trigger asks Codex to run `git -C <temp> status --short`, which creates a
+  deterministic large tool result that exercises Phase-F.
+- The Codex exec invocation uses `--ignore-user-config` and `--ephemeral`, and
+  starts from the stable caller workdir rather than `--cd` into the temporary
+  repo. This prevents Codex from writing temporary project trust blocks into
+  `~/.codex/config.toml`.
+- Recert logging is injectable in tests, so unit tests cannot write real
+  `~/.slimference` recert logs.
+
+Live no-write verification:
+- Command:
+  `./slimference codex recertify wss --force --no-write --operator "codex-live" --notes "T243 config-stable recert trigger verification" --timeout=180s --json`
+- Exit code: 0.
+- Binary SHA after rebuild/install:
+  `e2e6db76bacbfc88fa705acb0647ebf4ec2eb1ec3e7f21d34eea4e4187a314b1`
+  for both `./slimference` and `~/.local/bin/slimference`.
+- Config SHA before and after:
+  `1c4708b7348841a3fb6b75a82fbd25ea59d170af7f3d8f6fb46e3ead46301d56`
+  unchanged.
+- Delta counters:
+  - `mitm_bridged=1`
+  - `bytes_c2s=73361`
+  - `bytes_s2c=150120`
+  - `c2s_frames=3`
+  - `s2c_frames=86`
+  - `frames_forwarded=88`
+  - `frames_reencoded=1`
+  - `compressed_messages_inspected=89`
+  - `compressed_messages_mutated=1`
+  - `phasef_mutations=1`
+  - `parse_failures=0`
+  - `degraded_sessions=0`
+  - `compression_errors=0`
+
+Auto status after the proof:
+- `slimference codex status --json` reports:
+  - `auto.mode=wss_phasef`
+  - `auto.transport=wss`
+  - `auto.wss_certified=true`
+  - `auto.needs_recert=false`
+  - current tuple: `codex=0.131.0`, `slimference=2.0.2`
+  - certified tuple: `codex=0.131.0`, `slimference=2.0.2`
+  - `recert_status=passed`
+- Live `slimference codex run --transport=auto -- exec ...` returned the
+  sentinel through provider `slimference-codex`, confirming the normal Launch
+  Codex CLI path now selects WSS Phase-F again.
+- Current daemon WSS state after live checks: `frames_reencoded=3`,
+  `compressed_messages_mutated=3`, `parse_failures=0`,
+  `degraded_sessions=0`, `compression_errors=0`.
+
+Decision:
+- T241 is closed for the current product requirement: update drift is repaired
+  by real live recert, not by weakening the guard.
+- T243 is partially live-proven: certified tuple and successful recert restore
+  are green. Remaining T243 live work is the negative/fallback branch matrix:
+  simulated drift to WSS bridge, forced WSS bridge failure to HTTP, daemon-down
+  direct fail-open, and non-conversation Audio/Realtime/Voice passthrough.
+
+---
+
+## 2026-05-19 — T244 Atomic Install Hardening Opened
+
+Driver: T241/T243 live build/install uncovered a macOS executable replacement
+race.
+
+Observed failure:
+- Several commands launched from `~/.local/bin/slimference` became stuck in
+  macOS `dyld_start` uninterruptible state after the installed binary was
+  overwritten during live work:
+  - PID 20342: `slimference stop`
+  - PID 20575: `slimference start`
+  - PID 20981: `slimference daemon`
+  - PID 21193: `slimference version`
+  - PID 21289: `slimference version`
+- `kill` / `kill -9` did not clear them, which matches kernel-level
+  uninterruptible process state. This is not a routing failure and not a Codex
+  degradation, but it is unacceptable release ergonomics.
+
+Recovery performed:
+- The damaged installed binary was moved aside as
+  `~/.local/bin/slimference.dyld-stuck-20260520T003339`.
+- A fresh `./slimference` was copied into `~/.local/bin/slimference`.
+- Foreground daemon PID 22413 from the repo binary remained healthy on :8990.
+
+Fix landed:
+- `scripts/build --install` no longer truncates the installed executable in
+  place.
+- It now writes to a same-directory temporary file, sets executable mode, syncs
+  and closes the file, then atomically renames it over
+  `~/.local/bin/slimference`.
+- `go test ./scripts/build -count=1` covers replacement content, executable
+  mode, and absence of leftover temporary files.
+- Live atomic install verification with
+  `go run ./scripts/build --out /tmp/slimference-atomic-install-test --install`
+  exited 0, produced SHA
+  `e2e6db76bacbfc88fa705acb0647ebf4ec2eb1ec3e7f21d34eea4e4187a314b1` in both
+  `/tmp/slimference-atomic-install-test` and `~/.local/bin/slimference`, and
+  did not increase the count of already stuck Slimference processes.
+
+Remaining T244 work:
+- Harden daemon `start`/`stop`/restart timeouts and stale PID diagnostics.
+- Add release-cert evidence that rebuild/install/restart cannot strand new
+  control commands.
+- Decide cleanup for the moved-aside `slimference.dyld-stuck-*` file after the
+  stuck OS processes are gone, likely after reboot.

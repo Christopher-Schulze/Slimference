@@ -93,17 +93,40 @@ func copyFile(src, dst string) error {
 	}
 	defer in.Close()
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return err
 	}
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	out, err := os.CreateTemp(dstDir, "."+filepath.Base(dst)+".tmp-*")
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	tmp := out.Name()
+	installed := false
+	defer func() {
+		if !installed {
+			_ = os.Remove(tmp)
+		}
+	}()
 
 	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
 		return err
 	}
-	return out.Close()
+	if err := out.Chmod(0o755); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return err
+	}
+	installed = true
+	return nil
 }

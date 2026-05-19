@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -51,5 +53,42 @@ func TestRunRejectsUnexpectedArg(t *testing.T) {
 	var errOut bytes.Buffer
 	if err := run([]string{"extra"}, &out, &errOut); err == nil {
 		t.Fatal("expected unexpected argument error")
+	}
+}
+
+func TestCopyFileInstallsAtomicallyExecutable(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("new binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("old binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyFile(src, dst); err != nil {
+		t.Fatalf("copyFile: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(got) != "new binary" {
+		t.Fatalf("dst=%q", got)
+	}
+	st, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("stat dst: %v", err)
+	}
+	if st.Mode().Perm() != 0o755 {
+		t.Fatalf("mode=%#o want 0755", st.Mode().Perm())
+	}
+	leftovers, err := filepath.Glob(filepath.Join(dir, ".dst.tmp-*"))
+	if err != nil {
+		t.Fatalf("glob temp files: %v", err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("temporary install files left behind: %v", leftovers)
 	}
 }

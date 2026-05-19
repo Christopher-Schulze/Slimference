@@ -34,6 +34,7 @@ func withCodexCmdStubs(t *testing.T) {
 	oldRecertSave := codexRecertSaveFn
 	oldAutoRecert := codexAutoRecertFn
 	oldRecertTrigger := codexRecertTriggerFn
+	oldRecertLog := codexRecertLogFn
 	oldRecertRunCommand := recertRunCommandFn
 	oldSetupState := codexSetupStateFn
 	oldVersionOut := codexVersionOutFn
@@ -53,6 +54,7 @@ func withCodexCmdStubs(t *testing.T) {
 	codexRecertTriggerFn = func(codexRecertTriggerInput) (codexRecertTriggerResult, error) {
 		return codexRecertTriggerResult{}, nil
 	}
+	codexRecertLogFn = func(string, string) {}
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		return passingCodexCertificationState(), nil
 	}
@@ -75,6 +77,7 @@ func withCodexCmdStubs(t *testing.T) {
 		codexRecertSaveFn = oldRecertSave
 		codexAutoRecertFn = oldAutoRecert
 		codexRecertTriggerFn = oldRecertTrigger
+		codexRecertLogFn = oldRecertLog
 		recertRunCommandFn = oldRecertRunCommand
 		codexSetupStateFn = oldSetupState
 		codexVersionOutFn = oldVersionOut

@@ -6,7 +6,7 @@ Alle **Werkzeuge** dieses Repos (Coverage-Gates, Benchmark-Helfer, Utils, …) l
 
 | Pfad | Zweck |
 |------|--------|
-| `build/` | Ein lokales, einzelnes Slimference-Binary mit Release-Flags bauen (`-trimpath -ldflags "-s -w"`) |
+| `build/` | Ein lokales, einzelnes Slimference-Binary mit Release-Flags bauen (`-trimpath -ldflags "-s -w"`); `--install` ersetzt die Ziel-Binary per temp-file + atomic rename |
 | `coverage/` | Coverage auswerten, Schwellen (aktuell 95.0 % aggregate) prüfen, CI-lokal spiegeln |
 | `benchmarks/` | Benchmarks bündeln, `go test -bench` auswerten |
 | `utils/` | Kleine Hilfs-CLIs, einmalige Tasks, Generatoren; `utils/indist_probe` ist das tshark-basierte Capture/Diff-Werkzeug für T224 |
