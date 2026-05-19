@@ -1,7 +1,8 @@
 # TASK 239: Slimference launch center TUI
 
 Status: PLANNED
-Priority: P0 after T238 proof branch is known
+Priority: P0 after T238/T242 Desktop capability branch is known enough to gate
+the Launch Codex App menu item honestly
 Scope: User-facing Slimference launch and management UX for Codex CLI and
 Codex Desktop on macOS arm64
 
@@ -38,8 +39,9 @@ arms global lab mode by accident.
 The launch center is not a settings maze. It is a cockpit:
 
 1. **Launch Codex CLI** starts the proven CLI path.
-2. **Launch Codex App** starts the proven Desktop path if T238 passes; otherwise
-   it says Desktop is currently direct-only.
+2. **Launch Codex App** is a capability-gated TUI menu item: it starts the
+   proven Desktop path when available, exposes an explicit diagnostic probe when
+   a safe probe exists, and otherwise says Desktop is currently direct-only.
 3. **Savings** shows actual measured savings and separates estimates.
 4. **Status** shows whether the machine is safe, healthy, and scoped.
 5. **Manage Slimference** handles install, repair, uninstall, enable/disable,
@@ -58,8 +60,10 @@ The launch center is not a settings maze. It is a cockpit:
   `transport=auto` and shows WSS certification/fallback state.
 - Launch Codex App uses the T238 branch decision:
   - if process-local proxy proof passes, launch Codex.app in Slimference mode;
-  - if proof fails, show Desktop as direct-only with a concise reason and do not
-    pretend savings are active.
+  - if `--with-ca-env` is still untested, show it as an experimental probe, not
+    as normal Slimference Desktop mode;
+  - if proof fails, keep the menu item visible but disabled/blocked with a
+    concise reason and do not pretend savings are active.
 - Savings shows total, today, session, route, and mechanism attribution where
   the data exists; no fake Desktop savings.
 - Status shows daemon, CA trust, WSS cert, Codex CLI version, Codex Desktop
@@ -88,6 +92,8 @@ The launch center is not a settings maze. It is a cockpit:
 ### Launch Codex App
 
 - If T238 passed: launches Codex.app with the proven process-local proxy mode.
+- If T238 found only zero-byte CONNECT sessions: displays
+  `tls_trust_rejected` and offers only the explicit CA-env diagnostic branch.
 - If T238 failed or is unproven: displays direct-only state and why.
 - Shows whether CA trust is required and present.
 - Shows whether the currently running Codex.app was Slimference-launched or
@@ -132,7 +138,9 @@ The launch center is not a settings maze. It is a cockpit:
   direct-open item.
 - [ ] Implement Launch Codex CLI as a guided wrapper around
   `slimference codex run --transport=auto --`.
-- [ ] Implement Launch Codex App after T238 decides the Desktop branch.
+- [ ] Implement Launch Codex App as a capability-gated menu item: proven launch,
+  diagnostic CA-env probe, or blocked/direct-only state. Do not hide it just
+  because the current Desktop route is blocked.
 - [ ] Fold current install/enable/disable/repair/uninstall controls into Manage
   Slimference with clear product vs lab separation.
 - [ ] Show savings truth without mixing hook estimates, proxy savings, cache
@@ -184,9 +192,11 @@ surface that this TUI should consume:
 - `slimference codex launch-desktop --transport=base-url --probe` for
   diagnostic/future upstream env-hook checks only.
 
-Do not wire the Launch Codex App button as a success path until the T238
-external live proof resolves. Until then it should show "ready for live proof"
-or "direct-only" based on `codex desktop status`, never a Desktop savings claim.
+Do not wire the Launch Codex App menu item as a success path until the T238
+external live proof resolves. The item stays in the TUI because it is the user's
+steering wheel, but its state must be capability-gated: proven, diagnostic, or
+blocked/direct-only based on `codex desktop status`, never a Desktop savings
+claim.
 
 ## Deviations
 

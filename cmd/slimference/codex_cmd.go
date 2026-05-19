@@ -538,6 +538,14 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 	case !out.CATrust.Trusted:
 		out.FailureClass = "ca_untrusted"
 		out.Notes = append(out.Notes, "run `slimference cert-trust` before launching Codex Desktop in proxy mode")
+	case codexDesktopTLSRejected(state.WSS):
+		out.Mode = "desktop_tls_blocked"
+		out.FailureClass = "tls_trust_rejected"
+		out.Notes = append(out.Notes,
+			"Codex.app reached the Slimference CONNECT bridge but closed before application bytes flowed",
+			"treat Desktop savings as unavailable until a CA/root-store hook is proven",
+			"normal Finder/Spotlight Codex.app launch remains direct and unaffected",
+		)
 	case out.ConversationObserved:
 		if state.WSS.ParseFailures != 0 || state.WSS.DegradedSessions != 0 || state.WSS.CompressionErrors != 0 {
 			out.Mode = "proxy_wss_needs_review"
@@ -555,6 +563,23 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		out.Notes = append(out.Notes, "launch Codex Desktop through the proxy mode and verify lsof plus /admin/state.wss")
 	}
 	return out
+}
+
+func codexDesktopTLSRejected(w control.WSSState) bool {
+	return w.MITMBridged > 0 &&
+		w.BytesC2S == 0 &&
+		w.BytesS2C == 0 &&
+		w.C2SFrames == 0 &&
+		w.S2CFrames == 0 &&
+		w.FramesReencoded == 0 &&
+		w.FramesForwarded == 0 &&
+		w.CompressedMessagesInspected == 0 &&
+		w.CompressedMessagesMutated == 0 &&
+		w.PhaseFMutations == 0 &&
+		w.UpstreamDialFail == 0 &&
+		w.ParseFailures == 0 &&
+		w.DegradedSessions == 0 &&
+		w.CompressionErrors == 0
 }
 
 func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {

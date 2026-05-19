@@ -267,6 +267,23 @@ no direct conversation socket to `chatgpt.com:443`, WSS activity with
 mutation counters before any Desktop savings claim. Relaunching Codex.app from
 Finder/Spotlight must return to direct ChatGPT routing.
 
+As of the 2026-05-19 Codex.app 0.131 live proof, process-local proxy routing
+reaches Slimference at CONNECT time but the Desktop Rust client closes the
+tunnel before application bytes flow. `slimference codex desktop status`
+reports this as `desktop_tls_blocked` / `tls_trust_rejected`. That is not a
+model-quality degradation; it means Desktop must remain direct until a root
+store hook is proven. For the final compatibility probe, use:
+
+```bash
+slimference codex launch-desktop --transport=proxy --with-ca-env --probe
+slimference codex launch-desktop --transport=proxy --with-ca-env
+```
+
+`--with-ca-env` adds only process-local CA hints (`SSL_CERT_FILE`,
+`CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`). It does not
+modify shell startup files, Codex config, system proxy, `/etc/hosts`, or pfctl.
+It remains diagnostic until live bytes and WSS counters prove success.
+
 `--transport=base-url` remains available only as a diagnostic/future-proof
 probe for upstream Codex versions that might later add a conversation base-URL
 env hook. It is not the current Desktop product route.

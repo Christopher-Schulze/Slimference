@@ -887,6 +887,42 @@ func TestCodexDesktopStatusReportsUntrustedAndWSSErrors(t *testing.T) {
 	}
 }
 
+func TestCodexDesktopStatusReportsTLSRejectedAfterConnect(t *testing.T) {
+	withCodexCmdStubs(t)
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		state := passingCodexCertificationState()
+		state.WSS.MITMBridged = 14
+		state.WSS.UpstreamDialFail = 0
+		state.WSS.BytesC2S = 0
+		state.WSS.BytesS2C = 0
+		state.WSS.C2SFrames = 0
+		state.WSS.S2CFrames = 0
+		state.WSS.CompressedMessagesInspected = 0
+		state.WSS.CompressedMessagesMutated = 0
+		state.WSS.FramesReencoded = 0
+		state.WSS.MutationActive = false
+		return state, nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	if rc := runCodexCmd([]string{"desktop", "status", "--json"}, p); rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var got codexDesktopStatusOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "desktop_tls_blocked" || got.FailureClass != "tls_trust_rejected" {
+		t.Fatalf("status=%+v", got)
+	}
+	if got.ConversationObserved {
+		t.Fatalf("zero-byte CONNECT attempts must not count as observed conversation: %+v", got)
+	}
+	if !strings.Contains(strings.Join(got.Notes, "\n"), "CA/root-store hook") {
+		t.Fatalf("notes do not explain root-store blocker: %+v", got.Notes)
+	}
+}
+
 func TestRunCodexDesktopCmdHelpAndErrors(t *testing.T) {
 	withCodexCmdStubs(t)
 	p, out, errBuf := newTestPrinter()

@@ -1173,3 +1173,191 @@ Still requires external live proof:
   and WSS counters stay clean with real mutation before savings are claimed.
 - If Codex.app bypasses proxy env, mark Desktop direct-only and keep all
   Desktop savings hidden.
+
+---
+
+## 2026-05-19 — T238 Codex Desktop process-local proxy live proof (PARTIAL — TCP routing works, TLS root-store blocked)
+
+Driver: Claude Opus 4.7 live, operator (christopher) at the GUI.
+
+Pre-state:
+- HEAD `9c20457 TASK 238: prepare Codex Desktop process-local proxy proof`.
+- Build: stripped binary SHA
+  `4b1eb3b99c0c4746be5ad80070033b6c42f8bd34b0409ea9862b5b6f0c2dff26`,
+  installed to `./slimference` and `~/.local/bin/slimference`.
+- Daemon: PID 22757, healthy on :8990.
+- Slimference CA trust installed via Keychain Access GUI
+  (operator clicked "Always Trust" → fingerprint
+  c3e5156458a6df1fd9e19e291a117d397a463105eadd2dad1d01d99a56ba612b).
+  `slimference codex desktop status --json` reported
+  `mode=ready_for_live_desktop_probe`, `ca_trust.trusted=true`.
+- Pre-snapshot wss counters all 0.
+
+Note: T226 cert is no longer green — Codex CLI is now reporting
+`codex-cli 0.131.0` (was 0.130.0 when cert was issued). Drift
+fallback is live: `auto.transport=http`,
+`fallback_reason="codex version changed since wss certification"`.
+This is correct defensive behaviour, not a regression. T226-follow-up
+needed to re-certify against 0.131.0; not part of this T238 phase.
+
+Probe (Step 5):
+- `slimference codex launch-desktop --transport=proxy --probe`
+  emitted 11 proxy env entries (HTTP_PROXY, HTTPS_PROXY, WSS_PROXY,
+  ALL_PROXY, lowercase variants, NO_PROXY=127.0.0.1,localhost,::1,
+  CODEX_NETWORK_PROXY_ACTIVE=1) and ca_trust=true.
+- No spawn, no daemon touch.
+
+Live launch (Step 7):
+- All prior Codex.app processes confirmed killed (pgrep=0).
+- `slimference codex launch-desktop --transport=proxy` spawned
+  Codex.app PID 39578 (Electron main).
+- App-server child PID 39627
+  (/Applications/Codex.app/Contents/Resources/codex app-server).
+- `ps eww -p 39627` confirmed inherited env on the app-server:
+    HTTP_PROXY=http://127.0.0.1:8990
+    HTTPS_PROXY=http://127.0.0.1:8990
+    WSS_PROXY=http://127.0.0.1:8990
+    ALL_PROXY=http://127.0.0.1:8990
+    NO_PROXY=127.0.0.1,localhost,::1
+    CODEX_NETWORK_PROXY_ACTIVE=1
+  Env injection reaches the spawned process tree correctly.
+
+lsof on app-server PID 39627:
+- One ESTABLISHED TCP: `127.0.0.1:<ephemeral> → 127.0.0.1:8990`.
+- ZERO direct connections to chatgpt.com:443 from the app-server.
+- The HTTPS_PROXY env is honored by the Rust HTTP client for the
+  CONNECT phase.
+
+lsof on Codex Helper (Chromium NetworkService) PID 39584:
+- Direct ESTABLISHED TCP to 104.18.32.47:443 (chatgpt.com Cloudflare),
+  104.18.37.228:443 (same), and 35.190.80.1:443 (Google).
+- UDP to 104.18.32.47:443 (QUIC).
+- Chromium NetworkService does NOT honor HTTPS_PROXY env by default
+  for renderer-side requests. The renderer side stays direct.
+- This is the expected split: Electron has two independent network
+  stacks (Rust app-server + Chromium NetworkService). The launcher
+  scope only covers Rust app-server.
+
+Live trigger (Step 7, operator sent a chat prompt):
+- Within ~5 seconds of the prompt, `mitm_bridged` jumped from 0 to 8,
+  then to 14 over the next ~10 seconds. The Phase-F dispatcher
+  WAS reached by the spawned Codex.app's WSS upgrades.
+- BUT every other counter remained at 0:
+    bytes_c2s = 0, bytes_s2c = 0
+    compressed_messages_inspected = 0
+    compressed_messages_mutated = 0
+    frames_reencoded = 0
+    parse_failures = 0
+    degraded_sessions = 0
+    compression_errors = 0
+    upstream_dial_failures = 0
+- 14 WSS bridge sessions were opened. Slimference dialed upstream
+  successfully each time (no upstream_dial_failures). But not a
+  single application frame ever flowed through any of them.
+
+Diagnosis: TLS-level rejection by Codex.app's Rust client.
+- TCP CONNECT was accepted: mitm_bridged++ proves the bridge path
+  was entered.
+- Upstream dial succeeded: upstream_dial_failures=0.
+- Slimference would have presented a slimference-signed leaf cert
+  for chatgpt.com to the client side of the tunnel.
+- Codex.app's Rust HTTP client almost certainly uses `rustls`
+  with its default `webpki-roots` CA bundle (Mozilla root list
+  baked into the binary). That bundle does NOT include the
+  Slimference local CA, and `rustls` by default does not consult
+  the macOS Keychain. The handshake therefore failed immediately,
+  and the client closed the tunnel before any data could flow.
+- The Keychain trust click set earlier is correct and necessary
+  for any system-trust-store-aware client (Chromium, curl, Safari,
+  many Apple frameworks), but is INVISIBLE to a rustls client
+  that uses webpki-roots.
+
+Failure class: `tls_trust_rejected`.
+Embedded-root behaviour is identical in outcome to explicit pinning from the
+operator's perspective, but the captured evidence proves only TLS trust
+rejection before bytes flow, not an explicit SPKI/leaf pin.
+
+Net result of T238 live phase:
+- Launcher mechanism: VERIFIED CORRECT END-TO-END.
+- Env inheritance to Codex.app Rust app-server: VERIFIED.
+- HTTPS_PROXY honored by Rust client at TCP CONNECT layer:
+  VERIFIED.
+- Slimference CONNECT handler: VERIFIED (accepts, dials upstream,
+  enters bridge).
+- TLS termination with Slimference CA: REJECTED BY CLIENT
+  (root-bundle mismatch).
+- Phase-F Desktop savings: NOT ACHIEVABLE via env+CA-trust on
+  Codex.app 0.131 today.
+- Chromium NetworkService stays direct (separate stack, expected).
+- Browser ChatGPT, ChatGPT.app, Claude Code: untouched throughout
+  the entire session (verified earlier in this op-log; no
+  /etc/hosts, no pfctl, no system proxy was used).
+- `~/.codex/config.toml`: untouched by this run (no enable).
+- T237 rename + earlier T226/T228/T235 commits intact, working
+  tree clean before this op-log append.
+
+Cleanup:
+- All Codex.app and codex app-server processes killed (SIGTERM
+  then SIGKILL for holdouts). pgrep=0 verified.
+- Daemon 22757 still healthy on :8990.
+
+Decision: T238 closes as IMPLEMENTED-INFRASTRUCTURE,
+DESKTOP-CONVERSATION-BLOCKED-AT-TLS. The remaining path to real
+Codex Desktop conversation routing now reduces to one of:
+(a) OpenAI switches Codex.app's Rust client to use
+    `rustls-native-certs` (or equivalent) so it honors the macOS
+    Keychain. Our launcher would then work end-to-end with no code
+    changes on our side.
+(b) Operator opts into the legacy global lab mode
+    (`slimference lab root-arm --global-chatgpt-hosts`) which uses
+    /etc/hosts + pfctl to redirect chatgpt.com system-wide. This
+    DOES affect Browser ChatGPT and ChatGPT.app and was explicitly
+    rejected by the operator as a default product surface.
+
+Operator-facing recommendation:
+- Use Codex CLI (in terminal) via `slimference codex run -- ...`
+  — full slimference savings, zero drawback.
+- Launch Codex.app normally from Finder/Spotlight — direct routing,
+  full functionality, no slimference involvement, no drawback.
+- Optional: `slimference enable` to get the "Slimference" provider
+  chip in Codex.app's UI (sideband route, still direct conversation).
+- Wait for an upstream Codex Desktop release that either honors
+  system trust or exposes a config hook; our launcher already covers
+  that future.
+
+---
+
+## 2026-05-19 — T238 Follow-up: Desktop TLS Block Classified and CA-Env Probe Prepared
+
+Driver: Codex follow-up after the live proof above.
+
+Correction to terminology:
+- The previous shorthand `cert_pinned` is too strong as a proven statement.
+  The observed behavior is more precisely `tls_trust_rejected`: CONNECT enters
+  Slimference, upstream dial succeeds, but Codex.app closes before application
+  bytes flow. The likely cause remains Codex.app's Rust TLS stack using an
+  embedded or non-Keychain root store that does not see the Slimference CA.
+  Functionally this blocks Desktop savings the same way pinning would, but the
+  evidence does not prove explicit SPKI/leaf pinning.
+
+Code/docs follow-up:
+- `slimference codex desktop status` now classifies the historical zero-byte
+  CONNECT state as `mode=desktop_tls_blocked`,
+  `failure_class=tls_trust_rejected` instead of reporting
+  `ready_for_live_desktop_probe`.
+- `slimference codex launch-desktop --transport=proxy --with-ca-env` was added
+  as an explicit diagnostic branch. It injects `SSL_CERT_FILE`,
+  `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` pointing at
+  the Slimference root only into the spawned Codex.app process.
+- The launch-center TUI plan was corrected: "Launch Codex App" remains a
+  visible capability-gated menu item. It is not removed just because current
+  Desktop routing is blocked; it must render proven, diagnostic, or
+  blocked/direct-only truth.
+- New follow-up tasks were added for update resilience (T241) and the Desktop
+  root-store/proxy compatibility matrix (T242).
+
+Decision remains unchanged for current live Desktop use:
+- Normal Finder/Spotlight Codex.app remains direct and unaffected.
+- Desktop Slimference savings are not claimed until bytes and WSS frames flow.
+- Codex CLI remains the proven Slimference savings path; current WSS auto cert
+  is paused by the live Codex CLI update to 0.131.0 until recertification.

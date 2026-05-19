@@ -70,9 +70,12 @@ payload is shorter and schema-safe.
 - **Codex Desktop**: the app remains direct when launched normally from
   Finder/Spotlight. The process-local proof path is
   `slimference codex launch-desktop --transport=proxy`, which sets proxy env
-  only for that spawned app process. Desktop savings must not be claimed until
-  live `lsof` plus `/admin/state.wss` prove conversation WSS reaches the daemon
-  with zero parser/degrade/compression errors and real mutation counters.
+  only for that spawned app process. The 2026-05-19 live proof showed CONNECT
+  reached Slimference but Codex.app closed before application bytes flowed,
+  so current Desktop mode is reported as `desktop_tls_blocked` /
+  `tls_trust_rejected`. Desktop savings must not be claimed until live `lsof`
+  plus `/admin/state.wss` prove conversation WSS reaches the daemon with zero
+  parser/degrade/compression errors and real mutation counters.
 - **Global transparent lab**: `cert-trust`, `root-arm
   --global-chatgpt-hosts`, `enable`, `disable`, and `root-disarm` still
   exist for explicit lab certification. They route `chatgpt.com` and
@@ -1422,11 +1425,16 @@ the daemon does not generate CA material just because this scoped listener is
 enabled. `slimference codex launch-desktop --transport=proxy` injects
 HTTP(S)/WSS proxy variables into the spawned Codex.app process tree and refuses
 to spawn unless the CA is trusted, unless an explicit diagnostic skip flag is
-used. The CONNECT profile MITMs only `chatgpt.com`; Phase-F frame mutation is
-allowed only for `/backend-api/codex/responses` with the Codex
-`responses_websockets` subprotocol. Sideband WebSockets stay byte-equal.
+used. `--with-ca-env` is an explicit diagnostic root-store probe that also
+injects `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
+`NODE_EXTRA_CA_CERTS` for that spawned process only. The CONNECT profile MITMs
+only `chatgpt.com`; Phase-F frame mutation is allowed only for
+`/backend-api/codex/responses` with the Codex `responses_websockets`
+subprotocol. Sideband WebSockets stay byte-equal.
 `slimference codex desktop status` reports the CA gate, daemon reachability,
-WSS counters, and whether a live Desktop conversation proof has been observed.
+WSS counters, whether a live Desktop conversation proof has been observed, and
+the zero-byte CONNECT/TLS-root-store blocked state when historical counters show
+the current Codex.app rejection mode.
 
 WSS auto-promotion is local-proof gated. `slimference codex certify wss`
 reads `/admin/state`, refuses to write when WSS parse failures, degraded

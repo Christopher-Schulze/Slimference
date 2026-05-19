@@ -1320,25 +1320,36 @@ only and promotes the per-process Codex CLI runner for T209.
   rename from `slimference-codex` to `Slimference` for user-facing provider
   labels. No routing, proxy, savings, or app-scope behavior changed. Detail:
   `docs/todo/t237-codex-provider-display-name.md`
-- [~] **T238** Codex Desktop process-local proxy proof — pre-live code path
-  is implemented: daemon exposes process-local CONNECT when CA material exists,
-  `codex launch-desktop --transport=proxy` injects scoped proxy env and refuses
-  untrusted CA, `codex desktop status` reports the proof gates, and Phase-F is
-  allowed only for Codex conversation WSS. Remaining: external live Desktop
-  proof/rejection. Must not touch Browser ChatGPT, ChatGPT.app, Claude Code,
-  `/etc/hosts`, pfctl, macOS system proxy, or `~/.codex/config.toml`. Detail:
+- [~] **T238** Codex Desktop process-local proxy proof — live proof now shows
+  process-local proxy env reaches Codex.app's Rust app-server and CONNECT
+  reaches Slimference, but Codex.app closes before application bytes flow.
+  `codex desktop status` classifies this as `desktop_tls_blocked` /
+  `tls_trust_rejected`; `--with-ca-env` is available only as the next
+  diagnostic root-store probe. Must not touch Browser ChatGPT, ChatGPT.app,
+  Claude Code, `/etc/hosts`, pfctl, macOS system proxy, or
+  `~/.codex/config.toml`. Detail:
   `docs/todo/t238-codex-desktop-process-local-proxy-proof.md`
 - [ ] **T239** Slimference launch center TUI — collapse normal user UX into a
   small launch/control center with exactly the useful surfaces: Launch Codex
   CLI, Launch Codex App, Savings, Status, and Manage Slimference. No separate
   "open direct" action; direct mode is simply launching Codex normally outside
-  Slimference. Detail:
+  Slimference. The Launch Codex App menu item stays visible but must be
+  capability-gated: proven, diagnostic, or blocked/direct-only. Detail:
   `docs/todo/t239-slimference-launch-center-tui.md`
 - [ ] **T240** Codex zero-drawdown release certification — final product seal
   after T238/T239: prove CLI, Desktop, direct fallback, Browser ChatGPT,
   ChatGPT.app, uninstall/repair, savings truth, and version-drift fallback as
   one reproducible macOS arm64 release ceremony. Detail:
   `docs/todo/t240-codex-zero-drawdown-release-certification.md`
+- [ ] **T241** Codex update-resilient certification — keep the strict WSS
+  version-tuple guard, but add guided recert/status UX so Codex CLI updates
+  pause savings safely and can be re-certified without manual archaeology.
+  Detail: `docs/todo/t241-codex-update-resilient-certification.md`
+- [ ] **T242** Codex Desktop root-store and proxy compatibility matrix — run
+  the `--with-ca-env` Desktop probe, test Codex's managed network-proxy
+  surfaces, and settle whether current Desktop can ever route conversation
+  through Slimference without global lab or upstream changes. Detail:
+  `docs/todo/t242-codex-desktop-root-store-probe.md`
 
 ### Sequencing within Phase H
 
@@ -1422,6 +1433,13 @@ only and promotes the per-process Codex CLI runner for T209.
    emits an SSE terminator. WSS cannot reuse that by blanking deltas: live Codex
    CLI hung. WSS streamcut stays off until a protocol-correct terminal sequence
    is captured, implemented, and live-certified.
+29. **T241 before T240** — Codex CLI updates must not silently lose WSS value
+   without a clear repair path. The strict tuple guard stays; the UX gets a
+   guided recert path.
+30. **T242 before Desktop success claims** — the Desktop menu item remains part
+   of the TUI, but success is gated on bytes/WSS proof. If root-store probes
+   fail, Desktop remains direct-only until OpenAI exposes a usable hook or root
+   store behavior changes.
 
 ### Acceptance for Phase H
 

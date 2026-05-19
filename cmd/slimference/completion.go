@@ -142,7 +142,7 @@ _slimference() {
                     status) COMPREPLY=( $(compgen -W "--json --host= --port=" -- "$cur") ) ;;
                     certify) COMPREPLY=( $(compgen -W "wss --dry-run --operator= --notes= --host= --port=" -- "$cur") ) ;;
                     desktop) COMPREPLY=( $(compgen -W "status --json --host= --port=" -- "$cur") ) ;;
-                    launch-desktop) COMPREPLY=( $(compgen -W "--transport=proxy --transport=base-url --probe --host= --port= --app= --env= --insecure-skip-cert-trust-check" -- "$cur") ) ;;
+                    launch-desktop) COMPREPLY=( $(compgen -W "--transport=proxy --transport=base-url --probe --with-ca-env --host= --port= --app= --env= --insecure-skip-cert-trust-check" -- "$cur") ) ;;
                 esac
             fi
             ;;

@@ -1,6 +1,6 @@
 # TASK 238: Codex Desktop process-local proxy proof
 
-Status: IMPLEMENTED-PRE-LIVE
+Status: PARTIAL - process-local CONNECT works, Desktop TLS root-store blocks bytes
 Priority: P0 before any Desktop Slimference product claim
 Scope: Codex Desktop App only; Browser ChatGPT, ChatGPT.app, Claude Code, and
 direct Finder/Spotlight Codex.app launches must stay untouched
@@ -41,6 +41,12 @@ One of two final states is acceptable:
 No third state is allowed. "Probably working", sideband-only, cosmetic badge,
 or inferred savings is not a product outcome.
 
+Current live state on 2026-05-19 is a precise blocked branch, not a mystery:
+proxy env reaches Codex.app's Rust app-server, CONNECT reaches Slimference, and
+upstream dial succeeds, but Codex.app closes the tunnel before application
+bytes flow. Treat this as `tls_trust_rejected` / root-store mismatch unless a
+follow-up CA-hook probe proves otherwise.
+
 ## Acceptance
 
 - Codex.app launched through Slimference can be tested without modifying
@@ -55,8 +61,9 @@ or inferred savings is not a product outcome.
 - `/admin/state.wss` shows WSS bridge activity with `parse_failures=0`,
   `degraded_sessions=0`, `compression_errors=0`, and compressed messages
   inspected; mutation counters must advance before any savings claim.
-- If proxy env is ignored or WSS bypasses it, the product reports Desktop as
-  direct-only instead of faking success.
+- If proxy env is ignored, WSS bypasses it, or the client rejects the
+  Slimference CA before bytes flow, the product reports Desktop as direct-only
+  or blocked instead of faking success.
 - Any CA trust requirement is explicit, reversible, and visible in Status.
 - Any parse drift or unsupported frame shape fails open to byte-equal tunnel.
 
@@ -102,17 +109,22 @@ or inferred savings is not a product outcome.
   last telemetry timestamp.
 - [x] Add tests for env construction, CA preflight, CONNECT routing activation,
   WSS upgrade handoff, bypass paths, and fail-open behavior.
-- [ ] Run controlled live proof from outside the active Codex Desktop session:
+- [x] Run controlled live proof from outside the active Codex Desktop session:
   launch via Slimference, send one prompt, collect `lsof`, `/admin/state.wss`,
   config hash, and direct Browser/ChatGPT.app control evidence.
 - [ ] If minimal prompt proves routing but not mutation, run a Desktop prompt
   with enough repeated context/tool output to trigger Phase-F mutation.
-- [~] Add explicit failure-class reporting:
+- [x] Add explicit failure-class reporting for the observed zero-byte CONNECT
+  branch as `tls_trust_rejected`.
+- [~] Extend explicit failure-class reporting:
   `proxy_env_not_inherited`, `connect_not_attempted`, `tls_untrusted`,
-  `cert_pinned`, `wss_bypassed_proxy`, `wss_parse_drift`,
+  `embedded_root_store`, `wss_bypassed_proxy`, `wss_parse_drift`,
   `proxied_but_no_mutation_candidate`, `passed`.
 - [x] Add a `codex desktop status` or equivalent probe output so T239 can render
   Desktop truth without scraping logs.
+- [x] Add `--with-ca-env` diagnostic launch mode to inject process-local
+  `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
+  `NODE_EXTRA_CA_CERTS` for a final root-store compatibility probe.
 - [~] Document the final branch decision in `docs/install.md` and the operation
   log: proven proxy mode, direct-only limitation, or upstream-required blocker.
 
@@ -171,9 +183,16 @@ Known current state:
 - `slimference codex launch-desktop` defaults to `--transport=proxy`, injects
   process-local proxy env only, refuses launch when CA trust is missing, and
   keeps `--transport=base-url` as diagnostic/future-proof mode.
+- `--with-ca-env` is diagnostic only. It tries common root-store env hooks in
+  the spawned process without touching shell startup files or system proxy
+  settings. It is not a product success path unless live bytes and WSS frames
+  prove it.
 - `slimference codex desktop status` is the read-only handoff surface for
   Desktop proof: it reports CA gate, daemon reachability, WSS counters, and
   whether a live Desktop conversation has been observed.
+- After the 2026-05-19 live proof, `codex desktop status` must not report
+  "ready" when historical counters show `mitm_bridged>0` with zero bytes and
+  zero upstream dial failures. That is a Desktop TLS/root-store blocked state.
 - The WebSocket bridge gate now permits Phase-F only for
   `chatgpt.com/backend-api/codex/responses` with the Codex
   `responses_websockets` subprotocol. Sideband WSS stays byte-equal.

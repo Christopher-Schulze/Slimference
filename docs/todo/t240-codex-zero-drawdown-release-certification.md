@@ -1,7 +1,7 @@
 # TASK 240: Codex zero-drawdown release certification
 
 Status: PLANNED
-Priority: P0 after T238 and T239
+Priority: P0 after T238, T239, T241, and T242 branch decisions
 Scope: Final macOS arm64 product proof for Codex CLI and Codex Desktop UX
 
 ## Why
@@ -12,8 +12,9 @@ Codex stays at least as capable as native Codex, with measured savings where
 the route is proven and no collateral impact on Browser ChatGPT, ChatGPT.app,
 or Claude Code.
 
-T238 proves the Desktop routing branch. T239 builds the human launch center.
-T240 certifies the whole user-facing system as one release ceremony.
+T238/T242 prove or reject the Desktop routing branch. T241 makes Codex CLI WSS
+certification resilient to updates. T239 builds the human launch center. T240
+certifies the whole user-facing system as one release ceremony.
 
 ## Acceptance
 
@@ -22,11 +23,13 @@ T240 certifies the whole user-facing system as one release ceremony.
   Launch Codex CLI, Launch Codex App, Savings, Status, Manage Slimference.
 - Launch Codex CLI runs through `transport=auto`, uses WSS for the certified
   tuple, returns correct model output, and records clean counters.
+- If Codex CLI updated, the guided recert path from T241 has either issued a
+  new WSS cert or Status clearly says WSS savings are paused with HTTP fallback.
 - Launch Codex App follows the T238 branch:
   - if Desktop proxy mode is proven, it launches through Slimference and records
     clean WSS counters;
-  - if Desktop proxy mode is rejected, it reports Desktop direct-only and makes
-    no savings claim.
+  - if Desktop proxy mode is rejected by T242, it reports Desktop direct-only or
+    root-store blocked and makes no savings claim.
 - Direct `codex` and Finder/Spotlight Codex.app launches remain available and
   native.
 - Browser ChatGPT and ChatGPT.app remain direct during Slimference-launched

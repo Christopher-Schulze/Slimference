@@ -33,8 +33,9 @@ func TestParseCodexLaunchDesktopFlagsAll(t *testing.T) {
 		"--probe",
 		"--host=10.0.0.5",
 		"--port=9000",
-		"--transport=base-url",
+		"--transport=proxy",
 		"--app=/opt/Codex.app",
+		"--with-ca-env",
 		"--env=FOO=bar",
 		"--env=BAZ=qux",
 		"--insecure-skip-cert-trust-check",
@@ -43,7 +44,7 @@ func TestParseCodexLaunchDesktopFlagsAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !f.probe || !f.insecureSkipTrustCheck || f.host != "10.0.0.5" || f.port != "9000" || f.transport != codexDesktopTransportBaseURL || f.appPath != "/opt/Codex.app" {
+	if !f.probe || !f.withCAEnv || !f.insecureSkipTrustCheck || f.host != "10.0.0.5" || f.port != "9000" || f.transport != codexDesktopTransportProxy || f.appPath != "/opt/Codex.app" {
 		t.Fatalf("flags=%+v", f)
 	}
 	if len(f.extra) != 2 || f.extra[0] != "FOO=bar" || f.extra[1] != "BAZ=qux" {
@@ -69,6 +70,9 @@ func TestParseCodexLaunchDesktopFlagsRejectsBadEnv(t *testing.T) {
 	}
 	if _, err := parseCodexLaunchDesktopFlags([]string{"--transport=bad"}); err == nil {
 		t.Fatal("expected error on invalid transport")
+	}
+	if _, err := parseCodexLaunchDesktopFlags([]string{"--transport=base-url", "--with-ca-env"}); err == nil {
+		t.Fatal("expected error when --with-ca-env is used outside proxy mode")
 	}
 }
 
@@ -184,6 +188,40 @@ func TestBuildCodexDesktopProxyEnvScopedAndNoBaseURLOverrides(t *testing.T) {
 	}
 }
 
+func TestAppendCodexDesktopCAEnvIsExplicitAndExtraWins(t *testing.T) {
+	base := []string{
+		"PATH=/usr/bin",
+		"SSL_CERT_FILE=/old/root.crt",
+		"HTTPS_PROXY=http://127.0.0.1:8990",
+	}
+	got := appendCodexDesktopCAEnv(base, "/tmp/slimference-root.crt", []string{"SSL_CERT_FILE=/operator/root.crt"})
+	wantPresent := map[string]bool{
+		"PATH=/usr/bin":                                 false,
+		"HTTPS_PROXY=http://127.0.0.1:8990":             false,
+		"SSL_CERT_FILE=/tmp/slimference-root.crt":       false,
+		"CURL_CA_BUNDLE=/tmp/slimference-root.crt":      false,
+		"REQUESTS_CA_BUNDLE=/tmp/slimference-root.crt":  false,
+		"NODE_EXTRA_CA_CERTS=/tmp/slimference-root.crt": false,
+		"SSL_CERT_FILE=/operator/root.crt":              false,
+	}
+	for _, kv := range got {
+		if _, ok := wantPresent[kv]; ok {
+			wantPresent[kv] = true
+		}
+		if kv == "SSL_CERT_FILE=/old/root.crt" {
+			t.Fatalf("old CA env must be removed: %v", got)
+		}
+	}
+	for kv, seen := range wantPresent {
+		if !seen {
+			t.Errorf("missing %q in %v", kv, got)
+		}
+	}
+	if got[len(got)-1] != "SSL_CERT_FILE=/operator/root.crt" {
+		t.Fatalf("operator extra must be last, got %v", got)
+	}
+}
+
 func TestFilterCodexDesktopOverrideEnv(t *testing.T) {
 	env := []string{
 		"PATH=/usr/bin",
@@ -207,17 +245,60 @@ func TestFilterCodexDesktopProxyEnv(t *testing.T) {
 	env := []string{
 		"PATH=/usr/bin",
 		"HTTPS_PROXY=http://x",
+		"SSL_CERT_FILE=/tmp/root.crt",
 		"FOO=bar",
 		"NO_PROXY=127.0.0.1",
 	}
 	got := filterCodexDesktopProxyEnv(env)
-	want := []string{"HTTPS_PROXY=http://x", "NO_PROXY=127.0.0.1"}
+	want := []string{"HTTPS_PROXY=http://x", "SSL_CERT_FILE=/tmp/root.crt", "NO_PROXY=127.0.0.1"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("filter[%d] = %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestRunCodexLaunchDesktopProbeWithCAEnvEmitsRootHints(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevCA := codexDesktopCATrustFn
+	t.Cleanup(func() { codexDesktopCATrustFn = prevCA })
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
+	}
+
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--probe", "--with-ca-env", "--app=" + app},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var probe codexLaunchDesktopProbe
+	if err := json.Unmarshal(out.Bytes(), &probe); err != nil {
+		t.Fatalf("json: %v\nraw: %s", err, out.String())
+	}
+	joined := strings.Join(probe.EnvOverride, "\n")
+	for _, want := range []string{
+		"SSL_CERT_FILE=/tmp/root.crt",
+		"CURL_CA_BUNDLE=/tmp/root.crt",
+		"REQUESTS_CA_BUNDLE=/tmp/root.crt",
+		"NODE_EXTRA_CA_CERTS=/tmp/root.crt",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("probe missing %q in %s", want, joined)
 		}
 	}
 }

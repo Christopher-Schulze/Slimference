@@ -29,9 +29,9 @@ import (
 // /Applications/Codex.app/Contents/Resources/codex):
 //   - env injection from this launcher reaches the Rust app-server
 //     child process (verified via `ps eww`),
-//   - but the app-server STILL connects directly to 104.18.32.47:443
-//     (Cloudflare ChatGPT) for the conversation, with zero bytes
-//     reaching the Slimference daemon on :8990,
+//   - proxy env reaches the app-server and is honored for CONNECT,
+//     but Codex.app 0.131.0 closes the tunnel before application bytes
+//     flow when Slimference presents its locally signed chatgpt.com leaf,
 //   - `strings` of the Rust binary shows multiple hardcoded
 //     `https://chatgpt.com/backend-api` URLs and exposes only these
 //     override env vars: CODEX_REFRESH_TOKEN_URL_OVERRIDE (auth),
@@ -45,6 +45,11 @@ import (
 // (`--transport=base-url --probe`) and future-proof spawn path. The
 // default proxy mode is the only current Desktop route candidate that
 // does not require global hosts/pf/system-proxy changes.
+//
+// `--with-ca-env` is an explicit diagnostic matrix branch. It injects
+// process-local CA bundle hints used by common TLS stacks. It is not the
+// product default until a live Codex Desktop run proves bytes and WSS
+// frames actually flow through Slimference.
 //
 // Reverse: quit Codex.app. Relaunching from Finder / Spotlight gives
 // direct ChatGPT routing because no env is inherited.
@@ -92,6 +97,13 @@ var codexDesktopProxyEnvKeys = []string{
 	"CODEX_NETWORK_PROXY_ACTIVE",
 }
 
+var codexDesktopCAEnvKeys = []string{
+	"SSL_CERT_FILE",
+	"CURL_CA_BUNDLE",
+	"REQUESTS_CA_BUNDLE",
+	"NODE_EXTRA_CA_CERTS",
+}
+
 type codexLaunchDesktopFlags struct {
 	host                   string
 	port                   string
@@ -99,6 +111,7 @@ type codexLaunchDesktopFlags struct {
 	appPath                string
 	extra                  []string
 	probe                  bool
+	withCAEnv              bool
 	insecureSkipTrustCheck bool
 	help                   bool
 }
@@ -140,6 +153,10 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 	overrideURL := proxyURL + "/backend-api/codex"
 	env := buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), flags.extra)
 	ca := codexDesktopCATrustFn()
+	if flags.transport == codexDesktopTransportProxy && flags.withCAEnv {
+		env = buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), nil)
+		env = appendCodexDesktopCAEnv(env, ca.Path, flags.extra)
+	}
 	if flags.transport == codexDesktopTransportBaseURL {
 		env = buildCodexDesktopLaunchEnv(overrideURL, codexDesktopBaseEnvFn(), flags.extra)
 		ca = codexDesktopCAState{}
@@ -194,11 +211,14 @@ func buildCodexDesktopLaunchEnv(overrideURL string, base []string, extra []strin
 }
 
 func buildCodexDesktopProxyEnv(proxyURL string, base []string, extra []string) []string {
-	overrideKeys := make(map[string]struct{}, len(codexDesktopProxyEnvKeys)+len(codexDesktopEnvOverrideKeys))
+	overrideKeys := make(map[string]struct{}, len(codexDesktopProxyEnvKeys)+len(codexDesktopEnvOverrideKeys)+len(codexDesktopCAEnvKeys))
 	for _, k := range codexDesktopProxyEnvKeys {
 		overrideKeys[k] = struct{}{}
 	}
 	for _, k := range codexDesktopEnvOverrideKeys {
+		overrideKeys[k] = struct{}{}
+	}
+	for _, k := range codexDesktopCAEnvKeys {
 		overrideKeys[k] = struct{}{}
 	}
 
@@ -232,6 +252,32 @@ func buildCodexDesktopProxyEnv(proxyURL string, base []string, extra []string) [
 	return out
 }
 
+func appendCodexDesktopCAEnv(env []string, caPath string, extra []string) []string {
+	keys := make(map[string]struct{}, len(codexDesktopCAEnvKeys))
+	for _, k := range codexDesktopCAEnvKeys {
+		keys[k] = struct{}{}
+	}
+	out := make([]string, 0, len(env)+len(codexDesktopCAEnvKeys)+len(extra))
+	for _, kv := range env {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			out = append(out, kv)
+			continue
+		}
+		if _, hit := keys[kv[:eq]]; hit {
+			continue
+		}
+		out = append(out, kv)
+	}
+	if caPath != "" {
+		for _, k := range codexDesktopCAEnvKeys {
+			out = append(out, k+"="+caPath)
+		}
+	}
+	out = append(out, extra...)
+	return out
+}
+
 // filterCodexDesktopOverrideEnv returns only the entries that were
 // injected by this launcher. Used by --probe so the operator sees the
 // scoped override surface without dumping their entire shell env.
@@ -254,8 +300,11 @@ func filterCodexDesktopOverrideEnv(env []string) []string {
 }
 
 func filterCodexDesktopProxyEnv(env []string) []string {
-	keys := make(map[string]struct{}, len(codexDesktopProxyEnvKeys))
+	keys := make(map[string]struct{}, len(codexDesktopProxyEnvKeys)+len(codexDesktopCAEnvKeys))
 	for _, k := range codexDesktopProxyEnvKeys {
+		keys[k] = struct{}{}
+	}
+	for _, k := range codexDesktopCAEnvKeys {
 		keys[k] = struct{}{}
 	}
 	var out []string
@@ -352,6 +401,8 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 			f.help = true
 		case a == "--probe":
 			f.probe = true
+		case a == "--with-ca-env":
+			f.withCAEnv = true
 		case a == "--insecure-skip-cert-trust-check":
 			f.insecureSkipTrustCheck = true
 		case strings.HasPrefix(a, "--transport="):
@@ -377,10 +428,13 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 	default:
 		return f, fmt.Errorf("invalid --transport %q (want proxy or base-url)", f.transport)
 	}
+	if f.withCAEnv && f.transport != codexDesktopTransportProxy {
+		return f, fmt.Errorf("--with-ca-env requires --transport=proxy")
+	}
 	return f, nil
 }
 
-const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--transport=proxy|base-url] [--probe] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
+const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--transport=proxy|base-url] [--probe] [--with-ca-env] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
 
 Spawns Codex.app's main binary with a scoped env. Default transport=proxy
 sets HTTP(S)/WSS proxy variables only on the launched app process and
@@ -391,6 +445,8 @@ direct routing.
 Flags:
   --transport=<mode>  proxy (default) or base-url diagnostic mode
   --probe             emit scoped env and CA state as JSON without spawning
+  --with-ca-env       proxy-mode diagnostic: also inject SSL_CERT_FILE,
+                      CURL_CA_BUNDLE, REQUESTS_CA_BUNDLE, NODE_EXTRA_CA_CERTS
   --host=<host>       slimference daemon host (default 127.0.0.1)
   --port=<port>       slimference daemon port (default 8990)
   --app=<path>        override path to Codex.app bundle (default /Applications/Codex.app)
