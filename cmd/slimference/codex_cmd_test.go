@@ -971,6 +971,9 @@ func TestCodexDesktopStatusJSONReadyForLiveProbe(t *testing.T) {
 	if got.Mode != "ready_for_live_desktop_probe" || got.FailureClass != "" || !got.LiveProofRequired {
 		t.Fatalf("status=%+v", got)
 	}
+	if got.LaunchCommand != "slimference codex launch-desktop --transport=proxy --with-ca-env" {
+		t.Fatalf("launch command=%q", got.LaunchCommand)
+	}
 	if !got.CATrust.Trusted || !got.DaemonReachable {
 		t.Fatalf("readiness not propagated: %+v", got)
 	}
@@ -1020,7 +1023,7 @@ func TestCodexDesktopStatusReportsGates(t *testing.T) {
 	}
 }
 
-func TestCodexDesktopStatusReportsUntrustedAndWSSErrors(t *testing.T) {
+func TestCodexDesktopStatusAllowsUntrustedKeychainWithCAEnvAndReportsWSSErrors(t *testing.T) {
 	withCodexCmdStubs(t)
 	codexDesktopCATrustFn = func() codexDesktopCAState {
 		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: false}
@@ -1033,8 +1036,14 @@ func TestCodexDesktopStatusReportsUntrustedAndWSSErrors(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &untrusted); err != nil {
 		t.Fatalf("json: %v", err)
 	}
-	if untrusted.FailureClass != "ca_untrusted" || untrusted.ProxyURL != "http://127.0.0.2:19090" {
+	if untrusted.FailureClass != "" ||
+		untrusted.Mode != "ready_for_live_desktop_probe" ||
+		untrusted.ProxyURL != "http://127.0.0.2:19090" ||
+		untrusted.LaunchCommand != "slimference codex launch-desktop --transport=proxy --with-ca-env" {
 		t.Fatalf("untrusted status=%+v", untrusted)
+	}
+	if !strings.Contains(strings.Join(untrusted.Notes, "\n"), "process-local") {
+		t.Fatalf("untrusted notes do not explain CA env: %+v", untrusted.Notes)
 	}
 
 	codexDesktopCATrustFn = func() codexDesktopCAState {
@@ -1091,7 +1100,7 @@ func TestCodexDesktopStatusReportsTLSRejectedAfterConnect(t *testing.T) {
 	if got.ConversationObserved {
 		t.Fatalf("zero-byte CONNECT attempts must not count as observed conversation: %+v", got)
 	}
-	if !strings.Contains(strings.Join(got.Notes, "\n"), "CA/root-store hook") {
+	if !strings.Contains(strings.Join(got.Notes, "\n"), "CODEX_CA_CERTIFICATE/root-store hook") {
 		t.Fatalf("notes do not explain root-store blocker: %+v", got.Notes)
 	}
 }
@@ -1262,12 +1271,19 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	}
 }
 
-func TestServiceControlAdapterDesktopStatusAndBlockedLaunch(t *testing.T) {
+func TestServiceControlAdapterDesktopStatusTLSRejectedStillAllowsCAEnvRetry(t *testing.T) {
 	withCodexCmdStubs(t)
+	oldLaunchDesktop := tuiCodexLaunchDesktopCmdFn
+	t.Cleanup(func() { tuiCodexLaunchDesktopCmdFn = oldLaunchDesktop })
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		state := control.SetupState{}
 		state.WSS.MITMBridged = 14
 		return state, nil
+	}
+	var gotArgs []string
+	tuiCodexLaunchDesktopCmdFn = func(args []string, _ installPrinter) int {
+		gotArgs = append([]string(nil), args...)
+		return 0
 	}
 
 	adapter := &serviceControlAdapter{}
@@ -1275,8 +1291,11 @@ func TestServiceControlAdapterDesktopStatusAndBlockedLaunch(t *testing.T) {
 	if status.Mode != "desktop_tls_blocked" || status.FailureClass != "tls_trust_rejected" {
 		t.Fatalf("desktop status=%+v", status)
 	}
-	if _, err := adapter.LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "tls_trust_rejected") {
+	if _, err := adapter.LaunchCodexApp(); err != nil {
 		t.Fatalf("LaunchCodexApp err=%v", err)
+	}
+	if strings.Join(gotArgs, " ") != "--transport=proxy --with-ca-env" {
+		t.Fatalf("args=%v", gotArgs)
 	}
 }
 
@@ -1297,7 +1316,7 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 	if !strings.Contains(msg, "diagnostic proxy") {
 		t.Fatalf("msg=%q", msg)
 	}
-	if strings.Join(gotArgs, " ") != "--transport=proxy" {
+	if strings.Join(gotArgs, " ") != "--transport=proxy --with-ca-env" {
 		t.Fatalf("args=%v", gotArgs)
 	}
 
@@ -1326,11 +1345,6 @@ func TestServiceControlAdapterLaunchCodexAppPreflightFailures(t *testing.T) {
 			name: "ca missing",
 			ca:   codexDesktopCAState{},
 			want: "ca_missing",
-		},
-		{
-			name: "ca untrusted",
-			ca:   codexDesktopCAState{Exists: true},
-			want: "ca_untrusted",
 		},
 		{
 			name: "daemon unreachable",

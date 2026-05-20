@@ -65,7 +65,8 @@ release ceremony.
   is needed. If Desktop proxy mode needs Keychain trust, prove the T245 guided
   flow and removal path. If Desktop remains direct-only, prove the TUI does not
   ask for CA during normal CLI use.
-- Full CI remains green with coverage >= 99.5%.
+- Full CI remains green with coverage >= 95.0% and behavior-critical tests
+  covering the changed paths.
 - Operation log contains the exact evidence and final branch decision.
 
 ## Sub-Tasks

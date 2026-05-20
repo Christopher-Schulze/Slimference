@@ -606,7 +606,8 @@ func (m *Model) renderSetupView() string {
 	if m.svc != nil {
 		transparent = m.transparentStatus
 	}
-	allReady := transparent.Installed() || (m.svc == nil && m.hookStatus.Codex)
+	productReady := transparent.CAExists && transparent.AutoStartInstalled
+	allReady := productReady || (m.svc == nil && m.hookStatus.Codex)
 	statusCard := ""
 	if transparent.ProxyArmed {
 		statusCard = s.Card.Width(innerWidth - 2).Render(
@@ -625,9 +626,6 @@ func (m *Model) renderSetupView() string {
 		if m.svc != nil {
 			if !transparent.CAExists {
 				missing = append(missing, "local CA")
-			}
-			if transparent.CAExists && !transparent.CATrusted {
-				missing = append(missing, "trusted CA")
 			}
 			if !transparent.AutoStartInstalled {
 				missing = append(missing, "launchd daemon")
@@ -672,6 +670,7 @@ func (m *Model) renderSetupView() string {
 		} else {
 			serviceLines = append(serviceLines, "  "+s.Muted.Render("○ STOPPED")+"  daemon not running")
 		}
+		serviceLines = append(serviceLines, renderCAStatusLine(s, transparent))
 		serviceLines = append(serviceLines, renderTransparentStatusLine(s, transparent))
 		serviceLines = append(serviceLines, renderCodexRouteStatusLine(s, m.codexRouteStatus))
 		serviceLines = append(serviceLines, "")
@@ -1187,6 +1186,17 @@ func renderTransparentStatusLine(s Styles, status TransparentStatus) string {
 		return "  " + s.LogError.Render("● GLOBAL LAB") + "  networksetup unavailable"
 	default:
 		return "  " + s.Muted.Render("○ GLOBAL LAB") + "  not installed"
+	}
+}
+
+func renderCAStatusLine(s Styles, status TransparentStatus) string {
+	switch {
+	case !status.CAExists:
+		return "  " + s.BannerWarn.Render("● CA MATERIAL") + "  missing; run install before Desktop diagnostics"
+	case status.CATrusted:
+		return "  " + s.Saved.Render("● CA MATERIAL") + "  ready; Keychain trusted for Desktop/Lab fallback"
+	default:
+		return "  " + s.Saved.Render("● CA MATERIAL") + "  ready; CLI WSS and Desktop --with-ca-env do not need Keychain trust"
 	}
 }
 

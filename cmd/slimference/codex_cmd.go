@@ -547,7 +547,7 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		ProxyURL:          proxyURL,
 		CATrust:           codexDesktopCATrustFn(),
 		LiveProofRequired: true,
-		LaunchCommand:     "slimference codex launch-desktop --transport=proxy",
+		LaunchCommand:     "slimference codex launch-desktop --transport=proxy --with-ca-env",
 	}
 	state, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
 	if err != nil {
@@ -559,19 +559,20 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 	out.DaemonReachable = true
 	out.WSS = state.WSS
 	out.ConversationObserved = state.WSS.MITMBridged > 0 && state.WSS.CompressedMessagesInspected > 0
+	if out.CATrust.Exists && !out.CATrust.Trusted {
+		out.Notes = append(out.Notes, "Keychain trust is not required for the preferred process-local Desktop probe; launch uses --with-ca-env")
+	}
 	switch {
 	case !out.CATrust.Exists:
 		out.FailureClass = "ca_missing"
 		out.Notes = append(out.Notes, "run `slimference install` to create the local CA")
-	case !out.CATrust.Trusted:
-		out.FailureClass = "ca_untrusted"
-		out.Notes = append(out.Notes, "run `slimference cert-trust` before launching Codex Desktop in proxy mode")
 	case codexDesktopTLSRejected(state.WSS):
 		out.Mode = "desktop_tls_blocked"
 		out.FailureClass = "tls_trust_rejected"
 		out.Notes = append(out.Notes,
 			"Codex.app reached the Slimference CONNECT bridge but closed before application bytes flowed",
-			"treat Desktop savings as unavailable until a CA/root-store hook is proven",
+			"treat Desktop savings as unavailable until the CODEX_CA_CERTIFICATE/root-store hook is proven",
+			"the Launch Center may retry the process-local --with-ca-env diagnostic without claiming savings",
 			"normal Finder/Spotlight Codex.app launch remains direct and unaffected",
 		)
 	case out.ConversationObserved:

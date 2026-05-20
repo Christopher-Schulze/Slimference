@@ -3952,14 +3952,12 @@ func (sca *serviceControlAdapter) LaunchCodexCLI() (string, error) {
 func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
 	switch status.FailureClass {
-	case "tls_trust_rejected":
-		return "", fmt.Errorf("Desktop Slimference blocked: tls_trust_rejected; normal Finder launch remains direct")
-	case "ca_missing", "ca_untrusted", "daemon_unreachable":
+	case "ca_missing", "daemon_unreachable":
 		return "", fmt.Errorf("%s", status.FailureClass)
 	}
 	var stdout strings.Builder
 	var stderr strings.Builder
-	rc := tuiCodexLaunchDesktopCmdFn([]string{"--transport=proxy"}, installPrinter{Out: &stdout, Err: &stderr})
+	rc := tuiCodexLaunchDesktopCmdFn([]string{"--transport=proxy", "--with-ca-env"}, installPrinter{Out: &stdout, Err: &stderr})
 	if rc != 0 {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
@@ -3970,7 +3968,7 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 		}
 		return "", fmt.Errorf("%s", msg)
 	}
-	return "Codex App launch requested through Slimference diagnostic proxy", nil
+	return "Codex App launch requested through Slimference process-local CA diagnostic proxy", nil
 }
 
 func (sca *serviceControlAdapter) RepairCodexWSS() (string, error) {

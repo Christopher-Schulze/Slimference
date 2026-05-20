@@ -50,9 +50,9 @@ human entrypoints there are:
 There is no separate "open direct" action. Direct mode is the native launch:
 `codex` in a normal shell or Codex.app from Finder/Spotlight. Slimference mode
 is the launch path chosen inside the TUI. The Desktop item is visible but
-capability-gated; when `codex desktop status` reports
-`desktop_tls_blocked` / `tls_trust_rejected`, the TUI blocks the Slimference
-Desktop launch claim and keeps normal Desktop direct.
+capability-gated; historical `desktop_tls_blocked` / `tls_trust_rejected`
+counters are shown as a process-local CA-env retry/proof state, never as active
+Desktop savings. Normal Finder/Spotlight Desktop launch stays direct.
 
 Slimference's default product path touches only scoped Codex surfaces:
 
@@ -79,7 +79,7 @@ Slimference's default product path touches only scoped Codex surfaces:
    ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
    untouched.
 4. **Process-local Codex Desktop proxy launch** via
-   `slimference codex launch-desktop --transport=proxy`.
+   `slimference codex launch-desktop --transport=proxy --with-ca-env`.
    This does not write Codex config, shell startup files, macOS system proxy,
    `/etc/hosts`, or pfctl. It sets HTTP(S)/WSS proxy variables only on the
    spawned Codex.app process tree. Normal Finder/Spotlight Codex.app launches
@@ -101,7 +101,7 @@ goal.
 | Codex hooks | Signal/local output layer | yes | `slimference install` |
 | Scoped Codex provider route | Codex CLI/App traffic layer | optional | `slimference enable` |
 | One-shot scoped Codex CLI | Safe test/recovery path | no persistent state | `slimference codex run -- <prompt>` |
-| Process-local Codex Desktop launcher | Desktop proof candidate | no persistent state | `slimference codex launch-desktop --transport=proxy` |
+| Process-local Codex Desktop launcher | Desktop proof candidate | no persistent state | `slimference codex launch-desktop --transport=proxy --with-ca-env` |
 | Global transparent MITM | Lab certification only | no | `slimference lab ...` |
 | Legacy proxy/env/integrate | Advanced compatibility | no | `slimference proxy ...`, `slimference integrate ...` |
 | Base-URL Desktop launcher mode | Diagnostic/future-proof only | no | `slimference codex launch-desktop --transport=base-url --probe` |

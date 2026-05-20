@@ -1,7 +1,7 @@
 # TASK 245: Desktop custom CA and macOS trust UX
 
-Status: PARTIAL - default install is Keychain-free; TUI CA management remains
-planned
+Status: PARTIAL - default install is Keychain-free; process-local Desktop CA
+env is wired; TUI CA management remains planned
 Priority: P0 before T240 if T242 keeps a Desktop proxy branch alive; otherwise
 P1 lab-polish
 Scope: process-local custom CA env first, macOS arm64 Keychain fallback/lab UX,
@@ -100,12 +100,12 @@ Therefore the correct UX is unified install with conditional trust:
 
 ## Sub-Tasks
 
-- [ ] Audit the current CA commands and status probes:
+- [x] Audit the current CA commands and status probes:
   `slimference cert-trust`, any `lab cert-trust` alias, `status --preflight`,
   and `codex desktop status --json`.
 - [x] Audit `codex launch-desktop --with-ca-env` and ensure
   `CODEX_CA_CERTIFICATE` is the first-class Codex-specific CA variable.
-- [ ] Resolve CA probe inconsistency: current preflight may report
+- [x] Resolve CA probe inconsistency: current preflight may report
   `in_keychain=false` while Desktop status reports `trusted=true`. Establish
   one authoritative trust probe or explicitly label the difference.
 - [x] Rework install/status vocabulary:
@@ -124,8 +124,8 @@ Therefore the correct UX is unified install with conditional trust:
 - [~] Add tests for CLI launch/status not requiring CA trust. Current patch
   covers default install and Desktop launch gating; explicit CLI/TUI wording
   tests remain.
-- [ ] Add tests for TUI state wording: missing CA must not make CLI WSS red.
-- [ ] Add tests for Desktop/Lab custom-CA-env wording, Keychain fallback
+- [x] Add tests for TUI state wording: missing CA must not make CLI WSS red.
+- [~] Add tests for Desktop/Lab custom-CA-env wording, Keychain fallback
   wording, and reversible removal.
 - [x] Update `docs/install.md` so users understand:
   one install prepares CLI and Desktop support; CLI WSS needs no CA; Desktop
@@ -154,6 +154,19 @@ mutation. The right model is:
 If T242 ultimately proves current Codex.app cannot use the local CA even with
 `CODEX_CA_CERTIFICATE`, Keychain trust becomes lab-only until OpenAI changes
 Codex.app root-store behavior or exposes a supported endpoint/proxy hook.
+
+2026-05-20 non-live closure:
+
+- `codex desktop status` now treats missing CA material as a real gate but does
+  not treat missing Keychain trust as a gate for the preferred Desktop branch.
+  It reports the launch command as
+  `slimference codex launch-desktop --transport=proxy --with-ca-env`.
+- The TUI Launch Codex App action calls that exact command. Historical
+  `tls_trust_rejected` counters become a process-local CA-env retry/proof state
+  rather than a permanent TUI blockade, while Desktop savings remain unclaimed
+  until live lsof and WSS counters prove bytes/frames.
+- Aggregate health no longer requires Keychain trust; Keychain is a separate
+  Desktop/Lab fallback signal. CLI WSS remains independent of CA trust.
 
 ## Deviations
 

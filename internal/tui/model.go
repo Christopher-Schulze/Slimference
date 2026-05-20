@@ -979,9 +979,11 @@ func (m *Model) codexAppState() string {
 	status := m.codexDesktopStatus
 	switch status.FailureClass {
 	case "tls_trust_rejected":
-		return "blocked"
-	case "ca_missing", "ca_untrusted":
+		return "CA-env retry"
+	case "ca_missing":
 		return "CA needed"
+	case "ca_untrusted":
+		return "CA-env ready"
 	case "daemon_unreachable":
 		return "daemon off"
 	}
@@ -1001,11 +1003,11 @@ func (m *Model) codexAppDescription() string {
 	status := m.codexDesktopStatus
 	switch status.FailureClass {
 	case "tls_trust_rejected":
-		return "Desktop proxy reaches Slimference, but Codex.app rejects TLS before bytes flow; normal app launch remains direct."
+		return "Previous Desktop proxy reached Slimference but closed before bytes; launch retries the process-local CODEX_CA_CERTIFICATE probe without claiming savings."
 	case "ca_missing":
 		return "Desktop proxy needs the Slimference CA before a diagnostic launch can run."
 	case "ca_untrusted":
-		return "Desktop proxy needs CA trust before a diagnostic launch can run."
+		return "Desktop proxy can use process-local CA env; Keychain trust is Desktop/Lab fallback only."
 	case "daemon_unreachable":
 		return "Start or repair the Slimference daemon before Desktop proxy diagnostics."
 	}
@@ -1146,10 +1148,6 @@ func (m *Model) executeMainSelection() tea.Cmd {
 		}
 	case "launch_app":
 		m.refreshCodexDesktopStatus(true)
-		if m.codexDesktopStatus.FailureClass == "tls_trust_rejected" {
-			m.setFlash("Codex App Slimference blocked: tls_trust_rejected; normal Finder launch stays direct")
-			break
-		}
 		if m.svc == nil {
 			m.setFlash("Codex App launch unavailable: service adapter missing")
 			break
@@ -1209,8 +1207,8 @@ func (m *Model) setupSteps() []setupStep {
 	}
 	steps := []setupStep{
 		{
-			label:   "Run slimference install (CA + launchd + Codex hooks)",
-			check:   func() bool { return m.transparentStatus.Installed() },
+			label:   "Run slimference install (CA material + launchd + Codex hooks)",
+			check:   func() bool { return m.transparentStatus.CAExists && m.transparentStatus.AutoStartInstalled },
 			action:  func(m *Model) error { return m.svc.InstallTransparent() },
 			confirm: "Install Codex-only Slimference integration",
 		},

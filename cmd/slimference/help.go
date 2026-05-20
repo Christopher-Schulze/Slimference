@@ -17,7 +17,7 @@ USAGE:
 SUBCOMMANDS:
   doctor       Run diagnostics (config, ports, upstreams, CLI drift)
   filter       Layer-0 command filter (slimference filter -- <cmd>)
-  install      Atomic Codex-only install (CA + launchd + Codex hooks)
+  install      Atomic Codex-only install (CA material + launchd + Codex hooks)
   codex        Scoped Codex CLI/App routing (run|desktop|launch-desktop|certify|recertify)
   enable       Enable scoped Codex CLI/App route (alias: codex enable)
   disable      Disable scoped Codex CLI/App route (alias: codex disable)

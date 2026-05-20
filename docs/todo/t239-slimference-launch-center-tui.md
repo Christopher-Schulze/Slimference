@@ -113,9 +113,10 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 ### Launch Codex App
 
 - If T238 passed: launches Codex.app with the proven process-local proxy mode.
-- If T238 found only zero-byte CONNECT sessions: displays
-  `tls_trust_rejected` and offers only the explicit process-local custom-CA-env
-  diagnostic branch from T242.
+- If previous live counters show zero-byte CONNECT sessions: displays the
+  `tls_trust_rejected` history as a process-local custom-CA-env retry/proof
+  state and starts only the explicit `--with-ca-env` diagnostic branch from
+  T242.
 - If T238 failed or is unproven: displays direct-only state and why.
 - Shows whether process-local custom CA env is available, whether Keychain trust
   is irrelevant/needed/trusted, and whether either state actually proved bytes.
@@ -229,8 +230,6 @@ surface that this TUI should consume:
 
 - `slimference codex desktop status --json` for CA, daemon, WSS counters, and
   Desktop live-proof state.
-- `slimference codex launch-desktop --transport=proxy` for the optimized
-  Desktop launch candidate.
 - `slimference codex launch-desktop --transport=proxy --with-ca-env` for the
   preferred Desktop proof branch that injects `CODEX_CA_CERTIFICATE` and generic
   CA hints only into the spawned Codex.app process.
@@ -251,9 +250,10 @@ claim.
   `slimference codex run --transport=auto --`, which starts the interactive
   Codex CLI through the scoped wrapper. Normal daily CLI launch can come from
   the TUI without a persistent shell alias.
-- `Launch Codex App` consumes `codex desktop status`; when the current live
-  state is `tls_trust_rejected`, the TUI blocks the Slimference Desktop launch
-  and tells the operator normal Finder launch remains direct.
+- `Launch Codex App` consumes `codex desktop status`; it launches
+  `--transport=proxy --with-ca-env` when CA material and daemon are available.
+  Historical `tls_trust_rejected` counters are shown as "retry CA-env" proof
+  state, not as green Desktop savings. Normal Finder launch remains direct.
 - `Savings` opens the existing Stats view. `Status` refreshes daemon, route,
   Desktop, and lab state. `Manage Slimference` opens the existing Setup view
   rather than creating a parallel management UI.

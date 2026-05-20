@@ -1511,3 +1511,56 @@ Remaining T244 work:
   control commands.
 - Decide cleanup for the moved-aside `slimference.dyld-stuck-*` file after the
   stuck OS processes are gone, likely after reboot.
+
+---
+
+## 2026-05-20 — T245 Non-Live CA/TUI Alignment
+
+Driver: the product install must stay one simple Codex package while avoiding
+unnecessary macOS Keychain gating for the proven scoped CLI WSS path and the
+preferred Desktop `--with-ca-env` diagnostic path.
+
+Implemented:
+- `SetupState.IsHealthy()` no longer treats macOS Keychain trust as a core
+  product-health requirement. CA material, daemon, listener, and route state
+  remain visible; Keychain trust is a separate Desktop/Lab fallback signal.
+- `slimference codex desktop status` now reports
+  `slimference codex launch-desktop --transport=proxy --with-ca-env` as the
+  Desktop proof command.
+- Missing CA material still blocks Desktop diagnostics. Missing Keychain trust
+  is now a note, not a gate, because the preferred proof injects
+  `CODEX_CA_CERTIFICATE` and related process-local CA env vars.
+- Historical zero-byte `tls_trust_rejected` WSS counters no longer make the TUI
+  permanently block the Desktop menu action. The Launch Center can retry the
+  process-local CA-env diagnostic, but it still must not claim Desktop savings
+  until bytes and WSS frames are live-proven.
+- TUI setup wording now says `CA material + launchd + Codex hooks`; it no
+  longer asks users to trust a CA for normal CLI WSS.
+
+Safe probes:
+- `slimference codex desktop status --json` returned
+  `mode=ready_for_live_desktop_probe`, `daemon_reachable=true`,
+  `launch_command="slimference codex launch-desktop --transport=proxy --with-ca-env"`,
+  and all WSS error counters at 0.
+- `slimference codex launch-desktop --transport=proxy --with-ca-env --probe`
+  emitted process-local proxy env plus `CODEX_CA_CERTIFICATE`,
+  `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
+  `NODE_EXTRA_CA_CERTS`.
+- `slimference install --dry-run --json` kept the unified product install
+  order: `ca.generate`, `launchd.install`, `hooks.codex`, `notice.codex`.
+
+Verification:
+- `go test ./cmd/slimference -run 'CodexDesktop|LaunchCodexApp|LaunchCenter|Setup|Status|Install|CA' -count=1`
+  passed.
+- `go test ./internal/control ./internal/tui ./docs -count=1` passed.
+- `go test ./... -count=1` passed.
+- `go vet ./...` passed.
+- `go run ./scripts/ci` passed all 8 gates. Aggregate statement coverage was
+  99.5% with the current 95.0% hard gate.
+
+Decision:
+- CLI WSS remains the proven max-savings product path and does not need
+  Keychain trust.
+- Desktop via Slimference remains proof-gated. The next live-only step is T242:
+  launch Codex.app through `--with-ca-env`, send a prompt, and verify lsof plus
+  `/admin/state.wss` pre/post deltas before claiming Desktop savings.

@@ -87,7 +87,7 @@ Phase-F savings.
 - [ ] If managed `network.proxy_url` is plausible for conversation traffic,
   design a non-persistent probe; otherwise document why it is command-sandbox
   only.
-- [ ] Cross-check T245 CA state wording: missing CA must block only Desktop
+- [x] Cross-check T245 CA state wording: missing CA must block only Desktop
   proxy/lab probes, never scoped CLI WSS.
 - [ ] Update T239 Launch Codex App menu-state vocabulary with the final result:
   `desktop-proxy-proven`, `desktop-ca-env-probe`, or `desktop-direct-only`.
@@ -107,6 +107,17 @@ The Desktop menu item remains useful as the steering surface, but success means
 real bytes and WSS frames through Slimference. CA env present, Keychain trusted,
 provider badge, or CONNECT accepted are only precondition signals, not proof of
 savings.
+
+2026-05-20 non-live update:
+
+- TUI Launch Codex App now calls
+  `slimference codex launch-desktop --transport=proxy --with-ca-env`.
+- Missing CA material still blocks Desktop diagnostics, but missing Keychain
+  trust does not block the preferred Desktop probe and never affects CLI WSS.
+- Historical `tls_trust_rejected` counters no longer permanently block the TUI
+  launch path; they are shown as a process-local CA-env retry/proof state. A
+  future live run must still prove bytes, frames, and zero errors before Desktop
+  savings can be claimed.
 
 The preferred branch is now:
 

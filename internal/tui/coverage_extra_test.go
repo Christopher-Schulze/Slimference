@@ -399,8 +399,8 @@ func TestRenderSetupView_TransparentArmedAndTrustMissing(t *testing.T) {
 	untrusted.view = ViewSetup
 	untrusted.width = 100
 	untrusted.SetServiceControl(&mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}})
-	if view := untrusted.renderSetupView(); !strings.Contains(view, "trusted CA") {
-		t.Fatalf("untrusted setup view missing trusted CA: %s", view)
+	if view := untrusted.renderSetupView(); !strings.Contains(view, "Keychain trust") {
+		t.Fatalf("untrusted setup view missing CA material guidance: %s", view)
 	}
 }
 

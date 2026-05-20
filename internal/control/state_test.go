@@ -137,15 +137,15 @@ func TestIsHealthyMissingCA(t *testing.T) {
 	}
 }
 
-func TestIsHealthyMissingKeychain(t *testing.T) {
+func TestIsHealthyDoesNotRequireKeychainTrust(t *testing.T) {
 	s := SetupState{
 		CA:           CAState{Installed: true, InKeychain: false},
 		Daemon:       DaemonState{Running: true, HealthOK: true},
 		Listener:     ListenerState{BoundOn443: true},
 		NetworkRedir: NetworkState{HostsActive: true},
 	}
-	if s.IsHealthy() {
-		t.Errorf("missing keychain → unhealthy")
+	if !s.IsHealthy() {
+		t.Errorf("Keychain trust is not part of aggregate health")
 	}
 }
 

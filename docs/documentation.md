@@ -69,12 +69,13 @@ payload is shorter and schema-safe.
   ChatGPT.app direct.
 - **Codex Desktop**: the app remains direct when launched normally from
   Finder/Spotlight. The process-local proof path is
-  `slimference codex launch-desktop --transport=proxy`, which sets proxy env
-  only for that spawned app process. The 2026-05-19 live proof showed CONNECT
-  reached Slimference but Codex.app closed before application bytes flowed,
-  so current Desktop mode is reported as `desktop_tls_blocked` /
-  `tls_trust_rejected`. Desktop savings must not be claimed until live `lsof`
-  plus `/admin/state.wss` prove conversation WSS reaches the daemon with zero
+  `slimference codex launch-desktop --transport=proxy --with-ca-env`, which
+  sets proxy and CA env only for that spawned app process. The 2026-05-19 live
+  proof showed CONNECT reached Slimference but Codex.app closed before
+  application bytes flowed. That historical `desktop_tls_blocked` /
+  `tls_trust_rejected` state is treated as a CA-env retry/proof state, not as
+  green savings. Desktop savings must not be claimed until live `lsof` plus
+  `/admin/state.wss` prove conversation WSS reaches the daemon with zero
   parser/degrade/compression errors and real mutation counters.
 - **Global transparent lab**: `cert-trust`, `root-arm
   --global-chatgpt-hosts`, `enable`, `disable`, and `root-disarm` still
@@ -1159,12 +1160,15 @@ of creating a second TUI.
 
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`. Launch Codex App is capability-gated from
-`codex desktop status`: it may launch a diagnostic proxy session, but if the
-current machine is in `desktop_tls_blocked` / `tls_trust_rejected` state the
-TUI refuses to sell it as a savings path and leaves normal Finder/Spotlight
-Codex.app launches direct. Manage Slimference owns install, repair, route,
-daemon, CA, lab controls, and the guided "Repair Codex CLI WSS savings" action
-that calls the same recert core as the CLI/background path.
+`codex desktop status`: it launches the process-local
+`--transport=proxy --with-ca-env` diagnostic path when CA material and daemon are
+available, but never claims Desktop savings until live lsof plus WSS counters
+prove bytes and frames. Historical `desktop_tls_blocked` /
+`tls_trust_rejected` counters are shown as a retry/proof state, not as a
+Savings-green state. Normal Finder/Spotlight Codex.app launches remain direct.
+Manage Slimference owns install, repair, route, daemon, CA, lab controls, and
+the guided "Repair Codex CLI WSS savings" action that calls the same recert core
+as the CLI/background path.
 
 ### Keybindings
 
@@ -1447,7 +1451,9 @@ subprotocol. Sideband WebSockets stay byte-equal.
 `slimference codex desktop status` reports the CA gate, daemon reachability,
 WSS counters, whether a live Desktop conversation proof has been observed, and
 the zero-byte CONNECT/TLS-root-store blocked state when historical counters show
-the current Codex.app rejection mode.
+the current Codex.app rejection mode. macOS Keychain trust is not required for
+the preferred process-local Desktop probe; it remains a Desktop/Lab fallback
+only.
 
 WSS auto-promotion is local-proof gated. `slimference codex certify wss`
 reads `/admin/state`, refuses to write when WSS parse failures, degraded

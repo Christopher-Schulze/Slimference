@@ -50,7 +50,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 	if actions[0].label != "Launch Codex CLI" || actions[0].state != "WSS savings" {
 		t.Fatalf("CLI action=%+v", actions[0])
 	}
-	if actions[1].label != "Launch Codex App" || actions[1].state != "blocked" {
+	if actions[1].label != "Launch Codex App" || actions[1].state != "CA-env retry" {
 		t.Fatalf("App action=%+v", actions[1])
 	}
 	if got := findDashboardActionIndex(actions, "daemon"); got >= 0 {
@@ -124,8 +124,9 @@ func TestLaunchCenterStateVocabularyBranches(t *testing.T) {
 		state  string
 		desc   string
 	}{
+		{CodexDesktopStatus{FailureClass: "tls_trust_rejected"}, "CA-env retry", "CODEX_CA_CERTIFICATE"},
 		{CodexDesktopStatus{FailureClass: "ca_missing"}, "CA needed", "CA"},
-		{CodexDesktopStatus{FailureClass: "ca_untrusted"}, "CA needed", "CA trust"},
+		{CodexDesktopStatus{FailureClass: "ca_untrusted"}, "CA-env ready", "process-local"},
 		{CodexDesktopStatus{FailureClass: "daemon_unreachable"}, "daemon off", "daemon"},
 		{CodexDesktopStatus{Mode: "ready_for_live_desktop_probe"}, "diagnostic", "diagnostic"},
 		{CodexDesktopStatus{Mode: "proxy_wss_needs_review", ConversationObserved: true}, "review", "review"},
@@ -223,17 +224,17 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 		}
 	}
 
-	enableFail := NewModel(newMockProxy())
-	enableFail.SetServiceControl(&mockServiceControl{
+	retryDiagnostic := NewModel(newMockProxy())
+	retryDiagnostic.SetServiceControl(&mockServiceControl{
 		codexDesktopStatus: CodexDesktopStatus{
 			Mode:         "desktop_tls_blocked",
 			FailureClass: "tls_trust_rejected",
 		},
 	})
-	enableFail.mainCursor = findDashboardActionIndex(enableFail.dashboardActions(), "launch_app")
-	_ = enableFail.executeMainSelection()
-	if !strings.Contains(enableFail.flashMsg, "tls_trust_rejected") {
-		t.Fatalf("desktop blocked flash=%q", enableFail.flashMsg)
+	retryDiagnostic.mainCursor = findDashboardActionIndex(retryDiagnostic.dashboardActions(), "launch_app")
+	_ = retryDiagnostic.executeMainSelection()
+	if !strings.Contains(retryDiagnostic.flashMsg, "Codex App launch requested") {
+		t.Fatalf("desktop retry flash=%q", retryDiagnostic.flashMsg)
 	}
 
 	disableFail := NewModel(newMockProxy())

@@ -85,12 +85,14 @@ func Build(ctx context.Context, p Probes) SetupState {
 }
 
 // IsHealthy reports whether the aggregate state suggests a working
-// install. "Healthy" means: CA installed + in keychain, daemon
+// transparent/lab install. "Healthy" means: CA material installed, daemon
 // running + healthy, transparent listener bound, network redirect armed.
-// Per-app integration status doesn't count toward IsHealthy (apps
-// can be intentionally off).
+// Keychain trust is reported separately because the scoped Codex CLI WSS path
+// and the Desktop --with-ca-env probe do not require macOS Keychain trust.
+// Per-app integration status doesn't count toward IsHealthy (apps can be
+// intentionally off).
 func (s SetupState) IsHealthy() bool {
-	if !s.CA.Installed || !s.CA.InKeychain {
+	if !s.CA.Installed {
 		return false
 	}
 	if !s.Daemon.Running || !s.Daemon.HealthOK {
