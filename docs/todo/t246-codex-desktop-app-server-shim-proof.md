@@ -250,6 +250,13 @@ through it.
   phasef-via-counter, errored-phasef, and the launchable status mapping. Net: the
   TUI Launch Codex App gate is reliably satisfiable; engineering for T246 is
   complete.
+- Adjacent finding (not T246 work): `TestStartCodexDesktopProcessRejectsImmediateExit`
+  (`codex_desktop_launcher_test.go`) is timing-flaky under full-suite parallel load -
+  it failed once in a full `go test ./...` run but passes 5/5 in isolation. The
+  start-probe (`codexDesktopStartProbeDelay` + `syscall.Wait4` WNOHANG) races the
+  fake process's immediate exit. Pre-existing (last touched `e1633ef`), not caused by
+  the shim/gate changes. If it trips CI, it is a flake, not a regression; worth making
+  the probe deterministic in a future cleanup.
 
 Source inspection facts:
 

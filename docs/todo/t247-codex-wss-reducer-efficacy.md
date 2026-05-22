@@ -42,6 +42,14 @@ reduce in a single delta request.
 - [x] Fix `wsCodexSessionID` to extract `prompt_cache_key` /
   `client_metadata.x-codex-turn-metadata` so the per-session read context keys
   correctly (`b5213e8`). Necessary but not sufficient.
+- [ ] FIRST (cheapest, highest-certainty): reproduce the cert's single mutation.
+  The persisted cert was issued 2026-05-22 with `frames_reencoded: 1` on this same
+  delta model. Re-run the exact recert/cert path (`slimference codex certify wss` /
+  the recert trigger in `codex_recert.go`) on a fresh daemon, close cleanly, and
+  check the flushed counters. If `frames_reencoded:1` reproduces, trace WHICH frame
+  mutated and why - that is the one thing that currently works and anchors the fix.
+  If it does NOT reproduce, the cert was issued under non-reproducible conditions
+  and that itself is the finding.
 - [ ] Make the read-delta reducer compact a `function_call_output` tool-output
   delta against the prior tool output of the same command/file remembered in the
   per-session context (resolve the tool_use via `rememberToolUsesFromResponse`,
@@ -66,6 +74,13 @@ reduce in a single delta request.
   already require `frames_reencoded>0` + `compressed_messages_mutated>0` +
   `mutation_active=true` + `byte_bridge_only=false`; today they pass only on a
   single mutated frame. T247 should make them pass on representative real sessions.
+- DO NOT chase the big repeated block. The ~117KB body is mostly `instructions`
+  (system prompt) + `tools` (definitions), repeated near-identically every request -
+  it looks like the giant savings lever, but `prompt_cache_key` is exactly OpenAI's
+  server-side prompt cache for that pattern: they already discount it, so local
+  dedup of it saves the user nothing billable. The REAL lever is the tool-output
+  deltas across turns (`function_call_output`), which prompt cache does not help -
+  that is where T247 must focus.
 - Open higher-order question: if even content-rich sessions never mutate after the
   reducer work, then WSS Phase-F is the wrong lever for Codex and savings must come
   from other layers - decide and document that honestly for T240 release certification.
