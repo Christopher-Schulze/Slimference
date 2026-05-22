@@ -2350,3 +2350,57 @@ Conclusion (honest, product-wide):
   measured mutation, not on `wss_certified=true` alone. Other layers (output
   reduce, response cache, L0 filters) may carry most real savings and should be
   measured separately before T240 certifies a savings number.
+
+---
+
+## 2026-05-23 — T246/T247 ROOT CAUSE: why WSS Phase-F barely mutates (Responses-API delta model)
+
+Found the architectural reason mutation is ~0, by dumping exactly what the
+reducer receives (temporary env-gated `SLIMFERENCE_WSPHASEF_DEBUG` dump in
+`wsmitm_phasef.go:handleRequest`, since reverted) on a real CLI WSS session that
+read a file twice.
+
+What the reducer actually gets (real Codex WSS request bodies, captured to
+`/tmp/wsphasef-body-*.json`):
+- Top keys: `type, model, instructions, previous_response_id, input, tools,
+  tool_choice, ..., prompt_cache_key, client_metadata`.
+- It is the OpenAI **Responses API with `previous_response_id`**: server-side
+  conversation state. Each request carries only the DELTA, not the accumulated
+  history. Observed request sequence in one turn: `input=[]` (init) ->
+  `input=[message,message,message]` (developer+user) -> `input=[function_call_output]`
+  (the file-read result, alone) -> `input=[function_call_output]` again. No request
+  contained repeated history.
+- Extraction was poor/empty: a 117KB body extracted to `messages=1,
+  tool_results=0`; the `function_call_output` requests extracted to `messages=1,
+  tool_results=1, tool_uses=0`.
+
+Why `frames_reencoded=0` / `compressed_messages_mutated=0`:
+1. Slimference's L1/L0 dedup reducers (`applyProxyLayer0WithSessionAndToolUses`,
+   read-delta, MinHash dedup) are built for the Chat-Completions shape where the
+   FULL history (with repeated tool outputs) is in every request, so repetition is
+   visible within one request. Codex WSS sends DELTAS, so a single request has no
+   self-repetition to dedup.
+2. The cross-request fix exists in principle (per-session read context +
+   `rememberToolUsesFromResponse`), but `wsCodexSessionID` returned "" for every
+   Codex WSS request: it looked for `conversation_id`/`session_id`/`user_id`, while
+   Codex's stable key is `prompt_cache_key` (mirrored in
+   `client_metadata.x-codex-turn-metadata`). With an empty key the per-session
+   read-delta context could not accumulate across the delta requests.
+
+Fix landed (commit `b5213e8`): `wsCodexSessionID` now extracts `prompt_cache_key`
+(and `client_metadata.x-codex-turn-metadata` thread/session id). Verified the
+session key is now populated (`codex-wss:019e51d6-...`). NECESSARY but NOT yet
+SUFFICIENT: mutation still 0 after the fix, because the read-delta still does not
+match the `function_call_output` deltas (the function_call/tool_use that resolves
+the command line lives in a prior response referenced by `previous_response_id`,
+and the read-delta matching across delta requests needs work).
+
+CONCLUSION / next work (new task T247): make the WSS Phase-F reducers actually
+reduce the Responses-API delta shape - resolve `function_call_output` tool results
+against remembered tool_uses, key the read-delta/dedup context by the now-correct
+session id, and compact a new tool-output delta against the remembered prior one.
+This applies to CLI and Desktop identically (same route). Until then, honest
+status: Codex WSS routes through Slimference and is inspected cleanly, but Phase-F
+token savings are marginal; Desktop is route-ready, savings pending T247. Also
+flagged: `TestStartCodexDesktopProcessRejectsImmediateExit` is timing-flaky under
+full-suite load (passes 5/5 in isolation); pre-existing (last touched `e1633ef`).

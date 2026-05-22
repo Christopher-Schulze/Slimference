@@ -1425,6 +1425,19 @@ only and promotes the per-process Codex CLI runner for T209.
   Codex.app stays direct; voice/Browser/ChatGPT.app/computer-use/Claude untouched.
   Open: confirm one real end-to-end TUI Desktop launch with the user.
   Detail: `docs/todo/t246-codex-desktop-app-server-shim-proof.md`
+- [ ] **T247** Codex WSS Phase-F reducer efficacy (Responses-API delta model) —
+  measured 2026-05-23: WSS Phase-F INSPECTS real Codex traffic (CLI + Desktop) but
+  MUTATES ~0 (`frames_reencoded=0`, `compressed_messages_mutated=0`); the cert rests
+  on a single mutated frame. Root cause: Codex WSS is the Responses API with
+  `previous_response_id`, so requests carry only deltas (e.g.
+  `input=[function_call_output]`), while Slimference's L1/L0 dedup expects the full
+  history per request. Fixed the prerequisite (`b5213e8`): `wsCodexSessionID` now
+  keys the per-session read context from `prompt_cache_key`/`client_metadata`.
+  Remaining: make the read-delta reducer compact delta tool-outputs against the
+  remembered prior output, verify tool_use resolution, fixture-test against real
+  delta sequences, re-measure, and quantify other-layer savings. Determines whether
+  Slimference delivers real Codex token savings at all (CLI + Desktop).
+  Detail: `docs/todo/t247-codex-wss-reducer-efficacy.md`
 
 ### Sequencing within Phase H
 
