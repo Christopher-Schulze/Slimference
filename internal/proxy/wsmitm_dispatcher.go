@@ -65,10 +65,16 @@ type PhaseFDispatcher struct {
 type DispatcherCounters struct {
 	passthroughBridged atomic.Int64
 	mitmBridged        atomic.Int64
-	rejected           atomic.Int64
-	upstreamDialFail   atomic.Int64
-	bytesC2S           atomic.Int64
-	bytesS2C           atomic.Int64
+	// phasefBridged counts raw-scoped Codex WSS sessions that entered the
+	// Phase-F frame path (FrameBridge). It increments once per phasef
+	// conversation at upgrade time, so it is a reliable, lag-free signal that a
+	// Desktop/CLI conversation reached the savings route - unlike the byte/frame
+	// counters which accumulate during the turn and lag the sampled snapshot.
+	phasefBridged    atomic.Int64
+	rejected         atomic.Int64
+	upstreamDialFail atomic.Int64
+	bytesC2S         atomic.Int64
+	bytesS2C         atomic.Int64
 	// WSS-layer counters (T199-C2). Aggregated across all MITM sessions
 	// because individual Session.Snapshot is per-conversation and
 	// disappears when the conversation ends. These tick whenever a
@@ -95,6 +101,7 @@ type DispatcherCounters struct {
 type DispatcherTelemetry struct {
 	PassthroughBridged        int64 `json:"passthrough_bridged"`
 	MITMBridged               int64 `json:"mitm_bridged"`
+	PhasefBridged             int64 `json:"phasef_bridged"`
 	Rejected                  int64 `json:"rejected"`
 	UpstreamDialFail          int64 `json:"upstream_dial_failures"`
 	BytesC2S                  int64 `json:"bytes_c2s"`
@@ -122,6 +129,7 @@ func (d *PhaseFDispatcher) Snapshot() DispatcherTelemetry {
 	return DispatcherTelemetry{
 		PassthroughBridged:        d.counters.passthroughBridged.Load(),
 		MITMBridged:               d.counters.mitmBridged.Load(),
+		PhasefBridged:             d.counters.phasefBridged.Load(),
 		Rejected:                  d.counters.rejected.Load(),
 		UpstreamDialFail:          d.counters.upstreamDialFail.Load(),
 		BytesC2S:                  d.counters.bytesC2S.Load(),

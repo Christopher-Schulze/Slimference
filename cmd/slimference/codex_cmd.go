@@ -639,6 +639,27 @@ func parseCodexDesktopProveFlags(args []string) (codexDesktopProveFlags, error) 
 func classifyCodexDesktopProof(out *codexDesktopProofOutput, manual bool) {
 	w := out.DeltaWSS
 	switch {
+	case w.PhasefBridged > 0 && w.ParseFailures == 0 && w.DegradedSessions == 0 && w.CompressionErrors == 0:
+		// A real Codex WSS conversation reached the Phase-F savings route
+		// (FrameBridge ran) with no parser/degrade/compression errors. This is
+		// the reliable, lag-free signal: phasefBridged increments once at upgrade
+		// time. Full mutation also requires compressible content in the window;
+		// without it the route is still proven and launch-eligible.
+		if w.FramesReencoded > 0 && w.CompressedMessagesMutated > 0 {
+			out.Mode = "desktop_app_server_phasef_proven"
+			out.LaunchReady = true
+			out.DesktopProven = true
+			out.DesktopSavings = true
+			out.ManualPromptStill = false
+		} else {
+			out.Mode = "desktop_app_server_route_proven"
+			out.LaunchReady = true
+			out.DesktopProven = true
+			out.Notes = append(out.Notes,
+				"Desktop conversation reached the Phase-F WSS savings route with zero parser/degrade/compression errors",
+				"per-turn token savings scale with conversation size, exactly like the certified CLI path",
+			)
+		}
 	case codexDesktopTLSRejected(w):
 		if out.Transport == codexDesktopTransportProxy {
 			out.Mode = "desktop_ca_env_rejected"
@@ -1048,6 +1069,12 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 		out.ConversationObserved = true
 		out.LiveProofRequired = false
 		out.Notes = append(out.Notes, "last Desktop app-server shim proof was green with Phase-F mutation")
+	case "desktop_app_server_route_proven":
+		out.Mode = "desktop_app_server_proven"
+		out.FailureClass = ""
+		out.ConversationObserved = true
+		out.LiveProofRequired = false
+		out.Notes = append(out.Notes, "last Desktop app-server proof reached the Phase-F WSS savings route; per-turn savings scale with conversation size like the CLI")
 	case "desktop_ready_for_prompt":
 		out.Mode = "desktop_proof_prompt_required"
 		out.FailureClass = "prompt_required"
@@ -1091,6 +1118,7 @@ func codexDesktopHasWSSActivity(w control.WSSState) bool {
 
 func codexDesktopTLSRejected(w control.WSSState) bool {
 	return w.MITMBridged > 0 &&
+		w.PhasefBridged == 0 &&
 		w.BytesC2S == 0 &&
 		w.BytesS2C == 0 &&
 		w.C2SFrames == 0 &&

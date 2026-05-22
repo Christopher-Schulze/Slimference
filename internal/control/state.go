@@ -169,6 +169,7 @@ type WSSState struct {
 	EngineActive                 bool  `json:"engine_active"`
 	PassthroughBridged           int64 `json:"passthrough_bridged"`
 	MITMBridged                  int64 `json:"mitm_bridged"`
+	PhasefBridged                int64 `json:"phasef_bridged"`
 	Rejected                     int64 `json:"rejected"`
 	UpstreamDialFail             int64 `json:"upstream_dial_failures"`
 	BytesC2S                     int64 `json:"bytes_c2s"`

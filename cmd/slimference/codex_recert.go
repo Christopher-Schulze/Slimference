@@ -386,6 +386,7 @@ func codexSetupDelta(before, after control.SetupState) control.SetupState {
 	out := after
 	out.WSS.PassthroughBridged = counterDelta(before.WSS.PassthroughBridged, after.WSS.PassthroughBridged)
 	out.WSS.MITMBridged = counterDelta(before.WSS.MITMBridged, after.WSS.MITMBridged)
+	out.WSS.PhasefBridged = counterDelta(before.WSS.PhasefBridged, after.WSS.PhasefBridged)
 	out.WSS.Rejected = counterDelta(before.WSS.Rejected, after.WSS.Rejected)
 	out.WSS.UpstreamDialFail = counterDelta(before.WSS.UpstreamDialFail, after.WSS.UpstreamDialFail)
 	out.WSS.BytesC2S = counterDelta(before.WSS.BytesC2S, after.WSS.BytesC2S)

@@ -303,6 +303,7 @@ func New(cfg *config.Config) *Proxy {
 		FrameBridge: func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {
 			p.SetWSSDispatcher(scopedWSSDispatcher)
 			scopedWSSDispatcher.counters.mitmBridged.Add(1)
+			scopedWSSDispatcher.counters.phasefBridged.Add(1)
 			return scopedWSSDispatcher.runWSMITM(ctx, client, upstream, opts)
 		},
 		ByteBridge: func(ctx context.Context, client, upstream net.Conn, opts WebSocketBridgeOptions) error {

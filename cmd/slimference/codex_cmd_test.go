@@ -1220,6 +1220,35 @@ func TestCodexDesktopProvePhaseFPassesAndBridgeStaysNonSavings(t *testing.T) {
 			wantMode: "desktop_app_server_wss_bridge",
 			savings:  false,
 		},
+		{
+			// phasefBridged>0 with mutation: full green via the reliable counter.
+			name: "phasef_via_phasefbridged",
+			after: control.WSSState{
+				MITMBridged:               1,
+				PhasefBridged:             1,
+				BytesC2S:                  100,
+				BytesS2C:                  200,
+				FramesReencoded:           1,
+				CompressedMessagesMutated: 1,
+			},
+			wantRC:   0,
+			wantMode: "desktop_app_server_phasef_proven",
+			savings:  true,
+		},
+		{
+			// phasefBridged>0, zero errors, no mutation: the conversation reached
+			// the Phase-F savings route (launch-eligible) even though a trivial
+			// turn had nothing to mutate. This is the reliable, lag-free verdict.
+			name: "route_proven_no_mutation",
+			after: control.WSSState{
+				MITMBridged:     1,
+				PhasefBridged:   1,
+				FramesForwarded: 5,
+			},
+			wantRC:   1,
+			wantMode: "desktop_app_server_route_proven",
+			savings:  false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			withCodexCmdStubs(t)
@@ -1246,6 +1275,29 @@ func TestCodexDesktopProvePhaseFPassesAndBridgeStaysNonSavings(t *testing.T) {
 				t.Fatalf("proof=%+v", got)
 			}
 		})
+	}
+}
+
+func TestApplyCodexDesktopLastProofRouteProvenIsLaunchable(t *testing.T) {
+	out := &codexDesktopStatusOutput{}
+	applyCodexDesktopLastProof(out, &codexDesktopProofOutput{
+		Transport: codexDesktopTransportAppServer,
+		Mode:      "desktop_app_server_route_proven",
+	})
+	if out.Mode != "desktop_app_server_proven" || out.FailureClass != "" || !out.ConversationObserved {
+		t.Fatalf("route-proven last proof must be launchable: %+v", out)
+	}
+}
+
+func TestClassifyCodexDesktopProofIgnoresPhasefBridgedWithErrors(t *testing.T) {
+	// A phasef session that also recorded parser errors must not be treated as
+	// route-proven; it falls through to the lower verdicts.
+	out := &codexDesktopProofOutput{DeltaWSS: control.WSSState{
+		PhasefBridged: 1, MITMBridged: 1, FramesForwarded: 5, ParseFailures: 2,
+	}}
+	classifyCodexDesktopProof(out, false)
+	if out.Mode == "desktop_app_server_route_proven" || out.Mode == "desktop_app_server_phasef_proven" {
+		t.Fatalf("errored phasef session must not be proven: %+v", out)
 	}
 }
 

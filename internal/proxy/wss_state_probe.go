@@ -38,6 +38,7 @@ func (p WSSProbe) ProbeWSS(_ context.Context) control.WSSState {
 		EngineActive:                 true,
 		PassthroughBridged:           snap.PassthroughBridged,
 		MITMBridged:                  snap.MITMBridged,
+		PhasefBridged:                snap.PhasefBridged,
 		Rejected:                     snap.Rejected,
 		UpstreamDialFail:             snap.UpstreamDialFail,
 		BytesC2S:                     snap.BytesC2S,
