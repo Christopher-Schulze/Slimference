@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Codex Desktop scoped launcher (T228/T238).
@@ -69,6 +71,8 @@ var (
 	codexDesktopBaseEnvFn = os.Environ
 	codexDesktopCATrustFn = codexDesktopCATrustState
 )
+
+var codexDesktopStartProbeDelay = 750 * time.Millisecond
 
 // codexDesktopEnvOverrideKeys is the set of env names this launcher
 // injects. We set ALL candidates defensively because no single name
@@ -384,17 +388,39 @@ func codexDesktopCATrustState() codexDesktopCAState {
 	return state
 }
 
-func startCodexDesktopProcess(p installPrinter, binary string, env []string) int {
+func newCodexDesktopCommand(binary string, env []string) *exec.Cmd {
 	cmd := exec.Command(binary)
+	cmd.Dir = filepath.Dir(binary)
 	cmd.Env = env
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return cmd
+}
+
+func startCodexDesktopProcess(p installPrinter, binary string, env []string) int {
+	cmd := newCodexDesktopCommand(binary, env)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(p.Err, "codex launch-desktop: spawn failed: %v\n", err)
 		return 1
 	}
 	pid := cmd.Process.Pid
+	if codexDesktopStartProbeDelay > 0 {
+		time.Sleep(codexDesktopStartProbeDelay)
+		var status syscall.WaitStatus
+		waitedPID, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
+		if err != nil {
+			_ = cmd.Process.Release()
+			fmt.Fprintf(p.Err, "codex launch-desktop: start verification failed for PID %d: %v\n", pid, err)
+			return 1
+		}
+		if waitedPID == pid {
+			_ = cmd.Process.Release()
+			fmt.Fprintf(p.Err, "codex launch-desktop: process exited during startup (PID %d, %s)\n", pid, formatCodexDesktopWaitStatus(status))
+			return 1
+		}
+	}
 	if err := cmd.Process.Release(); err != nil {
 		fmt.Fprintf(p.Err, "codex launch-desktop: release failed: %v\n", err)
 	}
@@ -402,6 +428,17 @@ func startCodexDesktopProcess(p installPrinter, binary string, env []string) int
 	fmt.Fprintln(p.Out, "Scope: only this Codex.app inherits the env. Browser ChatGPT, ChatGPT.app, Claude untouched.")
 	fmt.Fprintln(p.Out, "Reverse: quit Codex.app via Cmd+Q. Relaunch from Finder/Spotlight for direct routing.")
 	return 0
+}
+
+func formatCodexDesktopWaitStatus(status syscall.WaitStatus) string {
+	switch {
+	case status.Exited():
+		return fmt.Sprintf("exit=%d", status.ExitStatus())
+	case status.Signaled():
+		return fmt.Sprintf("signal=%s", status.Signal())
+	default:
+		return fmt.Sprintf("status=%d", status)
+	}
 }
 
 func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error) {

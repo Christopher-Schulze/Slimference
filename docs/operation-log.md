@@ -1564,3 +1564,58 @@ Decision:
 - Desktop via Slimference remains proof-gated. The next live-only step is T242:
   launch Codex.app through `--with-ca-env`, send a prompt, and verify lsof plus
   `/admin/state.wss` pre/post deltas before claiming Desktop savings.
+
+---
+
+## 2026-05-22 — T242 Partial Live Probe and Desktop Status Guard
+
+Driver: continue T242 from the Launch Center / Desktop CA-env path without
+letting CLI WSS recertification counters masquerade as Desktop proof.
+
+Implemented:
+- `codex launch-desktop` now starts Codex.app as a detached child process with
+  `Setsid`, uses the app bundle executable directory as `cmd.Dir`, and checks a
+  short startup window before reporting success.
+- If the spawned app exits immediately, the command now refuses with the
+  concrete wait status (`exit=N`, `signal=X`, or raw status) instead of printing
+  a false "launched" success.
+- `codex desktop status` now labels WSS telemetry as
+  `wss_counters_scope=daemon_cumulative_not_desktop_proof`.
+- `conversation_observed` stays `false` unless a future Desktop-specific proof
+  surface records a spawned-process pre/post delta. Daemon-wide WSS counters
+  from CLI recertification no longer make Desktop look green.
+
+Live evidence:
+- Rebuilt and installed with `go run ./scripts/build --install`; final
+  installed and repo binary SHA:
+  `0d100c55bea2c7b9a3a9fe527382602d3960e9e62e8fecfd227b652324837edf`.
+- Fresh daemon PID `22249` stayed healthy on `127.0.0.1:8990`.
+- `slimference codex recertify wss --operator=codex --notes="T246 live recert
+  after Codex 0.133.0 drift"` repaired Codex CLI WSS for current
+  `codex-cli 0.133.0`; `codex status --json` reported `auto.mode=wss_phasef`,
+  `auto.transport=wss`, `wss_certified=true`, and `needs_recert=false`.
+- `slimference codex run --transport=auto -- exec "Reply exactly:
+  T246_AUTO_WSS_OK"` returned `T246_AUTO_WSS_OK`; WSS counters remained clean
+  with `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `parse_failures=0`, `degraded_sessions=0`, and `compression_errors=0`.
+- `slimference codex launch-desktop --transport=proxy --with-ca-env --probe`
+  emitted the expected process-local proxy and CA env set, including
+  `CODEX_CA_CERTIFICATE`, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`,
+  `REQUESTS_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS`.
+- `slimference codex launch-desktop --transport=proxy --with-ca-env` launched
+  a stable Desktop main process. Its `codex app-server --analytics-default-
+  enabled` process connected to `127.0.0.1:8990`; Chromium NetworkService still
+  held unrelated direct TLS sockets.
+- During the observation window, `/admin/state.wss` did not move after launch:
+  the latest counters still matched the CLI recert/smoke state. No Desktop
+  prompt-tied WSS delta has been proven yet.
+- `~/.codex/config.toml` SHA during the probe:
+  `c61a7ae45052cf470110c591de7b54431269144f03060496771216c39cf3c53d`.
+
+Decision:
+- CLI path is green and max-savings WSS Phase-F for the current tuple.
+- Desktop launcher and process-local proxy preconditions are stronger, but
+  Desktop savings are still not claimed.
+- Next Desktop proof remains live-only: send a prompt in the spawned Codex.app,
+  capture pre/post WSS deltas and lsof for the app-server PID, then verify
+  normal Finder/Spotlight relaunch goes direct again.

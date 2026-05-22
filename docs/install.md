@@ -283,6 +283,11 @@ When the gate is green, launch:
 slimference codex launch-desktop --transport=proxy --with-ca-env
 ```
 
+The launcher starts the app as a detached process-local session, uses the
+Codex bundle executable directory as the child working directory, and waits for
+a short startup probe. If Codex.app exits immediately, the command fails and
+prints the exit status or signal instead of claiming a successful launch.
+
 The launcher sets `HTTP_PROXY`, `HTTPS_PROXY`, `WSS_PROXY`, `ALL_PROXY`,
 lowercase variants, `NO_PROXY=127.0.0.1,localhost,::1`,
 `CODEX_NETWORK_PROXY_ACTIVE=1`, `CODEX_CA_CERTIFICATE`, `SSL_CERT_FILE`,
@@ -306,6 +311,12 @@ no direct conversation socket to `chatgpt.com:443`, WSS activity with
 `parse_failures=0`, `degraded_sessions=0`, and `compression_errors=0`, plus
 mutation counters before any Desktop savings claim. Relaunching Codex.app from
 Finder/Spotlight must return to direct ChatGPT routing.
+
+Important: `/admin/state.wss` counters are daemon-wide. They can include
+Codex CLI recertification or smoke-test traffic. `slimference codex desktop
+status` therefore reports `wss_counters_scope=
+daemon_cumulative_not_desktop_proof` and keeps `conversation_observed=false`
+until a Desktop-specific pre/post delta is tied to the spawned app-server.
 
 As of the 2026-05-19 Codex.app 0.131 live proof, process-local proxy routing
 reaches Slimference at CONNECT time but the Desktop Rust client closes the

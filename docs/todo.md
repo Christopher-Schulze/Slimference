@@ -1366,11 +1366,16 @@ only and promotes the per-process Codex CLI runner for T209.
   proof evaluation, and bridge-proof fallback are landed. Live `codex-cli
   0.131.0` recert is green with Phase-F mutation and config hash stability.
   Detail: `docs/todo/t241-codex-update-resilient-certification.md`
-- [ ] **T242** Codex Desktop root-store and proxy compatibility matrix — run
-  the `--with-ca-env` Desktop probe with `CODEX_CA_CERTIFICATE` first, test
-  Codex's managed network-proxy and endpoint-hook surfaces, and settle whether
-  current Desktop can route conversation through Slimference without global lab
-  or upstream changes. Detail:
+- [~] **T242** Codex Desktop root-store and proxy compatibility matrix —
+  process-local `--with-ca-env` probe and launch are partially live-verified:
+  the detached Desktop launcher is stable and app-server reaches
+  `127.0.0.1:8990`, but no Desktop prompt-tied WSS counter delta is proven yet.
+  `codex desktop status` treats WSS counters as daemon-wide, not Desktop proof,
+  to avoid CLI recert traffic making Desktop look green. Remaining work: send a
+  prompt in the spawned Desktop app, collect pre/post lsof + WSS deltas, test
+  managed network-proxy and endpoint-hook surfaces, and settle whether current
+  Desktop can route conversation through Slimference without global lab or
+  upstream changes. Detail:
   `docs/todo/t242-codex-desktop-root-store-probe.md`
 - [~] **T243** WSS-first auto transport ladder — `transport=auto` now prefers
   `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct for scoped

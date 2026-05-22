@@ -979,7 +979,7 @@ func TestCodexDesktopStatusJSONReadyForLiveProbe(t *testing.T) {
 	}
 }
 
-func TestCodexDesktopStatusReportsObservedConversationStillRequiresLiveProof(t *testing.T) {
+func TestCodexDesktopStatusTreatsWSSCountersAsDaemonWideNotDesktopProof(t *testing.T) {
 	withCodexCmdStubs(t)
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		state := passingCodexCertificationState()
@@ -992,9 +992,10 @@ func TestCodexDesktopStatusReportsObservedConversationStillRequiresLiveProof(t *
 		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
 	}
 	if !strings.Contains(out.String(), "ready_for_live_desktop_probe") ||
-		!strings.Contains(out.String(), "conversation_observed=true") ||
-		!strings.Contains(out.String(), "pre/post counter diff") {
-		t.Fatalf("human status missing cumulative-counter warning: %q", out.String())
+		!strings.Contains(out.String(), "conversation_observed=false") ||
+		!strings.Contains(out.String(), "scope=daemon_cumulative_not_desktop_proof") ||
+		!strings.Contains(out.String(), "pre/post delta tied to the spawned Codex.app process") {
+		t.Fatalf("human status missing daemon-wide counter warning: %q", out.String())
 	}
 }
 
@@ -1064,8 +1065,12 @@ func TestCodexDesktopStatusAllowsUntrustedKeychainWithCAEnvAndReportsWSSErrors(t
 	if err := json.Unmarshal(out.Bytes(), &wssErr); err != nil {
 		t.Fatalf("json: %v", err)
 	}
-	if wssErr.Mode != "proxy_wss_needs_review" || wssErr.FailureClass != "wss_errors" {
+	if wssErr.Mode != "ready_for_live_desktop_probe" || wssErr.FailureClass != "" || wssErr.ConversationObserved {
 		t.Fatalf("wss error status=%+v", wssErr)
+	}
+	if wssErr.WSSCountersScope != "daemon_cumulative_not_desktop_proof" ||
+		!strings.Contains(strings.Join(wssErr.Notes, "\n"), "daemon-wide") {
+		t.Fatalf("wss error notes/scope not explicit: %+v", wssErr)
 	}
 }
 

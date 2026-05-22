@@ -81,6 +81,7 @@ type codexDesktopStatusOutput struct {
 	DaemonReachable      bool                `json:"daemon_reachable"`
 	DaemonError          string              `json:"daemon_error,omitempty"`
 	WSS                  control.WSSState    `json:"wss"`
+	WSSCountersScope     string              `json:"wss_counters_scope"`
 	LiveProofRequired    bool                `json:"live_proof_required"`
 	ConversationObserved bool                `json:"conversation_observed"`
 	LaunchCommand        string              `json:"launch_command"`
@@ -546,6 +547,7 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		Mode:              "not_ready",
 		ProxyURL:          proxyURL,
 		CATrust:           codexDesktopCATrustFn(),
+		WSSCountersScope:  "daemon_cumulative_not_desktop_proof",
 		LiveProofRequired: true,
 		LaunchCommand:     "slimference codex launch-desktop --transport=proxy --with-ca-env",
 	}
@@ -558,9 +560,11 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 	}
 	out.DaemonReachable = true
 	out.WSS = state.WSS
-	out.ConversationObserved = state.WSS.MITMBridged > 0 && state.WSS.CompressedMessagesInspected > 0
 	if out.CATrust.Exists && !out.CATrust.Trusted {
 		out.Notes = append(out.Notes, "Keychain trust is not required for the preferred process-local Desktop probe; launch uses --with-ca-env")
+	}
+	if codexDesktopHasWSSActivity(state.WSS) {
+		out.Notes = append(out.Notes, "WSS counters are daemon-wide and may include Codex CLI traffic; Desktop proof requires a pre/post delta tied to the spawned Codex.app process")
 	}
 	switch {
 	case !out.CATrust.Exists:
@@ -575,23 +579,32 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 			"the Launch Center may retry the process-local --with-ca-env diagnostic without claiming savings",
 			"normal Finder/Spotlight Codex.app launch remains direct and unaffected",
 		)
-	case out.ConversationObserved:
-		if state.WSS.ParseFailures != 0 || state.WSS.DegradedSessions != 0 || state.WSS.CompressionErrors != 0 {
-			out.Mode = "proxy_wss_needs_review"
-			out.FailureClass = "wss_errors"
-			out.Notes = append(out.Notes, "WSS counters show errors; review before treating this as zero-drawdown")
-			break
-		}
-		out.Mode = "ready_for_live_desktop_probe"
-		out.Notes = append(out.Notes,
-			"WSS counters are cumulative and may include Codex CLI traffic",
-			"Desktop proof still requires a pre/post counter diff plus lsof on the spawned Codex.app process",
-		)
 	default:
 		out.Mode = "ready_for_live_desktop_probe"
 		out.Notes = append(out.Notes, "launch Codex Desktop through the proxy mode and verify lsof plus /admin/state.wss")
 	}
 	return out
+}
+
+func codexDesktopHasWSSActivity(w control.WSSState) bool {
+	return w.MITMBridged != 0 ||
+		w.PassthroughBridged != 0 ||
+		w.BytesC2S != 0 ||
+		w.BytesS2C != 0 ||
+		w.C2SFrames != 0 ||
+		w.S2CFrames != 0 ||
+		w.FramesForwarded != 0 ||
+		w.FramesReencoded != 0 ||
+		w.CompressedMessagesInspected != 0 ||
+		w.CompressedMessagesMutated != 0 ||
+		w.CompressedMessagesBypassed != 0 ||
+		w.PhaseFRequests != 0 ||
+		w.PhaseFMutations != 0 ||
+		w.ParseFailures != 0 ||
+		w.DegradedSessions != 0 ||
+		w.CompressionErrors != 0 ||
+		w.UpstreamDialFail != 0 ||
+		w.Rejected != 0
 }
 
 func codexDesktopTLSRejected(w control.WSSState) bool {
@@ -633,6 +646,7 @@ func renderCodexDesktopStatus(w io.Writer, out codexDesktopStatusOutput) {
 	fmt.Fprintf(w, "  WSS       mitm=%d inspected=%d mutated=%d parse_failures=%d degraded=%d compression_errors=%d\n",
 		out.WSS.MITMBridged, out.WSS.CompressedMessagesInspected, out.WSS.CompressedMessagesMutated,
 		out.WSS.ParseFailures, out.WSS.DegradedSessions, out.WSS.CompressionErrors)
+	fmt.Fprintf(w, "            scope=%s\n", out.WSSCountersScope)
 	fmt.Fprintf(w, "  Proof     live_required=%v conversation_observed=%v\n", out.LiveProofRequired, out.ConversationObserved)
 	fmt.Fprintf(w, "  Launch    %s\n", out.LaunchCommand)
 	for _, note := range out.Notes {

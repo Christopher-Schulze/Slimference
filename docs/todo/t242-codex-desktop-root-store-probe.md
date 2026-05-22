@@ -1,6 +1,6 @@
 # TASK 242: Codex Desktop custom-CA env and proxy compatibility matrix
 
-Status: READY FOR LIVE PROBE
+Status: PARTIAL LIVE PROBE - launcher stable; Desktop prompt/WSS delta pending
 Priority: P0 after T238 zero-byte CONNECT classification
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
@@ -70,10 +70,16 @@ Phase-F savings.
 
 - [x] Update or verify the Desktop launcher so `--with-ca-env` injects
   `CODEX_CA_CERTIFICATE=<slimference-root.crt>` before generic CA env hints.
-- [~] Run `slimference codex launch-desktop --transport=proxy --with-ca-env
+- [x] Harden `codex launch-desktop` so it detaches from the caller, starts from
+  the Codex bundle executable directory, and refuses with the concrete exit or
+  signal if the spawned process dies during startup.
+- [x] Run `slimference codex launch-desktop --transport=proxy --with-ca-env
   --probe` and verify all process-local proxy and CA env hints are present.
-- [ ] Launch with `--with-ca-env`, send a prompt, collect lsof, WSS counters,
-  daemon log tail, config hash, and browser/ChatGPT.app direct controls.
+- [~] Launch with `--with-ca-env`, send a prompt, collect lsof, WSS counters,
+  daemon log tail, config hash, and browser/ChatGPT.app direct controls. Current
+  live state: spawned Desktop process stays alive and app-server connects to
+  `127.0.0.1:8990`; no Desktop prompt pre/post WSS counter delta has been
+  observed yet.
 - [ ] Test a direct Finder/Spotlight relaunch after cleanup and prove it is
   direct again.
 - [ ] Read current installed Codex.app strings and upstream Codex source for
@@ -118,6 +124,29 @@ savings.
   launch path; they are shown as a process-local CA-env retry/proof state. A
   future live run must still prove bytes, frames, and zero errors before Desktop
   savings can be claimed.
+
+2026-05-22 partial live update:
+
+- `codex launch-desktop` is now a real detached launcher: it sets the child
+  working directory to `Contents/MacOS`, starts a new session, releases the
+  child after a startup probe, and refuses early if the child exits before the
+  probe window closes. This closes the previous flaky state where the command
+  could print "launched" even for a short-lived process.
+- Live `--transport=proxy --with-ca-env --probe` emitted all expected
+  process-local proxy and CA hints. Live launch produced a stable Codex.app main
+  process plus app-server; lsof showed the app-server connecting to
+  `127.0.0.1:8990`. Chromium's NetworkService still kept unrelated direct TLS
+  sockets, so final proof must remain tied to app-server conversation deltas,
+  not generic helper sockets.
+- `codex desktop status` no longer treats daemon-wide WSS counters as Desktop
+  conversation proof. It now reports `wss_counters_scope=
+  daemon_cumulative_not_desktop_proof` and keeps `conversation_observed=false`
+  unless a future Desktop-specific proof surface records a spawned-process
+  pre/post delta. This prevents CLI recertification traffic from making Desktop
+  look green.
+- Current blocker is live-only: a human must send a prompt in the spawned
+  Desktop window and the probe must show a new Desktop-tied WSS counter delta.
+  Until then Desktop remains diagnostic, not a savings claim.
 
 The preferred branch is now:
 

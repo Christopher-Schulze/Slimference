@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -755,24 +757,70 @@ func TestCodexDesktopCATrustStateBranches(t *testing.T) {
 	}
 }
 
-func TestStartCodexDesktopProcessSpawnsRealBinary(t *testing.T) {
-	// Use /bin/echo as a benign stand-in for Codex.app. It exits quickly
-	// and never produces interactive UI, so the test stays hermetic.
-	if _, err := os.Stat("/bin/echo"); err != nil {
-		t.Skip("/bin/echo not present")
+func TestNewCodexDesktopCommandDetached(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "Codex.app", defaultCodexDesktopExecRelPath)
+	cmd := newCodexDesktopCommand(binary, []string{"PATH=/usr/bin", "FOO=bar"})
+
+	if cmd.Path != binary {
+		t.Fatalf("Path=%q want %q", cmd.Path, binary)
 	}
+	if cmd.Dir != filepath.Dir(binary) {
+		t.Fatalf("Dir=%q want %q", cmd.Dir, filepath.Dir(binary))
+	}
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setsid {
+		t.Fatalf("Codex Desktop launcher must detach into a new session, SysProcAttr=%+v", cmd.SysProcAttr)
+	}
+	if cmd.Stdin != nil || cmd.Stdout != nil || cmd.Stderr != nil {
+		t.Fatalf("stdio should stay nil so exec connects it to %s", os.DevNull)
+	}
+	if strings.Join(cmd.Env, "\n") != "PATH=/usr/bin\nFOO=bar" {
+		t.Fatalf("env=%v", cmd.Env)
+	}
+}
+
+func TestStartCodexDesktopProcessSpawnsDetachedBinary(t *testing.T) {
+	script := writeCodexDesktopTestScript(t, "#!/bin/sh\nsleep 30\n")
+	oldDelay := codexDesktopStartProbeDelay
+	t.Cleanup(func() { codexDesktopStartProbeDelay = oldDelay })
+	codexDesktopStartProbeDelay = 25 * time.Millisecond
+
 	var out, errBuf bytes.Buffer
 	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},
-		"/bin/echo", []string{"PATH=/usr/bin", "CHATGPT_CODEX_BASE_URL=http://x"})
+		script, []string{"PATH=/bin:/usr/bin", "CHATGPT_CODEX_BASE_URL=http://x"})
 	if rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
 	}
 	if !strings.Contains(out.String(), "Codex.app launched") {
 		t.Errorf("stdout missing success line: %q", out.String())
 	}
-	// /bin/echo exits immediately; wait a beat so the process reaper
-	// doesn't leave a zombie for parallel tests.
-	time.Sleep(50 * time.Millisecond)
+	var pid int
+	if _, err := fmt.Sscanf(out.String(), "Codex.app launched (PID %d)", &pid); err != nil {
+		t.Fatalf("parse launch pid from %q: %v", out.String(), err)
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		t.Fatalf("find process %d: %v", pid, err)
+	}
+	_ = proc.Kill()
+	var status syscall.WaitStatus
+	_, _ = syscall.Wait4(pid, &status, 0, nil)
+}
+
+func TestStartCodexDesktopProcessRejectsImmediateExit(t *testing.T) {
+	script := writeCodexDesktopTestScript(t, "#!/bin/sh\nexit 0\n")
+	oldDelay := codexDesktopStartProbeDelay
+	t.Cleanup(func() { codexDesktopStartProbeDelay = oldDelay })
+	codexDesktopStartProbeDelay = 25 * time.Millisecond
+
+	var out, errBuf bytes.Buffer
+	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},
+		script, []string{"PATH=/usr/bin"})
+	if rc != 1 {
+		t.Fatalf("rc=%d want 1; stdout=%q stderr=%q", rc, out.String(), errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "process exited during startup") || !strings.Contains(errBuf.String(), "exit=0") {
+		t.Fatalf("stderr missing early-exit proof: %q", errBuf.String())
+	}
 }
 
 func TestStartCodexDesktopProcessSpawnFailure(t *testing.T) {
@@ -816,4 +864,14 @@ func TestRunCodexLaunchDesktopProbeRealAppPresent(t *testing.T) {
 	if !strings.HasPrefix(probe.OverrideURL, "http://127.0.0.1:8990/") {
 		t.Errorf("default override URL host=%q", probe.OverrideURL)
 	}
+}
+
+func writeCodexDesktopTestScript(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codex-desktop-test")
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
