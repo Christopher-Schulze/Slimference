@@ -366,5 +366,43 @@ func wsCodexSessionID(body []byte) string {
 			}
 		}
 	}
+	// Codex WSS (Responses API) carries no top-level conversation_id; the stable
+	// per-thread key is `prompt_cache_key`, with `client_metadata`'s
+	// `x-codex-turn-metadata` JSON holding the same session/thread id. Without
+	// this, the per-session read-delta context cannot accumulate across the
+	// delta-shaped Responses requests (each request sends only new input items
+	// plus `previous_response_id`), so repeated file reads are never compacted.
+	if s := rawJSONString(raw["prompt_cache_key"]); s != "" {
+		return "codex-wss:" + s
+	}
+	if s := codexTurnMetadataSessionID(raw["client_metadata"]); s != "" {
+		return "codex-wss:" + s
+	}
+	return ""
+}
+
+// codexTurnMetadataSessionID pulls the stable thread/session id out of Codex's
+// `client_metadata.x-codex-turn-metadata` (a JSON string).
+func codexTurnMetadataSessionID(clientMetadata json.RawMessage) string {
+	if len(clientMetadata) == 0 {
+		return ""
+	}
+	var cm map[string]json.RawMessage
+	if err := json.Unmarshal(clientMetadata, &cm); err != nil {
+		return ""
+	}
+	turnRaw := rawJSONString(cm["x-codex-turn-metadata"])
+	if turnRaw == "" {
+		return ""
+	}
+	var turn map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(turnRaw), &turn); err != nil {
+		return ""
+	}
+	for _, key := range []string{"thread_id", "session_id"} {
+		if s := rawJSONString(turn[key]); s != "" {
+			return s
+		}
+	}
 	return ""
 }

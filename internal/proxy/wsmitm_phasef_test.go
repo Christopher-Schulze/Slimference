@@ -845,6 +845,26 @@ func TestWSCodexSessionIDFallbacks(t *testing.T) {
 	}
 }
 
+func TestWSCodexSessionIDFromCodexResponsesShape(t *testing.T) {
+	// Real Codex WSS (Responses API) carries no conversation_id; the stable
+	// per-thread key is prompt_cache_key, mirrored in client_metadata's
+	// x-codex-turn-metadata. Both must resolve so the per-session read-delta
+	// context can accumulate across delta-shaped requests.
+	pck := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_x","prompt_cache_key":"019e51d4-38fa-72c3-9212-69ed7d8936a0","input":[]}`)
+	if got := wsCodexSessionID(pck); got != "codex-wss:019e51d4-38fa-72c3-9212-69ed7d8936a0" {
+		t.Fatalf("prompt_cache_key not used as session key: %q", got)
+	}
+	cm := []byte(`{"model":"gpt-5.5","client_metadata":{"x-codex-turn-metadata":"{\"session_id\":\"019e51d6-cf3b-7301-b492-aaaaaaaaaaaa\",\"thread_id\":\"019e51d6-cf3b-7301-b492-aaaaaaaaaaaa\"}"}}`)
+	if got := wsCodexSessionID(cm); got != "codex-wss:019e51d6-cf3b-7301-b492-aaaaaaaaaaaa" {
+		t.Fatalf("client_metadata thread/session id not used: %q", got)
+	}
+	// prompt_cache_key wins over client_metadata when both present (stable key).
+	both := []byte(`{"prompt_cache_key":"pck-key","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"tm-key\"}"}}`)
+	if got := wsCodexSessionID(both); got != "codex-wss:pck-key" {
+		t.Fatalf("prompt_cache_key should win: %q", got)
+	}
+}
+
 func findCodexWSSTreatmentConversation(t *testing.T, p *Proxy) string {
 	t.Helper()
 	if p.qualityAB == nil {
