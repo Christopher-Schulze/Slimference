@@ -2039,3 +2039,59 @@ Verdict (now evidence-backed against 0.133.0, not header comments):
 - Decision unchanged and now hard-proven: Desktop stays direct/no-drawback, TUI
   `Launch Codex App` stays blocked for Slimference mode, savings focus is Codex
   CLI plus T239/T240.
+
+---
+
+## 2026-05-22 — T246 Desktop ROUTING BREAKTHROUGH (commit `9dcf8f4`)
+
+The earlier "Desktop conversation is hardcoded to chatgpt.com" conclusion was
+incomplete. A deeper diagnosis found a clean, in-band fix.
+
+Diagnosis:
+- A throwaway stdio tee (`CODEX_CLI_PATH` -> tee -> real codex, captured to
+  `/tmp/electron-stdin.raw`) recorded what Codex Desktop's Electron client sends.
+- Framing is newline-delimited JSON (not Content-Length).
+- The conversation `thread/start` carries `model="gpt-5.5"` and
+  `modelProvider=null`. `null` resolves to the account default provider
+  (`openai` -> chatgpt.com direct), overriding the shim's `-c model_provider`
+  default. The thread/start response confirmed effective `modelProvider="openai"`
+  and zero raw-scoped WSS upgrades.
+- Disproven first: the model is not bound to chatgpt.com — `gpt-5.5` via CLI
+  `codex exec` with the green provider block routes through Slimference WSS with
+  Phase-F (`phasef_req` advanced).
+- A direct app-server drive (no Electron) with `modelProvider="slimference-codex"`
+  routed `gpt-5.5` through Slimference: thread/start response echoed
+  `modelProvider="slimference-codex"`, 7 sockets to `127.0.0.1:8990`, a real
+  NONCE-tagged answer, `phasef_req+2`. So the app-server honors the provider when
+  set; only Electron's `null` was the blocker.
+
+Fix (`cmd/slimference/codex_desktop_app_server_shim.go`):
+- The hidden shim is now a thin stdin JSON-RPC mediator instead of a bare exec.
+  It rewrites a default (null/absent) `thread/start` `modelProvider` to
+  `slimference-codex`, byte-identical for everything else. stdout/stderr pass
+  through directly. Realtime/voice threads
+  (`config["features.realtime_conversation"]`) and explicit provider choices are
+  left untouched; any parse ambiguity fails open to the original bytes. The two
+  dead top-level `openai_base_url`/`chatgpt_base_url` overrides were removed.
+- Verified: `go test ./...` 6684 pass, `go vet ./...` clean.
+
+Live proof after the fix (mediated shim, real Desktop prompt):
+- The app-server held 6 connections to `127.0.0.1:8990` and ZERO direct
+  `chatgpt.com` sockets (was direct before the fix). WSS frames flowed
+  (`c2s_frames`, `s2c_frames`, `bytes_c2s=11374`, `bytes_s2c=2999`).
+- The Desktop conversation now rides the Slimference WSS path. Core blocker
+  solved.
+
+Remaining (savings not yet active):
+- The routed session is byte-bridged, not Phase-F mutated:
+  `phasef_requests=0`, `frames_reencoded=0`, `byte_bridge_only=true`.
+- CLI `codex exec` and a direct app-server drive WITHOUT Electron's feature-flag
+  `config` both reach Phase-F, so Electron's `thread/start` `config` flags
+  (candidate `features.enable_request_compression=true`) likely change the WSS
+  request-frame format so the Phase-F parser does not recognize request
+  envelopes and safely byte-bridges instead.
+- Next step: capture the Desktop WSS request frames (socket/tcpdump ground
+  truth, not the laggy desktop-status counters), then either neutralize the
+  responsible flag in the shim's thread/start `config` or teach the Phase-F
+  parser the variant. TUI Launch Codex App stays blocked until a green
+  `desktop_app_server_phasef_proven` (bytes + frames + mutation) result exists.

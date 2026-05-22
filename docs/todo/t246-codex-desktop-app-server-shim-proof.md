@@ -1,6 +1,6 @@
 # TASK 246: Codex Desktop app-server shim proof
 
-Status: IMPLEMENTED INFRASTRUCTURE - LIVE BLOCKED FOR CURRENT CODEX.APP
+Status: ROUTING SOLVED (thread/start provider rewrite, live-proven) - PHASE-F SAVINGS ACTIVATION PENDING
 Priority: P0 before any Desktop savings claim or T240 release certification
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
@@ -168,6 +168,34 @@ through it.
   finish label (this run mislabeled `desktop_app_server_wss_bridge` despite zero
   desktop upgrades); a trustworthy Desktop proof needs desktop-scoped counters.
   Full evidence in `docs/operation-log.md` (2026-05-22 Phase-0 entry).
+- 2026-05-22 ROOT CAUSE + ROUTING FIX (commit `9dcf8f4`). A throwaway stdio tee
+  (CODEX_CLI_PATH -> tee -> real codex) captured what Codex Desktop's Electron
+  client sends. The conversation `thread/start` carries `model="gpt-5.5"` and
+  `modelProvider=null`; null resolves to the account default provider `openai`
+  (chatgpt.com direct), overriding the shim's `-c model_provider` default. The
+  provider badge was cosmetic. Framing is newline-delimited JSON (verified). A
+  direct app-server drive with `modelProvider="slimference-codex"` routed gpt-5.5
+  through Slimference (8990 sockets, real NONCE answer, phasef_req+2), proving the
+  app-server honors the provider when set. Fix: the shim is now a thin stdin
+  JSON-RPC mediator that rewrites a default (null/absent) `thread/start`
+  `modelProvider` to `slimference-codex`, leaving everything else byte-identical;
+  stdout/stderr pass through; realtime/voice threads and explicit provider choices
+  are left untouched; fail-open on any parse ambiguity. Live proof after the fix:
+  the Desktop conversation held 6 connections to `127.0.0.1:8990` and ZERO direct
+  `chatgpt.com` sockets (was direct before), WSS frames flowed.
+- REMAINING (savings not yet active): the routed Desktop session is byte-bridged,
+  not Phase-F mutated (`phasef_requests=0`, `frames_reencoded=0`,
+  `byte_bridge_only=true`). The same provider via CLI `codex exec` gets
+  `phasef_requests>0` even on a tiny prompt, and a direct app-server drive WITHOUT
+  Electron's feature-flag `config` also reached Phase-F. So Electron's `thread/start`
+  `config` feature flags (candidate: `features.enable_request_compression=true`)
+  likely change the WSS request-frame format so Slimference's Phase-F parser does
+  not recognize request envelopes and falls back to a safe byte bridge. Next step:
+  capture the Desktop WSS request frames (socket/tcpdump ground truth, not the
+  laggy desktop-status counters) to confirm the frame-format difference, then
+  either neutralize the responsible flag in the shim's thread/start `config` or
+  teach the Phase-F parser the variant. TUI Launch Codex App stays blocked until
+  a green `desktop_app_server_phasef_proven` (bytes+frames+mutation) exists.
 
 Source inspection facts:
 
