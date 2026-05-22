@@ -1023,7 +1023,7 @@ non-Codex shell rather than this active Codex session.
   request envelopes apply stale-read aging, obsolete-read prune,
   stop-sequence injection, and be-terse where the existing gates allow;
   response deltas/completions apply streamcut + repdet. Unknown frames
-  remain byte-equal fail-open. `/admin/state.wss` exposes engine,
+  remain byte-equal fail-open. `/_slimference/admin/state` `.wss` exposes engine,
   bridge, degraded, forwarded, and re-encoded counters. Detail:
   `docs/todo/t208-wss-phase-f-mutation-adapter.md`
 - [x] **MiniMax cleanup in TUI** (2026-05-16) — user-facing labels
@@ -1171,7 +1171,7 @@ only and promotes the per-process Codex CLI runner for T209.
 - [x] **T208** (2026-05-17) — WSS Phase F mutation adapter. Codex WSS
   request frames now feed the existing Phase F input reducers, response
   deltas/completions run streamcut + repdet, and schema drift still
-  degrades byte-equal. `/admin/state.wss` distinguishes active engine,
+  degrades byte-equal. `/_slimference/admin/state` `.wss` distinguishes active engine,
   byte bridge, degraded sessions, forwarded frames, and re-encoded
   mutation frames. Detail:
   `docs/todo/t208-wss-phase-f-mutation-adapter.md`
@@ -1332,13 +1332,14 @@ only and promotes the per-process Codex CLI runner for T209.
   labels. No routing, proxy, savings, or app-scope behavior changed. Detail:
   `docs/todo/t237-codex-provider-display-name.md`
 - [~] **T238** Codex Desktop process-local proxy proof — live proof now shows
-  process-local proxy env reaches Codex.app's Rust app-server and CONNECT
+  process-local proxy env plus Electron proxy args route both Codex.app's Rust
+  app-server and Chromium NetworkService to Slimference loopback, and CONNECT
   reaches Slimference, but Codex.app closes before application bytes flow.
   `codex desktop status` classifies this as `desktop_tls_blocked` /
-  `tls_trust_rejected`; `--with-ca-env` plus `CODEX_CA_CERTIFICATE` is the
-  next diagnostic root-store probe before any Keychain fallback. Must not touch
-  Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS system
-  proxy, or
+  `tls_trust_rejected`; `--with-ca-env` plus `CODEX_CA_CERTIFICATE` is proven
+  insufficient for current Desktop savings until a supported Codex root-store
+  or endpoint hook appears. Must not touch Browser ChatGPT, ChatGPT.app, Claude
+  Code, `/etc/hosts`, pfctl, macOS system proxy, or
   `~/.codex/config.toml`. Detail:
   `docs/todo/t238-codex-desktop-process-local-proxy-proof.md`
 - [~] **T239** Slimference launch center TUI — first implementation landed in
@@ -1347,9 +1348,10 @@ only and promotes the per-process Codex CLI runner for T209.
   No separate "open direct" action; direct mode is launching Codex normally
   outside Slimference. Default Install/Repair is unified for Codex and prepares
   CLI plus Desktop support together; no default CLI/App checkbox split. The TUI
-  now launches Codex CLI in the current folder via `transport=auto` and launches
-  Codex.app normal/direct in the current folder while Desktop Slimference is not
-  green. Remaining work: embedded prompt input, richer Status / Manage detail,
+  now launches Codex CLI in the current folder via `transport=auto` and blocks
+  Codex.app launch while Desktop Slimference is not green; normal direct
+  Desktop launch stays outside the TUI through Finder/Spotlight. Remaining
+  work: embedded prompt input, richer Status / Manage detail,
   and final T240 live certification. Detail:
   `docs/todo/t239-slimference-launch-center-tui.md`
 - [ ] **T240** Codex zero-drawdown release certification — final product seal
@@ -1373,12 +1375,14 @@ only and promotes the per-process Codex CLI runner for T209.
   scoped launch, daemon-wide WSS counters are never treated as Desktop proof,
   and the prompt-driven live proof now ends as `desktop_ca_env_rejected` /
   `tls_trust_rejected` with `mitm_bridged=14` but zero application bytes and
-  zero mutation. Current product decision: Desktop daily launch stays direct;
-  proxy/proof commands remain diagnostics until a future Codex.app build or
-  supported hook proves real Desktop bytes plus Phase-F mutation through
-  Slimference. Remaining work: test managed network-proxy and endpoint-hook
-  surfaces, and settle whether current Desktop can route conversation through
-  Slimference without global lab or upstream changes. Detail:
+  zero mutation. Follow-up Electron proxy args now remove the Chromium direct
+  socket bypass, but live prompt proof still ends as one CONNECT/MITM session
+  with `bytes_c2s=0`, `bytes_s2c=0`, and zero mutation. Current product
+  decision: TUI Launch Codex App blocks instead of opening direct or a broken
+  proxy; normal Finder/Spotlight Desktop stays direct. Remaining work: test
+  managed network-proxy and endpoint-hook surfaces, and settle whether current
+  Desktop can route conversation through Slimference without global lab or
+  upstream changes. Detail:
   `docs/todo/t242-codex-desktop-root-store-probe.md`
 - [~] **T243** WSS-first auto transport ladder — `transport=auto` now prefers
   `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct for scoped
@@ -1452,7 +1456,8 @@ only and promotes the per-process Codex CLI runner for T209.
    reject process-local proxy routing before any Desktop product claim.
 18. **T239 after T238 branch decision** — the launch center can ship once the
    Desktop button truth is known: proven process-local proxy, custom-CA-env
-   diagnostic, or honest direct-only Desktop fallback. Do not design ambiguous
+   diagnostic, or honest blocked Desktop Slimference state. Direct Desktop mode
+   remains outside the TUI through Finder/Spotlight. Do not design ambiguous
    Desktop states or per-app install checkboxes in the default flow.
 19. **T240 after T239** — final release certification comes after the launch
    center exists, because the user-facing path itself must be what gets
@@ -1490,8 +1495,9 @@ only and promotes the per-process Codex CLI runner for T209.
 30. **T242 before Desktop success claims** — the Desktop menu item remains part
    of the TUI, but success is gated on bytes/WSS proof. The first proof branch
    is process-local proxy plus `CODEX_CA_CERTIFICATE`; if root-store probes
-   fail, Desktop remains direct-only until OpenAI exposes a usable hook or root
-   store behavior changes.
+   fail, the TUI Desktop item remains blocked until OpenAI exposes a usable hook
+   or root-store behavior changes. Normal direct Desktop launch stays outside
+   Slimference.
 31. **T243 before T240** — WSS remains the standard. `transport=auto` must try
    certified WSS Phase-F first, WSS byte-equal bridge second, HTTP third, and
    direct only as final fail-open. Version drift should trigger T241 auto-recert
@@ -1538,7 +1544,8 @@ only and promotes the per-process Codex CLI runner for T209.
   route; global transparent MITM is lab-only and cannot be triggered by
   product default UX.
 - After T228, Codex Desktop either reloads the shared scoped route with a
-  clean one-command flow or has a process-local launcher with direct fallback.
+  clean one-command flow or has a process-local launcher that is proof-gated
+  before any savings claim.
 - After T238, Codex Desktop either has a proven process-local proxy launch mode
   that routes conversation WSS through Slimference without global collateral, or
   the product truth explicitly says Desktop remains direct until upstream

@@ -50,7 +50,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 	if actions[0].label != "Launch Codex CLI" || actions[0].state != "WSS savings" {
 		t.Fatalf("CLI action=%+v", actions[0])
 	}
-	if actions[1].label != "Launch Codex App" || actions[1].state != "direct" {
+	if actions[1].label != "Launch Codex App" || actions[1].state != "blocked" {
 		t.Fatalf("App action=%+v", actions[1])
 	}
 	if got := findDashboardActionIndex(actions, "daemon"); got >= 0 {
@@ -124,12 +124,12 @@ func TestLaunchCenterStateVocabularyBranches(t *testing.T) {
 		state  string
 		desc   string
 	}{
-		{CodexDesktopStatus{FailureClass: "tls_trust_rejected"}, "direct", "tls_trust_rejected"},
-		{CodexDesktopStatus{FailureClass: "ca_missing"}, "direct", "ca_missing"},
-		{CodexDesktopStatus{FailureClass: "ca_untrusted"}, "direct", "ca_untrusted"},
-		{CodexDesktopStatus{FailureClass: "daemon_unreachable"}, "direct", "daemon_unreachable"},
-		{CodexDesktopStatus{Mode: "ready_for_live_desktop_probe"}, "direct", "gated by proof"},
-		{CodexDesktopStatus{Mode: "proxy_wss_needs_review", ConversationObserved: true}, "direct", "gated by proof"},
+		{CodexDesktopStatus{FailureClass: "tls_trust_rejected"}, "blocked", "tls_trust_rejected"},
+		{CodexDesktopStatus{FailureClass: "ca_missing"}, "blocked", "ca_missing"},
+		{CodexDesktopStatus{FailureClass: "ca_untrusted"}, "blocked", "ca_untrusted"},
+		{CodexDesktopStatus{FailureClass: "daemon_unreachable"}, "blocked", "daemon_unreachable"},
+		{CodexDesktopStatus{Mode: "ready_for_live_desktop_probe"}, "proof needed", "proof-gated"},
+		{CodexDesktopStatus{Mode: "proxy_wss_needs_review", ConversationObserved: true}, "proof needed", "proof-gated"},
 	} {
 		model.codexDesktopStatus = tc.status
 		if got := model.codexAppState(); got != tc.state {

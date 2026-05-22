@@ -21,12 +21,13 @@ import (
 // app-server binary. Persistent marker-block enable therefore cannot
 // redirect conversation traffic on its own.
 //
-// This launcher spawns Codex.app's main binary directly with a scoped
-// env. The production candidate uses HTTP(S)_PROXY against Slimference's
-// loopback CONNECT ingress. The effect is process-local: only the
-// spawned Codex.app inherits the env. Browser ChatGPT, ChatGPT.app,
-// Claude Code, and any Codex.app launched later via Finder / Spotlight
-// remain unaffected.
+// This launcher spawns Codex.app's main binary directly with scoped proxy
+// arguments plus a scoped env. The production candidate uses Electron's
+// --proxy-server / --proxy-bypass-list arguments and HTTP(S)_PROXY against
+// Slimference's loopback CONNECT ingress. The effect is process-local:
+// only the spawned Codex.app inherits the route. Browser ChatGPT,
+// ChatGPT.app, Claude Code, and any Codex.app launched later via Finder /
+// Spotlight remain unaffected.
 //
 // EMPIRICAL FINDING (2026-05-18, against Codex.app 0.131.0-alpha.9 at
 // /Applications/Codex.app/Contents/Resources/codex):
@@ -44,10 +45,18 @@ import (
 //     CHATGPT_BASE_URL handling exists in the current Codex Desktop
 //     Rust binary for the conversation route.
 //
+// EMPIRICAL FINDING (2026-05-22, against current Codex.app):
+//   - adding Electron --proxy-server arguments removes the Chromium
+//     NetworkService direct-socket bypass for the launched process tree,
+//   - a real prompt still produces CONNECT/MITM sessions with zero
+//     application bytes, zero WSS frames, and zero Phase-F mutation.
+//
 // The base-URL env mode is therefore retained as a diagnostic surface
 // (`--transport=base-url --probe`) and future-proof spawn path. The
 // default proxy mode is the only current Desktop route candidate that
-// does not require global hosts/pf/system-proxy changes.
+// does not require global hosts/pf/system-proxy changes, but it remains
+// proof-gated and is not a Desktop savings claim until bytes and Phase-F
+// mutation are observed.
 //
 // `--with-ca-env` is the preferred Desktop compatibility probe. It injects
 // Codex's own process-local custom CA hook first, followed by generic CA bundle
@@ -168,6 +177,7 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 
 	proxyURL := fmt.Sprintf("http://%s:%s", flags.host, flags.port)
 	overrideURL := proxyURL + "/backend-api/codex"
+	launchArgs := codexDesktopLaunchArgs(flags.transport, proxyURL)
 	env := buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), flags.extra)
 	ca := codexDesktopCATrustFn()
 	if flags.transport == codexDesktopTransportProxy && flags.withCAEnv {
@@ -180,7 +190,7 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 	}
 
 	if flags.probe {
-		return emitCodexDesktopProbe(p, binary, flags.transport, overrideURL, proxyURL, env, ca)
+		return emitCodexDesktopProbe(p, binary, launchArgs, flags.transport, overrideURL, proxyURL, env, ca)
 	}
 
 	if flags.transport == codexDesktopTransportProxy && !flags.insecureSkipTrustCheck && flags.withCAEnv && !ca.Exists {
@@ -215,7 +225,17 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 		return 1
 	}
 
-	return codexDesktopStartFn(p, binary, env)
+	return codexDesktopStartFn(p, binary, launchArgs, env)
+}
+
+func codexDesktopLaunchArgs(transport, proxyURL string) []string {
+	if transport != codexDesktopTransportProxy {
+		return nil
+	}
+	return []string{
+		"--proxy-server=" + proxyURL,
+		"--proxy-bypass-list=localhost;127.0.0.1;::1",
+	}
 }
 
 // buildCodexDesktopLaunchEnv constructs the env for the spawned
@@ -407,6 +427,7 @@ func filterCodexDesktopProxyEnv(env []string) []string {
 
 type codexLaunchDesktopProbe struct {
 	Binary      string              `json:"binary"`
+	Args        []string            `json:"args,omitempty"`
 	Transport   string              `json:"transport"`
 	OverrideURL string              `json:"override_url,omitempty"`
 	ProxyURL    string              `json:"proxy_url,omitempty"`
@@ -414,9 +435,10 @@ type codexLaunchDesktopProbe struct {
 	CATrust     codexDesktopCAState `json:"ca_trust,omitempty"`
 }
 
-func emitCodexDesktopProbe(p installPrinter, binary, transport, overrideURL, proxyURL string, env []string, ca codexDesktopCAState) int {
+func emitCodexDesktopProbe(p installPrinter, binary string, args []string, transport, overrideURL, proxyURL string, env []string, ca codexDesktopCAState) int {
 	probe := codexLaunchDesktopProbe{
 		Binary:      binary,
+		Args:        args,
 		Transport:   transport,
 		OverrideURL: overrideURL,
 		ProxyURL:    proxyURL,
@@ -457,8 +479,8 @@ func codexDesktopCATrustState() codexDesktopCAState {
 	return state
 }
 
-func newCodexDesktopCommand(binary string, env []string) *exec.Cmd {
-	cmd := exec.Command(binary)
+func newCodexDesktopCommand(binary string, args []string, env []string) *exec.Cmd {
+	cmd := exec.Command(binary, args...)
 	cmd.Dir = filepath.Dir(binary)
 	cmd.Env = env
 	cmd.Stdin = nil
@@ -468,8 +490,8 @@ func newCodexDesktopCommand(binary string, env []string) *exec.Cmd {
 	return cmd
 }
 
-func startCodexDesktopProcess(p installPrinter, binary string, env []string) int {
-	cmd := newCodexDesktopCommand(binary, env)
+func startCodexDesktopProcess(p installPrinter, binary string, args []string, env []string) int {
+	cmd := newCodexDesktopCommand(binary, args, env)
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintf(p.Err, "codex launch-desktop: spawn failed: %v\n", err)
 		return 1

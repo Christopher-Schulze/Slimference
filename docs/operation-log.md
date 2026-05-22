@@ -1748,3 +1748,49 @@ Decision:
 - Desktop savings remain blocked by the existing Desktop TLS/root-store proof
   result; this fix is about correct Desktop launch state and zero stale-thread
   inheritance, not a Desktop savings claim.
+
+---
+
+## 2026-05-22 — T238/T239 Desktop Proxy Arg Follow-Up and Honest TUI Gate
+
+Driver: user clarified that TUI `Launch Codex App` must mean real
+Slimference mode, not "open direct as a consolation path". Direct Desktop mode
+is Finder/Spotlight outside Slimference.
+
+Implemented:
+- `slimference codex launch-desktop --transport=proxy --with-ca-env` now passes
+  Electron proxy arguments in addition to process-local proxy and CA env:
+  `--proxy-server=http://127.0.0.1:8990` and
+  `--proxy-bypass-list=localhost;127.0.0.1;::1`.
+- TUI `Launch Codex App` now blocks unless `codex desktop status` reports a
+  green Desktop Phase-F proof. It no longer opens direct Codex.app from the
+  Slimference menu when Desktop savings are not green.
+- Docs now use the correct admin state surface:
+  `/_slimference/admin/state` under `.wss`.
+
+Live Desktop follow-up:
+- Final installed binary SHA after implementation and CI:
+  `6f76fccded57895fbff1791d0d6292644bebaa4e73824b10f4de130ad6d83c55`.
+- Scoped launch spawned Codex.app with the Electron proxy args above.
+- `lsof` showed Chromium NetworkService using loopback proxy sockets and no
+  non-loopback ChatGPT sockets for the launched process tree. This closes the
+  earlier Chromium direct-socket bypass branch.
+- A visible prompt was sent in the launched app. Slimference observed one new
+  CONNECT/MITM session, but still zero application bytes and zero WSS frames:
+  `mitm_bridged_delta=1`, `bytes_c2s_delta=0`, `bytes_s2c_delta=0`,
+  `c2s_frames_delta=0`, `s2c_frames_delta=0`, `frames_reencoded_delta=0`,
+  `compressed_messages_mutated_delta=0`, `parse_failures_delta=0`,
+  `degraded_sessions_delta=0`, and `compression_errors_delta=0`.
+
+Decision:
+- Scoped Desktop routing is now correct up to CONNECT for both the Rust
+  app-server and Chromium NetworkService, but current Codex.app still rejects or
+  bypasses the local Slimference CA/root-store path before application bytes
+  flow.
+- Desktop real savings are therefore not available in current Codex.app without
+  an upstream-supported endpoint/root-store hook or an explicitly global lab
+  route. Slimference must not fake this.
+- Daily UX remains honest:
+  - TUI `Launch Codex CLI`: real WSS Phase-F savings.
+  - TUI `Launch Codex App`: blocked until real Desktop proof is green.
+  - Finder/Spotlight Codex.app: normal direct Desktop mode.

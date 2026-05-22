@@ -413,7 +413,7 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 		codexDesktopCATrustFn = prevCA
 	})
 	startCalled := false
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		startCalled = true
 		return 0
 	}
@@ -445,6 +445,13 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 	}
 	if probe.ProxyURL != wantProxy {
 		t.Errorf("ProxyURL=%q want %q", probe.ProxyURL, wantProxy)
+	}
+	wantArgs := []string{
+		"--proxy-server=" + wantProxy,
+		"--proxy-bypass-list=localhost;127.0.0.1;::1",
+	}
+	if strings.Join(probe.Args, "\n") != strings.Join(wantArgs, "\n") {
+		t.Fatalf("Args=%v want %v", probe.Args, wantArgs)
 	}
 	if !probe.CATrust.Trusted {
 		t.Errorf("CA trust not propagated: %+v", probe.CATrust)
@@ -489,6 +496,9 @@ func TestRunCodexLaunchDesktopBaseURLProbeEmitsDiagnosticEnv(t *testing.T) {
 	if probe.Transport != codexDesktopTransportBaseURL || probe.OverrideURL != wantURL || probe.ProxyURL != "" {
 		t.Fatalf("probe=%+v", probe)
 	}
+	if len(probe.Args) != 0 {
+		t.Fatalf("base-url diagnostic mode must not emit Electron proxy args: %v", probe.Args)
+	}
 	if len(probe.EnvOverride) != len(codexDesktopEnvOverrideKeys) {
 		t.Fatalf("base-url env count=%d want %d", len(probe.EnvOverride), len(codexDesktopEnvOverrideKeys))
 	}
@@ -523,10 +533,12 @@ func TestRunCodexLaunchDesktopSpawnsViaInjectedStartFn(t *testing.T) {
 
 	var (
 		seenBinary string
+		seenArgs   []string
 		seenEnv    []string
 	)
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		seenBinary = binary
+		seenArgs = args
 		seenEnv = env
 		_, _ = p.Out.Write([]byte("stub-launched\n"))
 		return 0
@@ -542,6 +554,11 @@ func TestRunCodexLaunchDesktopSpawnsViaInjectedStartFn(t *testing.T) {
 	}
 	if seenBinary != bin {
 		t.Errorf("binary=%q want %q", seenBinary, bin)
+	}
+	joinedArgs := strings.Join(seenArgs, "\n")
+	if !strings.Contains(joinedArgs, "--proxy-server=http://127.0.0.1:8990") ||
+		!strings.Contains(joinedArgs, "--proxy-bypass-list=localhost;127.0.0.1;::1") {
+		t.Fatalf("proxy launch args missing Electron proxy flags: %v", seenArgs)
 	}
 	hasPath := false
 	hasFoo := false
@@ -588,7 +605,7 @@ func TestRunCodexLaunchDesktopRefusesProxyWithoutTrustedCA(t *testing.T) {
 		codexDesktopCATrustFn = prevCA
 	})
 	startCalled := false
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		startCalled = true
 		return 0
 	}
@@ -630,7 +647,7 @@ func TestRunCodexLaunchDesktopWithCAEnvAllowsUntrustedKeychain(t *testing.T) {
 		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: false, Error: "keychain untrusted"}
 	}
 	var seenEnv []string
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		seenEnv = env
 		return 0
 	}
@@ -678,7 +695,7 @@ func TestRunCodexLaunchDesktopRefusesExistingMainInstance(t *testing.T) {
 		return []int{101, 202}, nil
 	}
 	startCalled := false
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		startCalled = true
 		return 0
 	}
@@ -749,7 +766,7 @@ func TestRunCodexLaunchDesktopInsecureSkipTrustCheckSpawns(t *testing.T) {
 		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: false}
 	}
 	spawned := false
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		spawned = true
 		return 0
 	}
@@ -802,6 +819,7 @@ func TestEmitCodexDesktopProbeWriterError(t *testing.T) {
 	rc := emitCodexDesktopProbe(
 		installPrinter{Out: failingCodexDesktopWriter{}, Err: &errBuf},
 		"/Applications/Codex.app/Contents/MacOS/Codex",
+		[]string{"--proxy-server=http://127.0.0.1:8990"},
 		codexDesktopTransportProxy,
 		"http://127.0.0.1:8990/backend-api/codex",
 		"http://127.0.0.1:8990",
@@ -864,10 +882,13 @@ func TestCodexDesktopCATrustStateBranches(t *testing.T) {
 
 func TestNewCodexDesktopCommandDetached(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "Codex.app", defaultCodexDesktopExecRelPath)
-	cmd := newCodexDesktopCommand(binary, []string{"PATH=/usr/bin", "FOO=bar"})
+	cmd := newCodexDesktopCommand(binary, []string{"--proxy-server=http://127.0.0.1:8990"}, []string{"PATH=/usr/bin", "FOO=bar"})
 
 	if cmd.Path != binary {
 		t.Fatalf("Path=%q want %q", cmd.Path, binary)
+	}
+	if strings.Join(cmd.Args, "\n") != binary+"\n--proxy-server=http://127.0.0.1:8990" {
+		t.Fatalf("Args=%v", cmd.Args)
 	}
 	if cmd.Dir != filepath.Dir(binary) {
 		t.Fatalf("Dir=%q want %q", cmd.Dir, filepath.Dir(binary))
@@ -891,7 +912,7 @@ func TestStartCodexDesktopProcessSpawnsDetachedBinary(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},
-		script, []string{"PATH=/bin:/usr/bin", "CHATGPT_CODEX_BASE_URL=http://x"})
+		script, []string{"--proxy-server=http://127.0.0.1:8990"}, []string{"PATH=/bin:/usr/bin", "CHATGPT_CODEX_BASE_URL=http://x"})
 	if rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
 	}
@@ -919,7 +940,7 @@ func TestStartCodexDesktopProcessRejectsImmediateExit(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},
-		script, []string{"PATH=/usr/bin"})
+		script, nil, []string{"PATH=/usr/bin"})
 	if rc != 1 {
 		t.Fatalf("rc=%d want 1; stdout=%q stderr=%q", rc, out.String(), errBuf.String())
 	}
@@ -931,7 +952,7 @@ func TestStartCodexDesktopProcessRejectsImmediateExit(t *testing.T) {
 func TestStartCodexDesktopProcessSpawnFailure(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},
-		filepath.Join(t.TempDir(), "missing-binary"), []string{"PATH=/usr/bin"})
+		filepath.Join(t.TempDir(), "missing-binary"), nil, []string{"PATH=/usr/bin"})
 	if rc != 1 {
 		t.Fatalf("rc=%d want 1", rc)
 	}
@@ -952,7 +973,7 @@ func TestRunCodexLaunchDesktopProbeRealAppPresent(t *testing.T) {
 	}
 	prevStart := codexDesktopStartFn
 	t.Cleanup(func() { codexDesktopStartFn = prevStart })
-	codexDesktopStartFn = func(installPrinter, string, []string) int {
+	codexDesktopStartFn = func(installPrinter, string, []string, []string) int {
 		t.Fatal("probe must not spawn")
 		return 0
 	}

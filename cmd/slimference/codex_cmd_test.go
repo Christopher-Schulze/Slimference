@@ -81,7 +81,7 @@ func withCodexCmdStubs(t *testing.T) {
 	}
 	codexDesktopAppPathFn = func() string { return appPath }
 	codexDesktopStatFn = os.Stat
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		fmt.Fprintln(p.Out, "Codex.app launched (PID 0) with scoped Slimference env.")
 		return 0
 	}
@@ -1259,7 +1259,7 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 		}
 		return state, nil
 	}
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		fmt.Fprintln(p.Out, "Codex.app launched (PID 4242) with scoped Slimference env.")
 		return 0
 	}
@@ -1311,7 +1311,7 @@ func TestCodexDesktopProveErrorsAndHelpers(t *testing.T) {
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		return control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}, nil
 	}
-	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		fmt.Fprint(p.Err, "spawn denied")
 		return 1
 	}
@@ -1514,7 +1514,7 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	}
 }
 
-func TestServiceControlAdapterDesktopStatusTLSRejectedStillLaunchesDirect(t *testing.T) {
+func TestServiceControlAdapterDesktopStatusTLSRejectedBlocksSlimferenceLaunch(t *testing.T) {
 	withCodexCmdStubs(t)
 	oldGetwd := osGetwd
 	t.Cleanup(func() {
@@ -1527,26 +1527,15 @@ func TestServiceControlAdapterDesktopStatusTLSRejectedStillLaunchesDirect(t *tes
 	}
 	dir := t.TempDir()
 	osGetwd = func() (string, error) { return dir, nil }
-	directDir := ""
-	tuiCodexDesktopDirectFn = func(got string) error {
-		directDir = got
-		return nil
-	}
+	tuiCodexDesktopDirectFn = func(string) error { t.Fatal("TUI Slimference launch must not open direct Codex.app"); return nil }
 
 	adapter := &serviceControlAdapter{}
 	status := adapter.CodexDesktopStatus()
 	if status.Mode != "desktop_tls_blocked" || status.FailureClass != "tls_trust_rejected" {
 		t.Fatalf("desktop status=%+v", status)
 	}
-	msg, err := adapter.LaunchCodexApp()
-	if err != nil {
-		t.Fatalf("LaunchCodexApp direct fallback: %v", err)
-	}
-	if !strings.Contains(msg, "launched normally (direct)") || !strings.Contains(msg, dir) {
-		t.Fatalf("msg=%q", msg)
-	}
-	if directDir != dir {
-		t.Fatalf("direct launch dir=%q want %q", directDir, dir)
+	if _, err := adapter.LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "Desktop Slimference proof is not green") {
+		t.Fatalf("LaunchCodexApp error=%v", err)
 	}
 }
 
@@ -1558,25 +1547,25 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 	})
 	dir := t.TempDir()
 	osGetwd = func() (string, error) { return dir, nil }
-	var directDir string
-	tuiCodexDesktopDirectFn = func(got string) error {
-		directDir = got
-		return nil
-	}
+	writeCodexDesktopProofResult(&codexDesktopProofOutput{
+		Mode:           "desktop_proxy_phasef_proven",
+		DesktopProven:  true,
+		DesktopSavings: true,
+	})
 	msg, err := (&serviceControlAdapter{}).LaunchCodexApp()
 	if err != nil {
 		t.Fatalf("LaunchCodexApp success: %v", err)
 	}
-	if !strings.Contains(msg, "launched normally (direct)") || !strings.Contains(msg, dir) {
+	if !strings.Contains(msg, "Codex.app launched") {
 		t.Fatalf("msg=%q", msg)
 	}
-	if directDir != dir {
-		t.Fatalf("direct launch dir=%q want %q", directDir, dir)
-	}
 
-	tuiCodexDesktopDirectFn = func(string) error { return errors.New("open denied") }
-	if _, err := (&serviceControlAdapter{}).LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "open denied") {
-		t.Fatalf("direct launch error=%v", err)
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		fmt.Fprint(p.Err, "spawn denied")
+		return 1
+	}
+	if _, err := (&serviceControlAdapter{}).LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "spawn denied") {
+		t.Fatalf("proxy launch error=%v", err)
 	}
 }
 

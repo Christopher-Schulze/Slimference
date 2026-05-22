@@ -3967,10 +3967,31 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := tuiCodexDesktopDirectFn(dir); err != nil {
-		return "", fmt.Errorf("open Codex.app direct: %w", err)
+	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
+	if status.Mode != "desktop_proxy_proven" || !status.ConversationObserved || status.FailureClass != "" {
+		reason := status.FailureClass
+		if reason == "" {
+			reason = status.Mode
+		}
+		return "", fmt.Errorf("Desktop Slimference proof is not green (%s). Start Codex.app normally outside Slimference for direct mode, or run `slimference codex desktop prove --manual --json` after the Desktop route is fixed", reason)
 	}
-	return "Codex App launched normally (direct) in " + dir + ". Desktop Slimference is not green on this Codex.app; Codex CLI still uses Slimference WSS.", nil
+	var out, errBuf strings.Builder
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--transport=proxy", "--with-ca-env", "--env=PWD=" + dir},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 0 {
+		msg := strings.TrimSpace(errBuf.String())
+		if msg == "" {
+			msg = fmt.Sprintf("exit %d", rc)
+		}
+		return "", fmt.Errorf("launch Codex.app via Slimference: %s", msg)
+	}
+	msg := strings.TrimSpace(out.String())
+	if msg == "" {
+		msg = "Codex App launched via Slimference Desktop proxy in " + dir
+	}
+	return msg, nil
 }
 
 func tuiLaunchDirectory() (string, error) {

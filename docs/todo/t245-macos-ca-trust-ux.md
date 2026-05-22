@@ -167,9 +167,11 @@ Codex.app root-store behavior or exposes a supported endpoint/proxy hook.
   Codex.app build. CA trust remains useful for Desktop/Lab diagnostics, but it
   is not part of the scoped CLI WSS savings path and must not block CLI launch,
   WSS auto-recert, or TUI Launch Codex CLI.
-- TUI Launch Codex App should open normal direct Codex.app until a future
-  Desktop proof is green. CA management belongs under Manage Slimference as an
-  explicit advanced Desktop/Lab action, not as the default daily launch path.
+- TUI Launch Codex App should block until a future Desktop proof is green,
+  because that menu item means "Slimference mode". Normal direct Codex.app
+  launch remains Finder/Spotlight outside Slimference. CA management belongs
+  under Manage Slimference as an explicit advanced Desktop/Lab action, not as
+  the default daily launch path.
 
 2026-05-20 non-live closure:
 
@@ -180,7 +182,7 @@ Codex.app root-store behavior or exposes a supported endpoint/proxy hook.
 - The proof commands remain the Desktop savings gate:
   `slimference codex desktop prove --manual --json`, then
   `slimference codex desktop prove --finish --json` after a user prompt.
-  Current TUI Launch Codex App opens direct mode because that gate is not green.
+  Current TUI Launch Codex App blocks because that gate is not green.
   Historical or live `tls_trust_rejected` counters are a proof failure, not a
   permanent global failure and not a savings claim.
 - Aggregate health no longer requires Keychain trust; Keychain is a separate

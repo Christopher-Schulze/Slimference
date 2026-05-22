@@ -263,8 +263,8 @@ type ServiceControlInterface interface {
 	CodexDesktopStatus() CodexDesktopStatus
 	// LaunchCodexCLI opens the proven scoped Codex CLI path.
 	LaunchCodexCLI() (string, error)
-	// LaunchCodexApp opens normal direct Codex.app until Desktop Slimference
-	// has a green prompt-driven proof.
+	// LaunchCodexApp opens Codex.app through proven Desktop Slimference mode.
+	// It blocks instead of launching direct when Desktop savings are not green.
 	LaunchCodexApp() (string, error)
 	// RepairCodexWSS runs the guided CLI WSS recertification repair.
 	RepairCodexWSS() (string, error)
@@ -978,24 +978,34 @@ func (m *Model) codexCLIState() string {
 
 func (m *Model) codexAppState() string {
 	status := m.codexDesktopStatus
-	if status.Mode == "" && status.FailureClass == "" {
+	switch {
+	case status.Mode == "desktop_proxy_proven":
+		return "WSS savings"
+	case status.Mode == "desktop_wss_bridge_only":
+		return "WSS bridge"
+	case status.Mode == "desktop_proof_prompt_required":
+		return "proof needed"
+	case status.FailureClass != "":
+		return "blocked"
+	case status.Mode != "":
+		return "proof needed"
+	default:
 		return "unknown"
 	}
-	return "direct"
 }
 
 func (m *Model) codexAppDescription() string {
 	status := m.codexDesktopStatus
 	if status.Mode == "desktop_proxy_proven" {
-		return "Desktop proof is green, but daily launch stays direct until Desktop routing is product-enabled."
+		return "Open Codex.app through the proven Slimference Desktop proxy."
 	}
 	if status.Mode == "desktop_wss_bridge_only" || status.Mode == "desktop_proof_prompt_required" {
-		return "Desktop proxy is diagnostic only until Phase-F savings are proven; normal launch stays direct."
+		return "Desktop proxy is not savings-green yet; Launch Codex App blocks instead of opening direct."
 	}
 	if status.FailureClass != "" {
-		return "Open normal direct Codex.app in the current folder; Desktop Slimference is not green (" + status.FailureClass + ")."
+		return "Desktop Slimference is not green (" + status.FailureClass + "); start Codex.app normally outside Slimference for direct mode."
 	}
-	return "Open normal direct Codex.app in the current folder; Desktop Slimference remains gated by proof."
+	return "Desktop Slimference remains proof-gated; Launch Codex App blocks until real savings are proven."
 }
 
 func (m *Model) savingsState() string {

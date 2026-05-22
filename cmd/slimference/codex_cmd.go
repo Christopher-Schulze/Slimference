@@ -1024,7 +1024,7 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		)
 	default:
 		out.Mode = "ready_for_live_desktop_probe"
-		out.Notes = append(out.Notes, "launch Codex Desktop through the proxy mode and verify lsof plus /admin/state.wss")
+		out.Notes = append(out.Notes, "launch Codex Desktop through the proxy mode and verify lsof plus .wss in /_slimference/admin/state")
 	}
 	return out
 }

@@ -46,10 +46,12 @@ The launch center is not a settings maze. It is a cockpit:
 
 1. **Launch Codex CLI** starts the proven CLI path.
 2. **Launch Codex App** is a capability-gated TUI menu item: on current
-   Codex.app builds it opens normal direct Codex.app in the current folder,
-   because the prompt-driven Desktop Slimference proof is not green. A future
-   proven Desktop path can replace this branch only after T242 records real
-   bytes, WSS frames, and Phase-F mutation through Slimference.
+   Codex.app builds it blocks with the proof reason, because the item means
+   "start Desktop in Slimference mode" and the prompt-driven Desktop
+   Slimference proof is not green. Direct Desktop mode is still available by
+   launching Codex.app normally from Finder/Spotlight. A future proven Desktop
+   path can replace this branch only after T242 records real bytes, WSS frames,
+   and Phase-F mutation through Slimference.
 3. **Savings** shows actual measured savings and separates estimates.
 4. **Status** shows whether the machine is safe, healthy, and scoped.
 5. **Manage Slimference** handles install, repair, uninstall, enable/disable,
@@ -80,9 +82,11 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 - Launch Codex App uses the T242 branch decision:
   - if a future `slimference codex desktop prove --finish --json` result is
     `desktop_proxy_phasef_proven`, launch the proven Desktop path;
-  - on current Codex.app builds, open normal direct Codex.app in the current
-    folder and show the Desktop proof reason in Status;
+  - on current Codex.app builds, block the launch and show the Desktop proof
+    reason in Status;
   - never start a broken proxy/proof session from the daily TUI launch action;
+  - never open direct Codex.app from this menu item, because direct launch is
+    outside Slimference;
   - never pretend Desktop savings are active without a green finish proof.
 - Savings shows total, today, session, route, and mechanism attribution where
   the data exists; no fake Desktop savings.
@@ -116,8 +120,9 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 
 ### Launch Codex App
 
-- Current behavior: launches normal direct Codex.app in the current folder so
-  Codex.app does not restore a stale deleted workspace by default.
+- Current behavior: blocks with the explicit Desktop proof reason because
+  current Codex.app builds do not produce real Slimference Desktop savings.
+  Direct Codex.app launch remains Finder/Spotlight outside Slimference.
 - The Desktop launch environment must drop inherited `CODEX_*` session state
   such as `CODEX_THREAD_ID` and must pin `PWD` to the selected current folder.
   This prevents a Slimference/Codex session from leaking an old thread into the
@@ -125,9 +130,9 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 - If T242 later passes: launches Codex.app with the proven process-local proxy
   mode.
 - If previous live counters show zero-byte CONNECT sessions: displays
-  `tls_trust_rejected` / `desktop_ca_env_rejected` as proof failure and opens
-  direct mode rather than a known-bad proxy session.
-- If T242 failed or is unproven: displays direct-only state and why.
+  `tls_trust_rejected` / `desktop_ca_env_rejected` as proof failure and blocks
+  rather than opening direct or a known-bad proxy session.
+- If T242 failed or is unproven: displays blocked/proof-needed state and why.
 - Shows whether process-local custom CA env is available, whether Keychain trust
   is irrelevant/needed/trusted, and whether either state actually proved bytes.
 - Shows whether the currently running Codex.app was Slimference-launched or
@@ -183,11 +188,11 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
   direct-open item.
 - [x] Implement Launch Codex CLI as a guided wrapper around
   `slimference codex run --transport=auto --`.
-- [x] Implement Launch Codex App as a capability-gated menu item: proven launch,
-  diagnostic CA-env probe, or blocked/direct-only state. Do not hide it just
-  because the current Desktop route is blocked.
+- [x] Implement Launch Codex App as a capability-gated menu item: proven launch
+  when green, otherwise blocked with a proof reason. Do not hide it just because
+  the current Desktop route is blocked.
 - [x] Gate Launch Codex App on the recorded T242 proof result: current live
-  result is direct-only, while future Desktop Slimference requires
+  result blocks the TUI launch, while future Desktop Slimference requires
   `desktop_proxy_phasef_proven`.
 - [~] Fold current install/enable/disable/repair/uninstall controls into Manage
   Slimference with clear product vs lab separation.
@@ -257,8 +262,8 @@ surface that this TUI should report without making a false savings claim:
 Do not wire the Launch Codex App menu item as a savings success path unless
 `codex desktop prove --finish` returns a green Desktop Phase-F savings proof.
 The item stays in the TUI because it is the user's steering wheel; current
-behavior opens direct Codex.app in the current folder, while manual proof mode
-remains an explicit diagnostic command.
+behavior blocks with the proof reason, while manual proof mode remains an
+explicit diagnostic command.
 
 2026-05-19 implementation landing:
 
@@ -270,15 +275,12 @@ remains an explicit diagnostic command.
   the TUI without a persistent shell alias. The generated shell command first
   unsets inherited `CODEX_*` variables so Launch Center starts a fresh CLI
   context even when Slimference itself was opened from inside Codex.
-- `Launch Codex App` consumes `codex desktop status` and opens normal direct
-  Codex.app in the current folder while Desktop Slimference is not green. This
-  prevents the daily TUI path from starting a known-bad proof/proxy session or
-  letting Codex.app restore a stale deleted workspace. Historical
-  `tls_trust_rejected` counters are shown as a proof failure, not as green
-  Desktop savings. The launch strips inherited `CODEX_*` variables and sets
-  `PWD` to the chosen folder before calling macOS `open`, so stale
-  `CODEX_THREAD_ID` / deleted-workspace state cannot be inherited from the
-  calling agent. Normal Finder launch remains direct.
+- `Launch Codex App` consumes `codex desktop status` and blocks while Desktop
+  Slimference is not green. This prevents the daily TUI path from starting a
+  known-bad proof/proxy session or silently opening direct mode under a
+  Slimference label. Historical `tls_trust_rejected` counters are shown as a
+  proof failure, not as green Desktop savings. Normal Finder launch remains
+  direct.
 - `Savings` opens the existing Stats view. `Status` refreshes daemon, route,
   Desktop, and lab state. `Manage Slimference` opens the existing Setup view
   rather than creating a parallel management UI.
@@ -291,6 +293,18 @@ remains an explicit diagnostic command.
 - Remaining polish is depth, not architecture: embedded prompt entry for CLI,
   richer Status/Manage rows, full Desktop branch matrix tests, and final T240
   live release certification.
+
+2026-05-22 follow-up:
+
+- The Desktop proxy launcher now passes Electron
+  `--proxy-server=http://127.0.0.1:8990` and
+  `--proxy-bypass-list=localhost;127.0.0.1;::1` arguments in addition to proxy
+  and CA env. This fixed the Chromium NetworkService direct-socket bypass for
+  the launched process tree.
+- A visible prompt in that launched app still produced only one CONNECT/MITM
+  session with zero application bytes, zero WSS frames, and zero Phase-F
+  mutation. Therefore the Launch Codex App menu item remains blocked until a
+  future proof reaches `desktop_proxy_phasef_proven`.
 
 ## Deviations
 

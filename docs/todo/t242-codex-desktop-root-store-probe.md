@@ -57,12 +57,13 @@ Phase-F savings.
 - Do not require macOS Keychain trust for this first Desktop proof. Keychain
   trust is a fallback/lab branch from T245, not the default Desktop UX.
 - Verify app-server env via `ps eww` and route via `lsof`.
-- Send one Desktop prompt and capture `/admin/state.wss` before/after.
+- Send one Desktop prompt and capture `/_slimference/admin/state` `.wss`
+  before/after.
 - If bytes and WSS frames flow, continue to mutation proof before claiming
   Desktop savings.
-- If bytes remain zero even with `CODEX_CA_CERTIFICATE`, classify Desktop as
-  `desktop_ca_env_rejected` / direct-only until upstream changes its root-store
-  behavior or exposes a supported route hook.
+- If bytes remain zero even with `CODEX_CA_CERTIFICATE`, classify Desktop
+  Slimference as `desktop_ca_env_rejected` / blocked until upstream changes its
+  root-store behavior or exposes a supported route hook.
 - If Desktop bytes flow but Phase-F mutation is not yet proven, classify
   Desktop as WSS byte-equal bridge, not as a savings path. The T243 ladder
   applies to Desktop only after T242 proves process-local Desktop routing can
@@ -89,8 +90,9 @@ Phase-F savings.
 - [x] Add `slimference codex desktop prove --json` as the automated Desktop
   savings gate: launch, observe WSS delta, classify, and clean up.
 - [x] Gate TUI Launch Codex App on the automated Desktop proof result. Current
-  live result keeps the daily TUI action on normal direct Codex.app; Desktop
-  savings remain unavailable until `--finish` proves Phase-F mutation.
+  live result blocks the daily TUI action because the TUI item means
+  "Slimference mode"; Desktop savings remain unavailable until `--finish`
+  proves Phase-F mutation.
 - [x] Refuse scoped Desktop launch/proof while Codex.app is already running,
   forcing a clean env-injected process tree instead of relying on macOS app
   foregrounding.
@@ -119,7 +121,7 @@ Phase-F savings.
 - [x] Cross-check T245 CA state wording: missing CA must block only Desktop
   proxy/lab probes, never scoped CLI WSS.
 - [x] Update T239 Launch Codex App menu-state vocabulary with the final result:
-  current Codex.app is `desktop-direct-only` for daily UX; proof/proxy commands
+  current Codex.app is `blocked` in the Slimference TUI; proof/proxy commands
   remain diagnostic until a future green `desktop_proxy_phasef_proven` result.
 
 ## Notes
@@ -189,9 +191,10 @@ savings.
 - Zero-byte CONNECT/TLS-close results classify as `desktop_ca_env_rejected` /
   `tls_trust_rejected`, matching the current Desktop blocker without overstating
   it as cryptographic pinning.
-- The daily TUI Launch Codex App action now opens direct Codex.app because the
-  finish proof is not green. Manual proof remains available as an explicit
-  diagnostic command.
+- The daily TUI Launch Codex App action now blocks because the finish proof is
+  not green. Direct Codex.app remains available only by launching normally
+  outside Slimference. Manual proof remains available as an explicit diagnostic
+  command.
 - `codex launch-desktop` now refuses when the Codex.app main binary is already
   running, because a reused macOS app instance would not prove scoped env
   injection.
@@ -226,9 +229,28 @@ supported endpoint/root-store hook.
   CA env plus a loopback socket to `127.0.0.1:8990`. Chromium NetworkService
   also inherited env but still held direct ChatGPT TLS sockets. The visible
   Desktop answer therefore cannot be counted as Slimference Phase-F traffic.
-- Product decision: TUI Launch Codex App opens normal direct Codex.app in the
-  current folder until a future Codex.app build or supported hook proves real
-  Desktop bytes plus Phase-F mutation through Slimference.
+- Product decision at this point: TUI Launch Codex App must not claim Desktop
+  savings until a future Codex.app build or supported hook proves real Desktop
+  bytes plus Phase-F mutation through Slimference.
+
+2026-05-22 Electron proxy-argument follow-up:
+
+- `codex launch-desktop --transport=proxy --with-ca-env` now passes Electron
+  `--proxy-server=http://127.0.0.1:8990` and
+  `--proxy-bypass-list=localhost;127.0.0.1;::1` in addition to proxy and CA
+  env.
+- Live lsof showed the launched Chromium NetworkService using loopback proxy
+  sockets and no non-loopback ChatGPT sockets. This closes the previous
+  renderer/Chromium bypass branch.
+- A visible prompt sent in that launched app still produced only one
+  CONNECT/MITM session in Slimference with `bytes_c2s=0`, `bytes_s2c=0`,
+  `c2s_frames=0`, `s2c_frames=0`, `frames_reencoded=0`, and
+  `compressed_messages_mutated=0`. Parser/degrade/compression counters stayed
+  zero.
+- Final current blocker: scoped Desktop routing is correct up to CONNECT, but
+  current Codex.app still does not accept the local Slimference CA/root-store
+  path for conversation TLS. The TUI `Launch Codex App` item therefore blocks
+  rather than opening direct or a known-bad proxy session.
 
 2026-05-22 stale workspace restore fix:
 

@@ -70,13 +70,15 @@ payload is shorter and schema-safe.
 - **Codex Desktop**: the app remains direct when launched normally from
   Finder/Spotlight. The process-local proof path is
   `slimference codex launch-desktop --transport=proxy --with-ca-env`, which
-  sets proxy and CA env only for that spawned app process. The 2026-05-19 live
-  proof showed CONNECT reached Slimference but Codex.app closed before
-  application bytes flowed. That historical `desktop_tls_blocked` /
-  `tls_trust_rejected` state is treated as a CA-env retry/proof state, not as
-  green savings. Desktop savings must not be claimed until live `lsof` plus
-  `/admin/state.wss` prove conversation WSS reaches the daemon with zero
-  parser/degrade/compression errors and real mutation counters.
+  sets Electron proxy args, proxy env, and CA env only for that spawned app
+  process. The 2026-05-22 live proof showed CONNECT reached Slimference and
+  Chromium NetworkService no longer opened direct ChatGPT sockets, but
+  Codex.app still closed before application bytes flowed. That
+  `desktop_tls_blocked` / `tls_trust_rejected` state is treated as a blocked
+  Desktop Slimference state, not as green savings. Desktop savings must not be
+  claimed until live `lsof` plus `/_slimference/admin/state` `.wss` prove
+  conversation WSS reaches the daemon with zero parser/degrade/compression
+  errors and real mutation counters.
 - **Global transparent lab**: `cert-trust`, `root-arm
   --global-chatgpt-hosts`, `enable`, `disable`, and `root-disarm` still
   exist for explicit lab certification. They route `chatgpt.com` and
@@ -1161,11 +1163,10 @@ of creating a second TUI.
 Launch Codex CLI opens the proven scoped wrapper path with
 `transport=auto`. Launch Codex App is capability-gated from
 `codex desktop status`: it launches the process-local
-`--transport=proxy --with-ca-env` diagnostic path when CA material and daemon are
-available, but never claims Desktop savings until live lsof plus WSS counters
-prove bytes and frames. Historical `desktop_tls_blocked` /
-`tls_trust_rejected` counters are shown as a retry/proof state, not as a
-Savings-green state. Normal Finder/Spotlight Codex.app launches remain direct.
+`--transport=proxy --with-ca-env` Desktop path only after a green Desktop
+Phase-F proof exists. Current `desktop_tls_blocked` / `tls_trust_rejected`
+counters are shown as a blocked proof state, not as a Savings-green state.
+Normal Finder/Spotlight Codex.app launches remain direct.
 Manage Slimference owns install, repair, route, daemon, CA, lab controls, and
 the guided "Repair Codex CLI WSS savings" action that calls the same recert core
 as the CLI/background path.
@@ -1418,10 +1419,11 @@ adapter:
 - WSS streamcut is intentionally disabled until T236 proves a terminal-safe
   Codex WSS early-cut sequence. HTTP/SSE streamcut is unchanged.
 
-`/admin/state.wss` reports whether the engine is active, whether frames are
-only forwarded byte-equal, whether parser degradation occurred, how many
-compressed messages were inspected/mutated/bypassed, Phase-F request/response
-event counts, and how many frames were re-encoded after mutation.
+`/_slimference/admin/state` `.wss` reports whether the engine is active,
+whether frames are only forwarded byte-equal, whether parser degradation
+occurred, how many compressed messages were inspected/mutated/bypassed,
+Phase-F request/response event counts, and how many frames were re-encoded
+after mutation.
 
 Scoped Codex WSS has an additional pre-`net/http` frontdoor on the same
 loopback listener (`:8990`). It intercepts only
@@ -1438,8 +1440,9 @@ global transparent mode. `[transparent].scoped_desktop_proxy=true` allows
 CONNECT on `127.0.0.1:8990` only when the local CA material already exists;
 the daemon does not generate CA material just because this scoped listener is
 enabled. `slimference codex launch-desktop --transport=proxy --with-ca-env`
-injects HTTP(S)/WSS proxy variables plus process-local CA hints into the
-spawned Codex.app process tree. `CODEX_CA_CERTIFICATE` is injected first
+injects Electron `--proxy-server` / `--proxy-bypass-list` arguments,
+HTTP(S)/WSS proxy variables, and process-local CA hints into the spawned
+Codex.app process tree. `CODEX_CA_CERTIFICATE` is injected first
 because current Codex exposes that Rust WSS custom-CA hook; generic
 `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and
 `NODE_EXTRA_CA_CERTS` follow for fallback TLS stacks. Without `--with-ca-env`,
@@ -1468,7 +1471,8 @@ stays on WSS bridge while repair runs instead of jumping directly to HTTP.
 
 `slimference codex recertify wss` is the shared repair core for CLI, background
 auto-recert, and TUI Manage. It creates a temporary repo, runs real Codex CLI
-turns through scoped WSS, evaluates only the `/admin/state.wss` delta window,
+turns through scoped WSS, evaluates only the `/_slimference/admin/state`
+`.wss` delta window,
 and writes either the Phase-F cert or the lower-risk
 `~/.slimference/codex-wss-bridge.json` proof. It persists bounded repair state in
 `~/.slimference/codex-wss-recert.json` and a 2 MiB rotating log at
