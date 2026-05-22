@@ -292,7 +292,8 @@ func wantsHeadless(args []string) bool {
 		"hook": true, "debug": true, "daemon": true, "start": true, "stop": true,
 		"restart": true, "service": true, "integrate": true, "bypass": true,
 		"completion": true, "trust": true,
-		"help": true,
+		"app-server": true,
+		"help":       true,
 	}
 	// Flags that consume the next token as a value; their value must not be
 	// mistaken for a subcommand.
@@ -630,6 +631,9 @@ func handleSubcommand(args []string) {
 
 	case "codex":
 		handleCodexCmd(args[1:])
+
+	case "app-server":
+		handleCodexDesktopAppServerShim(args[1:])
 
 	case "lab":
 		handleLabCmd(args[1:])
@@ -3968,16 +3972,16 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 		return "", err
 	}
 	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
-	if status.Mode != "desktop_proxy_proven" || !status.ConversationObserved || status.FailureClass != "" {
+	if status.Mode != "desktop_app_server_proven" || !status.ConversationObserved || status.FailureClass != "" {
 		reason := status.FailureClass
 		if reason == "" {
 			reason = status.Mode
 		}
-		return "", fmt.Errorf("Desktop Slimference proof is not green (%s). Start Codex.app normally outside Slimference for direct mode, or run `slimference codex desktop prove --manual --json` after the Desktop route is fixed", reason)
+		return "", fmt.Errorf("Desktop Slimference proof is not green (%s). Start Codex.app normally outside Slimference for direct mode, or run `slimference codex desktop prove --manual --json` to prove the app-server shim route", reason)
 	}
 	var out, errBuf strings.Builder
 	rc := runCodexLaunchDesktopCmd(
-		[]string{"--transport=proxy", "--with-ca-env", "--env=PWD=" + dir},
+		[]string{"--transport=app-server", "--env=PWD=" + dir},
 		installPrinter{Out: &out, Err: &errBuf},
 	)
 	if rc != 0 {
@@ -3989,7 +3993,7 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 	}
 	msg := strings.TrimSpace(out.String())
 	if msg == "" {
-		msg = "Codex App launched via Slimference Desktop proxy in " + dir
+		msg = "Codex App launched via Slimference app-server shim in " + dir
 	}
 	return msg, nil
 }

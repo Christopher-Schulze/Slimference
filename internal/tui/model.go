@@ -979,7 +979,7 @@ func (m *Model) codexCLIState() string {
 func (m *Model) codexAppState() string {
 	status := m.codexDesktopStatus
 	switch {
-	case status.Mode == "desktop_proxy_proven":
+	case status.Mode == "desktop_app_server_proven":
 		return "WSS savings"
 	case status.Mode == "desktop_wss_bridge_only":
 		return "WSS bridge"
@@ -996,11 +996,11 @@ func (m *Model) codexAppState() string {
 
 func (m *Model) codexAppDescription() string {
 	status := m.codexDesktopStatus
-	if status.Mode == "desktop_proxy_proven" {
-		return "Open Codex.app through the proven Slimference Desktop proxy."
+	if status.Mode == "desktop_app_server_proven" {
+		return "Open Codex.app through the proven Slimference app-server shim."
 	}
 	if status.Mode == "desktop_wss_bridge_only" || status.Mode == "desktop_proof_prompt_required" {
-		return "Desktop proxy is not savings-green yet; Launch Codex App blocks instead of opening direct."
+		return "Desktop app-server route is not savings-green yet; Launch Codex App blocks instead of opening direct."
 	}
 	if status.FailureClass != "" {
 		return "Desktop Slimference is not green (" + status.FailureClass + "); start Codex.app normally outside Slimference for direct mode."

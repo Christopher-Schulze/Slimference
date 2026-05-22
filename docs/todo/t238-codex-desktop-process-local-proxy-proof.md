@@ -1,6 +1,7 @@
 # TASK 238: Codex Desktop process-local proxy proof
 
-Status: PARTIAL - process-local CONNECT works, Desktop TLS root-store blocks bytes
+Status: CLOSED NEGATIVE - process-local CONNECT works, Desktop TLS root-store
+blocks bytes; superseded by T246 app-server shim proof
 Priority: P0 before any Desktop Slimference product claim
 Scope: Codex Desktop App only; Browser ChatGPT, ChatGPT.app, Claude Code, and
 direct Finder/Spotlight Codex.app launches must stay untouched
@@ -51,6 +52,11 @@ process tree, and upstream dial succeeds. Codex.app still closes the tunnel
 before application bytes flow. Treat this as `tls_trust_rejected` /
 root-store mismatch unless a future T242 custom-CA or upstream route hook proves
 otherwise.
+
+Follow-up source inspection found a better route: Codex.app honors
+`CODEX_CLI_PATH` for its app-server child, and `codex app-server` accepts
+process-local provider overrides. T246 tracks that no-CA app-server shim as the
+preferred Desktop proof path. This proxy branch remains diagnostic only.
 
 ## Acceptance
 
@@ -116,7 +122,7 @@ otherwise.
   `CODEX_CA_CERTIFICATE` first.
 - [x] Add `--probe` output that shows exactly which env keys would be injected
   without spawning Codex.app.
-- [~] Add status observation fields for Desktop launch mode: direct,
+- [x] Add status observation fields for Desktop launch mode: direct,
   slimference-launched, proxy-env-present, proxy-connected, last WSS route,
   last telemetry timestamp.
 - [x] Add tests for env construction, CA preflight, CONNECT routing activation,
@@ -125,11 +131,12 @@ otherwise.
   launch via Slimference, send one prompt, collect `lsof`,
   `/_slimference/admin/state` under `.wss`,
   config hash, and direct Browser/ChatGPT.app control evidence.
-- [ ] If minimal prompt proves routing but not mutation, run a Desktop prompt
-  with enough repeated context/tool output to trigger Phase-F mutation.
+- [x] Close the proxy mutation follow-up as not applicable: prompt proof never
+  produced application bytes, so there was no safe Desktop proxy mutation prompt
+  to run on this branch.
 - [x] Add explicit failure-class reporting for the observed zero-byte CONNECT
   branch as `tls_trust_rejected`.
-- [~] Extend explicit failure-class reporting:
+- [x] Extend explicit failure-class reporting:
   `proxy_env_not_inherited`, `connect_not_attempted`, `tls_untrusted`,
   `embedded_root_store`, `wss_bypassed_proxy`, `wss_parse_drift`,
   `proxied_but_no_mutation_candidate`, `passed`.
@@ -141,7 +148,7 @@ otherwise.
 - [x] Update `--with-ca-env` to inject Codex's own
   `CODEX_CA_CERTIFICATE=<slimference-root.crt>` first; this is now the
   preferred T242 branch before Keychain trust.
-- [~] Document the final branch decision in `docs/install.md` and the operation
+- [x] Document the final branch decision in `docs/install.md` and the operation
   log: proven proxy mode, blocked Slimference mode, or upstream-required
   blocker.
 

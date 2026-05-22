@@ -1794,3 +1794,74 @@ Decision:
   - TUI `Launch Codex CLI`: real WSS Phase-F savings.
   - TUI `Launch Codex App`: blocked until real Desktop proof is green.
   - Finder/Spotlight Codex.app: normal direct Desktop mode.
+
+---
+
+## 2026-05-22 — T246 Desktop App-Server Shim Candidate
+
+Driver: user asked for a better Desktop path than proxy/CA/MITM, with maximum
+savings potential, minimum OS complexity, and no collateral impact on Browser
+ChatGPT, ChatGPT.app, Claude Code, system proxy, hosts, or normal Codex.app
+launches.
+
+New finding:
+- Current Codex Desktop exposes a cleaner hook than HTTPS proxying:
+  `CODEX_CLI_PATH` is used by Codex.app when spawning the Rust `codex
+  app-server` child.
+- Upstream Codex source shows `codex app-server` accepts `-c key=value` config
+  overrides.
+- Codex provider config can point `base_url` at
+  `http://127.0.0.1:8990/backend-api/codex`, which maps to local WSS without
+  TLS MITM or CA trust.
+
+Non-Desktop smoke proof:
+- Command shape:
+  `codex exec --ephemeral -C /Users/christopher/CODE/Slimference -c
+  'openai_base_url="http://127.0.0.1:8990/backend-api/codex"' 'Reply exactly
+  LOCAL_BASE_URL_OK'`
+- Result: Codex returned `LOCAL_BASE_URL_OK`.
+- Slimference WSS counters moved cleanly:
+  `bytes_c2s 117186 -> 172848`, `bytes_s2c 190943 -> 264672`,
+  `c2s_frames 5 -> 7`, `s2c_frames 106 -> 122`, `phasef_requests 5 -> 7`.
+- Error counters stayed zero:
+  `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`.
+
+Implemented in WIP:
+- Added hidden `slimference app-server` shim. It validates scoped Desktop env,
+  removes shim env, and execs the real Codex binary as `codex app-server` with
+  local provider overrides.
+- Made `slimference codex launch-desktop --transport=app-server` the default
+  Desktop launch mode.
+- Kept `--transport=proxy` and `--transport=base-url` as diagnostics.
+- Retargeted `codex desktop prove` and the TUI `Launch Codex App` gate to the
+  app-server shim proof mode.
+- Updated docs/tasks so T238/T242 proxy/CA are closed negative for current
+  Desktop, and T246 carries the remaining positive Desktop proof.
+
+Current decision:
+- This is not yet a Desktop savings claim.
+- It is the best current engineering path because it removes CA trust,
+  Keychain, HTTPS proxying, Electron proxy args, and TLS/root-store failure from
+  the normal Desktop route.
+- TUI `Launch Codex App` remains blocked until live Desktop prompt proof records
+  `desktop_app_server_phasef_proven`: Desktop-specific WSS bytes, frames,
+  Phase-F mutation, and zero parser/degrade/compression errors.
+
+Pre-live install verification:
+- Built and atomically installed WIP binary to both `./slimference` and
+  `~/.local/bin/slimference`; SHA:
+  `5baf78e28c73dac141be9995f423987867d29ef279fa7de33c3b8493955cd0bb`.
+- Restarted daemon from installed binary; PID `80059`, health endpoint OK.
+- `slimference codex status --json` stayed green:
+  `auto.mode=wss_phasef`, `transport=wss`, `wss_certified=true`,
+  `needs_recert=false`, Codex `0.133.0`, Slimference `2.0.2`.
+- `slimference codex launch-desktop --transport=app-server --probe` emitted
+  only app-server shim env:
+  `CODEX_CLI_PATH=/Users/christopher/.local/bin/slimference`,
+  `SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/Users/christopher/.npm-global/bin/codex`,
+  `SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex`,
+  and loopback `NO_PROXY`; no proxy/CA env.
+- `slimference codex run --transport=auto -- exec --ephemeral ...` returned
+  `CLI_AUTO_WSS_OK`. The tiny prompt used WSS cleanly but did not trigger
+  Phase-F mutation, so daemon `.wss` showed byte-equal traffic only for this
+  smoke; the persisted CLI WSS cert remains green.

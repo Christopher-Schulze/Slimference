@@ -5,8 +5,8 @@ state, tests, certified-tuple live proof, and successful recert restore proof
 landed; fallback-branch live proof and non-CLI passthrough audits remain
 Priority: P0 after T241 recert core design, before T240 release seal
 Scope: Codex CLI transport selection only; Desktop adopts the same ladder only
-after T242 proves Desktop can route bytes through Slimference safely, preferably
-through process-local proxy env plus `CODEX_CA_CERTIFICATE`
+after T246 proves Desktop can route bytes through Slimference safely through the
+process-local app-server shim
 
 ## Why
 
@@ -98,9 +98,10 @@ capability proof is green.
   `transport=auto`; the auto resolver chooses the best safe mode.
 - Normal direct Codex launches remain direct. This ladder applies only to
   Slimference-launched scoped Codex CLI sessions.
-- Desktop gets this same priority order only after T242 proves real Desktop
-  conversation bytes through Slimference. CA env present, Keychain trust, or
-  CONNECT acceptance alone do not qualify Desktop for this ladder.
+- Desktop gets this same priority order only after T246 proves real Desktop
+  conversation bytes through Slimference. CA env present, Keychain trust,
+  provider badge, or CONNECT acceptance alone do not qualify Desktop for this
+  ladder.
 - Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS system
   proxy, and persistent shell env remain untouched.
 - Audio, Realtime, Voice, and non-conversation WSS paths are passthrough only.

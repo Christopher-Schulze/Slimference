@@ -21,13 +21,13 @@ import (
 // app-server binary. Persistent marker-block enable therefore cannot
 // redirect conversation traffic on its own.
 //
-// This launcher spawns Codex.app's main binary directly with scoped proxy
-// arguments plus a scoped env. The production candidate uses Electron's
-// --proxy-server / --proxy-bypass-list arguments and HTTP(S)_PROXY against
-// Slimference's loopback CONNECT ingress. The effect is process-local:
-// only the spawned Codex.app inherits the route. Browser ChatGPT,
-// ChatGPT.app, Claude Code, and any Codex.app launched later via Finder /
-// Spotlight remain unaffected.
+// This launcher spawns Codex.app's main binary directly with a scoped env.
+// The preferred production candidate uses Codex Desktop's CODEX_CLI_PATH hook:
+// Electron starts this slimference binary as if it were `codex app-server`,
+// and the hidden app-server shim execs the real Codex binary with process-local
+// provider overrides that point only that app-server at Slimference's local
+// Codex WSS endpoint. Browser ChatGPT, ChatGPT.app, Claude Code, and any
+// Codex.app launched later via Finder / Spotlight remain unaffected.
 //
 // EMPIRICAL FINDING (2026-05-18, against Codex.app 0.131.0-alpha.9 at
 // /Applications/Codex.app/Contents/Resources/codex):
@@ -51,12 +51,20 @@ import (
 //   - a real prompt still produces CONNECT/MITM sessions with zero
 //     application bytes, zero WSS frames, and zero Phase-F mutation.
 //
-// The base-URL env mode is therefore retained as a diagnostic surface
-// (`--transport=base-url --probe`) and future-proof spawn path. The
-// default proxy mode is the only current Desktop route candidate that
-// does not require global hosts/pf/system-proxy changes, but it remains
-// proof-gated and is not a Desktop savings claim until bytes and Phase-F
-// mutation are observed.
+// EMPIRICAL FINDING (2026-05-22, against Codex CLI 0.133.0 and current
+// Codex.app source/app bundle):
+//   - Codex's Rust app-server is spawned through CODEX_CLI_PATH when that env
+//     is present in Electron's process env,
+//   - `codex app-server` accepts `-c` provider overrides,
+//   - direct local `openai_base_url=http://127.0.0.1:8990/backend-api/codex`
+//     reaches Slimference WSS live without CA/MITM,
+//   - Slimference already handles direct local WebSocket upgrades on
+//     `/backend-api/codex/responses`.
+//
+// The base-URL env and proxy modes are therefore retained as diagnostic
+// surfaces, but the app-server shim is the preferred Desktop route candidate.
+// It remains proof-gated and is not a Desktop savings claim until bytes and
+// Phase-F mutation are observed from a spawned Codex.app conversation.
 //
 // `--with-ca-env` is the preferred Desktop compatibility probe. It injects
 // Codex's own process-local custom CA hook first, followed by generic CA bundle
@@ -70,17 +78,20 @@ import (
 const (
 	defaultCodexDesktopAppPath     = "/Applications/Codex.app"
 	defaultCodexDesktopExecRelPath = "Contents/MacOS/Codex"
+	codexDesktopTransportAppServer = "app-server"
 	codexDesktopTransportProxy     = "proxy"
 	codexDesktopTransportBaseURL   = "base-url"
 )
 
 var (
-	codexDesktopAppPathFn = func() string { return defaultCodexDesktopAppPath }
-	codexDesktopStatFn    = func(name string) (fs.FileInfo, error) { return os.Stat(name) }
-	codexDesktopStartFn   = startCodexDesktopProcess
-	codexDesktopBaseEnvFn = os.Environ
-	codexDesktopCATrustFn = codexDesktopCATrustState
-	codexDesktopRunningFn = runningCodexDesktopPIDs
+	codexDesktopAppPathFn       = func() string { return defaultCodexDesktopAppPath }
+	codexDesktopStatFn          = func(name string) (fs.FileInfo, error) { return os.Stat(name) }
+	codexDesktopStartFn         = startCodexDesktopProcess
+	codexDesktopBaseEnvFn       = os.Environ
+	codexDesktopCATrustFn       = codexDesktopCATrustState
+	codexDesktopRunningFn       = runningCodexDesktopPIDs
+	codexDesktopLookPathFn      = exec.LookPath
+	codexDesktopUpstreamCodexFn = resolveCodexDesktopUpstreamCodexBinary
 )
 
 var codexDesktopStartProbeDelay = 750 * time.Millisecond
@@ -119,6 +130,15 @@ var codexDesktopCAEnvKeys = []string{
 	"CURL_CA_BUNDLE",
 	"REQUESTS_CA_BUNDLE",
 	"NODE_EXTRA_CA_CERTS",
+}
+
+var codexDesktopAppServerEnvKeys = []string{
+	"CODEX_CLI_PATH",
+	"SLIMFERENCE_CODEX_DESKTOP_ACTIVE",
+	"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN",
+	"SLIMFERENCE_CODEX_DESKTOP_BASE_URL",
+	"NO_PROXY",
+	"no_proxy",
 }
 
 var codexDesktopSessionEnvPrefixes = []string{
@@ -178,17 +198,32 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 	proxyURL := fmt.Sprintf("http://%s:%s", flags.host, flags.port)
 	overrideURL := proxyURL + "/backend-api/codex"
 	launchArgs := codexDesktopLaunchArgs(flags.transport, proxyURL)
-	env := buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), flags.extra)
+	env := []string(nil)
 	ca := codexDesktopCATrustFn()
-	if flags.transport == codexDesktopTransportProxy && flags.withCAEnv {
-		env = buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), nil)
-		env = appendCodexDesktopCAEnv(env, ca.Path, flags.extra)
-	}
-	if flags.transport == codexDesktopTransportBaseURL {
+	switch flags.transport {
+	case codexDesktopTransportAppServer:
+		slimferenceBin, err := osExecutable()
+		if err != nil {
+			fmt.Fprintf(p.Err, "codex launch-desktop: resolve slimference executable: %v\n", err)
+			return 1
+		}
+		upstreamBin, err := codexDesktopUpstreamCodexFn(slimferenceBin)
+		if err != nil {
+			fmt.Fprintf(p.Err, "codex launch-desktop: resolve upstream codex binary: %v\n", err)
+			return 1
+		}
+		env = buildCodexDesktopAppServerEnv(overrideURL, slimferenceBin, upstreamBin, codexDesktopBaseEnvFn(), flags.extra)
+		ca = codexDesktopCAState{}
+	case codexDesktopTransportProxy:
+		env = buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), flags.extra)
+		if flags.withCAEnv {
+			env = buildCodexDesktopProxyEnv(proxyURL, codexDesktopBaseEnvFn(), nil)
+			env = appendCodexDesktopCAEnv(env, ca.Path, flags.extra)
+		}
+	case codexDesktopTransportBaseURL:
 		env = buildCodexDesktopLaunchEnv(overrideURL, codexDesktopBaseEnvFn(), flags.extra)
 		ca = codexDesktopCAState{}
 	}
-
 	if flags.probe {
 		return emitCodexDesktopProbe(p, binary, launchArgs, flags.transport, overrideURL, proxyURL, env, ca)
 	}
@@ -311,6 +346,66 @@ func buildCodexDesktopProxyEnv(proxyURL string, base []string, extra []string) [
 	return out
 }
 
+func buildCodexDesktopAppServerEnv(baseURL, slimferenceBin, upstreamCodexBin string, base []string, extra []string) []string {
+	base = sanitizeCodexDesktopBaseEnv(base)
+	overrideKeys := make(map[string]struct{}, len(codexDesktopAppServerEnvKeys)+len(codexDesktopProxyEnvKeys)+len(codexDesktopEnvOverrideKeys)+len(codexDesktopCAEnvKeys))
+	for _, k := range codexDesktopAppServerEnvKeys {
+		overrideKeys[k] = struct{}{}
+	}
+	for _, k := range codexDesktopProxyEnvKeys {
+		overrideKeys[k] = struct{}{}
+	}
+	for _, k := range codexDesktopEnvOverrideKeys {
+		overrideKeys[k] = struct{}{}
+	}
+	for _, k := range codexDesktopCAEnvKeys {
+		overrideKeys[k] = struct{}{}
+	}
+
+	out := make([]string, 0, len(base)+len(codexDesktopAppServerEnvKeys)+len(extra))
+	for _, kv := range base {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			out = append(out, kv)
+			continue
+		}
+		if _, hit := overrideKeys[kv[:eq]]; hit {
+			continue
+		}
+		out = append(out, kv)
+	}
+	noProxy := "127.0.0.1,localhost,::1"
+	out = append(out,
+		"CODEX_CLI_PATH="+slimferenceBin,
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
+		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN="+upstreamCodexBin,
+		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL="+baseURL,
+		"NO_PROXY="+noProxy,
+		"no_proxy="+noProxy,
+	)
+	out = appendCodexDesktopSafeExtraEnv(out, extra, overrideKeys)
+	return out
+}
+
+func appendCodexDesktopSafeExtraEnv(out []string, extra []string, blocked map[string]struct{}) []string {
+	for _, kv := range extra {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			out = append(out, kv)
+			continue
+		}
+		key := kv[:eq]
+		if strings.HasPrefix(key, "CODEX_") || strings.HasPrefix(key, "SLIMFERENCE_CODEX_DESKTOP_") {
+			continue
+		}
+		if _, hit := blocked[key]; hit {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
 func sanitizeCodexDesktopBaseEnv(base []string) []string {
 	out := make([]string, 0, len(base))
 	for _, kv := range base {
@@ -425,6 +520,24 @@ func filterCodexDesktopProxyEnv(env []string) []string {
 	return out
 }
 
+func filterCodexDesktopAppServerEnv(env []string) []string {
+	keys := make(map[string]struct{}, len(codexDesktopAppServerEnvKeys))
+	for _, k := range codexDesktopAppServerEnvKeys {
+		keys[k] = struct{}{}
+	}
+	var out []string
+	for _, kv := range env {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		if _, hit := keys[kv[:eq]]; hit {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 type codexLaunchDesktopProbe struct {
 	Binary      string              `json:"binary"`
 	Args        []string            `json:"args,omitempty"`
@@ -448,6 +561,11 @@ func emitCodexDesktopProbe(p installPrinter, binary string, args []string, trans
 	if transport == codexDesktopTransportBaseURL {
 		probe.ProxyURL = ""
 		probe.EnvOverride = filterCodexDesktopOverrideEnv(env)
+		probe.CATrust = codexDesktopCAState{}
+	}
+	if transport == codexDesktopTransportAppServer {
+		probe.ProxyURL = ""
+		probe.EnvOverride = filterCodexDesktopAppServerEnv(env)
 		probe.CATrust = codexDesktopCAState{}
 	}
 	enc := json.NewEncoder(p.Out)
@@ -559,6 +677,43 @@ func runningCodexDesktopPIDs(binary string) ([]int, error) {
 	return pids, nil
 }
 
+func resolveCodexDesktopUpstreamCodexBinary(slimferenceBin string) (string, error) {
+	if bin := strings.TrimSpace(os.Getenv("CODEX_BIN")); bin != "" {
+		if codexDesktopSamePath(bin, slimferenceBin) {
+			return "", fmt.Errorf("CODEX_BIN points at slimference itself: %s", bin)
+		}
+		return bin, nil
+	}
+	bin, err := codexDesktopLookPathFn("codex")
+	if err != nil {
+		return "", err
+	}
+	if codexDesktopSamePath(bin, slimferenceBin) {
+		return "", fmt.Errorf("codex resolves to slimference itself: %s", bin)
+	}
+	return bin, nil
+}
+
+func codexDesktopSamePath(a, b string) bool {
+	ac := codexDesktopCanonicalPath(a)
+	bc := codexDesktopCanonicalPath(b)
+	return ac != "" && bc != "" && ac == bc
+}
+
+func codexDesktopCanonicalPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(path)
+	if err == nil {
+		path = abs
+	}
+	if realPath, err := filepath.EvalSymlinks(path); err == nil {
+		path = realPath
+	}
+	return filepath.Clean(path)
+}
+
 func joinDesktopPIDs(pids []int) string {
 	parts := make([]string, 0, len(pids))
 	for _, pid := range pids {
@@ -568,7 +723,7 @@ func joinDesktopPIDs(pids []int) string {
 }
 
 func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error) {
-	f := codexLaunchDesktopFlags{host: "127.0.0.1", port: "8990", transport: codexDesktopTransportProxy}
+	f := codexLaunchDesktopFlags{host: "127.0.0.1", port: "8990", transport: codexDesktopTransportAppServer}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -599,9 +754,9 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 		}
 	}
 	switch f.transport {
-	case codexDesktopTransportProxy, codexDesktopTransportBaseURL:
+	case codexDesktopTransportAppServer, codexDesktopTransportProxy, codexDesktopTransportBaseURL:
 	default:
-		return f, fmt.Errorf("invalid --transport %q (want proxy or base-url)", f.transport)
+		return f, fmt.Errorf("invalid --transport %q (want app-server, proxy or base-url)", f.transport)
 	}
 	if f.withCAEnv && f.transport != codexDesktopTransportProxy {
 		return f, fmt.Errorf("--with-ca-env requires --transport=proxy")
@@ -609,15 +764,17 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 	return f, nil
 }
 
-const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--transport=proxy|base-url] [--probe] [--with-ca-env] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
+const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--transport=app-server|proxy|base-url] [--probe] [--with-ca-env] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
 
-Spawns Codex.app's main binary with a scoped env. Default transport=proxy
-sets HTTP(S)/WSS proxy variables only on the launched app process. Browser
-ChatGPT, ChatGPT.app, Claude Code, and any Codex.app relaunched from
+Spawns Codex.app's main binary with a scoped env. Default transport=app-server
+sets CODEX_CLI_PATH only on the launched app process. Codex Desktop then starts
+Slimference as its app-server shim, and the shim execs the real Codex app-server
+with process-local provider overrides pointed at Slimference's local WSS route.
+Browser ChatGPT, ChatGPT.app, Claude Code, and any Codex.app relaunched from
 Finder/Spotlight remain on direct routing.
 
 Flags:
-  --transport=<mode>  proxy (default) or base-url diagnostic mode
+  --transport=<mode>  app-server (default), proxy diagnostic, or base-url diagnostic
   --probe             emit scoped env and CA state as JSON without spawning
   --with-ca-env       proxy-mode Desktop probe: inject CODEX_CA_CERTIFICATE
                       first, then SSL_CERT_FILE, CURL_CA_BUNDLE,

@@ -463,9 +463,9 @@ Atomic, reversible install. Performs:
   2. launchd.install ~/Library/LaunchAgents/com.slimference.proxy.plist
   3. hooks.codex     ~/.codex hook scripts + hooks.json entries
 
-Keychain trust is NOT part of the default install. CLI WSS does not need it;
-Codex Desktop first uses process-local CODEX_CA_CERTIFICATE via
-` + "`slimference codex launch-desktop --transport=proxy --with-ca-env`" + `.
+Keychain trust is NOT part of the default install. CLI WSS and the preferred
+Codex Desktop app-server shim do not need it. CA trust stays available only for
+Desktop/lab proxy diagnostics.
 
 Claude Code is parked: install never writes ~/.claude or Claude hooks.
 

@@ -920,7 +920,7 @@ Token-Spar-Hebel jenseits L0-L4-Input-Kompression. Output-Tokens sind 3-5× teur
 
 ## Phase G — Live ChatGPT-Sub WebSocket conversation interception (planned 2026-05-16)
 
-The piece that connects everything else: Codex 0.130 + ChatGPT subscription auth ships its model conversations over `wss://chatgpt.com/backend-api/codex/responses`. The chatgpt-base URL is hardcoded in `codex-rs/model-provider-info/src/lib.rs` (`CHATGPT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"`), and the legacy `openai_base_url` / `chatgpt_base_url` config keys only affect sideband endpoints (memories, plugins, login) in the ChatGPT-auth path. Current product work supersedes the old global-Keychain-first idea: CLI uses the scoped WSS provider path; Desktop proof uses process-local proxy env plus `CODEX_CA_CERTIFICATE` first, with Keychain/global transparent mode kept as explicit fallback/lab only.
+The piece that connects everything else: Codex 0.130+ ChatGPT subscription auth ships its model conversations over `wss://chatgpt.com/backend-api/codex/responses`. The chatgpt-base URL is hardcoded in older Codex provider defaults, but current Codex also exposes process-local provider override hooks. Current product work supersedes the old global-Keychain-first idea: CLI uses the scoped WSS provider path; Desktop proof now prefers the process-local `CODEX_CLI_PATH` app-server shim from T246, with proxy/CA/Keychain/global transparent mode kept as explicit diagnostics or lab only.
 
 User-visible goal (verbatim from the user):
 
@@ -1331,16 +1331,15 @@ only and promotes the per-process Codex CLI runner for T209.
   rename from `slimference-codex` to `Slimference` for user-facing provider
   labels. No routing, proxy, savings, or app-scope behavior changed. Detail:
   `docs/todo/t237-codex-provider-display-name.md`
-- [~] **T238** Codex Desktop process-local proxy proof — live proof now shows
+- [x] **T238** Codex Desktop process-local proxy proof — live proof showed
   process-local proxy env plus Electron proxy args route both Codex.app's Rust
   app-server and Chromium NetworkService to Slimference loopback, and CONNECT
   reaches Slimference, but Codex.app closes before application bytes flow.
-  `codex desktop status` classifies this as `desktop_tls_blocked` /
-  `tls_trust_rejected`; `--with-ca-env` plus `CODEX_CA_CERTIFICATE` is proven
-  insufficient for current Desktop savings until a supported Codex root-store
-  or endpoint hook appears. Must not touch Browser ChatGPT, ChatGPT.app, Claude
-  Code, `/etc/hosts`, pfctl, macOS system proxy, or
-  `~/.codex/config.toml`. Detail:
+  `--with-ca-env` plus `CODEX_CA_CERTIFICATE` is insufficient for current
+  Desktop savings on that proxy/TLS-MITM branch. The branch stays diagnostic;
+  T246 supersedes it as the preferred no-CA app-server shim proof. Must not
+  touch Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS
+  system proxy, or `~/.codex/config.toml`. Detail:
   `docs/todo/t238-codex-desktop-process-local-proxy-proof.md`
 - [~] **T239** Slimference launch center TUI — first implementation landed in
   the existing BubbleTea TUI: top-level Launch Center now exposes exactly
@@ -1368,7 +1367,7 @@ only and promotes the per-process Codex CLI runner for T209.
   proof evaluation, and bridge-proof fallback are landed. Live `codex-cli
   0.131.0` recert is green with Phase-F mutation and config hash stability.
   Detail: `docs/todo/t241-codex-update-resilient-certification.md`
-- [~] **T242** Codex Desktop root-store and proxy compatibility matrix —
+- [x] **T242** Codex Desktop root-store and proxy compatibility matrix —
   process-local `--with-ca-env` probe and launch are partially live-verified
   and now automated behind `codex desktop prove --manual` and `--finish`: the
   detached Desktop launcher is stable, existing app instances are refused before
@@ -1379,10 +1378,9 @@ only and promotes the per-process Codex CLI runner for T209.
   socket bypass, but live prompt proof still ends as one CONNECT/MITM session
   with `bytes_c2s=0`, `bytes_s2c=0`, and zero mutation. Current product
   decision: TUI Launch Codex App blocks instead of opening direct or a broken
-  proxy; normal Finder/Spotlight Desktop stays direct. Remaining work: test
-  managed network-proxy and endpoint-hook surfaces, and settle whether current
-  Desktop can route conversation through Slimference without global lab or
-  upstream changes. Detail:
+  proxy; normal Finder/Spotlight Desktop stays direct. T246 records the better
+  no-CA/no-proxy app-server shim route found during the endpoint-hook audit and
+  carries the remaining Desktop positive proof. Detail:
   `docs/todo/t242-codex-desktop-root-store-probe.md`
 - [~] **T243** WSS-first auto transport ladder — `transport=auto` now prefers
   `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct for scoped
@@ -1403,6 +1401,17 @@ only and promotes the per-process Codex CLI runner for T209.
   and must be guided, explicit, reversible, SSL-only, and capability-gated in
   Manage Slimference.
   Detail: `docs/todo/t245-macos-ca-trust-ux.md`
+- [~] **T246** Codex Desktop app-server shim proof — preferred Desktop route
+  candidate discovered from current Codex source and installed Codex.app ASAR:
+  launch Codex.app with process-local `CODEX_CLI_PATH=<slimference>`, let the
+  hidden `slimference app-server` shim exec the real `codex app-server` with
+  local provider overrides, and route Desktop conversation WSS through
+  Slimference without CA trust, HTTPS_PROXY, Electron proxy args, global hosts,
+  system proxy, or config mutation. Non-Desktop smoke proof already shows
+  `openai_base_url=http://127.0.0.1:8990/backend-api/codex` drives WSS bytes and
+  frames through Slimference with zero errors. Remaining work is live Codex.app
+  prompt proof for bytes, Phase-F mutation, direct controls, and TUI green gate.
+  Detail: `docs/todo/t246-codex-desktop-app-server-shim-proof.md`
 
 ### Sequencing within Phase H
 
@@ -1492,11 +1501,11 @@ only and promotes the per-process Codex CLI runner for T209.
    Phase-F value without an automatic repair path. The strict tuple guard stays;
    the UX gets shared CLI/TUI/background recert, bounded logs, locks, cooldowns,
    and real mutation proof.
-30. **T242 before Desktop success claims** — the Desktop menu item remains part
-   of the TUI, but success is gated on bytes/WSS proof. The first proof branch
-   is process-local proxy plus `CODEX_CA_CERTIFICATE`; if root-store probes
-   fail, the TUI Desktop item remains blocked until OpenAI exposes a usable hook
-   or root-store behavior changes. Normal direct Desktop launch stays outside
+30. **T246 before Desktop success claims** — the Desktop menu item remains part
+   of the TUI, but success is gated on bytes/WSS proof. The old process-local
+   proxy plus `CODEX_CA_CERTIFICATE` branch is rejected for current Codex.app as
+   a zero-byte TLS/root-store path. The preferred branch is now the no-CA
+   `CODEX_CLI_PATH` app-server shim. Normal direct Desktop launch stays outside
    Slimference.
 31. **T243 before T240** — WSS remains the standard. `transport=auto` must try
    certified WSS Phase-F first, WSS byte-equal bridge second, HTTP third, and
@@ -1514,10 +1523,9 @@ only and promotes the per-process Codex CLI runner for T209.
 - `slimference install` exits 0 → SetupState: daemon/autostart state known,
   hooks present where selected, hosts CLEAN (not patched), and Codex product
   support prepared for both CLI and Desktop without default per-app checkboxes.
-  Scoped Codex CLI WSS is usable without CA env or macOS CA trust. Desktop
-  proxy proof uses process-local custom CA env first; Keychain trust is
-  optional and only required for Desktop/Lab TLS-MITM fallback branches that
-  actually need OS trust.
+  Scoped Codex CLI WSS and the preferred Desktop app-server shim are usable
+  without CA env or macOS CA trust. Keychain trust is optional and only required
+  for Desktop/Lab TLS-MITM diagnostic branches that actually need OS trust.
 - Scoped Codex CLI test uses `slimference codex run` and leaves
   hosts/pfctl/Browser ChatGPT/ChatGPT.app untouched.
 - Scoped WSS mode uses `wsmitm.Session` + Phase-F frame mutation, handles
@@ -1532,11 +1540,11 @@ only and promotes the per-process Codex CLI runner for T209.
 - Indistinguishability claims require a T224 capture report; docs use
   "scoped / minimized drift" until then.
 - Shared Codex CLI/App test uses the Launch Center paths: Launch Codex CLI via
-  `transport=auto`; Launch Codex App via the T242 capability-gated branch; then
+  `transport=auto`; Launch Codex App via the T246 capability-gated branch; then
   verifies direct normal launches outside Slimference remain native.
-- Codex Desktop target is also WSS-first if scoped provider/launcher proof
-  confirms Desktop can be routed without global hosts/pfctl, preferably through
-  process-local proxy plus `CODEX_CA_CERTIFICATE` and without Keychain.
+- Codex Desktop target is also WSS-first if scoped app-server shim proof
+  confirms Desktop can be routed without global hosts/pfctl, CA trust, proxy
+  env, Electron proxy args, or config mutation.
 - T226 done: `transport=auto` prefers WSS for certified Codex versions. T243
   supersedes the old fallback ordering so stale Phase-F certs prefer WSS
   byte-equal bridge before HTTP/direct when bridge proof is clean.
@@ -1546,11 +1554,11 @@ only and promotes the per-process Codex CLI runner for T209.
 - After T228, Codex Desktop either reloads the shared scoped route with a
   clean one-command flow or has a process-local launcher that is proof-gated
   before any savings claim.
-- After T238, Codex Desktop either has a proven process-local proxy launch mode
-  that routes conversation WSS through Slimference without global collateral, or
-  the product truth explicitly says Desktop remains direct until upstream
-  exposes a usable route. The next proof branch is process-local
-  `CODEX_CA_CERTIFICATE`, not Keychain-first.
+- After T238/T242, the process-local proxy/CA branch is a rejected diagnostic
+  path for current Codex.app. After T246, Codex Desktop either has a proven
+  app-server shim launch mode that routes conversation WSS through Slimference
+  without global collateral, or the product truth explicitly says Desktop
+  remains direct until upstream changes.
 - After T239, the normal human surface is the launch center: Launch Codex CLI,
   Launch Codex App, Savings, Status, and Manage Slimference. Install/Repair is
   one Codex product flow, not separate CLI/App installation.

@@ -107,6 +107,7 @@ type codexDesktopStatusOutput struct {
 type codexDesktopProofOutput struct {
 	Mode              string              `json:"mode"`
 	FailureClass      string              `json:"failure_class,omitempty"`
+	Transport         string              `json:"transport,omitempty"`
 	Duration          string              `json:"duration"`
 	LaunchPID         int                 `json:"launch_pid,omitempty"`
 	LaunchOutput      string              `json:"launch_output,omitempty"`
@@ -126,6 +127,7 @@ type codexDesktopProofSession struct {
 	SchemaVersion int              `json:"schema_version"`
 	Host          string           `json:"host"`
 	Port          string           `json:"port"`
+	Transport     string           `json:"transport,omitempty"`
 	LaunchPID     int              `json:"launch_pid"`
 	StartedAt     time.Time        `json:"started_at"`
 	BaselineWSS   control.WSSState `json:"baseline_wss"`
@@ -494,14 +496,14 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	}
 
 	var launchOut, launchErr strings.Builder
-	rc := runCodexLaunchDesktopCmd([]string{"--transport=proxy", "--with-ca-env", "--host=" + flags.host, "--port=" + flags.port}, installPrinter{Out: &launchOut, Err: &launchErr})
+	rc := runCodexLaunchDesktopCmd([]string{"--transport=app-server", "--host=" + flags.host, "--port=" + flags.port}, installPrinter{Out: &launchOut, Err: &launchErr})
 	out := codexDesktopProofOutput{
 		Duration:          flags.duration.String(),
+		Transport:         codexDesktopTransportAppServer,
 		LaunchOutput:      strings.TrimSpace(launchOut.String()),
-		CATrust:           codexDesktopCATrustFn(),
 		ManualPromptStill: true,
 		Notes: []string{
-			"automated proof covers launch-time routing and TLS/root-store behavior",
+			"automated proof covers launch-time app-server shim routing",
 			"full Desktop savings proof still needs a prompt-tied WSS delta if launch-time bytes do not flow",
 		},
 	}
@@ -583,9 +585,9 @@ func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) 
 	before := control.SetupState{WSS: session.BaselineWSS}
 	out := codexDesktopProofOutput{
 		Duration:     time.Since(session.StartedAt).Round(time.Second).String(),
+		Transport:    firstNonEmpty(session.Transport, codexDesktopTransportAppServer),
 		LaunchPID:    session.LaunchPID,
 		LaunchOutput: session.LaunchOutput,
-		CATrust:      codexDesktopCATrustFn(),
 		SessionPath:  sessionPath,
 		DeltaWSS:     codexSetupDelta(before, after).WSS,
 		Notes:        []string{"finish compares current daemon WSS state to the manual Desktop proof baseline"},
@@ -638,22 +640,31 @@ func classifyCodexDesktopProof(out *codexDesktopProofOutput, manual bool) {
 	w := out.DeltaWSS
 	switch {
 	case codexDesktopTLSRejected(w):
-		out.Mode = "desktop_ca_env_rejected"
-		out.FailureClass = "tls_trust_rejected"
+		if out.Transport == codexDesktopTransportProxy {
+			out.Mode = "desktop_ca_env_rejected"
+			out.FailureClass = "tls_trust_rejected"
+			out.Notes = append(out.Notes,
+				"Codex.app opened CONNECT/WSS bridge sessions but closed before application bytes",
+				"process-local CA env reached the app but current Desktop did not use it for this TLS path",
+			)
+			break
+		}
+		out.Mode = "desktop_connect_only_no_app_server_bytes"
+		out.FailureClass = "connect_only_no_app_server_bytes"
 		out.Notes = append(out.Notes,
-			"Codex.app opened CONNECT/WSS bridge sessions but closed before application bytes",
-			"process-local CA env reached the app but current Desktop did not use it for this TLS path",
+			"CONNECT-only WSS activity is not proof for the app-server shim route",
+			"Desktop savings require bytes, frames, and Phase-F mutation on the app-server local WSS path",
 		)
 	case w.BytesC2S > 0 && w.BytesS2C > 0 && w.FramesReencoded > 0 && w.CompressedMessagesMutated > 0 &&
 		w.ParseFailures == 0 && w.DegradedSessions == 0 && w.CompressionErrors == 0:
-		out.Mode = "desktop_proxy_phasef_proven"
+		out.Mode = "desktop_app_server_phasef_proven"
 		out.LaunchReady = true
 		out.DesktopProven = true
 		out.DesktopSavings = true
 		out.ManualPromptStill = false
 	case w.BytesC2S > 0 && w.BytesS2C > 0 &&
 		w.ParseFailures == 0 && w.DegradedSessions == 0 && w.CompressionErrors == 0:
-		out.Mode = "desktop_proxy_wss_bridge"
+		out.Mode = "desktop_app_server_wss_bridge"
 		out.LaunchReady = true
 		out.DesktopProven = true
 		out.Notes = append(out.Notes, "WSS bytes flowed, but Phase-F mutation did not fire in this observation window")
@@ -771,6 +782,7 @@ func writeCodexDesktopProofSession(flags codexDesktopProveFlags, baseline contro
 		SchemaVersion: 1,
 		Host:          flags.host,
 		Port:          flags.port,
+		Transport:     out.Transport,
 		LaunchPID:     out.LaunchPID,
 		StartedAt:     codexNowFn().UTC(),
 		BaselineWSS:   baseline,
@@ -828,6 +840,9 @@ func renderCodexDesktopProof(w io.Writer, out codexDesktopProofOutput) {
 	fmt.Fprintf(w, "  Duration  %s\n", out.Duration)
 	if out.LaunchPID > 0 {
 		fmt.Fprintf(w, "  PID       %d\n", out.LaunchPID)
+	}
+	if out.Transport != "" {
+		fmt.Fprintf(w, "  Transport %s\n", out.Transport)
 	}
 	if out.SessionPath != "" {
 		fmt.Fprintf(w, "  Session   %s\n", out.SessionPath)
@@ -983,7 +998,7 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		CATrust:           codexDesktopCATrustFn(),
 		WSSCountersScope:  "daemon_cumulative_not_desktop_proof",
 		LiveProofRequired: true,
-		LaunchCommand:     "slimference codex launch-desktop --transport=proxy --with-ca-env",
+		LaunchCommand:     "slimference codex launch-desktop --transport=app-server",
 	}
 	if last, err := readCodexDesktopProofResult(codexDesktopResultFn()); err == nil {
 		out.LastProof = last
@@ -992,13 +1007,13 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 	if err != nil {
 		out.FailureClass = "daemon_unreachable"
 		out.DaemonError = err.Error()
-		out.Notes = append(out.Notes, "start the Slimference daemon before launching Codex Desktop in proxy mode")
+		out.Notes = append(out.Notes, "start the Slimference daemon before launching Codex Desktop through the app-server shim")
 		return out
 	}
 	out.DaemonReachable = true
 	out.WSS = state.WSS
 	if out.CATrust.Exists && !out.CATrust.Trusted {
-		out.Notes = append(out.Notes, "Keychain trust is not required for the preferred process-local Desktop probe; launch uses --with-ca-env")
+		out.Notes = append(out.Notes, "Keychain trust is not required for the preferred app-server shim route")
 	}
 	if codexDesktopHasWSSActivity(state.WSS) {
 		out.Notes = append(out.Notes, "WSS counters are daemon-wide and may include Codex CLI traffic; Desktop proof requires a pre/post delta tied to the spawned Codex.app process")
@@ -1009,34 +1024,30 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 			return out
 		}
 	}
-	switch {
-	case !out.CATrust.Exists:
-		out.FailureClass = "ca_missing"
-		out.Notes = append(out.Notes, "run `slimference install` to create the local CA")
-	case codexDesktopTLSRejected(state.WSS):
-		out.Mode = "desktop_tls_blocked"
-		out.FailureClass = "tls_trust_rejected"
-		out.Notes = append(out.Notes,
-			"Codex.app reached the Slimference CONNECT bridge but closed before application bytes flowed",
-			"treat Desktop savings as unavailable until the CODEX_CA_CERTIFICATE/root-store hook is proven",
-			"the Launch Center may retry the process-local --with-ca-env diagnostic without claiming savings",
-			"normal Finder/Spotlight Codex.app launch remains direct and unaffected",
-		)
-	default:
-		out.Mode = "ready_for_live_desktop_probe"
-		out.Notes = append(out.Notes, "launch Codex Desktop through the proxy mode and verify lsof plus .wss in /_slimference/admin/state")
+	if !out.CATrust.Exists {
+		out.Notes = append(out.Notes, "local CA is absent; not required for app-server shim route")
 	}
+	out.Mode = "ready_for_live_desktop_probe"
+	out.Notes = append(out.Notes, "launch Codex Desktop through the app-server shim and verify .wss deltas in /_slimference/admin/state")
 	return out
 }
 
 func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDesktopProofOutput) {
+	if last.Transport != "" && last.Transport != codexDesktopTransportAppServer {
+		out.Notes = append(out.Notes, "last Desktop proof used legacy "+last.Transport+" route; app-server shim proof is still required")
+		return
+	}
+	if last.Transport == "" && strings.HasPrefix(last.Mode, "desktop_proxy") {
+		out.Notes = append(out.Notes, "last Desktop proof predates app-server shim route; app-server proof is still required")
+		return
+	}
 	switch last.Mode {
-	case "desktop_proxy_phasef_proven":
-		out.Mode = "desktop_proxy_proven"
+	case "desktop_app_server_phasef_proven":
+		out.Mode = "desktop_app_server_proven"
 		out.FailureClass = ""
 		out.ConversationObserved = true
 		out.LiveProofRequired = false
-		out.Notes = append(out.Notes, "last Desktop proof was green with Phase-F mutation")
+		out.Notes = append(out.Notes, "last Desktop app-server shim proof was green with Phase-F mutation")
 	case "desktop_ready_for_prompt":
 		out.Mode = "desktop_proof_prompt_required"
 		out.FailureClass = "prompt_required"
@@ -1049,7 +1060,7 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 		out.Mode = "desktop_direct_only"
 		out.FailureClass = firstNonEmpty(last.FailureClass, "no_wss_delta")
 		out.Notes = append(out.Notes, "last Desktop proof produced no Desktop WSS delta; use normal Codex.app direct launch")
-	case "desktop_proxy_wss_bridge":
+	case "desktop_app_server_wss_bridge":
 		out.Mode = "desktop_wss_bridge_only"
 		out.FailureClass = "desktop_savings_not_proven"
 		out.ConversationObserved = true
@@ -1294,8 +1305,8 @@ Commands:
   status          show route config + daemon health
   certify         issue local WSS auto-promotion proof after live mutation
   recertify       run guided WSS repair; refresh Phase-F cert or bridge proof
-  desktop         show Desktop proxy readiness and live-proof status
-  launch-desktop  spawn Codex.app with process-local proxy env (--probe to inspect)
+  desktop         show Desktop app-server shim readiness and live-proof status
+  launch-desktop  spawn Codex.app with process-local Slimference env (--probe to inspect)
 `
 
 const codexRunHelpText = `usage: slimference codex run [--transport=http|wss|wss-bridge|direct|auto] [--direct] [--host=127.0.0.1] [--port=8990] [-- <codex-args>...]
@@ -1339,7 +1350,7 @@ const codexDesktopUsageLine = "usage: slimference codex desktop <status|prove> [
 
 const codexDesktopHelpText = `usage: slimference codex desktop <status|prove> [flags]
 
-Desktop-specific scoped proxy readiness and proof.
+Desktop-specific scoped app-server shim readiness and proof.
 
 Commands:
   status  show CA, daemon, and WSS proof state without launching Codex.app
@@ -1348,13 +1359,13 @@ Commands:
 
 const codexDesktopStatusHelpText = `usage: slimference codex desktop status [--json] [--host=127.0.0.1] [--port=8990]
 
-Reports whether the process-local HTTPS_PROXY Desktop launcher is ready
+Reports whether the process-local CODEX_CLI_PATH app-server shim is ready
 and whether a live Desktop conversation WSS proof has already been seen.
 `
 
 const codexDesktopProveHelpText = `usage: slimference codex desktop prove [--json] [--duration=15s] [--manual|--finish] [--keep-open] [--host=127.0.0.1] [--port=8990]
 
-Starts Codex.app with process-local proxy + CA env, snapshots daemon WSS
+Starts Codex.app with process-local CODEX_CLI_PATH app-server shim, snapshots daemon WSS
 counters before/after, classifies the result, and closes the spawned app
 unless --keep-open is set. Exit 0 means Desktop Phase-F savings were actually
 proven, or --manual produced a launch-ready proof session that still needs a

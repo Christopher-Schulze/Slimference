@@ -1,7 +1,7 @@
 # TASK 242: Codex Desktop custom-CA env and proxy compatibility matrix
 
-Status: LIVE PROOF NEGATIVE - automated proof gate implemented; current Desktop
-path still blocks Slimference savings after user prompt
+Status: CLOSED NEGATIVE - proxy/root-store branch rejected for current Codex.app;
+superseded by T246 app-server shim proof
 Priority: P0 after T238 zero-byte CONNECT classification
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
@@ -17,6 +17,10 @@ The current best hypothesis is a Rust TLS root-store mismatch: Codex.app may use
 rustls/webpki roots or another root store that does not see the macOS Keychain
 trust entry. This is functionally as blocking as pinning, but it is more precise
 and may have a solvable hook.
+
+T246 is now the preferred route because it avoids this root-store branch
+entirely. The proxy/CA work in this file remains useful as negative evidence
+and as an advanced diagnostic fallback, not as the normal Desktop product path.
 
 The newest high-value hook is Codex's own custom CA environment support:
 current upstream Codex has `CODEX_CA_CERTIFICATE`, falls back to
@@ -66,7 +70,7 @@ Phase-F savings.
   root-store behavior or exposes a supported route hook.
 - If Desktop bytes flow but Phase-F mutation is not yet proven, classify
   Desktop as WSS byte-equal bridge, not as a savings path. The T243 ladder
-  applies to Desktop only after T242 proves process-local Desktop routing can
+  applies to Desktop only after T246 proves process-local Desktop routing can
   carry real conversation bytes through Slimference.
 - If CA env or Keychain trust is absent, do not mark CLI WSS degraded. Report
   it only as a Desktop/Lab readiness detail. The TUI wording must say
@@ -107,22 +111,22 @@ Phase-F savings.
   application bytes and zero Phase-F mutation.
 - [ ] Test a direct Finder/Spotlight relaunch after cleanup and prove it is
   direct again.
-- [ ] Read current installed Codex.app strings and upstream Codex source for
+- [x] Read current installed Codex.app strings and upstream Codex source for
   `CODEX_CA_CERTIFICATE`, `SSL_CERT_FILE`, `native-certs`, `webpki-roots`,
   websocket TLS config, and managed-proxy behavior.
-- [ ] Prove or reject the no-CA/no-proxy alternatives explicitly:
+- [x] Prove or reject the no-CA/no-proxy alternatives explicitly:
   official endpoint/base-URL hook, managed `network.proxy_url`, remote-control
   or app-server launch path. Any positive claim requires Desktop conversation
   WSS bytes through Slimference, not merely process env, provider badge, or
   sideband requests.
-- [ ] If managed `network.proxy_url` is plausible for conversation traffic,
+- [x] If managed `network.proxy_url` is plausible for conversation traffic,
   design a non-persistent probe; otherwise document why it is command-sandbox
   only.
 - [x] Cross-check T245 CA state wording: missing CA must block only Desktop
   proxy/lab probes, never scoped CLI WSS.
 - [x] Update T239 Launch Codex App menu-state vocabulary with the final result:
   current Codex.app is `blocked` in the Slimference TUI; proof/proxy commands
-  remain diagnostic until a future green `desktop_proxy_phasef_proven` result.
+  remain diagnostic, and the future green path is the T246 app-server shim proof.
 
 ## Notes
 
@@ -184,10 +188,10 @@ savings.
 - Added prompt-driven proof semantics: `--manual` keeps Codex.app open when
   mode is `desktop_ready_for_prompt`; after the user sends a prompt,
   `--finish` compares current WSS counters against the saved session baseline.
-- Success requires `desktop_proxy_phasef_proven`: bytes in both directions,
-  `frames_reencoded>0`, `compressed_messages_mutated>0`, and zero parser,
-  degradation, and compression errors. WSS byte-equal bridge is a compatibility
-  signal but not Desktop savings.
+- Proxy-branch success would have required `desktop_proxy_phasef_proven`: bytes
+  in both directions, `frames_reencoded>0`, `compressed_messages_mutated>0`, and
+  zero parser, degradation, and compression errors. WSS byte-equal bridge is a
+  compatibility signal but not Desktop savings.
 - Zero-byte CONNECT/TLS-close results classify as `desktop_ca_env_rejected` /
   `tls_trust_rejected`, matching the current Desktop blocker without overstating
   it as cryptographic pinning.
@@ -251,6 +255,19 @@ supported endpoint/root-store hook.
   current Codex.app still does not accept the local Slimference CA/root-store
   path for conversation TLS. The TUI `Launch Codex App` item therefore blocks
   rather than opening direct or a known-bad proxy session.
+
+2026-05-22 no-CA route discovery:
+
+- Current Codex.app ASAR shows Electron honors `CODEX_CLI_PATH` when it starts
+  the Rust `codex app-server` child.
+- Upstream Codex source shows `codex app-server` accepts `-c key=value`
+  overrides, and provider `base_url` can point to
+  `http://127.0.0.1:8990/backend-api/codex`.
+- A non-Desktop live smoke run proved that local base URL sends Codex WSS bytes
+  and frames through Slimference with zero parser/degrade/compression errors.
+- That route is not a proxy/root-store repair. It is a better architecture and
+  is tracked separately in T246. This T242 branch is therefore closed as
+  negative for current proxy/CA Desktop savings.
 
 2026-05-22 stale workspace restore fix:
 

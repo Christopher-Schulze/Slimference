@@ -45,6 +45,8 @@ func withCodexCmdStubs(t *testing.T) {
 	oldDesktopStart := codexDesktopStartFn
 	oldDesktopCleanup := codexDesktopCleanupFn
 	oldDesktopRunning := codexDesktopRunningFn
+	oldExecutable := osExecutable
+	oldDesktopUpstream := codexDesktopUpstreamCodexFn
 	oldDesktopSession := codexDesktopSessionFn
 	oldDesktopResult := codexDesktopResultFn
 	oldDesktopDirect := tuiCodexDesktopDirectFn
@@ -85,6 +87,8 @@ func withCodexCmdStubs(t *testing.T) {
 		fmt.Fprintln(p.Out, "Codex.app launched (PID 0) with scoped Slimference env.")
 		return 0
 	}
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	codexDesktopUpstreamCodexFn = func(string) (string, error) { return "/tmp/codex", nil }
 	codexDesktopCleanupFn = func(int) error { return nil }
 	codexDesktopRunningFn = func(string) ([]int, error) { return nil, nil }
 	sessionPath := filepath.Join(t.TempDir(), "desktop-proof.json")
@@ -117,6 +121,8 @@ func withCodexCmdStubs(t *testing.T) {
 		codexDesktopStartFn = oldDesktopStart
 		codexDesktopCleanupFn = oldDesktopCleanup
 		codexDesktopRunningFn = oldDesktopRunning
+		osExecutable = oldExecutable
+		codexDesktopUpstreamCodexFn = oldDesktopUpstream
 		codexDesktopSessionFn = oldDesktopSession
 		codexDesktopResultFn = oldDesktopResult
 		tuiCodexDesktopDirectFn = oldDesktopDirect
@@ -1008,7 +1014,7 @@ func TestCodexDesktopStatusJSONReadyForLiveProbe(t *testing.T) {
 	if got.Mode != "ready_for_live_desktop_probe" || got.FailureClass != "" || !got.LiveProofRequired {
 		t.Fatalf("status=%+v", got)
 	}
-	if got.LaunchCommand != "slimference codex launch-desktop --transport=proxy --with-ca-env" {
+	if got.LaunchCommand != "slimference codex launch-desktop --transport=app-server" {
 		t.Fatalf("launch command=%q", got.LaunchCommand)
 	}
 	if !got.CATrust.Trusted || !got.DaemonReachable {
@@ -1045,8 +1051,8 @@ func TestCodexDesktopStatusReportsGates(t *testing.T) {
 	if rc := runCodexCmd([]string{"desktop", "status"}, p); rc != 0 {
 		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
 	}
-	if !strings.Contains(out.String(), "ca_missing") {
-		t.Fatalf("status missing ca gate: %q", out.String())
+	if strings.Contains(out.String(), "ca_missing") || !strings.Contains(out.String(), "local CA is absent; not required") {
+		t.Fatalf("status should not gate app-server route on CA: %q", out.String())
 	}
 
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
@@ -1077,11 +1083,11 @@ func TestCodexDesktopStatusAllowsUntrustedKeychainWithCAEnvAndReportsWSSErrors(t
 	if untrusted.FailureClass != "" ||
 		untrusted.Mode != "ready_for_live_desktop_probe" ||
 		untrusted.ProxyURL != "http://127.0.0.2:19090" ||
-		untrusted.LaunchCommand != "slimference codex launch-desktop --transport=proxy --with-ca-env" {
+		untrusted.LaunchCommand != "slimference codex launch-desktop --transport=app-server" {
 		t.Fatalf("untrusted status=%+v", untrusted)
 	}
-	if !strings.Contains(strings.Join(untrusted.Notes, "\n"), "process-local") {
-		t.Fatalf("untrusted notes do not explain CA env: %+v", untrusted.Notes)
+	if !strings.Contains(strings.Join(untrusted.Notes, "\n"), "Keychain trust is not required") {
+		t.Fatalf("untrusted notes do not explain app-server route: %+v", untrusted.Notes)
 	}
 
 	codexDesktopCATrustFn = func() codexDesktopCAState {
@@ -1111,7 +1117,7 @@ func TestCodexDesktopStatusAllowsUntrustedKeychainWithCAEnvAndReportsWSSErrors(t
 	}
 }
 
-func TestCodexDesktopStatusReportsTLSRejectedAfterConnect(t *testing.T) {
+func TestCodexDesktopStatusDoesNotTreatLegacyCONNECTCountersAsDesktopProof(t *testing.T) {
 	withCodexCmdStubs(t)
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		state := passingCodexCertificationState()
@@ -1136,18 +1142,18 @@ func TestCodexDesktopStatusReportsTLSRejectedAfterConnect(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("json: %v\nraw=%s", err, out.String())
 	}
-	if got.Mode != "desktop_tls_blocked" || got.FailureClass != "tls_trust_rejected" {
+	if got.Mode != "ready_for_live_desktop_probe" || got.FailureClass != "" {
 		t.Fatalf("status=%+v", got)
 	}
 	if got.ConversationObserved {
 		t.Fatalf("zero-byte CONNECT attempts must not count as observed conversation: %+v", got)
 	}
-	if !strings.Contains(strings.Join(got.Notes, "\n"), "CODEX_CA_CERTIFICATE/root-store hook") {
-		t.Fatalf("notes do not explain root-store blocker: %+v", got.Notes)
+	if !strings.Contains(strings.Join(got.Notes, "\n"), "daemon-wide") {
+		t.Fatalf("notes do not mark counters as daemon-wide: %+v", got.Notes)
 	}
 }
 
-func TestCodexDesktopProveReportsTLSRejectedDelta(t *testing.T) {
+func TestCodexDesktopProveRejectsConnectOnlyDelta(t *testing.T) {
 	withCodexCmdStubs(t)
 	calls := 0
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
@@ -1168,8 +1174,8 @@ func TestCodexDesktopProveReportsTLSRejectedDelta(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("json: %v\nraw=%s", err, out.String())
 	}
-	if got.Mode != "desktop_ca_env_rejected" ||
-		got.FailureClass != "tls_trust_rejected" ||
+	if got.Mode != "desktop_connect_only_no_app_server_bytes" ||
+		got.FailureClass != "connect_only_no_app_server_bytes" ||
 		got.DeltaWSS.MITMBridged != 14 ||
 		got.DesktopProven ||
 		got.DesktopSavings {
@@ -1197,7 +1203,7 @@ func TestCodexDesktopProvePhaseFPassesAndBridgeStaysNonSavings(t *testing.T) {
 				CompressedMessagesMutated: 1,
 			},
 			wantRC:   0,
-			wantMode: "desktop_proxy_phasef_proven",
+			wantMode: "desktop_app_server_phasef_proven",
 			savings:  true,
 		},
 		{
@@ -1211,7 +1217,7 @@ func TestCodexDesktopProvePhaseFPassesAndBridgeStaysNonSavings(t *testing.T) {
 				FramesForwarded: 5,
 			},
 			wantRC:   1,
-			wantMode: "desktop_proxy_wss_bridge",
+			wantMode: "desktop_app_server_wss_bridge",
 			savings:  false,
 		},
 	} {
@@ -1287,7 +1293,7 @@ func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &finished); err != nil {
 		t.Fatalf("finish json: %v\nraw=%s", err, out.String())
 	}
-	if finished.Mode != "desktop_proxy_phasef_proven" || !finished.DesktopSavings || finished.LaunchPID != 4242 {
+	if finished.Mode != "desktop_app_server_phasef_proven" || !finished.DesktopSavings || finished.LaunchPID != 4242 {
 		t.Fatalf("finish proof=%+v", finished)
 	}
 }
@@ -1514,16 +1520,14 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	}
 }
 
-func TestServiceControlAdapterDesktopStatusTLSRejectedBlocksSlimferenceLaunch(t *testing.T) {
+func TestServiceControlAdapterDesktopStatusNeedsGreenProofBlocksSlimferenceLaunch(t *testing.T) {
 	withCodexCmdStubs(t)
 	oldGetwd := osGetwd
 	t.Cleanup(func() {
 		osGetwd = oldGetwd
 	})
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
-		state := control.SetupState{}
-		state.WSS.MITMBridged = 14
-		return state, nil
+		return control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}, nil
 	}
 	dir := t.TempDir()
 	osGetwd = func() (string, error) { return dir, nil }
@@ -1531,7 +1535,7 @@ func TestServiceControlAdapterDesktopStatusTLSRejectedBlocksSlimferenceLaunch(t 
 
 	adapter := &serviceControlAdapter{}
 	status := adapter.CodexDesktopStatus()
-	if status.Mode != "desktop_tls_blocked" || status.FailureClass != "tls_trust_rejected" {
+	if status.Mode != "ready_for_live_desktop_probe" || status.FailureClass != "" {
 		t.Fatalf("desktop status=%+v", status)
 	}
 	if _, err := adapter.LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "Desktop Slimference proof is not green") {
@@ -1548,7 +1552,8 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 	dir := t.TempDir()
 	osGetwd = func() (string, error) { return dir, nil }
 	writeCodexDesktopProofResult(&codexDesktopProofOutput{
-		Mode:           "desktop_proxy_phasef_proven",
+		Mode:           "desktop_app_server_phasef_proven",
+		Transport:      codexDesktopTransportAppServer,
 		DesktopProven:  true,
 		DesktopSavings: true,
 	})

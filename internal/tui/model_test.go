@@ -272,7 +272,7 @@ func (m *mockServiceControl) LaunchCodexApp() (string, error) {
 		return "", m.err
 	}
 	m.codexAppLaunched = true
-	return "Codex App launch requested through Slimference diagnostic proxy", nil
+	return "Codex App launch requested through Slimference app-server shim", nil
 }
 func (m *mockServiceControl) RepairCodexWSS() (string, error) {
 	if m.err != nil {

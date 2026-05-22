@@ -22,8 +22,8 @@ func TestParseCodexLaunchDesktopFlagsDefaults(t *testing.T) {
 	if f.host != "127.0.0.1" || f.port != "8990" {
 		t.Fatalf("defaults host=%q port=%q", f.host, f.port)
 	}
-	if f.transport != codexDesktopTransportProxy {
-		t.Fatalf("default transport=%q want proxy", f.transport)
+	if f.transport != codexDesktopTransportAppServer {
+		t.Fatalf("default transport=%q want app-server", f.transport)
 	}
 	if f.probe || f.help || f.appPath != "" || f.insecureSkipTrustCheck || len(f.extra) != 0 {
 		t.Fatalf("unexpected non-zero: %+v", f)
@@ -202,6 +202,62 @@ func TestBuildCodexDesktopProxyEnvScopedAndNoBaseURLOverrides(t *testing.T) {
 	}
 }
 
+func TestBuildCodexDesktopAppServerEnvScopedNoProxyOrCA(t *testing.T) {
+	base := []string{
+		"PATH=/usr/bin",
+		"HOME=/Users/x",
+		"CODEX_THREAD_ID=old-thread",
+		"CODEX_HOME=/tmp/old-codex-home",
+		"CODEX_CLI_PATH=/old/codex",
+		"HTTPS_PROXY=http://old-proxy",
+		"CHATGPT_CODEX_BASE_URL=http://old-base",
+		"CODEX_CA_CERTIFICATE=/tmp/old-root.crt",
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=old",
+		"UNRELATED=keep",
+		"NOEQUAL",
+	}
+	got := buildCodexDesktopAppServerEnv(
+		"http://127.0.0.1:8990/backend-api/codex",
+		"/usr/local/bin/slimference",
+		"/usr/local/bin/codex",
+		base,
+		[]string{
+			"FOO=bar",
+			"CODEX_CLI_PATH=/evil",
+			"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://evil",
+			"HTTPS_PROXY=http://evil-proxy",
+			"CODEX_THREAD_ID=evil-thread",
+		},
+	)
+	joined := strings.Join(got, "\n")
+	for _, forbidden := range []string{
+		"CODEX_THREAD_ID=", "CODEX_HOME=", "HTTPS_PROXY=", "CHATGPT_CODEX_BASE_URL=",
+		"CODEX_CA_CERTIFICATE=", "SLIMFERENCE_CODEX_DESKTOP_ACTIVE=old",
+		"CODEX_CLI_PATH=/evil", "SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://evil",
+		"HTTPS_PROXY=http://evil-proxy", "CODEX_THREAD_ID=evil-thread",
+	} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("app-server env leaked %s in %v", forbidden, got)
+		}
+	}
+	for _, want := range []string{
+		"PATH=/usr/bin",
+		"HOME=/Users/x",
+		"UNRELATED=keep",
+		"NOEQUAL",
+		"CODEX_CLI_PATH=/usr/local/bin/slimference",
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
+		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/usr/local/bin/codex",
+		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+		"NO_PROXY=127.0.0.1,localhost,::1",
+		"FOO=bar",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("app-server env missing %s in %v", want, got)
+		}
+	}
+}
+
 func TestSanitizeCodexDesktopBaseEnvDropsInheritedSessionState(t *testing.T) {
 	got := sanitizeCodexDesktopBaseEnv([]string{
 		"PATH=/usr/bin",
@@ -330,6 +386,29 @@ func TestFilterCodexDesktopProxyEnv(t *testing.T) {
 	}
 }
 
+func TestFilterCodexDesktopAppServerEnv(t *testing.T) {
+	env := []string{
+		"PATH=/usr/bin",
+		"CODEX_CLI_PATH=/slimference",
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
+		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/codex",
+		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+		"NO_PROXY=127.0.0.1,localhost,::1",
+		"FOO=bar",
+	}
+	got := filterCodexDesktopAppServerEnv(env)
+	want := []string{
+		"CODEX_CLI_PATH=/slimference",
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
+		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/codex",
+		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+		"NO_PROXY=127.0.0.1,localhost,::1",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
 func TestRunCodexLaunchDesktopProbeWithCAEnvEmitsRootHints(t *testing.T) {
 	dir := t.TempDir()
 	app := filepath.Join(dir, "Codex.app")
@@ -349,7 +428,7 @@ func TestRunCodexLaunchDesktopProbeWithCAEnvEmitsRootHints(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd(
-		[]string{"--probe", "--with-ca-env", "--app=" + app},
+		[]string{"--transport=proxy", "--probe", "--with-ca-env", "--app=" + app},
 		installPrinter{Out: &out, Err: &errBuf},
 	)
 	if rc != 0 {
@@ -408,9 +487,13 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 
 	prevStart := codexDesktopStartFn
 	prevCA := codexDesktopCATrustFn
+	prevExecutable := osExecutable
+	prevUpstream := codexDesktopUpstreamCodexFn
 	t.Cleanup(func() {
 		codexDesktopStartFn = prevStart
 		codexDesktopCATrustFn = prevCA
+		osExecutable = prevExecutable
+		codexDesktopUpstreamCodexFn = prevUpstream
 	})
 	startCalled := false
 	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
@@ -420,6 +503,8 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 	codexDesktopCATrustFn = func() codexDesktopCAState {
 		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
 	}
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	codexDesktopUpstreamCodexFn = func(string) (string, error) { return "/tmp/codex", nil }
 
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd(
@@ -436,36 +521,31 @@ func TestRunCodexLaunchDesktopProbeEmitsJSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &probe); err != nil {
 		t.Fatalf("json: %v\nraw: %s", err, out.String())
 	}
-	wantProxy := "http://192.0.2.1:4444"
-	if probe.Transport != codexDesktopTransportProxy {
-		t.Errorf("Transport=%q want proxy", probe.Transport)
+	wantURL := "http://192.0.2.1:4444/backend-api/codex"
+	if probe.Transport != codexDesktopTransportAppServer {
+		t.Errorf("Transport=%q want app-server", probe.Transport)
 	}
 	if probe.Binary != bin {
 		t.Errorf("Binary=%q want %q", probe.Binary, bin)
 	}
-	if probe.ProxyURL != wantProxy {
-		t.Errorf("ProxyURL=%q want %q", probe.ProxyURL, wantProxy)
+	if probe.OverrideURL != wantURL || probe.ProxyURL != "" {
+		t.Errorf("probe URL fields=%+v want override %q and empty proxy", probe, wantURL)
 	}
-	wantArgs := []string{
-		"--proxy-server=" + wantProxy,
-		"--proxy-bypass-list=localhost;127.0.0.1;::1",
+	if len(probe.Args) != 0 {
+		t.Fatalf("app-server launch must not emit Electron proxy args: %v", probe.Args)
 	}
-	if strings.Join(probe.Args, "\n") != strings.Join(wantArgs, "\n") {
-		t.Fatalf("Args=%v want %v", probe.Args, wantArgs)
-	}
-	if !probe.CATrust.Trusted {
-		t.Errorf("CA trust not propagated: %+v", probe.CATrust)
-	}
-	if len(probe.EnvOverride) != len(codexDesktopProxyEnvKeys) {
-		t.Errorf("EnvOverride entries=%d want %d", len(probe.EnvOverride), len(codexDesktopProxyEnvKeys))
-	}
-	for _, kv := range probe.EnvOverride {
-		if strings.HasPrefix(kv, "NO_PROXY=") || strings.HasPrefix(kv, "no_proxy=") || strings.HasPrefix(kv, "CODEX_NETWORK_PROXY_ACTIVE=") {
-			continue
+	joinedEnv := strings.Join(probe.EnvOverride, "\n")
+	for _, want := range []string{
+		"CODEX_CLI_PATH=/tmp/slimference",
+		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=/tmp/codex",
+		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=" + wantURL,
+	} {
+		if !strings.Contains(joinedEnv, want) {
+			t.Fatalf("probe missing %s in %v", want, probe.EnvOverride)
 		}
-		if !strings.HasSuffix(kv, "="+wantProxy) {
-			t.Errorf("env entry %q does not end with proxy URL", kv)
-		}
+	}
+	if probe.CATrust.Exists || probe.CATrust.Trusted || probe.CATrust.Path != "" {
+		t.Fatalf("app-server mode must not report CA gate: %+v", probe.CATrust)
 	}
 }
 
@@ -546,7 +626,7 @@ func TestRunCodexLaunchDesktopSpawnsViaInjectedStartFn(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd(
-		[]string{"--app=" + app, "--env=FOO=bar"},
+		[]string{"--transport=proxy", "--app=" + app, "--env=FOO=bar"},
 		installPrinter{Out: &out, Err: &errBuf},
 	)
 	if rc != 0 {
@@ -614,7 +694,7 @@ func TestRunCodexLaunchDesktopRefusesProxyWithoutTrustedCA(t *testing.T) {
 	}
 
 	var out, errBuf bytes.Buffer
-	rc := runCodexLaunchDesktopCmd([]string{"--app=" + app}, installPrinter{Out: &out, Err: &errBuf})
+	rc := runCodexLaunchDesktopCmd([]string{"--transport=proxy", "--app=" + app}, installPrinter{Out: &out, Err: &errBuf})
 	if rc != 1 {
 		t.Fatalf("rc=%d want 1", rc)
 	}
@@ -654,7 +734,7 @@ func TestRunCodexLaunchDesktopWithCAEnvAllowsUntrustedKeychain(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd(
-		[]string{"--app=" + app, "--with-ca-env"},
+		[]string{"--transport=proxy", "--app=" + app, "--with-ca-env"},
 		installPrinter{Out: &out, Err: &errBuf},
 	)
 	if rc != 0 {
@@ -702,7 +782,7 @@ func TestRunCodexLaunchDesktopRefusesExistingMainInstance(t *testing.T) {
 
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd(
-		[]string{"--app=" + app, "--with-ca-env"},
+		[]string{"--transport=proxy", "--app=" + app, "--with-ca-env"},
 		installPrinter{Out: &out, Err: &errBuf},
 	)
 	if rc != 1 {
@@ -733,7 +813,7 @@ func TestRunCodexLaunchDesktopRefusesProxyWithMissingCA(t *testing.T) {
 		return codexDesktopCAState{Path: "/tmp/missing.crt", Exists: false, Trusted: false, Error: "probe failed"}
 	}
 	var out, errBuf bytes.Buffer
-	rc := runCodexLaunchDesktopCmd([]string{"--app=" + app}, installPrinter{Out: &out, Err: &errBuf})
+	rc := runCodexLaunchDesktopCmd([]string{"--transport=proxy", "--app=" + app}, installPrinter{Out: &out, Err: &errBuf})
 	if rc != 1 {
 		t.Fatalf("rc=%d want 1", rc)
 	}
@@ -772,7 +852,7 @@ func TestRunCodexLaunchDesktopInsecureSkipTrustCheckSpawns(t *testing.T) {
 	}
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd(
-		[]string{"--app=" + app, "--insecure-skip-cert-trust-check"},
+		[]string{"--transport=proxy", "--app=" + app, "--insecure-skip-cert-trust-check"},
 		installPrinter{Out: &out, Err: &errBuf},
 	)
 	if rc != 0 || !spawned {
@@ -972,11 +1052,19 @@ func TestRunCodexLaunchDesktopProbeRealAppPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 	prevStart := codexDesktopStartFn
-	t.Cleanup(func() { codexDesktopStartFn = prevStart })
+	prevExecutable := osExecutable
+	prevUpstream := codexDesktopUpstreamCodexFn
+	t.Cleanup(func() {
+		codexDesktopStartFn = prevStart
+		osExecutable = prevExecutable
+		codexDesktopUpstreamCodexFn = prevUpstream
+	})
 	codexDesktopStartFn = func(installPrinter, string, []string, []string) int {
 		t.Fatal("probe must not spawn")
 		return 0
 	}
+	osExecutable = func() (string, error) { return "/tmp/slimference", nil }
+	codexDesktopUpstreamCodexFn = func(string) (string, error) { return "/tmp/codex", nil }
 
 	var out, errBuf bytes.Buffer
 	rc := runCodexLaunchDesktopCmd([]string{"--probe"}, installPrinter{Out: &out, Err: &errBuf})
@@ -989,6 +1077,37 @@ func TestRunCodexLaunchDesktopProbeRealAppPresent(t *testing.T) {
 	}
 	if !strings.HasPrefix(probe.OverrideURL, "http://127.0.0.1:8990/") {
 		t.Errorf("default override URL host=%q", probe.OverrideURL)
+	}
+}
+
+func TestResolveCodexDesktopUpstreamCodexBinary(t *testing.T) {
+	prevLookPath := codexDesktopLookPathFn
+	prevCodeXBin, hadCodeXBin := os.LookupEnv("CODEX_BIN")
+	t.Cleanup(func() {
+		codexDesktopLookPathFn = prevLookPath
+		if hadCodeXBin {
+			_ = os.Setenv("CODEX_BIN", prevCodeXBin)
+		} else {
+			_ = os.Unsetenv("CODEX_BIN")
+		}
+	})
+
+	_ = os.Setenv("CODEX_BIN", "/opt/codex")
+	got, err := resolveCodexDesktopUpstreamCodexBinary("/opt/slimference")
+	if err != nil || got != "/opt/codex" {
+		t.Fatalf("CODEX_BIN resolve got=%q err=%v", got, err)
+	}
+
+	_ = os.Setenv("CODEX_BIN", "/opt/slimference")
+	if _, err := resolveCodexDesktopUpstreamCodexBinary("/opt/slimference"); err == nil {
+		t.Fatal("expected self-reference CODEX_BIN rejection")
+	}
+
+	_ = os.Unsetenv("CODEX_BIN")
+	codexDesktopLookPathFn = func(string) (string, error) { return "/usr/local/bin/codex", nil }
+	got, err = resolveCodexDesktopUpstreamCodexBinary("/opt/slimference")
+	if err != nil || got != "/usr/local/bin/codex" {
+		t.Fatalf("lookpath resolve got=%q err=%v", got, err)
 	}
 }
 

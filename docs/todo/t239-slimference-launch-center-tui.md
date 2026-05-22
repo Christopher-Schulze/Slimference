@@ -1,7 +1,7 @@
 # TASK 239: Slimference launch center TUI
 
 Status: PARTIAL - launch-center entrypoint implemented in existing TUI
-Priority: P0 after T238/T242 Desktop capability branch is known enough to gate
+Priority: P0 after T246 Desktop capability branch is known enough to gate
 the Launch Codex App menu item honestly
 Scope: User-facing Slimference launch and management UX for Codex CLI and
 Codex Desktop on macOS arm64
@@ -45,13 +45,12 @@ arms global lab mode by accident.
 The launch center is not a settings maze. It is a cockpit:
 
 1. **Launch Codex CLI** starts the proven CLI path.
-2. **Launch Codex App** is a capability-gated TUI menu item: on current
-   Codex.app builds it blocks with the proof reason, because the item means
-   "start Desktop in Slimference mode" and the prompt-driven Desktop
-   Slimference proof is not green. Direct Desktop mode is still available by
-   launching Codex.app normally from Finder/Spotlight. A future proven Desktop
-   path can replace this branch only after T242 records real bytes, WSS frames,
-   and Phase-F mutation through Slimference.
+2. **Launch Codex App** is a capability-gated TUI menu item: it blocks with the
+   proof reason until the app-server shim proof is green, because the item means
+   "start Desktop in Slimference mode". Direct Desktop mode is still available
+   by launching Codex.app normally from Finder/Spotlight. The proven Desktop
+   path can launch only after T246 records real bytes, WSS frames, and Phase-F
+   mutation through Slimference.
 3. **Savings** shows actual measured savings and separates estimates.
 4. **Status** shows whether the machine is safe, healthy, and scoped.
 5. **Manage Slimference** handles install, repair, uninstall, enable/disable,
@@ -59,7 +58,8 @@ The launch center is not a settings maze. It is a cockpit:
 
 CLI WSS must not be blocked by CA trust. The launch center should explain this
 plainly: scoped Codex CLI WSS does not need a macOS trusted CA or custom CA env.
-Desktop process-local proxy diagnostics first use `CODEX_CA_CERTIFICATE` /
+The preferred Desktop app-server shim does not use CA trust. Desktop
+process-local proxy diagnostics may still use `CODEX_CA_CERTIFICATE` /
 `SSL_CERT_FILE` only for the spawned Codex.app process. Keychain trust belongs
 to fallback Desktop/Lab branches only, and is tracked by T245.
 
@@ -79,12 +79,12 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
   `transport=auto` and shows WSS certification/fallback state. The Terminal
   launch must scrub inherited `CODEX_*` session variables first so a TUI opened
   from an existing Codex session cannot accidentally resume that old thread.
-- Launch Codex App uses the T242 branch decision:
+- Launch Codex App uses the T246 branch decision:
   - if a future `slimference codex desktop prove --finish --json` result is
-    `desktop_proxy_phasef_proven`, launch the proven Desktop path;
+    `desktop_app_server_phasef_proven`, launch the proven Desktop path;
   - on current Codex.app builds, block the launch and show the Desktop proof
     reason in Status;
-  - never start a broken proxy/proof session from the daily TUI launch action;
+  - never start a broken proof/proxy session from the daily TUI launch action;
   - never open direct Codex.app from this menu item, because direct launch is
     outside Slimference;
   - never pretend Desktop savings are active without a green finish proof.
@@ -101,7 +101,7 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 - Browser ChatGPT, ChatGPT.app, and Claude Code are explicitly shown as
   untouched/direct unless the user enters a lab path.
 - All actions are reversible and fail open.
-- The TUI never offers a top-level persistent Desktop toggle before T238 proves
+- The TUI never offers a top-level persistent Desktop toggle before T246 proves
   Desktop routing.
 - The TUI can be used as the normal entry point without remembering CLI flags.
 
@@ -120,19 +120,19 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 
 ### Launch Codex App
 
-- Current behavior: blocks with the explicit Desktop proof reason because
-  current Codex.app builds do not produce real Slimference Desktop savings.
-  Direct Codex.app launch remains Finder/Spotlight outside Slimference.
+- Current behavior: blocks with the explicit Desktop proof reason until the
+  app-server shim proof produces real Slimference Desktop savings. Direct
+  Codex.app launch remains Finder/Spotlight outside Slimference.
 - The Desktop launch environment must drop inherited `CODEX_*` session state
   such as `CODEX_THREAD_ID` and must pin `PWD` to the selected current folder.
   This prevents a Slimference/Codex session from leaking an old thread into the
   newly opened Desktop app.
-- If T242 later passes: launches Codex.app with the proven process-local proxy
-  mode.
-- If previous live counters show zero-byte CONNECT sessions: displays
-  `tls_trust_rejected` / `desktop_ca_env_rejected` as proof failure and blocks
-  rather than opening direct or a known-bad proxy session.
-- If T242 failed or is unproven: displays blocked/proof-needed state and why.
+- If T246 passes: launches Codex.app with the proven process-local app-server
+  shim mode.
+- If previous live counters show zero-byte CONNECT sessions from the old proxy
+  branch: displays them as legacy proof failure and blocks rather than opening
+  direct or a known-bad proxy session.
+- If T246 failed or is unproven: displays blocked/proof-needed state and why.
 - Shows whether process-local custom CA env is available, whether Keychain trust
   is irrelevant/needed/trusted, and whether either state actually proved bytes.
 - Shows whether the currently running Codex.app was Slimference-launched or
@@ -183,7 +183,8 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
   `/admin/state`, `/admin/status`, `codex status`, and savings surfaces.
 - [~] Add a route-mode vocabulary shared by CLI, TUI, and docs:
   direct, slimference-cli-wss, slimference-cli-http, desktop-direct,
-  desktop-proxy-proven, desktop-proxy-unproven, lab-global.
+  desktop-app-server-proven, desktop-app-server-unproven, desktop-proxy-diagnostic,
+  lab-global.
 - [x] Implement top-level menu entries exactly as accepted; do not add a
   direct-open item.
 - [x] Implement Launch Codex CLI as a guided wrapper around
@@ -191,9 +192,9 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 - [x] Implement Launch Codex App as a capability-gated menu item: proven launch
   when green, otherwise blocked with a proof reason. Do not hide it just because
   the current Desktop route is blocked.
-- [x] Gate Launch Codex App on the recorded T242 proof result: current live
+- [x] Gate Launch Codex App on the recorded Desktop proof result: current live
   result blocks the TUI launch, while future Desktop Slimference requires
-  `desktop_proxy_phasef_proven`.
+  `desktop_app_server_phasef_proven`.
 - [~] Fold current install/enable/disable/repair/uninstall controls into Manage
   Slimference with clear product vs lab separation.
 - [ ] Make the default Install/Repair flow unified for Codex CLI and Desktop:
@@ -208,8 +209,8 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
   savings, and Desktop-unproven traffic.
 - [x] Add tests for menu structure, action routing, status wording, and no
   accidental lab/global activation from product actions.
-- [~] Add focused UX tests for the T238 branches: Desktop proven, Desktop
-  unproven, Desktop failed by cert trust, Desktop failed by WSS bypass.
+- [~] Add focused UX tests for the Desktop branches: app-server proven,
+  app-server unproven, legacy proxy cert trust failure, WSS bypass.
 - [ ] Add golden text tests for user-facing wording so the app never claims
   Desktop savings before proof.
 - [x] Update `docs/install.md` with the human flow: normal launch is direct,
@@ -222,7 +223,7 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 3. Wire Launch Codex CLI using the already-proven command path.
 4. Wire Manage Slimference product actions.
 5. Wire advanced/lab actions behind explicit lab labels.
-6. Wire Launch Codex App only after T238 has a final branch decision.
+6. Wire Launch Codex App only after T246 has a final branch decision.
 7. Update install docs and operation log.
 8. Hand to T240 for the final zero-drawdown release certification.
 
@@ -243,19 +244,22 @@ The existing `enable` / `disable` commands remain useful, but they move under
 Manage. The normal daily decision is simply: launch through Slimference or
 launch normally.
 
-T238/T242 implementation provides the Desktop status and diagnostic command
-surface that this TUI should report without making a false savings claim:
+T246 implementation provides the Desktop status and diagnostic command surface
+that this TUI should report without making a false savings claim:
 
-- `slimference codex desktop status --json` for CA, daemon, WSS counters, and
-  Desktop live-proof state.
+- `slimference codex desktop status --json` for daemon, WSS counters, legacy
+  proxy diagnostics, and Desktop live-proof state.
 - `slimference codex desktop prove --manual --json` for the prompt-driven
   Desktop proof start: it launches, observes startup WSS delta, classifies the
   result, and keeps the app open when ready for a user prompt.
 - `slimference codex desktop prove --finish --json` for the actual Desktop
   savings gate after the user sends a prompt in the launched app.
+- `slimference codex launch-desktop --transport=app-server` for the preferred
+  Desktop proof branch that injects `CODEX_CLI_PATH` only into the spawned
+  Codex.app process and lets the hidden shim exec the real Codex app-server with
+  local provider overrides.
 - `slimference codex launch-desktop --transport=proxy --with-ca-env` for the
-  preferred Desktop proof branch that injects `CODEX_CA_CERTIFICATE` and generic
-  CA hints only into the spawned Codex.app process.
+  legacy Desktop proxy diagnostic branch.
 - `slimference codex launch-desktop --transport=base-url --probe` for
   diagnostic/future upstream env-hook checks only.
 
@@ -290,6 +294,9 @@ explicit diagnostic command.
 - T245 update: Manage Slimference must show custom CA and Keychain trust as
   Desktop/Lab-only. The user should never think installing or trusting a CA is
   required for CLI WSS savings.
+- T246 update: the preferred Desktop route is now the app-server shim, not
+  proxy/CA. The TUI green gate is `desktop_app_server_proven`, derived from a
+  `desktop_app_server_phasef_proven` finish proof.
 - Remaining polish is depth, not architecture: embedded prompt entry for CLI,
   richer Status/Manage rows, full Desktop branch matrix tests, and final T240
   live release certification.
@@ -303,8 +310,20 @@ explicit diagnostic command.
   the launched process tree.
 - A visible prompt in that launched app still produced only one CONNECT/MITM
   session with zero application bytes, zero WSS frames, and zero Phase-F
-  mutation. Therefore the Launch Codex App menu item remains blocked until a
-  future proof reaches `desktop_proxy_phasef_proven`.
+  mutation. Therefore the legacy proxy branch remains diagnostic and the Launch
+  Codex App menu item remains blocked until the app-server shim proof reaches
+  `desktop_app_server_phasef_proven`.
+
+2026-05-22 app-server shim follow-up:
+
+- Current Codex.app exposes a better process boundary: Electron honors
+  `CODEX_CLI_PATH` for the Rust app-server child, and `codex app-server` accepts
+  `-c key=value` provider overrides.
+- `Launch Codex App` now expects the app-server shim proof state, not the legacy
+  proxy proof state. It remains blocked until `codex desktop prove --finish`
+  records `desktop_app_server_phasef_proven`.
+- The legacy proxy/CA route stays diagnostic; it is no longer the preferred TUI
+  Desktop route.
 
 ## Deviations
 

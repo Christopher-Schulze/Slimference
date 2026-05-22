@@ -31,8 +31,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 			WSSCertified:    true,
 		},
 		codexDesktopStatus: CodexDesktopStatus{
-			Mode:         "desktop_tls_blocked",
-			FailureClass: "tls_trust_rejected",
+			Mode: "ready_for_live_desktop_probe",
 		},
 	}
 	m.SetServiceControl(svc)
@@ -50,7 +49,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 	if actions[0].label != "Launch Codex CLI" || actions[0].state != "WSS savings" {
 		t.Fatalf("CLI action=%+v", actions[0])
 	}
-	if actions[1].label != "Launch Codex App" || actions[1].state != "blocked" {
+	if actions[1].label != "Launch Codex App" || actions[1].state != "proof needed" {
 		t.Fatalf("App action=%+v", actions[1])
 	}
 	if got := findDashboardActionIndex(actions, "daemon"); got >= 0 {
@@ -227,13 +226,12 @@ func TestExecuteMainSelection_ErrorBranchesAndDebugSelection(t *testing.T) {
 	retryDiagnostic := NewModel(newMockProxy())
 	retryDiagnostic.SetServiceControl(&mockServiceControl{
 		codexDesktopStatus: CodexDesktopStatus{
-			Mode:         "desktop_tls_blocked",
-			FailureClass: "tls_trust_rejected",
+			Mode: "ready_for_live_desktop_probe",
 		},
 	})
 	retryDiagnostic.mainCursor = findDashboardActionIndex(retryDiagnostic.dashboardActions(), "launch_app")
 	_ = retryDiagnostic.executeMainSelection()
-	if !strings.Contains(retryDiagnostic.flashMsg, "Codex App launch requested") {
+	if !strings.Contains(retryDiagnostic.flashMsg, "app-server shim") {
 		t.Fatalf("desktop retry flash=%q", retryDiagnostic.flashMsg)
 	}
 
