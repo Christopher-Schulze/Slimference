@@ -1402,17 +1402,23 @@ only and promotes the per-process Codex CLI runner for T209.
   and must be guided, explicit, reversible, SSL-only, and capability-gated in
   Manage Slimference.
   Detail: `docs/todo/t245-macos-ca-trust-ux.md`
-- [!] **T246** Codex Desktop app-server shim proof — infrastructure is
-  implemented and live proof is complete but negative for current Codex.app.
-  Provider-only overrides produced a cosmetic Slimference provider badge and a
-  valid Desktop answer, but WSS counters stayed at zero and the app-server kept
-  direct `chatgpt.com:443` sockets. Follow-up top-level `openai_base_url` /
-  `chatgpt_base_url` overrides opened loopback connections, but proof still
-  ended as `desktop_connect_only_no_app_server_bytes` with `bytes_c2s=0`,
-  `bytes_s2c=0`, zero frames, and zero mutation. TUI Launch Codex App therefore
-  remains blocked for Slimference mode; normal Finder/Spotlight Codex.app stays
-  direct and no-drawback until upstream exposes a working Desktop conversation
-  endpoint hook or the app-server protocol changes.
+- [~] **T246** Codex Desktop app-server shim — SOLVED routing + Phase-F route.
+  Root cause: Codex Desktop opens conversations with `thread/start`
+  `modelProvider: null`, which resolves to the account default (chatgpt.com
+  direct) and overrides the config default. Fix (`9dcf8f4`): the hidden shim is a
+  thin stdin JSON-RPC mediator that rewrites a default `modelProvider` to
+  `slimference-codex` (byte-identical otherwise; realtime/voice + explicit
+  providers passed through; fail-open). Verified 2026-05-22: the Desktop
+  app-server holds loopback sockets to `:8990` with zero direct `chatgpt.com`,
+  and the daemon decisions log records the Desktop conversation as
+  `route_mode=websocket_phasef` — the same Phase-F savings route as the certified
+  CLI, with byte-identical `permessage-deflate` frames. Earlier "zero-byte" / 
+  `desktop_connect_only_no_app_server_bytes` readings were sampled-counter
+  artifacts plus trivial test prompts. Remaining: re-base the TUI
+  `desktop_app_server_phasef_proven` gate on the reliable decisions-log
+  `route_mode` signal (the sampled WSS delta counters lag and under-report).
+  Normal Finder/Spotlight Codex.app stays direct; voice/Browser/ChatGPT.app/
+  computer-use/Claude untouched.
   Detail: `docs/todo/t246-codex-desktop-app-server-shim-proof.md`
 
 ### Sequencing within Phase H

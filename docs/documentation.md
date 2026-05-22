@@ -68,23 +68,31 @@ payload is shorter and schema-safe.
   This affects only that Codex CLI process and leaves Browser ChatGPT and
   ChatGPT.app direct.
 - **Codex Desktop**: the app remains direct when launched normally from
-  Finder/Spotlight. The current process-local diagnostic path is
+  Finder/Spotlight. The Slimference path is
   `slimference codex launch-desktop --transport=app-server --replace-existing`,
   which sets only `CODEX_CLI_PATH` plus Slimference shim metadata on the spawned
-  app process. Codex.app starts Slimference as its app-server, and the hidden
-  shim execs the real Codex app-server with process-local `openai_base_url`,
-  `chatgpt_base_url`, and provider overrides pointing at
-  `http://127.0.0.1:8990/backend-api/codex`. This avoids the old
-  proxy/CA/TLS root-store barrier as an implementation candidate. Proof and TUI launches pass
-  `--replace-existing` so an
-  already running Codex.app is quit and verified gone before the scoped
-  Slimference instance starts; raw CLI launch keeps a conservative refusal
-  unless the same flag is explicit. Current live proof is negative for Desktop
-  savings: the app-server shim reaches loopback but records
-  `desktop_connect_only_no_app_server_bytes`, so TUI Launch Codex App stays
-  blocked for Slimference mode. Desktop savings must not be claimed until a
-  future live prompt-driven proof shows Desktop-specific WSS bytes, zero
-  parser/degrade/compression errors, and real mutation counters.
+  app process. Codex.app starts Slimference as its app-server; the hidden shim is
+  a thin stdin JSON-RPC mediator that execs the real Codex app-server (provider
+  block pointing at `http://127.0.0.1:8990/backend-api/codex`) and rewrites the
+  one field that blocked routing: Codex Desktop opens conversations with
+  `thread/start` carrying `modelProvider: null`, which resolves to the account
+  default (chatgpt.com direct); the shim rewrites a default (null/absent)
+  `modelProvider` to `slimference-codex`, byte-identical for everything else.
+  Realtime/voice threads and explicit provider choices are passed through; any
+  parse ambiguity fails open. stdout/stderr pass through untouched. This avoids
+  the old proxy/CA/TLS root-store barrier entirely. Proof and TUI launches pass
+  `--replace-existing` so an already running Codex.app is quit and verified gone
+  before the scoped Slimference instance starts; raw CLI launch keeps a
+  conservative refusal unless the same flag is explicit. Verified (2026-05-22):
+  the spawned Desktop app-server holds loopback sockets to `:8990` with zero
+  direct `chatgpt.com` sockets, and the daemon decisions log records the Desktop
+  conversation as `route_mode=websocket_phasef` for `/backend-api/codex/responses`
+  - the same Phase-F savings route the certified CLI uses, with byte-identical
+  `permessage-deflate` frames. Desktop conversations therefore save like the CLI
+  on real (compressible) turns. Voice (`thread/realtime/*`), Browser ChatGPT,
+  ChatGPT.app, computer-use, and Claude Code are untouched. Note: the sampled
+  `desktop status` WSS counters lag and must not be used to claim or deny
+  savings; the decisions-log `route_mode` is the reliable signal.
 - **Global transparent lab**: `cert-trust`, `root-arm
   --global-chatgpt-hosts`, `enable`, `disable`, and `root-disarm` still
   exist for explicit lab certification. They route `chatgpt.com` and
@@ -1167,14 +1175,16 @@ the existing Stats, Apps, Debug, and Setup views behind those entries instead
 of creating a second TUI.
 
 Launch Codex CLI opens the proven scoped wrapper path with
-`transport=auto`. Launch Codex App is capability-gated from
-`codex desktop status`: current Codex.app builds are blocked for Slimference
-Desktop mode because the app-server shim proof ends as
-`desktop_connect_only_no_app_server_bytes`. The TUI may launch the process-local
-`--transport=app-server` Desktop path only after a future green Desktop Phase-F
-proof exists. Historical proxy/CA failures and the current app-server zero-byte
-failure are shown as diagnostic proof state, not as a Savings-green state.
-Normal Finder/Spotlight Codex.app launches remain direct.
+`transport=auto`. Launch Codex App launches the process-local
+`--transport=app-server` Desktop path, whose hidden shim rewrites the
+`thread/start` `modelProvider` so the Desktop conversation rides the same
+`websocket_phasef` savings route as the CLI (verified 2026-05-22 via the daemon
+decisions log; the Desktop app-server holds loopback sockets to `:8990` with no
+direct `chatgpt.com` socket). Capability gating from `codex desktop status` still
+exists, but note the gate currently reads the sampled WSS delta counters, which
+lag and under-report; the reliable green signal is the decisions-log
+`route_mode=websocket_phasef`. Historical proxy/CA failures remain diagnostic
+proof state. Normal Finder/Spotlight Codex.app launches remain direct.
 Manage Slimference owns install, repair, route, daemon, CA, lab controls, and
 the guided "Repair Codex CLI WSS savings" action that calls the same recert core
 as the CLI/background path.
@@ -1448,24 +1458,35 @@ arming global transparent mode. Codex.app honors `CODEX_CLI_PATH` when it
 starts its Rust `codex app-server`; the launcher points that variable at the
 Slimference binary only for the spawned Codex.app process. The hidden
 `slimference app-server` shim validates its scoped env, removes its own shim
-variables, and `exec`s the real Codex binary as `codex app-server` with
-process-local top-level and provider overrides:
-`openai_base_url=http://127.0.0.1:8990/backend-api/codex`,
-`chatgpt_base_url=http://127.0.0.1:8990/backend-api/`, and
-`model_providers.slimference-codex.base_url=
-http://127.0.0.1:8990/backend-api/codex`. The same local base URL drives WSS
-bytes for Codex CLI smoke tests, but current Codex Desktop live proof still
-ends before application bytes reach Phase-F.
+variables, and runs the real Codex binary as `codex app-server` with a
+process-local provider block
+(`model_providers.slimference-codex.base_url=http://127.0.0.1:8990/backend-api/codex`,
+`requires_openai_auth=true`, `supports_websockets=true`, `wire_api=responses`).
 
-The 2026-05-22 Desktop app-server proof is therefore a blocker, not a success:
-provider-only overrides left direct `chatgpt.com:443` sockets; top-level
-`openai_base_url` / `chatgpt_base_url` overrides opened loopback connections
-but still ended as `desktop_connect_only_no_app_server_bytes` with
-`bytes_c2s=0`, `bytes_s2c=0`, zero frames, and zero mutation. This proves that
-current Codex Desktop does not expose a usable scoped conversation route through
-the app-server shim. Normal Desktop remains direct and no-drawback; Slimference
-Desktop savings remain unavailable until upstream exposes a working endpoint
-hook or the app-server protocol changes.
+Implemented in `cmd/slimference/codex_desktop_app_server_shim.go`. The shim is a
+thin stdin JSON-RPC mediator (not a bare exec): it spawns the real Codex
+app-server, passes stdout/stderr straight through (no added latency on streaming
+responses), and inspects only the client->server stdin stream, which Codex
+Desktop frames as newline-delimited JSON. The single rewrite is on `thread/start`
+requests: Codex Desktop sends `modelProvider: null`, which resolves to the
+account default provider (`openai` -> chatgpt.com direct) and overrides the
+config default; the shim rewrites a default (null/absent) `modelProvider` to
+`slimference-codex`. It fails open on any ambiguity (non-JSON, no `params`,
+explicit non-null provider, or a realtime/voice thread via
+`config["features.realtime_conversation"]`), returning the original bytes
+byte-identical so the stream is never corrupted and voice is never touched.
+
+Discovery and proof (2026-05-22): a loopback tee proxy captured the real frames,
+and the daemon decisions log (`SLIMFERENCE_DEBUG_DECISIONS_LOG`) recorded both the
+CLI and the Desktop app-server (driven with the full Electron feature-flag
+`config`) as `route_mode=websocket_phasef` on `/backend-api/codex/responses`. The
+Desktop and CLI WSS frames are byte-identical `permessage-deflate`. So the Desktop
+conversation rides the same Phase-F savings route as the certified CLI; token
+savings materialise on real (compressible) turns. Earlier "zero-byte /
+`byte_bridge_only`" readings were sampled-counter artifacts plus trivial test
+prompts with nothing to mutate (the same caveat as the CLI smoke). Normal Desktop
+remains direct and no-drawback; Browser ChatGPT, ChatGPT.app, computer-use, voice,
+and Claude Code are untouched.
 
 The older `--transport=proxy --with-ca-env` branch remains an advanced
 diagnostic path for future Codex builds, but it is not the preferred Desktop
