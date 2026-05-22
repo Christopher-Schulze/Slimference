@@ -2183,3 +2183,38 @@ reaches the Phase-F route. T246 engineering is complete: routing fix (`9dcf8f4`)
 reliable gate (`af972df`). Codex CLI and Codex Desktop both ride the same no-CA
 `websocket_phasef` savings route; Browser ChatGPT, ChatGPT.app, voice, computer-use,
 and Claude Code remain untouched; normal Finder/Spotlight Codex.app stays direct.
+
+---
+
+## 2026-05-23 — T246 honesty pass after external review (commit `6d0471c`)
+
+An external review (GPT) correctly flagged that the prior summary overclaimed and
+that one doc still contradicted the rest. Verified and corrected:
+
+- SSOT contradiction fixed: `docs/install.md` still said "Current product truth on
+  Codex Desktop is negative" / "Launch Codex App must stay blocked" while the other
+  docs said solved. install.md is now consistent (route reached; savings-capable;
+  mutation proof pending).
+- Gate semantics made honest: the route-only verdict now maps to a DISTINCT status
+  `desktop_app_server_route_ready` (launch-eligible, labelled "WSS route ready"),
+  separate from `desktop_app_server_proven` ("WSS savings", full mutation). The TUI
+  launch gate allows both, but never sells "route ready" as "savings proven".
+- Claim corrected: "Desktop saves like CLI" is too strong as a product claim. The
+  honest claim is: the Desktop conversation reaches the same `websocket_phasef`
+  savings route as the certified CLI (reliably proven via `phasef_bridged` and the
+  decisions log); per-turn savings scale with conversation content like the CLI.
+
+Mutation-proof attempt (the remaining hard green):
+- A synthetic multi-turn direct-drive that repeated a large text block did NOT
+  produce `frames_reencoded>0` / `compressed_messages_mutated>0`. `phasef_bridged`
+  incremented reliably (1->2), `compressed_messages_inspected` showed the
+  permessage-deflate inflate/inspect path runs, but the byte/frame/mutation
+  counters did not move in the sampled snapshot (consistent with their known lag).
+- Root reason: L1 dedup targets repeated TOOL OUTPUTS across turns, not repeated
+  user text; and the byte/frame counters are too laggy to certify magnitude.
+- Honest status: route proven and savings-capable; a persisted Desktop savings
+  proof (`desktop_app_server_phasef_proven` with `frames_reencoded>0`,
+  `compressed_messages_mutated>0`) still requires a real Desktop coding session
+  (file reads / command outputs that repeat across turns), best driven through the
+  GUI by the operator, then `slimference codex desktop prove --finish --json`.
+  This is the same mechanism the certified CLI uses; the Desktop route is identical.
