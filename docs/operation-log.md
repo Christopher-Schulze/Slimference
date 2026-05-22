@@ -2316,3 +2316,37 @@ content, quit the app (flush), `prove --finish`. Expect `route_ready` at minimum
 `phasef_proven` if that session's requests carry dedupable repetition. If even
 content-rich Desktop sessions never show `frames_reencoded>0`, the next question is
 broader Phase-F mutation efficacy on Codex WSS (affects CLI too), not Desktop.
+
+---
+
+## 2026-05-23 — T246 DECISIVE: WSS Phase-F mutation is marginal product-wide (CLI too)
+
+Settled GPT's deeper question by measuring the CLI, not just Desktop.
+
+- Fresh-daemon CLI WSS exec (recert-style: run `git status`, reply RECERT_DONE),
+  measured after the CLI exited (session flush): `phasef_bridged=1`,
+  `bytes_c2s=70513`, `c2s_frames=3`, `compressed_messages_inspected=58`,
+  `phasef_requests=3`, but `frames_reencoded=0`, `compressed_messages_mutated=0`,
+  `phasef_mutations=0`, `byte_bridge_only=true`, `mutation_active=false`. So the
+  CLI does NOT mutate on this real session either - mutation is not Desktop-specific.
+- The persisted cert `~/.slimference/codex-wss-cert.json` was issued 2026-05-22
+  (codex 0.133.0, slimference 2.0.2) with `frames_reencoded: 1` - exactly ONE
+  mutated frame. So `wss_certified=true` is real but rests on a single mutated
+  frame; it is NOT stale by version, but it is marginal evidence.
+- Desktop large session (93KB file twice): `compressed_messages_inspected=1111`,
+  `frames_reencoded=0`. Even a large, repetitive real session did not mutate.
+
+Conclusion (honest, product-wide):
+- WSS Phase-F INSPECTS real Codex traffic correctly (inflates permessage-deflate,
+  examines messages, zero errors) for both CLI and Desktop.
+- WSS Phase-F MUTATION (the actual token reduction) barely fires on real Codex
+  WSS: the cert achieved 1 frame; live CLI and Desktop sessions show 0. So the WSS
+  Phase-F savings currently delivered are marginal-to-zero for BOTH transports,
+  not just Desktop.
+- Therefore the Desktop ROUTING goal is complete (Desktop == CLI on the route),
+  but the real open product question is reducer EFFICACY on real Codex WSS request
+  bodies (why inspection != mutation), which applies to CLI and Desktop equally.
+- Any "savings" claim for Codex WSS (CLI or Desktop) must be re-grounded on
+  measured mutation, not on `wss_certified=true` alone. Other layers (output
+  reduce, response cache, L0 filters) may carry most real savings and should be
+  measured separately before T240 certifies a savings number.
