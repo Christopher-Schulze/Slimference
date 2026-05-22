@@ -1411,8 +1411,8 @@ only and promotes the per-process Codex CLI runner for T209.
   providers passed through; fail-open). Verified 2026-05-22: the Desktop
   app-server holds loopback sockets to `:8990` with zero direct `chatgpt.com`,
   and the daemon decisions log records the Desktop conversation as
-  `route_mode=websocket_phasef` — the same Phase-F savings route as the certified
-  CLI, with byte-identical `permessage-deflate` frames. Earlier "zero-byte" / 
+  `route_mode=websocket_phasef` - the same Phase-F route as the certified CLI,
+  with byte-identical `permessage-deflate` frames. Earlier "zero-byte" /
   `desktop_connect_only_no_app_server_bytes` readings were sampled-counter
   artifacts plus trivial test prompts. Gate fix (`af972df`): added a lag-free
   monotonic `phasef_bridged` dispatcher counter (increments once per Phase-F WSS

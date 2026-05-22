@@ -1,9 +1,10 @@
 # Slimference - Handover by Opus (deep, current, verified)
 
 Stand: 2026-05-23. Frontier described here: T246/T247 after source-state commit
-`5349a5a` plus handover commit `214765e`. A later agent must still run
+`5349a5a` plus handover commit `214765e` and later handover-pointer corrections
+(`9e7ec48`). A later agent must still run
 `git status --short && git log -1 --oneline` first, because this file may itself
-receive correction commits after `214765e`.
+receive correction commits after `9e7ec48`.
 Author: Opus 4.7. This file was written after line-level re-reading of the code
 and docs it cites; the "Verification" section at the end states exactly what was
 checked. No sampling, no guessing: every claim here was confirmed against the repo
@@ -534,12 +535,22 @@ savings must come from other layers; decide and document that for T240 release c
 1. Confirm T246 end-to-end once with the user: `slimference` TUI -> Launch Codex App,
    do a real conversation, verify the button works and feels native (this is the one
    remaining human confirmation for T246).
-2. Start T247 (the real value work) with step 1 = cert-reproduction (cheapest, most
-   informative). Then the read-delta reducer for the Responses-API delta shape.
-3. Keep all measurement flush-aware (close the session before reading). Use socket +
+2. Start T247 (the real value work) with a zero-guess shape read before the first
+   edit: inspect `extractMessages`, `codexInputItemToMessage`, `codexToolInput`,
+   `proxyResolveToolUse`, and `proxyLayer0CommandLine` against a real captured Codex
+   WSS delta. Current source already has generic support for
+   `function_call_output` -> `tool_result` and `function_call` -> `tool_use`; do
+   not assume the mapping is missing. Verify whether the captured real shape
+   populates `ToolResultID`, remembered tool uses, `ToolInput`, and command/path
+   extraction.
+3. Then run T247 step 1 = cert-reproduction (cheapest, most informative). If
+   temporary env-gated dumps are added, keep them surgical, remove them before the
+   final commit unless the user explicitly wants permanent diagnostics, and record
+   the exact pre/post frame diff in T247 notes.
+4. Keep all measurement flush-aware (close the session before reading). Use socket +
    decisions-log evidence, not laggy counters.
-4. Separately measure non-WSS layers so the product savings claim is honest.
-5. T240 (release certification) comes AFTER T247 resolves the savings reality: it
+5. Separately measure non-WSS layers so the product savings claim is honest.
+6. T240 (release certification) comes AFTER T247 resolves the savings reality: it
    should certify either "CLI+Desktop savings proven" or, honestly, "CLI+Desktop
    route-ready/no-drawback, WSS savings = <measured value>".
 

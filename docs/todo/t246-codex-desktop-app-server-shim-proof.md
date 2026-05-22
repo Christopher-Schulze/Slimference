@@ -1,6 +1,12 @@
 # TASK 246: Codex Desktop app-server shim proof
 
-Status: SOLVED - Desktop conversation routes on the same `websocket_phasef` path as the CLI (decisions-log + reliable `phasef_bridged` counter proven, identical frames); savings follow on real conversations. The TUI gate now reads the lag-free `phasef_bridged` counter, so Launch Codex App unblocks once a Desktop conversation reaches the Phase-F route.
+Status: SOLVED FOR ROUTING - Desktop conversation routes on the same
+`websocket_phasef` path as the CLI (decisions-log + reliable `phasef_bridged`
+counter proven, identical frames). This is route-ready, not savings-proven:
+real WSS mutation/savings are T247. The TUI gate now reads the lag-free
+`phasef_bridged` counter, so Launch Codex App can launch when a Desktop
+conversation reaches the Phase-F route, while the UI/status must keep savings
+claims separate until mutation is measured.
 Priority: P0 before any Desktop savings claim or T240 release certification
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
@@ -39,10 +45,13 @@ Therefore the preferred Desktop route candidate was:
    `/backend-api/codex` route without CA trust, HTTPS proxying, Electron proxy
    args, global hosts, system proxy, or `~/.codex/config.toml` mutation.
 
-Live proof disproved that candidate for current Codex.app. The infrastructure
-is still the cleanest hook if a future Codex build changes endpoint handling,
-but current Codex Desktop does not produce usable Slimference Desktop savings
-through it.
+That first candidate was disproved for current Codex.app until the real root
+cause was found: Desktop sent `thread/start` with `modelProvider: null`, which
+resolved to the account default provider and bypassed the shim's configured
+default. The current solution is the stdin JSON-RPC mediator that rewrites only a
+default/null `modelProvider` to `slimference-codex`. With that mediator,
+Desktop reaches the same Phase-F route as CLI. Savings remain a separate T247
+question.
 
 ## Acceptance
 
@@ -70,12 +79,13 @@ through it.
   `--transport=app-server`, records a Desktop-specific WSS baseline, and returns
   `desktop_ready_for_prompt` only when the app is alive and ready for a user
   prompt.
-- `slimference codex desktop prove --finish --json` returns green only as
-  `desktop_app_server_phasef_proven`: bytes in both directions, WSS frames,
-  `frames_reencoded>0`, `compressed_messages_mutated>0`, and zero
-  parse/degrade/compression errors in the Desktop-specific delta window.
-- If bytes and frames flow but mutation does not, classify as
-  `desktop_app_server_wss_bridge`, not as Desktop savings.
+- `slimference codex desktop prove --finish --json` returns route-ready when a
+  Desktop conversation reaches Phase-F (`phasef_bridged>0`) with zero
+  parse/degrade/compression errors. It returns savings-proven only when mutation
+  also fires (`frames_reencoded>0` and `compressed_messages_mutated>0`).
+- If Phase-F is reached but mutation does not fire, classify as
+  `desktop_app_server_route_proven` / `desktop_app_server_route_ready`, not as
+  Desktop savings.
 - If no Desktop-specific bytes flow, classify as a proof failure and keep TUI
   Launch Codex App blocked.
 - `slimference codex desktop prove` and TUI Launch Codex App close an already
@@ -105,8 +115,9 @@ through it.
 - [x] Keep `--transport=proxy` and `--transport=base-url` as diagnostics, not as
   product defaults.
 - [x] Retarget `codex desktop prove` to launch `--transport=app-server`.
-- [x] Retarget TUI Launch Codex App to require
-  `desktop_app_server_proven`.
+- [x] Retarget TUI Launch Codex App to require the launchable Desktop app-server
+  status (`desktop_app_server_proven` / route-ready mapping), while keeping the
+  UI copy distinct from savings-proven.
 - [x] Add explicit `--replace-existing` launcher mode and wire it into Desktop
   proof plus TUI Launch Codex App so stale Codex.app instances cannot be reused.
 - [x] Update tests for shim argv, env scrubbing, launcher probe, status gating,
@@ -292,15 +303,15 @@ Observed result:
 Current decision:
 
 - This is not a Desktop savings claim.
-- The app-server shim is implemented infrastructure and useful diagnostic
-  leverage, but it is blocked by current Codex Desktop behavior.
-- TUI Launch Codex App must remain blocked for Slimference mode and show
-  `connect_only_no_app_server_bytes` until a future
-  `desktop_app_server_phasef_proven` result exists.
-- Normal Finder/Spotlight Codex.app is the correct no-drawback Desktop path
-  today. Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl,
-  Keychain, macOS proxy settings, and `~/.codex/config.toml` remain outside
-  this product path.
+- The app-server shim plus stdin mediator is implemented product
+  infrastructure and is the current clean Desktop Slimference route.
+- TUI Launch Codex App may launch when the latest proof is route-ready
+  (`phasef_bridged>0`, zero errors). It must label that honestly as route-ready,
+  not savings-proven, until T247 produces measured mutation.
+- Normal Finder/Spotlight Codex.app remains the correct no-drawback direct path
+  outside Slimference mode. Browser ChatGPT, ChatGPT.app, Claude Code,
+  `/etc/hosts`, pfctl, Keychain, macOS proxy settings, and persistent
+  `~/.codex/config.toml` mutation remain outside this product path.
 
 ## Deviations
 
