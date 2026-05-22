@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/slimference/slimference/internal/codexroute"
@@ -21,23 +22,26 @@ import (
 )
 
 var (
-	codexRouteHomeFn     = os.UserHomeDir
-	codexRouteEnableFn   = codexroute.EnableWithOptions
-	codexRouteDisableFn  = codexroute.Disable
-	codexRouteInspectFn  = codexroute.InspectWithOptions
-	codexRouteHealthFn   = defaultProxyHealthCheck
-	codexProxyRunFn      = proxyRun
-	codexVersionFn       = currentCodexVersion
-	codexAutoFn          = resolveCodexAutoTransport
-	codexCertSaveFn      = codexroute.SaveCertification
-	codexBridgeSaveFn    = codexroute.SaveBridgeProof
-	codexRecertSaveFn    = codexroute.SaveRecertState
-	codexAutoRecertFn    = startCodexAutoRecert
-	codexRecertTriggerFn = defaultCodexRecertTrigger
-	codexRecertLogFn     = appendCodexRecertLog
-	codexSetupStateFn    = fetchCodexSetupState
-	codexVersionOutFn    = defaultCodexCLIVersionOutput
-	codexNowFn           = time.Now
+	codexRouteHomeFn      = os.UserHomeDir
+	codexRouteEnableFn    = codexroute.EnableWithOptions
+	codexRouteDisableFn   = codexroute.Disable
+	codexRouteInspectFn   = codexroute.InspectWithOptions
+	codexRouteHealthFn    = defaultProxyHealthCheck
+	codexProxyRunFn       = proxyRun
+	codexVersionFn        = currentCodexVersion
+	codexAutoFn           = resolveCodexAutoTransport
+	codexCertSaveFn       = codexroute.SaveCertification
+	codexBridgeSaveFn     = codexroute.SaveBridgeProof
+	codexRecertSaveFn     = codexroute.SaveRecertState
+	codexAutoRecertFn     = startCodexAutoRecert
+	codexRecertTriggerFn  = defaultCodexRecertTrigger
+	codexRecertLogFn      = appendCodexRecertLog
+	codexSetupStateFn     = fetchCodexSetupState
+	codexVersionOutFn     = defaultCodexCLIVersionOutput
+	codexNowFn            = time.Now
+	codexDesktopCleanupFn = cleanupCodexDesktopProcess
+	codexDesktopSessionFn = codexDesktopProofSessionPath
+	codexDesktopResultFn  = codexDesktopProofResultPath
 )
 
 type codexRouteFlags struct {
@@ -73,19 +77,59 @@ type codexDesktopStatusFlags struct {
 	help bool
 }
 
+type codexDesktopProveFlags struct {
+	host     string
+	port     string
+	duration time.Duration
+	json     bool
+	keepOpen bool
+	manual   bool
+	finish   bool
+	help     bool
+}
+
 type codexDesktopStatusOutput struct {
-	Mode                 string              `json:"mode"`
-	FailureClass         string              `json:"failure_class,omitempty"`
-	ProxyURL             string              `json:"proxy_url"`
-	CATrust              codexDesktopCAState `json:"ca_trust"`
-	DaemonReachable      bool                `json:"daemon_reachable"`
-	DaemonError          string              `json:"daemon_error,omitempty"`
-	WSS                  control.WSSState    `json:"wss"`
-	WSSCountersScope     string              `json:"wss_counters_scope"`
-	LiveProofRequired    bool                `json:"live_proof_required"`
-	ConversationObserved bool                `json:"conversation_observed"`
-	LaunchCommand        string              `json:"launch_command"`
-	Notes                []string            `json:"notes,omitempty"`
+	Mode                 string                   `json:"mode"`
+	FailureClass         string                   `json:"failure_class,omitempty"`
+	ProxyURL             string                   `json:"proxy_url"`
+	CATrust              codexDesktopCAState      `json:"ca_trust"`
+	DaemonReachable      bool                     `json:"daemon_reachable"`
+	DaemonError          string                   `json:"daemon_error,omitempty"`
+	WSS                  control.WSSState         `json:"wss"`
+	WSSCountersScope     string                   `json:"wss_counters_scope"`
+	LiveProofRequired    bool                     `json:"live_proof_required"`
+	ConversationObserved bool                     `json:"conversation_observed"`
+	LaunchCommand        string                   `json:"launch_command"`
+	LastProof            *codexDesktopProofOutput `json:"last_proof,omitempty"`
+	Notes                []string                 `json:"notes,omitempty"`
+}
+
+type codexDesktopProofOutput struct {
+	Mode              string              `json:"mode"`
+	FailureClass      string              `json:"failure_class,omitempty"`
+	Duration          string              `json:"duration"`
+	LaunchPID         int                 `json:"launch_pid,omitempty"`
+	LaunchOutput      string              `json:"launch_output,omitempty"`
+	DeltaWSS          control.WSSState    `json:"delta_wss"`
+	CATrust           codexDesktopCAState `json:"ca_trust"`
+	SessionPath       string              `json:"session_path,omitempty"`
+	CleanupAttempted  bool                `json:"cleanup_attempted"`
+	CleanupError      string              `json:"cleanup_error,omitempty"`
+	LaunchReady       bool                `json:"launch_ready"`
+	DesktopProven     bool                `json:"desktop_proven"`
+	DesktopSavings    bool                `json:"desktop_savings"`
+	ManualPromptStill bool                `json:"manual_prompt_still_required"`
+	Notes             []string            `json:"notes,omitempty"`
+}
+
+type codexDesktopProofSession struct {
+	SchemaVersion int              `json:"schema_version"`
+	Host          string           `json:"host"`
+	Port          string           `json:"port"`
+	LaunchPID     int              `json:"launch_pid"`
+	StartedAt     time.Time        `json:"started_at"`
+	BaselineWSS   control.WSSState `json:"baseline_wss"`
+	LaunchOutput  string           `json:"launch_output,omitempty"`
 }
 
 func handleCodexCmd(args []string) {
@@ -390,6 +434,8 @@ func runCodexDesktopCmd(args []string, p installPrinter) int {
 	switch args[0] {
 	case "status":
 		return runCodexDesktopStatusCmd(args[1:], p)
+	case "prove":
+		return runCodexDesktopProveCmd(args[1:], p)
 	case "--help", "-h", "help":
 		fmt.Fprint(p.Out, codexDesktopHelpText)
 		return 0
@@ -418,6 +464,394 @@ func runCodexDesktopStatusCmd(args []string, p installPrinter) int {
 		return 0
 	}
 	renderCodexDesktopStatus(p.Out, out)
+	return 0
+}
+
+func runCodexDesktopProveCmd(args []string, p installPrinter) int {
+	flags, err := parseCodexDesktopProveFlags(args)
+	if err != nil {
+		fmt.Fprintf(p.Err, "codex desktop prove: %v\n", err)
+		return 2
+	}
+	if flags.help {
+		fmt.Fprint(p.Out, codexDesktopProveHelpText)
+		return 0
+	}
+	if flags.finish {
+		return runCodexDesktopFinishProof(flags, p)
+	}
+
+	before, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
+	if err != nil {
+		out := codexDesktopProofOutput{
+			Mode:         "daemon_unreachable",
+			FailureClass: "daemon_unreachable",
+			Duration:     flags.duration.String(),
+			Notes:        []string{"start the Slimference daemon before running the Desktop proof"},
+		}
+		emitCodexDesktopProof(p, flags.json, out)
+		return 1
+	}
+
+	var launchOut, launchErr strings.Builder
+	rc := runCodexLaunchDesktopCmd([]string{"--transport=proxy", "--with-ca-env", "--host=" + flags.host, "--port=" + flags.port}, installPrinter{Out: &launchOut, Err: &launchErr})
+	out := codexDesktopProofOutput{
+		Duration:          flags.duration.String(),
+		LaunchOutput:      strings.TrimSpace(launchOut.String()),
+		CATrust:           codexDesktopCATrustFn(),
+		ManualPromptStill: true,
+		Notes: []string{
+			"automated proof covers launch-time routing and TLS/root-store behavior",
+			"full Desktop savings proof still needs a prompt-tied WSS delta if launch-time bytes do not flow",
+		},
+	}
+	out.LaunchPID = parseCodexDesktopLaunchPID(out.LaunchOutput)
+	if rc != 0 {
+		out.Mode = "launch_failed"
+		out.FailureClass = "launch_failed"
+		msg := strings.TrimSpace(launchErr.String())
+		if msg == "" {
+			msg = out.LaunchOutput
+		}
+		if msg != "" {
+			out.Notes = append(out.Notes, msg)
+		}
+		emitCodexDesktopProof(p, flags.json, out)
+		return 1
+	}
+
+	time.Sleep(flags.duration)
+	after, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
+	if err != nil {
+		out.Mode = "post_probe_failed"
+		out.FailureClass = "post_probe_failed"
+		out.Notes = append(out.Notes, err.Error())
+		cleanupCodexDesktopProof(&out, flags.keepOpen)
+		emitCodexDesktopProof(p, flags.json, out)
+		return 1
+	}
+	out.DeltaWSS = codexSetupDelta(before, after).WSS
+	classifyCodexDesktopProof(&out, flags.manual)
+	if flags.manual && (out.LaunchReady || out.DesktopSavings) {
+		if err := writeCodexDesktopProofSession(flags, before.WSS, &out); err != nil {
+			out.Mode = "session_write_failed"
+			out.FailureClass = "session_write_failed"
+			out.LaunchReady = false
+			out.DesktopSavings = false
+			out.DesktopProven = false
+			out.ManualPromptStill = false
+			out.Notes = append(out.Notes, err.Error())
+		}
+	}
+	keepOpen := flags.keepOpen || (flags.manual && (out.LaunchReady || out.DesktopSavings))
+	cleanupCodexDesktopProof(&out, keepOpen)
+	writeCodexDesktopProofResult(&out)
+	emitCodexDesktopProof(p, flags.json, out)
+	if out.DesktopSavings || (flags.manual && out.LaunchReady) {
+		return 0
+	}
+	return 1
+}
+
+func runCodexDesktopFinishProof(flags codexDesktopProveFlags, p installPrinter) int {
+	sessionPath := codexDesktopSessionFn()
+	session, err := readCodexDesktopProofSession(sessionPath)
+	if err != nil {
+		out := codexDesktopProofOutput{
+			Mode:         "session_unavailable",
+			FailureClass: "session_unavailable",
+			Duration:     "0s",
+			SessionPath:  sessionPath,
+			Notes:        []string{err.Error()},
+		}
+		emitCodexDesktopProof(p, flags.json, out)
+		return 1
+	}
+	after, err := codexSetupStateFn(session.Host, session.Port, 2*time.Second)
+	if err != nil {
+		out := codexDesktopProofOutput{
+			Mode:         "daemon_unreachable",
+			FailureClass: "daemon_unreachable",
+			Duration:     time.Since(session.StartedAt).Round(time.Second).String(),
+			LaunchPID:    session.LaunchPID,
+			SessionPath:  sessionPath,
+			Notes:        []string{err.Error()},
+		}
+		emitCodexDesktopProof(p, flags.json, out)
+		return 1
+	}
+	before := control.SetupState{WSS: session.BaselineWSS}
+	out := codexDesktopProofOutput{
+		Duration:     time.Since(session.StartedAt).Round(time.Second).String(),
+		LaunchPID:    session.LaunchPID,
+		LaunchOutput: session.LaunchOutput,
+		CATrust:      codexDesktopCATrustFn(),
+		SessionPath:  sessionPath,
+		DeltaWSS:     codexSetupDelta(before, after).WSS,
+		Notes:        []string{"finish compares current daemon WSS state to the manual Desktop proof baseline"},
+	}
+	classifyCodexDesktopProof(&out, false)
+	writeCodexDesktopProofResult(&out)
+	emitCodexDesktopProof(p, flags.json, out)
+	if out.DesktopSavings {
+		return 0
+	}
+	return 1
+}
+
+func parseCodexDesktopProveFlags(args []string) (codexDesktopProveFlags, error) {
+	f := codexDesktopProveFlags{host: "127.0.0.1", port: "8990", duration: 15 * time.Second}
+	for _, a := range args {
+		switch {
+		case a == "--help" || a == "-h":
+			f.help = true
+		case a == "--json":
+			f.json = true
+		case a == "--keep-open":
+			f.keepOpen = true
+		case a == "--manual":
+			f.manual = true
+			f.keepOpen = true
+		case a == "--finish":
+			f.finish = true
+		case strings.HasPrefix(a, "--host="):
+			f.host = strings.TrimPrefix(a, "--host=")
+		case strings.HasPrefix(a, "--port="):
+			f.port = strings.TrimPrefix(a, "--port=")
+		case strings.HasPrefix(a, "--duration="):
+			d, err := time.ParseDuration(strings.TrimPrefix(a, "--duration="))
+			if err != nil || d <= 0 {
+				return f, fmt.Errorf("--duration must be a positive Go duration")
+			}
+			f.duration = d
+		default:
+			return f, fmt.Errorf("unknown flag %q", a)
+		}
+	}
+	if f.manual && f.finish {
+		return f, fmt.Errorf("--manual and --finish cannot be combined")
+	}
+	return f, nil
+}
+
+func classifyCodexDesktopProof(out *codexDesktopProofOutput, manual bool) {
+	w := out.DeltaWSS
+	switch {
+	case codexDesktopTLSRejected(w):
+		out.Mode = "desktop_ca_env_rejected"
+		out.FailureClass = "tls_trust_rejected"
+		out.Notes = append(out.Notes,
+			"Codex.app opened CONNECT/WSS bridge sessions but closed before application bytes",
+			"process-local CA env reached the app but current Desktop did not use it for this TLS path",
+		)
+	case w.BytesC2S > 0 && w.BytesS2C > 0 && w.FramesReencoded > 0 && w.CompressedMessagesMutated > 0 &&
+		w.ParseFailures == 0 && w.DegradedSessions == 0 && w.CompressionErrors == 0:
+		out.Mode = "desktop_proxy_phasef_proven"
+		out.LaunchReady = true
+		out.DesktopProven = true
+		out.DesktopSavings = true
+		out.ManualPromptStill = false
+	case w.BytesC2S > 0 && w.BytesS2C > 0 &&
+		w.ParseFailures == 0 && w.DegradedSessions == 0 && w.CompressionErrors == 0:
+		out.Mode = "desktop_proxy_wss_bridge"
+		out.LaunchReady = true
+		out.DesktopProven = true
+		out.Notes = append(out.Notes, "WSS bytes flowed, but Phase-F mutation did not fire in this observation window")
+	case codexDesktopHasWSSActivity(w):
+		out.Mode = "desktop_wss_needs_review"
+		out.FailureClass = "wss_needs_review"
+		out.Notes = append(out.Notes, "WSS counters moved, but not enough for a Desktop savings claim")
+	case manual:
+		out.Mode = "desktop_ready_for_prompt"
+		out.LaunchReady = true
+		out.ManualPromptStill = true
+		out.Notes = append(out.Notes,
+			"Codex.app stayed open with scoped Slimference env; send one prompt in that app, then run `slimference codex desktop prove --finish --json`",
+			"Desktop savings are not claimed until the finish step sees bytes, frames, and Phase-F mutation",
+		)
+	default:
+		out.Mode = "desktop_no_wss_delta"
+		out.FailureClass = "no_wss_delta"
+		out.Notes = append(out.Notes, "no daemon WSS delta appeared during the automated observation window")
+	}
+}
+
+func cleanupCodexDesktopProof(out *codexDesktopProofOutput, keepOpen bool) {
+	if keepOpen || out.LaunchPID <= 0 {
+		return
+	}
+	out.CleanupAttempted = true
+	if err := codexDesktopCleanupFn(out.LaunchPID); err != nil {
+		out.CleanupError = err.Error()
+	}
+}
+
+func cleanupCodexDesktopProcess(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	if err := signalCodexDesktopProcess(pid, syscall.SIGTERM); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !codexDesktopProcessAlive(pid) {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return signalCodexDesktopProcess(pid, syscall.SIGKILL)
+}
+
+func signalCodexDesktopProcess(pid int, sig syscall.Signal) error {
+	if err := syscall.Kill(-pid, sig); err != nil && err != syscall.ESRCH {
+		if procErr := syscall.Kill(pid, sig); procErr != nil && procErr != syscall.ESRCH {
+			return procErr
+		}
+	}
+	return nil
+}
+
+func codexDesktopProcessAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
+func codexDesktopProofSessionPath() string {
+	home, err := osUserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return filepath.Join(os.TempDir(), "slimference-codex-desktop-proof.json")
+	}
+	return filepath.Join(home, ".slimference", "codex-desktop-proof.json")
+}
+
+func codexDesktopProofResultPath() string {
+	home, err := osUserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return filepath.Join(os.TempDir(), "slimference-codex-desktop-proof-result.json")
+	}
+	return filepath.Join(home, ".slimference", "codex-desktop-proof-result.json")
+}
+
+func writeCodexDesktopProofResult(out *codexDesktopProofOutput) {
+	path := codexDesktopResultFn()
+	if path == "" {
+		return
+	}
+	out.SessionPath = firstNonEmpty(out.SessionPath, codexDesktopSessionFn())
+	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		out.Notes = append(out.Notes, "failed to encode Desktop proof result: "+err.Error())
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		out.Notes = append(out.Notes, "failed to create Desktop proof result dir: "+err.Error())
+		return
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		out.Notes = append(out.Notes, "failed to write Desktop proof result: "+err.Error())
+	}
+}
+
+func readCodexDesktopProofResult(path string) (*codexDesktopProofOutput, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var out codexDesktopProofOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func writeCodexDesktopProofSession(flags codexDesktopProveFlags, baseline control.WSSState, out *codexDesktopProofOutput) error {
+	path := codexDesktopSessionFn()
+	session := codexDesktopProofSession{
+		SchemaVersion: 1,
+		Host:          flags.host,
+		Port:          flags.port,
+		LaunchPID:     out.LaunchPID,
+		StartedAt:     codexNowFn().UTC(),
+		BaselineWSS:   baseline,
+		LaunchOutput:  out.LaunchOutput,
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create Desktop proof session dir: %w", err)
+	}
+	data, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode Desktop proof session: %w", err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("write Desktop proof session: %w", err)
+	}
+	out.SessionPath = path
+	return nil
+}
+
+func readCodexDesktopProofSession(path string) (codexDesktopProofSession, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return codexDesktopProofSession{}, fmt.Errorf("read Desktop proof session %s: %w", path, err)
+	}
+	var session codexDesktopProofSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		return codexDesktopProofSession{}, fmt.Errorf("decode Desktop proof session %s: %w", path, err)
+	}
+	if session.SchemaVersion != 1 {
+		return codexDesktopProofSession{}, fmt.Errorf("unsupported Desktop proof session schema %d", session.SchemaVersion)
+	}
+	if session.Host == "" || session.Port == "" {
+		return codexDesktopProofSession{}, fmt.Errorf("Desktop proof session missing host or port")
+	}
+	return session, nil
+}
+
+func emitCodexDesktopProof(p installPrinter, asJSON bool, out codexDesktopProofOutput) {
+	if asJSON {
+		enc := json.NewEncoder(p.Out)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+		return
+	}
+	renderCodexDesktopProof(p.Out, out)
+}
+
+func renderCodexDesktopProof(w io.Writer, out codexDesktopProofOutput) {
+	fmt.Fprintln(w, "Slimference Codex Desktop Proof")
+	fmt.Fprintln(w, "-------------------------------")
+	fmt.Fprintf(w, "  Mode      %s\n", out.Mode)
+	if out.FailureClass != "" {
+		fmt.Fprintf(w, "  Gate      %s\n", out.FailureClass)
+	}
+	fmt.Fprintf(w, "  Duration  %s\n", out.Duration)
+	if out.LaunchPID > 0 {
+		fmt.Fprintf(w, "  PID       %d\n", out.LaunchPID)
+	}
+	if out.SessionPath != "" {
+		fmt.Fprintf(w, "  Session   %s\n", out.SessionPath)
+	}
+	fmt.Fprintf(w, "  Delta WSS mitm=%d bytes_c2s=%d bytes_s2c=%d frames_reencoded=%d inspected=%d mutated=%d parse_failures=%d degraded=%d compression_errors=%d\n",
+		out.DeltaWSS.MITMBridged, out.DeltaWSS.BytesC2S, out.DeltaWSS.BytesS2C,
+		out.DeltaWSS.FramesReencoded, out.DeltaWSS.CompressedMessagesInspected,
+		out.DeltaWSS.CompressedMessagesMutated, out.DeltaWSS.ParseFailures,
+		out.DeltaWSS.DegradedSessions, out.DeltaWSS.CompressionErrors)
+	fmt.Fprintf(w, "  Proven    launch_ready=%v desktop=%v savings=%v manual_prompt_required=%v\n", out.LaunchReady, out.DesktopProven, out.DesktopSavings, out.ManualPromptStill)
+	fmt.Fprintf(w, "  Cleanup   attempted=%v\n", out.CleanupAttempted)
+	if out.CleanupError != "" {
+		fmt.Fprintf(w, "            %s\n", out.CleanupError)
+	}
+	for _, note := range out.Notes {
+		fmt.Fprintf(w, "  Note      %s\n", note)
+	}
+}
+
+func parseCodexDesktopLaunchPID(text string) int {
+	var pid int
+	if _, err := fmt.Sscanf(text, "Codex.app launched (PID %d)", &pid); err == nil {
+		return pid
+	}
 	return 0
 }
 
@@ -551,6 +985,9 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		LiveProofRequired: true,
 		LaunchCommand:     "slimference codex launch-desktop --transport=proxy --with-ca-env",
 	}
+	if last, err := readCodexDesktopProofResult(codexDesktopResultFn()); err == nil {
+		out.LastProof = last
+	}
 	state, err := codexSetupStateFn(flags.host, flags.port, 2*time.Second)
 	if err != nil {
 		out.FailureClass = "daemon_unreachable"
@@ -565,6 +1002,12 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 	}
 	if codexDesktopHasWSSActivity(state.WSS) {
 		out.Notes = append(out.Notes, "WSS counters are daemon-wide and may include Codex CLI traffic; Desktop proof requires a pre/post delta tied to the spawned Codex.app process")
+	}
+	if out.LastProof != nil {
+		applyCodexDesktopLastProof(&out, out.LastProof)
+		if out.Mode != "not_ready" {
+			return out
+		}
 	}
 	switch {
 	case !out.CATrust.Exists:
@@ -584,6 +1027,34 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		out.Notes = append(out.Notes, "launch Codex Desktop through the proxy mode and verify lsof plus /admin/state.wss")
 	}
 	return out
+}
+
+func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDesktopProofOutput) {
+	switch last.Mode {
+	case "desktop_proxy_phasef_proven":
+		out.Mode = "desktop_proxy_proven"
+		out.FailureClass = ""
+		out.ConversationObserved = true
+		out.LiveProofRequired = false
+		out.Notes = append(out.Notes, "last Desktop proof was green with Phase-F mutation")
+	case "desktop_ready_for_prompt":
+		out.Mode = "desktop_proof_prompt_required"
+		out.FailureClass = "prompt_required"
+		out.Notes = append(out.Notes, "last Desktop proof launched successfully but still needs a prompt plus `slimference codex desktop prove --finish --json`")
+	case "desktop_ca_env_rejected":
+		out.Mode = "desktop_direct_only"
+		out.FailureClass = firstNonEmpty(last.FailureClass, "tls_trust_rejected")
+		out.Notes = append(out.Notes, "last Desktop proof reached Slimference CONNECT but closed before application bytes; use normal Codex.app direct launch")
+	case "desktop_no_wss_delta":
+		out.Mode = "desktop_direct_only"
+		out.FailureClass = firstNonEmpty(last.FailureClass, "no_wss_delta")
+		out.Notes = append(out.Notes, "last Desktop proof produced no Desktop WSS delta; use normal Codex.app direct launch")
+	case "desktop_proxy_wss_bridge":
+		out.Mode = "desktop_wss_bridge_only"
+		out.FailureClass = "desktop_savings_not_proven"
+		out.ConversationObserved = true
+		out.Notes = append(out.Notes, "last Desktop proof carried WSS bytes but did not prove Phase-F savings")
+	}
 }
 
 func codexDesktopHasWSSActivity(w control.WSSState) bool {
@@ -864,21 +1335,35 @@ Shows whether the scoped Codex provider route is configured and whether
 the Slimference daemon is reachable.
 `
 
-const codexDesktopUsageLine = "usage: slimference codex desktop <status> [flags]\n"
+const codexDesktopUsageLine = "usage: slimference codex desktop <status|prove> [flags]\n"
 
-const codexDesktopHelpText = `usage: slimference codex desktop <status> [flags]
+const codexDesktopHelpText = `usage: slimference codex desktop <status|prove> [flags]
 
-Desktop-specific scoped proxy readiness. This command is read-only and
-does not launch Codex.app.
+Desktop-specific scoped proxy readiness and proof.
 
 Commands:
-  status  show CA trust, daemon, and WSS proof state
+  status  show CA, daemon, and WSS proof state without launching Codex.app
+  prove   launch or finish a process-local Desktop WSS proof
 `
 
 const codexDesktopStatusHelpText = `usage: slimference codex desktop status [--json] [--host=127.0.0.1] [--port=8990]
 
 Reports whether the process-local HTTPS_PROXY Desktop launcher is ready
 and whether a live Desktop conversation WSS proof has already been seen.
+`
+
+const codexDesktopProveHelpText = `usage: slimference codex desktop prove [--json] [--duration=15s] [--manual|--finish] [--keep-open] [--host=127.0.0.1] [--port=8990]
+
+Starts Codex.app with process-local proxy + CA env, snapshots daemon WSS
+counters before/after, classifies the result, and closes the spawned app
+unless --keep-open is set. Exit 0 means Desktop Phase-F savings were actually
+proven, or --manual produced a launch-ready proof session that still needs a
+prompt plus --finish. Exit 1 means the proof was not green and the output names
+the failure class.
+
+Use --manual to start a prompt-driven proof session and keep the launched app
+open when it is ready. Send a prompt in that app, then run --finish to compare
+the current daemon WSS state against the saved session baseline.
 `
 
 const codexCertifyHelpText = `usage: slimference codex certify wss [--dry-run] [--operator NAME] [--notes TEXT] [--host=127.0.0.1] [--port=8990]

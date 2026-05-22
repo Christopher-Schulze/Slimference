@@ -15,6 +15,8 @@ slimference codex run --transport=auto -- <prompt> # WSS-first scoped Codex CLI
 slimference codex certify wss --dry-run  # inspect WSS auto-promotion proof
 slimference codex recertify wss --dry-run # inspect update repair plan
 slimference codex desktop status      # Desktop proxy readiness / live-proof status
+slimference codex desktop prove --manual --json # diagnostic Desktop proof start
+slimference codex desktop prove --finish --json # diagnostic Desktop proof finish
 slimference codex launch-desktop --probe  # inspect process-local Desktop proxy env
 slimference enable                    # optional shared Codex CLI/App route
 slimference enable --transport=wss    # optional shared WSS route, pre-live-cert
@@ -49,10 +51,12 @@ human entrypoints there are:
 
 There is no separate "open direct" action. Direct mode is the native launch:
 `codex` in a normal shell or Codex.app from Finder/Spotlight. Slimference mode
-is the launch path chosen inside the TUI. The Desktop item is visible but
-capability-gated; historical `desktop_tls_blocked` / `tls_trust_rejected`
-counters are shown as a process-local CA-env retry/proof state, never as active
-Desktop savings. Normal Finder/Spotlight Desktop launch stays direct.
+is the launch path chosen inside the TUI. The Desktop item is visible, but on
+current Codex.app builds it opens normal direct Codex.app in the current folder
+because the Desktop Slimference proof is not green. Historical
+`desktop_tls_blocked` / `tls_trust_rejected` counters are shown as proof state,
+never as active Desktop savings. Normal Finder/Spotlight Desktop launch stays
+direct.
 
 Slimference's default product path touches only scoped Codex surfaces:
 
@@ -78,14 +82,20 @@ Slimference's default product path touches only scoped Codex surfaces:
    `slimference disable` (alias: `slimference codex disable`) and still leaves Browser ChatGPT,
    ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
    untouched.
-4. **Process-local Codex Desktop proxy launch** via
+4. **Process-local Codex Desktop proxy diagnostics** via
+   `slimference codex desktop prove` and, only after a future green proof,
    `slimference codex launch-desktop --transport=proxy --with-ca-env`.
    This does not write Codex config, shell startup files, macOS system proxy,
    `/etc/hosts`, or pfctl. It sets HTTP(S)/WSS proxy variables only on the
    spawned Codex.app process tree. Normal Finder/Spotlight Codex.app launches
-   remain direct. This path is pre-live-proof until an external Desktop session
-   shows conversation WSS in `/admin/state.wss` with zero parser/degrade/
-   compression errors.
+   remain direct. The proof command snapshots daemon WSS state, launches one
+   scoped Codex.app process, observes a bounded delta, and cleans up. It exits
+   zero only when Desktop Phase-F savings are proven for that observation
+   window. In manual mode it may also report `desktop_ready_for_prompt`: the app
+   is open with scoped Slimference env, but savings are not claimed until the
+   user sends a prompt and the finish step sees bytes, frames, and mutation.
+   CONNECT-only or zero-byte TLS closes are reported but never counted as
+   Desktop savings.
 
 The global transparent TLS-MITM path still exists for lab certification:
 local CA in Keychain, `/etc/hosts`, pfctl, and the SNI listener on 8443.
@@ -101,7 +111,8 @@ goal.
 | Codex hooks | Signal/local output layer | yes | `slimference install` |
 | Scoped Codex provider route | Codex CLI/App traffic layer | optional | `slimference enable` |
 | One-shot scoped Codex CLI | Safe test/recovery path | no persistent state | `slimference codex run -- <prompt>` |
-| Process-local Codex Desktop launcher | Desktop proof candidate | no persistent state | `slimference codex launch-desktop --transport=proxy --with-ca-env` |
+| Process-local Codex Desktop proof | Desktop diagnostic gate | no persistent state | `slimference codex desktop prove --manual --json` then `--finish` |
+| Process-local Codex Desktop launcher | Desktop proven launch only; currently diagnostic | no persistent state | `slimference codex launch-desktop --transport=proxy --with-ca-env` |
 | Global transparent MITM | Lab certification only | no | `slimference lab ...` |
 | Legacy proxy/env/integrate | Advanced compatibility | no | `slimference proxy ...`, `slimference integrate ...` |
 | Base-URL Desktop launcher mode | Diagnostic/future-proof only | no | `slimference codex launch-desktop --transport=base-url --probe` |
@@ -122,8 +133,9 @@ CLI and Codex Desktop.
 |---|---|
 | Daemon unavailable during `slimference codex run` | The wrapper prints a warning and launches direct Codex. **No CLI breakage.** |
 | Daemon unavailable while persistent `codex enable` route is active | Only Codex CLI/App are affected. Run `slimference codex disable`, press `[r]` in TUI Setup, or restart the daemon. Browser ChatGPT, ChatGPT.app, Claude Code, and generic OpenAI clients remain direct. |
-| CA missing during Desktop proxy launch | `slimference codex launch-desktop --transport=proxy --with-ca-env` refuses before spawning Codex.app and prints the repair command. Direct Codex.app remains native. |
-| Codex Desktop ignores process-local proxy env | Desktop is reported direct-only; no Desktop savings claim is made. CLI savings continue. |
+| CA missing during Desktop proxy proof | `slimference codex desktop prove` refuses before a savings claim and prints the repair command. Direct Codex.app remains native. |
+| Codex Desktop already running during scoped proof/launch | The launcher refuses and asks the user to quit Codex.app first, because an existing macOS app instance may not inherit the scoped Slimference env. Direct Codex.app remains native. |
+| Codex Desktop ignores process-local proxy env or rejects local CA trust | Desktop proof exits non-zero with `desktop_no_wss_delta`, `desktop_ca_env_rejected`, or another explicit failure class. TUI Launch Codex App opens normal direct Codex.app in the current folder instead of a broken proxy session. Normal Finder/Spotlight Codex.app remains direct. CLI savings continue. |
 | Codex CLI/Desktop updates | `transport=auto` is WSS-first. It uses certified WSS Phase-F when green, WSS byte-equal bridge when mutation proof is stale but the bridge proof is clean, HTTP only when WSS bridge is unsafe, and direct only when the daemon cannot serve the scoped run. Background recert tries to restore Phase-F savings without blocking the user. |
 | `slimference codex disable` while Codex is open | The marker-owned provider block is removed. New Codex CLI/App sessions go direct after config reload / app-server restart. |
 | `slimference disable` while global lab traffic is in flight | Engine accepts current connections, reverts daemon SNI mode. Use `root-disarm` to remove privileged hosts/pfctl routing. |
@@ -277,7 +289,35 @@ the repair step:
 slimference install
 ```
 
-When the gate is green, launch:
+Before making any Desktop Slimference savings claim, run the diagnostic proof
+gate:
+
+```bash
+slimference codex desktop prove --manual --duration=15s --json
+```
+
+The manual proof command launches one scoped Codex.app process, observes the
+startup WSS counter delta, and keeps the app open only when the launch is viable.
+If the result is `desktop_ready_for_prompt`, the app is ready for the operator:
+send one prompt in that exact Codex.app window, then finish the proof:
+
+```bash
+slimference codex desktop prove --finish --json
+```
+
+The finish step compares current daemon WSS state against the saved manual
+baseline. Desktop savings are green only for `desktop_proxy_phasef_proven`,
+meaning bytes flowed both directions, Phase-F mutation happened, and
+parser/degrade/compression counters stayed zero. WSS byte-equal bridge,
+zero-byte TLS closes, no WSS delta after the prompt, launch failure, daemon
+failure, or unreviewed WSS activity are useful diagnostics but not a savings
+claim.
+
+If a normal Codex.app instance is already running, the proof and launcher refuse
+instead of reusing that instance. Quit Codex.app first so macOS cannot
+foreground an app that did not inherit the scoped Slimference env.
+
+Only when the proof gate is green may a future Desktop Slimference launch use:
 
 ```bash
 slimference codex launch-desktop --transport=proxy --with-ca-env
@@ -298,7 +338,8 @@ The daemon accepts CONNECT on the normal loopback port and MITMs only
 `/backend-api/codex/responses` with the Codex `responses_websockets`
 subprotocol. Other Desktop sideband WebSockets pass byte-equal.
 
-Live proof is still required before claiming Desktop savings:
+Manual external proof can still be collected when diagnosing a new Codex.app
+build:
 
 ```bash
 lsof -nP -p <codex-app-server-pid> -iTCP -sTCP:ESTABLISHED
@@ -318,14 +359,23 @@ status` therefore reports `wss_counters_scope=
 daemon_cumulative_not_desktop_proof` and keeps `conversation_observed=false`
 until a Desktop-specific pre/post delta is tied to the spawned app-server.
 
-As of the 2026-05-19 Codex.app 0.131 live proof, process-local proxy routing
-reaches Slimference at CONNECT time but the Desktop Rust client closes the
-tunnel before application bytes flow. `slimference codex desktop status`
-reports this as `desktop_tls_blocked` / `tls_trust_rejected`. That is not a
-model-quality degradation; it means Desktop must remain direct until a root
-store hook is proven. For the final compatibility probe, use:
+As of the 2026-05-22 Codex.app live proof, process-local proxy routing reaches
+Slimference at CONNECT time but the Desktop path closes before application
+bytes flow through Slimference. A user prompt in the launched app answered
+successfully, while the Desktop proof still reported
+`desktop_ca_env_rejected` / `tls_trust_rejected` with `mitm_bridged=14`,
+`bytes_c2s=0`, `bytes_s2c=0`, `frames_reencoded=0`, and
+`compressed_messages_mutated=0`. The spawned app-server had the process-local
+proxy/CA env and a loopback socket to `127.0.0.1:8990`; Chromium
+NetworkService still held direct ChatGPT TLS sockets. That is not a
+model-quality degradation; it means current Codex.app Desktop savings remain
+unavailable and TUI Launch Codex App opens normal direct Codex.app in the
+current folder. For prompt-driven compatibility diagnostics, use:
 
 ```bash
+slimference codex desktop prove --manual --duration=15s --json
+# send one prompt in the launched app if mode=desktop_ready_for_prompt
+slimference codex desktop prove --finish --json
 slimference codex launch-desktop --transport=proxy --with-ca-env --probe
 slimference codex launch-desktop --transport=proxy --with-ca-env
 ```

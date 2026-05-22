@@ -3756,8 +3756,13 @@ var (
 	tuiCodexRouteEnableCmdFn   = runCodexEnableCmd
 	tuiCodexRouteDisableCmdFn  = runCodexDisableCmd
 	tuiCodexRouteHealthCheckFn = codexRouteHealthFn
-	tuiCodexLaunchDesktopCmdFn = runCodexLaunchDesktopCmd
-	tuiLaunchCommandFn         = func(name string, args ...string) error {
+	tuiCodexDesktopDirectFn    = func(dir string) error {
+		if dir == "" {
+			return exec.Command("open", "-a", "Codex").Run()
+		}
+		return exec.Command("open", "-a", "Codex", dir).Run()
+	}
+	tuiLaunchCommandFn = func(name string, args ...string) error {
 		return exec.Command(name, args...).Run()
 	}
 )
@@ -3941,34 +3946,45 @@ func (sca *serviceControlAdapter) LaunchCodexCLI() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("executable: %w", err)
 	}
-	cmdLine := shellQuote(binary) + " codex run --transport=auto --"
+	dir, err := tuiLaunchDirectory()
+	if err != nil {
+		return "", err
+	}
+	cmdLine := "cd " + shellQuote(dir) + " && " + shellQuote(binary) + " codex run --transport=auto --"
 	script := "tell application \"Terminal\" to do script " + strconv.Quote(cmdLine)
 	if err := tuiLaunchCommandFn("osascript", "-e", script); err != nil {
 		return "", fmt.Errorf("open Terminal: %w", err)
 	}
-	return "Codex CLI launched via Slimference transport=auto", nil
+	return "Codex CLI launched via Slimference transport=auto in " + dir, nil
 }
 
 func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
-	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
-	switch status.FailureClass {
-	case "ca_missing", "daemon_unreachable":
-		return "", fmt.Errorf("%s", status.FailureClass)
+	dir, err := tuiLaunchDirectory()
+	if err != nil {
+		return "", err
 	}
-	var stdout strings.Builder
-	var stderr strings.Builder
-	rc := tuiCodexLaunchDesktopCmdFn([]string{"--transport=proxy", "--with-ca-env"}, installPrinter{Out: &stdout, Err: &stderr})
-	if rc != 0 {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = strings.TrimSpace(stdout.String())
-		}
-		if msg == "" {
-			msg = fmt.Sprintf("codex launch-desktop failed with exit %d", rc)
-		}
-		return "", fmt.Errorf("%s", msg)
+	if err := tuiCodexDesktopDirectFn(dir); err != nil {
+		return "", fmt.Errorf("open Codex.app direct: %w", err)
 	}
-	return "Codex App launch requested through Slimference process-local CA diagnostic proxy", nil
+	return "Codex App launched normally (direct) in " + dir + ". Desktop Slimference is not green on this Codex.app; Codex CLI still uses Slimference WSS.", nil
+}
+
+func tuiLaunchDirectory() (string, error) {
+	dir, err := osGetwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve launch directory: %w", err)
+	}
+	if dir == "" {
+		return "", fmt.Errorf("resolve launch directory: empty working directory")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", fmt.Errorf("launch directory %q: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("launch directory %q is not a directory", dir)
+	}
+	return dir, nil
 }
 
 func (sca *serviceControlAdapter) RepairCodexWSS() (string, error) {

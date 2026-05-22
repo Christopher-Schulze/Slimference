@@ -1619,3 +1619,78 @@ Decision:
 - Next Desktop proof remains live-only: send a prompt in the spawned Codex.app,
   capture pre/post WSS deltas and lsof for the app-server PID, then verify
   normal Finder/Spotlight relaunch goes direct again.
+
+---
+
+## 2026-05-22 — T242/T239 Final Desktop Prompt Verdict and Direct TUI Guard
+
+Driver: close the prompt-driven Desktop proof without letting a broken
+Desktop-Slimference branch become the daily UX.
+
+Live Desktop verdict:
+- `slimference codex desktop prove --manual --duration=8s --json` launched a
+  scoped Codex.app process and reached `desktop_ready_for_prompt`.
+- Operator sent `Slimference Desktop Probe OK` in the launched Codex.app. The
+  app answered successfully, proving native Desktop UX still works.
+- `slimference codex desktop prove --finish --json` returned
+  `mode=desktop_ca_env_rejected`, `failure_class=tls_trust_rejected`.
+- Observed delta shape: `mitm_bridged=14`, `bytes_c2s=0`, `bytes_s2c=0`,
+  `frames_reencoded=0`, `compressed_messages_mutated=0`, `parse_failures=0`,
+  `degraded_sessions=0`, and `compression_errors=0`.
+- lsof/env evidence showed the spawned app-server had process-local proxy/CA
+  env and a loopback socket to `127.0.0.1:8990`. Chromium NetworkService still
+  held direct ChatGPT TLS sockets. The visible Desktop answer therefore cannot
+  be counted as Slimference Phase-F traffic.
+
+Implemented after the verdict:
+- TUI `Launch Codex App` now opens normal direct Codex.app in the current
+  working directory while Desktop Slimference is not green.
+- TUI `Launch Codex CLI` now opens Terminal with `cd <current directory> &&
+  slimference codex run --transport=auto --`, so CLI launch starts in the
+  intended repo instead of a shell default directory.
+- Removed the now-stale TUI manual-proof launch helper. Desktop proof remains
+  an explicit diagnostic command: `slimference codex desktop prove --manual`
+  followed by `--finish`.
+- `codex launch-desktop` refuses when a Codex.app main process is already
+  running, preventing false env-injection proof through macOS foregrounding.
+- Docs and task files now state the product truth: CLI WSS is the max-savings
+  path; Desktop daily launch stays direct until a future Codex.app/root-store or
+  endpoint hook proves real bytes plus Phase-F mutation through Slimference.
+
+Workspace-state finding:
+- Current `~/.codex/config.toml` contains no `ClankWork-main` or
+  `slimference-codex-probe` entries.
+- Codex Desktop restored an old thread whose session metadata had
+  `cwd=/Users/christopher/CODE/ClankWork-main`. That stale cwd came from
+  Codex's saved conversation state, not from the active Slimference route.
+- TUI direct Desktop launch now passes the current directory to Codex.app to
+  avoid blank `open -a Codex` restoring a stale deleted workspace by default.
+
+Cleanup:
+- A pre-stub test run accidentally wrote a fake green Desktop proof result to
+  `~/.slimference/codex-desktop-proof-result.json`
+  (`launch_pid=4242`, `desktop_proxy_phasef_proven`). This was rotated aside
+  as `.test-contaminated-20260522T165153` together with the stale proof session.
+- After cleanup, `slimference codex desktop status --json` no longer reported a
+  false Desktop proof: `mode=ready_for_live_desktop_probe`,
+  `conversation_observed=false`, `last_proof=null`.
+
+Verification:
+- `go test ./cmd/slimference ./internal/tui -count=1` passed.
+- `go test ./... -count=1` passed.
+- `go vet ./...` passed.
+- `go run ./scripts/ci` passed all 8 gates; aggregate statement coverage:
+  `99.1%` with the project hard gate at `95.0%`.
+- `go run ./scripts/build --install` installed binary SHA
+  `21d37e757dd58d2dab227d02b87faf0cbdbb4960c758590b24dd87536a3f7e1c` to both
+  `./slimference` and `~/.local/bin/slimference`.
+- `slimference codex status --json`: `auto.mode=wss_phasef`,
+  `auto.transport=wss`, `wss_certified=true`, `needs_recert=false`.
+- `slimference status --preflight`: daemon PID `22249` healthy on `:8990`,
+  `:443=false`, `:8443=false`, hosts inactive, transparent MITM disarmed.
+
+Decision:
+- Daily UX: `slimference` TUI -> Launch Codex CLI for max WSS savings; Launch
+  Codex App for normal direct Desktop in the current folder.
+- Desktop Slimference is not sold as working until a future diagnostic proof
+  reaches `desktop_proxy_phasef_proven`.

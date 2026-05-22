@@ -1,7 +1,8 @@
 # TASK 245: Desktop custom CA and macOS trust UX
 
 Status: PARTIAL - default install is Keychain-free; process-local Desktop CA
-env is wired; TUI CA management remains planned
+env is wired but current Codex.app proof still fails before Slimference bytes;
+TUI CA management remains planned
 Priority: P0 before T240 if T242 keeps a Desktop proxy branch alive; otherwise
 P1 lab-polish
 Scope: process-local custom CA env first, macOS arm64 Keychain fallback/lab UX,
@@ -79,9 +80,11 @@ Therefore the correct UX is unified install with conditional trust:
   `security add-trusted-cert -d -r trustRoot -p ssl ...` or an equivalent
   Keychain flow. Do not request code-signing or all-purpose trust.
 - The TUI uses the existing command surfaces instead of a parallel flow:
-  Desktop `launch-desktop --transport=proxy --with-ca-env` for the preferred
-  scoped proof; `cert-trust` / `lab cert-trust` if they remain the Keychain
-  owner, or a consolidated `manage trust-ca` command if code is later unified.
+  Desktop `codex desktop prove --manual --json` as the launch-readiness gate,
+  then `codex desktop prove --finish --json` as the savings gate after a user
+  prompt;
+  `cert-trust` / `lab cert-trust` if they remain the Keychain owner, or a
+  consolidated `manage trust-ca` command if code is later unified.
 - The TUI prints the exact blast radius before trust:
   "This only helps Desktop/Lab TLS interception. CLI WSS does not need it.
   The preferred Desktop probe uses process-local CA env first. Browser ChatGPT
@@ -155,16 +158,31 @@ If T242 ultimately proves current Codex.app cannot use the local CA even with
 `CODEX_CA_CERTIFICATE`, Keychain trust becomes lab-only until OpenAI changes
 Codex.app root-store behavior or exposes a supported endpoint/proxy hook.
 
+2026-05-22 live update:
+
+- The process-local Desktop proof with `CODEX_CA_CERTIFICATE` and generic CA
+  env reached Slimference CONNECT but finished as `desktop_ca_env_rejected` /
+  `tls_trust_rejected` after the user sent a prompt.
+- Keychain trust did not turn this into Desktop savings on the current
+  Codex.app build. CA trust remains useful for Desktop/Lab diagnostics, but it
+  is not part of the scoped CLI WSS savings path and must not block CLI launch,
+  WSS auto-recert, or TUI Launch Codex CLI.
+- TUI Launch Codex App should open normal direct Codex.app until a future
+  Desktop proof is green. CA management belongs under Manage Slimference as an
+  explicit advanced Desktop/Lab action, not as the default daily launch path.
+
 2026-05-20 non-live closure:
 
 - `codex desktop status` now treats missing CA material as a real gate but does
   not treat missing Keychain trust as a gate for the preferred Desktop branch.
   It reports the launch command as
   `slimference codex launch-desktop --transport=proxy --with-ca-env`.
-- The TUI Launch Codex App action calls that exact command. Historical
-  `tls_trust_rejected` counters become a process-local CA-env retry/proof state
-  rather than a permanent TUI blockade, while Desktop savings remain unclaimed
-  until live lsof and WSS counters prove bytes/frames.
+- The proof commands remain the Desktop savings gate:
+  `slimference codex desktop prove --manual --json`, then
+  `slimference codex desktop prove --finish --json` after a user prompt.
+  Current TUI Launch Codex App opens direct mode because that gate is not green.
+  Historical or live `tls_trust_rejected` counters are a proof failure, not a
+  permanent global failure and not a savings claim.
 - Aggregate health no longer requires Keychain trust; Keychain is a separate
   Desktop/Lab fallback signal. CLI WSS remains independent of CA trust.
 

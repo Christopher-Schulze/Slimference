@@ -594,6 +594,56 @@ func TestRunCodexLaunchDesktopWithCAEnvAllowsUntrustedKeychain(t *testing.T) {
 	}
 }
 
+func TestRunCodexLaunchDesktopRefusesExistingMainInstance(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevStart := codexDesktopStartFn
+	prevCA := codexDesktopCATrustFn
+	prevRunning := codexDesktopRunningFn
+	t.Cleanup(func() {
+		codexDesktopStartFn = prevStart
+		codexDesktopCATrustFn = prevCA
+		codexDesktopRunningFn = prevRunning
+	})
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
+	}
+	codexDesktopRunningFn = func(binary string) ([]int, error) {
+		if binary != bin {
+			t.Fatalf("running probe binary=%q want %q", binary, bin)
+		}
+		return []int{101, 202}, nil
+	}
+	startCalled := false
+	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+		startCalled = true
+		return 0
+	}
+
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--app=" + app, "--with-ca-env"},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 1 {
+		t.Fatalf("rc=%d want 1", rc)
+	}
+	if startCalled {
+		t.Fatal("launcher must not spawn when Codex.app is already running")
+	}
+	if !strings.Contains(errBuf.String(), "already running") || !strings.Contains(errBuf.String(), "101,202") {
+		t.Fatalf("stderr missing running-process detail: %q", errBuf.String())
+	}
+}
+
 func TestRunCodexLaunchDesktopRefusesProxyWithMissingCA(t *testing.T) {
 	dir := t.TempDir()
 	app := filepath.Join(dir, "Codex.app")

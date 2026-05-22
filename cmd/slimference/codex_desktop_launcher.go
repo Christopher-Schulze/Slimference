@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -70,6 +71,7 @@ var (
 	codexDesktopStartFn   = startCodexDesktopProcess
 	codexDesktopBaseEnvFn = os.Environ
 	codexDesktopCATrustFn = codexDesktopCATrustState
+	codexDesktopRunningFn = runningCodexDesktopPIDs
 )
 
 var codexDesktopStartProbeDelay = 750 * time.Millisecond
@@ -191,6 +193,16 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 		if ca.Error != "" {
 			fmt.Fprintf(p.Err, "  trust probe: %s\n", ca.Error)
 		}
+		return 1
+	}
+
+	runningPIDs, err := codexDesktopRunningFn(binary)
+	if err != nil {
+		fmt.Fprintf(p.Err, "codex launch-desktop: running-app probe failed: %v\n", err)
+		return 1
+	}
+	if len(runningPIDs) > 0 {
+		fmt.Fprintf(p.Err, "codex launch-desktop: Codex.app is already running (PID %s); quit it first so scoped Slimference env can be injected.\n", joinDesktopPIDs(runningPIDs))
 		return 1
 	}
 
@@ -439,6 +451,41 @@ func formatCodexDesktopWaitStatus(status syscall.WaitStatus) string {
 	default:
 		return fmt.Sprintf("status=%d", status)
 	}
+}
+
+func runningCodexDesktopPIDs(binary string) ([]int, error) {
+	out, err := exec.Command("ps", "-axo", "pid=,args=").Output()
+	if err != nil {
+		return nil, fmt.Errorf("ps: %w", err)
+	}
+	want := filepath.Clean(binary)
+	var pids []int
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		if filepath.Clean(fields[1]) == want {
+			pids = append(pids, pid)
+		}
+	}
+	return pids, nil
+}
+
+func joinDesktopPIDs(pids []int) string {
+	parts := make([]string, 0, len(pids))
+	for _, pid := range pids {
+		parts = append(parts, strconv.Itoa(pid))
+	}
+	return strings.Join(parts, ",")
 }
 
 func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error) {

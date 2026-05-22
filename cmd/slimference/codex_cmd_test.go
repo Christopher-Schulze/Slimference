@@ -40,6 +40,14 @@ func withCodexCmdStubs(t *testing.T) {
 	oldVersionOut := codexVersionOutFn
 	oldNow := codexNowFn
 	oldDesktopCA := codexDesktopCATrustFn
+	oldDesktopAppPath := codexDesktopAppPathFn
+	oldDesktopStat := codexDesktopStatFn
+	oldDesktopStart := codexDesktopStartFn
+	oldDesktopCleanup := codexDesktopCleanupFn
+	oldDesktopRunning := codexDesktopRunningFn
+	oldDesktopSession := codexDesktopSessionFn
+	oldDesktopResult := codexDesktopResultFn
+	oldDesktopDirect := tuiCodexDesktopDirectFn
 	codexVersionFn = func() string { return "codex-test" }
 	codexAutoFn = func(home string) codexroute.AutoDecision {
 		return codexroute.AutoDecision{
@@ -63,6 +71,27 @@ func withCodexCmdStubs(t *testing.T) {
 	codexDesktopCATrustFn = func() codexDesktopCAState {
 		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
 	}
+	appPath := filepath.Join(t.TempDir(), "Codex.app")
+	binaryPath := filepath.Join(appPath, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		t.Fatalf("mkdir fake Codex.app: %v", err)
+	}
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake Codex.app binary: %v", err)
+	}
+	codexDesktopAppPathFn = func() string { return appPath }
+	codexDesktopStatFn = os.Stat
+	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+		fmt.Fprintln(p.Out, "Codex.app launched (PID 0) with scoped Slimference env.")
+		return 0
+	}
+	codexDesktopCleanupFn = func(int) error { return nil }
+	codexDesktopRunningFn = func(string) ([]int, error) { return nil, nil }
+	sessionPath := filepath.Join(t.TempDir(), "desktop-proof.json")
+	codexDesktopSessionFn = func() string { return sessionPath }
+	resultPath := filepath.Join(t.TempDir(), "desktop-proof-result.json")
+	codexDesktopResultFn = func() string { return resultPath }
+	tuiCodexDesktopDirectFn = func(string) error { return nil }
 	t.Cleanup(func() {
 		codexRouteHomeFn = oldHome
 		codexRouteEnableFn = oldEnable
@@ -83,6 +112,14 @@ func withCodexCmdStubs(t *testing.T) {
 		codexVersionOutFn = oldVersionOut
 		codexNowFn = oldNow
 		codexDesktopCATrustFn = oldDesktopCA
+		codexDesktopAppPathFn = oldDesktopAppPath
+		codexDesktopStatFn = oldDesktopStat
+		codexDesktopStartFn = oldDesktopStart
+		codexDesktopCleanupFn = oldDesktopCleanup
+		codexDesktopRunningFn = oldDesktopRunning
+		codexDesktopSessionFn = oldDesktopSession
+		codexDesktopResultFn = oldDesktopResult
+		tuiCodexDesktopDirectFn = oldDesktopDirect
 	})
 }
 
@@ -1110,6 +1147,196 @@ func TestCodexDesktopStatusReportsTLSRejectedAfterConnect(t *testing.T) {
 	}
 }
 
+func TestCodexDesktopProveReportsTLSRejectedDelta(t *testing.T) {
+	withCodexCmdStubs(t)
+	calls := 0
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		calls++
+		state := control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}
+		if calls == 2 {
+			state.WSS.MITMBridged = 14
+		}
+		return state, nil
+	}
+
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"desktop", "prove", "--json", "--duration=1ns"}, p)
+	if rc != 1 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	var got codexDesktopProofOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v\nraw=%s", err, out.String())
+	}
+	if got.Mode != "desktop_ca_env_rejected" ||
+		got.FailureClass != "tls_trust_rejected" ||
+		got.DeltaWSS.MITMBridged != 14 ||
+		got.DesktopProven ||
+		got.DesktopSavings {
+		t.Fatalf("proof=%+v", got)
+	}
+}
+
+func TestCodexDesktopProvePhaseFPassesAndBridgeStaysNonSavings(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		after    control.WSSState
+		wantRC   int
+		wantMode string
+		savings  bool
+	}{
+		{
+			name: "phasef",
+			after: control.WSSState{
+				MITMBridged:               1,
+				BytesC2S:                  100,
+				BytesS2C:                  200,
+				C2SFrames:                 2,
+				S2CFrames:                 3,
+				FramesReencoded:           1,
+				CompressedMessagesMutated: 1,
+			},
+			wantRC:   0,
+			wantMode: "desktop_proxy_phasef_proven",
+			savings:  true,
+		},
+		{
+			name: "bridge",
+			after: control.WSSState{
+				MITMBridged:     1,
+				BytesC2S:        100,
+				BytesS2C:        200,
+				C2SFrames:       2,
+				S2CFrames:       3,
+				FramesForwarded: 5,
+			},
+			wantRC:   1,
+			wantMode: "desktop_proxy_wss_bridge",
+			savings:  false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withCodexCmdStubs(t)
+			calls := 0
+			codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+				calls++
+				state := control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}
+				if calls == 2 {
+					state.WSS = tc.after
+				}
+				return state, nil
+			}
+
+			p, out, errBuf := newTestPrinter()
+			rc := runCodexCmd([]string{"desktop", "prove", "--json", "--duration=1ns", "--keep-open"}, p)
+			if rc != tc.wantRC {
+				t.Fatalf("rc=%d want %d stderr=%q", rc, tc.wantRC, errBuf.String())
+			}
+			var got codexDesktopProofOutput
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatalf("json: %v\nraw=%s", err, out.String())
+			}
+			if got.Mode != tc.wantMode || got.DesktopSavings != tc.savings || !got.DesktopProven {
+				t.Fatalf("proof=%+v", got)
+			}
+		})
+	}
+}
+
+func TestCodexDesktopProveManualSessionAndFinish(t *testing.T) {
+	withCodexCmdStubs(t)
+	calls := 0
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		calls++
+		state := control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}
+		if calls >= 3 {
+			state.WSS.MITMBridged = 1
+			state.WSS.BytesC2S = 100
+			state.WSS.BytesS2C = 200
+			state.WSS.FramesReencoded = 1
+			state.WSS.CompressedMessagesMutated = 1
+			state.WSS.MutationActive = true
+		}
+		return state, nil
+	}
+	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+		fmt.Fprintln(p.Out, "Codex.app launched (PID 4242) with scoped Slimference env.")
+		return 0
+	}
+
+	p, out, errBuf := newTestPrinter()
+	rc := runCodexCmd([]string{"desktop", "prove", "--manual", "--json", "--duration=1ns"}, p)
+	if rc != 0 {
+		t.Fatalf("manual rc=%d stderr=%q out=%q", rc, errBuf.String(), out.String())
+	}
+	var started codexDesktopProofOutput
+	if err := json.Unmarshal(out.Bytes(), &started); err != nil {
+		t.Fatalf("manual json: %v\nraw=%s", err, out.String())
+	}
+	if started.Mode != "desktop_ready_for_prompt" || !started.LaunchReady || started.DesktopSavings || started.SessionPath == "" {
+		t.Fatalf("manual proof=%+v", started)
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	rc = runCodexCmd([]string{"desktop", "prove", "--finish", "--json"}, p)
+	if rc != 0 {
+		t.Fatalf("finish rc=%d stderr=%q out=%q", rc, errBuf.String(), out.String())
+	}
+	var finished codexDesktopProofOutput
+	if err := json.Unmarshal(out.Bytes(), &finished); err != nil {
+		t.Fatalf("finish json: %v\nraw=%s", err, out.String())
+	}
+	if finished.Mode != "desktop_proxy_phasef_proven" || !finished.DesktopSavings || finished.LaunchPID != 4242 {
+		t.Fatalf("finish proof=%+v", finished)
+	}
+}
+
+func TestCodexDesktopProveErrorsAndHelpers(t *testing.T) {
+	withCodexCmdStubs(t)
+	p, out, errBuf := newTestPrinter()
+
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		return control.SetupState{}, errors.New("daemon down")
+	}
+	if rc := runCodexCmd([]string{"desktop", "prove", "--json", "--duration=1ns"}, p); rc != 1 {
+		t.Fatalf("daemon rc=%d", rc)
+	}
+	if !strings.Contains(out.String(), "daemon_unreachable") {
+		t.Fatalf("daemon proof output=%q", out.String())
+	}
+
+	out.Reset()
+	errBuf.Reset()
+	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
+		return control.SetupState{CodexRoute: control.CodexRouteState{DaemonReachable: true}}, nil
+	}
+	codexDesktopStartFn = func(p installPrinter, binary string, env []string) int {
+		fmt.Fprint(p.Err, "spawn denied")
+		return 1
+	}
+	if rc := runCodexCmd([]string{"desktop", "prove", "--json", "--duration=1ns"}, p); rc != 1 {
+		t.Fatalf("launch rc=%d", rc)
+	}
+	if !strings.Contains(out.String(), "launch_failed") ||
+		!strings.Contains(out.String(), "spawn denied") {
+		t.Fatalf("launch proof output=%q stderr=%q", out.String(), errBuf.String())
+	}
+
+	if got := parseCodexDesktopLaunchPID("Codex.app launched (PID 37720) with scoped Slimference env."); got != 37720 {
+		t.Fatalf("pid=%d", got)
+	}
+	if _, err := parseCodexDesktopProveFlags([]string{"--duration=0s"}); err == nil {
+		t.Fatal("expected bad duration error")
+	}
+	if _, err := parseCodexDesktopProveFlags([]string{"--bogus"}); err == nil {
+		t.Fatal("expected bad flag error")
+	}
+	if _, err := parseCodexDesktopProveFlags([]string{"--manual", "--finish"}); err == nil {
+		t.Fatal("expected manual+finish conflict")
+	}
+}
+
 func TestRunCodexDesktopCmdHelpAndErrors(t *testing.T) {
 	withCodexCmdStubs(t)
 	p, out, errBuf := newTestPrinter()
@@ -1130,6 +1357,14 @@ func TestRunCodexDesktopCmdHelpAndErrors(t *testing.T) {
 	out.Reset()
 	if rc := runCodexCmd([]string{"desktop", "status", "--help"}, p); rc != 0 || !strings.Contains(out.String(), "codex desktop status") {
 		t.Fatalf("desktop status help rc=%d out=%q", rc, out.String())
+	}
+	out.Reset()
+	if rc := runCodexCmd([]string{"desktop", "prove", "--help"}, p); rc != 0 || !strings.Contains(out.String(), "codex desktop prove") {
+		t.Fatalf("desktop prove help rc=%d out=%q", rc, out.String())
+	}
+	errBuf.Reset()
+	if rc := runCodexCmd([]string{"desktop", "prove", "--bogus"}, p); rc != 2 || !strings.Contains(errBuf.String(), "unknown flag") {
+		t.Fatalf("desktop prove bad flag rc=%d err=%q", rc, errBuf.String())
 	}
 }
 
@@ -1276,19 +1511,23 @@ func TestServiceControlAdapterLaunchCodexCLI(t *testing.T) {
 	}
 }
 
-func TestServiceControlAdapterDesktopStatusTLSRejectedStillAllowsCAEnvRetry(t *testing.T) {
+func TestServiceControlAdapterDesktopStatusTLSRejectedStillLaunchesDirect(t *testing.T) {
 	withCodexCmdStubs(t)
-	oldLaunchDesktop := tuiCodexLaunchDesktopCmdFn
-	t.Cleanup(func() { tuiCodexLaunchDesktopCmdFn = oldLaunchDesktop })
+	oldGetwd := osGetwd
+	t.Cleanup(func() {
+		osGetwd = oldGetwd
+	})
 	codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
 		state := control.SetupState{}
 		state.WSS.MITMBridged = 14
 		return state, nil
 	}
-	var gotArgs []string
-	tuiCodexLaunchDesktopCmdFn = func(args []string, _ installPrinter) int {
-		gotArgs = append([]string(nil), args...)
-		return 0
+	dir := t.TempDir()
+	osGetwd = func() (string, error) { return dir, nil }
+	directDir := ""
+	tuiCodexDesktopDirectFn = func(got string) error {
+		directDir = got
+		return nil
 	}
 
 	adapter := &serviceControlAdapter{}
@@ -1296,81 +1535,45 @@ func TestServiceControlAdapterDesktopStatusTLSRejectedStillAllowsCAEnvRetry(t *t
 	if status.Mode != "desktop_tls_blocked" || status.FailureClass != "tls_trust_rejected" {
 		t.Fatalf("desktop status=%+v", status)
 	}
-	if _, err := adapter.LaunchCodexApp(); err != nil {
-		t.Fatalf("LaunchCodexApp err=%v", err)
+	msg, err := adapter.LaunchCodexApp()
+	if err != nil {
+		t.Fatalf("LaunchCodexApp direct fallback: %v", err)
 	}
-	if strings.Join(gotArgs, " ") != "--transport=proxy --with-ca-env" {
-		t.Fatalf("args=%v", gotArgs)
+	if !strings.Contains(msg, "launched normally (direct)") || !strings.Contains(msg, dir) {
+		t.Fatalf("msg=%q", msg)
+	}
+	if directDir != dir {
+		t.Fatalf("direct launch dir=%q want %q", directDir, dir)
 	}
 }
 
 func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 	withCodexCmdStubs(t)
-	oldLaunchDesktop := tuiCodexLaunchDesktopCmdFn
-	t.Cleanup(func() { tuiCodexLaunchDesktopCmdFn = oldLaunchDesktop })
-
-	var gotArgs []string
-	tuiCodexLaunchDesktopCmdFn = func(args []string, _ installPrinter) int {
-		gotArgs = append([]string(nil), args...)
-		return 0
+	oldGetwd := osGetwd
+	t.Cleanup(func() {
+		osGetwd = oldGetwd
+	})
+	dir := t.TempDir()
+	osGetwd = func() (string, error) { return dir, nil }
+	var directDir string
+	tuiCodexDesktopDirectFn = func(got string) error {
+		directDir = got
+		return nil
 	}
 	msg, err := (&serviceControlAdapter{}).LaunchCodexApp()
 	if err != nil {
 		t.Fatalf("LaunchCodexApp success: %v", err)
 	}
-	if !strings.Contains(msg, "diagnostic proxy") {
+	if !strings.Contains(msg, "launched normally (direct)") || !strings.Contains(msg, dir) {
 		t.Fatalf("msg=%q", msg)
 	}
-	if strings.Join(gotArgs, " ") != "--transport=proxy --with-ca-env" {
-		t.Fatalf("args=%v", gotArgs)
+	if directDir != dir {
+		t.Fatalf("direct launch dir=%q want %q", directDir, dir)
 	}
 
-	tuiCodexLaunchDesktopCmdFn = func(_ []string, p installPrinter) int {
-		fmt.Fprint(p.Err, "spawn denied")
-		return 1
-	}
-	if _, err := (&serviceControlAdapter{}).LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "spawn denied") {
-		t.Fatalf("stderr failure err=%v", err)
-	}
-
-	tuiCodexLaunchDesktopCmdFn = func(_ []string, _ installPrinter) int { return 7 }
-	if _, err := (&serviceControlAdapter{}).LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "exit 7") {
-		t.Fatalf("fallback failure err=%v", err)
-	}
-}
-
-func TestServiceControlAdapterLaunchCodexAppPreflightFailures(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		ca   codexDesktopCAState
-		err  error
-		want string
-	}{
-		{
-			name: "ca missing",
-			ca:   codexDesktopCAState{},
-			want: "ca_missing",
-		},
-		{
-			name: "daemon unreachable",
-			ca:   codexDesktopCAState{Exists: true, Trusted: true},
-			err:  errors.New("offline"),
-			want: "daemon_unreachable",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			withCodexCmdStubs(t)
-			codexDesktopCATrustFn = func() codexDesktopCAState { return tc.ca }
-			if tc.err != nil {
-				codexSetupStateFn = func(string, string, time.Duration) (control.SetupState, error) {
-					return control.SetupState{}, tc.err
-				}
-			}
-			_, err := (&serviceControlAdapter{}).LaunchCodexApp()
-			if err == nil || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("err=%v want %q", err, tc.want)
-			}
-		})
+	tuiCodexDesktopDirectFn = func(string) error { return errors.New("open denied") }
+	if _, err := (&serviceControlAdapter{}).LaunchCodexApp(); err == nil || !strings.Contains(err.Error(), "open denied") {
+		t.Fatalf("direct launch error=%v", err)
 	}
 }
 

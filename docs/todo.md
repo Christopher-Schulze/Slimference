@@ -1346,11 +1346,11 @@ only and promotes the per-process Codex CLI runner for T209.
   Launch Codex CLI, Launch Codex App, Savings, Status, and Manage Slimference.
   No separate "open direct" action; direct mode is launching Codex normally
   outside Slimference. Default Install/Repair is unified for Codex and prepares
-  CLI plus Desktop support together; no default CLI/App checkbox split. The
-  Launch Codex App menu item is visible and capability-gated from
-  `codex desktop status` (proven, custom-CA-env diagnostic, or
-  blocked/direct-only). Remaining work: embedded prompt input, richer Status /
-  Manage detail, and final T240 live certification. Detail:
+  CLI plus Desktop support together; no default CLI/App checkbox split. The TUI
+  now launches Codex CLI in the current folder via `transport=auto` and launches
+  Codex.app normal/direct in the current folder while Desktop Slimference is not
+  green. Remaining work: embedded prompt input, richer Status / Manage detail,
+  and final T240 live certification. Detail:
   `docs/todo/t239-slimference-launch-center-tui.md`
 - [ ] **T240** Codex zero-drawdown release certification — final product seal
   after T238/T239/T241/T242/T243: prove CLI, Desktop, WSS-first fallback
@@ -1367,15 +1367,18 @@ only and promotes the per-process Codex CLI runner for T209.
   0.131.0` recert is green with Phase-F mutation and config hash stability.
   Detail: `docs/todo/t241-codex-update-resilient-certification.md`
 - [~] **T242** Codex Desktop root-store and proxy compatibility matrix —
-  process-local `--with-ca-env` probe and launch are partially live-verified:
-  the detached Desktop launcher is stable and app-server reaches
-  `127.0.0.1:8990`, but no Desktop prompt-tied WSS counter delta is proven yet.
-  `codex desktop status` treats WSS counters as daemon-wide, not Desktop proof,
-  to avoid CLI recert traffic making Desktop look green. Remaining work: send a
-  prompt in the spawned Desktop app, collect pre/post lsof + WSS deltas, test
-  managed network-proxy and endpoint-hook surfaces, and settle whether current
-  Desktop can route conversation through Slimference without global lab or
-  upstream changes. Detail:
+  process-local `--with-ca-env` probe and launch are partially live-verified
+  and now automated behind `codex desktop prove --manual` and `--finish`: the
+  detached Desktop launcher is stable, existing app instances are refused before
+  scoped launch, daemon-wide WSS counters are never treated as Desktop proof,
+  and the prompt-driven live proof now ends as `desktop_ca_env_rejected` /
+  `tls_trust_rejected` with `mitm_bridged=14` but zero application bytes and
+  zero mutation. Current product decision: Desktop daily launch stays direct;
+  proxy/proof commands remain diagnostics until a future Codex.app build or
+  supported hook proves real Desktop bytes plus Phase-F mutation through
+  Slimference. Remaining work: test managed network-proxy and endpoint-hook
+  surfaces, and settle whether current Desktop can route conversation through
+  Slimference without global lab or upstream changes. Detail:
   `docs/todo/t242-codex-desktop-root-store-probe.md`
 - [~] **T243** WSS-first auto transport ladder — `transport=auto` now prefers
   `wss_phasef`, then WSS byte-equal bridge, then HTTP, then direct for scoped

@@ -263,7 +263,8 @@ type ServiceControlInterface interface {
 	CodexDesktopStatus() CodexDesktopStatus
 	// LaunchCodexCLI opens the proven scoped Codex CLI path.
 	LaunchCodexCLI() (string, error)
-	// LaunchCodexApp opens the capability-gated process-local Desktop path.
+	// LaunchCodexApp opens normal direct Codex.app until Desktop Slimference
+	// has a green prompt-driven proof.
 	LaunchCodexApp() (string, error)
 	// RepairCodexWSS runs the guided CLI WSS recertification repair.
 	RepairCodexWSS() (string, error)
@@ -977,47 +978,24 @@ func (m *Model) codexCLIState() string {
 
 func (m *Model) codexAppState() string {
 	status := m.codexDesktopStatus
-	switch status.FailureClass {
-	case "tls_trust_rejected":
-		return "CA-env retry"
-	case "ca_missing":
-		return "CA needed"
-	case "ca_untrusted":
-		return "CA-env ready"
-	case "daemon_unreachable":
-		return "daemon off"
-	}
-	switch status.Mode {
-	case "ready_for_live_desktop_probe":
-		return "diagnostic"
-	case "proxy_wss_needs_review":
-		return "review"
-	case "":
+	if status.Mode == "" && status.FailureClass == "" {
 		return "unknown"
-	default:
-		return status.Mode
 	}
+	return "direct"
 }
 
 func (m *Model) codexAppDescription() string {
 	status := m.codexDesktopStatus
-	switch status.FailureClass {
-	case "tls_trust_rejected":
-		return "Previous Desktop proxy reached Slimference but closed before bytes; launch retries the process-local CODEX_CA_CERTIFICATE probe without claiming savings."
-	case "ca_missing":
-		return "Desktop proxy needs the Slimference CA before a diagnostic launch can run."
-	case "ca_untrusted":
-		return "Desktop proxy can use process-local CA env; Keychain trust is Desktop/Lab fallback only."
-	case "daemon_unreachable":
-		return "Start or repair the Slimference daemon before Desktop proxy diagnostics."
+	if status.Mode == "desktop_proxy_proven" {
+		return "Desktop proof is green, but daily launch stays direct until Desktop routing is product-enabled."
 	}
-	if status.Mode == "ready_for_live_desktop_probe" {
-		return "Run the process-local Desktop proxy diagnostic; savings are not claimed until WSS bytes are proven."
+	if status.Mode == "desktop_wss_bridge_only" || status.Mode == "desktop_proof_prompt_required" {
+		return "Desktop proxy is diagnostic only until Phase-F savings are proven; normal launch stays direct."
 	}
-	if status.ConversationObserved {
-		return "Desktop proxy saw WSS traffic but still needs zero-drawdown review before product use."
+	if status.FailureClass != "" {
+		return "Open normal direct Codex.app in the current folder; Desktop Slimference is not green (" + status.FailureClass + ")."
 	}
-	return "Capability-gated Desktop Slimference launch; direct Finder launch is always unaffected."
+	return "Open normal direct Codex.app in the current folder; Desktop Slimference remains gated by proof."
 }
 
 func (m *Model) savingsState() string {
