@@ -1694,3 +1694,57 @@ Decision:
   Codex App for normal direct Desktop in the current folder.
 - Desktop Slimference is not sold as working until a future diagnostic proof
   reaches `desktop_proxy_phasef_proven`.
+
+---
+
+## 2026-05-22 — Codex Desktop Deleted-Workspace Restore Fix
+
+Driver: Codex.app reopened deleted workspace
+`/Users/christopher/CODE/ClankWork-main` after normal launch.
+
+Root cause:
+- `~/.codex/config.toml` was already clean, but
+  `~/.codex/.codex-global-state.json` still had
+  `active-workspace-roots=["/Users/christopher/CODE/ClankWork-main"]`.
+- The same deleted roots also existed in `electron-saved-workspace-roots`,
+  `project-order`, and `electron-persisted-atom-state.sidebar-collapsed-groups`.
+- Launching Codex.app from inside an existing Codex session can also inherit
+  `CODEX_THREAD_ID`, `CODEX_CI`, and other `CODEX_*` runtime variables through
+  macOS process launch. That can make a fresh Desktop launch resume the wrong
+  old thread even when the workspace list is clean.
+
+Cleanup performed:
+- Backed up `~/.codex/.codex-global-state.json` and `.bak` under
+  `~/.codex/stale-workspaces/clankwork-global-state-20260522T170548/`.
+- Removed dead `ClankWork-main` and `ClankWork` roots from active global state.
+- Set `active-workspace-roots` to `/Users/christopher/CODE/Slimference`.
+- Verified both deleted directories are absent on disk and no live
+  `ClankWork-main` references remain in active Codex app state.
+
+Code fix:
+- Desktop launch env now strips inherited `CODEX_*` variables before adding
+  intentional Slimference proxy/CA variables.
+- TUI direct Codex.app launch now strips inherited `CODEX_*`, removes old
+  `PWD`/`OLDPWD`, and pins `PWD` to the current launch directory.
+- TUI Codex CLI launch now runs through `/bin/bash -lc`, unsets inherited
+  `CODEX_*`, then runs `slimference codex run --transport=auto --` in the
+  current directory.
+
+Verification:
+- Normal `open -a Codex` after state cleanup kept
+  `active-workspace-roots=["/Users/christopher/CODE/Slimference"]`.
+- Clean relaunch with a stripped process env showed Codex.app main
+  `PWD=/Users/christopher/CODE/Slimference` and no inherited
+  `CODEX_THREAD_ID` / `CODEX_CI`.
+- `lsof` showed the current `codex app-server` cwd as
+  `/Users/christopher/CODE/Slimference`.
+- `slimference codex status --json` stayed green:
+  `auto.mode=wss_phasef`, `auto.transport=wss`, `wss_certified=true`,
+  `needs_recert=false`.
+- Focused tests for Desktop launch env and TUI Codex launch passed.
+
+Decision:
+- Deleted workspace restore is fixed locally.
+- Desktop savings remain blocked by the existing Desktop TLS/root-store proof
+  result; this fix is about correct Desktop launch state and zero stale-thread
+  inheritance, not a Desktop savings claim.

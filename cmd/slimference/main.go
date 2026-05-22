@@ -3757,10 +3757,13 @@ var (
 	tuiCodexRouteDisableCmdFn  = runCodexDisableCmd
 	tuiCodexRouteHealthCheckFn = codexRouteHealthFn
 	tuiCodexDesktopDirectFn    = func(dir string) error {
-		if dir == "" {
-			return exec.Command("open", "-a", "Codex").Run()
+		args := []string{"-a", "Codex"}
+		if dir != "" {
+			args = append(args, dir)
 		}
-		return exec.Command("open", "-a", "Codex", dir).Run()
+		cmd := exec.Command("open", args...)
+		cmd.Env = codexDesktopDirectOpenEnv(os.Environ(), dir)
+		return cmd.Run()
 	}
 	tuiLaunchCommandFn = func(name string, args ...string) error {
 		return exec.Command(name, args...).Run()
@@ -3950,7 +3953,8 @@ func (sca *serviceControlAdapter) LaunchCodexCLI() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cmdLine := "cd " + shellQuote(dir) + " && " + shellQuote(binary) + " codex run --transport=auto --"
+	inner := "for k in ${!CODEX_@}; do unset \"$k\"; done; cd " + shellQuote(dir) + " && " + shellQuote(binary) + " codex run --transport=auto --"
+	cmdLine := "/bin/bash -lc " + shellQuote(inner)
 	script := "tell application \"Terminal\" to do script " + strconv.Quote(cmdLine)
 	if err := tuiLaunchCommandFn("osascript", "-e", script); err != nil {
 		return "", fmt.Errorf("open Terminal: %w", err)

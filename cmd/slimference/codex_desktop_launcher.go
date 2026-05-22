@@ -112,6 +112,15 @@ var codexDesktopCAEnvKeys = []string{
 	"NODE_EXTRA_CA_CERTS",
 }
 
+var codexDesktopSessionEnvPrefixes = []string{
+	"CODEX_",
+}
+
+var codexDesktopWorkspaceEnvKeys = []string{
+	"PWD",
+	"OLDPWD",
+}
+
 type codexLaunchDesktopFlags struct {
 	host                   string
 	port                   string
@@ -214,6 +223,7 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 // from the base env, appends our overrides, then appends operator
 // extras (which may further override any key).
 func buildCodexDesktopLaunchEnv(overrideURL string, base []string, extra []string) []string {
+	base = sanitizeCodexDesktopBaseEnv(base)
 	overrideKeys := make(map[string]struct{}, len(codexDesktopEnvOverrideKeys))
 	for _, k := range codexDesktopEnvOverrideKeys {
 		overrideKeys[k] = struct{}{}
@@ -239,6 +249,7 @@ func buildCodexDesktopLaunchEnv(overrideURL string, base []string, extra []strin
 }
 
 func buildCodexDesktopProxyEnv(proxyURL string, base []string, extra []string) []string {
+	base = sanitizeCodexDesktopBaseEnv(base)
 	overrideKeys := make(map[string]struct{}, len(codexDesktopProxyEnvKeys)+len(codexDesktopEnvOverrideKeys)+len(codexDesktopCAEnvKeys))
 	for _, k := range codexDesktopProxyEnvKeys {
 		overrideKeys[k] = struct{}{}
@@ -277,6 +288,52 @@ func buildCodexDesktopProxyEnv(proxyURL string, base []string, extra []string) [
 		"CODEX_NETWORK_PROXY_ACTIVE=1",
 	)
 	out = append(out, extra...)
+	return out
+}
+
+func sanitizeCodexDesktopBaseEnv(base []string) []string {
+	out := make([]string, 0, len(base))
+	for _, kv := range base {
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			out = append(out, kv)
+			continue
+		}
+		if codexDesktopShouldDropInheritedEnv(kv[:eq]) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
+
+func codexDesktopShouldDropInheritedEnv(key string) bool {
+	for _, prefix := range codexDesktopSessionEnvPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func codexDesktopDirectOpenEnv(base []string, dir string) []string {
+	drop := make(map[string]struct{}, len(codexDesktopWorkspaceEnvKeys))
+	for _, key := range codexDesktopWorkspaceEnvKeys {
+		drop[key] = struct{}{}
+	}
+	out := make([]string, 0, len(base)+1)
+	for _, kv := range sanitizeCodexDesktopBaseEnv(base) {
+		eq := strings.IndexByte(kv, '=')
+		if eq >= 0 {
+			if _, hit := drop[kv[:eq]]; hit {
+				continue
+			}
+		}
+		out = append(out, kv)
+	}
+	if strings.TrimSpace(dir) != "" {
+		out = append(out, "PWD="+dir)
+	}
 	return out
 }
 

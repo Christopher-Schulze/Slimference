@@ -58,6 +58,12 @@ because the Desktop Slimference proof is not green. Historical
 never as active Desktop savings. Normal Finder/Spotlight Desktop launch stays
 direct.
 
+Launch Center strips inherited `CODEX_*` session variables before starting a
+new Codex CLI or Codex.app process. This prevents a Slimference session that was
+opened from inside Codex from leaking `CODEX_THREAD_ID` or other old runtime
+state into the newly launched app. The Desktop item also launches with `PWD`
+pinned to the current folder.
+
 Slimference's default product path touches only scoped Codex surfaces:
 
 1. **Hook callouts** in `~/.codex/hooks.json` plus

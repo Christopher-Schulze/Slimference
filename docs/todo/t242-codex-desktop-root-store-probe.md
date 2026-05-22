@@ -50,6 +50,10 @@ Phase-F savings.
 - Refuse Desktop proof/launch if a normal Codex.app main process is already
   running, because that instance may be foregrounded by macOS without inheriting
   the scoped Slimference env.
+- Scrub inherited `CODEX_*` session variables from every Desktop launch/proof
+  env before adding intentional Slimference variables. A launcher started from
+  inside Codex must never pass an old `CODEX_THREAD_ID` into the new Codex.app
+  process tree.
 - Do not require macOS Keychain trust for this first Desktop proof. Keychain
   trust is a fallback/lab branch from T245, not the default Desktop UX.
 - Verify app-server env via `ps eww` and route via `lsof`.
@@ -225,6 +229,21 @@ supported endpoint/root-store hook.
 - Product decision: TUI Launch Codex App opens normal direct Codex.app in the
   current folder until a future Codex.app build or supported hook proves real
   Desktop bytes plus Phase-F mutation through Slimference.
+
+2026-05-22 stale workspace restore fix:
+
+- Codex Desktop's global state can persist deleted workspace roots in
+  `~/.codex/.codex-global-state.json`. A stale
+  `/Users/christopher/CODE/ClankWork-main` active root caused Codex.app to
+  reopen a non-existing project even after `~/.codex/config.toml` was clean.
+- The dead roots were removed from `active-workspace-roots`,
+  `electron-saved-workspace-roots`, `project-order`, and
+  `sidebar-collapsed-groups`; active root is now
+  `/Users/christopher/CODE/Slimference`.
+- The launcher now strips inherited `CODEX_*` environment variables and pins
+  direct Desktop `PWD` to the selected folder. This closes a second restore
+  path where launching Codex.app from an existing Codex session could pass
+  `CODEX_THREAD_ID` into the new app process.
 
 ## Deviations
 

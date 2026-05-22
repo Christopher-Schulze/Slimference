@@ -74,7 +74,9 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
   Codex as a whole. It must not ask the user to choose CLI-only or Desktop-only
   during the default install.
 - Launch Codex CLI starts the existing safe Codex CLI product path with
-  `transport=auto` and shows WSS certification/fallback state.
+  `transport=auto` and shows WSS certification/fallback state. The Terminal
+  launch must scrub inherited `CODEX_*` session variables first so a TUI opened
+  from an existing Codex session cannot accidentally resume that old thread.
 - Launch Codex App uses the T242 branch decision:
   - if a future `slimference codex desktop prove --finish --json` result is
     `desktop_proxy_phasef_proven`, launch the proven Desktop path;
@@ -116,6 +118,10 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 
 - Current behavior: launches normal direct Codex.app in the current folder so
   Codex.app does not restore a stale deleted workspace by default.
+- The Desktop launch environment must drop inherited `CODEX_*` session state
+  such as `CODEX_THREAD_ID` and must pin `PWD` to the selected current folder.
+  This prevents a Slimference/Codex session from leaking an old thread into the
+  newly opened Desktop app.
 - If T242 later passes: launches Codex.app with the proven process-local proxy
   mode.
 - If previous live counters show zero-byte CONNECT sessions: displays
@@ -261,13 +267,18 @@ remains an explicit diagnostic command.
 - `Launch Codex CLI` opens a new Terminal session running
   `slimference codex run --transport=auto --`, which starts the interactive
   Codex CLI through the scoped wrapper. Normal daily CLI launch can come from
-  the TUI without a persistent shell alias.
+  the TUI without a persistent shell alias. The generated shell command first
+  unsets inherited `CODEX_*` variables so Launch Center starts a fresh CLI
+  context even when Slimference itself was opened from inside Codex.
 - `Launch Codex App` consumes `codex desktop status` and opens normal direct
   Codex.app in the current folder while Desktop Slimference is not green. This
   prevents the daily TUI path from starting a known-bad proof/proxy session or
   letting Codex.app restore a stale deleted workspace. Historical
   `tls_trust_rejected` counters are shown as a proof failure, not as green
-  Desktop savings. Normal Finder launch remains direct.
+  Desktop savings. The launch strips inherited `CODEX_*` variables and sets
+  `PWD` to the chosen folder before calling macOS `open`, so stale
+  `CODEX_THREAD_ID` / deleted-workspace state cannot be inherited from the
+  calling agent. Normal Finder launch remains direct.
 - `Savings` opens the existing Stats view. `Status` refreshes daemon, route,
   Desktop, and lab state. `Manage Slimference` opens the existing Setup view
   rather than creating a parallel management UI.

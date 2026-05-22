@@ -84,6 +84,8 @@ func TestBuildCodexDesktopLaunchEnvOverridesAndDeduplicates(t *testing.T) {
 		"HOME=/Users/x",
 		"OPENAI_BASE_URL=https://api.openai.com/v1",  // must be dropped
 		"CHATGPT_CODEX_BASE_URL=https://chatgpt.com", // must be dropped
+		"CODEX_THREAD_ID=old-thread",                 // inherited session state must be dropped
+		"CODEX_CI=1",                                 // inherited Codex runtime state must be dropped
 		"UNRELATED=keep",
 		"NOEQUAL", // no '=' — preserved verbatim
 	}
@@ -99,6 +101,9 @@ func TestBuildCodexDesktopLaunchEnvOverridesAndDeduplicates(t *testing.T) {
 	for _, kv := range got {
 		if _, ok := preserved[kv]; ok {
 			preserved[kv] = true
+		}
+		if strings.HasPrefix(kv, "CODEX_THREAD_ID=") || strings.HasPrefix(kv, "CODEX_CI=") {
+			t.Fatalf("base-url launch must not inherit Codex session env: %v", got)
 		}
 	}
 	for k, v := range preserved {
@@ -161,6 +166,8 @@ func TestBuildCodexDesktopProxyEnvScopedAndNoBaseURLOverrides(t *testing.T) {
 		"PATH=/usr/bin",
 		"HTTPS_PROXY=http://old",
 		"OPENAI_BASE_URL=http://old-base",
+		"CODEX_THREAD_ID=old-thread",
+		"CODEX_CI=1",
 		"UNRELATED=keep",
 		"NOEQUAL",
 	}
@@ -184,11 +191,59 @@ func TestBuildCodexDesktopProxyEnvScopedAndNoBaseURLOverrides(t *testing.T) {
 		if strings.HasPrefix(kv, "OPENAI_BASE_URL=") {
 			t.Fatalf("proxy mode must not leak base-url override: %v", got)
 		}
+		if strings.HasPrefix(kv, "CODEX_THREAD_ID=") || strings.HasPrefix(kv, "CODEX_CI=") {
+			t.Fatalf("desktop launch must not inherit Codex session env: %v", got)
+		}
 	}
 	for kv, seen := range wantPresent {
 		if !seen {
 			t.Errorf("missing env entry %q in %v", kv, got)
 		}
+	}
+}
+
+func TestSanitizeCodexDesktopBaseEnvDropsInheritedSessionState(t *testing.T) {
+	got := sanitizeCodexDesktopBaseEnv([]string{
+		"PATH=/usr/bin",
+		"CODEX_THREAD_ID=old-thread",
+		"CODEX_HOME=/tmp/codex-home",
+		"CODEX_MANAGED_BY_NPM=1",
+		"UNRELATED=keep",
+		"NOEQUAL",
+	})
+	joined := strings.Join(got, "\n")
+	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_HOME=", "CODEX_MANAGED_BY_NPM="} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("sanitized env still contains %s in %v", forbidden, got)
+		}
+	}
+	for _, want := range []string{"PATH=/usr/bin", "UNRELATED=keep", "NOEQUAL"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("sanitized env missing %s in %v", want, got)
+		}
+	}
+}
+
+func TestCodexDesktopDirectOpenEnvSetsLaunchPWDAndDropsThreadState(t *testing.T) {
+	got := codexDesktopDirectOpenEnv([]string{
+		"PATH=/usr/bin",
+		"PWD=/Users/christopher/CODE/ClankWork-main",
+		"OLDPWD=/tmp",
+		"CODEX_THREAD_ID=old-thread",
+		"CODEX_CI=1",
+		"HOME=/Users/christopher",
+	}, "/Users/christopher/CODE/Slimference")
+	joined := strings.Join(got, "\n")
+	for _, forbidden := range []string{"CODEX_THREAD_ID=", "CODEX_CI=", "OLDPWD=", "PWD=/Users/christopher/CODE/ClankWork-main"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("direct open env leaked %s in %v", forbidden, got)
+		}
+	}
+	if !strings.Contains(joined, "PWD=/Users/christopher/CODE/Slimference") {
+		t.Fatalf("direct open env did not pin launch PWD: %v", got)
+	}
+	if !strings.Contains(joined, "PATH=/usr/bin") || !strings.Contains(joined, "HOME=/Users/christopher") {
+		t.Fatalf("direct open env lost ordinary environment: %v", got)
 	}
 }
 
