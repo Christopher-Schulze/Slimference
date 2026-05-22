@@ -196,6 +196,25 @@ through it.
   either neutralize the responsible flag in the shim's thread/start `config` or
   teach the Phase-F parser the variant. TUI Launch Codex App stays blocked until
   a green `desktop_app_server_phasef_proven` (bytes+frames+mutation) exists.
+- 2026-05-22 Phase-F flag investigation (NOT committed; measurement wall).
+  Direct app-server drives isolated `features.enable_request_compression`: a clean
+  control vs flag pair gave Phase-F `phasef_requests` delta +1 (no flag) vs 0
+  (flag on). So Codex's own request compression is at least one Phase-F breaker.
+  A shim variant that also forces `features.enable_request_compression=false` in
+  thread/start was implemented and unit-tested, but the live proof was
+  inconclusive and showed a regression signal: from a fresh daemon the routed
+  conversation held 6 loopback sockets to `:8990` yet `c2s_frames=0`/`bytes_c2s=0`
+  (vs `c2s_frames=14` before the flag change), suggesting disabling compression may
+  push the app-server onto an HTTP path instead of WSS. The variant was reverted;
+  only the proven routing fix (`9dcf8f4`) is committed.
+  Root blocker for finishing: the `desktop status` WSS counters are sampled and
+  lag/cache/rate-sensitive; repeated rapid drives made even the control flip
+  +1 -> 0, so flag bisection by counter is unreliable. The next session needs a
+  reliable ground-truth signal before changing behavior: a `sudo tcpdump -i lo0 -A
+  'tcp port 8990'` capture of a single Desktop turn (control vs Electron config),
+  diff the WSS upgrade + request frames, identify the exact flag(s)/frame-format
+  that defeat Phase-F, then fix with confidence and verify by socket+frame, not by
+  the laggy status counters.
 
 Source inspection facts:
 

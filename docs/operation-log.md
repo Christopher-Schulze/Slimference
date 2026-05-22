@@ -2095,3 +2095,30 @@ Remaining (savings not yet active):
   responsible flag in the shim's thread/start `config` or teach the Phase-F
   parser the variant. TUI Launch Codex App stays blocked until a green
   `desktop_app_server_phasef_proven` (bytes + frames + mutation) result exists.
+
+---
+
+## 2026-05-22 — T246 Phase-F flag investigation (reverted; hit a measurement wall)
+
+- Direct app-server drives isolated `features.enable_request_compression`: a clean
+  control-vs-flag pair gave Phase-F delta `phasef_requests` +1 (no flag) vs 0
+  (flag on). Codex's own request compression is at least one Phase-F breaker.
+- Implemented + unit-tested a shim variant that also forces
+  `features.enable_request_compression=false` in `thread/start`. Live proof from a
+  fresh daemon was inconclusive and showed a regression signal: routed conversation
+  held 6 loopback sockets to `:8990` but `c2s_frames=0`/`bytes_c2s=0` (vs 14 before),
+  hinting that disabling compression may move the app-server onto an HTTP path
+  instead of WSS. Reverted the variant; only the proven routing fix `9dcf8f4` is
+  committed.
+- Measurement wall: the `desktop status` WSS counters are sampled and
+  lag/cache/rate-sensitive. After repeated rapid drives even the control flipped
+  +1 -> 0, so counter-based flag bisection is unreliable. Do NOT change behavior on
+  counter evidence.
+- Reliable path for the next session: `sudo tcpdump -i lo0 -A 'tcp port 8990'`
+  during one Desktop turn (control vs full Electron config), diff the WSS upgrade
+  and request frames, identify the exact flag(s)/frame-format that defeat Phase-F,
+  fix with confidence, and verify by socket + frame evidence.
+
+State: routing SOLVED + committed (`9dcf8f4`); Desktop savings (Phase-F) still
+pending a frame-grounded fix. Codex CLI remains the green savings path; normal
+Desktop stays direct/no-drawback; TUI Launch Codex App stays blocked.
