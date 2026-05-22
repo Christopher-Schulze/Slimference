@@ -69,12 +69,16 @@ payload is shorter and schema-safe.
   ChatGPT.app direct.
 - **Codex Desktop**: the app remains direct when launched normally from
   Finder/Spotlight. The preferred process-local proof path is
-  `slimference codex launch-desktop --transport=app-server`, which sets only
-  `CODEX_CLI_PATH` plus Slimference shim metadata on the spawned app process.
-  Codex.app starts Slimference as its app-server, and the hidden shim execs the
-  real Codex app-server with process-local provider overrides pointing at
-  `http://127.0.0.1:8990/backend-api/codex`. This avoids the old proxy/CA/TLS
-  root-store barrier. Desktop savings must not be claimed until a live
+  `slimference codex launch-desktop --transport=app-server --replace-existing`,
+  which sets only `CODEX_CLI_PATH` plus Slimference shim metadata on the spawned
+  app process. Codex.app starts Slimference as its app-server, and the hidden
+  shim execs the real Codex app-server with process-local provider overrides
+  pointing at `http://127.0.0.1:8990/backend-api/codex`. This avoids the old
+  proxy/CA/TLS root-store barrier. Proof and TUI launches pass
+  `--replace-existing` so an
+  already running Codex.app is quit and verified gone before the scoped
+  Slimference instance starts; raw CLI launch keeps a conservative refusal
+  unless the same flag is explicit. Desktop savings must not be claimed until a live
   prompt-driven proof shows Desktop-specific WSS bytes, zero
   parser/degrade/compression errors, and real mutation counters.
 - **Global transparent lab**: `cert-trust`, `root-arm

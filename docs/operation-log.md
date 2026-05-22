@@ -1865,3 +1865,61 @@ Pre-live install verification:
   `CLI_AUTO_WSS_OK`. The tiny prompt used WSS cleanly but did not trigger
   Phase-F mutation, so daemon `.wss` showed byte-equal traffic only for this
   smoke; the persisted CLI WSS cert remains green.
+
+---
+
+## 2026-05-22 — T246 Desktop Replace-Existing Launch Hardening
+
+Driver: user observed that an already running Codex.app can be reused by macOS,
+which prevents the scoped Slimference env from reaching the process tree. The
+daily TUI `Launch Codex App` action must therefore close stale Codex.app
+instances automatically before starting Slimference mode.
+
+Implemented:
+- Added explicit `slimference codex launch-desktop --replace-existing`.
+- Without `--replace-existing`, raw `codex launch-desktop` still refuses when a
+  Codex.app main process is already running.
+- With `--replace-existing`, the launcher:
+  1. probes the exact Codex.app main binary PID(s),
+  2. sends the existing cleanup path to each PID,
+  3. re-probes that the main process is gone,
+  4. aborts if any main PID remains,
+  5. only then spawns the scoped Slimference Codex.app instance.
+- `slimference codex desktop prove` now uses `--replace-existing`.
+- TUI `Launch Codex App` now uses `--replace-existing`.
+- `codex desktop status --json` now reports
+  `launch_command="slimference codex launch-desktop --transport=app-server
+  --replace-existing"`.
+
+Verification:
+- Focused tests:
+  `go test ./cmd/slimference ./internal/tui -run
+  'LaunchDesktop|LaunchCodexApp|DesktopProve|CodexDesktop|LaunchCenter'
+  -count=1` green.
+- Full tests: `go test ./... -count=1 -timeout 300s` green.
+- Vet: `go vet ./...` green.
+- CI: `go run ./scripts/ci` green, 8/8 gates, aggregate coverage 99.0%.
+- Built and installed binary to both `./slimference` and
+  `~/.local/bin/slimference`; SHA:
+  `68fe05ccf8096649974b4a0e76ea64f8f2671f2a286a5d61e87205fe74f60942`.
+- Restarted daemon from installed binary; PID `24204`, health endpoint OK.
+- `slimference codex status --json` stayed green:
+  `auto.mode=wss_phasef`, `transport=wss`, `wss_certified=true`,
+  `needs_recert=false`, Codex `0.133.0`, Slimference `2.0.2`.
+- `slimference codex desktop status --json` showed
+  `launch_command` with `--replace-existing`.
+- `slimference codex launch-desktop --transport=app-server
+  --replace-existing --probe` emitted only app-server shim env; no proxy/CA env.
+- Autonomous real Desktop launch/cleanup smoke:
+  `slimference codex desktop prove --duration=2s --json` launched
+  Codex.app PID `24230` with scoped env and cleaned it up. It returned the
+  expected non-green `desktop_no_wss_delta` because no user prompt was sent in
+  the app during the two-second window. This is not a Desktop savings claim.
+
+Current Desktop state:
+- Preferred Desktop path is still implemented infrastructure, not a green
+  savings proof.
+- The next live proof must run manual mode, send a real prompt in the launched
+  Codex.app window, then finish with
+  `slimference codex desktop prove --finish --json`.
+- Normal Finder/Spotlight Codex.app remains direct.

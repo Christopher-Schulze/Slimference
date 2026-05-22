@@ -1014,7 +1014,7 @@ func TestCodexDesktopStatusJSONReadyForLiveProbe(t *testing.T) {
 	if got.Mode != "ready_for_live_desktop_probe" || got.FailureClass != "" || !got.LiveProofRequired {
 		t.Fatalf("status=%+v", got)
 	}
-	if got.LaunchCommand != "slimference codex launch-desktop --transport=app-server" {
+	if got.LaunchCommand != "slimference codex launch-desktop --transport=app-server --replace-existing" {
 		t.Fatalf("launch command=%q", got.LaunchCommand)
 	}
 	if !got.CATrust.Trusted || !got.DaemonReachable {
@@ -1083,7 +1083,7 @@ func TestCodexDesktopStatusAllowsUntrustedKeychainWithCAEnvAndReportsWSSErrors(t
 	if untrusted.FailureClass != "" ||
 		untrusted.Mode != "ready_for_live_desktop_probe" ||
 		untrusted.ProxyURL != "http://127.0.0.2:19090" ||
-		untrusted.LaunchCommand != "slimference codex launch-desktop --transport=app-server" {
+		untrusted.LaunchCommand != "slimference codex launch-desktop --transport=app-server --replace-existing" {
 		t.Fatalf("untrusted status=%+v", untrusted)
 	}
 	if !strings.Contains(strings.Join(untrusted.Notes, "\n"), "Keychain trust is not required") {
@@ -1557,6 +1557,19 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 		DesktopProven:  true,
 		DesktopSavings: true,
 	})
+	runningProbeCalls := 0
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		runningProbeCalls++
+		if runningProbeCalls == 1 {
+			return []int{44}, nil
+		}
+		return nil, nil
+	}
+	var cleaned []int
+	codexDesktopCleanupFn = func(pid int) error {
+		cleaned = append(cleaned, pid)
+		return nil
+	}
 	msg, err := (&serviceControlAdapter{}).LaunchCodexApp()
 	if err != nil {
 		t.Fatalf("LaunchCodexApp success: %v", err)
@@ -1564,7 +1577,11 @@ func TestServiceControlAdapterLaunchCodexAppSuccessAndErrors(t *testing.T) {
 	if !strings.Contains(msg, "Codex.app launched") {
 		t.Fatalf("msg=%q", msg)
 	}
+	if fmt.Sprint(cleaned) != "[44]" {
+		t.Fatalf("LaunchCodexApp must replace running Codex.app before scoped launch, cleaned=%v", cleaned)
+	}
 
+	codexDesktopRunningFn = func(string) ([]int, error) { return nil, nil }
 	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
 		fmt.Fprint(p.Err, "spawn denied")
 		return 1

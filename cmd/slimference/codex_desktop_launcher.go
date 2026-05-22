@@ -157,6 +157,7 @@ type codexLaunchDesktopFlags struct {
 	appPath                string
 	extra                  []string
 	probe                  bool
+	replaceExisting        bool
 	withCAEnv              bool
 	insecureSkipTrustCheck bool
 	help                   bool
@@ -256,11 +257,37 @@ func runCodexLaunchDesktopCmd(args []string, p installPrinter) int {
 		return 1
 	}
 	if len(runningPIDs) > 0 {
-		fmt.Fprintf(p.Err, "codex launch-desktop: Codex.app is already running (PID %s); quit it first so scoped Slimference env can be injected.\n", joinDesktopPIDs(runningPIDs))
-		return 1
+		if !flags.replaceExisting {
+			fmt.Fprintf(p.Err, "codex launch-desktop: Codex.app is already running (PID %s); quit it first so scoped Slimference env can be injected, or pass --replace-existing.\n", joinDesktopPIDs(runningPIDs))
+			return 1
+		}
+		replaced := append([]int(nil), runningPIDs...)
+		if err := replaceCodexDesktopInstances(replaced); err != nil {
+			fmt.Fprintf(p.Err, "codex launch-desktop: replace existing Codex.app: %v\n", err)
+			return 1
+		}
+		runningPIDs, err = codexDesktopRunningFn(binary)
+		if err != nil {
+			fmt.Fprintf(p.Err, "codex launch-desktop: post-replace running-app probe failed: %v\n", err)
+			return 1
+		}
+		if len(runningPIDs) > 0 {
+			fmt.Fprintf(p.Err, "codex launch-desktop: Codex.app still running after replace (PID %s); aborting scoped launch.\n", joinDesktopPIDs(runningPIDs))
+			return 1
+		}
+		fmt.Fprintf(p.Out, "Closed existing Codex.app instance(s): PID %s\n", joinDesktopPIDs(replaced))
 	}
 
 	return codexDesktopStartFn(p, binary, launchArgs, env)
+}
+
+func replaceCodexDesktopInstances(pids []int) error {
+	for _, pid := range pids {
+		if err := codexDesktopCleanupFn(pid); err != nil {
+			return fmt.Errorf("PID %d: %w", pid, err)
+		}
+	}
+	return nil
 }
 
 func codexDesktopLaunchArgs(transport, proxyURL string) []string {
@@ -731,6 +758,8 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 			f.help = true
 		case a == "--probe":
 			f.probe = true
+		case a == "--replace-existing":
+			f.replaceExisting = true
 		case a == "--with-ca-env":
 			f.withCAEnv = true
 		case a == "--insecure-skip-cert-trust-check":
@@ -764,7 +793,7 @@ func parseCodexLaunchDesktopFlags(args []string) (codexLaunchDesktopFlags, error
 	return f, nil
 }
 
-const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--transport=app-server|proxy|base-url] [--probe] [--with-ca-env] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
+const codexLaunchDesktopHelpText = `usage: slimference codex launch-desktop [--transport=app-server|proxy|base-url] [--probe] [--replace-existing] [--with-ca-env] [--host=127.0.0.1] [--port=8990] [--app=<path>] [--env KEY=VAL...]
 
 Spawns Codex.app's main binary with a scoped env. Default transport=app-server
 sets CODEX_CLI_PATH only on the launched app process. Codex Desktop then starts
@@ -776,6 +805,8 @@ Finder/Spotlight remain on direct routing.
 Flags:
   --transport=<mode>  app-server (default), proxy diagnostic, or base-url diagnostic
   --probe             emit scoped env and CA state as JSON without spawning
+  --replace-existing  quit an already running Codex.app before spawning the
+                      scoped Slimference instance
   --with-ca-env       proxy-mode Desktop probe: inject CODEX_CA_CERTIFICATE
                       first, then SSL_CERT_FILE, CURL_CA_BUNDLE,
                       REQUESTS_CA_BUNDLE, NODE_EXTRA_CA_CERTS

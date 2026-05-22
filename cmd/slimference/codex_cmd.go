@@ -496,7 +496,7 @@ func runCodexDesktopProveCmd(args []string, p installPrinter) int {
 	}
 
 	var launchOut, launchErr strings.Builder
-	rc := runCodexLaunchDesktopCmd([]string{"--transport=app-server", "--host=" + flags.host, "--port=" + flags.port}, installPrinter{Out: &launchOut, Err: &launchErr})
+	rc := runCodexLaunchDesktopCmd([]string{"--transport=app-server", "--replace-existing", "--host=" + flags.host, "--port=" + flags.port}, installPrinter{Out: &launchOut, Err: &launchErr})
 	out := codexDesktopProofOutput{
 		Duration:          flags.duration.String(),
 		Transport:         codexDesktopTransportAppServer,
@@ -998,7 +998,7 @@ func buildCodexDesktopStatus(flags codexDesktopStatusFlags) codexDesktopStatusOu
 		CATrust:           codexDesktopCATrustFn(),
 		WSSCountersScope:  "daemon_cumulative_not_desktop_proof",
 		LiveProofRequired: true,
-		LaunchCommand:     "slimference codex launch-desktop --transport=app-server",
+		LaunchCommand:     "slimference codex launch-desktop --transport=app-server --replace-existing",
 	}
 	if last, err := readCodexDesktopProofResult(codexDesktopResultFn()); err == nil {
 		out.LastProof = last

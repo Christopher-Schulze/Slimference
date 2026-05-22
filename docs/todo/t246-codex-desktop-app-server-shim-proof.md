@@ -76,6 +76,11 @@ and closer-to-native Codex behavior.
   `desktop_app_server_wss_bridge`, not as Desktop savings.
 - If no Desktop-specific bytes flow, classify as a proof failure and keep TUI
   Launch Codex App blocked.
+- `slimference codex desktop prove` and TUI Launch Codex App close an already
+  running Codex.app main process before scoped launch, then re-probe that it is
+  gone. This avoids macOS reusing a stale direct app instance that never
+  inherited the Slimference shim env. Raw `codex launch-desktop` only does this
+  when `--replace-existing` is explicit.
 - Normal Finder/Spotlight Codex.app launch remains direct and must not inherit
   the shim env.
 - Browser ChatGPT, ChatGPT.app, Claude Code, global hosts, pfctl, system proxy,
@@ -100,6 +105,8 @@ and closer-to-native Codex behavior.
 - [x] Retarget `codex desktop prove` to launch `--transport=app-server`.
 - [x] Retarget TUI Launch Codex App to require
   `desktop_app_server_proven`.
+- [x] Add explicit `--replace-existing` launcher mode and wire it into Desktop
+  proof plus TUI Launch Codex App so stale Codex.app instances cannot be reused.
 - [x] Update tests for shim argv, env scrubbing, launcher probe, status gating,
   proof modes, and TUI action routing.
 - [ ] Build and install the new Slimference binary atomically.

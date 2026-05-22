@@ -250,14 +250,16 @@ that this TUI should report without making a false savings claim:
 - `slimference codex desktop status --json` for daemon, WSS counters, legacy
   proxy diagnostics, and Desktop live-proof state.
 - `slimference codex desktop prove --manual --json` for the prompt-driven
-  Desktop proof start: it launches, observes startup WSS delta, classifies the
-  result, and keeps the app open when ready for a user prompt.
+  Desktop proof start: it quits any already-running Codex.app via
+  `--replace-existing`, launches the scoped instance, observes startup WSS
+  delta, classifies the result, and keeps the app open when ready for a user
+  prompt.
 - `slimference codex desktop prove --finish --json` for the actual Desktop
   savings gate after the user sends a prompt in the launched app.
-- `slimference codex launch-desktop --transport=app-server` for the preferred
-  Desktop proof branch that injects `CODEX_CLI_PATH` only into the spawned
-  Codex.app process and lets the hidden shim exec the real Codex app-server with
-  local provider overrides.
+- `slimference codex launch-desktop --transport=app-server --replace-existing`
+  for the preferred Desktop proof branch that closes stale Codex.app instances,
+  injects `CODEX_CLI_PATH` only into the spawned Codex.app process, and lets the
+  hidden shim exec the real Codex app-server with local provider overrides.
 - `slimference codex launch-desktop --transport=proxy --with-ca-env` for the
   legacy Desktop proxy diagnostic branch.
 - `slimference codex launch-desktop --transport=base-url --probe` for

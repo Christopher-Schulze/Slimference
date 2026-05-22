@@ -25,7 +25,7 @@ func TestParseCodexLaunchDesktopFlagsDefaults(t *testing.T) {
 	if f.transport != codexDesktopTransportAppServer {
 		t.Fatalf("default transport=%q want app-server", f.transport)
 	}
-	if f.probe || f.help || f.appPath != "" || f.insecureSkipTrustCheck || len(f.extra) != 0 {
+	if f.probe || f.help || f.replaceExisting || f.appPath != "" || f.insecureSkipTrustCheck || len(f.extra) != 0 {
 		t.Fatalf("unexpected non-zero: %+v", f)
 	}
 }
@@ -37,6 +37,7 @@ func TestParseCodexLaunchDesktopFlagsAll(t *testing.T) {
 		"--port=9000",
 		"--transport=proxy",
 		"--app=/opt/Codex.app",
+		"--replace-existing",
 		"--with-ca-env",
 		"--env=FOO=bar",
 		"--env=BAZ=qux",
@@ -46,7 +47,7 @@ func TestParseCodexLaunchDesktopFlagsAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if !f.probe || !f.withCAEnv || !f.insecureSkipTrustCheck || f.host != "10.0.0.5" || f.port != "9000" || f.transport != codexDesktopTransportProxy || f.appPath != "/opt/Codex.app" {
+	if !f.probe || !f.replaceExisting || !f.withCAEnv || !f.insecureSkipTrustCheck || f.host != "10.0.0.5" || f.port != "9000" || f.transport != codexDesktopTransportProxy || f.appPath != "/opt/Codex.app" {
 		t.Fatalf("flags=%+v", f)
 	}
 	if len(f.extra) != 2 || f.extra[0] != "FOO=bar" || f.extra[1] != "BAZ=qux" {
@@ -793,6 +794,123 @@ func TestRunCodexLaunchDesktopRefusesExistingMainInstance(t *testing.T) {
 	}
 	if !strings.Contains(errBuf.String(), "already running") || !strings.Contains(errBuf.String(), "101,202") {
 		t.Fatalf("stderr missing running-process detail: %q", errBuf.String())
+	}
+}
+
+func TestRunCodexLaunchDesktopReplaceExistingQuitsThenSpawns(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevStart := codexDesktopStartFn
+	prevCA := codexDesktopCATrustFn
+	prevRunning := codexDesktopRunningFn
+	prevCleanup := codexDesktopCleanupFn
+	t.Cleanup(func() {
+		codexDesktopStartFn = prevStart
+		codexDesktopCATrustFn = prevCA
+		codexDesktopRunningFn = prevRunning
+		codexDesktopCleanupFn = prevCleanup
+	})
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
+	}
+	probeCalls := 0
+	codexDesktopRunningFn = func(binary string) ([]int, error) {
+		if binary != bin {
+			t.Fatalf("running probe binary=%q want %q", binary, bin)
+		}
+		probeCalls++
+		if probeCalls == 1 {
+			return []int{101, 202}, nil
+		}
+		return nil, nil
+	}
+	var cleaned []int
+	codexDesktopCleanupFn = func(pid int) error {
+		cleaned = append(cleaned, pid)
+		return nil
+	}
+	startCalled := false
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		startCalled = true
+		fmt.Fprintln(p.Out, "spawned")
+		return 0
+	}
+
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--transport=proxy", "--replace-existing", "--app=" + app, "--with-ca-env"},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 0 {
+		t.Fatalf("rc=%d stderr=%q", rc, errBuf.String())
+	}
+	if !startCalled {
+		t.Fatal("launcher must spawn after replacing old Codex.app")
+	}
+	if fmt.Sprint(cleaned) != "[101 202]" {
+		t.Fatalf("cleaned=%v want [101 202]", cleaned)
+	}
+	text := out.String()
+	if !strings.Contains(text, "Closed existing Codex.app instance(s): PID 101,202") || !strings.Contains(text, "spawned") {
+		t.Fatalf("stdout=%q", text)
+	}
+}
+
+func TestRunCodexLaunchDesktopReplaceExistingAbortsWhenStillRunning(t *testing.T) {
+	dir := t.TempDir()
+	app := filepath.Join(dir, "Codex.app")
+	bin := filepath.Join(app, defaultCodexDesktopExecRelPath)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	prevStart := codexDesktopStartFn
+	prevCA := codexDesktopCATrustFn
+	prevRunning := codexDesktopRunningFn
+	prevCleanup := codexDesktopCleanupFn
+	t.Cleanup(func() {
+		codexDesktopStartFn = prevStart
+		codexDesktopCATrustFn = prevCA
+		codexDesktopRunningFn = prevRunning
+		codexDesktopCleanupFn = prevCleanup
+	})
+	codexDesktopCATrustFn = func() codexDesktopCAState {
+		return codexDesktopCAState{Path: "/tmp/root.crt", Exists: true, Trusted: true}
+	}
+	codexDesktopRunningFn = func(string) ([]int, error) {
+		return []int{303}, nil
+	}
+	codexDesktopCleanupFn = func(int) error { return nil }
+	startCalled := false
+	codexDesktopStartFn = func(p installPrinter, binary string, args []string, env []string) int {
+		startCalled = true
+		return 0
+	}
+
+	var out, errBuf bytes.Buffer
+	rc := runCodexLaunchDesktopCmd(
+		[]string{"--transport=proxy", "--replace-existing", "--app=" + app, "--with-ca-env"},
+		installPrinter{Out: &out, Err: &errBuf},
+	)
+	if rc != 1 {
+		t.Fatalf("rc=%d want 1", rc)
+	}
+	if startCalled {
+		t.Fatal("launcher must not spawn while Codex.app is still running")
+	}
+	if !strings.Contains(errBuf.String(), "still running after replace") || !strings.Contains(errBuf.String(), "303") {
+		t.Fatalf("stderr=%q", errBuf.String())
 	}
 }
 
