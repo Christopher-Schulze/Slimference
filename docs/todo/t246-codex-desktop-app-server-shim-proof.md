@@ -1,6 +1,6 @@
 # TASK 246: Codex Desktop app-server shim proof
 
-Status: SOLVED - Desktop conversation routes on the same `websocket_phasef` path as the CLI (decisions-log proven, identical frames); savings follow on real conversations. Direct savings-magnitude readout is blocked only by laggy live counters, not by engineering.
+Status: SOLVED - Desktop conversation routes on the same `websocket_phasef` path as the CLI (decisions-log + reliable `phasef_bridged` counter proven, identical frames); savings follow on real conversations. The TUI gate now reads the lag-free `phasef_bridged` counter, so Launch Codex App unblocks once a Desktop conversation reaches the Phase-F route.
 Priority: P0 before any Desktop savings claim or T240 release certification
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
@@ -234,6 +234,22 @@ through it.
   `desktop_app_server_phasef_proven` reads the laggy WSS delta counters; flip it
   reliably from the decisions-log `route_mode=websocket_phasef` evidence (or a
   quiet-daemon compressible-turn proof), not the sampled counters.
+- 2026-05-22 GATE FIX (commit `af972df`). Added a lag-free, monotonic dispatcher
+  counter `phasef_bridged` that increments once per Phase-F WSS conversation at
+  FrameBridge entry (upgrade time) - independent of byte/frame accumulation and
+  snapshot timing. Plumbed through `DispatcherTelemetry` -> `control.WSSState` ->
+  `codex desktop status`. `classifyCodexDesktopProof` now treats `phasef_bridged>0`
+  with zero parser/degrade/compression errors as the reliable verdict:
+  `desktop_app_server_phasef_proven` when mutation also fired, else
+  `desktop_app_server_route_proven` (launch-eligible; per-turn savings scale with
+  conversation size). `applyCodexDesktopLastProof` maps `route_proven` to the
+  launchable `desktop_app_server_proven` status; `codexDesktopTLSRejected` is now
+  guarded by `phasef_bridged==0` so a real Phase-F session is never misread as a
+  TLS rejection. Live-verified: fresh daemon `phasef_bridged=0`, one Desktop
+  app-server conversation -> `phasef_bridged=1`. Tests cover route-proven,
+  phasef-via-counter, errored-phasef, and the launchable status mapping. Net: the
+  TUI Launch Codex App gate is reliably satisfiable; engineering for T246 is
+  complete.
 
 Source inspection facts:
 

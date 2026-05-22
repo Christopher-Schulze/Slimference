@@ -2154,3 +2154,32 @@ Corrected conclusion:
   WSS delta counters. To flip it reliably, gate on the decisions-log
   `route_mode=websocket_phasef` evidence (or a quiet-daemon compressible-turn
   proof), not the sampled counters. Engineering is done; this is gate plumbing.
+
+---
+
+## 2026-05-22 — T246 GATE FIX: reliable phasef_bridged counter (commit `af972df`)
+
+Closed the only open item above. Instead of the laggy WSS delta counters, the gate
+now reads a lag-free monotonic signal.
+
+- Added `phasef_bridged` to the WSS dispatcher counters. It increments once per
+  Phase-F WSS conversation at `FrameBridge` entry (upgrade time), so it does not
+  depend on byte/frame accumulation or snapshot timing. Plumbed through
+  `DispatcherTelemetry` -> `control.WSSState` -> `codex desktop status`.
+- `classifyCodexDesktopProof`: `phasef_bridged>0` with zero
+  parser/degrade/compression errors is the reliable verdict -
+  `desktop_app_server_phasef_proven` if mutation also fired, otherwise
+  `desktop_app_server_route_proven` (launch-eligible; per-turn savings scale with
+  conversation size, like the CLI). `applyCodexDesktopLastProof` maps
+  `route_proven` to the launchable `desktop_app_server_proven` status.
+  `codexDesktopTLSRejected` is now guarded by `phasef_bridged==0` so a real
+  Phase-F session can never be misread as a TLS rejection.
+- Verified: `go test ./...` + `go vet ./...` clean, `go run ./scripts/ci` 8/8 PASS
+  (coverage gate green). Live: fresh daemon `phasef_bridged=0`; one Desktop
+  app-server conversation -> `phasef_bridged=1`.
+
+Result: TUI Launch Codex App is reliably unblockable once a Desktop conversation
+reaches the Phase-F route. T246 engineering is complete: routing fix (`9dcf8f4`) +
+reliable gate (`af972df`). Codex CLI and Codex Desktop both ride the same no-CA
+`websocket_phasef` savings route; Browser ChatGPT, ChatGPT.app, voice, computer-use,
+and Claude Code remain untouched; normal Finder/Spotlight Codex.app stays direct.

@@ -1414,11 +1414,16 @@ only and promotes the per-process Codex CLI runner for T209.
   `route_mode=websocket_phasef` — the same Phase-F savings route as the certified
   CLI, with byte-identical `permessage-deflate` frames. Earlier "zero-byte" / 
   `desktop_connect_only_no_app_server_bytes` readings were sampled-counter
-  artifacts plus trivial test prompts. Remaining: re-base the TUI
-  `desktop_app_server_phasef_proven` gate on the reliable decisions-log
-  `route_mode` signal (the sampled WSS delta counters lag and under-report).
-  Normal Finder/Spotlight Codex.app stays direct; voice/Browser/ChatGPT.app/
-  computer-use/Claude untouched.
+  artifacts plus trivial test prompts. Gate fix (`af972df`): added a lag-free
+  monotonic `phasef_bridged` dispatcher counter (increments once per Phase-F WSS
+  conversation at upgrade time); the proof now classifies `phasef_bridged>0` +
+  zero errors as `desktop_app_server_phasef_proven` (with mutation) or
+  `desktop_app_server_route_proven` (launch-eligible), and the latter maps to the
+  launchable `desktop_app_server_proven` status. Live-verified: `phasef_bridged`
+  0 -> 1 on one Desktop conversation. Engineering complete: routing + reliable
+  gate; TUI Launch Codex App is reliably unblockable. Normal Finder/Spotlight
+  Codex.app stays direct; voice/Browser/ChatGPT.app/computer-use/Claude untouched.
+  Open: confirm one real end-to-end TUI Desktop launch with the user.
   Detail: `docs/todo/t246-codex-desktop-app-server-shim-proof.md`
 
 ### Sequencing within Phase H
