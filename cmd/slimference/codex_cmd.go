@@ -1070,11 +1070,15 @@ func applyCodexDesktopLastProof(out *codexDesktopStatusOutput, last *codexDeskto
 		out.LiveProofRequired = false
 		out.Notes = append(out.Notes, "last Desktop app-server shim proof was green with Phase-F mutation")
 	case "desktop_app_server_route_proven":
-		out.Mode = "desktop_app_server_proven"
+		// Launch-eligible, but NOT a savings claim: the conversation reached the
+		// Phase-F route with zero errors, yet this proof saw no mutation. Kept as
+		// a distinct status so the TUI never sells "route ready" as "savings
+		// proven"; a green savings claim requires desktop_app_server_phasef_proven.
+		out.Mode = "desktop_app_server_route_ready"
 		out.FailureClass = ""
 		out.ConversationObserved = true
 		out.LiveProofRequired = false
-		out.Notes = append(out.Notes, "last Desktop app-server proof reached the Phase-F WSS savings route; per-turn savings scale with conversation size like the CLI")
+		out.Notes = append(out.Notes, "last Desktop app-server proof reached the Phase-F WSS route with zero errors; launch is allowed, but per-turn savings (mutation) were not proven in that proof and scale with conversation size like the CLI")
 	case "desktop_ready_for_prompt":
 		out.Mode = "desktop_proof_prompt_required"
 		out.FailureClass = "prompt_required"

@@ -981,6 +981,8 @@ func (m *Model) codexAppState() string {
 	switch {
 	case status.Mode == "desktop_app_server_proven":
 		return "WSS savings"
+	case status.Mode == "desktop_app_server_route_ready":
+		return "WSS route ready"
 	case status.Mode == "desktop_wss_bridge_only":
 		return "WSS bridge"
 	case status.Mode == "desktop_proof_prompt_required":
@@ -997,7 +999,10 @@ func (m *Model) codexAppState() string {
 func (m *Model) codexAppDescription() string {
 	status := m.codexDesktopStatus
 	if status.Mode == "desktop_app_server_proven" {
-		return "Open Codex.app through the proven Slimference app-server shim."
+		return "Open Codex.app through the Slimference app-server shim; Desktop Phase-F savings are proven."
+	}
+	if status.Mode == "desktop_app_server_route_ready" {
+		return "Open Codex.app through the Slimference app-server shim; the Desktop conversation reaches the Phase-F savings route (per-turn savings scale with conversation size; full mutation proof pending)."
 	}
 	if status.Mode == "desktop_wss_bridge_only" || status.Mode == "desktop_proof_prompt_required" {
 		return "Desktop app-server route is not savings-green yet; Launch Codex App blocks instead of opening direct."

@@ -1278,14 +1278,20 @@ func TestCodexDesktopProvePhaseFPassesAndBridgeStaysNonSavings(t *testing.T) {
 	}
 }
 
-func TestApplyCodexDesktopLastProofRouteProvenIsLaunchable(t *testing.T) {
+func TestApplyCodexDesktopLastProofRouteProvenIsLaunchableButDistinct(t *testing.T) {
 	out := &codexDesktopStatusOutput{}
 	applyCodexDesktopLastProof(out, &codexDesktopProofOutput{
 		Transport: codexDesktopTransportAppServer,
 		Mode:      "desktop_app_server_route_proven",
 	})
-	if out.Mode != "desktop_app_server_proven" || out.FailureClass != "" || !out.ConversationObserved {
-		t.Fatalf("route-proven last proof must be launchable: %+v", out)
+	// Launch-eligible (no failure, conversation observed) but NOT the savings-proven
+	// mode: route-ready must stay distinct from desktop_app_server_proven so the TUI
+	// never sells "route ready" as "savings proven".
+	if out.Mode != "desktop_app_server_route_ready" || out.FailureClass != "" || !out.ConversationObserved {
+		t.Fatalf("route-proven must map to launchable-but-distinct route_ready: %+v", out)
+	}
+	if out.Mode == "desktop_app_server_proven" {
+		t.Fatal("route-ready must not be conflated with savings-proven")
 	}
 }
 

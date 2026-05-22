@@ -3972,7 +3972,8 @@ func (sca *serviceControlAdapter) LaunchCodexApp() (string, error) {
 		return "", err
 	}
 	status := buildCodexDesktopStatus(codexDesktopStatusFlags{host: "127.0.0.1", port: "8990"})
-	if status.Mode != "desktop_app_server_proven" || !status.ConversationObserved || status.FailureClass != "" {
+	launchable := status.Mode == "desktop_app_server_proven" || status.Mode == "desktop_app_server_route_ready"
+	if !launchable || !status.ConversationObserved || status.FailureClass != "" {
 		reason := status.FailureClass
 		if reason == "" {
 			reason = status.Mode

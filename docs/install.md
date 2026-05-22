@@ -278,12 +278,11 @@ checkout or any global network setting.
 
 ### 3. Launch Codex Desktop through the app-server shim
 
-This is the current Desktop diagnostic candidate. It is scoped to one spawned
-Codex.app process tree and avoids the old TLS-MITM problem entirely. No
-Keychain trust, local CA, `HTTPS_PROXY`, Electron proxy argument, `/etc/hosts`,
-pfctl, or persistent Codex config mutation is required. It is not a Desktop
-savings path on current Codex.app builds because live proof reaches loopback but
-no application bytes.
+This is the Slimference Desktop route. It is scoped to one spawned Codex.app
+process tree and avoids the old TLS-MITM problem entirely. No Keychain trust,
+local CA, `HTTPS_PROXY`, Electron proxy argument, `/etc/hosts`, pfctl, or
+persistent Codex config mutation is required. It routes the Desktop conversation
+onto the same `websocket_phasef` savings route as the certified CLI.
 
 The launcher uses a supported Codex Desktop process boundary:
 
@@ -292,19 +291,19 @@ The launcher uses a supported Codex Desktop process boundary:
 2. Slimference sets `CODEX_CLI_PATH=<slimference binary>` only for the spawned
    Codex.app process.
 3. Codex.app starts `slimference app-server ...`.
-4. The hidden Slimference app-server shim immediately `exec`s the real Codex CLI
-   binary as `codex app-server`, adding process-local `-c` endpoint and
-   provider overrides:
-   `openai_base_url=http://127.0.0.1:8990/backend-api/codex`,
-   `chatgpt_base_url=http://127.0.0.1:8990/backend-api/`,
-   `model_provider=slimference-codex`,
+4. The hidden Slimference app-server shim runs the real Codex binary as
+   `codex app-server` with a process-local provider block
+   (`model_provider=slimference-codex`,
    `model_providers.slimference-codex.base_url=http://127.0.0.1:8990/backend-api/codex`,
-   `requires_openai_auth=true`, `supports_websockets=true`, and
-   `wire_api=responses`.
-5. This was the intended no-CA Desktop WSS route. Current live proof shows the
-   hook is not sufficient for Codex Desktop today: the app-server opens loopback
-   connections to Slimference, but no application bytes reach Phase-F
-   (`desktop_connect_only_no_app_server_bytes`).
+   `requires_openai_auth=true`, `supports_websockets=true`,
+   `wire_api=responses`), and mediates the stdin JSON-RPC.
+5. The single rewrite: Codex Desktop opens conversations with `thread/start`
+   `modelProvider: null`, which resolves to the chatgpt.com account default and
+   bypasses Slimference. The shim rewrites a default (null/absent) `modelProvider`
+   to `slimference-codex` (byte-identical otherwise; realtime/voice and explicit
+   providers passed through; fail-open). The Desktop conversation then reaches the
+   local Phase-F WSS route, recorded reliably by the `phasef_bridged` counter and
+   the decisions log as `route_mode=websocket_phasef`.
 
 Inspect the exact scoped environment without launching:
 
@@ -343,12 +342,26 @@ but not a Desktop savings claim. Zero bytes, no WSS delta after the prompt,
 launch failure, daemon failure, or unreviewed daemon-wide WSS activity are
 diagnostics only.
 
-Current product truth on Codex Desktop is negative: the latest app-server shim
-proof ends as `desktop_connect_only_no_app_server_bytes`, after both
-provider-block overrides and top-level `openai_base_url` / `chatgpt_base_url`
-overrides were tried. That means TUI Launch Codex App must stay blocked for
-Slimference mode and must show the exact proof reason. Launching Codex.app
-normally from Finder/Spotlight remains the no-drawback direct Desktop path.
+Current product truth on Codex Desktop (2026-05-22, corrected): the app-server
+shim ROUTES Desktop conversations onto the same `websocket_phasef` savings route
+as the certified CLI. Root cause was that Codex Desktop opens conversations with
+`thread/start` `modelProvider: null` (resolving to the chatgpt.com default); the
+hidden shim rewrites that single default field to `slimference-codex`. Verified:
+the Desktop app-server holds loopback sockets to `:8990` with zero direct
+`chatgpt.com`, and the daemon decisions log plus the lag-free `phasef_bridged`
+counter record the Desktop conversation on `route_mode=websocket_phasef`, with
+byte-identical `permessage-deflate` frames to the CLI. The earlier
+`desktop_connect_only_no_app_server_bytes` verdict was a sampled-counter artifact.
+
+Honest status of the savings claim: route reached and savings-CAPABLE; a
+persisted Desktop mutation proof (`frames_reencoded>0` and
+`compressed_messages_mutated>0`, i.e. `desktop_app_server_phasef_proven`) is the
+remaining certification step and needs a real Desktop conversation with
+compressible context. The TUI gate therefore has two launch-eligible states:
+`desktop_app_server_route_ready` (route proven, launch allowed, savings scale
+with conversation - NOT itself a savings claim) and `desktop_app_server_proven`
+(full mutation proven). Launching Codex.app normally from Finder/Spotlight remains
+the no-drawback direct Desktop path.
 
 If a normal Codex.app instance is already running, the proof command quits that
 main process, verifies it is gone, then launches the scoped Slimference instance.
