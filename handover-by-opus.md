@@ -1,15 +1,19 @@
 # Slimference - Handover by Opus (deep, current, verified)
 
-Stand: 2026-05-23. Branch `main`, working tree clean, last commit `5349a5a`.
+Stand: 2026-05-23. Frontier described here: T246/T247 after source-state commit
+`5349a5a` plus handover commit `214765e`. A later agent must still run
+`git status --short && git log -1 --oneline` first, because this file may itself
+receive correction commits after `214765e`.
 Author: Opus 4.7. This file was written after line-level re-reading of the code
 and docs it cites; the "Verification" section at the end states exactly what was
 checked. No sampling, no guessing: every claim here was confirmed against the repo
 on 2026-05-23 or is explicitly marked as an open question.
 
-This document exists because the running context had heavy drift. It is the single
-place a brand-new agent should read first to know everything: what the project is,
-who the user is and what they require, where we are, how it works, in which files,
-what is documented and where, what we have proven, and exactly where we are going.
+This document exists because the running context had heavy drift. It is the first
+project-specific file a brand-new agent should read for the T246/T247 frontier:
+what the project is, who the user is and what they require, where we are, how it
+works, in which files, what is documented and where, what we have proven, and
+exactly where we are going. It does not replace live verification.
 
 ---
 
@@ -18,8 +22,11 @@ what is documented and where, what we have proven, and exactly where we are goin
 1. Read this file fully.
 2. Read `AGENTS.md` (repo root) - it is binding. Pay special attention to §9
    (Verdrahtungs-Doktrin / Scoped Codex). The user's hard guardrails live there.
-3. Read `~/.claude/CLAUDE.md` is the user's global agent contract (character,
-   working contract, file-ops rules). It overrides defaults.
+3. If you are running as Claude/Opus, read `~/.claude/CLAUDE.md` as the user's
+   global Claude contract. If you are running as Codex, follow the Codex developer
+   instructions and repo `AGENTS.md`; do not assume Claude-only dotfiles are
+   binding for Codex. Never edit global agent files unless the user explicitly
+   asks.
 4. Skim `docs/todo.md` (the work list / TASK overview) and the two active TASK
    detail files: `docs/todo/t246-codex-desktop-app-server-shim-proof.md` and
    `docs/todo/t247-codex-wss-reducer-efficacy.md`.
@@ -65,9 +72,11 @@ rule); the user communicates in German in chat. No em-dashes in docs/code.
 
 ## 2. Who the user is + the binding contract + the doctrine
 
-The user (Christopher, dven23@pm.me) is the project owner. Working style and hard
-rules come from `~/.claude/CLAUDE.md` and `AGENTS.md`. The non-negotiables that
-matter most for this frontier:
+The user (Christopher, dven23@pm.me) is the project owner. For this repo, the
+binding cross-agent rules are in root `AGENTS.md`. Claude/Opus sessions also
+inherit `~/.claude/CLAUDE.md`; Codex sessions follow the active Codex developer
+instructions plus `AGENTS.md`. The non-negotiables that matter most for this
+frontier:
 
 Working contract (CLAUDE.md, abridged):
 - Zero-guess / read-before-act: never infer an API or behaviour; read the actual
@@ -135,9 +144,10 @@ Two halves of "done":
 
 ## 4. Current state (precise)
 
-- Branch `main`, working tree clean, last commit `5349a5a` (2026-05-23).
-- This session produced 19 commits across T246 (Desktop routing) and T247 (WSS
-  reducer efficacy). Key ones, newest first:
+- At initial handover write: branch `main`, working tree clean. Verify live state
+  with `git status --short && git log -1 --oneline` before doing anything.
+- The T246/T247 arc produced 19 source commits before this handover plus the
+  handover commit `214765e`. Key source commits, newest first:
   - `5349a5a` T247: add cert-reproduction step + prompt-cache note; T246 flake note
   - `b4d1e9e` T247: open reducer-efficacy task + Responses-API delta root cause
   - `b5213e8` T246: fix Codex WSS session-key extraction (prompt_cache_key/client_metadata)
@@ -552,7 +562,9 @@ savings must come from other layers; decide and document that for T240 release c
 
 ## 14. Verification status (honest, what was actually checked on 2026-05-23)
 
-- git: branch `main`, tree clean, last commit `5349a5a`. Confirmed.
+- git at initial handover write: branch `main`, tree clean after source commit
+  `5349a5a`; the handover file itself was committed as `214765e`. Reconfirm
+  live HEAD before work.
 - Current shim behaviour: re-read `rewriteCodexDesktopThreadStart` and the shim argv
   line-by-line - rewrites ONLY modelProvider (compression-config change was
   reverted), argv is provider-block-only. Confirmed.

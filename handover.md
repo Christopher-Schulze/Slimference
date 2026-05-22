@@ -1,5 +1,12 @@
 # Slimference — Handover / Agent-Briefing (vollständig)
 
+> **Current Codex frontier note (2026-05-23):** This older handover is still useful
+> for broad project context, but it predates the T246/T247 Codex Desktop/WSS work.
+> A new agent working on Codex Desktop, Codex WSS, Launch Center, route-ready vs
+> savings-proven semantics, or reducer efficacy must read
+> [`handover-by-opus.md`](handover-by-opus.md) first. Treat the Codex Desktop/WSS
+> statements below as historical unless confirmed by current docs/code.
+
 **Stand:** 2026-04-10 (Reality-Check gegen Repo, nicht nur ältere Texte).  
 **Erste Aktion für den nächsten Agenten:** Diese Datei **vollständig** lesen, dann `AGENTS.md` und `docs/todo.md` skimmen; normative Spec ist **`spec+.md`**, Arbeitsliste **`docs/todo.md`**.
 
