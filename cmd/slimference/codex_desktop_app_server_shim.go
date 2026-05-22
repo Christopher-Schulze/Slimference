@@ -59,6 +59,8 @@ func buildCodexDesktopAppServerShimExec(args []string, env []string) (string, []
 	argv := []string{
 		upstreamBin,
 		"app-server",
+		"-c", "openai_base_url=" + strconv.Quote(baseURL),
+		"-c", "chatgpt_base_url=" + strconv.Quote(codexDesktopAppServerChatGPTBaseURL(baseURL)),
 		"-c", "model_provider=" + strconv.Quote("slimference-codex"),
 		"-c", "model_providers.slimference-codex.name=" + strconv.Quote("Slimference"),
 		"-c", "model_providers.slimference-codex.base_url=" + strconv.Quote(baseURL),
@@ -92,6 +94,9 @@ func validateCodexDesktopAppServerBaseURL(raw string) error {
 	if u.Scheme != "http" {
 		return fmt.Errorf("%s must use local http, got %q", codexDesktopShimBaseURLEnv, u.Scheme)
 	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%s must not include query or fragment", codexDesktopShimBaseURLEnv)
+	}
 	if strings.TrimRight(u.Path, "/") != "/backend-api/codex" {
 		return fmt.Errorf("%s must point at /backend-api/codex, got %q", codexDesktopShimBaseURLEnv, u.Path)
 	}
@@ -104,6 +109,17 @@ func validateCodexDesktopAppServerBaseURL(raw string) error {
 		return fmt.Errorf("%s must point at loopback, got %q", codexDesktopShimBaseURLEnv, host)
 	}
 	return nil
+}
+
+func codexDesktopAppServerChatGPTBaseURL(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return baseURL
+	}
+	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/codex") + "/"
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 func sanitizeCodexDesktopAppServerShimEnv(env []string) []string {

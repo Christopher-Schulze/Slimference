@@ -1923,3 +1923,65 @@ Current Desktop state:
   Codex.app window, then finish with
   `slimference codex desktop prove --finish --json`.
 - Normal Finder/Spotlight Codex.app remains direct.
+
+---
+
+## 2026-05-22 — T246 Desktop Live Proof Negative + Top-Level Base-URL Probe
+
+Live proof after `e1633ef`:
+- Command: `slimference codex desktop prove --manual --duration=15s --json`.
+- Result: `desktop_ready_for_prompt`, launch PID `26943`.
+- Verified main-process env:
+  `CODEX_CLI_PATH=/Users/christopher/.local/bin/slimference`,
+  `SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1`,
+  `SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex`.
+- Verified spawned app-server argv contained provider overrides:
+  `model_provider="slimference-codex"` and
+  `model_providers.slimference-codex.base_url="http://127.0.0.1:8990/backend-api/codex"`.
+- A real Desktop prompt was sent via macOS UI scripting:
+  `Reply exactly DESKTOP_PROBE_OK`.
+- Screenshot evidence showed Codex.app answered `DESKTOP_PROBE_OK` and displayed
+  the `Slimference` provider badge.
+- Finish command: `slimference codex desktop prove --finish --json`.
+- Result:
+  `mode=desktop_connect_only_no_app_server_bytes`,
+  `failure_class=connect_only_no_app_server_bytes`,
+  `mitm_bridged=2`, `bytes_c2s=0`, `bytes_s2c=0`, `c2s_frames=0`,
+  `s2c_frames=0`, `compressed_messages_mutated=0`.
+- Socket evidence showed the Desktop app-server still had a direct
+  `chatgpt.com:443` connection while also opening local `127.0.0.1:8990`
+  connections. Verdict: provider-block overrides alone do not route current
+  Codex Desktop conversation WSS through Slimference.
+
+Follow-up probe:
+- Added process-local top-level app-server overrides in the hidden shim:
+  `openai_base_url="http://127.0.0.1:8990/backend-api/codex"` and
+  `chatgpt_base_url="http://127.0.0.1:8990/backend-api/"`, in addition to the
+  provider block.
+- Built and installed binary SHA:
+  `8f5b412edf35d558c19f22b49bf86eca5cc8303e19b76ebe64bf901a3e0816c3`.
+- Restarted daemon from installed binary; PID `33671`, health endpoint OK.
+- CLI guard remained green:
+  `auto.mode=wss_phasef`, `transport=wss`, `wss_certified=true`,
+  `needs_recert=false`, Codex `0.133.0`, Slimference `2.0.2`.
+- Cleaned stale Codex.app helper processes before the second proof to remove
+  socket noise.
+- Second command:
+  `slimference codex desktop prove --manual --duration=10s --json`.
+- Result:
+  `mode=desktop_connect_only_no_app_server_bytes`,
+  `failure_class=connect_only_no_app_server_bytes`,
+  `mitm_bridged=1`, `bytes_c2s=0`, `bytes_s2c=0`, no frames, no mutation.
+- Process evidence showed the app-server argv did include both
+  `openai_base_url` and `chatgpt_base_url`, and had one local
+  `127.0.0.1:8990` connection. Still no application bytes reached Phase-F.
+
+Verdict:
+- Current Codex Desktop does not provide a usable scoped Desktop conversation
+  WSS path through either provider-block overrides or top-level
+  `openai_base_url` / `chatgpt_base_url` overrides.
+- TUI `Launch Codex App` must remain proof-gated and blocked for savings.
+- Codex CLI remains the green savings path.
+- Normal Codex.app from Finder/Spotlight remains the correct no-drawback
+  Desktop path until upstream exposes a working Desktop conversation endpoint
+  hook or the app-server protocol changes.

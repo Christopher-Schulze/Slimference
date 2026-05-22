@@ -1405,7 +1405,7 @@ only and promotes the per-process Codex CLI runner for T209.
   candidate discovered from current Codex source and installed Codex.app ASAR:
   launch Codex.app with process-local `CODEX_CLI_PATH=<slimference>`, let the
   hidden `slimference app-server` shim exec the real `codex app-server` with
-  local provider overrides, and route Desktop conversation WSS through
+  local `openai_base_url` / `chatgpt_base_url` plus provider overrides, and route Desktop conversation WSS through
   Slimference without CA trust, HTTPS_PROXY, Electron proxy args, global hosts,
   system proxy, or config mutation. Non-Desktop smoke proof already shows
   `openai_base_url=http://127.0.0.1:8990/backend-api/codex` drives WSS bytes and

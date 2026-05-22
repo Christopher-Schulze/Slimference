@@ -33,8 +33,8 @@ Therefore the preferred Desktop route is now:
 2. Codex.app starts `slimference app-server ...` instead of the real Codex
    binary.
 3. The hidden Slimference shim validates the scoped env and immediately `exec`s
-   the real Codex binary as `codex app-server` with process-local provider
-   overrides.
+   the real Codex binary as `codex app-server` with process-local
+   `openai_base_url`, `chatgpt_base_url`, and provider overrides.
 4. Desktop conversation WSS should reach the existing scoped Slimference
    `/backend-api/codex` route without CA trust, HTTPS proxying, Electron proxy
    args, global hosts, system proxy, or `~/.codex/config.toml` mutation.
@@ -56,7 +56,8 @@ and closer-to-native Codex behavior.
   refuses invalid local base URLs.
 - The app-server shim removes `CODEX_CLI_PATH` and every
   `SLIMFERENCE_CODEX_DESKTOP_*` variable before execing the real Codex binary.
-- The real Codex argv is exactly `codex app-server` plus provider overrides for
+- The real Codex argv is exactly `codex app-server` plus process-local
+  `openai_base_url`, `chatgpt_base_url`, and provider overrides for
   `slimference-codex`, followed by the original incoming app-server args.
 - No preferred Desktop launch path sets `HTTP_PROXY`, `HTTPS_PROXY`, `WSS_PROXY`,
   `ALL_PROXY`, Electron `--proxy-server`, CA env vars, `/etc/hosts`, pfctl,
@@ -125,6 +126,21 @@ and closer-to-native Codex behavior.
   certification. If not green, keep TUI blocked and record exact failure class.
 
 ## Notes
+
+- 2026-05-22 live proof after `e1633ef`: provider-block-only shim launched
+  Codex.app, showed the Slimference provider badge, and answered
+  `DESKTOP_PROBE_OK`, but daemon WSS stayed at zero bytes/frames/mutations.
+  Evidence showed the app-server argv had `model_provider=slimference-codex`
+  and local provider `base_url`, while the app-server still held direct
+  `chatgpt.com:443` sockets. Verdict: provider-block overrides are not enough
+  for current Desktop conversation routing.
+- Same session follow-up added process-local top-level `openai_base_url` and
+  `chatgpt_base_url` to the shim, matching the CLI smoke mechanism. Live
+  Desktop launch then opened local connections to `127.0.0.1:8990`, but proof
+  classified `desktop_connect_only_no_app_server_bytes`: `mitm_bridged>0` with
+  `bytes_c2s=0`, `bytes_s2c=0`, no frames, no mutation. Verdict: current
+  Codex Desktop app-server still does not produce a usable local WSS Phase-F
+  path through the app-server shim.
 
 Source inspection facts:
 

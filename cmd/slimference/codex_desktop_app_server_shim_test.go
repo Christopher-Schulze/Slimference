@@ -30,6 +30,8 @@ func TestBuildCodexDesktopAppServerShimExec(t *testing.T) {
 	for _, want := range []string{
 		codexBin,
 		"app-server",
+		"openai_base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
+		"chatgpt_base_url=\"http://127.0.0.1:8990/backend-api/\"",
 		"model_provider=\"slimference-codex\"",
 		"model_providers.slimference-codex.base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
 		"model_providers.slimference-codex.requires_openai_auth=true",
@@ -78,6 +80,20 @@ func TestBuildCodexDesktopAppServerShimExecRejectsMissingScope(t *testing.T) {
 		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=https://chatgpt.com/backend-api/codex",
 	}); err == nil {
 		t.Fatal("expected non-local base-url rejection")
+	}
+	if _, _, _, err := buildCodexDesktopAppServerShimExec(nil, []string{
+		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
+		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=" + codexBin,
+		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex?x=1",
+	}); err == nil {
+		t.Fatal("expected query rejection")
+	}
+}
+
+func TestCodexDesktopAppServerChatGPTBaseURL(t *testing.T) {
+	got := codexDesktopAppServerChatGPTBaseURL("http://127.0.0.1:8990/backend-api/codex")
+	if got != "http://127.0.0.1:8990/backend-api/" {
+		t.Fatalf("chatgpt base=%q", got)
 	}
 }
 

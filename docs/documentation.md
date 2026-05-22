@@ -72,8 +72,9 @@ payload is shorter and schema-safe.
   `slimference codex launch-desktop --transport=app-server --replace-existing`,
   which sets only `CODEX_CLI_PATH` plus Slimference shim metadata on the spawned
   app process. Codex.app starts Slimference as its app-server, and the hidden
-  shim execs the real Codex app-server with process-local provider overrides
-  pointing at `http://127.0.0.1:8990/backend-api/codex`. This avoids the old
+  shim execs the real Codex app-server with process-local `openai_base_url`,
+  `chatgpt_base_url`, and provider overrides pointing at
+  `http://127.0.0.1:8990/backend-api/codex`. This avoids the old
   proxy/CA/TLS root-store barrier. Proof and TUI launches pass
   `--replace-existing` so an
   already running Codex.app is quit and verified gone before the scoped

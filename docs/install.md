@@ -290,7 +290,10 @@ The launcher uses a supported Codex Desktop process boundary:
    Codex.app process.
 3. Codex.app starts `slimference app-server ...`.
 4. The hidden Slimference app-server shim immediately `exec`s the real Codex CLI
-   binary as `codex app-server`, adding process-local `-c` provider overrides:
+   binary as `codex app-server`, adding process-local `-c` endpoint and
+   provider overrides:
+   `openai_base_url=http://127.0.0.1:8990/backend-api/codex`,
+   `chatgpt_base_url=http://127.0.0.1:8990/backend-api/`,
    `model_provider=slimference-codex`,
    `model_providers.slimference-codex.base_url=http://127.0.0.1:8990/backend-api/codex`,
    `requires_openai_auth=true`, `supports_websockets=true`, and
