@@ -2122,3 +2122,35 @@ Remaining (savings not yet active):
 State: routing SOLVED + committed (`9dcf8f4`); Desktop savings (Phase-F) still
 pending a frame-grounded fix. Codex CLI remains the green savings path; normal
 Desktop stays direct/no-drawback; TUI Launch Codex App stays blocked.
+
+---
+
+## 2026-05-22 — T246 CORRECTION: Desktop is already on the Phase-F route (counters lied)
+
+Ground truth resolved the confusion in the entry above; the "Phase-F gap" was a
+measurement artifact, not an engineering gap.
+
+- Frame capture (loopback tee proxy 8991 -> 8990, no sudo): the Codex app-server
+  WSS conversation frames use `permessage-deflate` (first client frame `0xc1`,
+  RSV1 set). The CLI `codex exec` green path uses the IDENTICAL frame format. So
+  `permessage-deflate` / `features.enable_request_compression` is NOT what defeats
+  Phase-F; the earlier dual-run counter result was noise.
+- Reliable flight log (`SLIMFERENCE_DEBUG_DECISIONS_LOG`): both the CLI and the
+  app-server (driven with the full Electron feature-flag `config`, including
+  `enable_request_compression=true`) recorded `route_mode=websocket_phasef` for
+  `/backend-api/codex/responses`. The Desktop conversation is on the same Phase-F
+  savings route as the certified CLI.
+- The earlier `byte_bridge_only` / `phasef_requests=0` / `c2s_frames=0` readings
+  were laggy global-counter artifacts plus trivial test prompts with nothing to
+  mutate (same caveat as the CLI smoke proof).
+
+Corrected conclusion:
+- Routing fix `9dcf8f4` is sufficient. Codex Desktop conversations route through
+  Slimference on `websocket_phasef`, identical to the CLI, so token savings
+  materialize on real (compressible) conversations exactly like the CLI.
+- The reverted compression rewrite was correctly dropped (unnecessary; its
+  regression signal was also counter noise).
+- Only open item: the TUI `desktop_app_server_phasef_proven` gate reads the laggy
+  WSS delta counters. To flip it reliably, gate on the decisions-log
+  `route_mode=websocket_phasef` evidence (or a quiet-daemon compressible-turn
+  proof), not the sampled counters. Engineering is done; this is gate plumbing.

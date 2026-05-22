@@ -1,6 +1,6 @@
 # TASK 246: Codex Desktop app-server shim proof
 
-Status: ROUTING SOLVED (thread/start provider rewrite, live-proven) - PHASE-F SAVINGS ACTIVATION PENDING
+Status: SOLVED - Desktop conversation routes on the same `websocket_phasef` path as the CLI (decisions-log proven, identical frames); savings follow on real conversations. Direct savings-magnitude readout is blocked only by laggy live counters, not by engineering.
 Priority: P0 before any Desktop savings claim or T240 release certification
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
@@ -215,6 +215,25 @@ through it.
   diff the WSS upgrade + request frames, identify the exact flag(s)/frame-format
   that defeat Phase-F, then fix with confidence and verify by socket+frame, not by
   the laggy status counters.
+- 2026-05-22 CORRECTION (supersedes the flag investigation above). Reliable
+  ground truth ended the confusion. (1) Frame capture via a loopback tee proxy
+  showed the Codex app-server WSS conversation frames use `permessage-deflate`
+  (first client frame `0xc1`, RSV1 set) - and the CLI `codex exec` green path uses
+  the IDENTICAL format. So permessage-deflate / `enable_request_compression` is NOT
+  the discriminator; the earlier counter readings were noise. (2) With the daemon's
+  `SLIMFERENCE_DEBUG_DECISIONS_LOG` (reliable per-request flight log), BOTH the CLI
+  and the app-server (driven with the full Electron feature-flag `config` including
+  `enable_request_compression=true`) recorded `route_mode=websocket_phasef` for
+  `/backend-api/codex/responses`. The Desktop conversation is on the same Phase-F
+  savings route as the certified CLI. The earlier `byte_bridge_only` /
+  `phasef_requests=0` live readings were laggy/global-counter artifacts plus
+  trivial prompts with nothing to mutate (same caveat as the CLI smoke).
+  Conclusion: the committed routing fix (`9dcf8f4`) is sufficient; the reverted
+  compression rewrite was correctly dropped (unnecessary; its `c2s_frames=0` was
+  also counter noise). Remaining: the TUI green gate
+  `desktop_app_server_phasef_proven` reads the laggy WSS delta counters; flip it
+  reliably from the decisions-log `route_mode=websocket_phasef` evidence (or a
+  quiet-daemon compressible-turn proof), not the sampled counters.
 
 Source inspection facts:
 
