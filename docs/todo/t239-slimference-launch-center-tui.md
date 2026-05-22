@@ -48,9 +48,10 @@ The launch center is not a settings maze. It is a cockpit:
 2. **Launch Codex App** is a capability-gated TUI menu item: it blocks with the
    proof reason until the app-server shim proof is green, because the item means
    "start Desktop in Slimference mode". Direct Desktop mode is still available
-   by launching Codex.app normally from Finder/Spotlight. The proven Desktop
-   path can launch only after T246 records real bytes, WSS frames, and Phase-F
-   mutation through Slimference.
+   by launching Codex.app normally from Finder/Spotlight. Current T246 proof is
+   negative for Codex Desktop (`connect_only_no_app_server_bytes`), so this item
+   must stay visible but blocked until a future Codex build records real bytes,
+   WSS frames, and Phase-F mutation through Slimference.
 3. **Savings** shows actual measured savings and separates estimates.
 4. **Status** shows whether the machine is safe, healthy, and scoped.
 5. **Manage Slimference** handles install, repair, uninstall, enable/disable,
@@ -58,7 +59,7 @@ The launch center is not a settings maze. It is a cockpit:
 
 CLI WSS must not be blocked by CA trust. The launch center should explain this
 plainly: scoped Codex CLI WSS does not need a macOS trusted CA or custom CA env.
-The preferred Desktop app-server shim does not use CA trust. Desktop
+The current Desktop app-server shim diagnostic does not use CA trust. Desktop
 process-local proxy diagnostics may still use `CODEX_CA_CERTIFICATE` /
 `SSL_CERT_FILE` only for the spawned Codex.app process. Keychain trust belongs
 to fallback Desktop/Lab branches only, and is tracked by T245.
@@ -83,7 +84,7 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
   - if a future `slimference codex desktop prove --finish --json` result is
     `desktop_app_server_phasef_proven`, launch the proven Desktop path;
   - on current Codex.app builds, block the launch and show the Desktop proof
-    reason in Status;
+    reason in Status: `connect_only_no_app_server_bytes`;
   - never start a broken proof/proxy session from the daily TUI launch action;
   - never open direct Codex.app from this menu item, because direct launch is
     outside Slimference;
@@ -143,7 +144,9 @@ to fallback Desktop/Lab branches only, and is tracked by T245.
 
 - Separates proxy input savings, WSS mutation savings, prompt-cache savings,
   output-reduce savings, hook/readhook savings, and estimates.
-- Desktop savings are hidden or marked unavailable until T238/T240 prove them.
+- Desktop savings are hidden or marked unavailable until a future
+  `desktop_app_server_phasef_proven` result exists. Current T246 proof is a
+  negative result, not "pending".
 - Shows today/week/month/all plus last session when session attribution exists.
 - Never mixes local hook savings into proxied Codex traffic totals unless the
   source is clearly labelled.
@@ -257,7 +260,7 @@ that this TUI should report without making a false savings claim:
 - `slimference codex desktop prove --finish --json` for the actual Desktop
   savings gate after the user sends a prompt in the launched app.
 - `slimference codex launch-desktop --transport=app-server --replace-existing`
-  for the preferred Desktop proof branch that closes stale Codex.app instances,
+  for the current Desktop app-server diagnostic branch that closes stale Codex.app instances,
   injects `CODEX_CLI_PATH` only into the spawned Codex.app process, and lets the
   hidden shim exec the real Codex app-server with local provider overrides.
 - `slimference codex launch-desktop --transport=proxy --with-ca-env` for the
@@ -296,8 +299,9 @@ explicit diagnostic command.
 - T245 update: Manage Slimference must show custom CA and Keychain trust as
   Desktop/Lab-only. The user should never think installing or trusting a CA is
   required for CLI WSS savings.
-- T246 update: the preferred Desktop route is now the app-server shim, not
-  proxy/CA. The TUI green gate is `desktop_app_server_proven`, derived from a
+- T246 update: the app-server shim is the cleanest Desktop diagnostic branch,
+  not proxy/CA, but current Codex.app still blocks it as
+  `connect_only_no_app_server_bytes`. The TUI green gate remains a future
   `desktop_app_server_phasef_proven` finish proof.
 - Remaining polish is depth, not architecture: embedded prompt entry for CLI,
   richer Status/Manage rows, full Desktop branch matrix tests, and final T240

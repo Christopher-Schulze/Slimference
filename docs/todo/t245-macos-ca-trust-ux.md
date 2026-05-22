@@ -1,7 +1,8 @@
 # TASK 245: Desktop custom CA and macOS trust UX
 
 Status: PARTIAL - default install is Keychain-free; Desktop app-server shim does
-not need CA; TUI CA management remains planned for legacy proxy/lab diagnostics
+not need CA but is live-blocked for current Codex.app; TUI CA management remains
+planned for legacy proxy/lab diagnostics
 Priority: P1 lab-polish unless T240 exercises legacy Desktop proxy diagnostics
 Scope: macOS arm64 Keychain fallback/lab UX, install/repair/remove semantics,
 and status truth for Desktop process-local proxy diagnostics and global lab
@@ -39,15 +40,18 @@ limited to:
 - future diagnostic branches if Codex.app can be made to trust the local CA or
   another safe root-store hook.
 
-The preferred T246 Desktop app-server shim does not terminate TLS for Codex.app
-and therefore does not need a local CA or Keychain trust.
+The T246 Desktop app-server shim does not terminate TLS for Codex.app and
+therefore does not need a local CA or Keychain trust. Current live proof still
+ends as `desktop_connect_only_no_app_server_bytes`, so CA trust would not repair
+that branch.
 
 Therefore the correct UX is unified install with conditional trust:
 
 1. Product install prepares daemon, CLI path, Desktop launcher/probe path,
    logs/status/repair, and Slimference-owned CA material.
 2. Product install does not force Keychain trust by default.
-3. Desktop proof first uses the T246 app-server shim, which needs no CA.
+3. Desktop proof first uses the T246 app-server shim, which needs no CA but is
+   currently blocked for application bytes.
 4. Legacy Desktop proxy diagnostics may try process-local
    `CODEX_CA_CERTIFICATE` / `SSL_CERT_FILE` env from the launcher. This is
    scoped to the launched Codex.app process and avoids a Keychain prompt if
@@ -67,7 +71,7 @@ Therefore the correct UX is unified install with conditional trust:
   fail solely because CA trust is missing.
 - `Manage Slimference` can show CA state as:
   - not needed for CLI WSS;
-  - not needed for preferred Desktop app-server shim;
+  - not needed for the current Desktop app-server shim diagnostic;
   - process-local custom CA env available for legacy Desktop proxy diagnostics;
   - Keychain not needed for current product path;
   - Keychain needed only for Desktop/Lab fallback;
@@ -91,7 +95,7 @@ Therefore the correct UX is unified install with conditional trust:
   consolidated `manage trust-ca` command if code is later unified.
 - The TUI prints the exact blast radius before trust:
   "This only helps Desktop/Lab TLS interception diagnostics. CLI WSS and the
-  preferred Desktop app-server shim do not need it. Browser ChatGPT and
+  current Desktop app-server shim diagnostic do not need it. Browser ChatGPT and
   ChatGPT.app remain direct unless you explicitly enter global lab mode."
 - The TUI offers removal/repair:
   - repair regenerates or re-adds the current Slimference CA;
@@ -136,9 +140,9 @@ Therefore the correct UX is unified install with conditional trust:
 - [~] Add tests for Desktop/Lab custom-CA-env wording, Keychain fallback
   wording, and reversible removal.
 - [x] Update `docs/install.md` so users understand:
-  one install prepares CLI and Desktop support; CLI WSS and preferred Desktop
-  app-server shim need no CA; legacy Desktop/Lab Keychain trust is explicit
-  fallback/lab; normal app/browser launches remain native/direct.
+  one install prepares CLI and Desktop support; CLI WSS and the current Desktop
+  app-server shim diagnostic need no CA; legacy Desktop/Lab Keychain trust is
+  explicit fallback/lab; normal app/browser launches remain native/direct.
 - [ ] Feed final CA state and commands into T240 evidence table.
 
 ## Notes
@@ -181,17 +185,18 @@ or diagnostic unless a future Codex.app build changes root-store behavior.
 
 2026-05-22 app-server shim update:
 
-- T246 found a preferred Desktop route that does not need CA: launch Codex.app
-  with process-local `CODEX_CLI_PATH=<slimference>`, then the hidden shim execs
-  the real `codex app-server` with local provider overrides.
-- This moves CA trust out of the primary Desktop product path. T245 remains
-  useful for explicit legacy proxy diagnostics and global lab mode only.
+- T246 found a cleaner Desktop diagnostic route that does not need CA: launch
+  Codex.app with process-local `CODEX_CLI_PATH=<slimference>`, then the hidden
+  shim execs the real `codex app-server` with local provider overrides.
+- Current live proof still ends as `desktop_connect_only_no_app_server_bytes`.
+  This confirms CA trust is not the blocker for the app-server shim. T245
+  remains useful for explicit legacy proxy diagnostics and global lab mode only.
 
 2026-05-20 non-live closure:
 
 - `codex desktop status` now treats missing CA material as relevant only for
-  legacy proxy diagnostics, not as a gate for the preferred Desktop app-server
-  shim. The preferred launch command is
+  legacy proxy diagnostics, not as a gate for the Desktop app-server shim
+  diagnostic. The diagnostic launch command is
   `slimference codex launch-desktop --transport=app-server`; the proxy command
   remains `slimference codex launch-desktop --transport=proxy --with-ca-env`.
 - The proof commands remain the Desktop savings gate:

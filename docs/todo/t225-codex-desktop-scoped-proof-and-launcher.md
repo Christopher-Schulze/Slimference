@@ -1,6 +1,8 @@
 # TASK 225: Codex Desktop scoped proof and launcher
 
-Status: PARTIAL - provider/base-URL routes insufficient; process-local proxy proof moved to T238
+Status: SUPERSEDED - provider/base-URL routes insufficient; proxy branch moved
+to T238/T242 and app-server shim branch moved to T246, which is live-blocked
+for current Codex.app
 Priority: P1 after Codex CLI scoped WSS proof
 Scope: Codex Desktop App only; Browser ChatGPT and ChatGPT.app stay direct
 
@@ -21,6 +23,13 @@ Desktop bet. T228 proved process-local env injection reaches Codex.app's
 app-server, but current Codex.app still keeps conversation traffic on hardcoded
 `chatgpt.com` routes. T238 now owns the next credible branch: process-local
 proxy launch using the Desktop binary's proxy/WSS capability surface.
+
+2026-05-22 update: T238/T242 proved the process-local proxy/CA branch reaches
+CONNECT but produces zero application bytes. T246 implemented the cleaner
+`CODEX_CLI_PATH` app-server shim branch, but current Codex.app still ends as
+`desktop_connect_only_no_app_server_bytes`. Current product truth: Desktop
+Slimference savings are unavailable; normal Finder/Spotlight Codex.app remains
+direct and no-drawback.
 
 ## Acceptance
 

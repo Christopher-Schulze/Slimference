@@ -150,8 +150,9 @@ savings.
   unless a future proof is green. The proxy launcher remains the diagnostic
   branch:
   `slimference codex launch-desktop --transport=proxy --with-ca-env`.
-- Missing CA material still blocks Desktop diagnostics, but missing Keychain
-  trust does not block the preferred Desktop probe and never affects CLI WSS.
+- Missing CA material still blocks legacy Desktop proxy diagnostics, but missing
+  Keychain trust does not block the app-server shim diagnostic and never affects
+  CLI WSS.
 - Historical `tls_trust_rejected` counters no longer permanently block the TUI
   launch path; they are shown as a process-local CA-env retry/proof state. A
   future live run must still prove bytes, frames, and zero errors before Desktop

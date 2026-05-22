@@ -1,6 +1,6 @@
 # TASK 246: Codex Desktop app-server shim proof
 
-Status: IMPLEMENTED - live Codex.app prompt proof pending
+Status: IMPLEMENTED INFRASTRUCTURE - LIVE BLOCKED FOR CURRENT CODEX.APP
 Priority: P0 before any Desktop savings claim or T240 release certification
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
@@ -26,7 +26,7 @@ boundary:
   expected sentinel and moved Slimference WSS bytes/frames with zero
   parse/degrade/compression errors.
 
-Therefore the preferred Desktop route is now:
+Therefore the preferred Desktop route candidate was:
 
 1. Launch Codex.app from Slimference with process-local
    `CODEX_CLI_PATH=<slimference binary>`.
@@ -35,13 +35,14 @@ Therefore the preferred Desktop route is now:
 3. The hidden Slimference shim validates the scoped env and immediately `exec`s
    the real Codex binary as `codex app-server` with process-local
    `openai_base_url`, `chatgpt_base_url`, and provider overrides.
-4. Desktop conversation WSS should reach the existing scoped Slimference
+4. Desktop conversation WSS should have reached the existing scoped Slimference
    `/backend-api/codex` route without CA trust, HTTPS proxying, Electron proxy
    args, global hosts, system proxy, or `~/.codex/config.toml` mutation.
 
-This is materially better than proxy/MITM if the live Desktop prompt proof
-passes: less setup, less OS privilege surface, fewer compatibility failures,
-and closer-to-native Codex behavior.
+Live proof disproved that candidate for current Codex.app. The infrastructure
+is still the cleanest hook if a future Codex build changes endpoint handling,
+but current Codex Desktop does not produce usable Slimference Desktop savings
+through it.
 
 ## Acceptance
 
@@ -59,7 +60,7 @@ and closer-to-native Codex behavior.
 - The real Codex argv is exactly `codex app-server` plus process-local
   `openai_base_url`, `chatgpt_base_url`, and provider overrides for
   `slimference-codex`, followed by the original incoming app-server args.
-- No preferred Desktop launch path sets `HTTP_PROXY`, `HTTPS_PROXY`, `WSS_PROXY`,
+- No Desktop product launch path sets `HTTP_PROXY`, `HTTPS_PROXY`, `WSS_PROXY`,
   `ALL_PROXY`, Electron `--proxy-server`, CA env vars, `/etc/hosts`, pfctl,
   macOS system proxy, or persistent `~/.codex/config.toml`.
 - `slimference codex desktop status --json` treats only an app-server shim proof
@@ -110,19 +111,19 @@ and closer-to-native Codex behavior.
   proof plus TUI Launch Codex App so stale Codex.app instances cannot be reused.
 - [x] Update tests for shim argv, env scrubbing, launcher probe, status gating,
   proof modes, and TUI action routing.
-- [ ] Build and install the new Slimference binary atomically.
-- [ ] Restart daemon and verify CLI WSS still green.
-- [ ] Quit all normal Codex.app instances before Desktop proof.
-- [ ] Run `slimference codex launch-desktop --transport=app-server --probe` on
+- [x] Build and install the new Slimference binary atomically.
+- [x] Restart daemon and verify CLI WSS still green.
+- [x] Quit all normal Codex.app instances before Desktop proof.
+- [x] Run `slimference codex launch-desktop --transport=app-server --probe` on
   the installed binary and capture exact env.
-- [ ] Run `slimference codex desktop prove --manual --duration=15s --json`.
-- [ ] Send one short prompt in the launched Codex.app window from a real repo
+- [x] Run `slimference codex desktop prove --manual --duration=15s --json`.
+- [x] Send one short prompt in the launched Codex.app window from a real repo
   workspace, preferably `/Users/christopher/CODE/Slimference`.
-- [ ] Run `slimference codex desktop prove --finish --json`.
-- [ ] Capture lsof for app-server process, daemon `.wss` delta, config hash,
+- [x] Run `slimference codex desktop prove --finish --json`.
+- [x] Capture lsof for app-server process, daemon `.wss` delta, config hash,
   Browser ChatGPT direct-control evidence, ChatGPT.app direct-control evidence
   if running, and normal Finder/Spotlight Codex.app direct relaunch evidence.
-- [ ] If green, unlock TUI Launch Codex App and proceed to T240 release
+- [x] If green, unlock TUI Launch Codex App and proceed to T240 release
   certification. If not green, keep TUI blocked and record exact failure class.
 
 ## Notes
@@ -141,6 +142,14 @@ and closer-to-native Codex behavior.
   `bytes_c2s=0`, `bytes_s2c=0`, no frames, no mutation. Verdict: current
   Codex Desktop app-server still does not produce a usable local WSS Phase-F
   path through the app-server shim.
+- Installed follow-up proof after the top-level override patch kept Codex CLI
+  green (`auto.mode=wss_phasef`, Codex CLI 0.133.0, `wss_certified=true`) and
+  repeated the Desktop result:
+  `mode=desktop_connect_only_no_app_server_bytes`,
+  `failure_class=connect_only_no_app_server_bytes`, `mitm_bridged=1`,
+  `bytes_c2s=0`, `bytes_s2c=0`, zero frames, and zero mutation. Process
+  evidence showed `openai_base_url` and `chatgpt_base_url` were present in the
+  app-server argv, so the failure is not missing env injection.
 
 Source inspection facts:
 
@@ -173,13 +182,18 @@ Observed result:
 - The prompt was intentionally tiny, so mutation counters did not advance.
   Desktop green still requires a prompt proof that triggers Phase-F mutation.
 
-Reality check:
+Current decision:
 
-- This is not yet a Desktop savings claim.
-- It is a better engineered Desktop route candidate because it removes the
-  proxy/CA/root-store blocker from the normal path.
-- TUI Launch Codex App must remain blocked until the Desktop prompt proof
-  records `desktop_app_server_phasef_proven`.
+- This is not a Desktop savings claim.
+- The app-server shim is implemented infrastructure and useful diagnostic
+  leverage, but it is blocked by current Codex Desktop behavior.
+- TUI Launch Codex App must remain blocked for Slimference mode and show
+  `connect_only_no_app_server_bytes` until a future
+  `desktop_app_server_phasef_proven` result exists.
+- Normal Finder/Spotlight Codex.app is the correct no-drawback Desktop path
+  today. Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl,
+  Keychain, macOS proxy settings, and `~/.codex/config.toml` remain outside
+  this product path.
 
 ## Deviations
 

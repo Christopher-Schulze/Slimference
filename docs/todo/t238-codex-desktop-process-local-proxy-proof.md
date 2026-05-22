@@ -55,8 +55,9 @@ otherwise.
 
 Follow-up source inspection found a better route: Codex.app honors
 `CODEX_CLI_PATH` for its app-server child, and `codex app-server` accepts
-process-local provider overrides. T246 tracks that no-CA app-server shim as the
-preferred Desktop proof path. This proxy branch remains diagnostic only.
+process-local provider overrides. T246 tracks that no-CA app-server shim and
+its final current-build blocker (`desktop_connect_only_no_app_server_bytes`).
+This proxy branch remains diagnostic only.
 
 ## Acceptance
 
@@ -210,11 +211,10 @@ Known current state:
 - `slimference codex launch-desktop` defaults to `--transport=proxy`, passes
   process-local Electron proxy arguments, injects process-local proxy env only,
   and keeps `--transport=base-url` as diagnostic/future-proof mode.
-- `--with-ca-env` is now the preferred Desktop proof branch once it includes
-  `CODEX_CA_CERTIFICATE`. It tries Codex-specific and generic root-store env
-  hooks in the spawned process without touching shell startup files, Keychain,
-  or system proxy settings. It is not a product success path unless live bytes
-  and WSS frames prove it.
+- `--with-ca-env` is now a legacy Desktop proxy diagnostic branch. It tries
+  Codex-specific and generic root-store env hooks in the spawned process without
+  touching shell startup files, Keychain, or system proxy settings. It is not a
+  product success path unless live bytes and WSS frames prove it.
 - `slimference codex desktop status` is the read-only handoff surface for
   Desktop proof: it reports CA gate, daemon reachability, WSS counters, and
   whether a live Desktop conversation has been observed.

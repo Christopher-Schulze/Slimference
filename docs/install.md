@@ -35,9 +35,10 @@ slimference uninstall    # full removal, restores backups
 
 That's it. No persistent environment variables. No `OPENAI_API_BASE`.
 No system-wide `HTTPS_PROXY`. No global `chatgpt.com` host route unless
-the operator explicitly asks for the global lab path. The preferred Desktop
-launcher uses Codex.app's process-local `CODEX_CLI_PATH` app-server hook and
-does not need CA trust or TLS MITM.
+the operator explicitly asks for the global lab path. The current Desktop
+diagnostic launcher uses Codex.app's process-local `CODEX_CLI_PATH` app-server
+hook and does not need CA trust or TLS MITM, but it is blocked for savings on
+current Codex.app builds.
 
 ## Scoped Codex architecture
 
@@ -140,7 +141,7 @@ CLI and Codex Desktop.
 |---|---|
 | Daemon unavailable during `slimference codex run` | The wrapper prints a warning and launches direct Codex. **No CLI breakage.** |
 | Daemon unavailable while persistent `codex enable` route is active | Only Codex CLI/App are affected. Run `slimference codex disable`, press `[r]` in TUI Setup, or restart the daemon. Browser ChatGPT, ChatGPT.app, Claude Code, and generic OpenAI clients remain direct. |
-| CA missing during Desktop proxy diagnostics | The preferred Desktop app-server shim does not need CA trust. Legacy proxy diagnostics refuse before a savings claim and print the repair command. Direct Codex.app remains native. |
+| CA missing during Desktop proxy diagnostics | The current Desktop app-server shim diagnostic does not need CA trust. Legacy proxy diagnostics refuse before a savings claim and print the repair command. Direct Codex.app remains native. |
 | Codex Desktop already running during scoped proof/TUI launch | `codex desktop prove` and TUI Launch Codex App use `--replace-existing`: they quit the existing Codex.app main process, verify it is gone, then spawn the scoped Slimference instance so macOS cannot reuse a stale env. Raw `codex launch-desktop` still refuses unless `--replace-existing` is passed. Direct Codex.app remains native. |
 | Codex Desktop app-server shim fails proof | Desktop proof exits non-zero with an explicit failure class. TUI Launch Codex App blocks instead of opening direct or a broken Slimference session, because the TUI item means "Slimference mode". Normal Finder/Spotlight Codex.app remains direct. CLI savings continue. |
 | Codex CLI/Desktop updates | `transport=auto` is WSS-first. It uses certified WSS Phase-F when green, WSS byte-equal bridge when mutation proof is stale but the bridge proof is clean, HTTP only when WSS bridge is unsafe, and direct only when the daemon cannot serve the scoped run. Background recert tries to restore Phase-F savings without blocking the user. |
@@ -277,10 +278,12 @@ checkout or any global network setting.
 
 ### 3. Launch Codex Desktop through the app-server shim
 
-This is the preferred Desktop proof candidate. It is scoped to one spawned
+This is the current Desktop diagnostic candidate. It is scoped to one spawned
 Codex.app process tree and avoids the old TLS-MITM problem entirely. No
 Keychain trust, local CA, `HTTPS_PROXY`, Electron proxy argument, `/etc/hosts`,
-pfctl, or persistent Codex config mutation is required.
+pfctl, or persistent Codex config mutation is required. It is not a Desktop
+savings path on current Codex.app builds because live proof reaches loopback but
+no application bytes.
 
 The launcher uses a supported Codex Desktop process boundary:
 
@@ -298,8 +301,10 @@ The launcher uses a supported Codex Desktop process boundary:
    `model_providers.slimference-codex.base_url=http://127.0.0.1:8990/backend-api/codex`,
    `requires_openai_auth=true`, `supports_websockets=true`, and
    `wire_api=responses`.
-5. Codex's own WSS client then opens the local Slimference WSS route. That is
-   the same no-CA route already proven by the scoped Codex CLI smoke test.
+5. This was the intended no-CA Desktop WSS route. Current live proof shows the
+   hook is not sufficient for Codex Desktop today: the app-server opens loopback
+   connections to Slimference, but no application bytes reach Phase-F
+   (`desktop_connect_only_no_app_server_bytes`).
 
 Inspect the exact scoped environment without launching:
 
@@ -338,6 +343,13 @@ but not a Desktop savings claim. Zero bytes, no WSS delta after the prompt,
 launch failure, daemon failure, or unreviewed daemon-wide WSS activity are
 diagnostics only.
 
+Current product truth on Codex Desktop is negative: the latest app-server shim
+proof ends as `desktop_connect_only_no_app_server_bytes`, after both
+provider-block overrides and top-level `openai_base_url` / `chatgpt_base_url`
+overrides were tried. That means TUI Launch Codex App must stay blocked for
+Slimference mode and must show the exact proof reason. Launching Codex.app
+normally from Finder/Spotlight remains the no-drawback direct Desktop path.
+
 If a normal Codex.app instance is already running, the proof command quits that
 main process, verifies it is gone, then launches the scoped Slimference instance.
 This prevents macOS from foregrounding an app that did not inherit the scoped
@@ -348,7 +360,7 @@ app is running unless `--replace-existing` is passed explicitly:
 slimference codex launch-desktop --transport=app-server --replace-existing
 ```
 
-Only when the proof gate is green may the daily TUI Launch Codex App item use:
+Only when a future proof gate is green may the daily TUI Launch Codex App item use:
 
 ```bash
 slimference codex launch-desktop --transport=app-server --replace-existing

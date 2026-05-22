@@ -99,10 +99,23 @@ From `openai/codex` on GitHub (read 2026-05-16):
   tightening) are in the tree and would work the moment we have a
   routing solution.
 
-## Decision pending
+## Superseded decision
 
-Recommended next step: option (1) with a dedicated API-key profile, so
-ChatGPT-subscription continues to work for normal use and the proxy
-profile is opt-in via `codex -p slimference` when token-reduction
-testing is desired. This is the lowest-risk path that preserves the
-user's existing workflow.
+This 2026-05-16 recommendation is superseded by the scoped Codex WSS product
+path documented in `docs/install.md`.
+
+Current truth:
+
+- Codex CLI no longer relies on the old top-level config patch route. The green
+  path is `slimference codex run --transport=auto -- ...`, which prefers
+  certified WSS Phase-F savings, then WSS byte-equal bridge, then HTTP, then
+  direct fail-open.
+- Codex CLI auto-recert keeps the strict version tuple guard but repairs WSS
+  Phase-F after Codex updates when live proof is clean.
+- Codex Desktop is not green for Slimference savings on current Codex.app
+  builds. The proxy/CA branch reached CONNECT but produced zero application
+  bytes, and the app-server shim branch also ends as
+  `desktop_connect_only_no_app_server_bytes`.
+- TUI Launch Codex App therefore remains blocked for Slimference mode and must
+  not claim Desktop savings. Normal Finder/Spotlight Codex.app remains the
+  direct no-drawback Desktop path.
