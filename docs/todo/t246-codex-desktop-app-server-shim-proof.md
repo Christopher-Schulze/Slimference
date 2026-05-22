@@ -151,6 +151,24 @@ through it.
   evidence showed `openai_base_url` and `chatgpt_base_url` were present in the
   app-server argv, so the failure is not missing env injection.
 
+- 2026-05-22 Phase-0 diagnostics (read-only, no product change) replaced the
+  historical header hypotheses with hard data against the installed Codex
+  `0.133.0`. Binary scan: the conversation host `chatgpt.com/backend-api/codex`
+  and `responses_websockets` subprotocol are hardcoded; the binary reads
+  `CODEX_CA_CERTIFICATE`/`SSL_CERT_FILE` (so not absolute pinning) plus several
+  `*_BASE_URL` env vars, but `OPENAI_BASE_URL`/`CHATGPT_BASE_URL` are only
+  config keys, not env hooks. Live launch: `0` `responses_websockets` WSS
+  upgrades reached `127.0.0.1:8990` (raw-scoped recorder = 0), the app-server's
+  loopback connections to `8990` were REST sideband/CONNECT only, and the
+  app-server held direct `172.64.155.209:443` (chatgpt.com) sockets. Verdict:
+  in ChatGPT-auth mode the conversation WSS goes hardcoded-direct to chatgpt.com;
+  the `-c` overrides only redirect REST sideband. This is a Codex Desktop
+  property, not a Slimference classification bug. Caveat: the proof delta reads
+  global daemon WSS counters, so concurrent CLI traffic can contaminate the
+  finish label (this run mislabeled `desktop_app_server_wss_bridge` despite zero
+  desktop upgrades); a trustworthy Desktop proof needs desktop-scoped counters.
+  Full evidence in `docs/operation-log.md` (2026-05-22 Phase-0 entry).
+
 Source inspection facts:
 
 - Codex Desktop ASAR contains a spawn path that uses `CODEX_CLI_PATH` before the

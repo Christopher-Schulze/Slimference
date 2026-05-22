@@ -1985,3 +1985,57 @@ Verdict:
 - Normal Codex.app from Finder/Spotlight remains the correct no-drawback
   Desktop path until upstream exposes a working Desktop conversation endpoint
   hook or the app-server protocol changes.
+
+---
+
+## 2026-05-22 — T246 Phase-0 Diagnostics (read-only, no product change)
+
+Goal: replace historical launcher-header hypotheses with hard measured data
+against the currently installed Codex 0.133.0, before building anything.
+
+Binary scan (npm `codex-cli 0.133.0` and bundled
+`/Applications/Codex.app/.../codex` `0.133.0-alpha.1`, env handling identical):
+- Conversation host `chatgpt.com/backend-api/codex` and the `responses_websockets`
+  subprotocol are hardcoded strings in both binaries.
+- Env vars the binary actually references: `CODEX_CA_CERTIFICATE`, `SSL_CERT_FILE`
+  (a custom-CA path exists, so this is not absolute cert pinning),
+  `CODEX_CLOUD_TASKS_BASE_URL`, `CODEX_OSS_BASE_URL`, `DEFAULT_BASE_URL`,
+  `LATEST_MODEL_BASE_URL`, `ISSUER_BASE_URL`, `API_BASE_URL` (adjacent to
+  auth/identity strings), `CODEX_REFRESH_TOKEN_URL_OVERRIDE`,
+  `CODEX_REVOKE_TOKEN_URL_OVERRIDE`, proxy env.
+- `OPENAI_BASE_URL`, `CHATGPT_BASE_URL`, `CHATGPT_CODEX_BASE_URL` are NOT env
+  hooks in the binary; they are only `~/.codex/config.toml` keys (`-c`).
+
+Live launch (`slimference codex desktop prove --manual`, app-server argv
+confirmed to carry `openai_base_url`, `chatgpt_base_url`, and the
+`slimference-codex` provider block):
+- Decisive: `0` `responses_websockets` WSS upgrades reached `127.0.0.1:8990`
+  (`/admin/debug/requests` raw-scoped count = 0). That envelope is the only
+  thing Slimference can compress.
+- The app-server did open loopback connections to `127.0.0.1:8990`, but they are
+  REST sideband / CONNECT, not the conversation WSS.
+- The app-server held direct outbound `172.64.155.209:443` (Cloudflare-fronted,
+  consistent with chatgpt.com) sockets: the conversation goes direct, bypassing
+  Slimference.
+- Finish delta showed only `mitm_bridged +1` with no new WSS application bytes,
+  frames, or mutation.
+
+Measurement caveat:
+- The desktop proof delta reads GLOBAL daemon WSS counters, so concurrent Codex
+  CLI WSS traffic contaminates it. This run's finish label flipped to
+  `desktop_app_server_wss_bridge`, but that is a counter-contamination artifact,
+  not Desktop savings (zero desktop WSS upgrades were observed). A trustworthy
+  Desktop proof needs desktop-scoped counters or a quiet daemon.
+
+Verdict (now evidence-backed against 0.133.0, not header comments):
+- In ChatGPT-auth mode the Desktop app-server sends the `responses_websockets`
+  conversation directly to a hardcoded chatgpt.com host. The `-c` base-url and
+  provider overrides only redirect REST sideband to `8990`.
+- This is a Codex Desktop property, not a Slimference classification bug: the
+  daemon correctly recorded zero because zero arrived.
+- The `API_BASE_URL` probe is low value: it sits on the auth/identity route,
+  the conversation host is hardcoded, and the env variant is already covered by
+  the historically-ignored `--transport=base-url` env set.
+- Decision unchanged and now hard-proven: Desktop stays direct/no-drawback, TUI
+  `Launch Codex App` stays blocked for Slimference mode, savings focus is Codex
+  CLI plus T239/T240.
