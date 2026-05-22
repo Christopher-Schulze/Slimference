@@ -2218,3 +2218,101 @@ Mutation-proof attempt (the remaining hard green):
   (file reads / command outputs that repeat across turns), best driven through the
   GUI by the operator, then `slimference codex desktop prove --finish --json`.
   This is the same mechanism the certified CLI uses; the Desktop route is identical.
+
+---
+
+## 2026-05-23 — T246 MECHANISM REFERENCE (full traceability for any future rebuild)
+
+Everything learned about how Codex Desktop routing + Phase-F + measurement works,
+so a future change is reversible and the evidence is preserved. Source files:
+`cmd/slimference/codex_desktop_app_server_shim.go` (shim), `internal/proxy/proxy.go`
++ `internal/proxy/wsmitm_dispatcher.go` + `internal/proxy/wsmitm/session.go` (WSS),
+`cmd/slimference/codex_cmd.go` (proof/status), `cmd/slimference/codex_recert.go`
+(CLI cert).
+
+1. ROOT CAUSE (why Desktop bypassed Slimference). Codex Desktop's Electron client
+   drives the Rust `codex app-server` over newline-delimited JSON-RPC on stdio.
+   It opens each conversation with `thread/start` carrying `model="gpt-5.5"` and
+   `modelProvider: null`. `null` resolves to the account default provider `openai`
+   (-> chatgpt.com direct), which OVERRIDES the `-c model_provider` config default.
+   The provider badge in the UI is cosmetic. Captured live via a stdio tee
+   (`CODEX_CLI_PATH` -> tee -> real codex, `/tmp/electron-stdin.raw`).
+
+2. FIX (the shim). `CODEX_CLI_PATH=<slimference>` makes Codex.app start the
+   slimference shim as its app-server. The shim is a thin stdin JSON-RPC mediator:
+   it spawns the real Codex app-server with the `slimference-codex` provider block,
+   passes stdout/stderr straight through, and rewrites ONLY a default (null/absent)
+   `modelProvider` on `thread/start` to `slimference-codex`. Byte-identical for
+   everything else; realtime/voice (`config["features.realtime_conversation"]`) and
+   explicit providers pass through; fail-open on any parse ambiguity. Framing is
+   newline-delimited JSON (verified; the binary also supports Content-Length but
+   Desktop uses newline).
+
+3. ROUTE + FRAMES. Both the CLI (`codex exec`) and the Desktop app-server negotiate
+   the `permessage-deflate` WebSocket extension and send compressed frames (first
+   client frame byte `0xc1`, RSV1 set) on `GET /backend-api/codex/responses`.
+   Captured byte-for-byte via a loopback tee proxy (8991 -> 8990). Both record
+   `route_mode=websocket_phasef` in the daemon decisions log
+   (`SLIMFERENCE_DEBUG_DECISIONS_LOG`). The Desktop route is byte-identical to the
+   certified CLI route. `enable_request_compression` and other Electron feature
+   flags do NOT change this (all variants negotiate permessage-deflate).
+
+4. COUNTER FLUSH TIMING (critical for all measurement). The WSS byte/frame/mutation
+   counters live on the per-conversation `wsmitm.Session` and are aggregated into
+   the dispatcher snapshot (`/admin/state`, `codex desktop status .wss`) at
+   SESSION END, when the WSS connection closes. While Codex.app keeps the WSS open,
+   `bytes_c2s` / `c2s_frames` / `frames_reencoded` / `compressed_messages_*` read
+   ZERO in the snapshot even during an active conversation. The exception is
+   `phasef_bridged` (added in the FrameBridge closure, `proxy.go`): it increments
+   once at conversation START, so it is the lag-free signal that the route was
+   reached. CONSEQUENCE: to measure bytes/mutation, the conversation's WSS session
+   must close (quit Codex.app / end the app-server) before reading. This is why
+   earlier live readings looked like "zero bytes" - the session was still open.
+
+5. MEASUREMENT METHODOLOGY that is reliable: (a) restart the daemon fresh so all
+   counters baseline at 0; (b) run the Desktop conversation; (c) CLOSE the session
+   (quit the app-server); (d) poll `codex desktop status .wss` for ~15s for the
+   flushed values. Do NOT trust mid-session snapshots. `phasef_bridged` is the only
+   counter reliable mid-session.
+
+6. PROVEN with a real Desktop session (2026-05-23, fresh daemon, two turns reading
+   a 93KB file, read after session close): `phasef_bridged=2`, `bytes_c2s=181344`,
+   `bytes_s2c=375755`, `c2s_frames=27`, `s2c_frames=1120`,
+   `compressed_messages_inspected=1111`, `parse_failures=0`, `degraded_sessions=0`,
+   `compression_errors=0`. The Desktop conversation fully flows through Slimference
+   and Phase-F inflates+inspects every message with zero errors.
+
+7. MUTATION (the open item). In the same proof `frames_reencoded=0` and
+   `compressed_messages_mutated=0`: Phase-F inspected 1111 messages but mutated
+   none. A recert-style direct-drive (`git status` tool output, repeated) also
+   inspected (62) but mutated 0. Yet the CLI WSS certification REQUIRES
+   `frames_reencoded>0` + `compressed_messages_mutated>0` + `mutation_active=true`
+   + `byte_bridge_only=false` (`codexWSSCertificationFailures`,
+   `codex_cmd.go:1241`) and `wss_certified=true` - so mutation DOES fire for the
+   CLI. The difference found: the CLI recert uses `codex exec` + `exec resume
+   --last` = two separate WSS connections that each re-send the FULL accumulated
+   history (with the repeated tool output), so a single request contains the
+   duplicated content that L1 dedup mutates. A persistent app-server WSS with
+   incremental turns sends mostly deltas, so a single request rarely contains the
+   self-repetition dedup needs. Implication: Desktop mutation/savings fire on the
+   same content the CLI mutates (the route+pipeline are identical and inspect
+   cleanly); the magnitude depends on request content structure, not on Desktop vs
+   CLI. A Desktop-specific mutation proof needs a real session whose requests carry
+   repeated content (long histories, resumed threads, repeated tool outputs).
+
+8. STATUS / GATE (`codex_cmd.go`, `main.go`, `internal/tui/model.go`).
+   `classifyCodexDesktopProof`: `phasef_bridged>0` + zero errors ->
+   `desktop_app_server_phasef_proven` (if `frames_reencoded>0` &&
+   `compressed_messages_mutated>0`) else `desktop_app_server_route_proven`.
+   `applyCodexDesktopLastProof` maps the latter to launchable-but-honest
+   `desktop_app_server_route_ready` (TUI "WSS route ready"), the former to
+   `desktop_app_server_proven` (TUI "WSS savings"). `LaunchCodexApp` allows both;
+   `codexDesktopTLSRejected` is guarded by `phasef_bridged==0`. Status reads the
+   LAST PERSISTED proof, so it stays `desktop_proof_prompt_required` until a real
+   `prove --manual` + `prove --finish` cycle persists a verdict.
+
+OPEN / NEXT: run `prove --manual`, do a real Desktop coding session with repeated
+content, quit the app (flush), `prove --finish`. Expect `route_ready` at minimum;
+`phasef_proven` if that session's requests carry dedupable repetition. If even
+content-rich Desktop sessions never show `frames_reencoded>0`, the next question is
+broader Phase-F mutation efficacy on Codex WSS (affects CLI too), not Desktop.
