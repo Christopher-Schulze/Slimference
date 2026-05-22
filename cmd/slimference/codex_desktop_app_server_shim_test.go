@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"errors"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,8 +30,6 @@ func TestBuildCodexDesktopAppServerShimExec(t *testing.T) {
 	for _, want := range []string{
 		codexBin,
 		"app-server",
-		"openai_base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
-		"chatgpt_base_url=\"http://127.0.0.1:8990/backend-api/\"",
 		"model_provider=\"slimference-codex\"",
 		"model_providers.slimference-codex.base_url=\"http://127.0.0.1:8990/backend-api/codex\"",
 		"model_providers.slimference-codex.requires_openai_auth=true",
@@ -41,6 +39,13 @@ func TestBuildCodexDesktopAppServerShimExec(t *testing.T) {
 	} {
 		if !strings.Contains(joinedArgs, want) {
 			t.Fatalf("argv missing %q in %v", want, argv)
+		}
+	}
+	// The dead top-level base-url overrides must not return: they never routed
+	// the conversation and only created sideband loopback noise.
+	for _, forbidden := range []string{"openai_base_url=", "chatgpt_base_url="} {
+		if strings.Contains(joinedArgs, forbidden) {
+			t.Fatalf("argv must not set %q anymore: %v", forbidden, argv)
 		}
 	}
 	joinedEnv := strings.Join(childEnv, "\n")
@@ -90,55 +95,140 @@ func TestBuildCodexDesktopAppServerShimExecRejectsMissingScope(t *testing.T) {
 	}
 }
 
-func TestCodexDesktopAppServerChatGPTBaseURL(t *testing.T) {
-	got := codexDesktopAppServerChatGPTBaseURL("http://127.0.0.1:8990/backend-api/codex")
-	if got != "http://127.0.0.1:8990/backend-api/" {
-		t.Fatalf("chatgpt base=%q", got)
+func TestRewriteCodexDesktopThreadStart(t *testing.T) {
+	tests := []struct {
+		name         string
+		in           string
+		wantChanged  bool
+		wantContains []string
+	}{
+		{"null provider rewritten", `{"id":"1","method":"thread/start","params":{"model":"gpt-5.5","modelProvider":null,"cwd":"/x"}}`, true, []string{`"modelProvider":"slimference-codex"`, `"model":"gpt-5.5"`, `"cwd":"/x"`}},
+		{"absent provider rewritten", `{"id":"1","method":"thread/start","params":{"model":"gpt-5.5"}}`, true, []string{`"modelProvider":"slimference-codex"`, `"model":"gpt-5.5"`}},
+		{"explicit provider respected", `{"id":"1","method":"thread/start","params":{"modelProvider":"openai"}}`, false, nil},
+		{"realtime thread skipped", `{"id":"1","method":"thread/start","params":{"modelProvider":null,"config":{"features.realtime_conversation":true}}}`, false, nil},
+		{"non-realtime config rewritten", `{"id":"1","method":"thread/start","params":{"modelProvider":null,"config":{"features.realtime_conversation":false}}}`, true, []string{`"modelProvider":"slimference-codex"`}},
+		{"unparseable config skipped", `{"id":"1","method":"thread/start","params":{"modelProvider":null,"config":"oops"}}`, false, nil},
+		{"turn/start untouched", `{"id":"1","method":"turn/start","params":{"threadId":"t"}}`, false, nil},
+		{"thread/resume untouched in first cut", `{"id":"1","method":"thread/resume","params":{"threadId":"t","modelProvider":null}}`, false, nil},
+		{"initialize untouched", `{"id":"1","method":"initialize","params":{}}`, false, nil},
+		{"thread/start no params untouched", `{"id":"1","method":"thread/start"}`, false, nil},
+		{"notification untouched", `{"method":"thread/started","params":{}}`, false, nil},
+		{"invalid json untouched", `{not json`, false, nil},
+		{"non-object untouched", `[1,2,3]`, false, nil},
+		{"empty untouched", ``, false, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out, changed := rewriteCodexDesktopThreadStart([]byte(tt.in))
+			if changed != tt.wantChanged {
+				t.Fatalf("changed=%v want %v (out=%s)", changed, tt.wantChanged, out)
+			}
+			if !tt.wantChanged {
+				if string(out) != tt.in {
+					t.Fatalf("unchanged output must be byte-identical: got %q want %q", out, tt.in)
+				}
+				return
+			}
+			var probe map[string]json.RawMessage
+			if err := json.Unmarshal(out, &probe); err != nil {
+				t.Fatalf("rewritten output is not valid JSON: %v (%s)", err, out)
+			}
+			for _, w := range tt.wantContains {
+				if !strings.Contains(string(out), w) {
+					t.Fatalf("rewritten output missing %q: %s", w, out)
+				}
+			}
+		})
 	}
 }
 
-func TestRunCodexDesktopAppServerShimExecsRealCodex(t *testing.T) {
-	prevExec := codexDesktopAppServerExecFn
-	t.Cleanup(func() { codexDesktopAppServerExecFn = prevExec })
-	codexBin := writeFakeExecutable(t, "codex")
-	var gotArgv0 string
-	var gotArgv []string
-	var gotEnv []string
-	codexDesktopAppServerExecFn = func(argv0 string, argv []string, envv []string) error {
-		gotArgv0 = argv0
-		gotArgv = append([]string(nil), argv...)
-		gotEnv = append([]string(nil), envv...)
-		return nil
+func TestMaybeRewriteCodexDesktopThreadStartPreservesFraming(t *testing.T) {
+	withNL := []byte(`{"id":"1","method":"thread/start","params":{"modelProvider":null}}` + "\n")
+	out := maybeRewriteCodexDesktopThreadStart(withNL)
+	if len(out) == 0 || out[len(out)-1] != '\n' {
+		t.Fatalf("trailing newline not preserved: %q", out)
 	}
-	env := []string{
-		"SLIMFERENCE_CODEX_DESKTOP_ACTIVE=1",
-		"SLIMFERENCE_CODEX_DESKTOP_UPSTREAM_BIN=" + codexBin,
-		"SLIMFERENCE_CODEX_DESKTOP_BASE_URL=http://127.0.0.1:8990/backend-api/codex",
+	if !strings.Contains(string(out), "slimference-codex") {
+		t.Fatalf("thread/start not rewritten: %s", out)
 	}
-	for _, kv := range env {
-		key, value, ok := strings.Cut(kv, "=")
-		if !ok {
-			continue
-		}
-		t.Setenv(key, value)
+	noNL := []byte(`{"id":"1","method":"thread/start","params":{"modelProvider":null}}`)
+	out2 := maybeRewriteCodexDesktopThreadStart(noNL)
+	if len(out2) > 0 && out2[len(out2)-1] == '\n' {
+		t.Fatalf("must not add a newline when input had none: %q", out2)
 	}
+	passthrough := []byte(`{"id":"2","method":"turn/start","params":{}}` + "\n")
+	if !bytes.Equal(maybeRewriteCodexDesktopThreadStart(passthrough), passthrough) {
+		t.Fatal("non-matching line must be byte-identical")
+	}
+}
 
+func TestMediateCodexDesktopAppServerStdin(t *testing.T) {
+	in := `{"id":"1","method":"initialize","params":{}}` + "\n" +
+		`{"id":"2","method":"thread/start","params":{"model":"gpt-5.5","modelProvider":null}}` + "\n" +
+		`{"id":"3","method":"turn/start","params":{"threadId":"t"}}` + "\n"
+	var out bytes.Buffer
+	mediateCodexDesktopAppServerStdin(strings.NewReader(in), &out)
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %q", len(lines), out.String())
+	}
+	if strings.Contains(lines[0], "slimference") || strings.Contains(lines[2], "slimference") {
+		t.Fatalf("only thread/start may change: %v", lines)
+	}
+	if !strings.Contains(lines[1], `"modelProvider":"slimference-codex"`) || !strings.Contains(lines[1], `"model":"gpt-5.5"`) {
+		t.Fatalf("thread/start not rewritten correctly: %s", lines[1])
+	}
+}
+
+func TestRunCodexDesktopAppServerMediatedRewritesChildStdin(t *testing.T) {
+	dir := t.TempDir()
+	outFile := filepath.Join(dir, "child-stdin.jsonl")
+	bin := filepath.Join(dir, "codex")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat > \""+outFile+"\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stdin := strings.NewReader(
+		`{"id":"1","method":"thread/start","params":{"model":"gpt-5.5","modelProvider":null,"cwd":"/x"}}` + "\n" +
+			`{"id":"2","method":"turn/start","params":{"threadId":"t"}}` + "\n")
 	var out, errBuf bytes.Buffer
-	rc := runCodexDesktopAppServerShim([]string{"--analytics-default-enabled"}, installPrinter{Out: &out, Err: &errBuf})
+	rc := runCodexDesktopAppServerMediated(bin, []string{bin, "app-server"}, os.Environ(), stdin, installPrinter{Out: &out, Err: &errBuf})
 	if rc != 0 {
 		t.Fatalf("rc=%d err=%q", rc, errBuf.String())
 	}
-	if gotArgv0 != codexBin || !strings.Contains(strings.Join(gotArgv, "\n"), "app-server") {
-		t.Fatalf("exec argv0=%q argv=%v", gotArgv0, gotArgv)
+	got, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(strings.Join(gotEnv, "\n"), "SLIMFERENCE_CODEX_DESKTOP_ACTIVE=") {
-		t.Fatalf("exec env leaked shim state: %v", gotEnv)
+	if !strings.Contains(string(got), `"modelProvider":"slimference-codex"`) || !strings.Contains(string(got), `"model":"gpt-5.5"`) {
+		t.Fatalf("child stdin missing rewritten thread/start: %s", got)
 	}
+	if !strings.Contains(string(got), `"method":"turn/start"`) {
+		t.Fatalf("child stdin missing passthrough turn/start: %s", got)
+	}
+	if strings.Count(string(got), "slimference-codex") != 1 {
+		t.Fatalf("only thread/start should carry the provider: %s", got)
+	}
+}
 
-	codexDesktopAppServerExecFn = func(string, []string, []string) error { return errors.New("exec denied") }
-	rc = runCodexDesktopAppServerShim([]string{"--analytics-default-enabled"}, installPrinter{Out: &out, Err: &errBuf})
-	if rc != 1 || !strings.Contains(errBuf.String(), "exec denied") {
-		t.Fatalf("exec failure rc=%d err=%q", rc, errBuf.String())
+func TestRunCodexDesktopAppServerMediatedPropagatesExitCode(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 7\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var out, errBuf bytes.Buffer
+	rc := runCodexDesktopAppServerMediated(bin, []string{bin, "app-server"}, os.Environ(), strings.NewReader(""), installPrinter{Out: &out, Err: &errBuf})
+	if rc != 7 {
+		t.Fatalf("rc=%d want 7 (err=%q)", rc, errBuf.String())
+	}
+}
+
+func TestRunCodexDesktopAppServerMediatedStartFailure(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+	var out, errBuf bytes.Buffer
+	rc := runCodexDesktopAppServerMediated(missing, []string{missing, "app-server"}, os.Environ(), strings.NewReader(""), installPrinter{Out: &out, Err: &errBuf})
+	if rc != 1 || !strings.Contains(errBuf.String(), "start") {
+		t.Fatalf("rc=%d err=%q", rc, errBuf.String())
 	}
 }
 
