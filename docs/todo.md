@@ -1402,28 +1402,20 @@ only and promotes the per-process Codex CLI runner for T209.
   and must be guided, explicit, reversible, SSL-only, and capability-gated in
   Manage Slimference.
   Detail: `docs/todo/t245-macos-ca-trust-ux.md`
-- [~] **T246** Codex Desktop app-server shim — SOLVED routing + Phase-F route.
-  Root cause: Codex Desktop opens conversations with `thread/start`
-  `modelProvider: null`, which resolves to the account default (chatgpt.com
-  direct) and overrides the config default. Fix (`9dcf8f4`): the hidden shim is a
-  thin stdin JSON-RPC mediator that rewrites a default `modelProvider` to
-  `slimference-codex` (byte-identical otherwise; realtime/voice + explicit
-  providers passed through; fail-open). Verified 2026-05-22: the Desktop
-  app-server holds loopback sockets to `:8990` with zero direct `chatgpt.com`,
-  and the daemon decisions log records the Desktop conversation as
-  `route_mode=websocket_phasef` - the same Phase-F route as the certified CLI,
-  with byte-identical `permessage-deflate` frames. Earlier "zero-byte" /
-  `desktop_connect_only_no_app_server_bytes` readings were sampled-counter
-  artifacts plus trivial test prompts. Gate fix (`af972df`): added a lag-free
-  monotonic `phasef_bridged` dispatcher counter (increments once per Phase-F WSS
-  conversation at upgrade time); the proof now classifies `phasef_bridged>0` +
-  zero errors as `desktop_app_server_phasef_proven` (with mutation) or
-  `desktop_app_server_route_proven` (launch-eligible), and the latter maps to the
-  launchable `desktop_app_server_proven` status. Live-verified: `phasef_bridged`
-  0 -> 1 on one Desktop conversation. Engineering complete: routing + reliable
-  gate; TUI Launch Codex App is reliably unblockable. Normal Finder/Spotlight
-  Codex.app stays direct; voice/Browser/ChatGPT.app/computer-use/Claude untouched.
-  Open: confirm one real end-to-end TUI Desktop launch with the user.
+- [x] **T246** Codex Desktop app-server shim — CLOSED end-to-end.
+  User-confirmed Desktop launch on 2026-05-23 (evening) via
+  `slimference codex desktop prove --manual` + `--finish` returned
+  `mode=desktop_app_server_route_proven`, `launch_ready=true`,
+  `desktop_proven=true`, `phasef_bridged=2`, `compressed_messages_inspected=584`,
+  zero parse/degrade/compression errors. TUI Launch Codex App is now
+  launch-eligible (persisted at `~/.slimference/codex-desktop-proof.json`).
+  Routing solved (`9dcf8f4`, stdin JSON-RPC mediator rewrites default
+  `modelProvider` to `slimference-codex`), gate proven (`af972df`, lag-free
+  `phasef_bridged` counter). Normal Finder/Spotlight Codex.app stays direct;
+  voice/Browser/ChatGPT.app/computer-use/Claude untouched. `desktop_savings=false`
+  on the specific proof session is expected workload-variance (no repeat-read
+  triggered the readcache delta path); the reducer chain itself is proven
+  under T247 fixture + capture.
   Detail: `docs/todo/t246-codex-desktop-app-server-shim-proof.md`
 - [~] **T247** Codex WSS Phase-F reducer efficacy (Responses-API delta model) —
   REDUCER CHAIN PROVEN END-TO-END on real Codex 0.133.0 CLI traffic 2026-05-23

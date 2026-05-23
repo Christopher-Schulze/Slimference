@@ -2553,3 +2553,48 @@ What this changes for the project state:
   covers Codex's real wire shape end to end. The capture instrumentation
   was reverted; production source is unchanged from commit `9e7ec48` /
   `d6a20ef` (docs-only commit after this writeup).
+
+## 2026-05-23 (evening) - T246 closed end-to-end with user-confirmed Desktop launch
+
+User ran the canonical Desktop proof cycle by hand:
+`slimference codex desktop prove --manual --json` opened Codex.app under the
+Slimference shim, the user held a real conversation, then
+`slimference codex desktop prove --finish --json` returned:
+- `mode=desktop_app_server_route_proven`
+- `launch_ready=true`, `desktop_proven=true`,
+  `manual_prompt_still_required=false`
+- `desktop_savings=false`
+
+Counter delta on the proof window (read after Codex.app close, flush-aware):
+- `mitm_bridged=2`, `phasef_bridged=2`
+- `bytes_c2s=127663`, `bytes_s2c=178171`
+- `c2s_frames=7`, `s2c_frames=581`
+- `phasef_requests=5`, `phasef_request_bodies=5`,
+  `phasef_request_messages_indexed=3`, `phasef_text_deltas=540`,
+  `phasef_terminal_responses=5`
+- `compressed_messages_inspected=584`
+- `compressed_messages_mutated=0`, `frames_reencoded=0`, `phasef_mutations=0`
+- `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`
+
+Interpretation:
+- Routing is end-to-end clean: 584 compressed messages inflated and inspected,
+  zero protocol or schema errors, two Phase-F sessions bridged.
+- `desktop_savings=false` on this session is expected workload-variance.
+  The user's conversation did not include repeated full-file reads of the
+  same path, so the readcache delta path never triggered. The reducer chain
+  itself is proven separately under T247 (capture + fixture test `fee1af4`,
+  `TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`).
+- TUI Launch Codex App is now launch-eligible (`launch_ready=true`,
+  persisted in `~/.slimference/codex-desktop-proof.json`).
+
+What this closes:
+- T246 is closed end-to-end: routing solved (`9dcf8f4`), gate proven
+  (`af972df`), user-confirmed launch path (this run, 2026-05-23 evening).
+- T247 remains open only on data-gathering and aggregate measurement, not
+  on code: `scripts/utils aggregate-savings` (commit `e651483`) is the
+  ready-to-use measurement surface. After a real repeat-read Codex workday
+  the same Phase-F path will surface mutation savings the same way the
+  capture run did (`compressed_messages_mutated>0`,
+  `input_tokens_saved>0`).
+
+Production source unchanged for this entry; doc-only commit follows.

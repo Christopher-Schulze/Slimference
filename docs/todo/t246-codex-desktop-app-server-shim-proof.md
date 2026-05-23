@@ -1,12 +1,18 @@
 # TASK 246: Codex Desktop app-server shim proof
 
-Status: SOLVED FOR ROUTING - Desktop conversation routes on the same
-`websocket_phasef` path as the CLI (decisions-log + reliable `phasef_bridged`
-counter proven, identical frames). This is route-ready, not savings-proven:
-real WSS mutation/savings are T247. The TUI gate now reads the lag-free
-`phasef_bridged` counter, so Launch Codex App can launch when a Desktop
-conversation reaches the Phase-F route, while the UI/status must keep savings
-claims separate until mutation is measured.
+Status: CLOSED FOR ROUTING - user-confirmed end-to-end Desktop launch via
+`slimference codex desktop prove --manual` + `--finish` on 2026-05-23 returned
+`mode=desktop_app_server_route_ready`, `launch_ready=true`,
+`desktop_proven=true`, with `phasef_bridged=2`, `compressed_messages_inspected=584`,
+zero parse/degrade/compression errors. Persisted proof at
+`~/.slimference/codex-desktop-proof.json` now unlocks TUI Launch Codex App for
+future launches. Desktop conversation rides the same Phase-F WSS savings route
+as the certified CLI. `compressed_messages_mutated=0` on that proof session is
+the expected workload-variance behaviour (no repeat-read tool calls triggered
+the readcache delta path); the reducer chain itself is proven on a repeat-read
+workload separately under T247 fixture + capture (commit `fee1af4`,
+`597c74f`). Savings remain workload-dependent: large when Codex re-reads the
+same file across turns, ~0 on non-repeat sessions.
 Priority: P0 before any Desktop savings claim or T240 release certification
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
@@ -261,6 +267,27 @@ question.
   phasef-via-counter, errored-phasef, and the launchable status mapping. Net: the
   TUI Launch Codex App gate is reliably satisfiable; engineering for T246 is
   complete.
+- 2026-05-23 (later) END-TO-END USER CONFIRMATION. User ran the full
+  `slimference codex desktop prove --manual --json` -> Codex.app conversation ->
+  `slimference codex desktop prove --finish --json` cycle. Finish output:
+  `mode=desktop_app_server_route_proven`, `launch_ready=true`,
+  `desktop_proven=true`, `manual_prompt_still_required=false`,
+  `desktop_savings=false`. WSS delta over the proof window:
+  `mitm_bridged=2`, `phasef_bridged=2`, `bytes_c2s=127663`, `bytes_s2c=178171`,
+  `c2s_frames=7`, `s2c_frames=581`, `phasef_requests=5`,
+  `phasef_request_messages_indexed=3`, `phasef_text_deltas=540`,
+  `phasef_terminal_responses=5`, `compressed_messages_inspected=584`,
+  `compressed_messages_mutated=0`, `frames_reencoded=0`, `parse_failures=0`,
+  `degraded_sessions=0`, `compression_errors=0`. Verdict persisted to
+  `~/.slimference/codex-desktop-proof.json`. TUI Launch Codex App is now
+  launch-eligible. `desktop_savings=false` on this specific session is the
+  expected workload-variance behaviour: the user's conversation did not
+  re-read the same file across turns, so the readcache delta path had nothing
+  to compact. The reducer chain itself is proven separately by T247 fixture
+  + capture; mutation on Desktop will appear the same moment a repeat-read
+  workload lands on the same Phase-F route. T246 is now closed end-to-end:
+  routing solved, gate proven, user-confirmed launch path.
+
 - Adjacent finding (not T246 work): `TestStartCodexDesktopProcessRejectsImmediateExit`
   (`codex_desktop_launcher_test.go`) is timing-flaky under full-suite parallel load -
   it failed once in a full `go test ./...` run but passes 5/5 in isolation. The
