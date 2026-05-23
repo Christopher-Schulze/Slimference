@@ -89,8 +89,12 @@ func renderLayerLine(s Styles, num int, name string, enabled bool, saved int, ex
 	)
 }
 
+// renderViewTabs renders the top navigation as a flat menu line - no
+// background blocks, no reiter optics. The current view gets a `▶ Label`
+// cursor in the accent color; idle entries are `  Label` in dim foreground.
+// Items are separated by middle dots to read as one connected line.
 func renderViewTabs(s Styles, current ViewMode) string {
-	tabs := []struct {
+	items := []struct {
 		mode  ViewMode
 		label string
 	}{
@@ -100,16 +104,15 @@ func renderViewTabs(s Styles, current ViewMode) string {
 		{mode: ViewDebug, label: "Debug"},
 		{mode: ViewSetup, label: "Setup"},
 	}
-	parts := make([]string, 0, len(tabs))
-	for _, tab := range tabs {
-		label := " " + tab.label + " "
-		if tab.mode == current {
-			parts = append(parts, s.TabActive.Render(label))
+	parts := make([]string, 0, len(items))
+	for _, it := range items {
+		if it.mode == current {
+			parts = append(parts, s.TabActive.Render("▶ "+it.label))
 			continue
 		}
-		parts = append(parts, s.TabIdle.Render(label))
+		parts = append(parts, s.TabIdle.Render("  "+it.label))
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, s.KeySep.Render(" · "))
 }
 
 func renderSetupStepRow(s Styles, index int, label string, done bool, selected bool) string {

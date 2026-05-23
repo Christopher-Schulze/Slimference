@@ -3,27 +3,35 @@ package tui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Palette defines the color scheme for the Slimference dashboard.
-// The direction is a dense operator console: dark steel surfaces, cyan focus,
-// lime savings, and restrained amber warnings.
+// Palette is intentionally restricted: one solid dark background, one bright
+// foreground, one accent for focus/active, plus three semantic colors
+// (success/warn/error). Everything renders against the same dark surface, so
+// the dashboard reads as one unified panel rather than a patchwork of
+// background blocks.
 var (
-	// Accent colors.
-	colorAccent   = lipgloss.Color("81")  // focus and active borders
-	colorGreen    = lipgloss.Color("78")  // good/savings/on
-	colorGreenDim = lipgloss.Color("42")  // dimmer green for bars
-	colorOrange   = lipgloss.Color("215") // warning
-	colorRed      = lipgloss.Color("203") // error
-	colorBlue     = lipgloss.Color("111") // info/provider indicator
-	colorGold     = lipgloss.Color("221") // title/warm accent
+	colorBg      = lipgloss.Color("235") // solid dashboard background
+	colorBgAlt   = lipgloss.Color("237") // subtle row separator (only used sparingly)
+	colorFg      = lipgloss.Color("253") // primary foreground
+	colorFgDim   = lipgloss.Color("245") // secondary foreground
+	colorFgMuted = lipgloss.Color("240") // muted / structural
+	colorAccent  = lipgloss.Color("81")  // focus / cursor / active row
+	colorGreen   = lipgloss.Color("78")  // savings / health-ok
+	colorOrange  = lipgloss.Color("215") // warning
+	colorRed     = lipgloss.Color("203") // error
 
-	// Neutral palette.
-	colorWhite    = lipgloss.Color("255")
-	colorDimWhite = lipgloss.Color("250")
-	colorGray     = lipgloss.Color("244")
-	colorDimGray  = lipgloss.Color("240")
-	colorDark     = lipgloss.Color("234")
-	colorPanel    = lipgloss.Color("236")
-	colorPanelAlt = lipgloss.Color("238")
+	// Compatibility aliases (kept so existing references compile while the
+	// styles below switch to the reduced palette). New code should reach for
+	// the names above.
+	colorGreenDim = colorGreen
+	colorBlue     = colorAccent
+	colorGold     = colorFg
+	colorWhite    = colorFg
+	colorDimWhite = colorFg
+	colorGray     = colorFgDim
+	colorDimGray  = colorFgMuted
+	colorDark     = colorBg
+	colorPanel    = colorBg
+	colorPanelAlt = colorBgAlt
 )
 
 // Styles are the pre-built lipgloss styles used throughout the TUI.
@@ -115,247 +123,113 @@ type Styles struct {
 	MetricVal  lipgloss.Style
 }
 
-// NewStyles builds the complete style set.
+// NewStyles builds the complete style set. The dashboard renders entirely
+// against `colorBg`; only the outer container plus the active-row marker
+// carry a Background() so the surface reads as one solid panel. Everything
+// else is foreground-only with bold/underline accents - no ad-hoc badge
+// blocks, no rainbow.
 func NewStyles() Styles {
+	container := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorFgMuted).
+		Background(colorBg).
+		Foreground(colorFg).
+		Padding(0, 1)
+
+	containerActive := container.Copy().BorderForeground(colorAccent)
+
+	plain := lipgloss.NewStyle().Background(colorBg).Foreground(colorFg)
+	dim := lipgloss.NewStyle().Background(colorBg).Foreground(colorFgDim)
+	muted := lipgloss.NewStyle().Background(colorBg).Foreground(colorFgMuted)
+	accent := lipgloss.NewStyle().Background(colorBg).Foreground(colorAccent)
+	good := lipgloss.NewStyle().Background(colorBg).Foreground(colorGreen)
+	warn := lipgloss.NewStyle().Background(colorBg).Foreground(colorOrange)
+	bad := lipgloss.NewStyle().Background(colorBg).Foreground(colorRed)
+
 	return Styles{
-		Border: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPanelAlt).
-			Background(colorDark).
-			Padding(0, 1),
+		Border:       container,
+		BorderActive: containerActive,
 
-		BorderActive: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorAccent).
-			Background(colorDark).
-			Padding(0, 1),
+		Title:         plain.Copy().Bold(true),
+		Subtitle:      dim.Copy().Bold(true),
+		SectionHeader: muted.Copy(),
+		Normal:        plain,
+		Dim:           dim,
+		Muted:         muted,
 
-		Title: lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorWhite),
+		OnBadge:  good.Copy().Bold(true),
+		OffBadge: muted,
+		Dot:      good,
+		DotOff:   muted,
 
-		Subtitle: lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorDimWhite),
+		Saved:     good.Copy().Bold(true),
+		Highlight: accent,
+		Warning:   warn,
+		Error:     bad,
 
-		SectionHeader: lipgloss.NewStyle().
-			Foreground(colorDimGray).
-			Bold(false),
+		TableHeader: dim.Copy().Bold(true),
+		TableCell:   plain,
+		TableBorder: muted,
 
-		Normal: lipgloss.NewStyle().
-			Foreground(colorDimWhite),
+		BarFilled: good,
+		BarEmpty:  muted,
 
-		Dim: lipgloss.NewStyle().
-			Foreground(colorGray),
+		LogTime:  muted,
+		LogInfo:  accent.Copy().Bold(true),
+		LogWarn:  warn.Copy().Bold(true),
+		LogError: bad.Copy().Bold(true),
+		LogDebug: muted,
+		LogField: dim,
 
-		Muted: lipgloss.NewStyle().
-			Foreground(colorDimGray),
+		Footer:     muted,
+		FooterKey:  accent.Copy().Bold(true),
+		FooterDesc: muted,
 
-		OnBadge: lipgloss.NewStyle().
-			Foreground(colorGreen).
-			Bold(true),
-
-		OffBadge: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		Dot: lipgloss.NewStyle().
-			Foreground(colorGreen),
-
-		DotOff: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		Saved: lipgloss.NewStyle().
-			Foreground(colorGreen).
-			Bold(true),
-
-		Highlight: lipgloss.NewStyle().
-			Foreground(colorAccent),
-
-		Warning: lipgloss.NewStyle().
-			Foreground(colorOrange),
-
-		Error: lipgloss.NewStyle().
-			Foreground(colorRed),
-
-		TableHeader: lipgloss.NewStyle().
-			Foreground(colorGray).
-			Bold(true),
-
-		TableCell: lipgloss.NewStyle().
-			Foreground(colorDimWhite),
-
-		TableBorder: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		BarFilled: lipgloss.NewStyle().
-			Foreground(colorGreenDim),
-
-		BarEmpty: lipgloss.NewStyle().
-			Foreground(colorDark),
-
-		LogTime: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		LogInfo: lipgloss.NewStyle().
-			Foreground(colorBlue).
-			Bold(true),
-
-		LogWarn: lipgloss.NewStyle().
-			Foreground(colorOrange).
-			Bold(true),
-
-		LogError: lipgloss.NewStyle().
-			Foreground(colorRed).
-			Bold(true),
-
-		LogDebug: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		LogField: lipgloss.NewStyle().
-			Foreground(colorGray),
-
-		Footer: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		FooterKey: lipgloss.NewStyle().
-			Foreground(colorAccent).
-			Bold(true),
-
-		FooterDesc: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		Flash: lipgloss.NewStyle().
-			Foreground(colorGold).
-			Bold(true),
+		Flash: accent.Copy().Bold(true),
 
 		// Layout.
-		PanelTitle: lipgloss.NewStyle().
-			Foreground(colorAccent).
-			Bold(true),
+		PanelTitle: accent.Copy().Bold(true),
+		Divider:    muted,
+		HorizRule:  muted,
+		HeaderBar:  plain.Copy().Bold(true),
 
-		Divider: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		HorizRule: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		HeaderBar: lipgloss.NewStyle().
-			Background(colorPanel).
-			Foreground(colorWhite).
-			Bold(true),
-
-		// Keyboard hints.
-		Key: lipgloss.NewStyle().
-			Foreground(colorAccent).
-			Bold(true),
-
-		KeySep: lipgloss.NewStyle().
-			Foreground(colorDimGray),
+		// Keyboard hints (rendered inline, no padding block).
+		Key:    accent.Copy().Bold(true),
+		KeySep: muted,
 
 		// Big emphasis.
-		BigSaved: lipgloss.NewStyle().
-			Foreground(colorGreen).
-			Bold(true),
+		BigSaved: good.Copy().Bold(true),
 
-		// Setup instructions.
-		SetupCmd: lipgloss.NewStyle().
-			Foreground(colorAccent).
-			Background(colorPanel).
-			Padding(0, 1),
+		// Setup instructions (no background block - just colored inline text).
+		SetupCmd:   accent,
+		SetupTitle: plain.Copy().Bold(true),
 
-		SetupTitle: lipgloss.NewStyle().
-			Foreground(colorGold).
-			Bold(true),
+		Card:       container,
+		CardActive: containerActive,
 
-		Card: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPanelAlt).
-			Background(colorPanel).
-			Padding(0, 1),
+		// Menu / tab markers: foreground-only, cursor uses `▶` plus accent
+		// color, idle is dim foreground. No Background() blocks.
+		TabActive: accent.Copy().Bold(true),
+		TabIdle:   dim,
 
-		CardActive: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorAccent).
-			Background(colorDark).
-			Padding(0, 1),
+		BannerGood: good.Copy().Bold(true),
+		BannerWarn: warn.Copy().Bold(true),
 
-		TabActive: lipgloss.NewStyle().
-			Foreground(colorDark).
-			Background(colorAccent).
-			Bold(true).
-			Padding(0, 1),
+		StepDone:   good.Copy().Bold(true),
+		StepCursor: accent.Copy().Bold(true),
+		StepIdle:   plain,
+		StepIndex:  dim.Copy().Bold(true),
+		Shortcut:   accent,
 
-		TabIdle: lipgloss.NewStyle().
-			Foreground(colorDimWhite).
-			Background(colorPanel).
-			Padding(0, 1),
+		MenuGroup:  dim.Copy().Bold(true),
+		MenuIdle:   plain,
+		MenuActive: accent.Copy().Bold(true),
+		MenuMeta:   muted,
+		MenuOn:     good.Copy().Bold(true),
+		MenuOff:    muted,
+		MenuWarn:   warn.Copy().Bold(true),
 
-		BannerGood: lipgloss.NewStyle().
-			Foreground(colorDark).
-			Background(colorGreen).
-			Bold(true).
-			Padding(0, 1),
-
-		BannerWarn: lipgloss.NewStyle().
-			Foreground(colorDark).
-			Background(colorOrange).
-			Bold(true).
-			Padding(0, 1),
-
-		StepDone: lipgloss.NewStyle().
-			Foreground(colorGreen).
-			Bold(true),
-
-		StepCursor: lipgloss.NewStyle().
-			Foreground(colorDark).
-			Background(colorAccent).
-			Bold(true).
-			Padding(0, 1),
-
-		StepIdle: lipgloss.NewStyle().
-			Foreground(colorDimWhite),
-
-		StepIndex: lipgloss.NewStyle().
-			Foreground(colorGray).
-			Bold(true),
-
-		Shortcut: lipgloss.NewStyle().
-			Foreground(colorAccent).
-			Background(colorPanel).
-			Padding(0, 1),
-
-		MenuGroup: lipgloss.NewStyle().
-			Foreground(colorGray).
-			Bold(true),
-
-		MenuIdle: lipgloss.NewStyle().
-			Foreground(colorDimWhite),
-
-		MenuActive: lipgloss.NewStyle().
-			Foreground(colorWhite).
-			Background(colorPanelAlt).
-			Bold(true).
-			Padding(0, 1),
-
-		MenuMeta: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		MenuOn: lipgloss.NewStyle().
-			Foreground(colorGreen).
-			Bold(true),
-
-		MenuOff: lipgloss.NewStyle().
-			Foreground(colorDimGray),
-
-		MenuWarn: lipgloss.NewStyle().
-			Foreground(colorOrange).
-			Bold(true),
-
-		MetricKey: lipgloss.NewStyle().
-			Foreground(colorGray),
-
-		MetricVal: lipgloss.NewStyle().
-			Foreground(colorWhite).
-			Bold(true),
+		MetricKey: dim,
+		MetricVal: plain.Copy().Bold(true),
 	}
 }
