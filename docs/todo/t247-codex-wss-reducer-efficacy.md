@@ -7,8 +7,11 @@ reduction; recorded `input_tokens_saved=26461` on a 3x35KB-file session. Earlier
 defect. Fixture-based regression test landed
 (`internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`)
 asserting Slimference-delta-marker reduction on reads #2 and #3 of an isolated
-multi-read sequence. Open: quantification of non-WSS savings layers for honest
-aggregate; one Desktop pass on the identical code path.
+multi-read sequence. Aggregate-savings tooling landed at
+`scripts/utils/aggregate-savings` for honest live + offline measurement of
+WSS + output-reduce + HTTP-path Layer-0 savings in one report. Open: collect
+representative real-workday measurements with the new tooling; one Desktop pass
+on the identical code path.
 Priority: P0 - this is whether Slimference delivers real Codex token savings at all
 Scope: WSS Phase-F request reducers for Codex (CLI + Desktop, same route)
 
@@ -94,9 +97,21 @@ reduce in a single delta request.
 - [ ] Re-measure live on Codex Desktop on the identical Phase-F route once a
   user-confirmed Desktop session is run via TUI Launch Codex App. T246 proved
   the route is identical, so the reducer chain is expected to behave the same.
-- [ ] Separately quantify savings from the OTHER layers (output-reduce stop-seq,
+- [~] Separately quantify savings from the OTHER layers (output-reduce stop-seq,
   response cache, L0 read-delta on HTTP) so the product savings claim is grounded
-  in measurement, not in `wss_certified=true`.
+  in measurement, not in `wss_certified=true`. Tooling landed:
+  `scripts/utils/aggregate-savings` pulls live `/admin/state` WSS counters,
+  live output-reduce counters (`savings.repdet_rewrites`,
+  `savings.stale_read_blocks`, `savings.obsolete_prune_blocks`,
+  `savings.stop_seq_injections`, `savings.beterse_injections`,
+  `savings.streamcut_fires`), and offline HTTP-path Layer-0 filter savings via
+  `--filter-db=<path>` plus `--period=<all|today|week|month>`, with optional
+  USD estimation via `--usd-per-million=<rate>`, and renders an honest text or
+  JSON report. Offline mode supported via `--admin-state-file=<path>` for
+  cert-ceremony reproducibility. 8 unit tests covering text shape, JSON
+  round-trip, health-warn line on parse_failures, flag validation, and help
+  output. Runs in well under a second. Open: collect real measurements from a
+  representative Codex workday before T240 release certification.
 
 ## Notes
 
