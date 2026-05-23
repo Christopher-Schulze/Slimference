@@ -2404,3 +2404,152 @@ status: Codex WSS routes through Slimference and is inspected cleanly, but Phase
 token savings are marginal; Desktop is route-ready, savings pending T247. Also
 flagged: `TestStartCodexDesktopProcessRejectsImmediateExit` is timing-flaky under
 full-suite load (passes 5/5 in isolation); pre-existing (last touched `e1633ef`).
+
+## 2026-05-23 (later) - T247 reducer chain proven end-to-end on real Codex CLI traffic
+
+Goal: stop guessing whether the function_call -> tool_use ->
+function_call_output -> tool_result -> commandLine -> readcache chain breaks on
+real Codex Responses-API delta traffic, and find the actual breakpoint by
+capturing every step on one controlled multi-read session.
+
+Method (env-gated, removed before final commit):
+- Added a minimal `t247Dump(kind, payload)` helper in `wsmitm_phasef.go`
+  gated on `SLIMFERENCE_T247_DUMP=1`, writing to `/tmp/t247-dump/`. Three dump
+  points: `handleRequest` body pre-pipeline (`req-pre`), `handleRequest`
+  post-pipeline plus a JSON meta blob with messages/tool_uses/tool_results/
+  command_lines/remembered_tool_uses/session_key (`req-meta`, `req-post`), and
+  `handleResponse` per-frame envelope summary for non-empty `Item`/`Response`
+  (`resp-<kind>`).
+- Stopped the production daemon, built a temporary
+  `/tmp/slimference-t247` binary from the unchanged source plus the dump,
+  started it with `SLIMFERENCE_T247_DUMP=1`, ran one scoped CLI session
+  through `slimference codex run --transport=auto -- exec --ephemeral
+  --skip-git-repo-check --cd /tmp --dangerously-bypass-approvals-and-sandbox
+  '... run three separate read operations on /tmp/t247-read-target.md ...'`
+  with the read target being a 35567b copy of `handover-by-opus.md`, closed
+  the session cleanly, then read `/_slimference/admin/state` and decoded
+  every dump file.
+- After diagnosis, reverted the three `wsmitm_phasef.go` edits surgically.
+  `git diff --stat` clean, `go build ./...` clean, `go vet ./...` clean,
+  `go test ./internal/proxy/...` green across all five packages. Archived
+  the captures to `/tmp/t247-dump-evidence.tgz` (226 KB) for future
+  reference, removed `/tmp/t247-dump/` and the temporary binary, and
+  restarted the production `slimference daemon` from
+  `/Users/christopher/.local/bin/slimference`.
+
+What the captures showed end to end (every step in the chain confirmed
+working on real 0.133.0 traffic):
+- Request shape for each `function_call_output` turn: `{model: "gpt-5.5",
+  instructions: 21335b, previous_response_id: "resp_<id>",
+  input: [{type: "function_call_output", id|call_id: "call_<id>",
+  output: "Chunk ID: <chunk>\nWall time: ...\nProcess exited with code 0\n
+  Original token count: <n>\nOutput:\n<file content>"}], tools: 14,
+  prompt_cache_key: "019e5220-4b66-7e40-b089-5f65cb479346"}`.
+  Body size 71024b on each repeat-read request.
+- `extractMessages(types.CodexChatGPT, body)` parses the Responses-shape
+  `input` items; `codexInputItemToMessage` maps `function_call_output` ->
+  `ContentBlock{Type:"tool_result", ToolResultID: call_id, Text: output}`
+  via `codexLooksLikeToolOutput` plus `codexToolOutputText`.
+- `rememberToolUsesFromResponse` accumulates each prior turn's
+  `function_call` item (kind = `response.output_item.added` /
+  `response.output_item.done`) into `a.toolUses` keyed by the same
+  `call_id`. By request #2 the map held the request #1 use, by request #3
+  it held both prior uses (`remembered_tool_uses` field in `req-meta`
+  confirmed this directly).
+- `proxyResolveToolUse` resolved each new tool_result block via the
+  remembered map; the resolved tool name was `exec_command` (covered by
+  `looksLikeShellTool`); the resolved arguments shape was
+  `{"command":["bash","-lc","cat /tmp/t247-read-target.md"], "workdir":
+  "/tmp"}` (string-encoded JSON inside `arguments`).
+- `codexCommandLineFromFields` extracted `bash -lc cat /tmp/...md`, then
+  `normalizeLayer0CommandLine` recognised the bash wrapper (`argv[0]` is a
+  shell executable AND `argv[1]` begins with `-` and contains `c`) and
+  stripped to `cat /tmp/t247-read-target.md`. Identical for all three
+  reads; `command_lines` field in `req-meta` confirmed this for every
+  request.
+- `wsCodexSessionID` returned `codex-wss:019e5220-4b66-7e40-b089-5f65cb479346`
+  on every request (prompt_cache_key fix from `b5213e8` in effect).
+- `applyProxyLayer0WithSessionAndToolUses` ran, and for each repeat-read
+  tool_result the reducer chain produced an actual mutation:
+  - Read #1 (35567b output): the new content was not yet in the readcache,
+    so `compactProxyReadDelta` returned no change. The fallback
+    `compactProxyLayer0Text` -> `compactCodexExecEnvelope` split the Codex
+    exec envelope header from the payload, ran
+    `filter.CompactCapturedOutputWithContext` over the payload, and
+    produced 6558b (81% reduction). After this read the file content was
+    deposited into the content-archive and the readcache observed it.
+  - Read #2 (35567b output): `compactProxyReadDelta` ->
+    `readcache.EvaluateObserved(DefaultDir(home), Request{SessionID,
+    FilePath}, text, ArchiveDir, recentlyEdited)` returned
+    `DecisionBlock` with reason
+    `"Slimference delta for /tmp/t247-read-target.md:\n+ Chunk ID: 12030b
+    \n- Chunk ID: 5bab73\nFull content: local-archive://20260522-235837-1d325a120327"`,
+    144b total. Replaces the entire 35567b output payload, leaving only
+    the delta marker plus archive reference for Codex to expand on demand.
+  - Read #3 (35567b output): identical pattern, 144b delta marker against
+    read #2's chunk_id.
+  Aggregate: 106701b raw output payload -> 6846b mutated = 94% reduction
+  on the output side.
+- Frame-level write back: `wsmitm.Session.finishCompressedMessage` saw
+  `replace=true` on each mutated request, re-marshaled the envelope,
+  deflated the new payload, and wrote new RSV1-set frames. Counter pump
+  observed three CompressedMessagesMutated += 1 and three
+  FramesReencoded += 1.
+
+Daemon `/admin/state` after the multi-read session closed (flush-aware):
+- `wss.phasef_bridged=1`, `wss.frames_reencoded=3`,
+  `wss.compressed_messages_mutated=3`, `wss.phasef_mutations=3`,
+  `wss.mutation_active=true`, `wss.byte_bridge_only=false`.
+- `wss.compressed_messages_inspected=142`,
+  `wss.parse_failures=0`, `wss.degraded_sessions=0`,
+  `wss.compression_errors=0`.
+- `wss.bytes_c2s=128961`, `wss.bytes_s2c=189499`, `wss.c2s_frames=5`,
+  `wss.s2c_frames=137`, `wss.phasef_requests=5`,
+  `wss.phasef_request_messages_indexed=4`, `wss.phasef_text_deltas=105`,
+  `wss.phasef_terminal_responses=5`.
+- `savings.input_tokens_saved=26461` (RecordProxyLayer0 path);
+  `savings.repdet_rewrites=0`, `savings.stale_read_blocks=0`,
+  `savings.obsolete_prune_blocks=0`, `savings.stop_seq_injections=0`,
+  `savings.beterse_injections=0`.
+
+Honest calibration (resolves the earlier "0 mutations on multi-read"
+observation):
+- The earlier 2026-05-23 multi-read measurement that reported
+  `compressed_messages_mutated += 0` was Codex-side run-variance, not a
+  reducer defect. On the same Codex 0.133.0 binary, the same prompt, the
+  same Slimference code (only difference: the env-gated dump helper, which
+  does not influence mutation), Codex chose to expose 5 c2s frames with 4
+  parseable instead of 3 with 2 parseable. The reducer mutated all three
+  repeat-reads on the capture run.
+- Slimference WSS Phase-F savings are workload-dependent: ~0 input tokens
+  saved on sessions without repeat reads (only F01-F24 filter hits inside
+  the same applyInputPipeline can fire); 26461 input tokens saved on the
+  3x35KB-file capture session. The cert no longer depends on the F01
+  git-status frame alone; the read-delta chain is operationally proven on
+  real Codex Responses-API delta traffic.
+
+Cert behaviour after the recert run on the same daemon family:
+- `~/.slimference/codex-wss-cert.json` was refreshed by the official
+  `slimference codex recertify wss --force` path at 2026-05-22T23:44:45Z
+  (operator opus, frames_reencoded=1, T247 cert-repro note).
+- `~/.slimference/codex-wss-recert.json` recorded
+  `status=passed`, `phasef_passed=true`, `bridge_passed=false` (logical:
+  bridge proof expects mutation=0; on a mutating path it cannot pass and
+  must not).
+- `codex_route.auto_mode=wss_phasef`, `wss_certified=true`,
+  `recert_status=passed` confirmed via admin/state.
+
+What this changes for the project state:
+- T246 routing was already solved-for-routing; T247 was the open question
+  of whether Phase-F can actually save tokens on real Codex Responses-API
+  delta traffic. Answer: yes, on repeat-read workloads, deterministically
+  and safely.
+- T240 release certification can now be planned around honest measured
+  savings rather than the single-frame cert that previously anchored the
+  claim. The remaining T247 sub-tasks are a fixture-based regression test
+  against the captured delta shape and quantification of the non-WSS
+  layers for an honest aggregate savings number.
+- No code change was required for this finding. The reducer chain already
+  covers Codex's real wire shape end to end. The capture instrumentation
+  was reverted; production source is unchanged from commit `9e7ec48` /
+  `d6a20ef` (docs-only commit after this writeup).

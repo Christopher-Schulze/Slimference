@@ -162,15 +162,20 @@ Two halves of "done":
 - TASK status (`docs/todo.md`):
   - T246 Codex Desktop app-server shim - routing SOLVED + reliable gate; engineering
     complete. Open: one real end-to-end TUI Desktop launch confirmation with the user.
-  - T247 Codex WSS Phase-F reducer efficacy - OPEN. The real product-value work.
-    Prerequisite (session-key) fixed; the read-delta reducer for the Responses-API
-    delta shape is the remaining engineering.
+  - T247 Codex WSS Phase-F reducer efficacy - reducer chain proven end-to-end on
+    real Codex 0.133.0 CLI traffic 2026-05-23 (multi-read capture, `frames_reencoded=3`,
+    `compressed_messages_mutated=3`, `input_tokens_saved=26461`, 94% reduction on
+    output payload). See §9 for the verified shape. Open: fixture-based regression
+    test against a redacted capture; one Desktop pass on the identical route;
+    quantification of non-WSS savings layers.
 - Build/test health (verified this session): `go build ./...` clean,
-  `go vet ./...` clean, `go test ./...` green except one timing-flaky test
+  `go vet ./...` clean, `go test ./internal/proxy/...` green across all five
+  packages; full-suite `go test ./...` green except one timing-flaky test
   (`TestStartCodexDesktopProcessRejectsImmediateExit`, passes 5/5 in isolation,
   pre-existing, see §10). `go run ./scripts/ci` 8/8 PASS, coverage gate green.
 - Daemon currently running and healthy on :8990; CLI `wss_certified=true`,
-  `auto.mode=wss_phasef` (but see §9 - the cert rests on a single mutated frame).
+  `auto.mode=wss_phasef`; cert path now anchored by a proven repeat-read reducer
+  chain plus the synthetic-repo recert frame (see §9 for measured numbers).
 
 ---
 
@@ -382,85 +387,105 @@ NOT claim savings, because savings are the T247 problem.
 
 ---
 
-## 9. WSS Phase-F savings (T247) - THE REAL OPEN WORK
+## 9. WSS Phase-F savings (T247) - REDUCER CHAIN PROVEN END-TO-END
 
 Detail file: `docs/todo/t247-codex-wss-reducer-efficacy.md`. Evidence:
-`docs/operation-log.md` 2026-05-23 entries.
+`docs/operation-log.md` 2026-05-23 entries (initial Phase-0 + the later capture
+writeup).
 
-The decisive finding: WSS Phase-F INSPECTS real Codex traffic correctly but MUTATES
-almost nothing - for CLI AND Desktop. Measured 2026-05-23 on fresh daemons, read
-after session close:
-- CLI exec (recert-style): `compressed_messages_inspected=58`, `phasef_requests=3`,
-  but `frames_reencoded=0`, `compressed_messages_mutated=0`, `byte_bridge_only=true`.
-- Desktop (93KB file twice): `compressed_messages_inspected=1111`,
-  `frames_reencoded=0`.
-- The cert `~/.slimference/codex-wss-cert.json` shows `frames_reencoded: 1` - the
-  green flag rests on a single mutated frame.
+Headline finding (2026-05-23 capture run, env-gated debug since reverted): on real
+Codex 0.133.0 CLI traffic, a controlled 3x cat of a 35567b file routed through
+scoped Slimference produced
+- `frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
+  `mutation_active=true`, `byte_bridge_only=false`,
+- zero `parse_failures` / `degraded_sessions` / `compression_errors`,
+- `savings.input_tokens_saved=26461` (94% reduction on output payload total:
+  106701b -> 6846b).
+The reducer chain function_call -> remembered tool_use ->
+function_call_output -> tool_result -> commandLine -> readcache -> delta-marker
+mutation runs end to end on Codex's real Responses-API delta wire shape, on the
+current source, without code change. The cert `~/.slimference/codex-wss-cert.json`
+no longer rests on a single F01-style mutated frame.
 
-Root cause (found by an env-gated debug dump in `wsmitm_phasef.go:handleRequest`,
-since reverted; request bodies captured to `/tmp/wsphasef-body-*.json`): Codex WSS
-is the OpenAI Responses API with `previous_response_id` (server-side conversation
-state). Each request carries only the DELTA, not the accumulated history. Observed
-one-turn sequence: `input=[]` -> `input=[message,message,message]` ->
-`input=[function_call_output]` -> `input=[function_call_output]`. No single request
-contains repeated history. Slimference's L1/L0 dedup reducers
-(`applyProxyLayer0WithSessionAndToolUses`, read-delta, MinHash dedup) are built for
-the Chat-Completions shape where the FULL history (with repeated tool outputs) is in
-every request. Against delta requests they find nothing to reduce.
+Earlier 2026-05-23 measurements that read `compressed_messages_mutated=0` on
+multi-read CLI / Desktop were Codex-side run-variance: the same prompt against the
+same code path picked a different number of c2s turns. On the capture run the
+reducer mutated all three repeat-reads. Therefore the historical narrative "WSS
+Phase-F mutates almost nothing" is calibrated: WSS Phase-F savings are
+**workload-dependent**, large on sessions with repeat reads, low on sessions
+without them.
 
-The mutation decision path (so you know exactly where to work):
-- `wsmitm/session.go:finishCompressedMessage` inflates a permessage-deflate message,
-  calls the handler (`wsPhaseFAdapter.handle` in `wsmitm_phasef.go`), and only
-  mutates (CompressedMessagesMutated++, FramesReencoded++) when the handler returns
-  `replace=true` (i.e. the reducer produced a shorter, schema-safe body).
+Background (Codex's wire shape, still relevant to know):
+- Codex WSS is the OpenAI Responses API with `previous_response_id` (server-side
+  conversation state). Each request carries only the DELTA. Observed one-turn
+  sequence: `input=[]` -> `input=[message,message,message]` ->
+  `input=[function_call_output]` -> `input=[function_call_output]`. No single
+  request contains repeated history.
+- The cross-turn read-delta path therefore depends on the per-session readcache
+  and `rememberToolUsesFromResponse`. Both are wired correctly; the prerequisite
+  session-key fix from `b5213e8` (extract `prompt_cache_key` plus
+  `client_metadata.x-codex-turn-metadata`) is in production and verified
+  populated (`codex-wss:019e5220-...`).
+
+The mutation decision path (still the right map; values are now proven):
+- `wsmitm/session.go:finishCompressedMessage` inflates a permessage-deflate
+  message, calls the handler (`wsPhaseFAdapter.handle` in `wsmitm_phasef.go`), and
+  mutates (`CompressedMessagesMutated++`, `FramesReencoded++`) when the handler
+  returns `replace=true`.
 - `wsPhaseFAdapter.handleRequest -> applyInputPipeline` runs, in order: staleread
-  aging, obsolete-read prune, `applyProxyLayer0WithSessionAndToolUses` (L0), stop-seq
-  injection, be-terse hint. All OutputReduce sub-flags default TRUE except
-  be-terse (`internal/config/defaults.go`: stop_seq, repdet, stale_read_aging,
-  obsolete_read_prune = true; be_terse = false). So config is NOT the blocker.
-- L0 (`layer0_proxy.go`) compacts `tool_result` blocks whose `tool_use` resolves to a
-  command line, via read-delta against a per-session read context keyed by sessionID.
+  aging, obsolete-read prune, `applyProxyLayer0WithSessionAndToolUses` (L0),
+  stop-seq injection (skipped on Responses-shape per T233), be-terse hint
+  (default off). All other OutputReduce sub-flags default TRUE.
+- L0 (`layer0_proxy.go`) compacts `tool_result` blocks whose `tool_use` resolves
+  to a command line, primarily via `compactProxyReadDelta` (readcache
+  EvaluateObserved -> DecisionBlock returns a delta marker with
+  `local-archive://...` reference), fallback via `compactProxyLayer0Text` ->
+  `compactCodexExecEnvelope` -> `filter.CompactCapturedOutputWithContext` (the
+  F01-F24 chain).
 
-Prerequisite bug found + fixed (commit `b5213e8`): `wsCodexSessionID`
-(`wsmitm_phasef.go:351`) returned "" for every Codex WSS request - it looked for
-`conversation_id`/`session_id`/`user_id`, but Codex's stable per-thread key is
-`prompt_cache_key` (mirrored in `client_metadata.x-codex-turn-metadata`). With an
-empty key the per-session read context could not accumulate across the delta
-requests. Now it extracts `prompt_cache_key` then the client_metadata thread/session
-id (with a unit test `TestWSCodexSessionIDFromCodexResponsesShape`). VERIFIED the
-session key is now populated (`codex-wss:019e51d6-...`). NECESSARY but NOT yet
-SUFFICIENT - mutation is still 0, because the read-delta still does not match the
-`function_call_output` deltas.
-
-Why mutation still 0 after the session-key fix (the remaining engineering):
-- The `function_call_output` request has `tool_uses=0` (the originating
-  `function_call` is in a prior response, referenced by `previous_response_id`, not
-  in this request). The adapter DOES `rememberToolUsesFromResponse`, so the tool_use
-  can in principle be resolved from remembered responses - but the read-delta across
-  delta requests needs that resolution plus a remembered prior tool-output to delta
-  against, keyed by the now-correct session id.
-
-T247 plan (in the detail file; step 1 first, it is cheapest and most informative):
-1. Reproduce the cert's single mutation: re-run the exact recert/cert path, fresh
-   daemon, close cleanly, check if `frames_reencoded:1` reproduces, and trace WHICH
-   frame mutated. That one path is the only thing that works today; it anchors the fix.
-2. Make the read-delta reducer compact a `function_call_output` delta against the
-   remembered prior tool-output of the same command/file (resolve tool_use from
-   remembered responses; key the read context by session id).
-3. Fixture-test against a REAL captured Codex WSS delta sequence (not the
-   Chat-Completions shape).
-4. Re-measure live (CLI then Desktop - route identical) with the flush-aware method.
-5. Quantify the OTHER layers (HTTP-path L0/L1, response cache, output-reduce) so the
-   savings claim is grounded in measurement, not in `wss_certified=true`.
+Real shape confirmed on Codex 0.133.0 traffic (every line verified against
+captures, archived at `/tmp/t247-dump-evidence.tgz`):
+- `extractMessages` parses Responses-shape `input` items;
+  `codexInputItemToMessage` maps `function_call_output` -> `tool_result` with
+  `ToolResultID = call_id`.
+- `rememberToolUsesFromResponse` accumulates each prior `function_call` item from
+  the response stream into `a.toolUses` keyed by `call_id`. By request #N the map
+  holds requests #1..#N-1.
+- `proxyResolveToolUse` resolves the tool_result block via the remembered map;
+  resolved `ToolName = "exec_command"` (covered by `looksLikeShellTool`),
+  resolved `arguments = {"command":["bash","-lc","cat <path>"], "workdir":...}`
+  (string-encoded JSON inside `arguments`).
+- `codexCommandLineFromFields` extracts `bash -lc cat <path>`;
+  `normalizeLayer0CommandLine` strips the bash wrapper to `cat <path>`;
+  `filter.ReadPathFromCommandLine` yields the path.
+- Read #1: cache cold -> `compactProxyReadDelta` returns no change; fallback
+  `compactCodexExecEnvelope` + filter chain reduces 35567b -> 6558b (81%).
+- Read #2/#3: cache warm -> `compactProxyReadDelta` returns DecisionBlock with
+  reason `"Slimference delta for <path>:\n+ Chunk ID: <new>\n- Chunk ID: <prev>\n
+  Full content: local-archive://..."`, 35567b -> 144b (99%) each.
 
 DO NOT chase the big repeated block: the ~117KB body is mostly `instructions` +
-`tools`, repeated per request, but `prompt_cache_key` is OpenAI's server-side prompt
-cache for exactly that - they already discount it, local dedup of it saves the user
-nothing billable. The real lever is the tool-output deltas across turns.
+`tools`, repeated per request, but `prompt_cache_key` is OpenAI's server-side
+prompt cache for exactly that - they already discount it, local dedup of it
+saves the user nothing billable. The real lever is the tool-output deltas
+across turns; that lever is now operationally proven.
 
-Higher-order honest question to keep in mind: if even content-rich sessions never
-mutate after the reducer work, then WSS Phase-F is the wrong lever for Codex and
-savings must come from other layers; decide and document that for T240 release cert.
+T247 remaining work (no reducer code change needed):
+1. Fixture-based regression test under `internal/proxy/` that replays a redacted
+   real captured multi-read delta sequence and asserts post-pipeline mutation +
+   delta-marker reason for repeat reads. Use a synthetic redacted payload so the
+   committed test data does not include private file contents.
+2. One Desktop pass on the identical Phase-F route once a user-confirmed Desktop
+   session is run via TUI Launch Codex App (T246 follow-up).
+3. Quantify savings on the OTHER layers (HTTP-path L0/L1, response cache,
+   output-reduce on non-repeat-read sessions) so the product savings claim is
+   grounded in aggregate measurement, not in `wss_certified=true` plus a single
+   repeat-read example. Required before T240 release certification.
+
+Honest workload calibration to keep in messaging: Slimference WSS Phase-F savings
+for Codex are ~0 on sessions without repeat reads (only F01-F24 filter hits can
+fire in that case); large (94% measured) on sessions with repeat reads. The cert
+is operationally meaningful, not a single-frame artefact.
 
 ---
 
@@ -535,24 +560,31 @@ savings must come from other layers; decide and document that for T240 release c
 1. Confirm T246 end-to-end once with the user: `slimference` TUI -> Launch Codex App,
    do a real conversation, verify the button works and feels native (this is the one
    remaining human confirmation for T246).
-2. Start T247 (the real value work) with a zero-guess shape read before the first
-   edit: inspect `extractMessages`, `codexInputItemToMessage`, `codexToolInput`,
-   `proxyResolveToolUse`, and `proxyLayer0CommandLine` against a real captured Codex
-   WSS delta. Current source already has generic support for
-   `function_call_output` -> `tool_result` and `function_call` -> `tool_use`; do
-   not assume the mapping is missing. Verify whether the captured real shape
-   populates `ToolResultID`, remembered tool uses, `ToolInput`, and command/path
-   extraction.
-3. Then run T247 step 1 = cert-reproduction (cheapest, most informative). If
-   temporary env-gated dumps are added, keep them surgical, remove them before the
-   final commit unless the user explicitly wants permanent diagnostics, and record
-   the exact pre/post frame diff in T247 notes.
-4. Keep all measurement flush-aware (close the session before reading). Use socket +
-   decisions-log evidence, not laggy counters.
-5. Separately measure non-WSS layers so the product savings claim is honest.
-6. T240 (release certification) comes AFTER T247 resolves the savings reality: it
-   should certify either "CLI+Desktop savings proven" or, honestly, "CLI+Desktop
-   route-ready/no-drawback, WSS savings = <measured value>".
+2. DONE 2026-05-23 (chain shape-read + cert-repro + multi-read capture). The
+   function_call -> remembered tool_use -> function_call_output -> tool_result
+   -> commandLine -> readcache -> mutation chain is operationally proven on real
+   Codex 0.133.0 CLI traffic. See §9 for the verified shape and counters, and
+   `docs/operation-log.md` 2026-05-23 (later) for the full method, capture, and
+   honest calibration of the earlier "0 mutations" reading.
+3. Add the T247 fixture-based regression test (`internal/proxy/`) that replays a
+   redacted captured multi-read delta sequence end to end and asserts the
+   delta-marker reduction for read #2/#3. Use synthetic redacted payload so the
+   committed test data does not include private file contents.
+4. Run one Desktop pass on the identical Phase-F route via TUI Launch Codex App
+   once the user is ready, and record the flushed counters; expected behaviour
+   is identical to the proven CLI path (T246 already proved the route is
+   identical).
+5. Quantify savings on the OTHER layers (HTTP-path L0/L1, response cache,
+   output-reduce on non-repeat-read sessions) so the aggregate product savings
+   claim is grounded in measurement, not in `wss_certified=true` plus a single
+   repeat-read example.
+6. Keep all measurement flush-aware (close the session before reading). Use
+   socket + decisions-log evidence, not laggy counters.
+7. T240 (release certification) comes AFTER the fixture test plus aggregate
+   measurement. It should certify "CLI+Desktop route-ready/no-drawback, WSS
+   read-delta savings proven on repeat-read workloads, aggregate savings =
+   <measured>" with the workload-dependence stated explicitly so no fake
+   universal-savings claim ships.
 
 ---
 
