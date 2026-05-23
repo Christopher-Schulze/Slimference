@@ -483,6 +483,14 @@ T247 remaining work (no reducer code change needed):
    output-reduce on non-repeat-read sessions) so the product savings claim is
    grounded in aggregate measurement, not in `wss_certified=true` plus a single
    repeat-read example. Required before T240 release certification.
+   Tooling landed (commit `e651483`):
+   `go run ./scripts/utils aggregate-savings [--filter-db=<path>] [--json]`
+   gives a single-glance honest report of live WSS Phase-F counters,
+   output-reduce sub-layer counters, and offline HTTP-path Layer-0 filter
+   savings, with workload caveats and a HEALTH WARN line on parse/degrade
+   errors. Use `--admin-state-file=<path>` for reproducible offline runs
+   during cert ceremonies. Remaining: collect real-workday measurements with
+   this tool over a representative Codex session window.
 
 Honest workload calibration to keep in messaging: Slimference WSS Phase-F savings
 for Codex are ~0 on sessions without repeat reads (only F01-F24 filter hits can
@@ -583,10 +591,11 @@ is operationally meaningful, not a single-frame artefact.
    once the user is ready, and record the flushed counters; expected behaviour
    is identical to the proven CLI path (T246 already proved the route is
    identical).
-5. Quantify savings on the OTHER layers (HTTP-path L0/L1, response cache,
-   output-reduce on non-repeat-read sessions) so the aggregate product savings
-   claim is grounded in measurement, not in `wss_certified=true` plus a single
-   repeat-read example.
+5. Quantify savings on the OTHER layers using `scripts/utils aggregate-savings`
+   (commit `e651483`): live WSS counters + live output-reduce counters + offline
+   HTTP-path Layer-0 SQLite savings + USD estimate. Run over a representative
+   Codex workday with `--filter-db=~/.slimference/filter.db --period=today` to
+   collect honest aggregate numbers before T240 release certification.
 6. Keep all measurement flush-aware (close the session before reading). Use
    socket + decisions-log evidence, not laggy counters.
 7. T240 (release certification) comes AFTER the fixture test plus aggregate
