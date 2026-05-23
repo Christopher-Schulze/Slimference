@@ -250,8 +250,15 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 		"WSS input_tokens_saved is from the live RecordProxyLayer0 path (read-delta + L0 filter chain).",
 		"WSS savings are workload-dependent: low without repeat-read sessions, large with them.",
 		"Filter Layer-0 savings cover non-WSS HTTP-path Codex hook traffic (offline SQLite).",
-		"byte_bridge_only=true means the current daemon has only bridged byte-equal so far (no mutation observed yet).",
 	)
+	switch {
+	case report.WSS.ByteBridgeOnly:
+		report.Notes = append(report.Notes,
+			"byte_bridge_only=true: the current daemon has bridged WSS sessions byte-equal so far (no mutation observed yet).")
+	case report.WSS.MutationActive:
+		report.Notes = append(report.Notes,
+			"mutation_active=true: the reducer chain is producing real WSS savings on this daemon.")
+	}
 	return report
 }
 

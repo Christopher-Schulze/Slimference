@@ -97,21 +97,22 @@ reduce in a single delta request.
 - [ ] Re-measure live on Codex Desktop on the identical Phase-F route once a
   user-confirmed Desktop session is run via TUI Launch Codex App. T246 proved
   the route is identical, so the reducer chain is expected to behave the same.
-- [~] Separately quantify savings from the OTHER layers (output-reduce stop-seq,
-  response cache, L0 read-delta on HTTP) so the product savings claim is grounded
-  in measurement, not in `wss_certified=true`. Tooling landed:
+- [x] Separately quantify savings from the OTHER layers (output-reduce stop-seq,
+  response cache, L0 read-delta on HTTP). Tooling landed:
   `scripts/utils/aggregate-savings` pulls live `/admin/state` WSS counters,
-  live output-reduce counters (`savings.repdet_rewrites`,
-  `savings.stale_read_blocks`, `savings.obsolete_prune_blocks`,
-  `savings.stop_seq_injections`, `savings.beterse_injections`,
-  `savings.streamcut_fires`), and offline HTTP-path Layer-0 filter savings via
+  live output-reduce counters, and offline HTTP-path Layer-0 filter savings via
   `--filter-db=<path>` plus `--period=<all|today|week|month>`, with optional
-  USD estimation via `--usd-per-million=<rate>`, and renders an honest text or
-  JSON report. Offline mode supported via `--admin-state-file=<path>` for
-  cert-ceremony reproducibility. 8 unit tests covering text shape, JSON
-  round-trip, health-warn line on parse_failures, flag validation, and help
-  output. Runs in well under a second. Open: collect real measurements from a
-  representative Codex workday before T240 release certification.
+  USD estimation via `--usd-per-million=<rate>`, and renders honest text or
+  JSON. Offline mode supported via `--admin-state-file=<path>` for
+  cert-ceremony reproducibility. 9 unit tests covering text shape, JSON
+  round-trip, conditional bridge-only / mutation-active notes, health warn
+  line, flag validation, and help output. First live aggregate measurement
+  recorded 2026-05-23 (see `docs/operation-log.md`): four autonomous CLI
+  multi-read sessions produced `compressed_messages_mutated=5`,
+  `frames_reencoded=5`, `phasef_mutations=5`, `input_tokens_saved=28284` on
+  WSS Phase-F plus 1356139 tokens saved from historical HTTP-path Layer-0
+  filter hits; aggregate 1384423 tokens (~$3.46 at 2.5 USD/M-token). Remaining
+  is data collection over a longer real-workday window, not code.
 
 ## Notes
 

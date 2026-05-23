@@ -73,6 +73,7 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"TOTAL tokens saved:            42000",
 		"Notes:",
 		"WSS savings are workload-dependent",
+		"mutation_active=true: the reducer chain is producing real WSS savings",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q\nfull output:\n%s", want, out)
@@ -118,6 +119,27 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	}
 	if time.Since(got.Generated) > time.Minute {
 		t.Fatalf("generated too old: %v", got.Generated)
+	}
+}
+
+func TestAggregateSavingsByteBridgeNoteOnlyWhenBridgeOnly(t *testing.T) {
+	bridgeOnlyState := strings.Replace(aggregateSampleAdminState,
+		`"byte_bridge_only": false`,
+		`"byte_bridge_only": true`, 1)
+	bridgeOnlyState = strings.Replace(bridgeOnlyState,
+		`"mutation_active": true`,
+		`"mutation_active": false`, 1)
+	statePath := writeAggregateStateFile(t, bridgeOnlyState)
+	var stdout, stderr bytes.Buffer
+	code := runAggregateSavings([]string{"--admin-state-file=" + statePath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "byte_bridge_only=true: the current daemon has bridged WSS sessions byte-equal") {
+		t.Fatalf("byte_bridge_only=true should add the bridge-only note:\n%s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "mutation_active=true: the reducer chain") {
+		t.Fatalf("bridge-only state must not also claim mutation_active is producing savings:\n%s", stdout.String())
 	}
 }
 
