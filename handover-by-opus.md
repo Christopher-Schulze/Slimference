@@ -165,9 +165,10 @@ Two halves of "done":
   - T247 Codex WSS Phase-F reducer efficacy - reducer chain proven end-to-end on
     real Codex 0.133.0 CLI traffic 2026-05-23 (multi-read capture, `frames_reencoded=3`,
     `compressed_messages_mutated=3`, `input_tokens_saved=26461`, 94% reduction on
-    output payload). See §9 for the verified shape. Open: fixture-based regression
-    test against a redacted capture; one Desktop pass on the identical route;
-    quantification of non-WSS savings layers.
+    output payload). Fixture-based regression test landed at
+    `internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`
+    (`commit fee1af4`). See §9 for the verified shape. Open: one Desktop pass on
+    the identical route; quantification of non-WSS savings layers.
 - Build/test health (verified this session): `go build ./...` clean,
   `go vet ./...` clean, `go test ./internal/proxy/...` green across all five
   packages; full-suite `go test ./...` green except one timing-flaky test
@@ -471,10 +472,11 @@ saves the user nothing billable. The real lever is the tool-output deltas
 across turns; that lever is now operationally proven.
 
 T247 remaining work (no reducer code change needed):
-1. Fixture-based regression test under `internal/proxy/` that replays a redacted
-   real captured multi-read delta sequence and asserts post-pipeline mutation +
-   delta-marker reason for repeat reads. Use a synthetic redacted payload so the
-   committed test data does not include private file contents.
+1. DONE (commit `fee1af4`): fixture-based regression test
+   `internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`
+   replays a synthetic three-turn multi-read sequence with the production-proven
+   real exec_command shape and asserts the delta-marker reduction for reads #2
+   and #3. Isolated via `t.TempDir()`; no private data committed; ~0.10s.
 2. One Desktop pass on the identical Phase-F route once a user-confirmed Desktop
    session is run via TUI Launch Codex App (T246 follow-up).
 3. Quantify savings on the OTHER layers (HTTP-path L0/L1, response cache,
@@ -566,10 +568,17 @@ is operationally meaningful, not a single-frame artefact.
    Codex 0.133.0 CLI traffic. See §9 for the verified shape and counters, and
    `docs/operation-log.md` 2026-05-23 (later) for the full method, capture, and
    honest calibration of the earlier "0 mutations" reading.
-3. Add the T247 fixture-based regression test (`internal/proxy/`) that replays a
-   redacted captured multi-read delta sequence end to end and asserts the
-   delta-marker reduction for read #2/#3. Use synthetic redacted payload so the
-   committed test data does not include private file contents.
+3. DONE 2026-05-23 (commit `fee1af4`). The T247 fixture-based regression test
+   landed at
+   `internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`.
+   It seeds three exec_command function_calls via `response.output_item.done`
+   frames, replays three `function_call_output` c2s requests with the Codex exec
+   envelope wrapping a synthetic ~57KB markdown payload, and asserts that reads
+   #2 and #3 mutate, shrink, and carry the `"Slimference delta for <path>"`
+   marker. Readcache and content-archive are isolated to `t.TempDir()` via
+   `proxyUserHomeDir`. Runs in ~0.10s. Locks in the production-proven shape:
+   `arguments` is a JSON-encoded STRING with `cmd` as a single-string shell
+   command (`cat <path>`), NOT a `bash -lc` wrapped array.
 4. Run one Desktop pass on the identical Phase-F route via TUI Launch Codex App
    once the user is ready, and record the flushed counters; expected behaviour
    is identical to the proven CLI path (T246 already proved the route is
