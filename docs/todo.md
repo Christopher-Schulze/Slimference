@@ -1437,10 +1437,12 @@ only and promotes the per-process Codex CLI runner for T209.
   function_call -> remembered tool_use -> function_call_output -> tool_result ->
   commandLine -> readcache -> delta-marker mutation works without code change.
   Earlier "compressed_messages_mutated=0 on multi-read" reading was Codex-side
-  run-variance on identical code path, not a reducer defect. Open: fixture-based
-  regression test using a redacted capture; one Desktop pass on the identical
-  route (T246 follow-up); quantification of non-WSS savings layers for honest
-  aggregate ahead of T240 release certification.
+  run-variance on identical code path, not a reducer defect. Fixture-based
+  regression test landed
+  (`TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`, ~0.10s, isolated
+  via t.TempDir, synthetic payload, real exec_command shape with `cmd` as
+  string). Open: one Desktop pass on the identical route (T246 follow-up);
+  quantification of non-WSS savings layers for honest aggregate ahead of T240.
   Detail: `docs/todo/t247-codex-wss-reducer-efficacy.md`
 
 ### Sequencing within Phase H

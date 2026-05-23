@@ -4,9 +4,11 @@ Status: REDUCER CHAIN PROVEN END-TO-END on real Codex 0.133.0 CLI traffic
 (2026-05-23 multi-read capture). Repeat-read sessions produce 94% output-payload
 reduction; recorded `input_tokens_saved=26461` on a 3x35KB-file session. Earlier
 "compressed_messages_mutated=0" reading was Codex-side run-variance, not a code
-defect. Open: fixture-based regression test against captured delta shape;
-quantification of non-WSS savings layers for honest aggregate; one Desktop pass
-on the identical code path.
+defect. Fixture-based regression test landed
+(`internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`)
+asserting Slimference-delta-marker reduction on reads #2 and #3 of an isolated
+multi-read sequence. Open: quantification of non-WSS savings layers for honest
+aggregate; one Desktop pass on the identical code path.
 Priority: P0 - this is whether Slimference delivers real Codex token savings at all
 Scope: WSS Phase-F request reducers for Codex (CLI + Desktop, same route)
 
@@ -70,13 +72,20 @@ reduce in a single delta request.
   `cat <path>`; `rememberToolUsesFromResponse` accumulates call_ids across turns
   so the second/third `function_call_output` resolves its prior `function_call`
   cleanly even though the request's own `tool_uses` index is empty.
-- [ ] Add a fixture-based regression test under `internal/proxy/` that replays a
-  real captured Codex 0.133.0 multi-read delta sequence end to end and asserts
-  the post-pipeline body shrinks for read #2/#3 with `Slimference delta`-prefixed
-  reason. The capture exists as `/tmp/t247-dump-evidence.tgz` and as the
-  description in `docs/operation-log.md` 2026-05-23. The fixture must use a
-  redacted/synthetic payload so the test data does not include private file
-  contents.
+- [x] Add a fixture-based regression test under `internal/proxy/` that replays a
+  real captured Codex 0.133.0 multi-read delta sequence end to end. Landed as
+  `internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`.
+  Test isolates the readcache to `t.TempDir()` via `proxyUserHomeDir`, seeds
+  three `function_call` items via `response.output_item.done` frames (exec_command
+  tool, real Codex shape: arguments is a JSON-encoded STRING with `cmd` as a
+  single-string shell command - NOT `command` as a bash-wrapped array - plus
+  `workdir`, `yield_time_ms`, `max_output_tokens`), replays three
+  `function_call_output` c2s requests with the Codex exec envelope wrapping a
+  ~57KB synthetic markdown payload, and asserts: reads #2 and #3 mutate (replace=
+  true), shrink, carry `"Slimference delta for <path>"` in the post-pipeline raw
+  bytes, and roll up `>=2` Layer-0 modified requests with non-zero
+  `ProxyLayer0TokensSaved`. Synthetic payload only; no private file contents.
+  Runs in ~0.10s.
 - [x] Re-measure live (CLI). Verified 2026-05-23 on Codex 0.133.0 +
   Slimference 2.0.2: `frames_reencoded=3`, `compressed_messages_mutated=3`,
   `phasef_mutations=3`, `mutation_active=true`, `byte_bridge_only=false`,
@@ -153,10 +162,24 @@ reduce in a single delta request.
   the same applyInputPipeline; quantification of those plus non-WSS layers
   remains the last open sub-task before T240 release certification.
 
-- Implementation note (no code change needed for the T247 reducer-efficacy
-  question): the reducer chain already covers the real Codex shape end to end.
-  The remaining engineering effort is a fixture regression test plus aggregate
-  measurement, not a reducer fix.
+- Implementation note (no production code change needed for the T247
+  reducer-efficacy question): the reducer chain already covers the real Codex
+  shape end to end. The remaining engineering effort is aggregate
+  non-WSS-layer measurement, not a reducer fix.
+
+- Real Codex 0.133.0 `exec_command` argument shape clarification (verified
+  against `resp-response.output_item.done` capture, archived in
+  `/tmp/t247-dump-evidence.tgz`): the `function_call.arguments` field is a
+  JSON-ENCODED STRING whose object has `cmd` as a single-string shell command
+  (e.g. `cat /tmp/<path>`), `workdir`, `yield_time_ms`, `max_output_tokens`.
+  NOT a `command` array wrapped in `bash -lc ...`. `codexCommandLineFromFields`
+  finds `cmd` directly (first key in its loop), so `proxyLayer0CommandLine`
+  returns the literal `cat <path>` without needing `normalizeLayer0CommandLine`
+  to strip a wrapper. `filter.ReadPathFromCommandLine("cat <path>")` then yields
+  the path cleanly. This is why the chain works on real production traffic;
+  the earlier draft of the regression test used an incorrect bash-wrapped
+  array shape and failed, which exposed and corrected the shape assumption
+  before the test was committed.
 
 ## Deviations
 
