@@ -229,6 +229,9 @@ func plannerClassesFromMessages(messages []types.Message) []string {
 	seenTool := false
 	seenSource := false
 	seenStructured := false
+	seenRepeatedToolOutput := false
+	toolUses := proxyToolUseIndex(messages)
+	repeatKeys := make(map[string]int)
 	for _, msg := range messages {
 		if msg.Role == "tool" || msg.HasToolResult() {
 			seenTool = true
@@ -237,6 +240,12 @@ func plannerClassesFromMessages(messages []types.Message) []string {
 			text := block.Text
 			if block.Type == "tool_result" || block.ToolResultID != "" {
 				seenTool = true
+				if key := plannerToolOutputRepeatKey(block, toolUses); key != "" {
+					repeatKeys[key]++
+					if repeatKeys[key] > 1 {
+						seenRepeatedToolOutput = true
+					}
+				}
 			}
 			if looksLikeSource(text) {
 				seenSource = true
@@ -249,6 +258,9 @@ func plannerClassesFromMessages(messages []types.Message) []string {
 	if seenTool {
 		classes = append(classes, "tool_output")
 	}
+	if seenRepeatedToolOutput {
+		classes = append(classes, "repeated_tool_output")
+	}
 	if seenSource {
 		classes = append(classes, "source_file")
 	}
@@ -256,6 +268,15 @@ func plannerClassesFromMessages(messages []types.Message) []string {
 		classes = append(classes, "json")
 	}
 	return classes
+}
+
+func plannerToolOutputRepeatKey(block types.ContentBlock, toolUses map[string]types.ContentBlock) string {
+	use, _ := proxyResolveToolUseDetailed(block, toolUses)
+	commandLine := strings.TrimSpace(proxyLayer0CommandLine(use))
+	if commandLine == "" {
+		return ""
+	}
+	return "cmd:" + commandLine
 }
 
 func requestHasEditIntent(messages []types.Message) bool {

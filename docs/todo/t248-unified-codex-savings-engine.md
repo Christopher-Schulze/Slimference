@@ -1,6 +1,6 @@
 # TASK 248: Unified Codex savings engine for WSS and HTTP
 
-Status: ACTIVE - shared attribution, opportunity telemetry, route attribution, report/status hygiene, tool-shape fixtures, and proof gates implemented
+Status: ACTIVE - shared attribution, opportunity telemetry, route attribution, report/status hygiene, tool-shape fixtures, proof gates, and repeated-output planner classification implemented
 Priority: P0 after T247 proof, before T240 release seal
 Scope: Codex CLI and Codex Desktop savings engine, telemetry, cache strategy, and
 proof-gated safe expansion across WSS and HTTP fallback paths
@@ -145,6 +145,11 @@ The product target is strict:
   the planner now reports L2/L3 as `shadow` candidates with explicit
   fixture/live-proof reasons, not `run`. HTTP behavior and provider-reported
   prompt-cache accounting remain unchanged.
+- [x] Derive `repeated_tool_output` planner content class from real repeated
+  tool commands/read keys in parsed messages. This makes adaptive cache/L2
+  candidate visibility come from actual tool-output structure instead of only
+  hand-authored planner facts, while keeping Codex WSS L2/L3 proof-gated as
+  `shadow`.
 
 ## Notes
 
@@ -212,6 +217,10 @@ The product target is strict:
   can now show where future value might exist, while the runtime remains protected
   until a separate fixture plus live proof upgrades a candidate from `shadow` to
   `run`.
+- Repeated tool-output classification is conservative: it keys only on resolved
+  Layer-0 command/read identities from current parsed messages and remembered
+  same-request tool uses. It does not infer repeats from raw text alone, and it
+  does not make WSS L2/L3 mutate anything.
 
 ## Deviations
 

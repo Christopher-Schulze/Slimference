@@ -299,6 +299,34 @@ func TestPlannerClassesFromMessages(t *testing.T) {
 	}
 }
 
+func TestPlannerClassesFromMessagesDetectsRepeatedToolOutput(t *testing.T) {
+	t.Parallel()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-1", ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cat docs/todo.md"],"workdir":"/repo/project"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-1", Text: "first read"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-2", ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cat docs/todo.md"],"workdir":"/repo/project"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-2", Text: "second read"}}},
+	}
+	classes := plannerClassesFromMessages(messages)
+	if !hasString(classes, "repeated_tool_output") {
+		t.Fatalf("classes=%v missing repeated_tool_output", classes)
+	}
+}
+
+func TestPlannerClassesFromMessagesDoesNotInventRepeatedToolOutput(t *testing.T) {
+	t.Parallel()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-1", ToolName: "read_file", ToolInput: `{"path":"a.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-1", Text: "package a"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-2", ToolName: "read_file", ToolInput: `{"path":"b.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-2", Text: "package b"}}},
+	}
+	classes := plannerClassesFromMessages(messages)
+	if hasString(classes, "repeated_tool_output") {
+		t.Fatalf("classes=%v should not contain repeated_tool_output", classes)
+	}
+}
+
 func TestPlannerClassHelpers(t *testing.T) {
 	t.Parallel()
 	classes := normalizedPlannerClasses([]string{"", " JSON ", "json", "Source_File"})

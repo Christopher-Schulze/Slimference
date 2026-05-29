@@ -1475,9 +1475,12 @@ only and promotes the per-process Codex CLI runner for T209.
   timestamps, uses the canonical `~/.slimference/filter.db` path, and keeps
   Desktop "WSS savings active" distinct from "WSS route ready" across the TUI /
   Launch Center gate. Planner L2/L3 on Codex WSS is proof-gated as `shadow`
-  candidate only until separate fixture plus live proof exists. Remaining work:
-  future capture-driven tool variants, measured L2/L3 upgrades, and real workday
-  data collection before T240.
+  candidate only until separate fixture plus live proof exists. The planner now
+  derives `repeated_tool_output` from repeated resolved tool command/read keys,
+  so adaptive cache/L2 candidates are grounded in parsed request structure
+  instead of manual planner facts. Remaining work: future capture-driven tool
+  variants, measured L2/L3 upgrades, and real workday data collection before
+  T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H

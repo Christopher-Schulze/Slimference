@@ -3101,3 +3101,28 @@ Interpretation:
 - This raises WSS hit-rate confidence for deterministic tool-output/readcache
   savings while keeping model quality, context, prompt-cache blocks,
   voice/realtime, and response-cache substitutions untouched.
+
+## 2026-05-30 - T248 repeated tool-output planner classification
+
+Goal: make adaptive cache/L2 opportunity reporting depend on parsed request
+structure instead of hand-authored planner facts.
+
+Changes:
+- `plannerClassesFromMessages` now resolves tool-result blocks back to their
+  same-request tool-use command/read identity and emits `repeated_tool_output`
+  when the same command/read key appears more than once.
+- The classification reuses the shared Layer-0 command resolver, including
+  command arrays and workdir-aware read keys.
+- The change is planner-only. It does not enable WSS L2/L3 mutation and does not
+  infer repeat candidates from raw text alone.
+
+Verification:
+- Added positive and negative planner bridge tests for repeated versus distinct
+  tool-output keys.
+- Focused `go test ./internal/proxy ./internal/planner` passed.
+
+Interpretation:
+- Future cache-frontier and proof-gated L2/L3 work can now see repeated
+  tool-output candidates from real parsed messages. Runtime safety remains the
+  same: Codex WSS L2/L3 candidates stay `shadow` until separate fixture and live
+  proof upgrade them.
