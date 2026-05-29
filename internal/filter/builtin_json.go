@@ -23,7 +23,7 @@ func TryCompactJSONMinify(stdout []byte) ([]byte, bool) {
 	}
 
 	// Schema extraction for large JSON: produces structural overview.
-	if len(trimmed) >= jsonSchemaThreshold {
+	if len(trimmed) >= jsonSchemaThreshold && !jsonHasDiagnosticKeys(trimmed) {
 		if schema, ok := extractJSONSchema(trimmed); ok && len(schema) < len(trimmed) {
 			return schema, true
 		}
@@ -38,6 +38,47 @@ func TryCompactJSONMinify(stdout []byte) ([]byte, bool) {
 		return stdout, false
 	}
 	return compact, true
+}
+
+func jsonHasDiagnosticKeys(data []byte) bool {
+	var v interface{}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return false
+	}
+	return valueHasDiagnosticKeys(v, 0)
+}
+
+func valueHasDiagnosticKeys(v interface{}, depth int) bool {
+	if depth > 8 {
+		return false
+	}
+	switch val := v.(type) {
+	case map[string]interface{}:
+		for k, child := range val {
+			if isDiagnosticJSONKey(k) {
+				return true
+			}
+			if valueHasDiagnosticKeys(child, depth+1) {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, child := range val {
+			if valueHasDiagnosticKeys(child, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isDiagnosticJSONKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "error", "errors", "message", "messages", "stderr", "stdout", "stack", "trace", "exception", "reason", "details", "diagnostic", "diagnostics":
+		return true
+	default:
+		return false
+	}
 }
 
 // extractJSONSchema produces a compact structural representation of a JSON value.

@@ -93,6 +93,22 @@ func TestTryCompactJSONMinify_schemaArray(t *testing.T) {
 	}
 }
 
+func TestTryCompactJSONMinify_diagnosticKeysPreferValuePreservation(t *testing.T) {
+	t.Parallel()
+	input := []byte("{\n  \"status\": \"failed\",\n  \"error\": \"E42 exact failure message\",\n  \"data\": \"" + strings.Repeat("x", jsonSchemaThreshold) + "\"\n}\n")
+	out, ok := TryCompactJSONMinify(input)
+	if !ok {
+		t.Fatal("expected minification for diagnostic JSON")
+	}
+	s := string(out)
+	if !strings.Contains(s, "E42 exact failure message") {
+		t.Fatalf("diagnostic scalar should be preserved exactly, got %q", s[:min(len(s), 200)])
+	}
+	if strings.Contains(s, "{object,") {
+		t.Fatalf("diagnostic JSON should not be schema-only: %q", s[:min(len(s), 200)])
+	}
+}
+
 // TestJsonTypeName exercises all branches of jsonTypeName.
 func TestJsonTypeName(t *testing.T) {
 	t.Parallel()

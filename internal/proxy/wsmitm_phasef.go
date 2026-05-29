@@ -14,6 +14,7 @@ import (
 	"github.com/slimference/slimference/internal/outstop/repdet"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
 	"github.com/slimference/slimference/internal/qualityab"
+	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/staleread"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
@@ -129,6 +130,8 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 	var l0Stats proxyLayer0Stats
 	messages, _, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil && len(messages) > 0 {
+		rememberedToolUses := a.loadToolUses()
+		a.observeWSSRecentEdits(out, messages, rememberedToolUses)
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
 				MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
@@ -151,7 +154,6 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 				}
 			}
 		}
-		rememberedToolUses := a.loadToolUses()
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:             codexLayer0RouteWSSPhaseF,
 			Messages:          messages,
@@ -189,6 +191,25 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 	}
 	return out, messages, !bytes.Equal(original, out), l0Stats
+}
+
+func (a *wsPhaseFAdapter) observeWSSRecentEdits(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
+	sessionID := wsCodexSessionID(body)
+	if sessionID == "" {
+		return
+	}
+	paths := proxyEditedPathsFromMessages(messages, rememberedToolUses)
+	if len(paths) == 0 {
+		return
+	}
+	home, err := proxyUserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := sessions.DefaultHookStateDir(home)
+	for _, path := range paths {
+		_ = sessions.ObserveHookFile(dir, sessionID, path, "edit")
+	}
 }
 
 func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string) {
@@ -389,20 +410,12 @@ func (a *wsPhaseFAdapter) applyRepdetDelta(env *wsmitm.Envelope) bool {
 }
 
 func (a *wsPhaseFAdapter) applyRepdetResponse(env *wsmitm.Envelope) bool {
-	if !a.p.config.Compression.OutputReduce.RepetitionDetectionEnabled || !env.Kind.IsTerminal() || len(env.Response) == 0 {
-		return false
-	}
-	idx := a.loadRepdetIndex()
-	if idx == nil || len(idx.Blocks()) == 0 {
-		return false
-	}
-	rewritten, saved := rewriteOpenAIResponseBody(env.Response, idx)
-	if saved <= 0 {
-		return false
-	}
-	env.Response = rewritten
-	a.p.outputReduceCounters.RecordRepdetRewrite(1, saved)
-	return true
+	// WSS response.completed frames are the terminal client-visible answer. Delta
+	// frames already carry any safe output-wire repdet rewrite; rewriting the
+	// terminal aggregate too double-counts savings and can corrupt final code or
+	// patch text. Keep terminal WSS responses byte-equal until a separate
+	// terminal-safe proof exists.
+	return false
 }
 
 func (a *wsPhaseFAdapter) loadRepdetIndex() *repdet.Index {

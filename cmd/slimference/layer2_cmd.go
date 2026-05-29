@@ -33,7 +33,7 @@ func handleLayer2Cmd(args []string) {
 		fmt.Fprintln(os.Stderr, "  enable       Enable Layer 2 summarization (requires --acknowledge-data-policy)")
 		fmt.Fprintln(os.Stderr, "  disable      Disable Layer 2 summarization")
 		fmt.Fprintln(os.Stderr, "  status       Show current Layer 2 configuration")
-		fmt.Fprintln(os.Stderr, "  acknowledge  Record the T129 default-on data-policy acknowledgement")
+		fmt.Fprintln(os.Stderr, "  acknowledge  Record the Layer 2 data-policy acknowledgement")
 		exitFn(1)
 		return
 	}
@@ -244,7 +244,7 @@ func ensureLayer2PolicyAcknowledged(cfg *config.Config, interactive bool, stdin 
 	if cfg == nil || !cfg.Compression.Layer2Enabled || layer2PolicyAcknowledged() {
 		return nil
 	}
-	msg := "Layer 2 is enabled by default and sends redacted conversation content to MiniMax (external third-party provider)."
+	msg := "Layer 2 is enabled in this config and may send redacted conversation content to the configured summarization provider."
 	if !interactive {
 		fmt.Fprintf(stderr, "[WARN] %s Run `slimference layer2 acknowledge` after reviewing docs/data-policy.md, or `slimference layer2 disable`.\n", msg)
 		return nil

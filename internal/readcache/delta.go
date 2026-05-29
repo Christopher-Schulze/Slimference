@@ -5,69 +5,94 @@ import (
 	"strings"
 )
 
-const maxDeltaLines = 8
+const deltaContextLines = 3
 
 func buildDeltaSummary(path string, oldContent string, newContent string) string {
-	oldLines := trimmedLines(oldContent)
-	newLines := trimmedLines(newContent)
+	if oldContent == newContent {
+		return ""
+	}
+	diff := buildPositionAwareDelta(oldContent, newContent, deltaContextLines)
+	if diff == "" {
+		return ""
+	}
+	return fmt.Sprintf("Slimference delta for %s:\n%s", path, diff)
+}
 
-	added := distinctDiff(newLines, oldLines)
-	removed := distinctDiff(oldLines, newLines)
-	if len(added) == 0 && len(removed) == 0 {
+func buildPositionAwareDelta(oldContent, newContent string, contextLines int) string {
+	oldLines := splitDeltaLines(oldContent)
+	newLines := splitDeltaLines(newContent)
+	prefix := commonPrefixLines(oldLines, newLines)
+	suffix := commonSuffixLines(oldLines, newLines, prefix)
+	oldChangeEnd := len(oldLines) - suffix
+	newChangeEnd := len(newLines) - suffix
+	if prefix == oldChangeEnd && prefix == newChangeEnd {
 		return ""
 	}
 
-	var parts []string
-	parts = append(parts, fmt.Sprintf("Slimference delta for %s:", path))
-	for _, line := range added[:limit(len(added), maxDeltaLines)] {
-		parts = append(parts, "+ "+line)
+	hunkStartOld := prefix - contextLines
+	if hunkStartOld < 0 {
+		hunkStartOld = 0
 	}
-	for _, line := range removed[:limit(len(removed), maxDeltaLines)] {
-		parts = append(parts, "- "+line)
+	hunkStartNew := prefix - contextLines
+	if hunkStartNew < 0 {
+		hunkStartNew = 0
 	}
-	if len(added) > maxDeltaLines || len(removed) > maxDeltaLines {
-		parts = append(parts, "(delta truncated)")
+	hunkEndOld := oldChangeEnd + contextLines
+	if hunkEndOld > len(oldLines) {
+		hunkEndOld = len(oldLines)
 	}
-	return strings.Join(parts, "\n")
+	hunkEndNew := newChangeEnd + contextLines
+	if hunkEndNew > len(newLines) {
+		hunkEndNew = len(newLines)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "@@ -%d,%d +%d,%d @@\n", hunkStartOld+1, hunkEndOld-hunkStartOld, hunkStartNew+1, hunkEndNew-hunkStartNew)
+	for _, line := range oldLines[hunkStartOld:prefix] {
+		b.WriteString(" " + line + "\n")
+	}
+	for _, line := range oldLines[prefix:oldChangeEnd] {
+		b.WriteString("-" + line + "\n")
+	}
+	for _, line := range newLines[prefix:newChangeEnd] {
+		b.WriteString("+" + line + "\n")
+	}
+	for _, line := range newLines[newChangeEnd:hunkEndNew] {
+		b.WriteString(" " + line + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
-func trimmedLines(content string) []string {
-	raw := strings.Split(content, "\n")
-	lines := make([]string, 0, len(raw))
-	for _, line := range raw {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		lines = append(lines, trimmed)
+func splitDeltaLines(content string) []string {
+	lines := strings.SplitAfter(content, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
 	}
 	return lines
 }
 
-func distinctDiff(a []string, b []string) []string {
-	seen := make(map[string]struct{}, len(b))
-	for _, line := range b {
-		seen[line] = struct{}{}
+func commonPrefixLines(a, b []string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
 	}
-
-	out := make([]string, 0, len(a))
-	emitted := make(map[string]struct{}, len(a))
-	for _, line := range a {
-		if _, ok := seen[line]; ok {
-			continue
-		}
-		if _, ok := emitted[line]; ok {
-			continue
-		}
-		emitted[line] = struct{}{}
-		out = append(out, line)
+	i := 0
+	for i < n && a[i] == b[i] {
+		i++
 	}
-	return out
+	return i
 }
 
-func limit(n int, max int) int {
-	if n < max {
-		return n
+func commonSuffixLines(a, b []string, prefix int) int {
+	maxA := len(a) - prefix
+	maxB := len(b) - prefix
+	n := maxA
+	if maxB < n {
+		n = maxB
 	}
-	return max
+	i := 0
+	for i < n && a[len(a)-1-i] == b[len(b)-1-i] {
+		i++
+	}
+	return i
 }

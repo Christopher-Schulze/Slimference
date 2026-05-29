@@ -146,7 +146,7 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta || !strings.Contains(decision.Reason, "+ func b() {}") {
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta || !strings.Contains(decision.Reason, "+func b() {}") {
 		t.Fatalf("changed observed read should block with delta: %+v", decision)
 	}
 }
@@ -183,7 +183,7 @@ func TestEvaluateObserved_LargeContentUsesArchiveWithoutInlineCache(t *testing.T
 		t.Fatal(err)
 	}
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta ||
-		!strings.Contains(decision.Reason, "+ tail addition") ||
+		!strings.Contains(decision.Reason, "+tail addition") ||
 		!strings.Contains(decision.Reason, "Full content: local-archive://") {
 		t.Fatalf("large changed reread should delta from archive-backed content: %+v", decision)
 	}

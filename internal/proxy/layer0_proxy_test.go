@@ -222,7 +222,7 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 
 	changed := proxyReadMessages(strings.Repeat("line one\n", 80) + "line two\n")
 	out, saved = applyProxyLayer0WithSession(changed, "sess-read")
-	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "+ line two") || !strings.Contains(out[1].Content[0].Text, "Full content: local-archive://") {
+	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "+line two") || !strings.Contains(out[1].Content[0].Text, "Full content: local-archive://") {
 		t.Fatalf("changed reread should become delta, saved=%d text=%q", saved, out[1].Content[0].Text)
 	}
 }
@@ -287,6 +287,43 @@ func TestApplyProxyLayer0WithSessionRecentEditBypassesReadDeltaAndCommentStrip(t
 	}
 	if _, err := os.Stat(sessions.DefaultHookStateDir(home)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProxyEditedPathsFromMessages(t *testing.T) {
+	t.Parallel()
+	msgs := []types.Message{
+		{Role: "tool", Content: []types.ContentBlock{{
+			Type:         "tool_result",
+			ToolResultID: "edit-1",
+			Text:         "patch applied",
+		}}},
+	}
+	remembered := map[string]types.ContentBlock{
+		"edit-1": {
+			Type:      "tool_use",
+			ToolUseID: "edit-1",
+			ToolName:  "apply_patch",
+			ToolInput: `{"workdir":"/repo","patch":"*** Begin Patch\n*** Update File: src/main.go\n*** Add File: src/new.go\n*** End Patch"}`,
+		},
+	}
+	paths := proxyEditedPathsFromMessages(msgs, remembered)
+	got := strings.Join(paths, "\n")
+	for _, want := range []string{"/repo/src/main.go", "/repo/src/new.go"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("edited paths missing %s: %#v", want, paths)
+		}
+	}
+
+	rawPatch := types.ContentBlock{
+		Type:      "tool_use",
+		ToolName:  "apply_patch",
+		ToolInput: `"*** Update File: a.go\n--- a/old.go\t2026-05-30\n+++ b/new.go\t2026-05-30\n"`,
+	}
+	paths = proxyEditedPathsFromMessages([]types.Message{{Content: []types.ContentBlock{rawPatch}}}, nil)
+	got = strings.Join(paths, ",")
+	if got != "a.go,old.go,new.go" {
+		t.Fatalf("raw patch paths = %#v", paths)
 	}
 }
 

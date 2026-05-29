@@ -462,13 +462,13 @@ Default `min_tokens_for_layer2 = 15000` (was 30 k pre-T54). The
 latency-budget guard is opt-in; `layer2_latency_budget_ms = 0`
 disables it.
 
-T129 default state: fresh configs enable Layer 2. Existing configs with
-`layer2_enabled = false` stay disabled. The first interactive startup
-with Layer 2 enabled records an explicit acknowledgement under
-`~/.slimference/policy/layer2-default-on-ack.json`; non-interactive
-startup warns without blocking. `slimference layer2 acknowledge` records
-the marker manually, and `slimference layer2 status` prints the ack
-state.
+Current default state: fresh configs keep Layer 2 disabled. Operators opt in
+with `slimference layer2 enable --acknowledge-data-policy` or an explicit
+`layer2_enabled = true` config. The first interactive startup with Layer 2
+enabled records an explicit acknowledgement under
+`~/.slimference/policy/layer2-default-on-ack.json`; non-interactive startup
+warns without blocking. `slimference layer2 acknowledge` records the marker
+manually, and `slimference layer2 status` prints the ack state.
 
 T152 hardens Layer 2 as a background-only optimizer. After the active
 request completes, `ScoreBackgroundCandidateSession` checks provider
@@ -1317,7 +1317,7 @@ anthropic_unknown_behavior = "conservative"   # conservative|passthrough|full
 
 [compression]
 layer1_enabled                       = true
-layer2_enabled                       = true
+layer2_enabled                       = false
 layer3_enabled                       = true
 sliding_window                       = 6
 min_messages_for_compression         = 5
@@ -1490,8 +1490,8 @@ adapter:
   metadata, so later client-to-server `function_call_output` frames can compact
   tool output even when Codex splits the request state across WSS messages
 - server-to-client text deltas run repdet
-- terminal response payloads run the existing Codex/OpenAI response repdet
-  helper
+- terminal response payloads stay byte-equal on WSS to avoid double-counting
+  streaming repdet savings or corrupting final code/patch text
 - WSS streamcut is intentionally disabled until T236 proves a terminal-safe
   Codex WSS early-cut sequence. HTTP/SSE streamcut is unchanged.
 

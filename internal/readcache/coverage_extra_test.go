@@ -88,19 +88,12 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 	if got := findInt([]interface{}{map[string]interface{}{"limit": 9.0}}, "limit"); got != 9 {
 		t.Fatalf("findInt=%d", got)
 	}
-	if got := limit(9, 3); got != 3 {
-		t.Fatalf("limit=%d", got)
-	}
 	if got := buildDeltaSummary("x", "same\nsame\n", "same\nsame\n"); got != "" {
 		t.Fatalf("buildDeltaSummary same=%q", got)
 	}
-	lines := make([]string, 0, 20)
-	for i := 0; i < 20; i++ {
-		lines = append(lines, "line "+string(rune('a'+i)))
-	}
-	long := buildDeltaSummary("x", "", strings.Join(lines, "\n"))
-	if !strings.Contains(long, "(delta truncated)") {
-		t.Fatalf("delta summary=%q", long)
+	summary := buildDeltaSummary("x", "func main() {\n\treturn\n}\n", "func main() {\n    return\n}\n")
+	if !strings.Contains(summary, "-\treturn") || !strings.Contains(summary, "+    return") {
+		t.Fatalf("delta should preserve indentation-only changes: %q", summary)
 	}
 }
 
@@ -327,10 +320,10 @@ func TestReadCacheDeltaAndDecisionCoverage(t *testing.T) {
 	if got := sanitizeSessionID("a/b:c"); got != "a_b_c" {
 		t.Fatalf("sanitizeSessionID=%q", got)
 	}
-	if summary := buildDeltaSummary(file, "a\nb\n", "a\nc\n"); !strings.Contains(summary, "+ c") || !strings.Contains(summary, "- b") {
+	if summary := buildDeltaSummary(file, "a\nb\n", "a\nc\n"); !strings.Contains(summary, "+c") || !strings.Contains(summary, "-b") {
 		t.Fatalf("summary=%q", summary)
 	}
-	if summary := buildDeltaSummary(file, "a\nb\nc\n", "a\nc\n"); !strings.Contains(summary, "- b") {
+	if summary := buildDeltaSummary(file, "a\nb\nc\n", "a\nc\n"); !strings.Contains(summary, "-b") {
 		t.Fatalf("removed summary=%q", summary)
 	}
 }
@@ -385,8 +378,9 @@ func TestReadCacheAdditionalErrorBranches(t *testing.T) {
 	}
 	readCacheReadFile = origReadFile
 
-	if diff := distinctDiff([]string{"a", "a", "b"}, []string{"b"}); len(diff) != 1 || diff[0] != "a" {
-		t.Fatalf("distinctDiff=%v", diff)
+	duplicateSummary := buildDeltaSummary("dup.txt", "a\na\nb\n", "a\nb\na\n")
+	if !strings.Contains(duplicateSummary, "-a") || !strings.Contains(duplicateSummary, "+a") {
+		t.Fatalf("duplicate-line movement should stay visible: %q", duplicateSummary)
 	}
 
 	readCacheAbsPath = func(string) (string, error) { return "", errors.New("abs") }

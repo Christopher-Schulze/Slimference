@@ -248,7 +248,7 @@ base_url = "https://api.openai.com"
 
 [compression]
 layer1_enabled = true
-layer2_enabled = true
+layer2_enabled = false
 layer3_enabled = true
 sliding_window = 5
 min_messages_for_compression = 8

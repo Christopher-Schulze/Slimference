@@ -156,6 +156,27 @@ The product target is strict:
   session key, previous-response state, message count, token delta,
   `content_classes`, output-reduce reason, and the exact L2/L3/WebSocket
   planner decisions.
+- [x] Replace readcache changed-read set diffs with position-aware line hunks.
+  Changed-file rereads now preserve indentation-only changes, duplicate lines,
+  and moved context instead of relying on trimmed whole-line membership.
+- [x] Feed WSS-observed edit/write/apply_patch operations into the existing
+  recently-edited file guard. Codex WSS no longer depends only on external hook
+  state before deciding whether a reread may be safely compacted.
+- [x] Keep WSS terminal `response.completed` payloads byte-equal for repdet.
+  Streaming text deltas still use repdet where safe; terminal aggregates no
+  longer double-count streaming savings or risk corrupting final code/patch
+  output.
+- [x] Harden deterministic filter quality before broadening savings:
+  build/test/lint compactors run before generic log compaction, container
+  tables preserve unhealthy rows, and diagnostic JSON keeps error/message
+  values instead of collapsing to schema-only summaries.
+- [x] Reconcile Layer 2 default truth across runtime defaults, generated TOML,
+  CLI copy, and data-policy docs. Fresh configs keep Layer 2 disabled; explicit
+  opt-in configs remain honored.
+- [x] Add `scripts/utils wss-audit` for content-free Codex WSS decisions-log
+  audits. It reports route coverage, Phase-F request counts, session-key
+  continuity, `previous_response_id` usage, content classes, and positive input
+  savings without raw frame dumps.
 
 ## Notes
 
@@ -232,6 +253,15 @@ The product target is strict:
   closes the old observability gap where upgrade-level WSS records had
   `total_messages=0` and could not show real repeat candidates or L2/L3 proof
   gates.
+- Position-aware read deltas deliberately prefer safety over maximum brevity.
+  If a changed-read hunk would not be shorter than the original output, the
+  existing token-decreasing guard fails open to the full content.
+- WSS edit observation is a guard, not a new mutation surface. It records only
+  path-level edit evidence derived from reconstructable tool metadata or patch
+  headers, then lets the existing readcache recent-edit policy decide.
+- `wss-audit` is the cheap first check before any future cache frontier work:
+  missing session ids, no `previous_response_id`, or no positive savings can be
+  seen from content-free decisions logs before reaching for capture dumps.
 
 ## Deviations
 

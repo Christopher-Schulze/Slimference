@@ -240,5 +240,58 @@ func compactContainerTable(s, label string, rows int) string {
 	if rows <= 5 {
 		return "" // short tables are fine as-is
 	}
-	return fmt.Sprintf("[%s] %d item(s)\n", label, rows)
+	attention := containerAttentionRows(s)
+	if len(attention) == 0 {
+		return fmt.Sprintf("[%s] %d item(s)\n", label, rows)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[%s] %d item(s), %d attention row(s)\n", label, rows, len(attention))
+	for i, row := range attention {
+		if i >= 8 {
+			fmt.Fprintf(&b, "... %d more attention row(s)\n", len(attention)-i)
+			break
+		}
+		b.WriteString(row)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func containerAttentionRows(s string) []string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) <= 1 {
+		return nil
+	}
+	var out []string
+	for _, line := range lines[1:] {
+		if containerRowNeedsAttention(line) {
+			out = append(out, strings.TrimSpace(line))
+		}
+	}
+	return out
+}
+
+func containerRowNeedsAttention(row string) bool {
+	lower := strings.ToLower(row)
+	for _, token := range []string{
+		"backoff",
+		"crashloop",
+		"error",
+		"evicted",
+		"failed",
+		"imagepull",
+		"oomkilled",
+		"pending",
+		"terminating",
+		"unknown",
+		"unhealthy",
+		"restarting",
+		"exited",
+		"dead",
+	} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
 }

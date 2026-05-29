@@ -14,6 +14,7 @@ import (
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/proxy/sniroute"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
+	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/staleread"
 	"github.com/slimference/slimference/internal/types"
 	"github.com/slimference/slimference/internal/wscompact"
@@ -137,6 +138,56 @@ func TestWSPhaseFDoesNotStreamcutWSSDelta(t *testing.T) {
 	}
 	if got := p.OutputReduceCountersSnapshot().StreamcutFired; got != 0 {
 		t.Fatalf("HTTP streamcut counter should not be used by WSS, got %d", got)
+	}
+}
+
+func TestWSPhaseFObservedEditBypassesReadDelta(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	sessionID := "codex-wss:wss-edit-guard"
+	before := "package main\nfunc a() {}\nfunc b() {}\nfunc c() {}\nfunc d() {}\nfunc e() {}\n"
+	fresh := before + "changed line\n"
+
+	first := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-edit-guard",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "read-1", "name": "read_file", "arguments": map[string]any{"path": "src/x.go"}},
+				{"type": "function_call_output", "call_id": "read-1", "output": before},
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &first); err != nil || replace {
+		t.Fatalf("first read should pass through, replace=%v err=%v body=%s", replace, err, first.Body)
+	}
+
+	second := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":                "gpt-5-codex",
+			"prompt_cache_key":     "wss-edit-guard",
+			"previous_response_id": "resp-1",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": "edit-1", "name": "apply_patch", "arguments": map[string]any{"path": "src/x.go", "patch": "*** Begin Patch\n*** Update File: src/x.go\n*** End Patch"}},
+				{"type": "function_call_output", "call_id": "edit-1", "output": "patch applied"},
+				{"type": "function_call", "call_id": "read-2", "name": "read_file", "arguments": map[string]any{"path": "src/x.go"}},
+				{"type": "function_call_output", "call_id": "read-2", "output": fresh},
+			},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &second); err != nil || replace {
+		t.Fatalf("recently edited reread should pass through, replace=%v err=%v body=%s", replace, err, second.Body)
+	}
+	hit, err := sessions.RecentlyEditedHookFile(sessions.DefaultHookStateDir(home), sessionID, "src/x.go", 2)
+	if err != nil || !hit {
+		t.Fatalf("WSS edit observation missing, hit=%v err=%v", hit, err)
 	}
 }
 
@@ -373,7 +424,7 @@ func TestWSPhaseFStreamcutStaysDisabledAfterMultipleWSSDeltas(t *testing.T) {
 	}
 }
 
-func TestWSPhaseFTerminalResponseRepdetRewrite(t *testing.T) {
+func TestWSPhaseFTerminalResponseRepdetStaysByteEqual(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.RepetitionDetectionEnabled = true
 	p := New(cfg)
@@ -411,8 +462,8 @@ func TestWSPhaseFTerminalResponseRepdetRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("terminal handle: %v", err)
 	}
-	if !replace || !strings.Contains(string(resp.Response), "[unchanged: prompt-text]") {
-		t.Fatalf("terminal response not rewritten: replace=%v response=%s", replace, resp.Response)
+	if replace || strings.Contains(string(resp.Response), "[unchanged: prompt-text]") {
+		t.Fatalf("terminal response should stay byte-equal, replace=%v response=%s", replace, resp.Response)
 	}
 }
 

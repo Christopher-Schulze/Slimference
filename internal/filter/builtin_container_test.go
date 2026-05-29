@@ -193,6 +193,27 @@ func TestTryCompactContainerOutput_kubectlGetMany(t *testing.T) {
 	}
 }
 
+func TestTryCompactContainerOutput_keepsAttentionRows(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("NAME                    READY   STATUS             RESTARTS   AGE\n")
+	for i := 0; i < 10; i++ {
+		status := "Running"
+		if i == 7 {
+			status = "CrashLoopBackOff"
+		}
+		sb.WriteString(fmt.Sprintf("api-%05d              1/1     %-18s 0          5d\n", i, status))
+	}
+	out, ok := TryCompactContainerOutput([]string{"kubectl", "get", "pods"}, []byte(sb.String()))
+	if !ok {
+		t.Fatalf("expected compact kubectl get table, got pass-through")
+	}
+	s := string(out)
+	if !strings.Contains(s, "attention row") || !strings.Contains(s, "api-00007") || !strings.Contains(s, "CrashLoopBackOff") {
+		t.Fatalf("attention row was not preserved: %q", s)
+	}
+}
+
 // TestContainerTableRows_dockerImages covers the "docker images" REPOSITORY header branch.
 func TestContainerTableRows_dockerImages(t *testing.T) {
 	t.Parallel()

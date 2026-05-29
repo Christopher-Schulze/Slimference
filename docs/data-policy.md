@@ -1,6 +1,6 @@
 # Slimference Data Policy
 
-Last updated: 2026-05-13 (T129 + provider-tunable Layer 2)
+Last updated: 2026-05-30 (Layer 2 opt-in default + provider-tunable Layer 2)
 
 ## Overview
 
@@ -24,7 +24,7 @@ Slimference processes LLM API requests through a multi-layer compression pipelin
 
 - **What happens**: When enabled, conversation prefixes exceeding the token threshold are summarized by a configured OpenAI-compatible LLM endpoint (MiniMax M2.7 by default).
 - **Data destination**: Compressed conversation content is sent to the configured summarization provider endpoint.
-- **Default state**: **Enabled** for fresh configs (T129). Existing configs with `layer2_enabled = false` stay disabled.
+- **Default state**: **Disabled** for fresh configs. Existing configs with `layer2_enabled = true` stay enabled, but new installs must opt in explicitly.
 - **Redaction**: Outbound redaction is **on by default** (T109). This strips:
   - HTTP authentication headers
   - Known credential/secret patterns (API keys, tokens, passwords)
@@ -85,7 +85,7 @@ Each layer can be individually disabled in config:
 ```toml
 [compression]
 layer1_enabled = true   # deterministic compression (safe, local)
-layer2_enabled = true   # abstractive summarization (default on, T129)
+layer2_enabled = false  # abstractive summarization (external, opt-in)
 layer3_enabled = true   # response cache (safe, local)
 ```
 

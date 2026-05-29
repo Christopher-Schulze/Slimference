@@ -158,6 +158,160 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 	return codexLayer0Result{Messages: out, Stats: stats}
 }
 
+func proxyEditedPathsFromMessages(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) []string {
+	toolUses := proxyToolUseIndex(messages)
+	for id, use := range rememberedToolUses {
+		if _, ok := toolUses[id]; !ok {
+			toolUses[id] = use
+		}
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		out = append(out, path)
+	}
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type == "tool_use" {
+				for _, path := range proxyLayer0EditPaths(block) {
+					add(path)
+				}
+				continue
+			}
+			if block.Type != "tool_result" {
+				continue
+			}
+			use, _ := proxyResolveToolUseDetailed(block, toolUses)
+			for _, path := range proxyLayer0EditPaths(use) {
+				add(path)
+			}
+		}
+	}
+	return out
+}
+
+func proxyLayer0EditPaths(block types.ContentBlock) []string {
+	input := strings.TrimSpace(block.ToolInput)
+	if input == "" {
+		return nil
+	}
+	rawUnwrapped := false
+	if raw := rawJSONString(json.RawMessage(input)); raw != "" {
+		input = raw
+		rawUnwrapped = true
+	}
+	if looksLikeEditTool(block.ToolName) {
+		if rawUnwrapped {
+			if strings.Contains(input, "*** ") || strings.Contains(input, "+++ ") || strings.Contains(input, "--- ") {
+				return proxyPatchPathsFromText(input, "")
+			}
+			return []string{input}
+		}
+	}
+	var out []string
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path != "" {
+			out = append(out, path)
+		}
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input), &obj); err != nil {
+		if looksLikeEditTool(block.ToolName) {
+			add(input)
+		}
+		if looksLikeShellTool(block.ToolName) && strings.Contains(input, "apply_patch") {
+			out = append(out, proxyPatchPathsFromText(input, "")...)
+		}
+		return compactStringSet(out)
+	}
+	workdir := proxyToolWorkdir(obj)
+	if looksLikeEditTool(block.ToolName) {
+		for _, key := range []string{"path", "file_path", "filepath", "absolute_path", "target", "source_path"} {
+			if path := strings.TrimSpace(rawJSONString(obj[key])); path != "" {
+				add(proxyPathWithWorkdir(path, workdir))
+			}
+		}
+	}
+	for _, key := range []string{"patch", "diff", "changes"} {
+		if patch := strings.TrimSpace(rawJSONString(obj[key])); patch != "" {
+			for _, path := range proxyPatchPathsFromText(patch, workdir) {
+				add(path)
+			}
+		}
+	}
+	for _, key := range []string{"command", "cmd", "command_line", "cmdline", "commandLine", "shell_command", "shellCommand"} {
+		if command := strings.TrimSpace(rawJSONString(obj[key])); strings.Contains(command, "apply_patch") {
+			for _, path := range proxyPatchPathsFromText(command, workdir) {
+				add(path)
+			}
+		}
+	}
+	return compactStringSet(out)
+}
+
+func looksLikeEditTool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "edit", "write", "apply_patch", "multiedit", "multi_edit", "update_file",
+		"write_file", "replace_file", "file.write", "fs.write", "mcp.write_file":
+		return true
+	default:
+		return false
+	}
+}
+
+func proxyPatchPathsFromText(patch, workdir string) []string {
+	var out []string
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if i := strings.IndexByte(path, '\t'); i >= 0 {
+			path = strings.TrimSpace(path[:i])
+		}
+		path = strings.TrimPrefix(path, "a/")
+		path = strings.TrimPrefix(path, "b/")
+		if path == "" || path == "/dev/null" {
+			return
+		}
+		out = append(out, proxyPathWithWorkdir(path, workdir))
+	}
+	for _, line := range strings.Split(patch, "\n") {
+		for _, prefix := range []string{"*** Update File: ", "*** Add File: ", "*** Delete File: ", "+++ ", "--- "} {
+			if strings.HasPrefix(line, prefix) {
+				add(strings.TrimPrefix(line, prefix))
+			}
+		}
+	}
+	return compactStringSet(out)
+}
+
+func compactStringSet(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
 func readDeltaEligible(sessionID, commandLine string) bool {
 	return strings.TrimSpace(sessionID) != "" && filter.ReadPathFromCommandLine(commandLine) != ""
 }
