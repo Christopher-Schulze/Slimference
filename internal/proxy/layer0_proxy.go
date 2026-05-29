@@ -293,18 +293,18 @@ func proxyLayer0CommandLine(block types.ContentBlock) string {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(input), &obj); err == nil {
 		workdir := proxyToolWorkdir(obj)
-		for _, key := range []string{"command", "cmd", "command_line", "cmdline", "shell_command"} {
+		for _, key := range []string{"command", "cmd", "command_line", "cmdline", "commandLine", "shell_command", "shellCommand"} {
 			if s := strings.TrimSpace(rawJSONString(obj[key])); s != "" {
 				return applyWorkdirToReadCommand(normalizeLayer0CommandLine(s), workdir)
 			}
 		}
-		for _, key := range []string{"command", "argv", "args"} {
+		for _, key := range []string{"command", "argv", "args", "cmd_args", "command_args"} {
 			if argv := proxyStringArray(obj[key]); len(argv) > 0 {
 				return applyWorkdirToReadCommand(normalizeLayer0CommandLine(joinShellArgs(argv)), workdir)
 			}
 		}
 		if looksLikeReadTool(block.ToolName) {
-			for _, key := range []string{"path", "file_path", "filepath", "absolute_path"} {
+			for _, key := range []string{"path", "file_path", "filepath", "absolute_path", "uri", "target", "source_path"} {
 				if path := strings.TrimSpace(rawJSONString(obj[key])); path != "" {
 					return "cat " + quoteShellArg(proxyPathWithWorkdir(path, workdir))
 				}
@@ -319,7 +319,7 @@ func proxyLayer0CommandLine(block types.ContentBlock) string {
 }
 
 func proxyToolWorkdir(obj map[string]json.RawMessage) string {
-	for _, key := range []string{"workdir", "cwd", "working_directory", "directory"} {
+	for _, key := range []string{"workdir", "cwd", "working_directory", "workingDirectory", "workingDir", "current_working_directory", "directory"} {
 		if dir := strings.TrimSpace(rawJSONString(obj[key])); dir != "" && filepath.IsAbs(dir) {
 			return filepath.Clean(dir)
 		}
@@ -437,7 +437,8 @@ func looksLikeShellExecutable(name string) bool {
 func looksLikeReadTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "read", "cat", "view", "open", "open_file", "read_file", "readfile", "view_file",
-		"file_read", "read_path", "view_path", "open_path":
+		"file_read", "read_path", "view_path", "open_path", "file.read", "fs.read",
+		"read_file_tool", "local_file_read", "mcp.read_file":
 		return true
 	default:
 		return false

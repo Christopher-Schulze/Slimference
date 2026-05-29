@@ -299,6 +299,23 @@ rewritten in place, preserving sibling non-text parts, metadata, and the
 original object/array shape. Multi-text or otherwise ambiguous arrays fail open
 instead of being stringified.
 
+The readcache frontier is archive-backed for large observed tool reads. Large
+full-file outputs are hashed and stored in the local content archive while the
+session JSON keeps only the hash/archive URI, avoiding unbounded session-state
+bloat. On a later same-session read, Slimference expands the archive only when
+needed to build an exact delta or unchanged reference. If the archive is missing
+or the delta is not shorter, the original content is sent unchanged. This keeps
+the savings path reconstructable and fail-open while improving repeat-read
+hit-rate for both WSS and HTTP Codex traffic.
+
+`go run ./scripts/utils workday-savings start|finish` is the real-workday
+measurement ceremony. `start` captures a baseline from `/admin/state` (and
+optionally the filter DB); `finish` captures the current state and prints the
+counter delta. Operators must close Codex CLI/Desktop sessions before `finish`
+so WSS counters flush. The report keeps route-ready separate from
+savings-proven: positive mutation/token counters are the proof, not the fact
+that a WSS route was bridged.
+
 ---
 
 ## 5. Layer 1 - Deterministic Compression
@@ -1217,6 +1234,14 @@ action that calls the same recert core as the CLI/background path. Old macOS
 processes when detected; the current healthy daemon PID remains the actionable
 state.
 
+The Launch Center labels the Codex route in hard product terms: `WSS savings
+active` means Phase-F mutation is certified for the current tuple; `WSS route
+ready` means Desktop reaches the route but that specific proof did not show
+mutation; `WSS native bridge` / `WSS bridge/fallback` means Codex stays on the
+native WebSocket path while savings repair or fallback is active. The status
+surface includes recert attempt id, started/finished/last-success/retry times,
+last error, and the bounded recert log path when available.
+
 ### Keybindings
 
 Auto-generated in `docs/tui-keybindings.md` from
@@ -1559,6 +1584,10 @@ and writes either the Phase-F cert or the lower-risk
 `~/.slimference/codex-wss-recert.json` and a 2 MiB rotating log at
 `~/.slimference/logs/codex-wss-recert.log`. Bridge mode bypasses Phase-F
 handlers and streamcut; it is compatibility mode, not a savings claim.
+`/admin/state`, `slimference codex status`, and the TUI expose the latest recert
+status, attempt id, start/finish/last-success/retry timestamps, last error, and
+log path. Background auto-recert is still guarded by lock/backoff and never
+keeps mutating after a version drift without fresh proof.
 
 ### Compression planner
 

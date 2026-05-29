@@ -1301,6 +1301,24 @@ func renderCodexStatus(w io.Writer, s codexroute.Status, daemonReachable bool, d
 	}
 	if auto.RecertStatus != "" {
 		fmt.Fprintf(w, "           recert status=%s attempt=%s\n", auto.RecertStatus, auto.RecertAttemptID)
+		if !auto.RecertStartedAt.IsZero() {
+			fmt.Fprintf(w, "           recert started=%s\n", auto.RecertStartedAt.Format(time.RFC3339))
+		}
+		if !auto.RecertFinishedAt.IsZero() {
+			fmt.Fprintf(w, "           recert finished=%s\n", auto.RecertFinishedAt.Format(time.RFC3339))
+		}
+		if !auto.RecertLastSuccessAt.IsZero() {
+			fmt.Fprintf(w, "           recert last_success=%s\n", auto.RecertLastSuccessAt.Format(time.RFC3339))
+		}
+		if !auto.RecertRetryAfter.IsZero() {
+			fmt.Fprintf(w, "           recert retry_after=%s\n", auto.RecertRetryAfter.Format(time.RFC3339))
+		}
+		if auto.RecertLastError != "" {
+			fmt.Fprintf(w, "           recert last_error=%s\n", auto.RecertLastError)
+		}
+		if auto.RecertLogPath != "" {
+			fmt.Fprintf(w, "           recert log=%s\n", auto.RecertLogPath)
+		}
 	}
 	fmt.Fprintf(w, "  Daemon   reachable=%v\n", daemonReachable)
 	if daemonErr != "" {

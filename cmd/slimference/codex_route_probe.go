@@ -76,7 +76,14 @@ func (p *codexRouteProbe) ProbeCodexRoute(ctx context.Context) control.CodexRout
 	out.CertificationPath = auto.CertificationPath
 	out.BridgeProofPath = auto.BridgeProofPath
 	out.RecertStatePath = auto.RecertStatePath
+	out.RecertLogPath = auto.RecertLogPath
 	out.RecertStatus = auto.RecertStatus
+	out.RecertAttemptID = auto.RecertAttemptID
+	out.RecertStartedAt = auto.RecertStartedAt
+	out.RecertFinishedAt = auto.RecertFinishedAt
+	out.RecertLastSuccessAt = auto.RecertLastSuccessAt
+	out.RecertRetryAfter = auto.RecertRetryAfter
+	out.RecertLastError = auto.RecertLastError
 	out.RecertCommand = auto.RecertCommand
 	out.FallbackReason = auto.FallbackReason
 	out.LastWSSError = auto.LastWSSError

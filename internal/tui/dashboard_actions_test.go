@@ -46,7 +46,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 			t.Fatalf("action[%d]=%q want %q in %v", i, actions[i].id, id, actions)
 		}
 	}
-	if actions[0].label != "Launch Codex CLI" || actions[0].state != "WSS savings" {
+	if actions[0].label != "Launch Codex CLI" || actions[0].state != "WSS savings active" {
 		t.Fatalf("CLI action=%+v", actions[0])
 	}
 	if actions[1].label != "Launch Codex App" || actions[1].state != "proof needed" {
@@ -114,8 +114,12 @@ func TestLaunchCenterStateVocabularyBranches(t *testing.T) {
 		t.Fatalf("CLI state=%q", got)
 	}
 	model.codexRouteStatus = CodexRouteStatus{FallbackReason: "codex version changed", NeedsRecert: true}
-	if got := model.codexCLIState(); got != "repairing" {
+	if got := model.codexCLIState(); got != "WSS repair needed" {
 		t.Fatalf("CLI recert state=%q", got)
+	}
+	model.codexRouteStatus = CodexRouteStatus{FallbackReason: "codex version changed", NeedsRecert: true, RecertStatus: "running"}
+	if got := model.codexCLIState(); got != "WSS repair running" {
+		t.Fatalf("CLI running recert state=%q", got)
 	}
 
 	for _, tc := range []struct {

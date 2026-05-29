@@ -1,0 +1,77 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
+	baseState := writeAggregateStateFile(t, aggregateSampleAdminState)
+	currentBody := strings.ReplaceAll(aggregateSampleAdminState, `"input_tokens_saved": 42000`, `"input_tokens_saved": 43000`)
+	currentBody = strings.ReplaceAll(currentBody, `"tokens_saved": 42000`, `"tokens_saved": 43000`)
+	currentBody = strings.ReplaceAll(currentBody, `"compressed_messages_mutated": 5`, `"compressed_messages_mutated": 6`)
+	currentBody = strings.ReplaceAll(currentBody, `"frames_reencoded": 5`, `"frames_reencoded": 6`)
+	currentState := writeAggregateStateFile(t, currentBody)
+	baseline := filepath.Join(t.TempDir(), "workday-baseline.json")
+
+	var stdout, stderr bytes.Buffer
+	code := runWorkdaySavings([]string{"start", "--admin-state-file=" + baseState, "--baseline-file=" + baseline, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("start exit=%d stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(baseline); err != nil {
+		t.Fatalf("baseline not written: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runWorkdaySavings([]string{"finish", "--admin-state-file=" + currentState, "--baseline-file=" + baseline, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("finish exit=%d stderr=%s", code, stderr.String())
+	}
+	var got workdaySavingsResult
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("bad finish JSON: %v\n%s", err, stdout.String())
+	}
+	if got.Delta.WSS.InputTokensSaved != 1000 {
+		t.Fatalf("delta input tokens: got=%d want=1000", got.Delta.WSS.InputTokensSaved)
+	}
+	if got.Delta.WSS.CompressedMessagesMutated != 1 || got.Delta.WSS.FramesReencoded != 1 {
+		t.Fatalf("delta mutation counters mismatch: %+v", got.Delta.WSS)
+	}
+	if got.Delta.Aggregate.TotalTokensSaved != 1000 {
+		t.Fatalf("delta aggregate tokens: got=%d want=1000", got.Delta.Aggregate.TotalTokensSaved)
+	}
+	if len(got.Delta.Notes) == 0 || !strings.Contains(strings.Join(got.Delta.Notes, "\n"), "Route-ready is not a savings claim") {
+		t.Fatalf("delta notes should preserve honest proof language: %+v", got.Delta.Notes)
+	}
+}
+
+func TestWorkdaySavingsTextMentionsFlush(t *testing.T) {
+	statePath := writeAggregateStateFile(t, aggregateSampleAdminState)
+	baseline := filepath.Join(t.TempDir(), "workday-baseline.json")
+	var stdout, stderr bytes.Buffer
+	code := runWorkdaySavings([]string{"start", "--admin-state-file", statePath, "--baseline-file", baseline}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "close sessions so WSS counters flush") || !strings.Contains(out, "workday-savings finish") {
+		t.Fatalf("start output should guide flush-aware finish:\n%s", out)
+	}
+}
+
+func TestWorkdaySavingsRejectsMissingAction(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runWorkdaySavings([]string{"--admin-state-file=/tmp/state.json"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit: got=%d want=2", code)
+	}
+	if !strings.Contains(stderr.String(), "requires action") {
+		t.Fatalf("stderr should mention action: %s", stderr.String())
+	}
+}

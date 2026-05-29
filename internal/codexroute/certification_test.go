@@ -220,12 +220,23 @@ func TestDecideAutoTransportKeepsBridgeForRunningOrFailedRecert(t *testing.T) {
 		recert RecertState
 	}{
 		{
-			name:   "running recert",
-			recert: RecertState{Status: "running", AttemptID: "attempt-running"},
+			name: "running recert",
+			recert: RecertState{
+				Status:        "running",
+				AttemptID:     "attempt-running",
+				StartedAt:     time.Date(2026, 5, 19, 12, 0, 0, 0, time.UTC),
+				LastSuccessAt: time.Date(2026, 5, 18, 12, 0, 0, 0, time.UTC),
+			},
 		},
 		{
-			name:   "failed recert",
-			recert: RecertState{Status: "failed", AttemptID: "attempt-failed", RetryAfter: time.Date(2026, 5, 19, 13, 0, 0, 0, time.UTC)},
+			name: "failed recert",
+			recert: RecertState{
+				Status:     "failed",
+				AttemptID:  "attempt-failed",
+				FinishedAt: time.Date(2026, 5, 19, 12, 5, 0, 0, time.UTC),
+				RetryAfter: time.Date(2026, 5, 19, 13, 0, 0, 0, time.UTC),
+				LastError:  "synthetic failure",
+			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -261,6 +272,14 @@ func TestDecideAutoTransportKeepsBridgeForRunningOrFailedRecert(t *testing.T) {
 			}
 			if decision.RecertStatus != tc.recert.Status || decision.RecertAttemptID != tc.recert.AttemptID {
 				t.Fatalf("recert status missing: %+v", decision)
+			}
+			if !decision.RecertStartedAt.Equal(tc.recert.StartedAt) ||
+				!decision.RecertFinishedAt.Equal(tc.recert.FinishedAt) ||
+				!decision.RecertLastSuccessAt.Equal(tc.recert.LastSuccessAt) ||
+				!decision.RecertRetryAfter.Equal(tc.recert.RetryAfter) ||
+				decision.RecertLastError != tc.recert.LastError ||
+				decision.RecertLogPath != RecertLogPath(home) {
+				t.Fatalf("recert metadata missing: got=%+v want=%+v", decision, tc.recert)
 			}
 		})
 	}

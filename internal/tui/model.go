@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -196,24 +197,32 @@ type TransparentStatus struct {
 // CodexRouteStatus is the TUI-facing snapshot of the scoped
 // marker-owned Codex provider route in ~/.codex/config.toml.
 type CodexRouteStatus struct {
-	Exists             bool
-	Enabled            bool
-	Complete           bool
-	Conflict           string
-	LegacyKeys         bool
-	DaemonReachable    bool
-	Transport          string
-	AutoTransport      string
-	AutoMode           string
-	WSSCertified       bool
-	WSSBridgeAvailable bool
-	NeedsRecert        bool
-	FallbackReason     string
-	CertificationPath  string
-	BridgeProofPath    string
-	RecertStatus       string
-	RecertCommand      string
-	Detail             string
+	Exists              bool
+	Enabled             bool
+	Complete            bool
+	Conflict            string
+	LegacyKeys          bool
+	DaemonReachable     bool
+	Transport           string
+	AutoTransport       string
+	AutoMode            string
+	WSSCertified        bool
+	WSSBridgeAvailable  bool
+	NeedsRecert         bool
+	FallbackReason      string
+	CertificationPath   string
+	BridgeProofPath     string
+	RecertStatePath     string
+	RecertLogPath       string
+	RecertStatus        string
+	RecertAttemptID     string
+	RecertStartedAt     time.Time
+	RecertFinishedAt    time.Time
+	RecertLastSuccessAt time.Time
+	RecertRetryAfter    time.Time
+	RecertLastError     string
+	RecertCommand       string
+	Detail              string
 }
 
 // CodexDesktopStatus is the TUI-facing Codex.app proxy capability state.
@@ -963,11 +972,13 @@ func (m *Model) codexCLIState() string {
 	status := m.codexRouteStatus
 	switch {
 	case status.WSSCertified && status.AutoMode == "wss_phasef":
-		return "WSS savings"
+		return "WSS savings active"
 	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
-		return "WSS bridge"
+		return "WSS native bridge"
+	case status.NeedsRecert && status.RecertStatus == "running":
+		return "WSS repair running"
 	case status.NeedsRecert:
-		return "repairing"
+		return "WSS repair needed"
 	case !status.DaemonReachable:
 		return "daemon off"
 	case status.FallbackReason != "":
@@ -983,11 +994,11 @@ func (m *Model) codexAppState() string {
 	status := m.codexDesktopStatus
 	switch {
 	case status.Mode == "desktop_app_server_proven":
-		return "WSS savings"
+		return "WSS savings active"
 	case status.Mode == "desktop_app_server_route_ready":
 		return "WSS route ready"
 	case status.Mode == "desktop_wss_bridge_only":
-		return "WSS bridge"
+		return "WSS bridge/fallback"
 	case status.Mode == "desktop_proof_prompt_required":
 		return "proof needed"
 	case status.FailureClass != "":
@@ -1032,13 +1043,16 @@ func (m *Model) statusState() string {
 		return "needs repair"
 	}
 	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
-		return "WSS savings"
+		return "WSS savings active"
 	}
 	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
-		return "WSS bridge"
+		return "WSS native bridge"
+	}
+	if m.codexRouteStatus.NeedsRecert && m.codexRouteStatus.RecertStatus == "running" {
+		return "WSS repair running"
 	}
 	if m.codexRouteStatus.NeedsRecert {
-		return "repairing"
+		return "WSS repair needed"
 	}
 	if m.codexRouteStatus.FallbackReason != "" {
 		return "fallback"
@@ -1048,18 +1062,77 @@ func (m *Model) statusState() string {
 
 func (m *Model) statusDescription() string {
 	if m.codexRouteStatus.WSSCertified && m.codexRouteStatus.AutoMode == "wss_phasef" {
-		return "Codex CLI runs WSS Phase-F savings on the current version tuple."
+		return "Codex CLI runs WSS Phase-F savings on the current version tuple." + m.recertStatusSuffix()
 	}
 	if m.codexRouteStatus.WSSBridgeAvailable && m.codexRouteStatus.AutoMode == "wss_bridge" {
-		return "Codex CLI stays on native WSS while Phase-F savings repair runs."
+		return "Codex CLI stays on native WSS while Phase-F savings repair runs." + m.recertStatusSuffix()
 	}
 	if m.codexRouteStatus.FallbackReason != "" {
-		return "Codex CLI savings are paused safely: " + m.codexRouteStatus.FallbackReason
+		return "Codex CLI savings are paused safely: " + m.codexRouteStatus.FallbackReason + m.recertStatusSuffix()
 	}
 	if m.codexDesktopStatus.FailureClass != "" {
 		return "Desktop gate: " + m.codexDesktopStatus.FailureClass
 	}
 	return "Show daemon, route, WSS cert, Desktop gate, CA, and lab safety state."
+}
+
+func (m *Model) recertStatusSuffix() string {
+	status := m.codexRouteStatus
+	if status.RecertStatus == "" && status.RecertLogPath == "" {
+		return ""
+	}
+	parts := make([]string, 0, 4)
+	if status.RecertStatus != "" {
+		label := "recert " + status.RecertStatus
+		if status.RecertAttemptID != "" {
+			label += " " + status.RecertAttemptID
+		}
+		parts = append(parts, label)
+	}
+	if !status.RecertStartedAt.IsZero() {
+		parts = append(parts, "started "+relativeTime(status.RecertStartedAt))
+	}
+	if !status.RecertLastSuccessAt.IsZero() {
+		parts = append(parts, "last green "+relativeTime(status.RecertLastSuccessAt))
+	}
+	if !status.RecertRetryAfter.IsZero() {
+		parts = append(parts, "retry "+relativeTime(status.RecertRetryAfter))
+	}
+	if status.RecertLastError != "" {
+		parts = append(parts, "last error: "+status.RecertLastError)
+	}
+	if status.RecertLogPath != "" {
+		parts = append(parts, "log "+status.RecertLogPath)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " [" + strings.Join(parts, "; ") + "]"
+}
+
+func relativeTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	now := time.Now()
+	if t.After(now) {
+		return "in " + roundDuration(t.Sub(now))
+	}
+	return roundDuration(now.Sub(t)) + " ago"
+}
+
+func roundDuration(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case d < time.Minute:
+		return d.Round(time.Second).String()
+	case d < time.Hour:
+		return d.Round(time.Minute).String()
+	default:
+		return d.Round(time.Hour).String()
+	}
 }
 
 func (m *Model) manageState() string {

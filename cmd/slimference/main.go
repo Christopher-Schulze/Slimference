@@ -3930,7 +3930,15 @@ func (sca *serviceControlAdapter) CodexRouteStatus() tui.CodexRouteStatus {
 	out.NeedsRecert = auto.NeedsRecert
 	out.FallbackReason = auto.FallbackReason
 	out.BridgeProofPath = auto.BridgeProofPath
+	out.RecertStatePath = auto.RecertStatePath
+	out.RecertLogPath = auto.RecertLogPath
 	out.RecertStatus = auto.RecertStatus
+	out.RecertAttemptID = auto.RecertAttemptID
+	out.RecertStartedAt = auto.RecertStartedAt
+	out.RecertFinishedAt = auto.RecertFinishedAt
+	out.RecertLastSuccessAt = auto.RecertLastSuccessAt
+	out.RecertRetryAfter = auto.RecertRetryAfter
+	out.RecertLastError = auto.RecertLastError
 	out.RecertCommand = auto.RecertCommand
 	out.Detail = auto.LastWSSError
 	if err := tuiCodexRouteHealthCheckFn("127.0.0.1", "8990"); err != nil {

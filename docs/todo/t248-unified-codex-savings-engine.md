@@ -103,19 +103,19 @@ The product target is strict:
   `exec_command`, `local_shell_call`, `shell_call`, direct read tools, MCP-style
   outputs, nested output arrays, and future Codex tool variants. Every new shape
   needs a fixture and fail-open behavior for unknown input.
-- [ ] Improve session/turn-aware cache policy for repeated tool outputs:
+- [x] Improve session/turn-aware cache policy for repeated tool outputs:
   maximize readcache hit-rate across turns without touching prompt-cache blocks,
   recently-edited files, voice/realtime, or non-reconstructable content.
-- [ ] Design and prove a "cache frontier" for WSS:
+- [x] Design and prove a "cache frontier" for WSS:
   local archive references, read-delta markers, and exact repeated output
   suppression are allowed; semantic summaries and response cache substitutions
   require separate proof because Codex WSS uses `previous_response_id` server
   state.
-- [ ] Add recert UX hardening if gaps remain after live observation:
+- [x] Add recert UX hardening if gaps remain after live observation:
   auto-recert status in TUI, last attempt age, bounded log link, reason for
   bridge/fallback, and explicit "repair now" action that calls the shared T241
   recert core.
-- [ ] Add Workday measurement ceremony:
+- [x] Add Workday measurement ceremony:
   start snapshot, run normal CLI + Desktop Slimference sessions, close sessions
   for WSS flush, run `aggregate-savings --period=today`, record WSS/HTTP
   attribution, fallback events, recert events, and qualitative no-drawdown notes.
@@ -162,6 +162,18 @@ The product target is strict:
   multi-text arrays into strings.
 - Nested MCP-style output support follows the same rule: only a single
   reconstructable text part is eligible, and object metadata remains intact.
+- Large observed read outputs are now archive-backed instead of inlined into
+  readcache session JSON. The cache stores hash/archive URI, expands the archive
+  only to build exact unchanged/delta replacements, and fails open if the
+  archive is missing or the delta is not shorter. This increases repeat-read
+  hit-rate without touching prompt-cache blocks or semantic content.
+- Recert UX is no longer a black box: `/admin/state`, `codex status`, and the
+  TUI surface attempt id, started/finished/last-success/retry times, last error,
+  and the bounded log path. The existing TUI repair action continues to call the
+  shared `slimference codex recertify wss` core.
+- `workday-savings start|finish` records a baseline/current counter window and
+  prints honest deltas. It explicitly reminds operators to close Codex sessions
+  before finish so WSS counters flush.
 
 ## Deviations
 

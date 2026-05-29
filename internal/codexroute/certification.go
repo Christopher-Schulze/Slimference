@@ -114,9 +114,14 @@ type AutoDecision struct {
 	CertificationPath    string             `json:"certification_path"`
 	BridgeProofPath      string             `json:"bridge_proof_path"`
 	RecertStatePath      string             `json:"recert_state_path"`
+	RecertLogPath        string             `json:"recert_log_path,omitempty"`
 	RecertStatus         string             `json:"recert_status,omitempty"`
 	RecertAttemptID      string             `json:"recert_attempt_id,omitempty"`
+	RecertStartedAt      time.Time          `json:"recert_started_at,omitempty"`
+	RecertFinishedAt     time.Time          `json:"recert_finished_at,omitempty"`
+	RecertLastSuccessAt  time.Time          `json:"recert_last_success_at,omitempty"`
 	RecertRetryAfter     time.Time          `json:"recert_retry_after,omitempty"`
+	RecertLastError      string             `json:"recert_last_error,omitempty"`
 	FallbackReason       string             `json:"fallback_reason,omitempty"`
 	LastWSSError         string             `json:"last_wss_error,omitempty"`
 	RecertCommand        string             `json:"recert_command,omitempty"`
@@ -271,13 +276,18 @@ func DecideAutoTransport(home, codexVersion, slimferenceVersion string) (AutoDec
 		CertificationPath:  CertificationPath(home),
 		BridgeProofPath:    BridgeProofPath(home),
 		RecertStatePath:    RecertStatePath(home),
+		RecertLogPath:      RecertLogPath(home),
 		FallbackReason:     "wss certification missing",
 	}
 
 	if recert, exists, err := LoadRecertState(home); err == nil && exists {
 		decision.RecertStatus = recert.Status
 		decision.RecertAttemptID = recert.AttemptID
+		decision.RecertStartedAt = recert.StartedAt
+		decision.RecertFinishedAt = recert.FinishedAt
+		decision.RecertLastSuccessAt = recert.LastSuccessAt
 		decision.RecertRetryAfter = recert.RetryAfter
+		decision.RecertLastError = recert.LastError
 	} else if err != nil {
 		decision.RejectedModes = append(decision.RejectedModes, RejectedAutoMode{Mode: "wss_phasef", Reason: "recert state unreadable: " + err.Error()})
 	}

@@ -11,7 +11,10 @@ import (
 	"github.com/slimference/slimference/internal/sessions"
 )
 
-const maxCachedFileBytes = 64 * 1024
+const (
+	maxCachedFileBytes          = 64 * 1024
+	maxObservedInlineCacheBytes = 256 * 1024
+)
 
 func Evaluate(dir string, req Request) (Decision, error) {
 	state, err := LoadSession(dir, req.SessionID)
@@ -67,8 +70,14 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 	}
 
 	hash := hashObservedContent(content)
-	archiveURI, archived := archiveObservedContent(archiveDir, req, content)
+	oldContent := entry.CachedContent
+	if oldContent == "" && entry.ArchiveURI != "" && archiveDir != "" {
+		if _, body, err := contentarchive.Get(archiveDir, entry.ArchiveURI); err == nil {
+			oldContent = string(body)
+		}
+	}
 	if recentlyEdited {
+		archiveURI, _ := archiveObservedContent(archiveDir, req, content)
 		updateObservedEntry(entry, req, hash, archiveURI, content)
 		if err := readCacheSaveSession(dir, state); err != nil {
 			return Decision{}, err
@@ -89,8 +98,8 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 		return decision, RecordDecision(dir, decision)
 	}
 
-	oldContent := entry.CachedContent
 	oldHash := entry.ContentHash
+	archiveURI, archived := archiveObservedContent(archiveDir, req, content)
 	updateObservedEntry(entry, req, hash, archiveURI, content)
 	if err := readCacheSaveSession(dir, state); err != nil {
 		return Decision{}, err
@@ -175,8 +184,10 @@ func updateObservedEntry(entry *FileEntry, req Request, hash string, archiveURI 
 	entry.Limit = req.Limit
 	entry.ModTimeUnixNs = 0
 	entry.ContentHash = hash
-	if archiveURI != "" {
-		entry.ArchiveURI = archiveURI
+	entry.ArchiveURI = archiveURI
+	if entry.ArchiveURI != "" && len(content) > maxObservedInlineCacheBytes {
+		entry.CachedContent = ""
+		return
 	}
 	entry.CachedContent = content
 }

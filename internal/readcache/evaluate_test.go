@@ -151,6 +151,51 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 	}
 }
 
+func TestEvaluateObserved_LargeContentUsesArchiveWithoutInlineCache(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	req := Request{SessionID: "s1", FilePath: "large.md"}
+	before := "title\n" + strings.Repeat("same line\n", 40000)
+	decision, err := EvaluateObserved(dir, req, before, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionAllow {
+		t.Fatalf("first large observed read should allow: %+v", decision)
+	}
+	state, err := LoadSession(dir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := state.Files["large.md"]
+	if entry == nil || entry.ArchiveURI == "" {
+		t.Fatalf("large observed read should archive content: %+v", entry)
+	}
+	if entry.CachedContent != "" {
+		t.Fatalf("large observed read should not inline %d bytes into session JSON", len(entry.CachedContent))
+	}
+
+	after := before + "tail addition\n"
+	decision, err = EvaluateObserved(dir, req, after, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta ||
+		!strings.Contains(decision.Reason, "+ tail addition") ||
+		!strings.Contains(decision.Reason, "Full content: local-archive://") {
+		t.Fatalf("large changed reread should delta from archive-backed content: %+v", decision)
+	}
+	state, err = LoadSession(dir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Files["large.md"].CachedContent != "" {
+		t.Fatal("large changed reread should remain archive-backed, not inline-cached")
+	}
+}
+
 func TestEvaluateObserved_RecentEditAllowsAndUpdates(t *testing.T) {
 	t.Parallel()
 

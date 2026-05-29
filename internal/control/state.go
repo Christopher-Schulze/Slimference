@@ -116,32 +116,39 @@ type AppEntry struct {
 // is intentionally separate from NetworkState, which describes the
 // global lab-only /etc/hosts + pfctl surface.
 type CodexRouteState struct {
-	Path                        string `json:"path"`
-	Exists                      bool   `json:"exists"`
-	Enabled                     bool   `json:"enabled"`
-	Complete                    bool   `json:"complete"`
-	Conflict                    string `json:"conflict,omitempty"`
-	LegacyKeys                  bool   `json:"legacy_keys"`
-	BaseURL                     string `json:"base_url"`
-	Transport                   string `json:"transport"`
-	DaemonReachable             bool   `json:"daemon_reachable"`
-	DaemonError                 string `json:"daemon_error,omitempty"`
-	AutoTransport               string `json:"auto_transport"`
-	AutoMode                    string `json:"auto_mode"`
-	WSSCertified                bool   `json:"wss_certified"`
-	WSSBridgeAvailable          bool   `json:"wss_bridge_available"`
-	NeedsRecert                 bool   `json:"needs_recert"`
-	CertifiedCodexVersion       string `json:"certified_codex_version,omitempty"`
-	CertifiedSlimferenceVersion string `json:"certified_slimference_version,omitempty"`
-	BridgeCodexVersion          string `json:"bridge_codex_version,omitempty"`
-	BridgeSlimferenceVersion    string `json:"bridge_slimference_version,omitempty"`
-	CertificationPath           string `json:"certification_path,omitempty"`
-	BridgeProofPath             string `json:"bridge_proof_path,omitempty"`
-	RecertStatePath             string `json:"recert_state_path,omitempty"`
-	RecertStatus                string `json:"recert_status,omitempty"`
-	RecertCommand               string `json:"recert_command,omitempty"`
-	FallbackReason              string `json:"fallback_reason,omitempty"`
-	LastWSSError                string `json:"last_wss_error,omitempty"`
+	Path                        string    `json:"path"`
+	Exists                      bool      `json:"exists"`
+	Enabled                     bool      `json:"enabled"`
+	Complete                    bool      `json:"complete"`
+	Conflict                    string    `json:"conflict,omitempty"`
+	LegacyKeys                  bool      `json:"legacy_keys"`
+	BaseURL                     string    `json:"base_url"`
+	Transport                   string    `json:"transport"`
+	DaemonReachable             bool      `json:"daemon_reachable"`
+	DaemonError                 string    `json:"daemon_error,omitempty"`
+	AutoTransport               string    `json:"auto_transport"`
+	AutoMode                    string    `json:"auto_mode"`
+	WSSCertified                bool      `json:"wss_certified"`
+	WSSBridgeAvailable          bool      `json:"wss_bridge_available"`
+	NeedsRecert                 bool      `json:"needs_recert"`
+	CertifiedCodexVersion       string    `json:"certified_codex_version,omitempty"`
+	CertifiedSlimferenceVersion string    `json:"certified_slimference_version,omitempty"`
+	BridgeCodexVersion          string    `json:"bridge_codex_version,omitempty"`
+	BridgeSlimferenceVersion    string    `json:"bridge_slimference_version,omitempty"`
+	CertificationPath           string    `json:"certification_path,omitempty"`
+	BridgeProofPath             string    `json:"bridge_proof_path,omitempty"`
+	RecertStatePath             string    `json:"recert_state_path,omitempty"`
+	RecertLogPath               string    `json:"recert_log_path,omitempty"`
+	RecertStatus                string    `json:"recert_status,omitempty"`
+	RecertAttemptID             string    `json:"recert_attempt_id,omitempty"`
+	RecertStartedAt             time.Time `json:"recert_started_at,omitempty"`
+	RecertFinishedAt            time.Time `json:"recert_finished_at,omitempty"`
+	RecertLastSuccessAt         time.Time `json:"recert_last_success_at,omitempty"`
+	RecertRetryAfter            time.Time `json:"recert_retry_after,omitempty"`
+	RecertLastError             string    `json:"recert_last_error,omitempty"`
+	RecertCommand               string    `json:"recert_command,omitempty"`
+	FallbackReason              string    `json:"fallback_reason,omitempty"`
+	LastWSSError                string    `json:"last_wss_error,omitempty"`
 }
 
 // SavingsSummary rolls up Phase F counters for the dashboard tile.

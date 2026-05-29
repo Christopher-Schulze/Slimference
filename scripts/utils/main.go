@@ -7,6 +7,7 @@
 //	go run ./scripts/utils filter-report <filter.db> [--json|--csv]
 //	go run ./scripts/utils combined-report <analytics.jsonl> <decisions.jsonl> <filter.db> [--json|--csv]
 //	go run ./scripts/utils aggregate-savings [--admin-url=... | --admin-state-file=...] [--filter-db=...] [--json]
+//	go run ./scripts/utils workday-savings <start|finish> [--baseline-file=...] [--json]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
 package main
 
@@ -28,7 +29,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, tls-probe")
 		os.Exit(1)
 	}
 
@@ -95,6 +96,8 @@ func main() {
 		os.Exit(runLeafAudit(os.Args[2:], os.Stdout, os.Stderr))
 	case "aggregate-savings":
 		os.Exit(runAggregateSavings(os.Args[2:], os.Stdout, os.Stderr))
+	case "workday-savings":
+		os.Exit(runWorkdaySavings(os.Args[2:], os.Stdout, os.Stderr))
 	case "tls-probe":
 		os.Exit(runTLSProbe(os.Args[2:], os.Stdout, os.Stderr))
 	default:

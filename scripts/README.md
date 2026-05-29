@@ -52,6 +52,8 @@ go run ./scripts/utils combined-report ~/.slimference/analytics/2026-04-17.jsonl
 go run ./scripts/utils aggregate-savings                                              # live admin/state honest aggregate
 go run ./scripts/utils aggregate-savings --filter-db=~/.slimference/filter.db --period=today
 go run ./scripts/utils aggregate-savings --admin-state-file=admin-state.json --json   # offline mode
+go run ./scripts/utils workday-savings start                                         # baseline for real workday savings
+go run ./scripts/utils workday-savings finish --filter-db=~/.slimference/filter.db   # flush-aware window delta
 go run ./scripts/utils tls-probe --profile=chromium_stable --json
 go run ./scripts/utils/indist_probe capture --label codex-native-direct --out research/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443
 go run ./scripts/utils/indist_probe diff research/indist/codex-native-direct.json research/indist/slimference-scoped-wss.json

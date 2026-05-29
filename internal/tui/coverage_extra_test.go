@@ -272,7 +272,7 @@ func TestRenderCodexRouteStatusLineBranches(t *testing.T) {
 				AutoTransport:   "wss",
 				WSSCertified:    true,
 			},
-			want: "route ready",
+			want: "WSS savings active",
 		},
 		{
 			name:   "daemon unreachable",

@@ -734,9 +734,11 @@ func (m *Model) renderSetupView() string {
 			"  " + s.SetupCmd.Render("slimference install"),
 			"  " + s.SetupCmd.Render("slimference codex run -- <prompt>") + s.Dim.Render(" # one-shot CLI"),
 			"  " + s.SetupCmd.Render("slimference codex run --transport=wss -- <prompt>") + s.Dim.Render(" # WSS cert"),
+			"  " + s.SetupCmd.Render("slimference codex recertify wss --force") + s.Dim.Render(" # repair WSS proof"),
 			"  " + s.SetupCmd.Render("slimference enable") + s.Dim.Render("                  # CLI/App route"),
 			"  " + s.SetupCmd.Render("slimference disable") + s.Dim.Render("                 # direct fallback"),
 			"  " + s.SetupCmd.Render("slimference codex status") + s.Dim.Render("         # route status"),
+			"  " + s.SetupCmd.Render("go run ./scripts/utils workday-savings start") + s.Dim.Render(" # begin measurement"),
 		}
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(commandLines, "\n")))
 	}
@@ -1212,17 +1214,21 @@ func renderCodexRouteStatusLine(s Styles, status CodexRouteStatus) string {
 		mode = "auto"
 	}
 	modeText := " · " + mode
+	stateText := "scoped CLI/App route ready"
 	switch {
-	case status.WSSCertified && status.AutoMode == "wss_phasef":
-		modeText += " · WSS savings active"
+	case status.WSSCertified && (status.AutoMode == "wss_phasef" || (status.AutoMode == "" && mode == "wss")):
+		stateText = "WSS savings active"
+		modeText += " · Phase-F proven"
 	case status.WSSBridgeAvailable && status.AutoMode == "wss_bridge":
-		modeText += " · WSS bridge"
+		stateText = "WSS native bridge"
+		modeText += " · no mutation until repair"
 	case status.NeedsRecert:
+		stateText = "WSS repair needed"
 		modeText += " · repair needed"
 	}
 	switch {
 	case status.Complete && status.DaemonReachable:
-		return "  " + s.Saved.Render("● CODEX MODE") + "  scoped CLI/App route ready" + s.Dim.Render(modeText)
+		return "  " + s.Saved.Render("● CODEX MODE") + "  " + stateText + s.Dim.Render(modeText)
 	case status.Enabled && !status.DaemonReachable:
 		return "  " + s.LogError.Render("● CODEX MODE") + "  configured but daemon unreachable; press [r] to disable"
 	case status.Enabled && status.Conflict != "":
