@@ -12,6 +12,20 @@ import (
 
 const aggregateSampleAdminState = `{
   "daemon": {"running": true, "pid": 1234, "version": "2.0.2"},
+  "codex_route": {
+    "daemon_reachable": true,
+    "auto_mode": "wss_phasef",
+    "auto_transport": "wss",
+    "wss_certified": true,
+    "wss_bridge_available": true,
+    "needs_recert": false,
+    "recert_status": "passed",
+    "recert_attempt_id": "attempt-1",
+    "recert_started_at": "2026-05-29T10:00:00Z",
+    "recert_finished_at": "2026-05-29T10:01:00Z",
+    "recert_last_success_at": "2026-05-29T10:01:00Z",
+    "recert_log_path": "/tmp/codex-wss-recert.log"
+  },
   "wss": {
     "engine_active": true,
     "phasef_bridged": 2,
@@ -95,6 +109,10 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 	out := stdout.String()
 	for _, want := range []string{
 		"=== Slimference Aggregate Savings ===",
+		"Codex route / auto-recert:",
+		"auto_mode:                 wss_phasef",
+		"recert_status:             passed",
+		"recert_log:                /tmp/codex-wss-recert.log",
 		"WSS Phase-F (live counters):",
 		"phasef_bridged sessions:      2",
 		"frames_reencoded:             5",
@@ -148,6 +166,13 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	}
 	if got.WSS.PhasefMutations != 5 {
 		t.Fatalf("wss.phasef_mutations: got=%d want=5", got.WSS.PhasefMutations)
+	}
+	if got.CodexRoute.AutoMode != "wss_phasef" ||
+		got.CodexRoute.AutoTransport != "wss" ||
+		!got.CodexRoute.WSSCertified ||
+		got.CodexRoute.RecertAttemptID != "attempt-1" ||
+		got.CodexRoute.RecertLogPath != "/tmp/codex-wss-recert.log" {
+		t.Fatalf("codex route recert snapshot mismatch: %+v", got.CodexRoute)
 	}
 	if got.WSS.InputTokensSaved != 42000 {
 		t.Fatalf("wss.input_tokens_saved: got=%d want=42000", got.WSS.InputTokensSaved)

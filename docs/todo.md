@@ -1466,10 +1466,12 @@ only and promotes the per-process Codex CLI runner for T209.
   `output` / `content` arrays and nested MCP-style result content now
   reconstruct in place and fail open on ambiguous multi-text arrays. Large
   observed reads are archive-backed instead of bloating session JSON, recert
-  state surfaces attempt/timing/log/error metadata, and `workday-savings
-  start|finish` provides a flush-aware measurement ceremony. Remaining work:
-  more real Codex tool-shape fixtures, proof-gated L2/L3 WSS candidates, and
-  real workday data collection before T240.
+  state surfaces attempt/timing/log/error metadata, and `aggregate-savings` plus
+  `workday-savings start|finish` now carry the current Codex route /
+  auto-recert snapshot so workday windows record fallback/repair events as well
+  as savings counters. Remaining work: more real Codex tool-shape fixtures,
+  proof-gated L2/L3 WSS candidates, and real workday data collection before
+  T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H

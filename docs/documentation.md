@@ -314,7 +314,12 @@ optionally the filter DB); `finish` captures the current state and prints the
 counter delta. Operators must close Codex CLI/Desktop sessions before `finish`
 so WSS counters flush. The report keeps route-ready separate from
 savings-proven: positive mutation/token counters are the proof, not the fact
-that a WSS route was bridged.
+that a WSS route was bridged. The same report also keeps the current Codex
+route / auto-recert snapshot: auto mode, selected transport, WSS certification,
+bridge availability, `needs_recert`, fallback reason, recert status, attempt id,
+repair timestamps, last error, and bounded recert log path. Workday windows can
+therefore explain whether savings were active, bridged, repaired, or in
+fallback instead of only reporting token deltas.
 
 ---
 

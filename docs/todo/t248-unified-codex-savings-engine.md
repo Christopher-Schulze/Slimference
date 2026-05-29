@@ -38,7 +38,8 @@ The product target is strict:
   captured-output blocks, Codex exec-envelope blocks, tokens saved, and blocks
   modified.
 - `aggregate-savings` reports live WSS savings with mechanism breakdown plus
-  HTTP-path Layer-0/filter savings without double counting.
+  HTTP-path Layer-0/filter savings without double counting, and includes the
+  current Codex route / auto-recert snapshot.
 - Codex-update drift stays automatic as far as safely possible:
   `wss_phasef -> wss_bridge -> http -> direct`, background recert, per-tuple
   lock/backoff, bounded logs, exact status reason, and no blind mutation after
@@ -119,6 +120,12 @@ The product target is strict:
   start snapshot, run normal CLI + Desktop Slimference sessions, close sessions
   for WSS flush, run `aggregate-savings --period=today`, record WSS/HTTP
   attribution, fallback events, recert events, and qualitative no-drawdown notes.
+- [x] Make Workday measurement route-aware. `aggregate-savings` and
+  `workday-savings finish` now preserve the current Codex auto-route and
+  auto-recert snapshot, including mode, transport, WSS cert/bridge state,
+  `needs_recert`, fallback reason, recert status, attempt id, timestamps, last
+  error, and bounded log path. Delta notes call out route, recert, and repair
+  state changes.
 - [ ] Only after measured proof, evaluate L2/L3 WSS candidates. Required before
   default-on: fixture, live proof, no schema drift, no model-quality loss, no
   prompt-cache breakage, and clear rollback/fail-open path.
@@ -173,7 +180,10 @@ The product target is strict:
   shared `slimference codex recertify wss` core.
 - `workday-savings start|finish` records a baseline/current counter window and
   prints honest deltas. It explicitly reminds operators to close Codex sessions
-  before finish so WSS counters flush.
+  before finish so WSS counters flush. The finish report carries the current
+  Codex route/recert snapshot and notes route or repair-state changes, so
+  fallback/recert events are measured alongside token savings instead of kept as
+  external operator memory.
 
 ## Deviations
 

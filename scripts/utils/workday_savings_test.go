@@ -15,6 +15,9 @@ func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
 	currentBody = strings.ReplaceAll(currentBody, `"tokens_saved": 42000`, `"tokens_saved": 43000`)
 	currentBody = strings.ReplaceAll(currentBody, `"compressed_messages_mutated": 5`, `"compressed_messages_mutated": 6`)
 	currentBody = strings.ReplaceAll(currentBody, `"frames_reencoded": 5`, `"frames_reencoded": 6`)
+	currentBody = strings.Replace(currentBody, `"recert_attempt_id": "attempt-1"`, `"recert_attempt_id": "attempt-2"`, 1)
+	currentBody = strings.Replace(currentBody, `"recert_status": "passed"`, `"recert_status": "running"`, 1)
+	currentBody = strings.Replace(currentBody, `"needs_recert": false`, `"needs_recert": true`, 1)
 	currentState := writeAggregateStateFile(t, currentBody)
 	baseline := filepath.Join(t.TempDir(), "workday-baseline.json")
 
@@ -46,8 +49,19 @@ func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
 	if got.Delta.Aggregate.TotalTokensSaved != 1000 {
 		t.Fatalf("delta aggregate tokens: got=%d want=1000", got.Delta.Aggregate.TotalTokensSaved)
 	}
+	if got.Current.CodexRoute.RecertAttemptID != "attempt-2" || got.Delta.CodexRoute.RecertAttemptID != "attempt-2" {
+		t.Fatalf("workday report should carry current recert snapshot: current=%+v delta=%+v", got.Current.CodexRoute, got.Delta.CodexRoute)
+	}
 	if len(got.Delta.Notes) == 0 || !strings.Contains(strings.Join(got.Delta.Notes, "\n"), "Route-ready is not a savings claim") {
 		t.Fatalf("delta notes should preserve honest proof language: %+v", got.Delta.Notes)
+	}
+	if !strings.Contains(strings.Join(got.Delta.Notes, "\n"), "Recert attempt changed") {
+		t.Fatalf("delta notes should mention recert attempt changes: %+v", got.Delta.Notes)
+	}
+	if !strings.Contains(strings.Join(got.Delta.Notes, "\n"), "Recert status changed") ||
+		!strings.Contains(strings.Join(got.Delta.Notes, "\n"), "needs_recert changed") ||
+		!strings.Contains(strings.Join(got.Delta.Notes, "\n"), "Finish snapshot still needs WSS recert repair") {
+		t.Fatalf("delta notes should mention route repair state changes: %+v", got.Delta.Notes)
 	}
 }
 
@@ -62,6 +76,17 @@ func TestWorkdaySavingsTextMentionsFlush(t *testing.T) {
 	out := stdout.String()
 	if !strings.Contains(out, "close sessions so WSS counters flush") || !strings.Contains(out, "workday-savings finish") {
 		t.Fatalf("start output should guide flush-aware finish:\n%s", out)
+	}
+}
+
+func TestWorkdaySavingsHelpMentionsRouteSnapshot(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runWorkdaySavings([]string{"--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Codex route / auto-recert snapshot") {
+		t.Fatalf("help should mention route snapshot:\n%s", stdout.String())
 	}
 }
 

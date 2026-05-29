@@ -57,7 +57,9 @@ Flags:
 
 Start captures a baseline. Finish captures the current daemon state and prints
 the counter delta. Close Codex CLI/Desktop sessions before finish so WSS counters
-flush; mid-session WSS counters can under-report by design.`
+flush; mid-session WSS counters can under-report by design. The finish report also
+keeps the current Codex route / auto-recert snapshot, so a measured window shows
+whether it ended in Phase-F, WSS bridge, fallback, or pending repair.`
 
 func runWorkdaySavings(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWorkdaySavingsFlags(args)
@@ -307,6 +309,7 @@ func defaultWorkdaySavingsBaselinePath() (string, error) {
 func diffAggregateSavingsReports(base, current aggregateSavingsReport) aggregateSavingsReport {
 	out := current
 	out.Source = base.Source + " -> " + current.Source
+	out.CodexRoute = current.CodexRoute
 	out.WSS = diffAggregateWSS(base.WSS, current.WSS)
 	out.OutputReduce = diffAggregateOutputReduce(base.OutputReduce, current.OutputReduce)
 	out.FilterLayer0 = diffFilterGainReports(base.FilterLayer0, current.FilterLayer0)
@@ -330,6 +333,29 @@ func diffAggregateSavingsReports(base, current aggregateSavingsReport) aggregate
 	}
 	if out.WSS.ParseFailures+out.WSS.DegradedSessions+out.WSS.CompressionErrors == 0 {
 		out.Notes = append(out.Notes, "No WSS parse/degrade/compression errors occurred in the measured window.")
+	}
+	if base.CodexRoute.AutoMode != current.CodexRoute.AutoMode || base.CodexRoute.AutoTransport != current.CodexRoute.AutoTransport {
+		out.Notes = append(out.Notes, fmt.Sprintf("Codex auto route changed from %s/%s to %s/%s.",
+			valueOrDash(base.CodexRoute.AutoMode), valueOrDash(base.CodexRoute.AutoTransport),
+			valueOrDash(current.CodexRoute.AutoMode), valueOrDash(current.CodexRoute.AutoTransport)))
+	}
+	if base.CodexRoute.FallbackReason != current.CodexRoute.FallbackReason {
+		out.Notes = append(out.Notes, fmt.Sprintf("Codex fallback reason changed from %s to %s.",
+			valueOrDash(base.CodexRoute.FallbackReason), valueOrDash(current.CodexRoute.FallbackReason)))
+	}
+	if base.CodexRoute.RecertStatus != current.CodexRoute.RecertStatus {
+		out.Notes = append(out.Notes, fmt.Sprintf("Recert status changed from %s to %s.",
+			valueOrDash(base.CodexRoute.RecertStatus), valueOrDash(current.CodexRoute.RecertStatus)))
+	}
+	if base.CodexRoute.NeedsRecert != current.CodexRoute.NeedsRecert {
+		out.Notes = append(out.Notes, fmt.Sprintf("needs_recert changed from %v to %v.",
+			base.CodexRoute.NeedsRecert, current.CodexRoute.NeedsRecert))
+	}
+	if current.CodexRoute.NeedsRecert {
+		out.Notes = append(out.Notes, "Finish snapshot still needs WSS recert repair.")
+	}
+	if current.CodexRoute.RecertAttemptID != "" && current.CodexRoute.RecertAttemptID != base.CodexRoute.RecertAttemptID {
+		out.Notes = append(out.Notes, "Recert attempt changed during the measured window: "+current.CodexRoute.RecertAttemptID)
 	}
 	return out
 }

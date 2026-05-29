@@ -58,6 +58,24 @@ type aggregateOutputReduceBlock struct {
 	StreamcutFires      int64 `json:"streamcut_fires"`
 }
 
+type aggregateCodexRouteBlock struct {
+	DaemonReachable    bool      `json:"daemon_reachable"`
+	AutoMode           string    `json:"auto_mode,omitempty"`
+	AutoTransport      string    `json:"auto_transport,omitempty"`
+	WSSCertified       bool      `json:"wss_certified"`
+	WSSBridgeAvailable bool      `json:"wss_bridge_available"`
+	NeedsRecert        bool      `json:"needs_recert"`
+	FallbackReason     string    `json:"fallback_reason,omitempty"`
+	RecertStatus       string    `json:"recert_status,omitempty"`
+	RecertAttemptID    string    `json:"recert_attempt_id,omitempty"`
+	RecertStartedAt    time.Time `json:"recert_started_at,omitempty"`
+	RecertFinishedAt   time.Time `json:"recert_finished_at,omitempty"`
+	RecertLastSuccess  time.Time `json:"recert_last_success_at,omitempty"`
+	RecertRetryAfter   time.Time `json:"recert_retry_after,omitempty"`
+	RecertLastError    string    `json:"recert_last_error,omitempty"`
+	RecertLogPath      string    `json:"recert_log_path,omitempty"`
+}
+
 type aggregateTotalsBlock struct {
 	WSSInputTokensSaved     int64   `json:"wss_input_tokens_saved"`
 	Layer0FilterTokensSaved int64   `json:"layer0_filter_tokens_saved"`
@@ -68,6 +86,7 @@ type aggregateTotalsBlock struct {
 type aggregateSavingsReport struct {
 	Source       string                      `json:"source"`
 	Generated    time.Time                   `json:"generated"`
+	CodexRoute   aggregateCodexRouteBlock    `json:"codex_route"`
 	WSS          aggregateWSSBlock           `json:"wss"`
 	OutputReduce aggregateOutputReduceBlock  `json:"output_reduce"`
 	FilterLayer0 *analytics.FilterGainReport `json:"filter_layer0,omitempty"`
@@ -91,8 +110,10 @@ Flags:
 
 This tool gives an honest, single-glance picture of every measurable Slimference
 savings source for one daemon, without conflating route-ready with savings-proven.
-WSS counters are live (daemon admin/state); filter Layer-0 savings come from the
-SQLite analytics DB if a path is provided.`
+It also includes the current Codex route / auto-recert snapshot, so workday
+reports can explain whether savings were active, bridged, repaired, or in
+fallback. WSS counters are live (daemon admin/state); filter Layer-0 savings
+come from the SQLite analytics DB if a path is provided.`
 
 func runAggregateSavings(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseAggregateSavingsFlags(args)
@@ -262,6 +283,23 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 	report := aggregateSavingsReport{
 		Source:    source,
 		Generated: now,
+		CodexRoute: aggregateCodexRouteBlock{
+			DaemonReachable:    state.CodexRoute.DaemonReachable,
+			AutoMode:           state.CodexRoute.AutoMode,
+			AutoTransport:      state.CodexRoute.AutoTransport,
+			WSSCertified:       state.CodexRoute.WSSCertified,
+			WSSBridgeAvailable: state.CodexRoute.WSSBridgeAvailable,
+			NeedsRecert:        state.CodexRoute.NeedsRecert,
+			FallbackReason:     state.CodexRoute.FallbackReason,
+			RecertStatus:       state.CodexRoute.RecertStatus,
+			RecertAttemptID:    state.CodexRoute.RecertAttemptID,
+			RecertStartedAt:    state.CodexRoute.RecertStartedAt,
+			RecertFinishedAt:   state.CodexRoute.RecertFinishedAt,
+			RecertLastSuccess:  state.CodexRoute.RecertLastSuccessAt,
+			RecertRetryAfter:   state.CodexRoute.RecertRetryAfter,
+			RecertLastError:    state.CodexRoute.RecertLastError,
+			RecertLogPath:      state.CodexRoute.RecertLogPath,
+		},
 		WSS: aggregateWSSBlock{
 			PhasefBridged:             state.WSS.PhasefBridged,
 			CompressedMessagesMutated: state.WSS.CompressedMessagesMutated,
@@ -324,6 +362,10 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 		report.Notes = append(report.Notes,
 			"mutation_active=true: the reducer chain is producing real WSS savings on this daemon.")
 	}
+	if report.CodexRoute.NeedsRecert {
+		report.Notes = append(report.Notes,
+			"needs_recert=true: Codex stays safe while WSS savings repair runs or awaits retry.")
+	}
 	return report
 }
 
@@ -331,6 +373,32 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintln(w, "=== Slimference Aggregate Savings ===")
 	fmt.Fprintf(w, "Source:    %s\n", report.Source)
 	fmt.Fprintf(w, "Generated: %s\n", report.Generated.Format(time.RFC3339))
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "Codex route / auto-recert:")
+	fmt.Fprintf(w, "  auto_mode:                 %s\n", valueOrDash(report.CodexRoute.AutoMode))
+	fmt.Fprintf(w, "  auto_transport:            %s\n", valueOrDash(report.CodexRoute.AutoTransport))
+	fmt.Fprintf(w, "  daemon_reachable:          %v\n", report.CodexRoute.DaemonReachable)
+	fmt.Fprintf(w, "  wss_certified:             %v\n", report.CodexRoute.WSSCertified)
+	fmt.Fprintf(w, "  wss_bridge_available:      %v\n", report.CodexRoute.WSSBridgeAvailable)
+	fmt.Fprintf(w, "  needs_recert:              %v\n", report.CodexRoute.NeedsRecert)
+	if report.CodexRoute.FallbackReason != "" {
+		fmt.Fprintf(w, "  fallback_reason:           %s\n", report.CodexRoute.FallbackReason)
+	}
+	if report.CodexRoute.RecertStatus != "" {
+		fmt.Fprintf(w, "  recert_status:             %s\n", report.CodexRoute.RecertStatus)
+		fmt.Fprintf(w, "  recert_attempt:            %s\n", valueOrDash(report.CodexRoute.RecertAttemptID))
+	}
+	writeOptionalTime(w, "  recert_started:            ", report.CodexRoute.RecertStartedAt)
+	writeOptionalTime(w, "  recert_finished:           ", report.CodexRoute.RecertFinishedAt)
+	writeOptionalTime(w, "  recert_last_success:       ", report.CodexRoute.RecertLastSuccess)
+	writeOptionalTime(w, "  recert_retry_after:        ", report.CodexRoute.RecertRetryAfter)
+	if report.CodexRoute.RecertLastError != "" {
+		fmt.Fprintf(w, "  recert_last_error:         %s\n", report.CodexRoute.RecertLastError)
+	}
+	if report.CodexRoute.RecertLogPath != "" {
+		fmt.Fprintf(w, "  recert_log:                %s\n", report.CodexRoute.RecertLogPath)
+	}
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "WSS Phase-F (live counters):")
@@ -404,4 +472,18 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	for _, note := range report.Notes {
 		fmt.Fprintf(w, "  - %s\n", note)
 	}
+}
+
+func valueOrDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
+}
+
+func writeOptionalTime(w io.Writer, label string, t time.Time) {
+	if t.IsZero() {
+		return
+	}
+	fmt.Fprintf(w, "%s%s\n", label, t.Format(time.RFC3339))
 }
