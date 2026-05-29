@@ -2681,3 +2681,70 @@ Closure impact:
 - T247 sub-task "quantify savings on the OTHER layers" now has the
   aggregate-savings tool AND a first honest live measurement. The
   remaining work is a longer-window real-workday capture, not code.
+
+## 2026-05-29 - Codex 0.135.0 WSS recert + current live repeat-read proof
+
+Goal: restore and verify the scoped Codex WSS Phase-F path after Codex CLI
+auto-updated from the previously certified 0.133.0 tuple to 0.135.0.
+
+Initial state:
+- `codex --version`: `codex-cli 0.135.0`
+- `slimference codex status --json`: `auto.mode=http`,
+  `wss_certified=false`, `needs_recert=true`,
+  `fallback_reason="codex version changed since wss certification"`.
+- Daemon was not running, so `status --preflight` failed with connection refused.
+
+Recovery:
+- Started the daemon via `slimference service start`:
+  PID 74289, port 8990, health OK.
+- Ran the official scoped recert path:
+  `slimference codex recertify wss --force --json`.
+
+Recert result for Codex 0.135.0:
+- `phasef_passed=true`
+- `codex_version=0.135.0`
+- `slimference_version=2.0.2`
+- `frames_reencoded=1`
+- `compressed_messages_mutated=1`
+- `phasef_mutations=1`
+- `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`
+- `auto.mode=wss_phasef`, `wss_certified=true`, `needs_recert=false`
+
+Current live repeat-read proof:
+- Created `/tmp/t247-current-0135-target.md` with 71400 bytes of deterministic
+  repeat-read payload.
+- Ran a scoped Codex CLI session through `slimference codex run --transport=auto`
+  on Codex 0.135.0 and required three separate `cat` commands against that file.
+- Codex completed with sentinel `T247_0135_DONE`.
+
+Flush-aware WSS delta for that session:
+- `phasef_bridged=1`
+- `bytes_c2s=90921`, `bytes_s2c=188637`
+- `c2s_frames=6`, `s2c_frames=144`
+- `compressed_messages_inspected=148`
+- `compressed_messages_mutated=3`
+- `frames_reencoded=3`
+- `phasef_requests=5`, `phasef_request_bodies=5`,
+  `phasef_request_messages_indexed=4`
+- `phasef_mutations=3`
+- `input_tokens_saved=22620`
+- `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`
+- `mutation_active=true`, `byte_bridge_only=false`
+
+Aggregate report after recert + live proof:
+- WSS live counters: `phasef_bridged=2`, `frames_reencoded=4`,
+  `compressed_messages_mutated=4`, `phasef_mutations=4`,
+  `input_tokens_saved=23563`.
+- HTTP-path Layer-0 filter all-time: 2853 runs, 1356139 estimated tokens saved.
+- Aggregate total tokens saved: 1379702, estimated USD saved: 3.4493 at
+  2.5 USD per million tokens.
+
+Interpretation:
+- The update-resilience path worked as intended: Codex version drift caused a safe
+  fallback, then official recert restored `auto=wss_phasef`.
+- The current Codex 0.135.0 WSS route produces real repeat-read savings, not only
+  the synthetic recert F01 git-status mutation.
+- Desktop remains route-ready from T246; a Desktop repeat-read savings proof is
+  still the remaining live confirmation because the current active session is the
+  Codex.app itself and should not be killed/relaunched without an explicit live
+  test window.

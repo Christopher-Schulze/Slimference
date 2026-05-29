@@ -1,10 +1,12 @@
 # TASK 247: Codex WSS Phase-F reducer efficacy (Responses-API delta model)
 
-Status: REDUCER CHAIN PROVEN END-TO-END on real Codex 0.133.0 CLI traffic
-(2026-05-23 multi-read capture). Repeat-read sessions produce 94% output-payload
-reduction; recorded `input_tokens_saved=26461` on a 3x35KB-file session. Earlier
-"compressed_messages_mutated=0" reading was Codex-side run-variance, not a code
-defect. Fixture-based regression test landed
+Status: REDUCER CHAIN PROVEN END-TO-END on real Codex CLI traffic. Initial proof
+landed on Codex 0.133.0 (2026-05-23 multi-read capture); drift proof refreshed on
+Codex 0.135.0 (2026-05-29 recert + live 3x71KB repeat-read session). Repeat-read
+sessions produce large output-payload reduction; recorded `input_tokens_saved=26461`
+on a 3x35KB-file session and `input_tokens_saved=22620` on a 3x71KB Codex 0.135.0
+session. Earlier "compressed_messages_mutated=0" reading was Codex-side run-variance,
+not a code defect. Fixture-based regression test landed
 (`internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`)
 asserting Slimference-delta-marker reduction on reads #2 and #3 of an isolated
 multi-read sequence. Aggregate-savings tooling landed at
@@ -94,6 +96,12 @@ reduce in a single delta request.
   `phasef_mutations=3`, `mutation_active=true`, `byte_bridge_only=false`,
   `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`,
   `savings.input_tokens_saved=26461` across one 3-read session.
+  Refreshed 2026-05-29 after Codex drifted to 0.135.0: official
+  `slimference codex recertify wss --force --json` passed with
+  `frames_reencoded=1`, `compressed_messages_mutated=1`, `phasef_mutations=1`,
+  zero errors, then a scoped `transport=auto` 3x71KB repeat-read session recorded
+  `frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
+  `input_tokens_saved=22620`, zero parse/degrade/compression errors.
 - [ ] Re-measure live on Codex Desktop on the identical Phase-F route once a
   user-confirmed Desktop session is run via TUI Launch Codex App. T246 proved
   the route is identical, so the reducer chain is expected to behave the same.

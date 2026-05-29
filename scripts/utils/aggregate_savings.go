@@ -55,13 +55,13 @@ type aggregateTotalsBlock struct {
 }
 
 type aggregateSavingsReport struct {
-	Source       string                       `json:"source"`
-	Generated    time.Time                    `json:"generated"`
-	WSS          aggregateWSSBlock            `json:"wss"`
-	OutputReduce aggregateOutputReduceBlock   `json:"output_reduce"`
-	FilterLayer0 *analytics.FilterGainReport  `json:"filter_layer0,omitempty"`
-	Aggregate    aggregateTotalsBlock         `json:"aggregate"`
-	Notes        []string                     `json:"notes"`
+	Source       string                      `json:"source"`
+	Generated    time.Time                   `json:"generated"`
+	WSS          aggregateWSSBlock           `json:"wss"`
+	OutputReduce aggregateOutputReduceBlock  `json:"output_reduce"`
+	FilterLayer0 *analytics.FilterGainReport `json:"filter_layer0,omitempty"`
+	Aggregate    aggregateTotalsBlock        `json:"aggregate"`
+	Notes        []string                    `json:"notes"`
 }
 
 const aggregateSavingsHelpText = `aggregate-savings: live + offline Slimference savings honest aggregate report
