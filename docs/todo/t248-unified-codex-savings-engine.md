@@ -1,6 +1,6 @@
 # TASK 248: Unified Codex savings engine for WSS and HTTP
 
-Status: ACTIVE - first shared attribution slice implemented
+Status: ACTIVE - shared attribution plus opportunity telemetry implemented
 Priority: P0 after T247 proof, before T240 release seal
 Scope: Codex CLI and Codex Desktop savings engine, telemetry, cache strategy, and
 proof-gated safe expansion across WSS and HTTP fallback paths
@@ -64,6 +64,10 @@ The product target is strict:
   and WSS callers.
 - [x] Surface the new attribution through `OutputReduceTelemetry`,
   `/admin/state` savings, and `scripts/utils aggregate-savings` text/JSON.
+- [x] Add opportunity/miss telemetry before broadening mutation: tool-result
+  blocks seen, command-resolved blocks, and read-delta attempts are counted for
+  both HTTP and WSS, while modified-block/mechanism success counters remain
+  gated on positive token savings.
 - [ ] Split the current package-local helper into an explicit shared Codex
   reducer API once the attribution fields prove stable. The API should accept
   parsed messages, session id, remembered tool uses, and route label
@@ -109,9 +113,14 @@ The product target is strict:
   prefix. Local mutation there can reduce quality or break cache semantics.
 - Voice/realtime remains passthrough until a future explicit task proves a safe
   non-semantic optimization. Current expectation: no useful savings there.
-- Current first-slice implementation is intentionally attribution-only. It does
-  not add new mutation surfaces, so it cannot make the model weaker; it makes the
+- Current slices are intentionally attribution/observability-only. They do not
+  add new mutation surfaces, so they cannot make the model weaker; they make the
   next optimization decisions measurable.
+- Opportunity counters are separate from success counters by design. A
+  tool-result block, resolved command, or read-delta attempt can be counted even
+  when no mutation happens. `proxy_layer0_blocks` and the mechanism-hit counters
+  still require positive token savings, so `aggregate-savings` cannot inflate
+  results from misses.
 
 ## Deviations
 

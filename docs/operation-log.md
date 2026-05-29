@@ -2844,3 +2844,29 @@ Interpretation:
 - This is the foundation for T248: one shared reducer engine for WSS and HTTP,
   WSS-specific tool-shape expansion from real fixtures, cache hit-rate work, and
   proof-gated L2/L3 candidates.
+
+## 2026-05-29 - T248 Codex reducer opportunity telemetry
+
+Goal: make the next max-savings work measurable before adding new mutation. The
+first T248 slice showed which mechanism saved tokens; this slice also shows
+where Slimference saw a possible Codex Layer-0 opportunity but did not mutate.
+
+Changes:
+- Added opportunity counters to the shared Codex proxy-Layer-0 stats:
+  `proxy_layer0_tool_result_blocks`,
+  `proxy_layer0_command_resolved_blocks`, and
+  `proxy_layer0_read_delta_attempts`.
+- Kept success counters strict: `proxy_layer0_blocks` and the mechanism-hit
+  counters are only recorded when the reducer produced positive token savings.
+- Wired the new fields through WSS and HTTP callers, `OutputReduceTelemetry`,
+  `/admin/state` savings, the savings probe, and
+  `scripts/utils aggregate-savings` text/JSON output.
+- Guarded WSS reconstruction failure accounting so a failed rebuild can keep
+  opportunity telemetry while dropping any success/savings counters.
+
+Interpretation:
+- This does not add a new mutation surface and does not touch model context,
+  prompt-cache blocks, voice/realtime, or global system routing.
+- The new fields are the hit-rate foundation for T248 cache/reducer work:
+  future measurements can distinguish no tool output, unresolved command,
+  no read-delta candidate, read-delta miss, and actual mutation.

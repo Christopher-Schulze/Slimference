@@ -277,8 +277,12 @@ requests with input/cache/output accounting. `--csv` / `--json` for machine
 consumption.
 
 Codex WSS and HTTP proxy-Layer-0 savings now share mechanism attribution:
-modified blocks, read-delta blocks, captured-output filter blocks, and Codex
-exec-envelope blocks. These counters are emitted through `/admin/state` and
+tool-result blocks seen, command-resolved blocks, read-delta attempts, modified
+blocks, read-delta blocks, captured-output filter blocks, and Codex
+exec-envelope blocks. The first three fields are opportunity counters; they
+make misses and hit-rate visible without claiming savings. The modified-block
+and mechanism-hit fields are success counters and are only recorded with a
+positive token saving. These counters are emitted through `/admin/state` and
 `aggregate-savings` so future cache or reducer work can measure which mechanism
 actually saved tokens before broadening mutation surfaces.
 

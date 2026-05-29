@@ -7,12 +7,15 @@ import "sync/atomic"
 // repdet rewrites). All fields are monotonic-only - resets happen only
 // at process restart. Operators read this struct via admin /status.
 type OutputReduceCounters struct {
-	proxyLayer0RequestsModified atomic.Uint64
-	proxyLayer0TokensSaved      atomic.Uint64
-	proxyLayer0BlocksModified   atomic.Uint64
-	proxyLayer0ReadDeltaBlocks  atomic.Uint64
-	proxyLayer0CapturedBlocks   atomic.Uint64
-	proxyLayer0EnvelopeBlocks   atomic.Uint64
+	proxyLayer0ToolResultBlocks      atomic.Uint64
+	proxyLayer0CommandResolvedBlocks atomic.Uint64
+	proxyLayer0ReadDeltaAttempts     atomic.Uint64
+	proxyLayer0RequestsModified      atomic.Uint64
+	proxyLayer0TokensSaved           atomic.Uint64
+	proxyLayer0BlocksModified        atomic.Uint64
+	proxyLayer0ReadDeltaBlocks       atomic.Uint64
+	proxyLayer0CapturedBlocks        atomic.Uint64
+	proxyLayer0EnvelopeBlocks        atomic.Uint64
 
 	stopSeqRequestsModified atomic.Uint64
 	stopSeqPhrasesAdded     atomic.Uint64
@@ -42,22 +45,33 @@ func (c *OutputReduceCounters) RecordProxyLayer0(savedTokens int) {
 }
 
 func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
-	if stats.TokensSaved <= 0 {
+	if stats == (proxyLayer0Stats{}) {
 		return
 	}
-	c.proxyLayer0RequestsModified.Add(1)
-	c.proxyLayer0TokensSaved.Add(uint64(stats.TokensSaved))
-	if stats.BlocksModified > 0 {
-		c.proxyLayer0BlocksModified.Add(uint64(stats.BlocksModified))
+	if stats.ToolResultBlocks > 0 {
+		c.proxyLayer0ToolResultBlocks.Add(uint64(stats.ToolResultBlocks))
 	}
-	if stats.ReadDeltaBlocks > 0 {
-		c.proxyLayer0ReadDeltaBlocks.Add(uint64(stats.ReadDeltaBlocks))
+	if stats.CommandResolvedBlocks > 0 {
+		c.proxyLayer0CommandResolvedBlocks.Add(uint64(stats.CommandResolvedBlocks))
 	}
-	if stats.CapturedOutputBlocks > 0 {
-		c.proxyLayer0CapturedBlocks.Add(uint64(stats.CapturedOutputBlocks))
+	if stats.ReadDeltaAttempts > 0 {
+		c.proxyLayer0ReadDeltaAttempts.Add(uint64(stats.ReadDeltaAttempts))
 	}
-	if stats.CodexExecEnvelopeBlocks > 0 {
-		c.proxyLayer0EnvelopeBlocks.Add(uint64(stats.CodexExecEnvelopeBlocks))
+	if stats.TokensSaved > 0 {
+		c.proxyLayer0RequestsModified.Add(1)
+		c.proxyLayer0TokensSaved.Add(uint64(stats.TokensSaved))
+		if stats.BlocksModified > 0 {
+			c.proxyLayer0BlocksModified.Add(uint64(stats.BlocksModified))
+		}
+		if stats.ReadDeltaBlocks > 0 {
+			c.proxyLayer0ReadDeltaBlocks.Add(uint64(stats.ReadDeltaBlocks))
+		}
+		if stats.CapturedOutputBlocks > 0 {
+			c.proxyLayer0CapturedBlocks.Add(uint64(stats.CapturedOutputBlocks))
+		}
+		if stats.CodexExecEnvelopeBlocks > 0 {
+			c.proxyLayer0EnvelopeBlocks.Add(uint64(stats.CodexExecEnvelopeBlocks))
+		}
 	}
 }
 
@@ -133,49 +147,55 @@ func (c *OutputReduceCounters) RecordRepdetRewrite(matchCount int, savedBytes in
 // OutputReduceTelemetry is the JSON shape served on /admin/status under
 // the "output_reduce_counters" key.
 type OutputReduceTelemetry struct {
-	ProxyLayer0RequestsModified uint64 `json:"proxy_layer0_requests_modified"`
-	ProxyLayer0TokensSaved      uint64 `json:"proxy_layer0_tokens_saved"`
-	ProxyLayer0BlocksModified   uint64 `json:"proxy_layer0_blocks_modified"`
-	ProxyLayer0ReadDeltaBlocks  uint64 `json:"proxy_layer0_read_delta_blocks"`
-	ProxyLayer0CapturedBlocks   uint64 `json:"proxy_layer0_captured_output_blocks"`
-	ProxyLayer0EnvelopeBlocks   uint64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
-	StopSeqRequestsModified     uint64 `json:"stop_seq_requests_modified"`
-	StopSeqPhrasesAdded         uint64 `json:"stop_seq_phrases_added"`
-	StreamcutFired              uint64 `json:"streamcut_fired"`
-	StreamcutBytesObserved      uint64 `json:"streamcut_bytes_observed"`
-	RepdetResponsesRewritten    uint64 `json:"repdet_responses_rewritten"`
-	RepdetMatchesRewritten      uint64 `json:"repdet_matches_rewritten"`
-	RepdetBytesSaved            uint64 `json:"repdet_bytes_saved"`
-	StaleReadBlocksReplaced     uint64 `json:"stale_read_blocks_replaced"`
-	StaleReadBytesReplaced      uint64 `json:"stale_read_bytes_replaced"`
-	ObsoleteReadBlocksPruned    uint64 `json:"obsolete_read_blocks_pruned"`
-	ObsoleteReadBytesPruned     uint64 `json:"obsolete_read_bytes_pruned"`
-	BeterseInjections           uint64 `json:"beterse_injections"`
-	BeterseHintBytes            uint64 `json:"beterse_hint_bytes"`
+	ProxyLayer0ToolResultBlocks      uint64 `json:"proxy_layer0_tool_result_blocks"`
+	ProxyLayer0CommandResolvedBlocks uint64 `json:"proxy_layer0_command_resolved_blocks"`
+	ProxyLayer0ReadDeltaAttempts     uint64 `json:"proxy_layer0_read_delta_attempts"`
+	ProxyLayer0RequestsModified      uint64 `json:"proxy_layer0_requests_modified"`
+	ProxyLayer0TokensSaved           uint64 `json:"proxy_layer0_tokens_saved"`
+	ProxyLayer0BlocksModified        uint64 `json:"proxy_layer0_blocks_modified"`
+	ProxyLayer0ReadDeltaBlocks       uint64 `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0CapturedBlocks        uint64 `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0EnvelopeBlocks        uint64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	StopSeqRequestsModified          uint64 `json:"stop_seq_requests_modified"`
+	StopSeqPhrasesAdded              uint64 `json:"stop_seq_phrases_added"`
+	StreamcutFired                   uint64 `json:"streamcut_fired"`
+	StreamcutBytesObserved           uint64 `json:"streamcut_bytes_observed"`
+	RepdetResponsesRewritten         uint64 `json:"repdet_responses_rewritten"`
+	RepdetMatchesRewritten           uint64 `json:"repdet_matches_rewritten"`
+	RepdetBytesSaved                 uint64 `json:"repdet_bytes_saved"`
+	StaleReadBlocksReplaced          uint64 `json:"stale_read_blocks_replaced"`
+	StaleReadBytesReplaced           uint64 `json:"stale_read_bytes_replaced"`
+	ObsoleteReadBlocksPruned         uint64 `json:"obsolete_read_blocks_pruned"`
+	ObsoleteReadBytesPruned          uint64 `json:"obsolete_read_bytes_pruned"`
+	BeterseInjections                uint64 `json:"beterse_injections"`
+	BeterseHintBytes                 uint64 `json:"beterse_hint_bytes"`
 }
 
 // Snapshot returns a value-copy of the current counters - safe to
 // serialise and emit without holding a lock on the live struct.
 func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 	return OutputReduceTelemetry{
-		ProxyLayer0RequestsModified: c.proxyLayer0RequestsModified.Load(),
-		ProxyLayer0TokensSaved:      c.proxyLayer0TokensSaved.Load(),
-		ProxyLayer0BlocksModified:   c.proxyLayer0BlocksModified.Load(),
-		ProxyLayer0ReadDeltaBlocks:  c.proxyLayer0ReadDeltaBlocks.Load(),
-		ProxyLayer0CapturedBlocks:   c.proxyLayer0CapturedBlocks.Load(),
-		ProxyLayer0EnvelopeBlocks:   c.proxyLayer0EnvelopeBlocks.Load(),
-		StopSeqRequestsModified:     c.stopSeqRequestsModified.Load(),
-		StopSeqPhrasesAdded:         c.stopSeqPhrasesAdded.Load(),
-		StreamcutFired:              c.streamcutFired.Load(),
-		StreamcutBytesObserved:      c.streamcutBytesObserved.Load(),
-		RepdetResponsesRewritten:    c.repdetResponsesRewritten.Load(),
-		RepdetMatchesRewritten:      c.repdetMatchesRewritten.Load(),
-		RepdetBytesSaved:            c.repdetBytesSaved.Load(),
-		StaleReadBlocksReplaced:     c.staleReadBlocksReplaced.Load(),
-		StaleReadBytesReplaced:      c.staleReadBytesReplaced.Load(),
-		ObsoleteReadBlocksPruned:    c.obsoleteReadBlocksPruned.Load(),
-		ObsoleteReadBytesPruned:     c.obsoleteReadBytesPruned.Load(),
-		BeterseInjections:           c.beterseInjections.Load(),
-		BeterseHintBytes:            c.beterseHintBytes.Load(),
+		ProxyLayer0ToolResultBlocks:      c.proxyLayer0ToolResultBlocks.Load(),
+		ProxyLayer0CommandResolvedBlocks: c.proxyLayer0CommandResolvedBlocks.Load(),
+		ProxyLayer0ReadDeltaAttempts:     c.proxyLayer0ReadDeltaAttempts.Load(),
+		ProxyLayer0RequestsModified:      c.proxyLayer0RequestsModified.Load(),
+		ProxyLayer0TokensSaved:           c.proxyLayer0TokensSaved.Load(),
+		ProxyLayer0BlocksModified:        c.proxyLayer0BlocksModified.Load(),
+		ProxyLayer0ReadDeltaBlocks:       c.proxyLayer0ReadDeltaBlocks.Load(),
+		ProxyLayer0CapturedBlocks:        c.proxyLayer0CapturedBlocks.Load(),
+		ProxyLayer0EnvelopeBlocks:        c.proxyLayer0EnvelopeBlocks.Load(),
+		StopSeqRequestsModified:          c.stopSeqRequestsModified.Load(),
+		StopSeqPhrasesAdded:              c.stopSeqPhrasesAdded.Load(),
+		StreamcutFired:                   c.streamcutFired.Load(),
+		StreamcutBytesObserved:           c.streamcutBytesObserved.Load(),
+		RepdetResponsesRewritten:         c.repdetResponsesRewritten.Load(),
+		RepdetMatchesRewritten:           c.repdetMatchesRewritten.Load(),
+		RepdetBytesSaved:                 c.repdetBytesSaved.Load(),
+		StaleReadBlocksReplaced:          c.staleReadBlocksReplaced.Load(),
+		StaleReadBytesReplaced:           c.staleReadBytesReplaced.Load(),
+		ObsoleteReadBlocksPruned:         c.obsoleteReadBlocksPruned.Load(),
+		ObsoleteReadBytesPruned:          c.obsoleteReadBytesPruned.Load(),
+		BeterseInjections:                c.beterseInjections.Load(),
+		BeterseHintBytes:                 c.beterseHintBytes.Load(),
 	}
 }

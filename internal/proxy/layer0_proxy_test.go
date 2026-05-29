@@ -28,8 +28,8 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 		t.Fatalf("unchanged messages should be returned as-is, saved=%d", saved)
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(unchanged, "", nil)
-	if stats != (proxyLayer0Stats{}) {
-		t.Fatalf("unchanged stats=%+v want zero", stats)
+	if stats.TokensSaved != 0 || stats.BlocksModified != 0 || stats.ToolResultBlocks == 0 || stats.CommandResolvedBlocks == 0 {
+		t.Fatalf("unchanged stats mismatch: %+v", stats)
 	}
 
 	var status strings.Builder
@@ -53,7 +53,8 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 		t.Fatal("original message slice should not be mutated")
 	}
 	_, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(changed, "", nil)
-	if stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.CapturedOutputBlocks != 1 ||
+	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.TokensSaved <= 0 ||
+		stats.BlocksModified != 1 || stats.CapturedOutputBlocks != 1 ||
 		stats.ReadDeltaBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 {
 		t.Fatalf("captured-output stats mismatch: %+v", stats)
 	}
@@ -198,7 +199,8 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 		t.Fatalf("unchanged reread should become reference, saved=%d text=%q", saved, out[1].Content[0].Text)
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(second, "sess-read", nil)
-	if stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 {
+	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.ReadDeltaAttempts != 1 ||
+		stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 {
 		t.Fatalf("read-delta stats mismatch: %+v", stats)
 	}
 

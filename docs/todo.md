@@ -1442,11 +1442,12 @@ only and promotes the per-process Codex CLI runner for T209.
   Detail: `docs/todo/t247-codex-wss-reducer-efficacy.md`
 - [~] **T248** Unified Codex savings engine for WSS and HTTP — new P0 owner
   for maxing Codex savings without quality/context drawdowns. WSS remains the
-  standard; HTTP remains fallback/legacy/useful hook surface. First slice
+  standard; HTTP remains fallback/legacy/useful hook surface. First slices
   implemented shared reducer-mechanism attribution for the existing Codex
-  proxy-Layer-0 core so WSS and HTTP can report read-delta blocks,
-  captured-output filter blocks, Codex exec-envelope blocks, modified blocks,
-  and tokens saved instead of one undifferentiated counter. Remaining work:
+  proxy-Layer-0 core so WSS and HTTP can report opportunity counters
+  (tool-result blocks, command-resolved blocks, read-delta attempts) separately
+  from success counters (read-delta blocks, captured-output filter blocks,
+  Codex exec-envelope blocks, modified blocks, and tokens saved). Remaining work:
   formal shared reducer API, more real Codex tool-shape fixtures, session/turn
   cache hit-rate improvements, proof-gated L2/L3 WSS candidates, recert UX
   hardening if needed, and real workday aggregate measurement before T240.

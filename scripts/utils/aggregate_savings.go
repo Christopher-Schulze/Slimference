@@ -30,6 +30,9 @@ type aggregateWSSBlock struct {
 	FramesReencoded           int64 `json:"frames_reencoded"`
 	PhasefMutations           int64 `json:"phasef_mutations"`
 	InputTokensSaved          int64 `json:"input_tokens_saved"`
+	ProxyLayer0ToolResults    int64 `json:"proxy_layer0_tool_result_blocks"`
+	ProxyLayer0Commands       int64 `json:"proxy_layer0_command_resolved_blocks"`
+	ProxyLayer0ReadAttempts   int64 `json:"proxy_layer0_read_delta_attempts"`
 	ProxyLayer0Blocks         int64 `json:"proxy_layer0_blocks"`
 	ProxyLayer0ReadDelta      int64 `json:"proxy_layer0_read_delta_blocks"`
 	ProxyLayer0Captured       int64 `json:"proxy_layer0_captured_output_blocks"`
@@ -218,6 +221,9 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			FramesReencoded:           state.WSS.FramesReencoded,
 			PhasefMutations:           state.WSS.PhaseFMutations,
 			InputTokensSaved:          state.Savings.InputTokensSaved,
+			ProxyLayer0ToolResults:    state.Savings.ProxyLayer0ToolResults,
+			ProxyLayer0Commands:       state.Savings.ProxyLayer0Commands,
+			ProxyLayer0ReadAttempts:   state.Savings.ProxyLayer0ReadAttempts,
 			ProxyLayer0Blocks:         state.Savings.ProxyLayer0Blocks,
 			ProxyLayer0ReadDelta:      state.Savings.ProxyLayer0ReadDelta,
 			ProxyLayer0Captured:       state.Savings.ProxyLayer0Captured,
@@ -284,6 +290,9 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "  mutation_active:              %v\n", report.WSS.MutationActive)
 	fmt.Fprintf(w, "  byte_bridge_only:             %v\n", report.WSS.ByteBridgeOnly)
 	fmt.Fprintf(w, "  input_tokens_saved:           %d\n", report.WSS.InputTokensSaved)
+	fmt.Fprintf(w, "  proxy_layer0_tool_results:    %d\n", report.WSS.ProxyLayer0ToolResults)
+	fmt.Fprintf(w, "  proxy_layer0_commands:        %d\n", report.WSS.ProxyLayer0Commands)
+	fmt.Fprintf(w, "  proxy_layer0_read_attempts:   %d\n", report.WSS.ProxyLayer0ReadAttempts)
 	fmt.Fprintf(w, "  proxy_layer0_blocks:          %d\n", report.WSS.ProxyLayer0Blocks)
 	fmt.Fprintf(w, "    read_delta:                 %d\n", report.WSS.ProxyLayer0ReadDelta)
 	fmt.Fprintf(w, "    captured_output:            %d\n", report.WSS.ProxyLayer0Captured)

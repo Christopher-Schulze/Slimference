@@ -26,6 +26,9 @@ const aggregateSampleAdminState = `{
   },
   "savings": {
     "input_tokens_saved": 42000,
+    "proxy_layer0_tool_result_blocks": 8,
+    "proxy_layer0_command_resolved_blocks": 6,
+    "proxy_layer0_read_delta_attempts": 3,
     "proxy_layer0_blocks": 4,
     "proxy_layer0_read_delta_blocks": 2,
     "proxy_layer0_captured_output_blocks": 1,
@@ -67,6 +70,9 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"mutation_active:              true",
 		"byte_bridge_only:             false",
 		"input_tokens_saved:           42000",
+		"proxy_layer0_tool_results:    8",
+		"proxy_layer0_commands:        6",
+		"proxy_layer0_read_attempts:   3",
 		"proxy_layer0_blocks:          4",
 		"read_delta:                 2",
 		"captured_output:            1",
@@ -106,7 +112,8 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	if got.WSS.InputTokensSaved != 42000 {
 		t.Fatalf("wss.input_tokens_saved: got=%d want=42000", got.WSS.InputTokensSaved)
 	}
-	if got.WSS.ProxyLayer0ReadDelta != 2 || got.WSS.ProxyLayer0Captured != 1 || got.WSS.ProxyLayer0Envelope != 1 {
+	if got.WSS.ProxyLayer0ToolResults != 8 || got.WSS.ProxyLayer0Commands != 6 || got.WSS.ProxyLayer0ReadAttempts != 3 ||
+		got.WSS.ProxyLayer0ReadDelta != 2 || got.WSS.ProxyLayer0Captured != 1 || got.WSS.ProxyLayer0Envelope != 1 {
 		t.Fatalf("wss proxy layer0 mechanism attribution mismatch: %+v", got.WSS)
 	}
 	if got.OutputReduce.RepdetRewrites != 7 {

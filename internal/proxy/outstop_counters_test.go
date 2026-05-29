@@ -88,6 +88,9 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	c := &OutputReduceCounters{}
 	c.RecordProxyLayer0(128)
 	c.RecordProxyLayer0Stats(proxyLayer0Stats{
+		ToolResultBlocks:        4,
+		CommandResolvedBlocks:   3,
+		ReadDeltaAttempts:       2,
 		TokensSaved:             256,
 		BlocksModified:          3,
 		ReadDeltaBlocks:         2,
@@ -103,6 +106,15 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	}
 	if s.ProxyLayer0TokensSaved != 384 {
 		t.Errorf("proxy layer0 saved=%d want 384", s.ProxyLayer0TokensSaved)
+	}
+	if s.ProxyLayer0ToolResultBlocks != 4 {
+		t.Errorf("proxy layer0 tool-result blocks=%d want 4", s.ProxyLayer0ToolResultBlocks)
+	}
+	if s.ProxyLayer0CommandResolvedBlocks != 3 {
+		t.Errorf("proxy layer0 command blocks=%d want 3", s.ProxyLayer0CommandResolvedBlocks)
+	}
+	if s.ProxyLayer0ReadDeltaAttempts != 2 {
+		t.Errorf("proxy layer0 read attempts=%d want 2", s.ProxyLayer0ReadDeltaAttempts)
 	}
 	if s.ProxyLayer0BlocksModified != 4 {
 		t.Errorf("proxy layer0 blocks=%d want 4", s.ProxyLayer0BlocksModified)

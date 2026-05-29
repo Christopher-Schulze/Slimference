@@ -339,11 +339,12 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// history through the proxied Responses request, run the same
 	// deterministic captured-output filters here.
 	if p.isProviderEnabled(provider) && pipelineMode == PipelineFull && layer0Action != planner.ActionBypass {
-		if l0Messages, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(compressedMessages, sessionID, nil); stats.TokensSaved > 0 {
+		l0Messages, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(compressedMessages, sessionID, nil)
+		p.outputReduceCounters.RecordProxyLayer0Stats(stats)
+		if stats.TokensSaved > 0 {
 			compressedMessages = l0Messages
 			layer0Savings = stats.TokensSaved
 			appliedLayers = append(appliedLayers, 0)
-			p.outputReduceCounters.RecordProxyLayer0Stats(stats)
 			log.Debug("proxy layer0 applied",
 				"saved", stats.TokensSaved,
 				"blocks", stats.BlocksModified,

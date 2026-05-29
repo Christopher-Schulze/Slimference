@@ -23,11 +23,23 @@ const (
 )
 
 type proxyLayer0Stats struct {
+	ToolResultBlocks        int
+	CommandResolvedBlocks   int
+	ReadDeltaAttempts       int
 	TokensSaved             int
 	BlocksModified          int
 	ReadDeltaBlocks         int
 	CapturedOutputBlocks    int
 	CodexExecEnvelopeBlocks int
+}
+
+func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
+	s.TokensSaved = 0
+	s.BlocksModified = 0
+	s.ReadDeltaBlocks = 0
+	s.CapturedOutputBlocks = 0
+	s.CodexExecEnvelopeBlocks = 0
+	return s
 }
 
 func applyProxyLayer0(messages []types.Message) ([]types.Message, int) {
@@ -58,13 +70,18 @@ func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, se
 			if block.Type != "tool_result" {
 				continue
 			}
+			stats.ToolResultBlocks++
 			use := proxyResolveToolUse(block, toolUses)
 			commandLine := proxyLayer0CommandLine(use)
 			if commandLine == "" {
 				continue
 			}
+			stats.CommandResolvedBlocks++
 			beforeTokens := tokens.CountString(block.Text)
 			readCtx := proxyReadFileContext(sessionID, commandLine)
+			if readDeltaEligible(sessionID, commandLine) {
+				stats.ReadDeltaAttempts++
+			}
 			afterText, changed := compactProxyReadDelta(sessionID, commandLine, block.Text, readCtx)
 			mechanism := proxyLayer0MechanismReadDelta
 			if !changed {
@@ -94,9 +111,13 @@ func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, se
 	}
 
 	if out == nil {
-		return messages, proxyLayer0Stats{}
+		return messages, stats
 	}
 	return out, stats
+}
+
+func readDeltaEligible(sessionID, commandLine string) bool {
+	return strings.TrimSpace(sessionID) != "" && filter.ReadPathFromCommandLine(commandLine) != ""
 }
 
 func compactProxyLayer0Text(commandLine, text string, ctx filter.FileReadContext) (string, bool) {
