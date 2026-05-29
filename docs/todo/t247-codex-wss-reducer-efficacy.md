@@ -1,19 +1,22 @@
 # TASK 247: Codex WSS Phase-F reducer efficacy (Responses-API delta model)
 
-Status: REDUCER CHAIN PROVEN END-TO-END on real Codex CLI traffic. Initial proof
-landed on Codex 0.133.0 (2026-05-23 multi-read capture); drift proof refreshed on
-Codex 0.135.0 (2026-05-29 recert + live 3x71KB repeat-read session). Repeat-read
-sessions produce large output-payload reduction; recorded `input_tokens_saved=26461`
-on a 3x35KB-file session and `input_tokens_saved=22620` on a 3x71KB Codex 0.135.0
-session. Earlier "compressed_messages_mutated=0" reading was Codex-side run-variance,
-not a code defect. Fixture-based regression test landed
+Status: REDUCER CHAIN PROVEN END-TO-END on real Codex CLI and Desktop traffic.
+Initial proof landed on Codex 0.133.0 (2026-05-23 multi-read capture); drift proof
+refreshed on Codex 0.135.0 (2026-05-29 recert + live 3x71KB repeat-read session);
+Desktop proof landed on the same Codex 0.135.0 app-server route (2026-05-29 manual
+Codex.app repeat-read proof). Repeat-read sessions produce large output-payload
+reduction; recorded `input_tokens_saved=26461` on a 3x35KB-file CLI session,
+`input_tokens_saved=22620` on a 3x71KB Codex 0.135.0 CLI session, and
+`desktop_app_server_phasef_proven` with `frames_reencoded=3` /
+`compressed_messages_mutated=3` on a 3x76KB Desktop session. Earlier
+"compressed_messages_mutated=0" reading was Codex-side run-variance, not a code
+defect. Fixture-based regression test landed
 (`internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`)
 asserting Slimference-delta-marker reduction on reads #2 and #3 of an isolated
 multi-read sequence. Aggregate-savings tooling landed at
 `scripts/utils/aggregate-savings` for honest live + offline measurement of
 WSS + output-reduce + HTTP-path Layer-0 savings in one report. Open: collect
-representative real-workday measurements with the new tooling; one Desktop pass
-on the identical code path.
+representative real-workday measurements with the new tooling.
 Priority: P0 - this is whether Slimference delivers real Codex token savings at all
 Scope: WSS Phase-F request reducers for Codex (CLI + Desktop, same route)
 
@@ -102,9 +105,16 @@ reduce in a single delta request.
   zero errors, then a scoped `transport=auto` 3x71KB repeat-read session recorded
   `frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
   `input_tokens_saved=22620`, zero parse/degrade/compression errors.
-- [ ] Re-measure live on Codex Desktop on the identical Phase-F route once a
-  user-confirmed Desktop session is run via TUI Launch Codex App. T246 proved
-  the route is identical, so the reducer chain is expected to behave the same.
+- [x] Re-measure live on Codex Desktop on the identical Phase-F route. Verified
+  2026-05-29 on Codex.app with the app-server shim and Codex 0.135.0:
+  `slimference codex desktop prove --manual` launched PID 77770 with scoped
+  Slimference env; a prompted 3x76KB repeat-read session returned
+  `DESKTOP_T247_0135_DONE`; after quitting Codex.app to flush the WSS session,
+  `slimference codex desktop prove --finish --json` returned
+  `mode=desktop_app_server_phasef_proven`, `desktop_savings=true`,
+  `frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
+  `phasef_bridged=4`, `compressed_messages_inspected=294`, and zero
+  parse/degrade/compression errors.
 - [x] Separately quantify savings from the OTHER layers (output-reduce stop-seq,
   response cache, L0 read-delta on HTTP). Tooling landed:
   `scripts/utils/aggregate-savings` pulls live `/admin/state` WSS counters,

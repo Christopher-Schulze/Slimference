@@ -26,10 +26,13 @@ proxy launch using the Desktop binary's proxy/WSS capability surface.
 
 2026-05-22 update: T238/T242 proved the process-local proxy/CA branch reaches
 CONNECT but produces zero application bytes. T246 implemented the cleaner
-`CODEX_CLI_PATH` app-server shim branch, but current Codex.app still ends as
-`desktop_connect_only_no_app_server_bytes`. Current product truth: Desktop
-Slimference savings are unavailable; normal Finder/Spotlight Codex.app remains
-direct and no-drawback.
+`CODEX_CLI_PATH` app-server shim branch.
+
+2026-05-29 update: T247 proved the app-server shim branch can produce real
+Desktop WSS Phase-F mutation on current Codex.app/Codex 0.135.0. Current
+product truth: Desktop Slimference savings are available through the scoped
+Slimference launcher when the proof gate is green; normal Finder/Spotlight
+Codex.app remains direct and no-drawback.
 
 ## Acceptance
 

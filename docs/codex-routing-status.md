@@ -112,10 +112,15 @@ Current truth:
   direct fail-open.
 - Codex CLI auto-recert keeps the strict version tuple guard but repairs WSS
   Phase-F after Codex updates when live proof is clean.
-- Codex Desktop is not green for Slimference savings on current Codex.app
-  builds. The proxy/CA branch reached CONNECT but produced zero application
-  bytes, and the app-server shim branch also ends as
-  `desktop_connect_only_no_app_server_bytes`.
-- TUI Launch Codex App therefore remains blocked for Slimference mode and must
-  not claim Desktop savings. Normal Finder/Spotlight Codex.app remains the
-  direct no-drawback Desktop path.
+- Codex Desktop no longer relies on the old proxy/CA branch. The current green
+  Desktop product path is the process-local app-server shim launched by
+  Slimference. It rewrites only default/null `thread/start.modelProvider` to
+  `slimference-codex`, keeps Finder/Spotlight launches direct, and routes the
+  prompted Desktop conversation onto the same no-CA WSS Phase-F route as CLI.
+- On 2026-05-29 a real Codex.app repeat-read proof on Codex 0.135.0 returned
+  `desktop_app_server_phasef_proven`, `desktop_savings=true`,
+  `frames_reencoded=3`, `compressed_messages_mutated=3`, and
+  `phasef_mutations=3` with zero parse/degrade/compression errors.
+- TUI Launch Codex App may use the app-server shim path when the proof gate is
+  green. Normal Finder/Spotlight Codex.app remains the direct no-drawback
+  Desktop path, and Browser ChatGPT / ChatGPT.app remain untouched.

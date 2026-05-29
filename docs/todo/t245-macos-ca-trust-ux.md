@@ -41,9 +41,9 @@ limited to:
   another safe root-store hook.
 
 The T246 Desktop app-server shim does not terminate TLS for Codex.app and
-therefore does not need a local CA or Keychain trust. Current live proof still
-ends as `desktop_connect_only_no_app_server_bytes`, so CA trust would not repair
-that branch.
+therefore does not need a local CA or Keychain trust. The 2026-05-29 Desktop
+repeat-read proof returned `desktop_app_server_phasef_proven` on that branch,
+so CA trust is definitively not required for the current Desktop product path.
 
 Therefore the correct UX is unified install with conditional trust:
 
@@ -177,20 +177,22 @@ or diagnostic unless a future Codex.app build changes root-store behavior.
   Codex.app build. CA trust remains useful for Desktop/Lab diagnostics, but it
   is not part of the scoped CLI WSS savings path and must not block CLI launch,
   WSS auto-recert, or TUI Launch Codex CLI.
-- TUI Launch Codex App should block until a future Desktop proof is green,
-  because that menu item means "Slimference mode". Normal direct Codex.app
-  launch remains Finder/Spotlight outside Slimference. CA management belongs
-  under Manage Slimference as an explicit advanced Desktop/Lab action, not as
-  the default daily launch path.
+- At that time, TUI Launch Codex App had to block until a future Desktop proof
+  was green, because that menu item means "Slimference mode". The later
+  2026-05-29 app-server shim proof is now that green proof. Normal direct
+  Codex.app launch remains Finder/Spotlight outside Slimference. CA management
+  belongs under Manage Slimference as an explicit advanced Desktop/Lab action,
+  not as the default daily launch path.
 
 2026-05-22 app-server shim update:
 
 - T246 found a cleaner Desktop diagnostic route that does not need CA: launch
   Codex.app with process-local `CODEX_CLI_PATH=<slimference>`, then the hidden
   shim execs the real `codex app-server` with local provider overrides.
-- Current live proof still ends as `desktop_connect_only_no_app_server_bytes`.
-  This confirms CA trust is not the blocker for the app-server shim. T245
-  remains useful for explicit legacy proxy diagnostics and global lab mode only.
+- 2026-05-29 update: the app-server shim route is now Desktop savings-proven via
+  `desktop_app_server_phasef_proven` on a repeat-read workload. This confirms CA
+  trust is not required for the current Desktop product path. T245 remains
+  useful for explicit legacy proxy diagnostics and global lab mode only.
 
 2026-05-20 non-live closure:
 

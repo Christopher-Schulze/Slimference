@@ -13,16 +13,17 @@ the route is proven and no collateral impact on Browser ChatGPT, ChatGPT.app,
 or Claude Code.
 
 T238/T242 rejected the Desktop proxy/CA branch for current Codex.app. T246 then
-implemented and live-tested the cleaner no-CA app-server shim branch; current
-Codex.app still blocks it as `desktop_connect_only_no_app_server_bytes`. T241
-makes Codex CLI WSS Phase-F certification automatically repairable after
-updates. T243 makes
+implemented and live-tested the cleaner no-CA app-server shim branch, and T247
+proved real Desktop WSS Phase-F mutation on that same route with a 2026-05-29
+Codex.app repeat-read proof (`desktop_app_server_phasef_proven`,
+`desktop_savings=true`). T241 makes Codex CLI WSS Phase-F certification
+automatically repairable after updates. T243 makes
 `transport=auto` WSS-first with byte-equal WSS bridge before HTTP fallback.
 T239 builds the human launch center and unified Codex install UX. T245 keeps CA
 truth honest: not required for scoped CLI WSS or the current app-server shim
-diagnostic branch, and only relevant for Desktop/Lab TLS-MITM diagnostics. T240
-certifies the whole user-facing system as one release ceremony, with Desktop
-Slimference savings honestly unavailable until upstream changes.
+branch, and only relevant for Desktop/Lab TLS-MITM diagnostics. T240 certifies
+the whole user-facing system as one release ceremony, with Desktop Slimference
+savings available only through the scoped launcher/proof-gated shim path.
 
 ## Acceptance
 
@@ -40,11 +41,13 @@ Slimference savings honestly unavailable until upstream changes.
   new WSS cert automatically or Status clearly says WSS Phase-F savings are
   being repaired while T243 keeps the session on WSS byte-equal bridge when the
   bridge is safe.
-- Launch Codex App follows the T246 branch:
-  - if a future Desktop app-server shim mode is proven, it launches through Slimference
-    and records clean WSS counters plus mutation;
-  - for current Codex.app, it reports the exact blocked reason
-    `connect_only_no_app_server_bytes` and makes no savings claim.
+- Launch Codex App follows the T246/T247 branch:
+  - when the latest Desktop app-server shim proof is
+    `desktop_app_server_phasef_proven`, it launches through Slimference and
+    records clean WSS counters plus mutation;
+  - when drift, stale proof, daemon failure, or proof errors invalidate that
+    state, it reports the exact blocked/proof-needed reason and makes no
+    savings claim.
 - Direct `codex` and Finder/Spotlight Codex.app launches remain available and
   native.
 - Browser ChatGPT and ChatGPT.app remain direct during Slimference-launched
@@ -147,11 +150,13 @@ This is a release gate, not a feature task. It should not introduce new
 routing mechanisms. If T240 finds a product defect, open a new task with the
 failure evidence instead of weakening acceptance.
 
-The task can pass with Desktop direct-only because T246 proved that current
-Codex.app does not expose a safe process-local Desktop route with application
-bytes. In that branch, the release claim is still honest: Codex CLI gets
-Slimference savings, Codex Desktop remains native with no drawbacks, and the
-launch center says so plainly.
+The task no longer needs the Desktop direct-only branch for current Codex builds:
+T246/T247 proved the process-local app-server shim can route Codex.app onto the
+same WSS Phase-F path as CLI, and the 2026-05-29 Codex.app repeat-read proof
+returned `desktop_app_server_phasef_proven` with mutation counters. The release
+claim must still stay honest: normal Finder/Spotlight Codex.app remains native
+and direct, while Slimference TUI Launch Codex App uses the scoped shim only
+when its current proof gate is green.
 
 The task can also pass with CA trust absent for the normal product path. CA is
 not the thing that makes CLI WSS work. The release-critical thing is that CLI
@@ -160,12 +165,12 @@ CA only matters for Desktop/Lab TLS termination diagnostics. The T246
 app-server shim diagnostic does not use CA trust, and current failure is not a
 CA problem.
 
-T246 narrows the Desktop release branch to one explicit verdict:
-process-local app-server shim launch plus lsof and `/admin/state.wss` currently
-ends as `desktop_connect_only_no_app_server_bytes`. T240 must not accept a
-cosmetic provider badge, sideband-only routing, historical daemon counters,
-legacy proxy CONNECT, or loopback sockets with zero bytes as Desktop savings
-evidence.
+T246/T247 narrow the Desktop release branch to one explicit verdict:
+process-local app-server shim launch plus flushed `/admin/state.wss` deltas can
+produce `desktop_app_server_phasef_proven` with real mutation. T240 must still
+reject a cosmetic provider badge, sideband-only routing, historical daemon
+counters, legacy proxy CONNECT, or loopback sockets with zero bytes as Desktop
+savings evidence.
 
 ## Deviations
 

@@ -160,15 +160,20 @@ Two halves of "done":
   - `4e3626b` / `571a30d` T246: corrected Desktop finding (on phasef route, not blocked)
   - `9dcf8f4` (earlier this arc) T246: route Desktop conversation via thread/start rewrite
 - TASK status (`docs/todo.md`):
-  - T246 Codex Desktop app-server shim - routing SOLVED + reliable gate; engineering
-    complete. Open: one real end-to-end TUI Desktop launch confirmation with the user.
+  - T246 Codex Desktop app-server shim - routing SOLVED + reliable gate; the
+    later T247 Desktop repeat-read proof upgraded the live evidence to
+    savings-proven on Codex 0.135.0.
   - T247 Codex WSS Phase-F reducer efficacy - reducer chain proven end-to-end on
-    real Codex 0.133.0 CLI traffic 2026-05-23 (multi-read capture, `frames_reencoded=3`,
-    `compressed_messages_mutated=3`, `input_tokens_saved=26461`, 94% reduction on
-    output payload). Fixture-based regression test landed at
+    real Codex CLI and Desktop traffic: Codex 0.133.0 CLI multi-read proof
+    (`frames_reencoded=3`, `compressed_messages_mutated=3`,
+    `input_tokens_saved=26461`), Codex 0.135.0 CLI repeat-read proof
+    (`input_tokens_saved=22620`), and Codex 0.135.0 Desktop repeat-read proof
+    (`desktop_app_server_phasef_proven`, `desktop_savings=true`,
+    `frames_reencoded=3`, `compressed_messages_mutated=3`). Fixture-based
+    regression test landed at
     `internal/proxy/wsmitm_phasef_real_capture_test.go::TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`
-    (`commit fee1af4`). See §9 for the verified shape. Open: one Desktop pass on
-    the identical route; quantification of non-WSS savings layers.
+    (`commit fee1af4`). See §9 for the verified shape. Open: longer-window
+    real-workday aggregate measurement.
 - Build/test health (verified this session): `go build ./...` clean,
   `go vet ./...` clean, `go test ./internal/proxy/...` green across all five
   packages; full-suite `go test ./...` green except one timing-flaky test
@@ -293,18 +298,20 @@ codex
 
 ---
 
-## 7. Codex routing (CLI) - the certified-green-but-marginal path
+## 7. Codex routing (CLI) - certified WSS Phase-F path
 
 - `slimference codex run` (codex_cmd.go) builds the scoped command via
   `proxy run codex --proxied-wss` (proxy_cmd.go) and execs Codex with the provider
   block above. Process-scoped, fail-open, no machine-wide changes. Doctrine-clean.
 - `transport=auto` resolves via `internal/codexroute` (certification-aware): if the
   installed Codex version tuple is certified, prefer `wss_phasef`.
-- The persisted cert is `~/.slimference/codex-wss-cert.json`. Verified content
-  2026-05-23: `{codex_version: 0.133.0, slimference_version: 2.0.2,
-  frames_reencoded: 1, transport: wss, route_profile: scoped_raw_wss_phasef}`,
-  recert attempt id `20260522T125430`. IMPORTANT: `wss_certified=true` rests on
-  exactly ONE mutated frame. See §9 - live sessions currently mutate 0.
+- The persisted cert is `~/.slimference/codex-wss-cert.json`. It was refreshed
+  on 2026-05-29 after Codex drifted to 0.135.0. The official recert proof
+  passed with `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `phasef_mutations=1`, and zero parse/degrade/compression errors. A separate
+  live Codex 0.135.0 CLI 3x71KB repeat-read session then produced
+  `frames_reencoded=3`, `compressed_messages_mutated=3`,
+  `phasef_mutations=3`, and `input_tokens_saved=22620`.
 - Cert criteria: `codex_cmd.go:codexWSSCertificationFailures` (~line 1241) require
   `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`,
   `frames_reencoded>0`, `compressed_messages_mutated>0`, `mutation_active=true`,
@@ -477,8 +484,16 @@ T247 remaining work (no reducer code change needed):
    replays a synthetic three-turn multi-read sequence with the production-proven
    real exec_command shape and asserts the delta-marker reduction for reads #2
    and #3. Isolated via `t.TempDir()`; no private data committed; ~0.10s.
-2. One Desktop pass on the identical Phase-F route once a user-confirmed Desktop
-   session is run via TUI Launch Codex App (T246 follow-up).
+2. DONE 2026-05-29. A user-confirmed Codex.app app-server-shim proof on Codex
+   0.135.0 ran three separate `cat` reads of a 76540-byte target and returned
+   `DESKTOP_T247_0135_DONE`. After quitting Codex.app to flush the WSS session,
+   `slimference codex desktop prove --finish --json` returned
+   `desktop_app_server_phasef_proven`, `desktop_savings=true`,
+   `frames_reencoded=3`, `compressed_messages_mutated=3`,
+   `phasef_mutations=3`, `phasef_bridged=4`,
+   `compressed_messages_inspected=294`, and zero parse/degrade/compression
+   errors. This proves Desktop mutation on the same Phase-F route, not only
+   route readiness.
 3. Quantify savings on the OTHER layers (HTTP-path L0/L1, response cache,
    output-reduce on non-repeat-read sessions) so the product savings claim is
    grounded in aggregate measurement, not in `wss_certified=true` plus a single
@@ -567,9 +582,11 @@ is operationally meaningful, not a single-frame artefact.
 
 ## 12. Exact next steps
 
-1. Confirm T246 end-to-end once with the user: `slimference` TUI -> Launch Codex App,
-   do a real conversation, verify the button works and feels native (this is the one
-   remaining human confirmation for T246).
+1. DONE 2026-05-29 for the manual Desktop proof path. The user sent the prompt in
+   Codex.app and got `DESKTOP_T247_0135_DONE`; the flushed finish gate returned
+   `desktop_app_server_phasef_proven` with mutation counters. Remaining UX work,
+   if desired, is only T239 polish around making the TUI Launch Codex App flow
+   feel native.
 2. DONE 2026-05-23 (chain shape-read + cert-repro + multi-read capture). The
    function_call -> remembered tool_use -> function_call_output -> tool_result
    -> commandLine -> readcache -> mutation chain is operationally proven on real
@@ -587,10 +604,7 @@ is operationally meaningful, not a single-frame artefact.
    `proxyUserHomeDir`. Runs in ~0.10s. Locks in the production-proven shape:
    `arguments` is a JSON-encoded STRING with `cmd` as a single-string shell
    command (`cat <path>`), NOT a `bash -lc` wrapped array.
-4. Run one Desktop pass on the identical Phase-F route via TUI Launch Codex App
-   once the user is ready, and record the flushed counters; expected behaviour
-   is identical to the proven CLI path (T246 already proved the route is
-   identical).
+4. DONE 2026-05-29. Desktop pass recorded the flushed counters listed above.
 5. Quantify savings on the OTHER layers using `scripts/utils aggregate-savings`
    (commit `e651483`): live WSS counters + live output-reduce counters + offline
    HTTP-path Layer-0 SQLite savings + USD estimate. Run over a representative
@@ -599,8 +613,8 @@ is operationally meaningful, not a single-frame artefact.
 6. Keep all measurement flush-aware (close the session before reading). Use
    socket + decisions-log evidence, not laggy counters.
 7. T240 (release certification) comes AFTER the fixture test plus aggregate
-   measurement. It should certify "CLI+Desktop route-ready/no-drawback, WSS
-   read-delta savings proven on repeat-read workloads, aggregate savings =
+   measurement. It should certify "CLI+Desktop no-drawback, WSS read-delta
+   savings proven on repeat-read workloads, aggregate savings =
    <measured>" with the workload-dependence stated explicitly so no fake
    universal-savings claim ships.
 

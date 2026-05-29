@@ -1412,18 +1412,22 @@ only and promotes the per-process Codex CLI runner for T209.
   Routing solved (`9dcf8f4`, stdin JSON-RPC mediator rewrites default
   `modelProvider` to `slimference-codex`), gate proven (`af972df`, lag-free
   `phasef_bridged` counter). Normal Finder/Spotlight Codex.app stays direct;
-  voice/Browser/ChatGPT.app/computer-use/Claude untouched. `desktop_savings=false`
-  on the specific proof session is expected workload-variance (no repeat-read
-  triggered the readcache delta path); the reducer chain itself is proven
-  under T247 fixture + capture.
+  voice/Browser/ChatGPT.app/computer-use/Claude untouched. A later T247 Desktop
+  repeat-read proof on 2026-05-29 returned
+  `desktop_app_server_phasef_proven` with `desktop_savings=true`, so the same
+  route now has both route proof and mutation proof.
   Detail: `docs/todo/t246-codex-desktop-app-server-shim-proof.md`
 - [~] **T247** Codex WSS Phase-F reducer efficacy (Responses-API delta model) —
-  REDUCER CHAIN PROVEN END-TO-END on real Codex 0.133.0 CLI traffic 2026-05-23
-  via env-gated multi-read capture (since reverted). One 3x35KB-file repeat-read
-  session produced `frames_reencoded=3`, `compressed_messages_mutated=3`,
-  `phasef_mutations=3`, `mutation_active=true`, `byte_bridge_only=false`,
-  zero parse/degrade/compression errors, and `savings.input_tokens_saved=26461`
-  (94% reduction on output payload: 106701b -> 6846b). Verified shape: Codex
+  REDUCER CHAIN PROVEN END-TO-END on real Codex CLI and Desktop traffic. CLI:
+  one Codex 0.133.0 3x35KB repeat-read session produced
+  `frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
+  zero parse/degrade/compression errors, and `savings.input_tokens_saved=26461`;
+  Codex 0.135.0 drift was recertified and a 3x71KB CLI repeat-read saved 22620
+  input tokens. Desktop: 2026-05-29 Codex.app app-server proof returned
+  `desktop_app_server_phasef_proven`, `desktop_savings=true`,
+  `frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
+  and zero parse/degrade/compression errors on a 3x76KB repeat-read prompt.
+  Verified shape: Codex
   tool name `exec_command`, arguments `{"command":["bash","-lc","cat <path>"],
   ...}`, function_call_output.output = Codex exec envelope; the entire mapping
   function_call -> remembered tool_use -> function_call_output -> tool_result ->
@@ -1433,8 +1437,7 @@ only and promotes the per-process Codex CLI runner for T209.
   regression test landed
   (`TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`, ~0.10s, isolated
   via t.TempDir, synthetic payload, real exec_command shape with `cmd` as
-  string). Open: one Desktop pass on the identical route (T246 follow-up);
-  quantification of non-WSS savings layers for honest aggregate ahead of T240.
+  string). Open: longer-window real-workday aggregate measurements ahead of T240.
   Detail: `docs/todo/t247-codex-wss-reducer-efficacy.md`
 
 ### Sequencing within Phase H
@@ -1525,13 +1528,13 @@ only and promotes the per-process Codex CLI runner for T209.
    Phase-F value without an automatic repair path. The strict tuple guard stays;
    the UX gets shared CLI/TUI/background recert, bounded logs, locks, cooldowns,
    and real mutation proof.
-30. **T246 before Desktop success claims** — the Desktop menu item remains part
-   of the TUI, but success is gated on bytes/WSS proof. The old process-local
-   proxy plus `CODEX_CA_CERTIFICATE` branch is rejected for current Codex.app as
-   a zero-byte TLS/root-store path. The no-CA `CODEX_CLI_PATH` app-server shim
-   is also live-blocked for current Codex.app as
-   `desktop_connect_only_no_app_server_bytes`. Normal direct Desktop launch
-   stays outside Slimference.
+30. **T246/T247 before Desktop success claims** — the Desktop menu item remains
+   part of the TUI, but success is gated on bytes/WSS proof. The old
+   process-local proxy plus `CODEX_CA_CERTIFICATE` branch is rejected for
+   current Codex.app as a zero-byte TLS/root-store path. The no-CA
+   `CODEX_CLI_PATH` app-server shim is the current product branch and has a
+   2026-05-29 `desktop_app_server_phasef_proven` repeat-read proof with
+   mutation counters. Normal direct Desktop launch stays outside Slimference.
 31. **T243 before T240** — WSS remains the standard. `transport=auto` must try
    certified WSS Phase-F first, WSS byte-equal bridge second, HTTP third, and
    direct only as final fail-open. Version drift should trigger T241 auto-recert
@@ -1549,10 +1552,10 @@ only and promotes the per-process Codex CLI runner for T209.
   hooks present where selected, hosts CLEAN (not patched), and Codex product
   support prepared for both CLI and Desktop without default per-app checkboxes.
   Scoped Codex CLI WSS is usable without CA env or macOS CA trust. Desktop
-  support is prepared but currently blocked for Slimference savings by T246's
-  `desktop_connect_only_no_app_server_bytes` proof. Keychain trust is optional
-  and only required for Desktop/Lab TLS-MITM diagnostic branches that actually
-  need OS trust.
+  support is prepared through the app-server shim and is savings-capable when
+  the current proof remains `desktop_app_server_phasef_proven`. Keychain trust
+  is optional and only required for Desktop/Lab TLS-MITM diagnostic branches
+  that actually need OS trust.
 - Scoped Codex CLI test uses `slimference codex run` and leaves
   hosts/pfctl/Browser ChatGPT/ChatGPT.app untouched.
 - Scoped WSS mode uses `wsmitm.Session` + Phase-F frame mutation, handles

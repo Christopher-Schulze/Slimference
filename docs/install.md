@@ -91,7 +91,7 @@ Slimference's default product path touches only scoped Codex surfaces:
    ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, and system proxy settings
    untouched.
 4. **Process-local Codex Desktop app-server shim** via
-   `slimference codex desktop prove` and, only after a future green proof,
+   `slimference codex desktop prove` and, after a green proof,
    `slimference codex launch-desktop --transport=app-server --replace-existing`.
    This does not
    write Codex config, shell startup files, macOS system proxy, `/etc/hosts`, or
@@ -342,7 +342,7 @@ but not a Desktop savings claim. Zero bytes, no WSS delta after the prompt,
 launch failure, daemon failure, or unreviewed daemon-wide WSS activity are
 diagnostics only.
 
-Current product truth on Codex Desktop (2026-05-22, corrected): the app-server
+Current product truth on Codex Desktop (2026-05-29, corrected): the app-server
 shim ROUTES Desktop conversations onto the same `websocket_phasef` savings route
 as the certified CLI. Root cause was that Codex Desktop opens conversations with
 `thread/start` `modelProvider: null` (resolving to the chatgpt.com default); the
@@ -353,11 +353,15 @@ counter record the Desktop conversation on `route_mode=websocket_phasef`, with
 byte-identical `permessage-deflate` frames to the CLI. The earlier
 `desktop_connect_only_no_app_server_bytes` verdict was a sampled-counter artifact.
 
-Honest status of the savings claim: route reached and savings-CAPABLE; a
-persisted Desktop mutation proof (`frames_reencoded>0` and
-`compressed_messages_mutated>0`, i.e. `desktop_app_server_phasef_proven`) is the
-remaining certification step and needs a real Desktop conversation with
-compressible context. The TUI gate therefore has two launch-eligible states:
+Honest status of the savings claim: Desktop mutation is now proven on a real
+prompted Codex.app repeat-read session. On 2026-05-29,
+`slimference codex desktop prove --manual` launched Codex.app with scoped
+Slimference env; after the prompt returned `DESKTOP_T247_0135_DONE`, quitting the
+app flushed the WSS session and `slimference codex desktop prove --finish --json`
+returned `desktop_app_server_phasef_proven`, `desktop_savings=true`,
+`frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`, and
+zero parse/degrade/compression errors. The TUI gate therefore has two
+launch-eligible states:
 `desktop_app_server_route_ready` (route proven, launch allowed, savings scale
 with conversation - NOT itself a savings claim) and `desktop_app_server_proven`
 (full mutation proven). Launching Codex.app normally from Finder/Spotlight remains

@@ -2748,3 +2748,71 @@ Interpretation:
   still the remaining live confirmation because the current active session is the
   Codex.app itself and should not be killed/relaunched without an explicit live
   test window.
+
+## 2026-05-29 - Codex Desktop 0.135.0 repeat-read savings proof
+
+Goal: prove that Codex.app, when launched through the scoped Slimference
+app-server shim, not only reaches the same WSS Phase-F route as CLI but also
+produces real Phase-F mutation on a repeat-read workload.
+
+Setup:
+- Codex CLI/current route was already recertified for `codex-cli 0.135.0` and
+  `auto.mode=wss_phasef`.
+- Created `/tmp/t247-desktop-0135-target.md` with 76540 bytes of deterministic
+  repeat-read payload.
+- Started the manual Desktop proof with
+  `slimference codex desktop prove --manual --duration=20s --json`.
+- The proof launched Codex.app PID 77770 with scoped Slimference app-server shim
+  env and returned `desktop_ready_for_prompt`.
+- The user sent a prompt in Codex.app requiring three separate shell commands:
+  `cat /tmp/t247-desktop-0135-target.md`.
+- Codex.app replied exactly `DESKTOP_T247_0135_DONE`.
+
+Important measurement note:
+- An immediate `prove --finish` while the Desktop WSS session was still open
+  reported route-only counters. This was the known flush-timing trap, not a
+  route failure.
+- After quitting Codex.app and waiting for the WSS session to close, the counters
+  flushed and the official finish gate turned green.
+
+Official flushed Desktop proof:
+- `slimference codex desktop prove --finish --json` returned
+  `mode=desktop_app_server_phasef_proven`.
+- `desktop_proven=true`
+- `desktop_savings=true`
+- `phasef_bridged=4`
+- `bytes_c2s=166713`, `bytes_s2c=316445`
+- `c2s_frames=17`, `s2c_frames=293`
+- `compressed_messages_inspected=294`
+- `compressed_messages_mutated=3`
+- `frames_reencoded=3`
+- `phasef_requests=9`, `phasef_request_bodies=9`,
+  `phasef_request_messages_indexed=7`
+- `phasef_text_deltas=219`, `phasef_terminal_responses=9`
+- `phasef_mutations=3`
+- `mutation_active=true`
+- `byte_bridge_only=false`
+- `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`
+
+Post-proof status:
+- `slimference codex desktop status --json` reports
+  `mode=desktop_app_server_proven`; the last proof is
+  `desktop_app_server_phasef_proven` with `desktop_savings=true`.
+- `slimference codex status --json` remains `auto.mode=wss_phasef`,
+  `wss_certified=true`, `needs_recert=false`, Codex version 0.135.0.
+- `aggregate-savings --filter-db=$HOME/.slimference/filter.db --period=all
+  --usd-per-million=2.5` reported WSS live counters at
+  `phasef_bridged=6`, `frames_reencoded=7`,
+  `compressed_messages_mutated=7`, `phasef_mutations=7`,
+  `input_tokens_saved=45592`, plus HTTP-path Layer-0 historical savings of
+  1356139 tokens, for 1401731 aggregate tokens saved.
+
+Interpretation:
+- Desktop is now savings-proven on the same no-CA WSS Phase-F path as CLI for a
+  repeat-read workload.
+- Route-ready remains a lower, honest state; the proof state that may claim
+  Desktop savings is `desktop_app_server_phasef_proven` with flushed mutation
+  counters.
+- Normal Finder/Spotlight Codex.app remains direct. Browser ChatGPT,
+  ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, Keychain, macOS proxy settings,
+  and persistent `~/.codex/config.toml` are not part of this product path.

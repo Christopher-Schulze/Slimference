@@ -1,19 +1,21 @@
 # TASK 246: Codex Desktop app-server shim proof
 
-Status: CLOSED FOR ROUTING - user-confirmed end-to-end Desktop launch via
+Status: CLOSED FOR ROUTING AND SAVINGS PROOF - user-confirmed end-to-end Desktop launch via
 `slimference codex desktop prove --manual` + `--finish` on 2026-05-23 returned
 `mode=desktop_app_server_route_ready`, `launch_ready=true`,
 `desktop_proven=true`, with `phasef_bridged=2`, `compressed_messages_inspected=584`,
 zero parse/degrade/compression errors. Persisted proof at
 `~/.slimference/codex-desktop-proof.json` now unlocks TUI Launch Codex App for
 future launches. Desktop conversation rides the same Phase-F WSS savings route
-as the certified CLI. `compressed_messages_mutated=0` on that proof session is
-the expected workload-variance behaviour (no repeat-read tool calls triggered
-the readcache delta path); the reducer chain itself is proven on a repeat-read
-workload separately under T247 fixture + capture (commit `fee1af4`,
-`597c74f`). Savings remain workload-dependent: large when Codex re-reads the
-same file across turns, ~0 on non-repeat sessions.
-Priority: P0 before any Desktop savings claim or T240 release certification
+as the certified CLI. A later T247 Desktop repeat-read proof on 2026-05-29
+upgraded the live Desktop evidence to full savings proof on Codex 0.135.0:
+`desktop_app_server_phasef_proven`, `desktop_savings=true`,
+`frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
+zero parse/degrade/compression errors. Savings remain workload-dependent:
+large when Codex re-reads the same file across turns, ~0 on non-repeat
+sessions.
+Priority: P0 for Desktop route integrity; savings proof is now delegated to
+T247's measured reducer workload evidence
 Scope: Codex Desktop App conversation routing only; no global lab product path
 
 ## Why
@@ -329,12 +331,14 @@ Observed result:
 
 Current decision:
 
-- This is not a Desktop savings claim.
-- The app-server shim plus stdin mediator is implemented product
-  infrastructure and is the current clean Desktop Slimference route.
+- The 2026-05-23 run was route-only; the 2026-05-29 repeat-read run is the
+  Desktop savings proof.
+- The app-server shim plus stdin mediator is implemented product infrastructure
+  and is the current clean Desktop Slimference route.
 - TUI Launch Codex App may launch when the latest proof is route-ready
-  (`phasef_bridged>0`, zero errors). It must label that honestly as route-ready,
-  not savings-proven, until T247 produces measured mutation.
+  (`phasef_bridged>0`, zero errors). It may label Desktop WSS savings only when
+  the latest proof is `desktop_app_server_phasef_proven` with mutation counters,
+  as in the 2026-05-29 proof.
 - Normal Finder/Spotlight Codex.app remains the correct no-drawback direct path
   outside Slimference mode. Browser ChatGPT, ChatGPT.app, Claude Code,
   `/etc/hosts`, pfctl, Keychain, macOS proxy settings, and persistent

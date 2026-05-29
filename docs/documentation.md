@@ -1488,6 +1488,19 @@ prompts with nothing to mutate (the same caveat as the CLI smoke). Normal Deskto
 remains direct and no-drawback; Browser ChatGPT, ChatGPT.app, computer-use, voice,
 and Claude Code are untouched.
 
+Desktop savings proof (2026-05-29): after Codex CLI drifted to 0.135.0, the
+official scoped recert path restored `auto=wss_phasef`. A real Codex.app
+app-server-shim proof then launched PID 77770 through `slimference codex desktop
+prove --manual`; the user prompted three separate `cat` reads of a 76540-byte
+target and Codex returned `DESKTOP_T247_0135_DONE`. After quitting Codex.app to
+flush the WSS session, `slimference codex desktop prove --finish --json` returned
+`desktop_app_server_phasef_proven`, `desktop_savings=true`,
+`frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
+`phasef_bridged=4`, `compressed_messages_inspected=294`, and zero
+parse/degrade/compression errors. This is the current Desktop savings gate:
+route-ready still means launch-eligible only; `desktop_app_server_phasef_proven`
+is the measured Desktop savings proof.
+
 The older `--transport=proxy --with-ca-env` branch remains an advanced
 diagnostic path for future Codex builds, but it is not the preferred Desktop
 product route. Its 2026-05-22 proof reached CONNECT and removed Chromium's
