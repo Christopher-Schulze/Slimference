@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -11,9 +12,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const defaultOutput = "./slimference"
+const lifecycleCommandTimeout = 20 * time.Second
+
+var execCommandContext = exec.CommandContext
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -27,6 +32,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.SetOutput(stderr)
 	out := fs.String("out", defaultOutput, "output binary path")
 	install := fs.Bool("install", false, "copy built binary to ~/.local/bin/slimference")
+	restart := fs.Bool("restart", false, "safe local ceremony: stop installed daemon, build, atomically install, start installed daemon")
 	version := fs.String("version", "", "optional version to inject into buildinfo.Version")
 	dryRun := fs.Bool("dry-run", false, "print commands without executing them")
 	if err := fs.Parse(args); err != nil {
@@ -34,6 +40,24 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	if *restart {
+		*install = true
+	}
+
+	dst := ""
+	var err error
+	if *install || *restart {
+		dst, err = installPath()
+		if err != nil {
+			return err
+		}
+	}
+
+	if *restart {
+		if err := runInstalledLifecycle(dst, "stop", stdout, stderr, *dryRun); err != nil {
+			return fmt.Errorf("stop installed daemon: %w", err)
+		}
 	}
 
 	buildArgs := buildCommandArgs(*out, *version)
@@ -50,16 +74,20 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if !*install {
 		return nil
 	}
-	dst, err := installPath()
-	if err != nil {
-		return err
-	}
 	fmt.Fprintf(stdout, "install %s -> %s\n", *out, dst)
 	if *dryRun {
+		if *restart {
+			fmt.Fprintf(stdout, "%s start\n", dst)
+		}
 		return nil
 	}
 	if err := copyFile(*out, dst); err != nil {
 		return fmt.Errorf("install binary: %w", err)
+	}
+	if *restart {
+		if err := runInstalledLifecycle(dst, "start", stdout, stderr, false); err != nil {
+			return fmt.Errorf("start installed daemon: %w", err)
+		}
 	}
 	return nil
 }
@@ -84,6 +112,31 @@ func installPath() (string, error) {
 		return "", fmt.Errorf("resolve home: %w", err)
 	}
 	return filepath.Join(home, ".local", "bin", "slimference"), nil
+}
+
+func runInstalledLifecycle(binary, verb string, stdout, stderr io.Writer, dryRun bool) error {
+	fmt.Fprintf(stdout, "%s %s\n", binary, verb)
+	if dryRun {
+		return nil
+	}
+	if verb == "stop" {
+		if _, err := os.Stat(binary); os.IsNotExist(err) {
+			fmt.Fprintf(stdout, "skip stop: installed binary does not exist yet at %s\n", binary)
+			return nil
+		} else if err != nil {
+			return err
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), lifecycleCommandTimeout)
+	defer cancel()
+	cmd := execCommandContext(ctx, binary, verb)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("%s timed out after %s", verb, lifecycleCommandTimeout)
+	}
+	return err
 }
 
 func copyFile(src, dst string) error {

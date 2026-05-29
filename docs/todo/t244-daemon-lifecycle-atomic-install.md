@@ -1,7 +1,7 @@
 # TASK 244: Daemon lifecycle and atomic install hardening
 
-Status: OPEN - atomic build install is landed; daemon restart/stop hardening and
-release evidence remain
+Status: DONE - atomic install, daemon lifecycle hardening, stale-process
+classification, product-level Manage wording, and live restart evidence landed
 Priority: P0 before T240 release seal
 Scope: local macOS arm64 developer/product lifecycle for rebuilding, installing,
 stopping, starting, and restarting Slimference without stranding daemon or
@@ -65,21 +65,21 @@ diagnose, and recover without hanging the operator.
 - [x] Add build-helper tests for executable replacement and temp cleanup.
 - [x] Reject temporary `go run` executables during `slimference install` plan
   resolution and add `--binary=PATH` for explicit stable hook/launchd targets.
-- [ ] Add daemon lifecycle timeout/diagnostic hardening for `start`, `stop`,
+- [x] Add daemon lifecycle timeout/diagnostic hardening for `start`, `stop`,
   and restart flows.
-- [ ] Add a release-safe rebuild command or documented ceremony that avoids
+- [x] Add a release-safe rebuild command or documented ceremony that avoids
   racing the daemon against binary replacement.
-- [ ] Add Manage Slimference "Restart daemon" / "Repair daemon" wording that
+- [x] Add Manage Slimference "Restart daemon" / "Repair daemon" wording that
   uses the hardened lifecycle path and never starts duplicate daemons.
-- [ ] Ensure install/repair lifecycle state is product-level, not per-app:
+- [x] Ensure install/repair lifecycle state is product-level, not per-app:
   `installed/prepared` covers Codex CLI and Desktop support together, while
   route capability states live under Status.
-- [ ] Add stale process classifier for old `dyld_start` / uninterruptible
+- [x] Add stale process classifier for old `dyld_start` / uninterruptible
   process evidence: report, do not retry-loop, recommend reboot only when the
   current daemon is healthy but old kernel-state processes remain.
-- [ ] Add live macOS evidence: build, install, restart daemon, run
+- [x] Add live macOS evidence: build, install, restart daemon, run
   `slimference version`, confirm no new stuck processes.
-- [ ] Decide whether the old `slimference.dyld-stuck-*` file should be
+- [x] Decide whether the old `slimference.dyld-stuck-*` file should be
   deleted after reboot, then document the cleanup command.
 
 ## Notes
@@ -114,6 +114,33 @@ hooks and launchd plists pointing at a soon-deleted temp binary. Operators can
 still pass an explicit `--binary=PATH` override when they intentionally want a
 non-default executable path. Source-checkout installs should build a stable
 binary first, then run `~/.local/bin/slimference install`.
+
+2026-05-29 lifecycle-hardening slice: direct `start`, `service install`, and
+TUI/adapter daemon starts now reject temporary Go build executable paths before
+spawning or registering a daemon. Restart paths now surface daemon state check
+errors instead of ignoring them. `StopDaemon` still uses bounded SIGTERM wait
+and now reports a hard failure if SIGKILL also leaves the process alive,
+explicitly naming the macOS `U`/`UE` / `dyld_start` reboot-only class. The build
+helper has `--restart`, which performs the safe local update ceremony:
+installed daemon stop -> build -> atomic install -> installed daemon start.
+
+2026-05-29 final lifecycle slice: human `status` and Manage Slimference now
+classify old stuck Slimference processes by `ps` state/argv and report them as
+reboot-only stale evidence instead of daemon-health failures. Manage wording now
+shows restart as the daemon repair action and states that product install
+prepares Codex CLI and Desktop together; route and Desktop savings capability
+remain Status facts. Cleanup decision: do not delete
+`~/.local/bin/slimference.dyld-stuck-*` before reboot while a process might still
+hold it; after reboot and a clean `ps` check, remove it with
+`rm -f ~/.local/bin/slimference.dyld-stuck-*`.
+
+Final live proof on 2026-05-29: `go run ./scripts/build --restart` stopped PID
+8985, built, atomically installed to `~/.local/bin/slimference`, and started PID
+11348. Installed `slimference version` returned `v2.0.2`; `status --preflight`
+reported daemon `health=true`, `:8990=true`, hosts inactive, Codex auto
+`wss_certified=true`; `codex desktop status --json` returned
+`desktop_app_server_proven` with last proof `desktop_app_server_phasef_proven`.
+`ps -axo pid=,stat=,args=` showed no Slimference process with `U` state.
 
 ## Deviations
 

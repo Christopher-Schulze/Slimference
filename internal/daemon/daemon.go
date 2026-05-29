@@ -157,7 +157,15 @@ func StopDaemon() error {
 		}
 	}
 	// Force kill.
-	_ = sendSignalFn(pf.PID, syscall.SIGKILL)
+	if err := sendSignalFn(pf.PID, syscall.SIGKILL); err != nil {
+		return fmt.Errorf("send SIGKILL: %w", err)
+	}
+	sleepFn(200 * time.Millisecond)
+	if alive, _, err := isRunningFn(); err != nil {
+		return fmt.Errorf("check daemon after SIGKILL: %w", err)
+	} else if alive {
+		return fmt.Errorf("daemon PID %d did not exit after SIGTERM and SIGKILL; if macOS `ps` shows state U/UE or dyld_start, reboot is required to clear the kernel-level stuck process", pf.PID)
+	}
 	fmt.Printf("Slimference force-killed (PID %d).\n", pf.PID)
 	return nil
 }

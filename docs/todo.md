@@ -1389,14 +1389,20 @@ only and promotes the per-process Codex CLI runner for T209.
   unsafe. Live certified-tuple and recert-restore proofs are green; remaining
   work is fallback-branch live proof and non-CLI passthrough audit. Detail:
   `docs/todo/t243-wss-first-auto-transport-ladder.md`
-- [ ] **T244** Daemon lifecycle and atomic install hardening — atomic
+- [x] **T244** Daemon lifecycle and atomic install hardening — atomic
   `scripts/build --install` replacement landed after a macOS `dyld_start`
   hang from in-place binary overwrite. Install planning now rejects temporary
   `go run` executable paths unless the operator passes an explicit
   `--binary=PATH`, preventing hooks/launchd from pointing at deleted temp
-  binaries on fresh machines. Remaining work: managed restart/stop hardening,
-  stale PID diagnostics, and release-cert evidence that rebuilds cannot strand
-  daemon/control commands. Detail:
+  binaries on fresh machines. Direct daemon starts and service installs reject
+  temporary Go build executables, stop reports the reboot-only macOS
+  `U`/`dyld_start` class if SIGKILL cannot clear a process, and
+  `scripts/build --restart` now runs stop -> build -> atomic install -> start.
+  Manage Slimference now labels restart as the daemon repair path, install
+  state is product-level for Codex CLI+Desktop, status/TUI report old stuck
+  processes as reboot-only stale evidence, and live local restart evidence is
+  recorded for T240.
+  Detail:
   `docs/todo/t244-daemon-lifecycle-atomic-install.md`
 - [ ] **T245** Desktop custom CA and macOS trust UX — keep unified install
   usable for Codex CLI and Desktop, but do not make CA env or Keychain trust a

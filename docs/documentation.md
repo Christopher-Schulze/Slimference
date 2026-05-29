@@ -1203,9 +1203,14 @@ exists, but note the gate currently reads the sampled WSS delta counters, which
 lag and under-report; the reliable green signal is the decisions-log
 `route_mode=websocket_phasef`. Historical proxy/CA failures remain diagnostic
 proof state. Normal Finder/Spotlight Codex.app launches remain direct.
-Manage Slimference owns install, repair, route, daemon, CA, lab controls, and
-the guided "Repair Codex CLI WSS savings" action that calls the same recert core
-as the CLI/background path.
+Manage Slimference owns one product-level install/repair surface for Codex CLI
+and Desktop together. Per-app rows are route policy/capability state, not
+separate install states. Manage also owns daemon start/stop/restart/repair,
+route controls, CA, lab controls, and the guided "Repair Codex CLI WSS savings"
+action that calls the same recert core as the CLI/background path. Old macOS
+`U`/`UE` or `dyld_start` Slimference processes are shown as reboot-only stale
+processes when detected; the current healthy daemon PID remains the actionable
+state.
 
 ### Keybindings
 

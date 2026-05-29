@@ -3775,13 +3775,19 @@ var (
 )
 
 func (sca *serviceControlAdapter) StartDaemon() error {
-	running, existing, _ := daemonIsRunningFn()
+	running, existing, err := daemonIsRunningFn()
+	if err != nil {
+		return fmt.Errorf("check daemon: %w", err)
+	}
 	if running {
+		if existing == nil || existing.PID <= 0 {
+			return fmt.Errorf("daemon state says running but PID metadata is invalid; run `slimference service status` and remove stale PID state if needed")
+		}
 		return fmt.Errorf("already running (PID %d, port %d)", existing.PID, existing.Port)
 	}
-	binary, err := osExecutable()
+	binary, err := resolveDaemonLifecycleBinary("start")
 	if err != nil {
-		return fmt.Errorf("executable: %w", err)
+		return err
 	}
 	if err := startDetachedDaemonFn(binary); err != nil {
 		return fmt.Errorf("start daemon: %w", err)
@@ -3797,7 +3803,10 @@ func (sca *serviceControlAdapter) StopDaemon() error {
 }
 
 func (sca *serviceControlAdapter) RestartDaemon() error {
-	running, _, _ := daemonIsRunningFn()
+	running, _, err := daemonIsRunningFn()
+	if err != nil {
+		return fmt.Errorf("check daemon: %w", err)
+	}
 	if running {
 		if err := daemonStopFn(); err != nil {
 			return err
@@ -3807,9 +3816,9 @@ func (sca *serviceControlAdapter) RestartDaemon() error {
 }
 
 func (sca *serviceControlAdapter) InstallService() error {
-	binary, err := osExecutable()
+	binary, err := resolveDaemonLifecycleBinary("service install")
 	if err != nil {
-		return fmt.Errorf("executable: %w", err)
+		return err
 	}
 	return daemonInstallLaunchdFn(binary)
 }
@@ -3824,6 +3833,10 @@ func (sca *serviceControlAdapter) DaemonStatus() (bool, int, int) {
 		return false, 0, 0
 	}
 	return true, pf.PID, pf.Port
+}
+
+func (sca *serviceControlAdapter) DaemonNotice() string {
+	return staleSlimferenceProcessNoticeFn()
 }
 
 func (sca *serviceControlAdapter) TransparentStatus() tui.TransparentStatus {
@@ -4375,6 +4388,29 @@ var (
 	daemonReadRecentLogLinesFn = daemon.ReadRecentLogLines
 )
 
+func resolveDaemonLifecycleBinary(verb string) (string, error) {
+	binary, err := osExecutable()
+	if err != nil {
+		return "", fmt.Errorf("executable: %w", err)
+	}
+	if isTemporaryGoBuildExecutable(binary) {
+		return "", fmt.Errorf("%s: executable path %q looks like a temporary Go build artifact; run `go run ./scripts/build --install` first, then use `~/.local/bin/slimference %s`", verb, binary, verb)
+	}
+	return binary, nil
+}
+
+func isTemporaryGoBuildExecutable(path string) bool {
+	clean := filepath.ToSlash(filepath.Clean(path))
+	if !strings.Contains(clean, "/go-build") {
+		return false
+	}
+	tmp := filepath.ToSlash(filepath.Clean(os.TempDir()))
+	if tmp != "." && strings.HasPrefix(clean, tmp+"/") {
+		return true
+	}
+	return strings.Contains(clean, "/T/go-build")
+}
+
 func handleStartCmd() {
 	running, existing, err := daemonIsRunningFn()
 	if err != nil {
@@ -4382,13 +4418,17 @@ func handleStartCmd() {
 		exitFn(1)
 	}
 	if running {
+		if existing == nil || existing.PID <= 0 {
+			fmt.Fprintln(os.Stderr, "daemon state says running but PID metadata is invalid; run `slimference service status` and remove stale PID state if needed")
+			exitFn(1)
+		}
 		fmt.Fprintf(os.Stderr, "already running (PID %d, port %d)\n", existing.PID, existing.Port)
 		exitFn(1)
 	}
 	// Fork into background via exec of self with "daemon" subcommand.
-	binary, err := osExecutable()
+	binary, err := resolveDaemonLifecycleBinary("start")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "executable: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		exitFn(1)
 	}
 	if err := startDetachedDaemonFn(binary); err != nil {
@@ -4416,7 +4456,11 @@ func handleStopCmd() {
 }
 
 func handleRestartCmd() {
-	running, _, _ := daemonIsRunningFn()
+	running, _, err := daemonIsRunningFn()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "check daemon: %v\n", err)
+		exitFn(1)
+	}
 	if running {
 		if err := daemonStopFn(); err != nil {
 			fmt.Fprintf(os.Stderr, "stop: %v\n", err)
@@ -4496,9 +4540,9 @@ func handleServiceCmd(args []string) {
 	}
 	switch args[0] {
 	case "install":
-		binary, err := osExecutable()
+		binary, err := resolveDaemonLifecycleBinary("service install")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "executable: %v\n", err)
+			fmt.Fprintf(os.Stderr, "%v\n", err)
 			exitFn(1)
 		}
 		if err := daemonInstallLaunchdFn(binary); err != nil {

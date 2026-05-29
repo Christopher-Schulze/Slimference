@@ -490,6 +490,27 @@ func TestUpdate_MiscCoverageAndLegacySetupActions(t *testing.T) {
 	}
 }
 
+func TestRenderSetupViewShowsDaemonNotice(t *testing.T) {
+	t.Parallel()
+	m := NewModel(newMockProxy())
+	m.SetServiceControl(&mockServiceControl{
+		running:      true,
+		daemonNotice: "1 old stuck Slimference process(es): 42(U). reboot clears it.",
+		transparentStatus: TransparentStatus{
+			CAExists:           true,
+			AutoStartInstalled: true,
+		},
+	})
+	m.view = ViewSetup
+	out := m.renderSetupView()
+	if !strings.Contains(out, "OLD PROCESS") || !strings.Contains(out, "old stuck Slimference") {
+		t.Fatalf("setup view missing daemon notice:\n%s", out)
+	}
+	if !strings.Contains(out, "restart/repair") {
+		t.Fatalf("setup view missing restart repair wording:\n%s", out)
+	}
+}
+
 func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -31,6 +31,7 @@ Konkrete Kommandozeilen:
 
 ```bash
 go run ./scripts/build --install                # Optimiertes Binary nach ~/.local/bin/slimference
+go run ./scripts/build --restart                # Sicheres lokales Update: stop -> build -> atomic install -> start
 go run ./scripts/build --out ./slimference      # Optimiertes lokales Binary
 go run ./scripts/release --version v2.0.2       # Portable macOS-arm64 Release-Tarball + SHA256SUMS
 go run ./scripts/release --version v2.0.2 --targets=all  # Alle aktuell unterstützten Targets

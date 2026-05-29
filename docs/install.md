@@ -63,6 +63,28 @@ go run ./scripts/build --install
 ~/.local/bin/slimference status --preflight
 ```
 
+Local source-checkout update path:
+
+```bash
+go run ./scripts/build --restart
+~/.local/bin/slimference status --preflight
+```
+
+`scripts/build --restart` runs the safe local ceremony in order:
+`~/.local/bin/slimference stop` -> build -> atomic install ->
+`~/.local/bin/slimference start`. It is for developer/product local updates,
+not for first install from a release archive.
+
+If `slimference status --preflight` reports an old `U`/`UE` or `dyld_start`
+Slimference process while the current daemon is healthy, treat it as a
+reboot-only macOS kernel state. Do not retry-loop `stop`. Reboot macOS, then
+confirm `ps -axo pid=,stat=,args= | grep slimference` shows no old stuck
+process. After that, remove the moved-aside damaged binary if it exists:
+
+```bash
+rm -f ~/.local/bin/slimference.dyld-stuck-*
+```
+
 Do not run `go run ./cmd/slimference install`: `go run` executes from a
 temporary Go build directory, and Slimference refuses to write hooks or launchd
 plists that point at a soon-deleted temp binary. If an operator intentionally

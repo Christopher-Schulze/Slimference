@@ -247,6 +247,9 @@ type ServiceControlInterface interface {
 	UninstallService() error
 	// DaemonStatus returns (running bool, pid int, port int).
 	DaemonStatus() (bool, int, int)
+	// DaemonNotice returns non-actionable lifecycle diagnostics, such as
+	// old macOS U/UE processes that require reboot while the current daemon is healthy.
+	DaemonNotice() string
 	// TransparentStatus returns CA, daemon, and system proxy state for transparent mode.
 	TransparentStatus() TransparentStatus
 	// InstallTransparent installs the local CA trust and launchd daemon without arming the proxy.
@@ -950,7 +953,7 @@ func (m *Model) dashboardActions() []dashboardAction {
 			group:       "Manage",
 			id:          "manage",
 			label:       "Manage Slimference",
-			description: "Install, repair, uninstall, route controls, daemon, CA, and lab actions.",
+			description: "Product install/repair, daemon restart, WSS repair, route controls, CA, and lab actions.",
 			state:       m.manageState(),
 		},
 	}
@@ -1200,7 +1203,7 @@ func (m *Model) setupSteps() []setupStep {
 	}
 	steps := []setupStep{
 		{
-			label:   "Run slimference install (CA material + launchd + Codex hooks)",
+			label:   "Run slimference install (product: Codex CLI + Desktop support)",
 			check:   func() bool { return m.transparentStatus.CAExists && m.transparentStatus.AutoStartInstalled },
 			action:  func(m *Model) error { return m.svc.InstallTransparent() },
 			confirm: "Install Codex-only Slimference integration",

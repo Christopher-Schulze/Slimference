@@ -401,6 +401,51 @@ func TestStopDaemon_ForceKill(t *testing.T) {
 	origSendSignalFn := sendSignalFn
 	origSleepFn := sleepFn
 	origNow := timeNow
+	var signals []syscall.Signal
+	isRunningFn = func() (bool, *PIDFile, error) {
+		if len(signals) >= 2 {
+			return false, &PIDFile{PID: 42, Port: 8990}, nil
+		}
+		return true, &PIDFile{PID: 42, Port: 8990}, nil
+	}
+	sendSignalFn = func(pid int, sig syscall.Signal) error {
+		signals = append(signals, sig)
+		return nil
+	}
+	sleepFn = func(time.Duration) {}
+	nowSeq := []time.Time{
+		time.Unix(100, 0),
+		time.Unix(111, 0),
+	}
+	timeNow = func() time.Time {
+		v := nowSeq[0]
+		if len(nowSeq) > 1 {
+			nowSeq = nowSeq[1:]
+		}
+		return v
+	}
+	defer func() {
+		isRunningFn = origIsRunningFn
+		sendSignalFn = origSendSignalFn
+		sleepFn = origSleepFn
+		timeNow = origNow
+		mu.Unlock()
+	}()
+
+	if err := StopDaemon(); err != nil {
+		t.Fatalf("StopDaemon: %v", err)
+	}
+	if len(signals) != 2 || signals[0] != syscall.SIGTERM || signals[1] != syscall.SIGKILL {
+		t.Fatalf("unexpected signals: %v", signals)
+	}
+}
+
+func TestStopDaemon_ForceKillStillAlive(t *testing.T) {
+	mu.Lock()
+	origIsRunningFn := isRunningFn
+	origSendSignalFn := sendSignalFn
+	origSleepFn := sleepFn
+	origNow := timeNow
 	isRunningFn = func() (bool, *PIDFile, error) {
 		return true, &PIDFile{PID: 42, Port: 8990}, nil
 	}
@@ -429,8 +474,9 @@ func TestStopDaemon_ForceKill(t *testing.T) {
 		mu.Unlock()
 	}()
 
-	if err := StopDaemon(); err != nil {
-		t.Fatalf("StopDaemon: %v", err)
+	err := StopDaemon()
+	if err == nil || !strings.Contains(err.Error(), "dyld_start") || !strings.Contains(err.Error(), "reboot is required") {
+		t.Fatalf("expected stuck-process diagnostic, got %v", err)
 	}
 	if len(signals) != 2 || signals[0] != syscall.SIGTERM || signals[1] != syscall.SIGKILL {
 		t.Fatalf("unexpected signals: %v", signals)

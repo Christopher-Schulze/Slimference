@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,13 @@ func TestServiceControlAdapter_StartDaemonErrors(t *testing.T) {
 	}()
 
 	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
+		return false, nil, errors.New("state boom")
+	}
+	if err := (&serviceControlAdapter{}).StartDaemon(); err == nil || !strings.Contains(err.Error(), "check daemon") {
+		t.Fatalf("expected daemon check error, got %v", err)
+	}
+
+	daemonIsRunningFn = func() (bool, *daemon.PIDFile, error) {
 		return true, &daemon.PIDFile{PID: 42, Port: 8990}, nil
 	}
 	if err := (&serviceControlAdapter{}).StartDaemon(); err == nil || !strings.Contains(err.Error(), "already running") {
@@ -77,6 +85,19 @@ func TestServiceControlAdapter_StartDaemonErrors(t *testing.T) {
 	}
 	if err := (&serviceControlAdapter{}).StartDaemon(); err == nil || !strings.Contains(err.Error(), "start daemon") {
 		t.Fatalf("expected start daemon error, got %v", err)
+	}
+}
+
+func TestResolveDaemonLifecycleBinaryRejectsTemporaryGoBuild(t *testing.T) {
+	origExecutable := osExecutable
+	t.Cleanup(func() { osExecutable = origExecutable })
+
+	osExecutable = func() (string, error) {
+		return filepath.Join(os.TempDir(), "go-build123456", "b001", "exe", "slimference"), nil
+	}
+	_, err := resolveDaemonLifecycleBinary("start")
+	if err == nil || !strings.Contains(err.Error(), "temporary Go build artifact") {
+		t.Fatalf("expected temp executable rejection, got %v", err)
 	}
 }
 

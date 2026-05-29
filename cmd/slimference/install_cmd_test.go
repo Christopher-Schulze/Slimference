@@ -812,6 +812,10 @@ func TestRenderApplyAndReverseResultsIncludeErrors(t *testing.T) {
 }
 
 func TestRenderStatusHuman(t *testing.T) {
+	prevStale := staleSlimferenceProcessNoticeFn
+	staleSlimferenceProcessNoticeFn = func() string { return "" }
+	t.Cleanup(func() { staleSlimferenceProcessNoticeFn = prevStale })
+
 	p, out, _ := newTestPrinter()
 	state := control.SetupState{
 		CA:     control.CAState{Installed: true, InKeychain: true, Fingerprint: "abc"},
@@ -823,6 +827,21 @@ func TestRenderStatusHuman(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "pid=4242") {
 		t.Errorf("PID missing: %q", out.String())
+	}
+}
+
+func TestRenderStatusIncludesStaleProcessNotice(t *testing.T) {
+	prevStale := staleSlimferenceProcessNoticeFn
+	staleSlimferenceProcessNoticeFn = func() string {
+		return "1 old stuck Slimference process(es): 42(U). Current daemon may still be healthy; reboot clears U/UE/dyld_start state."
+	}
+	t.Cleanup(func() { staleSlimferenceProcessNoticeFn = prevStale })
+
+	p, out, _ := newTestPrinter()
+	renderStatus(p, control.SetupState{Daemon: control.DaemonState{Running: true, PID: 100, HealthOK: true}})
+	text := out.String()
+	if !strings.Contains(text, "stale process") || !strings.Contains(text, "reboot clears") {
+		t.Fatalf("stale process notice missing: %q", text)
 	}
 }
 

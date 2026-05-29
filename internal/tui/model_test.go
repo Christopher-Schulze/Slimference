@@ -177,6 +177,7 @@ type mockServiceControl struct {
 	codexCLILaunched     bool
 	codexAppLaunched     bool
 	codexWSSRepaired     bool
+	daemonNotice         string
 	err                  error
 }
 
@@ -221,6 +222,7 @@ func (m *mockServiceControl) DaemonStatus() (bool, int, int) {
 	}
 	return false, 0, 0
 }
+func (m *mockServiceControl) DaemonNotice() string                 { return m.daemonNotice }
 func (m *mockServiceControl) TransparentStatus() TransparentStatus { return m.transparentStatus }
 func (m *mockServiceControl) InstallTransparent() error {
 	if m.err != nil {

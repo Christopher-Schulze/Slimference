@@ -359,6 +359,9 @@ func renderStatus(p installPrinter, s control.SetupState) {
 		mark(s.CA.Installed), s.CA.Installed, s.CA.InKeychain, s.CA.Fingerprint)
 	fmt.Fprintf(p.Out, "  Daemon   %s running=%v pid=%d health=%v\n",
 		mark(s.Daemon.Running && s.Daemon.HealthOK), s.Daemon.Running, s.Daemon.PID, s.Daemon.HealthOK)
+	if notice := staleSlimferenceProcessNoticeFn(); notice != "" {
+		fmt.Fprintf(p.Out, "      stale process: %s\n", notice)
+	}
 	fmt.Fprintf(p.Out, "  Listener %s :443=%v :8443=%v :%d=%v\n",
 		mark(s.Listener.BoundOn443 || s.Listener.BoundOnSNIPeek),
 		s.Listener.BoundOn443, s.Listener.BoundOnSNIPeek, 8990, s.Listener.BoundOn8990)

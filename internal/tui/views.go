@@ -647,7 +647,7 @@ func (m *Model) renderSetupView() string {
 		steps := m.setupSteps()
 		stepLines := []string{
 			" " + s.PanelTitle.Render("SETUP STEPS"),
-			" " + s.Dim.Render("Codex-only: install, codex enable/disable, uninstall. Claude stays off."),
+			" " + s.Dim.Render("One product install prepares Codex CLI and Desktop together; capability state lives under Status."),
 			"",
 		}
 		for i, step := range steps {
@@ -670,11 +670,14 @@ func (m *Model) renderSetupView() string {
 		} else {
 			serviceLines = append(serviceLines, "  "+s.Muted.Render("○ STOPPED")+"  daemon not running")
 		}
+		if notice := m.svc.DaemonNotice(); notice != "" {
+			serviceLines = append(serviceLines, "  "+s.BannerWarn.Render("● OLD PROCESS")+"  "+notice)
+		}
 		serviceLines = append(serviceLines, renderCAStatusLine(s, transparent))
 		serviceLines = append(serviceLines, renderTransparentStatusLine(s, transparent))
 		serviceLines = append(serviceLines, renderCodexRouteStatusLine(s, m.codexRouteStatus))
 		serviceLines = append(serviceLines, "")
-		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] enable/disable Codex Mode  [p] start/stop  [o] restart"))
+		serviceLines = append(serviceLines, "  "+s.Muted.Render("[r] enable/disable Codex Mode  [p] start/stop  [o] restart/repair daemon"))
 		serviceLines = append(serviceLines, "  "+s.Muted.Render("[a] global lab controls  [u] uninstall Slimference assets"))
 		serviceLines = append(serviceLines, "  "+s.Muted.Render("[e] enable autostart  [w] disable autostart"))
 		lines = append(lines, s.Card.Width(innerWidth-2).Render(strings.Join(serviceLines, "\n")))

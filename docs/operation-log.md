@@ -2941,3 +2941,70 @@ Interpretation:
 - Fresh-device setup should build/install the stable binary first, then run the
   installed `slimference install`. Running install from `go run` now fails with
   an actionable error instead of silently creating broken autostart/hooks.
+
+## 2026-05-29 - T244 daemon lifecycle hardening and restart ceremony
+
+Goal: make local rebuilds and daemon lifecycle commands boring, bounded, and
+portable.
+
+Changes:
+- Direct `start`, `service install`, and TUI/service-adapter daemon starts now
+  reject temporary Go build executable paths before spawning or registering a
+  daemon. The command points operators to `go run ./scripts/build --install`
+  first, then the installed `~/.local/bin/slimference`.
+- Restart paths now surface daemon state check errors instead of silently
+  ignoring them.
+- `StopDaemon` still waits for graceful SIGTERM in a bounded loop, then sends
+  SIGKILL. If SIGKILL also leaves the process alive, it returns an explicit
+  macOS `U`/`UE` / `dyld_start` reboot-only diagnostic instead of pretending the
+  daemon was stopped.
+- Added `go run ./scripts/build --restart`, a safe local update ceremony:
+  installed daemon stop -> build -> atomic install -> installed daemon start.
+
+Verification:
+- Focused tests cover temporary executable rejection, service-adapter daemon
+  state errors, missing-binary stop no-op, restart dry-run order, and
+  SIGKILL-still-alive diagnostics.
+
+Interpretation:
+- This does not change Codex routing or savings behavior.
+- The lifecycle path now fails loudly before it can create a temp-binary daemon
+  or leave the operator with a fake "stopped" message while macOS still has a
+  kernel-level stuck process.
+
+## 2026-05-29 - T244 stale-process classifier and product-level Manage finish
+
+Goal: finish the remaining T244 product surfaces after the restart ceremony.
+
+Changes:
+- Human `status` and Manage Slimference now use a stale Slimference process
+  classifier. It reads `ps` output, detects old `U`/`UE`, `dyld_start`, or
+  `slimference.dyld-stuck-*` evidence, and reports it as reboot-only state while
+  keeping the current healthy daemon PID as the actionable status.
+- Manage Slimference now labels `[o]` as restart/repair daemon and states that
+  one product install prepares Codex CLI and Desktop together. App rows remain
+  routing policy/capability rows, not separate install states.
+- The old moved-aside binary cleanup policy is documented: delete
+  `~/.local/bin/slimference.dyld-stuck-*` only after reboot and a clean `ps`
+  check.
+
+Verification:
+- Focused tests cover stale process parsing, human status rendering, and TUI
+  Manage notice rendering.
+- Full `go run ./scripts/ci` passed all 8 steps with total coverage 98.9%.
+- Final `go run ./scripts/build --restart` stopped PID 8985, built, atomically
+  installed to `~/.local/bin/slimference`, and started PID 11348 on `:8990`.
+- Installed `~/.local/bin/slimference version` returned `slimference v2.0.2`.
+- Installed `status --preflight` reported daemon `health=true`, listener
+  `:8990=true`, hosts inactive, and Codex auto `wss_certified=true`.
+- Installed `codex status --json` reported `auto_mode=wss_phasef`,
+  `needs_recert=false`, Codex CLI `0.135.0`.
+- Installed `codex desktop status --json` reported
+  `mode=desktop_app_server_proven`, last proof
+  `desktop_app_server_phasef_proven`, and `desktop_savings=true`.
+- `ps -axo pid=,stat=,args=` found no Slimference process with `U` state.
+
+Interpretation:
+- T244 is now done as a release-hygiene input. T240 still needs to consume this
+  by running its final release certification, but daemon lifecycle hardening
+  itself no longer has a known open implementation gap.

@@ -48,11 +48,42 @@ func TestRunDryRun(t *testing.T) {
 	}
 }
 
+func TestRunDryRunRestartCeremony(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	if err := run([]string{"--dry-run", "--restart", "--out", "/tmp/slimference"}, &out, &errOut); err != nil {
+		t.Fatalf("run dry-run restart: %v stderr=%s", err, errOut.String())
+	}
+	text := out.String()
+	stopIdx := strings.Index(text, " stop\n")
+	buildIdx := strings.Index(text, "go build ")
+	installIdx := strings.Index(text, "install /tmp/slimference ->")
+	startIdx := strings.LastIndex(text, " start\n")
+	if stopIdx < 0 || buildIdx < 0 || installIdx < 0 || startIdx < 0 {
+		t.Fatalf("dry-run restart missing ceremony steps: %q", text)
+	}
+	if !(stopIdx < buildIdx && buildIdx < installIdx && installIdx < startIdx) {
+		t.Fatalf("restart ceremony order wrong: %q", text)
+	}
+}
+
 func TestRunRejectsUnexpectedArg(t *testing.T) {
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	if err := run([]string{"extra"}, &out, &errOut); err == nil {
 		t.Fatal("expected unexpected argument error")
+	}
+}
+
+func TestRunInstalledLifecycleSkipsMissingStop(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	missing := filepath.Join(t.TempDir(), "slimference")
+	if err := runInstalledLifecycle(missing, "stop", &out, &errOut, false); err != nil {
+		t.Fatalf("missing stop should be a no-op: %v", err)
+	}
+	if !strings.Contains(out.String(), "skip stop") {
+		t.Fatalf("missing stop output=%q", out.String())
 	}
 }
 
