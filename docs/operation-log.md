@@ -3057,3 +3057,20 @@ Verification:
 Interpretation:
 - This expands safe tool-shape coverage for future Codex/MCP variants without
   adding a semantic summary layer or changing strict WSS frame semantics.
+
+## 2026-05-29 - T248 aggregate-savings flag UX polish
+
+Goal: make the workday measurement command less brittle during live operator
+runs.
+
+Changes:
+- `scripts/utils aggregate-savings` now accepts both `--flag=value` and
+  `--flag value` for `--admin-url`, `--admin-state-file`, `--filter-db`,
+  `--period`, and `--usd-per-million`.
+- Missing values now return an explicit `<flag> requires a value` error.
+
+Verification:
+- Added parser tests for space-separated values and missing values.
+- Re-ran `go run ./scripts/utils aggregate-savings --period today --filter-db
+  $HOME/.slimference/analytics/filter.db`; it now succeeds and prints the
+  live aggregate report.

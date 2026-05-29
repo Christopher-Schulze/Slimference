@@ -136,14 +136,48 @@ func parseAggregateSavingsFlags(args []string) (aggregateSavingsFlags, error) {
 			f.help = true
 		case a == "--json":
 			f.outputFormat = outputJSON
+		case a == "--admin-url":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return f, err
+			}
+			f.adminStateURL = v
 		case strings.HasPrefix(a, "--admin-url="):
 			f.adminStateURL = strings.TrimPrefix(a, "--admin-url=")
+		case a == "--admin-state-file":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return f, err
+			}
+			f.adminStateFile = v
 		case strings.HasPrefix(a, "--admin-state-file="):
 			f.adminStateFile = strings.TrimPrefix(a, "--admin-state-file=")
+		case a == "--filter-db":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return f, err
+			}
+			f.filterDB = v
 		case strings.HasPrefix(a, "--filter-db="):
 			f.filterDB = strings.TrimPrefix(a, "--filter-db=")
+		case a == "--period":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return f, err
+			}
+			f.period = v
 		case strings.HasPrefix(a, "--period="):
 			f.period = strings.TrimPrefix(a, "--period=")
+		case a == "--usd-per-million":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return f, err
+			}
+			n, err := strconv.ParseFloat(v, 64)
+			if err != nil || n < 0 {
+				return f, fmt.Errorf("--usd-per-million must be a non-negative number")
+			}
+			f.usdPerMTokens = n
 		case strings.HasPrefix(a, "--usd-per-million="):
 			v := strings.TrimPrefix(a, "--usd-per-million=")
 			n, err := strconv.ParseFloat(v, 64)
@@ -159,6 +193,15 @@ func parseAggregateSavingsFlags(args []string) (aggregateSavingsFlags, error) {
 		return f, fmt.Errorf("--period must be one of: all, today, week, month")
 	}
 	return f, nil
+}
+
+func aggregateFlagValue(args []string, index *int, flag string) (string, error) {
+	next := *index + 1
+	if next >= len(args) || strings.HasPrefix(args[next], "--") {
+		return "", fmt.Errorf("%s requires a value", flag)
+	}
+	*index = next
+	return args[next], nil
 }
 
 func validAggregatePeriod(p string) bool {

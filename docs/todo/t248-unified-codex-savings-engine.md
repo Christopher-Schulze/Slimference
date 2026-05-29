@@ -96,6 +96,9 @@ The product target is strict:
 - [x] Add the same unique-text-part handling for nested MCP-style output objects,
   such as `result.content[0].text`, preserving result metadata like `isError`
   and failing open on multi-text nested arrays.
+- [x] Smooth `aggregate-savings` workday-measurement flags. The utility now
+  accepts both `--flag=value` and `--flag value` for file/URL/period/cost inputs
+  and reports missing flag values explicitly.
 - [ ] Expand Codex tool-shape coverage based on real captured frames only:
   `exec_command`, `local_shell_call`, `shell_call`, direct read tools, MCP-style
   outputs, nested output arrays, and future Codex tool variants. Every new shape

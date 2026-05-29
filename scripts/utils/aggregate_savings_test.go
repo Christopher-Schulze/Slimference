@@ -256,6 +256,37 @@ func TestAggregateSavingsRejectsBadUSD(t *testing.T) {
 	}
 }
 
+func TestParseAggregateSavingsFlagsAcceptsSpaceSeparatedValues(t *testing.T) {
+	flags, err := parseAggregateSavingsFlags([]string{
+		"--admin-url", "http://127.0.0.1:8990/state",
+		"--admin-state-file", "/tmp/admin-state.json",
+		"--filter-db", "/tmp/filter.db",
+		"--period", "today",
+		"--usd-per-million", "2.5",
+		"--json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags.adminStateURL != "http://127.0.0.1:8990/state" ||
+		flags.adminStateFile != "/tmp/admin-state.json" ||
+		flags.filterDB != "/tmp/filter.db" ||
+		flags.period != "today" ||
+		flags.usdPerMTokens != 2.5 ||
+		flags.outputFormat != outputJSON {
+		t.Fatalf("space-separated flags parsed incorrectly: %+v", flags)
+	}
+}
+
+func TestParseAggregateSavingsFlagsRejectsMissingValue(t *testing.T) {
+	if _, err := parseAggregateSavingsFlags([]string{"--filter-db"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
+		t.Fatalf("missing --filter-db value should be explicit, err=%v", err)
+	}
+	if _, err := parseAggregateSavingsFlags([]string{"--admin-url", "--json"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
+		t.Fatalf("missing --admin-url value should be explicit, err=%v", err)
+	}
+}
+
 func TestAggregateSavingsMissingStateFile(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := runAggregateSavings([]string{"--admin-state-file=/nonexistent/path/admin-state.json"}, &stdout, &stderr)
