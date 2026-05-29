@@ -1,6 +1,6 @@
 # TASK 248: Unified Codex savings engine for WSS and HTTP
 
-Status: ACTIVE - shared attribution, opportunity telemetry, route attribution, report/status hygiene, tool-shape fixtures, proof gates, and repeated-output planner classification implemented
+Status: ACTIVE - shared attribution, opportunity telemetry, route attribution, report/status hygiene, tool-shape fixtures, proof gates, repeated-output planner classification, and WSS body planner telemetry implemented
 Priority: P0 after T247 proof, before T240 release seal
 Scope: Codex CLI and Codex Desktop savings engine, telemetry, cache strategy, and
 proof-gated safe expansion across WSS and HTTP fallback paths
@@ -150,6 +150,12 @@ The product target is strict:
   candidate visibility come from actual tool-output structure instead of only
   hand-authored planner facts, while keeping Codex WSS L2/L3 proof-gated as
   `shadow`.
+- [x] Add WSS request-body planner summaries to decisions logs. In addition to
+  the existing upgrade-level route record, each parsed Codex WSS client request
+  now records content-free body facts: route `websocket_phasef`, model,
+  session key, previous-response state, message count, token delta,
+  `content_classes`, output-reduce reason, and the exact L2/L3/WebSocket
+  planner decisions.
 
 ## Notes
 
@@ -221,6 +227,11 @@ The product target is strict:
   Layer-0 command/read identities from current parsed messages and remembered
   same-request tool uses. It does not infer repeats from raw text alone, and it
   does not make WSS L2/L3 mutate anything.
+- WSS request-body planner telemetry is content-free. It logs labels and
+  counters, not frame payloads, headers, tool output text, or auth data. This
+  closes the old observability gap where upgrade-level WSS records had
+  `total_messages=0` and could not show real repeat candidates or L2/L3 proof
+  gates.
 
 ## Deviations
 

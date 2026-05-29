@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -550,7 +551,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	if _, rebuildErr := reconstructBody(types.CodexChatGPT, agedBody, aged); rebuildErr != nil {
 		t.Fatalf("precondition: stale read fixture cannot reconstruct: %v", rebuildErr)
 	}
-	mutated, _, changed := adapter.applyInputPipeline(agedBody)
+	mutated, _, changed, _ := adapter.applyInputPipeline(agedBody)
 	if !changed || strings.Contains(string(mutated), "old file content") || !strings.Contains(string(mutated), "[stale read:") {
 		t.Fatalf("stale-read mutation failed changed=%v body=%s", changed, mutated)
 	}
@@ -565,7 +566,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	p = New(cfg)
 	adapter = (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	prunedBody := codexWSObsoleteReadBody(strings.Repeat("obsolete file content ", 80))
-	mutated, _, changed = adapter.applyInputPipeline(prunedBody)
+	mutated, _, changed, _ = adapter.applyInputPipeline(prunedBody)
 	if !changed || strings.Contains(string(mutated), "obsolete file content") || !strings.Contains(string(mutated), "[obsolete:") {
 		t.Fatalf("obsolete-read mutation failed changed=%v body=%s", changed, mutated)
 	}
@@ -600,7 +601,7 @@ func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 		"stream": true,
 	})
 
-	mutated, _, changed := adapter.applyInputPipeline(body)
+	mutated, _, changed, _ := adapter.applyInputPipeline(body)
 	if !changed {
 		t.Fatal("expected WSS Layer 0 compaction")
 	}
@@ -648,7 +649,7 @@ func TestWSPhaseFRequestCompactsCodexResponseItemPayloadLayer0(t *testing.T) {
 		"stream": true,
 	})
 
-	mutated, _, changed := adapter.applyInputPipeline(body)
+	mutated, _, changed, _ := adapter.applyInputPipeline(body)
 	if !changed {
 		t.Fatal("expected WSS Layer 0 compaction for response_item payload")
 	}
@@ -792,6 +793,97 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	}
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
 		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+}
+
+func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.Layer2Enabled = true
+	cfg.Compression.Tuning.PlannerLiveCorpusConfidence = "high"
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	path := filepath.Join(tmp, "planner-repeat.md")
+	largeOutput := strings.Repeat("planner telemetry repeat-read line with enough body to trip the candidate gate\n", 1600)
+	argsJSON := string(mustMarshal(map[string]any{"cmd": "cat " + path}))
+	seedToolCall := func(callID string) {
+		env := parseWSJSON(t, map[string]any{
+			"type": string(wsmitm.FrameKindResponseOutputItemDone),
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": argsJSON,
+			},
+		})
+		if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &env); err != nil || replace {
+			t.Fatalf("seed tool call replace=%v err=%v", replace, err)
+		}
+	}
+	runRead := func(callID string) bool {
+		env := parseWSJSON(t, map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp_t248_planner",
+			"prompt_cache_key":     "t248-planner-session",
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  largeOutput,
+			}},
+			"stream": true,
+		})
+		return adapter.handleRequest(&env)
+	}
+
+	seedToolCall("call_first")
+	_ = runRead("call_first")
+	seedToolCall("call_second")
+	if !runRead("call_second") {
+		t.Fatal("second repeat read should mutate through read-delta")
+	}
+
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one latest summary, got %d", len(summaries))
+	}
+	summary := summaries[0]
+	if summary.RouteMode != "websocket_phasef" || summary.Provider != types.CodexChatGPT.String() {
+		t.Fatalf("bad WSS body summary identity: %+v", summary)
+	}
+	if !summary.PreviousResponseIDUsed || summary.TotalMessages != 1 || summary.MessagesCompressed != 1 {
+		t.Fatalf("bad WSS body summary counters: %+v", summary)
+	}
+	if summary.Tokens.Original <= summary.Tokens.Final || summary.NetSavedTokens <= 0 {
+		t.Fatalf("expected positive WSS planner token delta: %+v", summary.Tokens)
+	}
+	if summary.OutputReduce.Reason != "phasef_read_delta" {
+		t.Fatalf("bad WSS output-reduce reason: %+v", summary.OutputReduce)
+	}
+	if summary.Plan == nil {
+		t.Fatal("WSS body summary missing planner output")
+	}
+	for _, want := range []string{"websocket", "tool_output", "repeated_tool_output"} {
+		if !hasString(summary.Plan.ContentClasses, want) {
+			t.Fatalf("plan content classes=%v missing %s", summary.Plan.ContentClasses, want)
+		}
+	}
+	if !hasPlanAction(summary.Plan.Decisions, "l2", "shadow", "codex_wss_l2_requires_fixture_live_proof") {
+		t.Fatalf("WSS L2 proof gate missing: %+v", summary.Plan.Decisions)
+	}
+	if !hasPlanAction(summary.Plan.Decisions, "l3", "shadow", "codex_wss_l3_requires_fixture_live_proof") {
+		t.Fatalf("WSS L3 proof gate missing: %+v", summary.Plan.Decisions)
+	}
+	if !hasPlanAction(summary.Plan.Decisions, "websocket", "mutate", "known_shape_and_high_corpus_confidence") {
+		t.Fatalf("WSS body shape was not recognized as mutation-capable in planner: %+v", summary.Plan.Decisions)
 	}
 }
 

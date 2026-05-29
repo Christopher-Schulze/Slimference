@@ -1478,9 +1478,11 @@ only and promotes the per-process Codex CLI runner for T209.
   candidate only until separate fixture plus live proof exists. The planner now
   derives `repeated_tool_output` from repeated resolved tool command/read keys,
   so adaptive cache/L2 candidates are grounded in parsed request structure
-  instead of manual planner facts. Remaining work: future capture-driven tool
-  variants, measured L2/L3 upgrades, and real workday data collection before
-  T240.
+  instead of manual planner facts. WSS request bodies now get content-free
+  planner summaries in `decisions.jsonl`, including content classes, token
+  deltas, previous-response state, output-reduce reason, and proof-gated L2/L3
+  decisions. Remaining work: future capture-driven tool variants, measured
+  L2/L3 upgrades, and real workday data collection before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H

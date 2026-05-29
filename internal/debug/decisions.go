@@ -120,11 +120,12 @@ type PlanDecisionSummary struct {
 // PlanSummary records the cross-layer dry-run planner output attached to a
 // request. The proxy currently treats it as advice-only telemetry.
 type PlanSummary struct {
-	Provider      string                `json:"provider,omitempty"`
-	Model         string                `json:"model,omitempty"`
-	RouteMode     string                `json:"route_mode,omitempty"`
-	SafetyBlocked bool                  `json:"safety_blocked"`
-	Decisions     []PlanDecisionSummary `json:"decisions,omitempty"`
+	Provider       string                `json:"provider,omitempty"`
+	Model          string                `json:"model,omitempty"`
+	RouteMode      string                `json:"route_mode,omitempty"`
+	ContentClasses []string              `json:"content_classes,omitempty"`
+	SafetyBlocked  bool                  `json:"safety_blocked"`
+	Decisions      []PlanDecisionSummary `json:"decisions,omitempty"`
 }
 
 // RequestSummary aggregates all decision entries for one proxy request.

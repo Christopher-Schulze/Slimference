@@ -1618,8 +1618,14 @@ rather than blindly continuing aggressive behavior.
 
 The proxy hot path attaches this plan to `debug.RequestSummary` and normalized
 `flight` records for upstream, local cache, transparent CONNECT, and direct
-WebSocket routes. For HTTP compression requests, the same request-local plan now
-also controls the first behavior gates: L0 proxy compaction skips planner
+WebSocket routes. Planner summaries include content-free `content_classes`
+labels such as `websocket`, `tool_output`, `source_file`, `json`, and
+`repeated_tool_output`. Codex WSS Phase-F records both the upgrade-level route
+record and per client request-body planner summaries, so decisions logs can show
+real message counts, token deltas, previous-response state, output-reduce
+reason, and proof-gated L2/L3 candidates without logging frame payloads. For
+HTTP compression requests, the same request-local plan now also controls the
+first behavior gates: L0 proxy compaction skips planner
 `bypass`, L1 skips planner `bypass` and uses cheap-only mode for planner
 `cheap_only`, L1/L2 coordination keys off the planner's L2 `run` decision, and
 L2 cache apply/background enqueue skip hard L2 bypasses (operator-disabled,

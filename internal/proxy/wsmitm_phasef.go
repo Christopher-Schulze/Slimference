@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/slimference/slimference/internal/beterse"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/outstop"
 	"github.com/slimference/slimference/internal/outstop/repdet"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
 	"github.com/slimference/slimference/internal/qualityab"
 	"github.com/slimference/slimference/internal/staleread"
+	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -93,7 +96,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		return false
 	}
 	a.counters.requestBodiesSeen.Add(1)
-	mutated, messages, changed := a.applyInputPipeline(body)
+	mutated, messages, changed, l0Stats := a.applyInputPipeline(body)
 	if len(messages) > 0 {
 		a.counters.requestMessagesIndexed.Add(1)
 	}
@@ -108,18 +111,22 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	}
 	a.mu.Unlock()
 	if !changed {
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "")
 		return false
 	}
-	if replace(mutated) != nil {
+	if err := replace(mutated); err != nil {
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "replace_failed")
 		return false
 	}
 	a.counters.mutations.Add(1)
+	a.recordRequestPlan(body, mutated, messages, l0Stats, true, "")
 	return true
 }
 
-func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Message, bool) {
+func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats) {
 	original := append([]byte(nil), body...)
 	out := append([]byte(nil), body...)
+	var l0Stats proxyLayer0Stats
 	messages, _, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil && len(messages) > 0 {
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
@@ -152,13 +159,15 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			RememberedToolUse: rememberedToolUses,
 		})
 		l0Messages, stats := result.Messages, result.Stats
+		l0Stats = stats
 		if stats.TokensSaved > 0 {
 			if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, l0Messages); rebuildErr == nil {
 				out = rebuilt
 				messages = l0Messages
 				a.p.outputReduceCounters.RecordProxyLayer0Stats(stats)
 			} else {
-				a.p.outputReduceCounters.RecordProxyLayer0Stats(stats.withoutSavings())
+				l0Stats = stats.withoutSavings()
+				a.p.outputReduceCounters.RecordProxyLayer0Stats(l0Stats)
 			}
 		} else {
 			a.p.outputReduceCounters.RecordProxyLayer0Stats(stats)
@@ -179,7 +188,119 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			}
 		}
 	}
-	return out, messages, !bytes.Equal(original, out)
+	return out, messages, !bytes.Equal(original, out), l0Stats
+}
+
+func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string) {
+	if a == nil || a.p == nil || a.p.debugRecorder == nil {
+		return
+	}
+	originalMessages, _, _ := extractMessages(types.CodexChatGPT, body)
+	originalTokens := wssPlannerTokenCount(body, originalMessages)
+	finalTokens := wssPlannerTokenCount(mutated, messages)
+	saved := originalTokens - finalTokens
+	ratio := 0.0
+	if originalTokens > 0 {
+		ratio = float64(finalTokens) / float64(originalTokens)
+	}
+	classes := wssPlannerContentClasses(messages, l0Stats)
+	layersApplied := []int(nil)
+	if replaced && l0Stats.TokensSaved > 0 {
+		layersApplied = []int{0}
+	}
+	a.p.debugRecorder.Record(dbg.RequestSummary{
+		RequestID:              newRequestIDFn(),
+		Timestamp:              time.Now(),
+		SessionID:              wsCodexSessionID(body),
+		Source:                 "proxy",
+		Provider:               types.CodexChatGPT.String(),
+		Path:                   "/backend-api/codex/responses",
+		RouteMode:              "websocket_phasef",
+		BypassReason:           bypassReason,
+		Model:                  wssPlannerModel(body),
+		TotalMessages:          len(messages),
+		MessagesInWindow:       len(messages),
+		MessagesCompressed:     l0Stats.BlocksModified,
+		LayersApplied:          layersApplied,
+		PreviousResponseIDUsed: wssPreviousResponseIDAvailable(body),
+		Tokens: dbg.TokenCounts{
+			Original:    originalTokens,
+			AfterLayer0: finalTokens,
+			AfterLayer1: finalTokens,
+			AfterLayer2: finalTokens,
+			Final:       finalTokens,
+			Saved:       saved,
+			Ratio:       ratio,
+		},
+		OutputReduce: dbg.OutputReduceSummary{
+			Applied: replaced,
+			Profile: "wss_phasef",
+			Reason:  wssPlannerOutputReduceReason(replaced, l0Stats),
+		},
+		NetSavedTokens: saved,
+		Plan: a.p.dryRunPlan(plannerInput{
+			provider:                    types.CodexChatGPT,
+			model:                       wssPlannerModel(body),
+			routeMode:                   "websocket_phasef",
+			estimatedInputTokens:        originalTokens,
+			contentClasses:              classes,
+			previousResponseIDAvailable: wssPreviousResponseIDAvailable(body),
+			webSocketShapeKnown:         len(messages) > 0,
+			webSocketMutationRequested:  true,
+			liveCorpusConfidence:        a.p.plannerLiveCorpusConfidence(),
+			negativeSavingsHistory:      saved < 0,
+		}),
+	})
+}
+
+func wssPlannerContentClasses(messages []types.Message, l0Stats proxyLayer0Stats) []string {
+	classes := append([]string{"websocket"}, plannerClassesFromMessages(messages)...)
+	if l0Stats.ReadDeltaBlocks > 0 {
+		classes = append(classes, "repeated_tool_output")
+	}
+	return classes
+}
+
+func wssPlannerTokenCount(body []byte, messages []types.Message) int {
+	if len(messages) > 0 {
+		return tokens.CountMessages(messages)
+	}
+	return tokens.CountString(string(body))
+}
+
+func wssPlannerModel(body []byte) string {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return ""
+	}
+	return rawJSONString(raw["model"])
+}
+
+func wssPreviousResponseIDAvailable(body []byte) bool {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return false
+	}
+	return rawJSONString(raw["previous_response_id"]) != ""
+}
+
+func wssPlannerOutputReduceReason(replaced bool, l0Stats proxyLayer0Stats) string {
+	if !replaced {
+		if l0Stats.ToolResultBlocks > 0 {
+			return "phasef_inspected_no_mutation"
+		}
+		return "phasef_inspected"
+	}
+	if l0Stats.ReadDeltaBlocks > 0 {
+		return "phasef_read_delta"
+	}
+	if l0Stats.CodexExecEnvelopeBlocks > 0 {
+		return "phasef_codex_exec_envelope"
+	}
+	if l0Stats.CapturedOutputBlocks > 0 {
+		return "phasef_captured_output"
+	}
+	return "phasef_mutated"
 }
 
 func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {

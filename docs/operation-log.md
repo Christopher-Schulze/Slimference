@@ -3126,3 +3126,35 @@ Interpretation:
   tool-output candidates from real parsed messages. Runtime safety remains the
   same: Codex WSS L2/L3 candidates stay `shadow` until separate fixture and live
   proof upgrade them.
+
+## 2026-05-30 - T248 WSS request-body planner telemetry
+
+Goal: make real Codex WSS Decisions logs useful for cache-frontier and L2/L3
+proof work without dumping payloads.
+
+Changes:
+- `debug.PlanSummary` now includes content-free `content_classes` labels.
+- `wsPhaseFAdapter.handleRequest` now records one request-body summary per
+  parsed client-to-server Codex WSS request, in addition to the existing
+  upgrade-level route summary.
+- The WSS body summary records route `websocket_phasef`, model, session key,
+  previous-response state, message count, token delta, output-reduce reason,
+  and the exact planner decisions.
+- Successful repeated read-delta mutations mark `repeated_tool_output`, which
+  makes the L2/L3 proof gates visible on the same request that actually saved
+  tokens.
+
+Verification:
+- Added `TestWSPhaseFRequestRecordsBodyPlannerSummary`, covering a real
+  Responses-API delta-shaped repeat-read: first read seeds readcache, second
+  read mutates, the latest debug summary reports positive token savings,
+  `phasef_read_delta`, `content_classes=["websocket", "tool_output",
+  "repeated_tool_output"]`, L2/L3 `shadow` proof gates, and WebSocket
+  `mutate` planner readiness under high live-corpus confidence.
+- Focused `go test ./internal/proxy ./internal/debug ./internal/planner` passed.
+
+Interpretation:
+- This closes the old observability gap where WSS upgrade records had
+  `total_messages=0` and could not show the real request shape. Runtime behavior
+  stays unchanged except for safer evidence: no payloads, headers, tool output
+  text, prompt-cache blocks, or auth data are written.

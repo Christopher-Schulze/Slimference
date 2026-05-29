@@ -35,7 +35,11 @@ func (p *Proxy) dryRunPlan(in plannerInput) *dbg.PlanSummary {
 	if p == nil {
 		return nil
 	}
-	return debugPlanSummary(p.buildCompressionPlan(in))
+	summary := debugPlanSummary(p.buildCompressionPlan(in))
+	if summary != nil {
+		summary.ContentClasses = normalizedPlannerClasses(in.contentClasses)
+	}
+	return summary
 }
 
 func (p *Proxy) buildCompressionPlan(in plannerInput) planner.CompressionPlan {
