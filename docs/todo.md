@@ -1452,7 +1452,8 @@ only and promotes the per-process Codex CLI runner for T209.
   `reduceCodexLayer0` entry point now serves HTTP and WSS with route labels, and
   `/admin/state` plus `aggregate-savings` expose route-specific HTTP vs
   WSS-Phase-F attribution. Shell command arrays are normalized before
-  classification. Remaining work:
+  classification, and relative single-file reads now resolve against Codex
+  `workdir`/`cwd` metadata before readcache evaluation. Remaining work:
   more real Codex tool-shape fixtures, session/turn cache hit-rate improvements,
   proof-gated L2/L3 WSS candidates, recert UX hardening if needed, and real
   workday aggregate measurement before T240.

@@ -360,6 +360,7 @@ func codexToolInput(fields map[string]json.RawMessage) string {
 	for _, key := range []string{
 		"command", "cmd", "command_line", "cmdline", "shell_command", "argv", "args",
 		"path", "file_path", "filepath", "absolute_path",
+		"workdir", "cwd", "working_directory", "directory",
 	} {
 		if len(fields[key]) != 0 {
 			obj[key] = fields[key]

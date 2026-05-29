@@ -84,6 +84,10 @@ The product target is strict:
   `proxy_layer0_routes.http` and `proxy_layer0_routes.wss_phasef`, so future
   hit-rate work can prove whether misses and savings came from HTTP fallback or
   the primary WSS Phase-F route.
+- [x] Preserve Codex tool `workdir`/`cwd` metadata and resolve relative
+  single-file read commands against it before readcache evaluation. This raises
+  repeat-read hit probability and prevents same-relative-path cache collisions
+  across repositories without touching non-read commands.
 - [ ] Expand Codex tool-shape coverage based on real captured frames only:
   `exec_command`, `local_shell_call`, `shell_call`, direct read tools, MCP-style
   outputs, nested output arrays, and future Codex tool variants. Every new shape
@@ -139,6 +143,9 @@ The product target is strict:
   summarization: it only recovers the actual shell command that Codex already
   executed, then routes the captured output through existing deterministic
   filters and token-decreasing guards.
+- Workdir-aware readcache keys are also a safety improvement: `cat shared.txt`
+  in two different repos no longer shares one session cache entry, while repeat
+  reads in the same repo become easier to identify.
 
 ## Deviations
 

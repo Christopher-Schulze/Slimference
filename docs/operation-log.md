@@ -2893,6 +2893,8 @@ Changes:
 - Normalized command arrays before classification. Shapes like
   `["bash","-lc","cat /tmp/file"]` and `["sh","-c","git status --short"]` now
   reach the same read-delta and captured-output filters as string commands.
+- Preserved Codex tool `workdir`/`cwd` metadata and resolved relative
+  single-file read commands against it before readcache evaluation.
 - Expanded shell/read tool-name recognition for observed and plausible Codex
   variants such as `container.exec`, `shell_command`, `terminal_command`,
   `file_read`, `read_path`, and `view_path`.
@@ -2903,6 +2905,9 @@ Interpretation:
 - The command-array fix increases potential savings for Codex tool shapes that
   already contain deterministic shell commands but previously missed the read
   and captured-output classifiers.
+- The workdir fix increases repeat-read hit probability and avoids
+  same-relative-path cache collisions across repos while leaving non-read
+  commands byte-semantically unchanged.
 - Miss counters make the next optimization loop concrete: unresolved tool-use
   reference -> parser/remembering issue; unresolved command -> tool-shape issue;
   read-delta miss -> cache/policy/content issue.

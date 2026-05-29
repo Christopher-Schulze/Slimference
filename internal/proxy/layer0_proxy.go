@@ -292,20 +292,21 @@ func proxyLayer0CommandLine(block types.ContentBlock) string {
 
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(input), &obj); err == nil {
+		workdir := proxyToolWorkdir(obj)
 		for _, key := range []string{"command", "cmd", "command_line", "cmdline", "shell_command"} {
 			if s := strings.TrimSpace(rawJSONString(obj[key])); s != "" {
-				return normalizeLayer0CommandLine(s)
+				return applyWorkdirToReadCommand(normalizeLayer0CommandLine(s), workdir)
 			}
 		}
 		for _, key := range []string{"command", "argv", "args"} {
 			if argv := proxyStringArray(obj[key]); len(argv) > 0 {
-				return normalizeLayer0CommandLine(joinShellArgs(argv))
+				return applyWorkdirToReadCommand(normalizeLayer0CommandLine(joinShellArgs(argv)), workdir)
 			}
 		}
 		if looksLikeReadTool(block.ToolName) {
 			for _, key := range []string{"path", "file_path", "filepath", "absolute_path"} {
 				if path := strings.TrimSpace(rawJSONString(obj[key])); path != "" {
-					return "cat " + quoteShellArg(path)
+					return "cat " + quoteShellArg(proxyPathWithWorkdir(path, workdir))
 				}
 			}
 		}
@@ -315,6 +316,58 @@ func proxyLayer0CommandLine(block types.ContentBlock) string {
 		return normalizeLayer0CommandLine(input)
 	}
 	return ""
+}
+
+func proxyToolWorkdir(obj map[string]json.RawMessage) string {
+	for _, key := range []string{"workdir", "cwd", "working_directory", "directory"} {
+		if dir := strings.TrimSpace(rawJSONString(obj[key])); dir != "" && filepath.IsAbs(dir) {
+			return filepath.Clean(dir)
+		}
+	}
+	return ""
+}
+
+func applyWorkdirToReadCommand(commandLine, workdir string) string {
+	workdir = proxyCleanAbsWorkdir(workdir)
+	if workdir == "" {
+		return commandLine
+	}
+	path := filter.ReadPathFromCommandLine(commandLine)
+	if path == "" || filepath.IsAbs(path) {
+		return commandLine
+	}
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return commandLine
+	}
+	out := append([]string(nil), argv...)
+	for i := len(out) - 1; i >= 1; i-- {
+		if out[i] == path {
+			out[i] = filepath.Clean(filepath.Join(workdir, path))
+			return joinShellArgs(out)
+		}
+	}
+	return commandLine
+}
+
+func proxyPathWithWorkdir(path, workdir string) string {
+	path = strings.TrimSpace(path)
+	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	workdir = proxyCleanAbsWorkdir(workdir)
+	if workdir == "" {
+		return path
+	}
+	return filepath.Clean(filepath.Join(workdir, path))
+}
+
+func proxyCleanAbsWorkdir(workdir string) string {
+	workdir = strings.TrimSpace(workdir)
+	if workdir == "" || !filepath.IsAbs(workdir) {
+		return ""
+	}
+	return filepath.Clean(workdir)
 }
 
 func normalizeLayer0CommandLine(commandLine string) string {

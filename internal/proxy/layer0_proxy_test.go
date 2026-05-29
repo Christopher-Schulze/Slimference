@@ -3,7 +3,9 @@ package proxy
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -125,9 +127,12 @@ func TestProxyLayer0CommandLineVariants(t *testing.T) {
 		{"slimference_filter_stream_wrapper", types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"slimference filter --stream -- rg TODO docs"}`}, "rg TODO docs"},
 		{"command_array", types.ContentBlock{ToolName: "terminal.exec", ToolInput: `{"command":["/bin/sh","-c","git status --short"]}`}, "git status --short"},
 		{"bash_lc_array_read", types.ContentBlock{ToolName: "container.exec", ToolInput: `{"command":["bash","-lc","cat /tmp/t248-target.md"]}`}, "cat /tmp/t248-target.md"},
+		{"bash_lc_array_relative_read_workdir", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cat docs/todo.md"],"workdir":"/repo/project"}`}, "cat /repo/project/docs/todo.md"},
+		{"head_relative_read_workdir", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"cmd":"head -n 20 internal/proxy/layer0_proxy.go","workdir":"/repo/project"}`}, "head -n 20 /repo/project/internal/proxy/layer0_proxy.go"},
 		{"argv", types.ContentBlock{ToolName: "exec", ToolInput: `{"argv":["go","test","./pkg with space"]}`}, `go test "./pkg with space"`},
 		{"args", types.ContentBlock{ToolName: "run_command", ToolInput: `{"args":["rg","needle","path with space"]}`}, `rg needle "path with space"`},
 		{"read_path", types.ContentBlock{ToolName: "Read", ToolInput: `{"path":"pkg/file with space.go"}`}, `cat "pkg/file with space.go"`},
+		{"read_path_workdir", types.ContentBlock{ToolName: "Read", ToolInput: `{"path":"pkg/file with space.go","cwd":"/repo/project"}`}, `cat "/repo/project/pkg/file with space.go"`},
 		{"read_file_path", types.ContentBlock{ToolName: "read_file", ToolInput: `{"file_path":"internal/proxy/provider.go"}`}, `cat internal/proxy/provider.go`},
 		{"view_absolute_path", types.ContentBlock{ToolName: "view_file", ToolInput: `{"absolute_path":"/tmp/file with space.go"}`}, `cat "/tmp/file with space.go"`},
 		{"raw_read_path", types.ContentBlock{ToolName: "open", ToolInput: `"docs/todo.md"`}, `cat docs/todo.md`},
@@ -226,6 +231,36 @@ func TestApplyProxyLayer0ReadDeltaMissTelemetry(t *testing.T) {
 		stats.ReadDeltaMisses != 1 || stats.TokensSaved != 0 || stats.ReadDeltaBlocks != 0 {
 		t.Fatalf("read-delta miss stats mismatch: %+v", stats)
 	}
+}
+
+func TestProxyReadDeltaWorkdirSeparatesRelativePaths(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	command := func(workdir string) string {
+		input := `{"cmd":"cat shared.txt","workdir":` + strconv.Quote(workdir) + `}`
+		return proxyLayer0CommandLine(types.ContentBlock{ToolName: "exec_command", ToolInput: input})
+	}
+	largeA := uniqueProxyReadPayload("alpha")
+	if out, changed := compactProxyReadDelta("sess-workdir", command(dirA), largeA, filter.FileReadContext{Mode: "scan"}); changed || out != "" {
+		t.Fatalf("first workdir A read must not delta, changed=%v out=%q", changed, out)
+	}
+	if out, changed := compactProxyReadDelta("sess-workdir", command(dirA), largeA, filter.FileReadContext{Mode: "scan"}); !changed || !strings.Contains(out, dirA) {
+		t.Fatalf("second workdir A read should delta against A path, changed=%v out=%q", changed, out)
+	}
+	largeB := uniqueProxyReadPayload("beta")
+	if out, changed := compactProxyReadDelta("sess-workdir", command(dirB), largeB, filter.FileReadContext{Mode: "scan"}); changed || out != "" {
+		t.Fatalf("first workdir B read must not reuse workdir A cache, changed=%v out=%q", changed, out)
+	}
+}
+
+func uniqueProxyReadPayload(prefix string) string {
+	var b strings.Builder
+	for i := 0; i < 120; i++ {
+		fmt.Fprintf(&b, "%s unique payload line %03d with nonrepeating value %08x\n", prefix, i, i*7919+17)
+	}
+	return b.String()
 }
 
 func TestApplyProxyLayer0WithSessionRecentEditBypassesReadDeltaAndCommentStrip(t *testing.T) {

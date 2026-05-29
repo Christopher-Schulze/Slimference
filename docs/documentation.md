@@ -288,6 +288,11 @@ emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and
 `aggregate-savings`, so future cache or reducer work can measure which route
 and mechanism actually saved tokens before broadening mutation surfaces.
+Codex tool metadata preserves `workdir` / `cwd` / `working_directory` /
+`directory` when present. Relative single-file read commands are resolved
+against that absolute workdir before readcache evaluation, which improves
+repeat-read hit rate and prevents same-relative-path cache collisions across
+repositories without changing non-read commands.
 
 ---
 

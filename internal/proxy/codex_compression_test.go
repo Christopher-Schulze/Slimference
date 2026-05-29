@@ -427,6 +427,9 @@ func TestCodexToolShapeHelpers(t *testing.T) {
 	if codexToolName(nil) != "" || codexToolInput(nil) != "" {
 		t.Fatal("empty tool metadata should stay empty")
 	}
+	if input := codexToolInput(map[string]json.RawMessage{"cmd": json.RawMessage(`"cat docs/todo.md"`), "workdir": json.RawMessage(`"/repo/project"`)}); !strings.Contains(input, `"workdir":"/repo/project"`) {
+		t.Fatalf("codexToolInput should preserve workdir for relative read-cache keys: %s", input)
+	}
 
 	commandCases := []struct {
 		fields map[string]json.RawMessage
