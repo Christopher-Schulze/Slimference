@@ -140,6 +140,9 @@ func decideL2(f RequestFacts) LayerDecision {
 	if f.RecentEdit {
 		return decision(Layer2, ActionBypass, "recent_edit_window", 0, "medium", "high")
 	}
+	if isCodexWebSocketRoute(f) && f.EstimatedInputTokens >= 7000 {
+		return decision(Layer2, ActionShadow, "codex_wss_l2_requires_fixture_live_proof", f.EstimatedInputTokens/4, "medium", confidenceFromCorpus(f))
+	}
 	if f.EstimatedInputTokens >= 15000 {
 		return decision(Layer2, ActionRun, "long_context_threshold", f.EstimatedInputTokens/3, "medium", confidenceFromCorpus(f))
 	}
@@ -155,6 +158,9 @@ func decideL3(f RequestFacts) LayerDecision {
 	}
 	if !f.ProviderCacheSupported {
 		return decision(Layer3, ActionBypass, "provider_cache_unsupported", 0, "none", "high")
+	}
+	if isCodexWebSocketRoute(f) && (f.PreviousResponseIDAvailable || f.EstimatedInputTokens >= 1000) {
+		return decision(Layer3, ActionShadow, "codex_wss_l3_requires_fixture_live_proof", f.EstimatedInputTokens/2, "medium", "provider_reported")
 	}
 	if isCodexChatGPT(f) && !f.PreviousResponseIDAvailable {
 		return decision(Layer3, ActionBypass, "codex_cache_accounting_only", 0, "none", "provider_reported")
@@ -209,6 +215,10 @@ func decideWebSocket(f RequestFacts) LayerDecision {
 
 func isCodexChatGPT(f RequestFacts) bool {
 	return strings.EqualFold(strings.TrimSpace(f.Provider), "codex_chatgpt")
+}
+
+func isCodexWebSocketRoute(f RequestFacts) bool {
+	return isCodexChatGPT(f) && strings.Contains(strings.ToLower(f.RouteMode), "websocket")
 }
 
 func decision(layer Layer, action Action, reason string, expected int, risk, confidence string) LayerDecision {

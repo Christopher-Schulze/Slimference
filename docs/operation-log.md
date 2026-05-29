@@ -3074,3 +3074,30 @@ Verification:
 - Re-ran `go run ./scripts/utils aggregate-savings --period today --filter-db
   $HOME/.slimference/filter.db`; it now succeeds and prints the
   live aggregate report.
+
+## 2026-05-30 - T248 WSS tool-shape fixtures and L2/L3 proof gates
+
+Goal: expand Codex WSS savings coverage where the reducer is deterministic, and
+make L2/L3 WSS candidates visible without enabling unproven semantic/cache
+mutation.
+
+Changes:
+- Added WSS Phase-F end-to-end fixtures for repeated read-output mutation through
+  `local_shell_call`, `shell_call`, direct `read_file`, and MCP-style
+  `mcp.read_file` / `result.content[0].text` shapes.
+- The fixtures prove the same read-delta marker path, request shrinkage, metadata
+  preservation (`exit_code`, `isError`), and Layer-0 token-savings counters that
+  already covered the real `exec_command` repeat-read capture.
+- Codex WSS L2 and L3 planner decisions are now proof-gated candidates: high-ROI
+  L2 and previous-response L3 return `shadow` with explicit fixture/live-proof
+  reasons instead of `run`.
+- HTTP planner behavior is unchanged. The change only prevents Codex WSS from
+  appearing semantic-cache-ready before a separate proof upgrades it.
+
+Verification:
+- `go test ./internal/proxy ./internal/planner` passed.
+
+Interpretation:
+- This raises WSS hit-rate confidence for deterministic tool-output/readcache
+  savings while keeping model quality, context, prompt-cache blocks,
+  voice/realtime, and response-cache substitutions untouched.

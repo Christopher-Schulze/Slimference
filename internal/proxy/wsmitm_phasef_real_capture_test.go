@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -178,5 +179,193 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 
 	if got := wsCodexSessionID([]byte(`{"prompt_cache_key":"` + promptCacheKey + `"}`)); got != "codex-wss:"+promptCacheKey {
 		t.Fatalf("session-key prerequisite regression: got %q want %q", got, "codex-wss:"+promptCacheKey)
+	}
+}
+
+func TestWSPhaseFAdditionalCodexToolShapesProduceDeltaMarkers(t *testing.T) {
+	type toolShapeFixture struct {
+		name        string
+		fileName    string
+		seedItem    func(callID string, fileName string, workdir string) map[string]any
+		outputItem  func(callID string, text string) map[string]any
+		preserveRaw string
+	}
+
+	fixtures := []toolShapeFixture{
+		{
+			name:     "local_shell_call_action_command_array_aggregated_output",
+			fileName: "local-shell-read.md",
+			seedItem: func(callID string, fileName string, workdir string) map[string]any {
+				return map[string]any{
+					"type":    "local_shell_call",
+					"call_id": callID,
+					"action": map[string]any{
+						"command": []string{"/bin/bash", "-lc", "cat " + fileName},
+						"cwd":     workdir,
+					},
+				}
+			},
+			outputItem: func(callID string, text string) map[string]any {
+				return map[string]any{
+					"type":              "local_shell_call_output",
+					"call_id":           callID,
+					"aggregated_output": text,
+				}
+			},
+		},
+		{
+			name:     "shell_call_stdout_object",
+			fileName: "shell-read.md",
+			seedItem: func(callID string, fileName string, workdir string) map[string]any {
+				return map[string]any{
+					"type":    "shell_call",
+					"call_id": callID,
+					"action": map[string]any{
+						"command": []string{"sh", "-c", "cat " + fileName},
+						"cwd":     workdir,
+					},
+				}
+			},
+			outputItem: func(callID string, text string) map[string]any {
+				return map[string]any{
+					"type":    "shell_call_output",
+					"call_id": callID,
+					"stdout": map[string]any{
+						"text":      text,
+						"exit_code": 0,
+					},
+				}
+			},
+			preserveRaw: `"exit_code":0`,
+		},
+		{
+			name:     "direct_read_file_tool_path_arguments",
+			fileName: "direct-read.md",
+			seedItem: func(callID string, fileName string, workdir string) map[string]any {
+				return map[string]any{
+					"type":    "function_call",
+					"call_id": callID,
+					"name":    "read_file",
+					"arguments": map[string]any{
+						"path":    fileName,
+						"workdir": workdir,
+					},
+				}
+			},
+			outputItem: func(callID string, text string) map[string]any {
+				return map[string]any{
+					"type":    "function_call_output",
+					"call_id": callID,
+					"output":  text,
+				}
+			},
+		},
+		{
+			name:     "mcp_read_file_result_content_text",
+			fileName: "mcp-read.md",
+			seedItem: func(callID string, fileName string, workdir string) map[string]any {
+				return map[string]any{
+					"type":    "mcp_call",
+					"call_id": callID,
+					"name":    "mcp.read_file",
+					"arguments": map[string]any{
+						"target":                    fileName,
+						"current_working_directory": workdir,
+					},
+				}
+			},
+			outputItem: func(callID string, text string) map[string]any {
+				return map[string]any{
+					"type":    "mcp_call_output",
+					"call_id": callID,
+					"result": map[string]any{
+						"content": []map[string]any{{"type": "text", "text": text}},
+						"isError": false,
+					},
+				}
+			},
+			preserveRaw: `"isError":false`,
+		},
+	}
+
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			oldHome := proxyUserHomeDir
+			proxyUserHomeDir = func() (string, error) { return tmp, nil }
+			t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+			cfg := config.Defaults()
+			cfg.Compression.OutputReduce.StopSequencesEnabled = false
+			cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+			cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+			cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+			p := New(cfg)
+			adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+			workdir := filepath.Join(tmp, "repo")
+			expectedPath := filepath.Join(workdir, fixture.fileName)
+			promptCacheKey := "019e5220-t248-" + strings.ReplaceAll(fixture.name, "_", "-")
+			var fileBody strings.Builder
+			for i := 0; i < 260; i++ {
+				fmt.Fprintf(&fileBody, "%s baseline line %03d for Codex WSS shape fixture coverage.\n", fixture.name, i)
+			}
+			before := fileBody.String()
+			after := before + "T248 shape fixture appended line for " + fixture.name + ".\n"
+
+			seedToolCall := func(callID string) {
+				env := parseWSJSON(t, map[string]any{
+					"type": string(wsmitm.FrameKindResponseOutputItemDone),
+					"item": fixture.seedItem(callID, fixture.fileName, workdir),
+				})
+				if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &env); err != nil || replace {
+					t.Fatalf("server tool-call seed should not replace, replace=%v err=%v", replace, err)
+				}
+			}
+			runOutput := func(callID string, text string) (int, int, bool, []byte) {
+				body := mustMarshal(map[string]any{
+					"model":                "gpt-5-codex",
+					"previous_response_id": "resp_" + fixture.name,
+					"prompt_cache_key":     promptCacheKey,
+					"input":                []map[string]any{fixture.outputItem(callID, text)},
+					"stream":               true,
+				})
+				env, err := wsmitm.Parse(body)
+				if err != nil {
+					t.Fatalf("parse fixture request body: %v", err)
+				}
+				preLen := len(env.Raw)
+				replaced := adapter.handleRequest(&env)
+				return preLen, len(env.Raw), replaced, []byte(env.Raw)
+			}
+
+			seedToolCall("call_first")
+			_, _, _, _ = runOutput("call_first", before)
+
+			seedToolCall("call_second")
+			pre, post, replaced, raw := runOutput("call_second", after)
+			if !replaced {
+				t.Fatalf("expected repeated %s output to mutate; replaced=false pre=%d post=%d", fixture.name, pre, post)
+			}
+			if post >= pre {
+				t.Fatalf("expected repeated %s output to shrink; pre=%d post=%d", fixture.name, pre, post)
+			}
+			wantMarker := []byte("Slimference delta for " + expectedPath)
+			if !bytes.Contains(raw, wantMarker) {
+				t.Fatalf("missing delta marker %q; first 700 bytes: %s", wantMarker, raw[:min(700, len(raw))])
+			}
+			if fixture.preserveRaw != "" && !bytes.Contains(raw, []byte(fixture.preserveRaw)) {
+				t.Fatalf("mutated %s output did not preserve metadata %q; first 700 bytes: %s", fixture.name, fixture.preserveRaw, raw[:min(700, len(raw))])
+			}
+
+			telemetry := adapter.snapshot()
+			if telemetry.Mutations == 0 {
+				t.Fatalf("expected Phase-F mutation telemetry for %s; got %+v", fixture.name, telemetry)
+			}
+			snap := p.OutputReduceCountersSnapshot()
+			if snap.ProxyLayer0TokensSaved == 0 || snap.ProxyLayer0ReadDeltaBlocks == 0 {
+				t.Fatalf("expected Layer-0 read-delta savings for %s; got snapshot=%+v", fixture.name, snap)
+			}
+		})
 	}
 }

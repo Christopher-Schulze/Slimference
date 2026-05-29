@@ -1,6 +1,6 @@
 # TASK 248: Unified Codex savings engine for WSS and HTTP
 
-Status: ACTIVE - shared attribution, opportunity telemetry, route attribution, and report/status hygiene implemented
+Status: ACTIVE - shared attribution, opportunity telemetry, route attribution, report/status hygiene, tool-shape fixtures, and proof gates implemented
 Priority: P0 after T247 proof, before T240 release seal
 Scope: Codex CLI and Codex Desktop savings engine, telemetry, cache strategy, and
 proof-gated safe expansion across WSS and HTTP fallback paths
@@ -100,10 +100,14 @@ The product target is strict:
 - [x] Smooth `aggregate-savings` workday-measurement flags. The utility now
   accepts both `--flag=value` and `--flag value` for file/URL/period/cost inputs
   and reports missing flag values explicitly.
-- [ ] Expand Codex tool-shape coverage based on real captured frames only:
-  `exec_command`, `local_shell_call`, `shell_call`, direct read tools, MCP-style
-  outputs, nested output arrays, and future Codex tool variants. Every new shape
-  needs a fixture and fail-open behavior for unknown input.
+- [x] Expand Codex tool-shape coverage for the current known safe Responses-API
+  read-output shapes. End-to-end WSS Phase-F fixtures now prove repeated-read
+  delta mutation for `exec_command`, `local_shell_call`, `shell_call`, direct
+  `read_file` tools, single-text output arrays, and MCP-style `result.content`
+  objects, while preserving metadata and failing open on ambiguous shapes.
+- [ ] Keep future Codex tool-shape expansion capture-driven only. Every new
+  unknown variant still needs a real captured frame or equivalent high-fidelity
+  fixture, a reconstruction test, and fail-open behavior before mutation.
 - [x] Improve session/turn-aware cache policy for repeated tool outputs:
   maximize readcache hit-rate across turns without touching prompt-cache blocks,
   recently-edited files, voice/realtime, or non-reconstructable content.
@@ -136,6 +140,11 @@ The product target is strict:
 - [ ] Only after measured proof, evaluate L2/L3 WSS candidates. Required before
   default-on: fixture, live proof, no schema drift, no model-quality loss, no
   prompt-cache breakage, and clear rollback/fail-open path.
+- [x] Add proof-gated planner candidates for Codex WSS L2/L3. Even when L2 is
+  enabled and Codex WSS carries repeated tool output or `previous_response_id`,
+  the planner now reports L2/L3 as `shadow` candidates with explicit
+  fixture/live-proof reasons, not `run`. HTTP behavior and provider-reported
+  prompt-cache accounting remain unchanged.
 
 ## Notes
 
@@ -195,6 +204,14 @@ The product target is strict:
   recert times stay absent until real values exist, the canonical filter DB path
   remains `~/.slimference/filter.db`, and Desktop status wording never collapses
   route-ready into savings-proven.
+- Current WSS fixture expansion is still deterministic L0/read-delta work, not
+  semantic compression. It proves more tool shapes can use the same safe reducer
+  core; it does not enable L2 summaries, response-cache substitutions, prompt-cache
+  block mutation, or voice/realtime mutation.
+- L2/L3 WSS candidates are intentionally visible but non-mutating. The planner
+  can now show where future value might exist, while the runtime remains protected
+  until a separate fixture plus live proof upgrades a candidate from `shadow` to
+  `run`.
 
 ## Deviations
 

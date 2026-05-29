@@ -124,6 +124,40 @@ func TestPlan_L3CacheAndPreviousResponse(t *testing.T) {
 	}
 }
 
+func TestPlan_CodexWSSL2L3RemainProofGatedCandidates(t *testing.T) {
+	t.Parallel()
+	plan := Plan(RequestFacts{
+		Provider:                    "codex_chatgpt",
+		RouteMode:                   "websocket_phasef",
+		EstimatedInputTokens:        20000,
+		ContentClasses:              []string{"repeated_tool_output"},
+		ExternalLayer2Allowed:       true,
+		Layer2Acknowledged:          true,
+		ProviderCacheSupported:      true,
+		PreviousResponseIDAvailable: true,
+		LiveCorpusConfidence:        "high",
+	})
+	if d := findDecision(t, plan, Layer2); d.Action != ActionShadow || d.Reason != "codex_wss_l2_requires_fixture_live_proof" || d.Risk != "medium" {
+		t.Fatalf("Codex WSS L2 must stay a shadow candidate before fixture+live proof: %+v", d)
+	}
+	if d := findDecision(t, plan, Layer3); d.Action != ActionShadow || d.Reason != "codex_wss_l3_requires_fixture_live_proof" || d.Risk != "medium" {
+		t.Fatalf("Codex WSS L3 must stay a shadow candidate before fixture+live proof: %+v", d)
+	}
+	if plan.SafetyBlocked {
+		t.Fatalf("proof-gated candidates should not hard-block the route: %+v", plan.Decisions)
+	}
+
+	firstTurn := Plan(RequestFacts{
+		Provider:               "codex_chatgpt",
+		RouteMode:              "websocket_phasef",
+		EstimatedInputTokens:   100,
+		ProviderCacheSupported: true,
+	})
+	if d := findDecision(t, firstTurn, Layer3); d.Action != ActionBypass || d.Reason != "codex_cache_accounting_only" {
+		t.Fatalf("first-turn Codex WSS L3 should remain accounting-only, got %+v", d)
+	}
+}
+
 func TestPlan_L4OutputReduce(t *testing.T) {
 	t.Parallel()
 	cooldown := Plan(RequestFacts{ExpectedOutputTokens: 1000, OutputReduceCooldown: true})

@@ -1464,16 +1464,20 @@ only and promotes the per-process Codex CLI runner for T209.
   classification, and relative single-file reads now resolve against Codex
   `workdir`/`cwd` metadata before readcache evaluation. Single-text-part
   `output` / `content` arrays and nested MCP-style result content now
-  reconstruct in place and fail open on ambiguous multi-text arrays. Large
-  observed reads are archive-backed instead of bloating session JSON, recert
-  state surfaces attempt/timing/log/error metadata, and `aggregate-savings` plus
-  `workday-savings start|finish` now carry the current Codex route /
-  auto-recert snapshot so workday windows record fallback/repair events as well
-  as savings counters. Report hygiene now omits zero recert timestamps, uses the
-  canonical `~/.slimference/filter.db` path, and keeps Desktop "WSS savings
-  active" distinct from "WSS route ready" across the TUI/Launch Center gate.
-  Remaining work: more real Codex tool-shape fixtures, proof-gated L2/L3 WSS
-  candidates, and real workday data collection before T240.
+  reconstruct in place and fail open on ambiguous multi-text arrays. Additional
+  WSS Phase-F fixtures now prove repeated-read mutation for `local_shell_call`,
+  `shell_call`, direct `read_file`, and MCP-style `result.content` outputs.
+  Large observed reads are archive-backed instead of bloating session JSON,
+  recert state surfaces attempt/timing/log/error metadata, and
+  `aggregate-savings` plus `workday-savings start|finish` now carry the current
+  Codex route / auto-recert snapshot so workday windows record fallback/repair
+  events as well as savings counters. Report hygiene now omits zero recert
+  timestamps, uses the canonical `~/.slimference/filter.db` path, and keeps
+  Desktop "WSS savings active" distinct from "WSS route ready" across the TUI /
+  Launch Center gate. Planner L2/L3 on Codex WSS is proof-gated as `shadow`
+  candidate only until separate fixture plus live proof exists. Remaining work:
+  future capture-driven tool variants, measured L2/L3 upgrades, and real workday
+  data collection before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H
