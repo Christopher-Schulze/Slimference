@@ -3008,3 +3008,29 @@ Interpretation:
 - T244 is now done as a release-hygiene input. T240 still needs to consume this
   by running its final release certification, but daemon lifecycle hardening
   itself no longer has a known open implementation gap.
+
+## 2026-05-29 - T248 single-text-part Codex output-array support
+
+Goal: raise WSS and HTTP reducer hit-rate for safe nested Codex tool-output
+shapes without adding semantic risk.
+
+Changes:
+- Codex tool output extraction now recognizes `output` / `content` style arrays
+  that contain exactly one text-bearing `output_text`, `text`, or `input_text`
+  part.
+- Reconstruction updates that exact text part in place, preserving sibling
+  non-text parts and the original array shape.
+- Ambiguous arrays with multiple text parts or no unique text part fail open
+  instead of being stringified.
+
+Verification:
+- Focused provider tests cover extraction, reconstruction, multi-text fail-open,
+  and existing wrapped-output behavior.
+- The real Codex WSS multi-read regression test now includes a nested
+  `output_text` array request and proves Phase-F still shrinks the request,
+  emits the read-delta marker, and preserves the sibling non-text item.
+
+Interpretation:
+- This is a shape-coverage and hit-rate improvement for the shared HTTP/WSS
+  reducer core. It does not touch prompt-cache blocks, voice/realtime, global
+  routing, or model semantics.

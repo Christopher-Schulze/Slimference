@@ -351,6 +351,26 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 		t.Fatalf("content rewrite should preserve field name: %s", out)
 	}
 
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"function_call_output","call_id":"call_parts","output":[{"type":"output_text","text":"nested output\n"},{"type":"image","id":"preserve"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Content[0].Text != "nested output\n" {
+		t.Fatalf("single text-part output array should be extracted: ok=%v msg=%#v", ok, msg)
+	}
+	msg.Content[0].Text = "compact nested output\n"
+	raw, ok = msg.Content[0].RawBlock.(codexInputItemRaw)
+	if !ok {
+		t.Fatal("expected text-part raw block")
+	}
+	out, err = codexMessageToInputItem(msg, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"text":"compact nested output\n"`) || !strings.Contains(string(out), `"type":"image"`) {
+		t.Fatalf("output text-part rewrite should preserve output array shape: %s", out)
+	}
+
 	for _, rawOutput := range []json.RawMessage{
 		json.RawMessage(`{`),
 		json.RawMessage(`{"stdout":"out","stderr":"err"}`),
@@ -471,6 +491,8 @@ func TestCodexToolShapeHelpers(t *testing.T) {
 		{map[string]json.RawMessage{"content": json.RawMessage(`"content\n"`)}, "content\n", "field:content"},
 		{map[string]json.RawMessage{"result": json.RawMessage(`{"tool_response":"result text\n"}`)}, "result text\n", "field_object:result:tool_response"},
 		{map[string]json.RawMessage{"tool_response": json.RawMessage(`"direct response\n"`)}, "direct response\n", "field:tool_response"},
+		{map[string]json.RawMessage{"output": json.RawMessage(`[{"type":"output_text","text":"array output\n"},{"type":"image","id":"keep"}]`)}, "array output\n", "field_part_text:output:0"},
+		{map[string]json.RawMessage{"content": json.RawMessage(`[{"type":"text","text":"array content\n"},{"type":"image","id":"keep"}]`)}, "array content\n", "field_part_text:content:0"},
 	}
 	for _, tc := range outputCases {
 		text, path := codexToolOutputText(tc.fields)
@@ -480,6 +502,9 @@ func TestCodexToolShapeHelpers(t *testing.T) {
 	}
 	if text, path := codexToolOutputText(nil); text != "" || path != "" {
 		t.Fatalf("empty output text=%q path=%q", text, path)
+	}
+	if text, path := codexToolOutputText(map[string]json.RawMessage{"output": json.RawMessage(`[{"type":"output_text","text":"one"},{"type":"text","text":"two"}]`)}); text != "" || path != "" {
+		t.Fatalf("multi-text output arrays must fail open without rewrite path, text=%q path=%q", text, path)
 	}
 }
 

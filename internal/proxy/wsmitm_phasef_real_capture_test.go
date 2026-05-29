@@ -85,7 +85,7 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 		}
 	}
 
-	runRead := func(callID, chunkID string) (preLen, postLen int, replaced bool, rawAfter []byte) {
+	runReadWithOutput := func(callID string, output any) (preLen, postLen int, replaced bool, rawAfter []byte) {
 		body := mustMarshal(map[string]any{
 			"model":                "gpt-5-codex",
 			"previous_response_id": "resp_test",
@@ -94,7 +94,7 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 				{
 					"type":    "function_call_output",
 					"call_id": callID,
-					"output":  codexEnvelope(chunkID),
+					"output":  output,
 				},
 			},
 			"stream": true,
@@ -107,6 +107,9 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 		replaced = adapter.handleRequest(&env)
 		postLen = len(env.Raw)
 		return preLen, postLen, replaced, []byte(env.Raw)
+	}
+	runRead := func(callID, chunkID string) (preLen, postLen int, replaced bool, rawAfter []byte) {
+		return runReadWithOutput(callID, codexEnvelope(chunkID))
 	}
 
 	seedToolCall("call_aaa")
@@ -142,17 +145,32 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 		t.Fatalf("read #3 missing delta marker %q; first 600 bytes: %s", wantMarker, raw3[:min(600, len(raw3))])
 	}
 
-	telemetry := adapter.snapshot()
-	if telemetry.RequestsSeen != 3 {
-		t.Fatalf("expected 3 c2s requests; got %d", telemetry.RequestsSeen)
+	seedToolCall("call_ddd")
+	pre4, post4, replaced4, raw4 := runReadWithOutput("call_ddd", []map[string]any{
+		{"type": "output_text", "text": codexEnvelope("a1f00d")},
+		{"type": "image", "id": "preserve-shape"},
+	})
+	if !replaced4 {
+		t.Fatalf("read #4 expected nested output_text-array mutation; replaced=false pre=%d post=%d", pre4, post4)
 	}
-	if telemetry.Mutations < 2 {
-		t.Fatalf("expected >=2 mutations (reads #2 and #3); got %d", telemetry.Mutations)
+	if post4 >= pre4 {
+		t.Fatalf("read #4 expected size shrinkage; pre=%d post=%d", pre4, post4)
+	}
+	if !bytes.Contains(raw4, wantMarker) || !bytes.Contains(raw4, []byte(`"type":"image"`)) {
+		t.Fatalf("read #4 should mutate only nested output_text and preserve sibling output items; first 700 bytes: %s", raw4[:min(700, len(raw4))])
+	}
+
+	telemetry := adapter.snapshot()
+	if telemetry.RequestsSeen != 4 {
+		t.Fatalf("expected 4 c2s requests; got %d", telemetry.RequestsSeen)
+	}
+	if telemetry.Mutations < 3 {
+		t.Fatalf("expected >=3 mutations (reads #2, #3, and #4); got %d", telemetry.Mutations)
 	}
 
 	snap := p.OutputReduceCountersSnapshot()
-	if snap.ProxyLayer0RequestsModified < 2 {
-		t.Fatalf("expected >=2 Layer-0 modified requests; got %d", snap.ProxyLayer0RequestsModified)
+	if snap.ProxyLayer0RequestsModified < 3 {
+		t.Fatalf("expected >=3 Layer-0 modified requests; got %d", snap.ProxyLayer0RequestsModified)
 	}
 	if snap.ProxyLayer0TokensSaved == 0 {
 		t.Fatalf("expected non-zero L0 token savings; got snapshot=%+v", snap)

@@ -431,8 +431,14 @@ func codexToolOutputText(fields map[string]json.RawMessage) (string, string) {
 		if s := rawJSONString(raw); s != "" {
 			return s, "field:" + key
 		}
+		if text, textPath := codexSingleTextPart(raw, key); textPath != "" {
+			return text, textPath
+		}
 		if field, ok := singleCodexOutputTextField(raw); ok {
 			return rawJSONString(field.value), "field_object:" + key + ":" + field.name
+		}
+		if rawJSONArray(raw) {
+			continue
 		}
 		if text := rawJSONText(raw); text != "" {
 			return text, "field:" + key
@@ -511,11 +517,50 @@ func codexOutputText(raw json.RawMessage) (string, string) {
 	if s := rawJSONString(raw); s != "" {
 		return s, "output"
 	}
+	if text, textPath := codexSingleTextPart(raw, "output"); textPath != "" {
+		return text, textPath
+	}
 	fields, ok := singleCodexOutputTextField(raw)
 	if ok {
 		return rawJSONString(fields.value), "output_field:" + fields.name
 	}
+	if rawJSONArray(raw) {
+		return "", ""
+	}
 	return rawJSONText(raw), "output"
+}
+
+func codexSingleTextPart(raw json.RawMessage, field string) (string, string) {
+	var parts []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return "", ""
+	}
+	selectedIndex := -1
+	selectedText := ""
+	for i, part := range parts {
+		partType := rawJSONString(part["type"])
+		if partType != "output_text" && partType != "text" && partType != "input_text" {
+			continue
+		}
+		text := rawJSONString(part["text"])
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		if selectedIndex >= 0 {
+			return "", ""
+		}
+		selectedIndex = i
+		selectedText = text
+	}
+	if selectedIndex < 0 {
+		return "", ""
+	}
+	return selectedText, "field_part_text:" + field + ":" + strconv.Itoa(selectedIndex)
+}
+
+func rawJSONArray(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '['
 }
 
 type codexOutputField struct {
@@ -878,6 +923,25 @@ func codexMessageToInputItem(msg types.Message, raw codexInputItemRaw) (json.Raw
 			obj[key] = data
 			output, _ := json.Marshal(obj)
 			fields["output"] = output
+		}
+		if rest, ok := strings.CutPrefix(raw.TextPath, "field_part_text:"); ok && rest != "" {
+			key, indexText, ok := strings.Cut(rest, ":")
+			if ok && key != "" && indexText != "" {
+				index, err := strconv.Atoi(indexText)
+				if err != nil {
+					return nil, err
+				}
+				var parts []map[string]json.RawMessage
+				if err := json.Unmarshal(fields[key], &parts); err != nil {
+					return nil, err
+				}
+				if index >= 0 && index < len(parts) {
+					data, _ := json.Marshal(text)
+					parts[index]["text"] = data
+					output, _ := json.Marshal(parts)
+					fields[key] = output
+				}
+			}
 		}
 	}
 

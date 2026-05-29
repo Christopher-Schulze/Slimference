@@ -88,6 +88,11 @@ The product target is strict:
   single-file read commands against it before readcache evaluation. This raises
   repeat-read hit probability and prevents same-relative-path cache collisions
   across repositories without touching non-read commands.
+- [x] Add safe single-text-part output-array extraction for Codex tool outputs.
+  `output` / `content` arrays with exactly one `output_text` / `text` /
+  `input_text` item now feed the same shared reducer and reconstruct the changed
+  text in place, preserving sibling non-text parts. Multi-text or ambiguous
+  arrays fail open.
 - [ ] Expand Codex tool-shape coverage based on real captured frames only:
   `exec_command`, `local_shell_call`, `shell_call`, direct read tools, MCP-style
   outputs, nested output arrays, and future Codex tool variants. Every new shape
@@ -146,6 +151,9 @@ The product target is strict:
 - Workdir-aware readcache keys are also a safety improvement: `cat shared.txt`
   in two different repos no longer shares one session cache entry, while repeat
   reads in the same repo become easier to identify.
+- Single-text-part output-array support is a safe shape expansion: it only
+  mutates a uniquely addressable text field and never converts multimodal or
+  multi-text arrays into strings.
 
 ## Deviations
 
