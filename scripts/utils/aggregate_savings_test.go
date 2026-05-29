@@ -171,7 +171,10 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 		got.CodexRoute.AutoTransport != "wss" ||
 		!got.CodexRoute.WSSCertified ||
 		got.CodexRoute.RecertAttemptID != "attempt-1" ||
-		got.CodexRoute.RecertLogPath != "/tmp/codex-wss-recert.log" {
+		got.CodexRoute.RecertLogPath != "/tmp/codex-wss-recert.log" ||
+		got.CodexRoute.RecertStartedAt == nil ||
+		got.CodexRoute.RecertFinishedAt == nil ||
+		got.CodexRoute.RecertLastSuccess == nil {
 		t.Fatalf("codex route recert snapshot mismatch: %+v", got.CodexRoute)
 	}
 	if got.WSS.InputTokensSaved != 42000 {
@@ -209,6 +212,27 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	}
 	if time.Since(got.Generated) > time.Minute {
 		t.Fatalf("generated too old: %v", got.Generated)
+	}
+}
+
+func TestAggregateSavingsJSONOmitsZeroRecertTimes(t *testing.T) {
+	stateBody := strings.ReplaceAll(aggregateSampleAdminState, `    "recert_started_at": "2026-05-29T10:00:00Z",
+    "recert_finished_at": "2026-05-29T10:01:00Z",
+    "recert_last_success_at": "2026-05-29T10:01:00Z",
+`, "")
+	statePath := writeAggregateStateFile(t, stateBody)
+	var stdout, stderr bytes.Buffer
+	code := runAggregateSavings([]string{"--admin-state-file=" + statePath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+	}
+	out := stdout.String()
+	if strings.Contains(out, "0001-01-01") ||
+		strings.Contains(out, "recert_started_at") ||
+		strings.Contains(out, "recert_finished_at") ||
+		strings.Contains(out, "recert_last_success_at") ||
+		strings.Contains(out, "recert_retry_after") {
+		t.Fatalf("zero recert times should be omitted from JSON:\n%s", out)
 	}
 }
 
@@ -331,5 +355,9 @@ func TestAggregateSavingsHelp(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "aggregate-savings:") {
 		t.Fatalf("help should explain the subcommand: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "~/.slimference/filter.db") ||
+		strings.Contains(stdout.String(), "~/.slimference/analytics/filter.db") {
+		t.Fatalf("help should use the canonical filter.db path: %s", stdout.String())
 	}
 }

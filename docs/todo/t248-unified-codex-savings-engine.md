@@ -1,6 +1,6 @@
 # TASK 248: Unified Codex savings engine for WSS and HTTP
 
-Status: ACTIVE - shared attribution, opportunity telemetry, and route attribution implemented
+Status: ACTIVE - shared attribution, opportunity telemetry, route attribution, and report/status hygiene implemented
 Priority: P0 after T247 proof, before T240 release seal
 Scope: Codex CLI and Codex Desktop savings engine, telemetry, cache strategy, and
 proof-gated safe expansion across WSS and HTTP fallback paths
@@ -126,6 +126,13 @@ The product target is strict:
   `needs_recert`, fallback reason, recert status, attempt id, timestamps, last
   error, and bounded log path. Delta notes call out route, recert, and repair
   state changes.
+- [x] Harden measurement/status hygiene around the route-aware slice:
+  zero-value recert timestamps are omitted from JSON/text reports instead of
+  leaking `0001-01-01`, help text and runbook examples use the canonical
+  `~/.slimference/filter.db`, and the TUI/Launch Center accepts both persisted
+  `desktop_app_server_proven` and raw `desktop_app_server_phasef_proven` Desktop
+  proof modes while still distinguishing "WSS savings active" from "WSS route
+  ready".
 - [ ] Only after measured proof, evaluate L2/L3 WSS candidates. Required before
   default-on: fixture, live proof, no schema drift, no model-quality loss, no
   prompt-cache breakage, and clear rollback/fail-open path.
@@ -184,6 +191,10 @@ The product target is strict:
   Codex route/recert snapshot and notes route or repair-state changes, so
   fallback/recert events are measured alongside token savings instead of kept as
   external operator memory.
+- Report hygiene matters because these files are operator evidence. Optional
+  recert times stay absent until real values exist, the canonical filter DB path
+  remains `~/.slimference/filter.db`, and Desktop status wording never collapses
+  route-ready into savings-proven.
 
 ## Deviations
 

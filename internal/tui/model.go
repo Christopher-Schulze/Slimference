@@ -993,7 +993,7 @@ func (m *Model) codexCLIState() string {
 func (m *Model) codexAppState() string {
 	status := m.codexDesktopStatus
 	switch {
-	case status.Mode == "desktop_app_server_proven":
+	case status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven":
 		return "WSS savings active"
 	case status.Mode == "desktop_app_server_route_ready":
 		return "WSS route ready"
@@ -1012,7 +1012,7 @@ func (m *Model) codexAppState() string {
 
 func (m *Model) codexAppDescription() string {
 	status := m.codexDesktopStatus
-	if status.Mode == "desktop_app_server_proven" {
+	if status.Mode == "desktop_app_server_phasef_proven" || status.Mode == "desktop_app_server_proven" {
 		return "Open Codex.app through the Slimference app-server shim; Desktop Phase-F savings are proven."
 	}
 	if status.Mode == "desktop_app_server_route_ready" {

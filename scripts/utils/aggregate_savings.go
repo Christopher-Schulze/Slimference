@@ -59,21 +59,21 @@ type aggregateOutputReduceBlock struct {
 }
 
 type aggregateCodexRouteBlock struct {
-	DaemonReachable    bool      `json:"daemon_reachable"`
-	AutoMode           string    `json:"auto_mode,omitempty"`
-	AutoTransport      string    `json:"auto_transport,omitempty"`
-	WSSCertified       bool      `json:"wss_certified"`
-	WSSBridgeAvailable bool      `json:"wss_bridge_available"`
-	NeedsRecert        bool      `json:"needs_recert"`
-	FallbackReason     string    `json:"fallback_reason,omitempty"`
-	RecertStatus       string    `json:"recert_status,omitempty"`
-	RecertAttemptID    string    `json:"recert_attempt_id,omitempty"`
-	RecertStartedAt    time.Time `json:"recert_started_at,omitempty"`
-	RecertFinishedAt   time.Time `json:"recert_finished_at,omitempty"`
-	RecertLastSuccess  time.Time `json:"recert_last_success_at,omitempty"`
-	RecertRetryAfter   time.Time `json:"recert_retry_after,omitempty"`
-	RecertLastError    string    `json:"recert_last_error,omitempty"`
-	RecertLogPath      string    `json:"recert_log_path,omitempty"`
+	DaemonReachable    bool       `json:"daemon_reachable"`
+	AutoMode           string     `json:"auto_mode,omitempty"`
+	AutoTransport      string     `json:"auto_transport,omitempty"`
+	WSSCertified       bool       `json:"wss_certified"`
+	WSSBridgeAvailable bool       `json:"wss_bridge_available"`
+	NeedsRecert        bool       `json:"needs_recert"`
+	FallbackReason     string     `json:"fallback_reason,omitempty"`
+	RecertStatus       string     `json:"recert_status,omitempty"`
+	RecertAttemptID    string     `json:"recert_attempt_id,omitempty"`
+	RecertStartedAt    *time.Time `json:"recert_started_at,omitempty"`
+	RecertFinishedAt   *time.Time `json:"recert_finished_at,omitempty"`
+	RecertLastSuccess  *time.Time `json:"recert_last_success_at,omitempty"`
+	RecertRetryAfter   *time.Time `json:"recert_retry_after,omitempty"`
+	RecertLastError    string     `json:"recert_last_error,omitempty"`
+	RecertLogPath      string     `json:"recert_log_path,omitempty"`
 }
 
 type aggregateTotalsBlock struct {
@@ -102,7 +102,7 @@ Usage:
 Flags:
   --admin-url=<url>            Admin state endpoint (default http://127.0.0.1:8990/_slimference/admin/state)
   --admin-state-file=<path>    Read admin state from JSON file instead (offline mode, takes precedence)
-  --filter-db=<path>           Filter SQLite DB (e.g. ~/.slimference/analytics/filter.db)
+  --filter-db=<path>           Filter SQLite DB (e.g. ~/.slimference/filter.db)
   --period=<all|today|week|month>  Filter DB period (default all)
   --usd-per-million=<float>    USD cost per million tokens for aggregate estimate
   --json                       Output as JSON
@@ -293,10 +293,10 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			FallbackReason:     state.CodexRoute.FallbackReason,
 			RecertStatus:       state.CodexRoute.RecertStatus,
 			RecertAttemptID:    state.CodexRoute.RecertAttemptID,
-			RecertStartedAt:    state.CodexRoute.RecertStartedAt,
-			RecertFinishedAt:   state.CodexRoute.RecertFinishedAt,
-			RecertLastSuccess:  state.CodexRoute.RecertLastSuccessAt,
-			RecertRetryAfter:   state.CodexRoute.RecertRetryAfter,
+			RecertStartedAt:    optionalTime(state.CodexRoute.RecertStartedAt),
+			RecertFinishedAt:   optionalTime(state.CodexRoute.RecertFinishedAt),
+			RecertLastSuccess:  optionalTime(state.CodexRoute.RecertLastSuccessAt),
+			RecertRetryAfter:   optionalTime(state.CodexRoute.RecertRetryAfter),
 			RecertLastError:    state.CodexRoute.RecertLastError,
 			RecertLogPath:      state.CodexRoute.RecertLogPath,
 		},
@@ -481,8 +481,15 @@ func valueOrDash(s string) string {
 	return s
 }
 
-func writeOptionalTime(w io.Writer, label string, t time.Time) {
+func optionalTime(t time.Time) *time.Time {
 	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+func writeOptionalTime(w io.Writer, label string, t *time.Time) {
+	if t == nil || t.IsZero() {
 		return
 	}
 	fmt.Fprintf(w, "%s%s\n", label, t.Format(time.RFC3339))

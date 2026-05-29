@@ -3072,5 +3072,5 @@ Changes:
 Verification:
 - Added parser tests for space-separated values and missing values.
 - Re-ran `go run ./scripts/utils aggregate-savings --period today --filter-db
-  $HOME/.slimference/analytics/filter.db`; it now succeeds and prints the
+  $HOME/.slimference/filter.db`; it now succeeds and prints the
   live aggregate report.
