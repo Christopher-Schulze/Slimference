@@ -3034,3 +3034,26 @@ Interpretation:
 - This is a shape-coverage and hit-rate improvement for the shared HTTP/WSS
   reducer core. It does not touch prompt-cache blocks, voice/realtime, global
   routing, or model semantics.
+
+## 2026-05-29 - T248 MCP-style nested output-object support
+
+Goal: close the adjacent safe parser gap for tool outputs that wrap text inside
+an object such as `result.content[0].text`.
+
+Changes:
+- Codex tool output extraction now recognizes exactly one text-bearing part
+  inside nested output object fields (`output`, `stdout`, `text`, `content`,
+  `stderr`, `result`, `tool_response`).
+- Reconstruction updates that nested text part in place and preserves surrounding
+  object metadata such as `isError`.
+- Nested arrays with multiple text parts fail open instead of falling back to
+  raw JSON stringification.
+
+Verification:
+- Provider tests cover `mcp_call_output` with `result.content[0].text`, metadata
+  preservation, and nested multi-text fail-open behavior.
+- Existing focused WSS and HTTP Layer-0 compaction tests remain green.
+
+Interpretation:
+- This expands safe tool-shape coverage for future Codex/MCP variants without
+  adding a semantic summary layer or changing strict WSS frame semantics.

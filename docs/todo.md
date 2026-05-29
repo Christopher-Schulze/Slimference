@@ -1463,11 +1463,11 @@ only and promotes the per-process Codex CLI runner for T209.
   WSS-Phase-F attribution. Shell command arrays are normalized before
   classification, and relative single-file reads now resolve against Codex
   `workdir`/`cwd` metadata before readcache evaluation. Single-text-part
-  `output` / `content` arrays now reconstruct in place and fail open on
-  ambiguous multi-text arrays. Remaining work: more real Codex tool-shape
-  fixtures, session/turn cache hit-rate improvements, proof-gated L2/L3 WSS
-  candidates, recert UX hardening if needed, and real workday aggregate
-  measurement before T240.
+  `output` / `content` arrays and nested MCP-style result content now
+  reconstruct in place and fail open on ambiguous multi-text arrays. Remaining
+  work: more real Codex tool-shape fixtures, session/turn cache hit-rate
+  improvements, proof-gated L2/L3 WSS candidates, recert UX hardening if
+  needed, and real workday aggregate measurement before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H

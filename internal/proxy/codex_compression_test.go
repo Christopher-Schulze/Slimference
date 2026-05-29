@@ -371,6 +371,26 @@ func TestCodexInputItemToMessage_Branches(t *testing.T) {
 		t.Fatalf("output text-part rewrite should preserve output array shape: %s", out)
 	}
 
+	msg, ok, err = codexInputItemToMessage(9, json.RawMessage(`{"type":"mcp_call_output","call_id":"call_mcp","result":{"content":[{"type":"text","text":"nested MCP output\n"}],"isError":false}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || msg.Content[0].Text != "nested MCP output\n" {
+		t.Fatalf("nested MCP result content should be extracted: ok=%v msg=%#v", ok, msg)
+	}
+	msg.Content[0].Text = "compact MCP output\n"
+	raw, ok = msg.Content[0].RawBlock.(codexInputItemRaw)
+	if !ok {
+		t.Fatal("expected MCP raw block")
+	}
+	out, err = codexMessageToInputItem(msg, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `"text":"compact MCP output\n"`) || !strings.Contains(string(out), `"isError":false`) {
+		t.Fatalf("nested MCP result rewrite should preserve result metadata: %s", out)
+	}
+
 	for _, rawOutput := range []json.RawMessage{
 		json.RawMessage(`{`),
 		json.RawMessage(`{"stdout":"out","stderr":"err"}`),
@@ -493,6 +513,7 @@ func TestCodexToolShapeHelpers(t *testing.T) {
 		{map[string]json.RawMessage{"tool_response": json.RawMessage(`"direct response\n"`)}, "direct response\n", "field:tool_response"},
 		{map[string]json.RawMessage{"output": json.RawMessage(`[{"type":"output_text","text":"array output\n"},{"type":"image","id":"keep"}]`)}, "array output\n", "field_part_text:output:0"},
 		{map[string]json.RawMessage{"content": json.RawMessage(`[{"type":"text","text":"array content\n"},{"type":"image","id":"keep"}]`)}, "array content\n", "field_part_text:content:0"},
+		{map[string]json.RawMessage{"result": json.RawMessage(`{"content":[{"type":"text","text":"nested result\n"}],"isError":false}`)}, "nested result\n", "field_object_part_text:result:content:0"},
 	}
 	for _, tc := range outputCases {
 		text, path := codexToolOutputText(tc.fields)
@@ -505,6 +526,9 @@ func TestCodexToolShapeHelpers(t *testing.T) {
 	}
 	if text, path := codexToolOutputText(map[string]json.RawMessage{"output": json.RawMessage(`[{"type":"output_text","text":"one"},{"type":"text","text":"two"}]`)}); text != "" || path != "" {
 		t.Fatalf("multi-text output arrays must fail open without rewrite path, text=%q path=%q", text, path)
+	}
+	if text, path := codexToolOutputText(map[string]json.RawMessage{"result": json.RawMessage(`{"content":[{"type":"text","text":"one"},{"type":"text","text":"two"}],"isError":false}`)}); text != "" || path != "" {
+		t.Fatalf("multi-text nested arrays must fail open without rewrite path, text=%q path=%q", text, path)
 	}
 }
 

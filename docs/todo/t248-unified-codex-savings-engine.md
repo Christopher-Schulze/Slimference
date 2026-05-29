@@ -93,6 +93,9 @@ The product target is strict:
   `input_text` item now feed the same shared reducer and reconstruct the changed
   text in place, preserving sibling non-text parts. Multi-text or ambiguous
   arrays fail open.
+- [x] Add the same unique-text-part handling for nested MCP-style output objects,
+  such as `result.content[0].text`, preserving result metadata like `isError`
+  and failing open on multi-text nested arrays.
 - [ ] Expand Codex tool-shape coverage based on real captured frames only:
   `exec_command`, `local_shell_call`, `shell_call`, direct read tools, MCP-style
   outputs, nested output arrays, and future Codex tool variants. Every new shape
@@ -154,6 +157,8 @@ The product target is strict:
 - Single-text-part output-array support is a safe shape expansion: it only
   mutates a uniquely addressable text field and never converts multimodal or
   multi-text arrays into strings.
+- Nested MCP-style output support follows the same rule: only a single
+  reconstructable text part is eligible, and object metadata remains intact.
 
 ## Deviations
 

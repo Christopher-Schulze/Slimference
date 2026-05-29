@@ -437,6 +437,11 @@ func codexToolOutputText(fields map[string]json.RawMessage) (string, string) {
 		if field, ok := singleCodexOutputTextField(raw); ok {
 			return rawJSONString(field.value), "field_object:" + key + ":" + field.name
 		}
+		if text, textPath, ambiguous := singleCodexNestedTextPart(raw, key); textPath != "" {
+			return text, textPath
+		} else if ambiguous {
+			continue
+		}
 		if rawJSONArray(raw) {
 			continue
 		}
@@ -524,6 +529,11 @@ func codexOutputText(raw json.RawMessage) (string, string) {
 	if ok {
 		return rawJSONString(fields.value), "output_field:" + fields.name
 	}
+	if text, textPath, ambiguous := singleCodexNestedTextPart(raw, "output"); textPath != "" {
+		return text, textPath
+	} else if ambiguous {
+		return "", ""
+	}
 	if rawJSONArray(raw) {
 		return "", ""
 	}
@@ -531,9 +541,27 @@ func codexOutputText(raw json.RawMessage) (string, string) {
 }
 
 func codexSingleTextPart(raw json.RawMessage, field string) (string, string) {
+	selected := selectCodexSingleTextPart(raw)
+	if !selected.ok {
+		return "", ""
+	}
+	return selected.text, "field_part_text:" + field + ":" + strconv.Itoa(selected.index)
+}
+
+type codexTextPartSelection struct {
+	text      string
+	index     int
+	ok        bool
+	ambiguous bool
+}
+
+func selectCodexSingleTextPart(raw json.RawMessage) codexTextPartSelection {
+	if !rawJSONArray(raw) {
+		return codexTextPartSelection{}
+	}
 	var parts []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &parts); err != nil {
-		return "", ""
+		return codexTextPartSelection{ambiguous: true}
 	}
 	selectedIndex := -1
 	selectedText := ""
@@ -547,15 +575,45 @@ func codexSingleTextPart(raw json.RawMessage, field string) (string, string) {
 			continue
 		}
 		if selectedIndex >= 0 {
-			return "", ""
+			return codexTextPartSelection{ambiguous: true}
 		}
 		selectedIndex = i
 		selectedText = text
 	}
 	if selectedIndex < 0 {
-		return "", ""
+		return codexTextPartSelection{ambiguous: true}
 	}
-	return selectedText, "field_part_text:" + field + ":" + strconv.Itoa(selectedIndex)
+	return codexTextPartSelection{text: selectedText, index: selectedIndex, ok: true}
+}
+
+func singleCodexNestedTextPart(raw json.RawMessage, field string) (string, string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return "", "", false
+	}
+	selectedText := ""
+	selectedPath := ""
+	ambiguous := false
+	for _, nested := range []string{"output", "stdout", "text", "content", "stderr", "result", "tool_response"} {
+		value, ok := obj[nested]
+		if !ok {
+			continue
+		}
+		selected := selectCodexSingleTextPart(value)
+		if selected.ambiguous {
+			ambiguous = true
+			continue
+		}
+		if !selected.ok {
+			continue
+		}
+		if selectedPath != "" {
+			return "", "", true
+		}
+		selectedText = selected.text
+		selectedPath = "field_object_part_text:" + field + ":" + nested + ":" + strconv.Itoa(selected.index)
+	}
+	return selectedText, selectedPath, ambiguous
 }
 
 func rawJSONArray(raw json.RawMessage) bool {
@@ -940,6 +998,34 @@ func codexMessageToInputItem(msg types.Message, raw codexInputItemRaw) (json.Raw
 					parts[index]["text"] = data
 					output, _ := json.Marshal(parts)
 					fields[key] = output
+				}
+			}
+		}
+		if rest, ok := strings.CutPrefix(raw.TextPath, "field_object_part_text:"); ok && rest != "" {
+			key, nestedAndIndex, ok := strings.Cut(rest, ":")
+			if ok && key != "" && nestedAndIndex != "" {
+				nested, indexText, ok := strings.Cut(nestedAndIndex, ":")
+				if ok && nested != "" && indexText != "" {
+					index, err := strconv.Atoi(indexText)
+					if err != nil {
+						return nil, err
+					}
+					var obj map[string]json.RawMessage
+					if err := json.Unmarshal(fields[key], &obj); err != nil {
+						return nil, err
+					}
+					var parts []map[string]json.RawMessage
+					if err := json.Unmarshal(obj[nested], &parts); err != nil {
+						return nil, err
+					}
+					if index >= 0 && index < len(parts) {
+						data, _ := json.Marshal(text)
+						parts[index]["text"] = data
+						nestedData, _ := json.Marshal(parts)
+						obj[nested] = nestedData
+						output, _ := json.Marshal(obj)
+						fields[key] = output
+					}
 				}
 			}
 		}

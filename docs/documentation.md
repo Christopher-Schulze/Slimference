@@ -293,10 +293,11 @@ Codex tool metadata preserves `workdir` / `cwd` / `working_directory` /
 against that absolute workdir before readcache evaluation, which improves
 repeat-read hit rate and prevents same-relative-path cache collisions across
 repositories without changing non-read commands. Codex tool outputs that arrive
-as a single text part inside an `output` / `content` style array are extracted
-and rewritten in place, preserving sibling non-text parts and the original array
-shape. Multi-text or otherwise ambiguous arrays fail open instead of being
-stringified.
+as a single text part inside an `output` / `content` style array, or inside a
+nested MCP-style object such as `result.content[0].text`, are extracted and
+rewritten in place, preserving sibling non-text parts, metadata, and the
+original object/array shape. Multi-text or otherwise ambiguous arrays fail open
+instead of being stringified.
 
 ---
 
