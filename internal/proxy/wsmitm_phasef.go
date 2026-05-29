@@ -145,11 +145,11 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			}
 		}
 		rememberedToolUses := a.loadToolUses()
-		if l0Messages, saved := applyProxyLayer0WithSessionAndToolUses(messages, wsCodexSessionID(out), rememberedToolUses); saved > 0 {
+		if l0Messages, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, wsCodexSessionID(out), rememberedToolUses); stats.TokensSaved > 0 {
 			if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, l0Messages); rebuildErr == nil {
 				out = rebuilt
 				messages = l0Messages
-				a.p.outputReduceCounters.RecordProxyLayer0(saved)
+				a.p.outputReduceCounters.RecordProxyLayer0Stats(stats)
 			}
 		}
 	}

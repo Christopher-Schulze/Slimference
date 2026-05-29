@@ -26,6 +26,10 @@ const aggregateSampleAdminState = `{
   },
   "savings": {
     "input_tokens_saved": 42000,
+    "proxy_layer0_blocks": 4,
+    "proxy_layer0_read_delta_blocks": 2,
+    "proxy_layer0_captured_output_blocks": 1,
+    "proxy_layer0_codex_exec_envelope_blocks": 1,
     "repdet_rewrites": 7,
     "repdet_bytes_saved": 1024,
     "stale_read_blocks": 1,
@@ -63,6 +67,10 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"mutation_active:              true",
 		"byte_bridge_only:             false",
 		"input_tokens_saved:           42000",
+		"proxy_layer0_blocks:          4",
+		"read_delta:                 2",
+		"captured_output:            1",
+		"codex_exec_envelope:        1",
 		"Output-Reduce sub-layers (live counters):",
 		"repdet_rewrites:       7 (bytes saved: 1024)",
 		"stale_read_blocks:     1",
@@ -97,6 +105,9 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	}
 	if got.WSS.InputTokensSaved != 42000 {
 		t.Fatalf("wss.input_tokens_saved: got=%d want=42000", got.WSS.InputTokensSaved)
+	}
+	if got.WSS.ProxyLayer0ReadDelta != 2 || got.WSS.ProxyLayer0Captured != 1 || got.WSS.ProxyLayer0Envelope != 1 {
+		t.Fatalf("wss proxy layer0 mechanism attribution mismatch: %+v", got.WSS)
 	}
 	if got.OutputReduce.RepdetRewrites != 7 {
 		t.Fatalf("output_reduce.repdet_rewrites: got=%d want=7", got.OutputReduce.RepdetRewrites)

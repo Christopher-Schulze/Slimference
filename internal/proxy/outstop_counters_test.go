@@ -87,14 +87,34 @@ func TestOutputReduceCountersBeTerseHint(t *testing.T) {
 func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	c := &OutputReduceCounters{}
 	c.RecordProxyLayer0(128)
+	c.RecordProxyLayer0Stats(proxyLayer0Stats{
+		TokensSaved:             256,
+		BlocksModified:          3,
+		ReadDeltaBlocks:         2,
+		CapturedOutputBlocks:    1,
+		CodexExecEnvelopeBlocks: 1,
+	})
 	c.RecordProxyLayer0(0)
 	c.RecordProxyLayer0(-1)
+	c.RecordProxyLayer0Stats(proxyLayer0Stats{TokensSaved: 0, BlocksModified: 9})
 	s := c.Snapshot()
-	if s.ProxyLayer0RequestsModified != 1 {
-		t.Errorf("proxy layer0 requests=%d want 1", s.ProxyLayer0RequestsModified)
+	if s.ProxyLayer0RequestsModified != 2 {
+		t.Errorf("proxy layer0 requests=%d want 2", s.ProxyLayer0RequestsModified)
 	}
-	if s.ProxyLayer0TokensSaved != 128 {
-		t.Errorf("proxy layer0 saved=%d want 128", s.ProxyLayer0TokensSaved)
+	if s.ProxyLayer0TokensSaved != 384 {
+		t.Errorf("proxy layer0 saved=%d want 384", s.ProxyLayer0TokensSaved)
+	}
+	if s.ProxyLayer0BlocksModified != 4 {
+		t.Errorf("proxy layer0 blocks=%d want 4", s.ProxyLayer0BlocksModified)
+	}
+	if s.ProxyLayer0ReadDeltaBlocks != 2 {
+		t.Errorf("proxy layer0 read-delta blocks=%d want 2", s.ProxyLayer0ReadDeltaBlocks)
+	}
+	if s.ProxyLayer0CapturedBlocks != 1 {
+		t.Errorf("proxy layer0 captured blocks=%d want 1", s.ProxyLayer0CapturedBlocks)
+	}
+	if s.ProxyLayer0EnvelopeBlocks != 1 {
+		t.Errorf("proxy layer0 envelope blocks=%d want 1", s.ProxyLayer0EnvelopeBlocks)
 	}
 }
 

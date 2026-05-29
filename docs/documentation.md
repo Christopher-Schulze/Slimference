@@ -276,6 +276,12 @@ reads flight-recorder decision logs and reports provider-only proxied LLM
 requests with input/cache/output accounting. `--csv` / `--json` for machine
 consumption.
 
+Codex WSS and HTTP proxy-Layer-0 savings now share mechanism attribution:
+modified blocks, read-delta blocks, captured-output filter blocks, and Codex
+exec-envelope blocks. These counters are emitted through `/admin/state` and
+`aggregate-savings` so future cache or reducer work can measure which mechanism
+actually saved tokens before broadening mutation surfaces.
+
 ---
 
 ## 5. Layer 1 - Deterministic Compression

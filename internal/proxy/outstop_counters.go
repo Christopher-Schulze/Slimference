@@ -9,6 +9,10 @@ import "sync/atomic"
 type OutputReduceCounters struct {
 	proxyLayer0RequestsModified atomic.Uint64
 	proxyLayer0TokensSaved      atomic.Uint64
+	proxyLayer0BlocksModified   atomic.Uint64
+	proxyLayer0ReadDeltaBlocks  atomic.Uint64
+	proxyLayer0CapturedBlocks   atomic.Uint64
+	proxyLayer0EnvelopeBlocks   atomic.Uint64
 
 	stopSeqRequestsModified atomic.Uint64
 	stopSeqPhrasesAdded     atomic.Uint64
@@ -34,11 +38,27 @@ type OutputReduceCounters struct {
 // output compaction counters. savedTokens is token-count based, not
 // bytes, because this path runs before provider billing.
 func (c *OutputReduceCounters) RecordProxyLayer0(savedTokens int) {
-	if savedTokens <= 0 {
+	c.RecordProxyLayer0Stats(proxyLayer0Stats{TokensSaved: savedTokens, BlocksModified: 1})
+}
+
+func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
+	if stats.TokensSaved <= 0 {
 		return
 	}
 	c.proxyLayer0RequestsModified.Add(1)
-	c.proxyLayer0TokensSaved.Add(uint64(savedTokens))
+	c.proxyLayer0TokensSaved.Add(uint64(stats.TokensSaved))
+	if stats.BlocksModified > 0 {
+		c.proxyLayer0BlocksModified.Add(uint64(stats.BlocksModified))
+	}
+	if stats.ReadDeltaBlocks > 0 {
+		c.proxyLayer0ReadDeltaBlocks.Add(uint64(stats.ReadDeltaBlocks))
+	}
+	if stats.CapturedOutputBlocks > 0 {
+		c.proxyLayer0CapturedBlocks.Add(uint64(stats.CapturedOutputBlocks))
+	}
+	if stats.CodexExecEnvelopeBlocks > 0 {
+		c.proxyLayer0EnvelopeBlocks.Add(uint64(stats.CodexExecEnvelopeBlocks))
+	}
 }
 
 // RecordStopSeqInjection increments the stop-sequence counters when
@@ -115,6 +135,10 @@ func (c *OutputReduceCounters) RecordRepdetRewrite(matchCount int, savedBytes in
 type OutputReduceTelemetry struct {
 	ProxyLayer0RequestsModified uint64 `json:"proxy_layer0_requests_modified"`
 	ProxyLayer0TokensSaved      uint64 `json:"proxy_layer0_tokens_saved"`
+	ProxyLayer0BlocksModified   uint64 `json:"proxy_layer0_blocks_modified"`
+	ProxyLayer0ReadDeltaBlocks  uint64 `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0CapturedBlocks   uint64 `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0EnvelopeBlocks   uint64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	StopSeqRequestsModified     uint64 `json:"stop_seq_requests_modified"`
 	StopSeqPhrasesAdded         uint64 `json:"stop_seq_phrases_added"`
 	StreamcutFired              uint64 `json:"streamcut_fired"`
@@ -136,6 +160,10 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 	return OutputReduceTelemetry{
 		ProxyLayer0RequestsModified: c.proxyLayer0RequestsModified.Load(),
 		ProxyLayer0TokensSaved:      c.proxyLayer0TokensSaved.Load(),
+		ProxyLayer0BlocksModified:   c.proxyLayer0BlocksModified.Load(),
+		ProxyLayer0ReadDeltaBlocks:  c.proxyLayer0ReadDeltaBlocks.Load(),
+		ProxyLayer0CapturedBlocks:   c.proxyLayer0CapturedBlocks.Load(),
+		ProxyLayer0EnvelopeBlocks:   c.proxyLayer0EnvelopeBlocks.Load(),
 		StopSeqRequestsModified:     c.stopSeqRequestsModified.Load(),
 		StopSeqPhrasesAdded:         c.stopSeqPhrasesAdded.Load(),
 		StreamcutFired:              c.streamcutFired.Load(),

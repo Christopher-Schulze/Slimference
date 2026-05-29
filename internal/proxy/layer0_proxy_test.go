@@ -27,6 +27,10 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	if saved != 0 || &out[0] != &unchanged[0] {
 		t.Fatalf("unchanged messages should be returned as-is, saved=%d", saved)
 	}
+	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(unchanged, "", nil)
+	if stats != (proxyLayer0Stats{}) {
+		t.Fatalf("unchanged stats=%+v want zero", stats)
+	}
 
 	var status strings.Builder
 	for i := 0; i < 80; i++ {
@@ -47,6 +51,11 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	}
 	if changed[1].Content[0].Text == out[1].Content[0].Text {
 		t.Fatal("original message slice should not be mutated")
+	}
+	_, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(changed, "", nil)
+	if stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.CapturedOutputBlocks != 1 ||
+		stats.ReadDeltaBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 {
+		t.Fatalf("captured-output stats mismatch: %+v", stats)
 	}
 }
 
@@ -148,6 +157,9 @@ func TestCompactProxyLayer0TextCodexExecEnvelope(t *testing.T) {
 	if !strings.Contains(out, "Process exited with code 0") || !strings.Contains(out, "Output:\n[git status]") {
 		t.Fatalf("envelope header or compacted body missing: %q", out)
 	}
+	if _, changed, mechanism := compactProxyLayer0TextDetailed("git status --short .", envelope, filter.FileReadContext{Mode: "scan"}); !changed || mechanism != proxyLayer0MechanismCodexEnvelope {
+		t.Fatalf("expected codex envelope mechanism, changed=%v mechanism=%q", changed, mechanism)
+	}
 	if strings.Contains(out, "file_z.go") {
 		t.Fatalf("uncompacted payload leaked: %q", out)
 	}
@@ -184,6 +196,10 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	out, saved = applyProxyLayer0WithSession(second, "sess-read")
 	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "unchanged since previous full read") {
 		t.Fatalf("unchanged reread should become reference, saved=%d text=%q", saved, out[1].Content[0].Text)
+	}
+	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(second, "sess-read", nil)
+	if stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 {
+		t.Fatalf("read-delta stats mismatch: %+v", stats)
 	}
 
 	changed := proxyReadMessages(strings.Repeat("line one\n", 80) + "line two\n")

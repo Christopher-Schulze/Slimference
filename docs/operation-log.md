@@ -2816,3 +2816,31 @@ Interpretation:
 - Normal Finder/Spotlight Codex.app remains direct. Browser ChatGPT,
   ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, Keychain, macOS proxy settings,
   and persistent `~/.codex/config.toml` are not part of this product path.
+
+## 2026-05-29 - T248 unified Codex savings engine first slice
+
+Goal: start the next Codex savings phase without adding risky mutation. The
+first slice makes the existing shared Codex proxy-Layer-0 reducer measurable
+across WSS and HTTP before any cache/L2/L3 expansion.
+
+Changes:
+- Added typed `proxyLayer0Stats` to the existing Codex reducer path.
+- Preserved existing wrappers, but added a detailed call path returning:
+  total tokens saved, blocks modified, read-delta blocks, captured-output
+  filter blocks, and Codex exec-envelope blocks.
+- Updated both HTTP `handler.go` and WSS `wsmitm_phasef.go` to call the same
+  detailed reducer path and record typed stats.
+- Extended `OutputReduceTelemetry`, `/admin/state` savings, and
+  `scripts/utils aggregate-savings` text/JSON output with the new mechanism
+  counters.
+- Added tests for captured-output attribution, read-delta attribution,
+  Codex exec-envelope attribution, output-reduce counters, and
+  aggregate-savings JSON/text shape.
+
+Interpretation:
+- No new mutation surface was enabled in this slice. It cannot make the model
+  weaker or change Codex semantics; it only makes the existing safe reducer
+  measurable.
+- This is the foundation for T248: one shared reducer engine for WSS and HTTP,
+  WSS-specific tool-shape expansion from real fixtures, cache hit-rate work, and
+  proof-gated L2/L3 candidates.

@@ -30,6 +30,10 @@ type aggregateWSSBlock struct {
 	FramesReencoded           int64 `json:"frames_reencoded"`
 	PhasefMutations           int64 `json:"phasef_mutations"`
 	InputTokensSaved          int64 `json:"input_tokens_saved"`
+	ProxyLayer0Blocks         int64 `json:"proxy_layer0_blocks"`
+	ProxyLayer0ReadDelta      int64 `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0Captured       int64 `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0Envelope       int64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ParseFailures             int64 `json:"parse_failures"`
 	DegradedSessions          int64 `json:"degraded_sessions"`
 	CompressionErrors         int64 `json:"compression_errors"`
@@ -214,6 +218,10 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			FramesReencoded:           state.WSS.FramesReencoded,
 			PhasefMutations:           state.WSS.PhaseFMutations,
 			InputTokensSaved:          state.Savings.InputTokensSaved,
+			ProxyLayer0Blocks:         state.Savings.ProxyLayer0Blocks,
+			ProxyLayer0ReadDelta:      state.Savings.ProxyLayer0ReadDelta,
+			ProxyLayer0Captured:       state.Savings.ProxyLayer0Captured,
+			ProxyLayer0Envelope:       state.Savings.ProxyLayer0Envelope,
 			ParseFailures:             state.WSS.ParseFailures,
 			DegradedSessions:          state.WSS.DegradedSessions,
 			CompressionErrors:         state.WSS.CompressionErrors,
@@ -276,6 +284,10 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "  mutation_active:              %v\n", report.WSS.MutationActive)
 	fmt.Fprintf(w, "  byte_bridge_only:             %v\n", report.WSS.ByteBridgeOnly)
 	fmt.Fprintf(w, "  input_tokens_saved:           %d\n", report.WSS.InputTokensSaved)
+	fmt.Fprintf(w, "  proxy_layer0_blocks:          %d\n", report.WSS.ProxyLayer0Blocks)
+	fmt.Fprintf(w, "    read_delta:                 %d\n", report.WSS.ProxyLayer0ReadDelta)
+	fmt.Fprintf(w, "    captured_output:            %d\n", report.WSS.ProxyLayer0Captured)
+	fmt.Fprintf(w, "    codex_exec_envelope:        %d\n", report.WSS.ProxyLayer0Envelope)
 	if report.WSS.ParseFailures+report.WSS.DegradedSessions+report.WSS.CompressionErrors > 0 {
 		fmt.Fprintf(w, "  HEALTH WARN parse=%d degraded=%d compression_errors=%d\n",
 			report.WSS.ParseFailures, report.WSS.DegradedSessions, report.WSS.CompressionErrors)

@@ -1417,7 +1417,7 @@ only and promotes the per-process Codex CLI runner for T209.
   `desktop_app_server_phasef_proven` with `desktop_savings=true`, so the same
   route now has both route proof and mutation proof.
   Detail: `docs/todo/t246-codex-desktop-app-server-shim-proof.md`
-- [~] **T247** Codex WSS Phase-F reducer efficacy (Responses-API delta model) —
+- [x] **T247** Codex WSS Phase-F reducer efficacy (Responses-API delta model) —
   REDUCER CHAIN PROVEN END-TO-END on real Codex CLI and Desktop traffic. CLI:
   one Codex 0.133.0 3x35KB repeat-read session produced
   `frames_reencoded=3`, `compressed_messages_mutated=3`, `phasef_mutations=3`,
@@ -1437,8 +1437,20 @@ only and promotes the per-process Codex CLI runner for T209.
   regression test landed
   (`TestWSPhaseFRealCodexMultiReadProducesDeltaMarker`, ~0.10s, isolated
   via t.TempDir, synthetic payload, real exec_command shape with `cmd` as
-  string). Open: longer-window real-workday aggregate measurements ahead of T240.
+  string). Follow-on optimization and longer-window real-workday aggregate
+  measurement moved to T248.
   Detail: `docs/todo/t247-codex-wss-reducer-efficacy.md`
+- [~] **T248** Unified Codex savings engine for WSS and HTTP — new P0 owner
+  for maxing Codex savings without quality/context drawdowns. WSS remains the
+  standard; HTTP remains fallback/legacy/useful hook surface. First slice
+  implemented shared reducer-mechanism attribution for the existing Codex
+  proxy-Layer-0 core so WSS and HTTP can report read-delta blocks,
+  captured-output filter blocks, Codex exec-envelope blocks, modified blocks,
+  and tokens saved instead of one undifferentiated counter. Remaining work:
+  formal shared reducer API, more real Codex tool-shape fixtures, session/turn
+  cache hit-rate improvements, proof-gated L2/L3 WSS candidates, recert UX
+  hardening if needed, and real workday aggregate measurement before T240.
+  Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H
 

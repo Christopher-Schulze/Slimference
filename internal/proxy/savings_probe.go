@@ -35,6 +35,10 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 	out := control.SavingsSummary{
 		InputTokensSaved:       int64(snap.ProxyLayer0TokensSaved),
 		OutputTokensSaved:      int64(snap.RepdetBytesSaved + snap.StreamcutBytesObserved + snap.StaleReadBytesReplaced + snap.ObsoleteReadBytesPruned),
+		ProxyLayer0Blocks:      int64(snap.ProxyLayer0BlocksModified),
+		ProxyLayer0ReadDelta:   int64(snap.ProxyLayer0ReadDeltaBlocks),
+		ProxyLayer0Captured:    int64(snap.ProxyLayer0CapturedBlocks),
+		ProxyLayer0Envelope:    int64(snap.ProxyLayer0EnvelopeBlocks),
 		StreamcutFires:         int64(snap.StreamcutFired),
 		RepdetRewrites:         int64(snap.RepdetResponsesRewritten),
 		RepdetBytesSaved:       int64(snap.RepdetBytesSaved),

@@ -1,6 +1,6 @@
 # TASK 247: Codex WSS Phase-F reducer efficacy (Responses-API delta model)
 
-Status: REDUCER CHAIN PROVEN END-TO-END on real Codex CLI and Desktop traffic.
+Status: DONE - reducer chain proven end-to-end on real Codex CLI and Desktop traffic.
 Initial proof landed on Codex 0.133.0 (2026-05-23 multi-read capture); drift proof
 refreshed on Codex 0.135.0 (2026-05-29 recert + live 3x71KB repeat-read session);
 Desktop proof landed on the same Codex 0.135.0 app-server route (2026-05-29 manual
@@ -15,8 +15,8 @@ defect. Fixture-based regression test landed
 asserting Slimference-delta-marker reduction on reads #2 and #3 of an isolated
 multi-read sequence. Aggregate-savings tooling landed at
 `scripts/utils/aggregate-savings` for honest live + offline measurement of
-WSS + output-reduce + HTTP-path Layer-0 savings in one report. Open: collect
-representative real-workday measurements with the new tooling.
+WSS + output-reduce + HTTP-path Layer-0 savings in one report. Follow-on
+optimization and representative real-workday measurement moved to T248.
 Priority: P0 - this is whether Slimference delivers real Codex token savings at all
 Scope: WSS Phase-F request reducers for Codex (CLI + Desktop, same route)
 
@@ -129,8 +129,8 @@ reduce in a single delta request.
   multi-read sessions produced `compressed_messages_mutated=5`,
   `frames_reencoded=5`, `phasef_mutations=5`, `input_tokens_saved=28284` on
   WSS Phase-F plus 1356139 tokens saved from historical HTTP-path Layer-0
-  filter hits; aggregate 1384423 tokens (~$3.46 at 2.5 USD/M-token). Remaining
-  is data collection over a longer real-workday window, not code.
+  filter hits; aggregate 1384423 tokens (~$3.46 at 2.5 USD/M-token). Longer
+  real-workday data collection is now owned by T248.
 
 ## Notes
 
@@ -196,10 +196,10 @@ reduce in a single delta request.
   the same applyInputPipeline; quantification of those plus non-WSS layers
   remains the last open sub-task before T240 release certification.
 
-- Implementation note (no production code change needed for the T247
-  reducer-efficacy question): the reducer chain already covers the real Codex
-  shape end to end. The remaining engineering effort is aggregate
-  non-WSS-layer measurement, not a reducer fix.
+- Implementation note: the T247 reducer-efficacy question is closed. The reducer
+  chain covers the real Codex shape end to end. T248 now owns unifying the
+  reducer surface, mechanism attribution, cache hit-rate work, and aggregate
+  real-workday measurement.
 
 - Real Codex 0.133.0 `exec_command` argument shape clarification (verified
   against `resp-response.output_item.done` capture, archived in

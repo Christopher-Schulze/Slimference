@@ -14,6 +14,22 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
+type proxyLayer0Mechanism string
+
+const (
+	proxyLayer0MechanismReadDelta     proxyLayer0Mechanism = "read_delta"
+	proxyLayer0MechanismCapturedOut   proxyLayer0Mechanism = "captured_output"
+	proxyLayer0MechanismCodexEnvelope proxyLayer0Mechanism = "codex_exec_envelope"
+)
+
+type proxyLayer0Stats struct {
+	TokensSaved             int
+	BlocksModified          int
+	ReadDeltaBlocks         int
+	CapturedOutputBlocks    int
+	CodexExecEnvelopeBlocks int
+}
+
 func applyProxyLayer0(messages []types.Message) ([]types.Message, int) {
 	return applyProxyLayer0WithSession(messages, "")
 }
@@ -23,6 +39,11 @@ func applyProxyLayer0WithSession(messages []types.Message, sessionID string) ([]
 }
 
 func applyProxyLayer0WithSessionAndToolUses(messages []types.Message, sessionID string, rememberedToolUses map[string]types.ContentBlock) ([]types.Message, int) {
+	out, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, sessionID, rememberedToolUses)
+	return out, stats.TokensSaved
+}
+
+func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, sessionID string, rememberedToolUses map[string]types.ContentBlock) ([]types.Message, proxyLayer0Stats) {
 	toolUses := proxyToolUseIndex(messages)
 	for id, use := range rememberedToolUses {
 		if _, ok := toolUses[id]; !ok {
@@ -30,7 +51,7 @@ func applyProxyLayer0WithSessionAndToolUses(messages []types.Message, sessionID 
 		}
 	}
 	var out []types.Message
-	saved := 0
+	var stats proxyLayer0Stats
 
 	for msgIdx, msg := range messages {
 		for blockIdx, block := range msg.Content {
@@ -45,8 +66,9 @@ func applyProxyLayer0WithSessionAndToolUses(messages []types.Message, sessionID 
 			beforeTokens := tokens.CountString(block.Text)
 			readCtx := proxyReadFileContext(sessionID, commandLine)
 			afterText, changed := compactProxyReadDelta(sessionID, commandLine, block.Text, readCtx)
+			mechanism := proxyLayer0MechanismReadDelta
 			if !changed {
-				afterText, changed = compactProxyLayer0Text(commandLine, block.Text, readCtx)
+				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
 			}
 			if !changed {
 				continue
@@ -57,23 +79,41 @@ func applyProxyLayer0WithSessionAndToolUses(messages []types.Message, sessionID 
 					out = cloneMessages(messages)
 				}
 				out[msgIdx].Content[blockIdx].Text = afterText
-				saved += beforeTokens - afterTokens
+				stats.TokensSaved += beforeTokens - afterTokens
+				stats.BlocksModified++
+				switch mechanism {
+				case proxyLayer0MechanismReadDelta:
+					stats.ReadDeltaBlocks++
+				case proxyLayer0MechanismCodexEnvelope:
+					stats.CodexExecEnvelopeBlocks++
+				default:
+					stats.CapturedOutputBlocks++
+				}
 			}
 		}
 	}
 
 	if out == nil {
-		return messages, 0
+		return messages, proxyLayer0Stats{}
 	}
-	return out, saved
+	return out, stats
 }
 
 func compactProxyLayer0Text(commandLine, text string, ctx filter.FileReadContext) (string, bool) {
+	out, changed, _ := compactProxyLayer0TextDetailed(commandLine, text, ctx)
+	return out, changed
+}
+
+func compactProxyLayer0TextDetailed(commandLine, text string, ctx filter.FileReadContext) (string, bool, proxyLayer0Mechanism) {
 	compacted, changed := filter.CompactCapturedOutputWithContext("", commandLine, text, 0, ctx)
 	if changed {
-		return string(compacted), true
+		return string(compacted), true, proxyLayer0MechanismCapturedOut
 	}
-	return compactCodexExecEnvelope(commandLine, text, ctx)
+	out, changed := compactCodexExecEnvelope(commandLine, text, ctx)
+	if changed {
+		return out, true, proxyLayer0MechanismCodexEnvelope
+	}
+	return "", false, ""
 }
 
 func compactCodexExecEnvelope(commandLine, text string, ctx filter.FileReadContext) (string, bool) {
