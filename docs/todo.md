@@ -1337,10 +1337,10 @@ only and promotes the per-process Codex CLI runner for T209.
   reaches Slimference, but Codex.app closes before application bytes flow.
   `--with-ca-env` plus `CODEX_CA_CERTIFICATE` is insufficient for current
   Desktop savings on that proxy/TLS-MITM branch. The branch stays diagnostic;
-  T246 later proved the no-CA app-server shim is also blocked for current
-  Codex.app, so Desktop remains direct-only. Must not touch Browser ChatGPT,
-  ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS system proxy, or
-  `~/.codex/config.toml`. Detail:
+  T246/T247 later proved the no-CA app-server shim as the current scoped Desktop
+  path, so the proxy/TLS-MITM branch must stay non-product. Must not touch
+  Browser ChatGPT, ChatGPT.app, Claude Code, `/etc/hosts`, pfctl, macOS system
+  proxy, or `~/.codex/config.toml`. Detail:
   `docs/todo/t238-codex-desktop-process-local-proxy-proof.md`
 - [~] **T239** Slimference launch center TUI — first implementation landed in
   the existing BubbleTea TUI: top-level Launch Center now exposes exactly
@@ -1391,9 +1391,12 @@ only and promotes the per-process Codex CLI runner for T209.
   `docs/todo/t243-wss-first-auto-transport-ladder.md`
 - [ ] **T244** Daemon lifecycle and atomic install hardening — atomic
   `scripts/build --install` replacement landed after a macOS `dyld_start`
-  hang from in-place binary overwrite. Remaining work: managed restart/stop
-  hardening, stale PID diagnostics, and release-cert evidence that rebuilds
-  cannot strand daemon/control commands. Detail:
+  hang from in-place binary overwrite. Install planning now rejects temporary
+  `go run` executable paths unless the operator passes an explicit
+  `--binary=PATH`, preventing hooks/launchd from pointing at deleted temp
+  binaries on fresh machines. Remaining work: managed restart/stop hardening,
+  stale PID diagnostics, and release-cert evidence that rebuilds cannot strand
+  daemon/control commands. Detail:
   `docs/todo/t244-daemon-lifecycle-atomic-install.md`
 - [ ] **T245** Desktop custom CA and macOS trust UX — keep unified install
   usable for Codex CLI and Desktop, but do not make CA env or Keychain trust a
@@ -1591,10 +1594,10 @@ only and promotes the per-process Codex CLI runner for T209.
 - Shared Codex CLI/App test uses the Launch Center paths: Launch Codex CLI via
   `transport=auto`; Launch Codex App via the T246 capability-gated branch; then
   verifies direct normal launches outside Slimference remain native.
-- Codex Desktop target remains direct-only in current builds because the scoped
-  app-server shim proof did not produce application bytes or WSS frames. If a
-  future Codex build exposes a working process-local endpoint hook, Desktop
-  becomes WSS-first under the same proof gate.
+- Codex Desktop target is scoped WSS-first when the stored app-server proof is
+  current and mutation counters stay clean. Earlier app-server probes did not
+  produce application bytes or WSS frames, but T246/T247 later closed that gap;
+  normal Finder/Spotlight Codex.app remains direct.
 - T226 done: `transport=auto` prefers WSS for certified Codex versions. T243
   supersedes the old fallback ordering so stale Phase-F certs prefer WSS
   byte-equal bridge before HTTP/direct when bridge proof is clean.
@@ -1605,9 +1608,9 @@ only and promotes the per-process Codex CLI runner for T209.
   clean one-command flow or has a process-local launcher that is proof-gated
   before any savings claim.
 - After T238/T242, the process-local proxy/CA branch is a rejected diagnostic
-  path for current Codex.app. After T246, the app-server shim branch is also
-  implemented but live-blocked for current Codex.app, so product truth says
-  Desktop remains direct until upstream changes.
+  path for current Codex.app. After T246/T247, the app-server shim branch is the
+  supported Desktop Slimference path when proof-gated green; it uses the same
+  scoped WSS Phase-F route as CLI and does not require CA/MITM.
 - After T239, the normal human surface is the launch center: Launch Codex CLI,
   Launch Codex App, Savings, Status, and Manage Slimference. Install/Repair is
   one Codex product flow, not separate CLI/App installation.

@@ -20,8 +20,10 @@ package install
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/slimference/slimference/internal/control/reversibility"
 	"github.com/slimference/slimference/internal/control/reversibility/steps"
@@ -92,10 +94,6 @@ func Plan(opts Options) (*reversibility.Plan, error) {
 	if err != nil {
 		return nil, err
 	}
-	binary, err := resolveBinary(opts.BinaryPath)
-	if err != nil {
-		return nil, err
-	}
 
 	caDir := filepath.Join(home, ".slimference")
 	caCertPath := filepath.Join(caDir, "ca", "root.crt")
@@ -110,6 +108,14 @@ func Plan(opts Options) (*reversibility.Plan, error) {
 			Scope:    opts.KeychainScope,
 			Runner:   opts.KeychainRunner,
 		})
+	}
+
+	var binary string
+	if !opts.SkipAutoStart || !opts.SkipHooks {
+		binary, err = resolveBinary(opts.BinaryPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if !opts.SkipAutoStart {
@@ -248,11 +254,45 @@ func resolveHome(override string) (string, error) {
 // Defaults to os.Executable; tests inject via Options.BinaryPath.
 func resolveBinary(override string) (string, error) {
 	if override != "" {
-		return override, nil
+		return normalizeBinaryPath(override)
 	}
 	exe, err := executableFn()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(exe), nil
+	path, err := normalizeBinaryPath(exe)
+	if err != nil {
+		return "", err
+	}
+	if isTemporaryGoBuildBinary(path) {
+		return "", fmt.Errorf("install: executable path %q looks like a temporary Go build artifact; run `go run ./scripts/build --install && ~/.local/bin/slimference install` from a source checkout, or pass --binary=/path/to/slimference", path)
+	}
+	return path, nil
+}
+
+func normalizeBinaryPath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("install: binary path unresolved")
+	}
+	if !filepath.IsAbs(path) {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return "", err
+		}
+		path = abs
+	}
+	return filepath.Clean(path), nil
+}
+
+func isTemporaryGoBuildBinary(path string) bool {
+	clean := filepath.ToSlash(filepath.Clean(path))
+	if !strings.Contains(clean, "/go-build") {
+		return false
+	}
+	tmp := filepath.ToSlash(filepath.Clean(os.TempDir()))
+	if tmp != "." && strings.HasPrefix(clean, tmp+"/") {
+		return true
+	}
+	return strings.Contains(clean, "/T/go-build")
 }

@@ -30,12 +30,14 @@ func TestParseInstallFlagsAccepted(t *testing.T) {
 	f, err := parseInstallFlags([]string{
 		"--dry-run", "--json", "--no-hooks", "--no-autostart", "extra",
 		"--with-claude", "--with-keychain", "--no-keychain", "--keep-ca", "--system", "--preflight", "--config=/tmp/x",
+		"--binary=/usr/local/bin/slimference",
 	})
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	if !f.dryRun || !f.json || !f.noHooks || !f.withClaude || !f.noAutoStart || !f.withKeychain || !f.noKeychain ||
-		!f.keepCA || !f.systemScope || f.configPath != "/tmp/x" || len(f.rest) != 1 || f.rest[0] != "extra" {
+		!f.keepCA || !f.systemScope || f.configPath != "/tmp/x" || f.binaryPath != "/usr/local/bin/slimference" ||
+		len(f.rest) != 1 || f.rest[0] != "extra" {
 		t.Errorf("flags not all set: %+v", f)
 	}
 	if !f.preflight {
@@ -104,6 +106,26 @@ func TestRunInstallCmdDryRunHuman(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "ca.generate") {
 		t.Errorf("dry-run output missing step: %q", out.String())
+	}
+}
+
+func TestRunInstallCmdPassesBinaryOverride(t *testing.T) {
+	prevPlan := installPlanFn
+	t.Cleanup(func() { installPlanFn = prevPlan })
+
+	var got install.Options
+	installPlanFn = func(opts install.Options) (*reversibility.Plan, error) {
+		got = opts
+		return reversibility.NewPlan(installCmdFakeStep{name: "ok"}), nil
+	}
+
+	p, _, errBuf := newTestPrinter()
+	rc := runInstallCmd([]string{"--dry-run", "--binary=/stable/slimference"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d err=%s", rc, errBuf.String())
+	}
+	if got.BinaryPath != "/stable/slimference" {
+		t.Fatalf("BinaryPath=%q want /stable/slimference", got.BinaryPath)
 	}
 }
 
@@ -253,6 +275,26 @@ func TestRunUninstallCmdDryRun(t *testing.T) {
 	p, _, _ := newTestPrinter()
 	if rc := runUninstallCmd([]string{"--dry-run", "--no-keychain", "--no-autostart", "--no-hooks"}, p); rc != 0 {
 		t.Fatalf("rc=%d", rc)
+	}
+}
+
+func TestRunUninstallCmdPassesBinaryOverride(t *testing.T) {
+	prevPlan := installPlanFn
+	t.Cleanup(func() { installPlanFn = prevPlan })
+
+	var got install.Options
+	installPlanFn = func(opts install.Options) (*reversibility.Plan, error) {
+		got = opts
+		return reversibility.NewPlan(installCmdFakeStep{name: "ok"}), nil
+	}
+
+	p, _, errBuf := newTestPrinter()
+	rc := runUninstallCmd([]string{"--dry-run", "--binary=/stable/slimference"}, p)
+	if rc != 0 {
+		t.Fatalf("rc=%d err=%s", rc, errBuf.String())
+	}
+	if got.BinaryPath != "/stable/slimference" {
+		t.Fatalf("BinaryPath=%q want /stable/slimference", got.BinaryPath)
 	}
 }
 

@@ -63,6 +63,8 @@ diagnose, and recover without hanging the operator.
 - [x] Replace in-place installed-binary overwrite in `scripts/build` with
   same-directory temp-file plus atomic rename.
 - [x] Add build-helper tests for executable replacement and temp cleanup.
+- [x] Reject temporary `go run` executables during `slimference install` plan
+  resolution and add `--binary=PATH` for explicit stable hook/launchd targets.
 - [ ] Add daemon lifecycle timeout/diagnostic hardening for `start`, `stop`,
   and restart flows.
 - [ ] Add a release-safe rebuild command or documented ceremony that avoids
@@ -95,13 +97,23 @@ Install UX is also deliberately unified at this lifecycle layer. A normal
 install prepares Slimference for Codex as a product, including CLI launch,
 Desktop launch/probe support, daemon/autostart, bounded logs, and repair state.
 It must not create default CLI-only/Desktop-only partial installs. Desktop
-capability can remain blocked by T242, but the installed product state remains
-single and repairable.
+capability remains a proof-gated route state, not a separate install state. When
+the stored T246/T247 proof is current, Desktop can launch through Slimference;
+when proof is stale or invalid, Status/Manage must report the exact reason while
+the installed product state remains single and repairable.
 
 T244 is also the guard against false debugging. If the current daemon is healthy
 and old stuck processes consume 0 CPU, the product should say exactly that
 instead of forcing unnecessary repair or killing attempts that cannot work in
 macOS uninterruptible state.
+
+2026-05-29 portable-install slice: install planning now refuses default
+`os.Executable()` paths that look like temporary Go build artifacts, because a
+fresh developer running `go run ./cmd/slimference install` would otherwise write
+hooks and launchd plists pointing at a soon-deleted temp binary. Operators can
+still pass an explicit `--binary=PATH` override when they intentionally want a
+non-default executable path. Source-checkout installs should build a stable
+binary first, then run `~/.local/bin/slimference install`.
 
 ## Deviations
 

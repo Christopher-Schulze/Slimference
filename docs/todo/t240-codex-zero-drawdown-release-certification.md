@@ -66,12 +66,11 @@ savings available only through the scoped launcher/proof-gated shim path.
 - Version drift test proves Codex/Slimference tuple mismatch follows the final
   ladder: `wss_phasef -> wss_bridge -> http -> direct`.
 - CA test proves scoped CLI WSS works with CA absent, present, or removed. The
-  current Desktop app-server shim diagnostic does not use CA and is blocked for
-  application bytes, so it must not request Keychain trust. If a legacy Desktop
-  proxy diagnostic uses process-local custom CA env, prove no Keychain prompt is
-  needed. If a Desktop/Lab proxy diagnostic needs Keychain trust, prove the T245
-  guided flow and removal path. Because current Desktop remains direct-only,
-  prove the TUI does not ask for CA during normal CLI use.
+  current Desktop app-server shim does not use CA and must not request Keychain
+  trust for the normal TUI launch path. If a legacy Desktop proxy diagnostic
+  uses process-local custom CA env, prove no Keychain prompt is needed. If a
+  Desktop/Lab proxy diagnostic needs Keychain trust, prove the T245 guided flow
+  and removal path.
 - Full CI remains green with coverage >= 95.0% and behavior-critical tests
   covering the changed paths.
 - Operation log contains the exact evidence and final branch decision.
@@ -95,8 +94,10 @@ savings available only through the scoped launcher/proof-gated shim path.
 - [ ] Force WSS bridge failure in a controlled test and verify HTTP fallback is
   used only after bridge is unsafe.
 - [ ] Run Launch Codex App according to the final T246 branch decision:
-  current Codex.app must block with `connect_only_no_app_server_bytes` and
-  must not open a fake Slimference Desktop session.
+  use the stored `desktop_app_server_phasef_proven` proof when it is still
+  current, launch through Slimference with real WSS mutation counters, and make
+  no savings claim if proof drift, daemon failure, or parse/degrade/compression
+  errors invalidate that state.
 - [ ] Do not rerun the Desktop app-server proof as a release prerequisite unless
   Codex.app changed. The recorded T246 proof already covers
   `launch-desktop --transport=app-server --probe`, manual prompt proof,

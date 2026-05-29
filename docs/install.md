@@ -8,6 +8,8 @@ document.
 
 ```bash
 slimference install      # one-shot, atomic, reversible, Codex-only default
+go run ./scripts/build --install && ~/.local/bin/slimference install
+# source checkout install: build a stable binary first, then install from it
 slimference status       # see what's currently armed
 slimference status --preflight
 slimference codex run -- <prompt>     # scoped one-shot Codex CLI, fail-open
@@ -36,9 +38,35 @@ slimference uninstall    # full removal, restores backups
 That's it. No persistent environment variables. No `OPENAI_API_BASE`.
 No system-wide `HTTPS_PROXY`. No global `chatgpt.com` host route unless
 the operator explicitly asks for the global lab path. The current Desktop
-diagnostic launcher uses Codex.app's process-local `CODEX_CLI_PATH` app-server
-hook and does not need CA trust or TLS MITM, but it is blocked for savings on
-current Codex.app builds.
+launcher uses Codex.app's process-local `CODEX_CLI_PATH` app-server hook and
+does not need CA trust or TLS MITM. It is proof-gated: when the stored
+app-server proof is green it launches through the same WSS Phase-F route as
+Codex CLI; otherwise it reports the exact proof/repair reason and makes no
+savings claim.
+
+## Fresh machine install
+
+Release archive path:
+
+```bash
+tar -xzf slimference_<version>_darwin_arm64.tar.gz
+install -m 0755 slimference_<version>_darwin_arm64/slimference ~/.local/bin/slimference
+~/.local/bin/slimference install
+~/.local/bin/slimference status --preflight
+```
+
+Source checkout path:
+
+```bash
+go run ./scripts/build --install
+~/.local/bin/slimference install
+~/.local/bin/slimference status --preflight
+```
+
+Do not run `go run ./cmd/slimference install`: `go run` executes from a
+temporary Go build directory, and Slimference refuses to write hooks or launchd
+plists that point at a soon-deleted temp binary. If an operator intentionally
+wants a non-default binary path, use `slimference install --binary=PATH`.
 
 ## Scoped Codex architecture
 
@@ -775,6 +803,7 @@ slimference install [flags]
   --with-keychain   opt into macOS Keychain trust for Desktop/lab fallback
   --no-keychain     compatibility no-op; default install already skips Keychain
   --system          with --with-keychain, install CA into System Keychain
+  --binary=PATH     explicit stable slimference binary for hooks and launchd
   --help, -h        show help
 
 slimference uninstall [flags]
@@ -783,6 +812,7 @@ slimference uninstall [flags]
   --no-keychain     skip Keychain trust cleanup
   --with-claude     compatibility no-op; Slimference does not own ~/.claude
   --system          uninstall from the system Keychain
+  --binary=PATH     explicit stable slimference binary for plan resolution
   --help, -h        show help
 
 slimference enable | disable [flags]

@@ -9,6 +9,7 @@ Alle **Werkzeuge** dieses Repos (Coverage-Gates, Benchmark-Helfer, Utils, …) l
 | `build/` | Ein lokales, einzelnes Slimference-Binary mit Release-Flags bauen (`-trimpath -ldflags "-s -w"`); `--install` ersetzt die Ziel-Binary per temp-file + atomic rename |
 | `coverage/` | Coverage auswerten, Schwellen (aktuell 95.0 % aggregate) prüfen, CI-lokal spiegeln |
 | `benchmarks/` | Benchmarks bündeln, `go test -bench` auswerten |
+| `release/` | Portable Release-Artefakte mit SHA256SUMS bauen; default Ziel ist macOS darwin/arm64 |
 | `utils/` | Kleine Hilfs-CLIs, einmalige Tasks, Generatoren; `utils/indist_probe` ist das tshark-basierte Capture/Diff-Werkzeug für T224 |
 
 Weitere Unterordner nur bei **klarem Thema** (z. B. `lint/`, `release/`).
@@ -31,6 +32,8 @@ Konkrete Kommandozeilen:
 ```bash
 go run ./scripts/build --install                # Optimiertes Binary nach ~/.local/bin/slimference
 go run ./scripts/build --out ./slimference      # Optimiertes lokales Binary
+go run ./scripts/release --version v2.0.2       # Portable macOS-arm64 Release-Tarball + SHA256SUMS
+go run ./scripts/release --version v2.0.2 --targets=all  # Alle aktuell unterstützten Targets
 go run ./scripts/coverage -min=95.0              # Coverage-Gate (aggregate)
 go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s)
 go run ./scripts/benchmarks -- -benchtime=1s     # Schneller Durchlauf

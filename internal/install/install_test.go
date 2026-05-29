@@ -279,13 +279,53 @@ func TestResolveBinaryExplicit(t *testing.T) {
 	}
 }
 
+func TestResolveBinaryExplicitRelative(t *testing.T) {
+	got, err := resolveBinary("bin/slimference")
+	if err != nil {
+		t.Fatalf("resolveBinary relative: %v", err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("resolveBinary relative should be absolute, got %q", got)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(got), "/bin/slimference") {
+		t.Fatalf("resolveBinary relative=%q, want suffix /bin/slimference", got)
+	}
+}
+
 func TestResolveBinaryDefault(t *testing.T) {
+	prevExe := executableFn
+	t.Cleanup(func() { executableFn = prevExe })
+	executableFn = func() (string, error) { return "/usr/local/bin/slimference", nil }
+
 	got, err := resolveBinary("")
 	if err != nil {
 		t.Fatalf("resolveBinary default: %v", err)
 	}
 	if !filepath.IsAbs(got) {
 		t.Fatalf("resolveBinary default should be absolute, got %q", got)
+	}
+}
+
+func TestResolveBinaryRejectsTemporaryGoBuildDefault(t *testing.T) {
+	prevExe := executableFn
+	t.Cleanup(func() { executableFn = prevExe })
+
+	executableFn = func() (string, error) {
+		return filepath.Join(os.TempDir(), "go-build123456", "b001", "exe", "slimference"), nil
+	}
+	if _, err := resolveBinary(""); err == nil || !strings.Contains(err.Error(), "temporary Go build artifact") {
+		t.Fatalf("resolveBinary temp executable error=%v", err)
+	}
+}
+
+func TestResolveBinaryExplicitAllowsTemporaryLookingPath(t *testing.T) {
+	path := filepath.Join(os.TempDir(), "go-build123456", "b001", "exe", "slimference")
+	got, err := resolveBinary(path)
+	if err != nil {
+		t.Fatalf("explicit override should be operator-controlled: %v", err)
+	}
+	if got != filepath.Clean(path) {
+		t.Fatalf("resolveBinary explicit temp=%q want %q", got, filepath.Clean(path))
 	}
 }
 

@@ -31,6 +31,7 @@ type installFlags struct {
 	preflight    bool
 	help         bool
 	configPath   string
+	binaryPath   string
 	rest         []string
 }
 
@@ -65,6 +66,8 @@ func parseInstallFlags(args []string) (installFlags, error) {
 			f.help = true
 		case strings.HasPrefix(a, "--config="):
 			f.configPath = strings.TrimPrefix(a, "--config=")
+		case strings.HasPrefix(a, "--binary="):
+			f.binaryPath = strings.TrimPrefix(a, "--binary=")
 		case strings.HasPrefix(a, "-"):
 			return f, fmt.Errorf("unknown flag %q", a)
 		default:
@@ -106,6 +109,7 @@ func runInstallCmd(args []string, p installPrinter) int {
 		SkipAutoStart: f.noAutoStart,
 		WithKeychain:  f.withKeychain,
 		SkipKeychain:  f.noKeychain,
+		BinaryPath:    f.binaryPath,
 		Version:       version,
 	}
 	if f.systemScope {
@@ -166,6 +170,7 @@ func runUninstallCmd(args []string, p installPrinter) int {
 		SkipAutoStart: f.noAutoStart,
 		WithKeychain:  !f.noKeychain && !f.keepCA,
 		SkipKeychain:  f.noKeychain || f.keepCA,
+		BinaryPath:    f.binaryPath,
 	}
 	if f.systemScope {
 		opts.KeychainScope = 1
@@ -482,6 +487,7 @@ Flags:
   --with-keychain   opt into macOS Keychain trust for Desktop/lab fallback
   --no-keychain     accepted for old scripts; default install already skips Keychain
   --system          with --with-keychain, install CA into System Keychain
+  --binary=PATH     explicit stable slimference binary for hooks and launchd
   --help, -h        this text
 `
 
@@ -501,6 +507,7 @@ Flags:
   --no-keychain     skip Keychain trust cleanup
   --with-claude     accepted for old scripts; no-op while Claude is parked
   --system          uninstall from the system Keychain
+  --binary=PATH     explicit stable slimference binary for plan resolution
   --json            machine-readable output (with --dry-run)
   --help, -h        this text
 `

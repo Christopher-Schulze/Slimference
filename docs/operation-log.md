@@ -2913,3 +2913,31 @@ Interpretation:
   read-delta miss -> cache/policy/content issue.
 - Route counters make that loop route-aware: if WSS misses rise while HTTP stays
   clean, optimize Codex WSS tool shapes; if both miss, optimize the shared core.
+
+## 2026-05-29 - T244 portable install binary guard
+
+Goal: make source-checkout installs portable and seamless on fresh machines
+without letting hooks or launchd point at a deleted temporary `go run` binary.
+
+Changes:
+- `install.resolveBinary` now normalizes explicit binary overrides to absolute
+  paths and rejects default `os.Executable()` paths that look like temporary Go
+  build artifacts.
+- Added `slimference install --binary=PATH` and
+  `slimference uninstall --binary=PATH` so advanced operators and tests can
+  explicitly choose the stable executable written into hooks and launchd plans.
+- Made the temp-binary rejection actionable by pointing source-checkout users to
+  `go run ./scripts/build --install && ~/.local/bin/slimference install`.
+- Documented the fresh-machine release archive path and the source-checkout
+  build/install path in `docs/install.md`; added `scripts/release` to
+  `scripts/README.md`.
+- Updated install docs and T240/T244/TODO status text to keep Desktop truth
+  current: Desktop Slimference launch is proof-gated WSS Phase-F when the stored
+  T246/T247 proof is current; it is not a separate install mode and does not
+  need CA/MITM on the normal path.
+
+Interpretation:
+- This is portability hardening, not a routing or reducer change.
+- Fresh-device setup should build/install the stable binary first, then run the
+  installed `slimference install`. Running install from `go run` now fails with
+  an actionable error instead of silently creating broken autostart/hooks.
