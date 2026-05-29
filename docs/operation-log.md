@@ -2870,3 +2870,41 @@ Interpretation:
 - The new fields are the hit-rate foundation for T248 cache/reducer work:
   future measurements can distinguish no tool output, unresolved command,
   no read-delta candidate, read-delta miss, and actual mutation.
+
+## 2026-05-29 - T248 shared reducer API and miss-rate slice
+
+Goal: remove the last ad-hoc caller shape around the Codex proxy-Layer-0
+reducer and unlock a real Codex command shape that was previously leaving
+savings on the table.
+
+Changes:
+- Added `reduceCodexLayer0` as the explicit shared reducer entry point for both
+  HTTP and WSS. It accepts route label, parsed messages, session id, and
+  remembered tool uses, and returns rewritten messages plus typed stats.
+- Updated HTTP to call the reducer with route `http`; updated WSS Phase-F to
+  call it with route `wss_phasef`.
+- Added miss counters:
+  `proxy_layer0_tool_use_unresolved_blocks`,
+  `proxy_layer0_command_unresolved_blocks`, and
+  `proxy_layer0_read_delta_misses`.
+- Added route-specific Layer-0 attribution under
+  `proxy_layer0_routes.http` and `proxy_layer0_routes.wss_phasef`, including
+  opportunity, miss, modified-request, token-saved, and mechanism counters.
+- Normalized command arrays before classification. Shapes like
+  `["bash","-lc","cat /tmp/file"]` and `["sh","-c","git status --short"]` now
+  reach the same read-delta and captured-output filters as string commands.
+- Expanded shell/read tool-name recognition for observed and plausible Codex
+  variants such as `container.exec`, `shell_command`, `terminal_command`,
+  `file_read`, `read_path`, and `view_path`.
+
+Interpretation:
+- This is a safe savings expansion: no semantic summary, no prompt-cache block
+  mutation, no voice/realtime mutation, no global routing change.
+- The command-array fix increases potential savings for Codex tool shapes that
+  already contain deterministic shell commands but previously missed the read
+  and captured-output classifiers.
+- Miss counters make the next optimization loop concrete: unresolved tool-use
+  reference -> parser/remembering issue; unresolved command -> tool-shape issue;
+  read-delta miss -> cache/policy/content issue.
+- Route counters make that loop route-aware: if WSS misses rise while HTTP stays
+  clean, optimize Codex WSS tool shapes; if both miss, optimize the shared core.

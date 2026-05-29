@@ -276,15 +276,18 @@ reads flight-recorder decision logs and reports provider-only proxied LLM
 requests with input/cache/output accounting. `--csv` / `--json` for machine
 consumption.
 
-Codex WSS and HTTP proxy-Layer-0 savings now share mechanism attribution:
-tool-result blocks seen, command-resolved blocks, read-delta attempts, modified
-blocks, read-delta blocks, captured-output filter blocks, and Codex
-exec-envelope blocks. The first three fields are opportunity counters; they
-make misses and hit-rate visible without claiming savings. The modified-block
-and mechanism-hit fields are success counters and are only recorded with a
-positive token saving. These counters are emitted through `/admin/state` and
-`aggregate-savings` so future cache or reducer work can measure which mechanism
-actually saved tokens before broadening mutation surfaces.
+Codex WSS and HTTP proxy-Layer-0 savings now share one explicit reducer entry
+point with route labels (`http`, `wss_phasef`) and mechanism attribution:
+tool-result blocks seen, unresolved tool-use references, command-resolved
+blocks, command-unresolved blocks, read-delta attempts, read-delta misses,
+modified blocks, read-delta blocks, captured-output filter blocks, and Codex
+exec-envelope blocks. Opportunity and miss fields make hit-rate visible without
+claiming savings. The modified-block and mechanism-hit fields are success
+counters and are only recorded with a positive token saving. These counters are
+emitted globally and under `proxy_layer0_routes.http` /
+`proxy_layer0_routes.wss_phasef` through `/admin/state` and
+`aggregate-savings`, so future cache or reducer work can measure which route
+and mechanism actually saved tokens before broadening mutation surfaces.
 
 ---
 

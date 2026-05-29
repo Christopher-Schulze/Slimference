@@ -89,8 +89,11 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	c.RecordProxyLayer0(128)
 	c.RecordProxyLayer0Stats(proxyLayer0Stats{
 		ToolResultBlocks:        4,
+		ToolUseUnresolvedBlocks: 1,
 		CommandResolvedBlocks:   3,
+		CommandUnresolvedBlocks: 1,
 		ReadDeltaAttempts:       2,
+		ReadDeltaMisses:         1,
 		TokensSaved:             256,
 		BlocksModified:          3,
 		ReadDeltaBlocks:         2,
@@ -110,11 +113,20 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	if s.ProxyLayer0ToolResultBlocks != 4 {
 		t.Errorf("proxy layer0 tool-result blocks=%d want 4", s.ProxyLayer0ToolResultBlocks)
 	}
+	if s.ProxyLayer0ToolUseUnresolved != 1 {
+		t.Errorf("proxy layer0 unresolved tool-use blocks=%d want 1", s.ProxyLayer0ToolUseUnresolved)
+	}
 	if s.ProxyLayer0CommandResolvedBlocks != 3 {
 		t.Errorf("proxy layer0 command blocks=%d want 3", s.ProxyLayer0CommandResolvedBlocks)
 	}
+	if s.ProxyLayer0CommandUnresolved != 1 {
+		t.Errorf("proxy layer0 unresolved command blocks=%d want 1", s.ProxyLayer0CommandUnresolved)
+	}
 	if s.ProxyLayer0ReadDeltaAttempts != 2 {
 		t.Errorf("proxy layer0 read attempts=%d want 2", s.ProxyLayer0ReadDeltaAttempts)
+	}
+	if s.ProxyLayer0ReadDeltaMisses != 1 {
+		t.Errorf("proxy layer0 read misses=%d want 1", s.ProxyLayer0ReadDeltaMisses)
 	}
 	if s.ProxyLayer0BlocksModified != 4 {
 		t.Errorf("proxy layer0 blocks=%d want 4", s.ProxyLayer0BlocksModified)
@@ -127,6 +139,45 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	}
 	if s.ProxyLayer0EnvelopeBlocks != 1 {
 		t.Errorf("proxy layer0 envelope blocks=%d want 1", s.ProxyLayer0EnvelopeBlocks)
+	}
+}
+
+func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
+	c := &OutputReduceCounters{}
+	c.RecordProxyLayer0Stats(proxyLayer0Stats{
+		Route:                   codexLayer0RouteWSSPhaseF,
+		ToolResultBlocks:        4,
+		ToolUseUnresolvedBlocks: 1,
+		CommandResolvedBlocks:   3,
+		CommandUnresolvedBlocks: 1,
+		ReadDeltaAttempts:       2,
+		ReadDeltaMisses:         1,
+		TokensSaved:             256,
+		BlocksModified:          3,
+		ReadDeltaBlocks:         2,
+		CapturedOutputBlocks:    1,
+		CodexExecEnvelopeBlocks: 1,
+	})
+	c.RecordProxyLayer0Stats(proxyLayer0Stats{
+		Route:                   codexLayer0RouteHTTP,
+		ToolResultBlocks:        2,
+		ToolUseUnresolvedBlocks: 2,
+		CommandUnresolvedBlocks: 2,
+		ReadDeltaAttempts:       1,
+		ReadDeltaMisses:         1,
+	})
+	s := c.Snapshot()
+	if s.ProxyLayer0Routes.WSSPhaseF.TokensSaved != 256 ||
+		s.ProxyLayer0Routes.WSSPhaseF.BlocksModified != 3 ||
+		s.ProxyLayer0Routes.WSSPhaseF.ReadDeltaBlocks != 2 {
+		t.Fatalf("wss route counters mismatch: %+v", s.ProxyLayer0Routes.WSSPhaseF)
+	}
+	if s.ProxyLayer0Routes.HTTP.ToolResultBlocks != 2 ||
+		s.ProxyLayer0Routes.HTTP.ToolUseUnresolved != 2 ||
+		s.ProxyLayer0Routes.HTTP.CommandUnresolved != 2 ||
+		s.ProxyLayer0Routes.HTTP.ReadDeltaMisses != 1 ||
+		s.ProxyLayer0Routes.HTTP.TokensSaved != 0 {
+		t.Fatalf("http route counters mismatch: %+v", s.ProxyLayer0Routes.HTTP)
 	}
 }
 

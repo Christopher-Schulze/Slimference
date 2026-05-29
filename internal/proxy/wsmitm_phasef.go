@@ -145,7 +145,13 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			}
 		}
 		rememberedToolUses := a.loadToolUses()
-		l0Messages, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, wsCodexSessionID(out), rememberedToolUses)
+		result := reduceCodexLayer0(codexLayer0Request{
+			Route:             codexLayer0RouteWSSPhaseF,
+			Messages:          messages,
+			SessionID:         wsCodexSessionID(out),
+			RememberedToolUse: rememberedToolUses,
+		})
+		l0Messages, stats := result.Messages, result.Stats
 		if stats.TokensSaved > 0 {
 			if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, l0Messages); rebuildErr == nil {
 				out = rebuilt

@@ -1445,12 +1445,17 @@ only and promotes the per-process Codex CLI runner for T209.
   standard; HTTP remains fallback/legacy/useful hook surface. First slices
   implemented shared reducer-mechanism attribution for the existing Codex
   proxy-Layer-0 core so WSS and HTTP can report opportunity counters
-  (tool-result blocks, command-resolved blocks, read-delta attempts) separately
+  (tool-result blocks, unresolved tool-use references, command-resolved blocks,
+  command-unresolved blocks, read-delta attempts, read-delta misses) separately
   from success counters (read-delta blocks, captured-output filter blocks,
-  Codex exec-envelope blocks, modified blocks, and tokens saved). Remaining work:
-  formal shared reducer API, more real Codex tool-shape fixtures, session/turn
-  cache hit-rate improvements, proof-gated L2/L3 WSS candidates, recert UX
-  hardening if needed, and real workday aggregate measurement before T240.
+  Codex exec-envelope blocks, modified blocks, and tokens saved). The shared
+  `reduceCodexLayer0` entry point now serves HTTP and WSS with route labels, and
+  `/admin/state` plus `aggregate-savings` expose route-specific HTTP vs
+  WSS-Phase-F attribution. Shell command arrays are normalized before
+  classification. Remaining work:
+  more real Codex tool-shape fixtures, session/turn cache hit-rate improvements,
+  proof-gated L2/L3 WSS candidates, recert UX hardening if needed, and real
+  workday aggregate measurement before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H

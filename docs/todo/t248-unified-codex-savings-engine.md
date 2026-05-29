@@ -1,6 +1,6 @@
 # TASK 248: Unified Codex savings engine for WSS and HTTP
 
-Status: ACTIVE - shared attribution plus opportunity telemetry implemented
+Status: ACTIVE - shared attribution, opportunity telemetry, and route attribution implemented
 Priority: P0 after T247 proof, before T240 release seal
 Scope: Codex CLI and Codex Desktop savings engine, telemetry, cache strategy, and
 proof-gated safe expansion across WSS and HTTP fallback paths
@@ -68,11 +68,22 @@ The product target is strict:
   blocks seen, command-resolved blocks, and read-delta attempts are counted for
   both HTTP and WSS, while modified-block/mechanism success counters remain
   gated on positive token savings.
-- [ ] Split the current package-local helper into an explicit shared Codex
-  reducer API once the attribution fields prove stable. The API should accept
-  parsed messages, session id, remembered tool uses, and route label
-  (`wss_phasef`, `http`, `wss_bridge` no-mutation) and return rewritten
-  messages plus typed stats.
+- [x] Split the current package-local helper into an explicit shared Codex
+  reducer entry point. `reduceCodexLayer0` accepts parsed messages, session id,
+  remembered tool uses, and route label (`http`, `wss_phasef`) and returns
+  rewritten messages plus typed stats. Existing wrappers remain for old tests
+  and callers.
+- [x] Add second-level miss telemetry for hit-rate optimization:
+  unresolved tool-use references, unresolved commands, and read-delta misses.
+  This makes the next cache/tool-shape bottleneck visible without broadening
+  mutation.
+- [x] Normalize shell command arrays before Layer-0 classification, so
+  `["bash","-lc","cat <path>"]` / `["sh","-c","git status --short"]` unlock the
+  same read-delta and captured-output filters as string commands.
+- [x] Add route-specific attribution for the shared reducer under
+  `proxy_layer0_routes.http` and `proxy_layer0_routes.wss_phasef`, so future
+  hit-rate work can prove whether misses and savings came from HTTP fallback or
+  the primary WSS Phase-F route.
 - [ ] Expand Codex tool-shape coverage based on real captured frames only:
   `exec_command`, `local_shell_call`, `shell_call`, direct read tools, MCP-style
   outputs, nested output arrays, and future Codex tool variants. Every new shape
@@ -121,6 +132,13 @@ The product target is strict:
   when no mutation happens. `proxy_layer0_blocks` and the mechanism-hit counters
   still require positive token savings, so `aggregate-savings` cannot inflate
   results from misses.
+- Route attribution is diagnostic only. It does not enable new mutation, but it
+  lets the next optimization loop distinguish HTTP fallback behavior from WSS
+  Phase-F behavior without reading raw frames again.
+- Command-array normalization is a safe shape expansion, not semantic
+  summarization: it only recovers the actual shell command that Codex already
+  executed, then routes the captured output through existing deterministic
+  filters and token-decreasing guards.
 
 ## Deviations
 

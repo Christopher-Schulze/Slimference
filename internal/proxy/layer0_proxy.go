@@ -22,10 +22,34 @@ const (
 	proxyLayer0MechanismCodexEnvelope proxyLayer0Mechanism = "codex_exec_envelope"
 )
 
+type codexLayer0Route string
+
+const (
+	codexLayer0RouteUnspecified codexLayer0Route = ""
+	codexLayer0RouteHTTP        codexLayer0Route = "http"
+	codexLayer0RouteWSSPhaseF   codexLayer0Route = "wss_phasef"
+)
+
+type codexLayer0Request struct {
+	Route             codexLayer0Route
+	Messages          []types.Message
+	SessionID         string
+	RememberedToolUse map[string]types.ContentBlock
+}
+
+type codexLayer0Result struct {
+	Messages []types.Message
+	Stats    proxyLayer0Stats
+}
+
 type proxyLayer0Stats struct {
+	Route                   codexLayer0Route
 	ToolResultBlocks        int
+	ToolUseUnresolvedBlocks int
 	CommandResolvedBlocks   int
+	CommandUnresolvedBlocks int
 	ReadDeltaAttempts       int
+	ReadDeltaMisses         int
 	TokensSaved             int
 	BlocksModified          int
 	ReadDeltaBlocks         int
@@ -56,34 +80,52 @@ func applyProxyLayer0WithSessionAndToolUses(messages []types.Message, sessionID 
 }
 
 func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, sessionID string, rememberedToolUses map[string]types.ContentBlock) ([]types.Message, proxyLayer0Stats) {
-	toolUses := proxyToolUseIndex(messages)
-	for id, use := range rememberedToolUses {
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:             codexLayer0RouteUnspecified,
+		Messages:          messages,
+		SessionID:         sessionID,
+		RememberedToolUse: rememberedToolUses,
+	})
+	return result.Messages, result.Stats
+}
+
+func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
+	toolUses := proxyToolUseIndex(req.Messages)
+	for id, use := range req.RememberedToolUse {
 		if _, ok := toolUses[id]; !ok {
 			toolUses[id] = use
 		}
 	}
 	var out []types.Message
-	var stats proxyLayer0Stats
+	stats := proxyLayer0Stats{Route: req.Route}
 
-	for msgIdx, msg := range messages {
+	for msgIdx, msg := range req.Messages {
 		for blockIdx, block := range msg.Content {
 			if block.Type != "tool_result" {
 				continue
 			}
 			stats.ToolResultBlocks++
-			use := proxyResolveToolUse(block, toolUses)
+			use, toolUseResolved := proxyResolveToolUseDetailed(block, toolUses)
 			commandLine := proxyLayer0CommandLine(use)
 			if commandLine == "" {
+				stats.CommandUnresolvedBlocks++
+				if !toolUseResolved {
+					stats.ToolUseUnresolvedBlocks++
+				}
 				continue
 			}
 			stats.CommandResolvedBlocks++
 			beforeTokens := tokens.CountString(block.Text)
-			readCtx := proxyReadFileContext(sessionID, commandLine)
-			if readDeltaEligible(sessionID, commandLine) {
+			readCtx := proxyReadFileContext(req.SessionID, commandLine)
+			readDeltaAttempted := readDeltaEligible(req.SessionID, commandLine)
+			if readDeltaAttempted {
 				stats.ReadDeltaAttempts++
 			}
-			afterText, changed := compactProxyReadDelta(sessionID, commandLine, block.Text, readCtx)
+			afterText, changed := compactProxyReadDelta(req.SessionID, commandLine, block.Text, readCtx)
 			mechanism := proxyLayer0MechanismReadDelta
+			if readDeltaAttempted && !changed {
+				stats.ReadDeltaMisses++
+			}
 			if !changed {
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
 			}
@@ -93,7 +135,7 @@ func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, se
 			afterTokens := tokens.CountString(afterText)
 			if afterTokens < beforeTokens {
 				if out == nil {
-					out = cloneMessages(messages)
+					out = cloneMessages(req.Messages)
 				}
 				out[msgIdx].Content[blockIdx].Text = afterText
 				stats.TokensSaved += beforeTokens - afterTokens
@@ -111,9 +153,9 @@ func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, se
 	}
 
 	if out == nil {
-		return messages, stats
+		return codexLayer0Result{Messages: req.Messages, Stats: stats}
 	}
-	return out, stats
+	return codexLayer0Result{Messages: out, Stats: stats}
 }
 
 func readDeltaEligible(sessionID, commandLine string) bool {
@@ -214,21 +256,26 @@ func proxyToolUseIndex(messages []types.Message) map[string]types.ContentBlock {
 }
 
 func proxyResolveToolUse(block types.ContentBlock, toolUses map[string]types.ContentBlock) types.ContentBlock {
+	use, _ := proxyResolveToolUseDetailed(block, toolUses)
+	return use
+}
+
+func proxyResolveToolUseDetailed(block types.ContentBlock, toolUses map[string]types.ContentBlock) (types.ContentBlock, bool) {
 	if len(toolUses) == 0 {
-		return block
+		return block, block.ToolInput != "" || block.ToolName != ""
 	}
 	id := block.ToolResultID
 	if id == "" {
 		id = block.ToolUseID
 	}
 	if id == "" {
-		return block
+		return block, block.ToolInput != "" || block.ToolName != ""
 	}
 	use, ok := toolUses[id]
 	if !ok {
-		return block
+		return block, block.ToolInput != "" || block.ToolName != ""
 	}
-	return use
+	return use, true
 }
 
 func proxyLayer0CommandLine(block types.ContentBlock) string {
@@ -252,7 +299,7 @@ func proxyLayer0CommandLine(block types.ContentBlock) string {
 		}
 		for _, key := range []string{"command", "argv", "args"} {
 			if argv := proxyStringArray(obj[key]); len(argv) > 0 {
-				return joinShellArgs(argv)
+				return normalizeLayer0CommandLine(joinShellArgs(argv))
 			}
 		}
 		if looksLikeReadTool(block.ToolName) {
@@ -317,7 +364,8 @@ func proxyStringArray(raw json.RawMessage) []string {
 func looksLikeShellTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "bash", "shell", "sh", "exec", "exec_command", "command", "terminal",
-		"local_shell", "local_shell_call", "bash_command", "run_command", "terminal.exec":
+		"local_shell", "local_shell_call", "bash_command", "run_command", "terminal.exec",
+		"container.exec", "shell_command", "execute", "run", "terminal_command":
 		return true
 	default:
 		return false
@@ -335,7 +383,8 @@ func looksLikeShellExecutable(name string) bool {
 
 func looksLikeReadTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "read", "cat", "view", "open", "open_file", "read_file", "readfile", "view_file":
+	case "read", "cat", "view", "open", "open_file", "read_file", "readfile", "view_file",
+		"file_read", "read_path", "view_path", "open_path":
 		return true
 	default:
 		return false

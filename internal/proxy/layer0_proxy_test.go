@@ -28,7 +28,9 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 		t.Fatalf("unchanged messages should be returned as-is, saved=%d", saved)
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(unchanged, "", nil)
-	if stats.TokensSaved != 0 || stats.BlocksModified != 0 || stats.ToolResultBlocks == 0 || stats.CommandResolvedBlocks == 0 {
+	if stats.TokensSaved != 0 || stats.BlocksModified != 0 || stats.ToolResultBlocks != 3 ||
+		stats.CommandResolvedBlocks != 1 || stats.CommandUnresolvedBlocks != 2 ||
+		stats.ToolUseUnresolvedBlocks != 2 {
 		t.Fatalf("unchanged stats mismatch: %+v", stats)
 	}
 
@@ -121,7 +123,8 @@ func TestProxyLayer0CommandLineVariants(t *testing.T) {
 		{"bash_lc_wrapper", types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"/opt/homebrew/bin/bash -lc 'git status --short .'"}`}, "git status --short ."},
 		{"slimference_filter_wrapper", types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"slimference filter -- git status --short ."}`}, "git status --short ."},
 		{"slimference_filter_stream_wrapper", types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"slimference filter --stream -- rg TODO docs"}`}, "rg TODO docs"},
-		{"command_array", types.ContentBlock{ToolName: "terminal.exec", ToolInput: `{"command":["/bin/sh","-c","git status --short"]}`}, `/bin/sh -c "git status --short"`},
+		{"command_array", types.ContentBlock{ToolName: "terminal.exec", ToolInput: `{"command":["/bin/sh","-c","git status --short"]}`}, "git status --short"},
+		{"bash_lc_array_read", types.ContentBlock{ToolName: "container.exec", ToolInput: `{"command":["bash","-lc","cat /tmp/t248-target.md"]}`}, "cat /tmp/t248-target.md"},
 		{"argv", types.ContentBlock{ToolName: "exec", ToolInput: `{"argv":["go","test","./pkg with space"]}`}, `go test "./pkg with space"`},
 		{"args", types.ContentBlock{ToolName: "run_command", ToolInput: `{"args":["rg","needle","path with space"]}`}, `rg needle "path with space"`},
 		{"read_path", types.ContentBlock{ToolName: "Read", ToolInput: `{"path":"pkg/file with space.go"}`}, `cat "pkg/file with space.go"`},
@@ -200,7 +203,7 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(second, "sess-read", nil)
 	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.ReadDeltaAttempts != 1 ||
-		stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 {
+		stats.ReadDeltaMisses != 0 || stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 {
 		t.Fatalf("read-delta stats mismatch: %+v", stats)
 	}
 
@@ -208,6 +211,20 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	out, saved = applyProxyLayer0WithSession(changed, "sess-read")
 	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "+ line two") || !strings.Contains(out[1].Content[0].Text, "Full content: local-archive://") {
 		t.Fatalf("changed reread should become delta, saved=%d text=%q", saved, out[1].Content[0].Text)
+	}
+}
+
+func TestApplyProxyLayer0ReadDeltaMissTelemetry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-1", ToolName: "Read", ToolInput: `{"path":"notes.txt"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-1", Text: "plain line\n"}}},
+	}
+	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-miss", nil)
+	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.ReadDeltaAttempts != 1 ||
+		stats.ReadDeltaMisses != 1 || stats.TokensSaved != 0 || stats.ReadDeltaBlocks != 0 {
+		t.Fatalf("read-delta miss stats mismatch: %+v", stats)
 	}
 }
 

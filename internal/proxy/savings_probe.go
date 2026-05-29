@@ -33,30 +33,54 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 	}
 
 	out := control.SavingsSummary{
-		InputTokensSaved:        int64(snap.ProxyLayer0TokensSaved),
-		OutputTokensSaved:       int64(snap.RepdetBytesSaved + snap.StreamcutBytesObserved + snap.StaleReadBytesReplaced + snap.ObsoleteReadBytesPruned),
-		ProxyLayer0ToolResults:  int64(snap.ProxyLayer0ToolResultBlocks),
-		ProxyLayer0Commands:     int64(snap.ProxyLayer0CommandResolvedBlocks),
-		ProxyLayer0ReadAttempts: int64(snap.ProxyLayer0ReadDeltaAttempts),
-		ProxyLayer0Blocks:       int64(snap.ProxyLayer0BlocksModified),
-		ProxyLayer0ReadDelta:    int64(snap.ProxyLayer0ReadDeltaBlocks),
-		ProxyLayer0Captured:     int64(snap.ProxyLayer0CapturedBlocks),
-		ProxyLayer0Envelope:     int64(snap.ProxyLayer0EnvelopeBlocks),
-		StreamcutFires:          int64(snap.StreamcutFired),
-		RepdetRewrites:          int64(snap.RepdetResponsesRewritten),
-		RepdetBytesSaved:        int64(snap.RepdetBytesSaved),
-		StaleReadBlocks:         int64(snap.StaleReadBlocksReplaced),
-		ObsoletePruneBlocks:     int64(snap.ObsoleteReadBlocksPruned),
-		StopSeqInjections:       int64(snap.StopSeqRequestsModified),
-		BeterseInjections:       int64(snap.BeterseInjections),
-		QualityABRolledBack:     ab.RolledBack,
-		QualityABControlFail:    ab.ControlFailRate,
-		QualityABTreatmentFail:  ab.TreatmentFailRate,
+		InputTokensSaved:         int64(snap.ProxyLayer0TokensSaved),
+		OutputTokensSaved:        int64(snap.RepdetBytesSaved + snap.StreamcutBytesObserved + snap.StaleReadBytesReplaced + snap.ObsoleteReadBytesPruned),
+		ProxyLayer0ToolResults:   int64(snap.ProxyLayer0ToolResultBlocks),
+		ProxyLayer0ToolMisses:    int64(snap.ProxyLayer0ToolUseUnresolved),
+		ProxyLayer0Commands:      int64(snap.ProxyLayer0CommandResolvedBlocks),
+		ProxyLayer0CommandMisses: int64(snap.ProxyLayer0CommandUnresolved),
+		ProxyLayer0ReadAttempts:  int64(snap.ProxyLayer0ReadDeltaAttempts),
+		ProxyLayer0ReadMisses:    int64(snap.ProxyLayer0ReadDeltaMisses),
+		ProxyLayer0Blocks:        int64(snap.ProxyLayer0BlocksModified),
+		ProxyLayer0ReadDelta:     int64(snap.ProxyLayer0ReadDeltaBlocks),
+		ProxyLayer0Captured:      int64(snap.ProxyLayer0CapturedBlocks),
+		ProxyLayer0Envelope:      int64(snap.ProxyLayer0EnvelopeBlocks),
+		ProxyLayer0Routes: control.ProxyLayer0RoutesSummary{
+			HTTP:      proxyLayer0RouteSummary(snap.ProxyLayer0Routes.HTTP),
+			WSSPhaseF: proxyLayer0RouteSummary(snap.ProxyLayer0Routes.WSSPhaseF),
+		},
+		StreamcutFires:         int64(snap.StreamcutFired),
+		RepdetRewrites:         int64(snap.RepdetResponsesRewritten),
+		RepdetBytesSaved:       int64(snap.RepdetBytesSaved),
+		StaleReadBlocks:        int64(snap.StaleReadBlocksReplaced),
+		ObsoletePruneBlocks:    int64(snap.ObsoleteReadBlocksPruned),
+		StopSeqInjections:      int64(snap.StopSeqRequestsModified),
+		BeterseInjections:      int64(snap.BeterseInjections),
+		QualityABRolledBack:    ab.RolledBack,
+		QualityABControlFail:   ab.ControlFailRate,
+		QualityABTreatmentFail: ab.TreatmentFailRate,
 	}
 	if s.USDPerMillionTokens > 0 && out.OutputTokensSaved > 0 {
 		out.CostUSD = float64(out.OutputTokensSaved) / 1_000_000.0 * s.USDPerMillionTokens
 	}
 	return out
+}
+
+func proxyLayer0RouteSummary(t ProxyLayer0RouteTelemetry) control.ProxyLayer0RouteSummary {
+	return control.ProxyLayer0RouteSummary{
+		ToolResults:      int64(t.ToolResultBlocks),
+		ToolMisses:       int64(t.ToolUseUnresolved),
+		Commands:         int64(t.CommandResolvedBlocks),
+		CommandMisses:    int64(t.CommandUnresolved),
+		ReadAttempts:     int64(t.ReadDeltaAttempts),
+		ReadMisses:       int64(t.ReadDeltaMisses),
+		RequestsModified: int64(t.RequestsModified),
+		TokensSaved:      int64(t.TokensSaved),
+		BlocksModified:   int64(t.BlocksModified),
+		ReadDeltaBlocks:  int64(t.ReadDeltaBlocks),
+		CapturedBlocks:   int64(t.CapturedBlocks),
+		EnvelopeBlocks:   int64(t.EnvelopeBlocks),
+	}
 }
 
 // NoopIndistProbe is a placeholder probe used until T198 wires the

@@ -146,26 +146,50 @@ type CodexRouteState struct {
 
 // SavingsSummary rolls up Phase F counters for the dashboard tile.
 type SavingsSummary struct {
-	InputTokensSaved        int64   `json:"input_tokens_saved"`
-	OutputTokensSaved       int64   `json:"output_tokens_saved"`
-	CostUSD                 float64 `json:"cost_usd"`
-	ProxyLayer0ToolResults  int64   `json:"proxy_layer0_tool_result_blocks"`
-	ProxyLayer0Commands     int64   `json:"proxy_layer0_command_resolved_blocks"`
-	ProxyLayer0ReadAttempts int64   `json:"proxy_layer0_read_delta_attempts"`
-	ProxyLayer0Blocks       int64   `json:"proxy_layer0_blocks"`
-	ProxyLayer0ReadDelta    int64   `json:"proxy_layer0_read_delta_blocks"`
-	ProxyLayer0Captured     int64   `json:"proxy_layer0_captured_output_blocks"`
-	ProxyLayer0Envelope     int64   `json:"proxy_layer0_codex_exec_envelope_blocks"`
-	StreamcutFires          int64   `json:"streamcut_fires"`
-	RepdetRewrites          int64   `json:"repdet_rewrites"`
-	RepdetBytesSaved        int64   `json:"repdet_bytes_saved"`
-	StaleReadBlocks         int64   `json:"stale_read_blocks"`
-	ObsoletePruneBlocks     int64   `json:"obsolete_prune_blocks"`
-	StopSeqInjections       int64   `json:"stop_seq_injections"`
-	BeterseInjections       int64   `json:"beterse_injections"`
-	QualityABRolledBack     bool    `json:"quality_ab_rolled_back"`
-	QualityABControlFail    float64 `json:"quality_ab_control_failure_rate"`
-	QualityABTreatmentFail  float64 `json:"quality_ab_treatment_failure_rate"`
+	InputTokensSaved         int64                    `json:"input_tokens_saved"`
+	OutputTokensSaved        int64                    `json:"output_tokens_saved"`
+	CostUSD                  float64                  `json:"cost_usd"`
+	ProxyLayer0ToolResults   int64                    `json:"proxy_layer0_tool_result_blocks"`
+	ProxyLayer0ToolMisses    int64                    `json:"proxy_layer0_tool_use_unresolved_blocks"`
+	ProxyLayer0Commands      int64                    `json:"proxy_layer0_command_resolved_blocks"`
+	ProxyLayer0CommandMisses int64                    `json:"proxy_layer0_command_unresolved_blocks"`
+	ProxyLayer0ReadAttempts  int64                    `json:"proxy_layer0_read_delta_attempts"`
+	ProxyLayer0ReadMisses    int64                    `json:"proxy_layer0_read_delta_misses"`
+	ProxyLayer0Blocks        int64                    `json:"proxy_layer0_blocks"`
+	ProxyLayer0ReadDelta     int64                    `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0Captured      int64                    `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0Envelope      int64                    `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Routes        ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
+	StreamcutFires           int64                    `json:"streamcut_fires"`
+	RepdetRewrites           int64                    `json:"repdet_rewrites"`
+	RepdetBytesSaved         int64                    `json:"repdet_bytes_saved"`
+	StaleReadBlocks          int64                    `json:"stale_read_blocks"`
+	ObsoletePruneBlocks      int64                    `json:"obsolete_prune_blocks"`
+	StopSeqInjections        int64                    `json:"stop_seq_injections"`
+	BeterseInjections        int64                    `json:"beterse_injections"`
+	QualityABRolledBack      bool                     `json:"quality_ab_rolled_back"`
+	QualityABControlFail     float64                  `json:"quality_ab_control_failure_rate"`
+	QualityABTreatmentFail   float64                  `json:"quality_ab_treatment_failure_rate"`
+}
+
+type ProxyLayer0RouteSummary struct {
+	ToolResults      int64 `json:"tool_result_blocks"`
+	ToolMisses       int64 `json:"tool_use_unresolved_blocks"`
+	Commands         int64 `json:"command_resolved_blocks"`
+	CommandMisses    int64 `json:"command_unresolved_blocks"`
+	ReadAttempts     int64 `json:"read_delta_attempts"`
+	ReadMisses       int64 `json:"read_delta_misses"`
+	RequestsModified int64 `json:"requests_modified"`
+	TokensSaved      int64 `json:"tokens_saved"`
+	BlocksModified   int64 `json:"blocks_modified"`
+	ReadDeltaBlocks  int64 `json:"read_delta_blocks"`
+	CapturedBlocks   int64 `json:"captured_output_blocks"`
+	EnvelopeBlocks   int64 `json:"codex_exec_envelope_blocks"`
+}
+
+type ProxyLayer0RoutesSummary struct {
+	HTTP      ProxyLayer0RouteSummary `json:"http"`
+	WSSPhaseF ProxyLayer0RouteSummary `json:"wss_phasef"`
 }
 
 // WSSState reports the transparent Codex WebSocket MITM bridge. It is
