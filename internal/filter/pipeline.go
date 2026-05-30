@@ -107,6 +107,7 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 		{"tier1_vitest_jest_json", func() ([]byte, bool) { return TryCompactVitestJSON(argv, stdout) }},
 		{"tier1_pytest_json", func() ([]byte, bool) { return TryCompactPytestJSON(argv, stdout) }},
 		{"tier1_cargo_test_json", func() ([]byte, bool) { return TryCompactCargoTestJSON(argv, stdout) }},
+		{"tier1_eslint_json", func() ([]byte, bool) { return TryCompactEslintJSON(argv, stdout) }},
 		// Tier-2: hand-written Go compactors (regex/heuristic-based).
 		{"git_status", func() ([]byte, bool) { return TryCompactGitStatus(argv, stdout) }},
 		{"git_diff", func() ([]byte, bool) { return TryCompactGitDiff(argv, stdout) }},
