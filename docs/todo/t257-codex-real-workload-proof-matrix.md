@@ -1,6 +1,6 @@
 # TASK 257: Codex real-workload proof matrix
 
-Status: [~] ACTIVE - CLI/Desktop proof matrix passed; formal workday windows remain
+Status: [x] DONE - CLI/Desktop proof matrix and workday windows passed
 Priority: P0 - required before claiming max savings with no model/workflow drawdown
 Scope: Codex CLI and Codex Desktop through scoped WSS Phase-F. Build a repeatable
 capture, replay, and workday-proof matrix for all default-auto savings mechanisms.
@@ -51,8 +51,8 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
       `wss-audit`/`wss-ab-replay` output cannot summarize all required gates.
 - [x] Run 5 CLI captures and replay them.
 - [x] Run 5 Desktop captures and replay them.
-- [ ] Run CLI and Desktop workday windows.
-- [ ] Produce a content-free proof table in `docs/operation-log.md` and summarize
+- [x] Run CLI and Desktop workday windows.
+- [x] Produce a content-free proof table in `docs/operation-log.md` and summarize
       default-auto readiness in `docs/documentation.md`.
 
 ## Notes
@@ -143,6 +143,17 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   gate_passed=true. The replay tool emitted benign scoped-desktop-CA warnings
   from a temporary HOME during replay; the captures themselves use the no-CA
   app-server WSS path.
+- 2026-05-30: Formal `workday-savings start|finish` windows are complete. Clean
+  CLI positive window: `git status --short .`, exit 0, 372 billable WSS-input
+  tokens saved, phasef_bridged=1, compressed_messages_mutated=1,
+  frames_reencoded=1, codex_exec_envelope_blocks=1, parse_failures=0,
+  degraded_sessions=0, compression_errors=0. Clean Desktop positive window:
+  `rg -n TODO /tmp/t257-workday-desktop/repo`, 382 billable WSS-input tokens
+  saved, phasef_bridged=2, compressed_messages_mutated=1, frames_reencoded=1,
+  codex_exec_envelope_blocks=1, parse_failures=0, degraded_sessions=0,
+  compression_errors=0. A larger mixed CLI/Desktop prompt also produced savings
+  but hit an upstream Codex `400 invalid_request` during final response, so it
+  is documented as non-gating evidence and not counted as the clean workday pass.
 
 ## Deviations
 

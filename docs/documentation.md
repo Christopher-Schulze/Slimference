@@ -388,6 +388,22 @@ repair timestamps, last error, and bounded recert log path. Workday windows can
 therefore explain whether savings were active, bridged, repaired, or in
 fallback instead of only reporting token deltas.
 
+The 2026-05-30 T257 breadth gate completed with 13 local scoped WSS captures
+and two formal workday windows. The capture matrix covered 7 CLI captures,
+6 Desktop captures, all 10 required workload classes, 9 positive-savings
+captures, 4 expected-zero controls, `lost=0` in A/B replay, and
+`captures_with_issues=0`. The clean CLI workday window saved 372 billable
+WSS-input tokens on an archive-backed `git status --short` workload with
+`phasef_bridged=1`, `compressed_messages_mutated=1`, `frames_reencoded=1`, and
+zero parse, degraded-session, or compression errors. The clean Desktop workday
+window saved 382 billable WSS-input tokens on an archive-backed `rg -n TODO`
+workload with `phasef_bridged=2`, `compressed_messages_mutated=1`,
+`frames_reencoded=1`, and zero parse, degraded-session, or compression errors.
+This proves representative CLI/Desktop WSS savings breadth for deterministic
+default-auto reducers. It does not promote similar-output chunk dedup beyond the
+existing conservative policy: the similar-files capture stayed expected-zero /
+net-negative for default-auto.
+
 `go run ./scripts/utils wss-audit` also reports a content-free re-read canary:
 the number of WSS request summaries that repeated a resolved read/tool key and
 the total repeated count. A non-zero canary is not automatically bad, because

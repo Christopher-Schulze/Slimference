@@ -3902,8 +3902,21 @@ Additional CLI captures:
 
 Honest boundaries:
 - The matrix proves replay safety and representative CLI/Desktop WSS savings
-  breadth. It is not a replacement for formal `workday-savings start|finish`
-  windows; those remain open in T257.
+  breadth.
+- Formal clean `workday-savings start|finish` windows now also passed:
+  - CLI clean positive window: `git status --short .`, Codex exit 0, 372
+    billable WSS-input tokens saved, `phasef_bridged=1`,
+    `compressed_messages_mutated=1`, `frames_reencoded=1`,
+    `codex_exec_envelope_blocks=1`, and zero parse, degraded-session, or
+    compression errors.
+  - Desktop clean positive window: `rg -n TODO /tmp/t257-workday-desktop/repo`,
+    382 billable WSS-input tokens saved, `phasef_bridged=2`,
+    `compressed_messages_mutated=1`, `frames_reencoded=1`,
+    `codex_exec_envelope_blocks=1`, and zero parse, degraded-session, or
+    compression errors.
+- A larger mixed CLI/Desktop workday prompt also produced WSS savings, but hit
+  upstream Codex `400 invalid_request` during final response. It remains useful
+  diagnostic evidence, not the clean workday gate.
 - Similar-files chunk dedup stayed expected-zero/negative for default-auto in
   this matrix. Do not promote more aggressive similar-output dedup from this
   evidence alone.
