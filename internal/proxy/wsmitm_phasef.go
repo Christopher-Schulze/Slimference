@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/slimference/slimference/internal/outstop/repdet"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
 	"github.com/slimference/slimference/internal/qualityab"
+	"github.com/slimference/slimference/internal/servermirror"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/staleread"
 	"github.com/slimference/slimference/internal/tokens"
@@ -95,6 +97,25 @@ func wsRequestBodyCandidate(env *wsmitm.Envelope) bool {
 	return jsonObject(env.Body) || jsonObject(env.Request) || wsEnvelopeLooksLikeRequestBody(env)
 }
 
+// wssShadowMirror is the T254 server-state mirror running in SHADOW mode on the
+// WSS path: it predicts how much of each frame the server already holds and
+// records forwarded content, as telemetry only. It never mutates a frame. The
+// data decides whether a mirror-backed mutation is worth building.
+var wssShadowMirror = servermirror.New()
+
+// recordShadowMirror predicts the new frame's pre-pipeline content against the
+// mirror (content the server already holds, beyond the reducers that already
+// ran), then records the forwarded content. Returns the prediction. Pure shadow:
+// no frame is changed.
+func recordShadowMirror(sessionID string, pre, forwarded []types.Message) servermirror.Report {
+	if sessionID == "" {
+		return servermirror.Report{}
+	}
+	rep := wssShadowMirror.Predict(sessionID, pre)
+	wssShadowMirror.Observe(sessionID, forwarded)
+	return rep
+}
+
 func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	a.counters.requestsSeen.Add(1)
 	body, replace, ok := wsRequestBody(env)
@@ -116,6 +137,19 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		a.toolUses[id] = use
 	}
 	a.mu.Unlock()
+	// T254 server-state mirror, SHADOW only: predict referenceable content the
+	// server already holds (pre-pipeline = full model intent) and record this
+	// frame's forwarded content. Telemetry-only; never changes a frame.
+	if sid := wsCodexSessionID(body); sid != "" {
+		pre, _, _ := extractMessages(types.CodexChatGPT, body)
+		if rep := recordShadowMirror(sid, pre, messages); rep.ReferenceableBlocks > 0 {
+			slog.Info("wss server-state mirror shadow",
+				"session", sid,
+				"total_blocks", rep.Blocks,
+				"referenceable_blocks", rep.ReferenceableBlocks,
+				"predicted_referenceable_bytes", rep.PotentialSavedBytes)
+		}
+	}
 	if !changed {
 		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "", reReadCount)
 		return false
