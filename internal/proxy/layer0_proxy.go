@@ -316,6 +316,17 @@ func readDeltaEligible(sessionID, commandLine string) bool {
 	return strings.TrimSpace(sessionID) != "" && filter.ReadPathFromCommandLine(commandLine) != ""
 }
 
+func proxyLayer0QualityToolKey(commandLine string) string {
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		return ""
+	}
+	if path := filter.ReadPathFromCommandLine(commandLine); path != "" {
+		return "read:" + filepath.Clean(path)
+	}
+	return "command:" + commandLine
+}
+
 func compactProxyLayer0Text(commandLine, text string, ctx filter.FileReadContext) (string, bool) {
 	out, changed, _ := compactProxyLayer0TextDetailed(commandLine, text, ctx)
 	return out, changed

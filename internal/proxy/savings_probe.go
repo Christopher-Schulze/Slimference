@@ -60,8 +60,8 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 		QualityABControlFail:   ab.ControlFailRate,
 		QualityABTreatmentFail: ab.TreatmentFailRate,
 	}
-	if s.USDPerMillionTokens > 0 && out.OutputTokensSaved > 0 {
-		out.CostUSD = float64(out.OutputTokensSaved) / 1_000_000.0 * s.USDPerMillionTokens
+	if s.USDPerMillionTokens > 0 && out.InputTokensSaved > 0 {
+		out.CostUSD = float64(out.InputTokensSaved) / 1_000_000.0 * s.USDPerMillionTokens
 	}
 	return out
 }

@@ -21,6 +21,8 @@ type wssAuditReport struct {
 	UniqueSessions         int                      `json:"unique_sessions"`
 	MissingSessionID       int                      `json:"missing_session_id"`
 	PreviousResponseIDUsed int                      `json:"previous_response_id_used"`
+	ReReadRequests         int                      `json:"re_read_requests"`
+	ReReadCount            int                      `json:"re_read_count"`
 	PositiveSavings        int                      `json:"positive_savings_requests"`
 	TokensSaved            int                      `json:"tokens_saved"`
 	Since                  *time.Time               `json:"since,omitempty"`
@@ -37,6 +39,7 @@ type wssAuditSessionSummary struct {
 	Requests               int       `json:"requests"`
 	PhaseFRequests         int       `json:"phasef_requests"`
 	PreviousResponseIDUsed int       `json:"previous_response_id_used"`
+	ReReadCount            int       `json:"re_read_count"`
 	TokensSaved            int       `json:"tokens_saved"`
 	FirstSeen              time.Time `json:"first_seen,omitempty"`
 	LastSeen               time.Time `json:"last_seen,omitempty"`
@@ -218,6 +221,10 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		if summary.PreviousResponseIDUsed {
 			report.PreviousResponseIDUsed++
 		}
+		if summary.ReReadCount > 0 {
+			report.ReReadRequests++
+			report.ReReadCount += summary.ReReadCount
+		}
 		if summary.Tokens.Saved > 0 {
 			report.PositiveSavings++
 			report.TokensSaved += summary.Tokens.Saved
@@ -241,6 +248,7 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 		if summary.PreviousResponseIDUsed {
 			stats.PreviousResponseIDUsed++
 		}
+		stats.ReReadCount += summary.ReReadCount
 		stats.TokensSaved += maxInt(0, summary.Tokens.Saved)
 		if !summary.Timestamp.IsZero() {
 			if stats.FirstSeen.IsZero() || summary.Timestamp.Before(stats.FirstSeen) {
@@ -323,6 +331,9 @@ func wssAuditNotes(report wssAuditReport) []string {
 	if report.PhaseFRequests > 0 && report.PreviousResponseIDUsed == 0 {
 		notes = append(notes, "No previous_response_id usage observed; this may be a first-turn or non-delta capture.")
 	}
+	if report.ReReadCount > 0 {
+		notes = append(notes, "WSS re-read canary observed repeated tool keys; review alongside savings to distinguish useful repeat reads from possible context-recall pressure.")
+	}
 	return notes
 }
 
@@ -351,6 +362,7 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	fmt.Fprintf(w, "unique session ids:       %d\n", report.UniqueSessions)
 	fmt.Fprintf(w, "missing session ids:      %d\n", report.MissingSessionID)
 	fmt.Fprintf(w, "previous_response_id:     %d\n", report.PreviousResponseIDUsed)
+	fmt.Fprintf(w, "re-read requests/count:   %d / %d\n", report.ReReadRequests, report.ReReadCount)
 	fmt.Fprintf(w, "positive savings reqs:    %d\n", report.PositiveSavings)
 	fmt.Fprintf(w, "input tokens saved:       %d\n", report.TokensSaved)
 	fmt.Fprintf(w, "gate:                     %s\n", passFail(report.GatePassed))
@@ -369,9 +381,9 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	if len(report.Sessions) > 0 {
 		fmt.Fprintln(w, "\nSessions:")
 		for _, session := range report.Sessions {
-			fmt.Fprintf(w, "  %-32s requests=%d phasef=%d prev_id=%d saved=%d\n",
+			fmt.Fprintf(w, "  %-32s requests=%d phasef=%d prev_id=%d reread=%d saved=%d\n",
 				truncateMiddle(session.SessionID, 32), session.Requests, session.PhaseFRequests,
-				session.PreviousResponseIDUsed, session.TokensSaved)
+				session.PreviousResponseIDUsed, session.ReReadCount, session.TokensSaved)
 		}
 	}
 	if len(report.Notes) > 0 {

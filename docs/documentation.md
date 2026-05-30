@@ -308,6 +308,14 @@ or the delta is not shorter, the original content is sent unchanged. This keeps
 the savings path reconstructable and fail-open while improving repeat-read
 hit-rate for both WSS and HTTP Codex traffic.
 
+Model-facing readcache replacements use neutral read-note wording and preserve
+the `local-archive://<id>` pattern without naming Slimference inside tool
+output. This keeps the mechanical recovery handle while reducing prompt
+contamination from product-specific marker text. Archive expansion remains
+opportunistic: the proxy can expand a later incoming request that quotes a
+stored URI, but no WSS system/developer instruction is injected by default to
+teach that behavior.
+
 `go run ./scripts/utils workday-savings start|finish` is the real-workday
 measurement ceremony. `start` captures a baseline from `/admin/state` (and
 optionally the filter DB); `finish` captures the current state and prints the
@@ -320,6 +328,21 @@ bridge availability, `needs_recert`, fallback reason, recert status, attempt id,
 repair timestamps, last error, and bounded recert log path. Workday windows can
 therefore explain whether savings were active, bridged, repaired, or in
 fallback instead of only reporting token deltas.
+
+`go run ./scripts/utils wss-audit` also reports a content-free re-read canary:
+the number of WSS request summaries that repeated a resolved read/tool key and
+the total repeated count. A non-zero canary is not automatically bad, because
+repeat reads are also the highest-value savings workload. It is the live signal
+to compare with positive savings, recent-edit guards, and future comprehension
+A/B results when deciding whether a session needs looser compression.
+
+Savings-proven and comprehension-preserved are intentionally separate claims.
+Positive mutation and input-token counters prove Codex WSS savings for a
+workload. They do not, by themselves, prove that every future response preserves
+model comprehension. Deterministic reducers stay guarded by reconstruction,
+token-decrease checks, recent-edit observations, content-free canaries, and
+byte-equal fail-open; broader semantic compression or archive-instruction
+recovery requires separate fixture and live proof before default-on promotion.
 
 ---
 
@@ -1489,6 +1512,9 @@ adapter:
 - server-to-client output item frames teach the adapter session-local tool-call
   metadata, so later client-to-server `function_call_output` frames can compact
   tool output even when Codex splits the request state across WSS messages
+- request-body summaries record repeated resolved read/tool keys as a re-read
+  canary, so drift analysis can see context-recall pressure without logging raw
+  tool output
 - server-to-client text deltas run repdet
 - terminal response payloads stay byte-equal on WSS to avoid double-counting
   streaming repdet savings or corrupting final code/patch text

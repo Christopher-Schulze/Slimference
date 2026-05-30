@@ -21,7 +21,7 @@ import (
 // (Codex exec envelope around the payload, exec_command tool with bash -lc
 // wrapper, OpenAI Responses-API JSON-encoded arguments string,
 // prompt_cache_key based session id) and asserts that the second and third
-// reads mutate, shrink, and carry the "Slimference delta for <path>"
+// reads mutate, shrink, and carry the "Read delta for <path>"
 // marker. The readcache is isolated to t.TempDir() so the test does not
 // touch ~/.slimference.
 func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
@@ -129,7 +129,7 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 	if post2 >= pre2 {
 		t.Fatalf("read #2 expected size shrinkage; pre=%d post=%d", pre2, post2)
 	}
-	wantMarker := []byte("Slimference delta for " + path)
+	wantMarker := []byte("Read delta for " + path)
 	if !bytes.Contains(raw2, wantMarker) {
 		t.Fatalf("read #2 missing delta marker %q; first 600 bytes: %s", wantMarker, raw2[:min(600, len(raw2))])
 	}
@@ -350,7 +350,7 @@ func TestWSPhaseFAdditionalCodexToolShapesProduceDeltaMarkers(t *testing.T) {
 			if post >= pre {
 				t.Fatalf("expected repeated %s output to shrink; pre=%d post=%d", fixture.name, pre, post)
 			}
-			wantMarker := []byte("Slimference delta for " + expectedPath)
+			wantMarker := []byte("Read delta for " + expectedPath)
 			if !bytes.Contains(raw, wantMarker) {
 				t.Fatalf("missing delta marker %q; first 700 bytes: %s", wantMarker, raw[:min(700, len(raw))])
 			}

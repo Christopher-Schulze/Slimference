@@ -74,7 +74,7 @@ func TestEvaluate_ChangedFullReadBlocksWithDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Type != DecisionBlock || !strings.Contains(decision.Reason, "Slimference delta") {
+	if decision.Type != DecisionBlock || !strings.Contains(decision.Reason, "Read delta") {
 		t.Fatalf("unexpected decision: %#v", decision)
 	}
 }

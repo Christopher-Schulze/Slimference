@@ -3238,3 +3238,37 @@ Interpretation:
 - Savings remain workload-dependent. Small chats or no repeated/reducible tool
   output can still produce zero savings, but the Desktop path itself is no
   longer merely route-ready.
+- The two savings figures are different windows, not conflicting facts:
+  `wss-audit --since=...` reports the fresh decisions-log window, while
+  `/admin/state` reports daemon lifetime / dispatcher counters at read time.
+  Future proof language must name the source/window.
+
+## 2026-05-30 - T248 WSS drift canary and marker/accounting hardening
+
+Goal: address the remaining product-path drift and honesty findings without
+turning speculative mitigations into default behavior.
+
+Changes:
+- WSS request-body summaries now record a content-free re-read canary:
+  repeated resolved read/tool keys per request and per audit window. The signal
+  is surfaced by `wss-audit` as re-read request/count totals.
+- `wsCodexSessionID` now prefers per-turn Codex metadata before
+  `prompt_cache_key` when both are present. `prompt_cache_key` remains only the
+  last-resort namespace for frames without stronger session identity.
+- Readcache marker wording is neutralized. Changed-read and unchanged-read
+  replacements no longer inject the Slimference product name into model-facing
+  tool output, while keeping `local-archive://` URI patterns intact.
+- `SavingsProbe` cost estimates now use billable input tokens saved instead of
+  output-wire byte telemetry.
+
+Interpretation:
+- The re-read canary is a sensor, not an automatic rollback. Repeat-read
+  workloads are valid and valuable; a spike becomes suspicious only when it
+  persists without useful savings or after lossy/future semantic compression.
+- Archive-reinjection via an injected WSS instruction remains proof-gated and
+  default-off. It can be a recovery mechanism later, but any new persistent
+  instruction requires comprehension proof before promotion.
+- Savings-proven and comprehension-preserved are separate claims. This slice
+  improves the live signal and reduces marker contamination; the stronger
+  no-drawdown proof still needs the offline A/B harness before broad semantic
+  WSS expansion.

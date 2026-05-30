@@ -192,6 +192,19 @@ The product target is strict:
 - [x] Split billable input savings from output-wire telemetry in operator
   reporting. `aggregate-savings` now explicitly states that Output-Reduce
   counters are not included in billable input-token totals.
+- [x] Add WSS re-read canary telemetry to the product path. Each parsed
+  Codex WSS request now records repeated read/tool keys in the same
+  content-free request summary used by `wss-audit`, so future drift analysis
+  can distinguish useful repeat-read savings from possible context-recall
+  pressure without logging raw tool output.
+- [x] Neutralize model-facing readcache marker wording. Read-delta and
+  unchanged-read replacements no longer inject the product name into tool
+  output, while preserving archive URI patterns and fail-open reconstruction.
+- [x] Harden WSS session identity preference. Codex turn metadata now wins over
+  `prompt_cache_key` when both are present; `prompt_cache_key` remains a last
+  resort for frames without a stronger per-thread/per-session identifier.
+- [x] Make operator cost estimates billable-input based. The savings probe now
+  estimates cost from input tokens saved, not output-wire byte telemetry.
 
 ## Notes
 
@@ -274,6 +287,26 @@ The product target is strict:
 - The follow-up newline regression in changed-read hunks is fixed: the delta
   builder preserves existing line terminators instead of adding a second blank
   line between each diff row.
+- WSS request-body summaries now carry `re_read_count`. This is a drift canary,
+  not an automatic failure verdict: deliberate repeat-read workloads are also
+  the highest-value savings workloads, so the counter must be interpreted
+  alongside positive savings, recent-edit state, and future comprehension
+  harness results.
+- `wss-audit` reports re-read request/count totals. A non-zero value says the
+  model requested the same resolved read/tool key again in the same WSS session;
+  it does not log the file content, command output, or headers.
+- Model-facing readcache markers now use neutral read notes instead of naming
+  Slimference. This reduces prompt-contamination risk while keeping the marker
+  mechanically parseable and shorter than the original content.
+- The archive-reinjection system prompt contract remains proof-gated and is not
+  default-on. It is a real recovery candidate, but injecting any new persistent
+  instruction into Codex WSS requires the future comprehension harness before it
+  can be promoted safely.
+- The Desktop proof produced two defensible savings windows, not a
+  contradiction: `wss-audit --since=...` reported the fresh decisions-log window
+  (`tokens_saved=3151`), while `/admin/state` reported the daemon lifetime /
+  dispatcher counter at read time (`input_tokens_saved=5966`). Proof language
+  must name which window it cites.
 - WSS edit observation is a guard, not a new mutation surface. It records only
   path-level edit evidence derived from reconstructable tool metadata or patch
   headers, then lets the existing readcache recent-edit policy decide.
@@ -288,6 +321,12 @@ The product target is strict:
   mutations stay protected by schema reconstruction, token-decrease checks,
   recent-edit guards, and byte-equal fail-open behavior rather than cohort
   rollout.
+- Savings-proven and comprehension-preserved are separate claims. Current WSS
+  proofs establish route, mutation, and input-token savings for repeat-read
+  workloads. Comprehension preservation is supported by conservative reducers
+  and fail-open guards, but the stronger claim requires the future re-read
+  canary interpretation plus an offline A/B harness before broader semantic
+  compression or archive-instruction recovery can be default-on.
 - Fresh 2026-05-30 CLI session-key audit: two separate scoped Codex CLI
   conversations produced two distinct non-empty WSS session ids
   (`019e7649-2076-7030-a341-6b3ea00ae448` and

@@ -98,7 +98,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		return false
 	}
 	a.counters.requestBodiesSeen.Add(1)
-	mutated, messages, changed, l0Stats := a.applyInputPipeline(body)
+	mutated, messages, changed, l0Stats, reReadCount := a.applyInputPipeline(body)
 	if len(messages) > 0 {
 		a.counters.requestMessagesIndexed.Add(1)
 	}
@@ -113,25 +113,27 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	}
 	a.mu.Unlock()
 	if !changed {
-		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "")
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "", reReadCount)
 		return false
 	}
 	if err := replace(mutated); err != nil {
-		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "replace_failed")
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "replace_failed", reReadCount)
 		return false
 	}
 	a.counters.mutations.Add(1)
-	a.recordRequestPlan(body, mutated, messages, l0Stats, true, "")
+	a.recordRequestPlan(body, mutated, messages, l0Stats, true, "", reReadCount)
 	return true
 }
 
-func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats) {
+func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int) {
 	original := append([]byte(nil), body...)
 	out := append([]byte(nil), body...)
 	var l0Stats proxyLayer0Stats
+	reReadCount := 0
 	messages, _, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil && len(messages) > 0 {
 		rememberedToolUses := a.loadToolUses()
+		reReadCount = a.observeWSSQualityToolKeys(out, messages, rememberedToolUses)
 		a.observeWSSRecentEdits(out, messages, rememberedToolUses)
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
@@ -196,7 +198,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 		a.rememberWSSQualityCohort(recordCohort)
 	}
-	return out, messages, !bytes.Equal(original, out), l0Stats
+	return out, messages, !bytes.Equal(original, out), l0Stats, reReadCount
 }
 
 func (a *wsPhaseFAdapter) rememberWSSQualityCohort(cohort qualityab.Cohort) {
@@ -245,7 +247,43 @@ func (a *wsPhaseFAdapter) observeWSSRecentEdits(body []byte, messages []types.Me
 	}
 }
 
-func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string) {
+func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) int {
+	sessionID := wsCodexSessionID(body)
+	if sessionID == "" || a == nil || a.p == nil {
+		return 0
+	}
+	toolUses := proxyToolUseIndex(messages)
+	for id, use := range rememberedToolUses {
+		if _, ok := toolUses[id]; !ok {
+			toolUses[id] = use
+		}
+	}
+	turnID := wssPreviousResponseID(body)
+	seen := make(map[string]struct{})
+	reReads := 0
+	for _, msg := range messages {
+		for _, block := range msg.Content {
+			if block.Type != "tool_result" {
+				continue
+			}
+			use, _ := proxyResolveToolUseDetailed(block, toolUses)
+			key := proxyLayer0QualityToolKey(proxyLayer0CommandLine(use))
+			if key == "" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			if a.p.ObserveQualityToolKeyForTurn(sessionID, turnID, key) {
+				reReads++
+			}
+		}
+	}
+	return reReads
+}
+
+func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, reReadCount int) {
 	if a == nil || a.p == nil || a.p.debugRecorder == nil {
 		return
 	}
@@ -262,7 +300,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	if replaced && l0Stats.TokensSaved > 0 {
 		layersApplied = []int{0}
 	}
-	a.p.debugRecorder.Record(dbg.RequestSummary{
+	summary := dbg.RequestSummary{
 		RequestID:              newRequestIDFn(),
 		Timestamp:              time.Now(),
 		SessionID:              wsCodexSessionID(body),
@@ -291,6 +329,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			Profile: "wss_phasef",
 			Reason:  wssPlannerOutputReduceReason(replaced, l0Stats),
 		},
+		ReReadCount:    reReadCount,
 		NetSavedTokens: saved,
 		Plan: a.p.dryRunPlan(plannerInput{
 			provider:                    types.CodexChatGPT,
@@ -304,7 +343,9 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			liveCorpusConfidence:        a.p.plannerLiveCorpusConfidence(),
 			negativeSavingsHistory:      saved < 0,
 		}),
-	})
+	}
+	a.p.debugRecorder.Record(summary)
+	a.p.observeQuality(summary)
 }
 
 func wssPlannerContentClasses(messages []types.Message, l0Stats proxyLayer0Stats) []string {
@@ -331,11 +372,15 @@ func wssPlannerModel(body []byte) string {
 }
 
 func wssPreviousResponseIDAvailable(body []byte) bool {
+	return wssPreviousResponseID(body) != ""
+}
+
+func wssPreviousResponseID(body []byte) string {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return false
+		return ""
 	}
-	return rawJSONString(raw["previous_response_id"]) != ""
+	return rawJSONString(raw["previous_response_id"])
 }
 
 func wssPlannerOutputReduceReason(replaced bool, l0Stats proxyLayer0Stats) string {
@@ -545,16 +590,13 @@ func wsCodexSessionID(body []byte) string {
 			}
 		}
 	}
-	// Codex WSS (Responses API) carries no top-level conversation_id; the stable
-	// per-thread key is `prompt_cache_key`, with `client_metadata`'s
-	// `x-codex-turn-metadata` JSON holding the same session/thread id. Without
-	// this, the per-session read-delta context cannot accumulate across the
-	// delta-shaped Responses requests (each request sends only new input items
-	// plus `previous_response_id`), so repeated file reads are never compacted.
-	if s := rawJSONString(raw["prompt_cache_key"]); s != "" {
+	// Prefer Codex's explicit thread/session metadata over prompt_cache_key. The
+	// prompt cache key can be stable for a shared instruction prefix, while the
+	// turn metadata is the narrower readcache namespace when present.
+	if s := codexTurnMetadataSessionID(raw["client_metadata"]); s != "" {
 		return "codex-wss:" + s
 	}
-	if s := codexTurnMetadataSessionID(raw["client_metadata"]); s != "" {
+	if s := rawJSONString(raw["prompt_cache_key"]); s != "" {
 		return "codex-wss:" + s
 	}
 	return ""

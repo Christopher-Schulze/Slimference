@@ -602,7 +602,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	if _, rebuildErr := reconstructBody(types.CodexChatGPT, agedBody, aged); rebuildErr != nil {
 		t.Fatalf("precondition: stale read fixture cannot reconstruct: %v", rebuildErr)
 	}
-	mutated, _, changed, _ := adapter.applyInputPipeline(agedBody)
+	mutated, _, changed, _, _ := adapter.applyInputPipeline(agedBody)
 	if !changed || strings.Contains(string(mutated), "old file content") || !strings.Contains(string(mutated), "[stale read:") {
 		t.Fatalf("stale-read mutation failed changed=%v body=%s", changed, mutated)
 	}
@@ -617,7 +617,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	p = New(cfg)
 	adapter = (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	prunedBody := codexWSObsoleteReadBody(strings.Repeat("obsolete file content ", 80))
-	mutated, _, changed, _ = adapter.applyInputPipeline(prunedBody)
+	mutated, _, changed, _, _ = adapter.applyInputPipeline(prunedBody)
 	if !changed || strings.Contains(string(mutated), "obsolete file content") || !strings.Contains(string(mutated), "[obsolete:") {
 		t.Fatalf("obsolete-read mutation failed changed=%v body=%s", changed, mutated)
 	}
@@ -652,7 +652,7 @@ func TestWSPhaseFRequestCompactsCodexToolOutputLayer0(t *testing.T) {
 		"stream": true,
 	})
 
-	mutated, _, changed, _ := adapter.applyInputPipeline(body)
+	mutated, _, changed, _, _ := adapter.applyInputPipeline(body)
 	if !changed {
 		t.Fatal("expected WSS Layer 0 compaction")
 	}
@@ -700,7 +700,7 @@ func TestWSPhaseFRequestCompactsCodexResponseItemPayloadLayer0(t *testing.T) {
 		"stream": true,
 	})
 
-	mutated, _, changed, _ := adapter.applyInputPipeline(body)
+	mutated, _, changed, _, _ := adapter.applyInputPipeline(body)
 	if !changed {
 		t.Fatal("expected WSS Layer 0 compaction for response_item payload")
 	}
@@ -913,6 +913,9 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	if !summary.PreviousResponseIDUsed || summary.TotalMessages != 1 || summary.MessagesCompressed != 1 {
 		t.Fatalf("bad WSS body summary counters: %+v", summary)
 	}
+	if summary.ReReadCount != 1 {
+		t.Fatalf("WSS re-read canary not recorded: %+v", summary)
+	}
 	if summary.Tokens.Original <= summary.Tokens.Final || summary.NetSavedTokens <= 0 {
 		t.Fatalf("expected positive WSS planner token delta: %+v", summary.Tokens)
 	}
@@ -989,10 +992,9 @@ func TestWSCodexSessionIDFallbacks(t *testing.T) {
 }
 
 func TestWSCodexSessionIDFromCodexResponsesShape(t *testing.T) {
-	// Real Codex WSS (Responses API) carries no conversation_id; the stable
-	// per-thread key is prompt_cache_key, mirrored in client_metadata's
-	// x-codex-turn-metadata. Both must resolve so the per-session read-delta
-	// context can accumulate across delta-shaped requests.
+	// Real Codex WSS (Responses API) carries no conversation_id. The narrowest
+	// per-thread key is client_metadata's x-codex-turn-metadata when present;
+	// prompt_cache_key remains a fallback for frames that do not carry it.
 	pck := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_x","prompt_cache_key":"019e51d4-38fa-72c3-9212-69ed7d8936a0","input":[]}`)
 	if got := wsCodexSessionID(pck); got != "codex-wss:019e51d4-38fa-72c3-9212-69ed7d8936a0" {
 		t.Fatalf("prompt_cache_key not used as session key: %q", got)
@@ -1001,10 +1003,11 @@ func TestWSCodexSessionIDFromCodexResponsesShape(t *testing.T) {
 	if got := wsCodexSessionID(cm); got != "codex-wss:019e51d6-cf3b-7301-b492-aaaaaaaaaaaa" {
 		t.Fatalf("client_metadata thread/session id not used: %q", got)
 	}
-	// prompt_cache_key wins over client_metadata when both present (stable key).
+	// client_metadata wins over prompt_cache_key when both are present because
+	// prompt_cache_key can describe a shared cacheable prefix.
 	both := []byte(`{"prompt_cache_key":"pck-key","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"tm-key\"}"}}`)
-	if got := wsCodexSessionID(both); got != "codex-wss:pck-key" {
-		t.Fatalf("prompt_cache_key should win: %q", got)
+	if got := wsCodexSessionID(both); got != "codex-wss:tm-key" {
+		t.Fatalf("client_metadata should win: %q", got)
 	}
 }
 

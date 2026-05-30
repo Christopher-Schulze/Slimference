@@ -71,7 +71,7 @@ reduce in a single delta request.
   (81%) by `compactCodexExecEnvelope` + `filter.CompactCapturedOutputWithContext`.
   Reads #2 and #3 were reduced to 144b each (99%) by `compactProxyReadDelta`,
   which returned a delta marker of the form
-  `"Slimference delta for /tmp/.../target.md:\n+ Chunk ID: <new>\n- Chunk ID: <prev>\nFull content: local-archive://..."`.
+  `"Read delta for /tmp/.../target.md:\n+ Chunk ID: <new>\n- Chunk ID: <prev>\nFull content: local-archive://..."`.
 - [x] Verify the tool_use -> commandLine resolution fires for cross-turn
   `function_call_output` requests. Verified 2026-05-23: Codex tool name =
   `exec_command` (covered by `looksLikeShellTool`); arguments shape =
@@ -90,7 +90,7 @@ reduce in a single delta request.
   `workdir`, `yield_time_ms`, `max_output_tokens`), replays three
   `function_call_output` c2s requests with the Codex exec envelope wrapping a
   ~57KB synthetic markdown payload, and asserts: reads #2 and #3 mutate (replace=
-  true), shrink, carry `"Slimference delta for <path>"` in the post-pipeline raw
+  true), shrink, carry `"Read delta for <path>"` in the post-pipeline raw
   bytes, and roll up `>=2` Layer-0 modified requests with non-zero
   `ProxyLayer0TokensSaved`. Synthetic payload only; no private file contents.
   Runs in ~0.10s.
@@ -168,13 +168,14 @@ reduce in a single delta request.
   - codexCommandLineFromFields extracts `["bash","-lc","cat <path>"]` from
     `arguments`; `normalizeLayer0CommandLine` strips the `bash -lc` wrapper to
     `cat <path>`; `filter.ReadPathFromCommandLine` yields the path.
-  - wsCodexSessionID resolves `codex-wss:<prompt_cache_key>` so the per-session
-    readcache context keys correctly across the delta requests.
+  - wsCodexSessionID resolves the narrowest available Codex thread/session key,
+    with `prompt_cache_key` as a fallback, so the per-session readcache context
+    keys correctly across the delta requests.
   - Pipeline outcome on the capture: read #1 = 35567b -> 6558b (81%, via
     `compactCodexExecEnvelope` + `filter.CompactCapturedOutputWithContext`);
     reads #2/#3 = 35567b -> 144b each (99%, via `compactProxyReadDelta` ->
     `readcache.EvaluateObserved` -> `DecisionBlock` with reason
-    `"Slimference delta for ...:\n+ Chunk ID: <new>\n- Chunk ID: <prev>\nFull content: local-archive://..."`).
+    `"Read delta for ...:\n+ Chunk ID: <new>\n- Chunk ID: <prev>\nFull content: local-archive://..."`).
   - Daemon counters after session close: `phasef_bridged=1`,
     `frames_reencoded=3`, `compressed_messages_mutated=3`,
     `phasef_mutations=3`, `mutation_active=true`, `byte_bridge_only=false`,

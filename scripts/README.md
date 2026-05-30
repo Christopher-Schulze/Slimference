@@ -54,7 +54,7 @@ go run ./scripts/utils aggregate-savings --filter-db=~/.slimference/filter.db --
 go run ./scripts/utils aggregate-savings --admin-state-file=admin-state.json --json   # offline mode
 go run ./scripts/utils workday-savings start                                         # baseline for real workday savings
 go run ./scripts/utils workday-savings finish --filter-db=~/.slimference/filter.db   # flush-aware window delta
-go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session audit
+go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session/re-read audit
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --expect-distinct-sessions=2 --min-phasef=2  # fresh session-key gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-savings  # fresh savings gate
 go run ./scripts/utils tls-probe --profile=chromium_stable --json

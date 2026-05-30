@@ -24,6 +24,7 @@ func TestWSSAuditReport(t *testing.T) {
 			Path:                   "/backend-api/codex/responses",
 			RouteMode:              "websocket_phasef",
 			PreviousResponseIDUsed: true,
+			ReReadCount:            2,
 			Tokens:                 dbg.TokenCounts{Saved: 40},
 			Plan:                   &dbg.PlanSummary{ContentClasses: []string{"tool_output", "repeated_tool_output"}},
 		},
@@ -51,6 +52,9 @@ func TestWSSAuditReport(t *testing.T) {
 		report.PositiveSavings != 1 || report.TokensSaved != 40 {
 		t.Fatalf("bad WSS counters: %+v", report)
 	}
+	if report.ReReadRequests != 1 || report.ReReadCount != 2 {
+		t.Fatalf("bad re-read counters: %+v", report)
+	}
 	if report.ContentClasses["tool_output"] != 2 || report.ContentClasses["repeated_tool_output"] != 1 {
 		t.Fatalf("bad content classes: %+v", report.ContentClasses)
 	}
@@ -64,8 +68,9 @@ func TestWSSAuditReport(t *testing.T) {
 	if !foundMissing {
 		t.Fatalf("missing session bucket not present: %+v", report.Sessions)
 	}
-	if !strings.Contains(strings.Join(report.Notes, "\n"), "session id") {
-		t.Fatalf("expected session-id note, got %+v", report.Notes)
+	notes := strings.Join(report.Notes, "\n")
+	if !strings.Contains(notes, "session id") || !strings.Contains(notes, "re-read canary") {
+		t.Fatalf("expected session/re-read notes, got %+v", report.Notes)
 	}
 }
 
@@ -155,6 +160,7 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		t.Fatalf("runWSSAudit text code=%d stderr=%s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Phase-F requests:") ||
+		!strings.Contains(stdout.String(), "re-read requests/count:") ||
 		!strings.Contains(stdout.String(), "codex-wss:s1") {
 		t.Fatalf("text output missing details:\n%s", stdout.String())
 	}

@@ -281,7 +281,7 @@ func TestApplyProxyLayer0WithSessionRecentEditBypassesReadDeltaAndCommentStrip(t
 	msgs := proxyReadMessages(source)
 	out, saved := applyProxyLayer0WithSession(msgs, "sess-edit")
 	if strings.Contains(out[1].Content[0].Text, "Full content: local-archive://") ||
-		strings.Contains(out[1].Content[0].Text, "Slimference delta") ||
+		strings.Contains(out[1].Content[0].Text, "Read delta") ||
 		!strings.Contains(out[1].Content[0].Text, "// keep this recent edit comment") {
 		t.Fatalf("recent edit should bypass read delta and preserve content signal, saved=%d text=%q", saved, out[1].Content[0].Text)
 	}

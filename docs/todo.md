@@ -1493,9 +1493,13 @@ only and promotes the per-process Codex CLI runner for T209.
   --replace-existing` also passed the same WSS savings gate on a three-turn
   repeated-read workload (`tokens_saved=3151` in the decisions window;
   admin/state total `input_tokens_saved=5966`, `compressed_messages_mutated=2`,
-  zero parse/degrade/compression errors). Remaining work: future
-  capture-driven tool variants, measured L2/L3 upgrades, and broader real
-  workload measurements before T240.
+  zero parse/degrade/compression errors). The latest slice adds WSS re-read
+  canary telemetry to request summaries and `wss-audit`, neutralizes
+  model-facing readcache markers, prefers Codex turn metadata over
+  `prompt_cache_key` for WSS session identity, and makes operator cost
+  estimates billable-input based. Remaining work: future capture-driven tool
+  variants, measured L2/L3 upgrades, the offline comprehension A/B harness, and
+  broader real workload measurements before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H

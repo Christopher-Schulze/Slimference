@@ -125,7 +125,7 @@ func blockUnchanged(dir string, state *SessionState, entry *FileEntry, req Reque
 	}
 	decision := Decision{
 		Type:      DecisionBlock,
-		Reason:    fmt.Sprintf("Slimference blocked this Read: %s is already in context and unchanged.", req.FilePath),
+		Reason:    fmt.Sprintf("Read note: %s is already in context and unchanged.", req.FilePath),
 		BlockKind: BlockKindUnchanged,
 	}
 	return decision, RecordDecision(dir, decision)
@@ -216,7 +216,7 @@ func archiveObservedContent(archiveDir string, req Request, content string) (str
 }
 
 func unchangedReference(path string, archiveURI string) string {
-	return fmt.Sprintf("Slimference file reference for %s: unchanged since previous full read.\nFull content: %s", path, archiveURI)
+	return fmt.Sprintf("Read note for %s: unchanged since previous full read.\nFull content: %s", path, archiveURI)
 }
 
 func safeTurn(turnID string) string {
