@@ -240,6 +240,42 @@ func TestWSPhaseFReReadAfterCollapseRestoresFullRead(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFRecentReadFullPassConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	bodyText := strings.Repeat("recency protected read line\n", 80)
+	bodyForTurn := func(turnID, callID string) []byte {
+		return mustMarshal(map[string]any{
+			"model":                "gpt-5-codex",
+			"prompt_cache_key":     "recency-session",
+			"previous_response_id": turnID,
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": "src/recent.go"}},
+				{"type": "function_call_output", "call_id": callID, "output": bodyText},
+			},
+			"stream": true,
+		})
+	}
+
+	if _, _, changed, stats, _ := adapter.applyInputPipeline(bodyForTurn("resp-1", "read-1")); changed || stats.ReadDeltaMisses != 1 {
+		t.Fatalf("first read should seed, changed=%v stats=%+v", changed, stats)
+	}
+	second, _, changed, stats, _ := adapter.applyInputPipeline(bodyForTurn("resp-2", "read-2"))
+	if changed || stats.ReadDeltaAttempts != 1 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 ||
+		!strings.Contains(string(second), "recency protected read line") ||
+		strings.Contains(string(second), "local-archive://") {
+		t.Fatalf("recent cross-turn read should full-pass, changed=%v stats=%+v body=%s", changed, stats, second)
+	}
+}
+
 func TestWSPhaseFBeTerseInjectsIntoCodexResponsesInputForTreatment(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true

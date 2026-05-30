@@ -22,7 +22,7 @@ var (
 	readCacheWriteFile     = os.WriteFile
 	readCacheMarshalIndent = json.MarshalIndent
 	readCacheUnmarshal     = json.Unmarshal
-	readCacheSaveSession   = SaveSession
+	readCacheSaveSession   = SaveSessionAsync
 )
 
 const (
@@ -41,6 +41,10 @@ func DefaultDir(home string) string {
 }
 
 func LoadSession(dir string, sessionID string) (*SessionState, error) {
+	return loadSessionCached(dir, sessionID)
+}
+
+func loadSessionFromDisk(dir string, sessionID string) (*SessionState, error) {
 	safeID := sanitizeSessionID(sessionID)
 	path := sessionPath(dir, safeID)
 
@@ -70,6 +74,14 @@ func LoadSession(dir string, sessionID string) (*SessionState, error) {
 }
 
 func SaveSession(dir string, state *SessionState) error {
+	if err := saveSessionToDisk(dir, state); err != nil {
+		return err
+	}
+	rememberSessionClean(dir, state)
+	return nil
+}
+
+func saveSessionToDisk(dir string, state *SessionState) error {
 	if err := readCacheMkdirAll(dir, 0o755); err != nil {
 		return err
 	}

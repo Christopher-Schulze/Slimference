@@ -327,15 +327,17 @@ savings to commands such as repeated `git status`, `rg`, build/test reports,
 partial file ranges, or custom deterministic tools without introducing semantic
 summaries.
 
-Model-facing readcache replacements use neutral read-note wording and preserve
-the `local-archive://<id>` pattern without naming Slimference inside tool
-output. This keeps the mechanical recovery handle while reducing prompt
+Model-facing readcache replacements use neutral `[context-* ...]` markers and
+preserve the `local-archive://<id>` pattern without naming Slimference inside
+tool output. This keeps the mechanical recovery handle while reducing prompt
 contamination from product-specific marker text. Archive expansion remains
 opportunistic: the proxy can expand a later incoming request that quotes a
 stored URI. A neutral once-per-session WSS archive-recovery note exists behind
 `archive_recovery_note_enabled`; it is default-off and injects no product name.
 When enabled, it tells the model that `local-archive://<id>` may be requested if
-full elided content is needed.
+full elided content is needed. `read_delta_recent_full_pass_turns` is also
+default-off (`0`): operators can raise it after A/B proof to keep immediate
+cross-turn re-reads full when recency matters more than dedup savings.
 
 `go run ./scripts/utils workday-savings start|finish` is the real-workday
 measurement ceremony. `start` captures a baseline from `/admin/state` (and

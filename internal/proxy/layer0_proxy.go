@@ -32,11 +32,13 @@ const (
 )
 
 type codexLayer0Request struct {
-	Route             codexLayer0Route
-	Messages          []types.Message
-	SessionID         string
-	RememberedToolUse map[string]types.ContentBlock
-	SuppressedToolKey map[string]struct{}
+	Route               codexLayer0Route
+	Messages            []types.Message
+	SessionID           string
+	TurnID              string
+	RememberedToolUse   map[string]types.ContentBlock
+	SuppressedToolKey   map[string]struct{}
+	RecentFullPassTurns int
 }
 
 type codexLayer0Result struct {
@@ -135,7 +137,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.ReadDeltaAttempts++
 			}
 			readCommand := readRequestFromCommandLine(commandLine).FilePath != ""
-			afterText, changed := compactProxyReadDelta(req.SessionID, commandLine, block.Text, readCtx)
+			afterText, changed := compactProxyReadDelta(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
 			mechanism := proxyLayer0MechanismReadDelta
 			if readDeltaAttempted && !changed {
 				stats.ReadDeltaMisses++
@@ -398,7 +400,7 @@ func compactCodexExecEnvelope(commandLine, text string, ctx filter.FileReadConte
 	return header + string(compacted), true
 }
 
-func compactProxyReadDelta(sessionID, commandLine, text string, ctx filter.FileReadContext) (string, bool) {
+func compactProxyReadDelta(sessionID, turnID, commandLine, text string, ctx filter.FileReadContext, recentFullPassTurns int) (string, bool) {
 	req := readRequestFromCommandLine(commandLine)
 	if req.FilePath == "" || strings.TrimSpace(sessionID) == "" {
 		return "", false
@@ -408,10 +410,12 @@ func compactProxyReadDelta(sessionID, commandLine, text string, ctx filter.FileR
 		return "", false
 	}
 	decision, err := readcache.EvaluateObserved(readcache.DefaultDir(home), readcache.Request{
-		SessionID: sessionID,
-		FilePath:  req.FilePath,
-		Offset:    req.Offset,
-		Limit:     req.Limit,
+		SessionID:               sessionID,
+		TurnID:                  turnID,
+		FilePath:                req.FilePath,
+		Offset:                  req.Offset,
+		Limit:                   req.Limit,
+		RecentFullPassTurnLimit: recentFullPassTurns,
 	}, text, contentarchive.DefaultDir(home), ctx.RecentlyEdited)
 	if err != nil || decision.Type != readcache.DecisionBlock || decision.Reason == "" {
 		return "", false

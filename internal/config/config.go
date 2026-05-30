@@ -273,6 +273,11 @@ type OutputReduceConfig struct {
 	// ArchiveRecoveryNoteText overrides the neutral recovery note.
 	// Empty falls back to the built-in wording.
 	ArchiveRecoveryNoteText string `toml:"archive_recovery_note_text"`
+	// ReadDeltaRecentFullPassTurns keeps unchanged re-reads full when the
+	// previous read of the same path happened within the last N distinct
+	// turn IDs. Default 0 keeps current maximum-savings behavior until
+	// live A/B proof says the recency trade-off should be enabled.
+	ReadDeltaRecentFullPassTurns int `toml:"read_delta_recent_full_pass_turns"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
@@ -772,6 +777,9 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE_TEXT")); v != "" {
 		cfg.Compression.OutputReduce.ArchiveRecoveryNoteText = v
 	}
+	if n, ok := envIntOK("SLIMFERENCE_READ_DELTA_RECENT_FULL_PASS_TURNS"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = n
+	}
 }
 
 // validate checks that configuration values are within acceptable ranges.
@@ -886,6 +894,9 @@ func validate(cfg *Config) error {
 	}
 	if len(or.ArchiveRecoveryNoteText) > 1000 {
 		return fmt.Errorf("compression.output_reduce.archive_recovery_note_text must be <= 1000 bytes")
+	}
+	if or.ReadDeltaRecentFullPassTurns < 0 {
+		return fmt.Errorf("compression.output_reduce.read_delta_recent_full_pass_turns must be >= 0, got %d", or.ReadDeltaRecentFullPassTurns)
 	}
 	return nil
 }

@@ -342,14 +342,14 @@ func TestProxyReadDeltaWorkdirSeparatesRelativePaths(t *testing.T) {
 		return proxyLayer0CommandLine(types.ContentBlock{ToolName: "exec_command", ToolInput: input})
 	}
 	largeA := uniqueProxyReadPayload("alpha")
-	if out, changed := compactProxyReadDelta("sess-workdir", command(dirA), largeA, filter.FileReadContext{Mode: "scan"}); changed || out != "" {
+	if out, changed := compactProxyReadDelta("sess-workdir", "", command(dirA), largeA, filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
 		t.Fatalf("first workdir A read must not delta, changed=%v out=%q", changed, out)
 	}
-	if out, changed := compactProxyReadDelta("sess-workdir", command(dirA), largeA, filter.FileReadContext{Mode: "scan"}); !changed || !strings.Contains(out, dirA) {
+	if out, changed := compactProxyReadDelta("sess-workdir", "", command(dirA), largeA, filter.FileReadContext{Mode: "scan"}, 0); !changed || !strings.Contains(out, dirA) {
 		t.Fatalf("second workdir A read should delta against A path, changed=%v out=%q", changed, out)
 	}
 	largeB := uniqueProxyReadPayload("beta")
-	if out, changed := compactProxyReadDelta("sess-workdir", command(dirB), largeB, filter.FileReadContext{Mode: "scan"}); changed || out != "" {
+	if out, changed := compactProxyReadDelta("sess-workdir", "", command(dirB), largeB, filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
 		t.Fatalf("first workdir B read must not reuse workdir A cache, changed=%v out=%q", changed, out)
 	}
 }
@@ -466,10 +466,10 @@ func TestProxyLayer0SmallHelpers(t *testing.T) {
 
 func TestProxyReadDeltaFailOpenBranches(t *testing.T) {
 	t.Parallel()
-	if out, changed := compactProxyReadDelta("", "cat main.go", "content", filter.FileReadContext{Mode: "scan"}); changed || out != "" {
+	if out, changed := compactProxyReadDelta("", "", "cat main.go", "content", filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
 		t.Fatalf("empty session should fail open, out=%q changed=%v", out, changed)
 	}
-	if out, changed := compactProxyReadDelta("sess", "echo nope", "content", filter.FileReadContext{Mode: "scan"}); changed || out != "" {
+	if out, changed := compactProxyReadDelta("sess", "", "echo nope", "content", filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
 		t.Fatalf("non-read command should fail open, out=%q changed=%v", out, changed)
 	}
 	if out, changed := compactProxyRepeatedToolOutput("", "python report.py", "content"); changed || out != "" {
@@ -490,7 +490,7 @@ func TestProxyReadDeltaHomeErrorBranches(t *testing.T) {
 	proxyUserHomeDir = func() (string, error) { return "", errors.New("home") }
 	defer func() { proxyUserHomeDir = orig }()
 
-	if out, changed := compactProxyReadDelta("sess", "cat main.go", strings.Repeat("content\n", 20), filter.FileReadContext{Mode: "scan"}); changed || out != "" {
+	if out, changed := compactProxyReadDelta("sess", "", "cat main.go", strings.Repeat("content\n", 20), filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
 		t.Fatalf("home error should fail open, out=%q changed=%v", out, changed)
 	}
 	if out, changed := compactProxyRepeatedToolOutput("sess", "python report.py", strings.Repeat("content\n", 80)); changed || out != "" {

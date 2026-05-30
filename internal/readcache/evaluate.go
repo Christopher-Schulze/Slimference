@@ -22,9 +22,7 @@ func Evaluate(dir string, req Request) (Decision, error) {
 	if err != nil {
 		return Decision{}, err
 	}
-	if turnID := safeTurn(req.TurnID); turnID != "" {
-		state.CurrentTurnID = turnID
-	}
+	observeTurn(state, req.TurnID)
 
 	absPath, err := readCacheAbsPath(req.FilePath)
 	if err != nil {
@@ -57,9 +55,7 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 	if err != nil {
 		return Decision{}, err
 	}
-	if turnID := safeTurn(req.TurnID); turnID != "" {
-		state.CurrentTurnID = turnID
-	}
+	observeTurn(state, req.TurnID)
 	path := strings.TrimSpace(req.FilePath)
 	if path == "" || strings.TrimSpace(req.SessionID) == "" {
 		decision := Decision{Type: DecisionAllow}
@@ -81,7 +77,16 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 	}
 	if recentlyEdited {
 		archiveURI, _ := archiveObservedContent(archiveDir, req, content)
-		updateObservedEntry(entry, req, hash, archiveURI, content)
+		updateObservedEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
+		if err := readCacheSaveSession(dir, state); err != nil {
+			return Decision{}, err
+		}
+		decision := Decision{Type: DecisionAllow}
+		return decision, RecordDecision(dir, decision)
+	}
+	if recentFullPass(state, entry, req.RecentFullPassTurnLimit) {
+		archiveURI, _ := archiveObservedContent(archiveDir, req, content)
+		updateObservedEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
 		if err := readCacheSaveSession(dir, state); err != nil {
 			return Decision{}, err
 		}
@@ -89,7 +94,7 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 		return decision, RecordDecision(dir, decision)
 	}
 	if entry.ContentHash != "" && entry.ContentHash == hash && entry.ArchiveURI != "" {
-		updateObservedEntry(entry, req, hash, entry.ArchiveURI, content)
+		updateObservedEntry(entry, req, hash, entry.ArchiveURI, content, state.TurnSeq)
 		if err := readCacheSaveSession(dir, state); err != nil {
 			return Decision{}, err
 		}
@@ -103,7 +108,7 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 
 	oldHash := entry.ContentHash
 	archiveURI, archived := archiveObservedContent(archiveDir, req, content)
-	updateObservedEntry(entry, req, hash, archiveURI, content)
+	updateObservedEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
 	if err := readCacheSaveSession(dir, state); err != nil {
 		return Decision{}, err
 	}
@@ -126,9 +131,7 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 	if err != nil {
 		return Decision{}, err
 	}
-	if turnID := safeTurn(req.TurnID); turnID != "" {
-		state.CurrentTurnID = turnID
-	}
+	observeTurn(state, req.TurnID)
 	key := strings.TrimSpace(req.Key)
 	if key == "" || strings.TrimSpace(req.SessionID) == "" || len(content) < minObservedOutputBytes {
 		decision := Decision{Type: DecisionAllow}
@@ -151,7 +154,7 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 		}
 	}
 	if entry.ContentHash != "" && entry.ContentHash == hash && entry.ArchiveURI != "" {
-		updateObservedOutputEntry(entry, req, hash, entry.ArchiveURI, content)
+		updateObservedOutputEntry(entry, req, hash, entry.ArchiveURI, content, state.TurnSeq)
 		if err := readCacheSaveSession(dir, state); err != nil {
 			return Decision{}, err
 		}
@@ -165,7 +168,7 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 
 	oldHash := entry.ContentHash
 	archiveURI, archived := archiveObservedOutputContent(archiveDir, req, content)
-	updateObservedOutputEntry(entry, req, hash, archiveURI, content)
+	updateObservedOutputEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
 	if err := readCacheSaveSession(dir, state); err != nil {
 		return Decision{}, err
 	}
@@ -188,7 +191,7 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 }
 
 func blockUnchanged(dir string, state *SessionState, entry *FileEntry, req Request, modTime int64) (Decision, error) {
-	updateEntry(entry, req, modTime, entry.CachedContent)
+	updateEntry(entry, req, modTime, entry.CachedContent, state.TurnSeq)
 	if err := readCacheSaveSession(dir, state); err != nil {
 		return Decision{}, err
 	}
@@ -205,7 +208,7 @@ func evaluateChanged(dir string, state *SessionState, entry *FileEntry, req Requ
 		newContent, err := os.ReadFile(req.FilePath)
 		if err == nil {
 			delta := buildDeltaSummary(req.FilePath, entry.CachedContent, string(newContent))
-			updateEntry(entry, req, modTime, string(newContent))
+			updateEntry(entry, req, modTime, string(newContent), state.TurnSeq)
 			if err := readCacheSaveSession(dir, state); err != nil {
 				return Decision{}, err
 			}
@@ -224,7 +227,7 @@ func evaluateChanged(dir string, state *SessionState, entry *FileEntry, req Requ
 			content = string(raw)
 		}
 	}
-	updateEntry(entry, req, modTime, content)
+	updateEntry(entry, req, modTime, content, state.TurnSeq)
 	if err := readCacheSaveSession(dir, state); err != nil {
 		return Decision{}, err
 	}
@@ -236,6 +239,28 @@ func sameRange(entry *FileEntry, req Request) bool {
 	return entry.Offset == req.Offset && entry.Limit == req.Limit
 }
 
+func observeTurn(state *SessionState, turnID string) {
+	if state == nil {
+		return
+	}
+	safeID := safeTurn(turnID)
+	if safeID == "" {
+		return
+	}
+	if state.CurrentTurnID != safeID {
+		state.CurrentTurnID = safeID
+		state.TurnSeq++
+	}
+}
+
+func recentFullPass(state *SessionState, entry *FileEntry, limit int) bool {
+	if state == nil || entry == nil || limit <= 0 || entry.ContentHash == "" {
+		return false
+	}
+	distance := state.TurnSeq - entry.LastTurnSeq
+	return distance > 0 && distance <= limit
+}
+
 func requestEntryKey(req Request) string {
 	path := strings.TrimSpace(req.FilePath)
 	if req.Offset == 0 && req.Limit == 0 {
@@ -244,9 +269,10 @@ func requestEntryKey(req Request) string {
 	return fmt.Sprintf("%s#range:%d:%d", path, req.Offset, req.Limit)
 }
 
-func updateEntry(entry *FileEntry, req Request, modTime int64, content string) {
+func updateEntry(entry *FileEntry, req Request, modTime int64, content string, turnSeq int) {
 	entry.Path = req.FilePath
 	entry.LastTurnID = safeTurn(req.TurnID)
+	entry.LastTurnSeq = turnSeq
 	entry.Offset = req.Offset
 	entry.Limit = req.Limit
 	entry.ModTimeUnixNs = modTime
@@ -254,9 +280,10 @@ func updateEntry(entry *FileEntry, req Request, modTime int64, content string) {
 	entry.ContentHash = hashObservedContent(content)
 }
 
-func updateObservedEntry(entry *FileEntry, req Request, hash string, archiveURI string, content string) {
+func updateObservedEntry(entry *FileEntry, req Request, hash string, archiveURI string, content string, turnSeq int) {
 	entry.Path = strings.TrimSpace(req.FilePath)
 	entry.LastTurnID = safeTurn(req.TurnID)
+	entry.LastTurnSeq = turnSeq
 	entry.Offset = req.Offset
 	entry.Limit = req.Limit
 	entry.ModTimeUnixNs = 0
@@ -269,10 +296,11 @@ func updateObservedEntry(entry *FileEntry, req Request, hash string, archiveURI 
 	entry.CachedContent = content
 }
 
-func updateObservedOutputEntry(entry *OutputEntry, req OutputRequest, hash string, archiveURI string, content string) {
+func updateObservedOutputEntry(entry *OutputEntry, req OutputRequest, hash string, archiveURI string, content string, turnSeq int) {
 	entry.Key = strings.TrimSpace(req.Key)
 	entry.CommandLine = strings.TrimSpace(req.CommandLine)
 	entry.LastTurnID = safeTurn(req.TurnID)
+	entry.LastTurnSeq = turnSeq
 	entry.ContentHash = hash
 	entry.ArchiveURI = archiveURI
 	if entry.ArchiveURI != "" && len(content) > maxObservedInlineCacheBytes {

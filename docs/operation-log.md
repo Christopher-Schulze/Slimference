@@ -3491,3 +3491,34 @@ Safety:
 - All new parser paths are token-decreasing, shape-gated, and fail open.
 - Marker changes preserve archive URI syntax and do not enable the recovery note
   by default.
+
+## 2026-05-30 - T251 readcache write-behind and recency policy
+
+Goal: finish the remaining T251 stability work without changing the default Codex
+savings proof semantics.
+
+Changes:
+- Added an in-memory readcache session-state layer. `LoadSession` is read-through,
+  `SaveSessionAsync` updates memory and schedules a delayed write-behind flush, and
+  public `SaveSession` remains synchronous for tooling/tests.
+- Added `FlushSession`, `FlushDir`, and `FlushAll`; proxy shutdown now performs a
+  final `FlushDir(readcache.DefaultDir(home))` so dirty readcache sessions are
+  persisted on graceful exit.
+- Added turn sequencing to readcache state plus
+  `[compression.output_reduce].read_delta_recent_full_pass_turns` and env
+  `SLIMFERENCE_READ_DELTA_RECENT_FULL_PASS_TURNS`. Default is `0`, preserving the
+  T249 maximum-savings behavior. Setting it above zero keeps immediate cross-turn
+  re-reads full when recency should beat dedup savings.
+
+Verification:
+- Added `TestSaveSessionAsyncWriteBehind`, `TestEvaluateObserved_RecentFullPassTurns`,
+  config/env validation coverage, and a WSS Phase-F recency test proving the config
+  reaches the Codex reducer.
+- `go test ./internal/readcache ./internal/proxy ./internal/config -count=1`
+  passed.
+
+Safety:
+- The write-behind path stores the same bounded session state as before, not raw
+  additional payload classes.
+- Recency full-pass is default-off because it intentionally trades some repeat-read
+  savings for recency. It is proof-gated rather than silently changing live behavior.

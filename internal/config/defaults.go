@@ -285,6 +285,9 @@ cooldown_turns = 50
 # request full archived content by local-archive id.
 archive_recovery_note_enabled = false
 archive_recovery_note_text = ""
+# Default 0 keeps maximum-savings behavior. Raise only after A/B proof if
+# immediate cross-turn re-read recency matters more than the repeated-read saving.
+read_delta_recent_full_pass_turns = 0
 
 [compression.minimax]
 # Historical section name, but the client is OpenAI-compatible:

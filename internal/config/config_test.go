@@ -63,6 +63,9 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled {
 		t.Fatal("archive recovery note must stay default-off until A/B certified")
 	}
+	if cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns != 0 {
+		t.Fatalf("read-delta recency full-pass default = %d, want 0", cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns)
+	}
 }
 
 func TestApplyEnvHooksDebug(t *testing.T) {
@@ -101,6 +104,7 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT", "be terse")
 	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE", "true")
 	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE_TEXT", "request archive ids")
+	t.Setenv("SLIMFERENCE_READ_DELTA_RECENT_FULL_PASS_TURNS", "2")
 
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
@@ -116,7 +120,8 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	or := cfg.Compression.OutputReduce
 	if !or.StaleReadAgingEnabled || or.StaleReadAgingMinTurnGap != 9 ||
 		!or.ObsoleteReadPruneEnabled || !or.BeTerseHintEnabled || or.BeTerseHintText != "be terse" ||
-		!or.ArchiveRecoveryNoteEnabled || or.ArchiveRecoveryNoteText != "request archive ids" {
+		!or.ArchiveRecoveryNoteEnabled || or.ArchiveRecoveryNoteText != "request archive ids" ||
+		or.ReadDeltaRecentFullPassTurns != 2 {
 		t.Fatalf("output-reduce env not applied: %+v", or)
 	}
 }
@@ -425,6 +430,7 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"failure_rate", func(c *Config) { c.Compression.OutputReduce.MaxFailureRateDelta = 2 }},
 		{"cooldown", func(c *Config) { c.Compression.OutputReduce.CooldownTurns = -1 }},
 		{"archive_note_text", func(c *Config) { c.Compression.OutputReduce.ArchiveRecoveryNoteText = strings.Repeat("x", 1001) }},
+		{"read_delta_recency", func(c *Config) { c.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = -1 }},
 	}
 	for _, tc := range tests {
 		tc := tc

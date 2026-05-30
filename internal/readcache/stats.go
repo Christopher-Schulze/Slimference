@@ -88,6 +88,7 @@ func RecordDecision(dir string, decision Decision) error {
 }
 
 func Clear(dir string) error {
+	clearMemoryDir(dir)
 	if err := readCacheRemoveAll(dir); err != nil {
 		return err
 	}

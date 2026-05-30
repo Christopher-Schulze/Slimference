@@ -1857,6 +1857,11 @@ func (p *Proxy) doShutdown(ctx context.Context) error {
 		}
 		p.persister.Close()
 	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if err := readcache.FlushDir(readcache.DefaultDir(home)); err != nil {
+			slog.Warn("final readcache flush failed", "error", err)
+		}
+	}
 
 	if p.fileWatcher != nil {
 		p.fileWatcher.Close()

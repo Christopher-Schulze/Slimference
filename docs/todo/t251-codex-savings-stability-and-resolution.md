@@ -1,6 +1,6 @@
 # TASK 251: Codex savings stability + cross-turn resolution robustness
 
-Status: [~] PARTIAL - tool-use persistence, archive-id hardening, prompt-cache guard, and bounded state landed
+Status: [x] SOLVED - tool-use persistence, in-memory readcache write-behind, archive-id hardening, prompt-cache guard, recency policy, and bounded state landed
 Priority: P1 - protects and multiplies existing savings; removes hot-path latency
 Scope: Codex-only WSS Phase-F. Make the existing savings robust across socket
 lifecycle, remove per-read disk I/O, fix archive-id collisions, add recency-adaptive
@@ -27,8 +27,9 @@ guard against mutating items inside the server-cached prefix (net-negative billi
   metadata}` map is persisted bounded + TTL per session, content-free (NO raw tool
   output). A reconnect rehydrates resolution; a re-read after a simulated socket reset
   still mutates.
-- readcache session state is served from memory with async/periodic flush; no
-  per-read disk round-trip; crash-safe (flush on close + interval).
+- readcache session state is served from memory with async/write-behind flush; no
+  per-read session-state disk round-trip; crash-safe via flush on close plus bounded
+  delayed flush.
 - Archive IDs are content-addressed (collision-free, idempotent, auto-dedup of
   identical content).
 - Recency-adaptive aggressiveness: the last N user turns are kept full; older content
@@ -43,13 +44,13 @@ guard against mutating items inside the server-cached prefix (net-negative billi
 
 - [x] (if t249 measurement shows reconnect cold misses) Persist toolUse map to disk,
       bounded + TTL, content-free; rehydrate test across a simulated socket reset.
-- [ ] In-memory readcache session state + async/periodic flush; remove the per-read
+- [x] In-memory readcache session state + async/periodic flush; remove the per-read
       Load/Save disk round-trip; crash-safe flush.
 - [x] Content-addressed archive IDs (replace timestamp + 4KB-prefix scheme);
       collision test for two large files sharing a prefix in the same second.
-- [ ] Recency-adaptive aggressiveness (keep last N turns full); deterministic test.
+- [x] Recency-adaptive aggressiveness (keep last N turns full); deterministic test.
 - [x] Prompt-cache-aware mutation guard (only mutate past the cached prefix); test.
-- [~] Bounded session/readcache/archive state with TTL/LRU eviction.
+- [x] Bounded session/readcache/archive state with TTL/LRU eviction.
 
 ## Notes
 
@@ -65,8 +66,15 @@ guard against mutating items inside the server-cached prefix (net-negative billi
   same archive input, closing the timestamp plus 4KB-prefix collision class. This is
   collision hardening, not a global content-only dedup feature across unrelated
   sessions/positions.
-- 2026-05-30: readcache and tool-use state now have bounded pruning. The planned
-  in-memory readcache plus async flush is still open.
+- 2026-05-30: readcache and tool-use state now have bounded pruning.
+- 2026-05-30: readcache session state now uses an in-memory write-behind cache on the
+  hot path. `EvaluateObserved` sees cached state after the first load and writes via
+  `SaveSessionAsync`; `FlushSession`/`FlushDir` persist dirty sessions, and proxy
+  shutdown performs a final readcache flush.
+- 2026-05-30: `read_delta_recent_full_pass_turns` was added as a proof-gated
+  recency policy. Default `0` preserves maximum savings and T249 proofs; operators can
+  raise it after A/B proof to keep immediate cross-turn re-reads full when recency is
+  worth more than the repeat-read saving.
 - 2026-05-30: prompt-cache-aware mutation is now pinned by an explicit WSS regression
   test. Huge `instructions` and `tools` prompt-cache prefix blocks remain byte-equal;
   the reducer only sees the delta `input` items and records no fake savings on the

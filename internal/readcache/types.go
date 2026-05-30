@@ -1,11 +1,12 @@
 package readcache
 
 type Request struct {
-	SessionID string
-	TurnID    string
-	FilePath  string
-	Offset    int
-	Limit     int
+	SessionID               string
+	TurnID                  string
+	FilePath                string
+	Offset                  int
+	Limit                   int
+	RecentFullPassTurnLimit int
 }
 
 func (r Request) IsFullFileRead() bool {
@@ -43,6 +44,7 @@ type OutputRequest struct {
 type FileEntry struct {
 	Path          string `json:"path"`
 	LastTurnID    string `json:"last_turn_id,omitempty"`
+	LastTurnSeq   int    `json:"last_turn_seq,omitempty"`
 	Offset        int    `json:"offset"`
 	Limit         int    `json:"limit"`
 	ModTimeUnixNs int64  `json:"mod_time_unix_ns"`
@@ -55,6 +57,7 @@ type OutputEntry struct {
 	Key           string `json:"key"`
 	CommandLine   string `json:"command_line,omitempty"`
 	LastTurnID    string `json:"last_turn_id,omitempty"`
+	LastTurnSeq   int    `json:"last_turn_seq,omitempty"`
 	ContentHash   string `json:"content_hash,omitempty"`
 	ArchiveURI    string `json:"archive_uri,omitempty"`
 	CachedContent string `json:"cached_content,omitempty"`
@@ -63,6 +66,7 @@ type OutputEntry struct {
 type SessionState struct {
 	SessionID     string                  `json:"session_id"`
 	CurrentTurnID string                  `json:"current_turn_id,omitempty"`
+	TurnSeq       int                     `json:"turn_seq,omitempty"`
 	Files         map[string]*FileEntry   `json:"files"`
 	Outputs       map[string]*OutputEntry `json:"outputs,omitempty"`
 }

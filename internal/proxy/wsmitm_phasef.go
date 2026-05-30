@@ -165,11 +165,13 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			}
 		}
 		result := reduceCodexLayer0(codexLayer0Request{
-			Route:             codexLayer0RouteWSSPhaseF,
-			Messages:          messages,
-			SessionID:         wsCodexSessionID(out),
-			RememberedToolUse: rememberedToolUses,
-			SuppressedToolKey: suppressedKeys,
+			Route:               codexLayer0RouteWSSPhaseF,
+			Messages:            messages,
+			SessionID:           wsCodexSessionID(out),
+			TurnID:              wssPreviousResponseID(out),
+			RememberedToolUse:   rememberedToolUses,
+			SuppressedToolKey:   suppressedKeys,
+			RecentFullPassTurns: a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats

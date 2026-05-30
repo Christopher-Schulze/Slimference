@@ -245,6 +245,40 @@ func TestEvaluateObserved_RangedReadsAreDistinctAndDeltaCapable(t *testing.T) {
 	}
 }
 
+func TestEvaluateObserved_RecentFullPassTurns(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	req := Request{
+		SessionID:               "s1",
+		TurnID:                  "turn-1",
+		FilePath:                "recent.go",
+		RecentFullPassTurnLimit: 1,
+	}
+	body := strings.Repeat("recent full-pass line\n", 80)
+
+	if decision, err := EvaluateObserved(dir, req, body, archiveDir, false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("first read: decision=%+v err=%v", decision, err)
+	}
+	decision, err := EvaluateObserved(dir, req, body, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock {
+		t.Fatalf("same-turn repeat should still collapse, got %+v", decision)
+	}
+
+	req.TurnID = "turn-2"
+	decision, err = EvaluateObserved(dir, req, body, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionAllow {
+		t.Fatalf("recent cross-turn read should full-pass, got %+v", decision)
+	}
+}
+
 func TestEvaluateObserved_RecentEditAllowsAndUpdates(t *testing.T) {
 	t.Parallel()
 

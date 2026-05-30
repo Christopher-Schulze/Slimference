@@ -1529,14 +1529,14 @@ only and promotes the per-process Codex CLI runner for T209.
   first-read context. Lossless, low risk, lifts the savings floor on
   non-repeat-read sessions.
   Detail: `docs/todo/t250-codex-ranged-read-and-search-savings.md`
-- [~] **T251** Codex savings stability + cross-turn resolution robustness — persist the
+- [x] **T251** Codex savings stability + cross-turn resolution robustness — persist the
   socket-local toolUse resolution map (content-free, bounded, TTL) so reconnects do not go
   cold, in-memory readcache with async flush (remove per-read disk I/O latency),
   content-addressed archive IDs (collision fix), recency-adaptive aggressiveness,
   prompt-cache-aware mutation, bounded state. Tool-use persistence, archive-id collision
-  hardening, bounded readcache state, and explicit prompt-cache prefix guard tests are
-  implemented; in-memory async flush and recency policy remain open. Protects and
-  multiplies existing savings.
+  hardening, bounded readcache state, explicit prompt-cache prefix guard tests,
+  in-memory write-behind readcache, final shutdown flush, and proof-gated recency policy
+  are implemented. Protects and multiplies existing savings.
   Detail: `docs/todo/t251-codex-savings-stability-and-resolution.md`
 - [~] **T252** Codex savings precision + filter/marker tweaks — quick wins: use
   `o200k_base` for Codex token guards (currently `cl100k_base`), fix the `delta.go`
@@ -1591,11 +1591,11 @@ criteria; this index is the traceability map so nothing is lost.
 | 9 | apply_patch context dedup | 3-10% | Lossless-ish | T253 | queued (gated by T249) |
 | 10 | Resolvable-archive contract | enabler | Enabler | T249 | DONE (default-off recovery note landed; keep proof-gated before default-on) |
 | 11 | Comprehension A/B harness | enabler | Enabler | T249 | DONE (core engine + WSS reducer replay + capture/report CLI + live CLI and Desktop replay proofs landed) |
-| 12 | Recency-adaptive aggressiveness | +5-10% and drawdown down | Double positive | T251 | queued |
+| 12 | Recency-adaptive aggressiveness | +5-10% and drawdown down | Double positive | T251 | DONE (configurable, default 0 until A/B proof) |
 | 13 | Re-read-after-collapse auto-restore | drawdown down | Drawdown fix | T249 | DONE |
 | 14 | o200k tokenizer for Codex (not cl100k) | +2-5% precision, all layers | Precision | T252 | DONE |
 | 15 | toolUse-map disk persistence | multiplier (2-5x hit-rate) | Multiplier | T251 | DONE (core; live efficacy still to measure) |
-| 16 | In-memory readcache + async flush | latency/stability | Stability | T251 | queued |
+| 16 | In-memory readcache + async flush | latency/stability | Stability | T251 | DONE |
 | 17 | Content-addressed archive IDs (collision fix) | correctness/stability | Stability | T251 | DONE (collision/idempotence fix; global content-only dedup not built) |
 | 18 | Prompt-cache-aware mutation policy | avoids net-negative billing | Stability | T251 | DONE (byte-equal WSS prefix regression test) |
 | 19 | Bounded session state (TTL/LRU) | stability | Stability | T251 | DONE for readcache/tooluse state |
