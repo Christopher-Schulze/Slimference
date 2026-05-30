@@ -3564,3 +3564,90 @@ Safety:
   positive saving.
 - Default-on promotion remains blocked on a real captured-frame T249 A/B replay
   showing no comprehension regression.
+
+## 2026-05-30 - T255 chunk-dedup replay gate
+
+Goal: make the existing WSS A/B replay tool capable of proving the default-off
+T255 chunk-dedup path, not only the already-proven read-delta path.
+
+Changes:
+- Added `--codex-chunk-dedup` to `go run ./scripts/utils wss-ab-replay`. The flag
+  enables `codex_chunk_dedup_enabled` in the isolated replay config, implies the
+  archive-recovery note, and marks the recovery-note prompt insertion as an
+  expected audit artifact rather than a true `--fail-on-lost` failure.
+- Added `--chunk-dedup-min-bytes` for replay-only threshold control and
+  `--allow-recovery-note-extra` for explicit recovery-note gate calibration.
+- Updated the default archive-recovery note so it names both recoverable marker
+  families: `[context-archive ... uri=local-archive://<id>]` and
+  `[context-chunk ... uri=local-archive://<id>]`.
+
+Verification:
+- Added `TestWSSABReplayReportChunkDedupProofGate`, which runs synthetic Codex
+  WSS frames through the real Phase-F reducer with chunk dedup enabled and proves
+  referenced partial-overlap savings under `--fail-on-lost`.
+- Added tests for expected recovery-note extra handling and chunk-min-byte flag
+  parsing.
+- `go test ./scripts/utils ./internal/proxy` passed.
+
+Safety:
+- Default runtime behavior is unchanged. Chunk dedup remains default-off and still
+  requires archive recovery.
+- The replay gate only exempts the known once-per-session recovery-note artifact;
+  unreferenced elisions and unexpected context changes still fail the lost gate.
+- Real captured Codex frames are still required before any default-on promotion.
+
+## 2026-05-30 - T255 live chunk-dedup proof and telemetry close-out
+
+Goal: prove T255 on real scoped Codex WSS frames and close the telemetry gap that
+hid chunk-specific hits from `/admin/state`.
+
+Changes:
+- Added replay switches for the proof-gated T255 path and updated the archive
+  recovery note so it explicitly covers `[context-chunk ...]` references.
+- Taught the shared Codex Layer-0 reducer to chunk-dedup only the payload inside
+  Codex exec envelopes, preserving volatile `Chunk ID` / timing headers while
+  still finding stable overlap in the actual tool output.
+- Tuned FastCDC defaults from 2 KiB / 8 KiB / 64 KiB to 512 B / 2 KiB / 8 KiB.
+  This matches Codex CLI's observed ~8 KiB truncated tool-output envelope, where
+  the old default could collapse the whole payload into one non-matching chunk.
+- Exposed `proxy_layer0_chunk_dedup_blocks` globally and
+  `chunk_dedup_blocks` per Layer-0 route in `/admin/state`.
+
+Verification:
+- Real live scoped WSS run:
+  `/tmp/slimference-t255-chunk-live-tuned-20260530T145612Z.jsonl`.
+- Replay:
+  `go run ./scripts/utils wss-ab-replay /tmp/slimference-t255-chunk-live-tuned-20260530T145612Z.jsonl --codex-chunk-dedup --chunk-dedup-min-bytes=0 --fail-on-lost --json`
+  reported `frames=124`, `request_turns=4`, `mutated_requests=2`,
+  `bytes_before=16514`, `bytes_after=10936`, `bytes_saved=5578`,
+  `lost=1`, `expected_extras=1`, and `gate_passed=true`. The only
+  lost-class item was the expected once-per-session recovery note; the chunk
+  compaction itself was `elided_with_reference`.
+- Live admin counters for the same tuned run reported
+  `input_tokens_saved=1699`, `billable_input_tokens_saved=1699`,
+  `wss_phasef.tokens_saved=1699`, `requests_modified=1`,
+  `frames_reencoded=2`, `compressed_messages_mutated=2`, with zero parse
+  failures, degraded sessions, or compression errors.
+- After wiring the chunk-specific fields into `/admin/state`, a final telemetry
+  rerun on `/tmp/slimference-t255-chunk-telemetry-20260530T150436Z.jsonl`
+  reported `frames=123`, `request_turns=4`, `mutated_requests=2`,
+  `bytes_saved=7757`, `lost=1`, `expected_extras=1`, and `gate_passed=true`.
+  Live admin state for that rerun reported `input_tokens_saved=1707`,
+  `billable_input_tokens_saved=1707`,
+  `proxy_layer0_chunk_dedup_blocks=1`,
+  `proxy_layer0_routes.wss_phasef.chunk_dedup_blocks=1`,
+  `wss_phasef.tokens_saved=1707`, `frames_reencoded=2`,
+  `compressed_messages_mutated=2`, and zero parse, degraded-session, or
+  compression errors.
+- Added regression tests for Codex exec-envelope payload chunking, Codex-like
+  truncated envelopes, replay proof gating, and telemetry mapping.
+
+Safety:
+- T255 remains default-off and recovery-note-gated.
+- Chunk references remain archive-backed and fail open if they are not
+  token-positive.
+- The proof daemon was stopped and restarted normally after the telemetry run;
+  the replacement daemon was healthy and had no experimental T255 env flags in
+  its process environment.
+- Default-on promotion is a separate product decision; this entry proves the
+  default-off implementation and measurement path.

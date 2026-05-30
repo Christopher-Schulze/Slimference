@@ -13,9 +13,9 @@ import (
 // enough to catch partial overlap after edits, large enough to keep the
 // per-chunk reference overhead well below the saved bytes.
 const (
-	DefaultMinSize = 2 * 1024
-	DefaultAvgSize = 8 * 1024
-	DefaultMaxSize = 64 * 1024
+	DefaultMinSize = 512
+	DefaultAvgSize = 2 * 1024
+	DefaultMaxSize = 8 * 1024
 )
 
 // Config tunes the FastCDC chunker. Zero fields fall back to the Default* bounds.

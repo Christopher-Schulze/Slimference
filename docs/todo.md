@@ -1561,13 +1561,14 @@ only and promotes the per-process Codex CLI runner for T209.
   it. Generalizes read-delta/dedup/search-delta into one differential transport; savings
   grow with session length.
   Detail: `docs/todo/t254-codex-server-state-mirror.md`
-- [~] **T255** Codex content-defined chunk dedup (radical, TASK-SPLIT candidate, gated by
+- [x] **T255** Codex content-defined chunk dedup (radical, TASK-SPLIT candidate, gated by
   T249) — FastCDC rolling-hash chunking + session-scoped content-addressed chunk store to
   deduplicate PARTIAL overlap (file after small edit, similar files, shared-line logs)
   that whole-output dedup misses. rsync-for-LLM-context; references recoverable via the
-  T249 contract. Chunker, bounded TTL/LRU store, neutral encode/decode, and default-off
-  WSS Layer-0 wiring with route attribution are implemented. Remaining gate: real
-  captured-frame A/B proof before default-on promotion.
+  T249 contract. Chunker, bounded TTL/LRU store, neutral encode/decode, default-off
+  WSS Layer-0 wiring with route attribution, replay proof switches, Codex exec-envelope
+  payload chunking, and live captured-frame A/B proof are implemented. Default remains
+  off until a separate product decision promotes it.
   Detail: `docs/todo/t255-codex-content-defined-chunk-dedup.md`
 
 ### Codex savings v2 — full 24-item index + what the % mean (T249-T255)
@@ -1584,7 +1585,7 @@ criteria; this index is the traceability map so nothing is lost.
 | # | Item | Rough % | Type | Task | Status |
 |---|------|---------|------|------|--------|
 | 1 | Server-state-mirror / general differential transport | 15-40% on long sessions | Enabler + biggest lever | T254 | queued (gated by T249) |
-| 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255 | PARTIAL (default-off WSS wiring landed; live A/B gated) |
+| 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255 | DONE (default-off live-proven; default-on policy-gated) |
 | 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (gated by T249) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
 | 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | queued (gated by T249) |

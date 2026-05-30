@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/abharness"
@@ -15,11 +16,14 @@ import (
 )
 
 type wssABReplayFlags struct {
-	path                string
-	outputFormat        string
-	failOnLost          bool
-	archiveRecoveryNote bool
-	help                bool
+	path                   string
+	outputFormat           string
+	failOnLost             bool
+	archiveRecoveryNote    bool
+	allowRecoveryNoteExtra bool
+	codexChunkDedup        bool
+	chunkDedupMinBytes     int
+	help                   bool
 }
 
 type wssABReplayReport struct {
@@ -31,6 +35,7 @@ type wssABReplayReport struct {
 	BytesAfter      int                 `json:"bytes_after"`
 	BytesSaved      int                 `json:"bytes_saved"`
 	Lost            int                 `json:"lost"`
+	ExpectedExtras  int                 `json:"expected_extras,omitempty"`
 	Elisions        []abharness.Elision `json:"elisions,omitempty"`
 	GatePassed      bool                `json:"gate_passed"`
 	GateFailures    []string            `json:"gate_failures,omitempty"`
@@ -46,6 +51,13 @@ Flags:
   --json                   Output JSON
   --fail-on-lost            Exit 3 if the replay reports lost comprehension
   --archive-recovery-note   Enable the default-off recovery note during replay
+  --allow-recovery-note-extra
+                           Do not fail the gate for the expected once-per-session
+                           recovery-note extra block
+  --codex-chunk-dedup       Enable default-off Codex content-defined chunk dedup
+                           during replay; implies --archive-recovery-note and
+                           --allow-recovery-note-extra
+  --chunk-dedup-min-bytes N Set the replay chunk-dedup minimum input bytes
 
 Input format: JSONL records with direction and payload:
   {"direction":"client_to_server","payload":{"model":"gpt-5-codex","input":[]}}
@@ -62,7 +74,7 @@ func runWSSABReplay(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if flags.path == "" {
-		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note]")
+		fmt.Fprintln(stderr, "Usage: wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]")
 		return 2
 	}
 	report, err := loadWSSABReplayReport(flags)
@@ -90,8 +102,9 @@ func runWSSABReplay(args []string, stdout, stderr io.Writer) int {
 }
 
 func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
-	flags := wssABReplayFlags{outputFormat: outputText}
-	for _, arg := range args {
+	flags := wssABReplayFlags{outputFormat: outputText, chunkDedupMinBytes: -1}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch {
 		case arg == "--help" || arg == "-h":
 			flags.help = true
@@ -101,6 +114,28 @@ func parseWSSABReplayFlags(args []string) (wssABReplayFlags, error) {
 			flags.failOnLost = true
 		case arg == "--archive-recovery-note":
 			flags.archiveRecoveryNote = true
+		case arg == "--allow-recovery-note-extra":
+			flags.allowRecoveryNoteExtra = true
+		case arg == "--codex-chunk-dedup":
+			flags.codexChunkDedup = true
+			flags.archiveRecoveryNote = true
+			flags.allowRecoveryNoteExtra = true
+		case arg == "--chunk-dedup-min-bytes":
+			if i+1 >= len(args) {
+				return flags, fmt.Errorf("--chunk-dedup-min-bytes requires a value")
+			}
+			i++
+			n, err := parseNonNegativeIntFlag("--chunk-dedup-min-bytes", args[i])
+			if err != nil {
+				return flags, err
+			}
+			flags.chunkDedupMinBytes = n
+		case strings.HasPrefix(arg, "--chunk-dedup-min-bytes="):
+			n, err := parseNonNegativeIntFlag("--chunk-dedup-min-bytes", strings.TrimPrefix(arg, "--chunk-dedup-min-bytes="))
+			if err != nil {
+				return flags, err
+			}
+			flags.chunkDedupMinBytes = n
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -120,6 +155,12 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	}
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = flags.archiveRecoveryNote
+	if flags.codexChunkDedup {
+		cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+		if flags.chunkDedupMinBytes >= 0 {
+			cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = flags.chunkDedupMinBytes
+		}
+	}
 	result, err := proxy.RunWSSPhaseFABReplay(cfg, frames)
 	if err != nil {
 		return wssABReplayReport{}, fmt.Errorf("run WSS A/B replay: %w", err)
@@ -139,11 +180,56 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 	if flags.archiveRecoveryNote {
 		report.Notes = append(report.Notes, "archive recovery note was enabled for this replay; treat extra model-facing blocks as expected audit findings, not a default-on proof")
 	}
-	if flags.failOnLost && report.Lost > 0 {
+	if flags.codexChunkDedup {
+		report.Notes = append(report.Notes, "Codex chunk dedup was enabled for this replay; this is a proof-gated default-off path")
+	}
+	report.ExpectedExtras = expectedRecoveryNoteExtras(report.Elisions)
+	gateLost := report.Lost
+	if flags.allowRecoveryNoteExtra {
+		gateLost -= report.ExpectedExtras
+		if gateLost < 0 {
+			gateLost = 0
+		}
+	}
+	if flags.failOnLost && gateLost > 0 {
 		report.GatePassed = false
-		report.GateFailures = append(report.GateFailures, fmt.Sprintf("lost=%d > 0", report.Lost))
+		report.GateFailures = append(report.GateFailures, fmt.Sprintf("lost=%d > 0", gateLost))
 	}
 	return report, nil
+}
+
+func parseNonNegativeIntFlag(name, raw string) (int, error) {
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("%s must be >= 0", name)
+	}
+	return n, nil
+}
+
+func expectedRecoveryNoteExtras(elisions []abharness.Elision) int {
+	shiftedPreviews := map[string]struct{}{}
+	for _, elision := range elisions {
+		if elision.Severity == abharness.SeverityReferenced {
+			shiftedPreviews[elision.Preview] = struct{}{}
+		}
+	}
+	n := 0
+	for _, elision := range elisions {
+		if elision.Severity != abharness.SeverityExtra {
+			continue
+		}
+		if strings.Contains(elision.Preview, "local-archive://<id>") {
+			n++
+			continue
+		}
+		if _, shifted := shiftedPreviews[elision.Preview]; shifted {
+			n++
+		}
+	}
+	return n
 }
 
 func readWSSABReplayFrames(path string) ([]proxy.WSSABReplayFrame, error) {
@@ -244,6 +330,9 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 	fmt.Fprintf(w, "  bytes_after:      %d\n", report.BytesAfter)
 	fmt.Fprintf(w, "  bytes_saved:      %d\n", report.BytesSaved)
 	fmt.Fprintf(w, "  lost:             %d\n", report.Lost)
+	if report.ExpectedExtras > 0 {
+		fmt.Fprintf(w, "  expected_extras:  %d\n", report.ExpectedExtras)
+	}
 	fmt.Fprintf(w, "  gate:             %s\n", passFail(report.GatePassed))
 	if len(report.GateFailures) > 0 {
 		fmt.Fprintln(w, "  gate_failures:")

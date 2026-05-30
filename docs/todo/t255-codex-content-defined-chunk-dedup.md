@@ -1,6 +1,6 @@
 # TASK 255: Codex content-defined chunk dedup (FastCDC, rsync-for-LLM-context)
 
-Status: [~] PARTIAL - default-off WSS wiring landed; live A/B proof remains gated
+Status: [x] DONE - default-off WSS chunk-dedup is live-proven; default-on remains policy-gated
 Priority: P2 - innovative core for "maximal sparsam" on read/log-heavy sessions
 Scope: Codex-only WSS Phase-F. Deduplicate tool outputs and file reads at content-
 defined CHUNK granularity across the whole session.
@@ -42,7 +42,7 @@ which is not chunk-level and not on the WSS path. This is genuinely new infrastr
 - [x] Chunk-reference encode (emit novel chunks + references) and decode (reinject for
       chunk references); recoverable via the t249 contract.
 - [x] Wire into the WSS reducer for tool outputs / file reads; route attribution.
-- [~] Tests proving partial-overlap savings (similar files and repeated chunks) + A/B
+- [x] Tests proving partial-overlap savings (similar files and repeated chunks) + A/B
       harness run proving no comprehension regression.
 
 ## Notes
@@ -61,6 +61,27 @@ which is not chunk-level and not on the WSS path. This is genuinely new infrastr
   `archive_recovery_note_enabled=true` are set. Default remains off. Tests prove partial
   overlap savings for similar reads and WSS route attribution. Remaining gate: run the
   t249 A/B harness on real captured chunk-dedup frames before any default-on promotion.
+- 2026-05-30: `wss-ab-replay` now has a `--codex-chunk-dedup` proof switch. It
+  enables the default-off chunk path in the isolated replay config, implies the
+  archive-recovery note, and separates the expected once-per-session recovery-note
+  extra block from true `--fail-on-lost` gate failures. Synthetic real-reducer replay
+  now proves partial-overlap chunk references save bytes with no unreferenced loss;
+  live captured Codex frames are still required before default-on.
+- 2026-05-30: live scoped Codex WSS proof passed on real captured frames after
+  tuning chunk defaults for Codex's truncated exec-output envelope. A final
+  telemetry rerun on `/tmp/slimference-t255-chunk-telemetry-20260530T150436Z.jsonl`
+  confirmed the new admin counters. Replay
+  `--codex-chunk-dedup --chunk-dedup-min-bytes=0 --fail-on-lost --json` on
+  that capture reported `frames=123`, `mutated_requests=2`, `bytes_saved=7757`, `lost=1`,
+  `expected_extras=1`, and `gate_passed=true`; the only lost-class item was the
+  expected recovery note, while the actual chunk elision was referenced. Live
+  admin counters for the same run reported `input_tokens_saved=1707`,
+  `proxy_layer0_chunk_dedup_blocks=1`,
+  `proxy_layer0_routes.wss_phasef.chunk_dedup_blocks=1`,
+  `compressed_messages_mutated=2`, `frames_reencoded=2`, and zero parse,
+  degraded-session, or compression errors. The daemon was restarted normally
+  afterward with no experimental env flags active. Default remains off until a
+  separate product decision promotes it.
 - Doctrine: content-free identity, fail-open, scoped; references always recoverable so
   no loss is permanent.
 

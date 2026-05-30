@@ -9,7 +9,7 @@
 //	go run ./scripts/utils aggregate-savings [--admin-url=... | --admin-state-file=...] [--filter-db=...] [--json]
 //	go run ./scripts/utils workday-savings <start|finish> [--baseline-file=...] [--json]
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
-//	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note]
+//	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
 package main
 

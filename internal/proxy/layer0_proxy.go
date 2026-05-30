@@ -483,17 +483,32 @@ func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, min
 	if store == nil || strings.TrimSpace(sessionID) == "" || len(text) == 0 {
 		return "", false, ""
 	}
+	if header, payload, ok := splitCodexExecEnvelope(text); ok {
+		encoded, changed := encodeProxyChunkDedup(store, sessionID, payload, minBytes)
+		if changed {
+			return header + encoded, true, proxyLayer0MechanismChunkDedup
+		}
+		return "", false, ""
+	}
+	encoded, changed := encodeProxyChunkDedup(store, sessionID, text, minBytes)
+	if !changed {
+		return "", false, ""
+	}
+	return encoded, true, proxyLayer0MechanismChunkDedup
+}
+
+func encodeProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool) {
 	if minBytes < 0 {
 		minBytes = 0
 	}
 	if len(text) < minBytes {
-		return "", false, ""
+		return "", false
 	}
 	encoded, saved := store.Encode(sessionID, []byte(text))
 	if saved <= 0 || bytesEqualString(encoded, text) {
-		return "", false, ""
+		return "", false
 	}
-	return string(encoded), true, proxyLayer0MechanismChunkDedup
+	return string(encoded), true
 }
 
 func bytesEqualString(data []byte, text string) bool {

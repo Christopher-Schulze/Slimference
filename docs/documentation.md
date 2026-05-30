@@ -343,6 +343,12 @@ or the token guard is not positive. WSS Phase-F and HTTP share the same reducer
 path, and `/admin/state` reports chunk-dedup hits globally plus under
 `proxy_layer0_routes.wss_phasef` / `.http`. Default-on promotion still requires a
 captured-frame A/B replay proving no comprehension regression.
+The 2026-05-30 T255 live proof used scoped Codex WSS frames with
+`--codex-chunk-dedup --chunk-dedup-min-bytes=0 --fail-on-lost`: replay saved
+7757 model-facing bytes with `gate_passed=true`, and live counters reported
+1707 billable input tokens saved plus one global and WSS-route chunk-dedup hit
+with zero parse, degraded-session, or compression errors. The feature remains default-off because it is a stronger
+compression policy, not because the route is unproven.
 
 Model-facing readcache replacements use neutral `[context-* ...]` markers and
 preserve the `local-archive://<id>` pattern without naming Slimference inside
@@ -393,12 +399,15 @@ the direct and compressed model-facing request context, and feeds both into
 read-delta is recoverable because the first full read was already sent, and that
 the default-off archive recovery note is visibly audited as an extra
 model-facing context change.
-`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note]`
-is the operator-facing report wrapper. Its JSONL input is content-bearing by
-definition, so it belongs in local/private captures only; it does not read auth
-headers or WebSocket upgrade metadata. Each replay uses an isolated temporary
-home directory so disk-backed readcache/tooluse/archive state from prior live
-sessions cannot skew the A/B result.
+`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]`
+is the operator-facing report wrapper. `--codex-chunk-dedup` enables the
+default-off T255 chunk-dedup path for replay, implies the recovery note, and
+separates the expected once-per-session recovery-note extra block from true
+loss-gate failures. Its JSONL input is content-bearing by definition, so it
+belongs in local/private captures only; it does not read auth headers or
+WebSocket upgrade metadata. Each replay uses an isolated temporary home
+directory so disk-backed readcache/tooluse/archive state from prior live sessions
+cannot skew the A/B result.
 Set `SLIMFERENCE_WSS_AB_CAPTURE=/private/path/frames.jsonl` on the Slimference
 daemon process to append those replay frames during a scoped Codex WSS session.
 The capture hook records only decompressed JSON frame payloads and direction,

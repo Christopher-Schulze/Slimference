@@ -382,7 +382,7 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	}
 
 	first, _, changed, stats, _ := adapter.applyInputPipeline(body("a.go", "read-a", shared+strings.Repeat("tail a\n", 120)))
-	if !changed || stats.ChunkDedupBlocks != 0 || strings.Contains(string(first), "context-chunk") {
+	if !changed || stats.ChunkDedupBlocks != 0 || strings.Contains(string(first), "[context-chunk status=unchanged") {
 		t.Fatalf("first similar read should seed chunks only and inject recovery note: changed=%v stats=%+v body=%s", changed, stats, first)
 	}
 	second, _, changed, stats, _ := adapter.applyInputPipeline(body("b.go", "read-b", shared+strings.Repeat("tail b\n", 120)))

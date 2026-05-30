@@ -363,6 +363,96 @@ func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ChunkDedupInsideCodexExecEnvelope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, chunkdedup.StoreLimits{}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	shared := uniqueProxyReadPayload("shared codex exec envelope")
+	firstText := "Chunk ID: aaa111\nWall time: 0ms\nProcess exited with code 0\nOutput:\n" + shared + uniqueProxyReadPayload("tail a")
+	secondText := "Chunk ID: bbb222\nWall time: 0ms\nProcess exited with code 0\nOutput:\n" + shared + uniqueProxyReadPayload("tail b")
+	first := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-a", ToolName: "exec_command", ToolInput: `{"cmd":"cat a.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-a", Text: firstText}}},
+	}
+	second := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-b", ToolName: "exec_command", ToolInput: `{"cmd":"cat b.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-b", Text: secondText}}},
+	}
+
+	seed := reduceCodexLayer0(codexLayer0Request{
+		Messages:           first,
+		SessionID:          "sess-envelope-chunks",
+		ChunkDedupEnabled:  true,
+		ChunkDedupMinBytes: 0,
+		ChunkStore:         store,
+	})
+	if seed.Stats.TokensSaved != 0 || seed.Stats.ChunkDedupBlocks != 0 {
+		t.Fatalf("first envelope should seed payload chunks only: %+v", seed.Stats)
+	}
+	out := reduceCodexLayer0(codexLayer0Request{
+		Messages:           second,
+		SessionID:          "sess-envelope-chunks",
+		ChunkDedupEnabled:  true,
+		ChunkDedupMinBytes: 0,
+		ChunkStore:         store,
+	})
+	text := out.Messages[1].Content[0].Text
+	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
+		!strings.Contains(text, "Chunk ID: bbb222") ||
+		!strings.Contains(text, "Output:\n[context-chunk status=unchanged uri=local-archive://") ||
+		!strings.Contains(text, "tail b") {
+		t.Fatalf("second envelope should chunk-dedup payload while preserving header: stats=%+v text=%q", out.Stats, text)
+	}
+}
+
+func TestReduceCodexLayer0ChunkDedupCodexTruncatedEnvelope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStore(chunkdedup.Config{}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	shared := strings.Repeat("codex truncated output stable shared line\n", 210)
+	firstText := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 51204\nOutput:\nTotal output lines: 3201\n\n" + shared + "tail for file A\n"
+	secondText := "Chunk ID: bbb222\nWall time: 0.0001 seconds\nProcess exited with code 0\nOriginal token count: 51204\nOutput:\nTotal output lines: 3201\n\n" + shared + "tail for file B\n"
+	first := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-a", ToolName: "exec_command", ToolInput: `{"cmd":"cat /tmp/a.txt"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-a", Text: firstText}}},
+	}
+	second := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-b", ToolName: "exec_command", ToolInput: `{"cmd":"cat /tmp/b.txt"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-b", Text: secondText}}},
+	}
+
+	reduceCodexLayer0(codexLayer0Request{
+		Messages:           first,
+		SessionID:          "sess-truncated-envelope",
+		ChunkDedupEnabled:  true,
+		ChunkDedupMinBytes: 0,
+		ChunkStore:         store,
+	})
+	out := reduceCodexLayer0(codexLayer0Request{
+		Messages:           second,
+		SessionID:          "sess-truncated-envelope",
+		ChunkDedupEnabled:  true,
+		ChunkDedupMinBytes: 0,
+		ChunkStore:         store,
+	})
+	text := out.Messages[1].Content[0].Text
+	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
+		!strings.Contains(text, "[context-chunk status=unchanged uri=local-archive://") ||
+		!strings.Contains(text, "tail for file B") {
+		t.Fatalf("Codex-truncated envelope should chunk-dedup stable payload prefix: stats=%+v text=%q", out.Stats, text)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupRequiresGateAndRecovery(t *testing.T) {
 	t.Parallel()
 	store := chunkdedup.NewStore(chunkdedup.Config{}, nil)

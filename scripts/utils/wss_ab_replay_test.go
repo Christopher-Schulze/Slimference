@@ -95,6 +95,93 @@ func TestRunWSSABReplayJSONAndGateFailure(t *testing.T) {
 	}
 }
 
+func TestRunWSSABReplayAllowsExpectedRecoveryNoteExtra(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	writeJSONLFile(t, path, wssABReplayTestRecord("client_to_server", map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "ab-note-session",
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"stream": true,
+	}))
+
+	var stdout, stderr bytes.Buffer
+	code := runWSSABReplay([]string{path, "--archive-recovery-note", "--allow-recovery-note-extra", "--fail-on-lost", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runWSSABReplay code=%d want 0 stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var report wssABReplayReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("json output did not parse: %v\n%s", err, stdout.String())
+	}
+	if !report.GatePassed || report.ExpectedExtras != 1 || report.Lost != 1 {
+		t.Fatalf("expected recovery-note extra to be separated from gate loss: %+v", report)
+	}
+}
+
+func TestWSSABReplayReportChunkDedupProofGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	shared := strings.Repeat("shared fixture payload for content-defined chunk replay\n", 2600)
+	first := shared + "first file tail\n"
+	second := shared + "second file tail\n"
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   "read-a",
+				"name":      "read_file",
+				"arguments": `{"path":"src/a.md"}`,
+			},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-a", "ab-chunk-session", "resp-a", first)),
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   "read-b",
+				"name":      "read_file",
+				"arguments": `{"path":"src/b.md"}`,
+			},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-b", "ab-chunk-session", "resp-b", second)),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:                   path,
+		failOnLost:             true,
+		archiveRecoveryNote:    true,
+		allowRecoveryNoteExtra: true,
+		codexChunkDedup:        true,
+		chunkDedupMinBytes:     0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Frames != 4 || report.RequestTurns != 2 || report.MutatedRequests < 2 {
+		t.Fatalf("unexpected replay counts: %+v", report)
+	}
+	if !report.GatePassed || report.ExpectedExtras != 1 || report.BytesSaved <= 0 {
+		t.Fatalf("chunk replay should pass the proof gate with savings: %+v", report)
+	}
+	foundChunkReference := false
+	for _, elision := range report.Elisions {
+		if elision.Severity == "elided_with_reference" && strings.Contains(elision.Preview, "shared fixture") {
+			foundChunkReference = true
+		}
+	}
+	if !foundChunkReference {
+		t.Fatalf("expected at least one referenced chunk elision, got %+v", report.Elisions)
+	}
+}
+
 func TestParseWSSABReplayFrameLine(t *testing.T) {
 	frame, err := parseWSSABReplayFrameLine([]byte(`{"dir":"c2s","payload":"{\"type\":\"request\",\"input\":[]}"}`))
 	if err != nil {
@@ -111,6 +198,25 @@ func TestParseWSSABReplayFrameLine(t *testing.T) {
 		if _, err := parseWSSABReplayFrameLine(line); err == nil {
 			t.Fatalf("expected parse error for %s", line)
 		}
+	}
+}
+
+func TestParseWSSABReplayFlagsRejectsBadChunkMinBytes(t *testing.T) {
+	for _, args := range [][]string{
+		{"frames.jsonl", "--chunk-dedup-min-bytes"},
+		{"frames.jsonl", "--chunk-dedup-min-bytes", "abc"},
+		{"frames.jsonl", "--chunk-dedup-min-bytes", "-1"},
+	} {
+		if _, err := parseWSSABReplayFlags(args); err == nil {
+			t.Fatalf("expected parse error for %v", args)
+		}
+	}
+	flags, err := parseWSSABReplayFlags([]string{"frames.jsonl", "--codex-chunk-dedup", "--chunk-dedup-min-bytes=123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !flags.codexChunkDedup || !flags.archiveRecoveryNote || !flags.allowRecoveryNoteExtra || flags.chunkDedupMinBytes != 123 {
+		t.Fatalf("bad parsed flags: %+v", flags)
 	}
 }
 

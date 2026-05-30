@@ -35,6 +35,7 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		TokensSaved:          2000,
 		BlocksModified:       1,
 		RepeatedOutputBlocks: 1,
+		ChunkDedupBlocks:     1,
 	})
 
 	probe := &SavingsProbe{Proxy: p, USDPerMillionTokens: 6.0}
@@ -73,6 +74,9 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	}
 	if got.ProxyLayer0Repeated != 1 {
 		t.Errorf("ProxyLayer0Repeated=%d want 1", got.ProxyLayer0Repeated)
+	}
+	if got.ProxyLayer0ChunkDedup != 1 {
+		t.Errorf("ProxyLayer0ChunkDedup=%d want 1", got.ProxyLayer0ChunkDedup)
 	}
 	// CostUSD = 2000 / 1_000_000 * 6.0 = 0.012
 	if got.CostUSD < 0.0119 || got.CostUSD > 0.0121 {
