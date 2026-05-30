@@ -179,7 +179,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				RecentlyEdited:           readCtx.RecentlyEdited,
 				PostCollapseReRead:       postCollapseReRead && toolKey != "",
 			})
-			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {
+			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup && !policy.ScanRead) {
 				continue
 			}
 			readDeltaAttempted := policy.ReadDelta && readDeltaEligible(req.SessionID, commandLine)
@@ -199,7 +199,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
 				}
 				if !changed {
-					if scanApplyEnabled() && !readCtx.RecentlyEdited {
+					if policy.ScanRead || (scanApplyEnabled() && !readCtx.RecentlyEdited) {
 						if scanText, scanChanged, _ := compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx); scanChanged {
 							afterText, changed, mechanism = scanText, true, proxyLayer0MechanismScanRead
 						}

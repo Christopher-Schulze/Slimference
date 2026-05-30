@@ -65,6 +65,38 @@ func TestDecideCodexToolOutputModes(t *testing.T) {
 	}
 }
 
+func TestDecideCodexToolOutputScanReadInvariant(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		in   CodexToolOutputInput
+		want bool
+	}{
+		{name: "max read with recovery enables scan", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: true},
+		{name: "max read without recovery never scans", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: false, OutputBytes: 9000}, want: false},
+		{name: "max non-read never scans", in: CodexToolOutputInput{Mode: "max", IsRead: false, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: false},
+		{name: "auto not promoted to scan", in: CodexToolOutputInput{Mode: "auto", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: false},
+		{name: "conservative not promoted to scan", in: CodexToolOutputInput{Mode: "conservative", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: false},
+		{name: "recent edit full-passes the read", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000}, want: false},
+		{name: "post-collapse reread full-passes the read", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, PostCollapseReRead: true, OutputBytes: 9000}, want: false},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := DecideCodexToolOutput(tc.in)
+			if got.ScanRead != tc.want {
+				t.Fatalf("ScanRead=%v want %v: %+v", got.ScanRead, tc.want, got)
+			}
+			if tc.want && !got.NeedsRecoveryNote {
+				t.Fatalf("scan-read must require a recovery note: %+v", got)
+			}
+			if (tc.in.RecentlyEdited || tc.in.PostCollapseReRead) && !got.Loosened {
+				t.Fatalf("context-risk read must loosen (full-pass), not scan: %+v", got)
+			}
+		})
+	}
+}
+
 func TestValidCodexMode(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"", "off", "conservative", "safe", "auto", "max", "aggressive"} {

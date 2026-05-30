@@ -29,6 +29,7 @@ type CodexToolOutputDecision struct {
 	ReadDelta         bool
 	RepeatedOutput    bool
 	ChunkDedup        bool
+	ScanRead          bool
 	NeedsRecoveryNote bool
 	Loosened          bool
 	Reason            string
@@ -100,6 +101,15 @@ func DecideCodexToolOutput(in CodexToolOutputInput) CodexToolOutputDecision {
 		decision.ChunkDedup = true
 		decision.NeedsRecoveryNote = true
 		decision.Reason = "max_recoverable_chunk_dedup"
+	}
+	// First-read scan-mode (lossy: bodies elided to signatures) only in max mode,
+	// only on reads, and only when archive recovery is available. The Loosened
+	// early-return above guarantees a recent-edit or post-collapse re-read never
+	// reaches here, so a re-read full-passes and recovers the elided bodies.
+	if mode == CodexModeMax && in.IsRead && in.ArchiveRecoveryAvailable {
+		decision.ScanRead = true
+		decision.NeedsRecoveryNote = true
+		decision.Reason = "max_recoverable_scan_read"
 	}
 	return decision
 }

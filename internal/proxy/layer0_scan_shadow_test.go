@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
@@ -83,5 +84,58 @@ func TestReduceCodexLayer0ScanReadApplyGatedAndRecoverable(t *testing.T) {
 	}
 	if len(on.Stats.ReadDeltaKeys) == 0 {
 		t.Fatalf("scan-apply must register the read key for re-read recovery, stats=%+v", on.Stats)
+	}
+}
+
+// TestReduceCodexLayer0ScanReadViaMaxPolicy proves scan-mode is driven by the
+// savings policy (no env flag): auto mode never scan-compacts a first read, max
+// mode does, and the max path keeps the full triple recovery (note, archive
+// reference, read-key registration).
+func TestReduceCodexLayer0ScanReadViaMaxPolicy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(scanApplyEnv, "") // env OFF: prove the policy alone drives scan-mode.
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, chunkdedup.StoreLimits{}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	var body strings.Builder
+	body.WriteString("Process exited with code 0\nOutput:\n")
+	body.WriteString("package x\n\n")
+	for i := 0; i < 40; i++ {
+		body.WriteString(fmt.Sprintf("func F%d(a int) int {\n", i))
+		for j := 0; j < 15; j++ {
+			body.WriteString(fmt.Sprintf("\ta += %d\n", j))
+		}
+		body.WriteString("\treturn a\n}\n\n")
+	}
+	mk := func() []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-read", ToolName: "exec_command", ToolInput: `{"cmd":"cat /tmp/x.go"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-read", Text: body.String()}}},
+		}
+	}
+
+	autoRes := reduceCodexLayer0(codexLayer0Request{
+		Route: codexLayer0RouteWSSPhaseF, Messages: mk(), SessionID: "s-auto",
+		PolicyMode: "auto", ChunkDedupEnabled: true, ChunkStore: store, ArchiveRecovery: true,
+	})
+	if autoRes.Stats.CapturedOutputBlocks != 0 {
+		t.Fatalf("auto mode must not scan-compact a first read (not promoted yet), stats=%+v", autoRes.Stats)
+	}
+
+	maxRes := reduceCodexLayer0(codexLayer0Request{
+		Route: codexLayer0RouteWSSPhaseF, Messages: mk(), SessionID: "s-max",
+		PolicyMode: "max", ChunkDedupEnabled: true, ChunkStore: store, ArchiveRecovery: true,
+	})
+	text := maxRes.Messages[1].Content[0].Text
+	if maxRes.Stats.TokensSaved <= 0 || maxRes.Stats.CapturedOutputBlocks != 1 {
+		t.Fatalf("max policy must scan-compact the first read, stats=%+v", maxRes.Stats)
+	}
+	if !strings.Contains(text, "re-run the read to see the full file") ||
+		!strings.Contains(text, "context-archive kind=tool-output uri=local-archive://") ||
+		len(maxRes.Stats.ReadDeltaKeys) == 0 {
+		t.Fatalf("max-policy scan must keep triple recovery: text=%q stats=%+v", text[:min(len(text), 200)], maxRes.Stats)
 	}
 }
