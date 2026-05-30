@@ -367,6 +367,13 @@ model comprehension. Deterministic reducers stay guarded by reconstruction,
 token-decrease checks, recent-edit observations, content-free canaries, and
 byte-equal fail-open; broader semantic compression or archive-instruction
 recovery requires separate fixture and live proof before default-on promotion.
+`internal/proxy.RunWSSPhaseFABReplay` is the offline bridge for that proof: it
+replays decompressed Codex WSS frames through the real Phase-F reducer, extracts
+the direct and compressed model-facing request context, and feeds both into
+`internal/abharness.Compare`. The CI-covered fixture proves repeat-read
+read-delta is recoverable because the first full read was already sent, and that
+the default-off archive recovery note is visibly audited as an extra
+model-facing context change.
 
 ---
 

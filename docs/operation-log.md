@@ -3358,3 +3358,25 @@ Safety:
   wins; otherwise original content is forwarded unchanged.
 - Output-wire savings are no longer mixed into the billable-token headline, so
   proof numbers are harder to overstate.
+
+## 2026-05-30 - T249 WSS Phase-F A/B replay bridge
+
+Goal: connect the offline comprehension harness to the real Codex WSS reducer
+instead of comparing hand-written before/after blocks only.
+
+Changes:
+- Added `internal/proxy.RunWSSPhaseFABReplay`. It consumes decompressed Codex WSS
+  frames in wire order, lets server-to-client frames seed the real Phase-F adapter,
+  runs client-to-server request frames once as direct context and once through the
+  reducer, then feeds both model-facing contexts into `internal/abharness.Compare`.
+- Added CI-covered fixtures for two high-risk cases: repeat-read read-delta is
+  classified as recoverable because the first full read was already sent, and the
+  default-off archive recovery note is audited as an extra model-facing context
+  change when explicitly enabled.
+
+Safety:
+- This is proof infrastructure only. It does not enable any new compression path
+  or model-facing instruction by default.
+- The recovery-note fixture intentionally shows why the note must stay gated:
+  even useful recovery instructions are real prompt mutations and need A/B proof
+  before promotion.
