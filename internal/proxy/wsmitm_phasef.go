@@ -351,7 +351,6 @@ func (a *wsPhaseFAdapter) rememberCollapsedReadKeys(keys []string) {
 		return
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	if a.collapsedKeys == nil {
 		a.collapsedKeys = make(map[string]struct{}, len(keys))
 	}
@@ -360,6 +359,69 @@ func (a *wsPhaseFAdapter) rememberCollapsedReadKeys(keys []string) {
 			a.collapsedKeys[key] = struct{}{}
 		}
 	}
+	sid := a.sessionID
+	a.mu.Unlock()
+	// Persist so the re-read full-pass recovery survives a WSS socket reconnect:
+	// a re-read on a fresh adapter rehydrates the collapsed key and loosens.
+	a.persistCollapsedKeys(sid, keys)
+}
+
+func (a *wsPhaseFAdapter) collapsedKeysDir() string {
+	home, err := proxyUserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return toolusecache.CollapsedKeysDir(home)
+}
+
+// hydrateCollapsedKeys loads the persisted collapsed read keys for the session
+// into the per-socket set so a re-read after a reconnect is still recognized as
+// a post-collapse re-read and full-passes (recovers the elided bodies).
+func (a *wsPhaseFAdapter) hydrateCollapsedKeys(sessionID string) {
+	if a == nil || sessionID == "" {
+		return
+	}
+	dir := a.collapsedKeysDir()
+	if dir == "" {
+		return
+	}
+	loaded, err := toolusecache.Load(dir, sessionID)
+	if err != nil || len(loaded) == 0 {
+		return
+	}
+	a.mu.Lock()
+	if a.collapsedKeys == nil {
+		a.collapsedKeys = make(map[string]struct{}, len(loaded))
+	}
+	for key := range loaded {
+		if key != "" {
+			a.collapsedKeys[key] = struct{}{}
+		}
+	}
+	a.mu.Unlock()
+}
+
+// persistCollapsedKeys writes the collapsed read keys for the session to disk.
+// The key itself is the payload (stored as Entry.ToolUseID); no tool output is
+// persisted. Best-effort; a persistence error never affects the stream.
+func (a *wsPhaseFAdapter) persistCollapsedKeys(sessionID string, keys []string) {
+	if a == nil || sessionID == "" || len(keys) == 0 {
+		return
+	}
+	dir := a.collapsedKeysDir()
+	if dir == "" {
+		return
+	}
+	add := make(map[string]toolusecache.Entry, len(keys))
+	for _, key := range keys {
+		if key != "" {
+			add[key] = toolusecache.Entry{ToolUseID: key}
+		}
+	}
+	if len(add) == 0 {
+		return
+	}
+	_, _ = toolusecache.Merge(dir, sessionID, add)
 }
 
 func (a *wsPhaseFAdapter) restoreKeysForReReads(reReadKeys map[string]struct{}) map[string]struct{} {
@@ -604,6 +666,11 @@ func (a *wsPhaseFAdapter) hydrateToolUses(sessionID string) {
 	a.sessionID = sessionID
 	a.toolUseHydrated = true
 	a.mu.Unlock()
+
+	// Rehydrate collapsed read keys independently of the tool-use map so the
+	// re-read full-pass recovery survives a reconnect even when no tool-use
+	// metadata is cached yet.
+	a.hydrateCollapsedKeys(sessionID)
 
 	dir := a.toolUseCacheDir()
 	if dir == "" {

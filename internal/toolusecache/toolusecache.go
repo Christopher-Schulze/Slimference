@@ -48,6 +48,13 @@ func DefaultDir(home string) string {
 	return filepath.Join(home, ".slimference", "tooluse-cache")
 }
 
+// CollapsedKeysDir returns the on-disk root for persisted collapsed read keys.
+// Scan/read recovery uses it so the re-read full-pass canary survives a WSS
+// socket reconnect (the in-memory collapsed-key set is per-socket otherwise).
+func CollapsedKeysDir(home string) string {
+	return filepath.Join(home, ".slimference", "collapsed-keys")
+}
+
 func sessionPath(dir, sessionID string) string {
 	return filepath.Join(dir, sessions.SafeSessionID(sessionID)+".json")
 }
