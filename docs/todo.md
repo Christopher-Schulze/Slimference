@@ -1481,8 +1481,17 @@ only and promotes the per-process Codex CLI runner for T209.
   instead of manual planner facts. WSS request bodies now get content-free
   planner summaries in `decisions.jsonl`, including content classes, token
   deltas, previous-response state, output-reduce reason, and proof-gated L2/L3
-  decisions. Remaining work: future capture-driven tool variants, measured
-  L2/L3 upgrades, and real workday data collection before T240.
+  decisions. Safety hardening after external review replaced lossy changed-read
+  diffs with position-aware hunks, feeds WSS-observed edits into the recent-edit
+  guard, leaves terminal `response.completed` payloads byte-equal for repdet,
+  fixes high-risk filter ordering/value-loss cases, and keeps Layer 2 disabled
+  by default in generated config. Fresh 2026-05-30 CLI audits now prove distinct
+  session ids across two new conversations and real WSS savings through
+  `codex exec resume --last` (`tokens_saved=2815`,
+  `compressed_messages_mutated=1`, zero parse/degrade/compression errors).
+  Remaining work: future capture-driven tool variants, measured L2/L3 upgrades,
+  Desktop workday data collection, and broader real workload measurements before
+  T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H

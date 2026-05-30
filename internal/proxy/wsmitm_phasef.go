@@ -23,11 +23,12 @@ import (
 type wsPhaseFAdapter struct {
 	p *Proxy
 
-	mu          sync.Mutex
-	messages    []types.Message
-	repdetIndex *repdet.Index
-	toolUses    map[string]types.ContentBlock
-	counters    wsPhaseFCounters
+	mu            sync.Mutex
+	messages      []types.Message
+	repdetIndex   *repdet.Index
+	toolUses      map[string]types.ContentBlock
+	qualityCohort qualityab.Cohort
+	counters      wsPhaseFCounters
 }
 
 type wsPhaseFCounters struct {
@@ -183,14 +184,46 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 	}
 	if a.p.config.Compression.OutputReduce.BeTerseHintEnabled && a.p.qualityAB != nil {
 		sessionID := wsCodexSessionID(out)
-		if a.p.qualityAB.Cohort(sessionID) == qualityab.CohortTreatment {
+		cohort := a.p.qualityAB.Cohort(sessionID)
+		recordCohort := cohort
+		if cohort == qualityab.CohortTreatment {
 			if injected, res := beterse.Inject(types.CodexChatGPT, out, a.p.config.Compression.OutputReduce.BeTerseHintText); res.Applied {
 				out = injected
 				a.p.outputReduceCounters.RecordBeTerseInjection(res.Bytes)
+			} else {
+				recordCohort = qualityab.CohortControl
 			}
 		}
+		a.rememberWSSQualityCohort(recordCohort)
 	}
 	return out, messages, !bytes.Equal(original, out), l0Stats
+}
+
+func (a *wsPhaseFAdapter) rememberWSSQualityCohort(cohort qualityab.Cohort) {
+	if cohort != qualityab.CohortControl && cohort != qualityab.CohortTreatment {
+		return
+	}
+	a.mu.Lock()
+	a.qualityCohort = cohort
+	a.mu.Unlock()
+}
+
+func (a *wsPhaseFAdapter) recordWSSQualityOutcome(kind wsmitm.FrameKind) {
+	if a.p == nil || a.p.qualityAB == nil {
+		return
+	}
+	a.mu.Lock()
+	cohort := a.qualityCohort
+	a.qualityCohort = ""
+	a.mu.Unlock()
+	if cohort != qualityab.CohortControl && cohort != qualityab.CohortTreatment {
+		return
+	}
+	outcome := qualityab.OutcomeSuccess
+	if kind == wsmitm.FrameKindResponseFailed || kind == wsmitm.FrameKindResponseIncomplete {
+		outcome = qualityab.OutcomeUpstreamError
+	}
+	a.p.qualityAB.RecordOutcome(cohort, outcome)
 }
 
 func (a *wsPhaseFAdapter) observeWSSRecentEdits(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
@@ -331,6 +364,7 @@ func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
 	}
 	if env.Kind.IsTerminal() {
 		a.counters.terminalResponsesSeen.Add(1)
+		a.recordWSSQualityOutcome(env.Kind)
 	}
 	mutated := false
 	if a.applyRepdetDelta(env) {

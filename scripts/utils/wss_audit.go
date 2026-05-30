@@ -6,6 +6,7 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,10 +18,14 @@ type wssAuditReport struct {
 	Requests               int                      `json:"requests"`
 	WSSRequests            int                      `json:"wss_requests"`
 	PhaseFRequests         int                      `json:"phasef_requests"`
+	UniqueSessions         int                      `json:"unique_sessions"`
 	MissingSessionID       int                      `json:"missing_session_id"`
 	PreviousResponseIDUsed int                      `json:"previous_response_id_used"`
 	PositiveSavings        int                      `json:"positive_savings_requests"`
 	TokensSaved            int                      `json:"tokens_saved"`
+	Since                  *time.Time               `json:"since,omitempty"`
+	GatePassed             bool                     `json:"gate_passed"`
+	GateFailures           []string                 `json:"gate_failures,omitempty"`
 	RouteModes             map[string]int           `json:"route_modes,omitempty"`
 	ContentClasses         map[string]int           `json:"content_classes,omitempty"`
 	Sessions               []wssAuditSessionSummary `json:"sessions,omitempty"`
@@ -37,60 +42,164 @@ type wssAuditSessionSummary struct {
 	LastSeen               time.Time `json:"last_seen,omitempty"`
 }
 
+type wssAuditFlags struct {
+	path                   string
+	outputFormat           string
+	expectDistinctSessions int
+	minPhaseF              int
+	requireSavings         bool
+	since                  time.Time
+	help                   bool
+}
+
 const wssAuditHelpText = `wss-audit: inspect Codex WSS decisions without raw frame dumps
 
 Usage:
-  go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
+  go run ./scripts/utils wss-audit <decisions.jsonl> [flags]
+
+Flags:
+  --expect-distinct-sessions=<n>  Fail if fewer than n non-empty WSS session ids are present
+  --min-phasef=<n>                Fail if fewer than n Phase-F request summaries are present
+  --require-savings               Fail if no positive input-token savings are present
+  --since=<rfc3339>               Ignore records before this timestamp
+  --json                          Output JSON
 
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
 Phase-F request counts, session-key continuity, previous_response_id usage, and
 positive input-token savings. It does not inspect payload text or auth headers.`
 
 func runWSSAudit(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(stdout, wssAuditHelpText)
-		return 0
-	}
-	outputFormat, rest, err := parseOutputFlag(args)
+	flags, err := parseWSSAuditFlags(args)
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
-	if len(rest) != 1 {
+	if flags.help {
+		fmt.Fprintln(stdout, wssAuditHelpText)
+		return 0
+	}
+	if flags.path == "" {
 		fmt.Fprintln(stderr, "Usage: wss-audit <decisions.jsonl> [--json]")
 		return 2
 	}
-	report, err := loadWSSAuditReport(rest[0])
+	report, err := loadWSSAuditReport(flags)
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
-	if outputFormat == outputJSON {
+	if flags.outputFormat == outputJSON {
 		data, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
 			fmt.Fprintln(stderr, err.Error())
 			return 1
 		}
 		fmt.Fprintln(stdout, string(data))
+		if !report.GatePassed {
+			return 3
+		}
 		return 0
 	}
 	writeWSSAuditText(stdout, report)
+	if !report.GatePassed {
+		return 3
+	}
 	return 0
 }
 
-func loadWSSAuditReport(path string) (wssAuditReport, error) {
-	summaries, err := dbg.ReplaySession(path)
+func parseWSSAuditFlags(args []string) (wssAuditFlags, error) {
+	flags := wssAuditFlags{outputFormat: outputText}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--help" || a == "-h":
+			flags.help = true
+		case a == "--json":
+			flags.outputFormat = outputJSON
+		case a == "--require-savings":
+			flags.requireSavings = true
+		case a == "--since":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return flags, err
+			}
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				return flags, fmt.Errorf("--since must be RFC3339: %w", err)
+			}
+			flags.since = t
+		case strings.HasPrefix(a, "--since="):
+			t, err := time.Parse(time.RFC3339, strings.TrimPrefix(a, "--since="))
+			if err != nil {
+				return flags, fmt.Errorf("--since must be RFC3339: %w", err)
+			}
+			flags.since = t
+		case a == "--expect-distinct-sessions":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return flags, err
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				return flags, fmt.Errorf("--expect-distinct-sessions must be a non-negative integer")
+			}
+			flags.expectDistinctSessions = n
+		case strings.HasPrefix(a, "--expect-distinct-sessions="):
+			n, err := strconv.Atoi(strings.TrimPrefix(a, "--expect-distinct-sessions="))
+			if err != nil || n < 0 {
+				return flags, fmt.Errorf("--expect-distinct-sessions must be a non-negative integer")
+			}
+			flags.expectDistinctSessions = n
+		case a == "--min-phasef":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return flags, err
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				return flags, fmt.Errorf("--min-phasef must be a non-negative integer")
+			}
+			flags.minPhaseF = n
+		case strings.HasPrefix(a, "--min-phasef="):
+			n, err := strconv.Atoi(strings.TrimPrefix(a, "--min-phasef="))
+			if err != nil || n < 0 {
+				return flags, fmt.Errorf("--min-phasef must be a non-negative integer")
+			}
+			flags.minPhaseF = n
+		case strings.HasPrefix(a, "-"):
+			return flags, fmt.Errorf("unknown flag: %s", a)
+		default:
+			if flags.path != "" {
+				return flags, fmt.Errorf("multiple decisions logs provided")
+			}
+			flags.path = a
+		}
+	}
+	return flags, nil
+}
+
+func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
+	summaries, err := dbg.ReplaySession(flags.path)
 	if err != nil {
-		return wssAuditReport{}, fmt.Errorf("read decisions %s: %w", path, err)
+		return wssAuditReport{}, fmt.Errorf("read decisions %s: %w", flags.path, err)
 	}
 	report := wssAuditReport{
-		Path:           path,
-		Requests:       len(summaries),
+		Path:           flags.path,
+		GatePassed:     true,
 		RouteModes:     make(map[string]int),
 		ContentClasses: make(map[string]int),
 	}
+	if !flags.since.IsZero() {
+		since := flags.since
+		report.Since = &since
+	}
 	sessionStats := make(map[string]*wssAuditSessionSummary)
 	for _, summary := range summaries {
+		if !flags.since.IsZero() {
+			if summary.Timestamp.IsZero() || summary.Timestamp.Before(flags.since) {
+				continue
+			}
+		}
+		report.Requests++
 		route := wssAuditRouteMode(summary)
 		if route == "" {
 			route = "unknown"
@@ -143,6 +252,9 @@ func loadWSSAuditReport(path string) (wssAuditReport, error) {
 		}
 	}
 	for _, stats := range sessionStats {
+		if stats.SessionID != "(missing)" {
+			report.UniqueSessions++
+		}
 		report.Sessions = append(report.Sessions, *stats)
 	}
 	sort.Slice(report.Sessions, func(i, j int) bool {
@@ -152,6 +264,8 @@ func loadWSSAuditReport(path string) (wssAuditReport, error) {
 		return report.Sessions[i].SessionID < report.Sessions[j].SessionID
 	})
 	report.Notes = wssAuditNotes(report)
+	report.GateFailures = wssAuditGateFailures(report, flags)
+	report.GatePassed = len(report.GateFailures) == 0
 	return report, nil
 }
 
@@ -212,15 +326,34 @@ func wssAuditNotes(report wssAuditReport) []string {
 	return notes
 }
 
+func wssAuditGateFailures(report wssAuditReport, flags wssAuditFlags) []string {
+	var failures []string
+	if flags.expectDistinctSessions > 0 && report.UniqueSessions < flags.expectDistinctSessions {
+		failures = append(failures, fmt.Sprintf("expected at least %d distinct non-empty WSS session ids, got %d", flags.expectDistinctSessions, report.UniqueSessions))
+	}
+	if flags.minPhaseF > 0 && report.PhaseFRequests < flags.minPhaseF {
+		failures = append(failures, fmt.Sprintf("expected at least %d Phase-F request summaries, got %d", flags.minPhaseF, report.PhaseFRequests))
+	}
+	if flags.requireSavings && report.PositiveSavings == 0 {
+		failures = append(failures, "expected at least one positive input-token savings request")
+	}
+	return failures
+}
+
 func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 	fmt.Fprintf(w, "=== WSS Audit: %s ===\n", filepath.Base(report.Path))
+	if report.Since != nil {
+		fmt.Fprintf(w, "Since:                   %s\n", report.Since.Format(time.RFC3339))
+	}
 	fmt.Fprintf(w, "Requests analyzed:        %d\n", report.Requests)
 	fmt.Fprintf(w, "WSS requests:             %d\n", report.WSSRequests)
 	fmt.Fprintf(w, "Phase-F requests:         %d\n", report.PhaseFRequests)
+	fmt.Fprintf(w, "unique session ids:       %d\n", report.UniqueSessions)
 	fmt.Fprintf(w, "missing session ids:      %d\n", report.MissingSessionID)
 	fmt.Fprintf(w, "previous_response_id:     %d\n", report.PreviousResponseIDUsed)
 	fmt.Fprintf(w, "positive savings reqs:    %d\n", report.PositiveSavings)
 	fmt.Fprintf(w, "input tokens saved:       %d\n", report.TokensSaved)
+	fmt.Fprintf(w, "gate:                     %s\n", passFail(report.GatePassed))
 	if len(report.RouteModes) > 0 {
 		fmt.Fprintln(w, "\nRoutes:")
 		for _, key := range sortedStringKeys(report.RouteModes) {
@@ -247,6 +380,19 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 			fmt.Fprintf(w, "  - %s\n", note)
 		}
 	}
+	if len(report.GateFailures) > 0 {
+		fmt.Fprintln(w, "\nGate failures:")
+		for _, failure := range report.GateFailures {
+			fmt.Fprintf(w, "  - %s\n", failure)
+		}
+	}
+}
+
+func passFail(ok bool) string {
+	if ok {
+		return "PASS"
+	}
+	return "FAIL"
 }
 
 func truncateMiddle(s string, maxLen int) string {

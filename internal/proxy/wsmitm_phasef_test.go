@@ -1008,6 +1008,87 @@ func TestWSCodexSessionIDFromCodexResponsesShape(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFBeTerseRecordsQualityOutcomeOnTerminalFrame(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
+	cfg.Compression.OutputReduce.BeTerseHintText = "be concise"
+	p := New(cfg)
+	conversationID := findCodexWSSTreatmentConversation(t, p)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	req := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": conversationID,
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Summarize this.",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &req); err != nil || !replace {
+		t.Fatalf("request handle replace=%v err=%v", replace, err)
+	}
+	if snap := p.qualityAB.Snapshot(); snap.TreatmentTotal != 0 {
+		t.Fatalf("WSS quality outcome should wait for terminal frame: %+v", snap)
+	}
+
+	resp := parseWSJSON(t, map[string]any{
+		"type":     string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{"id": "resp-ok"},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &resp); err != nil || replace {
+		t.Fatalf("terminal handle replace=%v err=%v", replace, err)
+	}
+	if snap := p.qualityAB.Snapshot(); snap.TreatmentTotal != 1 || snap.TreatmentFailures != 0 {
+		t.Fatalf("WSS terminal success not recorded: %+v", snap)
+	}
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &resp); err != nil || replace {
+		t.Fatalf("second terminal handle replace=%v err=%v", replace, err)
+	}
+	if snap := p.qualityAB.Snapshot(); snap.TreatmentTotal != 1 {
+		t.Fatalf("terminal without pending WSS request should not double-record: %+v", snap)
+	}
+}
+
+func TestWSPhaseFBeTerseRecordsFailedTerminalOutcome(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
+	cfg.Compression.OutputReduce.BeTerseHintText = "be concise"
+	p := New(cfg)
+	conversationID := findCodexWSSTreatmentConversation(t, p)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	req := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": conversationID,
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Summarize this.",
+			}},
+			"stream": true,
+		},
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &req); err != nil || !replace {
+		t.Fatalf("request handle replace=%v err=%v", replace, err)
+	}
+	failed := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseFailed),
+	})
+	if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &failed); err != nil || replace {
+		t.Fatalf("failed terminal handle replace=%v err=%v", replace, err)
+	}
+	if snap := p.qualityAB.Snapshot(); snap.TreatmentTotal != 1 || snap.TreatmentFailures != 1 {
+		t.Fatalf("WSS terminal failure not recorded: %+v", snap)
+	}
+}
+
 func findCodexWSSTreatmentConversation(t *testing.T, p *Proxy) string {
 	t.Helper()
 	if p.qualityAB == nil {

@@ -3158,3 +3158,48 @@ Interpretation:
   `total_messages=0` and could not show the real request shape. Runtime behavior
   stays unchanged except for safer evidence: no payloads, headers, tool output
   text, prompt-cache blocks, or auth data are written.
+
+## 2026-05-30 - T248 WSS safety hardening and live CLI audit
+
+Goal: close the remaining high-severity safety/accounting gaps from external
+review, then measure the two cheap WSS frontier questions with fresh logs.
+
+Changes:
+- Changed-read summaries no longer use trimmed set-style diffs. They now emit
+  position-aware line hunks, preserve indentation/duplicates/moved context, and
+  avoid doubled blank lines between diff rows.
+- Codex WSS edit/write/apply_patch observations feed the existing
+  recently-edited readcache guard before Layer-0 mutation decisions.
+- Terminal `response.completed` payloads stay byte-equal for WSS repdet. This
+  removes final-response corruption risk and avoids counting the same
+  output-wire rewrite twice.
+- Build/test/lint compactors run before generic log compaction; container
+  filters preserve unhealthy rows; diagnostic JSON keeps error/message values.
+- Layer 2 default docs/config truth is reconciled to disabled by default.
+- `wss-audit` now supports fresh-window gates (`--since`,
+  `--expect-distinct-sessions`, `--min-phasef`, `--require-savings`) for text
+  and JSON output. `--since` excludes untimed legacy records.
+- WSS BeTerse terminal outcomes are recorded into the existing `qualityab`
+  rollback harness. Deterministic Layer-0 mutations remain protected by
+  schema reconstruction, token-decrease checks, recent-edit guards, and
+  byte-equal fail-open.
+
+Live evidence:
+- Two fresh scoped Codex CLI conversations produced two distinct non-empty WSS
+  session ids and passed `wss-audit --expect-distinct-sessions=2 --min-phasef=2`.
+- A fresh `codex exec` followed by `codex exec resume --last` reused one stable
+  WSS session id, used `previous_response_id` four times, and produced real WSS
+  savings: `positive_savings_requests=1`, `tokens_saved=2815`,
+  `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `phasef_mutations=1`, `parse_failures=0`, `degraded_sessions=0`,
+  `compression_errors=0`.
+- The positive mutation was attributed to the WSS Phase-F Layer-0
+  captured-output route. No raw payload dump was needed.
+
+Interpretation:
+- The current CLI prompt-cache-key collision hypothesis is not supported by
+  fresh evidence. Fresh conversations used distinct WSS session ids.
+- CLI resume across user turns is savings-proven on the current Codex 0.135.0
+  and Slimference 2.0.2 route.
+- Desktop still needs a workday/app confirmation window, but it rides the same
+  route and can now be audited with the same gates.

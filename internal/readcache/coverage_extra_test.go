@@ -95,6 +95,9 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 	if !strings.Contains(summary, "-\treturn") || !strings.Contains(summary, "+    return") {
 		t.Fatalf("delta should preserve indentation-only changes: %q", summary)
 	}
+	if strings.Contains(summary, "\n\n+") || strings.Contains(summary, "\n\n-") || strings.Contains(summary, "\n\n ") {
+		t.Fatalf("delta should not double-space hunk lines: %q", summary)
+	}
 }
 
 func TestReadCacheEvaluateAndStatsBranches(t *testing.T) {

@@ -48,17 +48,24 @@ func buildPositionAwareDelta(oldContent, newContent string, contextLines int) st
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "@@ -%d,%d +%d,%d @@\n", hunkStartOld+1, hunkEndOld-hunkStartOld, hunkStartNew+1, hunkEndNew-hunkStartNew)
+	writeLine := func(prefix, line string) {
+		b.WriteString(prefix)
+		b.WriteString(line)
+		if !strings.HasSuffix(line, "\n") {
+			b.WriteByte('\n')
+		}
+	}
 	for _, line := range oldLines[hunkStartOld:prefix] {
-		b.WriteString(" " + line + "\n")
+		writeLine(" ", line)
 	}
 	for _, line := range oldLines[prefix:oldChangeEnd] {
-		b.WriteString("-" + line + "\n")
+		writeLine("-", line)
 	}
 	for _, line := range newLines[prefix:newChangeEnd] {
-		b.WriteString("+" + line + "\n")
+		writeLine("+", line)
 	}
 	for _, line := range newLines[newChangeEnd:hunkEndNew] {
-		b.WriteString(" " + line + "\n")
+		writeLine(" ", line)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

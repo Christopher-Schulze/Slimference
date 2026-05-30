@@ -353,6 +353,7 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 		"WSS input_tokens_saved is from the live RecordProxyLayer0 path (read-delta + L0 filter chain).",
 		"WSS savings are workload-dependent: low without repeat-read sessions, large with them.",
 		"Filter Layer-0 savings cover non-WSS HTTP-path Codex hook traffic (offline SQLite).",
+		"Output-Reduce counters are output-wire/UX telemetry and are not included in billable input-token savings totals.",
 	)
 	switch {
 	case report.WSS.ByteBridgeOnly:

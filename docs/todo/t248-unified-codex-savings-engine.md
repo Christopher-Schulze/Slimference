@@ -177,6 +177,21 @@ The product target is strict:
   audits. It reports route coverage, Phase-F request counts, session-key
   continuity, `previous_response_id` usage, content classes, and positive input
   savings without raw frame dumps.
+- [x] Add hard gates and time windows to `wss-audit`. Operators can now isolate
+  a fresh measurement window with `--since=<rfc3339>` and fail the run if
+  distinct session ids, Phase-F request summaries, or positive savings are
+  missing.
+- [x] Harden `wss-audit` as an automation gate. JSON output now returns the
+  same non-zero gate failure code as text output, and `--since` windows exclude
+  untimed records so stale legacy summaries cannot pollute fresh measurements.
+- [x] Wire WSS BeTerse treatment/control outcomes into the existing
+  `qualityab` rollback harness on terminal frames. Successful completed frames
+  record success; incomplete/failed terminal frames record upstream failure.
+  This brings the live output-reduce safety net onto the Codex WSS path without
+  broadening mutation.
+- [x] Split billable input savings from output-wire telemetry in operator
+  reporting. `aggregate-savings` now explicitly states that Output-Reduce
+  counters are not included in billable input-token totals.
 
 ## Notes
 
@@ -256,12 +271,43 @@ The product target is strict:
 - Position-aware read deltas deliberately prefer safety over maximum brevity.
   If a changed-read hunk would not be shorter than the original output, the
   existing token-decreasing guard fails open to the full content.
+- The follow-up newline regression in changed-read hunks is fixed: the delta
+  builder preserves existing line terminators instead of adding a second blank
+  line between each diff row.
 - WSS edit observation is a guard, not a new mutation surface. It records only
   path-level edit evidence derived from reconstructable tool metadata or patch
   headers, then lets the existing readcache recent-edit policy decide.
 - `wss-audit` is the cheap first check before any future cache frontier work:
   missing session ids, no `previous_response_id`, or no positive savings can be
   seen from content-free decisions logs before reaching for capture dumps.
+- `wss-audit --since=<timestamp>` is mandatory for current session-key and
+  socket-lifecycle checks because legacy debug logs can contain stale
+  `upstream`/missing-session WSS records from older binaries.
+- WSS quality rollback is currently scoped to the gated BeTerse lever, matching
+  the existing HTTP harness semantics. Deterministic Layer-0 read/filter
+  mutations stay protected by schema reconstruction, token-decrease checks,
+  recent-edit guards, and byte-equal fail-open behavior rather than cohort
+  rollout.
+- Fresh 2026-05-30 CLI session-key audit: two separate scoped Codex CLI
+  conversations produced two distinct non-empty WSS session ids
+  (`019e7649-2076-7030-a341-6b3ea00ae448` and
+  `019e7649-4315-7c62-a272-c45f1aafdd24`) with
+  `--expect-distinct-sessions=2 --min-phasef=2` passing. This does not prove
+  every Desktop/App lifecycle, but it rejects the current CLI prompt-cache-key
+  collision hypothesis for fresh conversations.
+- Fresh 2026-05-30 CLI resume audit: `codex exec` followed by
+  `codex exec resume --last` kept one stable WSS session id, used
+  `previous_response_id` four times, and produced real positive WSS savings:
+  `positive_savings_requests=1`, `tokens_saved=2815`,
+  admin/state `frames_reencoded=1`, `compressed_messages_mutated=1`,
+  `phasef_mutations=1`, `parse_failures=0`, `degraded_sessions=0`, and
+  `compression_errors=0`. The mutation was attributed to the WSS Phase-F
+  captured-output Layer-0 route.
+- The resume audit also showed two upgrade-level records without session ids.
+  Those records did not carry positive savings; the body-level request summaries
+  did carry the stable session id. Keep the missing-session warning because it
+  remains useful evidence when old or upgrade-only records are mixed into a
+  measurement window.
 
 ## Deviations
 
