@@ -1551,12 +1551,20 @@ only and promotes the per-process Codex CLI runner for T209.
   rows now survive late cap pressure; remaining caps are tested priority-preserving,
   summary-only, or explicit operator-configured limits.
   Detail: `docs/todo/t252-codex-savings-precision-and-filter-tweaks.md`
-- [ ] **T253** Codex aggressive read compression (GATED by T257/T258) — first-read AST/structure
+- [~] **T253** Codex aggressive read compression (GATED by T257/T258) — first-read AST/structure
   scan-mode compression (extends `codecompact`), predictive post-edit file state from the
   parsed `apply_patch`, reasoning-trace compaction (verify-first), apply_patch context
   dedup. High savings, highest drawdown; starts shadow-only and becomes auto-eligible
   only after the T257 capture matrix and T258 policy gates prove no comprehension
   regression, live recovery, and safe workload classification.
+  IN PROGRESS (2026-05-31): first-read scan-mode DONE for Go — wired (`scan_read`),
+  triple recovery, reconnect-safe (persisted collapsed keys), policy-gated (`ScanRead`,
+  max only, dormant in auto), proven live (66% savings, reconnect-safe recovery,
+  behavioral recovery n=2 across modalities), and instrumented with the re-read
+  frequency gate (`scan_reads_applied` / `scan_read_rereads`). Auto-promotion now waits
+  on real-workload B/A < 0.66. Other sub-tasks (2nd language, predictive post-edit,
+  apply_patch dedup, reasoning) still queued. Commits d1fd30e,1791832,51555bb,e7773d2,
+  a7ffbc4,285fb5b,0666699.
   Detail: `docs/todo/t253-codex-aggressive-read-compression.md`
 - [ ] **T254** Codex server-state mirror (radical, TASK-SPLIT candidate, gated by T257/T258) —
   maintain a precise mirror of server-side conversation state from forwarded bytes along
@@ -1616,7 +1624,7 @@ criteria; this index is the traceability map so nothing is lost.
 | 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255/T256 | DONE (live-proven; auto-policy default) |
 | 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (capture/proof gated by T257/T258) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
-| 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | queued (shadow/proof gated by T257/T258) |
+| 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | DONE for Go: wired, triple recovery, reconnect-safe, policy-gated (max, dormant in auto), proven live (66%, behavioral recovery n=2), instrumented; auto-promotion gated on real-workload re-read rate B/A < 0.66 |
 | 6 | Ranged/partial read caching | 5-15% | Lossless | T250 | DONE |
 | 7 | Search-output delta | 3-8% | Lossless | T250 | DONE |
 | 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (capture-first; may close as N/A) |

@@ -1,6 +1,9 @@
 # TASK 253: Codex aggressive read compression (AST scan-mode, predictive post-edit, reasoning, patch-context dedup)
 
-Status: [ ] QUEUED - gated by capture matrix, shadow replay, and auto-policy proof
+Status: [~] IN PROGRESS - first-read scan-mode IMPLEMENTED, PROVEN (savings + reconnect-safe
+recovery + behavioral recovery n=2), policy-integrated (max mode, dormant in auto), and
+instrumented; auto-promotion is now data-gated on real-workload re-read frequency. Other
+sub-tasks (predictive post-edit, apply_patch dedup, reasoning) still queued.
 Priority: P2 - high savings potential, highest drawdown risk, must be proof-gated
 Scope: Codex-only WSS Phase-F. Compress reads more aggressively where it is provably
 safe and recoverable.
@@ -47,8 +50,15 @@ to classify the workload as safe for that mechanism.
 
 - [ ] Verify (capture-driven, content-free) whether reasoning items appear in the
       c2s `input`; document the finding before building any reasoning compaction.
-- [ ] First-read AST/structure scan-mode compression with intent gating + archive
-      recovery; extend `codecompact` beyond Go for one more language; fixtures.
+- [x] First-read AST/structure scan-mode compression with intent gating + archive
+      recovery (Go via `codecompact`, `MaxIncludedBodyLines=12`). Wired in
+      `internal/proxy/layer0_proxy.go` as the `scan_read` mechanism; triple recovery
+      (note + `local-archive://` ref + read-key registration). Recovery made
+      reconnect-safe via persisted collapsed keys. Promoted to a `savingspolicy`
+      decision (`ScanRead`, max mode only, dormant in auto). Proven live + instrumented.
+      OPEN follow-ups: extend `codecompact` beyond Go for one more language; promote to
+      auto once the re-read-frequency gate (below) clears.
+- [ ] Extend scan-mode `codecompact` beyond Go for one more language; fixtures.
 - [ ] Predictive post-edit file state from the parsed `apply_patch`; fail-open on
       ambiguity; fixtures.
 - [ ] apply_patch context dedup against known content.
@@ -106,6 +116,55 @@ to classify the workload as safe for that mechanism.
   ship any of this default-on without the comprehension proof.
 - Doctrine: content-free, fail-open, scoped; every aggressive transform must be
   recoverable so a loss is never permanent.
+
+## Progress (2026-05-31) - first-read scan-mode
+
+Commits (all CI-green):
+
+- `d1fd30e` scan-mode read shadow measurement (env-gated `SLIMFERENCE_SCAN_SHADOW`,
+  telemetry-only). Shadow proved 66-93% would-save on real Go reads.
+- `1791832` scan-mode apply wired on Codex WSS reads, default-off behind
+  `SLIMFERENCE_SCAN_APPLY`. `scan_read` mechanism registers the read key in
+  `ReadDeltaKeys` so a re-read full-passes (the recovery path), plus the discoverable
+  note and the `local-archive://` reference. Triple recovery.
+- `51555bb` persist collapsed read keys (`toolusecache.CollapsedKeysDir`) so the re-read
+  full-pass recovery survives a WSS socket reconnect. Without this, Desktop (which
+  reconnects per turn) lost the recovery and a re-read got signatures again.
+- `e7773d2` fix flaky Codex desktop-launcher probe-timing test (25ms->250ms) that was
+  starved under parallel CI load. Production probe is 750ms; no weakening.
+- `a7ffbc4` make scan-mode a `savingspolicy` decision: `CodexToolOutputDecision.ScanRead`,
+  enabled only in `max` mode + `IsRead` + `ArchiveRecoveryAvailable` + not Loosened.
+  Dormant in the default `auto` mode. Env flag stays as a force-on test override.
+- `285fb5b` re-read frequency counters (`scan_reads_applied`, `scan_read_rereads`);
+  scan-origin keys persisted (`toolusecache.ScanReadKeysDir`, reconnect-safe).
+- `0666699` expose both counters in `/admin/state` savings telemetry.
+
+Proofs (all live via Codex.app, Desktop, hard-verified):
+
+- Savings: 66% on a 4593-line Go read (7305 billable tokens live, matched shadow).
+- Recovery reconnect-safe: a re-read after a Desktop reconnect full-passes
+  (`requests_modified=1`, billable did not double, `wss-ab-replay` lost=0). The first
+  naive wiring doubled billable (recovery broke across reconnect); the persisted
+  collapsed key fixed it.
+- Behavioral recovery, n=2, two modalities: the model self-re-reads when it needs an
+  elided body and recovers the exact facts. Probe 1: numeric primes 7919 + 104729
+  (`deriveSessionToken`). Probe 2: string secrets `ORCHID` + `vault::<seg>::granted`
+  (`validateLicenseKey`). Both: scan elided the >12-line body, `resolved` jumped (model
+  re-read on its own with no instruction), re-reads full-passed, exact facts returned.
+  Elision verified deterministically per probe via `codecompact.Compact` before each run.
+
+## Auto-promotion gate (economics, the real blocker)
+
+Recovery proves zero comprehension drawdown, but auto-on-every-read is net-positive on
+SAVINGS only if enough reads never need their bodies. A body-needed read costs ~34%
+(scan) + ~100% (full re-read) = ~134% vs a 100% baseline; a body-not-needed read saves
+~66%. Break-even is at re-read rate `B/A < 0.66`. The instrument measures the real rate:
+`scan_reads_applied` (A) and `scan_read_rereads` (B) in `/admin/state` savings. To
+finish: run real Codex work with scan on (`SLIMFERENCE_SCAN_APPLY=1` daemon, or `max`
+mode), read `B/A`. If `B/A < 0.66` sustained, flip `ScanRead` into `CodexModeAuto` in
+`internal/savingspolicy/codex.go` (and update the auto-case assertions in
+`internal/proxy/layer0_scan_shadow_test.go`). If `B/A >= 0.66`, keep `max`-only or scope
+scan to orient-only reads. Do not flip auto on intuition; the instrument is the gate.
 
 ## Deviations
 

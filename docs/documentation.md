@@ -281,7 +281,9 @@ point with route labels (`http`, `wss_phasef`) and mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
 blocks, command-unresolved blocks, read-delta attempts, read-delta misses,
 modified blocks, read-delta blocks, captured-output filter blocks, and Codex
-exec-envelope blocks, and exact repeated-output blocks. Opportunity and miss
+exec-envelope blocks, and exact repeated-output blocks. Scan-mode (T253) adds two
+frequency counters, `scan_reads_applied` and `scan_read_rereads`, whose ratio is
+the economic gate for promoting scan-mode from max to auto. Opportunity and miss
 fields make hit-rate visible without claiming savings. The modified-block and
 mechanism-hit fields are success counters and are only recorded with a positive
 token saving. These counters are emitted globally and under `proxy_layer0_routes.http` /
@@ -357,6 +359,35 @@ The 2026-05-30 T255 live proof used scoped Codex WSS frames with
 with zero parse, degraded-session, or compression errors. The follow-up T256
 policy engine makes that proof usable by default through auto mode instead of
 requiring operators to decide when a raw feature flag is safe.
+
+First-read scan-mode (T253) is the most aggressive Layer-0 read reducer: a full
+`cat` of a large Go file returns AST signatures with function bodies over
+`MaxIncludedBodyLines=12` elided, instead of the full text. It is lossy on first
+sight, so it ships with triple recovery: a discoverable note
+(`re-run the read to see the full file`), a `local-archive://` reference to the
+full output, and registration of the read key so a later re-read of the same file
+is seen as a post-collapse re-read and full-passes (the same recency guard the
+auto policy uses). That re-read recovery is made reconnect-safe by persisting the
+collapsed keys per session (`toolusecache.CollapsedKeysDir`), so a re-read after a
+Desktop socket reconnect still full-passes instead of getting signatures again.
+Scan-mode is wired as the `scan_read` mechanism in `reduceCodexLayer0` and is a
+central `savingspolicy` decision (`CodexToolOutputDecision.ScanRead`): it is
+enabled only in `max` mode, only on reads, only when archive recovery is
+available, and never when the read is loosened (recent-edit or post-collapse
+re-read). It is dormant in the default `auto` mode. The env override
+`SLIMFERENCE_SCAN_APPLY=1` forces it on for measurement regardless of mode.
+Live proof (2026-05-31, Codex.app Desktop): 66% savings on a 4593-line read;
+recovery reconnect-safe (a re-read after a reconnect full-passed,
+`requests_modified=1`, billable did not double, `wss-ab-replay` lost=0); and
+behavioral recovery confirmed twice across modalities - the model self-re-reads
+when it needs an elided body and recovers the exact facts (numeric primes
+7919/104729, then string secrets `ORCHID` / `vault::<seg>::granted`), with no
+re-read instruction. Promotion of scan-mode from `max` to `auto` is gated on
+economics, not comprehension: a body-needed read costs ~134% (scan plus full
+re-read) while a body-not-needed read saves ~66%, so auto-on-every-read is
+net-positive only when the re-read rate stays under 0.66. `/admin/state` savings
+exposes `proxy_layer0_scan_reads_applied` (A) and `proxy_layer0_scan_read_rereads`
+(B); B/A measured over real workloads with scan on is the auto-promotion gate.
 
 Model-facing readcache replacements use neutral `[context-* ...]` markers and
 preserve the `local-archive://<id>` pattern without naming Slimference inside
