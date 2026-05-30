@@ -78,7 +78,7 @@ func TestOlderReadAgedWhenLaterReadExists(t *testing.T) {
 	if out[1].Content[0].Text == longContent {
 		t.Errorf("old read content not replaced")
 	}
-	if !strings.Contains(out[1].Content[0].Text, "[stale read:") {
+	if !strings.Contains(out[1].Content[0].Text, "kind=stale-read") {
 		t.Errorf("marker missing in old read: %q", out[1].Content[0].Text)
 	}
 	if !strings.Contains(out[1].Content[0].Text, "src/x.go") {
@@ -304,7 +304,7 @@ func TestAgingPreservesCacheControlAndMetadata(t *testing.T) {
 	if aged.ToolResultID != "r1" {
 		t.Errorf("ToolResultID lost: %q", aged.ToolResultID)
 	}
-	if !strings.Contains(aged.Text, "[stale read:") {
+	if !strings.Contains(aged.Text, "kind=stale-read") {
 		t.Errorf("marker missing")
 	}
 }

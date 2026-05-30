@@ -45,7 +45,7 @@ func TestEvaluate_UnchangedReadBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Type != DecisionBlock || !strings.Contains(decision.Reason, "already in context") {
+	if decision.Type != DecisionBlock || !strings.Contains(decision.Reason, "kind=file-read") || !strings.Contains(decision.Reason, "status=unchanged") {
 		t.Fatalf("unexpected decision: %#v", decision)
 	}
 }
@@ -74,7 +74,7 @@ func TestEvaluate_ChangedFullReadBlocksWithDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Type != DecisionBlock || !strings.Contains(decision.Reason, "Read delta") {
+	if decision.Type != DecisionBlock || !strings.Contains(decision.Reason, "kind=file-read") {
 		t.Fatalf("unexpected decision: %#v", decision)
 	}
 }
@@ -125,7 +125,7 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged || !strings.Contains(decision.Reason, "Full content: local-archive://") {
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged || !strings.Contains(decision.Reason, "kind=file-read") || !strings.Contains(decision.Reason, "archive=local-archive://") {
 		t.Fatalf("unchanged observed read should block with archive reference: %+v", decision)
 	}
 
@@ -184,7 +184,7 @@ func TestEvaluateObserved_LargeContentUsesArchiveWithoutInlineCache(t *testing.T
 	}
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta ||
 		!strings.Contains(decision.Reason, "+tail addition") ||
-		!strings.Contains(decision.Reason, "Full content: local-archive://") {
+		!strings.Contains(decision.Reason, "kind=full-content") || !strings.Contains(decision.Reason, "uri=local-archive://") {
 		t.Fatalf("large changed reread should delta from archive-backed content: %+v", decision)
 	}
 	state, err = LoadSession(dir, "s1")
@@ -214,7 +214,7 @@ func TestEvaluateObserved_RangedReadsAreDistinctAndDeltaCapable(t *testing.T) {
 		t.Fatal(err)
 	}
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged ||
-		!strings.Contains(decision.Reason, "Full content: local-archive://") {
+		!strings.Contains(decision.Reason, "kind=file-read") || !strings.Contains(decision.Reason, "archive=local-archive://") {
 		t.Fatalf("identical ranged reread should block with archive reference: %+v", decision)
 	}
 
@@ -298,8 +298,8 @@ func TestEvaluateObservedOutput_ExactRepeatBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged ||
-		!strings.Contains(decision.Reason, "unchanged since previous emitted output") ||
-		!strings.Contains(decision.Reason, "Previous output: local-archive://") {
+		!strings.Contains(decision.Reason, "kind=tool-output") ||
+		!strings.Contains(decision.Reason, "archive=local-archive://") {
 		t.Fatalf("exact repeated output should block with archive reference: %+v", decision)
 	}
 
@@ -359,7 +359,7 @@ func TestEvaluateObservedOutput_SearchDeltaBlocks(t *testing.T) {
 	}
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta ||
 		!strings.Contains(decision.Reason, "+pkg/b.go:42:needle new context") ||
-		!strings.Contains(decision.Reason, "Full output: local-archive://") {
+		!strings.Contains(decision.Reason, "kind=full-output") || !strings.Contains(decision.Reason, "uri=local-archive://") {
 		t.Fatalf("changed search output should block with delta: %+v", decision)
 	}
 

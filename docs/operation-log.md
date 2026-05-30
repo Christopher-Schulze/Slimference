@@ -3461,3 +3461,33 @@ Interpretation:
 - Desktop proof language must keep this caveat precise: savings are proven for
   successful repeated/reducible tool outputs; malformed tool commands produce no
   savings by design.
+
+## 2026-05-30 - T252 filter precision and neutral marker hardening
+
+Goal: close the safe, low-risk Codex quick wins that do not need additional live
+captures: stderr compaction, the remaining listed Tier-1 parser expansions, and
+neutral structured model-facing marker notation.
+
+Changes:
+- `slimference filter <cmd>` now strips ANSI and runs the Layer-0 compaction bank
+  over stderr as well as stdout. Raw stderr is still preserved for audit and exit
+  behavior, so this changes only the submitted compacted text.
+- Added Tier-1 structured parsers for TypeScript diagnostics, `kubectl -o json`,
+  `cargo metadata`, and `terraform show -json`, extending the prior eslint-json
+  work. The parsers keep diagnostic or attention rows first and fail open on
+  unknown shapes.
+- Reworded read-delta, unchanged-read, unchanged-output, stale-read, obsolete-read,
+  and recovery-note text to neutral `[context-* ...]` notation. Product-name
+  prose is no longer injected into model-facing tool output, while
+  `local-archive://` URIs remain reinject-compatible.
+
+Verification:
+- `go test ./internal/filter ./internal/readcache ./internal/staleread ./internal/proxy -count=1`
+  passed.
+- `rg` found no remaining old model-facing marker strings in
+  `internal/readcache`, `internal/staleread`, or `internal/proxy`.
+
+Safety:
+- All new parser paths are token-decreasing, shape-gated, and fail open.
+- Marker changes preserve archive URI syntax and do not enable the recovery note
+  by default.

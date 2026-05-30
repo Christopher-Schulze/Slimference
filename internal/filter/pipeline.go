@@ -23,7 +23,8 @@ type PipelineResult struct {
 	SavingsPct   float64
 }
 
-// RunPipeline executes the subprocess, strips ANSI from stdout (stderr unchanged), and computes rough savings.
+// RunPipeline executes the subprocess, strips ANSI from stdout/stderr, applies
+// Layer-0 compaction to both streams, and computes rough savings.
 // passthroughMaxRunes caps final stdout (0 = unlimited); applied after built-in/TOML (spec+.md §4.6).
 func RunPipeline(ctx context.Context, workDir string, argv []string, passthroughMaxRunes int) PipelineResult {
 	argv0 := ""
@@ -52,9 +53,12 @@ func RunPipeline(ctx context.Context, workDir string, argv []string, passthrough
 	stripped := compression.StripANSICodes(string(out))
 	pr.Stdout = applyLayer0AfterANSI(workDir, argv, []byte(stripped))
 	pr.Stdout = TruncateStdoutWithHint(pr.Stdout, passthroughMaxRunes)
+	strippedErr := compression.StripANSICodes(string(errOut))
+	pr.Stderr = applyLayer0AfterANSI(workDir, argv, []byte(strippedErr))
+	pr.Stderr = TruncateStdoutWithHint(pr.Stderr, passthroughMaxRunes)
 
 	pr.InputTokens = estimateTokensFromByteSlices(out, errOut)
-	pr.OutputTokens = estimateTokensFromByteSlices(pr.Stdout, errOut)
+	pr.OutputTokens = estimateTokensFromByteSlices(pr.Stdout, pr.Stderr)
 	if pr.InputTokens > 0 {
 		pr.SavingsPct = float64(pr.InputTokens-pr.OutputTokens) / float64(pr.InputTokens) * 100.0
 	}
@@ -108,6 +112,10 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 		{"tier1_pytest_json", func() ([]byte, bool) { return TryCompactPytestJSON(argv, stdout) }},
 		{"tier1_cargo_test_json", func() ([]byte, bool) { return TryCompactCargoTestJSON(argv, stdout) }},
 		{"tier1_eslint_json", func() ([]byte, bool) { return TryCompactEslintJSON(argv, stdout) }},
+		{"tier1_tsc_diagnostics", func() ([]byte, bool) { return TryCompactTscDiagnostics(argv, stdout) }},
+		{"tier1_kubectl_json", func() ([]byte, bool) { return TryCompactKubectlJSON(argv, stdout) }},
+		{"tier1_cargo_metadata_json", func() ([]byte, bool) { return TryCompactCargoMetadataJSON(argv, stdout) }},
+		{"tier1_terraform_show_json", func() ([]byte, bool) { return TryCompactTerraformShowJSON(argv, stdout) }},
 		// Tier-2: hand-written Go compactors (regex/heuristic-based).
 		{"git_status", func() ([]byte, bool) { return TryCompactGitStatus(argv, stdout) }},
 		{"git_diff", func() ([]byte, bool) { return TryCompactGitDiff(argv, stdout) }},

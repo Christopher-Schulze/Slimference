@@ -228,7 +228,7 @@ func TestWSPhaseFReReadAfterCollapseRestoresFullRead(t *testing.T) {
 	}
 	second, _, changed, stats, reReads := adapter.applyInputPipeline(bodyForTurn("resp-2", "read-2"))
 	if !changed || reReads != 1 || stats.ReadDeltaBlocks != 1 || stats.TokensSaved <= 0 ||
-		!strings.Contains(string(second), "Full content: local-archive://") {
+		!strings.Contains(string(second), "archive=local-archive://") {
 		t.Fatalf("second read should collapse once, changed=%v rereads=%d stats=%+v body=%s", changed, reReads, stats, second)
 	}
 	third, _, changed, stats, reReads := adapter.applyInputPipeline(bodyForTurn("resp-3", "read-3"))
@@ -723,7 +723,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 		t.Fatalf("precondition: stale read fixture cannot reconstruct: %v", rebuildErr)
 	}
 	mutated, _, changed, _, _ := adapter.applyInputPipeline(agedBody)
-	if !changed || strings.Contains(string(mutated), "old file content") || !strings.Contains(string(mutated), "[stale read:") {
+	if !changed || strings.Contains(string(mutated), "old file content") || !strings.Contains(string(mutated), "kind=stale-read") {
 		t.Fatalf("stale-read mutation failed changed=%v body=%s", changed, mutated)
 	}
 	if got := p.OutputReduceCountersSnapshot().StaleReadBlocksReplaced; got == 0 {
@@ -738,7 +738,7 @@ func TestWSPhaseFRequestNoMutationAndStaleReadPipelines(t *testing.T) {
 	adapter = (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	prunedBody := codexWSObsoleteReadBody(strings.Repeat("obsolete file content ", 80))
 	mutated, _, changed, _, _ = adapter.applyInputPipeline(prunedBody)
-	if !changed || strings.Contains(string(mutated), "obsolete file content") || !strings.Contains(string(mutated), "[obsolete:") {
+	if !changed || strings.Contains(string(mutated), "obsolete file content") || !strings.Contains(string(mutated), "kind=obsolete-read") {
 		t.Fatalf("obsolete-read mutation failed changed=%v body=%s", changed, mutated)
 	}
 	if got := p.OutputReduceCountersSnapshot().ObsoleteReadBlocksPruned; got == 0 {
@@ -1036,8 +1036,8 @@ func TestWSPhaseFSearchOutputDeltaAcrossTurns(t *testing.T) {
 	if !replaced {
 		t.Fatalf("changed repeated search output should delta-compress, raw=%s", raw)
 	}
-	if !bytes.Contains(raw, []byte("Read delta for tool output for rg -n TODO src")) ||
-		!bytes.Contains(raw, []byte("Full output: local-archive://")) ||
+	if !bytes.Contains(raw, []byte("kind=file-read")) ||
+		!bytes.Contains(raw, []byte("kind=full-output")) ||
 		!bytes.Contains(raw, []byte("TODO stable changed")) {
 		t.Fatalf("search delta marker missing or incomplete: %s", raw)
 	}

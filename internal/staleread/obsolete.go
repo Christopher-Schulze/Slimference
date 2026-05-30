@@ -120,7 +120,7 @@ func PruneObsoleteReads(messages []types.Message, opts ObsoleteOptions) ([]types
 				mutated = true
 			}
 			origLen := len(blk.Text)
-			marker := fmt.Sprintf("[obsolete: %s edited at turn %d]", path, mutTurn)
+			marker := fmt.Sprintf("[context-elided kind=obsolete-read path=%q edited_turn=%d]", path, mutTurn)
 			// Preserve all metadata (CacheControl, ArchiveID, the
 			// caller-set id field) by copying the block and only
 			// substituting the text body.

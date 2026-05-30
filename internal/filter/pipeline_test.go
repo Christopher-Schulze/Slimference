@@ -1424,6 +1424,38 @@ func TestRunPipeline_passthroughMax(t *testing.T) {
 	}
 }
 
+func TestRunPipeline_CompactsStderr(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip()
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "git")
+	script := "#!/bin/sh\nfor i in $(seq 1 40); do printf '?? generated_%03d.txt\\n' \"$i\"; done >&2\n"
+	if err := os.WriteFile(bin, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	pr := RunPipeline(context.Background(), dir, []string{bin, "status", "--short"}, 0)
+	if pr.Err != nil {
+		t.Fatal(pr.Err)
+	}
+	if pr.Code != 0 {
+		t.Fatalf("code %d stderr=%q", pr.Code, pr.Stderr)
+	}
+	if !strings.Contains(string(pr.Stderr), "[git status]") {
+		t.Fatalf("stderr was not compacted: %q", pr.Stderr)
+	}
+	if strings.Contains(string(pr.Stderr), "generated_040.txt") {
+		t.Fatalf("stderr still contains raw status output: %q", pr.Stderr)
+	}
+	if !strings.Contains(string(pr.RawStderr), "generated_040.txt") {
+		t.Fatalf("raw stderr should remain available for recovery: %q", pr.RawStderr)
+	}
+	if pr.OutputTokens >= pr.InputTokens {
+		t.Fatalf("expected stderr compaction savings, in=%d out=%d stderr=%q", pr.InputTokens, pr.OutputTokens, pr.Stderr)
+	}
+}
+
 // TestRunPipeline_startError covers the runErr!=nil early return in RunPipeline.
 func TestRunPipeline_startError(t *testing.T) {
 	t.Parallel()

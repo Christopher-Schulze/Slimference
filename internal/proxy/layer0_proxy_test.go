@@ -205,13 +205,13 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	t.Setenv("HOME", home)
 	first := proxyReadMessages(strings.Repeat("line one\n", 80))
 	out, saved := applyProxyLayer0WithSession(first, "sess-read")
-	if strings.Contains(out[1].Content[0].Text, "unchanged since previous full read") {
+	if strings.Contains(out[1].Content[0].Text, "status=unchanged") {
 		t.Fatalf("first read must not become a read-cache reference, saved=%d", saved)
 	}
 
 	second := proxyReadMessages(strings.Repeat("line one\n", 80))
 	out, saved = applyProxyLayer0WithSession(second, "sess-read")
-	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "unchanged since previous full read") {
+	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "status=unchanged") {
 		t.Fatalf("unchanged reread should become reference, saved=%d text=%q", saved, out[1].Content[0].Text)
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(second, "sess-read", nil)
@@ -222,7 +222,7 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 
 	changed := proxyReadMessages(strings.Repeat("line one\n", 80) + "line two\n")
 	out, saved = applyProxyLayer0WithSession(changed, "sess-read")
-	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "+line two") || !strings.Contains(out[1].Content[0].Text, "Full content: local-archive://") {
+	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "+line two") || !strings.Contains(out[1].Content[0].Text, "uri=local-archive://") {
 		t.Fatalf("changed reread should become delta, saved=%d text=%q", saved, out[1].Content[0].Text)
 	}
 }
@@ -260,7 +260,7 @@ func TestReduceCodexLayer0SuppressesCollapsedReadKey(t *testing.T) {
 		SessionID: "sess-suppress",
 	})
 	if unsuppressed.Stats.ReadDeltaBlocks != 1 || unsuppressed.Stats.TokensSaved <= 0 ||
-		!strings.Contains(unsuppressed.Messages[1].Content[0].Text, "Full content: local-archive://") {
+		!strings.Contains(unsuppressed.Messages[1].Content[0].Text, "archive=local-archive://") {
 		t.Fatalf("unsuppressed reread should still collapse: %+v text=%q",
 			unsuppressed.Stats, unsuppressed.Messages[1].Content[0].Text)
 	}
@@ -280,8 +280,8 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	}
 
 	out, saved = applyProxyLayer0WithSession(messages, "sess-output")
-	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "unchanged since previous emitted output") ||
-		!strings.Contains(out[1].Content[0].Text, "Previous output: local-archive://") {
+	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "kind=tool-output") ||
+		!strings.Contains(out[1].Content[0].Text, "archive=local-archive://") {
 		t.Fatalf("repeated non-file output should collapse, saved=%d text=%q", saved, out[1].Content[0].Text)
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-output", nil)
@@ -306,14 +306,14 @@ func TestApplyProxyLayer0WithSessionRepeatedPartialReadOutput(t *testing.T) {
 	}
 	out, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-partial-read", nil)
 	if stats.ReadDeltaAttempts != 1 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 || stats.RepeatedOutputBlocks != 0 ||
-		strings.Contains(out[1].Content[0].Text, "Previous output: local-archive://") {
+		strings.Contains(out[1].Content[0].Text, "archive=local-archive://") {
 		t.Fatalf("first partial read should miss read-delta and avoid repeated-output, stats=%+v text=%q", stats, out[1].Content[0].Text)
 	}
 
 	out, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-partial-read", nil)
 	if stats.ReadDeltaAttempts != 1 || stats.ReadDeltaBlocks != 1 ||
 		stats.RepeatedOutputBlocks != 0 || stats.TokensSaved <= 0 ||
-		!strings.Contains(out[1].Content[0].Text, "Full content: local-archive://") {
+		!strings.Contains(out[1].Content[0].Text, "archive=local-archive://") {
 		t.Fatalf("partial read should use ranged read-delta, not repeated-output, stats=%+v text=%q", stats, out[1].Content[0].Text)
 	}
 }
@@ -371,7 +371,7 @@ func TestApplyProxyLayer0WithSessionRecentEditBypassesReadDeltaAndCommentStrip(t
 	source := strings.Repeat("// keep this recent edit comment\n", 20) + "package main\n"
 	msgs := proxyReadMessages(source)
 	out, saved := applyProxyLayer0WithSession(msgs, "sess-edit")
-	if strings.Contains(out[1].Content[0].Text, "Full content: local-archive://") ||
+	if strings.Contains(out[1].Content[0].Text, "uri=local-archive://") ||
 		strings.Contains(out[1].Content[0].Text, "Read delta") ||
 		!strings.Contains(out[1].Content[0].Text, "// keep this recent edit comment") {
 		t.Fatalf("recent edit should bypass read delta and preserve content signal, saved=%d text=%q", saved, out[1].Content[0].Text)

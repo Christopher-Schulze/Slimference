@@ -48,7 +48,7 @@ type Stats struct {
 // AgeMessages walks the message slice, identifies tool_use blocks for
 // file-read operations, finds older reads of the same file, and
 // returns a new slice where those older reads are replaced with
-// `[stale read: <path> superseded by turn N]` markers. The input
+// neutral context-elision markers. The input
 // slice and its inner ContentBlock slices are not mutated.
 func AgeMessages(messages []types.Message, opts Options) ([]types.Message, Stats) {
 	if len(messages) == 0 {
@@ -140,7 +140,7 @@ func AgeMessages(messages []types.Message, opts Options) ([]types.Message, Stats
 				mutated = true
 			}
 			origLen := len(blk.Text)
-			marker := fmt.Sprintf("[stale read: %s superseded by turn %d]", path, latest.msgIdx)
+			marker := fmt.Sprintf("[context-elided kind=stale-read path=%q superseded_turn=%d]", path, latest.msgIdx)
 			// Preserve every metadata field except the text body so
 			// CacheControl, ArchiveID, and whichever id field the
 			// caller set survive the rewrite.

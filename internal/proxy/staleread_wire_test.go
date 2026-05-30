@@ -76,7 +76,7 @@ func TestStaleReadAgingWiredIntoHandler(t *testing.T) {
 	if strings.Contains(upstreamBody, bigBody) {
 		t.Errorf("older read content not aged: still present in upstream body")
 	}
-	if !strings.Contains(upstreamBody, "[stale read:") {
+	if !strings.Contains(upstreamBody, "kind=stale-read") {
 		t.Errorf("aging marker missing in upstream body: %s", upstreamBody)
 	}
 	if !strings.Contains(upstreamBody, "src/x.go") {
@@ -151,7 +151,7 @@ func TestObsoleteReadPruneWiredIntoHandler(t *testing.T) {
 	if strings.Contains(upstreamBody, bigBody) {
 		t.Errorf("pre-edit read content not pruned: %s", upstreamBody)
 	}
-	if !strings.Contains(upstreamBody, "[obsolete:") {
+	if !strings.Contains(upstreamBody, "kind=obsolete-read") {
 		t.Errorf("obsolete marker missing: %s", upstreamBody)
 	}
 	if !strings.Contains(upstreamBody, "src/x.go") {

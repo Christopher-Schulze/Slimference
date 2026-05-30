@@ -51,7 +51,7 @@ func TestPruneReadThenMutate(t *testing.T) {
 	if out[1].Content[0].Text == bigBody {
 		t.Errorf("obsolete read not pruned")
 	}
-	if !strings.Contains(out[1].Content[0].Text, "[obsolete:") {
+	if !strings.Contains(out[1].Content[0].Text, "kind=obsolete-read") {
 		t.Errorf("marker missing: %q", out[1].Content[0].Text)
 	}
 	if !strings.Contains(out[1].Content[0].Text, "src/x.go") {
@@ -101,7 +101,7 @@ func TestPruneOnlyEarliestMutationCounts(t *testing.T) {
 	if stats.BlocksReplaced != 1 {
 		t.Errorf("expected 1 prune (r1), got %d", stats.BlocksReplaced)
 	}
-	if !strings.Contains(out[1].Content[0].Text, "[obsolete:") {
+	if !strings.Contains(out[1].Content[0].Text, "kind=obsolete-read") {
 		t.Errorf("r1 not pruned: %q", out[1].Content[0].Text)
 	}
 }
@@ -238,7 +238,7 @@ func TestPruneMultipleMutationsOnlyFirstTracked(t *testing.T) {
 	if stats.BlocksReplaced != 1 {
 		t.Errorf("expected 1 prune, got %d", stats.BlocksReplaced)
 	}
-	if !strings.Contains(out[1].Content[0].Text, "turn 2") {
+	if !strings.Contains(out[1].Content[0].Text, "edited_turn=2") {
 		t.Errorf("marker should reference earliest mutation turn 2: %q", out[1].Content[0].Text)
 	}
 }
@@ -291,7 +291,7 @@ func TestAgeAndPruneCompose(t *testing.T) {
 	if ageStats.BlocksReplaced != 1 {
 		t.Fatalf("aging: expected 1 replacement, got %d", ageStats.BlocksReplaced)
 	}
-	if !strings.Contains(aged[3].Content[0].Text, "[stale read: y.go") {
+	if !strings.Contains(aged[3].Content[0].Text, "kind=stale-read") || !strings.Contains(aged[3].Content[0].Text, "y.go") {
 		t.Errorf("y.go old read not aged: %q", aged[3].Content[0].Text)
 	}
 	// x.go first read should be untouched by aging (no newer read).
@@ -304,11 +304,11 @@ func TestAgeAndPruneCompose(t *testing.T) {
 	if pruneStats.BlocksReplaced != 1 {
 		t.Fatalf("prune: expected 1 replacement, got %d", pruneStats.BlocksReplaced)
 	}
-	if !strings.Contains(pruned[1].Content[0].Text, "[obsolete: x.go") {
+	if !strings.Contains(pruned[1].Content[0].Text, "kind=obsolete-read") || !strings.Contains(pruned[1].Content[0].Text, "x.go") {
 		t.Errorf("x.go pre-edit read not pruned: %q", pruned[1].Content[0].Text)
 	}
 	// y.go aged-out marker should still be present (no mutation of y.go).
-	if !strings.Contains(pruned[3].Content[0].Text, "[stale read: y.go") {
+	if !strings.Contains(pruned[3].Content[0].Text, "kind=stale-read") || !strings.Contains(pruned[3].Content[0].Text, "y.go") {
 		t.Errorf("aging marker lost during pruning: %q", pruned[3].Content[0].Text)
 	}
 	// Fresh y.go read survives both passes.

@@ -130,7 +130,7 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 	if post2 >= pre2 {
 		t.Fatalf("read #2 expected size shrinkage; pre=%d post=%d", pre2, post2)
 	}
-	wantMarker := []byte("Read delta for " + path)
+	wantMarker := []byte("kind=file-read")
 	if !bytes.Contains(raw2, wantMarker) {
 		t.Fatalf("read #2 missing delta marker %q; first 600 bytes: %s", wantMarker, raw2[:min(600, len(raw2))])
 	}
@@ -352,9 +352,12 @@ func TestWSPhaseFAdditionalCodexToolShapesProduceDeltaMarkers(t *testing.T) {
 			if post >= pre {
 				t.Fatalf("expected repeated %s output to shrink; pre=%d post=%d", fixture.name, pre, post)
 			}
-			wantMarker := []byte("Read delta for " + expectedPath)
+			wantMarker := []byte("kind=file-read")
 			if !bytes.Contains(raw, wantMarker) {
 				t.Fatalf("missing delta marker %q; first 700 bytes: %s", wantMarker, raw[:min(700, len(raw))])
+			}
+			if !bytes.Contains(raw, []byte(expectedPath)) {
+				t.Fatalf("missing delta path %q; first 700 bytes: %s", expectedPath, raw[:min(700, len(raw))])
 			}
 			if fixture.preserveRaw != "" && !bytes.Contains(raw, []byte(fixture.preserveRaw)) {
 				t.Fatalf("mutated %s output did not preserve metadata %q; first 700 bytes: %s", fixture.name, fixture.preserveRaw, raw[:min(700, len(raw))])

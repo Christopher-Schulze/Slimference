@@ -15,7 +15,7 @@ func buildDeltaSummary(path string, oldContent string, newContent string) string
 	if diff == "" {
 		return ""
 	}
-	return fmt.Sprintf("Read delta for %s:\n%s", path, diff)
+	return fmt.Sprintf("[context-delta kind=file-read path=%q]\n%s", path, diff)
 }
 
 func buildPositionAwareDelta(oldContent, newContent string, contextLines int) string {

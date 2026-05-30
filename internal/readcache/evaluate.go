@@ -110,7 +110,7 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 	if archived && oldHash != "" && oldContent != "" {
 		delta := buildDeltaSummary(req.FilePath, oldContent, content)
 		if delta != "" {
-			delta = delta + "\nFull content: " + archiveURI
+			delta = delta + "\n" + archiveMarker("full-content", archiveURI)
 			if len(delta) < len(content) {
 				decision := Decision{Type: DecisionBlock, Reason: delta, BlockKind: BlockKindDelta}
 				return decision, RecordDecision(dir, decision)
@@ -176,7 +176,7 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 	if oldHash != "" && oldContent != "" && outputDeltaEligible(req.Key) {
 		delta := buildDeltaSummary("tool output for "+strings.TrimSpace(req.CommandLine), oldContent, content)
 		if delta != "" {
-			delta = delta + "\nFull output: " + archiveURI
+			delta = delta + "\n" + archiveMarker("full-output", archiveURI)
 			if len(delta) < len(content) {
 				decision := Decision{Type: DecisionBlock, Reason: delta, BlockKind: BlockKindDelta}
 				return decision, RecordDecision(dir, decision)
@@ -194,7 +194,7 @@ func blockUnchanged(dir string, state *SessionState, entry *FileEntry, req Reque
 	}
 	decision := Decision{
 		Type:      DecisionBlock,
-		Reason:    fmt.Sprintf("Read note: %s is already in context and unchanged.", req.FilePath),
+		Reason:    fmt.Sprintf("[context-elided kind=file-read status=unchanged path=%q]", req.FilePath),
 		BlockKind: BlockKindUnchanged,
 	}
 	return decision, RecordDecision(dir, decision)
@@ -324,7 +324,7 @@ func archiveObservedOutputContent(archiveDir string, req OutputRequest, content 
 }
 
 func unchangedReference(path string, archiveURI string) string {
-	return fmt.Sprintf("Read note for %s: unchanged since previous full read.\nFull content: %s", path, archiveURI)
+	return fmt.Sprintf("[context-elided kind=file-read status=unchanged path=%q archive=%s]", path, archiveURI)
 }
 
 func unchangedOutputReference(commandLine string, archiveURI string) string {
@@ -332,7 +332,11 @@ func unchangedOutputReference(commandLine string, archiveURI string) string {
 	if commandLine == "" {
 		commandLine = "this tool command"
 	}
-	return fmt.Sprintf("Tool output note for %s: unchanged since previous emitted output.\nPrevious output: %s", commandLine, archiveURI)
+	return fmt.Sprintf("[context-elided kind=tool-output status=unchanged command=%q archive=%s]", commandLine, archiveURI)
+}
+
+func archiveMarker(kind string, archiveURI string) string {
+	return fmt.Sprintf("[context-archive kind=%s uri=%s]", kind, strings.TrimSpace(archiveURI))
 }
 
 func outputDeltaEligible(key string) bool {

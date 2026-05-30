@@ -305,7 +305,7 @@ func TestReadCacheDeltaAndDecisionCoverage(t *testing.T) {
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta {
 		t.Fatalf("decision=%+v", decision)
 	}
-	if !strings.Contains(decision.Reason, "Read delta for") {
+	if !strings.Contains(decision.Reason, "kind=file-read") {
 		t.Fatalf("delta reason=%q", decision.Reason)
 	}
 

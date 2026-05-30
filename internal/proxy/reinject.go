@@ -23,7 +23,7 @@ var archiveURIPattern = regexp.MustCompile(`(?:local-archive://|slim://archive/)
 // keeps the worst case bounded.
 const maxReinjectsPerRequest = 8
 
-const defaultArchiveRecoveryNote = "If a tool result says full content is available as local-archive://<id>, request that exact URI only when the full elided content is needed."
+const defaultArchiveRecoveryNote = "If a tool result contains [context-archive ... uri=local-archive://<id>], request that exact URI only when the full elided content is needed."
 
 func archiveRecoveryNoteText(text string) string {
 	text = strings.TrimSpace(text)

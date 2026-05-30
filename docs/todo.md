@@ -1543,8 +1543,9 @@ only and promotes the per-process Codex CLI runner for T209.
   doubled-newline, make filter caps token-budget-aware + error-priority, add Tier-1
   parsers (eslint-json/tsc/kubectl-json/cargo-metadata/terraform-show-json), compact
   stderr, structured marker notation. o200k, delta newline, log/lint/search/terraform
-  error-priority, eslint-json, and billable-vs-output accounting split are implemented;
-  remaining parsers/stderr/structured marker notation stay open.
+  error-priority, full listed Tier-1 parser expansion, stderr compaction, structured
+  neutral markers, and billable-vs-output accounting split are implemented. Broader
+  parser-specific cap hardening remains open.
   Detail: `docs/todo/t252-codex-savings-precision-and-filter-tweaks.md`
 - [ ] **T253** Codex aggressive read compression (GATED by T249) — first-read AST/structure
   scan-mode compression (extends `codecompact`), predictive post-edit file state from the
@@ -1600,9 +1601,9 @@ criteria; this index is the traceability map so nothing is lost.
 | 19 | Bounded session state (TTL/LRU) | stability | Stability | T251 | DONE for readcache/tooluse state |
 | 20 | doubled-newline fix in delta.go | +1-2% changed-reads | Quick win | T252 | DONE |
 | 21 | Filter caps token-aware + error-priority | +1-3% | Quick win + drawdown | T252 | PARTIAL (log+lint/search/terraform done; broader parser caps remain) |
-| 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | PARTIAL (eslint-json done; rest queued) |
-| 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | queued |
-| 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | queued |
+| 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | DONE |
+| 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | DONE |
+| 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | DONE |
 
 Combined-leverage order: T249 first (safety net + recovery unlock the gated items),
 then T250 + T252 (lossless + quick wins, low risk), then T251 (stability/multiplier),

@@ -1,6 +1,6 @@
 # TASK 252: Codex savings precision + filter/marker tweaks (quick wins)
 
-Status: [~] PARTIAL - o200k, delta newline, log/lint/search/terraform priority, eslint-json, and accounting split landed
+Status: [~] PARTIAL - o200k, delta newline, log/lint/search/terraform priority, Tier-1 parser expansion, stderr compaction, structured markers, and accounting split landed
 Priority: P2 - small, low-risk, high-certainty improvements across all layers
 Scope: Codex-only. Token-accounting precision, delta formatting, filter cap quality,
 more Tier-1 parsers, stderr compaction, marker notation.
@@ -47,10 +47,10 @@ Several small, verified issues each cost a few percent or add drawdown:
       no `\n\n` inside a single-line-change delta.
 - [~] Make filter caps token-budget-aware + error/match-priority (search/lint/
       terraform/log); tests.
-- [~] Add Tier-1 parsers: eslint-json, tsc, `kubectl -o json`, `cargo metadata`,
+- [x] Add Tier-1 parsers: eslint-json, tsc, `kubectl -o json`, `cargo metadata`,
       `terraform show -json`.
-- [ ] Compact stderr on the CLI filter path.
-- [ ] Convert markers to a compact structured notation (coordinate wording with t249
+- [x] Compact stderr on the CLI filter path.
+- [x] Convert markers to a compact structured notation (coordinate wording with t249
       recovery note).
 
 ## Notes
@@ -70,8 +70,16 @@ Several small, verified issues each cost a few percent or add drawdown:
   benign positional caps. Search grouping now preserves both head and tail matches/files
   under cap pressure, and terraform output compaction keeps late diagnostic/error
   outputs before benign positional entries. Broader parser-specific caps remain open.
-- 2026-05-30: eslint `--format json` is now a Tier-1 parser, including shell shim
-  detection (`eslint.cmd`/`eslint.exe`). The other listed Tier-1 parsers remain open.
+- 2026-05-30: eslint `--format json`, TypeScript diagnostics, `kubectl -o json`,
+  `cargo metadata`, and `terraform show -json` are now Tier-1 parsers. They keep
+  diagnostic/attention rows before benign summaries and fail open on unknown shapes.
+- 2026-05-30: `slimference filter <cmd>` now strips ANSI and applies Layer-0
+  compaction to stderr as well as stdout, while preserving raw stderr for audit and
+  exit-code fidelity.
+- 2026-05-30: Read-delta, unchanged-read, unchanged-output, stale-read, obsolete-read,
+  and recovery-note text now use compact neutral `[context-* ...]` marker notation.
+  Product identity was removed from model-facing marker text; `local-archive://` URIs
+  remain reinject-compatible.
 - 2026-05-30: WSS/admin/report accounting now separates billable input-token savings
   from output-wire bytes and request-side reduced bytes. Output-wire savings are no
   longer folded into the billable headline.

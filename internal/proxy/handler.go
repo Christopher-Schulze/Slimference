@@ -232,7 +232,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	// --- 2.5. Stale-read aging (T170) ---
-	// Replace superseded older Read tool_results with `[stale read: …]`
+	// Replace superseded older Read tool_results with neutral context-elision
 	// markers. Runs before secret detection (cheaper scan input) and
 	// before compression layers (so L1/L2 see the aged content).
 	// Lossless: the most-recent read of any given path always survives.
@@ -253,7 +253,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 2.6. Multi-turn obsolete-read pruning (T174) ---
 	// Replace reads that happened before a subsequent file mutation
-	// with `[obsolete: <path> edited at turn N]`. Pairs with t170:
+	// with neutral context-elision markers. Pairs with t170:
 	// staleread.AgeMessages keeps the most-recent read; this prunes
 	// any read older than a mutation regardless of newer reads.
 	if p.config.Compression.OutputReduce.ObsoleteReadPruneEnabled {
