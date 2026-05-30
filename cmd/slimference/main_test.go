@@ -2808,12 +2808,14 @@ func TestStartDetachedDaemon(t *testing.T) {
 	origMkdirAll := osMkdirAll
 	origOpenFile := osOpenFile
 	origStartProcess := osStartProcess
+	origEnviron := osEnvironFn
 	origStdout := daemonStdoutLogPathFn
 	origStderr := daemonStderrLogPathFn
 	defer func() {
 		osMkdirAll = origMkdirAll
 		osOpenFile = origOpenFile
 		osStartProcess = origStartProcess
+		osEnvironFn = origEnviron
 		daemonStdoutLogPathFn = origStdout
 		daemonStderrLogPathFn = origStderr
 	}()
@@ -2865,11 +2867,15 @@ func TestStartDetachedDaemon(t *testing.T) {
 	}
 
 	osOpenFile = os.OpenFile
+	osEnvironFn = func() []string { return []string{"SLIMFERENCE_WSS_AB_CAPTURE=/tmp/frames.jsonl"} }
 	started := false
 	osStartProcess = func(name string, argv []string, attr *os.ProcAttr) (*os.Process, error) {
 		started = true
 		if name != "/tmp/slimference" || len(argv) != 2 || argv[1] != "daemon" || attr == nil || attr.Sys == nil {
 			t.Fatalf("unexpected daemon spawn: name=%q argv=%v attr=%#v", name, argv, attr)
+		}
+		if len(attr.Env) != 1 || attr.Env[0] != "SLIMFERENCE_WSS_AB_CAPTURE=/tmp/frames.jsonl" {
+			t.Fatalf("daemon env not propagated: %#v", attr.Env)
 		}
 		return os.FindProcess(os.Getpid())
 	}

@@ -382,6 +382,8 @@ Set `SLIMFERENCE_WSS_AB_CAPTURE=/private/path/frames.jsonl` on the Slimference
 daemon process to append those replay frames during a scoped Codex WSS session.
 The capture hook records only decompressed JSON frame payloads and direction,
 before any Phase-F mutation; it is disabled unless the env var is set.
+`slimference start` preserves the caller environment when spawning the detached
+daemon, so this capture env var works through the normal lifecycle command.
 
 ---
 

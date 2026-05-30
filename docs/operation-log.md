@@ -3380,6 +3380,9 @@ Changes:
   wiring on the scoped Codex WSS Phase-F path. It appends pre-mutation decompressed
   JSON frame payloads plus direction, exactly in the format consumed by
   `wss-ab-replay`.
+- Fixed detached daemon startup to propagate the caller environment, so
+  `SLIMFERENCE_WSS_AB_CAPTURE=... slimference start` reaches the child daemon
+  instead of being silently dropped.
 
 Safety:
 - This is proof infrastructure only. It does not enable any new compression path

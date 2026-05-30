@@ -198,6 +198,7 @@ var (
 	// tuiSendProxyEventFn injects tui.SendProxyEvent so progSender.send can be tested without a running program.
 	tuiSendProxyEventFn   func(*tea.Program, types.RequestMetrics) = tui.SendProxyEvent
 	startDetachedDaemonFn                                          = startDetachedDaemon
+	osEnvironFn                                                    = os.Environ
 	makeSignalChanFn                                               = func() chan os.Signal {
 		ch := make(chan os.Signal, 1)
 		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -4183,6 +4184,7 @@ func startDetachedDaemon(binary string) error {
 
 	attrs := &os.ProcAttr{
 		Files: []*os.File{stdinFile, stdoutFile, stderrFile},
+		Env:   osEnvironFn(),
 		Sys:   &syscall.SysProcAttr{Setsid: true},
 	}
 	proc, err := osStartProcess(binary, []string{binary, "daemon"}, attrs)
