@@ -150,6 +150,22 @@ func ReadPathFromCommandLine(commandLine string) string {
 	return lastReadFilePath(argv)
 }
 
+// FullReadPathFromCommandLine returns the single file path read by a full-file
+// `cat` command. Partial reads such as head/tail intentionally return empty so
+// callers do not treat range output as a full file snapshot.
+func FullReadPathFromCommandLine(commandLine string) string {
+	for _, tok := range tokenize(commandLine) {
+		if tok.Kind == TokenOperator || tok.Kind == TokenPipe || tok.Kind == TokenRedirect || tok.Kind == TokenShellism {
+			return ""
+		}
+	}
+	argv := primaryArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 || countReadPaths(argv) != 1 || !isFullFileCat(argv) {
+		return ""
+	}
+	return lastReadFilePath(argv)
+}
+
 func isFullFileCat(argv []string) bool {
 	if len(argv) == 0 {
 		return false

@@ -253,6 +253,32 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	}
 }
 
+func TestApplyProxyLayer0WithSessionRepeatedPartialReadOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var bodyBuilder strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&bodyBuilder, "visible partial file range line %03d with stable value %d\n", i, i*i)
+	}
+	body := bodyBuilder.String()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-head", ToolName: "exec_command", ToolInput: `{"cmd":"head -n 200 /tmp/range.data"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-head", Text: body}}},
+	}
+	out, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-partial-read", nil)
+	if stats.ReadDeltaAttempts != 0 || stats.ReadDeltaBlocks != 0 || stats.RepeatedOutputBlocks != 0 ||
+		strings.Contains(out[1].Content[0].Text, "Previous output: local-archive://") {
+		t.Fatalf("first partial read should not use read-delta or repeated-output, stats=%+v text=%q", stats, out[1].Content[0].Text)
+	}
+
+	out, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-partial-read", nil)
+	if stats.ReadDeltaAttempts != 0 || stats.ReadDeltaBlocks != 0 ||
+		stats.RepeatedOutputBlocks != 1 || stats.TokensSaved <= 0 ||
+		!strings.Contains(out[1].Content[0].Text, "Previous output: local-archive://") {
+		t.Fatalf("partial read should use repeated-output, not read-delta, stats=%+v text=%q", stats, out[1].Content[0].Text)
+	}
+}
+
 func TestApplyProxyLayer0ReadDeltaMissTelemetry(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

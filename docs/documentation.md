@@ -314,9 +314,13 @@ filters; if the candidate text is what will actually be sent upstream, its hash
 is recorded under the resolved command key. A later identical command/output
 pair in the same session can be replaced by a neutral archive-backed unchanged
 output note. The mechanism is exact-only: changed output, short output,
-unresolved commands, archive failures, and file reads fail open. This extends
+unresolved commands, archive failures, and full-file reads fail open. Full-file
+`cat` reads stay on the read-delta path. Partial reads such as `head` and
+`tail` are not treated as full file snapshots; they can still save through the
+exact command/output path when the same range output repeats. This extends
 repeat savings to commands such as repeated `git status`, `rg`, build/test
-reports, or custom deterministic tools without introducing semantic summaries.
+reports, partial file ranges, or custom deterministic tools without introducing
+semantic summaries.
 
 Model-facing readcache replacements use neutral read-note wording and preserve
 the `local-archive://<id>` pattern without naming Slimference inside tool

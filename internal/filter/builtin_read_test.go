@@ -221,6 +221,12 @@ func TestReadPathFromCommandLine(t *testing.T) {
 	if got := ReadPathFromCommandLine("head -n 20 main.go"); got != "main.go" {
 		t.Fatalf("head read path = %q", got)
 	}
+	if got := FullReadPathFromCommandLine("cat internal/filter/builtin_read.go"); got != "internal/filter/builtin_read.go" {
+		t.Fatalf("full read path = %q", got)
+	}
+	if got := FullReadPathFromCommandLine("head -n 20 main.go"); got != "" {
+		t.Fatalf("partial read must not be treated as full-file read, got %q", got)
+	}
 	for _, cmd := range []string{"cat a.go b.go", "cat main.go | wc -l", "go test ./...", "printf main.go"} {
 		if got := ReadPathFromCommandLine(cmd); got != "" {
 			t.Fatalf("command %q should not produce a single read path, got %q", cmd, got)

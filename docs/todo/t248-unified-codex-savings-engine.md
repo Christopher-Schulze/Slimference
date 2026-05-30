@@ -317,6 +317,10 @@ The product target is strict:
   infer semantic equivalence for non-file commands. A changed `git status`,
   `rg`, `go test`, or custom command output is sent normally and becomes the new
   observed baseline.
+- Partial file reads are no longer treated as full-file read-delta snapshots.
+  Only full-file `cat` commands use read-delta. `head` / `tail` range outputs
+  can still save through exact repeated-output dedup when the same emitted range
+  repeats.
 - The archive-reinjection system prompt contract remains proof-gated and is not
   default-on. It is a real recovery candidate, but injecting any new persistent
   instruction into Codex WSS requires the future comprehension harness before it

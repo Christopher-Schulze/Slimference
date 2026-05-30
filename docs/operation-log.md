@@ -3299,3 +3299,28 @@ Safety:
   and home/archive errors fail open to full output.
 - The mechanism is exact-hash only. It does not summarize, diff, or infer that
   two different command outputs mean the same thing.
+
+## 2026-05-30 - T248 partial read cache semantics hardening
+
+Goal: remove a subtle range-read cache ambiguity and let partial reads benefit
+from the exact-output path without pretending they are full file snapshots.
+
+Changes:
+- Added `filter.FullReadPathFromCommandLine`. It returns a path only for a
+  single full-file `cat` command. `head` and `tail` remain recognizable as
+  file-read-like commands for context, but they no longer qualify for
+  full-file read-delta.
+- The shared Codex Layer-0 reducer now uses full-read detection for read-delta
+  eligibility and read-key identity. Partial reads therefore skip read-delta and
+  can use exact repeated-output dedup when the same command emits the same
+  range output again.
+- Regression tests pin both sides: full `cat` still uses read-delta, while
+  repeated `head -n ...` output uses `repeated_output_blocks` and records no
+  read-delta attempts.
+
+Safety:
+- This avoids storing a `head` / `tail` slice as if it were the full file
+  content for a path. It is more conservative and keeps exact savings for
+  repeated ranges.
+- No semantic range diffing was added. Different partial outputs still pass
+  through unchanged.

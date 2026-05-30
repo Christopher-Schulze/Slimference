@@ -124,7 +124,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			if readDeltaAttempted {
 				stats.ReadDeltaAttempts++
 			}
-			readCommand := filter.ReadPathFromCommandLine(commandLine) != ""
+			fullReadCommand := filter.FullReadPathFromCommandLine(commandLine) != ""
 			afterText, changed := compactProxyReadDelta(req.SessionID, commandLine, block.Text, readCtx)
 			mechanism := proxyLayer0MechanismReadDelta
 			if readDeltaAttempted && !changed {
@@ -139,7 +139,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateText = afterText
 				candidateEligible = tokens.CountString(candidateText) < beforeTokens
 			}
-			if !readCommand && candidateEligible {
+			if !fullReadCommand && candidateEligible {
 				if repeatedText, repeated := compactProxyRepeatedToolOutput(req.SessionID, commandLine, candidateText); repeated {
 					afterText = repeatedText
 					changed = true
@@ -332,7 +332,7 @@ func compactStringSet(values []string) []string {
 }
 
 func readDeltaEligible(sessionID, commandLine string) bool {
-	return strings.TrimSpace(sessionID) != "" && filter.ReadPathFromCommandLine(commandLine) != ""
+	return strings.TrimSpace(sessionID) != "" && filter.FullReadPathFromCommandLine(commandLine) != ""
 }
 
 func proxyLayer0QualityToolKey(commandLine string) string {
@@ -340,7 +340,7 @@ func proxyLayer0QualityToolKey(commandLine string) string {
 	if commandLine == "" {
 		return ""
 	}
-	if path := filter.ReadPathFromCommandLine(commandLine); path != "" {
+	if path := filter.FullReadPathFromCommandLine(commandLine); path != "" {
 		return "read:" + filepath.Clean(path)
 	}
 	return "command:" + commandLine
@@ -376,7 +376,7 @@ func compactCodexExecEnvelope(commandLine, text string, ctx filter.FileReadConte
 }
 
 func compactProxyReadDelta(sessionID, commandLine, text string, ctx filter.FileReadContext) (string, bool) {
-	path := filter.ReadPathFromCommandLine(commandLine)
+	path := filter.FullReadPathFromCommandLine(commandLine)
 	if path == "" || strings.TrimSpace(sessionID) == "" {
 		return "", false
 	}
