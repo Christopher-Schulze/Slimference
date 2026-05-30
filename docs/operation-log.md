@@ -3414,3 +3414,50 @@ Safety:
   decompressed frame payloads, not auth headers or WebSocket upgrade metadata.
 - The capture path is disabled unless the env var is set on the daemon process;
   capture write failures are fail-open and never block Codex traffic.
+
+## 2026-05-30 - T249 Desktop WSS A/B replay and socket proof
+
+Goal: close the Desktop half of the T249 socket-lifecycle measurement with the
+same evidence standard used for CLI: scoped app-server route, real Codex.app
+traffic, A/B replay, live admin counters, and no model-facing loss.
+
+Procedure:
+- Started a fresh capture daemon with
+  `SLIMFERENCE_WSS_AB_CAPTURE=/tmp/slimference-t249-desktop-read-20260530T131248Z.jsonl`.
+- Launched Codex.app through `slimference codex desktop prove --manual --json`.
+- In Codex.app, sent repeated file-read prompts. The first long-path attempts were
+  intentionally kept as evidence because GPT-5.5 inserted literal newlines into
+  long `cat` paths, producing shell errors instead of file reads. The valid proof
+  used two successful separate turns of `cat AGENTS.md`.
+- Closed Codex.app before the final finish read so WSS frame counters flushed.
+- Ran `slimference codex desktop prove --finish --json` and
+  `go run ./scripts/utils wss-ab-replay /tmp/slimference-t249-desktop-read-20260530T131248Z.jsonl --fail-on-lost --json`.
+
+Evidence:
+- `desktop prove --finish` returned `mode=desktop_app_server_phasef_proven`,
+  `desktop_savings=true`, `phasef_bridged=2`, `frames_reencoded=1`,
+  `compressed_messages_mutated=1`, `phasef_requests=15`,
+  `compressed_messages_inspected=478`, `phasef_mutations=1`,
+  `bytes_c2s=276508`, `bytes_s2c=608467`, and zero parse/degraded/compression
+  errors.
+- Admin-state route attribution after flush reported WSS Phase-F only:
+  `tool_result_blocks=6`, `command_resolved_blocks=6`,
+  `command_unresolved_blocks=0`, `read_delta_attempts=2`,
+  `read_delta_misses=1`, `requests_modified=1`, `read_delta_blocks=1`,
+  `tokens_saved=2853`, `billable_input_tokens_saved=2853`; HTTP route counters
+  stayed at zero.
+- `wss-ab-replay --fail-on-lost --json` on the Desktop capture reported
+  `frames=478`, `request_turns=13`, `mutated_requests=1`,
+  `bytes_before=25555`, `bytes_after=15480`, `bytes_saved=10075`, `lost=0`,
+  `gate_passed=true`.
+
+Interpretation:
+- T249 now has both CLI and Desktop real captured-session proof. Cross-turn
+  read-delta survives the scoped WSS app-server route when the Desktop-generated
+  shell command actually performs a successful file read.
+- The long-path failure was Codex.app command generation, not a Slimference
+  reducer failure. Broken shell commands produce shell-error output and should not
+  be counted as expected savings opportunities.
+- Desktop proof language must keep this caveat precise: savings are proven for
+  successful repeated/reducible tool outputs; malformed tool commands produce no
+  savings by design.

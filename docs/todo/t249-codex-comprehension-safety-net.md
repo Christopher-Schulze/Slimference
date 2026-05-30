@@ -1,6 +1,6 @@
 # TASK 249: Codex comprehension safety net (A/B harness, recoverable archive, re-read auto-restore)
 
-Status: [~] PARTIAL - core comparison engine, WSS reducer replay, live capture/report CLI, recovery note, and auto-restore landed; socket-lifecycle measurement remains open
+Status: [x] DONE - core comparison engine, WSS reducer replay, live capture/report CLI, recovery note, auto-restore, and CLI plus Desktop socket-lifecycle proofs landed
 Priority: P1 - must land before any aggressive/lossy savings layer is default-on
 Scope: Codex-only WSS Phase-F. Build the measurement + recovery substrate that lets
 aggressive compression be enabled with data instead of hope. No new savings by
@@ -62,9 +62,9 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
       (extend the reinject test).
 - [x] Re-read-after-collapse auto-restore driven by the existing canary; deterministic
       table test simulating N re-reads of a collapsed path flips that path to full pass.
-- [ ] Run + document socket-lifecycle measurement (lsof `127.0.0.1:8990`,
+- [x] Run + document socket-lifecycle measurement (lsof `127.0.0.1:8990`,
       `decisions.jsonl` `route_mode`, CommandUnresolved vs mutations across SEPARATE
-      user turns). CLI separate-turn proof is done; Desktop proof remains.
+      user turns). CLI and Desktop separate-turn proof are done.
 
 ## Notes
 
@@ -96,7 +96,22 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
   `command_unresolved_blocks=0`, `compressed_messages_mutated=2`, and zero
   parse/degraded/compression errors. Verdict: Codex CLI opens/reuses enough WSS
   sessions to exercise reconnect boundaries, and persisted tool-use metadata keeps
-  cross-turn read-delta working. Desktop still needs the same proof.
+  cross-turn read-delta working.
+- 2026-05-30: separate-user-turn Desktop socket-lifecycle proof is done through
+  `slimference codex desktop prove --manual --json`, a scoped Codex.app session,
+  and `slimference codex desktop prove --finish --json` after app close. Long path
+  prompts first exposed a Codex.app command-wrapping caveat: GPT-5.5 inserted literal
+  newlines into long `cat` paths, so Bash produced only shell errors and no read
+  delta was possible. The valid proof used two successful `cat AGENTS.md` turns.
+  Capture `/tmp/slimference-t249-desktop-read-20260530T131248Z.jsonl` had 478
+  frames, 13 replayed request turns, 1 A/B mutation, 10075 model-facing bytes saved,
+  `lost=0`, `gate=PASS`; admin counters after Codex.app close showed
+  `desktop_app_server_phasef_proven`, `phasef_bridged=2`, `frames_reencoded=1`,
+  `compressed_messages_mutated=1`, `phasef_requests=15`, `read_delta_blocks=1`,
+  `command_unresolved_blocks=0`, `billable_input_tokens_saved=2853`, and zero
+  parse/degraded/compression errors. Verdict: Desktop cross-turn read-delta works
+  across the scoped app-server WSS path when the Desktop-generated shell command
+  actually performs a successful file read.
 - 2026-05-30: WSS archive-recovery note injection landed behind
   `archive_recovery_note_enabled`, default-off, once per session, and voice-neutral.
   It injects no product name and keeps recovery proof-gated instead of making a new
