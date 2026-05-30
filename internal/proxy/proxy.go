@@ -21,6 +21,7 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/buildinfo"
 	"github.com/slimference/slimference/internal/caching"
+	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/compactsignal"
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/config"
@@ -50,6 +51,13 @@ const maxRequestBodySize = 32 * 1024 * 1024
 
 // Version is the binary version string exposed by health/status surfaces.
 var Version = buildinfo.Version
+
+func shortChunkID(id string) string {
+	if len(id) <= 12 {
+		return id
+	}
+	return id[:12]
+}
 
 // Proxy is the core Slimference instance. It owns all compression layers, goroutines,
 // and the HTTP server. Its lifecycle matches the TUI lifecycle: one instance per run.
@@ -162,6 +170,9 @@ type Proxy struct {
 	serverState *sessions.ResponseStateStore
 	// outputReduce tracks T130 prompt-injection overhead and observed output.
 	outputReduce *outputreduce.Tracker
+	// codexChunkDedup holds T255 content-defined chunk identities for
+	// proof-gated Codex tool-output/file-read partial-overlap dedup.
+	codexChunkDedup *chunkdedup.Store
 	// outputReduceCounters tracks T185 cumulative counters for the
 	// T165/T166/T167 mechanisms. Atomic, no lock, snapshot-on-read.
 	outputReduceCounters OutputReduceCounters
@@ -269,6 +280,27 @@ func New(cfg *config.Config) *Proxy {
 	// will return false on every probe).
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		p.compactSignals = compactsignal.DefaultStore(home)
+	}
+
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		archiveDir := contentarchive.DefaultDir(home)
+		p.codexChunkDedup = chunkdedup.NewStoreWithLimits(chunkdedup.Config{}, chunkdedup.StoreLimits{
+			MaxSessions:         cfg.Compression.OutputReduce.CodexChunkDedupMaxSessions,
+			MaxChunksPerSession: cfg.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession,
+			TTL:                 time.Duration(cfg.Compression.OutputReduce.CodexChunkDedupTTLSeconds) * time.Second,
+		}, func(sessionID, chunkID string, chunk []byte) string {
+			entry, err := contentarchive.Put(archiveDir, contentarchive.Input{
+				SessionID: sessionID,
+				SubLayer:  "chunkdedup:" + shortChunkID(chunkID),
+				Original:  string(chunk),
+			}, contentarchive.Limits{})
+			if err != nil || entry == nil {
+				return ""
+			}
+			return entry.URI
+		})
+	} else {
+		p.codexChunkDedup = chunkdedup.NewStore(chunkdedup.Config{}, nil)
 	}
 
 	// Prefix-stability tracker for the Anthropic prompt-cache

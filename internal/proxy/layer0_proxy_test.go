@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/sessions"
@@ -315,6 +316,81 @@ func TestApplyProxyLayer0WithSessionRepeatedPartialReadOutput(t *testing.T) {
 		stats.RepeatedOutputBlocks != 0 || stats.TokensSaved <= 0 ||
 		!strings.Contains(out[1].Content[0].Text, "archive=local-archive://") {
 		t.Fatalf("partial read should use ranged read-delta, not repeated-output, stats=%+v text=%q", stats, out[1].Content[0].Text)
+	}
+}
+
+func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, chunkdedup.StoreLimits{}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	shared := uniqueProxyReadPayload("shared chunk dedup")
+	first := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-a", ToolName: "Read", ToolInput: `{"path":"a.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-a", Text: shared + uniqueProxyReadPayload("tail a")}}},
+	}
+	second := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-b", ToolName: "Read", ToolInput: `{"path":"b.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-b", Text: shared + uniqueProxyReadPayload("tail b")}}},
+	}
+
+	seed := reduceCodexLayer0(codexLayer0Request{
+		Messages:           first,
+		SessionID:          "sess-chunks",
+		ChunkDedupEnabled:  true,
+		ChunkDedupMinBytes: 0,
+		ChunkStore:         store,
+	})
+	if seed.Stats.TokensSaved != 0 || seed.Stats.ChunkDedupBlocks != 0 {
+		t.Fatalf("first partially-overlapped read should seed only: %+v", seed.Stats)
+	}
+	out := reduceCodexLayer0(codexLayer0Request{
+		Messages:           second,
+		SessionID:          "sess-chunks",
+		ChunkDedupEnabled:  true,
+		ChunkDedupMinBytes: 0,
+		ChunkStore:         store,
+	})
+	text := out.Messages[1].Content[0].Text
+	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
+		!strings.Contains(text, "[context-chunk status=unchanged uri=local-archive://") ||
+		!strings.Contains(text, "tail b") {
+		t.Fatalf("second similar read should chunk-dedup shared regions: stats=%+v text=%q", out.Stats, text)
+	}
+}
+
+func TestReduceCodexLayer0ChunkDedupRequiresGateAndRecovery(t *testing.T) {
+	t.Parallel()
+	store := chunkdedup.NewStore(chunkdedup.Config{}, nil)
+	body := uniqueProxyReadPayload("large output")
+	msgs := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "cmd", ToolName: "exec_command", ToolInput: `{"cmd":"python report.py"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "cmd", Text: body}}},
+	}
+	reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: true, ChunkDedupMinBytes: 0, ChunkStore: store})
+	out := reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: false, ChunkDedupMinBytes: 0, ChunkStore: store})
+	if out.Stats.ChunkDedupBlocks != 0 || strings.Contains(out.Messages[1].Content[0].Text, "context-chunk") {
+		t.Fatalf("disabled chunk dedup must stay byte-equal: %+v", out.Stats)
+	}
+}
+
+func TestCodexChunkDedupSettingsRequireRecoveryNote(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = false
+	p := New(cfg)
+	if store, enabled, _ := p.codexChunkDedupSettings(); enabled || store != nil {
+		t.Fatalf("chunk dedup must stay disabled without recovery note, enabled=%v store=%v", enabled, store)
+	}
+	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+	p = New(cfg)
+	if store, enabled, minBytes := p.codexChunkDedupSettings(); !enabled || store == nil || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes {
+		t.Fatalf("chunk dedup settings not enabled with recovery note: enabled=%v store=%v min=%d", enabled, store, minBytes)
 	}
 }
 

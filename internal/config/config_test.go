@@ -66,6 +66,15 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns != 0 {
 		t.Fatalf("read-delta recency full-pass default = %d, want 0", cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns)
 	}
+	if cfg.Compression.OutputReduce.CodexChunkDedupEnabled {
+		t.Fatal("Codex chunk dedup must stay default-off until A/B certified")
+	}
+	if cfg.Compression.OutputReduce.CodexChunkDedupMinBytes != 8192 ||
+		cfg.Compression.OutputReduce.CodexChunkDedupMaxSessions != 256 ||
+		cfg.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession != 8192 ||
+		cfg.Compression.OutputReduce.CodexChunkDedupTTLSeconds != 14400 {
+		t.Fatalf("Codex chunk dedup defaults mismatch: %+v", cfg.Compression.OutputReduce)
+	}
 }
 
 func TestApplyEnvHooksDebug(t *testing.T) {
@@ -105,6 +114,11 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE", "true")
 	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE_TEXT", "request archive ids")
 	t.Setenv("SLIMFERENCE_READ_DELTA_RECENT_FULL_PASS_TURNS", "2")
+	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP", "true")
+	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MIN_BYTES", "4096")
+	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_SESSIONS", "12")
+	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_CHUNKS_PER_SESSION", "34")
+	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_TTL_SECONDS", "56")
 
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
@@ -121,7 +135,9 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	if !or.StaleReadAgingEnabled || or.StaleReadAgingMinTurnGap != 9 ||
 		!or.ObsoleteReadPruneEnabled || !or.BeTerseHintEnabled || or.BeTerseHintText != "be terse" ||
 		!or.ArchiveRecoveryNoteEnabled || or.ArchiveRecoveryNoteText != "request archive ids" ||
-		or.ReadDeltaRecentFullPassTurns != 2 {
+		or.ReadDeltaRecentFullPassTurns != 2 || !or.CodexChunkDedupEnabled ||
+		or.CodexChunkDedupMinBytes != 4096 || or.CodexChunkDedupMaxSessions != 12 ||
+		or.CodexChunkDedupMaxChunksPerSession != 34 || or.CodexChunkDedupTTLSeconds != 56 {
 		t.Fatalf("output-reduce env not applied: %+v", or)
 	}
 }
@@ -431,6 +447,10 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"cooldown", func(c *Config) { c.Compression.OutputReduce.CooldownTurns = -1 }},
 		{"archive_note_text", func(c *Config) { c.Compression.OutputReduce.ArchiveRecoveryNoteText = strings.Repeat("x", 1001) }},
 		{"read_delta_recency", func(c *Config) { c.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = -1 }},
+		{"chunk_min", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMinBytes = -1 }},
+		{"chunk_sessions", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxSessions = -1 }},
+		{"chunk_per_session", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession = -1 }},
+		{"chunk_ttl", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupTTLSeconds = -1 }},
 	}
 	for _, tc := range tests {
 		tc := tc

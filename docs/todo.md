@@ -1502,8 +1502,10 @@ only and promotes the per-process Codex CLI runner for T209.
   T249-T255 slice adds Codex o200k token guards, content-derived archive IDs,
   bounded readcache session files, error-priority log/lint/search/terraform
   truncation, an eslint-json Tier-1 parser, FastCDC chunking primitives, a
-  session chunk-dedup store, WSS reconnect tool-use persistence, the core offline
-  comprehension A/B comparison engine, WSS Phase-F reducer replay into that
+  bounded TTL/LRU session chunk-dedup store with default-off WSS Layer-0 wiring,
+  neutral chunk references, WSS route attribution, WSS reconnect tool-use
+  persistence, the core offline comprehension A/B comparison engine, WSS Phase-F
+  reducer replay into that
   A/B engine, default-off archive recovery note injection, WSS
   re-read-after-collapse auto-restore, ranged read-delta, repeated search-output
   delta, prompt-cache prefix byte-equal guard tests, and split billable-input vs
@@ -1563,8 +1565,9 @@ only and promotes the per-process Codex CLI runner for T209.
   T249) — FastCDC rolling-hash chunking + session-scoped content-addressed chunk store to
   deduplicate PARTIAL overlap (file after small edit, similar files, shared-line logs)
   that whole-output dedup misses. rsync-for-LLM-context; references recoverable via the
-  T249 contract. Chunker + safety-hardened session store are implemented as primitives;
-  WSS wiring, decode/reinject, TTL/LRU, and A/B proof remain open.
+  T249 contract. Chunker, bounded TTL/LRU store, neutral encode/decode, and default-off
+  WSS Layer-0 wiring with route attribution are implemented. Remaining gate: real
+  captured-frame A/B proof before default-on promotion.
   Detail: `docs/todo/t255-codex-content-defined-chunk-dedup.md`
 
 ### Codex savings v2 — full 24-item index + what the % mean (T249-T255)
@@ -1581,7 +1584,7 @@ criteria; this index is the traceability map so nothing is lost.
 | # | Item | Rough % | Type | Task | Status |
 |---|------|---------|------|------|--------|
 | 1 | Server-state-mirror / general differential transport | 15-40% on long sessions | Enabler + biggest lever | T254 | queued (gated by T249) |
-| 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255 | PARTIAL (chunker+store core landed; WSS/recovery gated) |
+| 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255 | PARTIAL (default-off WSS wiring landed; live A/B gated) |
 | 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (gated by T249) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
 | 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | queued (gated by T249) |

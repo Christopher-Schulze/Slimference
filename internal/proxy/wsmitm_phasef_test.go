@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -347,6 +348,51 @@ func TestWSPhaseFArchiveRecoveryNoteInjectsOncePerSession(t *testing.T) {
 	third, _, changed, _, _ := adapter.applyInputPipeline(body("archive-note-other-session"))
 	if !changed || !strings.Contains(string(third), "local-archive://") {
 		t.Fatalf("distinct session should receive its own note, changed=%v body=%s", changed, third)
+	}
+}
+
+func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	var sharedBuilder strings.Builder
+	for i := 0; i < 1600; i++ {
+		fmt.Fprintf(&sharedBuilder, "shared cross-file region %04d with stable content %08x\n", i, i*7919+17)
+	}
+	shared := sharedBuilder.String()
+	body := func(path, callID, text string) []byte {
+		return mustMarshal(map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "chunk-wss-session",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
+				{"type": "function_call_output", "call_id": callID, "output": text},
+			},
+			"stream": true,
+		})
+	}
+
+	first, _, changed, stats, _ := adapter.applyInputPipeline(body("a.go", "read-a", shared+strings.Repeat("tail a\n", 120)))
+	if !changed || stats.ChunkDedupBlocks != 0 || strings.Contains(string(first), "context-chunk") {
+		t.Fatalf("first similar read should seed chunks only and inject recovery note: changed=%v stats=%+v body=%s", changed, stats, first)
+	}
+	second, _, changed, stats, _ := adapter.applyInputPipeline(body("b.go", "read-b", shared+strings.Repeat("tail b\n", 120)))
+	if !changed || stats.ChunkDedupBlocks != 1 || stats.TokensSaved <= 0 ||
+		!strings.Contains(string(second), "[context-chunk status=unchanged uri=local-archive://") {
+		t.Fatalf("second similar read should use WSS chunk dedup: changed=%v stats=%+v body=%s", changed, stats, second)
+	}
+	snap := p.OutputReduceCountersSnapshot()
+	if snap.ProxyLayer0ChunkDedupBlocks != 1 || snap.ProxyLayer0Routes.WSSPhaseF.ChunkDedupBlocks != 1 {
+		t.Fatalf("chunk dedup counters missing: %+v", snap)
 	}
 }
 

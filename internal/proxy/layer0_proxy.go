@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/readcache"
@@ -21,6 +22,7 @@ const (
 	proxyLayer0MechanismCapturedOut   proxyLayer0Mechanism = "captured_output"
 	proxyLayer0MechanismCodexEnvelope proxyLayer0Mechanism = "codex_exec_envelope"
 	proxyLayer0MechanismRepeatedOut   proxyLayer0Mechanism = "repeated_tool_output"
+	proxyLayer0MechanismChunkDedup    proxyLayer0Mechanism = "chunk_dedup"
 )
 
 type codexLayer0Route string
@@ -39,6 +41,9 @@ type codexLayer0Request struct {
 	RememberedToolUse   map[string]types.ContentBlock
 	SuppressedToolKey   map[string]struct{}
 	RecentFullPassTurns int
+	ChunkDedupEnabled   bool
+	ChunkDedupMinBytes  int
+	ChunkStore          *chunkdedup.Store
 }
 
 type codexLayer0Result struct {
@@ -60,6 +65,7 @@ type proxyLayer0Stats struct {
 	CapturedOutputBlocks    int
 	CodexExecEnvelopeBlocks int
 	RepeatedOutputBlocks    int
+	ChunkDedupBlocks        int
 	ReadDeltaKeys           []string
 }
 
@@ -70,6 +76,7 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.CapturedOutputBlocks = 0
 	s.CodexExecEnvelopeBlocks = 0
 	s.RepeatedOutputBlocks = 0
+	s.ChunkDedupBlocks = 0
 	s.ReadDeltaKeys = nil
 	return s
 }
@@ -95,6 +102,17 @@ func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, se
 		RememberedToolUse: rememberedToolUses,
 	})
 	return result.Messages, result.Stats
+}
+
+func (p *Proxy) codexChunkDedupSettings() (*chunkdedup.Store, bool, int) {
+	if p == nil || p.config == nil || p.codexChunkDedup == nil {
+		return nil, false, 0
+	}
+	or := p.config.Compression.OutputReduce
+	if !or.CodexChunkDedupEnabled || !or.ArchiveRecoveryNoteEnabled {
+		return nil, false, 0
+	}
+	return p.codexChunkDedup, true, or.CodexChunkDedupMinBytes
 }
 
 func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
@@ -143,7 +161,12 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				stats.ReadDeltaMisses++
 			}
 			if readCommand && !changed {
-				continue
+				if req.ChunkDedupEnabled && !readCtx.RecentlyEdited {
+					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
+				}
+				if !changed {
+					continue
+				}
 			}
 			if !changed {
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
@@ -160,6 +183,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					changed = true
 					mechanism = proxyLayer0MechanismRepeatedOut
 				}
+			}
+			if !changed && req.ChunkDedupEnabled {
+				afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes)
 			}
 			if !changed {
 				continue
@@ -182,6 +208,8 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					stats.CodexExecEnvelopeBlocks++
 				case proxyLayer0MechanismRepeatedOut:
 					stats.RepeatedOutputBlocks++
+				case proxyLayer0MechanismChunkDedup:
+					stats.ChunkDedupBlocks++
 				default:
 					stats.CapturedOutputBlocks++
 				}
@@ -449,6 +477,30 @@ func compactProxyRepeatedToolOutput(sessionID, commandLine, text string) (string
 		return "", false
 	}
 	return decision.Reason, true
+}
+
+func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool, proxyLayer0Mechanism) {
+	if store == nil || strings.TrimSpace(sessionID) == "" || len(text) == 0 {
+		return "", false, ""
+	}
+	if minBytes < 0 {
+		minBytes = 0
+	}
+	if len(text) < minBytes {
+		return "", false, ""
+	}
+	encoded, saved := store.Encode(sessionID, []byte(text))
+	if saved <= 0 || bytesEqualString(encoded, text) {
+		return "", false, ""
+	}
+	return string(encoded), true, proxyLayer0MechanismChunkDedup
+}
+
+func bytesEqualString(data []byte, text string) bool {
+	if len(data) != len(text) {
+		return false
+	}
+	return string(data) == text
 }
 
 func proxyReadFileContext(sessionID string, commandLine string) filter.FileReadContext {

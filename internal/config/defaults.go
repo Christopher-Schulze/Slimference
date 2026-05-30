@@ -112,14 +112,19 @@ func defaultsRaw() *Config {
 				// T165/T166/T167: deterministic output-token
 				// reductions default-on. Operators can disable
 				// individually via env or TOML.
-				StopSequencesEnabled:       true,
-				StreamCutEnabled:           true,
-				RepetitionDetectionEnabled: true,
-				StaleReadAgingEnabled:      true,
-				StaleReadAgingMinTurnGap:   3,
-				ObsoleteReadPruneEnabled:   true,
-				BeTerseHintEnabled:         false,
-				ArchiveRecoveryNoteEnabled: false,
+				StopSequencesEnabled:               true,
+				StreamCutEnabled:                   true,
+				RepetitionDetectionEnabled:         true,
+				StaleReadAgingEnabled:              true,
+				StaleReadAgingMinTurnGap:           3,
+				ObsoleteReadPruneEnabled:           true,
+				BeTerseHintEnabled:                 false,
+				ArchiveRecoveryNoteEnabled:         false,
+				CodexChunkDedupEnabled:             false,
+				CodexChunkDedupMinBytes:            8192,
+				CodexChunkDedupMaxSessions:         256,
+				CodexChunkDedupMaxChunksPerSession: 8192,
+				CodexChunkDedupTTLSeconds:          4 * 60 * 60,
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,
@@ -288,6 +293,13 @@ archive_recovery_note_text = ""
 # Default 0 keeps maximum-savings behavior. Raise only after A/B proof if
 # immediate cross-turn re-read recency matters more than the repeated-read saving.
 read_delta_recent_full_pass_turns = 0
+# T255 content-defined chunk dedup. Default off until the A/B harness certifies
+# no comprehension regression and archive recovery is enabled.
+codex_chunk_dedup_enabled = false
+codex_chunk_dedup_min_bytes = 8192
+codex_chunk_dedup_max_sessions = 256
+codex_chunk_dedup_max_chunks_per_session = 8192
+codex_chunk_dedup_ttl_seconds = 14400
 
 [compression.minimax]
 # Historical section name, but the client is OpenAI-compatible:

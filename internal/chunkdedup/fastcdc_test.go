@@ -125,6 +125,29 @@ func TestChunk_CustomConfigBounds(t *testing.T) {
 	}
 }
 
+func TestChunk_NormalizesInvertedConfig(t *testing.T) {
+	t.Parallel()
+	cfg := Config{MinSize: 4096, AvgSize: 1024, MaxSize: 512}
+	data := genBytes(16*1024, 17)
+	chunks := Chunk(data, cfg)
+	if len(chunks) == 0 {
+		t.Fatal("inverted config should still produce chunks")
+	}
+	var recon []byte
+	for _, c := range chunks {
+		recon = append(recon, c...)
+		if len(c) > 1024 {
+			t.Fatalf("max should normalize up to avg=1024, got chunk len %d", len(c))
+		}
+	}
+	if !bytes.Equal(recon, data) {
+		t.Fatal("normalized inverted config reconstruction mismatch")
+	}
+	if lowMask(64) != ^uint64(0) {
+		t.Fatal("lowMask must saturate at uint64 width")
+	}
+}
+
 func TestChunkID_StableAndDistinct(t *testing.T) {
 	t.Parallel()
 	if ChunkID([]byte("abc")) != ChunkID([]byte("abc")) {

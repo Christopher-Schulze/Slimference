@@ -278,6 +278,21 @@ type OutputReduceConfig struct {
 	// turn IDs. Default 0 keeps current maximum-savings behavior until
 	// live A/B proof says the recency trade-off should be enabled.
 	ReadDeltaRecentFullPassTurns int `toml:"read_delta_recent_full_pass_turns"`
+	// CodexChunkDedupEnabled gates T255 content-defined chunk dedup for
+	// Codex tool outputs/file reads. Default off until the A/B harness
+	// certifies no comprehension drawdown and archive recovery is enabled.
+	CodexChunkDedupEnabled bool `toml:"codex_chunk_dedup_enabled"`
+	// CodexChunkDedupMinBytes is the minimum model-facing tool output size
+	// eligible for chunk dedup. Smaller blocks are not worth reference
+	// overhead. Default 8192 bytes.
+	CodexChunkDedupMinBytes int `toml:"codex_chunk_dedup_min_bytes"`
+	// CodexChunkDedupMaxSessions bounds the in-memory chunk identity store.
+	CodexChunkDedupMaxSessions int `toml:"codex_chunk_dedup_max_sessions"`
+	// CodexChunkDedupMaxChunksPerSession bounds per-session chunk identities.
+	CodexChunkDedupMaxChunksPerSession int `toml:"codex_chunk_dedup_max_chunks_per_session"`
+	// CodexChunkDedupTTLSeconds expires idle chunk identities. Raw content is
+	// not kept in this store; archive payloads are bounded separately.
+	CodexChunkDedupTTLSeconds int `toml:"codex_chunk_dedup_ttl_seconds"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
@@ -780,6 +795,23 @@ func applyEnvOverrides(cfg *Config) {
 	if n, ok := envIntOK("SLIMFERENCE_READ_DELTA_RECENT_FULL_PASS_TURNS"); ok && n >= 0 {
 		cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = n
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_CHUNK_DEDUP")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.CodexChunkDedupEnabled = b
+		}
+	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_CHUNK_DEDUP_MIN_BYTES"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_SESSIONS"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.CodexChunkDedupMaxSessions = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_CHUNKS_PER_SESSION"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_CHUNK_DEDUP_TTL_SECONDS"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.CodexChunkDedupTTLSeconds = n
+	}
 }
 
 // validate checks that configuration values are within acceptable ranges.
@@ -897,6 +929,18 @@ func validate(cfg *Config) error {
 	}
 	if or.ReadDeltaRecentFullPassTurns < 0 {
 		return fmt.Errorf("compression.output_reduce.read_delta_recent_full_pass_turns must be >= 0, got %d", or.ReadDeltaRecentFullPassTurns)
+	}
+	if or.CodexChunkDedupMinBytes < 0 {
+		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_min_bytes must be >= 0, got %d", or.CodexChunkDedupMinBytes)
+	}
+	if or.CodexChunkDedupMaxSessions < 0 {
+		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_max_sessions must be >= 0, got %d", or.CodexChunkDedupMaxSessions)
+	}
+	if or.CodexChunkDedupMaxChunksPerSession < 0 {
+		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_max_chunks_per_session must be >= 0, got %d", or.CodexChunkDedupMaxChunksPerSession)
+	}
+	if or.CodexChunkDedupTTLSeconds < 0 {
+		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_ttl_seconds must be >= 0, got %d", or.CodexChunkDedupTTLSeconds)
 	}
 	return nil
 }

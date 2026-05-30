@@ -3,6 +3,7 @@ package chunkdedup
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 func archiveFake(captured map[string][]byte) ArchiveFunc {
@@ -33,6 +34,9 @@ func TestStore_RepeatSendDedups(t *testing.T) {
 	}
 	if !bytes.Contains(enc2, []byte("local-archive://")) {
 		t.Fatal("encoded resend must carry recoverable refs")
+	}
+	if !bytes.Contains(enc2, []byte("[context-chunk status=unchanged")) {
+		t.Fatalf("encoded resend must use neutral context-chunk markers: %q", enc2[:min(len(enc2), 120)])
 	}
 	if len(archived) == 0 {
 		t.Fatal("referenced chunks must be archived for recovery")
@@ -101,6 +105,79 @@ func TestStore_SessionsIndependent(t *testing.T) {
 	}
 	if _, savedA := store.Encode("a", data); savedA <= 0 {
 		t.Fatal("session a should dedup its own previously sent content")
+	}
+}
+
+func TestStore_TTLExpiresSeenChunks(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1000, 0)
+	store := NewStoreWithLimits(Config{}, StoreLimits{TTL: time.Minute}, archiveFake(nil))
+	store.now = func() time.Time { return now }
+	data := genBytes(32*1024, 41)
+
+	store.Encode("s", data)
+	if _, saved := store.Encode("s", data); saved <= 0 {
+		t.Fatal("precondition: repeated data should dedup before TTL expiry")
+	}
+	now = now.Add(2 * time.Minute)
+	if _, saved := store.Encode("s", data); saved != 0 {
+		t.Fatalf("expired session must fail open and reseed, saved=%d", saved)
+	}
+}
+
+func TestStore_LRUBoundsSessionsAndChunks(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(2000, 0)
+	store := NewStoreWithLimits(Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, StoreLimits{
+		MaxSessions:         1,
+		MaxChunksPerSession: 2,
+		TTL:                 time.Hour,
+	}, archiveFake(nil))
+	store.now = func() time.Time { return now }
+
+	dataA := genBytes(16*1024, 51)
+	store.Encode("a", dataA)
+	now = now.Add(time.Second)
+	store.Encode("b", dataA)
+	if _, saved := store.Encode("a", dataA); saved != 0 {
+		t.Fatalf("session a should have been evicted by MaxSessions=1, saved=%d", saved)
+	}
+
+	store.Reset("b")
+	dataB := genBytes(24*1024, 52)
+	store.Encode("b", dataB)
+	_, saved := store.Encode("b", dataB)
+	if saved >= len(dataB)/2 {
+		t.Fatalf("MaxChunksPerSession=2 should keep only a small tail of chunks, saved=%d len=%d", saved, len(dataB))
+	}
+}
+
+func TestDecodeReferences(t *testing.T) {
+	t.Parallel()
+	body := []byte("expanded chunk body")
+	ref := FormatReference("local-archive://abc123", len(body))
+	got, changed := DecodeReferences("before "+ref+" after", func(uri string) ([]byte, bool) {
+		if uri != "local-archive://abc123" {
+			return nil, false
+		}
+		return body, true
+	})
+	if !changed || got != "before expanded chunk body after" {
+		t.Fatalf("DecodeReferences mismatch changed=%v got=%q", changed, got)
+	}
+	if got := FormatReference("local-archive://abc123", -4); !bytes.Contains([]byte(got), []byte("bytes=0")) {
+		t.Fatalf("negative sizes should normalize to zero: %q", got)
+	}
+	if got, changed := DecodeReferences(FormatReference("local-archive://abc123", len(body)+1), func(string) ([]byte, bool) {
+		return body, true
+	}); changed || got == string(body) {
+		t.Fatalf("size mismatch must fail open changed=%v got=%q", changed, got)
+	}
+	if got, changed := DecodeReferences(ref, func(string) ([]byte, bool) { return nil, false }); changed || got != ref {
+		t.Fatalf("missing expansion must fail open changed=%v got=%q", changed, got)
+	}
+	if got, changed := DecodeReferences("plain text", nil); changed || got != "plain text" {
+		t.Fatalf("nil expander must no-op changed=%v got=%q", changed, got)
 	}
 }
 

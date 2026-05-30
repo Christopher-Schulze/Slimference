@@ -3522,3 +3522,45 @@ Safety:
   additional payload classes.
 - Recency full-pass is default-off because it intentionally trades some repeat-read
   savings for recency. It is proof-gated rather than silently changing live behavior.
+
+## 2026-05-30 - T255 default-off content-defined chunk dedup wiring
+
+Goal: turn the FastCDC primitive into a recoverable, bounded, proof-gated Codex
+Layer-0 mechanism without changing default runtime behavior.
+
+Changes:
+- Upgraded `internal/chunkdedup.Store` from a simple seen-set into a bounded
+  session identity store with TTL, session LRU, and per-session chunk LRU. It
+  still stores only chunk IDs in memory; raw chunk bytes go only through the
+  existing content archive when a reference is actually emitted.
+- Added neutral `[context-chunk status=unchanged uri=local-archive://... bytes=N]`
+  references plus decode support for replay/tooling. The generic archive
+  reinject path remains compatible because the marker keeps the standard
+  `local-archive://` URI.
+- Added config/env gates:
+  `codex_chunk_dedup_enabled`, `codex_chunk_dedup_min_bytes`,
+  `codex_chunk_dedup_max_sessions`,
+  `codex_chunk_dedup_max_chunks_per_session`, and
+  `codex_chunk_dedup_ttl_seconds`. Default remains off.
+- Wired the store into shared Codex Layer-0 and WSS Phase-F only when both
+  `codex_chunk_dedup_enabled=true` and `archive_recovery_note_enabled=true`.
+  This prevents unrecoverable model-facing references and keeps default behavior
+  byte-equal.
+- Added global and per-route chunk-dedup counters under the existing Layer-0
+  telemetry.
+
+Verification:
+- `TestStore_TTLExpiresSeenChunks`, `TestStore_LRUBoundsSessionsAndChunks`, and
+  `TestDecodeReferences` cover the new store bounds and reference inverse.
+- `TestReduceCodexLayer0ChunkDedupPartialOverlap` proves partial-overlap savings
+  for similar file reads through the shared reducer.
+- `TestWSPhaseFChunkDedupWiringForSimilarReads` proves WSS Phase-F route wiring
+  and counter attribution.
+- `go test ./internal/chunkdedup ./internal/config ./internal/proxy` passed.
+
+Safety:
+- Feature is default-off, recovery-note-gated, archive-backed, token-decrease
+  guarded, and fail-open on missing archive, missing session, small bodies, or no
+  positive saving.
+- Default-on promotion remains blocked on a real captured-frame T249 A/B replay
+  showing no comprehension regression.

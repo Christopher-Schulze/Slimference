@@ -164,6 +164,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 				}
 			}
 		}
+		chunkStore, chunkEnabled, chunkMinBytes := a.p.codexChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:               codexLayer0RouteWSSPhaseF,
 			Messages:            messages,
@@ -172,6 +173,9 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			RememberedToolUse:   rememberedToolUses,
 			SuppressedToolKey:   suppressedKeys,
 			RecentFullPassTurns: a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
+			ChunkDedupEnabled:   chunkEnabled,
+			ChunkDedupMinBytes:  chunkMinBytes,
+			ChunkStore:          chunkStore,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
@@ -458,6 +462,9 @@ func wssPlannerOutputReduceReason(replaced bool, l0Stats proxyLayer0Stats) strin
 	}
 	if l0Stats.RepeatedOutputBlocks > 0 {
 		return "phasef_repeated_output"
+	}
+	if l0Stats.ChunkDedupBlocks > 0 {
+		return "phasef_chunk_dedup"
 	}
 	if l0Stats.CapturedOutputBlocks > 0 {
 		return "phasef_captured_output"

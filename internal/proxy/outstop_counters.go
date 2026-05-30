@@ -16,6 +16,7 @@ type proxyLayer0RouteCounters struct {
 	capturedBlocks        atomic.Uint64
 	envelopeBlocks        atomic.Uint64
 	repeatedOutputBlocks  atomic.Uint64
+	chunkDedupBlocks      atomic.Uint64
 }
 
 func (c *proxyLayer0RouteCounters) record(stats proxyLayer0Stats) {
@@ -58,6 +59,9 @@ func (c *proxyLayer0RouteCounters) record(stats proxyLayer0Stats) {
 		if stats.RepeatedOutputBlocks > 0 {
 			c.repeatedOutputBlocks.Add(uint64(stats.RepeatedOutputBlocks))
 		}
+		if stats.ChunkDedupBlocks > 0 {
+			c.chunkDedupBlocks.Add(uint64(stats.ChunkDedupBlocks))
+		}
 	}
 }
 
@@ -79,6 +83,7 @@ func (c *proxyLayer0RouteCounters) snapshot() ProxyLayer0RouteTelemetry {
 		CapturedBlocks:        c.capturedBlocks.Load(),
 		EnvelopeBlocks:        c.envelopeBlocks.Load(),
 		RepeatedOutputBlocks:  c.repeatedOutputBlocks.Load(),
+		ChunkDedupBlocks:      c.chunkDedupBlocks.Load(),
 	}
 }
 
@@ -100,6 +105,7 @@ type OutputReduceCounters struct {
 	proxyLayer0CapturedBlocks        atomic.Uint64
 	proxyLayer0EnvelopeBlocks        atomic.Uint64
 	proxyLayer0RepeatedOutputBlocks  atomic.Uint64
+	proxyLayer0ChunkDedupBlocks      atomic.Uint64
 	proxyLayer0HTTP                  proxyLayer0RouteCounters
 	proxyLayer0WSSPhaseF             proxyLayer0RouteCounters
 
@@ -173,6 +179,9 @@ func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
 		if stats.RepeatedOutputBlocks > 0 {
 			c.proxyLayer0RepeatedOutputBlocks.Add(uint64(stats.RepeatedOutputBlocks))
 		}
+		if stats.ChunkDedupBlocks > 0 {
+			c.proxyLayer0ChunkDedupBlocks.Add(uint64(stats.ChunkDedupBlocks))
+		}
 	}
 }
 
@@ -189,6 +198,7 @@ func proxyLayer0StatsEmpty(stats proxyLayer0Stats) bool {
 		stats.CapturedOutputBlocks == 0 &&
 		stats.CodexExecEnvelopeBlocks == 0 &&
 		stats.RepeatedOutputBlocks == 0 &&
+		stats.ChunkDedupBlocks == 0 &&
 		stats.ReadDeltaBlocks == 0 &&
 		len(stats.ReadDeltaKeys) == 0
 }
@@ -289,6 +299,7 @@ type OutputReduceTelemetry struct {
 	ProxyLayer0CapturedBlocks        uint64                     `json:"proxy_layer0_captured_output_blocks"`
 	ProxyLayer0EnvelopeBlocks        uint64                     `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0RepeatedOutputBlocks  uint64                     `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedupBlocks      uint64                     `json:"proxy_layer0_chunk_dedup_blocks"`
 	ProxyLayer0Routes                ProxyLayer0RoutesTelemetry `json:"proxy_layer0_routes"`
 	StopSeqRequestsModified          uint64                     `json:"stop_seq_requests_modified"`
 	StopSeqPhrasesAdded              uint64                     `json:"stop_seq_phrases_added"`
@@ -319,6 +330,7 @@ type ProxyLayer0RouteTelemetry struct {
 	CapturedBlocks        uint64 `json:"captured_output_blocks"`
 	EnvelopeBlocks        uint64 `json:"codex_exec_envelope_blocks"`
 	RepeatedOutputBlocks  uint64 `json:"repeated_output_blocks"`
+	ChunkDedupBlocks      uint64 `json:"chunk_dedup_blocks"`
 }
 
 type ProxyLayer0RoutesTelemetry struct {
@@ -343,6 +355,7 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 		ProxyLayer0CapturedBlocks:        c.proxyLayer0CapturedBlocks.Load(),
 		ProxyLayer0EnvelopeBlocks:        c.proxyLayer0EnvelopeBlocks.Load(),
 		ProxyLayer0RepeatedOutputBlocks:  c.proxyLayer0RepeatedOutputBlocks.Load(),
+		ProxyLayer0ChunkDedupBlocks:      c.proxyLayer0ChunkDedupBlocks.Load(),
 		ProxyLayer0Routes: ProxyLayer0RoutesTelemetry{
 			HTTP:      c.proxyLayer0HTTP.snapshot(),
 			WSSPhaseF: c.proxyLayer0WSSPhaseF.snapshot(),

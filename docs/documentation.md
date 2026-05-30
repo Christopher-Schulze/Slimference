@@ -327,6 +327,23 @@ savings to commands such as repeated `git status`, `rg`, build/test reports,
 partial file ranges, or custom deterministic tools without introducing semantic
 summaries.
 
+Codex content-defined chunk dedup is available as a proof-gated extension of the
+same Layer-0 reducer. A FastCDC-style chunker splits large tool outputs/file
+reads into content-addressed regions, and a bounded in-memory session store tracks
+only chunk identities, not raw payloads. When a later output shares chunks with
+content already sent to the model in the same session, the reducer can emit the
+novel bytes plus neutral `[context-chunk status=unchanged uri=local-archive://...]`
+references to archived chunks. The feature is default-off and only activates
+when both `codex_chunk_dedup_enabled=true` and `archive_recovery_note_enabled=true`
+are set, so references are recoverable and the model has the recovery contract.
+The store is bounded by `codex_chunk_dedup_max_sessions`,
+`codex_chunk_dedup_max_chunks_per_session`, and
+`codex_chunk_dedup_ttl_seconds`; it fails open if archive recovery is unavailable
+or the token guard is not positive. WSS Phase-F and HTTP share the same reducer
+path, and `/admin/state` reports chunk-dedup hits globally plus under
+`proxy_layer0_routes.wss_phasef` / `.http`. Default-on promotion still requires a
+captured-frame A/B replay proving no comprehension regression.
+
 Model-facing readcache replacements use neutral `[context-* ...]` markers and
 preserve the `local-archive://<id>` pattern without naming Slimference inside
 tool output. This keeps the mechanical recovery handle while reducing prompt
