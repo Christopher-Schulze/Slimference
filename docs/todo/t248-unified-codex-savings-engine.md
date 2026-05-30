@@ -308,6 +308,19 @@ The product target is strict:
   did carry the stable session id. Keep the missing-session warning because it
   remains useful evidence when old or upgrade-only records are mixed into a
   measurement window.
+- Fresh 2026-05-30 Desktop app audit: Codex.app launched through
+  `slimference codex launch-desktop --replace-existing`, then three separate
+  Desktop prompts reread `docs/todo/t248-unified-codex-savings-engine.md`.
+  `wss-audit --since=2026-05-30T00:40:07Z --min-phasef=3 --require-savings`
+  passed with `phasef_requests=23`, `unique_sessions=6`,
+  `previous_response_id_used=8`, `positive_savings_requests=1`, and
+  `tokens_saved=3151`. Admin state after flush showed
+  `phasef_bridged=11`, `frames_reencoded=2`,
+  `compressed_messages_mutated=2`, `phasef_mutations=2`,
+  `input_tokens_saved=5966`, zero parse/degrade/compression errors, and
+  all billable savings attributed to `proxy_layer0_routes.wss_phasef`.
+  The scoped Desktop helper processes were terminated after the proof so
+  Finder/Spotlight launches return to normal direct routing.
 
 ## Deviations
 

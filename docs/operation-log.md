@@ -3203,3 +3203,38 @@ Interpretation:
   and Slimference 2.0.2 route.
 - Desktop still needs a workday/app confirmation window, but it rides the same
   route and can now be audited with the same gates.
+
+## 2026-05-30 - T248 Desktop WSS savings proof
+
+Goal: verify Codex Desktop through the real TUI/launcher path, not just CLI
+resume, and keep route-ready separate from savings-proven.
+
+Procedure:
+- Fresh measurement window: `2026-05-30T00:40:07Z`.
+- Launched Desktop with `slimference codex launch-desktop --replace-existing`.
+- In Codex.app, sent three separate prompts reading
+  `docs/todo/t248-unified-codex-savings-engine.md`.
+- Closed/terminated the scoped Desktop helper processes after the run so future
+  Finder/Spotlight launches return to direct routing.
+
+Evidence:
+- `wss-audit ~/.slimference/debug/decisions.jsonl
+  --since=2026-05-30T00:40:07Z --min-phasef=3 --require-savings --json`
+  passed.
+- Decisions window: `requests=23`, `wss_requests=23`,
+  `phasef_requests=23`, `unique_sessions=6`,
+  `previous_response_id_used=8`, `positive_savings_requests=1`,
+  `tokens_saved=3151`.
+- Admin state after flush: `phasef_bridged=11`, `frames_reencoded=2`,
+  `compressed_messages_mutated=2`, `phasef_mutations=2`,
+  `input_tokens_saved=5966`, `parse_failures=0`, `degraded_sessions=0`,
+  `compression_errors=0`.
+- Route attribution: all billable tokens saved came from
+  `proxy_layer0_routes.wss_phasef`; HTTP route counters stayed at zero.
+
+Interpretation:
+- Codex Desktop is now live savings-proven on the scoped no-CA WSS Phase-F
+  route for the tested repeated-read workload.
+- Savings remain workload-dependent. Small chats or no repeated/reducible tool
+  output can still produce zero savings, but the Desktop path itself is no
+  longer merely route-ready.

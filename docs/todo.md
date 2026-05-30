@@ -1489,9 +1489,13 @@ only and promotes the per-process Codex CLI runner for T209.
   session ids across two new conversations and real WSS savings through
   `codex exec resume --last` (`tokens_saved=2815`,
   `compressed_messages_mutated=1`, zero parse/degrade/compression errors).
-  Remaining work: future capture-driven tool variants, measured L2/L3 upgrades,
-  Desktop workday data collection, and broader real workload measurements before
-  T240.
+  A fresh Desktop launch through `slimference codex launch-desktop
+  --replace-existing` also passed the same WSS savings gate on a three-turn
+  repeated-read workload (`tokens_saved=3151` in the decisions window;
+  admin/state total `input_tokens_saved=5966`, `compressed_messages_mutated=2`,
+  zero parse/degrade/compression errors). Remaining work: future
+  capture-driven tool variants, measured L2/L3 upgrades, and broader real
+  workload measurements before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H
