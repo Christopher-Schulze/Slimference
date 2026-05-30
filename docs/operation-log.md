@@ -3862,3 +3862,53 @@ Verification:
   fails open without a session key, and preserves the same recovery invariant for
   cross-request and server-seeded WSS tool-call shapes.
 - `go test ./internal/proxy` passed.
+
+## 2026-05-30 - T257 CLI/Desktop proof matrix pass
+
+Goal: close the real-capture breadth gate for scoped Codex WSS Phase-F before any
+stronger default-auto or no-drawdown claim.
+
+Final matrix:
+- `proof-matrix-13` passed with 13 local captures: 7 CLI, 6 Desktop, all 10
+  required workload classes, 9 positive-savings captures, 4 expected-zero
+  captures, `captures_with_issues=0`, and `gate_passed=true`.
+- Required classes covered: repeat full read, similar files, changed file,
+  ranged read, search loop, git status/diff, build/test/lint failure,
+  apply_patch then read, long mixed workday, and no-savings control.
+- Every counted capture replayed with `lost=0`. Captures remain local under
+  `/tmp/slimference-t257/`; only aggregate metadata is documented here.
+
+Desktop captures:
+- `desktop-repeat-full-read`: 154 frames, 5 request turns, 1 mutated request,
+  10,027 replay bytes saved, `lost=0`; audit recorded 2,839 saved input tokens.
+- `desktop-git-status-diff`: 83 frames, 3 request turns, 1 mutated request,
+  1,376 replay bytes saved, `lost=0`; audit recorded 422 saved input tokens.
+- `desktop-search-loop`: 93 frames, 3 request turns, 1 mutated request,
+  6,882 replay bytes saved, `lost=0`; audit recorded 1,475 saved input tokens.
+- `desktop-build-test-lint-failure`: 93 frames, 3 request turns, 1 mutated
+  request, 103 replay bytes saved, `lost=0`; audit recorded 19 saved input
+  tokens.
+- `desktop-no-savings-control`: expected-zero control, 55 frames, 2 request
+  turns, 0 mutations, `bytes_saved=0`, `lost=0`.
+- `desktop-apply-patch-then-read`: expected-zero safety proof, 271 frames,
+  7 request turns, 0 mutations, `bytes_saved=0`, `lost=0`. After the edit,
+  WSS correctly full-passed the re-read instead of collapsing fresh content.
+
+Additional CLI captures:
+- `cli-ranged-read`: 37 frames, 2 request turns, 1 mutated request, 7,868 replay
+  bytes saved, `lost=0`; audit recorded 1,584 saved input tokens.
+- `cli-long-mixed-workday`: 177 frames, 5 request turns, 3 mutated requests,
+  7,655 replay bytes saved, `lost=0`; audit recorded 2,066 saved input tokens.
+
+Honest boundaries:
+- The matrix proves replay safety and representative CLI/Desktop WSS savings
+  breadth. It is not a replacement for formal `workday-savings start|finish`
+  windows; those remain open in T257.
+- Similar-files chunk dedup stayed expected-zero/negative for default-auto in
+  this matrix. Do not promote more aggressive similar-output dedup from this
+  evidence alone.
+- Invalid CLI apply-patch/resume attempts were discarded because Codex reordered
+  commands or hit an upstream resume 400 after the edit. They are not counted as
+  proof, and the resume behavior should be tracked separately if it reproduces.
+- The replay command printed benign scoped-desktop-CA warnings from a temporary
+  HOME. The actual Desktop captures used the no-CA app-server WSS route.

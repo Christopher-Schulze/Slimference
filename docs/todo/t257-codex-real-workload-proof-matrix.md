@@ -1,6 +1,6 @@
 # TASK 257: Codex real-workload proof matrix
 
-Status: [~] ACTIVE - proof tooling built; live CLI/Desktop captures remain
+Status: [~] ACTIVE - CLI/Desktop proof matrix passed; formal workday windows remain
 Priority: P0 - required before claiming max savings with no model/workflow drawdown
 Scope: Codex CLI and Codex Desktop through scoped WSS Phase-F. Build a repeatable
 capture, replay, and workday-proof matrix for all default-auto savings mechanisms.
@@ -49,8 +49,8 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
 
 - [x] Add/extend a capture metadata schema and local report command if current
       `wss-audit`/`wss-ab-replay` output cannot summarize all required gates.
-- [ ] Run 5 CLI captures and replay them.
-- [ ] Run 5 Desktop captures and replay them.
+- [x] Run 5 CLI captures and replay them.
+- [x] Run 5 Desktop captures and replay them.
 - [ ] Run CLI and Desktop workday windows.
 - [ ] Produce a content-free proof table in `docs/operation-log.md` and summarize
       default-auto readiness in `docs/documentation.md`.
@@ -113,6 +113,36 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   compressed_messages_mutated=1, codex_exec_envelope_blocks=1,
   billable_input_tokens_saved=459, and zero parse, degraded-session, or
   compression errors.
+- 2026-05-30: Desktop proof captures now cover repeat read, git-status diff,
+  no-savings control, search loop, build/test/lint failure, and apply-patch then
+  read. Replay results:
+  - `desktop-repeat-full-read`: 154 frames, 5 request turns, 1 mutated request,
+    10,027 bytes saved, lost=0, gate_passed=true; audit recorded 2,839 saved
+    tokens.
+  - `desktop-git-status-diff`: 83 frames, 3 request turns, 1 mutated request,
+    1,376 bytes saved, lost=0; audit recorded 422 saved tokens.
+  - `desktop-no-savings-control`: 55 frames, 2 request turns, 0 mutations,
+    bytes_saved=0, lost=0; this is the expected-zero control.
+  - `desktop-search-loop`: 93 frames, 3 request turns, 1 mutated request,
+    6,882 bytes saved, lost=0; audit recorded 1,475 saved tokens.
+  - `desktop-build-test-lint-failure`: 93 frames, 3 request turns, 1 mutated
+    request, 103 bytes saved, lost=0; audit recorded 19 saved tokens.
+  - `desktop-apply-patch-then-read`: 271 frames, 7 request turns, 0 mutations,
+    bytes_saved=0, lost=0. This is an expected-zero safety proof: after a recent
+    edit, WSS full-passes instead of collapsing the re-read.
+- 2026-05-30: Additional CLI coverage closed the missing workload classes:
+  `cli-ranged-read` replayed with 37 frames, 2 request turns, 1 mutated request,
+  7,868 bytes saved, lost=0, and 1,584 audited tokens saved. `cli-long-mixed-
+  workday` replayed with 177 frames, 5 request turns, 3 mutated requests,
+  7,655 bytes saved, lost=0, and 2,066 audited tokens saved. Invalid CLI
+  apply-patch/resume attempts were discarded because Codex reordered commands or
+  hit an upstream resume 400 after the edit; they are not counted as proof.
+- 2026-05-30: Final local proof matrix `proof-matrix-13` passed: 13 captures
+  total, 7 CLI, 6 Desktop, all 10 required workload classes present, 9 positive-
+  savings captures, 4 expected-zero captures, captures_with_issues=0, and
+  gate_passed=true. The replay tool emitted benign scoped-desktop-CA warnings
+  from a temporary HOME during replay; the captures themselves use the no-CA
+  app-server WSS path.
 
 ## Deviations
 

@@ -1580,13 +1580,14 @@ only and promotes the per-process Codex CLI runner for T209.
   support exists. This turns "default" into a safety-brained autopilot
   instead of a manual flag minefield.
   Detail: `docs/todo/t256-codex-savings-policy-engine.md`
-- [~] **T257** Codex real-workload proof matrix — collect and replay 10 real scoped
+- [~] **T257** Codex real-workload proof matrix — collect and replay real scoped
   WSS captures across CLI/Desktop and the important workload classes, then run CLI and
   Desktop workday windows. This is the breadth gate for "default-auto is safe", not a
   new reducer. The `wss-proof-matrix` report command and JSONL metadata schema are
-  implemented; early CLI captures prove repeat-read and changed-file savings, one
-  expected-zero control, and archive-backed recoverability for lossy git/search-style
-  captured-output compaction. Additional Desktop captures and workday windows remain.
+  implemented. The local 13-capture matrix now passes across 7 CLI captures,
+  6 Desktop captures, all 10 required workload classes, 9 positive-savings captures,
+  4 expected-zero captures, lost=0, and captures_with_issues=0. Formal
+  `workday-savings start|finish` CLI/Desktop windows remain.
   Detail: `docs/todo/t257-codex-real-workload-proof-matrix.md`
 - [ ] **T258** Codex savings policy engine v2 — extend the T256 policy from mechanism
   toggles into a full route/workload/risk/recovery/recency/proof autopilot. Aggressive
