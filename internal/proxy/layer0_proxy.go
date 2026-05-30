@@ -27,6 +27,7 @@ const (
 	proxyLayer0MechanismCodexEnvelope proxyLayer0Mechanism = "codex_exec_envelope"
 	proxyLayer0MechanismRepeatedOut   proxyLayer0Mechanism = "repeated_tool_output"
 	proxyLayer0MechanismChunkDedup    proxyLayer0Mechanism = "chunk_dedup"
+	proxyLayer0MechanismScanRead      proxyLayer0Mechanism = "scan_read"
 )
 
 type codexLayer0Route string
@@ -198,15 +199,22 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
 				}
 				if !changed {
-					_ = recordScanModeShadow(commandLine, block.Text, readCtx, beforeTokens, tok)
-					continue
+					if scanApplyEnabled() && !readCtx.RecentlyEdited {
+						if scanText, scanChanged, _ := compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx); scanChanged {
+							afterText, changed, mechanism = scanText, true, proxyLayer0MechanismScanRead
+						}
+					}
+					if !changed {
+						_ = recordScanModeShadow(commandLine, block.Text, readCtx, beforeTokens, tok)
+						continue
+					}
 				}
 			}
 			if !changed {
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
 			}
 			if changed && req.Route == codexLayer0RouteWSSPhaseF &&
-				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
+				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope || mechanism == proxyLayer0MechanismScanRead) {
 				archivedText, archived := archiveProxyCapturedOutput(req.SessionID, commandLine, afterText, block.Text)
 				if !archived {
 					changed = false
@@ -253,6 +261,14 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					stats.RepeatedOutputBlocks++
 				case proxyLayer0MechanismChunkDedup:
 					stats.ChunkDedupBlocks++
+				case proxyLayer0MechanismScanRead:
+					stats.CapturedOutputBlocks++
+					// Register the read key so a later re-read of this file is seen
+					// as a post-collapse re-read and full-passed: that is the
+					// recovery path for the elided bodies.
+					if toolKey != "" {
+						stats.ReadDeltaKeys = append(stats.ReadDeltaKeys, toolKey)
+					}
 				default:
 					stats.CapturedOutputBlocks++
 				}
@@ -487,6 +503,16 @@ func recordScanModeShadow(commandLine, text string, ctx filter.FileReadContext, 
 		"scan_would_save_tokens", saved)
 	return saved
 }
+
+// scanApplyEnv enables APPLYING first-read scan-mode on Codex reads (default off).
+// This is the per-workload A/B path: it stays off in production until A/B proof
+// shows the model loses no facts. When on, an eligible read is compacted to
+// signatures, but recovery is triple-covered: the discoverable recovery note in
+// the output, an archive reference for the full bytes, and registration of the
+// read key so a re-read loosens the policy to a full pass.
+const scanApplyEnv = "SLIMFERENCE_SCAN_APPLY"
+
+func scanApplyEnabled() bool { return os.Getenv(scanApplyEnv) != "" }
 
 func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original string) (string, bool) {
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(compacted) == "" || original == "" {

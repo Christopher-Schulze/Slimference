@@ -39,3 +39,49 @@ func TestRecordScanModeShadow_GatedTelemetryOnly(t *testing.T) {
 		t.Fatalf("scan shadow should measure positive would-save on a large Go read, got %d", got)
 	}
 }
+
+// TestReduceCodexLayer0ScanReadApplyGatedAndRecoverable proves scan-apply is
+// default-off (read full-passes) and, when enabled, compacts the read while
+// triple-covering recovery: discoverable note, archive reference, and read-key
+// registration so a re-read full-passes.
+func TestReduceCodexLayer0ScanReadApplyGatedAndRecoverable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var body strings.Builder
+	body.WriteString("Process exited with code 0\nOutput:\n")
+	body.WriteString("package x\n\n")
+	for i := 0; i < 40; i++ {
+		body.WriteString(fmt.Sprintf("func F%d(a int) int {\n", i))
+		for j := 0; j < 15; j++ {
+			body.WriteString(fmt.Sprintf("\ta += %d\n", j))
+		}
+		body.WriteString("\treturn a\n}\n\n")
+	}
+	mk := func() []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-read", ToolName: "exec_command", ToolInput: `{"cmd":"cat /tmp/x.go"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-read", Text: body.String()}}},
+		}
+	}
+
+	t.Setenv(scanApplyEnv, "")
+	off := reduceCodexLayer0(codexLayer0Request{Route: codexLayer0RouteWSSPhaseF, Messages: mk(), SessionID: "s1"})
+	if off.Stats.BlocksModified != 0 {
+		t.Fatalf("scan-apply default-off must full-pass the read, stats=%+v", off.Stats)
+	}
+
+	t.Setenv(scanApplyEnv, "1")
+	on := reduceCodexLayer0(codexLayer0Request{Route: codexLayer0RouteWSSPhaseF, Messages: mk(), SessionID: "s2"})
+	text := on.Messages[1].Content[0].Text
+	if on.Stats.TokensSaved <= 0 || on.Stats.BlocksModified != 1 {
+		t.Fatalf("scan-apply enabled must compact the read, stats=%+v", on.Stats)
+	}
+	if !strings.Contains(text, "re-run the read to see the full file") {
+		t.Fatalf("scan output must carry the recovery note: %q", text[:min(len(text), 200)])
+	}
+	if !strings.Contains(text, "context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("scan output must carry an archive reference: %q", text[:min(len(text), 200)])
+	}
+	if len(on.Stats.ReadDeltaKeys) == 0 {
+		t.Fatalf("scan-apply must register the read key for re-read recovery, stats=%+v", on.Stats)
+	}
+}
