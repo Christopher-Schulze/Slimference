@@ -87,6 +87,14 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   parser now rejects command lines containing operators, pipes, redirects, or
   shellisms anywhere in the command. Replaying the same capture after the fix
   returns lost=0 and bytes_saved=0, which is the correct fail-open outcome.
+- 2026-05-30: Valid separate-turn CLI `changed_file` capture passed the A/B gate:
+  two scoped WSS connections, 173 frames, 4 request turns, 1 mutated request,
+  5,822 replay bytes saved, lost=0. Live counters recorded 1,184 billable input
+  tokens saved, read_delta_attempts=2, read_delta_misses=1, read_delta_blocks=1,
+  parse_failures=0, degraded_sessions=0, compression_errors=0. Codex `exec
+  resume` emitted a post-tool upstream 400 after the second turn; the reducer
+  proof remains valid, but the resume workflow should be tracked separately if it
+  reproduces outside this proof harness.
 
 ## Deviations
 

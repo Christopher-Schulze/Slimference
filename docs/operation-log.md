@@ -3793,6 +3793,14 @@ Live captures:
 - `cli-changed-file`: initial capture used a compound `cat; append; cat` command.
   Live mutation saved 900 billable input tokens, but A/B replay reported lost=1,
   proving the mutation path was not safe for that shell shape.
+- `cli-changed-file-turns`: valid separate-turn changed-file capture passed A/B
+  replay with 173 frames, 4 request turns, 1 mutated request, 5,822 bytes saved,
+  lost=0. Live counters recorded two scoped WSS connections, 1,184 billable input
+  tokens saved, read_delta_attempts=2, read_delta_misses=1, read_delta_blocks=1,
+  parse_failures=0, degraded_sessions=0, and compression_errors=0. `codex exec
+  resume` emitted a post-tool upstream 400 after the second turn; the WSS reducer
+  proof is still valid, and the resume error remains a separate workflow issue if
+  it reproduces.
 
 Fix:
 - Captured-output argv parsing now rejects operators, pipes, redirects, and
@@ -3806,5 +3814,8 @@ Verification:
 - `go test ./internal/filter ./internal/proxy` passed.
 - Replayed `/tmp/slimference-t257/cli-changed-file.jsonl` with
   `wss-ab-replay --fail-on-lost --json`: gate_passed=true, lost=0.
+- Replayed `/tmp/slimference-t257/cli-changed-file-turns.jsonl` with
+  `wss-ab-replay --fail-on-lost --json`: gate_passed=true, lost=0,
+  bytes_saved=5,822.
 - `go build ./...`, `go vet ./...`, and `go test ./...` passed.
 - `go run ./scripts/ci` passed all 8 steps with 98.1% total statement coverage.
