@@ -357,10 +357,12 @@ func wssPlannerContentClasses(messages []types.Message, l0Stats proxyLayer0Stats
 }
 
 func wssPlannerTokenCount(body []byte, messages []types.Message) int {
+	// Codex bills in o200k_base; count planner telemetry with the same encoding.
+	tok := tokens.ForProvider(types.CodexChatGPT)
 	if len(messages) > 0 {
-		return tokens.CountMessages(messages)
+		return tok.CountMessages(messages)
 	}
-	return tokens.CountString(string(body))
+	return tok.CountString(string(body))
 }
 
 func wssPlannerModel(body []byte) string {

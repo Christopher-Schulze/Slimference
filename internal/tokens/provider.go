@@ -34,6 +34,8 @@ func ForProvider(provider types.Provider) Tokenizer {
 	switch provider {
 	case types.Anthropic:
 		return anthropic
+	case types.CodexChatGPT:
+		return openaiO200KTokenizer
 	case types.OpenAI:
 		return openaiTokenizer
 	default:
@@ -214,6 +216,10 @@ type openaiTokenizerImpl struct {
 }
 
 var openaiTokenizer Tokenizer = &openaiTokenizerImpl{counter: &global}
+
+// openaiO200KTokenizer counts with o200k_base, used for Codex (GPT-4o /
+// GPT-5-codex) whose billing uses the o200k encoding rather than cl100k.
+var openaiO200KTokenizer Tokenizer = &openaiTokenizerImpl{counter: &o200kGlobal}
 
 func (o *openaiTokenizerImpl) Name() string { return "openai-tiktoken" }
 

@@ -17,6 +17,28 @@ func TestForProvider_Routing(t *testing.T) {
 	if got := ForProvider(types.Provider(999)).Name(); got != "universal-fallback" {
 		t.Fatalf("universal: %s", got)
 	}
+	if got := ForProvider(types.CodexChatGPT).Name(); got != "openai-tiktoken" {
+		t.Fatalf("codex: %s", got)
+	}
+}
+
+func TestO200K_OfflineLoadsAndCodexRouting(t *testing.T) {
+	const sample = "func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {"
+	// o200k must load from the embedded offline assets (no network). If the
+	// offline loader were not wired, GetEncoding would fail offline, the encoder
+	// would be nil, and Count would return 0, silently defeating the Codex
+	// savings guards.
+	if got := o200kGlobal.Count(sample); got <= 0 {
+		t.Fatalf("o200k offline count = %d, want > 0 (embedded BPE assets not loaded?)", got)
+	}
+	// Codex routes through the o200k tokenizer.
+	if got := ForProvider(types.CodexChatGPT).CountString(sample); got <= 0 {
+		t.Fatalf("CodexChatGPT tokenizer count = %d, want > 0", got)
+	}
+	// cl100k must still work after the offline loader is wired (it embeds both).
+	if got := Count(sample); got <= 0 {
+		t.Fatalf("cl100k count = %d, want > 0 after offline loader", got)
+	}
 }
 
 func TestAnthropicTokenizer_CountString(t *testing.T) {

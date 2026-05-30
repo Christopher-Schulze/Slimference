@@ -101,6 +101,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 	}
 	var out []types.Message
 	stats := proxyLayer0Stats{Route: req.Route}
+	// Codex (GPT-4o / GPT-5-codex) bills in o200k_base; count the savings guard
+	// with the matching encoding so before/after token math reflects real cost.
+	tok := tokens.ForProvider(types.CodexChatGPT)
 
 	for msgIdx, msg := range req.Messages {
 		for blockIdx, block := range msg.Content {
@@ -118,7 +121,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			stats.CommandResolvedBlocks++
-			beforeTokens := tokens.CountString(block.Text)
+			beforeTokens := tok.CountString(block.Text)
 			readCtx := proxyReadFileContext(req.SessionID, commandLine)
 			readDeltaAttempted := readDeltaEligible(req.SessionID, commandLine)
 			if readDeltaAttempted {
@@ -137,7 +140,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			candidateEligible := true
 			if changed {
 				candidateText = afterText
-				candidateEligible = tokens.CountString(candidateText) < beforeTokens
+				candidateEligible = tok.CountString(candidateText) < beforeTokens
 			}
 			if !fullReadCommand && candidateEligible {
 				if repeatedText, repeated := compactProxyRepeatedToolOutput(req.SessionID, commandLine, candidateText); repeated {
@@ -149,7 +152,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			if !changed {
 				continue
 			}
-			afterTokens := tokens.CountString(afterText)
+			afterTokens := tok.CountString(afterText)
 			if afterTokens < beforeTokens {
 				if out == nil {
 					out = cloneMessages(req.Messages)

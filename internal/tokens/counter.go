@@ -5,22 +5,55 @@ import (
 	"sync"
 
 	tiktoken "github.com/pkoukk/tiktoken-go"
+	tiktoken_loader "github.com/pkoukk/tiktoken-go-loader"
 	"github.com/slimference/slimference/internal/types"
 )
 
-// Counter holds a lazily-initialized, goroutine-safe tiktoken encoder.
+// Counter holds a lazily-initialized, goroutine-safe tiktoken encoder for one
+// encoding. A zero-value encoding string means cl100k_base (the historical
+// default).
 type Counter struct {
-	once sync.Once
-	enc  *tiktoken.Tiktoken
+	encoding string
+	once     sync.Once
+	enc      *tiktoken.Tiktoken
 }
 
-// global is the package-level Counter used by the free functions.
+// global is the package-level cl100k_base Counter used by the free functions.
 var global Counter
 
-// encoder returns the cached cl100k_base encoder, initializing it once.
+// o200kGlobal counts with o200k_base, the encoding GPT-4o / GPT-5-codex bill
+// in. Codex token guards must use this so before/after token comparisons match
+// the model's real accounting instead of the cl100k_base approximation.
+var o200kGlobal = Counter{encoding: "o200k_base"}
+
+// loaderOnce wires tiktoken's BPE loader to the embedded offline asset loader
+// exactly once. Without it, GetEncoding downloads the BPE ranks over the
+// network on first use, which is both a doctrine violation (out-of-band network
+// from the proxy process) and a reliability hole: offline the encoder stays nil
+// and Count returns 0, silently defeating the savings guards. The offline
+// loader embeds cl100k_base and o200k_base so counting is deterministic and
+// network-free.
+var loaderOnce sync.Once
+
+func ensureOfflineLoader() {
+	loaderOnce.Do(func() {
+		tiktoken.SetBpeLoader(tiktoken_loader.NewOfflineLoader())
+	})
+}
+
+func (c *Counter) encodingName() string {
+	if c.encoding == "" {
+		return "cl100k_base"
+	}
+	return c.encoding
+}
+
+// encoder returns the cached encoder for this counter's encoding, initializing
+// it once against the offline embedded BPE assets.
 func (c *Counter) encoder() *tiktoken.Tiktoken {
 	c.once.Do(func() {
-		enc, _ := tiktoken.GetEncoding("cl100k_base")
+		ensureOfflineLoader()
+		enc, _ := tiktoken.GetEncoding(c.encodingName())
 		c.enc = enc
 	})
 	return c.enc
