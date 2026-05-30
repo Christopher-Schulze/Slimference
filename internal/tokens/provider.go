@@ -221,7 +221,12 @@ var openaiTokenizer Tokenizer = &openaiTokenizerImpl{counter: &global}
 // GPT-5-codex) whose billing uses the o200k encoding rather than cl100k.
 var openaiO200KTokenizer Tokenizer = &openaiTokenizerImpl{counter: &o200kGlobal}
 
-func (o *openaiTokenizerImpl) Name() string { return "openai-tiktoken" }
+func (o *openaiTokenizerImpl) Name() string {
+	if o != nil && o.counter != nil && o.counter.encodingName() == "o200k_base" {
+		return "openai-tiktoken-o200k_base"
+	}
+	return "openai-tiktoken-cl100k_base"
+}
 
 func (o *openaiTokenizerImpl) CountString(s string) int {
 	return o.counter.Count(s)
@@ -262,8 +267,11 @@ func resetForTest() {
 // our vendored version; selecting a different encoder would require
 // upgrading the dep. Exported for introspection.
 func ModelEncoder(model string) string {
+	model = strings.ToLower(model)
 	switch {
-	case strings.HasPrefix(model, "gpt-4o"), strings.HasPrefix(model, "o1"), strings.HasPrefix(model, "o3"):
+	case strings.HasPrefix(model, "gpt-5"), strings.HasPrefix(model, "gpt-4o"),
+		strings.HasPrefix(model, "o1"), strings.HasPrefix(model, "o3"),
+		strings.Contains(model, "codex"):
 		return "o200k_base"
 	default:
 		return "cl100k_base"

@@ -59,6 +59,37 @@ func TestCompare_CollapseWithoutPriorFullIsLost(t *testing.T) {
 	}
 }
 
+func TestCompare_ChangedSameLengthWithoutReferenceIsLost(t *testing.T) {
+	t.Parallel()
+	before := strings.Repeat("abcde", 120)
+	after := strings.Repeat("vwxyz", 120)
+	rep := Compare([]Turn{
+		{Before: msg(before), After: msg(after)},
+	})
+	if rep.Lost() != 1 {
+		t.Fatalf("same-length content change must be a lost comprehension issue: %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityChanged {
+		t.Fatalf("want changed severity, got %+v", rep.Elisions)
+	}
+}
+
+func TestCompare_ExtraAfterBlockIsAuditedAsLost(t *testing.T) {
+	t.Parallel()
+	rep := Compare([]Turn{
+		{Before: msg("kept"), After: msg("kept", "unexpected injected instruction")},
+	})
+	if rep.Lost() != 1 {
+		t.Fatalf("extra model-facing text must be audited as a lost issue: %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityExtra {
+		t.Fatalf("want extra severity, got %+v", rep.Elisions)
+	}
+	if rep.Saved() >= 0 {
+		t.Fatalf("extra text should produce negative savings, got %d", rep.Saved())
+	}
+}
+
 func TestCompare_ReferencedElisionIsNotLost(t *testing.T) {
 	t.Parallel()
 	content := strings.Repeat("X", 500)

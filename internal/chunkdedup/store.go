@@ -21,8 +21,9 @@ type Store struct {
 	seen    map[string]map[string]struct{} // sessionID -> chunk ids already sent
 }
 
-// NewStore returns a chunk-dedup store. archive may be nil (references then carry
-// an empty URI and are not recoverable; production always supplies one).
+// NewStore returns a chunk-dedup store. When archive is nil or returns an empty
+// URI, Encode fails open and keeps repeated chunks verbatim so it never emits an
+// unrecoverable reference.
 func NewStore(cfg Config, archive ArchiveFunc) *Store {
 	return &Store{cfg: cfg, archive: archive, seen: map[string]map[string]struct{}{}}
 }
@@ -51,15 +52,16 @@ func (s *Store) Encode(sessionID string, data []byte) ([]byte, int) {
 	for _, c := range chunks {
 		id := ChunkID(c)
 		if _, seenBefore := sessionSeen[id]; seenBefore {
-			uri := ""
 			if s.archive != nil {
-				uri = s.archive(sessionID, id, c)
-			}
-			ref := fmt.Sprintf("[unchanged region: %s]", uri)
-			if len(ref) < len(c) {
-				out.WriteString(ref)
-				saved += len(c) - len(ref)
-				continue
+				uri := s.archive(sessionID, id, c)
+				if uri != "" {
+					ref := fmt.Sprintf("[unchanged region: %s]", uri)
+					if len(ref) < len(c) {
+						out.WriteString(ref)
+						saved += len(c) - len(ref)
+						continue
+					}
+				}
 			}
 		}
 		out.Write(c)

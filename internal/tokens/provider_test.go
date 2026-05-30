@@ -11,13 +11,13 @@ func TestForProvider_Routing(t *testing.T) {
 	if got := ForProvider(types.Anthropic).Name(); got != "anthropic-calibrated" {
 		t.Fatalf("anthropic: %s", got)
 	}
-	if got := ForProvider(types.OpenAI).Name(); got != "openai-tiktoken" {
+	if got := ForProvider(types.OpenAI).Name(); got != "openai-tiktoken-cl100k_base" {
 		t.Fatalf("openai: %s", got)
 	}
 	if got := ForProvider(types.Provider(999)).Name(); got != "universal-fallback" {
 		t.Fatalf("universal: %s", got)
 	}
-	if got := ForProvider(types.CodexChatGPT).Name(); got != "openai-tiktoken" {
+	if got := ForProvider(types.CodexChatGPT).Name(); got != "openai-tiktoken-o200k_base" {
 		t.Fatalf("codex: %s", got)
 	}
 }
@@ -192,6 +192,9 @@ func TestUniversalFallback_DelegatesToOpenAI(t *testing.T) {
 func TestModelEncoder(t *testing.T) {
 	if got := ModelEncoder("gpt-4o"); got != "o200k_base" {
 		t.Fatalf("gpt-4o: %s", got)
+	}
+	if got := ModelEncoder("gpt-5-codex"); got != "o200k_base" {
+		t.Fatalf("gpt-5-codex: %s", got)
 	}
 	if got := ModelEncoder("o1-preview"); got != "o200k_base" {
 		t.Fatalf("o1: %s", got)

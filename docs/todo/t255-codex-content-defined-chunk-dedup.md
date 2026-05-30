@@ -1,6 +1,6 @@
 # TASK 255: Codex content-defined chunk dedup (FastCDC, rsync-for-LLM-context)
 
-Status: [ ] QUEUED - radical; TASK-SPLIT candidate; gated by t249
+Status: [~] PARTIAL - FastCDC chunker and safety-hardened session store landed; WSS wiring remains gated
 Priority: P2 - innovative core for "maximal sparsam" on read/log-heavy sessions
 Scope: Codex-only WSS Phase-F. Deduplicate tool outputs and file reads at content-
 defined CHUNK granularity across the whole session.
@@ -36,10 +36,10 @@ which is not chunk-level and not on the WSS path. This is genuinely new infrastr
 
 ## Sub-Tasks
 
-- [ ] Implement a FastCDC content-defined chunker (rolling hash, min/avg/max chunk
+- [x] Implement a FastCDC content-defined chunker (rolling hash, min/avg/max chunk
       size), content-addressed chunk IDs.
-- [ ] Session-scoped chunk store (bounded, TTL/LRU), content-free identity.
-- [ ] Chunk-reference encode (emit novel chunks + references) and decode (reinject for
+- [~] Session-scoped chunk store (bounded, TTL/LRU), content-free identity.
+- [~] Chunk-reference encode (emit novel chunks + references) and decode (reinject for
       chunk references); recoverable via the t249 contract.
 - [ ] Wire into the WSS reducer for tool outputs / file reads; route attribution.
 - [ ] Tests proving partial-overlap savings (file after small edit, similar files,
@@ -54,6 +54,10 @@ which is not chunk-level and not on the WSS path. This is genuinely new infrastr
 - Dependencies: HARD on t249 (recovery contract + A/B harness). Overlaps conceptually
   with t254 (the mirror could consume chunk identities); coordinate so they share the
   content-addressed store rather than duplicate it.
+- 2026-05-30: `internal/chunkdedup` now has a deterministic FastCDC-style chunker and
+  a session chunk store. The store is fail-open: if archive recovery is unavailable it
+  keeps repeated chunks verbatim rather than emitting unrecoverable references. TTL/LRU,
+  decode/reinject, WSS reducer wiring, and A/B proof remain open.
 - Doctrine: content-free identity, fail-open, scoped; references always recoverable so
   no loss is permanent.
 

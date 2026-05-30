@@ -59,7 +59,7 @@ func (c *Counter) encoder() *tiktoken.Tiktoken {
 	return c.enc
 }
 
-// Count returns the token count for text using cl100k_base encoding.
+// Count returns the token count for text using this counter's encoding.
 // Returns 0 on encoder initialization failure.
 func (c *Counter) Count(text string) int {
 	enc := c.encoder()

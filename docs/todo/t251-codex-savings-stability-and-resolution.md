@@ -1,6 +1,6 @@
 # TASK 251: Codex savings stability + cross-turn resolution robustness
 
-Status: [ ] QUEUED
+Status: [~] PARTIAL - tool-use persistence, archive-id hardening, and bounded readcache state landed
 Priority: P1 - protects and multiplies existing savings; removes hot-path latency
 Scope: Codex-only WSS Phase-F. Make the existing savings robust across socket
 lifecycle, remove per-read disk I/O, fix archive-id collisions, add recency-adaptive
@@ -41,15 +41,15 @@ guard against mutating items inside the server-cached prefix (net-negative billi
 
 ## Sub-Tasks
 
-- [ ] (if t249 measurement shows reconnect cold misses) Persist toolUse map to disk,
+- [x] (if t249 measurement shows reconnect cold misses) Persist toolUse map to disk,
       bounded + TTL, content-free; rehydrate test across a simulated socket reset.
 - [ ] In-memory readcache session state + async/periodic flush; remove the per-read
       Load/Save disk round-trip; crash-safe flush.
-- [ ] Content-addressed archive IDs (replace timestamp + 4KB-prefix scheme);
+- [x] Content-addressed archive IDs (replace timestamp + 4KB-prefix scheme);
       collision test for two large files sharing a prefix in the same second.
 - [ ] Recency-adaptive aggressiveness (keep last N turns full); deterministic test.
-- [ ] Prompt-cache-aware mutation guard (only mutate past the cached prefix); test.
-- [ ] Bounded session/readcache/archive state with TTL/LRU eviction.
+- [~] Prompt-cache-aware mutation guard (only mutate past the cached prefix); test.
+- [~] Bounded session/readcache/archive state with TTL/LRU eviction.
 
 ## Notes
 
@@ -57,6 +57,20 @@ guard against mutating items inside the server-cached prefix (net-negative billi
   reconnects are the cause - measure in t249 first). Recency policy ~+5-10% on old
   content AND reduces lost-in-the-middle drawdown. The rest is latency/correctness/
   stability, not direct savings.
+- 2026-05-30: `internal/toolusecache` now persists bounded tool-call resolution
+  metadata and `wsmitm_phasef` rehydrates it across WSS reconnects. It stores tool
+  metadata, not raw tool output; live efficacy still needs a multi-turn reconnect
+  measurement.
+- 2026-05-30: archive IDs now include a full-content hash and are idempotent for the
+  same archive input, closing the timestamp plus 4KB-prefix collision class. This is
+  collision hardening, not a global content-only dedup feature across unrelated
+  sessions/positions.
+- 2026-05-30: readcache and tool-use state now have bounded pruning. The planned
+  in-memory readcache plus async flush is still open.
+- 2026-05-30: prompt-cache-aware mutation is currently verified by WSS shape
+  reasoning: Codex WSS sends delta `input` items rather than the cached
+  instructions/tools prefix, so the active reducer cannot mutate that prefix. An
+  explicit regression test remains open.
 - Dependencies: toolUse persistence gated by t249 socket measurement. The other
   sub-tasks are independent.
 - Doctrine: content-free persistence (metadata only, never raw output), fail-open,

@@ -1,6 +1,6 @@
 # TASK 252: Codex savings precision + filter/marker tweaks (quick wins)
 
-Status: [ ] QUEUED
+Status: [~] PARTIAL - o200k, delta newline, log/lint priority, and eslint-json landed
 Priority: P2 - small, low-risk, high-certainty improvements across all layers
 Scope: Codex-only. Token-accounting precision, delta formatting, filter cap quality,
 more Tier-1 parsers, stderr compaction, marker notation.
@@ -42,12 +42,12 @@ Several small, verified issues each cost a few percent or add drawdown:
 
 ## Sub-Tasks
 
-- [ ] Use `o200k_base` for Codex token counting in the WSS/Layer-0 guards.
-- [ ] Fix `delta.go` doubled-newline (one newline per diff line); add a test asserting
+- [x] Use `o200k_base` for Codex token counting in the WSS/Layer-0 guards.
+- [x] Fix `delta.go` doubled-newline (one newline per diff line); add a test asserting
       no `\n\n` inside a single-line-change delta.
-- [ ] Make filter caps token-budget-aware + error/match-priority (search/lint/
+- [~] Make filter caps token-budget-aware + error/match-priority (search/lint/
       terraform/log); tests.
-- [ ] Add Tier-1 parsers: eslint-json, tsc, `kubectl -o json`, `cargo metadata`,
+- [~] Add Tier-1 parsers: eslint-json, tsc, `kubectl -o json`, `cargo metadata`,
       `terraform show -json`.
 - [ ] Compact stderr on the CLI filter path.
 - [ ] Convert markers to a compact structured notation (coordinate wording with t249
@@ -63,6 +63,13 @@ Several small, verified issues each cost a few percent or add drawdown:
   dependencies.
 - The marker notation sub-task should land with or after the t249 recovery note so the
   notation and the recovery contract agree.
+- 2026-05-30: Codex WSS/Layer-0 guards use `o200k_base`; observability now names the
+  o200k tokenizer distinctly.
+- 2026-05-30: delta output emits one newline per diff line.
+- 2026-05-30: log and lint truncation now preserve late error/failure lines ahead of
+  benign positional caps. Search and terraform caps remain open.
+- 2026-05-30: eslint `--format json` is now a Tier-1 parser, including shell shim
+  detection (`eslint.cmd`/`eslint.exe`). The other listed Tier-1 parsers remain open.
 - Doctrine: content-free, fail-open, scoped.
 
 ## Deviations

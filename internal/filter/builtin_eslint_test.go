@@ -45,6 +45,18 @@ func TestTryCompactEslintJSON_errorsAndWarnings(t *testing.T) {
 	}
 }
 
+func TestTryCompactEslintJSON_windowsShimArgv(t *testing.T) {
+	t.Parallel()
+	in := `[{"filePath":"C:\\src\\a.js","messages":[],"errorCount":0,"warningCount":0}]`
+	out, ok := TryCompactEslintJSON([]string{`C:\repo\node_modules\.bin\eslint.cmd`, "-f=json"}, []byte(in))
+	if !ok {
+		t.Fatalf("expected compaction for eslint.cmd")
+	}
+	if got := string(out); got != "[eslint] clean (1 file(s))\n" {
+		t.Fatalf("clean summary = %q", got)
+	}
+}
+
 func TestTryCompactEslintJSON_errorSurvivesPastWarningCap(t *testing.T) {
 	t.Parallel()
 	var msgs strings.Builder

@@ -34,9 +34,17 @@ const (
 	// SeverityLost: content was elided with neither a prior full copy nor a
 	// recovery reference. This is a real comprehension drawdown.
 	SeverityLost Severity = "lost"
+	// SeverityChanged: content changed without a prior full copy or a recovery
+	// reference. This is a real comprehension drawdown even when the replacement
+	// is not shorter than the original.
+	SeverityChanged Severity = "changed_without_reference"
+	// SeverityExtra: the compressed path injected an extra model-facing block.
+	// Extra text can be intentional, but it must be audited because it changes
+	// the model-facing context rather than only removing redundant text.
+	SeverityExtra Severity = "extra_after_block"
 )
 
-// Elision is one block whose compressed text is shorter than its original.
+// Elision is one block where the compressed path changed the model-facing text.
 type Elision struct {
 	Turn     int
 	Block    int
@@ -58,7 +66,8 @@ type Report struct {
 func (r Report) Lost() int {
 	n := 0
 	for _, e := range r.Elisions {
-		if e.Severity == SeverityLost {
+		switch e.Severity {
+		case SeverityLost, SeverityChanged, SeverityExtra:
 			n++
 		}
 	}
@@ -68,43 +77,61 @@ func (r Report) Lost() int {
 // Saved returns the net bytes the compression removed from the model-facing text.
 func (r Report) Saved() int { return r.BytesBefore - r.BytesAfter }
 
-// Compare walks the session and classifies every elision (a block whose After
-// text is a strict reduction of its Before text). seenFull accumulates the
-// hashes of content the model received verbatim, so a later collapse of the same
-// content is recognised as recoverable rather than lost.
+// Compare walks the session and classifies every model-facing text change.
+// seenFull accumulates the hashes of content the model received verbatim, so a
+// later collapse of the same content is recognised as recoverable rather than
+// lost.
 func Compare(turns []Turn) Report {
 	rep := Report{Turns: len(turns)}
 	seenFull := map[string]struct{}{}
 	for ti := range turns {
 		before := blockTexts(turns[ti].Before)
 		after := blockTexts(turns[ti].After)
-		// First record everything sent verbatim this turn, then classify
-		// elisions, so within-turn ordering does not affect the verdict.
+		for _, at := range after {
+			rep.BytesAfter += len(at)
+		}
+		// First record everything sent verbatim this turn, then classify changes,
+		// so within-turn ordering does not affect the verdict.
 		for i, bt := range before {
 			rep.BytesBefore += len(bt)
-			at := indexOr(after, i)
-			rep.BytesAfter += len(at)
+			at, ok := indexMaybe(after, i)
 			if bt != "" && at == bt {
 				seenFull[hashText(bt)] = struct{}{}
 			}
+			if !ok && bt != "" {
+				rep.Elisions = append(rep.Elisions, Elision{
+					Turn:     ti,
+					Block:    i,
+					Severity: classifyReplacement(bt, "", seenFull),
+					Bytes:    len(bt),
+					Preview:  preview(bt),
+				})
+			}
 		}
 		for i, bt := range before {
-			at := indexOr(after, i)
-			if bt == "" || at == bt || len(at) >= len(bt) {
+			at, ok := indexMaybe(after, i)
+			if bt == "" || !ok || at == bt {
 				continue
-			}
-			sev := SeverityLost
-			if _, ok := seenFull[hashText(bt)]; ok {
-				sev = SeverityRecoverable
-			} else if strings.Contains(at, "local-archive://") {
-				sev = SeverityReferenced
 			}
 			rep.Elisions = append(rep.Elisions, Elision{
 				Turn:     ti,
 				Block:    i,
-				Severity: sev,
+				Severity: classifyReplacement(bt, at, seenFull),
 				Bytes:    len(bt) - len(at),
 				Preview:  preview(bt),
+			})
+		}
+		for i := len(before); i < len(after); i++ {
+			at := strings.TrimSpace(after[i])
+			if at == "" {
+				continue
+			}
+			rep.Elisions = append(rep.Elisions, Elision{
+				Turn:     ti,
+				Block:    i,
+				Severity: SeverityExtra,
+				Bytes:    -len(after[i]),
+				Preview:  preview(after[i]),
 			})
 		}
 	}
@@ -121,11 +148,24 @@ func blockTexts(msgs []types.Message) []string {
 	return out
 }
 
-func indexOr(s []string, i int) string {
+func indexMaybe(s []string, i int) (string, bool) {
 	if i < len(s) {
-		return s[i]
+		return s[i], true
 	}
-	return ""
+	return "", false
+}
+
+func classifyReplacement(before string, after string, seenFull map[string]struct{}) Severity {
+	if _, ok := seenFull[hashText(before)]; ok {
+		return SeverityRecoverable
+	}
+	if strings.Contains(after, "local-archive://") {
+		return SeverityReferenced
+	}
+	if len(after) < len(before) {
+		return SeverityLost
+	}
+	return SeverityChanged
 }
 
 func hashText(s string) string {

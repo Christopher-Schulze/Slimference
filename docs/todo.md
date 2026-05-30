@@ -1498,34 +1498,42 @@ only and promotes the per-process Codex CLI runner for T209.
   model-facing readcache markers, prefers Codex turn metadata over
   `prompt_cache_key` for WSS session identity, makes operator cost estimates
   billable-input based, and adds exact archive-backed cross-turn dedup for
-  repeated non-file tool outputs with dedicated route attribution. Remaining
-  work: future capture-driven tool variants, measured L2/L3 upgrades, the
-  offline comprehension A/B harness, and broader real workload measurements
-  before T240.
+  repeated non-file tool outputs with dedicated route attribution. The latest
+  T249-T255 slice adds Codex o200k token guards, content-derived archive IDs,
+  bounded readcache session files, error-priority log/lint truncation, an
+  eslint-json Tier-1 parser, FastCDC chunking primitives, a session chunk-dedup
+  store, WSS reconnect tool-use persistence, and the core offline comprehension
+  A/B comparison engine. Remaining work: future capture-driven tool variants,
+  measured L2/L3 upgrades, replay wiring around the A/B engine, and broader real
+  workload measurements before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
-- [ ] **T249** Codex comprehension safety net — foundation gate for all aggressive
+- [~] **T249** Codex comprehension safety net — foundation gate for all aggressive
   savings work. Offline comprehension A/B harness (compressed vs direct, model-facing
   context diff), neutral once-per-session recoverable-archive note so `local-archive://`
   loss becomes recoverable, re-read-after-collapse auto-restore via the existing canary,
-  and a documented socket-lifecycle measurement. No direct savings; unlocks t253/t254/t255
-  to be enabled with data instead of hope.
+  and a documented socket-lifecycle measurement. Core comparison engine is implemented;
+  replay wiring/recovery note/auto-restore remain open. No direct savings; unlocks
+  t253/t254/t255 to be enabled with data instead of hope.
   Detail: `docs/todo/t249-codex-comprehension-safety-net.md`
 - [ ] **T250** Codex lossless cross-turn savings coverage — extend exact/position-aware
   savings to the still-uncovered ranged-read class (`sed`/`head`/`tail`/offset, keyed on
   `path+offset+limit`) and repeated search-output deltas. Lossless, low risk, lifts the
   savings floor on non-repeat-read sessions.
   Detail: `docs/todo/t250-codex-ranged-read-and-search-savings.md`
-- [ ] **T251** Codex savings stability + cross-turn resolution robustness — persist the
+- [~] **T251** Codex savings stability + cross-turn resolution robustness — persist the
   socket-local toolUse resolution map (content-free, bounded, TTL) so reconnects do not go
   cold, in-memory readcache with async flush (remove per-read disk I/O latency),
   content-addressed archive IDs (collision fix), recency-adaptive aggressiveness,
-  prompt-cache-aware mutation, bounded state. Protects and multiplies existing savings.
+  prompt-cache-aware mutation, bounded state. Tool-use persistence, archive-id collision
+  hardening, and bounded readcache state are implemented; in-memory async flush and
+  recency policy remain open. Protects and multiplies existing savings.
   Detail: `docs/todo/t251-codex-savings-stability-and-resolution.md`
-- [ ] **T252** Codex savings precision + filter/marker tweaks — quick wins: use
+- [~] **T252** Codex savings precision + filter/marker tweaks — quick wins: use
   `o200k_base` for Codex token guards (currently `cl100k_base`), fix the `delta.go`
   doubled-newline, make filter caps token-budget-aware + error-priority, add Tier-1
   parsers (eslint-json/tsc/kubectl-json/cargo-metadata/terraform-show-json), compact
-  stderr, structured marker notation.
+  stderr, structured marker notation. o200k, delta newline, log/lint error-priority,
+  and eslint-json are implemented; remaining parsers/search+terraform caps/stderr stay open.
   Detail: `docs/todo/t252-codex-savings-precision-and-filter-tweaks.md`
 - [ ] **T253** Codex aggressive read compression (GATED by T249) — first-read AST/structure
   scan-mode compression (extends `codecompact`), predictive post-edit file state from the
@@ -1539,11 +1547,12 @@ only and promotes the per-process Codex CLI runner for T209.
   it. Generalizes read-delta/dedup/search-delta into one differential transport; savings
   grow with session length.
   Detail: `docs/todo/t254-codex-server-state-mirror.md`
-- [ ] **T255** Codex content-defined chunk dedup (radical, TASK-SPLIT candidate, gated by
+- [~] **T255** Codex content-defined chunk dedup (radical, TASK-SPLIT candidate, gated by
   T249) — FastCDC rolling-hash chunking + session-scoped content-addressed chunk store to
   deduplicate PARTIAL overlap (file after small edit, similar files, shared-line logs)
   that whole-output dedup misses. rsync-for-LLM-context; references recoverable via the
-  T249 contract.
+  T249 contract. Chunker + safety-hardened session store are implemented as primitives;
+  WSS wiring, decode/reinject, TTL/LRU, and A/B proof remain open.
   Detail: `docs/todo/t255-codex-content-defined-chunk-dedup.md`
 
 ### Codex savings v2 — full 24-item index + what the % mean (T249-T255)
@@ -1560,7 +1569,7 @@ criteria; this index is the traceability map so nothing is lost.
 | # | Item | Rough % | Type | Task | Status |
 |---|------|---------|------|------|--------|
 | 1 | Server-state-mirror / general differential transport | 15-40% on long sessions | Enabler + biggest lever | T254 | queued (gated by T249) |
-| 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255 | queued (gated by T249) |
+| 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255 | PARTIAL (chunker+store core landed; WSS/recovery gated) |
 | 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (gated by T249) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
 | 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | queued (gated by T249) |
@@ -1569,18 +1578,18 @@ criteria; this index is the traceability map so nothing is lost.
 | 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (verify-gated) |
 | 9 | apply_patch context dedup | 3-10% | Lossless-ish | T253 | queued (gated by T249) |
 | 10 | Resolvable-archive contract | enabler | Enabler | T249 | queued |
-| 11 | Comprehension A/B harness | enabler | Enabler | T249 | queued |
+| 11 | Comprehension A/B harness | enabler | Enabler | T249 | PARTIAL (core engine landed; replay/CI pending) |
 | 12 | Recency-adaptive aggressiveness | +5-10% and drawdown down | Double positive | T251 | queued |
 | 13 | Re-read-after-collapse auto-restore | drawdown down | Drawdown fix | T249 | queued |
-| 14 | o200k tokenizer for Codex (not cl100k) | +2-5% precision, all layers | Precision | T252 | queued |
-| 15 | toolUse-map disk persistence | multiplier (2-5x hit-rate) | Multiplier | T251 | queued (gated by T249 measure) |
+| 14 | o200k tokenizer for Codex (not cl100k) | +2-5% precision, all layers | Precision | T252 | DONE |
+| 15 | toolUse-map disk persistence | multiplier (2-5x hit-rate) | Multiplier | T251 | DONE (core; live efficacy still to measure) |
 | 16 | In-memory readcache + async flush | latency/stability | Stability | T251 | queued |
-| 17 | Content-addressed archive IDs (collision fix) | correctness/stability | Stability | T251 | queued |
-| 18 | Prompt-cache-aware mutation policy | avoids net-negative billing | Stability | T251 | queued |
-| 19 | Bounded session state (TTL/LRU) | stability | Stability | T251 | queued |
-| 20 | doubled-newline fix in delta.go | +1-2% changed-reads | Quick win | T252 | queued |
-| 21 | Filter caps token-aware + error-priority | +1-3% | Quick win + drawdown | T252 | queued |
-| 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | queued |
+| 17 | Content-addressed archive IDs (collision fix) | correctness/stability | Stability | T251 | DONE (collision/idempotence fix; global content-only dedup not built) |
+| 18 | Prompt-cache-aware mutation policy | avoids net-negative billing | Stability | T251 | verified safe-by-construction |
+| 19 | Bounded session state (TTL/LRU) | stability | Stability | T251 | DONE for readcache/tooluse state |
+| 20 | doubled-newline fix in delta.go | +1-2% changed-reads | Quick win | T252 | DONE |
+| 21 | Filter caps token-aware + error-priority | +1-3% | Quick win + drawdown | T252 | PARTIAL (log+lint done; search/terraform open) |
+| 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | PARTIAL (eslint-json done; rest queued) |
 | 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | queued |
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | queued |
 

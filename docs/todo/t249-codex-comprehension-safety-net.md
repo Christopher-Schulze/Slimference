@@ -1,6 +1,6 @@
 # TASK 249: Codex comprehension safety net (A/B harness, recoverable archive, re-read auto-restore)
 
-Status: [ ] QUEUED - foundation gate for all aggressive savings work (t253/t254/t255)
+Status: [~] PARTIAL - core comparison engine landed; replay/recovery wiring remains open
 Priority: P1 - must land before any aggressive/lossy savings layer is default-on
 Scope: Codex-only WSS Phase-F. Build the measurement + recovery substrate that lets
 aggressive compression be enabled with data instead of hope. No new savings by
@@ -54,7 +54,7 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
 
 ## Sub-Tasks
 
-- [ ] Build comprehension A/B replay harness (scripts/ + internal test fixtures).
+- [~] Build comprehension A/B replay harness (scripts/ + internal test fixtures).
       Replay multi-turn Codex traffic compressed vs direct; diff model-facing context;
       report info-loss. Non-gating CI report first.
 - [ ] Once-per-session neutral archive-recovery note injection on the WSS request path;
@@ -70,6 +70,9 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
 
 - % impact: enabler (no direct savings). Unlocks t253/t254/t255 to be enabled safely;
   without it they must stay shadow/default-off.
+- 2026-05-30: core comparison engine landed in `internal/abharness`: it now detects
+  shortenings, same-length content changes, missing blocks, and extra model-facing
+  blocks. Replay fixtures, reducer replay wiring, and CI report mode are still open.
 - Risk: the recovery note is itself a prompt mutation - keep it minimal, neutral,
   flagged, and validate it against the A/B harness before any default-on.
 - Dependencies: none. This is the first task in the v2 arc. t253/t254/t255 depend on it.

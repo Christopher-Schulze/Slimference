@@ -74,6 +74,23 @@ func TestStore_Reset(t *testing.T) {
 	}
 }
 
+func TestStore_NoArchiveDoesNotEmitUnrecoverableRefs(t *testing.T) {
+	t.Parallel()
+	store := NewStore(Config{}, nil)
+	data := genBytes(64*1024, 31)
+	store.Encode("s", data)
+	enc, saved := store.Encode("s", data)
+	if saved != 0 {
+		t.Fatalf("without archive, repeated content must not be deduped: saved=%d", saved)
+	}
+	if !bytes.Equal(enc, data) {
+		t.Fatalf("without archive, repeated content must pass through verbatim")
+	}
+	if bytes.Contains(enc, []byte("[unchanged region: ]")) {
+		t.Fatal("must never emit an empty unrecoverable reference")
+	}
+}
+
 func TestStore_SessionsIndependent(t *testing.T) {
 	t.Parallel()
 	store := NewStore(Config{}, archiveFake(nil))

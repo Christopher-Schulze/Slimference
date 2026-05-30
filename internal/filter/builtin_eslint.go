@@ -11,12 +11,18 @@ import (
 func isEslintJSONArgv(argv []string) bool {
 	hasEslint := false
 	for _, a := range argv {
-		base := a
-		if i := strings.LastIndexByte(base, '/'); i >= 0 {
+		base := strings.ToLower(a)
+		if i := strings.LastIndexAny(base, `/\`); i >= 0 {
 			base = base[i+1:]
 		}
-		if base == "eslint" || base == "eslint.js" || strings.HasSuffix(base, "-eslint") {
+		switch {
+		case base == "eslint", base == "eslint.js", base == "eslint.cmd", base == "eslint.exe":
 			hasEslint = true
+		case strings.HasSuffix(base, "-eslint"), strings.HasSuffix(base, "-eslint.js"),
+			strings.HasSuffix(base, "-eslint.cmd"), strings.HasSuffix(base, "-eslint.exe"):
+			hasEslint = true
+		}
+		if hasEslint {
 			break
 		}
 	}
