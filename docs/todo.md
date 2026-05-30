@@ -1502,11 +1502,11 @@ only and promotes the per-process Codex CLI runner for T209.
   T249-T255 slice adds Codex o200k token guards, content-derived archive IDs,
   bounded readcache session files, error-priority log/lint/search/terraform
   truncation, an eslint-json Tier-1 parser, FastCDC chunking primitives, a
-  bounded TTL/LRU session chunk-dedup store with default-off WSS Layer-0 wiring,
+  bounded TTL/LRU session chunk-dedup store with auto-policy WSS Layer-0 wiring,
   neutral chunk references, WSS route attribution, WSS reconnect tool-use
   persistence, the core offline comprehension A/B comparison engine, WSS Phase-F
   reducer replay into that
-  A/B engine, default-off archive recovery note injection, WSS
+  A/B engine, conditional archive recovery note injection, WSS
   re-read-after-collapse auto-restore, ranged read-delta, repeated search-output
   delta, prompt-cache prefix byte-equal guard tests, and split billable-input vs
   output-wire savings accounting. Remaining work: future capture-driven tool
@@ -1565,11 +1565,18 @@ only and promotes the per-process Codex CLI runner for T209.
   T249) — FastCDC rolling-hash chunking + session-scoped content-addressed chunk store to
   deduplicate PARTIAL overlap (file after small edit, similar files, shared-line logs)
   that whole-output dedup misses. rsync-for-LLM-context; references recoverable via the
-  T249 contract. Chunker, bounded TTL/LRU store, neutral encode/decode, default-off
-  WSS Layer-0 wiring with route attribution, replay proof switches, Codex exec-envelope
-  payload chunking, and live captured-frame A/B proof are implemented. Default remains
-  off until a separate product decision promotes it.
+  T249 contract. Chunker, bounded TTL/LRU store, neutral encode/decode,
+  auto-policy WSS Layer-0 wiring with route attribution, replay proof switches,
+  Codex exec-envelope payload chunking, and live captured-frame A/B proof are
+  implemented.
   Detail: `docs/todo/t255-codex-content-defined-chunk-dedup.md`
+- [x] **T256** Codex savings policy engine — central `auto` policy for Codex
+  reducers. Safe lossless reducers stay on; T255 chunk dedup is auto-eligible on
+  recoverable WSS tool-output workloads; recent edits and post-collapse re-reads
+  automatically full-pass; HTTP stays conservative until route-specific recovery
+  support exists. This turns "default" into a safety-brained autopilot
+  instead of a manual flag minefield.
+  Detail: `docs/todo/t256-codex-savings-policy-engine.md`
 
 ### Codex savings v2 — full 24-item index + what the % mean (T249-T255)
 
@@ -1585,7 +1592,7 @@ criteria; this index is the traceability map so nothing is lost.
 | # | Item | Rough % | Type | Task | Status |
 |---|------|---------|------|------|--------|
 | 1 | Server-state-mirror / general differential transport | 15-40% on long sessions | Enabler + biggest lever | T254 | queued (gated by T249) |
-| 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255 | DONE (default-off live-proven; default-on policy-gated) |
+| 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255/T256 | DONE (live-proven; auto-policy default) |
 | 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (gated by T249) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
 | 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | queued (gated by T249) |

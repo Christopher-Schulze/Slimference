@@ -327,28 +327,36 @@ savings to commands such as repeated `git status`, `rg`, build/test reports,
 partial file ranges, or custom deterministic tools without introducing semantic
 summaries.
 
-Codex content-defined chunk dedup is available as a proof-gated extension of the
+Codex content-defined chunk dedup is available as a policy-gated extension of the
 same Layer-0 reducer. A FastCDC-style chunker splits large tool outputs/file
 reads into content-addressed regions, and a bounded in-memory session store tracks
 only chunk identities, not raw payloads. When a later output shares chunks with
 content already sent to the model in the same session, the reducer can emit the
 novel bytes plus neutral `[context-chunk status=unchanged uri=local-archive://...]`
-references to archived chunks. The feature is default-off and only activates
-when both `codex_chunk_dedup_enabled=true` and `archive_recovery_note_enabled=true`
-are set, so references are recoverable and the model has the recovery contract.
+references to archived chunks. The product default is
+`codex_savings_policy_mode="auto"`: safe lossless reducers stay on, and chunk
+dedup becomes eligible only when archive recovery is available, the output is
+large enough, and no recency/context-risk signal asks for full text. The legacy
+`codex_chunk_dedup_enabled=true` toggle remains as an explicit override for
+conservative policy, not as the normal product path.
 The store is bounded by `codex_chunk_dedup_max_sessions`,
 `codex_chunk_dedup_max_chunks_per_session`, and
-`codex_chunk_dedup_ttl_seconds`; it fails open if archive recovery is unavailable
-or the token guard is not positive. WSS Phase-F and HTTP share the same reducer
-path, and `/admin/state` reports chunk-dedup hits globally plus under
-`proxy_layer0_routes.wss_phasef` / `.http`. Default-on promotion still requires a
-captured-frame A/B replay proving no comprehension regression.
+`codex_chunk_dedup_ttl_seconds`; the default min block size is 4096 bytes so
+auto mode catches Codex's observed ~8 KiB truncated exec-output envelope. It
+fails open if archive recovery is unavailable or the token guard is not positive.
+WSS Phase-F and HTTP share the same reducer primitives, but only WSS can
+currently emit chunk/archive references because it also injects the recovery note
+automatically when a reference is actually emitted. HTTP stays conservative and
+does not emit chunk/archive references until that route has its own proven
+recovery-note wiring. `/admin/state` reports chunk-dedup hits globally plus
+under `proxy_layer0_routes.wss_phasef` / `.http`.
 The 2026-05-30 T255 live proof used scoped Codex WSS frames with
 `--codex-chunk-dedup --chunk-dedup-min-bytes=0 --fail-on-lost`: replay saved
 7757 model-facing bytes with `gate_passed=true`, and live counters reported
 1707 billable input tokens saved plus one global and WSS-route chunk-dedup hit
-with zero parse, degraded-session, or compression errors. The feature remains default-off because it is a stronger
-compression policy, not because the route is unproven.
+with zero parse, degraded-session, or compression errors. The follow-up T256
+policy engine makes that proof usable by default through auto mode instead of
+requiring operators to decide when a raw feature flag is safe.
 
 Model-facing readcache replacements use neutral `[context-* ...]` markers and
 preserve the `local-archive://<id>` pattern without naming Slimference inside
@@ -361,6 +369,11 @@ When enabled, it tells the model that `local-archive://<id>` may be requested if
 full elided content is needed. `read_delta_recent_full_pass_turns` is also
 default-off (`0`): operators can raise it after A/B proof to keep immediate
 cross-turn re-reads full when recency matters more than dedup savings.
+The auto policy adds a stronger runtime guard: after a collapsed key is
+deliberately re-read, that key full-passes for the rest of the socket/session so
+recency beats further savings. Recently edited reads also full-pass. These are
+not manual toggles; they are the central policy's response to model-attention
+signals.
 
 `go run ./scripts/utils workday-savings start|finish` is the real-workday
 measurement ceremony. `start` captures a baseline from `/admin/state` (and
@@ -397,17 +410,19 @@ replays decompressed Codex WSS frames through the real Phase-F reducer, extracts
 the direct and compressed model-facing request context, and feeds both into
 `internal/abharness.Compare`. The CI-covered fixture proves repeat-read
 read-delta is recoverable because the first full read was already sent, and that
-the default-off archive recovery note is visibly audited as an extra
-model-facing context change.
+the recovery note is visibly audited as an expected extra model-facing context
+change when a recoverable-reference mechanism needs it.
 `go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]`
-is the operator-facing report wrapper. `--codex-chunk-dedup` enables the
-default-off T255 chunk-dedup path for replay, implies the recovery note, and
-separates the expected once-per-session recovery-note extra block from true
-loss-gate failures. Its JSONL input is content-bearing by definition, so it
-belongs in local/private captures only; it does not read auth headers or
-WebSocket upgrade metadata. Each replay uses an isolated temporary home
-directory so disk-backed readcache/tooluse/archive state from prior live sessions
-cannot skew the A/B result.
+is the operator-facing report wrapper. With default config it runs the same
+`auto` policy as the product path, including T255 when the capture presents a
+safe recoverable candidate. `--codex-chunk-dedup` remains a force flag for
+threshold experiments; it implies the recovery note and separates the expected
+once-per-session recovery-note extra block from true loss-gate failures. Its
+JSONL input is content-bearing by definition, so it belongs in local/private
+captures only; it does not read auth headers or WebSocket upgrade metadata. Each
+replay uses an isolated temporary home directory so disk-backed
+readcache/tooluse/archive state from prior live sessions cannot skew the A/B
+result.
 Set `SLIMFERENCE_WSS_AB_CAPTURE=/private/path/frames.jsonl` on the Slimference
 daemon process to append those replay frames during a scoped Codex WSS session.
 The capture hook records only decompressed JSON frame payloads and direction,

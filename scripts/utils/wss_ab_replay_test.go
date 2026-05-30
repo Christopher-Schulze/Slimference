@@ -182,6 +182,46 @@ func TestWSSABReplayReportChunkDedupProofGate(t *testing.T) {
 	}
 }
 
+func TestWSSABReplayAutoPolicySeparatesRecoveryNoteExtra(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	path := filepath.Join(dir, "frames.jsonl")
+	shared := strings.Repeat("auto policy replay shared chunk line\n", 3000)
+	writeJSONLFile(t, path,
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   "read-a",
+				"name":      "read_file",
+				"arguments": `{"path":"src/a.md"}`,
+			},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-a", "ab-auto-session", "resp-a", shared+"tail a\n")),
+		wssABReplayTestRecord("server_to_client", map[string]any{
+			"type": "response.output_item.done",
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   "read-b",
+				"name":      "read_file",
+				"arguments": `{"path":"src/b.md"}`,
+			},
+		}),
+		wssABReplayTestRecord("client_to_server", wssABReplayTestOutputBody("read-b", "ab-auto-session", "resp-b", shared+"tail b\n")),
+	)
+
+	report, err := loadWSSABReplayReport(wssABReplayFlags{
+		path:       path,
+		failOnLost: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed || report.ExpectedExtras != 1 || report.BytesSaved <= 0 {
+		t.Fatalf("auto policy replay should pass while separating the recovery note: %+v", report)
+	}
+}
+
 func TestParseWSSABReplayFrameLine(t *testing.T) {
 	frame, err := parseWSSABReplayFrameLine([]byte(`{"dir":"c2s","payload":"{\"type\":\"request\",\"input\":[]}"}`))
 	if err != nil {

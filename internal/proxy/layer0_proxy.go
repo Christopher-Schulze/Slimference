@@ -10,6 +10,7 @@ import (
 	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/readcache"
+	"github.com/slimference/slimference/internal/savingspolicy"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/types"
@@ -42,8 +43,11 @@ type codexLayer0Request struct {
 	SuppressedToolKey   map[string]struct{}
 	RecentFullPassTurns int
 	ChunkDedupEnabled   bool
+	ExplicitChunkDedup  bool
 	ChunkDedupMinBytes  int
 	ChunkStore          *chunkdedup.Store
+	PolicyMode          string
+	ArchiveRecovery     bool
 }
 
 type codexLayer0Result struct {
@@ -104,15 +108,27 @@ func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, se
 	return result.Messages, result.Stats
 }
 
-func (p *Proxy) codexChunkDedupSettings() (*chunkdedup.Store, bool, int) {
+func (p *Proxy) codexChunkDedupSettings() (*chunkdedup.Store, bool, int, bool, string, bool) {
 	if p == nil || p.config == nil || p.codexChunkDedup == nil {
-		return nil, false, 0
+		return nil, false, 0, false, "", false
 	}
 	or := p.config.Compression.OutputReduce
-	if !or.CodexChunkDedupEnabled || !or.ArchiveRecoveryNoteEnabled {
-		return nil, false, 0
+	mode := or.CodexSavingsPolicyMode
+	policyMode := savingspolicy.NormalizeCodexMode(mode)
+	archiveRecovery := or.ArchiveRecoveryNoteEnabled || policyMode == savingspolicy.CodexModeAuto || policyMode == savingspolicy.CodexModeMax
+	if !archiveRecovery {
+		return nil, false, 0, or.CodexChunkDedupEnabled, mode, false
 	}
-	return p.codexChunkDedup, true, or.CodexChunkDedupMinBytes
+	chunkAvailable := or.CodexChunkDedupEnabled || policyMode == savingspolicy.CodexModeAuto || policyMode == savingspolicy.CodexModeMax
+	if !chunkAvailable {
+		return nil, false, 0, or.CodexChunkDedupEnabled, mode, archiveRecovery
+	}
+	return p.codexChunkDedup, true, or.CodexChunkDedupMinBytes, or.CodexChunkDedupEnabled, mode, archiveRecovery
+}
+
+func (p *Proxy) codexHTTPChunkDedupSettings() (*chunkdedup.Store, bool, int, bool, string, bool) {
+	_, _, minBytes, _, mode, _ := p.codexChunkDedupSettings()
+	return nil, false, minBytes, false, mode, false
 }
 
 func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
@@ -145,23 +161,37 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			stats.CommandResolvedBlocks++
 			toolKey := proxyLayer0QualityToolKey(commandLine)
-			if _, suppressed := req.SuppressedToolKey[toolKey]; suppressed && toolKey != "" {
-				continue
-			}
 			beforeTokens := tok.CountString(block.Text)
 			readCtx := proxyReadFileContext(req.SessionID, commandLine)
-			readDeltaAttempted := readDeltaEligible(req.SessionID, commandLine)
+			readCommand := readRequestFromCommandLine(commandLine).FilePath != ""
+			_, postCollapseReRead := req.SuppressedToolKey[toolKey]
+			policy := savingspolicy.DecideCodexToolOutput(savingspolicy.CodexToolOutputInput{
+				Mode:                     req.PolicyMode,
+				ArchiveRecoveryAvailable: req.ArchiveRecovery && req.ChunkDedupEnabled && req.ChunkStore != nil,
+				ExplicitChunkDedup:       req.ExplicitChunkDedup,
+				OutputBytes:              len(block.Text),
+				ChunkMinBytes:            req.ChunkDedupMinBytes,
+				IsRead:                   readCommand,
+				RecentlyEdited:           readCtx.RecentlyEdited,
+				PostCollapseReRead:       postCollapseReRead && toolKey != "",
+			})
+			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {
+				continue
+			}
+			readDeltaAttempted := policy.ReadDelta && readDeltaEligible(req.SessionID, commandLine)
 			if readDeltaAttempted {
 				stats.ReadDeltaAttempts++
 			}
-			readCommand := readRequestFromCommandLine(commandLine).FilePath != ""
-			afterText, changed := compactProxyReadDelta(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
+			afterText, changed := "", false
 			mechanism := proxyLayer0MechanismReadDelta
-			if readDeltaAttempted && !changed {
-				stats.ReadDeltaMisses++
+			if policy.ReadDelta {
+				afterText, changed = compactProxyReadDelta(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
+				if readDeltaAttempted && !changed {
+					stats.ReadDeltaMisses++
+				}
 			}
 			if readCommand && !changed {
-				if req.ChunkDedupEnabled && !readCtx.RecentlyEdited {
+				if policy.ChunkDedup {
 					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
 				}
 				if !changed {
@@ -177,14 +207,14 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateText = afterText
 				candidateEligible = tok.CountString(candidateText) < beforeTokens
 			}
-			if !readCommand && candidateEligible {
+			if !readCommand && candidateEligible && policy.RepeatedOutput {
 				if repeatedText, repeated := compactProxyRepeatedToolOutput(req.SessionID, commandLine, candidateText); repeated {
 					afterText = repeatedText
 					changed = true
 					mechanism = proxyLayer0MechanismRepeatedOut
 				}
 			}
-			if !changed && req.ChunkDedupEnabled {
+			if !changed && policy.ChunkDedup {
 				afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes)
 			}
 			if !changed {

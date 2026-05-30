@@ -339,14 +339,17 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// history through the proxied Responses request, run the same
 	// deterministic captured-output filters here.
 	if p.isProviderEnabled(provider) && pipelineMode == PipelineFull && layer0Action != planner.ActionBypass {
-		chunkStore, chunkEnabled, chunkMinBytes := p.codexChunkDedupSettings()
+		chunkStore, chunkEnabled, chunkMinBytes, explicitChunk, policyMode, archiveRecovery := p.codexHTTPChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:              codexLayer0RouteHTTP,
 			Messages:           compressedMessages,
 			SessionID:          sessionID,
 			ChunkDedupEnabled:  chunkEnabled,
+			ExplicitChunkDedup: explicitChunk,
 			ChunkDedupMinBytes: chunkMinBytes,
 			ChunkStore:         chunkStore,
+			PolicyMode:         policyMode,
+			ArchiveRecovery:    archiveRecovery,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		p.outputReduceCounters.RecordProxyLayer0Stats(stats)

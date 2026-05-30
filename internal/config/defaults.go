@@ -120,8 +120,9 @@ func defaultsRaw() *Config {
 				ObsoleteReadPruneEnabled:           true,
 				BeTerseHintEnabled:                 false,
 				ArchiveRecoveryNoteEnabled:         false,
+				CodexSavingsPolicyMode:             "auto",
 				CodexChunkDedupEnabled:             false,
-				CodexChunkDedupMinBytes:            8192,
+				CodexChunkDedupMinBytes:            4096,
 				CodexChunkDedupMaxSessions:         256,
 				CodexChunkDedupMaxChunksPerSession: 8192,
 				CodexChunkDedupTTLSeconds:          4 * 60 * 60,
@@ -293,10 +294,15 @@ archive_recovery_note_text = ""
 # Default 0 keeps maximum-savings behavior. Raise only after A/B proof if
 # immediate cross-turn re-read recency matters more than the repeated-read saving.
 read_delta_recent_full_pass_turns = 0
-# T255 content-defined chunk dedup. Default off until the A/B harness certifies
-# no comprehension regression and archive recovery is enabled.
+# Central Codex savings autopilot: off, conservative, auto, or max. "auto"
+# enables aggressive recoverable reducers only when their safety prerequisites
+# are present and loosens automatically on recency/context-risk signals.
+codex_savings_policy_mode = "auto"
+# T255 content-defined chunk dedup. This explicit toggle remains for operators
+# who want to force the mechanism under conservative policy; auto policy can
+# enable it without this field.
 codex_chunk_dedup_enabled = false
-codex_chunk_dedup_min_bytes = 8192
+codex_chunk_dedup_min_bytes = 4096
 codex_chunk_dedup_max_sessions = 256
 codex_chunk_dedup_max_chunks_per_session = 8192
 codex_chunk_dedup_ttl_seconds = 14400

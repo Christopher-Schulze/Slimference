@@ -3651,3 +3651,53 @@ Safety:
   its process environment.
 - Default-on promotion is a separate product decision; this entry proves the
   default-off implementation and measurement path.
+
+## 2026-05-30 - T256 Codex savings auto-policy
+
+Goal: remove the feature-flag minefield for aggressive Codex reducers without
+hard-enabling mechanisms that can hurt model attention, recency, or recovery.
+
+Changes:
+- Added `internal/savingspolicy`, a pure policy package that decides Codex
+  reducer eligibility from mode, recovery availability, output size, recent-edit
+  signal, and post-collapse re-read signal.
+- Added `[compression.output_reduce].codex_savings_policy_mode` with default
+  `auto` and env override `SLIMFERENCE_CODEX_SAVINGS_POLICY`. Valid modes:
+  `off`, `conservative`, `auto`, and `max`.
+- Lowered the default chunk-dedup minimum from 8192 to 4096 bytes so auto mode
+  catches Codex's observed ~8 KiB truncated exec-output envelope; the
+  token-decrease guard still blocks net-negative references.
+- Changed WSS Phase-F and HTTP Layer-0 wiring to pass through the central policy.
+  WSS auto mode can enable T255 chunk dedup when it can also make recovery
+  available; HTTP shares the safe primitives but does not emit chunk/archive
+  references until that route has its own proven recovery-note wiring.
+- Changed archive recovery-note injection from "global note if config is true"
+  to "explicit note if config is true, or automatic note when a chunk reference
+  was actually emitted". This keeps auto mode recoverable without adding prompt
+  noise to sessions that do not use archive references.
+- Kept `codex_chunk_dedup_enabled` as an explicit override for conservative
+  policy rather than the normal product path.
+
+Verification:
+- Added policy unit tests proving auto enables recoverable chunk dedup,
+  conservative keeps it opt-in, off disables policy-managed reducers, and
+  recency/context-risk signals loosen aggressive reducers.
+- Added WSS tests proving default auto mode chunk-dedups similar reads and
+  injects the recovery note only when needed, while conservative mode does not
+  auto-enable chunk dedup.
+- Added config/env validation coverage for the new policy mode.
+- Replayed the prior real T255 capture without `--codex-chunk-dedup`:
+  `wss-ab-replay /tmp/slimference-t255-chunk-telemetry-20260530T150436Z.jsonl --fail-on-lost --json`
+  now passes under default auto policy with `mutated_requests=1`,
+  `bytes_saved=7757`, `lost=1`, `expected_extras=1`, and
+  `gate_passed=true`.
+- `go test ./internal/savingspolicy ./internal/config ./internal/proxy` passed.
+- `go build ./... && go vet ./... && go test ./...` passed.
+- `go run ./scripts/ci` passed all 8 steps with 98.1% total statement coverage.
+
+Safety:
+- Lossless read-delta and exact repeated-output reducers stay on under auto.
+- Chunk dedup requires recoverability, positive token savings, and no active
+  recent-edit or post-collapse re-read signal.
+- Semantic summaries remain outside auto until the A/B harness proves
+  comprehension preservation.

@@ -1,6 +1,6 @@
 # TASK 255: Codex content-defined chunk dedup (FastCDC, rsync-for-LLM-context)
 
-Status: [x] DONE - default-off WSS chunk-dedup is live-proven; default-on remains policy-gated
+Status: [x] DONE - WSS chunk-dedup is live-proven and auto-policy gated
 Priority: P2 - innovative core for "maximal sparsam" on read/log-heavy sessions
 Scope: Codex-only WSS Phase-F. Deduplicate tool outputs and file reads at content-
 defined CHUNK granularity across the whole session.
@@ -57,16 +57,16 @@ which is not chunk-level and not on the WSS path. This is genuinely new infrastr
 - 2026-05-30: `internal/chunkdedup` now has a deterministic FastCDC-style chunker, a
   bounded TTL/LRU session chunk store, neutral `[context-chunk ...]` references, and
   decode support for replay tooling. The proxy wires a store into shared Codex Layer-0
-  and WSS Phase-F, but only when both `codex_chunk_dedup_enabled=true` and
-  `archive_recovery_note_enabled=true` are set. Default remains off. Tests prove partial
-  overlap savings for similar reads and WSS route attribution. Remaining gate: run the
-  t249 A/B harness on real captured chunk-dedup frames before any default-on promotion.
+  and WSS Phase-F. T256 now decides product activation centrally through
+  `codex_savings_policy_mode=auto`; explicit `codex_chunk_dedup_enabled=true`
+  remains as an override for conservative policy. Tests prove partial-overlap
+  savings for similar reads and WSS route attribution.
 - 2026-05-30: `wss-ab-replay` now has a `--codex-chunk-dedup` proof switch. It
-  enables the default-off chunk path in the isolated replay config, implies the
-  archive-recovery note, and separates the expected once-per-session recovery-note
-  extra block from true `--fail-on-lost` gate failures. Synthetic real-reducer replay
-  now proves partial-overlap chunk references save bytes with no unreferenced loss;
-  live captured Codex frames are still required before default-on.
+  can force the chunk path in the isolated replay config for threshold
+  experiments, implies the archive-recovery note, and separates the expected
+  once-per-session recovery-note extra block from true `--fail-on-lost` gate
+  failures. After T256, normal replay uses `codex_savings_policy_mode=auto` and
+  no longer needs the force flag to exercise safe T255 candidates.
 - 2026-05-30: live scoped Codex WSS proof passed on real captured frames after
   tuning chunk defaults for Codex's truncated exec-output envelope. A final
   telemetry rerun on `/tmp/slimference-t255-chunk-telemetry-20260530T150436Z.jsonl`
@@ -80,8 +80,12 @@ which is not chunk-level and not on the WSS path. This is genuinely new infrastr
   `proxy_layer0_routes.wss_phasef.chunk_dedup_blocks=1`,
   `compressed_messages_mutated=2`, `frames_reencoded=2`, and zero parse,
   degraded-session, or compression errors. The daemon was restarted normally
-  afterward with no experimental env flags active. Default remains off until a
-  separate product decision promotes it.
+  afterward with no experimental env flags active.
+- 2026-05-30: T256 replaced the "default-off forever" posture with a central
+  `auto` policy. T255 remains recovery- and signal-gated, but it is now
+  auto-eligible by default on WSS when the policy can also inject the recovery
+  note and no recency/context-risk signal is active. HTTP stays conservative
+  until route-specific recovery-note support exists.
 - Doctrine: content-free identity, fail-open, scoped; references always recoverable so
   no loss is permanent.
 

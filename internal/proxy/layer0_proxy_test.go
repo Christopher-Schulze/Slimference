@@ -344,6 +344,7 @@ func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
 		ChunkDedupEnabled:  true,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
+		ArchiveRecovery:    true,
 	})
 	if seed.Stats.TokensSaved != 0 || seed.Stats.ChunkDedupBlocks != 0 {
 		t.Fatalf("first partially-overlapped read should seed only: %+v", seed.Stats)
@@ -354,6 +355,7 @@ func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
 		ChunkDedupEnabled:  true,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
+		ArchiveRecovery:    true,
 	})
 	text := out.Messages[1].Content[0].Text
 	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
@@ -390,6 +392,7 @@ func TestReduceCodexLayer0ChunkDedupInsideCodexExecEnvelope(t *testing.T) {
 		ChunkDedupEnabled:  true,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
+		ArchiveRecovery:    true,
 	})
 	if seed.Stats.TokensSaved != 0 || seed.Stats.ChunkDedupBlocks != 0 {
 		t.Fatalf("first envelope should seed payload chunks only: %+v", seed.Stats)
@@ -400,6 +403,7 @@ func TestReduceCodexLayer0ChunkDedupInsideCodexExecEnvelope(t *testing.T) {
 		ChunkDedupEnabled:  true,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
+		ArchiveRecovery:    true,
 	})
 	text := out.Messages[1].Content[0].Text
 	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
@@ -437,6 +441,7 @@ func TestReduceCodexLayer0ChunkDedupCodexTruncatedEnvelope(t *testing.T) {
 		ChunkDedupEnabled:  true,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
+		ArchiveRecovery:    true,
 	})
 	out := reduceCodexLayer0(codexLayer0Request{
 		Messages:           second,
@@ -444,6 +449,7 @@ func TestReduceCodexLayer0ChunkDedupCodexTruncatedEnvelope(t *testing.T) {
 		ChunkDedupEnabled:  true,
 		ChunkDedupMinBytes: 0,
 		ChunkStore:         store,
+		ArchiveRecovery:    true,
 	})
 	text := out.Messages[1].Content[0].Text
 	if out.Stats.TokensSaved <= 0 || out.Stats.ChunkDedupBlocks != 1 ||
@@ -461,26 +467,43 @@ func TestReduceCodexLayer0ChunkDedupRequiresGateAndRecovery(t *testing.T) {
 		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "cmd", ToolName: "exec_command", ToolInput: `{"cmd":"python report.py"}`}}},
 		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "cmd", Text: body}}},
 	}
-	reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: true, ChunkDedupMinBytes: 0, ChunkStore: store})
-	out := reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: false, ChunkDedupMinBytes: 0, ChunkStore: store})
+	reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: true, ChunkDedupMinBytes: 0, ChunkStore: store, ArchiveRecovery: true})
+	out := reduceCodexLayer0(codexLayer0Request{Messages: msgs, SessionID: "sess-gate", ChunkDedupEnabled: false, ChunkDedupMinBytes: 0, ChunkStore: store, ArchiveRecovery: false})
 	if out.Stats.ChunkDedupBlocks != 0 || strings.Contains(out.Messages[1].Content[0].Text, "context-chunk") {
 		t.Fatalf("disabled chunk dedup must stay byte-equal: %+v", out.Stats)
 	}
 }
 
-func TestCodexChunkDedupSettingsRequireRecoveryNote(t *testing.T) {
+func TestCodexChunkDedupSettingsAutoPolicyEnablesRecoverableChunks(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
-	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = false
 	p := New(cfg)
-	if store, enabled, _ := p.codexChunkDedupSettings(); enabled || store != nil {
-		t.Fatalf("chunk dedup must stay disabled without recovery note, enabled=%v store=%v", enabled, store)
+	if store, enabled, minBytes, explicit, mode, archive := p.codexChunkDedupSettings(); !enabled || store == nil || explicit || mode != "auto" || !archive || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes {
+		t.Fatalf("auto policy should make recoverable chunk dedup available: enabled=%v store=%v min=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, explicit, mode, archive)
 	}
+	cfg.Compression.OutputReduce.CodexSavingsPolicyMode = "conservative"
+	p = New(cfg)
+	if store, enabled, _, _, _, archive := p.codexChunkDedupSettings(); enabled || store != nil || archive {
+		t.Fatalf("conservative policy without explicit recovery should not enable chunk dedup: enabled=%v store=%v archive=%v", enabled, store, archive)
+	}
+	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	p = New(cfg)
-	if store, enabled, minBytes := p.codexChunkDedupSettings(); !enabled || store == nil || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes {
-		t.Fatalf("chunk dedup settings not enabled with recovery note: enabled=%v store=%v min=%d", enabled, store, minBytes)
+	if store, enabled, minBytes, explicit, mode, archive := p.codexChunkDedupSettings(); !enabled || store == nil || !explicit || mode != "conservative" || !archive || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes {
+		t.Fatalf("explicit chunk dedup settings not enabled with recovery note: enabled=%v store=%v min=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, explicit, mode, archive)
+	}
+}
+
+func TestCodexHTTPChunkDedupSettingsStayConservative(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.CodexSavingsPolicyMode = "max"
+	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
+	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+	p := New(cfg)
+	if store, enabled, minBytes, explicit, mode, archive := p.codexHTTPChunkDedupSettings(); enabled || store != nil || explicit || archive || mode != "max" || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes {
+		t.Fatalf("http route must not emit chunk/archive refs without route recovery wiring: enabled=%v store=%v min=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, explicit, mode, archive)
 	}
 }
 

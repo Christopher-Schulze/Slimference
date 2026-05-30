@@ -164,7 +164,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 				}
 			}
 		}
-		chunkStore, chunkEnabled, chunkMinBytes := a.p.codexChunkDedupSettings()
+		chunkStore, chunkEnabled, chunkMinBytes, explicitChunk, policyMode, archiveRecovery := a.p.codexChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:               codexLayer0RouteWSSPhaseF,
 			Messages:            messages,
@@ -174,8 +174,11 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			SuppressedToolKey:   suppressedKeys,
 			RecentFullPassTurns: a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
 			ChunkDedupEnabled:   chunkEnabled,
+			ExplicitChunkDedup:  explicitChunk,
 			ChunkDedupMinBytes:  chunkMinBytes,
 			ChunkStore:          chunkStore,
+			PolicyMode:          policyMode,
+			ArchiveRecovery:     archiveRecovery,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
@@ -199,7 +202,8 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			a.p.outputReduceCounters.RecordStopSeqInjection(res.AddedCount)
 		}
 	}
-	if sessionID := wsCodexSessionID(out); a.p.reserveArchiveRecoveryNote(sessionID) {
+	archiveNoteEnabled := a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteEnabled || l0Stats.ChunkDedupBlocks > 0
+	if sessionID := wsCodexSessionID(out); a.p.reserveArchiveRecoveryNote(sessionID, archiveNoteEnabled) {
 		note := archiveRecoveryNoteText(a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteText)
 		if injected, res := beterse.Inject(types.CodexChatGPT, out, note); res.Applied {
 			out = injected
@@ -412,8 +416,11 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 
 func wssPlannerContentClasses(messages []types.Message, l0Stats proxyLayer0Stats) []string {
 	classes := append([]string{"websocket"}, plannerClassesFromMessages(messages)...)
-	if l0Stats.ReadDeltaBlocks > 0 || l0Stats.RepeatedOutputBlocks > 0 {
+	if l0Stats.ReadDeltaBlocks > 0 || l0Stats.RepeatedOutputBlocks > 0 || l0Stats.ChunkDedupBlocks > 0 {
 		classes = append(classes, "repeated_tool_output")
+	}
+	if l0Stats.ChunkDedupBlocks > 0 {
+		classes = append(classes, "chunk_dedup")
 	}
 	return classes
 }

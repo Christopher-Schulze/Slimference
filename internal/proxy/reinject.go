@@ -33,8 +33,8 @@ func archiveRecoveryNoteText(text string) string {
 	return text
 }
 
-func (p *Proxy) reserveArchiveRecoveryNote(sessionID string) bool {
-	if p == nil || p.config == nil || !p.config.Compression.OutputReduce.ArchiveRecoveryNoteEnabled {
+func (p *Proxy) reserveArchiveRecoveryNote(sessionID string, enabled bool) bool {
+	if p == nil || p.config == nil || !enabled {
 		return false
 	}
 	sessionID = sessions.SafeOptionalSessionID(sessionID)

@@ -396,6 +396,74 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	shared := strings.Repeat("auto policy shared region keeps model context recoverable\n", 1000)
+	body := func(path, callID, text string) []byte {
+		return mustMarshal(map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "auto-policy-chunk-session",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
+				{"type": "function_call_output", "call_id": callID, "output": text},
+			},
+			"stream": true,
+		})
+	}
+
+	first, _, changed, stats, _ := adapter.applyInputPipeline(body("a.go", "read-a", shared+"tail a\n"))
+	if changed || stats.ChunkDedupBlocks != 0 || strings.Contains(string(first), "local-archive://") {
+		t.Fatalf("first auto-policy read should seed only without recovery-note noise: changed=%v stats=%+v body=%s", changed, stats, first)
+	}
+	second, _, changed, stats, _ := adapter.applyInputPipeline(body("b.go", "read-b", shared+"tail b\n"))
+	if !changed || stats.ChunkDedupBlocks != 1 ||
+		!strings.Contains(string(second), "[context-chunk status=unchanged uri=local-archive://") ||
+		!strings.Contains(string(second), "If a tool result contains [context-archive") {
+		t.Fatalf("auto policy should enable recoverable chunk dedup and inject recovery note only when needed: changed=%v stats=%+v body=%s", changed, stats, second)
+	}
+}
+
+func TestWSPhaseFConservativePolicyKeepsChunkDedupOptIn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.CodexSavingsPolicyMode = "conservative"
+	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	shared := strings.Repeat("conservative policy shared region\n", 1000)
+	body := func(path, callID, text string) []byte {
+		return mustMarshal(map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "conservative-policy-chunk-session",
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
+				{"type": "function_call_output", "call_id": callID, "output": text},
+			},
+			"stream": true,
+		})
+	}
+
+	_, _, _, _, _ = adapter.applyInputPipeline(body("a.go", "read-a", shared+"tail a\n"))
+	second, _, changed, stats, _ := adapter.applyInputPipeline(body("b.go", "read-b", shared+"tail b\n"))
+	if changed || stats.ChunkDedupBlocks != 0 || strings.Contains(string(second), "context-chunk") {
+		t.Fatalf("conservative policy should not auto-enable chunk dedup: changed=%v stats=%+v body=%s", changed, stats, second)
+	}
+}
+
 func TestWSPhaseFPromptCachePrefixBlocksStayByteEqual(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

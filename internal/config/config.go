@@ -278,13 +278,19 @@ type OutputReduceConfig struct {
 	// turn IDs. Default 0 keeps current maximum-savings behavior until
 	// live A/B proof says the recency trade-off should be enabled.
 	ReadDeltaRecentFullPassTurns int `toml:"read_delta_recent_full_pass_turns"`
+	// CodexSavingsPolicyMode centralizes Codex WSS/HTTP reducer policy.
+	// auto enables aggressive recoverable reducers only when their safety
+	// prerequisites are present; conservative keeps only the low-risk
+	// lossless reducers unless a mechanism is explicitly enabled.
+	CodexSavingsPolicyMode string `toml:"codex_savings_policy_mode"`
 	// CodexChunkDedupEnabled gates T255 content-defined chunk dedup for
-	// Codex tool outputs/file reads. Default off until the A/B harness
-	// certifies no comprehension drawdown and archive recovery is enabled.
+	// Codex tool outputs/file reads. This is the legacy explicit override;
+	// the auto policy can enable chunk dedup without setting this field.
 	CodexChunkDedupEnabled bool `toml:"codex_chunk_dedup_enabled"`
 	// CodexChunkDedupMinBytes is the minimum model-facing tool output size
 	// eligible for chunk dedup. Smaller blocks are not worth reference
-	// overhead. Default 8192 bytes.
+	// overhead. Default 4096 bytes, below Codex's observed ~8 KiB
+	// truncated exec-output envelope.
 	CodexChunkDedupMinBytes int `toml:"codex_chunk_dedup_min_bytes"`
 	// CodexChunkDedupMaxSessions bounds the in-memory chunk identity store.
 	CodexChunkDedupMaxSessions int `toml:"codex_chunk_dedup_max_sessions"`
@@ -795,6 +801,9 @@ func applyEnvOverrides(cfg *Config) {
 	if n, ok := envIntOK("SLIMFERENCE_READ_DELTA_RECENT_FULL_PASS_TURNS"); ok && n >= 0 {
 		cfg.Compression.OutputReduce.ReadDeltaRecentFullPassTurns = n
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_SAVINGS_POLICY")); v != "" {
+		cfg.Compression.OutputReduce.CodexSavingsPolicyMode = v
+	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_CODEX_CHUNK_DEDUP")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.CodexChunkDedupEnabled = b
@@ -929,6 +938,9 @@ func validate(cfg *Config) error {
 	}
 	if or.ReadDeltaRecentFullPassTurns < 0 {
 		return fmt.Errorf("compression.output_reduce.read_delta_recent_full_pass_turns must be >= 0, got %d", or.ReadDeltaRecentFullPassTurns)
+	}
+	if mode := strings.TrimSpace(or.CodexSavingsPolicyMode); mode != "" && mode != "off" && mode != "conservative" && mode != "safe" && mode != "auto" && mode != "max" && mode != "aggressive" {
+		return fmt.Errorf("compression.output_reduce.codex_savings_policy_mode must be off/conservative/auto/max, got %q", or.CodexSavingsPolicyMode)
 	}
 	if or.CodexChunkDedupMinBytes < 0 {
 		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_min_bytes must be >= 0, got %d", or.CodexChunkDedupMinBytes)

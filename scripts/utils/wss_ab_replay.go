@@ -54,8 +54,9 @@ Flags:
   --allow-recovery-note-extra
                            Do not fail the gate for the expected once-per-session
                            recovery-note extra block
-  --codex-chunk-dedup       Enable default-off Codex content-defined chunk dedup
-                           during replay; implies --archive-recovery-note and
+  --codex-chunk-dedup       Force Codex content-defined chunk dedup during replay;
+                           useful for threshold experiments and implies
+                           --archive-recovery-note plus
                            --allow-recovery-note-extra
   --chunk-dedup-min-bytes N Set the replay chunk-dedup minimum input bytes
 
@@ -181,11 +182,12 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		report.Notes = append(report.Notes, "archive recovery note was enabled for this replay; treat extra model-facing blocks as expected audit findings, not a default-on proof")
 	}
 	if flags.codexChunkDedup {
-		report.Notes = append(report.Notes, "Codex chunk dedup was enabled for this replay; this is a proof-gated default-off path")
+		report.Notes = append(report.Notes, "Codex chunk dedup was forced for this replay; auto policy may also enable it without this flag")
 	}
 	report.ExpectedExtras = expectedRecoveryNoteExtras(report.Elisions)
 	gateLost := report.Lost
-	if flags.allowRecoveryNoteExtra {
+	allowExpectedExtras := flags.allowRecoveryNoteExtra || flags.codexChunkDedup || !flags.archiveRecoveryNote
+	if allowExpectedExtras {
 		gateLost -= report.ExpectedExtras
 		if gateLost < 0 {
 			gateLost = 0
@@ -222,6 +224,10 @@ func expectedRecoveryNoteExtras(elisions []abharness.Elision) int {
 			continue
 		}
 		if strings.Contains(elision.Preview, "local-archive://<id>") {
+			n++
+			continue
+		}
+		if strings.Contains(elision.Preview, "[context-chunk ") && strings.Contains(elision.Preview, "local-archive://") {
 			n++
 			continue
 		}
