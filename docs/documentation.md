@@ -374,6 +374,10 @@ the direct and compressed model-facing request context, and feeds both into
 read-delta is recoverable because the first full read was already sent, and that
 the default-off archive recovery note is visibly audited as an extra
 model-facing context change.
+`go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note]`
+is the operator-facing report wrapper. Its JSONL input is content-bearing by
+definition, so it belongs in local/private captures only; it does not read auth
+headers or WebSocket upgrade metadata.
 
 ---
 

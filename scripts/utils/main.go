@@ -9,6 +9,7 @@
 //	go run ./scripts/utils aggregate-savings [--admin-url=... | --admin-state-file=...] [--filter-db=...] [--json]
 //	go run ./scripts/utils workday-savings <start|finish> [--baseline-file=...] [--json]
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
+//	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
 package main
 
@@ -30,7 +31,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, wss-audit, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, wss-audit, wss-ab-replay, tls-probe")
 		os.Exit(1)
 	}
 
@@ -101,6 +102,8 @@ func main() {
 		os.Exit(runWorkdaySavings(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-audit":
 		os.Exit(runWSSAudit(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-ab-replay":
+		os.Exit(runWSSABReplay(os.Args[2:], os.Stdout, os.Stderr))
 	case "tls-probe":
 		os.Exit(runTLSProbe(os.Args[2:], os.Stdout, os.Stderr))
 	default:

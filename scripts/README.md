@@ -57,6 +57,8 @@ go run ./scripts/utils workday-savings finish --filter-db=~/.slimference/filter.
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session/re-read audit
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --expect-distinct-sessions=2 --min-phasef=2  # fresh session-key gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-savings  # fresh savings gate
+go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost # offline Phase-F comprehension A/B replay
+go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --json          # machine-readable A/B report
 go run ./scripts/utils tls-probe --profile=chromium_stable --json
 go run ./scripts/utils/indist_probe capture --label codex-native-direct --out research/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443
 go run ./scripts/utils/indist_probe diff research/indist/codex-native-direct.json research/indist/slimference-scoped-wss.json

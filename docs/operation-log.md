@@ -3373,6 +3373,9 @@ Changes:
   classified as recoverable because the first full read was already sent, and the
   default-off archive recovery note is audited as an extra model-facing context
   change when explicitly enabled.
+- Added `go run ./scripts/utils wss-ab-replay <frames.jsonl>`. It reads local
+  JSONL frame captures, prints text or JSON A/B reports, and can fail the run with
+  `--fail-on-lost` when compressed context loses model-facing information.
 
 Safety:
 - This is proof infrastructure only. It does not enable any new compression path
@@ -3380,3 +3383,5 @@ Safety:
 - The recovery-note fixture intentionally shows why the note must stay gated:
   even useful recovery instructions are real prompt mutations and need A/B proof
   before promotion.
+- Replay captures are content-bearing local artifacts. The tool consumes only
+  decompressed frame payloads, not auth headers or WebSocket upgrade metadata.

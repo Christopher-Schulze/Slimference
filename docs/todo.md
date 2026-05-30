@@ -1508,18 +1508,18 @@ only and promotes the per-process Codex CLI runner for T209.
   re-read-after-collapse auto-restore, ranged read-delta, repeated search-output
   delta, prompt-cache prefix byte-equal guard tests, and split billable-input vs
   output-wire savings accounting. Remaining work: future capture-driven tool
-  variants, measured L2/L3 upgrades, standalone A/B report mode, and broader real
-  workload measurements before T240.
+  variants, measured L2/L3 upgrades, real captured-session A/B replays, and broader
+  real workload measurements before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 - [~] **T249** Codex comprehension safety net — foundation gate for all aggressive
   savings work. Offline comprehension A/B harness (compressed vs direct, model-facing
   context diff), neutral once-per-session recoverable-archive note so `local-archive://`
   loss becomes recoverable, re-read-after-collapse auto-restore via the existing canary,
   and a documented socket-lifecycle measurement. Core comparison engine, WSS
-  reducer replay, default-off archive recovery note, and re-read-after-collapse
-  auto-restore are implemented; standalone report mode and live socket
-  measurement remain open. No direct savings; unlocks t253/t254/t255 to be
-  enabled with data instead of hope.
+  reducer replay, `wss-ab-replay` report CLI, default-off archive recovery note,
+  and re-read-after-collapse auto-restore are implemented; real captured-session
+  replay and live socket measurement remain open. No direct savings; unlocks
+  t253/t254/t255 to be enabled with data instead of hope.
   Detail: `docs/todo/t249-codex-comprehension-safety-net.md`
 - [x] **T250** Codex lossless cross-turn savings coverage — exact/position-aware
   savings now cover recognized ranged reads (`sed`/`head`/`tail`, keyed on
@@ -1588,7 +1588,7 @@ criteria; this index is the traceability map so nothing is lost.
 | 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (verify-gated) |
 | 9 | apply_patch context dedup | 3-10% | Lossless-ish | T253 | queued (gated by T249) |
 | 10 | Resolvable-archive contract | enabler | Enabler | T249 | PARTIAL (default-off recovery note landed; live A/B proof before default-on) |
-| 11 | Comprehension A/B harness | enabler | Enabler | T249 | PARTIAL (core engine + WSS reducer replay landed; report/live replay pending) |
+| 11 | Comprehension A/B harness | enabler | Enabler | T249 | PARTIAL (core engine + WSS reducer replay + report CLI landed; live replay pending) |
 | 12 | Recency-adaptive aggressiveness | +5-10% and drawdown down | Double positive | T251 | queued |
 | 13 | Re-read-after-collapse auto-restore | drawdown down | Drawdown fix | T249 | DONE |
 | 14 | o200k tokenizer for Codex (not cl100k) | +2-5% precision, all layers | Precision | T252 | DONE |
