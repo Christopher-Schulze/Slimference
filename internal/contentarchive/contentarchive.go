@@ -131,6 +131,14 @@ func Put(dir string, input Input, limits Limits) (*Entry, error) {
 	payloadPath := filepath.Join(entriesDir(dir), id+".txt.gz")
 	metaPath := filepath.Join(entriesDir(dir), id+".json")
 
+	// Content-addressed idempotency: identical content in the same session /
+	// sub-layer / position maps to the same id. If it is already archived,
+	// return the existing entry without re-compressing, re-writing, or
+	// double-counting stats.
+	if existing, err := loadEntry(dir, id); err == nil {
+		return existing, nil
+	}
+
 	payload, err := compressBytes(input.Original)
 	if err != nil {
 		return nil, err
@@ -364,14 +372,22 @@ func entriesDir(dir string) string {
 	return filepath.Join(dir, "entries")
 }
 
+// buildID derives a content-addressed identifier for an archived mutation.
+// The id is a pure function of the namespacing inputs plus the FULL original
+// content: no wall-clock timestamp and no 4096-byte prefix truncation. Two
+// distinct payloads therefore can never collide (the previous timestamp +
+// 4 KB-prefix scheme could silently overwrite a different large file sharing a
+// prefix within the same second), and identical content maps to the same id so
+// re-archiving is idempotent. 16 hash bytes make accidental collision
+// negligible.
 func buildID(input Input) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		input.SessionID,
 		input.SubLayer,
 		fmt.Sprintf("m%d:b%d", input.MessageIndex, input.BlockIndex),
-		trimForHash(input.Original),
+		input.Original,
 	}, "\x00")))
-	return time.Now().UTC().Format("20060102-150405") + "-" + hex.EncodeToString(sum[:6])
+	return hex.EncodeToString(sum[:16])
 }
 
 func previewText(input Input) string {
@@ -469,13 +485,6 @@ func sanitizeID(raw string) string {
 		}
 	}
 	return b.String()
-}
-
-func trimForHash(s string) string {
-	if len(s) <= 4096 {
-		return s
-	}
-	return s[:4096]
 }
 
 func defaultCompressBytes(s string) ([]byte, error) {

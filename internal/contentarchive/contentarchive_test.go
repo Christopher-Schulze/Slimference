@@ -726,14 +726,50 @@ func TestDefaultCompressBytes_CloseError(t *testing.T) {
 	}
 }
 
-func TestTrimForHash(t *testing.T) {
-
-	if got := trimForHash("short"); got != "short" {
-		t.Fatal("short unchanged")
+func TestBuildID_ContentAddressedAndCollisionFree(t *testing.T) {
+	// Two distinct large payloads that share a >4096-byte identical prefix must
+	// get DISTINCT ids. The old timestamp + 4 KB-prefix scheme hashed only the
+	// first 4096 bytes and could silently overwrite one with the other when both
+	// were archived within the same wall-clock second.
+	prefix := strings.Repeat("p", 5000)
+	a := Input{SessionID: "s", SubLayer: "x", Original: prefix + "AAA"}
+	b := Input{SessionID: "s", SubLayer: "x", Original: prefix + "BBB"}
+	if buildID(a) == buildID(b) {
+		t.Fatal("distinct payloads sharing a 4 KB prefix collided")
 	}
-	long := strings.Repeat("a", 5000)
-	if got := trimForHash(long); len(got) != 4096 {
-		t.Fatalf("expected 4096 cap, got %d", len(got))
+	// Identical input is deterministic (content-addressed, no wall-clock part).
+	if buildID(a) != buildID(a) {
+		t.Fatal("buildID is not deterministic")
+	}
+}
+
+func TestPut_IdempotentForIdenticalContent(t *testing.T) {
+	dir := t.TempDir()
+	in := Input{SessionID: "s", SubLayer: "readcache_proxy_delta", Original: strings.Repeat("hello world ", 32)}
+	first, err := Put(dir, in, Limits{})
+	if err != nil || first == nil {
+		t.Fatalf("first put: %v", err)
+	}
+	second, err := Put(dir, in, Limits{})
+	if err != nil || second == nil {
+		t.Fatalf("second put: %v", err)
+	}
+	if first.ID != second.ID {
+		t.Fatalf("identical content produced different ids: %q vs %q", first.ID, second.ID)
+	}
+	stats, err := LoadStats(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Archived != 1 {
+		t.Fatalf("idempotent re-put should archive once, got Archived=%d", stats.Archived)
+	}
+	items, err := List(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 stored entry after idempotent re-put, got %d", len(items))
 	}
 }
 
