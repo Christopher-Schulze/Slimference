@@ -17,18 +17,21 @@ import (
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/staleread"
 	"github.com/slimference/slimference/internal/tokens"
+	"github.com/slimference/slimference/internal/toolusecache"
 	"github.com/slimference/slimference/internal/types"
 )
 
 type wsPhaseFAdapter struct {
 	p *Proxy
 
-	mu            sync.Mutex
-	messages      []types.Message
-	repdetIndex   *repdet.Index
-	toolUses      map[string]types.ContentBlock
-	qualityCohort qualityab.Cohort
-	counters      wsPhaseFCounters
+	mu              sync.Mutex
+	messages        []types.Message
+	repdetIndex     *repdet.Index
+	toolUses        map[string]types.ContentBlock
+	sessionID       string
+	toolUseHydrated bool
+	qualityCohort   qualityab.Cohort
+	counters        wsPhaseFCounters
 }
 
 type wsPhaseFCounters struct {
@@ -132,6 +135,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 	reReadCount := 0
 	messages, _, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil && len(messages) > 0 {
+		a.hydrateToolUses(wsCodexSessionID(out))
 		rememberedToolUses := a.loadToolUses()
 		reReadCount = a.observeWSSQualityToolKeys(out, messages, rememberedToolUses)
 		a.observeWSSRecentEdits(out, messages, rememberedToolUses)
@@ -433,6 +437,7 @@ func (a *wsPhaseFAdapter) rememberToolUsesFromResponse(env *wsmitm.Envelope) {
 	if a == nil || env == nil {
 		return
 	}
+	defer a.persistToolUses()
 	a.rememberToolUseItem(env.Item)
 	if len(env.Response) == 0 {
 		return
@@ -471,6 +476,84 @@ func (a *wsPhaseFAdapter) rememberToolUseItem(raw json.RawMessage) {
 		a.toolUses[id] = use
 	}
 }
+
+func (a *wsPhaseFAdapter) toolUseCacheDir() string {
+	home, err := proxyUserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return toolusecache.DefaultDir(home)
+}
+
+// hydrateToolUses loads the persisted call_id -> command-metadata map for the
+// session once per adapter, so cross-turn read-delta resolution survives a WSS
+// socket reconnect. The in-memory toolUses map is per-socket and resets on
+// reconnect; without rehydration a later re-read would resolve to no command and
+// the read-delta saving would not fire.
+func (a *wsPhaseFAdapter) hydrateToolUses(sessionID string) {
+	if a == nil || sessionID == "" {
+		return
+	}
+	a.mu.Lock()
+	if a.toolUseHydrated && a.sessionID == sessionID {
+		a.mu.Unlock()
+		return
+	}
+	a.sessionID = sessionID
+	a.toolUseHydrated = true
+	a.mu.Unlock()
+
+	dir := a.toolUseCacheDir()
+	if dir == "" {
+		return
+	}
+	loaded, err := toolusecache.Load(dir, sessionID)
+	if err != nil || len(loaded) == 0 {
+		return
+	}
+	a.mu.Lock()
+	if a.toolUses == nil {
+		a.toolUses = make(map[string]types.ContentBlock, len(loaded))
+	}
+	for id, e := range loaded {
+		if _, exists := a.toolUses[id]; !exists {
+			a.toolUses[id] = types.ContentBlock{Type: e.Type, ToolUseID: e.ToolUseID, ToolName: e.ToolName, ToolInput: e.ToolInput}
+		}
+	}
+	a.mu.Unlock()
+}
+
+// persistToolUses writes the adapter's current call_id -> command-metadata map to
+// disk for the session. Content-free: only tool name + command arguments, never
+// tool output. Best-effort; a persistence error never affects the stream.
+func (a *wsPhaseFAdapter) persistToolUses() {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	sid := a.sessionID
+	add := make(map[string]toolusecache.Entry, len(a.toolUses))
+	for id, use := range a.toolUses {
+		add[id] = toolusecache.Entry{ToolUseID: use.ToolUseID, ToolName: use.ToolName, ToolInput: use.ToolInput, Type: use.Type}
+	}
+	a.mu.Unlock()
+	if sid == "" || len(add) == 0 {
+		return
+	}
+	dir := a.toolUseCacheDir()
+	if dir == "" {
+		return
+	}
+	_, _ = toolusecache.Merge(dir, sid, add)
+	// Opportunistically bound the cache directory (once every 64 writes) so it
+	// cannot grow without limit across many conversations.
+	if tooluseSaveCount.Add(1)%64 == 0 {
+		_, _ = toolusecache.Prune(dir, 0, 0)
+	}
+}
+
+// tooluseSaveCount gates the opportunistic toolusecache prune.
+var tooluseSaveCount atomic.Uint64
 
 func (a *wsPhaseFAdapter) applyRepdetDelta(env *wsmitm.Envelope) bool {
 	if !a.p.config.Compression.OutputReduce.RepetitionDetectionEnabled || !env.Kind.IsTextDelta() || env.Delta == "" {
