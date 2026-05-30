@@ -204,6 +204,24 @@ func TestTruncateLintViolations_compactNotShorter(t *testing.T) {
 	}
 }
 
+// TestTruncateLintViolations_KeepsErrorsOverWarnings proves error-severity rows
+// survive truncation even when they sit past the head budget behind warnings.
+func TestTruncateLintViolations_KeepsErrorsOverWarnings(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 65; i++ {
+		sb.WriteString("src/a.go:1:1: warning: unused import (govet)\n")
+	}
+	sb.WriteString("src/b.go:9:9: error: undefined: criticalSymbol (typecheck)\n")
+	out, ok := truncateLintViolations(sb.String(), "golangci-lint")
+	if !ok {
+		t.Fatalf("expected truncation")
+	}
+	if !strings.Contains(out, "undefined: criticalSymbol") {
+		t.Fatalf("error violation past head budget was dropped: %q", out[:min(len(out), 240)])
+	}
+}
+
 // TestExtractBuildErrors covers edge cases in extractBuildErrors.
 func TestExtractBuildErrors(t *testing.T) {
 	t.Parallel()

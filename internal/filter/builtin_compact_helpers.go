@@ -176,10 +176,43 @@ func truncateLintViolations(s, label string) (string, bool) {
 	if len(kept) <= maxLintLines {
 		return "", false
 	}
-	more := len(kept) - maxLintLines
-	out := strings.Join(kept[:maxLintLines], "\n") + fmt.Sprintf("\n... +%d more violation(s)\n", more)
+	out := truncateViolationsPreservingErrors(kept, maxLintLines)
 	if len(out) >= len(s) {
 		return "", false
 	}
 	return out, true
+}
+
+// truncateViolationsPreservingErrors keeps up to maxLines violations, prioritising
+// error-severity rows over warnings/notes (in original order) so a truncated lint
+// report never hides an error behind less important warnings. Remaining budget is
+// filled with head rows; the selection is emitted in original order.
+func truncateViolationsPreservingErrors(kept []string, maxLines int) string {
+	if len(kept) <= maxLines || maxLines <= 0 {
+		return strings.Join(kept, "\n")
+	}
+	selected := make(map[int]struct{}, maxLines)
+	for i, line := range kept {
+		if len(selected) >= maxLines {
+			break
+		}
+		if strings.Contains(strings.ToLower(line), "error") {
+			selected[i] = struct{}{}
+		}
+	}
+	for i := 0; i < len(kept) && len(selected) < maxLines; i++ {
+		selected[i] = struct{}{}
+	}
+	ordered := make([]string, 0, len(selected))
+	for i, line := range kept {
+		if _, ok := selected[i]; ok {
+			ordered = append(ordered, line)
+		}
+	}
+	dropped := len(kept) - len(ordered)
+	out := strings.Join(ordered, "\n")
+	if dropped > 0 {
+		out += fmt.Sprintf("\n... +%d more violation(s) (kept errors)\n", dropped)
+	}
+	return out
 }
