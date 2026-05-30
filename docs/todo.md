@@ -1545,21 +1545,22 @@ only and promotes the per-process Codex CLI runner for T209.
   doubled-newline, make filter caps token-budget-aware + error-priority, add Tier-1
   parsers (eslint-json/tsc/kubectl-json/cargo-metadata/terraform-show-json), compact
   stderr, structured marker notation. o200k, delta newline, log/lint/search/terraform
-  error-priority, full listed Tier-1 parser expansion, stderr compaction, structured
-  neutral markers, and billable-vs-output accounting split are implemented. Broader
-  parser-specific cap hardening remains open.
+  error-priority, gh/glab late attention-row preservation, full listed Tier-1 parser
+  expansion, stderr compaction, structured neutral markers, and billable-vs-output
+  accounting split are implemented. Broader parser-specific cap hardening remains open.
   Detail: `docs/todo/t252-codex-savings-precision-and-filter-tweaks.md`
-- [ ] **T253** Codex aggressive read compression (GATED by T249) — first-read AST/structure
+- [ ] **T253** Codex aggressive read compression (GATED by T257/T258) — first-read AST/structure
   scan-mode compression (extends `codecompact`), predictive post-edit file state from the
   parsed `apply_patch`, reasoning-trace compaction (verify-first), apply_patch context
-  dedup. High savings, highest drawdown; default-off until the T249 A/B harness proves no
-  comprehension regression and the recovery note is live.
+  dedup. High savings, highest drawdown; starts shadow-only and becomes auto-eligible
+  only after the T257 capture matrix and T258 policy gates prove no comprehension
+  regression, live recovery, and safe workload classification.
   Detail: `docs/todo/t253-codex-aggressive-read-compression.md`
-- [ ] **T254** Codex server-state mirror (radical, TASK-SPLIT candidate, gated by T249) —
+- [ ] **T254** Codex server-state mirror (radical, TASK-SPLIT candidate, gated by T257/T258) —
   maintain a precise mirror of server-side conversation state from forwarded bytes along
   the `previous_response_id` chain, and reduce every client frame to pure novelty against
-  it. Generalizes read-delta/dedup/search-delta into one differential transport; savings
-  grow with session length.
+  it. Generalizes read-delta/dedup/search-delta into one differential transport; design
+  first, shadow first, mutate only after no-false-elision proof.
   Detail: `docs/todo/t254-codex-server-state-mirror.md`
 - [x] **T255** Codex content-defined chunk dedup (radical, TASK-SPLIT candidate, gated by
   T249) — FastCDC rolling-hash chunking + session-scoped content-addressed chunk store to
@@ -1577,6 +1578,19 @@ only and promotes the per-process Codex CLI runner for T209.
   support exists. This turns "default" into a safety-brained autopilot
   instead of a manual flag minefield.
   Detail: `docs/todo/t256-codex-savings-policy-engine.md`
+- [ ] **T257** Codex real-workload proof matrix — collect and replay 10 real scoped
+  WSS captures across CLI/Desktop and the important workload classes, then run CLI and
+  Desktop workday windows. This is the breadth gate for "default-auto is safe", not a
+  new reducer.
+  Detail: `docs/todo/t257-codex-real-workload-proof-matrix.md`
+- [ ] **T258** Codex savings policy engine v2 — extend the T256 policy from mechanism
+  toggles into a full route/workload/risk/recovery/recency/proof autopilot. Aggressive
+  reducers become active only where T257 evidence proves they are drawdown-neutral.
+  Detail: `docs/todo/t258-codex-savings-policy-engine-v2.md`
+- [ ] **T259** Codex HTTP recovery and policy promotion — decide and prove whether the
+  HTTP fallback path gets its own recoverable archive-reference support or stays
+  permanently conservative. Prevents a hidden weaker semantics surface.
+  Detail: `docs/todo/t259-codex-http-recovery-and-policy-promotion.md`
 
 ### Codex savings v2 — full 24-item index + what the % mean (T249-T255)
 
@@ -1591,15 +1605,15 @@ criteria; this index is the traceability map so nothing is lost.
 
 | # | Item | Rough % | Type | Task | Status |
 |---|------|---------|------|------|--------|
-| 1 | Server-state-mirror / general differential transport | 15-40% on long sessions | Enabler + biggest lever | T254 | queued (gated by T249) |
+| 1 | Server-state-mirror / general differential transport | 15-40% on long sessions | Enabler + biggest lever | T254 | queued (design/shadow first; gated by T257/T258) |
 | 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255/T256 | DONE (live-proven; auto-policy default) |
-| 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (gated by T249) |
+| 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (capture/proof gated by T257/T258) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
-| 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | queued (gated by T249) |
+| 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | queued (shadow/proof gated by T257/T258) |
 | 6 | Ranged/partial read caching | 5-15% | Lossless | T250 | DONE |
 | 7 | Search-output delta | 3-8% | Lossless | T250 | DONE |
-| 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (verify-gated) |
-| 9 | apply_patch context dedup | 3-10% | Lossless-ish | T253 | queued (gated by T249) |
+| 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (capture-first; may close as N/A) |
+| 9 | apply_patch context dedup | 3-10% | Lossless-ish | T253 | queued (capture/proof gated by T257/T258) |
 | 10 | Resolvable-archive contract | enabler | Enabler | T249 | DONE (default-off recovery note landed; keep proof-gated before default-on) |
 | 11 | Comprehension A/B harness | enabler | Enabler | T249 | DONE (core engine + WSS reducer replay + capture/report CLI + live CLI and Desktop replay proofs landed) |
 | 12 | Recency-adaptive aggressiveness | +5-10% and drawdown down | Double positive | T251 | DONE (configurable, default 0 until A/B proof) |
@@ -1615,6 +1629,9 @@ criteria; this index is the traceability map so nothing is lost.
 | 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | DONE |
 | 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | DONE |
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | DONE |
+| 25 | Real workload capture/replay proof matrix | enabler | Proof + default-auto gate | T257 | queued |
+| 26 | Policy engine v2 route/workload/risk autopilot | enabler | Architecture + drawdown control | T258 | queued |
+| 27 | HTTP recovery/promotion decision | 0-10% fallback-dependent | Safety + optional savings | T259 | queued |
 
 Combined-leverage order: T249 first (safety net + recovery unlock the gated items),
 then T250 + T252 (lossless + quick wins, low risk), then T251 (stability/multiplier),

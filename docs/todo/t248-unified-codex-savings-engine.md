@@ -383,6 +383,19 @@ The product target is strict:
   all billable savings attributed to `proxy_layer0_routes.wss_phasef`.
   The scoped Desktop helper processes were terminated after the proof so
   Finder/Spotlight launches return to normal direct routing.
+- Open max-out plan after T256:
+  - T252 closes the remaining low-risk precision gap by auditing every
+    diagnostic cap in `internal/filter` and proving late diagnostics survive.
+  - T257 supplies the real workload proof matrix: 10 CLI/Desktop captures plus
+    workday windows, all replayed through the A/B gate before stronger claims.
+  - T258 makes the auto policy a full route/workload/risk/recovery/recency
+    autopilot instead of scattered mechanism checks.
+  - T253 adds high-upside first-read/predictive/patch/reasoning candidates only
+    in shadow/proof mode until T257/T258 promote them.
+  - T254 is design-first and shadow-first; it cannot mutate until no-false-elision
+    is proven against captured `previous_response_id` chains.
+  - T259 keeps HTTP honest: either prove route-specific archive recovery or keep
+    archive-reference mechanisms WSS-only.
 
 ## Deviations
 

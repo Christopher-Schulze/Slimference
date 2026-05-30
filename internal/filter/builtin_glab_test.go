@@ -99,6 +99,33 @@ func TestTryCompactGlabList_manyRows(t *testing.T) {
 	}
 }
 
+func TestTryCompactGlabList_attentionRowPastCapSurvives(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 25; i++ {
+		status := "success"
+		if i == 22 {
+			status = "failed"
+		}
+		sb.WriteString(fmt.Sprintf("pipeline-%02d  branch-%02d  %s  2024-01-01\n", i, i, status))
+	}
+	input := sb.String()
+	out, ok := TryCompactGlabList([]string{"glab", "pipeline", "list"}, []byte(input))
+	if !ok {
+		t.Fatalf("expected compact for 25 rows, got pass-through")
+	}
+	s := string(out)
+	if !strings.Contains(s, "attention row") || !strings.Contains(s, "pipeline-22") || !strings.Contains(s, "failed") {
+		t.Fatalf("late failed row was dropped: %q", s)
+	}
+	if strings.Contains(s, "pipeline-16") {
+		t.Fatalf("benign row past cap should not displace late failure: %q", s)
+	}
+	if len(s) >= len(input) {
+		t.Fatalf("compact should be shorter: %d vs %d", len(s), len(input))
+	}
+}
+
 // TestTryCompactGlabList_compactNotShorter covers the len(out) >= len(s) guard (line 52-54):
 // 16 very short rows where header + preview + suffix exceeds original.
 func TestTryCompactGlabList_compactNotShorter(t *testing.T) {

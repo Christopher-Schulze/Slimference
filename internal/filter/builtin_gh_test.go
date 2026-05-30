@@ -132,6 +132,33 @@ func TestTryCompactGhList_manyRows(t *testing.T) {
 	}
 }
 
+func TestTryCompactGhList_attentionRowPastCapSurvives(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 1; i <= 25; i++ {
+		state := "SUCCESS"
+		if i == 23 {
+			state = "FAILURE"
+		}
+		sb.WriteString(fmt.Sprintf("%d\tci run %d\t%s\t2024-01-01\n", i, i, state))
+	}
+	input := sb.String()
+	out, ok := TryCompactGhList([]string{"gh", "run", "list"}, []byte(input))
+	if !ok {
+		t.Fatalf("expected compact for 25 rows, got pass-through")
+	}
+	s := string(out)
+	if !strings.Contains(s, "attention row") || !strings.Contains(s, "ci run 23") || !strings.Contains(s, "FAILURE") {
+		t.Fatalf("late failed row was dropped: %q", s)
+	}
+	if strings.Contains(s, "ci run 16\tSUCCESS") {
+		t.Fatalf("benign row past cap should not displace late failure: %q", s)
+	}
+	if len(s) >= len(input) {
+		t.Fatalf("compact should be shorter: %d vs %d", len(s), len(input))
+	}
+}
+
 // TestTryCompactGhList_compactNotShorter covers the len(out) >= len(s) guard (line 55-57):
 // 16 very short one-char rows where header + preview + suffix exceeds original.
 func TestTryCompactGhList_compactNotShorter(t *testing.T) {

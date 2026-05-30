@@ -3701,3 +3701,34 @@ Safety:
   recent-edit or post-collapse re-read signal.
 - Semantic summaries remain outside auto until the A/B harness proves
   comprehension preservation.
+
+## 2026-05-30 - Codex max-savings execution plan + first T252 cap hardening
+
+Goal: turn the post-T256 "max savings without model/workflow drawdown" target
+into explicit tasks with proof gates, then immediately continue the lowest-risk
+open implementation slice.
+
+Planning changes:
+- Expanded T252 with a final parser-cap audit gate: every remaining
+  diagnostic cap in `internal/filter` must either preserve late attention rows
+  or have a tested safe-positional rationale.
+- Expanded T253 with target metrics and promotion gates for first-read
+  scan-mode, predictive post-edit state, apply_patch context dedup, and
+  reasoning compaction. All start shadow/proof-only.
+- Expanded T254 with a design-first/shadow-first server-state mirror plan,
+  no-false-elision requirements, overhead budget, and mutation gates.
+- Added T257 real-workload proof matrix: 10 real CLI/Desktop captures plus
+  workday windows before broad default-auto claims.
+- Added T258 policy engine v2: route/workload/risk/recovery/recency/proof
+  autopilot on top of T256.
+- Added T259 HTTP recovery and policy promotion: either prove route-specific
+  archive recovery or keep HTTP permanently conservative for archive refs.
+
+Implementation:
+- Hardened `gh ... list` and `glab ... list` compaction so late attention rows
+  (failed/cancelled/error/security/etc.) survive the 15-row preview cap.
+- Added regression tests with failed CI/pipeline rows beyond the old positional
+  cap.
+
+Verification:
+- `go test ./internal/filter` passed.

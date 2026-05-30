@@ -1,6 +1,6 @@
 # TASK 252: Codex savings precision + filter/marker tweaks (quick wins)
 
-Status: [~] PARTIAL - o200k, delta newline, log/lint/search/terraform priority, Tier-1 parser expansion, stderr compaction, structured markers, and accounting split landed
+Status: [~] ACTIVE - final parser-cap hardening and regression matrix remain
 Priority: P2 - small, low-risk, high-certainty improvements across all layers
 Scope: Codex-only. Token-accounting precision, delta formatting, filter cap quality,
 more Tier-1 parsers, stderr compaction, marker notation.
@@ -33,7 +33,9 @@ Several small, verified issues each cost a few percent or add drawdown:
   existing readcache + layer0_proxy delta tests stay green.
 - Filter caps are token-budget-aware and preferentially retain error/failure/match
   lines (reuse existing failure-detection helpers); tests place the needed line past
-  the old positional cap and prove it survives.
+  the old positional cap and prove it survives. PASS means every remaining built-in
+  parser that truncates output has either an attention-priority test or an explicit
+  "safe positional only" rationale in this file.
 - New Tier-1 parsers land for eslint-json, tsc, `kubectl -o json`, `cargo metadata`,
   `terraform show -json`, each keeping failures/values faithfully.
 - stderr is compacted on the CLI path.
@@ -45,8 +47,12 @@ Several small, verified issues each cost a few percent or add drawdown:
 - [x] Use `o200k_base` for Codex token counting in the WSS/Layer-0 guards.
 - [x] Fix `delta.go` doubled-newline (one newline per diff line); add a test asserting
       no `\n\n` inside a single-line-change delta.
-- [~] Make filter caps token-budget-aware + error/match-priority (search/lint/
-      terraform/log); tests.
+- [~] Make remaining parser caps token-budget-aware + error/match-priority.
+      Required audit surface: every `Max*`, `Limit*`, `first N`, `head`, `tail`,
+      `truncate`, and slice-bound cap in `internal/filter`. Each cap gets one of:
+      (a) priority-preserving implementation + failable late-error test, or
+      (b) documented safe-positional rationale with a test proving no diagnostic
+      content is dropped.
 - [x] Add Tier-1 parsers: eslint-json, tsc, `kubectl -o json`, `cargo metadata`,
       `terraform show -json`.
 - [x] Compact stderr on the CLI filter path.
@@ -70,6 +76,17 @@ Several small, verified issues each cost a few percent or add drawdown:
   benign positional caps. Search grouping now preserves both head and tail matches/files
   under cap pressure, and terraform output compaction keeps late diagnostic/error
   outputs before benign positional entries. Broader parser-specific caps remain open.
+- 2026-05-30: `gh ... list` and `glab ... list` previews now preserve late
+  attention rows (failed/cancelled/error/security/etc.) ahead of benign positional
+  rows. Regression tests put failed CI/pipeline rows past the old 15-row cap and
+  prove they survive.
+- Final PASS gates:
+  - `rg -n "truncate|limit|Limit|Max|first|head|tail|\\[:|cap" internal/filter`
+    reviewed with no unexplained diagnostic-dropping caps.
+  - Targeted tests cover late diagnostics for each priority cap family.
+  - `go test ./internal/filter ./cmd/slimference ./scripts/utils` green.
+  - Full `go build ./... && go vet ./... && go test ./... && go run ./scripts/ci`
+    green before closing the task.
 - 2026-05-30: eslint `--format json`, TypeScript diagnostics, `kubectl -o json`,
   `cargo metadata`, and `terraform show -json` are now Tier-1 parsers. They keep
   diagnostic/attention rows before benign summaries and fail open on unknown shapes.

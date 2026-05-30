@@ -45,10 +45,7 @@ func TryCompactGlabList(argv []string, stdout []byte) ([]byte, bool) {
 	if len(rows) <= glabListMaxRows {
 		return stdout, false
 	}
-	header := fmt.Sprintf("[glab %s list] %d items\n", sub, len(rows))
-	preview := strings.Join(rows[:glabListMaxRows], "\n")
-	more := len(rows) - glabListMaxRows
-	out := fmt.Sprintf("%s%s\n... +%d more\n", header, preview, more)
+	out := compactCLIListRows(fmt.Sprintf("glab %s list", sub), rows, glabListMaxRows)
 	if len(out) >= len(s) {
 		return stdout, false
 	}
