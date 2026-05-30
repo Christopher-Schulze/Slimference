@@ -377,7 +377,9 @@ model-facing context change.
 `go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note]`
 is the operator-facing report wrapper. Its JSONL input is content-bearing by
 definition, so it belongs in local/private captures only; it does not read auth
-headers or WebSocket upgrade metadata.
+headers or WebSocket upgrade metadata. Each replay uses an isolated temporary
+home directory so disk-backed readcache/tooluse/archive state from prior live
+sessions cannot skew the A/B result.
 Set `SLIMFERENCE_WSS_AB_CAPTURE=/private/path/frames.jsonl` on the Slimference
 daemon process to append those replay frames during a scoped Codex WSS session.
 The capture hook records only decompressed JSON frame payloads and direction,

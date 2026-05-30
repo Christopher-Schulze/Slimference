@@ -3383,6 +3383,17 @@ Changes:
 - Fixed detached daemon startup to propagate the caller environment, so
   `SLIMFERENCE_WSS_AB_CAPTURE=... slimference start` reaches the child daemon
   instead of being silently dropped.
+- Hardened `RunWSSPhaseFABReplay` to use an isolated temporary home for each
+  offline replay, so prior disk-backed readcache/tooluse/archive state cannot
+  change the reported A/B savings.
+- Live scoped Codex CLI capture proof:
+  `/tmp/slimference-t249-double-read-20260530T130355Z.jsonl` captured 147 WSS
+  frames from a double-read task through `slimference codex run --transport=wss`.
+  `wss-ab-replay --fail-on-lost` reported `request_turns=3`,
+  `mutated_requests=1`, `bytes_saved=6096`, `lost=0`, `gate=PASS`. Admin-state
+  after session reported `billable_input_tokens_saved=1414`,
+  `read_delta_blocks=1`, `compressed_messages_mutated=1`, and zero
+  parse/degraded/compression errors.
 
 Safety:
 - This is proof infrastructure only. It does not enable any new compression path

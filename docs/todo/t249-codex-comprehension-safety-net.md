@@ -1,6 +1,6 @@
 # TASK 249: Codex comprehension safety net (A/B harness, recoverable archive, re-read auto-restore)
 
-Status: [~] PARTIAL - core comparison engine, WSS reducer replay, capture/report CLI, recovery note, and auto-restore landed; live measurement remains open
+Status: [~] PARTIAL - core comparison engine, WSS reducer replay, live capture/report CLI, recovery note, and auto-restore landed; socket-lifecycle measurement remains open
 Priority: P1 - must land before any aggressive/lossy savings layer is default-on
 Scope: Codex-only WSS Phase-F. Build the measurement + recovery substrate that lets
 aggressive compression be enabled with data instead of hope. No new savings by
@@ -54,7 +54,7 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
 
 ## Sub-Tasks
 
-- [~] Build comprehension A/B replay harness (scripts/ + internal test fixtures).
+- [x] Build comprehension A/B replay harness (scripts/ + internal test fixtures).
       Replay multi-turn Codex traffic compressed vs direct; diff model-facing context;
       report info-loss. Non-gating CI report first.
 - [x] Once-per-session neutral archive-recovery note injection on the WSS request path;
@@ -79,8 +79,15 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
   enabling the archive recovery note is auditable as extra model-facing context.
   `SLIMFERENCE_WSS_AB_CAPTURE=/private/path/frames.jsonl` records local WSS replay
   frames before mutation, and `go run ./scripts/utils wss-ab-replay <frames.jsonl>`
-  exposes this as a text/JSON report with `--fail-on-lost`; real captured-session
-  measurement remains open.
+  exposes this as a text/JSON report with `--fail-on-lost`.
+- 2026-05-30: real captured-session replay is now proven on scoped Codex CLI WSS:
+  a double-read run captured 147 frames, replayed 3 request turns, found 1 real
+  mutation, saved 6096 model-facing bytes in the A/B replay, reported `lost=0`
+  and `gate=PASS`, while live admin counters showed 1414 billable input tokens
+  saved, 1 read-delta block, and zero parse/degraded/compression errors.
+- 2026-05-30: `RunWSSPhaseFABReplay` now uses an isolated temporary home for each
+  offline replay, so prior disk-backed readcache/tooluse/archive state cannot
+  skew reported A/B savings.
 - 2026-05-30: WSS archive-recovery note injection landed behind
   `archive_recovery_note_enabled`, default-off, once per session, and voice-neutral.
   It injects no product name and keeps recovery proof-gated instead of making a new

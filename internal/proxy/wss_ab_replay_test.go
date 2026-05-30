@@ -12,11 +12,6 @@ import (
 )
 
 func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {
-	home := t.TempDir()
-	oldHome := proxyUserHomeDir
-	proxyUserHomeDir = func() (string, error) { return home, nil }
-	t.Cleanup(func() { proxyUserHomeDir = oldHome })
-
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -46,6 +41,14 @@ func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {
 	}
 	if len(got.Report.Elisions) != 1 || got.Report.Elisions[0].Severity != abharness.SeverityRecoverable {
 		t.Fatalf("repeat read should be classified recoverable, got %+v", got.Report.Elisions)
+	}
+
+	again, err := RunWSSPhaseFABReplay(cfg, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Report.Saved() != got.Report.Saved() || again.MutatedRequests != got.MutatedRequests {
+		t.Fatalf("offline replay must be isolated from prior disk cache state: first=%+v again=%+v", got, again)
 	}
 }
 

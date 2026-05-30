@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"sync"
 
 	"github.com/slimference/slimference/internal/abharness"
 	"github.com/slimference/slimference/internal/config"
@@ -30,6 +32,25 @@ type WSSABReplayResult struct {
 // direct forwarding. It is the T249 bridge between the reducer and the offline
 // comprehension harness.
 func RunWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame) (WSSABReplayResult, error) {
+	home, err := os.MkdirTemp("", "slimference-wss-ab-replay-*")
+	if err != nil {
+		return WSSABReplayResult{}, fmt.Errorf("create isolated replay home: %w", err)
+	}
+	defer os.RemoveAll(home)
+
+	wssABReplayHomeMu.Lock()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	defer func() {
+		proxyUserHomeDir = oldHome
+		wssABReplayHomeMu.Unlock()
+	}()
+	return runWSSPhaseFABReplay(cfg, frames)
+}
+
+var wssABReplayHomeMu sync.Mutex
+
+func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame) (WSSABReplayResult, error) {
 	if cfg == nil {
 		cfg = config.Defaults()
 	}
