@@ -299,14 +299,16 @@ rewritten in place, preserving sibling non-text parts, metadata, and the
 original object/array shape. Multi-text or otherwise ambiguous arrays fail open
 instead of being stringified.
 
-The readcache frontier is archive-backed for large observed tool reads. Large
-full-file outputs are hashed and stored in the local content archive while the
-session JSON keeps only the hash/archive URI, avoiding unbounded session-state
-bloat. On a later same-session read, Slimference expands the archive only when
-needed to build an exact delta or unchanged reference. If the archive is missing
-or the delta is not shorter, the original content is sent unchanged. This keeps
-the savings path reconstructable and fail-open while improving repeat-read
-hit-rate for both WSS and HTTP Codex traffic.
+The readcache frontier is archive-backed for large observed tool reads. Full-file
+and recognized ranged outputs (`cat`, `head`, `tail`, `sed -n`) are hashed and
+stored in the local content archive while the session JSON keeps only the
+hash/archive URI, avoiding unbounded session-state bloat. Ranged reads are keyed
+by `path+offset+limit`, so `head -n 80 x` and `sed -n 120,180p x` never collide
+with each other or with the full file. On a later same-session read, Slimference
+expands the archive only when needed to build an exact delta or unchanged
+reference. If the archive is missing or the delta is not shorter, the original
+content is sent unchanged. This keeps the savings path reconstructable and
+fail-open while improving repeat-read hit-rate for both WSS and HTTP Codex traffic.
 
 The same session state also tracks exact repeated non-file tool outputs. For
 non-read commands, the reducer first applies deterministic captured-output
@@ -315,20 +317,25 @@ is recorded under the resolved command key. A later identical command/output
 pair in the same session can be replaced by a neutral archive-backed unchanged
 output note. The mechanism is exact-only: changed output, short output,
 unresolved commands, archive failures, and full-file reads fail open. Full-file
-`cat` reads stay on the read-delta path. Partial reads such as `head` and
-`tail` are not treated as full file snapshots; they can still save through the
-exact command/output path when the same range output repeats. This extends
-repeat savings to commands such as repeated `git status`, `rg`, build/test
-reports, partial file ranges, or custom deterministic tools without introducing
-semantic summaries.
+`cat` reads stay on the full-file read-delta path. Partial reads use their own
+ranged read-delta key when the range is recognized; other deterministic commands
+can still save through the exact command/output path when the same output repeats.
+Repeated search outputs (`rg` / `grep` / `git grep`) also get position-aware
+delta treatment, not just exact unchanged references, because their command key is
+stable and the archive gives a full-output recovery handle. This extends repeat
+savings to commands such as repeated `git status`, `rg`, build/test reports,
+partial file ranges, or custom deterministic tools without introducing semantic
+summaries.
 
 Model-facing readcache replacements use neutral read-note wording and preserve
 the `local-archive://<id>` pattern without naming Slimference inside tool
 output. This keeps the mechanical recovery handle while reducing prompt
 contamination from product-specific marker text. Archive expansion remains
 opportunistic: the proxy can expand a later incoming request that quotes a
-stored URI, but no WSS system/developer instruction is injected by default to
-teach that behavior.
+stored URI. A neutral once-per-session WSS archive-recovery note exists behind
+`archive_recovery_note_enabled`; it is default-off and injects no product name.
+When enabled, it tells the model that `local-archive://<id>` may be requested if
+full elided content is needed.
 
 `go run ./scripts/utils workday-savings start|finish` is the real-workday
 measurement ceremony. `start` captures a baseline from `/admin/state` (and
@@ -348,7 +355,10 @@ the number of WSS request summaries that repeated a resolved read/tool key and
 the total repeated count. A non-zero canary is not automatically bad, because
 repeat reads are also the highest-value savings workload. It is the live signal
 to compare with positive savings, recent-edit guards, and future comprehension
-A/B results when deciding whether a session needs looser compression.
+A/B results when deciding whether a session needs looser compression. On the live
+WSS reducer, a post-collapse deliberate re-read of the same read key suppresses
+further collapse for that key for the rest of the session, restoring full recency
+instead of fighting the model's attention signal.
 
 Savings-proven and comprehension-preserved are intentionally separate claims.
 Positive mutation and input-token counters prove Codex WSS savings for a

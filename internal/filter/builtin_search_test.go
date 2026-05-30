@@ -278,6 +278,19 @@ func TestSearchToolName(t *testing.T) {
 	}
 }
 
+func TestSearchOutputKeyFromCommandLine(t *testing.T) {
+	t.Parallel()
+	if got := SearchOutputKeyFromCommandLine(`rg -n "needle" internal`); got != "rg\t-n\tneedle\tinternal" {
+		t.Fatalf("rg search key = %q", got)
+	}
+	if got := SearchOutputKeyFromCommandLine(`git grep needle -- internal`); got != "git\tgrep\tneedle\t--\tinternal" {
+		t.Fatalf("git grep search key = %q", got)
+	}
+	if got := SearchOutputKeyFromCommandLine(`go test ./...`); got != "" {
+		t.Fatalf("non-search command produced key %q", got)
+	}
+}
+
 // TestIsGrepStyleTool exercises isGrepStyleTool branches.
 func TestIsGrepStyleTool(t *testing.T) {
 	t.Parallel()
@@ -355,6 +368,9 @@ func TestGroupSearchResults_manyMatchesPerFile(t *testing.T) {
 	if !strings.Contains(string(out), "+5 more") {
 		t.Errorf("want '+5 more' truncation, got %q", string(out))
 	}
+	if !strings.Contains(string(out), "25:") {
+		t.Errorf("tail match should survive truncation, got %q", string(out))
+	}
 }
 
 // TestGroupSearchResults_manyFiles covers the filesShown >= maxFilesShown (30)
@@ -375,6 +391,9 @@ func TestGroupSearchResults_manyFiles(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "more files") {
 		t.Errorf("want '+N more files' in output, got %q", string(out)[:min(len(string(out)), 300)])
+	}
+	if !strings.Contains(string(out), "file_34.go") {
+		t.Errorf("tail file should survive truncation, got %q", string(out)[max(0, len(string(out))-400):])
 	}
 }
 

@@ -171,6 +171,8 @@ type Proxy struct {
 	qualityAB             *qualityab.Harness
 	outputReduceRepairMu  sync.Mutex
 	outputReduceRepair    map[string]pendingOutputReduceSignal
+	archiveRecoveryNoteMu sync.Mutex
+	archiveRecoveryNote   map[string]struct{}
 	openAIPromptCacheMu   sync.Mutex
 	openAIPromptCacheRate map[string]promptCacheRateBucket
 	webSocketTunnel       *WebSocketTunnel
@@ -235,21 +237,22 @@ func (p *Proxy) recoverMiddleware(next http.Handler) http.Handler {
 func New(cfg *config.Config) *Proxy {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	p := &Proxy{
-		config:             cfg,
-		httpClients:        make(map[types.Provider]*http.Client),
-		compressQueue:      make(chan types.CompressJob, 4),
-		analyticsQueue:     make(chan types.AnalyticsEvent, 256),
-		workerCtx:          workerCtx,
-		workerCancel:       workerCancel,
-		shutdownCh:         make(chan struct{}),
-		pipelineHist:       analytics.NewPipelineHistograms(),
-		qualityReRead:      quality.NewReReadDetector(10),
-		qualityCacheSpike:  quality.NewCacheMissSpikeDetector(50, 0.25),
-		qualityNetSavings:  quality.NewNetSavings(),
-		toolPrune:          toolprune.NewUsageTracker(20),
-		serverState:        sessions.NewResponseStateStore(1024),
-		outputReduceRepair: make(map[string]pendingOutputReduceSignal),
-		qualityAB:          qualityab.New(qualityab.Options{}),
+		config:              cfg,
+		httpClients:         make(map[types.Provider]*http.Client),
+		compressQueue:       make(chan types.CompressJob, 4),
+		analyticsQueue:      make(chan types.AnalyticsEvent, 256),
+		workerCtx:           workerCtx,
+		workerCancel:        workerCancel,
+		shutdownCh:          make(chan struct{}),
+		pipelineHist:        analytics.NewPipelineHistograms(),
+		qualityReRead:       quality.NewReReadDetector(10),
+		qualityCacheSpike:   quality.NewCacheMissSpikeDetector(50, 0.25),
+		qualityNetSavings:   quality.NewNetSavings(),
+		toolPrune:           toolprune.NewUsageTracker(20),
+		serverState:         sessions.NewResponseStateStore(1024),
+		outputReduceRepair:  make(map[string]pendingOutputReduceSignal),
+		archiveRecoveryNote: make(map[string]struct{}),
+		qualityAB:           qualityab.New(qualityab.Options{}),
 		outputReduce: outputreduce.NewTrackerWithAutoTune(cfg.Compression.OutputReduce.Enabled, cfg.Compression.OutputReduce.Profile, outputreduce.AutoTuneConfig{
 			Enabled:             cfg.Compression.OutputReduce.AutoTuneEnabled,
 			MinSamples:          cfg.Compression.OutputReduce.AutoTuneMinSamples,

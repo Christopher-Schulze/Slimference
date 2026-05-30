@@ -227,6 +227,45 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0SuppressesCollapsedReadKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var payload strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&payload, "suppression unique payload line %03d with nonrepeating value %08x\n", i, i*7919+17)
+	}
+	messages := proxyReadMessages(payload.String())
+	if result := reduceCodexLayer0(codexLayer0Request{
+		Messages:  messages,
+		SessionID: "sess-suppress",
+	}); result.Stats.ReadDeltaMisses != 1 || result.Stats.TokensSaved != 0 {
+		t.Fatalf("first read should seed readcache without savings: %+v", result.Stats)
+	}
+
+	suppressed := reduceCodexLayer0(codexLayer0Request{
+		Messages:          messages,
+		SessionID:         "sess-suppress",
+		SuppressedToolKey: map[string]struct{}{"read:main.go": {}},
+	})
+	if suppressed.Stats.TokensSaved != 0 || suppressed.Stats.ReadDeltaAttempts != 0 ||
+		suppressed.Stats.ReadDeltaBlocks != 0 || suppressed.Stats.BlocksModified != 0 {
+		t.Fatalf("suppressed read key should full-pass without read-delta: %+v", suppressed.Stats)
+	}
+	if suppressed.Messages[1].Content[0].Text != messages[1].Content[0].Text {
+		t.Fatalf("suppressed read changed model-facing text: %q", suppressed.Messages[1].Content[0].Text)
+	}
+
+	unsuppressed := reduceCodexLayer0(codexLayer0Request{
+		Messages:  messages,
+		SessionID: "sess-suppress",
+	})
+	if unsuppressed.Stats.ReadDeltaBlocks != 1 || unsuppressed.Stats.TokensSaved <= 0 ||
+		!strings.Contains(unsuppressed.Messages[1].Content[0].Text, "Full content: local-archive://") {
+		t.Fatalf("unsuppressed reread should still collapse: %+v text=%q",
+			unsuppressed.Stats, unsuppressed.Messages[1].Content[0].Text)
+	}
+}
+
 func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -266,16 +305,16 @@ func TestApplyProxyLayer0WithSessionRepeatedPartialReadOutput(t *testing.T) {
 		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-head", Text: body}}},
 	}
 	out, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-partial-read", nil)
-	if stats.ReadDeltaAttempts != 0 || stats.ReadDeltaBlocks != 0 || stats.RepeatedOutputBlocks != 0 ||
+	if stats.ReadDeltaAttempts != 1 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 || stats.RepeatedOutputBlocks != 0 ||
 		strings.Contains(out[1].Content[0].Text, "Previous output: local-archive://") {
-		t.Fatalf("first partial read should not use read-delta or repeated-output, stats=%+v text=%q", stats, out[1].Content[0].Text)
+		t.Fatalf("first partial read should miss read-delta and avoid repeated-output, stats=%+v text=%q", stats, out[1].Content[0].Text)
 	}
 
 	out, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-partial-read", nil)
-	if stats.ReadDeltaAttempts != 0 || stats.ReadDeltaBlocks != 0 ||
-		stats.RepeatedOutputBlocks != 1 || stats.TokensSaved <= 0 ||
-		!strings.Contains(out[1].Content[0].Text, "Previous output: local-archive://") {
-		t.Fatalf("partial read should use repeated-output, not read-delta, stats=%+v text=%q", stats, out[1].Content[0].Text)
+	if stats.ReadDeltaAttempts != 1 || stats.ReadDeltaBlocks != 1 ||
+		stats.RepeatedOutputBlocks != 0 || stats.TokensSaved <= 0 ||
+		!strings.Contains(out[1].Content[0].Text, "Full content: local-archive://") {
+		t.Fatalf("partial read should use ranged read-delta, not repeated-output, stats=%+v text=%q", stats, out[1].Content[0].Text)
 	}
 }
 

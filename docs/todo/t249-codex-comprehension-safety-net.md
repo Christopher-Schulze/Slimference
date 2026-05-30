@@ -1,6 +1,6 @@
 # TASK 249: Codex comprehension safety net (A/B harness, recoverable archive, re-read auto-restore)
 
-Status: [~] PARTIAL - core comparison engine landed; replay/recovery wiring remains open
+Status: [~] PARTIAL - core comparison engine, recovery note, and auto-restore landed; replay/live wiring remains open
 Priority: P1 - must land before any aggressive/lossy savings layer is default-on
 Scope: Codex-only WSS Phase-F. Build the measurement + recovery substrate that lets
 aggressive compression be enabled with data instead of hope. No new savings by
@@ -57,10 +57,10 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
 - [~] Build comprehension A/B replay harness (scripts/ + internal test fixtures).
       Replay multi-turn Codex traffic compressed vs direct; diff model-facing context;
       report info-loss. Non-gating CI report first.
-- [ ] Once-per-session neutral archive-recovery note injection on the WSS request path;
+- [x] Once-per-session neutral archive-recovery note injection on the WSS request path;
       config-flag gated; verify `reinjectArchivedContent` expands model-emitted URIs
       (extend the reinject test).
-- [ ] Re-read-after-collapse auto-restore driven by the existing canary; deterministic
+- [x] Re-read-after-collapse auto-restore driven by the existing canary; deterministic
       table test simulating N re-reads of a collapsed path flips that path to full pass.
 - [ ] Run + document socket-lifecycle measurement (lsof `127.0.0.1:8990`,
       `decisions.jsonl` `route_mode`, CommandUnresolved vs mutations across SEPARATE
@@ -73,6 +73,14 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
 - 2026-05-30: core comparison engine landed in `internal/abharness`: it now detects
   shortenings, same-length content changes, missing blocks, and extra model-facing
   blocks. Replay fixtures, reducer replay wiring, and CI report mode are still open.
+- 2026-05-30: WSS archive-recovery note injection landed behind
+  `archive_recovery_note_enabled`, default-off, once per session, and voice-neutral.
+  It injects no product name and keeps recovery proof-gated instead of making a new
+  model-facing instruction default.
+- 2026-05-30: re-read-after-collapse auto-restore landed. When a collapsed read key is
+  requested again in the same WSS session, that key is suppressed from further collapse
+  for the rest of the session, so the model gets a fresh full pass instead of a stale
+  pointer loop.
 - Risk: the recovery note is itself a prompt mutation - keep it minimal, neutral,
   flagged, and validate it against the A/B harness before any default-on.
 - Dependencies: none. This is the first task in the v2 arc. t253/t254/t255 depend on it.

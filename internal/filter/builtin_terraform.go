@@ -345,21 +345,31 @@ func compressTerraformOutputCmd(stdout []byte) []byte {
 	entries := 0
 	depth := 0
 	dropped := 0
+	keepingOverBudgetEntry := false
 	for _, line := range lines {
 		trimmed := strings.TrimLeft(line, " \t")
 		isTopLevelEntry := depth == 0 && reTerraformOutputEntry.MatchString(trimmed)
 		if isTopLevelEntry {
 			entries++
 		}
-		if entries > budget {
-			if depth == 0 && isTopLevelEntry {
+		if entries > budget && isTopLevelEntry {
+			if terraformImportantOutputEntry(trimmed) {
+				keepingOverBudgetEntry = true
+			} else {
 				dropped++
+				keepingOverBudgetEntry = false
+				depth = adjustTerraformOutputDepth(depth, trimmed)
+				continue
 			}
+		} else if entries > budget && !keepingOverBudgetEntry {
 			depth = adjustTerraformOutputDepth(depth, trimmed)
 			continue
 		}
 		kept = append(kept, line)
 		depth = adjustTerraformOutputDepth(depth, trimmed)
+		if depth == 0 {
+			keepingOverBudgetEntry = false
+		}
 	}
 	if dropped == 0 {
 		return stdout
@@ -371,6 +381,20 @@ func compressTerraformOutputCmd(stdout []byte) []byte {
 // reTerraformOutputEntry matches a top-level output entry (`name = ...`)
 // at the start of a logical line.
 var reTerraformOutputEntry = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\s*=`)
+
+func terraformImportantOutputEntry(trimmed string) bool {
+	name, _, ok := strings.Cut(trimmed, "=")
+	if !ok {
+		return false
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, tok := range []string{"error", "failure", "failed", "status", "message", "reason", "warning", "diagnostic"} {
+		if strings.Contains(name, tok) {
+			return true
+		}
+	}
+	return false
+}
 
 // adjustTerraformOutputDepth tracks brace nesting so multi-line object /
 // list values can be kept or skipped as one unit.

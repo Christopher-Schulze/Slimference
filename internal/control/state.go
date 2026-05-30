@@ -155,6 +155,9 @@ type CodexRouteState struct {
 type SavingsSummary struct {
 	InputTokensSaved         int64                    `json:"input_tokens_saved"`
 	OutputTokensSaved        int64                    `json:"output_tokens_saved"`
+	BillableInputTokensSaved int64                    `json:"billable_input_tokens_saved"`
+	OutputWireBytesSaved     int64                    `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced  int64                    `json:"request_side_bytes_reduced"`
 	CostUSD                  float64                  `json:"cost_usd"`
 	ProxyLayer0ToolResults   int64                    `json:"proxy_layer0_tool_result_blocks"`
 	ProxyLayer0ToolMisses    int64                    `json:"proxy_layer0_tool_use_unresolved_blocks"`

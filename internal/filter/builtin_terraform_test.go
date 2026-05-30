@@ -478,6 +478,41 @@ func TestTryCompactTerraformOutput_long(t *testing.T) {
 	}
 }
 
+func TestTryCompactTerraformOutputKeepsLateDiagnosticOutputs(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	for i := 0; i < 45; i++ {
+		b.WriteString("output_")
+		b.WriteString(strconvI(i))
+		b.WriteString(" = \"value_")
+		b.WriteString(strconvI(i))
+		b.WriteString("\"\n")
+	}
+	b.WriteString("diagnostic_error_message = \"E42 subnet missing route table\"\n")
+	for i := 45; i < 65; i++ {
+		b.WriteString("output_")
+		b.WriteString(strconvI(i))
+		b.WriteString(" = \"value_")
+		b.WriteString(strconvI(i))
+		b.WriteString("\"\n")
+	}
+	in := []byte(b.String())
+	out, ok := TryCompactTerraformOutput([]string{"terraform", "output"}, in)
+	if !ok {
+		t.Fatal("expected output compaction")
+	}
+	s := string(out)
+	if !strings.Contains(s, "diagnostic_error_message") || !strings.Contains(s, "E42 subnet missing route table") {
+		t.Fatalf("late diagnostic output was dropped: %q", s)
+	}
+	if strings.Contains(s, "output_64 = ") {
+		t.Fatalf("ordinary late output leaked: %q", s)
+	}
+	if len(out) >= len(in) {
+		t.Fatalf("output must remain shorter: in=%d out=%d", len(in), len(out))
+	}
+}
+
 // TestTryCompactTerraformOutput_shortPassthrough keeps short results untouched.
 func TestTryCompactTerraformOutput_shortPassthrough(t *testing.T) {
 	t.Parallel()

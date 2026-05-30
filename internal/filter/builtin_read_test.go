@@ -221,6 +221,9 @@ func TestReadPathFromCommandLine(t *testing.T) {
 	if got := ReadPathFromCommandLine("head -n 20 main.go"); got != "main.go" {
 		t.Fatalf("head read path = %q", got)
 	}
+	if got := ReadPathFromCommandLine("sed -n '10,20p' main.go"); got != "main.go" {
+		t.Fatalf("sed read path = %q", got)
+	}
 	if got := FullReadPathFromCommandLine("cat internal/filter/builtin_read.go"); got != "internal/filter/builtin_read.go" {
 		t.Fatalf("full read path = %q", got)
 	}
@@ -231,6 +234,44 @@ func TestReadPathFromCommandLine(t *testing.T) {
 		if got := ReadPathFromCommandLine(cmd); got != "" {
 			t.Fatalf("command %q should not produce a single read path, got %q", cmd, got)
 		}
+	}
+}
+
+func TestReadRequestFromCommandLine(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		command    string
+		wantPath   string
+		wantOffset int
+		wantLimit  int
+		wantOK     bool
+	}{
+		{name: "cat", command: "cat main.go", wantPath: "main.go", wantOK: true},
+		{name: "head split", command: "head -n 20 main.go", wantPath: "main.go", wantOffset: 1, wantLimit: 20, wantOK: true},
+		{name: "head short", command: "head -200 main.go", wantPath: "main.go", wantOffset: 1, wantLimit: 200, wantOK: true},
+		{name: "tail split", command: "tail -n 20 main.go", wantPath: "main.go", wantOffset: -20, wantLimit: 20, wantOK: true},
+		{name: "tail plus", command: "tail -n +42 main.go", wantPath: "main.go", wantOffset: 42, wantLimit: 0, wantOK: true},
+		{name: "sed range", command: "sed -n '10,20p' main.go", wantPath: "main.go", wantOffset: 10, wantLimit: 11, wantOK: true},
+		{name: "sed single", command: "sed -n 42p main.go", wantPath: "main.go", wantOffset: 42, wantLimit: 1, wantOK: true},
+		{name: "byte head unsupported", command: "head -c 20 main.go", wantOK: false},
+		{name: "compound unsupported", command: "head -n 20 main.go | cat", wantOK: false},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := ReadRequestFromCommandLine(tt.command)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v (got %+v)", ok, tt.wantOK, got)
+			}
+			if !ok {
+				return
+			}
+			if got.Path != tt.wantPath || got.Offset != tt.wantOffset || got.Limit != tt.wantLimit {
+				t.Fatalf("request = %+v, want path=%q offset=%d limit=%d", got, tt.wantPath, tt.wantOffset, tt.wantLimit)
+			}
+		})
 	}
 }
 

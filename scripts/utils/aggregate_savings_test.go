@@ -40,6 +40,9 @@ const aggregateSampleAdminState = `{
   },
   "savings": {
     "input_tokens_saved": 42000,
+    "billable_input_tokens_saved": 42000,
+    "output_wire_bytes_saved": 4096,
+    "request_side_bytes_reduced": 512,
     "proxy_layer0_tool_result_blocks": 8,
     "proxy_layer0_tool_use_unresolved_blocks": 2,
     "proxy_layer0_command_resolved_blocks": 6,
@@ -140,6 +143,8 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"route_http_tokens:            0",
 		"route_http_misses:            tool=1 command=1 read=0",
 		"Output-Reduce sub-layers (live counters):",
+		"output_wire_bytes_saved:       4096",
+		"request_side_bytes_reduced:    512",
 		"repdet_rewrites:       7 (bytes saved: 1024)",
 		"stale_read_blocks:     1",
 		"HTTP-path Layer-0 filter: not loaded (pass --filter-db=<path>)",
@@ -199,6 +204,9 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	}
 	if got.OutputReduce.RepdetRewrites != 7 {
 		t.Fatalf("output_reduce.repdet_rewrites: got=%d want=7", got.OutputReduce.RepdetRewrites)
+	}
+	if got.OutputReduce.OutputWireBytesSaved != 4096 || got.OutputReduce.RequestSideBytesReduced != 512 {
+		t.Fatalf("output_reduce accounting split mismatch: %+v", got.OutputReduce)
 	}
 	if got.Aggregate.TotalTokensSaved != 42000 {
 		t.Fatalf("aggregate.total_tokens_saved: got=%d want=42000", got.Aggregate.TotalTokensSaved)

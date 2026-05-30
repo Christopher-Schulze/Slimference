@@ -36,13 +36,14 @@ func Evaluate(dir string, req Request) (Decision, error) {
 		return decision, RecordDecision(dir, decision)
 	}
 
-	entry := state.Files[absPath]
+	req.FilePath = absPath
+	entryKey := requestEntryKey(req)
+	entry := state.Files[entryKey]
 	if entry == nil {
 		entry = &FileEntry{Path: absPath}
-		state.Files[absPath] = entry
+		state.Files[entryKey] = entry
 	}
 
-	req.FilePath = absPath
 	modTime := info.ModTime().UnixNano()
 	if sameRange(entry, req) && entry.ModTimeUnixNs == modTime {
 		return blockUnchanged(dir, state, entry, req, modTime)
@@ -60,14 +61,15 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 		state.CurrentTurnID = turnID
 	}
 	path := strings.TrimSpace(req.FilePath)
-	if path == "" || !req.IsFullFileRead() {
+	if path == "" || strings.TrimSpace(req.SessionID) == "" {
 		decision := Decision{Type: DecisionAllow}
 		return decision, RecordDecision(dir, decision)
 	}
-	entry := state.Files[path]
+	entryKey := requestEntryKey(Request{FilePath: path, Offset: req.Offset, Limit: req.Limit})
+	entry := state.Files[entryKey]
 	if entry == nil {
 		entry = &FileEntry{Path: path}
-		state.Files[path] = entry
+		state.Files[entryKey] = entry
 	}
 
 	hash := hashObservedContent(content)
@@ -142,6 +144,12 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 	}
 
 	hash := hashObservedContent(content)
+	oldContent := entry.CachedContent
+	if oldContent == "" && entry.ArchiveURI != "" && archiveDir != "" {
+		if _, body, err := contentarchive.Get(archiveDir, entry.ArchiveURI); err == nil {
+			oldContent = string(body)
+		}
+	}
 	if entry.ContentHash != "" && entry.ContentHash == hash && entry.ArchiveURI != "" {
 		updateObservedOutputEntry(entry, req, hash, entry.ArchiveURI, content)
 		if err := readCacheSaveSession(dir, state); err != nil {
@@ -155,6 +163,7 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 		return decision, RecordDecision(dir, decision)
 	}
 
+	oldHash := entry.ContentHash
 	archiveURI, archived := archiveObservedOutputContent(archiveDir, req, content)
 	updateObservedOutputEntry(entry, req, hash, archiveURI, content)
 	if err := readCacheSaveSession(dir, state); err != nil {
@@ -163,6 +172,16 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 	if !archived {
 		decision := Decision{Type: DecisionAllow}
 		return decision, RecordDecision(dir, decision)
+	}
+	if oldHash != "" && oldContent != "" && outputDeltaEligible(req.Key) {
+		delta := buildDeltaSummary("tool output for "+strings.TrimSpace(req.CommandLine), oldContent, content)
+		if delta != "" {
+			delta = delta + "\nFull output: " + archiveURI
+			if len(delta) < len(content) {
+				decision := Decision{Type: DecisionBlock, Reason: delta, BlockKind: BlockKindDelta}
+				return decision, RecordDecision(dir, decision)
+			}
+		}
 	}
 	decision := Decision{Type: DecisionAllow}
 	return decision, RecordDecision(dir, decision)
@@ -215,6 +234,14 @@ func evaluateChanged(dir string, state *SessionState, entry *FileEntry, req Requ
 
 func sameRange(entry *FileEntry, req Request) bool {
 	return entry.Offset == req.Offset && entry.Limit == req.Limit
+}
+
+func requestEntryKey(req Request) string {
+	path := strings.TrimSpace(req.FilePath)
+	if req.Offset == 0 && req.Limit == 0 {
+		return path
+	}
+	return fmt.Sprintf("%s#range:%d:%d", path, req.Offset, req.Limit)
 }
 
 func updateEntry(entry *FileEntry, req Request, modTime int64, content string) {
@@ -306,6 +333,10 @@ func unchangedOutputReference(commandLine string, archiveURI string) string {
 		commandLine = "this tool command"
 	}
 	return fmt.Sprintf("Tool output note for %s: unchanged since previous emitted output.\nPrevious output: %s", commandLine, archiveURI)
+}
+
+func outputDeltaEligible(key string) bool {
+	return strings.HasPrefix(strings.TrimSpace(key), "search:")
 }
 
 func safeTurn(turnID string) string {

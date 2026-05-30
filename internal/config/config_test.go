@@ -60,6 +60,9 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.SignatureMarker == "" {
 		t.Fatal("signature marker must be non-empty")
 	}
+	if cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled {
+		t.Fatal("archive recovery note must stay default-off until A/B certified")
+	}
 }
 
 func TestApplyEnvHooksDebug(t *testing.T) {
@@ -96,6 +99,8 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE", "yes")
 	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT", "true")
 	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT", "be terse")
+	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE", "true")
+	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE_TEXT", "request archive ids")
 
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
@@ -110,7 +115,8 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	}
 	or := cfg.Compression.OutputReduce
 	if !or.StaleReadAgingEnabled || or.StaleReadAgingMinTurnGap != 9 ||
-		!or.ObsoleteReadPruneEnabled || !or.BeTerseHintEnabled || or.BeTerseHintText != "be terse" {
+		!or.ObsoleteReadPruneEnabled || !or.BeTerseHintEnabled || or.BeTerseHintText != "be terse" ||
+		!or.ArchiveRecoveryNoteEnabled || or.ArchiveRecoveryNoteText != "request archive ids" {
 		t.Fatalf("output-reduce env not applied: %+v", or)
 	}
 }
@@ -418,6 +424,7 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"min_savings", func(c *Config) { c.Compression.OutputReduce.MinNetSavingsPct = -1 }},
 		{"failure_rate", func(c *Config) { c.Compression.OutputReduce.MaxFailureRateDelta = 2 }},
 		{"cooldown", func(c *Config) { c.Compression.OutputReduce.CooldownTurns = -1 }},
+		{"archive_note_text", func(c *Config) { c.Compression.OutputReduce.ArchiveRecoveryNoteText = strings.Repeat("x", 1001) }},
 	}
 	for _, tc := range tests {
 		tc := tc

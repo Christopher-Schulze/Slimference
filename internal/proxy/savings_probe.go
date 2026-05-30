@@ -31,10 +31,15 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 	if s.Proxy.qualityAB != nil {
 		ab = s.Proxy.qualityAB.Snapshot()
 	}
+	outputWireBytes := snap.RepdetBytesSaved + snap.StreamcutBytesObserved
+	requestSideBytes := snap.StaleReadBytesReplaced + snap.ObsoleteReadBytesPruned
 
 	out := control.SavingsSummary{
 		InputTokensSaved:         int64(snap.ProxyLayer0TokensSaved),
-		OutputTokensSaved:        int64(snap.RepdetBytesSaved + snap.StreamcutBytesObserved + snap.StaleReadBytesReplaced + snap.ObsoleteReadBytesPruned),
+		OutputTokensSaved:        int64(outputWireBytes + requestSideBytes),
+		BillableInputTokensSaved: int64(snap.ProxyLayer0TokensSaved),
+		OutputWireBytesSaved:     int64(outputWireBytes),
+		RequestSideBytesReduced:  int64(requestSideBytes),
 		ProxyLayer0ToolResults:   int64(snap.ProxyLayer0ToolResultBlocks),
 		ProxyLayer0ToolMisses:    int64(snap.ProxyLayer0ToolUseUnresolved),
 		ProxyLayer0Commands:      int64(snap.ProxyLayer0CommandResolvedBlocks),

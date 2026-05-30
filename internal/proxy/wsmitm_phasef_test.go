@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net"
@@ -191,6 +192,54 @@ func TestWSPhaseFObservedEditBypassesReadDelta(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFReReadAfterCollapseRestoresFullRead(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	var bodyBuilder strings.Builder
+	for i := 0; i < 80; i++ {
+		bodyBuilder.WriteString("restored read line ")
+		bodyBuilder.WriteString(strconv.Itoa(i))
+		bodyBuilder.WriteString(" with enough stable content\n")
+	}
+	bodyText := bodyBuilder.String()
+	bodyForTurn := func(turnID, callID string) []byte {
+		return mustMarshal(map[string]any{
+			"model":                "gpt-5-codex",
+			"prompt_cache_key":     "restore-session",
+			"previous_response_id": turnID,
+			"input": []map[string]any{
+				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": "src/x.go"}},
+				{"type": "function_call_output", "call_id": callID, "output": bodyText},
+			},
+			"stream": true,
+		})
+	}
+
+	first, _, changed, stats, reReads := adapter.applyInputPipeline(bodyForTurn("resp-1", "read-1"))
+	if changed || reReads != 0 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 {
+		t.Fatalf("first read should seed only, changed=%v rereads=%d stats=%+v body=%s", changed, reReads, stats, first)
+	}
+	second, _, changed, stats, reReads := adapter.applyInputPipeline(bodyForTurn("resp-2", "read-2"))
+	if !changed || reReads != 1 || stats.ReadDeltaBlocks != 1 || stats.TokensSaved <= 0 ||
+		!strings.Contains(string(second), "Full content: local-archive://") {
+		t.Fatalf("second read should collapse once, changed=%v rereads=%d stats=%+v body=%s", changed, reReads, stats, second)
+	}
+	third, _, changed, stats, reReads := adapter.applyInputPipeline(bodyForTurn("resp-3", "read-3"))
+	if changed || reReads != 1 || stats.ReadDeltaAttempts != 0 || stats.ReadDeltaBlocks != 0 ||
+		stats.TokensSaved != 0 || !strings.Contains(string(third), "restored read line") ||
+		strings.Contains(string(third), "local-archive://") {
+		t.Fatalf("post-collapse reread should be restored full-pass, changed=%v rereads=%d stats=%+v body=%s",
+			changed, reReads, stats, third)
+	}
+}
+
 func TestWSPhaseFBeTerseInjectsIntoCodexResponsesInputForTreatment(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
@@ -225,6 +274,77 @@ func TestWSPhaseFBeTerseInjectsIntoCodexResponsesInputForTreatment(t *testing.T)
 	}
 	if got := p.OutputReduceCountersSnapshot().BeterseInjections; got != 1 {
 		t.Fatalf("beterse counter=%d, want 1", got)
+	}
+}
+
+func TestWSPhaseFArchiveRecoveryNoteInjectsOncePerSession(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := func(session string) []byte {
+		return mustMarshal(map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": session,
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "continue",
+			}},
+			"stream": true,
+		})
+	}
+
+	first, _, changed, _, _ := adapter.applyInputPipeline(body("archive-note-session"))
+	if !changed || !strings.Contains(string(first), "local-archive://") ||
+		strings.Contains(strings.ToLower(string(first)), "slimference") {
+		t.Fatalf("archive recovery note missing or product-voiced: changed=%v body=%s", changed, first)
+	}
+	second, _, changed, _, _ := adapter.applyInputPipeline(body("archive-note-session"))
+	if changed || strings.Contains(string(second), "local-archive://") {
+		t.Fatalf("archive recovery note should inject once per session, changed=%v body=%s", changed, second)
+	}
+	third, _, changed, _, _ := adapter.applyInputPipeline(body("archive-note-other-session"))
+	if !changed || !strings.Contains(string(third), "local-archive://") {
+		t.Fatalf("distinct session should receive its own note, changed=%v body=%s", changed, third)
+	}
+}
+
+func TestWSPhaseFPromptCachePrefixBlocksStayByteEqual(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	body := mustMarshal(map[string]any{
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "cached-prefix-session",
+		"instructions":     strings.Repeat("cached system instruction block ", 400),
+		"tools": []map[string]any{{
+			"type":        "function",
+			"name":        "exec_command",
+			"description": strings.Repeat("cached tool schema block ", 200),
+		}},
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"stream": true,
+	})
+
+	mutated, messages, changed, stats, reReads := adapter.applyInputPipeline(body)
+	if changed || !bytes.Equal(mutated, body) {
+		t.Fatalf("prompt-cache prefix request must stay byte-equal, changed=%v body=%s", changed, mutated)
+	}
+	if len(messages) != 1 || stats.TokensSaved != 0 || stats.BlocksModified != 0 || reReads != 0 {
+		t.Fatalf("unexpected prefix guard stats: messages=%d stats=%+v rereads=%d", len(messages), stats, reReads)
 	}
 }
 
@@ -844,6 +964,85 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	}
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
 		t.Fatalf("Layer 0 counters not recorded: %+v", snap)
+	}
+}
+
+func TestWSPhaseFSearchOutputDeltaAcrossTurns(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	seedToolCall := func(callID string) {
+		env := parseWSJSON(t, map[string]any{
+			"type": string(wsmitm.FrameKindResponseOutputItemDone),
+			"item": map[string]any{
+				"type":      "function_call",
+				"call_id":   callID,
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "rg -n TODO src"},
+			},
+		})
+		if replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &env); err != nil || replace {
+			t.Fatalf("server search tool-call seed should not replace, replace=%v err=%v", replace, err)
+		}
+	}
+	runOutput := func(callID, output string) (bool, []byte) {
+		env := parseWSJSON(t, map[string]any{
+			"model":                "gpt-5-codex",
+			"previous_response_id": "resp-search",
+			"prompt_cache_key":     "search-delta-session",
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": callID,
+				"output":  output,
+			}},
+			"stream": true,
+		})
+		replaced := adapter.handleRequest(&env)
+		return replaced, []byte(env.Raw)
+	}
+	searchOutput := func(changed bool) string {
+		var b strings.Builder
+		for i := 1; i <= 18; i++ {
+			label := "TODO stable"
+			if changed && i == 10 {
+				label = "TODO stable changed"
+			}
+			b.WriteString("src/very/long/path/search_fixture.go:")
+			b.WriteString(strconv.Itoa(i))
+			b.WriteString(":")
+			b.WriteString(label)
+			b.WriteString(strings.Repeat(" context", 12))
+			b.WriteByte('\n')
+		}
+		return b.String()
+	}
+	first := searchOutput(false)
+	second := searchOutput(true)
+
+	seedToolCall("search-1")
+	_, _ = runOutput("search-1", first)
+	seedToolCall("search-2")
+	replaced, raw := runOutput("search-2", second)
+	if !replaced {
+		t.Fatalf("changed repeated search output should delta-compress, raw=%s", raw)
+	}
+	if !bytes.Contains(raw, []byte("Read delta for tool output for rg -n TODO src")) ||
+		!bytes.Contains(raw, []byte("Full output: local-archive://")) ||
+		!bytes.Contains(raw, []byte("TODO stable changed")) {
+		t.Fatalf("search delta marker missing or incomplete: %s", raw)
+	}
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RepeatedOutputBlocks != 1 || snap.ProxyLayer0TokensSaved == 0 {
+		t.Fatalf("search delta counters missing: %+v", snap)
 	}
 }
 

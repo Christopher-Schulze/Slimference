@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -21,6 +22,49 @@ var archiveURIPattern = regexp.MustCompile(`(?:local-archive://|slim://archive/)
 // budget. 8 is generous enough for hand-rolled debugging flows but
 // keeps the worst case bounded.
 const maxReinjectsPerRequest = 8
+
+const defaultArchiveRecoveryNote = "If a tool result says full content is available as local-archive://<id>, request that exact URI only when the full elided content is needed."
+
+func archiveRecoveryNoteText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return defaultArchiveRecoveryNote
+	}
+	return text
+}
+
+func (p *Proxy) reserveArchiveRecoveryNote(sessionID string) bool {
+	if p == nil || p.config == nil || !p.config.Compression.OutputReduce.ArchiveRecoveryNoteEnabled {
+		return false
+	}
+	sessionID = sessions.SafeOptionalSessionID(sessionID)
+	if sessionID == "" {
+		return false
+	}
+	p.archiveRecoveryNoteMu.Lock()
+	defer p.archiveRecoveryNoteMu.Unlock()
+	if p.archiveRecoveryNote == nil {
+		p.archiveRecoveryNote = make(map[string]struct{})
+	}
+	if _, seen := p.archiveRecoveryNote[sessionID]; seen {
+		return false
+	}
+	p.archiveRecoveryNote[sessionID] = struct{}{}
+	return true
+}
+
+func (p *Proxy) forgetArchiveRecoveryNote(sessionID string) {
+	if p == nil {
+		return
+	}
+	sessionID = sessions.SafeOptionalSessionID(sessionID)
+	if sessionID == "" {
+		return
+	}
+	p.archiveRecoveryNoteMu.Lock()
+	defer p.archiveRecoveryNoteMu.Unlock()
+	delete(p.archiveRecoveryNote, sessionID)
+}
 
 // reinjectArchivedContent scans message text for local-archive URIs and
 // appends expansions as additional content blocks on the same message.

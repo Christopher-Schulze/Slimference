@@ -30,6 +30,7 @@ type wsPhaseFAdapter struct {
 	toolUses        map[string]types.ContentBlock
 	sessionID       string
 	toolUseHydrated bool
+	collapsedKeys   map[string]struct{}
 	qualityCohort   qualityab.Cohort
 	counters        wsPhaseFCounters
 }
@@ -137,7 +138,9 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 	if err == nil && len(messages) > 0 {
 		a.hydrateToolUses(wsCodexSessionID(out))
 		rememberedToolUses := a.loadToolUses()
-		reReadCount = a.observeWSSQualityToolKeys(out, messages, rememberedToolUses)
+		reReadKeys, count := a.observeWSSQualityToolKeys(out, messages, rememberedToolUses)
+		reReadCount = count
+		suppressedKeys := a.restoreKeysForReReads(reReadKeys)
 		a.observeWSSRecentEdits(out, messages, rememberedToolUses)
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
@@ -166,6 +169,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			Messages:          messages,
 			SessionID:         wsCodexSessionID(out),
 			RememberedToolUse: rememberedToolUses,
+			SuppressedToolKey: suppressedKeys,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
@@ -174,6 +178,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 				out = rebuilt
 				messages = l0Messages
 				a.p.outputReduceCounters.RecordProxyLayer0Stats(stats)
+				a.rememberCollapsedReadKeys(stats.ReadDeltaKeys)
 			} else {
 				l0Stats = stats.withoutSavings()
 				a.p.outputReduceCounters.RecordProxyLayer0Stats(l0Stats)
@@ -186,6 +191,14 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		if injected, res := outstop.MergeIntoBody(types.CodexChatGPT, out); res.OK && res.AddedCount > 0 {
 			out = injected
 			a.p.outputReduceCounters.RecordStopSeqInjection(res.AddedCount)
+		}
+	}
+	if sessionID := wsCodexSessionID(out); a.p.reserveArchiveRecoveryNote(sessionID) {
+		note := archiveRecoveryNoteText(a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteText)
+		if injected, res := beterse.Inject(types.CodexChatGPT, out, note); res.Applied {
+			out = injected
+		} else {
+			a.p.forgetArchiveRecoveryNote(sessionID)
 		}
 	}
 	if a.p.config.Compression.OutputReduce.BeTerseHintEnabled && a.p.qualityAB != nil {
@@ -251,10 +264,10 @@ func (a *wsPhaseFAdapter) observeWSSRecentEdits(body []byte, messages []types.Me
 	}
 }
 
-func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) int {
+func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (map[string]struct{}, int) {
 	sessionID := wsCodexSessionID(body)
 	if sessionID == "" || a == nil || a.p == nil {
-		return 0
+		return nil, 0
 	}
 	toolUses := proxyToolUseIndex(messages)
 	for id, use := range rememberedToolUses {
@@ -264,6 +277,7 @@ func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []type
 	}
 	turnID := wssPreviousResponseID(body)
 	seen := make(map[string]struct{})
+	reReadKeys := make(map[string]struct{})
 	reReads := 0
 	for _, msg := range messages {
 		for _, block := range msg.Content {
@@ -280,11 +294,49 @@ func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []type
 			}
 			seen[key] = struct{}{}
 			if a.p.ObserveQualityToolKeyForTurn(sessionID, turnID, key) {
+				reReadKeys[key] = struct{}{}
 				reReads++
 			}
 		}
 	}
-	return reReads
+	return reReadKeys, reReads
+}
+
+func (a *wsPhaseFAdapter) rememberCollapsedReadKeys(keys []string) {
+	if a == nil || len(keys) == 0 {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.collapsedKeys == nil {
+		a.collapsedKeys = make(map[string]struct{}, len(keys))
+	}
+	for _, key := range keys {
+		if key != "" {
+			a.collapsedKeys[key] = struct{}{}
+		}
+	}
+}
+
+func (a *wsPhaseFAdapter) restoreKeysForReReads(reReadKeys map[string]struct{}) map[string]struct{} {
+	if a == nil || len(reReadKeys) == 0 {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.collapsedKeys) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{})
+	for key := range reReadKeys {
+		if _, collapsed := a.collapsedKeys[key]; collapsed {
+			out[key] = struct{}{}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, reReadCount int) {

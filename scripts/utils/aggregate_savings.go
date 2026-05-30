@@ -50,13 +50,15 @@ type aggregateWSSBlock struct {
 }
 
 type aggregateOutputReduceBlock struct {
-	RepdetRewrites      int64 `json:"repdet_rewrites"`
-	RepdetBytesSaved    int64 `json:"repdet_bytes_saved"`
-	StaleReadBlocks     int64 `json:"stale_read_blocks"`
-	ObsoletePruneBlocks int64 `json:"obsolete_prune_blocks"`
-	StopSeqInjections   int64 `json:"stop_seq_injections"`
-	BeterseInjections   int64 `json:"beterse_injections"`
-	StreamcutFires      int64 `json:"streamcut_fires"`
+	OutputWireBytesSaved    int64 `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced int64 `json:"request_side_bytes_reduced"`
+	RepdetRewrites          int64 `json:"repdet_rewrites"`
+	RepdetBytesSaved        int64 `json:"repdet_bytes_saved"`
+	StaleReadBlocks         int64 `json:"stale_read_blocks"`
+	ObsoletePruneBlocks     int64 `json:"obsolete_prune_blocks"`
+	StopSeqInjections       int64 `json:"stop_seq_injections"`
+	BeterseInjections       int64 `json:"beterse_injections"`
+	StreamcutFires          int64 `json:"streamcut_fires"`
 }
 
 type aggregateCodexRouteBlock struct {
@@ -326,13 +328,15 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			ByteBridgeOnly:            state.WSS.ByteBridgeOnly,
 		},
 		OutputReduce: aggregateOutputReduceBlock{
-			RepdetRewrites:      state.Savings.RepdetRewrites,
-			RepdetBytesSaved:    state.Savings.RepdetBytesSaved,
-			StaleReadBlocks:     state.Savings.StaleReadBlocks,
-			ObsoletePruneBlocks: state.Savings.ObsoletePruneBlocks,
-			StopSeqInjections:   state.Savings.StopSeqInjections,
-			BeterseInjections:   state.Savings.BeterseInjections,
-			StreamcutFires:      state.Savings.StreamcutFires,
+			OutputWireBytesSaved:    state.Savings.OutputWireBytesSaved,
+			RequestSideBytesReduced: state.Savings.RequestSideBytesReduced,
+			RepdetRewrites:          state.Savings.RepdetRewrites,
+			RepdetBytesSaved:        state.Savings.RepdetBytesSaved,
+			StaleReadBlocks:         state.Savings.StaleReadBlocks,
+			ObsoletePruneBlocks:     state.Savings.ObsoletePruneBlocks,
+			StopSeqInjections:       state.Savings.StopSeqInjections,
+			BeterseInjections:       state.Savings.BeterseInjections,
+			StreamcutFires:          state.Savings.StreamcutFires,
 		},
 	}
 	if flags.filterDB != "" {
@@ -355,7 +359,7 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 		"WSS input_tokens_saved is from the live RecordProxyLayer0 path (read-delta + L0 filter chain).",
 		"WSS savings are workload-dependent: low without repeat-read sessions, large with them.",
 		"Filter Layer-0 savings cover non-WSS HTTP-path Codex hook traffic (offline SQLite).",
-		"Output-Reduce counters are output-wire/UX telemetry and are not included in billable input-token savings totals.",
+		"Output-wire bytes and request-side byte reductions are reported separately and are not added to billable input-token savings totals.",
 	)
 	switch {
 	case report.WSS.ByteBridgeOnly:
@@ -440,6 +444,8 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "Output-Reduce sub-layers (live counters):")
+	fmt.Fprintf(w, "  output_wire_bytes_saved:       %d\n", report.OutputReduce.OutputWireBytesSaved)
+	fmt.Fprintf(w, "  request_side_bytes_reduced:    %d\n", report.OutputReduce.RequestSideBytesReduced)
 	fmt.Fprintf(w, "  repdet_rewrites:       %d (bytes saved: %d)\n", report.OutputReduce.RepdetRewrites, report.OutputReduce.RepdetBytesSaved)
 	fmt.Fprintf(w, "  stale_read_blocks:     %d\n", report.OutputReduce.StaleReadBlocks)
 	fmt.Fprintf(w, "  obsolete_prune_blocks: %d\n", report.OutputReduce.ObsoletePruneBlocks)

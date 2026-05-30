@@ -131,7 +131,7 @@ func (c *OutputReduceCounters) RecordProxyLayer0(savedTokens int) {
 }
 
 func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
-	if stats == (proxyLayer0Stats{}) {
+	if proxyLayer0StatsEmpty(stats) {
 		return
 	}
 	if routeCounters := c.proxyLayer0RouteCounters(stats.Route); routeCounters != nil {
@@ -174,6 +174,23 @@ func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
 			c.proxyLayer0RepeatedOutputBlocks.Add(uint64(stats.RepeatedOutputBlocks))
 		}
 	}
+}
+
+func proxyLayer0StatsEmpty(stats proxyLayer0Stats) bool {
+	return stats.Route == "" &&
+		stats.TokensSaved == 0 &&
+		stats.BlocksModified == 0 &&
+		stats.ToolResultBlocks == 0 &&
+		stats.ToolUseUnresolvedBlocks == 0 &&
+		stats.CommandResolvedBlocks == 0 &&
+		stats.CommandUnresolvedBlocks == 0 &&
+		stats.ReadDeltaAttempts == 0 &&
+		stats.ReadDeltaMisses == 0 &&
+		stats.CapturedOutputBlocks == 0 &&
+		stats.CodexExecEnvelopeBlocks == 0 &&
+		stats.RepeatedOutputBlocks == 0 &&
+		stats.ReadDeltaBlocks == 0 &&
+		len(stats.ReadDeltaKeys) == 0
 }
 
 func (c *OutputReduceCounters) proxyLayer0RouteCounters(route codexLayer0Route) *proxyLayer0RouteCounters {

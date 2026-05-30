@@ -16,14 +16,15 @@ import (
 // TestWSPhaseFRealCodexMultiReadProducesDeltaMarker locks in the behaviour
 // proven on a real Codex 0.133.0 CLI multi-read capture (T247, 2026-05-23):
 // when the same file is read repeatedly under the exec_command shell tool,
-// the Phase-F reducer must turn each subsequent function_call_output into a
-// readcache delta marker. The fixture replays the captured wire shape
+// the Phase-F reducer turns the first repeated function_call_output into a
+// readcache delta marker, then restores later re-reads to full-pass after
+// the canary reports post-collapse rereads. The fixture replays the captured wire shape
 // (Codex exec envelope around the payload, exec_command tool with bash -lc
 // wrapper, OpenAI Responses-API JSON-encoded arguments string,
 // prompt_cache_key based session id) and asserts that the second and third
-// reads mutate, shrink, and carry the "Read delta for <path>"
-// marker. The readcache is isolated to t.TempDir() so the test does not
-// touch ~/.slimference.
+// reads take the safe sequence: save once, then preserve recency. The
+// readcache is isolated to t.TempDir() so the test does not touch
+// ~/.slimference.
 func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
@@ -136,14 +137,14 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 
 	seedToolCall("call_ccc")
 	pre3, post3, replaced3, raw3 := runRead("call_ccc", "87688d")
-	if !replaced3 {
-		t.Fatalf("read #3 expected mutation; replaced=false pre=%d post=%d", pre3, post3)
+	if replaced3 {
+		t.Fatalf("read #3 should restore full-pass after post-collapse reread; replaced=true pre=%d post=%d", pre3, post3)
 	}
-	if post3 >= pre3 {
-		t.Fatalf("read #3 expected size shrinkage; pre=%d post=%d", pre3, post3)
+	if post3 != pre3 {
+		t.Fatalf("read #3 full-pass should keep size stable; pre=%d post=%d", pre3, post3)
 	}
-	if !bytes.Contains(raw3, wantMarker) {
-		t.Fatalf("read #3 missing delta marker %q; first 600 bytes: %s", wantMarker, raw3[:min(600, len(raw3))])
+	if bytes.Contains(raw3, wantMarker) || !bytes.Contains(raw3, []byte("Synthetic markdown line 599")) {
+		t.Fatalf("read #3 should keep full content and no delta marker; first 600 bytes: %s", raw3[:min(600, len(raw3))])
 	}
 
 	seedToolCall("call_ddd")
@@ -151,27 +152,28 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 		{"type": "output_text", "text": codexEnvelope("a1f00d")},
 		{"type": "image", "id": "preserve-shape"},
 	})
-	if !replaced4 {
-		t.Fatalf("read #4 expected nested output_text-array mutation; replaced=false pre=%d post=%d", pre4, post4)
+	if replaced4 {
+		t.Fatalf("read #4 should also full-pass once restore is active; replaced=true pre=%d post=%d", pre4, post4)
 	}
-	if post4 >= pre4 {
-		t.Fatalf("read #4 expected size shrinkage; pre=%d post=%d", pre4, post4)
+	if post4 != pre4 {
+		t.Fatalf("read #4 full-pass should keep size stable; pre=%d post=%d", pre4, post4)
 	}
-	if !bytes.Contains(raw4, wantMarker) || !bytes.Contains(raw4, []byte(`"type":"image"`)) {
-		t.Fatalf("read #4 should mutate only nested output_text and preserve sibling output items; first 700 bytes: %s", raw4[:min(700, len(raw4))])
+	if bytes.Contains(raw4, wantMarker) || !bytes.Contains(raw4, []byte(`"type":"image"`)) ||
+		!bytes.Contains(raw4, []byte("Synthetic markdown line 599")) {
+		t.Fatalf("read #4 should preserve nested output_text and sibling output items; first 700 bytes: %s", raw4[:min(700, len(raw4))])
 	}
 
 	telemetry := adapter.snapshot()
 	if telemetry.RequestsSeen != 4 {
 		t.Fatalf("expected 4 c2s requests; got %d", telemetry.RequestsSeen)
 	}
-	if telemetry.Mutations < 3 {
-		t.Fatalf("expected >=3 mutations (reads #2, #3, and #4); got %d", telemetry.Mutations)
+	if telemetry.Mutations != 1 {
+		t.Fatalf("expected exactly one mutation before restore (read #2); got %d", telemetry.Mutations)
 	}
 
 	snap := p.OutputReduceCountersSnapshot()
-	if snap.ProxyLayer0RequestsModified < 3 {
-		t.Fatalf("expected >=3 Layer-0 modified requests; got %d", snap.ProxyLayer0RequestsModified)
+	if snap.ProxyLayer0RequestsModified != 1 {
+		t.Fatalf("expected exactly one Layer-0 modified request before restore; got %d", snap.ProxyLayer0RequestsModified)
 	}
 	if snap.ProxyLayer0TokensSaved == 0 {
 		t.Fatalf("expected non-zero L0 token savings; got snapshot=%+v", snap)

@@ -1,6 +1,6 @@
 # TASK 251: Codex savings stability + cross-turn resolution robustness
 
-Status: [~] PARTIAL - tool-use persistence, archive-id hardening, and bounded readcache state landed
+Status: [~] PARTIAL - tool-use persistence, archive-id hardening, prompt-cache guard, and bounded state landed
 Priority: P1 - protects and multiplies existing savings; removes hot-path latency
 Scope: Codex-only WSS Phase-F. Make the existing savings robust across socket
 lifecycle, remove per-read disk I/O, fix archive-id collisions, add recency-adaptive
@@ -48,7 +48,7 @@ guard against mutating items inside the server-cached prefix (net-negative billi
 - [x] Content-addressed archive IDs (replace timestamp + 4KB-prefix scheme);
       collision test for two large files sharing a prefix in the same second.
 - [ ] Recency-adaptive aggressiveness (keep last N turns full); deterministic test.
-- [~] Prompt-cache-aware mutation guard (only mutate past the cached prefix); test.
+- [x] Prompt-cache-aware mutation guard (only mutate past the cached prefix); test.
 - [~] Bounded session/readcache/archive state with TTL/LRU eviction.
 
 ## Notes
@@ -67,10 +67,10 @@ guard against mutating items inside the server-cached prefix (net-negative billi
   sessions/positions.
 - 2026-05-30: readcache and tool-use state now have bounded pruning. The planned
   in-memory readcache plus async flush is still open.
-- 2026-05-30: prompt-cache-aware mutation is currently verified by WSS shape
-  reasoning: Codex WSS sends delta `input` items rather than the cached
-  instructions/tools prefix, so the active reducer cannot mutate that prefix. An
-  explicit regression test remains open.
+- 2026-05-30: prompt-cache-aware mutation is now pinned by an explicit WSS regression
+  test. Huge `instructions` and `tools` prompt-cache prefix blocks remain byte-equal;
+  the reducer only sees the delta `input` items and records no fake savings on the
+  cached prefix.
 - Dependencies: toolUse persistence gated by t249 socket measurement. The other
   sub-tasks are independent.
 - Doctrine: content-free persistence (metadata only, never raw output), fail-open,

@@ -52,9 +52,20 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	if got.StopSeqInjections != 1 || got.BeterseInjections != 1 {
 		t.Errorf("injection counts mismatch: %+v", got)
 	}
-	// Output tokens = sum of bytes-style fields: 1024 + 2048 + 256 + 128 = 3456
+	// Legacy output_tokens_saved remains the sum of bytes-style fields:
+	// 1024 + 2048 + 256 + 128 = 3456. New split fields keep billing-relevant
+	// input tokens separate from output-wire bytes.
 	if got.OutputTokensSaved != 3456 {
 		t.Errorf("OutputTokensSaved=%d want 3456", got.OutputTokensSaved)
+	}
+	if got.BillableInputTokensSaved != 2000 {
+		t.Errorf("BillableInputTokensSaved=%d want 2000", got.BillableInputTokensSaved)
+	}
+	if got.OutputWireBytesSaved != 3072 {
+		t.Errorf("OutputWireBytesSaved=%d want 3072", got.OutputWireBytesSaved)
+	}
+	if got.RequestSideBytesReduced != 384 {
+		t.Errorf("RequestSideBytesReduced=%d want 384", got.RequestSideBytesReduced)
 	}
 	// CostUSD is based on billable input tokens, not output-wire bytes.
 	if got.InputTokensSaved != 2000 {

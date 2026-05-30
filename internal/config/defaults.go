@@ -119,6 +119,7 @@ func defaultsRaw() *Config {
 				StaleReadAgingMinTurnGap:   3,
 				ObsoleteReadPruneEnabled:   true,
 				BeTerseHintEnabled:         false,
+				ArchiveRecoveryNoteEnabled: false,
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,
@@ -279,6 +280,11 @@ auto_tune_min_samples = 30
 min_net_savings_pct = 15
 max_failure_rate_delta = 0.05
 cooldown_turns = 50
+# T249 recovery contract. Default off until comprehension A/B certifies it:
+# when enabled, Codex WSS gets one neutral session note explaining how to
+# request full archived content by local-archive id.
+archive_recovery_note_enabled = false
+archive_recovery_note_text = ""
 
 [compression.minimax]
 # Historical section name, but the client is OpenAI-compatible:

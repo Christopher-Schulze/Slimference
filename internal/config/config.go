@@ -265,6 +265,14 @@ type OutputReduceConfig struct {
 	// BeTerseHintText overrides the default hint. Empty falls back
 	// to beterse.DefaultHint.
 	BeTerseHintText string `toml:"be_terse_hint_text"`
+	// ArchiveRecoveryNoteEnabled injects a neutral once-per-session
+	// Codex WSS note explaining that local-archive:// ids can be
+	// requested for full elided content. Default off until the A/B
+	// harness certifies no comprehension drawdown.
+	ArchiveRecoveryNoteEnabled bool `toml:"archive_recovery_note_enabled"`
+	// ArchiveRecoveryNoteText overrides the neutral recovery note.
+	// Empty falls back to the built-in wording.
+	ArchiveRecoveryNoteText string `toml:"archive_recovery_note_text"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
@@ -756,6 +764,14 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT")); v != "" {
 		cfg.Compression.OutputReduce.BeTerseHintText = v
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE_TEXT")); v != "" {
+		cfg.Compression.OutputReduce.ArchiveRecoveryNoteText = v
+	}
 }
 
 // validate checks that configuration values are within acceptable ranges.
@@ -867,6 +883,9 @@ func validate(cfg *Config) error {
 	}
 	if or.CooldownTurns < 0 {
 		return fmt.Errorf("compression.output_reduce.cooldown_turns must be >= 0, got %d", or.CooldownTurns)
+	}
+	if len(or.ArchiveRecoveryNoteText) > 1000 {
+		return fmt.Errorf("compression.output_reduce.archive_recovery_note_text must be <= 1000 bytes")
 	}
 	return nil
 }

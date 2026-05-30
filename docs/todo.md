@@ -1500,40 +1500,48 @@ only and promotes the per-process Codex CLI runner for T209.
   billable-input based, and adds exact archive-backed cross-turn dedup for
   repeated non-file tool outputs with dedicated route attribution. The latest
   T249-T255 slice adds Codex o200k token guards, content-derived archive IDs,
-  bounded readcache session files, error-priority log/lint truncation, an
-  eslint-json Tier-1 parser, FastCDC chunking primitives, a session chunk-dedup
-  store, WSS reconnect tool-use persistence, and the core offline comprehension
-  A/B comparison engine. Remaining work: future capture-driven tool variants,
-  measured L2/L3 upgrades, replay wiring around the A/B engine, and broader real
-  workload measurements before T240.
+  bounded readcache session files, error-priority log/lint/search/terraform
+  truncation, an eslint-json Tier-1 parser, FastCDC chunking primitives, a
+  session chunk-dedup store, WSS reconnect tool-use persistence, the core offline
+  comprehension A/B comparison engine, default-off archive recovery note
+  injection, WSS re-read-after-collapse auto-restore, ranged read-delta, repeated
+  search-output delta, prompt-cache prefix byte-equal guard tests, and split
+  billable-input vs output-wire savings accounting. Remaining work: future
+  capture-driven tool variants, measured L2/L3 upgrades, replay wiring around
+  the A/B engine, and broader real workload measurements before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 - [~] **T249** Codex comprehension safety net — foundation gate for all aggressive
   savings work. Offline comprehension A/B harness (compressed vs direct, model-facing
   context diff), neutral once-per-session recoverable-archive note so `local-archive://`
   loss becomes recoverable, re-read-after-collapse auto-restore via the existing canary,
-  and a documented socket-lifecycle measurement. Core comparison engine is implemented;
-  replay wiring/recovery note/auto-restore remain open. No direct savings; unlocks
-  t253/t254/t255 to be enabled with data instead of hope.
+  and a documented socket-lifecycle measurement. Core comparison engine,
+  default-off archive recovery note, and re-read-after-collapse auto-restore are
+  implemented; replay wiring and live socket measurement remain open. No direct
+  savings; unlocks t253/t254/t255 to be enabled with data instead of hope.
   Detail: `docs/todo/t249-codex-comprehension-safety-net.md`
-- [ ] **T250** Codex lossless cross-turn savings coverage — extend exact/position-aware
-  savings to the still-uncovered ranged-read class (`sed`/`head`/`tail`/offset, keyed on
-  `path+offset+limit`) and repeated search-output deltas. Lossless, low risk, lifts the
-  savings floor on non-repeat-read sessions.
+- [x] **T250** Codex lossless cross-turn savings coverage — exact/position-aware
+  savings now cover recognized ranged reads (`sed`/`head`/`tail`, keyed on
+  `path+offset+limit`) and repeated search-output deltas. First recognized read
+  misses full-pass instead of falling through to generic compaction, preserving
+  first-read context. Lossless, low risk, lifts the savings floor on
+  non-repeat-read sessions.
   Detail: `docs/todo/t250-codex-ranged-read-and-search-savings.md`
 - [~] **T251** Codex savings stability + cross-turn resolution robustness — persist the
   socket-local toolUse resolution map (content-free, bounded, TTL) so reconnects do not go
   cold, in-memory readcache with async flush (remove per-read disk I/O latency),
   content-addressed archive IDs (collision fix), recency-adaptive aggressiveness,
   prompt-cache-aware mutation, bounded state. Tool-use persistence, archive-id collision
-  hardening, and bounded readcache state are implemented; in-memory async flush and
-  recency policy remain open. Protects and multiplies existing savings.
+  hardening, bounded readcache state, and explicit prompt-cache prefix guard tests are
+  implemented; in-memory async flush and recency policy remain open. Protects and
+  multiplies existing savings.
   Detail: `docs/todo/t251-codex-savings-stability-and-resolution.md`
 - [~] **T252** Codex savings precision + filter/marker tweaks — quick wins: use
   `o200k_base` for Codex token guards (currently `cl100k_base`), fix the `delta.go`
   doubled-newline, make filter caps token-budget-aware + error-priority, add Tier-1
   parsers (eslint-json/tsc/kubectl-json/cargo-metadata/terraform-show-json), compact
-  stderr, structured marker notation. o200k, delta newline, log/lint error-priority,
-  and eslint-json are implemented; remaining parsers/search+terraform caps/stderr stay open.
+  stderr, structured marker notation. o200k, delta newline, log/lint/search/terraform
+  error-priority, eslint-json, and billable-vs-output accounting split are implemented;
+  remaining parsers/stderr/structured marker notation stay open.
   Detail: `docs/todo/t252-codex-savings-precision-and-filter-tweaks.md`
 - [ ] **T253** Codex aggressive read compression (GATED by T249) — first-read AST/structure
   scan-mode compression (extends `codecompact`), predictive post-edit file state from the
@@ -1573,22 +1581,22 @@ criteria; this index is the traceability map so nothing is lost.
 | 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (gated by T249) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
 | 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | queued (gated by T249) |
-| 6 | Ranged/partial read caching | 5-15% | Lossless | T250 | queued |
-| 7 | Search-output delta | 3-8% | Lossless | T250 | queued |
+| 6 | Ranged/partial read caching | 5-15% | Lossless | T250 | DONE |
+| 7 | Search-output delta | 3-8% | Lossless | T250 | DONE |
 | 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (verify-gated) |
 | 9 | apply_patch context dedup | 3-10% | Lossless-ish | T253 | queued (gated by T249) |
-| 10 | Resolvable-archive contract | enabler | Enabler | T249 | queued |
+| 10 | Resolvable-archive contract | enabler | Enabler | T249 | PARTIAL (default-off recovery note landed; live A/B proof before default-on) |
 | 11 | Comprehension A/B harness | enabler | Enabler | T249 | PARTIAL (core engine landed; replay/CI pending) |
 | 12 | Recency-adaptive aggressiveness | +5-10% and drawdown down | Double positive | T251 | queued |
-| 13 | Re-read-after-collapse auto-restore | drawdown down | Drawdown fix | T249 | queued |
+| 13 | Re-read-after-collapse auto-restore | drawdown down | Drawdown fix | T249 | DONE |
 | 14 | o200k tokenizer for Codex (not cl100k) | +2-5% precision, all layers | Precision | T252 | DONE |
 | 15 | toolUse-map disk persistence | multiplier (2-5x hit-rate) | Multiplier | T251 | DONE (core; live efficacy still to measure) |
 | 16 | In-memory readcache + async flush | latency/stability | Stability | T251 | queued |
 | 17 | Content-addressed archive IDs (collision fix) | correctness/stability | Stability | T251 | DONE (collision/idempotence fix; global content-only dedup not built) |
-| 18 | Prompt-cache-aware mutation policy | avoids net-negative billing | Stability | T251 | verified safe-by-construction |
+| 18 | Prompt-cache-aware mutation policy | avoids net-negative billing | Stability | T251 | DONE (byte-equal WSS prefix regression test) |
 | 19 | Bounded session state (TTL/LRU) | stability | Stability | T251 | DONE for readcache/tooluse state |
 | 20 | doubled-newline fix in delta.go | +1-2% changed-reads | Quick win | T252 | DONE |
-| 21 | Filter caps token-aware + error-priority | +1-3% | Quick win + drawdown | T252 | PARTIAL (log+lint done; search/terraform open) |
+| 21 | Filter caps token-aware + error-priority | +1-3% | Quick win + drawdown | T252 | PARTIAL (log+lint/search/terraform done; broader parser caps remain) |
 | 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | PARTIAL (eslint-json done; rest queued) |
 | 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | queued |
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | queued |

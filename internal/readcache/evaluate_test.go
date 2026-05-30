@@ -196,6 +196,55 @@ func TestEvaluateObserved_LargeContentUsesArchiveWithoutInlineCache(t *testing.T
 	}
 }
 
+func TestEvaluateObserved_RangedReadsAreDistinctAndDeltaCapable(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	rangeA := Request{SessionID: "s1", FilePath: "main.go", Offset: 1, Limit: 20}
+	rangeB := Request{SessionID: "s1", FilePath: "main.go", Offset: 21, Limit: 20}
+	before := strings.Repeat("range A line\n", 40)
+	otherRange := strings.Repeat("range B line\n", 40)
+
+	if decision, err := EvaluateObserved(dir, rangeA, before, archiveDir, false); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("first ranged read should allow, decision=%+v err=%v", decision, err)
+	}
+	decision, err := EvaluateObserved(dir, rangeA, before, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged ||
+		!strings.Contains(decision.Reason, "Full content: local-archive://") {
+		t.Fatalf("identical ranged reread should block with archive reference: %+v", decision)
+	}
+
+	decision, err = EvaluateObserved(dir, rangeB, otherRange, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionAllow {
+		t.Fatalf("distinct range must not collide with range A: %+v", decision)
+	}
+
+	changed := before + "range A added line\n"
+	decision, err = EvaluateObserved(dir, rangeA, changed, archiveDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta ||
+		!strings.Contains(decision.Reason, "+range A added line") {
+		t.Fatalf("changed ranged reread should block with position-aware delta: %+v", decision)
+	}
+
+	state, err := LoadSession(dir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Files["main.go#range:1:20"] == nil || state.Files["main.go#range:21:20"] == nil {
+		t.Fatalf("ranges must be keyed independently: %+v", state.Files)
+	}
+}
+
 func TestEvaluateObserved_RecentEditAllowsAndUpdates(t *testing.T) {
 	t.Parallel()
 
@@ -286,6 +335,40 @@ func TestEvaluateObservedOutput_ChangedShortOrUnarchivedAllows(t *testing.T) {
 	}
 	if decision, err := EvaluateObservedOutput(dir, req, strings.Repeat("new output line\n", 40), archiveDir); err != nil || decision.Type != DecisionAllow {
 		t.Fatalf("changed output should allow, decision=%+v err=%v", decision, err)
+	}
+}
+
+func TestEvaluateObservedOutput_SearchDeltaBlocks(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	req := OutputRequest{
+		SessionID:   "s1",
+		Key:         "search:rg\t-n\tneedle\t.",
+		CommandLine: "rg -n needle .",
+	}
+	before := strings.Repeat("pkg/a.go:10:needle old context\n", 30)
+	if decision, err := EvaluateObservedOutput(dir, req, before, archiveDir); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("first search output should allow, decision=%+v err=%v", decision, err)
+	}
+	after := before + "pkg/b.go:42:needle new context\n"
+	decision, err := EvaluateObservedOutput(dir, req, after, archiveDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta ||
+		!strings.Contains(decision.Reason, "+pkg/b.go:42:needle new context") ||
+		!strings.Contains(decision.Reason, "Full output: local-archive://") {
+		t.Fatalf("changed search output should block with delta: %+v", decision)
+	}
+
+	nonSearch := OutputRequest{SessionID: "s2", Key: "command:tool", CommandLine: "tool"}
+	if _, err := EvaluateObservedOutput(dir, nonSearch, before, archiveDir); err != nil {
+		t.Fatal(err)
+	}
+	if decision, err := EvaluateObservedOutput(dir, nonSearch, after, archiveDir); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("changed non-search output should remain allow, decision=%+v err=%v", decision, err)
 	}
 }
 

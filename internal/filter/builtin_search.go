@@ -82,29 +82,33 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("[%s] %d match(es) in %d file(s)\n", toolName, totalMatches, len(fileOrder)))
 
-	filesShown := 0
-	for _, f := range fileOrder {
-		if filesShown >= maxFilesShown {
-			remaining := len(fileOrder) - filesShown
-			sb.WriteString(fmt.Sprintf("  [+%d more files]\n", remaining))
-			break
+	selectedFiles := cappedSearchIndexes(len(fileOrder), maxFilesShown, 6)
+	previousFile := -1
+	for _, fileIdx := range selectedFiles {
+		if previousFile >= 0 && fileIdx > previousFile+1 {
+			sb.WriteString(fmt.Sprintf("  [+%d more files]\n", fileIdx-previousFile-1))
 		}
+		f := fileOrder[fileIdx]
 		ms := fileMatches[f]
 		sb.WriteString(fmt.Sprintf("  %s (%d match(es))\n", f, len(ms)))
-		shown := 0
-		for _, m := range ms {
-			if shown >= maxMatchesPerFile {
-				sb.WriteString(fmt.Sprintf("    [+%d more]\n", len(ms)-shown))
-				break
+		selectedMatches := cappedSearchIndexes(len(ms), maxMatchesPerFile, 6)
+		previousMatch := -1
+		for _, matchIdx := range selectedMatches {
+			if previousMatch >= 0 && matchIdx > previousMatch+1 {
+				sb.WriteString(fmt.Sprintf("    [+%d more]\n", matchIdx-previousMatch-1))
 			}
+			m := ms[matchIdx]
 			if m.lineNum != "" {
 				sb.WriteString(fmt.Sprintf("    %s: %s\n", m.lineNum, strings.TrimSpace(m.content)))
 			} else {
 				sb.WriteString(fmt.Sprintf("    %s\n", strings.TrimSpace(m.content)))
 			}
-			shown++
+			previousMatch = matchIdx
 		}
-		filesShown++
+		previousFile = fileIdx
+	}
+	if len(selectedFiles) > 0 && selectedFiles[len(selectedFiles)-1] < len(fileOrder)-1 {
+		sb.WriteString(fmt.Sprintf("  [+%d more files]\n", len(fileOrder)-selectedFiles[len(selectedFiles)-1]-1))
 	}
 
 	result := sb.String()
@@ -112,6 +116,36 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 		return stdout, false // no benefit
 	}
 	return []byte(result), true
+}
+
+func cappedSearchIndexes(total, budget, tail int) []int {
+	if total <= 0 || budget <= 0 {
+		return nil
+	}
+	if total <= budget {
+		out := make([]int, total)
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+	if tail < 0 {
+		tail = 0
+	}
+	if tail > budget/2 {
+		tail = budget / 2
+	}
+	head := budget - tail
+	out := make([]int, 0, budget)
+	for i := 0; i < head; i++ {
+		out = append(out, i)
+	}
+	for i := total - tail; i < total; i++ {
+		if i >= head {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 // searchToolName extracts a short display name for the search tool.
@@ -125,6 +159,16 @@ func searchToolName(argv []string) string {
 		return "git grep"
 	}
 	return base
+}
+
+// SearchOutputKeyFromCommandLine returns a stable key for grep-style search
+// commands whose output can be safely compared across turns.
+func SearchOutputKeyFromCommandLine(commandLine string) string {
+	argv := primaryArgvForCapturedOutput(commandLine)
+	if !isGrepStyleTool(argv) {
+		return ""
+	}
+	return strings.Join(argv, "\t")
 }
 
 // TryCompactRipgrep summarizes empty stdout from ripgrep (F10 partial).

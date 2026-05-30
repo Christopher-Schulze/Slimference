@@ -3324,3 +3324,37 @@ Safety:
   repeated ranges.
 - No semantic range diffing was added. Different partial outputs still pass
   through unchanged.
+
+## 2026-05-30 - T249-T252 WSS lossless savings and drawdown hardening
+
+Goal: close the next safe Codex WSS improvements without enabling speculative
+model-facing behavior by default.
+
+Changes:
+- T249: added a default-off, once-per-session archive-recovery note on the WSS
+  request path. The wording is neutral, contains no product name, and stays
+  config-gated until A/B comprehension proof says it is safe to enable broadly.
+- T249: added re-read-after-collapse auto-restore. When a collapsed read key is
+  deliberately requested again, the WSS reducer suppresses future collapse for
+  that key in the current session and sends the full content instead.
+- T250: recognized ranged reads (`head`, `tail`, `sed -n`) now use
+  `path+offset+limit` read-delta keys. Different ranges of the same file cannot
+  collide, and first recognized read misses full-pass instead of falling through
+  to generic compaction.
+- T250: repeated `rg` / `grep` / `git grep` outputs now support archive-backed
+  position-aware deltas, not only exact unchanged references.
+- T251: added an explicit WSS regression test proving huge `instructions` and
+  `tools` prompt-cache prefix blocks remain byte-equal and are not counted as
+  savings.
+- T252: search grouping now preserves head and tail matches/files under cap
+  pressure, terraform output compaction keeps late diagnostic/error outputs, and
+  reports split billable input-token savings from output-wire byte reductions.
+
+Safety:
+- The only new model-facing instruction is default-off. This keeps recovery
+  available for controlled proof runs without silently changing production
+  behavior.
+- Lossless/readcache paths still require archive availability plus size/token
+  wins; otherwise original content is forwarded unchanged.
+- Output-wire savings are no longer mixed into the billable-token headline, so
+  proof numbers are harder to overstate.

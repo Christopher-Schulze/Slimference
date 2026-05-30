@@ -389,13 +389,15 @@ func diffAggregateWSS(base, current aggregateWSSBlock) aggregateWSSBlock {
 
 func diffAggregateOutputReduce(base, current aggregateOutputReduceBlock) aggregateOutputReduceBlock {
 	return aggregateOutputReduceBlock{
-		RepdetRewrites:      nonNegativeDelta(current.RepdetRewrites, base.RepdetRewrites),
-		RepdetBytesSaved:    nonNegativeDelta(current.RepdetBytesSaved, base.RepdetBytesSaved),
-		StaleReadBlocks:     nonNegativeDelta(current.StaleReadBlocks, base.StaleReadBlocks),
-		ObsoletePruneBlocks: nonNegativeDelta(current.ObsoletePruneBlocks, base.ObsoletePruneBlocks),
-		StopSeqInjections:   nonNegativeDelta(current.StopSeqInjections, base.StopSeqInjections),
-		BeterseInjections:   nonNegativeDelta(current.BeterseInjections, base.BeterseInjections),
-		StreamcutFires:      nonNegativeDelta(current.StreamcutFires, base.StreamcutFires),
+		OutputWireBytesSaved:    nonNegativeDelta(current.OutputWireBytesSaved, base.OutputWireBytesSaved),
+		RequestSideBytesReduced: nonNegativeDelta(current.RequestSideBytesReduced, base.RequestSideBytesReduced),
+		RepdetRewrites:          nonNegativeDelta(current.RepdetRewrites, base.RepdetRewrites),
+		RepdetBytesSaved:        nonNegativeDelta(current.RepdetBytesSaved, base.RepdetBytesSaved),
+		StaleReadBlocks:         nonNegativeDelta(current.StaleReadBlocks, base.StaleReadBlocks),
+		ObsoletePruneBlocks:     nonNegativeDelta(current.ObsoletePruneBlocks, base.ObsoletePruneBlocks),
+		StopSeqInjections:       nonNegativeDelta(current.StopSeqInjections, base.StopSeqInjections),
+		BeterseInjections:       nonNegativeDelta(current.BeterseInjections, base.BeterseInjections),
+		StreamcutFires:          nonNegativeDelta(current.StreamcutFires, base.StreamcutFires),
 	}
 }
 

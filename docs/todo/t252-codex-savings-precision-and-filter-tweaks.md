@@ -1,6 +1,6 @@
 # TASK 252: Codex savings precision + filter/marker tweaks (quick wins)
 
-Status: [~] PARTIAL - o200k, delta newline, log/lint priority, and eslint-json landed
+Status: [~] PARTIAL - o200k, delta newline, log/lint/search/terraform priority, eslint-json, and accounting split landed
 Priority: P2 - small, low-risk, high-certainty improvements across all layers
 Scope: Codex-only. Token-accounting precision, delta formatting, filter cap quality,
 more Tier-1 parsers, stderr compaction, marker notation.
@@ -67,9 +67,14 @@ Several small, verified issues each cost a few percent or add drawdown:
   o200k tokenizer distinctly.
 - 2026-05-30: delta output emits one newline per diff line.
 - 2026-05-30: log and lint truncation now preserve late error/failure lines ahead of
-  benign positional caps. Search and terraform caps remain open.
+  benign positional caps. Search grouping now preserves both head and tail matches/files
+  under cap pressure, and terraform output compaction keeps late diagnostic/error
+  outputs before benign positional entries. Broader parser-specific caps remain open.
 - 2026-05-30: eslint `--format json` is now a Tier-1 parser, including shell shim
   detection (`eslint.cmd`/`eslint.exe`). The other listed Tier-1 parsers remain open.
+- 2026-05-30: WSS/admin/report accounting now separates billable input-token savings
+  from output-wire bytes and request-side reduced bytes. Output-wire savings are no
+  longer folded into the billable headline.
 - Doctrine: content-free, fail-open, scoped.
 
 ## Deviations
