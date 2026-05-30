@@ -44,19 +44,14 @@ func primaryArgvForCapturedOutput(commandLine string) []string {
 	}
 
 	argv := make([]string, 0, 8)
-	seenCommand := false
 	for _, tok := range toks {
 		switch tok.Kind {
 		case TokenOperator, TokenPipe, TokenRedirect, TokenShellism:
-			if seenCommand {
-				return argv
-			}
 			return nil
 		case TokenArg:
-			if !seenCommand && isEnvAssignmentToken(tok.Value) {
+			if len(argv) == 0 && isEnvAssignmentToken(tok.Value) {
 				continue
 			}
-			seenCommand = true
 			argv = append(argv, tok.Value)
 		}
 	}

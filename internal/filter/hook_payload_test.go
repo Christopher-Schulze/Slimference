@@ -93,8 +93,11 @@ func TestPrimaryArgvForCapturedOutput(t *testing.T) {
 	if argv := primaryArgvForCapturedOutput("FOO=bar git status --short"); len(argv) != 3 || argv[0] != "git" {
 		t.Fatalf("env assignment parsing failed: %#v", argv)
 	}
-	if argv := primaryArgvForCapturedOutput("git status | cat"); len(argv) != 2 || argv[0] != "git" || argv[1] != "status" {
-		t.Fatalf("pipeline parsing failed: %#v", argv)
+	if argv := primaryArgvForCapturedOutput("git status | cat"); argv != nil {
+		t.Fatalf("pipeline command should not be compacted as a single command: %#v", argv)
+	}
+	if argv := primaryArgvForCapturedOutput("cat a.txt; cat b.txt"); argv != nil {
+		t.Fatalf("compound command should not be compacted as a single command: %#v", argv)
 	}
 	if argv := primaryArgvForCapturedOutput("> out.txt"); argv != nil {
 		t.Fatalf("redirect-only command should return nil: %#v", argv)
@@ -105,8 +108,8 @@ func TestArgvForCapturedOutput_exportedWrapper(t *testing.T) {
 	t.Parallel()
 
 	argv := ArgvForCapturedOutput("cd repo && go test ./...")
-	if len(argv) != 2 || argv[0] != "cd" || argv[1] != "repo" {
-		t.Fatalf("exported wrapper argv=%#v", argv)
+	if argv != nil {
+		t.Fatalf("compound exported wrapper argv=%#v", argv)
 	}
 }
 

@@ -3772,3 +3772,39 @@ Changes:
 Verification:
 - Added PASS and FAIL tests for the proof matrix command.
 - `go test ./scripts/utils` passed.
+
+## 2026-05-30 - T257 first live captures + compound-command safety hardening
+
+Goal: start the real CLI/Desktop proof matrix and treat replay failures as
+product safety findings, not as cosmetic test noise.
+
+Live captures:
+- `cli-repeat-full-read-001`: scoped CLI WSS capture passed A/B replay with
+  109 frames, 3 request turns, 1 mutated request, 10,027 bytes saved, lost=0.
+  Live daemon counters for the same closed session recorded phasef_bridged=1,
+  frames_reencoded=1, compressed_messages_mutated=1, parse_failures=0,
+  degraded_sessions=0, compression_errors=0, and 2,838 billable input tokens
+  saved.
+- `cli-similar-files`: scoped CLI WSS capture was route-clean but savings-negative
+  for default-auto. Replay saved 0 bytes with lost=0. Live counters showed two
+  resolved tool-result blocks, two read-delta misses, and no mutation. Forced
+  chunk-dedup replay added only the recovery note and was net-negative, so this
+  workload does not justify default promotion.
+- `cli-changed-file`: initial capture used a compound `cat; append; cat` command.
+  Live mutation saved 900 billable input tokens, but A/B replay reported lost=1,
+  proving the mutation path was not safe for that shell shape.
+
+Fix:
+- Captured-output argv parsing now rejects operators, pipes, redirects, and
+  shellisms anywhere in the command line. Compound commands no longer get
+  compacted as if their output belonged only to the first simple command.
+- Replaying the same `cli-changed-file` capture after the fix produced
+  bytes_saved=0, lost=0, gate_passed=true. The unsafe saving is intentionally
+  removed.
+
+Verification:
+- `go test ./internal/filter ./internal/proxy` passed.
+- Replayed `/tmp/slimference-t257/cli-changed-file.jsonl` with
+  `wss-ab-replay --fail-on-lost --json`: gate_passed=true, lost=0.
+- `go build ./...`, `go vet ./...`, and `go test ./...` passed.
+- `go run ./scripts/ci` passed all 8 steps with 98.1% total statement coverage.

@@ -71,6 +71,22 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   decisions log, verifies 5 CLI + 5 Desktop coverage, verifies all required
   workload classes, enforces per-capture gates, and checks the 7/10
   positive-or-expected-zero savings gate.
+- 2026-05-30: Live CLI capture `cli-repeat-full-read-001` passed the replay gate:
+  109 frames, 3 request turns, 1 mutated request, 10,027 bytes saved, lost=0.
+  Matching live daemon counters showed phasef_bridged=1, frames_reencoded=1,
+  compressed_messages_mutated=1, parse_failures=0, degraded_sessions=0,
+  compression_errors=0, and 2,838 billable input tokens saved.
+- 2026-05-30: Live CLI capture `cli-similar-files` was a default-auto negative
+  proof: route and parsing were clean, but replay saved 0 bytes and live counters
+  showed read_delta_misses=2 with no mutation. Forcing chunk dedup on the capture
+  only added the recovery note and was net-negative, so this workload must not
+  promote chunk dedup by default without broader positive evidence.
+- 2026-05-30: Live CLI `changed_file` capture exposed a safety issue in captured
+  shell-output compaction: a compound `cat; append; cat` command was parsed as
+  the first simple `cat`, producing A/B replay lost=1. The captured-output argv
+  parser now rejects command lines containing operators, pipes, redirects, or
+  shellisms anywhere in the command. Replaying the same capture after the fix
+  returns lost=0 and bytes_saved=0, which is the correct fail-open outcome.
 
 ## Deviations
 
