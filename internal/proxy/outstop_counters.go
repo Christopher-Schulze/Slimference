@@ -106,6 +106,8 @@ type OutputReduceCounters struct {
 	proxyLayer0EnvelopeBlocks        atomic.Uint64
 	proxyLayer0RepeatedOutputBlocks  atomic.Uint64
 	proxyLayer0ChunkDedupBlocks      atomic.Uint64
+	proxyLayer0ScanReadsApplied      atomic.Uint64
+	proxyLayer0ScanReadReReads       atomic.Uint64
 	proxyLayer0HTTP                  proxyLayer0RouteCounters
 	proxyLayer0WSSPhaseF             proxyLayer0RouteCounters
 
@@ -182,6 +184,17 @@ func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
 		if stats.ChunkDedupBlocks > 0 {
 			c.proxyLayer0ChunkDedupBlocks.Add(uint64(stats.ChunkDedupBlocks))
 		}
+		if n := len(stats.ScanReadKeys); n > 0 {
+			c.proxyLayer0ScanReadsApplied.Add(uint64(n))
+		}
+	}
+}
+
+// RecordScanReadReReads counts re-reads that hit a scan-elided read key (the
+// body-was-needed signal). Telemetry-only; never affects the stream.
+func (c *OutputReduceCounters) RecordScanReadReReads(n int) {
+	if c != nil && n > 0 {
+		c.proxyLayer0ScanReadReReads.Add(uint64(n))
 	}
 }
 
@@ -300,6 +313,8 @@ type OutputReduceTelemetry struct {
 	ProxyLayer0EnvelopeBlocks        uint64                     `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0RepeatedOutputBlocks  uint64                     `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedupBlocks      uint64                     `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ScanReadsApplied      uint64                     `json:"proxy_layer0_scan_reads_applied"`
+	ProxyLayer0ScanReadReReads       uint64                     `json:"proxy_layer0_scan_read_rereads"`
 	ProxyLayer0Routes                ProxyLayer0RoutesTelemetry `json:"proxy_layer0_routes"`
 	StopSeqRequestsModified          uint64                     `json:"stop_seq_requests_modified"`
 	StopSeqPhrasesAdded              uint64                     `json:"stop_seq_phrases_added"`
@@ -356,6 +371,8 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 		ProxyLayer0EnvelopeBlocks:        c.proxyLayer0EnvelopeBlocks.Load(),
 		ProxyLayer0RepeatedOutputBlocks:  c.proxyLayer0RepeatedOutputBlocks.Load(),
 		ProxyLayer0ChunkDedupBlocks:      c.proxyLayer0ChunkDedupBlocks.Load(),
+		ProxyLayer0ScanReadsApplied:      c.proxyLayer0ScanReadsApplied.Load(),
+		ProxyLayer0ScanReadReReads:       c.proxyLayer0ScanReadReReads.Load(),
 		ProxyLayer0Routes: ProxyLayer0RoutesTelemetry{
 			HTTP:      c.proxyLayer0HTTP.snapshot(),
 			WSSPhaseF: c.proxyLayer0WSSPhaseF.snapshot(),

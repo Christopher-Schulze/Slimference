@@ -75,6 +75,7 @@ type proxyLayer0Stats struct {
 	RepeatedOutputBlocks    int
 	ChunkDedupBlocks        int
 	ReadDeltaKeys           []string
+	ScanReadKeys            []string
 }
 
 func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
@@ -86,6 +87,7 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.RepeatedOutputBlocks = 0
 	s.ChunkDedupBlocks = 0
 	s.ReadDeltaKeys = nil
+	s.ScanReadKeys = nil
 	return s
 }
 
@@ -265,9 +267,11 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					stats.CapturedOutputBlocks++
 					// Register the read key so a later re-read of this file is seen
 					// as a post-collapse re-read and full-passed: that is the
-					// recovery path for the elided bodies.
+					// recovery path for the elided bodies. Also tag it scan-origin
+					// so re-read frequency (body-was-needed rate) is measurable.
 					if toolKey != "" {
 						stats.ReadDeltaKeys = append(stats.ReadDeltaKeys, toolKey)
+						stats.ScanReadKeys = append(stats.ScanReadKeys, toolKey)
 					}
 				default:
 					stats.CapturedOutputBlocks++

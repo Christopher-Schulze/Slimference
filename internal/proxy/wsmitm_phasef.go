@@ -33,6 +33,7 @@ type wsPhaseFAdapter struct {
 	sessionID       string
 	toolUseHydrated bool
 	collapsedKeys   map[string]struct{}
+	scanReadKeys    map[string]struct{}
 	qualityCohort   qualityab.Cohort
 	counters        wsPhaseFCounters
 }
@@ -175,6 +176,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		reReadKeys, count := a.observeWSSQualityToolKeys(out, messages, rememberedToolUses)
 		reReadCount = count
 		suppressedKeys := a.restoreKeysForReReads(reReadKeys)
+		a.p.outputReduceCounters.RecordScanReadReReads(a.countScanReadReReads(reReadKeys))
 		a.observeWSSRecentEdits(out, messages, rememberedToolUses)
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
@@ -222,6 +224,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 				messages = l0Messages
 				a.p.outputReduceCounters.RecordProxyLayer0Stats(stats)
 				a.rememberCollapsedReadKeys(stats.ReadDeltaKeys)
+				a.rememberScanReadKeys(stats.ScanReadKeys)
 			} else {
 				l0Stats = stats.withoutSavings()
 				a.p.outputReduceCounters.RecordProxyLayer0Stats(l0Stats)
@@ -422,6 +425,99 @@ func (a *wsPhaseFAdapter) persistCollapsedKeys(sessionID string, keys []string) 
 		return
 	}
 	_, _ = toolusecache.Merge(dir, sessionID, add)
+}
+
+// rememberScanReadKeys records (and persists) the scan-origin subset of
+// collapsed keys, so a later re-read of a scan-elided file is attributable to
+// scan-mode when measuring the body-was-needed rate. Telemetry-only.
+func (a *wsPhaseFAdapter) rememberScanReadKeys(keys []string) {
+	if a == nil || len(keys) == 0 {
+		return
+	}
+	a.mu.Lock()
+	if a.scanReadKeys == nil {
+		a.scanReadKeys = make(map[string]struct{}, len(keys))
+	}
+	for _, key := range keys {
+		if key != "" {
+			a.scanReadKeys[key] = struct{}{}
+		}
+	}
+	sid := a.sessionID
+	a.mu.Unlock()
+	a.persistScanReadKeys(sid, keys)
+}
+
+func (a *wsPhaseFAdapter) scanReadKeysDir() string {
+	home, err := proxyUserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return toolusecache.ScanReadKeysDir(home)
+}
+
+func (a *wsPhaseFAdapter) hydrateScanReadKeys(sessionID string) {
+	if a == nil || sessionID == "" {
+		return
+	}
+	dir := a.scanReadKeysDir()
+	if dir == "" {
+		return
+	}
+	loaded, err := toolusecache.Load(dir, sessionID)
+	if err != nil || len(loaded) == 0 {
+		return
+	}
+	a.mu.Lock()
+	if a.scanReadKeys == nil {
+		a.scanReadKeys = make(map[string]struct{}, len(loaded))
+	}
+	for key := range loaded {
+		if key != "" {
+			a.scanReadKeys[key] = struct{}{}
+		}
+	}
+	a.mu.Unlock()
+}
+
+func (a *wsPhaseFAdapter) persistScanReadKeys(sessionID string, keys []string) {
+	if a == nil || sessionID == "" || len(keys) == 0 {
+		return
+	}
+	dir := a.scanReadKeysDir()
+	if dir == "" {
+		return
+	}
+	add := make(map[string]toolusecache.Entry, len(keys))
+	for _, key := range keys {
+		if key != "" {
+			add[key] = toolusecache.Entry{ToolUseID: key}
+		}
+	}
+	if len(add) == 0 {
+		return
+	}
+	_, _ = toolusecache.Merge(dir, sessionID, add)
+}
+
+// countScanReadReReads returns how many of the re-read keys hit a scan-elided
+// read (body-was-needed events) for telemetry.
+func (a *wsPhaseFAdapter) countScanReadReReads(reReadKeys map[string]struct{}) int {
+	if a == nil || len(reReadKeys) == 0 {
+		return 0
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.scanReadKeys) == 0 {
+		return 0
+	}
+	n := 0
+	for key := range reReadKeys {
+		if _, ok := a.scanReadKeys[key]; ok {
+			n++
+		}
+	}
+	return n
 }
 
 func (a *wsPhaseFAdapter) restoreKeysForReReads(reReadKeys map[string]struct{}) map[string]struct{} {
@@ -671,6 +767,7 @@ func (a *wsPhaseFAdapter) hydrateToolUses(sessionID string) {
 	// re-read full-pass recovery survives a reconnect even when no tool-use
 	// metadata is cached yet.
 	a.hydrateCollapsedKeys(sessionID)
+	a.hydrateScanReadKeys(sessionID)
 
 	dir := a.toolUseCacheDir()
 	if dir == "" {
