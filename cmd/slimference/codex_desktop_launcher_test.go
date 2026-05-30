@@ -1134,7 +1134,11 @@ func TestStartCodexDesktopProcessRejectsImmediateExit(t *testing.T) {
 	script := writeCodexDesktopTestScript(t, "#!/bin/sh\nexit 0\n")
 	oldDelay := codexDesktopStartProbeDelay
 	t.Cleanup(func() { codexDesktopStartProbeDelay = oldDelay })
-	codexDesktopStartProbeDelay = 25 * time.Millisecond
+	// 250ms (not 25ms): the probe must reliably observe the forked shell's
+	// exit even under heavy parallel `go test ./...` load. A 25ms window gets
+	// starved before `exit 0` is scheduled, falsely reporting a launch (flaky).
+	// Production uses 750ms, so this neither weakens the check nor masks it.
+	codexDesktopStartProbeDelay = 250 * time.Millisecond
 
 	var out, errBuf bytes.Buffer
 	rc := startCodexDesktopProcess(installPrinter{Out: &out, Err: &errBuf},
