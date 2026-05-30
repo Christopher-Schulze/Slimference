@@ -64,7 +64,7 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
       table test simulating N re-reads of a collapsed path flips that path to full pass.
 - [ ] Run + document socket-lifecycle measurement (lsof `127.0.0.1:8990`,
       `decisions.jsonl` `route_mode`, CommandUnresolved vs mutations across SEPARATE
-      user turns). Record verdict; decide t251 toolUse persistence.
+      user turns). CLI separate-turn proof is done; Desktop proof remains.
 
 ## Notes
 
@@ -88,6 +88,15 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
 - 2026-05-30: `RunWSSPhaseFABReplay` now uses an isolated temporary home for each
   offline replay, so prior disk-backed readcache/tooluse/archive state cannot
   skew reported A/B savings.
+- 2026-05-30: separate-user-turn CLI socket-lifecycle proof is done via
+  `codex exec` plus `codex exec resume` on session
+  `019e78ff-6196-7461-8c51-d40eaa2847d8`. The capture had 165 frames, 5 replayed
+  request turns, 1 A/B mutation, 6745 bytes saved, `lost=0`, `gate=PASS`; admin
+  counters showed `phasef_bridged=3`, `read_delta_blocks=3`,
+  `command_unresolved_blocks=0`, `compressed_messages_mutated=2`, and zero
+  parse/degraded/compression errors. Verdict: Codex CLI opens/reuses enough WSS
+  sessions to exercise reconnect boundaries, and persisted tool-use metadata keeps
+  cross-turn read-delta working. Desktop still needs the same proof.
 - 2026-05-30: WSS archive-recovery note injection landed behind
   `archive_recovery_note_enabled`, default-off, once per session, and voice-neutral.
   It injects no product name and keeps recovery proof-gated instead of making a new

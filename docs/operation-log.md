@@ -3394,6 +3394,15 @@ Changes:
   after session reported `billable_input_tokens_saved=1414`,
   `read_delta_blocks=1`, `compressed_messages_mutated=1`, and zero
   parse/degraded/compression errors.
+- Separate-user-turn CLI socket-lifecycle proof:
+  `/tmp/slimference-t249-resume-read-20260530T130741Z.jsonl` captured a
+  `codex exec` first turn plus `codex exec resume` second turn on session
+  `019e78ff-6196-7461-8c51-d40eaa2847d8`. Replay reported `frames=165`,
+  `request_turns=5`, `mutated_requests=1`, `bytes_saved=6745`, `lost=0`,
+  `gate=PASS`. Admin-state reported `phasef_bridged=3`, `read_delta_blocks=3`,
+  `command_unresolved_blocks=0`, `compressed_messages_mutated=2`, and zero
+  parse/degraded/compression errors. Verdict: CLI cross-turn read-delta survives
+  WSS reconnect boundaries via persisted tool-use metadata; Desktop proof remains.
 
 Safety:
 - This is proof infrastructure only. It does not enable any new compression path
