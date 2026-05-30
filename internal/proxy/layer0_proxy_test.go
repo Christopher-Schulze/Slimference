@@ -89,6 +89,51 @@ func TestApplyProxyLayer0WithRememberedToolUse(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0WSSCapturedOutputCarriesArchiveReference(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	var status strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&status, "?? synthetic_%02d.go\n", i)
+	}
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-status", ToolName: "shell", ToolInput: `{"command":"git status --short"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-status", Text: status.String()}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messages,
+		SessionID: "sess-wss-captured",
+	})
+	text := result.Messages[1].Content[0].Text
+	if result.Stats.CapturedOutputBlocks != 1 || result.Stats.TokensSaved <= 0 {
+		t.Fatalf("expected WSS captured-output savings, stats=%+v text=%q", result.Stats, text)
+	}
+	if !strings.Contains(text, "[git status]") || !strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") {
+		t.Fatalf("WSS captured output must be compact and recoverable: %q", text)
+	}
+}
+
+func TestReduceCodexLayer0WSSCapturedOutputFailsOpenWithoutSession(t *testing.T) {
+	t.Parallel()
+
+	var status strings.Builder
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&status, "?? synthetic_%02d.go\n", i)
+	}
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-status", ToolName: "shell", ToolInput: `{"command":"git status --short"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-status", Text: status.String()}}},
+	}
+	result := reduceCodexLayer0(codexLayer0Request{
+		Route:    codexLayer0RouteWSSPhaseF,
+		Messages: messages,
+	})
+	if result.Stats.BlocksModified != 0 || result.Messages[1].Content[0].Text != status.String() {
+		t.Fatalf("missing WSS session must fail open, stats=%+v text=%q", result.Stats, result.Messages[1].Content[0].Text)
+	}
+}
+
 func TestProxyResolveToolUseBranches(t *testing.T) {
 	t.Parallel()
 

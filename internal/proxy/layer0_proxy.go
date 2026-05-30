@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -200,6 +201,15 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if !changed {
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
+			}
+			if changed && req.Route == codexLayer0RouteWSSPhaseF &&
+				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
+				archivedText, archived := archiveProxyCapturedOutput(req.SessionID, commandLine, afterText, block.Text)
+				if !archived {
+					changed = false
+				} else {
+					afterText = archivedText
+				}
 			}
 			candidateText := block.Text
 			candidateEligible := true
@@ -444,6 +454,26 @@ func compactProxyLayer0TextDetailed(commandLine, text string, ctx filter.FileRea
 		return out, true, proxyLayer0MechanismCodexEnvelope
 	}
 	return "", false, ""
+}
+
+func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original string) (string, bool) {
+	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(compacted) == "" || original == "" {
+		return "", false
+	}
+	home, err := proxyUserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
+		SessionID: sessionID,
+		SubLayer:  "codex_wss_captured_output",
+		Original:  original,
+		Preview:   fmt.Sprintf("tool output %s", strings.TrimSpace(commandLine)),
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil || strings.TrimSpace(entry.URI) == "" {
+		return "", false
+	}
+	return strings.TrimRight(compacted, "\n") + "\n[context-archive kind=tool-output uri=" + entry.URI + "]", true
 }
 
 func compactCodexExecEnvelope(commandLine, text string, ctx filter.FileReadContext) (string, bool) {

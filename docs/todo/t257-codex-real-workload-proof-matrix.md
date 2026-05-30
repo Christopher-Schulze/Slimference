@@ -95,6 +95,24 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   resume` emitted a post-tool upstream 400 after the second turn; the reducer
   proof remains valid, but the resume workflow should be tracked separately if it
   reproduces outside this proof harness.
+- 2026-05-30: Live CLI no-savings control `cli-no-savings-control` passed as an
+  expected-zero control: 25 frames, 1 request turn, mutated_requests=0,
+  bytes_saved=0, lost=0, gate_passed=true. Live counters showed clean
+  phasef_bridged routing, no tool_result candidates, and zero parse, degraded
+  session, or compression errors.
+- 2026-05-30: Live CLI `git_status_diff` capture exposed a second safety issue:
+  generic captured-output compaction saved tokens for `git status --short`, but
+  A/B replay classified it as lost=1 because the compact `[git status]` summary
+  drops filenames. The WSS Layer-0 path now requires captured-output and Codex
+  exec-envelope compaction to carry a `local-archive://` recovery marker; if the
+  session key or archive write is unavailable, WSS fails open and leaves the
+  original output unchanged. Replaying the same capture after the fix reports
+  77 frames, 2 request turns, 1 mutated request, 1,047 bytes saved, lost=0,
+  one `elided_with_reference` item, and gate_passed=true. The live run that
+  produced the capture recorded phasef_bridged=1, frames_reencoded=1,
+  compressed_messages_mutated=1, codex_exec_envelope_blocks=1,
+  billable_input_tokens_saved=459, and zero parse, degraded-session, or
+  compression errors.
 
 ## Deviations
 

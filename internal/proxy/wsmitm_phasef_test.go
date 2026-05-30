@@ -1002,6 +1002,8 @@ func TestWSPhaseFRequestCompactsCodexResponseItemPayloadLayer0(t *testing.T) {
 }
 
 func TestWSPhaseFRequestCompactsToolOutputAcrossResponsesRequests(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -1033,7 +1035,8 @@ func TestWSPhaseFRequestCompactsToolOutputAcrossResponsesRequests(t *testing.T) 
 		status.WriteString(".go\n")
 	}
 	outputEnv := parseWSJSON(t, map[string]any{
-		"model": "gpt-5-codex",
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "wss-cross-request-compaction",
 		"input": []map[string]any{
 			{"type": "response_item", "payload": map[string]any{
 				"type":    "function_call_output",
@@ -1050,7 +1053,9 @@ func TestWSPhaseFRequestCompactsToolOutputAcrossResponsesRequests(t *testing.T) 
 	if !replace {
 		t.Fatal("expected cross-request WSS Layer 0 compaction")
 	}
-	if !strings.Contains(string(outputEnv.Raw), "[git status]") || strings.Contains(string(outputEnv.Raw), "synthetic_119.go") {
+	if !strings.Contains(string(outputEnv.Raw), "[git status]") ||
+		!strings.Contains(string(outputEnv.Raw), "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(string(outputEnv.Raw), "synthetic_119.go") {
 		t.Fatalf("cross-request tool output was not compacted: %s", outputEnv.Raw)
 	}
 	snap := p.OutputReduceCountersSnapshot()
@@ -1064,6 +1069,8 @@ func TestWSPhaseFRequestCompactsToolOutputAcrossResponsesRequests(t *testing.T) 
 }
 
 func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -1092,7 +1099,8 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 		status.WriteString(".go\n")
 	}
 	outputEnv := parseWSJSON(t, map[string]any{
-		"model": "gpt-5-codex",
+		"model":            "gpt-5-codex",
+		"prompt_cache_key": "wss-server-seeded-compaction",
 		"input": []map[string]any{
 			{"type": "response_item", "payload": map[string]any{
 				"type":    "function_call_output",
@@ -1109,7 +1117,9 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	if !replace {
 		t.Fatal("expected WSS Layer 0 compaction from server-side tool call item")
 	}
-	if !strings.Contains(string(outputEnv.Raw), "[git status]") || strings.Contains(string(outputEnv.Raw), "server_synthetic_119.go") {
+	if !strings.Contains(string(outputEnv.Raw), "[git status]") ||
+		!strings.Contains(string(outputEnv.Raw), "[context-archive kind=tool-output uri=local-archive://") ||
+		strings.Contains(string(outputEnv.Raw), "server_synthetic_119.go") {
 		t.Fatalf("server-seeded tool output was not compacted: %s", outputEnv.Raw)
 	}
 	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RequestsModified != 1 || snap.ProxyLayer0TokensSaved == 0 {
@@ -1117,7 +1127,7 @@ func TestWSPhaseFRequestCompactsToolOutputAfterServerToolCallItem(t *testing.T) 
 	}
 }
 
-func TestWSPhaseFSearchOutputDeltaAcrossTurns(t *testing.T) {
+func TestWSPhaseFSearchOutputCompactsRecoverablyAcrossTurns(t *testing.T) {
 	tmp := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return tmp, nil }
@@ -1186,13 +1196,13 @@ func TestWSPhaseFSearchOutputDeltaAcrossTurns(t *testing.T) {
 	if !replaced {
 		t.Fatalf("changed repeated search output should delta-compress, raw=%s", raw)
 	}
-	if !bytes.Contains(raw, []byte("kind=file-read")) ||
-		!bytes.Contains(raw, []byte("kind=full-output")) ||
+	if !bytes.Contains(raw, []byte("[rg] 18 match(es)")) ||
+		!bytes.Contains(raw, []byte("[context-archive kind=tool-output uri=local-archive://")) ||
 		!bytes.Contains(raw, []byte("TODO stable changed")) {
-		t.Fatalf("search delta marker missing or incomplete: %s", raw)
+		t.Fatalf("search compaction missing recovery marker or changed match: %s", raw)
 	}
-	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0RepeatedOutputBlocks != 1 || snap.ProxyLayer0TokensSaved == 0 {
-		t.Fatalf("search delta counters missing: %+v", snap)
+	if snap := p.OutputReduceCountersSnapshot(); snap.ProxyLayer0CapturedBlocks != 2 || snap.ProxyLayer0TokensSaved == 0 {
+		t.Fatalf("search compaction counters missing: %+v", snap)
 	}
 }
 

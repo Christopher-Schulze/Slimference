@@ -3819,3 +3819,46 @@ Verification:
   bytes_saved=5,822.
 - `go build ./...`, `go vet ./...`, and `go test ./...` passed.
 - `go run ./scripts/ci` passed all 8 steps with 98.1% total statement coverage.
+
+## 2026-05-30 - T257 recoverable WSS captured-output compaction
+
+Goal: keep useful git/search/build-style captured-output savings on WSS without
+permanent context loss from lossy summaries.
+
+Live captures:
+- `cli-no-savings-control`: scoped CLI WSS control captured a small non-tool
+  response. Replay reported 25 frames, 1 request turn, `mutated_requests=0`,
+  `bytes_saved=0`, `lost=0`, and `gate_passed=true`. Live route counters were
+  clean with no reducer candidates and no parse, degraded-session, or
+  compression errors.
+- `cli-git-status-diff`: scoped CLI WSS capture ran `git status --short` on a
+  temporary repo with 80 untracked files. The live path routed and mutated
+  cleanly: `phasef_bridged=1`, `frames_reencoded=1`,
+  `compressed_messages_mutated=1`, `codex_exec_envelope_blocks=1`,
+  `billable_input_tokens_saved=459`, and zero parse, degraded-session, or
+  compression errors.
+
+Finding:
+- The first replay of `cli-git-status-diff` was not safe enough:
+  `bytes_saved=1134`, `lost=1`, `gate_passed=false`. The compact `[git status]`
+  summary intentionally drops filenames, which is acceptable only if the model
+  has an archive-backed recovery path on the permanent Responses-API WSS state.
+
+Fix:
+- WSS Phase-F Layer-0 now wraps generic captured-output and Codex exec-envelope
+  compaction in content archive recovery. The compacted tool output gets a
+  neutral `[context-archive kind=tool-output uri=local-archive://...]` marker.
+- If the WSS body has no session key or the archive write fails, that mutation
+  fails open and forwards the original tool output unchanged.
+- HTTP keeps its existing behavior; HTTP archive-reference promotion remains
+  gated by T259.
+
+Verification:
+- Replayed `/tmp/slimference-t257/cli-git-status-diff.jsonl` after the fix with
+  `wss-ab-replay --fail-on-lost --json`: 77 frames, 2 request turns,
+  `mutated_requests=1`, `bytes_saved=1047`, `lost=0`,
+  one `elided_with_reference` item, and `gate_passed=true`.
+- Added tests proving WSS captured-output compaction carries an archive marker,
+  fails open without a session key, and preserves the same recovery invariant for
+  cross-request and server-seeded WSS tool-call shapes.
+- `go test ./internal/proxy` passed.
