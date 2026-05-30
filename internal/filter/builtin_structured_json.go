@@ -319,6 +319,9 @@ func terraformJSONResourceChanges(raw json.RawMessage) []string {
 	if err := json.Unmarshal(raw, &changes); err != nil {
 		return nil
 	}
+	sort.SliceStable(changes, func(i, j int) bool {
+		return terraformJSONActionPriority(changes[i].Change.Actions) < terraformJSONActionPriority(changes[j].Change.Actions)
+	})
 	var out []string
 	for _, c := range changes {
 		address := c.Address
@@ -332,6 +335,20 @@ func terraformJSONResourceChanges(raw json.RawMessage) []string {
 		out = append(out, address+" actions="+actions)
 	}
 	return out
+}
+
+func terraformJSONActionPriority(actions []string) int {
+	for _, action := range actions {
+		switch strings.ToLower(strings.TrimSpace(action)) {
+		case "delete", "replace":
+			return 0
+		case "create", "update":
+			return 1
+		case "read":
+			return 2
+		}
+	}
+	return 3
 }
 
 func terraformJSONStateResources(root map[string]json.RawMessage) []string {

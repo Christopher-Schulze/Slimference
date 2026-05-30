@@ -86,6 +86,27 @@ func TestTryCompactTerraformShowJSONPlanAndState(t *testing.T) {
 	}
 }
 
+func TestTryCompactTerraformShowJSONKeepsLateDestructiveChange(t *testing.T) {
+	t.Parallel()
+	var changes []string
+	for i := 0; i < 35; i++ {
+		changes = append(changes, fmt.Sprintf(`{"address":"data.null_data_source.ok_%02d","change":{"actions":["no-op"]}}`, i))
+	}
+	changes = append(changes, `{"address":"aws_db_instance.prod","change":{"actions":["delete","create"]}}`)
+	plan := `{"format_version":"1.2","resource_changes":[` + strings.Join(changes, ",") + `]}`
+	out, ok := TryCompactTerraformShowJSON([]string{"terraform", "show", "-json", "plan.out"}, []byte(plan))
+	if !ok {
+		t.Fatal("expected terraform plan json compaction")
+	}
+	got := string(out)
+	if !strings.Contains(got, "aws_db_instance.prod actions=delete,create") {
+		t.Fatalf("late destructive change dropped: %q", got)
+	}
+	if strings.Contains(got, "data.null_data_source.ok_34") {
+		t.Fatalf("benign tail should not crowd out destructive change: %q", got)
+	}
+}
+
 func TestStructuredJSONParsersPassThrough(t *testing.T) {
 	t.Parallel()
 	if _, ok := TryCompactKubectlJSON([]string{"kubectl", "get", "pods"}, []byte(`{"items":[]}`)); ok {

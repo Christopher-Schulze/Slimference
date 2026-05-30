@@ -131,6 +131,21 @@ func TryCompactSARIF(argv []string, stdout []byte) ([]byte, bool) {
 
 	sort.Strings(c.ToolNames)
 	toolLabel := strings.Join(c.ToolNames, "+")
+	resultPriority := func(r result) int {
+		switch strings.ToLower(r.Level) {
+		case "error":
+			return 0
+		case "warning", "":
+			return 1
+		case "note", "info":
+			return 2
+		default:
+			return 3
+		}
+	}
+	sort.SliceStable(allResults, func(i, j int) bool {
+		return resultPriority(allResults[i].res) < resultPriority(allResults[j].res)
+	})
 
 	// Detect explicit "--format sarif" / "--output-format=sarif" so
 	// we only fire when the user actually asked for SARIF. SARIF

@@ -1,6 +1,6 @@
 # TASK 252: Codex savings precision + filter/marker tweaks (quick wins)
 
-Status: [~] ACTIVE - final parser-cap hardening and regression matrix remain
+Status: [x] SOLVED - precision, filter caps, parser expansion, stderr, markers, and accounting hardened
 Priority: P2 - small, low-risk, high-certainty improvements across all layers
 Scope: Codex-only. Token-accounting precision, delta formatting, filter cap quality,
 more Tier-1 parsers, stderr compaction, marker notation.
@@ -47,7 +47,7 @@ Several small, verified issues each cost a few percent or add drawdown:
 - [x] Use `o200k_base` for Codex token counting in the WSS/Layer-0 guards.
 - [x] Fix `delta.go` doubled-newline (one newline per diff line); add a test asserting
       no `\n\n` inside a single-line-change delta.
-- [~] Make remaining parser caps token-budget-aware + error/match-priority.
+- [x] Make remaining parser caps token-budget-aware + error/match-priority.
       Required audit surface: every `Max*`, `Limit*`, `first N`, `head`, `tail`,
       `truncate`, and slice-bound cap in `internal/filter`. Each cap gets one of:
       (a) priority-preserving implementation + failable late-error test, or
@@ -80,6 +80,26 @@ Several small, verified issues each cost a few percent or add drawdown:
   attention rows (failed/cancelled/error/security/etc.) ahead of benign positional
   rows. Regression tests put failed CI/pipeline rows past the old 15-row cap and
   prove they survive.
+- 2026-05-30: SARIF summaries now sort error-level findings ahead of warning/note
+  rows before the 10-result cap; a regression test puts an error past the old cap.
+  Terraform `show -json` resource changes now sort destructive/create/update actions
+  ahead of no-op rows before the 30-row cap; a regression test puts a replacement
+  past the old cap.
+- Remaining cap audit classification:
+  - `builtin_testrun_tier1.go` caps only already-failed test cases and short
+    per-failure snippets; this preserves failure identity and count, not benign rows.
+  - `builtin_eslint.go` caps after severity ordering; errors cannot be crowded out
+    by warnings.
+  - `builtin_log.go`, `builtin_compact_helpers.go`, `builtin_search.go`,
+    `builtin_terraform.go`, `builtin_container.go`, `builtin_gh.go`,
+    `builtin_glab.go`, `builtin_structured_json.go`, and `builtin_sarif.go` have
+    late-attention regression coverage.
+  - `builtin_format.go` is safe positional-by-design: long formatter output is
+    replaced only with a count of formatted files, and file identity is not treated
+    as diagnostic content.
+  - `filters_toml.go` and `passthrough.go` caps are operator-configured explicit
+    limits and emit direct truncation/selection semantics.
+  - `log_shape.go` caps only detection sampling, not model-facing output.
 - Final PASS gates:
   - `rg -n "truncate|limit|Limit|Max|first|head|tail|\\[:|cap" internal/filter`
     reviewed with no unexplained diagnostic-dropping caps.

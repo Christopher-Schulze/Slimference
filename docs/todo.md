@@ -1540,14 +1540,16 @@ only and promotes the per-process Codex CLI runner for T209.
   in-memory write-behind readcache, final shutdown flush, and proof-gated recency policy
   are implemented. Protects and multiplies existing savings.
   Detail: `docs/todo/t251-codex-savings-stability-and-resolution.md`
-- [~] **T252** Codex savings precision + filter/marker tweaks — quick wins: use
+- [x] **T252** Codex savings precision + filter/marker tweaks — quick wins: use
   `o200k_base` for Codex token guards (currently `cl100k_base`), fix the `delta.go`
   doubled-newline, make filter caps token-budget-aware + error-priority, add Tier-1
   parsers (eslint-json/tsc/kubectl-json/cargo-metadata/terraform-show-json), compact
   stderr, structured marker notation. o200k, delta newline, log/lint/search/terraform
   error-priority, gh/glab late attention-row preservation, full listed Tier-1 parser
   expansion, stderr compaction, structured neutral markers, and billable-vs-output
-  accounting split are implemented. Broader parser-specific cap hardening remains open.
+  accounting split are implemented. SARIF errors and Terraform destructive/create/update
+  rows now survive late cap pressure; remaining caps are tested priority-preserving,
+  summary-only, or explicit operator-configured limits.
   Detail: `docs/todo/t252-codex-savings-precision-and-filter-tweaks.md`
 - [ ] **T253** Codex aggressive read compression (GATED by T257/T258) — first-read AST/structure
   scan-mode compression (extends `codecompact`), predictive post-edit file state from the

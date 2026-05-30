@@ -106,6 +106,26 @@ func TestTryCompactSARIF_TruncatesAfterMax(t *testing.T) {
 	}
 }
 
+func TestTryCompactSARIF_ErrorPastCapSurvives(t *testing.T) {
+	results := make([]string, 14)
+	for i := range results {
+		results[i] = `{"ruleId":"W","level":"warning","message":{"text":"warning"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"warn.go"}}}]}`
+	}
+	results = append(results, `{"ruleId":"E_LATE","level":"error","message":{"text":"late critical error"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"late.go"},"region":{"startLine":42}}}]}`)
+	in := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"lint"}},"results":[` + strings.Join(results, ",") + `]}]}`
+	out, ok := TryCompactSARIF(nil, []byte(in))
+	if !ok {
+		t.Fatalf("expected match")
+	}
+	s := string(out)
+	if !strings.Contains(s, "late.go:42 error [E_LATE] late critical error") {
+		t.Fatalf("late error dropped: %q", s)
+	}
+	if strings.Count(s, "warn.go warning [W] warning") >= 10 {
+		t.Fatalf("warnings should not crowd out the late error: %q", s)
+	}
+}
+
 func TestTryCompactSARIF_NotSARIF_PassthroughTextRejected(t *testing.T) {
 	cases := [][]byte{
 		[]byte(""),

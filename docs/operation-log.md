@@ -3732,3 +3732,24 @@ Implementation:
 
 Verification:
 - `go test ./internal/filter` passed.
+
+## 2026-05-30 - T252 final cap hardening
+
+Goal: close the remaining parser-cap drawdown surface so diagnostic rows cannot
+be lost just because they appear late in a large tool output.
+
+Changes:
+- SARIF compaction now sorts error-level findings before warnings/notes before
+  applying the 10-result cap. This keeps late critical findings model-visible
+  while preserving stable order inside each severity class.
+- Terraform `show -json` resource-change compaction now sorts destructive,
+  replacement, create, and update actions ahead of no-op/read rows before the
+  30-row cap.
+- T252 now records the complete cap-audit classification: tested
+  priority-preserving caps, summary-only caps, operator-configured caps, and
+  non-output detection caps.
+
+Verification:
+- Added regression tests for a SARIF error past the old cap and a Terraform
+  destructive change past the old cap.
+- `go test ./internal/filter ./docs` passed.
