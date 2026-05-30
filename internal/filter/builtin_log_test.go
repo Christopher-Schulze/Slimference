@@ -151,3 +151,25 @@ func TestFilterLogOutput_TruncateLong(t *testing.T) {
 		t.Errorf("truncated output should be shorter: %d vs %d", len(got), len(input))
 	}
 }
+
+// TestFilterLogOutput_KeepsErrorPastHeadBudget proves the drawdown fix: an
+// error line sitting well past the positional head budget must survive
+// truncation instead of being dropped by a blunt head-N cut.
+func TestFilterLogOutput_KeepsErrorPastHeadBudget(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 130; i++ {
+		sb.WriteString("2024-01-01 INFO request processed\n")
+	}
+	sb.WriteString("2024-01-01 ERROR fatal: database connection refused\n")
+	got := filterLogOutput(sb.String())
+	if !strings.Contains(got, "database connection refused") {
+		t.Fatalf("error line past head budget was dropped: %q", got[:min(len(got), 240)])
+	}
+	if !strings.Contains(got, "more log line(s)") {
+		t.Fatalf("expected truncation notice, got %q", got[:min(len(got), 240)])
+	}
+	if len(got) >= len(sb.String()) {
+		t.Fatalf("expected truncation to shorten output")
+	}
+}
