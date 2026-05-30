@@ -304,3 +304,30 @@ func TestCompactSingleFileRead_UnknownLangAndEmptyArgv(t *testing.T) {
 		t.Fatal("empty argv is not full-file cat")
 	}
 }
+
+// TestScanMode_AppendsDiscoverableRecoveryNote proves first-read scan-mode output
+// (signatures only) carries a neutral, discoverable recovery instruction so the
+// model can re-read for the full file instead of silently losing the bodies.
+func TestScanMode_AppendsDiscoverableRecoveryNote(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	sb.WriteString("package mypackage\n\n")
+	for i := 0; i < 40; i++ {
+		sb.WriteString(fmt.Sprintf("func DoThing%d(x int) int {\n", i))
+		for j := 0; j < 20; j++ {
+			sb.WriteString(fmt.Sprintf("\tx += %d // body line %d\n", j, j))
+		}
+		sb.WriteString("\treturn x\n}\n\n")
+	}
+	content := []byte(sb.String())
+	out, ok := compactSingleFileRead([]string{"cat", "large_file.go"}, "large_file.go", content)
+	if !ok {
+		t.Skip("no compaction possible (content-dependent)")
+	}
+	if len(out) >= len(content) {
+		t.Fatalf("scan output should be shorter: %d vs %d", len(out), len(content))
+	}
+	if !strings.Contains(string(out), "re-run the read to see the full file") {
+		t.Fatalf("scan-mode output must carry the discoverable recovery note")
+	}
+}

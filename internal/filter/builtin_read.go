@@ -12,6 +12,23 @@ import (
 // (functions/types only) instead of comment strip alone.
 const signatureOnlyThreshold = 3000
 
+// scanModeRecoveryNote makes structure/signature-only read output discoverable-
+// recoverable: it tells the model that bodies were elided and that re-running the
+// read returns the full file. The re-read full-pass path (a post-collapse re-read
+// loosens the policy to full context) already serves the full file, so this only
+// makes that recovery discoverable instead of silent, which removes the residual
+// comprehension drawdown of scan-mode. Neutral wording, no product name.
+const scanModeRecoveryNote = "\n[structure only: bodies elided; re-run the read to see the full file]"
+
+// withScanRecoveryNote appends the recovery note to compacted scan-mode output,
+// returning a copy so the caller's slice is never mutated.
+func withScanRecoveryNote(compacted []byte) []byte {
+	out := make([]byte, 0, len(compacted)+len(scanModeRecoveryNote))
+	out = append(out, compacted...)
+	out = append(out, scanModeRecoveryNote...)
+	return out
+}
+
 // FileReadContext carries request/session signals that decide whether a file
 // read can be safely compacted. Empty context preserves legacy scan behaviour.
 type FileReadContext struct {
@@ -108,14 +125,18 @@ func compactSingleFileReadWithContext(argv []string, path string, stdout []byte,
 			RelevantSymbols:      append([]string(nil), ctx.RelevantSymbols...),
 			MaxIncludedBodyLines: 12,
 		}); err == nil && ok {
-			return out, true
+			if marked := withScanRecoveryNote(out); len(marked) < len(stdout) {
+				return marked, true
+			}
 		}
 	}
 
 	// For large files, try structure (signature) extraction first.
 	if len(stdout) >= signatureOnlyThreshold {
-		if extracted, ok := compression.ExtractStructure(s, lang); ok && len(extracted) < len(s) {
-			return []byte(extracted), true
+		if extracted, ok := compression.ExtractStructure(s, lang); ok {
+			if marked := withScanRecoveryNote([]byte(extracted)); len(marked) < len(s) {
+				return marked, true
+			}
 		}
 	}
 
