@@ -355,7 +355,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				"blocks", stats.BlocksModified,
 				"read_delta_blocks", stats.ReadDeltaBlocks,
 				"captured_output_blocks", stats.CapturedOutputBlocks,
-				"codex_exec_envelope_blocks", stats.CodexExecEnvelopeBlocks)
+				"codex_exec_envelope_blocks", stats.CodexExecEnvelopeBlocks,
+				"repeated_output_blocks", stats.RepeatedOutputBlocks)
 		}
 	}
 

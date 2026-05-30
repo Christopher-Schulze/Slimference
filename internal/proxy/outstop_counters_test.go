@@ -99,6 +99,7 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 		ReadDeltaBlocks:         2,
 		CapturedOutputBlocks:    1,
 		CodexExecEnvelopeBlocks: 1,
+		RepeatedOutputBlocks:    1,
 	})
 	c.RecordProxyLayer0(0)
 	c.RecordProxyLayer0(-1)
@@ -140,6 +141,9 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	if s.ProxyLayer0EnvelopeBlocks != 1 {
 		t.Errorf("proxy layer0 envelope blocks=%d want 1", s.ProxyLayer0EnvelopeBlocks)
 	}
+	if s.ProxyLayer0RepeatedOutputBlocks != 1 {
+		t.Errorf("proxy layer0 repeated blocks=%d want 1", s.ProxyLayer0RepeatedOutputBlocks)
+	}
 }
 
 func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
@@ -157,6 +161,7 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		ReadDeltaBlocks:         2,
 		CapturedOutputBlocks:    1,
 		CodexExecEnvelopeBlocks: 1,
+		RepeatedOutputBlocks:    1,
 	})
 	c.RecordProxyLayer0Stats(proxyLayer0Stats{
 		Route:                   codexLayer0RouteHTTP,
@@ -169,7 +174,8 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 	s := c.Snapshot()
 	if s.ProxyLayer0Routes.WSSPhaseF.TokensSaved != 256 ||
 		s.ProxyLayer0Routes.WSSPhaseF.BlocksModified != 3 ||
-		s.ProxyLayer0Routes.WSSPhaseF.ReadDeltaBlocks != 2 {
+		s.ProxyLayer0Routes.WSSPhaseF.ReadDeltaBlocks != 2 ||
+		s.ProxyLayer0Routes.WSSPhaseF.RepeatedOutputBlocks != 1 {
 		t.Fatalf("wss route counters mismatch: %+v", s.ProxyLayer0Routes.WSSPhaseF)
 	}
 	if s.ProxyLayer0Routes.HTTP.ToolResultBlocks != 2 ||

@@ -14,6 +14,7 @@ import (
 const (
 	maxCachedFileBytes          = 64 * 1024
 	maxObservedInlineCacheBytes = 256 * 1024
+	minObservedOutputBytes      = 512
 )
 
 func Evaluate(dir string, req Request) (Decision, error) {
@@ -118,6 +119,55 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 	return decision, RecordDecision(dir, decision)
 }
 
+func EvaluateObservedOutput(dir string, req OutputRequest, content string, archiveDir string) (Decision, error) {
+	state, err := LoadSession(dir, req.SessionID)
+	if err != nil {
+		return Decision{}, err
+	}
+	if turnID := safeTurn(req.TurnID); turnID != "" {
+		state.CurrentTurnID = turnID
+	}
+	key := strings.TrimSpace(req.Key)
+	if key == "" || strings.TrimSpace(req.SessionID) == "" || len(content) < minObservedOutputBytes {
+		decision := Decision{Type: DecisionAllow}
+		return decision, RecordDecision(dir, decision)
+	}
+	if state.Outputs == nil {
+		state.Outputs = map[string]*OutputEntry{}
+	}
+	entry := state.Outputs[key]
+	if entry == nil {
+		entry = &OutputEntry{Key: key}
+		state.Outputs[key] = entry
+	}
+
+	hash := hashObservedContent(content)
+	if entry.ContentHash != "" && entry.ContentHash == hash && entry.ArchiveURI != "" {
+		updateObservedOutputEntry(entry, req, hash, entry.ArchiveURI, content)
+		if err := readCacheSaveSession(dir, state); err != nil {
+			return Decision{}, err
+		}
+		decision := Decision{
+			Type:      DecisionBlock,
+			Reason:    unchangedOutputReference(req.CommandLine, entry.ArchiveURI),
+			BlockKind: BlockKindUnchanged,
+		}
+		return decision, RecordDecision(dir, decision)
+	}
+
+	archiveURI, archived := archiveObservedOutputContent(archiveDir, req, content)
+	updateObservedOutputEntry(entry, req, hash, archiveURI, content)
+	if err := readCacheSaveSession(dir, state); err != nil {
+		return Decision{}, err
+	}
+	if !archived {
+		decision := Decision{Type: DecisionAllow}
+		return decision, RecordDecision(dir, decision)
+	}
+	decision := Decision{Type: DecisionAllow}
+	return decision, RecordDecision(dir, decision)
+}
+
 func blockUnchanged(dir string, state *SessionState, entry *FileEntry, req Request, modTime int64) (Decision, error) {
 	updateEntry(entry, req, modTime, entry.CachedContent)
 	if err := readCacheSaveSession(dir, state); err != nil {
@@ -192,6 +242,19 @@ func updateObservedEntry(entry *FileEntry, req Request, hash string, archiveURI 
 	entry.CachedContent = content
 }
 
+func updateObservedOutputEntry(entry *OutputEntry, req OutputRequest, hash string, archiveURI string, content string) {
+	entry.Key = strings.TrimSpace(req.Key)
+	entry.CommandLine = strings.TrimSpace(req.CommandLine)
+	entry.LastTurnID = safeTurn(req.TurnID)
+	entry.ContentHash = hash
+	entry.ArchiveURI = archiveURI
+	if entry.ArchiveURI != "" && len(content) > maxObservedInlineCacheBytes {
+		entry.CachedContent = ""
+		return
+	}
+	entry.CachedContent = content
+}
+
 func hashObservedContent(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(sum[:])
@@ -215,8 +278,34 @@ func archiveObservedContent(archiveDir string, req Request, content string) (str
 	return entry.URI, true
 }
 
+func archiveObservedOutputContent(archiveDir string, req OutputRequest, content string) (string, bool) {
+	if archiveDir == "" {
+		return "", false
+	}
+	entry, err := contentarchive.Put(archiveDir, contentarchive.Input{
+		SessionID:    req.SessionID,
+		MessageIndex: 0,
+		BlockIndex:   0,
+		SubLayer:     "tool_output_exact_dedup",
+		Original:     content,
+		Preview:      fmt.Sprintf("tool output %s", strings.TrimSpace(req.CommandLine)),
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil {
+		return "", false
+	}
+	return entry.URI, true
+}
+
 func unchangedReference(path string, archiveURI string) string {
 	return fmt.Sprintf("Read note for %s: unchanged since previous full read.\nFull content: %s", path, archiveURI)
+}
+
+func unchangedOutputReference(commandLine string, archiveURI string) string {
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		commandLine = "this tool command"
+	}
+	return fmt.Sprintf("Tool output note for %s: unchanged since previous emitted output.\nPrevious output: %s", commandLine, archiveURI)
 }
 
 func safeTurn(turnID string) string {

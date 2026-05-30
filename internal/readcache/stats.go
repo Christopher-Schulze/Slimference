@@ -51,6 +51,7 @@ func Snapshot(dir string) (Stats, error) {
 	}
 	stats.Sessions = 0
 	stats.TrackedFiles = 0
+	stats.TrackedOutputs = 0
 	for _, entry := range entries {
 		if entry.IsDir() || entry.Name() == statsFilename || filepath.Ext(entry.Name()) != ".json" {
 			continue
@@ -61,6 +62,7 @@ func Snapshot(dir string) (Stats, error) {
 		}
 		stats.Sessions++
 		stats.TrackedFiles += len(state.Files)
+		stats.TrackedOutputs += len(state.Outputs)
 	}
 	return stats, nil
 }

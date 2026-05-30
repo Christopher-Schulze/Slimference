@@ -350,7 +350,7 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 
 func wssPlannerContentClasses(messages []types.Message, l0Stats proxyLayer0Stats) []string {
 	classes := append([]string{"websocket"}, plannerClassesFromMessages(messages)...)
-	if l0Stats.ReadDeltaBlocks > 0 {
+	if l0Stats.ReadDeltaBlocks > 0 || l0Stats.RepeatedOutputBlocks > 0 {
 		classes = append(classes, "repeated_tool_output")
 	}
 	return classes
@@ -395,6 +395,9 @@ func wssPlannerOutputReduceReason(replaced bool, l0Stats proxyLayer0Stats) strin
 	}
 	if l0Stats.CodexExecEnvelopeBlocks > 0 {
 		return "phasef_codex_exec_envelope"
+	}
+	if l0Stats.RepeatedOutputBlocks > 0 {
+		return "phasef_repeated_output"
 	}
 	if l0Stats.CapturedOutputBlocks > 0 {
 		return "phasef_captured_output"

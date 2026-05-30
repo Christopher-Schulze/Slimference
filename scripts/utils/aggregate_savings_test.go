@@ -50,6 +50,7 @@ const aggregateSampleAdminState = `{
     "proxy_layer0_read_delta_blocks": 2,
     "proxy_layer0_captured_output_blocks": 1,
     "proxy_layer0_codex_exec_envelope_blocks": 1,
+    "proxy_layer0_repeated_output_blocks": 1,
     "proxy_layer0_routes": {
       "http": {
         "tool_result_blocks": 1,
@@ -63,7 +64,8 @@ const aggregateSampleAdminState = `{
         "blocks_modified": 0,
         "read_delta_blocks": 0,
         "captured_output_blocks": 0,
-        "codex_exec_envelope_blocks": 0
+        "codex_exec_envelope_blocks": 0,
+        "repeated_output_blocks": 0
       },
       "wss_phasef": {
         "tool_result_blocks": 7,
@@ -77,7 +79,8 @@ const aggregateSampleAdminState = `{
         "blocks_modified": 4,
         "read_delta_blocks": 2,
         "captured_output_blocks": 1,
-        "codex_exec_envelope_blocks": 1
+        "codex_exec_envelope_blocks": 1,
+        "repeated_output_blocks": 1
       }
     },
     "repdet_rewrites": 7,
@@ -131,6 +134,7 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"read_delta:                 2",
 		"captured_output:            1",
 		"codex_exec_envelope:        1",
+		"repeated_output:            1",
 		"route_wss_phasef_tokens:      42000",
 		"route_wss_phasef_misses:      tool=1 command=1 read=1",
 		"route_http_tokens:            0",
@@ -183,11 +187,13 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	if got.WSS.ProxyLayer0ToolResults != 8 || got.WSS.ProxyLayer0ToolMisses != 2 ||
 		got.WSS.ProxyLayer0Commands != 6 || got.WSS.ProxyLayer0CommandMisses != 2 ||
 		got.WSS.ProxyLayer0ReadAttempts != 3 || got.WSS.ProxyLayer0ReadMisses != 1 ||
-		got.WSS.ProxyLayer0ReadDelta != 2 || got.WSS.ProxyLayer0Captured != 1 || got.WSS.ProxyLayer0Envelope != 1 {
+		got.WSS.ProxyLayer0ReadDelta != 2 || got.WSS.ProxyLayer0Captured != 1 ||
+		got.WSS.ProxyLayer0Envelope != 1 || got.WSS.ProxyLayer0Repeated != 1 {
 		t.Fatalf("wss proxy layer0 mechanism attribution mismatch: %+v", got.WSS)
 	}
 	if got.WSS.ProxyLayer0Routes.WSSPhaseF.TokensSaved != 42000 ||
 		got.WSS.ProxyLayer0Routes.WSSPhaseF.ReadDeltaBlocks != 2 ||
+		got.WSS.ProxyLayer0Routes.WSSPhaseF.RepeatedBlocks != 1 ||
 		got.WSS.ProxyLayer0Routes.HTTP.CommandMisses != 1 {
 		t.Fatalf("wss proxy layer0 route attribution mismatch: %+v", got.WSS.ProxyLayer0Routes)
 	}

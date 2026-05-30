@@ -227,6 +227,32 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	}
 }
 
+func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	body := strings.Repeat("deterministic report row with unchanged non-file data\n", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-report", ToolName: "exec_command", ToolInput: `{"cmd":"python generate_report.py"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-report", Text: body}}},
+	}
+	out, saved := applyProxyLayer0WithSession(messages, "sess-output")
+	if saved != 0 || strings.Contains(out[1].Content[0].Text, "previous emitted output") {
+		t.Fatalf("first non-file output must not collapse, saved=%d text=%q", saved, out[1].Content[0].Text)
+	}
+
+	out, saved = applyProxyLayer0WithSession(messages, "sess-output")
+	if saved <= 0 || !strings.Contains(out[1].Content[0].Text, "unchanged since previous emitted output") ||
+		!strings.Contains(out[1].Content[0].Text, "Previous output: local-archive://") {
+		t.Fatalf("repeated non-file output should collapse, saved=%d text=%q", saved, out[1].Content[0].Text)
+	}
+	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-output", nil)
+	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.TokensSaved <= 0 ||
+		stats.BlocksModified != 1 || stats.RepeatedOutputBlocks != 1 ||
+		stats.ReadDeltaBlocks != 0 || stats.CapturedOutputBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 {
+		t.Fatalf("repeated-output stats mismatch: %+v", stats)
+	}
+}
+
 func TestApplyProxyLayer0ReadDeltaMissTelemetry(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -381,6 +407,9 @@ func TestProxyReadDeltaFailOpenBranches(t *testing.T) {
 	if out, changed := compactProxyReadDelta("sess", "echo nope", "content", filter.FileReadContext{Mode: "scan"}); changed || out != "" {
 		t.Fatalf("non-read command should fail open, out=%q changed=%v", out, changed)
 	}
+	if out, changed := compactProxyRepeatedToolOutput("", "python report.py", "content"); changed || out != "" {
+		t.Fatalf("empty session repeated-output should fail open, out=%q changed=%v", out, changed)
+	}
 	ctx := proxyReadFileContext("", "cat main.go")
 	if ctx.RecentlyEdited {
 		t.Fatal("empty session should not mark recent edit")
@@ -398,6 +427,9 @@ func TestProxyReadDeltaHomeErrorBranches(t *testing.T) {
 
 	if out, changed := compactProxyReadDelta("sess", "cat main.go", strings.Repeat("content\n", 20), filter.FileReadContext{Mode: "scan"}); changed || out != "" {
 		t.Fatalf("home error should fail open, out=%q changed=%v", out, changed)
+	}
+	if out, changed := compactProxyRepeatedToolOutput("sess", "python report.py", strings.Repeat("content\n", 80)); changed || out != "" {
+		t.Fatalf("home error should fail open for repeated-output, out=%q changed=%v", out, changed)
 	}
 	ctx := proxyReadFileContext("sess", "cat main.go")
 	if ctx.RecentlyEdited {

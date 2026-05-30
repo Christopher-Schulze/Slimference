@@ -1496,10 +1496,12 @@ only and promotes the per-process Codex CLI runner for T209.
   zero parse/degrade/compression errors). The latest slice adds WSS re-read
   canary telemetry to request summaries and `wss-audit`, neutralizes
   model-facing readcache markers, prefers Codex turn metadata over
-  `prompt_cache_key` for WSS session identity, and makes operator cost
-  estimates billable-input based. Remaining work: future capture-driven tool
-  variants, measured L2/L3 upgrades, the offline comprehension A/B harness, and
-  broader real workload measurements before T240.
+  `prompt_cache_key` for WSS session identity, makes operator cost estimates
+  billable-input based, and adds exact archive-backed cross-turn dedup for
+  repeated non-file tool outputs with dedicated route attribution. Remaining
+  work: future capture-driven tool variants, measured L2/L3 upgrades, the
+  offline comprehension A/B harness, and broader real workload measurements
+  before T240.
   Detail: `docs/todo/t248-unified-codex-savings-engine.md`
 
 ### Sequencing within Phase H

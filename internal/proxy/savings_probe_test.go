@@ -31,7 +31,11 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	p.outputReduceCounters.RecordObsoleteReadPrune(1, 128)
 	p.outputReduceCounters.RecordStopSeqInjection(4)
 	p.outputReduceCounters.RecordBeTerseInjection(64)
-	p.outputReduceCounters.RecordProxyLayer0Stats(proxyLayer0Stats{TokensSaved: 2000, BlocksModified: 1})
+	p.outputReduceCounters.RecordProxyLayer0Stats(proxyLayer0Stats{
+		TokensSaved:          2000,
+		BlocksModified:       1,
+		RepeatedOutputBlocks: 1,
+	})
 
 	probe := &SavingsProbe{Proxy: p, USDPerMillionTokens: 6.0}
 	got := probe.ProbeSavings(context.Background())
@@ -55,6 +59,9 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	// CostUSD is based on billable input tokens, not output-wire bytes.
 	if got.InputTokensSaved != 2000 {
 		t.Errorf("InputTokensSaved=%d want 2000", got.InputTokensSaved)
+	}
+	if got.ProxyLayer0Repeated != 1 {
+		t.Errorf("ProxyLayer0Repeated=%d want 1", got.ProxyLayer0Repeated)
 	}
 	// CostUSD = 2000 / 1_000_000 * 6.0 = 0.012
 	if got.CostUSD < 0.0119 || got.CostUSD > 0.0121 {

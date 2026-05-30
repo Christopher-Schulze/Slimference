@@ -377,6 +377,7 @@ func diffAggregateWSS(base, current aggregateWSSBlock) aggregateWSSBlock {
 		ProxyLayer0ReadDelta:      nonNegativeDelta(current.ProxyLayer0ReadDelta, base.ProxyLayer0ReadDelta),
 		ProxyLayer0Captured:       nonNegativeDelta(current.ProxyLayer0Captured, base.ProxyLayer0Captured),
 		ProxyLayer0Envelope:       nonNegativeDelta(current.ProxyLayer0Envelope, base.ProxyLayer0Envelope),
+		ProxyLayer0Repeated:       nonNegativeDelta(current.ProxyLayer0Repeated, base.ProxyLayer0Repeated),
 		ProxyLayer0Routes:         diffProxyLayer0Routes(base.ProxyLayer0Routes, current.ProxyLayer0Routes),
 		ParseFailures:             nonNegativeDelta(current.ParseFailures, base.ParseFailures),
 		DegradedSessions:          nonNegativeDelta(current.DegradedSessions, base.DegradedSessions),
@@ -419,6 +420,7 @@ func diffProxyLayer0Route(base, current control.ProxyLayer0RouteSummary) control
 		ReadDeltaBlocks:  nonNegativeDelta(current.ReadDeltaBlocks, base.ReadDeltaBlocks),
 		CapturedBlocks:   nonNegativeDelta(current.CapturedBlocks, base.CapturedBlocks),
 		EnvelopeBlocks:   nonNegativeDelta(current.EnvelopeBlocks, base.EnvelopeBlocks),
+		RepeatedBlocks:   nonNegativeDelta(current.RepeatedBlocks, base.RepeatedBlocks),
 	}
 }
 

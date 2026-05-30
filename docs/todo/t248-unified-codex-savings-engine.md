@@ -205,6 +205,16 @@ The product target is strict:
   resort for frames without a stronger per-thread/per-session identifier.
 - [x] Make operator cost estimates billable-input based. The savings probe now
   estimates cost from input tokens saved, not output-wire byte telemetry.
+- [x] Add exact cross-turn non-file tool-output dedup. For non-read commands,
+  the shared Codex reducer now records the exact output text it would actually
+  send upstream after deterministic filters. If the same session later produces
+  the same resolved command and the same emitted output, it replaces the repeat
+  with a neutral archive-backed "unchanged since previous emitted output" note.
+  Changed outputs, short outputs, archive failures, read commands, and
+  unresolved commands fail open.
+- [x] Surface repeated-output attribution through Layer-0 telemetry,
+  `/admin/state`, `aggregate-savings`, and `workday-savings` route deltas via
+  `proxy_layer0_repeated_output_blocks` / `repeated_output_blocks`.
 
 ## Notes
 
@@ -298,6 +308,15 @@ The product target is strict:
 - Model-facing readcache markers now use neutral read notes instead of naming
   Slimference. This reduces prompt-contamination risk while keeping the marker
   mechanically parseable and shorter than the original content.
+- Exact repeated-output dedup is intentionally last in the deterministic
+  Layer-0 chain. It observes the candidate text after safe captured-output
+  filters, and only if that candidate is the text that would be sent upstream.
+  This prevents a marker from referring to a full raw output that the server
+  never saw.
+- The repeated-output cache is exact-hash only. It does not summarize, diff, or
+  infer semantic equivalence for non-file commands. A changed `git status`,
+  `rg`, `go test`, or custom command output is sent normally and becomes the new
+  observed baseline.
 - The archive-reinjection system prompt contract remains proof-gated and is not
   default-on. It is a real recovery candidate, but injecting any new persistent
   instruction into Codex WSS requires the future comprehension harness before it

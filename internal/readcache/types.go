@@ -33,6 +33,13 @@ type Decision struct {
 	BlockKind BlockKind
 }
 
+type OutputRequest struct {
+	SessionID   string
+	TurnID      string
+	Key         string
+	CommandLine string
+}
+
 type FileEntry struct {
 	Path          string `json:"path"`
 	LastTurnID    string `json:"last_turn_id,omitempty"`
@@ -44,10 +51,20 @@ type FileEntry struct {
 	CachedContent string `json:"cached_content,omitempty"`
 }
 
+type OutputEntry struct {
+	Key           string `json:"key"`
+	CommandLine   string `json:"command_line,omitempty"`
+	LastTurnID    string `json:"last_turn_id,omitempty"`
+	ContentHash   string `json:"content_hash,omitempty"`
+	ArchiveURI    string `json:"archive_uri,omitempty"`
+	CachedContent string `json:"cached_content,omitempty"`
+}
+
 type SessionState struct {
-	SessionID     string                `json:"session_id"`
-	CurrentTurnID string                `json:"current_turn_id,omitempty"`
-	Files         map[string]*FileEntry `json:"files"`
+	SessionID     string                  `json:"session_id"`
+	CurrentTurnID string                  `json:"current_turn_id,omitempty"`
+	Files         map[string]*FileEntry   `json:"files"`
+	Outputs       map[string]*OutputEntry `json:"outputs,omitempty"`
 }
 
 type Stats struct {
@@ -58,4 +75,5 @@ type Stats struct {
 	DeltaBlocks     int `json:"delta_blocks"`
 	Sessions        int `json:"sessions"`
 	TrackedFiles    int `json:"tracked_files"`
+	TrackedOutputs  int `json:"tracked_outputs"`
 }

@@ -40,6 +40,7 @@ type aggregateWSSBlock struct {
 	ProxyLayer0ReadDelta      int64                            `json:"proxy_layer0_read_delta_blocks"`
 	ProxyLayer0Captured       int64                            `json:"proxy_layer0_captured_output_blocks"`
 	ProxyLayer0Envelope       int64                            `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Repeated       int64                            `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0Routes         control.ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
 	ParseFailures             int64                            `json:"parse_failures"`
 	DegradedSessions          int64                            `json:"degraded_sessions"`
@@ -316,6 +317,7 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			ProxyLayer0ReadDelta:      state.Savings.ProxyLayer0ReadDelta,
 			ProxyLayer0Captured:       state.Savings.ProxyLayer0Captured,
 			ProxyLayer0Envelope:       state.Savings.ProxyLayer0Envelope,
+			ProxyLayer0Repeated:       state.Savings.ProxyLayer0Repeated,
 			ProxyLayer0Routes:         state.Savings.ProxyLayer0Routes,
 			ParseFailures:             state.WSS.ParseFailures,
 			DegradedSessions:          state.WSS.DegradedSessions,
@@ -420,6 +422,7 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "    read_delta:                 %d\n", report.WSS.ProxyLayer0ReadDelta)
 	fmt.Fprintf(w, "    captured_output:            %d\n", report.WSS.ProxyLayer0Captured)
 	fmt.Fprintf(w, "    codex_exec_envelope:        %d\n", report.WSS.ProxyLayer0Envelope)
+	fmt.Fprintf(w, "    repeated_output:            %d\n", report.WSS.ProxyLayer0Repeated)
 	fmt.Fprintf(w, "  route_wss_phasef_tokens:      %d\n", report.WSS.ProxyLayer0Routes.WSSPhaseF.TokensSaved)
 	fmt.Fprintf(w, "  route_wss_phasef_misses:      tool=%d command=%d read=%d\n",
 		report.WSS.ProxyLayer0Routes.WSSPhaseF.ToolMisses,

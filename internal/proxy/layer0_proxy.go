@@ -20,6 +20,7 @@ const (
 	proxyLayer0MechanismReadDelta     proxyLayer0Mechanism = "read_delta"
 	proxyLayer0MechanismCapturedOut   proxyLayer0Mechanism = "captured_output"
 	proxyLayer0MechanismCodexEnvelope proxyLayer0Mechanism = "codex_exec_envelope"
+	proxyLayer0MechanismRepeatedOut   proxyLayer0Mechanism = "repeated_tool_output"
 )
 
 type codexLayer0Route string
@@ -55,6 +56,7 @@ type proxyLayer0Stats struct {
 	ReadDeltaBlocks         int
 	CapturedOutputBlocks    int
 	CodexExecEnvelopeBlocks int
+	RepeatedOutputBlocks    int
 }
 
 func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
@@ -63,6 +65,7 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.ReadDeltaBlocks = 0
 	s.CapturedOutputBlocks = 0
 	s.CodexExecEnvelopeBlocks = 0
+	s.RepeatedOutputBlocks = 0
 	return s
 }
 
@@ -121,6 +124,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			if readDeltaAttempted {
 				stats.ReadDeltaAttempts++
 			}
+			readCommand := filter.ReadPathFromCommandLine(commandLine) != ""
 			afterText, changed := compactProxyReadDelta(req.SessionID, commandLine, block.Text, readCtx)
 			mechanism := proxyLayer0MechanismReadDelta
 			if readDeltaAttempted && !changed {
@@ -128,6 +132,19 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if !changed {
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
+			}
+			candidateText := block.Text
+			candidateEligible := true
+			if changed {
+				candidateText = afterText
+				candidateEligible = tokens.CountString(candidateText) < beforeTokens
+			}
+			if !readCommand && candidateEligible {
+				if repeatedText, repeated := compactProxyRepeatedToolOutput(req.SessionID, commandLine, candidateText); repeated {
+					afterText = repeatedText
+					changed = true
+					mechanism = proxyLayer0MechanismRepeatedOut
+				}
 			}
 			if !changed {
 				continue
@@ -145,6 +162,8 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					stats.ReadDeltaBlocks++
 				case proxyLayer0MechanismCodexEnvelope:
 					stats.CodexExecEnvelopeBlocks++
+				case proxyLayer0MechanismRepeatedOut:
+					stats.RepeatedOutputBlocks++
 				default:
 					stats.CapturedOutputBlocks++
 				}
@@ -369,6 +388,26 @@ func compactProxyReadDelta(sessionID, commandLine, text string, ctx filter.FileR
 		SessionID: sessionID,
 		FilePath:  path,
 	}, text, contentarchive.DefaultDir(home), ctx.RecentlyEdited)
+	if err != nil || decision.Type != readcache.DecisionBlock || decision.Reason == "" {
+		return "", false
+	}
+	return decision.Reason, true
+}
+
+func compactProxyRepeatedToolOutput(sessionID, commandLine, text string) (string, bool) {
+	key := proxyLayer0QualityToolKey(commandLine)
+	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(key) == "" {
+		return "", false
+	}
+	home, err := proxyUserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	decision, err := readcache.EvaluateObservedOutput(readcache.DefaultDir(home), readcache.OutputRequest{
+		SessionID:   sessionID,
+		Key:         key,
+		CommandLine: commandLine,
+	}, text, contentarchive.DefaultDir(home))
 	if err != nil || decision.Type != readcache.DecisionBlock || decision.Reason == "" {
 		return "", false
 	}

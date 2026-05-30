@@ -44,6 +44,9 @@ func LoadSession(dir string, sessionID string) (*SessionState, error) {
 	if state.Files == nil {
 		state.Files = map[string]*FileEntry{}
 	}
+	if state.Outputs == nil {
+		state.Outputs = map[string]*OutputEntry{}
+	}
 	if state.SessionID == "" {
 		state.SessionID = safeID
 	}
@@ -57,6 +60,12 @@ func SaveSession(dir string, state *SessionState) error {
 	}
 	state.SessionID = sanitizeSessionID(state.SessionID)
 	state.CurrentTurnID = sessions.SafeOptionalTurnID(state.CurrentTurnID)
+	if state.Files == nil {
+		state.Files = map[string]*FileEntry{}
+	}
+	if state.Outputs == nil {
+		state.Outputs = map[string]*OutputEntry{}
+	}
 
 	data, err := readCacheMarshalIndent(state, "", "  ")
 	if err != nil {

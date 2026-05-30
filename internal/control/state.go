@@ -166,6 +166,7 @@ type SavingsSummary struct {
 	ProxyLayer0ReadDelta     int64                    `json:"proxy_layer0_read_delta_blocks"`
 	ProxyLayer0Captured      int64                    `json:"proxy_layer0_captured_output_blocks"`
 	ProxyLayer0Envelope      int64                    `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Repeated      int64                    `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0Routes        ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
 	StreamcutFires           int64                    `json:"streamcut_fires"`
 	RepdetRewrites           int64                    `json:"repdet_rewrites"`
@@ -192,6 +193,7 @@ type ProxyLayer0RouteSummary struct {
 	ReadDeltaBlocks  int64 `json:"read_delta_blocks"`
 	CapturedBlocks   int64 `json:"captured_output_blocks"`
 	EnvelopeBlocks   int64 `json:"codex_exec_envelope_blocks"`
+	RepeatedBlocks   int64 `json:"repeated_output_blocks"`
 }
 
 type ProxyLayer0RoutesSummary struct {

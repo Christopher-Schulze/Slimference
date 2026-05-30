@@ -3272,3 +3272,30 @@ Interpretation:
   improves the live signal and reduces marker contamination; the stronger
   no-drawdown proof still needs the offline A/B harness before broad semantic
   WSS expansion.
+
+## 2026-05-30 - T248 exact repeated non-file tool-output dedup
+
+Goal: harvest the next safe Codex savings class after full-file read-delta:
+identical repeated outputs from non-read commands such as status/search/build
+reports, without semantic summaries or prompt mutation.
+
+Changes:
+- `readcache` now has an `outputs` namespace beside `files`. It stores exact
+  output hashes and archive URIs per session/command key, with no raw content
+  required in session JSON for large outputs.
+- The shared Codex Layer-0 reducer runs exact repeated-output dedup after the
+  deterministic captured-output filters and only on the candidate text that
+  would actually be sent upstream. This avoids referring to full raw output that
+  the server never saw.
+- Repeated-output savings have dedicated telemetry:
+  `proxy_layer0_repeated_output_blocks` globally and `repeated_output_blocks`
+  under each route in `/admin/state`, `aggregate-savings`, and
+  `workday-savings`.
+
+Safety:
+- File reads stay on the read-delta path. Repeated-output dedup skips read
+  commands so recency/read semantics remain separate.
+- Changed outputs, short outputs, unresolved commands, missing archive support,
+  and home/archive errors fail open to full output.
+- The mechanism is exact-hash only. It does not summarize, diff, or infer that
+  two different command outputs mean the same thing.

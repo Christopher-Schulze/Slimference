@@ -281,10 +281,10 @@ point with route labels (`http`, `wss_phasef`) and mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
 blocks, command-unresolved blocks, read-delta attempts, read-delta misses,
 modified blocks, read-delta blocks, captured-output filter blocks, and Codex
-exec-envelope blocks. Opportunity and miss fields make hit-rate visible without
-claiming savings. The modified-block and mechanism-hit fields are success
-counters and are only recorded with a positive token saving. These counters are
-emitted globally and under `proxy_layer0_routes.http` /
+exec-envelope blocks, and exact repeated-output blocks. Opportunity and miss
+fields make hit-rate visible without claiming savings. The modified-block and
+mechanism-hit fields are success counters and are only recorded with a positive
+token saving. These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and
 `aggregate-savings`, so future cache or reducer work can measure which route
 and mechanism actually saved tokens before broadening mutation surfaces.
@@ -307,6 +307,16 @@ needed to build an exact delta or unchanged reference. If the archive is missing
 or the delta is not shorter, the original content is sent unchanged. This keeps
 the savings path reconstructable and fail-open while improving repeat-read
 hit-rate for both WSS and HTTP Codex traffic.
+
+The same session state also tracks exact repeated non-file tool outputs. For
+non-read commands, the reducer first applies deterministic captured-output
+filters; if the candidate text is what will actually be sent upstream, its hash
+is recorded under the resolved command key. A later identical command/output
+pair in the same session can be replaced by a neutral archive-backed unchanged
+output note. The mechanism is exact-only: changed output, short output,
+unresolved commands, archive failures, and file reads fail open. This extends
+repeat savings to commands such as repeated `git status`, `rg`, build/test
+reports, or custom deterministic tools without introducing semantic summaries.
 
 Model-facing readcache replacements use neutral read-note wording and preserve
 the `local-archive://<id>` pattern without naming Slimference inside tool

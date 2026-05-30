@@ -223,6 +223,72 @@ func TestEvaluateObserved_RecentEditAllowsAndUpdates(t *testing.T) {
 	}
 }
 
+func TestEvaluateObservedOutput_ExactRepeatBlocks(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	req := OutputRequest{
+		SessionID:   "s1",
+		TurnID:      "turn-1",
+		Key:         "command:python generate.py",
+		CommandLine: "python generate.py",
+	}
+	body := strings.Repeat("deterministic generated output line\n", 40)
+	decision, err := EvaluateObservedOutput(dir, req, body, archiveDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionAllow {
+		t.Fatalf("first observed output should allow: %+v", decision)
+	}
+
+	req.TurnID = "turn-2"
+	decision, err = EvaluateObservedOutput(dir, req, body, archiveDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged ||
+		!strings.Contains(decision.Reason, "unchanged since previous emitted output") ||
+		!strings.Contains(decision.Reason, "Previous output: local-archive://") {
+		t.Fatalf("exact repeated output should block with archive reference: %+v", decision)
+	}
+
+	state, err := LoadSession(dir, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := state.Outputs[req.Key]
+	if entry == nil || entry.ArchiveURI == "" || entry.CommandLine != req.CommandLine {
+		t.Fatalf("output entry not stored: %+v", entry)
+	}
+	_, archived, err := contentarchive.Get(archiveDir, entry.ArchiveURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(archived) != body {
+		t.Fatal("archive did not preserve exact output")
+	}
+}
+
+func TestEvaluateObservedOutput_ChangedShortOrUnarchivedAllows(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	archiveDir := t.TempDir()
+	req := OutputRequest{SessionID: "s1", Key: "command:tool", CommandLine: "tool"}
+	if decision, err := EvaluateObservedOutput(dir, req, "short output", archiveDir); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("short output should allow, decision=%+v err=%v", decision, err)
+	}
+	body := strings.Repeat("old output line\n", 40)
+	if decision, err := EvaluateObservedOutput(dir, req, body, ""); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("missing archive dir should allow, decision=%+v err=%v", decision, err)
+	}
+	if decision, err := EvaluateObservedOutput(dir, req, strings.Repeat("new output line\n", 40), archiveDir); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("changed output should allow, decision=%+v err=%v", decision, err)
+	}
+}
+
 func TestEvaluateObserved_FailOpenBranches(t *testing.T) {
 	t.Parallel()
 
