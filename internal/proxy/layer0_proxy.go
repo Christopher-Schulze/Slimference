@@ -3,6 +3,8 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -196,6 +198,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
 				}
 				if !changed {
+					_ = recordScanModeShadow(commandLine, block.Text, readCtx, beforeTokens, tok)
 					continue
 				}
 			}
@@ -454,6 +457,35 @@ func compactProxyLayer0TextDetailed(commandLine, text string, ctx filter.FileRea
 		return out, true, proxyLayer0MechanismCodexEnvelope
 	}
 	return "", false, ""
+}
+
+// scanShadowEnv enables measuring how much first-read scan-mode (structure
+// extraction) WOULD save on a Codex file read, without applying it. The read
+// still passes full (the first-read-full design stays), so this is pure
+// telemetry with zero drawdown; it exists to gather per-workload data before
+// scan-mode is wired into the read path behind a proof gate.
+const scanShadowEnv = "SLIMFERENCE_SCAN_SHADOW"
+
+// recordScanModeShadow returns the tokens first-read scan-mode would save on this
+// read (and logs it) when scanShadowEnv is set; otherwise it is a no-op. It never
+// mutates the block: the caller still full-passes the read.
+func recordScanModeShadow(commandLine, text string, ctx filter.FileReadContext, beforeTokens int, tok tokens.Tokenizer) int {
+	if os.Getenv(scanShadowEnv) == "" {
+		return 0
+	}
+	scanText, changed, _ := compactProxyLayer0TextDetailed(commandLine, text, ctx)
+	if !changed {
+		return 0
+	}
+	saved := beforeTokens - tok.CountString(scanText)
+	if saved <= 0 {
+		return 0
+	}
+	slog.Info("codex scan-mode shadow (read, not applied)",
+		"command", strings.TrimSpace(commandLine),
+		"before_tokens", beforeTokens,
+		"scan_would_save_tokens", saved)
+	return saved
 }
 
 func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original string) (string, bool) {
