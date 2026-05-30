@@ -378,6 +378,10 @@ model-facing context change.
 is the operator-facing report wrapper. Its JSONL input is content-bearing by
 definition, so it belongs in local/private captures only; it does not read auth
 headers or WebSocket upgrade metadata.
+Set `SLIMFERENCE_WSS_AB_CAPTURE=/private/path/frames.jsonl` on the Slimference
+daemon process to append those replay frames during a scoped Codex WSS session.
+The capture hook records only decompressed JSON frame payloads and direction,
+before any Phase-F mutation; it is disabled unless the env var is set.
 
 ---
 

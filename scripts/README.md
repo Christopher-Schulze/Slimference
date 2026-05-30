@@ -57,6 +57,7 @@ go run ./scripts/utils workday-savings finish --filter-db=~/.slimference/filter.
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session/re-read audit
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --expect-distinct-sessions=2 --min-phasef=2  # fresh session-key gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-savings  # fresh savings gate
+SLIMFERENCE_WSS_AB_CAPTURE=/tmp/codex-wss-frames.jsonl slimference daemon start     # explicit local WSS frame capture for A/B replay
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost # offline Phase-F comprehension A/B replay
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --json          # machine-readable A/B report
 go run ./scripts/utils tls-probe --profile=chromium_stable --json

@@ -348,11 +348,13 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 		_ = upstream.SetDeadline(dl)
 	}
 	adapter := d.newWSPhaseFAdapter()
+	capture := newWSSABReplayCaptureFromEnv()
+	defer capture.Close()
 	sess := &wsmitm.Session{
 		Client:          client,
 		Upstream:        upstream,
-		ClientHandler:   adapter.handle,
-		UpstreamHandler: adapter.handle,
+		ClientHandler:   capture.Wrap(adapter.handle),
+		UpstreamHandler: capture.Wrap(adapter.handle),
 		Extensions:      opts.Extensions,
 	}
 	err := sess.Serve(ctx)

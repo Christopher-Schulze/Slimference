@@ -1,6 +1,6 @@
 # TASK 249: Codex comprehension safety net (A/B harness, recoverable archive, re-read auto-restore)
 
-Status: [~] PARTIAL - core comparison engine, WSS reducer replay, report CLI, recovery note, and auto-restore landed; live wiring remains open
+Status: [~] PARTIAL - core comparison engine, WSS reducer replay, capture/report CLI, recovery note, and auto-restore landed; live measurement remains open
 Priority: P1 - must land before any aggressive/lossy savings layer is default-on
 Scope: Codex-only WSS Phase-F. Build the measurement + recovery substrate that lets
 aggressive compression be enabled with data instead of hope. No new savings by
@@ -77,8 +77,10 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
   WSS frames into the real Phase-F reducer and then into `abharness.Compare`.
   CI-covered fixtures prove repeat-read read-delta is recoverable and prove that
   enabling the archive recovery note is auditable as extra model-facing context.
-  `go run ./scripts/utils wss-ab-replay <frames.jsonl>` now exposes this as a
-  text/JSON report with `--fail-on-lost`; real captured-session replay remains open.
+  `SLIMFERENCE_WSS_AB_CAPTURE=/private/path/frames.jsonl` records local WSS replay
+  frames before mutation, and `go run ./scripts/utils wss-ab-replay <frames.jsonl>`
+  exposes this as a text/JSON report with `--fail-on-lost`; real captured-session
+  measurement remains open.
 - 2026-05-30: WSS archive-recovery note injection landed behind
   `archive_recovery_note_enabled`, default-off, once per session, and voice-neutral.
   It injects no product name and keeps recovery proof-gated instead of making a new

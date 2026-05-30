@@ -3376,6 +3376,10 @@ Changes:
 - Added `go run ./scripts/utils wss-ab-replay <frames.jsonl>`. It reads local
   JSONL frame captures, prints text or JSON A/B reports, and can fail the run with
   `--fail-on-lost` when compressed context loses model-facing information.
+- Added explicit `SLIMFERENCE_WSS_AB_CAPTURE=/private/path/frames.jsonl` capture
+  wiring on the scoped Codex WSS Phase-F path. It appends pre-mutation decompressed
+  JSON frame payloads plus direction, exactly in the format consumed by
+  `wss-ab-replay`.
 
 Safety:
 - This is proof infrastructure only. It does not enable any new compression path
@@ -3385,3 +3389,5 @@ Safety:
   before promotion.
 - Replay captures are content-bearing local artifacts. The tool consumes only
   decompressed frame payloads, not auth headers or WebSocket upgrade metadata.
+- The capture path is disabled unless the env var is set on the daemon process;
+  capture write failures are fail-open and never block Codex traffic.
