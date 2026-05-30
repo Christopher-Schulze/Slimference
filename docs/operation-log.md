@@ -3753,3 +3753,22 @@ Verification:
 - Added regression tests for a SARIF error past the old cap and a Terraform
   destructive change past the old cap.
 - `go test ./internal/filter ./docs` passed.
+
+## 2026-05-30 - T257 proof matrix tooling
+
+Goal: make the real-workload proof campaign reproducible instead of manually
+interpreting individual WSS captures.
+
+Changes:
+- Added `go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json]`.
+- Added a content-free JSONL metadata schema for local captures: client,
+  workload class, frame capture path, optional decisions log, model/version,
+  repo, timestamps, expected reducers, and expected-zero marker.
+- The command runs every capture through the existing WSS A/B replay gate,
+  optionally runs the matching WSS audit gate, checks 5 CLI + 5 Desktop coverage,
+  checks all required workload classes, and enforces the 7/10
+  positive-or-expected-zero savings gate.
+
+Verification:
+- Added PASS and FAIL tests for the proof matrix command.
+- `go test ./scripts/utils` passed.

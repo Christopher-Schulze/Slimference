@@ -61,6 +61,7 @@ SLIMFERENCE_WSS_AB_CAPTURE=/tmp/codex-wss-frames.jsonl slimference daemon start 
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost # offline Phase-F comprehension A/B replay
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --json          # machine-readable A/B report
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost --json # auto-policy WSS reducer replay, including T255 when safe
+go run ./scripts/utils wss-proof-matrix captures/proof-matrix.jsonl --json           # T257 real-workload proof gate
 go run ./scripts/utils tls-probe --profile=chromium_stable --json
 go run ./scripts/utils/indist_probe capture --label codex-native-direct --out research/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443
 go run ./scripts/utils/indist_probe diff research/indist/codex-native-direct.json research/indist/slimference-scoped-wss.json
