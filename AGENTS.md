@@ -16,6 +16,35 @@ Dieses Dokument ist **verbindlich** für alle automatisierten Agenten (Codex, Cl
 
 ---
 
+## 1a. Produkt-Drawdown-Definition (verbindlich)
+
+Ein **Drawdown** ist ausschließlich ein Nachteil im produktiven Laufzeitbetrieb
+für den Nutzer oder das Modell. Entwicklungsaufwand ist **kein** Drawdown.
+Captures, Benchmarks, Proofs, Tests, Engineering-Aufwand, längere
+Implementierungszeit oder aufwendigere Verifikation zählen nicht als Drawdown.
+
+Nicht akzeptable Produkt-Drawdowns sind insbesondere:
+
+- Das Modell wird weniger intelligent, weniger zuverlässig oder arbeitet
+  fachlich schlechter.
+- Das Modell verliert Kontext, Gedächtnis, Recency, Salienz oder relevante
+  Datei-/Tool-Information.
+- Das Modell halluziniert, driftet von der echten Repo-/Datei-/Tool-Realität
+  weg oder rekonstruiert Inhalte falsch.
+- Codex/Agent-Workflow, UX, Tool-Nutzung, Recovery, Compaction oder Routing
+  wird im normalen Betrieb schlechter, verwirrender, fragiler oder langsamer in
+  einer nutzerrelevanten Weise.
+- Funktionen, Memory, Kontextfenster-Nutzbarkeit oder Modellfähigkeiten werden
+  durch eine Optimierung eingeschränkt.
+
+Savings-Mechanismen dürfen default-on nur sein, wenn diese Produkt-Drawdowns
+eliminiert oder durch deterministische Guards, Recovery, Fail-open-Verhalten und
+Live-Proof praktisch ausgeschlossen sind. Eine Optimierung, die nur mit
+manuellem Experiment-Schalter sinnvoll ist oder im Normalbetrieb Modellqualität
+riskiert, ist kein Produktfeature.
+
+---
+
 ## 2. Fremd- und Referenzcode: `research/rtk-ai/rtk/`
 
 - Das Verzeichnis **`research/rtk-ai/rtk/`** ist ein **eingebettetes Fremdprojekt** (RTK, Rust/inspiration only).
