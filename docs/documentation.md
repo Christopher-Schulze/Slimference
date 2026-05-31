@@ -368,9 +368,13 @@ context ledgers. The pure `internal/contextledger` package builds archive-backed
 capsules for command, file, search, and failure observations: compact facts plus
 provenance, stable hashes, and archive ids, without storing raw omitted content
 inside the capsule. This is the safe replacement foundation for old-context
-compression. It is not yet a default hot-path replacement mechanism; reducer
-telemetry wiring, archive expansion replay, and live corpus proof remain the
-promotion gates.
+compression. A deterministic selector now fails closed before any future
+model-facing use: active turns, recent turns, missing provenance, missing archive
+ids, and high-risk failure content stay verbatim; only old inactive
+archive-backed command/file/search capsules can be selected. Archive expansion is
+loader-based and must restore exact bytes or fail. It is not yet a default
+hot-path replacement mechanism; readcache provenance, replay, and live corpus
+proof remain the promotion gates.
 
 The Codex Layer-0 reducer now feeds the ledger builders in the hot path as
 telemetry only. It builds command/file/search/failure capsule observations from

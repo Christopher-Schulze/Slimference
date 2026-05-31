@@ -63,15 +63,17 @@ The ledger stores deterministic capsules:
    - [ ] readcache archive ids and full-pass turn provenance
    - [x] WSS Phase-F request summaries beyond Layer-0 stats
    - [x] quality/re-read canaries
-3. [ ] Build capsule selection:
-   - active turn: verbatim
-   - recent working set: verbatim or exact delta
-   - old inactive context: ledger capsules
-   - high-risk content: full-pass
+3. [x] Build capsule selection:
+   - [x] active turn: verbatim
+   - [x] recent working set: verbatim or exact delta
+   - [x] old inactive context: ledger capsules
+   - [x] high-risk content: full-pass
 4. [~] Build archive-backed expansion:
-   - every capsule referring to omitted content must carry archive ids
-   - expansion must restore exact source bytes
-   - missing archive means no replacement
+   - [x] every capsule referring to omitted content must carry archive ids
+   - [x] expansion must restore exact source bytes
+   - [x] missing archive means no replacement
+   - [ ] wire expansion replay into the A/B harness with real archived reducer
+     outputs
 5. [ ] Replace summary replacement with ledger insertion only behind proof:
    - default-off while shadowing
    - shadow produces ledger sidecar and compares against direct context
@@ -126,3 +128,9 @@ summary remains opt-in, not default.
   search/failure capsule counts plus the re-read canary count, so live
   decisions logs can prove ledger coverage and quality pressure without
   inserting capsules into model-facing context.
+- 2026-05-31: Added fail-closed capsule selection and archive expansion
+  planning in `internal/contextledger`. The selector keeps active/recent turns,
+  high-risk failures, missing provenance, missing archives, wrong sessions, and
+  over-budget capsules out of any future replacement path. Archive expansion is
+  loader-based and returns copied exact bytes or an error, so missing archive
+  state cannot silently become model context.
