@@ -79,6 +79,21 @@ type Layer2Summary struct {
 	CompressionRatio float64 `json:"compression_ratio"`
 }
 
+// ContextLedgerSummary records deterministic ledger shadow telemetry. It is
+// content-free and does not mean capsules were inserted into model-facing text.
+type ContextLedgerSummary struct {
+	TelemetryOnly   bool `json:"telemetry_only,omitempty"`
+	CommandCapsules int  `json:"command_capsules,omitempty"`
+	FileCapsules    int  `json:"file_capsules,omitempty"`
+	SearchCapsules  int  `json:"search_capsules,omitempty"`
+	FailureCapsules int  `json:"failure_capsules,omitempty"`
+	ReReadCount     int  `json:"re_read_count,omitempty"`
+}
+
+func (s ContextLedgerSummary) TotalCapsules() int {
+	return s.CommandCapsules + s.FileCapsules + s.SearchCapsules + s.FailureCapsules
+}
+
 // PromptCacheSummary records content-free provider-cache hint decisions.
 // StablePrefixHash is already truncated and content-derived only; it must
 // never contain raw prompt text.
@@ -150,6 +165,7 @@ type RequestSummary struct {
 	Tokens                 TokenCounts                  `json:"tokens"`
 	Layer1Breakdown        map[string]SubLayerBreakdown `json:"layer1_breakdown"`
 	Layer2                 Layer2Summary                `json:"layer2"`
+	ContextLedger          ContextLedgerSummary         `json:"context_ledger,omitempty"`
 	CacheHit               bool                         `json:"cache_hit"`
 	CacheReadTokens        int                          `json:"cache_read_tokens"`
 	CacheCreateTokens      int                          `json:"cache_create_tokens"`
@@ -298,6 +314,16 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 			FinalTokens:    s.Layer2.CompressedTokens,
 			SavedTokens:    saved,
 			NetTokens:      saved,
+		})
+	}
+	if s.ContextLedger.TotalCapsules() > 0 || s.ContextLedger.ReReadCount > 0 {
+		out = append(out, MechanismAccounting{
+			Name:      "context_ledger_shadow",
+			Layer:     2,
+			Source:    "context_ledger",
+			Count:     s.ContextLedger.TotalCapsules(),
+			NetTokens: 0,
+			Reason:    "telemetry_only",
 		})
 	}
 	if s.PromptCache.Applied || s.PromptCache.Reason != "" || s.CacheReadTokens > 0 || s.CacheCreateTokens > 0 || s.ProviderCachedTokens > 0 {

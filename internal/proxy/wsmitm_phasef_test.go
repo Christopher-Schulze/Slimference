@@ -1279,6 +1279,12 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	if summary.ReReadCount != 1 {
 		t.Fatalf("WSS re-read canary not recorded: %+v", summary)
 	}
+	if !summary.ContextLedger.TelemetryOnly ||
+		summary.ContextLedger.CommandCapsules == 0 ||
+		summary.ContextLedger.FileCapsules == 0 ||
+		summary.ContextLedger.ReReadCount != 1 {
+		t.Fatalf("WSS context ledger summary missing telemetry/canary: %+v", summary.ContextLedger)
+	}
 	if summary.Tokens.Original <= summary.Tokens.Final || summary.NetSavedTokens <= 0 {
 		t.Fatalf("expected positive WSS planner token delta: %+v", summary.Tokens)
 	}

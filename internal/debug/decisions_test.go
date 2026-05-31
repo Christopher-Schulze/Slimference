@@ -124,6 +124,7 @@ func TestBuildMechanismAccounting(t *testing.T) {
 		}},
 		Layer1Breakdown: map[string]SubLayerBreakdown{"json_compact": {Blocks: 2, Saved: 80}},
 		Layer2:          Layer2Summary{Applied: true, OriginalTokens: 500, CompressedTokens: 200},
+		ContextLedger:   ContextLedgerSummary{TelemetryOnly: true, CommandCapsules: 2, FileCapsules: 1, ReReadCount: 1},
 		PromptCache:     PromptCacheSummary{Applied: true, Reason: "stable_prefix", StablePrefixTokens: 400},
 		CacheReadTokens: 100,
 		ToolPrune:       ToolPruneSummary{Applied: true, Reason: "unused_tools", SavedTokens: 120, Reattached: 20},
@@ -142,6 +143,9 @@ func TestBuildMechanismAccounting(t *testing.T) {
 	}
 	if byName["json_compact"].SavedTokens != 80 || byName["layer2_summarization"].SavedTokens != 300 {
 		t.Fatalf("layer accounting missing: %+v", byName)
+	}
+	if byName["context_ledger_shadow"].Count != 3 || byName["context_ledger_shadow"].NetTokens != 0 {
+		t.Fatalf("context ledger accounting missing: %+v", byName["context_ledger_shadow"])
 	}
 	if byName["provider_prompt_cache"].NetTokens != 100 || byName["tool_prune"].NetTokens != 100 {
 		t.Fatalf("cache/tool accounting missing: %+v", byName)

@@ -61,8 +61,8 @@ The ledger stores deterministic capsules:
    - [x] `/admin/state.savings` exposes content-free capsule counts globally and
      per route
    - [ ] readcache archive ids and full-pass turn provenance
-   - [ ] WSS Phase-F request summaries beyond Layer-0 stats
-   - [ ] quality/re-read canaries
+   - [x] WSS Phase-F request summaries beyond Layer-0 stats
+   - [x] quality/re-read canaries
 3. [ ] Build capsule selection:
    - active turn: verbatim
    - recent working set: verbatim or exact delta
@@ -118,3 +118,11 @@ The ledger stores deterministic capsules:
 Layer 2 is product-ready only when it is a deterministic context ledger with
 archive-backed recovery and proof that it preserves task decisions. Classical
 summary remains opt-in, not default.
+
+## Progress
+
+- 2026-05-31: Added telemetry-only `context_ledger` summaries to WSS
+  `RequestSummary` records. The summary carries deterministic command/file/
+  search/failure capsule counts plus the re-read canary count, so live
+  decisions logs can prove ledger coverage and quality pressure without
+  inserting capsules into model-facing context.

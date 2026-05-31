@@ -494,6 +494,14 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			Profile: "wss_phasef",
 			Reason:  wssPlannerOutputReduceReason(replaced, l0Stats),
 		},
+		ContextLedger: dbg.ContextLedgerSummary{
+			TelemetryOnly:   true,
+			CommandCapsules: l0Stats.LedgerCommandCapsules,
+			FileCapsules:    l0Stats.LedgerFileCapsules,
+			SearchCapsules:  l0Stats.LedgerSearchCapsules,
+			FailureCapsules: l0Stats.LedgerFailureCapsules,
+			ReReadCount:     reReadCount,
+		},
 		ReReadCount:    reReadCount,
 		NetSavedTokens: saved,
 		Plan: a.p.dryRunPlan(plannerInput{

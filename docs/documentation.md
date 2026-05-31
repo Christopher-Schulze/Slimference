@@ -375,9 +375,12 @@ promotion gates.
 The Codex Layer-0 reducer now feeds the ledger builders in the hot path as
 telemetry only. It builds command/file/search/failure capsule observations from
 tool-output metadata and exposes only content-free capsule counts in
-`/admin/state.savings`, globally and per `http` / `wss_phasef` route. No ledger
-capsule is inserted into model-facing context until archive provenance,
-expansion replay, and live proof are complete.
+`/admin/state.savings`, globally and per `http` / `wss_phasef` route. WSS
+decision summaries also carry a `context_ledger` shadow block with capsule
+counts and the re-read canary count, making ledger coverage and context-pressure
+visible in live proof logs without logging payloads. No ledger capsule is
+inserted into model-facing context until archive provenance, expansion replay,
+and live proof are complete.
 
 The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
