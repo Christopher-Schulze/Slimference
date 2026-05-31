@@ -864,6 +864,12 @@ biases towards preserving high-priority content.
 the *original* request body + pertinent headers. Hits skip Layer 1 and
 Layer 2 entirely and serve the cached upstream response.
 
+The local response cache only serves deterministic, non-tool request shapes.
+Streaming, stochastic sampling, multiple completions, tool definitions,
+explicit tool choices, function-call fields, tool/function roles, and Responses
+function-call outputs all full-pass upstream. This keeps Layer 3 from replaying
+a cached tool workflow where fresh tool state or timing matters.
+
 ### Invalidation
 
 `internal/caching/file_watcher.go` watches every file referenced by

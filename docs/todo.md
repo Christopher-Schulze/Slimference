@@ -1906,9 +1906,10 @@ be called complete, default-safe, and production-grade.
   reducer telemetry; archive provenance, quality inputs, and proof-gated
   insertion remain. Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
-- [ ] **T263** Layer 3 provider/prompt cache max-out - maximize cache hits
-  without changing model-facing context and make all cache claims
-  provider-accounting backed. Detail:
+- [~] **T263** Layer 3 provider/prompt cache max-out - local response cache now
+  full-passes tool-capable request shapes to avoid workflow replay drawdowns;
+  provider-accounting alignment, stronger key contracts, and long-session proof
+  remain. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
 
 ### Codex savings mechanism max-out tasks

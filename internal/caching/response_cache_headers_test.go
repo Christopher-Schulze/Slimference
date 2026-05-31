@@ -102,6 +102,26 @@ func TestIsRequestCacheSafe(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "tools disable cache",
+			body: `{"model":"gpt-4","tools":[{"type":"function","function":{"name":"read_file"}}],"messages":[{"role":"user","content":"hello"}]}`,
+			want: false,
+		},
+		{
+			name: "tool choice disables cache",
+			body: `{"model":"gpt-4","tool_choice":{"type":"function","function":{"name":"read_file"}},"messages":[{"role":"user","content":"hello"}]}`,
+			want: false,
+		},
+		{
+			name: "tool role disables cache",
+			body: `{"model":"gpt-4","messages":[{"role":"tool","content":"result"}]}`,
+			want: false,
+		},
+		{
+			name: "responses function call output disables cache",
+			body: `{"model":"gpt-4","input":[{"type":"function_call_output","call_id":"c","output":"result"}]}`,
+			want: false,
+		},
+		{
 			name: "invalid json is not cache safe",
 			body: `{"model":`,
 			want: false,

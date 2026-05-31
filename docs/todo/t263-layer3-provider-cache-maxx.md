@@ -10,6 +10,10 @@ and long-session proof.
 ## Current reality check
 
 - Response/provider cache logic exists.
+- Local response-cache safety now rejects tool-capable request shapes: `tools`,
+  `functions`, `tool_choice`, `function_call`, tool/function roles, and
+  Responses `function_call_output` inputs full-pass upstream instead of being
+  replayed from cache.
 - Prompt-cache planning exists for stable prefixes.
 - Layer 3 is default-enabled for supported paths.
 - Savings claims must be separated from local byte savings and output-wire
@@ -74,10 +78,17 @@ accounting or locally proven upstream bypass, not mixed counters.
 
 - Unit tests for cache key rotation and non-rotation.
 - Dependency invalidation tests.
+- Tool-call safety tests for local response-cache bypass.
 - Provider-accounting fixture tests.
 - Long-session replay with stable prefix.
 - `go test ./internal/caching ./internal/proxy ./scripts/utils`
 - `go run ./scripts/ci`
+
+## Progress
+
+- 2026-05-31: Hardened local response-cache eligibility so tool-capable shapes
+  never replay a cached response. This protects workflow semantics for tool
+  calls while leaving deterministic non-tool requests cacheable.
 
 ## Done
 

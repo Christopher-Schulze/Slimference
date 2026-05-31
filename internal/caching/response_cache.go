@@ -358,7 +358,70 @@ func IsRequestCacheSafe(body []byte) bool {
 	if topP, ok := numericValue(root["top_p"]); ok && topP > 0 && topP < 1 {
 		return false
 	}
+	if requestCanProduceToolCalls(root) {
+		return false
+	}
 	return true
+}
+
+func requestCanProduceToolCalls(root map[string]interface{}) bool {
+	for _, key := range []string{"tools", "functions"} {
+		if value, ok := root[key]; ok && nonEmptyJSONValue(value) {
+			return true
+		}
+	}
+	if value, ok := root["tool_choice"]; ok && nonEmptyJSONValue(value) {
+		return true
+	}
+	if value, ok := root["function_call"]; ok && nonEmptyJSONValue(value) {
+		return true
+	}
+	return containsToolRole(root["messages"]) || containsToolRole(root["input"])
+}
+
+func nonEmptyJSONValue(value interface{}) bool {
+	switch v := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(v) != "" && strings.TrimSpace(v) != "none"
+	case []interface{}:
+		return len(v) > 0
+	case map[string]interface{}:
+		return len(v) > 0
+	default:
+		return true
+	}
+}
+
+func containsToolRole(value interface{}) bool {
+	switch v := value.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if containsToolRole(item) {
+				return true
+			}
+		}
+	case map[string]interface{}:
+		if role, ok := v["role"].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(role)) {
+			case "tool", "function":
+				return true
+			}
+		}
+		if typ, ok := v["type"].(string); ok {
+			switch strings.ToLower(strings.TrimSpace(typ)) {
+			case "tool_call", "function_call", "function_call_output":
+				return true
+			}
+		}
+		for _, child := range v {
+			if containsToolRole(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func canonicalizeJSON(body []byte) []byte {
