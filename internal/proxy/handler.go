@@ -1589,6 +1589,8 @@ func (p *Proxy) enqueueLayer2Compression(sessionID string, messages []types.Mess
 
 // healthHandler responds to GET /health with full proxy status JSON.
 func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
+	resource := p.daemonResourceSnapshot()
+	stateBytes, _ := p.daemonStateBytes()
 	status := struct {
 		Status            string          `json:"status"`
 		Service           string          `json:"service"`
@@ -1596,20 +1598,26 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		PID               int             `json:"pid"`
 		RSSBytes          int64           `json:"rss_bytes"`
 		UptimeSec         int64           `json:"uptime_sec"`
+		CPUUserSeconds    float64         `json:"cpu_user_seconds"`
+		CPUSystemSeconds  float64         `json:"cpu_system_seconds"`
+		CPUPercent        float64         `json:"cpu_percent"`
+		StateBytes        int64           `json:"state_bytes"`
 		Layers            map[string]bool `json:"layers"`
 		Providers         map[string]bool `json:"providers"`
 		QueueDepth        map[string]int  `json:"queue_depth"`
 		CacheEntries      int             `json:"cache_entries"`
 		MiniMaxConfigured bool            `json:"minimax_configured"`
 	}{
-		Status:  "ok",
-		Service: "slimference",
-		Version: Version,
-		PID:     os.Getpid(),
-		RSSBytes: func() int64 {
-			return p.daemonResourceSnapshot().RSSBytes
-		}(),
-		UptimeSec: p.uptimeSeconds(),
+		Status:           "ok",
+		Service:          "slimference",
+		Version:          Version,
+		PID:              os.Getpid(),
+		RSSBytes:         resource.RSSBytes,
+		UptimeSec:        p.uptimeSeconds(),
+		CPUUserSeconds:   resource.CPUUserSeconds,
+		CPUSystemSeconds: resource.CPUSystemSeconds,
+		CPUPercent:       resource.CPUPercent,
+		StateBytes:       stateBytes,
 		Layers: map[string]bool{
 			"1": p.isLayerEnabled(1),
 			"2": p.isLayerEnabled(2),

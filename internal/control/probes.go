@@ -117,15 +117,23 @@ func (p *HTTPDaemonProbe) ProbeDaemon(ctx context.Context) DaemonState {
 	state.Running = true
 	state.HealthOK = resp.StatusCode == http.StatusOK
 	var body struct {
-		PID       int    `json:"pid"`
-		Version   string `json:"version"`
-		RSSBytes  int64  `json:"rss_bytes"`
-		UptimeSec int64  `json:"uptime_sec"`
+		PID              int     `json:"pid"`
+		Version          string  `json:"version"`
+		RSSBytes         int64   `json:"rss_bytes"`
+		UptimeSec        int64   `json:"uptime_sec"`
+		CPUUserSeconds   float64 `json:"cpu_user_seconds"`
+		CPUSystemSeconds float64 `json:"cpu_system_seconds"`
+		CPUPercent       float64 `json:"cpu_percent"`
+		StateBytes       int64   `json:"state_bytes"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	state.PID = body.PID
 	state.RSSBytes = body.RSSBytes
 	state.UptimeSec = body.UptimeSec
+	state.CPUUserSeconds = body.CPUUserSeconds
+	state.CPUSystemSeconds = body.CPUSystemSeconds
+	state.CPUPercent = body.CPUPercent
+	state.StateBytes = body.StateBytes
 	if body.Version != "" {
 		state.Version = body.Version
 	}

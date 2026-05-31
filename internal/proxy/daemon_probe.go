@@ -19,12 +19,17 @@ func (p DaemonProbe) ProbeDaemon(_ context.Context) control.DaemonState {
 		return control.DaemonState{}
 	}
 	snap := p.Proxy.daemonResourceSnapshot()
+	stateBytes, _ := p.Proxy.daemonStateBytes()
 	return control.DaemonState{
-		Running:   true,
-		HealthOK:  true,
-		PID:       os.Getpid(),
-		RSSBytes:  snap.RSSBytes,
-		UptimeSec: p.Proxy.uptimeSeconds(),
-		Version:   Version,
+		Running:          true,
+		HealthOK:         true,
+		PID:              os.Getpid(),
+		RSSBytes:         snap.RSSBytes,
+		UptimeSec:        p.Proxy.uptimeSeconds(),
+		CPUUserSeconds:   snap.CPUUserSeconds,
+		CPUSystemSeconds: snap.CPUSystemSeconds,
+		CPUPercent:       snap.CPUPercent,
+		StateBytes:       stateBytes,
+		Version:          Version,
 	}
 }

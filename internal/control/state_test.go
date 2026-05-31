@@ -213,6 +213,13 @@ func TestEvaluateHostBudgetStatus(t *testing.T) {
 			reasons: 1,
 		},
 		{
+			name:    "state exceeded",
+			daemon:  DaemonState{RSSBytes: 64 * 1024 * 1024, StateBytes: DefaultHostStateBudgetBytes + 1},
+			wss:     WSSState{EngineActive: true},
+			want:    "attention",
+			reasons: 1,
+		},
+		{
 			name: "wss errors exceeded",
 			wss: WSSState{
 				EngineActive:      true,

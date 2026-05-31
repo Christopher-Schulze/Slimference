@@ -33,12 +33,14 @@ import (
 	"github.com/slimference/slimference/internal/promptcache"
 	"github.com/slimference/slimference/internal/quality"
 	"github.com/slimference/slimference/internal/qualityab"
+	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tlsca"
 	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/toolprune"
+	"github.com/slimference/slimference/internal/toolusecache"
 	"github.com/slimference/slimference/internal/types"
 	"github.com/slimference/slimference/internal/wscompact"
 )
@@ -506,7 +508,14 @@ func New(cfg *config.Config) *Proxy {
 }
 
 func (p *Proxy) daemonResourceSnapshot() hostmetrics.ProcessSnapshot {
-	return hostmetrics.CurrentProcess(os.Getpid())
+	snap := hostmetrics.CurrentProcess(os.Getpid())
+	if snap.CPUKnown && !p.startedAt.IsZero() {
+		uptime := time.Since(p.startedAt).Seconds()
+		if uptime > 0 {
+			snap.CPUPercent = (snap.CPUUserSeconds + snap.CPUSystemSeconds) / uptime * 100
+		}
+	}
+	return snap
 }
 
 func (p *Proxy) uptimeSeconds() int64 {
@@ -514,6 +523,29 @@ func (p *Proxy) uptimeSeconds() int64 {
 		return 0
 	}
 	return int64(time.Since(p.startedAt).Seconds())
+}
+
+func (p *Proxy) daemonStateBytes() (int64, bool) {
+	home, err := proxyUserHomeDir()
+	if err != nil || home == "" {
+		return 0, false
+	}
+	dirs := []string{
+		contentarchive.DefaultDir(home),
+		readcache.DefaultDir(home),
+		toolusecache.DefaultDir(home),
+		toolusecache.CollapsedKeysDir(home),
+	}
+	var total int64
+	known := false
+	for _, dir := range dirs {
+		size, ok := hostmetrics.DirectorySizeBytes(dir, 20_000)
+		if ok {
+			total += size
+			known = true
+		}
+	}
+	return total, known
 }
 
 func newUpstreamTransport(cfg *config.Config, resolver tlsdial.Resolver) *http.Transport {

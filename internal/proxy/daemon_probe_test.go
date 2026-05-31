@@ -30,6 +30,12 @@ func TestDaemonProbeReportsLocalProcessState(t *testing.T) {
 	if got.RSSBytes < 0 {
 		t.Fatalf("rss=%d", got.RSSBytes)
 	}
+	if got.CPUUserSeconds < 0 || got.CPUSystemSeconds < 0 || got.CPUPercent < 0 {
+		t.Fatalf("cpu fields invalid: %+v", got)
+	}
+	if got.StateBytes < 0 {
+		t.Fatalf("state bytes invalid: %+v", got)
+	}
 }
 
 func TestDaemonProbeNilProxy(t *testing.T) {

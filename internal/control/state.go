@@ -49,14 +49,18 @@ type CAState struct {
 
 // DaemonState reports the proxy daemon liveness.
 type DaemonState struct {
-	Installed bool   `json:"installed"`
-	Autostart bool   `json:"autostart"`
-	Running   bool   `json:"running"`
-	PID       int    `json:"pid"`
-	HealthOK  bool   `json:"health_ok"`
-	RSSBytes  int64  `json:"rss_bytes"`
-	UptimeSec int64  `json:"uptime_sec"`
-	Version   string `json:"version"`
+	Installed        bool    `json:"installed"`
+	Autostart        bool    `json:"autostart"`
+	Running          bool    `json:"running"`
+	PID              int     `json:"pid"`
+	HealthOK         bool    `json:"health_ok"`
+	RSSBytes         int64   `json:"rss_bytes"`
+	UptimeSec        int64   `json:"uptime_sec"`
+	CPUUserSeconds   float64 `json:"cpu_user_seconds"`
+	CPUSystemSeconds float64 `json:"cpu_system_seconds"`
+	CPUPercent       float64 `json:"cpu_percent"`
+	StateBytes       int64   `json:"state_bytes"`
+	Version          string  `json:"version"`
 }
 
 // ListenerState reports the transparent :443 listener readiness.
@@ -337,34 +341,45 @@ type WSSState struct {
 }
 
 const DefaultHostRSSBudgetBytes int64 = 200 * 1024 * 1024
+const DefaultHostStateBudgetBytes int64 = 512 * 1024 * 1024
 
 type HostBudgetState struct {
-	Status         string   `json:"status"`
-	Exceeded       bool     `json:"exceeded"`
-	RSSBytes       int64    `json:"rss_bytes"`
-	RSSLimitBytes  int64    `json:"rss_limit_bytes"`
-	Reasons        []string `json:"reasons,omitempty"`
-	CompressionOK  bool     `json:"compression_ok"`
-	DegradationOK  bool     `json:"degradation_ok"`
-	MutationActive bool     `json:"mutation_active"`
+	Status          string   `json:"status"`
+	Exceeded        bool     `json:"exceeded"`
+	RSSBytes        int64    `json:"rss_bytes"`
+	RSSLimitBytes   int64    `json:"rss_limit_bytes"`
+	CPUPercent      float64  `json:"cpu_percent"`
+	StateBytes      int64    `json:"state_bytes"`
+	StateLimitBytes int64    `json:"state_limit_bytes"`
+	Reasons         []string `json:"reasons,omitempty"`
+	CompressionOK   bool     `json:"compression_ok"`
+	DegradationOK   bool     `json:"degradation_ok"`
+	MutationActive  bool     `json:"mutation_active"`
 }
 
 func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 	state := HostBudgetState{
-		Status:         "ok",
-		RSSBytes:       daemon.RSSBytes,
-		RSSLimitBytes:  DefaultHostRSSBudgetBytes,
-		CompressionOK:  wss.CompressionErrors == 0,
-		DegradationOK:  wss.ParseFailures == 0 && wss.DegradedSessions == 0,
-		MutationActive: wss.MutationActive,
+		Status:          "ok",
+		RSSBytes:        daemon.RSSBytes,
+		RSSLimitBytes:   DefaultHostRSSBudgetBytes,
+		CPUPercent:      daemon.CPUPercent,
+		StateBytes:      daemon.StateBytes,
+		StateLimitBytes: DefaultHostStateBudgetBytes,
+		CompressionOK:   wss.CompressionErrors == 0,
+		DegradationOK:   wss.ParseFailures == 0 && wss.DegradedSessions == 0,
+		MutationActive:  wss.MutationActive,
 	}
-	if daemon.RSSBytes <= 0 && !wss.EngineActive {
+	if daemon.RSSBytes <= 0 && daemon.StateBytes <= 0 && !wss.EngineActive {
 		state.Status = "unknown"
 		return state
 	}
 	if daemon.RSSBytes > DefaultHostRSSBudgetBytes {
 		state.Exceeded = true
 		state.Reasons = append(state.Reasons, "rss_budget_exceeded")
+	}
+	if daemon.StateBytes > DefaultHostStateBudgetBytes {
+		state.Exceeded = true
+		state.Reasons = append(state.Reasons, "state_budget_exceeded")
 	}
 	if !state.CompressionOK {
 		state.Exceeded = true

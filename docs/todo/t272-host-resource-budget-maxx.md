@@ -15,10 +15,12 @@ sets hard budgets and auto-degradation rules.
 - `/admin/state` now includes `host_budget`, a content-free product guard that
   reports `ok`, `unknown`, or `attention` from the daemon RSS field and WSS
   parse/degrade/compression state. The daemon state is populated from an
-  in-process probe with PID, uptime, and real RSS when the platform source is
+  in-process probe with PID, uptime, real RSS, real process CPU time, lifetime
+  CPU percentage, and bounded state-directory size when platform sources are
   available, so the budget no longer depends on a loopback self-health call.
-  This is the offline contract that runtime policy can consume through
-  `HostBudgetExceeded`.
+  State-size overrun now feeds the same `HostBudgetExceeded` demotion input as
+  RSS and WSS parse/compression errors. CPU is reported but not used as an
+  automatic demotion trigger until an idle/windowed sampler exists.
 - Some performance tasks exist, but a single product budget across mechanisms is
   needed.
 
@@ -49,10 +51,10 @@ Initial targets for Apple Silicon macOS:
 1. [~] Add host-budget telemetry:
    - [x] product `host_budget` status in `/admin/state`
    - [x] process RSS source alignment for daemon/admin state
-   - [ ] CPU estimate
+   - [x] CPU estimate
    - [ ] per-mechanism latency histogram
    - [ ] disk write counters
-   - [ ] state sizes
+   - [x] state sizes
 2. Add pprof/benchmark ceremony:
    - real CLI session
    - real Desktop session
@@ -97,6 +99,15 @@ Initial targets for Apple Silicon macOS:
 - Resource budget tests where possible.
 - Long-session state bound tests.
 - `go run ./scripts/ci`
+
+## Progress
+
+- 2026-05-31: Added real process CPU time and lifetime CPU percentage to daemon
+  state, plus bounded state-size measurement for content archive, read-cache,
+  tool-use cache, and collapsed-key persistence. `/admin/health`, HTTP daemon
+  probes, in-process daemon probes, and host-budget evaluation now carry these
+  fields. State-size budget overrun demotes through the existing host budget
+  path; CPU remains observation-only until a windowed idle sampler is built.
 
 ## Done
 
