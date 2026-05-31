@@ -55,7 +55,7 @@ The ledger stores deterministic capsules:
 ## Technical work packages
 
 1. [x] Create `internal/contextledger` with pure deterministic builders.
-2. [~] Feed builders from existing reducer telemetry:
+2. [x] Feed builders from existing reducer telemetry:
    - [x] Codex Layer-0 tool-result observations build command/file/search/failure
      capsules as telemetry
    - [x] `/admin/state.savings` exposes content-free capsule counts globally and
@@ -68,12 +68,12 @@ The ledger stores deterministic capsules:
    - [x] recent working set: verbatim or exact delta
    - [x] old inactive context: ledger capsules
    - [x] high-risk content: full-pass
-4. [~] Build archive-backed expansion:
+4. [x] Build archive-backed expansion:
    - [x] every capsule referring to omitted content must carry archive ids
    - [x] expansion must restore exact source bytes
    - [x] missing archive means no replacement
    - [x] wire archive expansion replay into the A/B harness engine
-   - [ ] add real archived reducer-output fixtures/captures to the A/B harness
+   - [x] add real archived reducer-output fixtures to the A/B harness
 5. [ ] Replace summary replacement with ledger insertion only behind proof:
    - default-off while shadowing
    - shadow produces ledger sidecar and compares against direct context
@@ -143,3 +143,7 @@ summary remains opt-in, not default.
   Referenced elisions remain safe only if the resolver expands the archive id to
   exact original bytes or the bytes were already sent verbatim earlier. Missing
   or mismatched archive expansions are counted as lost comprehension issues.
+- 2026-05-31: Added an offline WSS replay fixture where the real Codex reducer
+  emits a changed-read delta with an archive handle. The A/B harness must expand
+  that reducer-created archive entry to the exact changed read bytes, otherwise
+  the replay is counted as lost.

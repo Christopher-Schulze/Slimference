@@ -52,6 +52,46 @@ func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {
 	}
 }
 
+func TestRunWSSPhaseFABReplayChangedReadDeltaExpandsArchive(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+
+	var before strings.Builder
+	var after strings.Builder
+	for i := 0; i < 160; i++ {
+		line := fmt.Sprintf("Replay delta fixture line %03d with stable content for archive-backed comparison.\n", i)
+		before.WriteString(line)
+		if i == 80 {
+			after.WriteString("Replay delta fixture line 080 changed with exact archived replacement bytes.\n")
+			continue
+		}
+		after.WriteString(line)
+	}
+	frames := []WSSABReplayFrame{
+		wssReplayServerToolCallFrame("read-1", "read_file", map[string]any{"path": "src/replay-delta.md"}),
+		wssReplayClientToolOutputFrame("read-1", "replay-delta-session", "resp-1", before.String()),
+		wssReplayServerToolCallFrame("read-2", "read_file", map[string]any{"path": "src/replay-delta.md"}),
+		wssReplayClientToolOutputFrame("read-2", "replay-delta-session", "resp-2", after.String()),
+	}
+
+	got, err := RunWSSPhaseFABReplay(cfg, frames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestTurns != 2 || got.MutatedRequests != 1 {
+		t.Fatalf("unexpected changed-read replay activity: %+v", got)
+	}
+	if got.Report.Lost() != 0 || got.Report.Saved() <= 0 {
+		t.Fatalf("changed read-delta should save with exact archive recovery: %+v", got.Report)
+	}
+	if len(got.Report.Elisions) != 1 || got.Report.Elisions[0].Severity != abharness.SeverityReferenced {
+		t.Fatalf("changed read-delta should be verified through archive expansion, got %+v", got.Report.Elisions)
+	}
+}
+
 func TestRunWSSPhaseFABReplayRecoveryNoteIsAuditedAsExtra(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
