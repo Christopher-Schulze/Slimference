@@ -20,8 +20,9 @@ sets hard budgets and auto-degradation rules.
   bounded state-directory size when platform sources are available, so the
   budget no longer depends on a loopback self-health call. State-size overrun
   now feeds the same `HostBudgetExceeded` demotion input as RSS and WSS
-  parse/compression errors. CPU and disk operation counters are reported but not
-  used as automatic demotion triggers until idle/windowed samplers exist.
+  parse/compression errors. Repeated Layer-0 latency budget breaches now feed a
+  separate latency demotion gate. CPU and disk operation counters are reported
+  but not used as automatic demotion triggers until idle/windowed samplers exist.
 - Some performance tasks exist, but a single product budget across mechanisms is
   needed.
 
@@ -65,7 +66,7 @@ Initial targets for Apple Silicon macOS:
    - long workday
 3. Add auto-degradation:
    - skip expensive chunking when output is too small
-   - disable aggressive mechanisms under latency pressure
+   - [x] disable managed Codex reducers under repeated Layer-0 latency pressure
    - reduce TUI/admin polling if idle CPU climbs
    - force async/batched flush for hot state
 4. Optimize only with evidence:
@@ -124,6 +125,11 @@ Initial targets for Apple Silicon macOS:
   `getrusage` on Unix platforms and fail-open unknown elsewhere. Disk counters
   are visibility-only for now; automatic demotion waits for a windowed sampler
   so long-running productive sessions are not punished for cumulative writes.
+- 2026-05-31: Added an automatic Layer-0 latency demotion gate. Three consecutive
+  reducer frames over the 25 ms budget force managed Codex reducers to full-pass
+  with `latency_budget_full_context`; cheap frames recover the gate. This keeps a
+  single spike from disabling savings while preventing repeated local overhead
+  from becoming Codex UX degradation.
 
 ## Done
 

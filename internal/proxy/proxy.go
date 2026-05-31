@@ -50,7 +50,12 @@ var newFileWatcherFunc = caching.NewFileWatcher
 var errRequestBodyTooLarge = errors.New("request body too large")
 var proxyUserHomeDir = os.UserHomeDir
 
-const maxRequestBodySize = 32 * 1024 * 1024
+const (
+	maxRequestBodySize               = 32 * 1024 * 1024
+	codexLayer0LatencyBudget         = 25 * time.Millisecond
+	codexLayer0LatencyRecoveryBudget = 12 * time.Millisecond
+	codexLayer0LatencyStrikeLimit    = int64(3)
+)
 
 // Version is the binary version string exposed by health/status surfaces.
 var Version = buildinfo.Version
@@ -136,6 +141,11 @@ type Proxy struct {
 	// optional Codex reducers without re-measuring RSS/state size in the
 	// frame hot path.
 	hostBudgetExceeded atomic.Bool
+	// codexLayer0LatencyExceeded is set after repeated Layer-0 reducer
+	// latency budget breaches and clears after enough cheap frames. It gates
+	// optional Codex reducers before local overhead can become UX-visible.
+	codexLayer0LatencyExceeded atomic.Bool
+	codexLayer0LatencyStrikes  atomic.Int64
 	// Quality signals (T77). Re-read detector tracks repeated tool-key
 	// observations within a short window; cache-miss spike detector
 	// flags rolling prompt-cache regressions; net-savings keeps the
@@ -527,6 +537,50 @@ func (p *Proxy) codexHostBudgetExceeded() bool {
 		return false
 	}
 	return p.hostBudgetExceeded.Load()
+}
+
+func (p *Proxy) codexRuntimeBudgetExceeded() bool {
+	if p == nil {
+		return false
+	}
+	return p.hostBudgetExceeded.Load() || p.codexLayer0LatencyExceeded.Load()
+}
+
+func (p *Proxy) recordCodexLayer0Stats(stats proxyLayer0Stats) {
+	if p == nil {
+		return
+	}
+	p.outputReduceCounters.RecordProxyLayer0Stats(stats)
+	p.observeCodexLayer0LatencyBudget(stats)
+}
+
+func (p *Proxy) observeCodexLayer0LatencyBudget(stats proxyLayer0Stats) {
+	if p == nil || stats.TotalLatencyNs <= 0 {
+		return
+	}
+	latency := time.Duration(stats.TotalLatencyNs)
+	if latency > codexLayer0LatencyBudget {
+		if p.codexLayer0LatencyStrikes.Add(1) >= codexLayer0LatencyStrikeLimit {
+			p.codexLayer0LatencyExceeded.Store(true)
+		}
+		return
+	}
+	if latency > codexLayer0LatencyRecoveryBudget {
+		return
+	}
+	for {
+		strikes := p.codexLayer0LatencyStrikes.Load()
+		if strikes <= 0 {
+			p.codexLayer0LatencyExceeded.Store(false)
+			return
+		}
+		if p.codexLayer0LatencyStrikes.CompareAndSwap(strikes, strikes-1) {
+			if strikes == 1 {
+				p.codexLayer0LatencyExceeded.Store(false)
+			}
+			return
+		}
+	}
 }
 
 func (p *Proxy) uptimeSeconds() int64 {

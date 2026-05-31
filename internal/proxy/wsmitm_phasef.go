@@ -200,21 +200,22 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 		chunkStore, chunkEnabled, chunkMinBytes, chunkMaxRefPct, explicitChunk, policyMode, archiveRecovery := a.p.codexChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
-			Route:               codexLayer0RouteWSSPhaseF,
-			Messages:            messages,
-			SessionID:           wsCodexSessionID(out),
-			TurnID:              wssPreviousResponseID(out),
-			RememberedToolUse:   rememberedToolUses,
-			SuppressedToolKey:   suppressedKeys,
-			RecentFullPassTurns: a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
-			ChunkDedupEnabled:   chunkEnabled,
-			ExplicitChunkDedup:  explicitChunk,
-			ChunkDedupMinBytes:  chunkMinBytes,
-			ChunkDedupMaxRefPct: chunkMaxRefPct,
-			ChunkStore:          chunkStore,
-			PolicyMode:          policyMode,
-			ArchiveRecovery:     archiveRecovery,
-			HostBudgetExceeded:  a.p.codexHostBudgetExceeded(),
+			Route:                 codexLayer0RouteWSSPhaseF,
+			Messages:              messages,
+			SessionID:             wsCodexSessionID(out),
+			TurnID:                wssPreviousResponseID(out),
+			RememberedToolUse:     rememberedToolUses,
+			SuppressedToolKey:     suppressedKeys,
+			RecentFullPassTurns:   a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
+			ChunkDedupEnabled:     chunkEnabled,
+			ExplicitChunkDedup:    explicitChunk,
+			ChunkDedupMinBytes:    chunkMinBytes,
+			ChunkDedupMaxRefPct:   chunkMaxRefPct,
+			ChunkStore:            chunkStore,
+			PolicyMode:            policyMode,
+			ArchiveRecovery:       archiveRecovery,
+			HostBudgetExceeded:    a.p.codexHostBudgetExceeded(),
+			LatencyBudgetExceeded: a.p.codexLayer0LatencyExceeded.Load(),
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
@@ -222,14 +223,14 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			if rebuilt, rebuildErr := reconstructBody(types.CodexChatGPT, out, l0Messages); rebuildErr == nil {
 				out = rebuilt
 				messages = l0Messages
-				a.p.outputReduceCounters.RecordProxyLayer0Stats(stats)
+				a.p.recordCodexLayer0Stats(stats)
 				a.rememberCollapsedReadKeys(stats.ReadDeltaKeys)
 			} else {
 				l0Stats = stats.withoutSavings()
-				a.p.outputReduceCounters.RecordProxyLayer0Stats(l0Stats)
+				a.p.recordCodexLayer0Stats(l0Stats)
 			}
 		} else {
-			a.p.outputReduceCounters.RecordProxyLayer0Stats(stats)
+			a.p.recordCodexLayer0Stats(stats)
 		}
 	}
 	if a.p.config.Compression.OutputReduce.StopSequencesEnabled {

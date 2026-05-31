@@ -105,6 +105,29 @@ func TestSetupStateSnapshotStoresHostBudgetGate(t *testing.T) {
 	}
 }
 
+func TestCodexLayer0LatencyBudgetDemotesAndRecovers(t *testing.T) {
+	p := newProxyForAdminTest(t)
+	slow := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyBudget + time.Millisecond)}
+	fast := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyRecoveryBudget)}
+
+	for i := int64(0); i < codexLayer0LatencyStrikeLimit-1; i++ {
+		p.observeCodexLayer0LatencyBudget(slow)
+		if p.codexRuntimeBudgetExceeded() {
+			t.Fatalf("latency budget should tolerate initial spike %d", i)
+		}
+	}
+	p.observeCodexLayer0LatencyBudget(slow)
+	if !p.codexRuntimeBudgetExceeded() {
+		t.Fatal("repeated slow Layer-0 frames should demote managed Codex reducers")
+	}
+	for i := int64(0); i < codexLayer0LatencyStrikeLimit; i++ {
+		p.observeCodexLayer0LatencyBudget(fast)
+	}
+	if p.codexRuntimeBudgetExceeded() {
+		t.Fatal("cheap Layer-0 frames should recover the latency demotion gate")
+	}
+}
+
 func TestAdminStateHandlerReturnsWSSMutationTelemetry(t *testing.T) {
 	p := newProxyForAdminTest(t)
 	d := &PhaseFDispatcher{}

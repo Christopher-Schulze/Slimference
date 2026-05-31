@@ -396,6 +396,13 @@ func TestReduceCodexLayer0HostBudgetDemotesReducers(t *testing.T) {
 		budgeted.Messages[1].Content[0].Text != body {
 		t.Fatalf("host budget must full-pass existing cache hit, stats=%+v text=%q", budgeted.Stats, budgeted.Messages[1].Content[0].Text)
 	}
+	latencyReq := baseReq
+	latencyReq.LatencyBudgetExceeded = true
+	latencyBudgeted := reduceCodexLayer0(latencyReq)
+	if latencyBudgeted.Stats.TokensSaved != 0 || latencyBudgeted.Stats.RepeatedOutputBlocks != 0 ||
+		latencyBudgeted.Messages[1].Content[0].Text != body {
+		t.Fatalf("latency budget must full-pass existing cache hit, stats=%+v text=%q", latencyBudgeted.Stats, latencyBudgeted.Messages[1].Content[0].Text)
+	}
 	unblocked := reduceCodexLayer0(baseReq)
 	if unblocked.Stats.TokensSaved <= 0 || unblocked.Stats.RepeatedOutputBlocks != 1 {
 		t.Fatalf("normal budget should still collapse repeated output, stats=%+v", unblocked.Stats)

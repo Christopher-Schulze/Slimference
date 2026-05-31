@@ -428,11 +428,14 @@ compression/parse/degrade health, mutation activity, and content-free reason
 codes. The daemon/admin path uses an in-process resource probe for PID, uptime,
 real RSS, process CPU time, disk I/O counters, and state size where the platform
 can provide it, avoiding a loopback self-health guess for the product budget.
-Policy demotion uses the same concept through the `HostBudgetExceeded` input:
-if the host budget trips, managed Codex reducers full-pass instead of making
-Codex slower or less reliable. CPU and disk operation counters are currently
-reported for visibility; automatic CPU/disk demotion waits for a windowed idle
-sampler to avoid false positives during real work.
+Policy demotion uses the same concept through budget inputs: if the host budget
+trips, managed Codex reducers full-pass instead of making Codex slower or less
+reliable. Repeated Layer-0 latency budget breaches set a separate
+`latency_budget_full_context` gate after three slow frames and recover after
+cheap frames, so one spike does not disable savings but repeated local overhead
+cannot degrade Codex UX. CPU and disk operation counters are currently reported
+for visibility; automatic CPU/disk demotion waits for a windowed idle sampler to
+avoid false positives during real work.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually
@@ -2063,7 +2066,9 @@ noise. `/admin/state.savings.proxy_layer0_latency` reports rolling p50/p95/max
 and average duration by route for `total`, `read_delta`, `structured_filter`,
 `repeated_output`, and `chunk_dedup`. This lets release proof compare savings
 against local host cost without logging payloads or charging the hot path with a
-new per-frame disk probe.
+new per-frame disk probe. The hot path also uses the total Layer-0 duration as a
+bounded runtime safety signal: repeated frames over the 25 ms budget demote
+managed Codex reducers to full-pass until fast frames recover the gate.
 
 ### Global flags
 

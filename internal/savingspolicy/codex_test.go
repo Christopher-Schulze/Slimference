@@ -252,6 +252,15 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			action: CodexPolicyFullPass, reason: "host_budget_full_context",
 		},
 		{
+			name: "latency budget full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, LatencyBudgetExceeded: true,
+			},
+			action: CodexPolicyFullPass, reason: "latency_budget_full_context",
+		},
+		{
 			name: "negative savings history full pass",
 			in: CodexMechanismInput{
 				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
@@ -302,6 +311,7 @@ func TestDecideCodexToolOutputRuntimeSignalsFullPass(t *testing.T) {
 		{name: "missing tool retry", mutate: func(in *CodexToolOutputInput) { in.MissingToolRetry = true }, reason: "missing_tool_retry_full_context"},
 		{name: "degraded route", mutate: func(in *CodexToolOutputInput) { in.DegradedRoute = true }, reason: "degraded_route_full_context"},
 		{name: "host budget", mutate: func(in *CodexToolOutputInput) { in.HostBudgetExceeded = true }, reason: "host_budget_full_context"},
+		{name: "latency budget", mutate: func(in *CodexToolOutputInput) { in.LatencyBudgetExceeded = true }, reason: "latency_budget_full_context"},
 		{name: "negative savings", mutate: func(in *CodexToolOutputInput) { in.NegativeSavingsHistory = true }, reason: "negative_savings_full_context"},
 	}
 	for _, tc := range tests {

@@ -341,20 +341,21 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	if p.isProviderEnabled(provider) && pipelineMode == PipelineFull && layer0Action != planner.ActionBypass {
 		chunkStore, chunkEnabled, chunkMinBytes, chunkMaxRefPct, explicitChunk, policyMode, archiveRecovery := p.codexHTTPChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
-			Route:               codexLayer0RouteHTTP,
-			Messages:            compressedMessages,
-			SessionID:           sessionID,
-			ChunkDedupEnabled:   chunkEnabled,
-			ExplicitChunkDedup:  explicitChunk,
-			ChunkDedupMinBytes:  chunkMinBytes,
-			ChunkDedupMaxRefPct: chunkMaxRefPct,
-			ChunkStore:          chunkStore,
-			PolicyMode:          policyMode,
-			ArchiveRecovery:     archiveRecovery,
-			HostBudgetExceeded:  p.codexHostBudgetExceeded(),
+			Route:                 codexLayer0RouteHTTP,
+			Messages:              compressedMessages,
+			SessionID:             sessionID,
+			ChunkDedupEnabled:     chunkEnabled,
+			ExplicitChunkDedup:    explicitChunk,
+			ChunkDedupMinBytes:    chunkMinBytes,
+			ChunkDedupMaxRefPct:   chunkMaxRefPct,
+			ChunkStore:            chunkStore,
+			PolicyMode:            policyMode,
+			ArchiveRecovery:       archiveRecovery,
+			HostBudgetExceeded:    p.codexHostBudgetExceeded(),
+			LatencyBudgetExceeded: p.codexLayer0LatencyExceeded.Load(),
 		})
 		l0Messages, stats := result.Messages, result.Stats
-		p.outputReduceCounters.RecordProxyLayer0Stats(stats)
+		p.recordCodexLayer0Stats(stats)
 		if stats.TokensSaved > 0 {
 			compressedMessages = l0Messages
 			layer0Savings = stats.TokensSaved

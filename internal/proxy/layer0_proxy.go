@@ -54,21 +54,22 @@ const (
 )
 
 type codexLayer0Request struct {
-	Route               codexLayer0Route
-	Messages            []types.Message
-	SessionID           string
-	TurnID              string
-	RememberedToolUse   map[string]types.ContentBlock
-	SuppressedToolKey   map[string]struct{}
-	RecentFullPassTurns int
-	ChunkDedupEnabled   bool
-	ExplicitChunkDedup  bool
-	ChunkDedupMinBytes  int
-	ChunkDedupMaxRefPct int
-	ChunkStore          *chunkdedup.Store
-	PolicyMode          string
-	ArchiveRecovery     bool
-	HostBudgetExceeded  bool
+	Route                 codexLayer0Route
+	Messages              []types.Message
+	SessionID             string
+	TurnID                string
+	RememberedToolUse     map[string]types.ContentBlock
+	SuppressedToolKey     map[string]struct{}
+	RecentFullPassTurns   int
+	ChunkDedupEnabled     bool
+	ExplicitChunkDedup    bool
+	ChunkDedupMinBytes    int
+	ChunkDedupMaxRefPct   int
+	ChunkStore            *chunkdedup.Store
+	PolicyMode            string
+	ArchiveRecovery       bool
+	HostBudgetExceeded    bool
+	LatencyBudgetExceeded bool
 }
 
 type codexLayer0Result struct {
@@ -357,6 +358,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				RecentlyEdited:           readCtx.RecentlyEdited,
 				PostCollapseReRead:       postCollapseReRead && toolKey != "",
 				HostBudgetExceeded:       req.HostBudgetExceeded,
+				LatencyBudgetExceeded:    req.LatencyBudgetExceeded,
 			})
 			stats.PolicyDecisions = append(stats.PolicyDecisions, policy.Mechanisms...)
 			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {

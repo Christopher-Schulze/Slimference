@@ -110,6 +110,7 @@ type CodexMechanismInput struct {
 	MissingToolRetry          bool
 	DegradedRoute             bool
 	HostBudgetExceeded        bool
+	LatencyBudgetExceeded     bool
 	NegativeSavingsHistory    bool
 }
 
@@ -138,6 +139,7 @@ type CodexToolOutputInput struct {
 	MissingToolRetry         bool
 	DegradedRoute            bool
 	HostBudgetExceeded       bool
+	LatencyBudgetExceeded    bool
 	NegativeSavingsHistory   bool
 }
 
@@ -295,6 +297,7 @@ func chunkMechanismInput(in CodexToolOutputInput, mode CodexMode) CodexMechanism
 		MissingToolRetry:         in.MissingToolRetry,
 		DegradedRoute:            in.DegradedRoute,
 		HostBudgetExceeded:       in.HostBudgetExceeded,
+		LatencyBudgetExceeded:    in.LatencyBudgetExceeded,
 		NegativeSavingsHistory:   in.NegativeSavingsHistory,
 	}
 }
@@ -339,6 +342,7 @@ func toolOutputMechanismDecisions(in CodexToolOutputInput, mode CodexMode) []Cod
 		MissingToolRetry:         in.MissingToolRetry,
 		DegradedRoute:            in.DegradedRoute,
 		HostBudgetExceeded:       in.HostBudgetExceeded,
+		LatencyBudgetExceeded:    in.LatencyBudgetExceeded,
 		NegativeSavingsHistory:   in.NegativeSavingsHistory,
 	}
 	decisions := []CodexMechanismDecision{
@@ -401,6 +405,8 @@ func toolOutputLoosenReason(in CodexToolOutputInput) (string, bool) {
 		return "degraded_route_full_context", true
 	case in.HostBudgetExceeded:
 		return "host_budget_full_context", true
+	case in.LatencyBudgetExceeded:
+		return "latency_budget_full_context", true
 	case in.NegativeSavingsHistory:
 		return "negative_savings_full_context", true
 	default:
@@ -420,6 +426,8 @@ func mechanismDemotionReason(in CodexMechanismInput) (string, bool) {
 		return "degraded_route_full_context", true
 	case in.HostBudgetExceeded:
 		return "host_budget_full_context", true
+	case in.LatencyBudgetExceeded:
+		return "latency_budget_full_context", true
 	case in.NegativeSavingsHistory:
 		return "negative_savings_full_context", true
 	default:
