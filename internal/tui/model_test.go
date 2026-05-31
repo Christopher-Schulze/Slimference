@@ -1223,6 +1223,8 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	p := newMockProxy()
 	p.productStatus = ProductStatus{
 		RouteStatus:               "WSS savings active",
+		FallbackReason:            "bridge while repair runs",
+		RecertStatus:              "running",
 		SavingsStatus:             "saving",
 		BillableInputTokensSaved:  12000,
 		ProviderCacheReadTokens:   5000,
@@ -1239,7 +1241,7 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"PRODUCT", "WSS savings active", "12.0K input saved", "5.0K provider-cache read", "cache 3/4", "safety ok"} {
+	for _, want := range []string{"PRODUCT", "WSS savings active", "fallback: bridge", "while repair runs", "recert running", "12.0K input saved", "5.0K provider-cache read", "cache 3/4", "safety ok"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}

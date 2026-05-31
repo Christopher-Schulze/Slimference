@@ -42,14 +42,14 @@ Debug/audit view:
 ## Technical work packages
 
 1. [x] Define product signal schema for `/admin/state`.
-2. [~] Map existing counters into product groups:
-   - route
-   - billable input savings
-   - output-wire savings
+2. [x] Map existing counters into product groups:
+   - [x] route
+   - [x] billable input savings
+   - [x] output-wire savings
    - [x] provider cache read/create tokens from analytics
-   - cache hits
-   - quality/safety
-   - recert
+   - [x] cache hits
+   - [x] quality/safety
+   - [x] recert
 3. [x] Clean TUI product surface:
    - default right panel now shows route, billable input saved, output-wire
      bytes, cache hit/miss totals, read/repeated/chunk hits, and safety/host
@@ -122,3 +122,6 @@ gate is done when default promotions require live corpus evidence.
   live-corpus category plans for both clients, WSS proof-matrix command, and the
   promotion corpus gate. It remains content-free and operator-driven; no live
   capture is automated.
+- 2026-05-31: Product TUI route line now includes fallback reason and recert
+  status in the normal product surface, closing the remaining route/safety
+  visibility gap without exposing parser or policy debug internals.

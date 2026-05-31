@@ -1169,7 +1169,7 @@ func l2Summary(status Layer2Status) string {
 }
 
 func renderProductRouteLine(s Styles, product ProductStatus) string {
-	route := fallbackLabel(product.RouteStatus, "direct")
+	route := productRouteDetail(product)
 	switch {
 	case product.SafetyIssues > 0 || product.HostBudgetExceeded:
 		return s.Warning.Render("● ATTENTION") + "  " + s.Dim.Render(route)
@@ -1180,6 +1180,17 @@ func renderProductRouteLine(s Styles, product ProductStatus) string {
 	default:
 		return s.Muted.Render("○ IDLE") + "  " + s.Dim.Render(route)
 	}
+}
+
+func productRouteDetail(product ProductStatus) string {
+	route := fallbackLabel(product.RouteStatus, "direct")
+	if product.FallbackReason != "" {
+		route += " · fallback: " + product.FallbackReason
+	}
+	if product.RecertStatus != "" {
+		route += " · recert " + product.RecertStatus
+	}
+	return route
 }
 
 func productSafetyLine(product ProductStatus) string {
