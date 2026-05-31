@@ -170,7 +170,7 @@ func TestKeychainCAProbeNilLooker(t *testing.T) {
 func TestHTTPDaemonProbeOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"pid":42,"version":"v9.9"}`))
+		_, _ = w.Write([]byte(`{"pid":42,"version":"v9.9","rss_bytes":123456,"uptime_sec":77}`))
 	}))
 	defer srv.Close()
 	probe := &HTTPDaemonProbe{BaseURL: srv.URL}
@@ -183,6 +183,9 @@ func TestHTTPDaemonProbeOK(t *testing.T) {
 	}
 	if state.Version != "v9.9" {
 		t.Errorf("version=%q", state.Version)
+	}
+	if state.RSSBytes != 123456 || state.UptimeSec != 77 {
+		t.Errorf("resource fields rss=%d uptime=%d", state.RSSBytes, state.UptimeSec)
 	}
 }
 

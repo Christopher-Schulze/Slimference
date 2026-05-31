@@ -14,8 +14,11 @@ sets hard budgets and auto-degradation rules.
   chunking, JSON parsing, and TUI/admin polling.
 - `/admin/state` now includes `host_budget`, a content-free product guard that
   reports `ok`, `unknown`, or `attention` from the daemon RSS field and WSS
-  parse/degrade/compression state. This is the offline contract that runtime
-  policy can consume through `HostBudgetExceeded`.
+  parse/degrade/compression state. The daemon state is populated from an
+  in-process probe with PID, uptime, and real RSS when the platform source is
+  available, so the budget no longer depends on a loopback self-health call.
+  This is the offline contract that runtime policy can consume through
+  `HostBudgetExceeded`.
 - Some performance tasks exist, but a single product budget across mechanisms is
   needed.
 
@@ -45,7 +48,7 @@ Initial targets for Apple Silicon macOS:
 
 1. [~] Add host-budget telemetry:
    - [x] product `host_budget` status in `/admin/state`
-   - [~] process RSS source alignment
+   - [x] process RSS source alignment for daemon/admin state
    - [ ] CPU estimate
    - [ ] per-mechanism latency histogram
    - [ ] disk write counters

@@ -122,7 +122,7 @@ func buildProbes(p *proxy.Proxy, m *apps.Manager, cfg *config.Config) *control.P
 
 	probes := &control.Probes{
 		CA:           &control.FileCAProbe{Dir: dataDir},
-		Daemon:       &control.HTTPDaemonProbe{BaseURL: fmt.Sprintf("http://127.0.0.1:%d", cfg.Proxy.ListenPort)},
+		Daemon:       proxy.DaemonProbe{Proxy: p},
 		Listener:     &control.PortListenerProbe{Port443: 443, Port8990: cfg.Proxy.ListenPort, PortSNIPeek: cfg.Transparent.SNIPeekPort},
 		NetworkRedir: &control.HostsFileNetworkProbe{},
 		Apps:         &control.AppsManagerProbe{Manager: m, Counters: phaseGCounters(p)},

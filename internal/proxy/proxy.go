@@ -28,6 +28,7 @@ import (
 	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/control/apps"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/hostmetrics"
 	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/promptcache"
 	"github.com/slimference/slimference/internal/quality"
@@ -62,7 +63,8 @@ func shortChunkID(id string) string {
 // Proxy is the core Slimference instance. It owns all compression layers, goroutines,
 // and the HTTP server. Its lifecycle matches the TUI lifecycle: one instance per run.
 type Proxy struct {
-	config *config.Config
+	config    *config.Config
+	startedAt time.Time
 
 	// HTTP server and upstream clients.
 	server      *http.Server
@@ -249,6 +251,7 @@ func New(cfg *config.Config) *Proxy {
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	p := &Proxy{
 		config:              cfg,
+		startedAt:           time.Now(),
 		httpClients:         make(map[types.Provider]*http.Client),
 		compressQueue:       make(chan types.CompressJob, 4),
 		analyticsQueue:      make(chan types.AnalyticsEvent, 256),
@@ -500,6 +503,17 @@ func New(cfg *config.Config) *Proxy {
 	}
 
 	return p
+}
+
+func (p *Proxy) daemonResourceSnapshot() hostmetrics.ProcessSnapshot {
+	return hostmetrics.CurrentProcess(os.Getpid())
+}
+
+func (p *Proxy) uptimeSeconds() int64 {
+	if p == nil || p.startedAt.IsZero() {
+		return 0
+	}
+	return int64(time.Since(p.startedAt).Seconds())
 }
 
 func newUpstreamTransport(cfg *config.Config, resolver tlsdial.Resolver) *http.Transport {

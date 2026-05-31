@@ -1594,6 +1594,8 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		Service           string          `json:"service"`
 		Version           string          `json:"version"`
 		PID               int             `json:"pid"`
+		RSSBytes          int64           `json:"rss_bytes"`
+		UptimeSec         int64           `json:"uptime_sec"`
 		Layers            map[string]bool `json:"layers"`
 		Providers         map[string]bool `json:"providers"`
 		QueueDepth        map[string]int  `json:"queue_depth"`
@@ -1604,6 +1606,10 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		Service: "slimference",
 		Version: Version,
 		PID:     os.Getpid(),
+		RSSBytes: func() int64 {
+			return p.daemonResourceSnapshot().RSSBytes
+		}(),
+		UptimeSec: p.uptimeSeconds(),
 		Layers: map[string]bool{
 			"1": p.isLayerEnabled(1),
 			"2": p.isLayerEnabled(2),

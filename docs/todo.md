@@ -1945,9 +1945,9 @@ be called complete, default-safe, and production-grade.
   gates remain.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
 - [~] **T272** Host resource and latency budget max-out - `/admin/state` now
-  exposes a product `host_budget` guard and policy has a demotion input; RSS
-  source alignment, CPU/latency/disk/state telemetry, and live resource proof
-  remain. Detail:
+  exposes a product `host_budget` guard, policy has a demotion input, and
+  daemon RSS now comes from a real local process probe; CPU/latency/disk/state
+  telemetry and live resource proof remain. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria

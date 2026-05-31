@@ -94,6 +94,8 @@ func TestHealthHandler(t *testing.T) {
 		Service           string          `json:"service"`
 		Version           string          `json:"version"`
 		PID               int             `json:"pid"`
+		RSSBytes          int64           `json:"rss_bytes"`
+		UptimeSec         int64           `json:"uptime_sec"`
 		Layers            map[string]bool `json:"layers"`
 		Providers         map[string]bool `json:"providers"`
 		QueueDepth        map[string]int  `json:"queue_depth"`
@@ -111,6 +113,9 @@ func TestHealthHandler(t *testing.T) {
 	}
 	if body.PID <= 0 {
 		t.Errorf("pid = %d, want positive process id", body.PID)
+	}
+	if body.RSSBytes < 0 || body.UptimeSec < 0 {
+		t.Errorf("resource fields rss=%d uptime=%d", body.RSSBytes, body.UptimeSec)
 	}
 	// 2026-05-15: Slimference ships deterministic-only by default.
 	// L1 + L3 are on; L2 (MiniMax-backed semantic summarization) is
