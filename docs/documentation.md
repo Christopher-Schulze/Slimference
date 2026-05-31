@@ -303,6 +303,26 @@ cache/delta decisions; (3) edit-target guards - recently-edited or edit/debug re
 full-pass; (4) archive-backed references are emitted only by mechanisms that keep a
 deterministic recovery handle and pass the positive-token guard.
 
+Current product status:
+
+| Mechanism | Default status | Proof state | Drawdown position |
+|---|---|---|---|
+| WSS Phase-F routing for Codex CLI/Desktop | On when route proof is fresh; bridge/fallback on drift | CLI and Desktop route plus mutation proofs recorded; auto-recert guards version drift | Fail-open; route-ready is still distinct from savings-proven |
+| Read-delta for repeated full-file reads | On | Proven in real CLI/Desktop repeat-read captures and A/B replay with `lost=0` | Low risk: first read was already sent in full |
+| Ranged read-delta for `head` / `tail` / `sed -n` | On | Covered by T250/T257 capture matrix | Low risk: first range full-passes, later same range collapses only after exact observation |
+| Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; covered by default-auto proof classes | Low risk: exact same command/output only, archive-backed, fail-open on changes |
+| Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads | Low to medium: grouped first search keeps representative matches and can be re-run; no file-read context weakening |
+| Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
+| Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP conservative | T255 live WSS replay proof and T256 policy wiring | Medium but guarded: archive recovery required, recent/re-read risk loosens |
+| Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
+| First-read AST/signature scan-mode | Removed | Removed by T253; tests enforce first file reads full-pass even in `max` | High drawdown, not product-safe |
+| Predictive post-edit file state | Not built | T253 queued | Only allowed if exact patch application to known bytes can be proven |
+| apply_patch context dedup | Not built | T253 queued | Only allowed for byte-identical known context, preserving patch semantics |
+| Reasoning-trace compaction | Not built | T253 capture-first; may be not applicable if reasoning is server-side only | No speculative implementation |
+| Server-state mirror | Not built | T254 queued for design/shadow/proof | Biggest possible lever, but mutate only after no-false-elision proof |
+| Policy engine v2 | Not complete | T258 queued | Needed to consolidate all future aggressive candidates into one automatic autopilot |
+| HTTP archive recovery/promotion | Not complete | T259 queued | HTTP stays conservative until recovery semantics are proven |
+
 Real-workload truth that shaped this: Codex reads files via `sed -n '1,Np'` partial
 reads and searches via `rg`, never full `cat`, and truncates every exec output to a
 token budget. So the original `cat`-only scan could not fire (extended to `sed`), and

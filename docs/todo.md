@@ -1652,7 +1652,7 @@ criteria; this index is the traceability map so nothing is lost.
 | 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | DONE |
 | 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | DONE |
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | DONE |
-| 25 | Real workload capture/replay proof matrix | enabler | Proof + default-auto gate | T257 | queued |
+| 25 | Real workload capture/replay proof matrix | enabler | Proof + default-auto gate | T257 | DONE (13 captures, CLI+Desktop workday windows, lost=0, captures_with_issues=0) |
 | 26 | Policy engine v2 route/workload/risk autopilot | enabler | Architecture + drawdown control | T258 | queued |
 | 27 | HTTP recovery/promotion decision | 0-10% fallback-dependent | Safety + optional savings | T259 | queued |
 
