@@ -1874,3 +1874,88 @@ context, memory, workflow quality, or reasoning surface for speculative savings.
 - New Phase F mechanisms (Phase H is delivery wiring, not feature
   work).
 - Cross-platform install paths (Linux / Windows). macOS only.
+
+## Maxx Savings / Zero Product-Drawdown Program (planned 2026-05-31)
+
+Goal: every original layer and every high-upside Codex mechanism must either
+become an automatic, production-safe savings path or be explicitly held outside
+the product path. "Product drawdown" is defined in `AGENTS.md`: no model
+intelligence loss, no context/memory/salience loss, no hallucination drift, no
+workflow/UX degradation, no reduced model or tool capability. Development cost,
+captures, tests, and proof work are not drawdowns.
+
+This program does not replace the already shipped T248-T259 work. It is the
+hard max-out pass: each item defines what must be true before the feature can
+be called complete, default-safe, and production-grade.
+
+### Original layer max-out tasks
+
+- [ ] **T260** Layer 0 parser frontier and safe pre-entry max-out - make every
+  default Layer 0 reducer structured, error-prioritized, repo-safe, measured,
+  and fail-open. Detail: `docs/todo/t260-layer0-parser-frontier-maxx.md`
+- [ ] **T261** Layer 1 exact/reversible safety-tier max-out - split Layer 1
+  sublayers into exact, reversible, recoverable, and non-default tiers so the
+  default path cannot silently remove needed context. Detail:
+  `docs/todo/t261-layer1-reversible-safety-tiers.md`
+- [ ] **T262** Layer 2 deterministic context ledger rewrite - replace the
+  product ambition of "summary" with archive-backed, deterministic, exact-fact
+  context ledgers and capsules. Detail:
+  `docs/todo/t262-layer2-deterministic-context-ledger.md`
+- [ ] **T263** Layer 3 provider/prompt cache max-out - maximize cache hits
+  without changing model-facing context and make all cache claims
+  provider-accounting backed. Detail:
+  `docs/todo/t263-layer3-provider-cache-maxx.md`
+
+### Codex savings mechanism max-out tasks
+
+- [ ] **T264** Codex read/ranged/repeated-output cache-hit maximizer - improve
+  exact cache hits for file reads, ranged reads, repeated commands, and repeated
+  non-file outputs without first-read elision. Detail:
+  `docs/todo/t264-codex-read-cache-hit-maximizer.md`
+- [ ] **T265** Repo-safe search keying and search-output savings max-out -
+  normalize `cd && rg|grep|git grep` and related search shapes to
+  repository-scoped keys, preserve match context, and prevent cross-repo false
+  hits. Detail: `docs/todo/t265-repo-safe-search-keying-maxx.md`
+- [ ] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
+  dedup into a guarded automatic WSS feature only where archive recovery,
+  recency, integrity budget, and proof gates make drawdowns practically
+  excluded. Detail: `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
+- [ ] **T267** Output-reduce quality governor - make aggressive output
+  reduction route/task aware, quality-rollback capable, and safe for exact
+  code/patch/explanation workflows. Detail:
+  `docs/todo/t267-output-reduce-quality-governor.md`
+- [ ] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
+  default-safe savings lever through core-tool retention, mention reattach,
+  missing-tool retry, cooldowns, and proof gates. Detail:
+  `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
+- [ ] **T269** WSS frame-level mutation frontier - expand beyond Phase-F only
+  through inspect-first frame registries, version gates, fixture replay, and
+  byte-equal fallback. Detail:
+  `docs/todo/t269-wss-frame-mutation-frontier.md`
+- [ ] **T270** Runtime savings policy autopilot - keep the policy engine only
+  as an intelligent runtime governor that uses route, recency, recovery,
+  re-read canaries, workload class, proof state, and cache economics. Detail:
+  `docs/todo/t270-runtime-savings-policy-autopilot.md`
+- [ ] **T271** Product TUI signals and live-corpus proof gates - reduce TUI to
+  user-relevant product signals and make live CLI/Desktop proof the promotion
+  gate for every aggressive default. Detail:
+  `docs/todo/t271-product-tui-and-live-corpus-proof.md`
+- [ ] **T272** Host resource and latency budget max-out - prove the full stack
+  stays lightweight on Apple Silicon and auto-degrades before CPU, memory, disk,
+  or latency becomes a product drawdown. Detail:
+  `docs/todo/t272-host-resource-budget-maxx.md`
+
+### Program-wide done criteria
+
+- Each task detail file has measurable gates for savings, correctness,
+  product-drawdown prevention, host resource cost, docs, tests, and live proof.
+- No mechanism becomes default-on because it is impressive in isolation. It
+  becomes default-on only when the complete route/workload/recovery/proof matrix
+  passes.
+- No manual experiment switch is treated as a product feature. If a mechanism
+  cannot become automatic and safe, it stays non-product or is removed from the
+  product policy surface.
+- Final release certification must show CLI and Desktop WSS sessions with
+  positive net billable-input savings, zero parse/degrade/compression errors,
+  no quality canary spikes, no unexpected recovery loops, and no visible
+  workflow degradation.
