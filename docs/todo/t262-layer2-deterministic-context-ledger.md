@@ -20,6 +20,10 @@ replacement for reality.
 - `internal/contextledger` now contains pure deterministic capsule builders for
   command, file, search, and failure observations. Capsules store compact facts,
   provenance, stable hashes, and archive ids, never raw omitted content.
+- The Codex Layer-0 reducer now feeds those builders in the hot path as
+  content-free telemetry only. `/admin/state.savings` exposes command, file,
+  search, and failure capsule counts globally and per route. No capsule is
+  inserted into model-facing context yet.
 
 ## Product target
 
@@ -51,12 +55,14 @@ The ledger stores deterministic capsules:
 ## Technical work packages
 
 1. [x] Create `internal/contextledger` with pure deterministic builders.
-2. [ ] Feed builders from existing reducer telemetry:
-   - Layer 0 filter decisions
-   - readcache observations
-   - WSS Phase-F request summaries
-   - quality/re-read canaries
-   - archive ids
+2. [~] Feed builders from existing reducer telemetry:
+   - [x] Codex Layer-0 tool-result observations build command/file/search/failure
+     capsules as telemetry
+   - [x] `/admin/state.savings` exposes content-free capsule counts globally and
+     per route
+   - [ ] readcache archive ids and full-pass turn provenance
+   - [ ] WSS Phase-F request summaries beyond Layer-0 stats
+   - [ ] quality/re-read canaries
 3. [ ] Build capsule selection:
    - active turn: verbatim
    - recent working set: verbatim or exact delta
@@ -90,8 +96,9 @@ The ledger stores deterministic capsules:
 
 - Long HTTP/full-history sessions: measurable billable-input reduction after
   active working set stabilizes.
-- Codex WSS: no default claim until the ledger has a meaningful WSS insertion
-  point that does not fight `previous_response_id` semantics.
+- Codex WSS: no model-facing replacement claim until the ledger has a meaningful
+  WSS insertion point that does not fight `previous_response_id` semantics. The
+  current hot-path wiring is telemetry-only and cannot change model behavior.
 - Net win must include ledger overhead and archive-recovery note overhead.
 
 ## Verification

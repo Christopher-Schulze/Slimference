@@ -176,6 +176,10 @@ type SavingsSummary struct {
 	ProxyLayer0ChunkRefs     int64                    `json:"proxy_layer0_chunk_dedup_references"`
 	ProxyLayer0ChunkRefBytes int64                    `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
 	ProxyLayer0ChunkInBytes  int64                    `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0LedgerCommand int64                    `json:"proxy_layer0_ledger_command_capsules"`
+	ProxyLayer0LedgerFile    int64                    `json:"proxy_layer0_ledger_file_capsules"`
+	ProxyLayer0LedgerSearch  int64                    `json:"proxy_layer0_ledger_search_capsules"`
+	ProxyLayer0LedgerFailure int64                    `json:"proxy_layer0_ledger_failure_capsules"`
 	ProxyLayer0Routes        ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
 	ProxyLayer0Policy        []ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
 	ProxyLayer0Cache         []ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
@@ -287,6 +291,10 @@ type ProxyLayer0RouteSummary struct {
 	ChunkDedupRefs   int64                   `json:"chunk_dedup_references"`
 	ChunkDedupRefB   int64                   `json:"chunk_dedup_referenced_bytes"`
 	ChunkDedupInB    int64                   `json:"chunk_dedup_input_bytes"`
+	LedgerCommand    int64                   `json:"ledger_command_capsules"`
+	LedgerFile       int64                   `json:"ledger_file_capsules"`
+	LedgerSearch     int64                   `json:"ledger_search_capsules"`
+	LedgerFailure    int64                   `json:"ledger_failure_capsules"`
 	Cache            []ProxyLayer0CacheEntry `json:"cache,omitempty"`
 }
 

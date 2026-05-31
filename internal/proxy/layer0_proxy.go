@@ -12,6 +12,7 @@ import (
 
 	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/contextledger"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/savingspolicy"
@@ -91,6 +92,10 @@ type proxyLayer0Stats struct {
 	ChunkDedupReferences    int
 	ChunkDedupRefBytes      int
 	ChunkDedupInputBytes    int
+	LedgerCommandCapsules   int
+	LedgerFileCapsules      int
+	LedgerSearchCapsules    int
+	LedgerFailureCapsules   int
 	ReadDeltaKeys           []string
 	PolicyDecisions         []savingspolicy.CodexMechanismDecision
 	CacheEvents             []proxyLayer0CacheEvent
@@ -111,6 +116,112 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.PolicyDecisions = nil
 	s.CacheEvents = nil
 	return s
+}
+
+func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, commandLine, text string) {
+	if s == nil || strings.TrimSpace(commandLine) == "" {
+		return
+	}
+	exitCode, hasExit := proxyLayer0ExitCode(text)
+	if !hasExit {
+		exitCode = 0
+	}
+	cwd := proxyLayer0ToolWorkdir(use)
+	if _, err := contextledger.BuildCommandCapsule(contextledger.CommandObservation{
+		CommandLine: commandLine,
+		CWD:         cwd,
+		ExitCode:    exitCode,
+		Stdout:      []byte(proxyLayer0PayloadForLedger(text)),
+	}); err == nil {
+		s.LedgerCommandCapsules++
+	}
+	if req := readRequestFromCommandLine(commandLine); req.FilePath != "" {
+		if _, err := contextledger.BuildFileCapsule(contextledger.FileObservation{
+			Path:  req.FilePath,
+			Range: proxyLayer0ReadRangeFact(req),
+		}); err == nil {
+			s.LedgerFileCapsules++
+		}
+	}
+	if key := filter.SearchOutputKeyFromCommandLine(commandLine); key != "" {
+		if _, err := contextledger.BuildSearchCapsule(contextledger.SearchObservation{
+			CommandLine: commandLine,
+			PatternHash: proxyLayer0ShortHash(key),
+		}); err == nil {
+			s.LedgerSearchCapsules++
+		}
+	}
+	if hasExit && exitCode != 0 {
+		if msg := proxyLayer0FailureMessage(text); msg != "" {
+			if _, err := contextledger.BuildFailureCapsule(contextledger.FailureObservation{
+				Tool:     commandLine,
+				Message:  msg,
+				ExitCode: exitCode,
+			}); err == nil {
+				s.LedgerFailureCapsules++
+			}
+		}
+	}
+}
+
+func proxyLayer0PayloadForLedger(text string) string {
+	_, payload, ok := splitCodexExecEnvelope(text)
+	if ok {
+		return payload
+	}
+	return text
+}
+
+func proxyLayer0ReadRangeFact(req readcache.Request) string {
+	if req.Offset == 0 && req.Limit == 0 {
+		return ""
+	}
+	return strconv.Itoa(req.Offset) + ":" + strconv.Itoa(req.Limit)
+}
+
+func proxyLayer0ShortHash(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:8])
+}
+
+func proxyLayer0ExitCode(text string) (int, bool) {
+	const marker = "Process exited with code "
+	idx := strings.Index(text, marker)
+	if idx < 0 {
+		return 0, false
+	}
+	rest := text[idx+len(marker):]
+	end := 0
+	for end < len(rest) {
+		ch := rest[end]
+		if (ch < '0' || ch > '9') && !(end == 0 && ch == '-') {
+			break
+		}
+		end++
+	}
+	if end == 0 {
+		return 0, false
+	}
+	code, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		return 0, false
+	}
+	return code, true
+}
+
+func proxyLayer0FailureMessage(text string) string {
+	payload := proxyLayer0PayloadForLedger(text)
+	for _, line := range strings.Split(payload, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Total output lines:") {
+			continue
+		}
+		if len(line) > 240 {
+			return line[:240]
+		}
+		return line
+	}
+	return ""
 }
 
 func applyProxyLayer0(messages []types.Message) ([]types.Message, int) {
@@ -188,6 +299,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			stats.CommandResolvedBlocks++
+			stats.recordLedgerObservation(use, commandLine, block.Text)
 			toolKey := proxyLayer0QualityToolKeyForUse(use, commandLine)
 			beforeTokens := tok.CountString(block.Text)
 			readCtx := proxyReadFileContext(req.SessionID, commandLine)

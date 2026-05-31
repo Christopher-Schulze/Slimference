@@ -55,6 +55,10 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 		ProxyLayer0ChunkRefs:     int64(snap.ProxyLayer0ChunkDedupReferences),
 		ProxyLayer0ChunkRefBytes: int64(snap.ProxyLayer0ChunkDedupRefBytes),
 		ProxyLayer0ChunkInBytes:  int64(snap.ProxyLayer0ChunkDedupInputBytes),
+		ProxyLayer0LedgerCommand: int64(snap.ProxyLayer0LedgerCommandCapsules),
+		ProxyLayer0LedgerFile:    int64(snap.ProxyLayer0LedgerFileCapsules),
+		ProxyLayer0LedgerSearch:  int64(snap.ProxyLayer0LedgerSearchCapsules),
+		ProxyLayer0LedgerFailure: int64(snap.ProxyLayer0LedgerFailureCapsules),
 		ProxyLayer0Routes: control.ProxyLayer0RoutesSummary{
 			HTTP:      proxyLayer0RouteSummary(snap.ProxyLayer0Routes.HTTP),
 			WSSPhaseF: proxyLayer0RouteSummary(snap.ProxyLayer0Routes.WSSPhaseF),
@@ -133,6 +137,10 @@ func proxyLayer0RouteSummary(t ProxyLayer0RouteTelemetry) control.ProxyLayer0Rou
 		ChunkDedupRefs:   int64(t.ChunkDedupReferences),
 		ChunkDedupRefB:   int64(t.ChunkDedupRefBytes),
 		ChunkDedupInB:    int64(t.ChunkDedupInputBytes),
+		LedgerCommand:    int64(t.LedgerCommandCapsules),
+		LedgerFile:       int64(t.LedgerFileCapsules),
+		LedgerSearch:     int64(t.LedgerSearchCapsules),
+		LedgerFailure:    int64(t.LedgerFailureCapsules),
 		Cache:            proxyLayer0CacheSummary(t.Cache),
 	}
 }

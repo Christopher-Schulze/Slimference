@@ -369,6 +369,13 @@ compression. It is not yet a default hot-path replacement mechanism; reducer
 telemetry wiring, archive expansion replay, and live corpus proof remain the
 promotion gates.
 
+The Codex Layer-0 reducer now feeds the ledger builders in the hot path as
+telemetry only. It builds command/file/search/failure capsule observations from
+tool-output metadata and exposes only content-free capsule counts in
+`/admin/state.savings`, globally and per `http` / `wss_phasef` route. No ledger
+capsule is inserted into model-facing context until archive provenance,
+expansion replay, and live proof are complete.
+
 The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
 blocks, command-unresolved blocks, read-delta attempts, read-delta misses,

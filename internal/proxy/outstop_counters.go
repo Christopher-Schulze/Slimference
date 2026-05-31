@@ -26,6 +26,10 @@ type proxyLayer0RouteCounters struct {
 	chunkDedupReferences  atomic.Uint64
 	chunkDedupRefBytes    atomic.Uint64
 	chunkDedupInputBytes  atomic.Uint64
+	ledgerCommandCapsules atomic.Uint64
+	ledgerFileCapsules    atomic.Uint64
+	ledgerSearchCapsules  atomic.Uint64
+	ledgerFailureCapsules atomic.Uint64
 	cacheMu               sync.Mutex
 	cacheCounters         map[proxyLayer0CacheKey]uint64
 }
@@ -83,6 +87,18 @@ func (c *proxyLayer0RouteCounters) record(stats proxyLayer0Stats) {
 			c.chunkDedupInputBytes.Add(uint64(stats.ChunkDedupInputBytes))
 		}
 	}
+	if stats.LedgerCommandCapsules > 0 {
+		c.ledgerCommandCapsules.Add(uint64(stats.LedgerCommandCapsules))
+	}
+	if stats.LedgerFileCapsules > 0 {
+		c.ledgerFileCapsules.Add(uint64(stats.LedgerFileCapsules))
+	}
+	if stats.LedgerSearchCapsules > 0 {
+		c.ledgerSearchCapsules.Add(uint64(stats.LedgerSearchCapsules))
+	}
+	if stats.LedgerFailureCapsules > 0 {
+		c.ledgerFailureCapsules.Add(uint64(stats.LedgerFailureCapsules))
+	}
 	if len(stats.CacheEvents) > 0 {
 		c.recordCacheEvents(stats.Route, stats.CacheEvents)
 	}
@@ -110,6 +126,10 @@ func (c *proxyLayer0RouteCounters) snapshot() ProxyLayer0RouteTelemetry {
 		ChunkDedupReferences:  c.chunkDedupReferences.Load(),
 		ChunkDedupRefBytes:    c.chunkDedupRefBytes.Load(),
 		ChunkDedupInputBytes:  c.chunkDedupInputBytes.Load(),
+		LedgerCommandCapsules: c.ledgerCommandCapsules.Load(),
+		LedgerFileCapsules:    c.ledgerFileCapsules.Load(),
+		LedgerSearchCapsules:  c.ledgerSearchCapsules.Load(),
+		LedgerFailureCapsules: c.ledgerFailureCapsules.Load(),
 		Cache:                 c.snapshotCacheEvents(),
 	}
 }
@@ -167,6 +187,10 @@ type OutputReduceCounters struct {
 	proxyLayer0ChunkDedupReferences  atomic.Uint64
 	proxyLayer0ChunkDedupRefBytes    atomic.Uint64
 	proxyLayer0ChunkDedupInputBytes  atomic.Uint64
+	proxyLayer0LedgerCommandCapsules atomic.Uint64
+	proxyLayer0LedgerFileCapsules    atomic.Uint64
+	proxyLayer0LedgerSearchCapsules  atomic.Uint64
+	proxyLayer0LedgerFailureCapsules atomic.Uint64
 	proxyLayer0HTTP                  proxyLayer0RouteCounters
 	proxyLayer0WSSPhaseF             proxyLayer0RouteCounters
 	proxyLayer0PolicyMu              sync.Mutex
@@ -278,6 +302,18 @@ func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
 			c.proxyLayer0ChunkDedupInputBytes.Add(uint64(stats.ChunkDedupInputBytes))
 		}
 	}
+	if stats.LedgerCommandCapsules > 0 {
+		c.proxyLayer0LedgerCommandCapsules.Add(uint64(stats.LedgerCommandCapsules))
+	}
+	if stats.LedgerFileCapsules > 0 {
+		c.proxyLayer0LedgerFileCapsules.Add(uint64(stats.LedgerFileCapsules))
+	}
+	if stats.LedgerSearchCapsules > 0 {
+		c.proxyLayer0LedgerSearchCapsules.Add(uint64(stats.LedgerSearchCapsules))
+	}
+	if stats.LedgerFailureCapsules > 0 {
+		c.proxyLayer0LedgerFailureCapsules.Add(uint64(stats.LedgerFailureCapsules))
+	}
 }
 
 func proxyLayer0StatsEmpty(stats proxyLayer0Stats) bool {
@@ -297,6 +333,10 @@ func proxyLayer0StatsEmpty(stats proxyLayer0Stats) bool {
 		stats.ChunkDedupReferences == 0 &&
 		stats.ChunkDedupRefBytes == 0 &&
 		stats.ChunkDedupInputBytes == 0 &&
+		stats.LedgerCommandCapsules == 0 &&
+		stats.LedgerFileCapsules == 0 &&
+		stats.LedgerSearchCapsules == 0 &&
+		stats.LedgerFailureCapsules == 0 &&
 		stats.ReadDeltaBlocks == 0 &&
 		len(stats.ReadDeltaKeys) == 0 &&
 		len(stats.PolicyDecisions) == 0 &&
@@ -450,6 +490,10 @@ type OutputReduceTelemetry struct {
 	ProxyLayer0ChunkDedupReferences  uint64                     `json:"proxy_layer0_chunk_dedup_references"`
 	ProxyLayer0ChunkDedupRefBytes    uint64                     `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
 	ProxyLayer0ChunkDedupInputBytes  uint64                     `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0LedgerCommandCapsules uint64                     `json:"proxy_layer0_ledger_command_capsules"`
+	ProxyLayer0LedgerFileCapsules    uint64                     `json:"proxy_layer0_ledger_file_capsules"`
+	ProxyLayer0LedgerSearchCapsules  uint64                     `json:"proxy_layer0_ledger_search_capsules"`
+	ProxyLayer0LedgerFailureCapsules uint64                     `json:"proxy_layer0_ledger_failure_capsules"`
 	ProxyLayer0Routes                ProxyLayer0RoutesTelemetry `json:"proxy_layer0_routes"`
 	ProxyLayer0Policy                []ProxyLayer0PolicyEntry   `json:"proxy_layer0_policy"`
 	ProxyLayer0Cache                 []ProxyLayer0CacheEntry    `json:"proxy_layer0_cache"`
@@ -503,6 +547,10 @@ type ProxyLayer0RouteTelemetry struct {
 	ChunkDedupReferences  uint64                  `json:"chunk_dedup_references"`
 	ChunkDedupRefBytes    uint64                  `json:"chunk_dedup_referenced_bytes"`
 	ChunkDedupInputBytes  uint64                  `json:"chunk_dedup_input_bytes"`
+	LedgerCommandCapsules uint64                  `json:"ledger_command_capsules"`
+	LedgerFileCapsules    uint64                  `json:"ledger_file_capsules"`
+	LedgerSearchCapsules  uint64                  `json:"ledger_search_capsules"`
+	LedgerFailureCapsules uint64                  `json:"ledger_failure_capsules"`
 	Cache                 []ProxyLayer0CacheEntry `json:"cache,omitempty"`
 }
 
@@ -532,6 +580,10 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 		ProxyLayer0ChunkDedupReferences:  c.proxyLayer0ChunkDedupReferences.Load(),
 		ProxyLayer0ChunkDedupRefBytes:    c.proxyLayer0ChunkDedupRefBytes.Load(),
 		ProxyLayer0ChunkDedupInputBytes:  c.proxyLayer0ChunkDedupInputBytes.Load(),
+		ProxyLayer0LedgerCommandCapsules: c.proxyLayer0LedgerCommandCapsules.Load(),
+		ProxyLayer0LedgerFileCapsules:    c.proxyLayer0LedgerFileCapsules.Load(),
+		ProxyLayer0LedgerSearchCapsules:  c.proxyLayer0LedgerSearchCapsules.Load(),
+		ProxyLayer0LedgerFailureCapsules: c.proxyLayer0LedgerFailureCapsules.Load(),
 		ProxyLayer0Routes: ProxyLayer0RoutesTelemetry{
 			HTTP:      c.proxyLayer0HTTP.snapshot(),
 			WSSPhaseF: c.proxyLayer0WSSPhaseF.snapshot(),

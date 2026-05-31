@@ -1899,8 +1899,9 @@ be called complete, default-safe, and production-grade.
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
   `internal/contextledger` capsule builders now exist for command, file, search,
-  and failure observations; reducer telemetry wiring and proof-gated insertion
-  remain. Detail:
+  and failure observations, and Codex Layer-0 now feeds them as content-free
+  reducer telemetry; archive provenance, quality inputs, and proof-gated
+  insertion remain. Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [ ] **T263** Layer 3 provider/prompt cache max-out - maximize cache hits
   without changing model-facing context and make all cache claims

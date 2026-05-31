@@ -34,7 +34,7 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(unchanged, "", nil)
 	if stats.TokensSaved != 0 || stats.BlocksModified != 0 || stats.ToolResultBlocks != 3 ||
 		stats.CommandResolvedBlocks != 1 || stats.CommandUnresolvedBlocks != 2 ||
-		stats.ToolUseUnresolvedBlocks != 2 {
+		stats.ToolUseUnresolvedBlocks != 2 || stats.LedgerCommandCapsules != 1 {
 		t.Fatalf("unchanged stats mismatch: %+v", stats)
 	}
 
@@ -61,7 +61,8 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	_, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(changed, "", nil)
 	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.TokensSaved <= 0 ||
 		stats.BlocksModified != 1 || stats.CapturedOutputBlocks != 1 ||
-		stats.ReadDeltaBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 {
+		stats.ReadDeltaBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 ||
+		stats.LedgerCommandCapsules != 1 {
 		t.Fatalf("captured-output stats mismatch: %+v", stats)
 	}
 }
@@ -151,6 +152,25 @@ func TestProxyResolveToolUseBranches(t *testing.T) {
 	use := types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"pwd"}`}
 	if got := proxyResolveToolUse(types.ContentBlock{ToolUseID: "u1"}, map[string]types.ContentBlock{"u1": use}); got.ToolName != "shell" {
 		t.Fatalf("fallback ToolUseID did not resolve: %#v", got)
+	}
+}
+
+func TestApplyProxyLayer0LedgerObservationKinds(t *testing.T) {
+	t.Parallel()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-read", ToolName: "exec_command", ToolInput: `{"cmd":"sed -n '1,20p' internal/proxy/layer0_proxy.go","workdir":"/repo"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-read", Text: "Process exited with code 0\nOutput:\npackage proxy\n"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-search", ToolName: "exec_command", ToolInput: `{"cmd":"rg -n TODO .","workdir":"/repo"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-search", Text: "Process exited with code 0\nOutput:\na.go:1:TODO\n"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-fail", ToolName: "exec_command", ToolInput: `{"cmd":"go test ./pkg","workdir":"/repo"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-fail", Text: "Process exited with code 1\nOutput:\n--- FAIL: TestThing\n"}}},
+	}
+	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-ledger", nil)
+	if stats.LedgerCommandCapsules != 3 ||
+		stats.LedgerFileCapsules != 1 ||
+		stats.LedgerSearchCapsules != 1 ||
+		stats.LedgerFailureCapsules != 1 {
+		t.Fatalf("ledger counters mismatch: %+v", stats)
 	}
 }
 
@@ -341,7 +361,8 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-output", nil)
 	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.TokensSaved <= 0 ||
 		stats.BlocksModified != 1 || stats.RepeatedOutputBlocks != 1 ||
-		stats.ReadDeltaBlocks != 0 || stats.CapturedOutputBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 {
+		stats.ReadDeltaBlocks != 0 || stats.CapturedOutputBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 ||
+		stats.LedgerCommandCapsules != 1 {
 		t.Fatalf("repeated-output stats mismatch: %+v", stats)
 	}
 	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Mechanism != "repeated_output" ||
