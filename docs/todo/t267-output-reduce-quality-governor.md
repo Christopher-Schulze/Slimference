@@ -87,9 +87,9 @@ Output reduction becomes a runtime-governed layer:
 - Offline hardening completed: output-reduce now detects `final_summary` turns and
   statically caps `aggressive`, `codex_aggressive`, and `codex` profiles to
   `standard` for safety-sensitive shapes: code edits, new-file generation,
-  debugging, reviews, tool-result reasoning, and final summaries. The cap runs in
-  both the proxy hot path before tracker/cooldown selection and in
-  `InjectBody` as defense in depth.
+  debugging, reviews, tool-result reasoning, final summaries, read-only analysis,
+  and planning. The cap runs in both the proxy hot path before tracker/cooldown
+  selection and in `InjectBody` as defense in depth.
 - Existing repair-signal plumbing remains active: "you skipped" / "too short" /
   malformed-patch style follow-ups downgrade the stored provider/model/profile/
   task-shape bucket through the output-reduce tracker.

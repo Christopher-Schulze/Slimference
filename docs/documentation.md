@@ -459,11 +459,13 @@ unresolved commands, archive failures, and full-file reads fail open. Full-file
 ranged read-delta key when the range is recognized; other deterministic commands
 can still save through the exact command/output path when the same output repeats.
 Repeated search outputs (`rg` / `grep` / `git grep`) also get position-aware
-delta treatment, not just exact unchanged references, because their command key is
-stable and the archive gives a full-output recovery handle. This extends repeat
-savings to commands such as repeated `git status`, `rg`, build/test reports,
-partial file ranges, or custom deterministic tools without introducing semantic
-summaries.
+delta treatment, not just exact unchanged references, but only when the key is
+repo-scoped through an absolute workdir, `cd <abs> && ...`, absolute search path,
+or `git -C <abs> ...`. An implicit-cwd search can still use first-pass grouping,
+but it does not seed cross-turn search collapse or search delta state. This keeps
+repeat savings for commands such as repeated repo-scoped `rg`, `git status`,
+build/test reports, partial file ranges, or custom deterministic tools without
+introducing semantic summaries or cross-repo false hits.
 
 First-pass search outputs are grouped by `TryCompactSearchOutput` /
 `groupSearchResults` (file -> match list with a `[tool] N match(es) in M file(s)`
@@ -488,8 +490,14 @@ content already sent to the model in the same session, the reducer can emit the
 novel bytes plus neutral `[context-chunk status=unchanged uri=local-archive://...]`
 references to archived chunks. The product default is
 `codex_savings_policy_mode="auto"`: safe lossless reducers stay on, and chunk
-dedup becomes eligible only when archive recovery is available, the output is
-large enough, and no recency/context-risk signal asks for full text. The legacy
+dedup is limited to recoverable WSS paths with archive support, density budgets,
+local decode verification, and patch/diff/edit-output guards. Commands such as
+`apply_patch`, `patch`, `git diff`, `git show`, `git apply`, `git am`, and
+`git format-patch` do not receive chunk references, because those outputs are
+fresh reasoning material for edits and reviews. They can still use safer
+deterministic filters or exact repeated-output collapse when eligible. Chunk
+dedup becomes eligible only when the output is large enough and no
+recency/context-risk signal asks for full text. The legacy
 `codex_chunk_dedup_enabled=true` toggle remains as an explicit override for
 conservative policy, not as the normal product path.
 Runtime demotion inputs also cover quality spikes, archive recovery loops,
@@ -1945,7 +1953,14 @@ registered Phase-F-compatible shapes rather than arbitrary JSON envelopes.
 Layer 4 cooldown is sourced from the T141 output-reduce tracker and the T151
 tool-prune session bucket; the planner marks it as a `cheap_only`
 `quality_cooldown_soften_layer4` decision because the runtime softens Layer 4
-rather than blindly continuing aggressive behavior.
+rather than blindly continuing aggressive behavior. Output-reduce task-shape
+selection also caps aggressive/Codex-aggressive profiles to `standard` for
+code edits, new-file generation, debugging, reviews, tool-result reasoning,
+final summaries, read-only analysis, and planning; those shapes need complete
+evidence or exact workflow content more than maximal terse output. Tool-schema
+pruning runs only after strict schema extraction: if any `tools[]` entry cannot
+be named for the provider shape, the request keeps the full schema instead of
+partially pruning a mixed/unknown tool surface.
 
 The proxy hot path attaches this plan to `debug.RequestSummary` and normalized
 `flight` records for upstream, local cache, transparent CONNECT, and direct

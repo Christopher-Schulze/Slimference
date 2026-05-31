@@ -300,6 +300,25 @@ func TestSearchOutputKeyFromCommandLine(t *testing.T) {
 	}
 }
 
+func TestRepoScopedSearchOutputKeyFromCommandLine(t *testing.T) {
+	t.Parallel()
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`rg -n "needle" internal`); got != "" {
+		t.Fatalf("implicit-cwd rg must not get a repo-scoped key: %q", got)
+	}
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/a/internal" {
+		t.Fatalf("cd-wrapped rg repo key = %q", got)
+	}
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`rg -n "needle" /repo/a/internal`); got != "rg\t-n\tneedle\t/repo/a/internal" {
+		t.Fatalf("absolute-path rg repo key = %q", got)
+	}
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`git grep needle -- internal`); got != "" {
+		t.Fatalf("implicit-cwd git grep must not get a repo-scoped key: %q", got)
+	}
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`git -C /repo/a grep needle -- internal`); got != "git\t-C\t/repo/a\tgrep\tneedle\t--\tinternal" {
+		t.Fatalf("git -C grep repo key = %q", got)
+	}
+}
+
 func TestNormalizeSearchCommandLine(t *testing.T) {
 	t.Parallel()
 

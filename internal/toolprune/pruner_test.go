@@ -29,6 +29,25 @@ func TestExtractToolNames_AnthropicBadEntry(t *testing.T) {
 	}
 }
 
+func TestExtractToolNamesForPruningRejectsUnknownSchema(t *testing.T) {
+	t.Parallel()
+	names, safe := ExtractToolNamesForPruning([]byte(`{"tools":[{"name":"Read"},{"description":"missing name"}]}`), types.Anthropic)
+	if safe || names != nil {
+		t.Fatalf("mixed unknown schema must be unsafe, safe=%v names=%v", safe, names)
+	}
+	names, safe = ExtractToolNamesForPruning([]byte(`{"tools":[{"name":"Read"},{"name":"Write"}]}`), types.Anthropic)
+	if !safe || len(names) != 2 {
+		t.Fatalf("known schema should be safe, safe=%v names=%v", safe, names)
+	}
+	names, safe = ExtractToolNamesForPruning([]byte(`{"messages":[]}`), types.Anthropic)
+	if !safe || names != nil {
+		t.Fatalf("no tools should be safe no-op, safe=%v names=%v", safe, names)
+	}
+	if _, safe = ExtractToolNamesForPruning([]byte(`{"tools":"bad"}`), types.Anthropic); safe {
+		t.Fatal("malformed tools shape must be unsafe")
+	}
+}
+
 func TestExtractToolNames_OpenAIBadEntry(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"tools":["bad",{"function":{"name":"good"}}]}`)

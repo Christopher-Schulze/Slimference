@@ -605,6 +605,44 @@ func TestReduceCodexLayer0ChunkDedupReferenceDensityGuard(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ChunkDedupSkipsPatchAndDiffOutputs(t *testing.T) {
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{}, chunkdedup.StoreLimits{MaxSessionRefPct: 100}, func(_, id string, chunk []byte) string {
+		return "local-archive://" + id
+	})
+	largeDiff := strings.Repeat("diff --git a/a.go b/a.go\n+added context line that should stay fresh for patch reasoning\n", 900)
+	messagesFor := func(id, command string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: id, ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: id, Text: largeDiff}}},
+		}
+	}
+	req := func(messages []types.Message) codexLayer0Request {
+		return codexLayer0Request{
+			Messages:            messages,
+			SessionID:           "chunk-patch-guard",
+			ChunkStore:          store,
+			ArchiveRecovery:     true,
+			ChunkDedupEnabled:   true,
+			ChunkDedupMinBytes:  0,
+			ChunkDedupMaxRefPct: 100,
+			PolicyMode:          "max",
+		}
+	}
+
+	seed := reduceCodexLayer0(req(messagesFor("diff-1", "git diff -- a.go")))
+	second := reduceCodexLayer0(req(messagesFor("diff-2", "git diff -- a.go")))
+	if seed.Stats.ChunkDedupBlocks != 0 || second.Stats.ChunkDedupBlocks != 0 ||
+		strings.Contains(second.Messages[1].Content[0].Text, "context-chunk") {
+		t.Fatalf("git diff outputs must not receive chunk refs: seed=%+v second=%+v text=%q", seed.Stats, second.Stats, second.Messages[1].Content[0].Text)
+	}
+
+	if !chunkDedupAllowedForCommand("cat a.go", true) ||
+		chunkDedupAllowedForCommand("apply_patch <<'PATCH'\n*** Begin Patch\n*** Update File: a.go\nPATCH", false) ||
+		chunkDedupAllowedForCommand("git -C /repo show HEAD -- a.go", false) {
+		t.Fatal("chunk patch/diff guard classification mismatch")
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupRequiresGateAndRecovery(t *testing.T) {
 	t.Parallel()
 	store := chunkdedup.NewStore(chunkdedup.Config{}, nil)
@@ -844,6 +882,23 @@ func TestProxyRepeatedSearchOutputKeepsRepoScopedKeys(t *testing.T) {
 	}
 	if out, ok := compactProxyRepeatedToolOutput(sessionID, cmdB, outputB); !ok || !strings.Contains(out, "status=unchanged") || !strings.Contains(out, "/repo/b/src") {
 		t.Fatalf("second repo B search should collapse on its own key: ok=%v out=%q", ok, out)
+	}
+}
+
+func TestProxyRepeatedSearchOutputRejectsImplicitCwdKey(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	sessionID := "search-implicit-cwd"
+	command := "rg -n TODO src"
+	output := strings.Repeat("src/a.go:10:TODO repo context\n", 30)
+	if key := proxyLayer0QualityToolKey(command); key != "" {
+		t.Fatalf("implicit-cwd search must not receive a reusable cache key: %q", key)
+	}
+	if out, ok := compactProxyRepeatedToolOutput(sessionID, command, output); ok || out != "" {
+		t.Fatalf("implicit-cwd search must full-pass instead of seeding/collapsing: ok=%v out=%q", ok, out)
 	}
 }
 

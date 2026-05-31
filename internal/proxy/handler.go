@@ -501,7 +501,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				)
 			}
 		}
-		if toolNames := toolprune.ExtractToolNames(newBody, provider); len(toolNames) > 0 {
+		if toolNames, schemaSafe := toolprune.ExtractToolNamesForPruning(newBody, provider); !schemaSafe {
+			toolPruneSummary.Reason = "unknown_tool_schema_full_pass"
+		} else if len(toolNames) > 0 {
 			p.toolPrune.ObserveTurn(toolPruneSessionKey, extractUsedToolNames(messages))
 			decision := p.toolPrune.DecideWithOptions(toolPruneSessionKey, toolNames, toolprune.DecisionOptions{
 				MinKeep:    1,

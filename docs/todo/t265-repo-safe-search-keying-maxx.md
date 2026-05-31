@@ -83,6 +83,12 @@ is capped.
   `--files`, `-l`, `-L`, `-c`, `-o`, `--count`, and `--vimgrep`. Exact repeated
   output can still dedup later, but the first output is not semantically
   regrouped into fake `file:line:content` evidence.
+- Reusable repeated-output/search-delta keys now require visible repository
+  scope. `cd <abs> && rg ...`, workdir-normalized `rg`, absolute search paths,
+  and `git -C <abs> grep ...` can seed/collapse; a bare implicit-cwd
+  `rg -n TODO src` can still be grouped on the first output but cannot seed a
+  cross-turn cache/delta key. This removes the last offline-visible cross-repo
+  false-hit path without reducing safe first-pass grouping savings.
 
 Remaining before this task can close:
 

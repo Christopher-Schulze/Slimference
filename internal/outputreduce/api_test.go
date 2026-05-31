@@ -223,7 +223,7 @@ func TestInjectBody_LowROIGates(t *testing.T) {
 	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 20000}); err != nil || stats.Applied || stats.Reason != "read_only_low_roi" || string(out) != string(readOnly) {
 		t.Fatalf("read-only out=%s stats=%+v err=%v", out, stats, err)
 	}
-	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 70000}); err != nil || !stats.Applied || !strings.Contains(string(out), "Read-only: concise verdict plus evidence only") {
+	if out, stats, err := InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex", InputTokens: 70000}); err != nil || !stats.Applied || stats.Profile != string(ProfileStandard) || !strings.Contains(string(out), "For read-only analysis") {
 		t.Fatalf("large read-only out=%s stats=%+v err=%v", out, stats, err)
 	}
 	planning := []byte(`{"messages":[{"role":"user","content":"plan next steps"}]}`)
@@ -290,7 +290,7 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 
 func TestSafeProfileForShapeCapsAggressiveProfiles(t *testing.T) {
 	t.Parallel()
-	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeDebugging, ShapeReview, ShapeToolReasoning, ShapeFinalSummary} {
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeDebugging, ShapeReview, ShapeToolReasoning, ShapeFinalSummary, ShapeReadOnly, ShapePlanning} {
 		if got := SafeProfileForShape(ProfileCodexAggressive, shape); got != ProfileStandard {
 			t.Fatalf("codex aggressive shape %s = %s, want standard", shape, got)
 		}
@@ -306,7 +306,7 @@ func TestSafeProfileForShapeCapsAggressiveProfiles(t *testing.T) {
 	}
 }
 
-func TestInjectBody_CapsAggressiveForCodeAndFinalSummary(t *testing.T) {
+func TestInjectBody_CapsAggressiveForSafetySensitiveShapes(t *testing.T) {
 	t.Parallel()
 	codeEdit := []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"apply_patch this bug and preserve exact paths"}]}]}`)
 	out, stats, err := InjectBody(types.CodexChatGPT, codeEdit, Options{Enabled: true, Profile: "codex_aggressive", InputTokens: 90000})
@@ -330,6 +330,18 @@ func TestInjectBody_CapsAggressiveForCodeAndFinalSummary(t *testing.T) {
 	}
 	if strings.Contains(string(out), "Aggressive output rules") || !strings.Contains(string(out), "preserve requested files") {
 		t.Fatalf("final summary received aggressive or missing preservation directive: %s", out)
+	}
+
+	readOnly := []byte(`{"messages":[{"role":"user","content":"read-only deep audit, do not edit, report evidence and risks"}]}`)
+	out, stats, err = InjectBody(types.CodexChatGPT, readOnly, Options{Enabled: true, Profile: "codex_aggressive", InputTokens: 90000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.Applied || stats.Profile != string(ProfileStandard) || stats.TaskShape != ShapeReadOnly {
+		t.Fatalf("read-only stats=%+v out=%s", stats, out)
+	}
+	if strings.Contains(string(out), "Read-only: concise verdict") || !strings.Contains(string(out), "For read-only analysis") {
+		t.Fatalf("read-only received compact aggressive directive or missing preservation directive: %s", out)
 	}
 }
 

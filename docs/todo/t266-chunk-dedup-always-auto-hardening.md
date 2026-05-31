@@ -16,6 +16,11 @@ make chunk dedup automatic without product drawdowns.
 - Chunk encode now has local self-verification: a changed reference stream must
   decode back to the exact original bytes before it can be returned. Archive URI
   collisions or orphan references fail open to the original output.
+- Chunk refs are now suppressed for patch/diff/edit-style command outputs such
+  as `apply_patch`, `patch`, `git diff`, `git show`, `git apply`, `git am`, and
+  `git format-patch`. These outputs can still use deterministic filters and
+  exact repeated-output reducers, but content-defined references are not allowed
+  to split fresh patch reasoning context.
 - It is not enough to prove one matching workload. Default-auto needs broad
   proof and runtime self-protection.
 
@@ -34,7 +39,7 @@ Chunk dedup may be always-auto only for routes/workloads where:
 1. Make eligibility explicit:
    - WSS only unless HTTP recovery is proven
    - no first-observation chunk references without full source seeding
-   - no chunk refs for active patch/codegen outputs
+   - [x] no chunk refs for active patch/diff/edit outputs
    - no chunk refs under recent edit uncertainty
 2. Add integrity budget:
    - per-session ratio of referenced bytes to total tool-output bytes

@@ -896,6 +896,57 @@ func TestHandleCompressibleRequest_ToolPrunePrunesIdle(t *testing.T) {
 	}
 }
 
+func TestHandleCompressibleRequest_ToolPruneUnknownSchemaFullPasses(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var reqBody map[string]json.RawMessage
+		bodyBytes, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(bodyBytes, &reqBody)
+		var tools []json.RawMessage
+		_ = json.Unmarshal(reqBody["tools"], &tools)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		resp := fmt.Sprintf(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"done-%d"}],"model":"claude","stop_reason":"end_turn"}`, len(tools))
+		_, _ = w.Write([]byte(resp))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+
+	fixedSession := "fixed-toolprune-unknown-schema"
+	trackerSession := "anthropic:" + fixedSession
+	origNewReqID := newRequestIDFn
+	newRequestIDFn = func() string { return fixedSession }
+	defer func() { newRequestIDFn = origNewReqID }()
+
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	p.toolPrune.ObserveTurn(trackerSession, []string{"KeepHot", "ColdTool"})
+	p.toolPrune.ObserveTurn(trackerSession, []string{"KeepHot"})
+	p.toolPrune.ObserveTurn(trackerSession, []string{"KeepHot"})
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"KeepHot","description":"hot"},{"name":"ColdTool","description":"cold"},{"description":"unknown schema"}],"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK || !strings.Contains(rec.Body.String(), "done-3") {
+		t.Fatalf("unknown tool schema should full-pass all tools, status=%d body=%s", res.StatusCode, rec.Body.String())
+	}
+	if snap := p.toolPrune.Snapshot(); snap.PrunedTotal != 0 {
+		t.Fatalf("unknown tool schema must not prune, snap=%+v", snap)
+	}
+}
+
 // TestHandleCompressibleRequest_T103b_ReattachOnMention covers the
 // T103b reattach path: a tool that was previously cached as pruned
 // is reattached when the next request mentions its name. T103b.

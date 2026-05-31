@@ -86,6 +86,11 @@ Tool pruning should be default-safe only when:
 - Reattached tool definitions are appended in deterministic tool-name order
   instead of Go map iteration order. This improves request-body stability and
   avoids avoidable prompt-cache churn when the same reattach set appears again.
+- The product hot path now uses strict tool-schema extraction before pruning:
+  if any `tools[]` entry cannot be named for the provider shape, the whole tool
+  schema full-passes with `unknown_tool_schema_full_pass`. This closes the mixed
+  known/unknown schema case where pruning known tools could still mutate an
+  unproven provider shape.
 - Existing recovery remains in force: core shell/edit/read/safety/browser/MCP
   tool classes always stay attached, missing-tool 4xx responses retry once with
   the full pre-prune schema, and the affected session enters quality cooldown.

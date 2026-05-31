@@ -40,6 +40,34 @@ func ExtractToolNames(body []byte, provider types.Provider) []string {
 	return names
 }
 
+// ExtractToolNamesForPruning is the strict variant used by the product hot path.
+// It returns safe=false when a tools[] entry cannot be named for the provider.
+// Pruning then full-passes the whole tool schema instead of modifying a request
+// shape we cannot prove we understand.
+func ExtractToolNamesForPruning(body []byte, provider types.Provider) ([]string, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, false
+	}
+	toolsRaw, ok := raw["tools"]
+	if !ok {
+		return nil, true
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(toolsRaw, &entries); err != nil {
+		return nil, false
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := extractToolName(entry, provider)
+		if name == "" {
+			return nil, false
+		}
+		names = append(names, name)
+	}
+	return names, true
+}
+
 // extractToolName picks the tool name from a single tool definition entry
 // according to the provider's wire shape.
 func extractToolName(entry json.RawMessage, provider types.Provider) string {

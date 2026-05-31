@@ -1918,21 +1918,28 @@ be called complete, default-safe, and production-grade.
   exact cache hits for file reads, ranged reads, repeated commands, and repeated
   non-file outputs without first-read elision. Detail:
   `docs/todo/t264-codex-read-cache-hit-maximizer.md`
-- [ ] **T265** Repo-safe search keying and search-output savings max-out -
+- [~] **T265** Repo-safe search keying and search-output savings max-out -
   normalize `cd && rg|grep|git grep` and related search shapes to
   repository-scoped keys, preserve match context, and prevent cross-repo false
-  hits. Detail: `docs/todo/t265-repo-safe-search-keying-maxx.md`
-- [ ] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
+  hits. Offline hardening now rejects implicit-cwd searches for reusable
+  cache/delta keys; live CLI/Desktop proof remains. Detail:
+  `docs/todo/t265-repo-safe-search-keying-maxx.md`
+- [~] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
   dedup into a guarded automatic WSS feature only where archive recovery,
   recency, integrity budget, and proof gates make drawdowns practically
-  excluded. Detail: `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
-- [ ] **T267** Output-reduce quality governor - make aggressive output
+  excluded. Offline hardening now blocks patch/diff/edit outputs from chunk
+  references; live matrix proof remains. Detail:
+  `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
+- [~] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact
-  code/patch/explanation workflows. Detail:
+  code/patch/explanation workflows. Offline hardening now caps aggressive
+  profiles for read-only analysis and planning as safety-sensitive shapes.
+  Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
-- [ ] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
+- [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
   default-safe savings lever through core-tool retention, mention reattach,
-  missing-tool retry, cooldowns, and proof gates. Detail:
+  missing-tool retry, cooldowns, and proof gates. Offline hardening now makes
+  unknown/mixed tool schema shapes full-pass before pruning. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay

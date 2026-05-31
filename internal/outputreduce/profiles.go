@@ -75,7 +75,7 @@ func ResolveProfile(provider types.Provider, configured Profile) Profile {
 
 func SafeProfileForShape(profile Profile, shape TaskShape) Profile {
 	switch shape {
-	case ShapeCodeEdit, ShapeDebugging, ShapeReview, ShapeToolReasoning, ShapeNewFile, ShapeFinalSummary:
+	case ShapeCodeEdit, ShapeDebugging, ShapeReview, ShapeToolReasoning, ShapeNewFile, ShapeFinalSummary, ShapeReadOnly, ShapePlanning:
 		if profile == ProfileAggressive || profile == ProfileCodexAggressive || profile == ProfileCodex {
 			return ProfileStandard
 		}

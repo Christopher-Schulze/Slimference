@@ -216,6 +216,24 @@ func SearchOutputKeyFromCommandLine(commandLine string) string {
 	return strings.Join(argv, "\t")
 }
 
+// RepoScopedSearchOutputKeyFromCommandLine returns a stable search key only
+// when the command carries repository scope in the command line itself. This is
+// stricter than SearchOutputKeyFromCommandLine and is intended for cross-turn
+// cache/delta identity, where an implicit cwd would be unsafe to reuse.
+func RepoScopedSearchOutputKeyFromCommandLine(commandLine string) string {
+	if normalized := NormalizeSearchCommandLine(commandLine, ""); normalized != "" {
+		argv := primaryArgvForCapturedOutput(normalized)
+		if isGrepStyleTool(argv) && searchArgvHasRepoScope(argv) {
+			return strings.Join(argv, "\t")
+		}
+	}
+	argv := primaryArgvForCapturedOutput(commandLine)
+	if !isGrepStyleTool(argv) || !searchArgvHasRepoScope(argv) {
+		return ""
+	}
+	return strings.Join(argv, "\t")
+}
+
 // NormalizeSearchCommandLine returns a canonical search command line that keeps
 // repository scope in the argv itself. It is used only for compaction/keying,
 // never to execute a user command.
@@ -538,6 +556,35 @@ func ensureGitCSearchArgv(argv []string, workdir string) []string {
 	withC = append(withC, out[0], "-C", workdir)
 	withC = append(withC, out[1:]...)
 	return withC
+}
+
+func searchArgvHasRepoScope(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	if gitGrepIndex(argv) >= 0 {
+		for i := 1; i < len(argv); i++ {
+			arg := argv[i]
+			switch {
+			case arg == "-C" || arg == "--work-tree":
+				if i+1 < len(argv) && filepath.IsAbs(argv[i+1]) {
+					return true
+				}
+				i++
+			case strings.HasPrefix(arg, "--work-tree="):
+				if filepath.IsAbs(strings.TrimPrefix(arg, "--work-tree=")) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, idx := range searchPathArgIndexes(argv) {
+		if idx >= 0 && idx < len(argv) && filepath.IsAbs(argv[idx]) {
+			return true
+		}
+	}
+	return false
 }
 
 func applySearchWorkdir(argv []string, workdir string) []string {

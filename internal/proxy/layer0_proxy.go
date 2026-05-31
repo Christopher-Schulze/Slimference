@@ -334,6 +334,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			afterText, changed := "", false
 			mechanism := proxyLayer0MechanismReadDelta
 			chunkReport := chunkdedup.EncodeResult{}
+			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
 			if policy.ReadDelta {
 				var cacheReason string
 				afterText, changed, cacheReason = compactProxyReadDeltaDetailed(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
@@ -353,7 +354,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			if readCommand && !changed {
-				if policy.ChunkDedup {
+				if policy.ChunkDedup && chunkAllowed {
 					afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes, req.ChunkDedupMaxRefPct)
 				}
 				if !changed {
@@ -395,7 +396,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					mechanism = proxyLayer0MechanismRepeatedOut
 				}
 			}
-			if !changed && policy.ChunkDedup {
+			if !changed && policy.ChunkDedup && chunkAllowed {
 				afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes, req.ChunkDedupMaxRefPct)
 			}
 			if !changed {
@@ -607,8 +608,11 @@ func proxyLayer0QualityToolKey(commandLine string) string {
 		}
 		return key
 	}
-	if key := filter.SearchOutputKeyFromCommandLine(commandLine); key != "" {
+	if key := filter.RepoScopedSearchOutputKeyFromCommandLine(commandLine); key != "" {
 		return "search:" + key
+	}
+	if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
+		return ""
 	}
 	return "command:" + commandLine
 }
@@ -901,6 +905,72 @@ func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, min
 		return "", false, "", chunkdedup.EncodeResult{}
 	}
 	return encoded, true, proxyLayer0MechanismChunkDedup, report
+}
+
+func chunkDedupAllowedForCommand(commandLine string, readCommand bool) bool {
+	if readCommand {
+		return true
+	}
+	raw := strings.ToLower(strings.TrimSpace(commandLine))
+	if strings.Contains(raw, "apply_patch") ||
+		strings.Contains(raw, "*** begin patch") ||
+		strings.Contains(raw, "*** update file:") ||
+		strings.Contains(raw, "*** add file:") ||
+		strings.Contains(raw, "*** delete file:") {
+		return false
+	}
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return true
+	}
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(argv[0])))
+	base = strings.TrimSuffix(base, ".exe")
+	switch base {
+	case "apply_patch", "patch":
+		return false
+	case "git":
+		if subcommand := gitSubcommand(argv); subcommand != "" {
+			switch subcommand {
+			case "diff", "show", "apply", "am", "format-patch":
+				return false
+			}
+		}
+	}
+	for _, arg := range argv {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		if lower == "apply_patch" || lower == "patch" ||
+			strings.Contains(lower, "*** begin patch") ||
+			strings.Contains(lower, "*** update file:") ||
+			strings.Contains(lower, "*** add file:") ||
+			strings.Contains(lower, "*** delete file:") {
+			return false
+		}
+	}
+	return true
+}
+
+func gitSubcommand(argv []string) string {
+	if len(argv) < 2 || strings.ToLower(filepath.Base(strings.TrimSpace(argv[0]))) != "git" {
+		return ""
+	}
+	for i := 1; i < len(argv); i++ {
+		arg := strings.TrimSpace(argv[i])
+		if arg == "" {
+			continue
+		}
+		switch {
+		case arg == "-C" || arg == "-c" || arg == "--git-dir" || arg == "--work-tree":
+			i++
+			continue
+		case strings.HasPrefix(arg, "--git-dir="), strings.HasPrefix(arg, "--work-tree="), strings.HasPrefix(arg, "-c"):
+			continue
+		case strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			return strings.ToLower(arg)
+		}
+	}
+	return ""
 }
 
 func encodeProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes, maxReferencePercent int) (string, bool, chunkdedup.EncodeResult) {
