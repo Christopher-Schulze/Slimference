@@ -39,12 +39,13 @@ func InjectBody(provider types.Provider, body []byte, opts Options) ([]byte, Sta
 		return body, stats, err
 	}
 	profile := ResolveProfile(provider, configured)
-	stats.Profile = string(profile)
 	stats.TaskShape = opts.TaskShape
 	if stats.TaskShape == "" {
 		stats.TaskShape = DetectTaskShape(provider, body)
 	}
 	opts.TaskShape = stats.TaskShape
+	profile = SafeProfileForShape(profile, stats.TaskShape)
+	stats.Profile = string(profile)
 	if stats.TaskShape == ShapeExactReply {
 		stats.Reason = "exact_reply"
 		return body, stats, nil

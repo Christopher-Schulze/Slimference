@@ -552,6 +552,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		profileName := p.config.Compression.OutputReduce.Profile
 		if configuredProfile, err := outputreduce.ParseProfile(profileName); err == nil {
 			effective := outputreduce.ResolveProfile(provider, configuredProfile)
+			effective = outputreduce.SafeProfileForShape(effective, taskShape)
 			if p.outputReduce != nil {
 				outputReduceCooldown = p.outputReduce.InCooldown(provider.String(), model, effective, taskShape)
 				effective = p.outputReduce.SelectProfile(provider.String(), model, effective, taskShape)

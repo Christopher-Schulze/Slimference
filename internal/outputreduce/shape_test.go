@@ -21,6 +21,7 @@ func TestDetectTaskShape(t *testing.T) {
 		{name: "code edit", body: []byte(`{"messages":[{"role":"user","content":"apply_patch this bug"}]}`), want: ShapeCodeEdit},
 		{name: "debug", body: []byte(`{"messages":[{"role":"user","content":"debug this panic stack trace"}]}`), want: ShapeDebugging},
 		{name: "repair follow-up", body: []byte(`{"messages":[{"role":"user","content":"you skipped the command output, explain more"}]}`), want: ShapeRepairFollowup},
+		{name: "final summary", body: []byte(`{"messages":[{"role":"user","content":"final summary with files, tests, and risks"}]}`), want: ShapeFinalSummary},
 		{name: "review", body: []byte(`{"messages":[{"role":"user","content":"review for severity findings"}]}`), want: ShapeReview},
 		{name: "planning", body: []byte(`{"messages":[{"role":"user","content":"plan next steps"}]}`), want: ShapePlanning},
 		{name: "tool", body: []byte(`{"messages":[{"role":"user","content":"stderr exit code command output"}]}`), want: ShapeToolReasoning},
@@ -49,6 +50,7 @@ func TestShapeDirectiveBranches(t *testing.T) {
 		ShapeDebugging,
 		ShapeToolReasoning,
 		ShapePlanning,
+		ShapeFinalSummary,
 	} {
 		if got := shapeDirective(shape); got == "" {
 			t.Fatalf("shape %s directive empty", shape)

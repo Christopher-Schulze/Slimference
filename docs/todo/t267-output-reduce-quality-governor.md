@@ -82,6 +82,25 @@ Output reduction becomes a runtime-governed layer:
 - WSS terminal-safe proof before WSS streamcut is enabled.
 - Live corpus A/B for aggressive profiles.
 
+## Notes
+
+- Offline hardening completed: output-reduce now detects `final_summary` turns and
+  statically caps `aggressive`, `codex_aggressive`, and `codex` profiles to
+  `standard` for safety-sensitive shapes: code edits, new-file generation,
+  debugging, reviews, tool-result reasoning, and final summaries. The cap runs in
+  both the proxy hot path before tracker/cooldown selection and in
+  `InjectBody` as defense in depth.
+- Existing repair-signal plumbing remains active: "you skipped" / "too short" /
+  malformed-patch style follow-ups downgrade the stored provider/model/profile/
+  task-shape bucket through the output-reduce tracker.
+- Existing WSS guard remains active: WSS text deltas are not streamcut even when
+  the global HTTP streamcut toggle is on; terminal WSS responses stay byte-equal
+  to avoid corrupting code, patch, or final-answer payloads.
+- Offline verification covered profile selection, injection, task-shape
+  detection, proxy hot-path profile capping, and repair lifecycle. Live corpus
+  proof for aggressive direct-answer/status workloads remains deferred until the
+  capture phase.
+
 ## Done
 
 Output reduce is maxxed when it saves where safe, backs off automatically where

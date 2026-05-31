@@ -275,7 +275,7 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 	if got := NextSofter(ProfileOff); got != ProfileOff {
 		t.Fatalf("NextSofter off=%s", got)
 	}
-	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReadOnly, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapePlanning, ShapeDirectAnswer, ShapeUnknown} {
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReadOnly, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapePlanning, ShapeFinalSummary, ShapeDirectAnswer, ShapeUnknown} {
 		if text := DirectiveForShape(ProfileCodexAggressive, shape, DefaultMarker); text == "" {
 			t.Fatalf("empty directive for shape %s", shape)
 		}
@@ -285,6 +285,51 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 	}
 	for _, profile := range []Profile{ProfileMild, ProfileStandard, ProfileAggressive, ProfileCustom, ProfileOff} {
 		_ = DirectiveForShape(profile, ShapeDirectAnswer, "")
+	}
+}
+
+func TestSafeProfileForShapeCapsAggressiveProfiles(t *testing.T) {
+	t.Parallel()
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeDebugging, ShapeReview, ShapeToolReasoning, ShapeFinalSummary} {
+		if got := SafeProfileForShape(ProfileCodexAggressive, shape); got != ProfileStandard {
+			t.Fatalf("codex aggressive shape %s = %s, want standard", shape, got)
+		}
+		if got := SafeProfileForShape(ProfileAggressive, shape); got != ProfileStandard {
+			t.Fatalf("aggressive shape %s = %s, want standard", shape, got)
+		}
+	}
+	if got := SafeProfileForShape(ProfileCodexAggressive, ShapeDirectAnswer); got != ProfileCodexAggressive {
+		t.Fatalf("direct answer should keep codex aggressive, got %s", got)
+	}
+	if got := SafeProfileForShape(ProfileMild, ShapeCodeEdit); got != ProfileMild {
+		t.Fatalf("mild code edit should stay mild, got %s", got)
+	}
+}
+
+func TestInjectBody_CapsAggressiveForCodeAndFinalSummary(t *testing.T) {
+	t.Parallel()
+	codeEdit := []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"apply_patch this bug and preserve exact paths"}]}]}`)
+	out, stats, err := InjectBody(types.CodexChatGPT, codeEdit, Options{Enabled: true, Profile: "codex_aggressive", InputTokens: 90000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.Applied || stats.Profile != string(ProfileStandard) || stats.TaskShape != ShapeCodeEdit {
+		t.Fatalf("code edit stats=%+v out=%s", stats, out)
+	}
+	if strings.Contains(string(out), "fewest complete words") || !strings.Contains(string(out), "For code-edit tasks") {
+		t.Fatalf("code edit received aggressive or missing safety directive: %s", out)
+	}
+
+	finalSummary := []byte(`{"messages":[{"role":"user","content":"final summary with verification and unresolved risks"}]}`)
+	out, stats, err = InjectBody(types.OpenAI, finalSummary, Options{Enabled: true, Profile: "aggressive", InputTokens: 90000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.Applied || stats.Profile != string(ProfileStandard) || stats.TaskShape != ShapeFinalSummary {
+		t.Fatalf("final summary stats=%+v out=%s", stats, out)
+	}
+	if strings.Contains(string(out), "Aggressive output rules") || !strings.Contains(string(out), "preserve requested files") {
+		t.Fatalf("final summary received aggressive or missing preservation directive: %s", out)
 	}
 }
 

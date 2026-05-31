@@ -21,6 +21,7 @@ const (
 	ShapeReview         TaskShape = "review"
 	ShapeToolReasoning  TaskShape = "tool_result_reasoning"
 	ShapeNewFile        TaskShape = "new_file_generation"
+	ShapeFinalSummary   TaskShape = "final_summary"
 )
 
 func DetectTaskShape(provider types.Provider, body []byte) TaskShape {
@@ -34,6 +35,11 @@ func DetectTaskShape(provider types.Provider, body []byte) TaskShape {
 		return ShapeExactReply
 	case DetectRepairSignalText(lower).Repair:
 		return ShapeRepairFollowup
+	case containsAny(lower,
+		"final answer", "final summary", "final report", "wrap up", "summarize what you did",
+		"abschlussbericht", "finale zusammenfassung", "fass abschließend zusammen", "fasse abschließend zusammen",
+	):
+		return ShapeFinalSummary
 	case containsAny(lower,
 		"read-only", "read only", "do not edit", "don't edit", "do not modify", "do not write", "no edits",
 		"inspect", "analyze", "analyse", "audit", "report in", "nur analysieren", "nichts anfassen", "nicht anfassen",

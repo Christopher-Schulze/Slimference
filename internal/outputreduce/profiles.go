@@ -73,6 +73,16 @@ func ResolveProfile(provider types.Provider, configured Profile) Profile {
 	}
 }
 
+func SafeProfileForShape(profile Profile, shape TaskShape) Profile {
+	switch shape {
+	case ShapeCodeEdit, ShapeDebugging, ShapeReview, ShapeToolReasoning, ShapeNewFile, ShapeFinalSummary:
+		if profile == ProfileAggressive || profile == ProfileCodexAggressive || profile == ProfileCodex {
+			return ProfileStandard
+		}
+	}
+	return profile
+}
+
 func Directive(profile Profile, marker string) string {
 	return DirectiveForShape(profile, ShapeUnknown, marker)
 }
@@ -142,6 +152,8 @@ func shapeDirective(shape TaskShape) string {
 		return " For tool-result reasoning, summarize only the decision-relevant lines."
 	case ShapePlanning:
 		return " For planning, use compact ordered steps with no filler."
+	case ShapeFinalSummary:
+		return " For final summaries, preserve requested files, commands, verification status, and unresolved risks."
 	case ShapeRepairFollowup:
 		return ""
 	default:

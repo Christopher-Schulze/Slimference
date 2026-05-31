@@ -205,12 +205,12 @@ func TestServeHTTP_OutputReduceCooldownFeedsPlannerAndSoftensProfile(t *testing.
 		Provider:  "anthropic",
 		Model:     model,
 		Profile:   string(outputreduce.ProfileAggressive),
-		TaskShape: outputreduce.ShapeCodeEdit,
+		TaskShape: outputreduce.ShapeDirectAnswer,
 		Applied:   true,
 		Failed:    true,
 	})
 
-	body := `{"model":"` + model + `","max_tokens":512,"messages":[{"role":"user","content":"` + strings.Repeat("please edit and patch tersely ", 40) + `"}]}`
+	body := `{"model":"` + model + `","max_tokens":512,"messages":[{"role":"user","content":"` + strings.Repeat("answer this operational question tersely ", 9000) + `"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -233,5 +233,50 @@ func TestServeHTTP_OutputReduceCooldownFeedsPlannerAndSoftensProfile(t *testing.
 	}
 	if summaries[0].OutputReduce.Profile != string(outputreduce.ProfileStandard) {
 		t.Fatalf("cooldown should soften aggressive profile to standard, summary=%+v", summaries[0].OutputReduce)
+	}
+}
+
+func TestServeHTTP_OutputReduceCapsAggressiveCodeEditProfile(t *testing.T) {
+	t.Parallel()
+	var captured []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"output_tokens":500}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.OutputReduce.Enabled = true
+	cfg.Compression.OutputReduce.Profile = string(outputreduce.ProfileAggressive)
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":512,"messages":[{"role":"user","content":"` + strings.Repeat("apply_patch this bug and preserve exact paths ", 80) + `"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if strings.Contains(string(captured), "Aggressive output rules") || strings.Contains(string(captured), "fewest complete words") {
+		t.Fatalf("code-edit request received aggressive output directive: %s", captured)
+	}
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("missing summary: %#v", summaries)
+	}
+	if summaries[0].OutputReduce.Profile != string(outputreduce.ProfileStandard) || summaries[0].OutputReduce.TaskShape != string(outputreduce.ShapeCodeEdit) {
+		t.Fatalf("code-edit output-reduce safety cap missing: %+v", summaries[0].OutputReduce)
 	}
 }
