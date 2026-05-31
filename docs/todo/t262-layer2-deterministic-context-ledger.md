@@ -17,6 +17,9 @@ replacement for reality.
 - Deterministic extraction is reproducible but not complete.
 - Old context replacement is the real risk: the model sees the replacement as
   session memory.
+- `internal/contextledger` now contains pure deterministic capsule builders for
+  command, file, search, and failure observations. Capsules store compact facts,
+  provenance, stable hashes, and archive ids, never raw omitted content.
 
 ## Product target
 
@@ -47,27 +50,27 @@ The ledger stores deterministic capsules:
 
 ## Technical work packages
 
-1. Create `internal/contextledger` with pure deterministic builders.
-2. Feed builders from existing reducer telemetry:
+1. [x] Create `internal/contextledger` with pure deterministic builders.
+2. [ ] Feed builders from existing reducer telemetry:
    - Layer 0 filter decisions
    - readcache observations
    - WSS Phase-F request summaries
    - quality/re-read canaries
    - archive ids
-3. Build capsule selection:
+3. [ ] Build capsule selection:
    - active turn: verbatim
    - recent working set: verbatim or exact delta
    - old inactive context: ledger capsules
    - high-risk content: full-pass
-4. Build archive-backed expansion:
+4. [~] Build archive-backed expansion:
    - every capsule referring to omitted content must carry archive ids
    - expansion must restore exact source bytes
    - missing archive means no replacement
-5. Replace summary replacement with ledger insertion only behind proof:
+5. [ ] Replace summary replacement with ledger insertion only behind proof:
    - default-off while shadowing
    - shadow produces ledger sidecar and compares against direct context
    - promotion only after live corpus proof
-6. Keep provider summarizers outside default:
+6. [x] Keep provider summarizers outside default:
    - opt-in only
    - labelled in docs and admin state
    - never needed for product default savings claims

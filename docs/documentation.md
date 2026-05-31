@@ -360,6 +360,15 @@ surfaces. The server-state mirror remains telemetry/policy infrastructure only.
 HTTP is explicitly blocked from archive-backed chunk references; WSS is the
 product route for recoverable archive/chunk mechanisms.
 
+Layer 2 is being redirected away from "summary as truth" toward deterministic
+context ledgers. The pure `internal/contextledger` package builds archive-backed
+capsules for command, file, search, and failure observations: compact facts plus
+provenance, stable hashes, and archive ids, without storing raw omitted content
+inside the capsule. This is the safe replacement foundation for old-context
+compression. It is not yet a default hot-path replacement mechanism; reducer
+telemetry wiring, archive expansion replay, and live corpus proof remain the
+promotion gates.
+
 The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
 blocks, command-unresolved blocks, read-delta attempts, read-delta misses,
