@@ -11,6 +11,10 @@ safe by construction through explicit tiers and enforcement.
 ## Current reality check
 
 - Layer 1 is implemented and default-enabled.
+- Layer 1 now has `Layer1SubLayerRegistry()` with stable metadata for each
+  sublayer's safety tier, default eligibility, archive requirement, model risk,
+  and recovery path. This is control-plane metadata; executor enforcement is
+  still tracked below.
 - It contains a mix of safety classes:
   - exact/lossless: ANSI stripping when only terminal control bytes are removed,
     JSON minification, path dictionary with recovery
@@ -31,11 +35,11 @@ compression shortcut.
 ## Technical work packages
 
 1. Add a Layer 1 sublayer safety registry:
-   - exact
-   - reversible
-   - recoverable-with-archive
-   - task-preserving-summary
-   - non-default/research
+   - [x] exact
+   - [x] reversible
+   - [x] recoverable-with-archive
+   - [x] task-preserving-summary
+   - [x] non-default/research
 2. Enforce tier rules in the Layer 1 executor:
    - default: exact + reversible + proven recoverable only
    - auto: default plus proof-gated task-preserving summaries
@@ -91,6 +95,13 @@ compression shortcut.
 - Corpus replay comparing direct vs compressed model-facing context.
 - `go test ./internal/compression ./internal/proxy`
 - `go run ./scripts/ci`
+
+## Progress
+
+- 2026-05-31: Added the Layer 1 safety registry with contract tests. Every
+  known sublayer is classified by safety tier, default eligibility, model risk,
+  archive requirement, and recovery path. This does not yet change compression
+  output; it makes the next enforcement step auditable.
 
 ## Done
 

@@ -638,6 +638,16 @@ Plus:
 - Structure-aware preview for oversized tool results (T38 / T55).
 - Prompt-cache breakpoints (T23, T45).
 
+### Layer 1 safety registry
+
+`compression.Layer1SubLayerRegistry()` is the control-plane contract for Layer 1.
+It classifies each sub-layer as exact, reversible, recoverable-with-archive,
+task-preserving summary, or non-default. The registry also records default
+eligibility, whether an archive is required, the model-risk being controlled,
+and the recovery path. This is the basis for the T261 executor hardening: exact
+and reversible transforms can stay automatic; context-dropping summaries must
+stay archive-backed or be bypassed.
+
 ### Reversible path dictionary (T143a)
 
 `semantic_dictionary.go` aliases repeated absolute local paths inside one
