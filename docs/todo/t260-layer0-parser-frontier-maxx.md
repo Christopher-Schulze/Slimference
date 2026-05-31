@@ -124,6 +124,11 @@ These are promotion targets, not claims:
   contracts. This makes default reducer safety auditable beyond "has a name":
   every parser now declares the evidence it must retain and the fail-open
   recovery behavior expected when that evidence cannot be proven.
+- 2026-05-31: Hardened format-output compaction so large formatter file lists
+  keep sampled changed filenames plus omitted-count markers instead of collapsing
+  to a count-only summary. This aligns the reducer with its preserved-evidence
+  contract and removes a small silent context-loss surface without changing the
+  fail-shorter gate.
 
 ## Done
 

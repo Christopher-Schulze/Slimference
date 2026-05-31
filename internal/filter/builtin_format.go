@@ -479,13 +479,29 @@ func compactFormatFilelist(s, label string) (string, bool) {
 	var nonEmpty []string
 	for _, l := range strings.Split(s, "\n") {
 		if strings.TrimSpace(l) != "" {
-			nonEmpty = append(nonEmpty, l)
+			nonEmpty = append(nonEmpty, strings.TrimSpace(l))
 		}
 	}
 	if len(nonEmpty) <= formatFileListMax {
 		return "", false
 	}
-	out := fmt.Sprintf("[%s] %d file(s) formatted\n", label, len(nonEmpty))
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[%s] %d file(s) formatted\n", label, len(nonEmpty)))
+	selected := cappedSearchIndexes(len(nonEmpty), formatFileListMax, 3)
+	previous := -1
+	for _, idx := range selected {
+		if previous >= 0 && idx > previous+1 {
+			sb.WriteString(fmt.Sprintf("  [+%d more files]\n", idx-previous-1))
+		}
+		sb.WriteString("  ")
+		sb.WriteString(nonEmpty[idx])
+		sb.WriteByte('\n')
+		previous = idx
+	}
+	if len(selected) > 0 && selected[len(selected)-1] < len(nonEmpty)-1 {
+		sb.WriteString(fmt.Sprintf("  [+%d more files]\n", len(nonEmpty)-selected[len(selected)-1]-1))
+	}
+	out := sb.String()
 	if len(out) >= len(s) {
 		return "", false
 	}
@@ -493,7 +509,7 @@ func compactFormatFilelist(s, label string) (string, bool) {
 }
 
 // TryCompactFormatOutput chains all format-tool compactors (F24).
-// Empty stdout yields per-tool "ok". Non-empty stdout with many formatted files yields a count.
+// Empty stdout yields per-tool "ok". Non-empty stdout with many formatted files yields sampled changed paths.
 func TryCompactFormatOutput(argv []string, stdout []byte) ([]byte, bool) {
 	if out, ok := TryCompactPrettier(argv, stdout); ok {
 		return out, true

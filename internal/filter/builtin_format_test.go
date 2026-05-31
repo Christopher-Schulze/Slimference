@@ -395,6 +395,15 @@ func TestTryCompactFormatOutput_manyFiles(t *testing.T) {
 	if !strings.Contains(s, "[prettier] 15 file(s) formatted") {
 		t.Errorf("want file count, got: %q", s)
 	}
+	if !strings.Contains(s, "src/components/Component0.tsx") || !strings.Contains(s, "src/components/Component14.tsx") {
+		t.Errorf("want sampled first and last formatted files, got: %q", s)
+	}
+	if !strings.Contains(s, "[+5 more files]") {
+		t.Errorf("want omitted-file marker, got: %q", s)
+	}
+	if strings.Contains(s, "src/components/Component8.tsx") {
+		t.Errorf("want middle noise omitted, got: %q", s)
+	}
 }
 
 func TestTryCompactFormatOutput_fewFiles(t *testing.T) {
@@ -412,7 +421,7 @@ func TestTryCompactFormatOutput_gofmtManyFiles(t *testing.T) {
 	// gofmt -l with 12 files → compact
 	var sb strings.Builder
 	for i := 0; i < 12; i++ {
-		sb.WriteString(fmt.Sprintf("pkg/foo/file%d.go\n", i))
+		sb.WriteString(fmt.Sprintf("pkg/very/deep/generated/service/component/file%d_with_long_name.go\n", i))
 	}
 	out, ok := TryCompactFormatOutput([]string{"gofmt", "-l", "."}, []byte(sb.String()))
 	if !ok {
@@ -420,6 +429,10 @@ func TestTryCompactFormatOutput_gofmtManyFiles(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "[gofmt] 12 file(s) formatted") {
 		t.Errorf("want gofmt count, got: %q", out)
+	}
+	if !strings.Contains(string(out), "pkg/very/deep/generated/service/component/file0_with_long_name.go") ||
+		!strings.Contains(string(out), "pkg/very/deep/generated/service/component/file11_with_long_name.go") {
+		t.Errorf("want sampled gofmt changed files, got: %q", out)
 	}
 }
 
