@@ -425,7 +425,7 @@ func (a *wsPhaseFAdapter) persistCollapsedKeys(sessionID string, keys []string) 
 	if len(add) == 0 {
 		return
 	}
-	_, _ = toolusecache.Merge(dir, sessionID, add)
+	_, _ = toolusecache.MergeAsync(dir, sessionID, add)
 }
 
 func (a *wsPhaseFAdapter) restoreKeysForReReads(reReadKeys map[string]struct{}) map[string]struct{} {
@@ -725,7 +725,7 @@ func (a *wsPhaseFAdapter) persistToolUses() {
 	if dir == "" {
 		return
 	}
-	_, _ = toolusecache.Merge(dir, sid, add)
+	_, _ = toolusecache.MergeAsync(dir, sid, add)
 	// Opportunistically bound the cache directory (once every 64 writes) so it
 	// cannot grow without limit across many conversations.
 	if tooluseSaveCount.Add(1)%64 == 0 {

@@ -30,6 +30,7 @@ type mockProxy struct {
 	readStatus     ReadCacheStatus
 	qualityStatus  QualityStatus
 	productStatus  ProductStatus
+	productCalls   int
 	sessionLogger  *sessions.SessionLogger
 	flushed        bool
 	shutdownCalled bool
@@ -134,6 +135,7 @@ func (m *mockProxy) GetQualityStatus() QualityStatus {
 	return m.qualityStatus
 }
 func (m *mockProxy) GetProductStatus() ProductStatus {
+	m.productCalls++
 	return m.productStatus
 }
 func (m *mockProxy) GetProviderHealth(_ types.Provider) types.ProviderHealthInfo {
@@ -505,6 +507,34 @@ func TestUpdate_TickRefreshesSnapshot(t *testing.T) {
 
 	if model.latestSnap.TotalRequests != 42 {
 		t.Errorf("latestSnap.TotalRequests = %d, want 42", model.latestSnap.TotalRequests)
+	}
+}
+
+func TestUpdate_TickRefreshesProductStatus(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.productStatus = ProductStatus{SavingsStatus: "active_no_savings"}
+	m := NewModel(p)
+
+	p.productStatus = ProductStatus{SavingsStatus: "saving", BillableInputTokensSaved: 42}
+	updated, _ := m.Update(tickMsg(time.Now()))
+	model := updated.(Model)
+
+	if model.latestProduct.SavingsStatus != "saving" || model.latestProduct.BillableInputTokensSaved != 42 {
+		t.Fatalf("latestProduct not refreshed: %+v", model.latestProduct)
+	}
+}
+
+func TestModelTickIntervalSlowsUnderHostBudget(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	m := NewModel(p)
+	if got := m.tickInterval(); got != defaultTickInterval {
+		t.Fatalf("normal tick interval = %s, want %s", got, defaultTickInterval)
+	}
+	m.latestProduct.HostBudgetExceeded = true
+	if got := m.tickInterval(); got != hostBudgetTickInterval {
+		t.Fatalf("host-budget tick interval = %s, want %s", got, hostBudgetTickInterval)
 	}
 }
 
@@ -1245,6 +1275,27 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}
+	}
+}
+
+func TestView_MainRender_UsesCachedProductStatus(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.productStatus = ProductStatus{
+		RouteStatus:              "WSS savings active",
+		SavingsStatus:            "saving",
+		BillableInputTokensSaved: 99,
+	}
+	m := NewModel(p)
+	callsAfterInit := p.productCalls
+
+	_ = m.View()
+	_ = m.View()
+	if p.productCalls != callsAfterInit {
+		t.Fatalf("render fetched product status %d extra time(s)", p.productCalls-callsAfterInit)
+	}
+	if !strings.Contains(m.View(), "99 input saved") {
+		t.Fatalf("render did not use cached product status:\n%s", m.View())
 	}
 }
 

@@ -26,6 +26,18 @@ func drainAnalyticsQueueForTest(p *Proxy) {
 	}
 }
 
+func TestResponseCacheRouteKeyIncludesPathAndQuery(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses?include=usage", nil)
+	if got := responseCacheRouteKey(req); got != "/v1/responses?include=usage" {
+		t.Fatalf("route key = %q", got)
+	}
+	if got := responseCacheRouteKey(nil); got != "" {
+		t.Fatalf("nil route key = %q", got)
+	}
+}
+
 func TestServeHTTP_layer3CacheHit_partitionsByAPIKey(t *testing.T) {
 	t.Parallel()
 

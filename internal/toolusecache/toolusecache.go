@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/slimference/slimference/internal/sessions"
@@ -24,6 +25,7 @@ const (
 	MaxEntriesPerSession = 4096
 	defaultMaxSessions   = 500
 	defaultMaxAge        = 14 * 24 * time.Hour
+	asyncFlushDelay      = 50 * time.Millisecond
 )
 
 // Indirection points for tests.
@@ -33,7 +35,22 @@ var (
 	mkdirAll  = os.MkdirAll
 	readDir   = os.ReadDir
 	removeOne = os.Remove
+	removeAll = os.RemoveAll
 )
+
+type memoryEntry struct {
+	entries        map[string]Entry
+	dirty          bool
+	flushScheduled bool
+	lastUsed       time.Time
+}
+
+var memory = struct {
+	mu       sync.Mutex
+	sessions map[string]*memoryEntry
+}{
+	sessions: map[string]*memoryEntry{},
+}
 
 // Entry is the resolution metadata for one tool call. No tool output.
 type Entry struct {
@@ -62,7 +79,19 @@ func sessionPath(dir, sessionID string) string {
 // Load returns the persisted entries for a session keyed by call_id. A missing
 // file yields an empty map and no error.
 func Load(dir, sessionID string) (map[string]Entry, error) {
-	data, err := readFile(sessionPath(dir, sessionID))
+	safeID := sessions.SafeSessionID(sessionID)
+	key := memoryKey(dir, safeID)
+
+	memory.mu.Lock()
+	if entry := memory.sessions[key]; entry != nil {
+		entry.lastUsed = time.Now()
+		entries := cloneEntries(entry.entries)
+		memory.mu.Unlock()
+		return entries, nil
+	}
+	memory.mu.Unlock()
+
+	data, err := readFile(sessionPath(dir, safeID))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]Entry{}, nil
@@ -76,7 +105,8 @@ func Load(dir, sessionID string) (map[string]Entry, error) {
 	if entries == nil {
 		entries = map[string]Entry{}
 	}
-	return entries, nil
+	rememberClean(dir, safeID, entries)
+	return cloneEntries(entries), nil
 }
 
 // Merge overlays add onto the persisted session entries, caps the total at
@@ -86,30 +116,50 @@ func Merge(dir, sessionID string, add map[string]Entry) (map[string]Entry, error
 	if len(add) == 0 {
 		return Load(dir, sessionID)
 	}
-	existing, err := Load(dir, sessionID)
+	merged, err := mergeEntries(dir, sessionID, add)
 	if err != nil {
 		return nil, err
 	}
-	for id, e := range add {
-		if id == "" {
-			continue
-		}
-		existing[id] = e
-	}
-	if len(existing) > MaxEntriesPerSession {
-		ids := make([]string, 0, len(existing))
-		for id := range existing {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
-		for _, id := range ids[:len(existing)-MaxEntriesPerSession] {
-			delete(existing, id)
-		}
-	}
-	if err := save(dir, sessionID, existing); err != nil {
+	if err := save(dir, sessionID, merged); err != nil {
 		return nil, err
 	}
-	return existing, nil
+	rememberClean(dir, sessionID, merged)
+	return cloneEntries(merged), nil
+}
+
+// MergeAsync overlays add onto the in-memory session entries and schedules a
+// bounded write-behind flush. Reconnects in the same process can Load the merged
+// metadata immediately, while disk I/O stays off the WSS frame hot path.
+func MergeAsync(dir, sessionID string, add map[string]Entry) (map[string]Entry, error) {
+	if len(add) == 0 {
+		return Load(dir, sessionID)
+	}
+	merged, err := mergeEntries(dir, sessionID, add)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := json.MarshalIndent(merged, "", "  "); err != nil {
+		return nil, err
+	}
+
+	safeID := sessions.SafeSessionID(sessionID)
+	key := memoryKey(dir, safeID)
+	memory.mu.Lock()
+	entry := memory.sessions[key]
+	if entry == nil {
+		entry = &memoryEntry{}
+		memory.sessions[key] = entry
+	}
+	entry.entries = cloneEntries(merged)
+	entry.dirty = true
+	entry.lastUsed = time.Now()
+	if !entry.flushScheduled {
+		entry.flushScheduled = true
+		go delayedFlush(dir, safeID)
+	}
+	out := cloneEntries(entry.entries)
+	memory.mu.Unlock()
+	return out, nil
 }
 
 func save(dir, sessionID string, entries map[string]Entry) error {
@@ -121,6 +171,140 @@ func save(dir, sessionID string, entries map[string]Entry) error {
 		return err
 	}
 	return writeFile(sessionPath(dir, sessionID), append(data, '\n'), 0o644)
+}
+
+func mergeEntries(dir, sessionID string, add map[string]Entry) (map[string]Entry, error) {
+	existing, err := Load(dir, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	for id, e := range add {
+		if id == "" {
+			continue
+		}
+		existing[id] = e
+	}
+	if len(existing) <= MaxEntriesPerSession {
+		return existing, nil
+	}
+	ids := make([]string, 0, len(existing))
+	for id := range existing {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids[:len(existing)-MaxEntriesPerSession] {
+		delete(existing, id)
+	}
+	return existing, nil
+}
+
+func delayedFlush(dir, sessionID string) {
+	time.Sleep(asyncFlushDelay)
+	_ = FlushSession(dir, sessionID)
+}
+
+func FlushSession(dir, sessionID string) error {
+	safeID := sessions.SafeSessionID(sessionID)
+	key := memoryKey(dir, safeID)
+
+	memory.mu.Lock()
+	entry := memory.sessions[key]
+	if entry == nil || !entry.dirty {
+		if entry != nil {
+			entry.flushScheduled = false
+		}
+		memory.mu.Unlock()
+		return nil
+	}
+	entries := cloneEntries(entry.entries)
+	entry.dirty = false
+	entry.flushScheduled = false
+	memory.mu.Unlock()
+
+	if err := save(dir, safeID, entries); err != nil {
+		memory.mu.Lock()
+		if retry := memory.sessions[key]; retry != nil {
+			retry.dirty = true
+		}
+		memory.mu.Unlock()
+		return err
+	}
+	rememberClean(dir, safeID, entries)
+	return nil
+}
+
+func FlushAll() error {
+	memory.mu.Lock()
+	type target struct {
+		dir       string
+		sessionID string
+	}
+	targets := make([]target, 0, len(memory.sessions))
+	for key := range memory.sessions {
+		dir, sessionID := splitMemoryKey(key)
+		targets = append(targets, target{dir: dir, sessionID: sessionID})
+	}
+	memory.mu.Unlock()
+
+	for _, t := range targets {
+		if err := FlushSession(t.dir, t.sessionID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Clear removes persisted state for a cache root and drops matching in-memory
+// sessions. It is used by product cache flushes; missing directories are fine.
+func Clear(dir string) error {
+	clearMemoryDir(dir)
+	if err := removeAll(dir); err != nil {
+		return err
+	}
+	return nil
+}
+
+func rememberClean(dir, sessionID string, entries map[string]Entry) {
+	key := memoryKey(dir, sessions.SafeSessionID(sessionID))
+	memory.mu.Lock()
+	memory.sessions[key] = &memoryEntry{
+		entries:  cloneEntries(entries),
+		lastUsed: time.Now(),
+	}
+	memory.mu.Unlock()
+}
+
+func cloneEntries(in map[string]Entry) map[string]Entry {
+	out := make(map[string]Entry, len(in))
+	for id, entry := range in {
+		out[id] = entry
+	}
+	return out
+}
+
+func memoryKey(dir, sessionID string) string {
+	return filepath.Clean(dir) + "\x00" + sessions.SafeSessionID(sessionID)
+}
+
+func splitMemoryKey(key string) (string, string) {
+	for i := 0; i < len(key); i++ {
+		if key[i] == 0 {
+			return key[:i], key[i+1:]
+		}
+	}
+	return key, ""
+}
+
+func clearMemoryDir(dir string) {
+	cleanDir := filepath.Clean(dir)
+	memory.mu.Lock()
+	for key := range memory.sessions {
+		entryDir, _ := splitMemoryKey(key)
+		if filepath.Clean(entryDir) == cleanDir {
+			delete(memory.sessions, key)
+		}
+	}
+	memory.mu.Unlock()
 }
 
 // Prune removes session files older than maxAge, then the oldest by mtime beyond

@@ -21,17 +21,20 @@ func (p DaemonProbe) ProbeDaemon(_ context.Context) control.DaemonState {
 	snap := p.Proxy.daemonResourceSnapshot()
 	stateBytes, _ := p.Proxy.daemonStateBytes()
 	return control.DaemonState{
-		Running:          true,
-		HealthOK:         true,
-		PID:              os.Getpid(),
-		RSSBytes:         snap.RSSBytes,
-		UptimeSec:        p.Proxy.uptimeSeconds(),
-		CPUUserSeconds:   snap.CPUUserSeconds,
-		CPUSystemSeconds: snap.CPUSystemSeconds,
-		CPUPercent:       snap.CPUPercent,
-		DiskReadOps:      snap.DiskReadOps,
-		DiskWriteOps:     snap.DiskWriteOps,
-		StateBytes:       stateBytes,
-		Version:          Version,
+		Running:           true,
+		HealthOK:          true,
+		PID:               os.Getpid(),
+		RSSBytes:          snap.RSSBytes,
+		UptimeSec:         p.Proxy.uptimeSeconds(),
+		CPUUserSeconds:    snap.CPUUserSeconds,
+		CPUSystemSeconds:  snap.CPUSystemSeconds,
+		CPUPercent:        snap.CPUPercent,
+		CPUWindowPercent:  snap.CPUWindowPercent,
+		DiskReadOps:       snap.DiskReadOps,
+		DiskWriteOps:      snap.DiskWriteOps,
+		DiskReadOpsDelta:  snap.DiskReadOpsDelta,
+		DiskWriteOpsDelta: snap.DiskWriteOpsDelta,
+		StateBytes:        stateBytes,
+		Version:           Version,
 	}
 }

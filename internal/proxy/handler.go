@@ -39,6 +39,7 @@ import (
 	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/toolprune"
+	"github.com/slimference/slimference/internal/toolusecache"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -61,6 +62,20 @@ type pipelineStash struct {
 	origBody  []byte
 	provider  types.Provider
 	sessionID string
+}
+
+func responseCacheRouteKey(r *http.Request) string {
+	if r == nil || r.URL == nil {
+		return ""
+	}
+	path := r.URL.EscapedPath()
+	if path == "" {
+		path = r.URL.Path
+	}
+	if r.URL.RawQuery != "" {
+		return path + "?" + r.URL.RawQuery
+	}
+	return path
 }
 
 type pipelineStashKey struct{}
@@ -321,7 +336,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	var stageACacheKey [32]byte
 	stageAEnabled := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(body)
 	if stageAEnabled {
-		stageACacheKey = p.responseCache.ComputeRequestKeyWithHeaders(provider, body, r.Header)
+		stageACacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, responseCacheRouteKey(r), body, r.Header)
 		if cached, _, ok := p.responseCache.GetByOriginal(stageACacheKey); ok {
 			p.serveStageACacheHit(w, cached, reqID, start, provider, model, len(messages), origTokens, log, windowDecision)
 			return
@@ -615,7 +630,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	var cacheKey [32]byte
 	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(newBody)
 	if requestCacheSafe {
-		cacheKey = p.responseCache.ComputeRequestKeyWithHeaders(provider, newBody, r.Header)
+		cacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, responseCacheRouteKey(r), newBody, r.Header)
 		if cached, ok := p.responseCache.Get(cacheKey); ok {
 			log.Debug("cache hit")
 			for k, vv := range cached.Headers {
@@ -1605,8 +1620,11 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		CPUUserSeconds    float64         `json:"cpu_user_seconds"`
 		CPUSystemSeconds  float64         `json:"cpu_system_seconds"`
 		CPUPercent        float64         `json:"cpu_percent"`
+		CPUWindowPercent  float64         `json:"cpu_window_percent"`
 		DiskReadOps       int64           `json:"disk_read_ops"`
 		DiskWriteOps      int64           `json:"disk_write_ops"`
+		DiskReadOpsDelta  int64           `json:"disk_read_ops_delta"`
+		DiskWriteOpsDelta int64           `json:"disk_write_ops_delta"`
 		StateBytes        int64           `json:"state_bytes"`
 		Layers            map[string]bool `json:"layers"`
 		Providers         map[string]bool `json:"providers"`
@@ -1614,18 +1632,21 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		CacheEntries      int             `json:"cache_entries"`
 		MiniMaxConfigured bool            `json:"minimax_configured"`
 	}{
-		Status:           "ok",
-		Service:          "slimference",
-		Version:          Version,
-		PID:              os.Getpid(),
-		RSSBytes:         resource.RSSBytes,
-		UptimeSec:        p.uptimeSeconds(),
-		CPUUserSeconds:   resource.CPUUserSeconds,
-		CPUSystemSeconds: resource.CPUSystemSeconds,
-		CPUPercent:       resource.CPUPercent,
-		DiskReadOps:      resource.DiskReadOps,
-		DiskWriteOps:     resource.DiskWriteOps,
-		StateBytes:       stateBytes,
+		Status:            "ok",
+		Service:           "slimference",
+		Version:           Version,
+		PID:               os.Getpid(),
+		RSSBytes:          resource.RSSBytes,
+		UptimeSec:         p.uptimeSeconds(),
+		CPUUserSeconds:    resource.CPUUserSeconds,
+		CPUSystemSeconds:  resource.CPUSystemSeconds,
+		CPUPercent:        resource.CPUPercent,
+		CPUWindowPercent:  resource.CPUWindowPercent,
+		DiskReadOps:       resource.DiskReadOps,
+		DiskWriteOps:      resource.DiskWriteOps,
+		DiskReadOpsDelta:  resource.DiskReadOpsDelta,
+		DiskWriteOpsDelta: resource.DiskWriteOpsDelta,
+		StateBytes:        stateBytes,
 		Layers: map[string]bool{
 			"1": p.isLayerEnabled(1),
 			"2": p.isLayerEnabled(2),
@@ -1942,6 +1963,14 @@ func (p *Proxy) FlushCaches() {
 	if home, err := os.UserHomeDir(); err == nil {
 		if err := readcache.Clear(readcache.DefaultDir(home)); err != nil {
 			slog.Warn("read cache flush failed", "error", err)
+		}
+		for _, dir := range []string{
+			toolusecache.DefaultDir(home),
+			toolusecache.CollapsedKeysDir(home),
+		} {
+			if err := toolusecache.Clear(dir); err != nil {
+				slog.Warn("tool-use cache flush failed", "dir", dir, "error", err)
+			}
 		}
 	}
 	slog.Info("all caches flushed")

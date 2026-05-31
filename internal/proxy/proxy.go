@@ -146,6 +146,9 @@ type Proxy struct {
 	// optional Codex reducers before local overhead can become UX-visible.
 	codexLayer0LatencyExceeded atomic.Bool
 	codexLayer0LatencyStrikes  atomic.Int64
+	resourceWindowMu           sync.Mutex
+	lastResourceSample         hostmetrics.ProcessSnapshot
+	lastResourceSampleAt       time.Time
 	// Quality signals (T77). Re-read detector tracks repeated tool-key
 	// observations within a short window; cache-miss spike detector
 	// flags rolling prompt-cache regressions; net-savings keeps the
@@ -527,7 +530,47 @@ func (p *Proxy) daemonResourceSnapshot() hostmetrics.ProcessSnapshot {
 			snap.CPUPercent = (snap.CPUUserSeconds + snap.CPUSystemSeconds) / uptime * 100
 		}
 	}
+	if p != nil {
+		p.annotateResourceWindow(&snap)
+	}
 	return snap
+}
+
+func (p *Proxy) annotateResourceWindow(snap *hostmetrics.ProcessSnapshot) {
+	if p == nil || snap == nil {
+		return
+	}
+	now := time.Now()
+	p.resourceWindowMu.Lock()
+	prev := p.lastResourceSample
+	prevAt := p.lastResourceSampleAt
+	p.lastResourceSample = *snap
+	p.lastResourceSampleAt = now
+	p.resourceWindowMu.Unlock()
+
+	if prevAt.IsZero() {
+		return
+	}
+	elapsed := now.Sub(prevAt).Seconds()
+	if elapsed <= 0 {
+		return
+	}
+	if snap.CPUKnown && prev.CPUKnown {
+		delta := (snap.CPUUserSeconds + snap.CPUSystemSeconds) - (prev.CPUUserSeconds + prev.CPUSystemSeconds)
+		if delta >= 0 {
+			snap.CPUWindowPercent = delta / elapsed * 100
+			snap.CPUWindowKnown = true
+		}
+	}
+	if snap.DiskIOKnown && prev.DiskIOKnown {
+		readDelta := snap.DiskReadOps - prev.DiskReadOps
+		writeDelta := snap.DiskWriteOps - prev.DiskWriteOps
+		if readDelta >= 0 && writeDelta >= 0 {
+			snap.DiskReadOpsDelta = readDelta
+			snap.DiskWriteOpsDelta = writeDelta
+			snap.DiskWindowKnown = true
+		}
+	}
 }
 
 func (p *Proxy) codexHostBudgetExceeded() bool {

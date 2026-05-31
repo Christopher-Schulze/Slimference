@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -62,6 +63,76 @@ func TestMerge_CapsPerSession(t *testing.T) {
 	}
 }
 
+func TestMergeAsync_WriteBehindAndCachedLoad(t *testing.T) {
+	dir := t.TempDir()
+	resetMemoryForTest(t)
+
+	var writes atomic.Int64
+	savedWrite := writeFile
+	t.Cleanup(func() { writeFile = savedWrite })
+	writeFile = func(name string, data []byte, perm os.FileMode) error {
+		writes.Add(1)
+		return savedWrite(name, data, perm)
+	}
+
+	add := map[string]Entry{
+		"call_1": {ToolUseID: "call_1", ToolName: "exec_command", ToolInput: `{"cmd":"sed -n '1,120p' a.go"}`, Type: "function_call"},
+	}
+	if _, err := MergeAsync(dir, "s1", add); err != nil {
+		t.Fatalf("MergeAsync: %v", err)
+	}
+	if got := writes.Load(); got != 0 {
+		t.Fatalf("MergeAsync wrote synchronously: writes=%d", got)
+	}
+	cached, err := Load(dir, "s1")
+	if err != nil {
+		t.Fatalf("Load after MergeAsync: %v", err)
+	}
+	if cached["call_1"].ToolInput != add["call_1"].ToolInput {
+		t.Fatalf("cached load missed async merge: %+v", cached)
+	}
+	if err := FlushSession(dir, "s1"); err != nil {
+		t.Fatalf("FlushSession: %v", err)
+	}
+	if got := writes.Load(); got != 1 {
+		t.Fatalf("FlushSession writes=%d, want 1", got)
+	}
+	resetMemoryForTest(t)
+	hydrated, err := Load(dir, "s1")
+	if err != nil {
+		t.Fatalf("Load after disk flush: %v", err)
+	}
+	if hydrated["call_1"].ToolName != "exec_command" {
+		t.Fatalf("disk hydrate missed entry: %+v", hydrated)
+	}
+}
+
+func TestClear_RemovesDiskAndMemory(t *testing.T) {
+	dir := t.TempDir()
+	resetMemoryForTest(t)
+	if _, err := MergeAsync(dir, "s1", map[string]Entry{
+		"call_1": {ToolUseID: "call_1", ToolName: "exec_command"},
+	}); err != nil {
+		t.Fatalf("MergeAsync: %v", err)
+	}
+	if err := FlushSession(dir, "s1"); err != nil {
+		t.Fatalf("FlushSession: %v", err)
+	}
+	if err := Clear(dir); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if _, err := os.Stat(sessionPath(dir, "s1")); !os.IsNotExist(err) {
+		t.Fatalf("session file after Clear: %v", err)
+	}
+	got, err := Load(dir, "s1")
+	if err != nil {
+		t.Fatalf("Load after Clear: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("Load after Clear = %+v, want empty", got)
+	}
+}
+
 func TestPrune_AgeAndMissingDir(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -111,4 +182,11 @@ func TestMerge_WriteError(t *testing.T) {
 	if _, err := Merge(t.TempDir(), "s", map[string]Entry{"c": {ToolUseID: "c"}}); err == nil {
 		t.Fatal("write error should surface")
 	}
+}
+
+func resetMemoryForTest(t *testing.T) {
+	t.Helper()
+	memory.mu.Lock()
+	memory.sessions = map[string]*memoryEntry{}
+	memory.mu.Unlock()
 }

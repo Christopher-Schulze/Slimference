@@ -53,6 +53,29 @@ func TestResponseCache_ComputeRequestKeyWithHeaders_partitionsBySemanticHeaders(
 	}
 }
 
+func TestResponseCache_ComputeRequestKeyWithRoutePartitionsEndpoints(t *testing.T) {
+	t.Parallel()
+
+	cache := NewResponseCache(10, time.Minute)
+	body := []byte(`{"model":"gpt-5","input":"hello"}`)
+	headers := http.Header{"Authorization": []string{"Bearer same"}}
+
+	responsesKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "/v1/responses", body, headers)
+	chatKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "/v1/chat/completions", body, headers)
+	queryKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "/v1/responses?experimental=1", body, headers)
+	legacyKey := cache.ComputeRequestKeyWithHeaders(types.OpenAI, body, headers)
+
+	if responsesKey == chatKey {
+		t.Fatal("different provider endpoints must not share a response-cache key")
+	}
+	if responsesKey == queryKey {
+		t.Fatal("different endpoint queries must not share a response-cache key")
+	}
+	if responsesKey == legacyKey {
+		t.Fatal("route-aware and legacy route-empty keys must differ")
+	}
+}
+
 func TestIsRequestCacheSafe(t *testing.T) {
 	t.Parallel()
 

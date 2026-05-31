@@ -16,15 +16,19 @@ sets hard budgets and auto-degradation rules.
   reports `ok`, `unknown`, or `attention` from the daemon RSS field and WSS
   parse/degrade/compression state. The daemon state is populated from an
   in-process probe with PID, uptime, real RSS, real process CPU time, lifetime
-  CPU percentage, OS-reported lifetime disk read/write operation counters, and
-  bounded state-directory size when platform sources are available, so the
-  budget no longer depends on a loopback self-health call. State-size overrun
-  now feeds the same `HostBudgetExceeded` demotion input as RSS and WSS
-  parse/compression errors. Repeated Layer-0 latency budget breaches now feed a
-  separate latency demotion gate. CPU and disk operation counters are reported
-  but not used as automatic demotion triggers until idle/windowed samplers exist.
+  CPU percentage, windowed CPU percentage, OS-reported lifetime and windowed
+  disk read/write operation counters, and bounded state-directory size when
+  platform sources are available, so the budget no longer depends on a loopback
+  self-health call. State-size, CPU-window, and disk-write-window overruns now
+  feed the same `HostBudgetExceeded` demotion input as RSS and WSS
+  parse/compression errors. Repeated Layer-0 latency budget breaches feed a
+  separate latency demotion gate.
 - Some performance tasks exist, but a single product budget across mechanisms is
   needed.
+- Readcache and WSS tool-use/collapsed-key persistence now use in-memory
+  state plus short write-behind flushes for hot-path updates. Reconnect safety
+  stays same-process immediate because `Load` sees the in-memory merge before
+  disk flush.
 
 ## Product target
 
@@ -67,8 +71,9 @@ Initial targets for Apple Silicon macOS:
 3. Add auto-degradation:
    - skip expensive chunking when output is too small
    - [x] disable managed Codex reducers under repeated Layer-0 latency pressure
-   - reduce TUI/admin polling if idle CPU climbs
-   - force async/batched flush for hot state
+   - [x] reduce TUI product-status polling under host-budget attention
+   - [x] force async/batched flush for readcache and WSS tool-use hot state
+   - [x] demote managed reducers on windowed CPU/disk-write budget spikes
 4. Optimize only with evidence:
    - lazy JSON parsing for hot WSS request fields
    - copy-on-write body mutation
@@ -109,7 +114,8 @@ Initial targets for Apple Silicon macOS:
   tool-use cache, and collapsed-key persistence. `/admin/health`, HTTP daemon
   probes, in-process daemon probes, and host-budget evaluation now carry these
   fields. State-size budget overrun demotes through the existing host budget
-  path; CPU remains observation-only until a windowed idle sampler is built.
+  path; CPU was initially observation-only until the later windowed sampler
+  entry below.
 - 2026-05-31: Wired the latest `/admin/state` host-budget snapshot into the
   Codex Layer-0 savings policy hot path. When the product host budget is marked
   exceeded, read-delta, repeated-output, and chunk mechanisms full-pass instead
@@ -130,6 +136,18 @@ Initial targets for Apple Silicon macOS:
   with `latency_budget_full_context`; cheap frames recover the gate. This keeps a
   single spike from disabling savings while preventing repeated local overhead
   from becoming Codex UX degradation.
+- 2026-05-31: Removed synchronous WSS tool-use/collapsed-key writes from the
+  frame hot path. `toolusecache.MergeAsync` updates same-process memory
+  immediately for reconnect hydration and flushes JSON state on a short
+  write-behind delay; readcache already uses the same pattern. Tests prove no
+  synchronous write, immediate cached `Load`, and later disk hydration.
+- 2026-05-31: Reduced TUI product-status overhead. The model now refreshes
+  product status on ticks/events and renders from the cached snapshot; when
+  host-budget attention is active, the next tick slows from 500 ms to 2 s.
+- 2026-05-31: Added windowed local resource samples. The daemon now carries
+  CPU-window percentage and disk read/write operation deltas between probes;
+  `/admin/state.host_budget` reports those values and demotes managed reducers
+  on CPU-window or disk-write-window budget spikes.
 
 ## Done
 

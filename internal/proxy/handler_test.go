@@ -99,8 +99,11 @@ func TestHealthHandler(t *testing.T) {
 		CPUUserSeconds    float64         `json:"cpu_user_seconds"`
 		CPUSystemSeconds  float64         `json:"cpu_system_seconds"`
 		CPUPercent        float64         `json:"cpu_percent"`
+		CPUWindowPercent  float64         `json:"cpu_window_percent"`
 		DiskReadOps       int64           `json:"disk_read_ops"`
 		DiskWriteOps      int64           `json:"disk_write_ops"`
+		DiskReadOpsDelta  int64           `json:"disk_read_ops_delta"`
+		DiskWriteOpsDelta int64           `json:"disk_write_ops_delta"`
 		StateBytes        int64           `json:"state_bytes"`
 		Layers            map[string]bool `json:"layers"`
 		Providers         map[string]bool `json:"providers"`
@@ -121,10 +124,12 @@ func TestHealthHandler(t *testing.T) {
 		t.Errorf("pid = %d, want positive process id", body.PID)
 	}
 	if body.RSSBytes < 0 || body.UptimeSec < 0 || body.CPUUserSeconds < 0 || body.CPUSystemSeconds < 0 ||
-		body.CPUPercent < 0 || body.DiskReadOps < 0 || body.DiskWriteOps < 0 || body.StateBytes < 0 {
-		t.Errorf("resource fields rss=%d uptime=%d user=%f system=%f cpu=%f read_ops=%d write_ops=%d state=%d",
+		body.CPUPercent < 0 || body.CPUWindowPercent < 0 || body.DiskReadOps < 0 ||
+		body.DiskWriteOps < 0 || body.DiskReadOpsDelta < 0 || body.DiskWriteOpsDelta < 0 || body.StateBytes < 0 {
+		t.Errorf("resource fields rss=%d uptime=%d user=%f system=%f cpu=%f window_cpu=%f read_ops=%d write_ops=%d read_delta=%d write_delta=%d state=%d",
 			body.RSSBytes, body.UptimeSec, body.CPUUserSeconds, body.CPUSystemSeconds, body.CPUPercent,
-			body.DiskReadOps, body.DiskWriteOps, body.StateBytes)
+			body.CPUWindowPercent, body.DiskReadOps, body.DiskWriteOps, body.DiskReadOpsDelta,
+			body.DiskWriteOpsDelta, body.StateBytes)
 	}
 	// 2026-05-15: Slimference ships deterministic-only by default.
 	// L1 + L3 are on; L2 (MiniMax-backed semantic summarization) is

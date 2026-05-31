@@ -14,6 +14,10 @@ and long-session proof.
   `functions`, `tool_choice`, `function_call`, tool/function roles, and
   Responses `function_call_output` inputs full-pass upstream instead of being
   replayed from cache.
+- Local response-cache keys now include the HTTP route path and query string in
+  addition to provider, canonical body, and semantic headers. The same provider
+  and body on `/v1/responses`, `/v1/chat/completions`, or route variants cannot
+  alias.
 - Prompt-cache planning exists for stable prefixes.
 - Layer 3 is default-enabled for supported paths.
 - Savings claims must be separated from local byte savings and output-wire
@@ -89,6 +93,9 @@ accounting or locally proven upstream bypass, not mixed counters.
 - 2026-05-31: Hardened local response-cache eligibility so tool-capable shapes
   never replay a cached response. This protects workflow semantics for tool
   calls while leaving deterministic non-tool requests cacheable.
+- 2026-05-31: Hardened local response-cache keying with route-aware request keys
+  and tests for path/query partitioning. Existing cache-hit tests now seed the
+  exact route key, so cache proofs cannot rely on cross-endpoint aliasing.
 
 ## Done
 

@@ -1908,9 +1908,9 @@ be called complete, default-safe, and production-grade.
   insertion remain. Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [~] **T263** Layer 3 provider/prompt cache max-out - local response cache now
-  full-passes tool-capable request shapes to avoid workflow replay drawdowns;
-  provider-accounting alignment, stronger key contracts, and long-session proof
-  remain. Detail:
+  full-passes tool-capable request shapes and includes HTTP route path/query in
+  cache keys to avoid workflow replay and cross-endpoint alias drawdowns;
+  provider-accounting alignment and long-session proof remain. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
 
 ### Codex savings mechanism max-out tasks
@@ -1961,9 +1961,10 @@ be called complete, default-safe, and production-grade.
   exposes a product `host_budget` guard, policy has a demotion input, and
   daemon RSS/CPU/state-size now come from real local probes; the latest host
   budget snapshot plus repeated Layer-0 latency breaches now feed Codex Layer-0
-  auto-demotion. Latency histograms and disk-write counters are visible; windowed
-  idle CPU sampling, polling backoff, batched hot-state flush proof, and live
-  resource proof remain. Detail:
+  auto-demotion. Latency histograms and disk-write counters are visible; TUI
+  product-status polling backs off under host-budget attention, and readcache +
+  WSS tool-use hot state use write-behind persistence. Windowed CPU/disk-write
+  demotion is wired; live resource proof remains. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria

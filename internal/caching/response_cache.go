@@ -92,8 +92,16 @@ func (c *ResponseCache) ComputeRequestKey(provider types.Provider, body []byte) 
 // The key covers provider, canonical JSON body, and semantically relevant request headers so
 // cross-account or version/beta requests cannot alias each other in the response cache.
 func (c *ResponseCache) ComputeRequestKeyWithHeaders(provider types.Provider, body []byte, headers http.Header) [32]byte {
+	return c.ComputeRequestKeyWithRoute(provider, "", body, headers)
+}
+
+// ComputeRequestKeyWithRoute returns a deterministic SHA-256 key for the effective request.
+// Route is included so two provider endpoints with identical JSON bodies cannot alias each other.
+func (c *ResponseCache) ComputeRequestKeyWithRoute(provider types.Provider, route string, body []byte, headers http.Header) [32]byte {
 	h := sha256.New()
 	h.Write([]byte(provider.String()))
+	h.Write([]byte{0})
+	h.Write([]byte(strings.TrimSpace(route)))
 	h.Write([]byte{0})
 	h.Write(canonicalizeJSON(body))
 	if headerBytes := canonicalizeCacheHeaders(headers); len(headerBytes) > 0 {

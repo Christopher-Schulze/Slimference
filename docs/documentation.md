@@ -421,21 +421,24 @@ issues. The raw route, policy, parser, and cache counters remain available under
 the existing debug fields, but product surfaces should prefer this rollup instead
 of inventing their own mixed headline.
 `/admin/state.host_budget` is the product resource guard. It reports `ok`,
-`unknown`, or `attention`, daemon RSS, uptime, process CPU time, lifetime CPU
-percentage, OS-reported lifetime disk read/write operation counters, bounded
-state-directory size, the 200 MiB RSS budget, the 512 MiB state budget, WSS
-compression/parse/degrade health, mutation activity, and content-free reason
-codes. The daemon/admin path uses an in-process resource probe for PID, uptime,
-real RSS, process CPU time, disk I/O counters, and state size where the platform
-can provide it, avoiding a loopback self-health guess for the product budget.
+`unknown`, or `attention`, daemon RSS, uptime, process CPU time, lifetime and
+windowed CPU percentage, OS-reported lifetime and windowed disk read/write
+operation counters, bounded state-directory size, the 200 MiB RSS budget, the
+512 MiB state budget, WSS compression/parse/degrade health, mutation activity,
+and content-free reason codes. The daemon/admin path uses an in-process
+resource probe for PID, uptime, real RSS, process CPU time, disk I/O counters,
+and state size where the platform can provide it, avoiding a loopback
+self-health guess for the product budget.
 Policy demotion uses the same concept through budget inputs: if the host budget
 trips, managed Codex reducers full-pass instead of making Codex slower or less
 reliable. Repeated Layer-0 latency budget breaches set a separate
 `latency_budget_full_context` gate after three slow frames and recover after
 cheap frames, so one spike does not disable savings but repeated local overhead
-cannot degrade Codex UX. CPU and disk operation counters are currently reported
-for visibility; automatic CPU/disk demotion waits for a windowed idle sampler to
-avoid false positives during real work.
+cannot degrade Codex UX. Readcache and WSS tool-use/collapsed-key state use
+same-process memory plus short write-behind flushes, so reconnect hydration is
+immediate while per-frame sync writes stay out of the hot path. Windowed CPU and
+disk-write spikes also trip host-budget attention, which makes managed Codex
+reducers full-pass until the next healthy snapshot.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually
@@ -899,8 +902,10 @@ biases towards preserving high-priority content.
 ## 7. Layer 3 - Response Cache
 
 `internal/caching/response_cache.go` is an LRU keyed by the SHA-256 of
-the *original* request body + pertinent headers. Hits skip Layer 1 and
-Layer 2 entirely and serve the cached upstream response.
+the provider, HTTP route path/query, canonical request body, and pertinent
+headers. Hits skip Layer 1 and Layer 2 entirely and serve the cached upstream
+response. Route keying is deliberate: the same body on two provider endpoints
+cannot alias.
 
 The local response cache only serves deterministic, non-tool request shapes.
 Streaming, stochastic sampling, multiple completions, tool definitions,
@@ -1598,7 +1603,10 @@ the same local or remote adapter path as the rest of the TUI. It shows route
 state, billable input saved, output-wire bytes, cache hit/miss totals,
 read-delta/repeated-output/chunk hits, and safety or host-budget attention. Raw
 parser matrices, policy internals, and mechanism debug counters stay in debug
-surfaces; the normal view does not invent a second mixed savings headline.
+surfaces; the normal view does not invent a second mixed savings headline. The
+TUI caches product status in the model and refreshes it on ticks/events instead
+of fetching during render; host-budget attention slows the next tick from 500 ms
+to 2 s.
 
 ### Keybindings
 

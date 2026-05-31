@@ -30,10 +30,10 @@ func TestDaemonProbeReportsLocalProcessState(t *testing.T) {
 	if got.RSSBytes < 0 {
 		t.Fatalf("rss=%d", got.RSSBytes)
 	}
-	if got.CPUUserSeconds < 0 || got.CPUSystemSeconds < 0 || got.CPUPercent < 0 {
+	if got.CPUUserSeconds < 0 || got.CPUSystemSeconds < 0 || got.CPUPercent < 0 || got.CPUWindowPercent < 0 {
 		t.Fatalf("cpu fields invalid: %+v", got)
 	}
-	if got.DiskReadOps < 0 || got.DiskWriteOps < 0 {
+	if got.DiskReadOps < 0 || got.DiskWriteOps < 0 || got.DiskReadOpsDelta < 0 || got.DiskWriteOpsDelta < 0 {
 		t.Fatalf("disk fields invalid: %+v", got)
 	}
 	if got.StateBytes < 0 {

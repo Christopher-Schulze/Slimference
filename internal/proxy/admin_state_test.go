@@ -15,6 +15,7 @@ import (
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/control"
 	"github.com/slimference/slimference/internal/control/apps"
+	"github.com/slimference/slimference/internal/hostmetrics"
 )
 
 func newProxyForAdminTest(t *testing.T) *Proxy {
@@ -125,6 +126,35 @@ func TestCodexLayer0LatencyBudgetDemotesAndRecovers(t *testing.T) {
 	}
 	if p.codexRuntimeBudgetExceeded() {
 		t.Fatal("cheap Layer-0 frames should recover the latency demotion gate")
+	}
+}
+
+func TestAnnotateResourceWindowComputesCPUAndDiskDeltas(t *testing.T) {
+	p := newProxyForAdminTest(t)
+	p.lastResourceSample = hostmetrics.ProcessSnapshot{
+		CPUUserSeconds:   1,
+		CPUSystemSeconds: 2,
+		CPUKnown:         true,
+		DiskReadOps:      10,
+		DiskWriteOps:     20,
+		DiskIOKnown:      true,
+	}
+	p.lastResourceSampleAt = time.Now().Add(-2 * time.Second)
+
+	snap := hostmetrics.ProcessSnapshot{
+		CPUUserSeconds:   2,
+		CPUSystemSeconds: 3,
+		CPUKnown:         true,
+		DiskReadOps:      15,
+		DiskWriteOps:     31,
+		DiskIOKnown:      true,
+	}
+	p.annotateResourceWindow(&snap)
+	if !snap.CPUWindowKnown || snap.CPUWindowPercent <= 0 {
+		t.Fatalf("CPU window not computed: %+v", snap)
+	}
+	if !snap.DiskWindowKnown || snap.DiskReadOpsDelta != 5 || snap.DiskWriteOpsDelta != 11 {
+		t.Fatalf("disk window not computed: %+v", snap)
 	}
 }
 

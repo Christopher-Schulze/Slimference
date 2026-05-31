@@ -117,16 +117,19 @@ func (p *HTTPDaemonProbe) ProbeDaemon(ctx context.Context) DaemonState {
 	state.Running = true
 	state.HealthOK = resp.StatusCode == http.StatusOK
 	var body struct {
-		PID              int     `json:"pid"`
-		Version          string  `json:"version"`
-		RSSBytes         int64   `json:"rss_bytes"`
-		UptimeSec        int64   `json:"uptime_sec"`
-		CPUUserSeconds   float64 `json:"cpu_user_seconds"`
-		CPUSystemSeconds float64 `json:"cpu_system_seconds"`
-		CPUPercent       float64 `json:"cpu_percent"`
-		DiskReadOps      int64   `json:"disk_read_ops"`
-		DiskWriteOps     int64   `json:"disk_write_ops"`
-		StateBytes       int64   `json:"state_bytes"`
+		PID               int     `json:"pid"`
+		Version           string  `json:"version"`
+		RSSBytes          int64   `json:"rss_bytes"`
+		UptimeSec         int64   `json:"uptime_sec"`
+		CPUUserSeconds    float64 `json:"cpu_user_seconds"`
+		CPUSystemSeconds  float64 `json:"cpu_system_seconds"`
+		CPUPercent        float64 `json:"cpu_percent"`
+		CPUWindowPercent  float64 `json:"cpu_window_percent"`
+		DiskReadOps       int64   `json:"disk_read_ops"`
+		DiskWriteOps      int64   `json:"disk_write_ops"`
+		DiskReadOpsDelta  int64   `json:"disk_read_ops_delta"`
+		DiskWriteOpsDelta int64   `json:"disk_write_ops_delta"`
+		StateBytes        int64   `json:"state_bytes"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	state.PID = body.PID
@@ -135,8 +138,11 @@ func (p *HTTPDaemonProbe) ProbeDaemon(ctx context.Context) DaemonState {
 	state.CPUUserSeconds = body.CPUUserSeconds
 	state.CPUSystemSeconds = body.CPUSystemSeconds
 	state.CPUPercent = body.CPUPercent
+	state.CPUWindowPercent = body.CPUWindowPercent
 	state.DiskReadOps = body.DiskReadOps
 	state.DiskWriteOps = body.DiskWriteOps
+	state.DiskReadOpsDelta = body.DiskReadOpsDelta
+	state.DiskWriteOpsDelta = body.DiskWriteOpsDelta
 	state.StateBytes = body.StateBytes
 	if body.Version != "" {
 		state.Version = body.Version

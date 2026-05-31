@@ -15,6 +15,7 @@ import (
 
 	"github.com/slimference/slimference/internal/config"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/toolusecache"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -85,6 +86,37 @@ func TestProxy_GetAnalyticsFlushCaches(t *testing.T) {
 	_ = p.GetAnalytics()
 	if n := len(p.GetRecentRequests(10)); n != 0 {
 		t.Fatalf("want 0 recent requests, got %d", n)
+	}
+}
+
+func TestProxy_FlushCachesClearsToolUseState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	for _, dir := range []string{
+		toolusecache.DefaultDir(home),
+		toolusecache.CollapsedKeysDir(home),
+	} {
+		if _, err := toolusecache.Merge(dir, "s1", map[string]toolusecache.Entry{
+			"call_1": {ToolUseID: "call_1", ToolName: "exec_command"},
+		}); err != nil {
+			t.Fatalf("seed %s: %v", dir, err)
+		}
+	}
+
+	p := New(config.Defaults())
+	p.FlushCaches()
+	for _, dir := range []string{
+		toolusecache.DefaultDir(home),
+		toolusecache.CollapsedKeysDir(home),
+	} {
+		got, err := toolusecache.Load(dir, "s1")
+		if err != nil {
+			t.Fatalf("Load %s: %v", dir, err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("tool-use state after FlushCaches in %s: %+v", dir, got)
+		}
 	}
 }
 

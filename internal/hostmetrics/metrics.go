@@ -7,16 +7,21 @@ import (
 
 // ProcessSnapshot is a content-free resource sample for one local process.
 type ProcessSnapshot struct {
-	PID              int
-	RSSBytes         int64
-	RSSKnown         bool
-	CPUUserSeconds   float64
-	CPUSystemSeconds float64
-	CPUPercent       float64
-	CPUKnown         bool
-	DiskReadOps      int64
-	DiskWriteOps     int64
-	DiskIOKnown      bool
+	PID               int
+	RSSBytes          int64
+	RSSKnown          bool
+	CPUUserSeconds    float64
+	CPUSystemSeconds  float64
+	CPUPercent        float64
+	CPUWindowPercent  float64
+	CPUKnown          bool
+	CPUWindowKnown    bool
+	DiskReadOps       int64
+	DiskWriteOps      int64
+	DiskReadOpsDelta  int64
+	DiskWriteOpsDelta int64
+	DiskIOKnown       bool
+	DiskWindowKnown   bool
 }
 
 // CurrentProcess returns the best available local resource sample for pid.

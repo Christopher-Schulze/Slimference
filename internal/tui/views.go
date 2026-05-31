@@ -1051,7 +1051,7 @@ func (m *Model) buildLeftPanel(width int) []string {
 func (m *Model) buildRightPanel(width int) []string {
 	s := m.styles
 	snap := m.latestSnap
-	product := m.proxy.GetProductStatus()
+	product := m.latestProduct
 
 	pad := func(str string) string {
 		w := lipgloss.Width(str)

@@ -49,20 +49,23 @@ type CAState struct {
 
 // DaemonState reports the proxy daemon liveness.
 type DaemonState struct {
-	Installed        bool    `json:"installed"`
-	Autostart        bool    `json:"autostart"`
-	Running          bool    `json:"running"`
-	PID              int     `json:"pid"`
-	HealthOK         bool    `json:"health_ok"`
-	RSSBytes         int64   `json:"rss_bytes"`
-	UptimeSec        int64   `json:"uptime_sec"`
-	CPUUserSeconds   float64 `json:"cpu_user_seconds"`
-	CPUSystemSeconds float64 `json:"cpu_system_seconds"`
-	CPUPercent       float64 `json:"cpu_percent"`
-	DiskReadOps      int64   `json:"disk_read_ops"`
-	DiskWriteOps     int64   `json:"disk_write_ops"`
-	StateBytes       int64   `json:"state_bytes"`
-	Version          string  `json:"version"`
+	Installed         bool    `json:"installed"`
+	Autostart         bool    `json:"autostart"`
+	Running           bool    `json:"running"`
+	PID               int     `json:"pid"`
+	HealthOK          bool    `json:"health_ok"`
+	RSSBytes          int64   `json:"rss_bytes"`
+	UptimeSec         int64   `json:"uptime_sec"`
+	CPUUserSeconds    float64 `json:"cpu_user_seconds"`
+	CPUSystemSeconds  float64 `json:"cpu_system_seconds"`
+	CPUPercent        float64 `json:"cpu_percent"`
+	CPUWindowPercent  float64 `json:"cpu_window_percent"`
+	DiskReadOps       int64   `json:"disk_read_ops"`
+	DiskWriteOps      int64   `json:"disk_write_ops"`
+	DiskReadOpsDelta  int64   `json:"disk_read_ops_delta"`
+	DiskWriteOpsDelta int64   `json:"disk_write_ops_delta"`
+	StateBytes        int64   `json:"state_bytes"`
+	Version           string  `json:"version"`
 }
 
 // ListenerState reports the transparent :443 listener readiness.
@@ -363,36 +366,48 @@ type WSSState struct {
 
 const DefaultHostRSSBudgetBytes int64 = 200 * 1024 * 1024
 const DefaultHostStateBudgetBytes int64 = 512 * 1024 * 1024
+const DefaultHostCPUWindowBudgetPercent = 50.0
+const DefaultHostDiskWriteOpsWindowBudget int64 = 5000
 
 type HostBudgetState struct {
-	Status          string   `json:"status"`
-	Exceeded        bool     `json:"exceeded"`
-	RSSBytes        int64    `json:"rss_bytes"`
-	RSSLimitBytes   int64    `json:"rss_limit_bytes"`
-	CPUPercent      float64  `json:"cpu_percent"`
-	DiskReadOps     int64    `json:"disk_read_ops"`
-	DiskWriteOps    int64    `json:"disk_write_ops"`
-	StateBytes      int64    `json:"state_bytes"`
-	StateLimitBytes int64    `json:"state_limit_bytes"`
-	Reasons         []string `json:"reasons,omitempty"`
-	CompressionOK   bool     `json:"compression_ok"`
-	DegradationOK   bool     `json:"degradation_ok"`
-	MutationActive  bool     `json:"mutation_active"`
+	Status                  string   `json:"status"`
+	Exceeded                bool     `json:"exceeded"`
+	RSSBytes                int64    `json:"rss_bytes"`
+	RSSLimitBytes           int64    `json:"rss_limit_bytes"`
+	CPUPercent              float64  `json:"cpu_percent"`
+	CPUWindowPercent        float64  `json:"cpu_window_percent"`
+	CPUWindowLimitPercent   float64  `json:"cpu_window_limit_percent"`
+	DiskReadOps             int64    `json:"disk_read_ops"`
+	DiskWriteOps            int64    `json:"disk_write_ops"`
+	DiskReadOpsDelta        int64    `json:"disk_read_ops_delta"`
+	DiskWriteOpsDelta       int64    `json:"disk_write_ops_delta"`
+	DiskWriteOpsWindowLimit int64    `json:"disk_write_ops_window_limit"`
+	StateBytes              int64    `json:"state_bytes"`
+	StateLimitBytes         int64    `json:"state_limit_bytes"`
+	Reasons                 []string `json:"reasons,omitempty"`
+	CompressionOK           bool     `json:"compression_ok"`
+	DegradationOK           bool     `json:"degradation_ok"`
+	MutationActive          bool     `json:"mutation_active"`
 }
 
 func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 	state := HostBudgetState{
-		Status:          "ok",
-		RSSBytes:        daemon.RSSBytes,
-		RSSLimitBytes:   DefaultHostRSSBudgetBytes,
-		CPUPercent:      daemon.CPUPercent,
-		DiskReadOps:     daemon.DiskReadOps,
-		DiskWriteOps:    daemon.DiskWriteOps,
-		StateBytes:      daemon.StateBytes,
-		StateLimitBytes: DefaultHostStateBudgetBytes,
-		CompressionOK:   wss.CompressionErrors == 0,
-		DegradationOK:   wss.ParseFailures == 0 && wss.DegradedSessions == 0,
-		MutationActive:  wss.MutationActive,
+		Status:                  "ok",
+		RSSBytes:                daemon.RSSBytes,
+		RSSLimitBytes:           DefaultHostRSSBudgetBytes,
+		CPUPercent:              daemon.CPUPercent,
+		CPUWindowPercent:        daemon.CPUWindowPercent,
+		CPUWindowLimitPercent:   DefaultHostCPUWindowBudgetPercent,
+		DiskReadOps:             daemon.DiskReadOps,
+		DiskWriteOps:            daemon.DiskWriteOps,
+		DiskReadOpsDelta:        daemon.DiskReadOpsDelta,
+		DiskWriteOpsDelta:       daemon.DiskWriteOpsDelta,
+		DiskWriteOpsWindowLimit: DefaultHostDiskWriteOpsWindowBudget,
+		StateBytes:              daemon.StateBytes,
+		StateLimitBytes:         DefaultHostStateBudgetBytes,
+		CompressionOK:           wss.CompressionErrors == 0,
+		DegradationOK:           wss.ParseFailures == 0 && wss.DegradedSessions == 0,
+		MutationActive:          wss.MutationActive,
 	}
 	if daemon.RSSBytes <= 0 && daemon.StateBytes <= 0 && !wss.EngineActive {
 		state.Status = "unknown"
@@ -405,6 +420,14 @@ func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 	if daemon.StateBytes > DefaultHostStateBudgetBytes {
 		state.Exceeded = true
 		state.Reasons = append(state.Reasons, "state_budget_exceeded")
+	}
+	if daemon.CPUWindowPercent > DefaultHostCPUWindowBudgetPercent {
+		state.Exceeded = true
+		state.Reasons = append(state.Reasons, "cpu_window_budget_exceeded")
+	}
+	if daemon.DiskWriteOpsDelta > DefaultHostDiskWriteOpsWindowBudget {
+		state.Exceeded = true
+		state.Reasons = append(state.Reasons, "disk_write_window_budget_exceeded")
 	}
 	if !state.CompressionOK {
 		state.Exceeded = true

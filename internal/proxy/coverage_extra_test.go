@@ -80,7 +80,8 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 	t.Run("cache hit", func(t *testing.T) {
 		p := New(config.Defaults())
 		fillAnalyticsQueue(p)
-		key := p.responseCache.ComputeRequestKey(types.Anthropic, []byte(`{"model":"claude","messages":[{"role":"user","content":"cache"}]}`))
+		body := []byte(`{"model":"claude","messages":[{"role":"user","content":"cache"}]}`)
+		key := p.responseCache.ComputeRequestKeyWithRoute(types.Anthropic, "/v1/messages", body, nil)
 		p.responseCache.Set(key, &caching.CacheEntry{
 			Response:    []byte(`{"ok":true}`),
 			Headers:     map[string][]string{"Content-Type": {"application/json"}},
@@ -88,7 +89,7 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 			CreatedAt:   time.Now(),
 			TokensSaved: 1,
 		})
-		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude","messages":[{"role":"user","content":"cache"}]}`))
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
 		rec := httptest.NewRecorder()
 		p.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {

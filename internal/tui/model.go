@@ -22,6 +22,12 @@ var writeFileFn = os.WriteFile
 var chmodFn = os.Chmod
 var shutdownTimeout = 5 * time.Second
 
+const (
+	defaultTickInterval      = 500 * time.Millisecond
+	hostBudgetTickInterval   = 2 * time.Second
+	statusRefreshMinInterval = 2 * time.Second
+)
+
 // Version is the display version string.
 var Version = buildinfo.Version
 
@@ -354,7 +360,8 @@ type Model struct {
 	debugCursor int
 
 	// Live data.
-	latestSnap analytics.AnalyticsSnapshot
+	latestSnap    analytics.AnalyticsSnapshot
+	latestProduct ProductStatus
 
 	// Terminal dimensions.
 	width  int
@@ -411,6 +418,7 @@ func NewModel(proxy ProxyInterface) Model {
 		width:         80,
 		height:        24,
 	}
+	m.refreshProductStatus()
 	if state, err := LoadPersistedState(); err == nil && state != nil {
 		applyPersistedState(&m, *state)
 	}
@@ -780,14 +788,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.latestSnap = m.proxy.GetAnalytics()
+		m.refreshProductStatus()
 		m.refreshTransparentStatus(false)
 		m.refreshCodexRouteStatus(false)
 		m.refreshCodexDesktopStatus(false)
-		return m, tickCmd()
+		return m, m.nextTickCmd()
 
 	case proxyEventMsg:
 		// Immediate update when a new request arrives.
 		m.latestSnap = m.proxy.GetAnalytics()
+		m.refreshProductStatus()
 		return m, nil
 
 	case flashExpiredMsg:
@@ -832,11 +842,40 @@ func (m *Model) persistStateBestEffort() {
 	_ = SavePersistedState(stateFromModel(m))
 }
 
-// tickCmd returns a command that sends a tickMsg after 500ms.
+// tickCmd returns a command that sends a tickMsg after the default refresh
+// interval. Tests and callers that do not have a model snapshot can use it
+// directly; the live model uses nextTickCmd so host-budget pressure can slow
+// status polling.
 func tickCmd() tea.Cmd {
-	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+	return tickCmdAfter(defaultTickInterval)
+}
+
+func tickCmdAfter(interval time.Duration) tea.Cmd {
+	if interval <= 0 {
+		interval = defaultTickInterval
+	}
+	return tea.Tick(interval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+func (m Model) nextTickCmd() tea.Cmd {
+	return tickCmdAfter(m.tickInterval())
+}
+
+func (m Model) tickInterval() time.Duration {
+	if m.latestProduct.HostBudgetExceeded {
+		return hostBudgetTickInterval
+	}
+	return defaultTickInterval
+}
+
+func (m *Model) refreshProductStatus() {
+	if m.proxy == nil {
+		m.latestProduct = ProductStatus{}
+		return
+	}
+	m.latestProduct = m.proxy.GetProductStatus()
 }
 
 // flashTimer returns a command that clears the flash message after d.
@@ -926,7 +965,7 @@ func (m *Model) refreshTransparentStatus(force bool) {
 		m.transparentStatusAt = time.Time{}
 		return
 	}
-	if !force && !m.transparentStatusAt.IsZero() && time.Since(m.transparentStatusAt) < 2*time.Second {
+	if !force && !m.transparentStatusAt.IsZero() && time.Since(m.transparentStatusAt) < statusRefreshMinInterval {
 		return
 	}
 	m.transparentStatus = m.svc.TransparentStatus()
@@ -939,7 +978,7 @@ func (m *Model) refreshCodexRouteStatus(force bool) {
 		m.codexRouteStatusAt = time.Time{}
 		return
 	}
-	if !force && !m.codexRouteStatusAt.IsZero() && time.Since(m.codexRouteStatusAt) < 2*time.Second {
+	if !force && !m.codexRouteStatusAt.IsZero() && time.Since(m.codexRouteStatusAt) < statusRefreshMinInterval {
 		return
 	}
 	m.codexRouteStatus = m.svc.CodexRouteStatus()
@@ -952,7 +991,7 @@ func (m *Model) refreshCodexDesktopStatus(force bool) {
 		m.codexDesktopStatusAt = time.Time{}
 		return
 	}
-	if !force && !m.codexDesktopStatusAt.IsZero() && time.Since(m.codexDesktopStatusAt) < 2*time.Second {
+	if !force && !m.codexDesktopStatusAt.IsZero() && time.Since(m.codexDesktopStatusAt) < statusRefreshMinInterval {
 		return
 	}
 	m.codexDesktopStatus = m.svc.CodexDesktopStatus()
