@@ -81,7 +81,7 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 		if err := readCacheSaveSession(dir, state); err != nil {
 			return Decision{}, err
 		}
-		decision := Decision{Type: DecisionAllow, Reason: "recently_edited_full_pass"}
+		decision := Decision{Type: DecisionAllow, Reason: "recently_edited_full_pass", ArchiveURI: archiveURI, FullPassTurnID: safeTurn(req.TurnID)}
 		return decision, RecordDecision(dir, decision)
 	}
 	if recentFullPass(state, entry, req.RecentFullPassTurnLimit) {
@@ -90,23 +90,27 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 		if err := readCacheSaveSession(dir, state); err != nil {
 			return Decision{}, err
 		}
-		decision := Decision{Type: DecisionAllow, Reason: "recent_full_pass_window"}
+		decision := Decision{Type: DecisionAllow, Reason: "recent_full_pass_window", ArchiveURI: archiveURI, FullPassTurnID: safeTurn(req.TurnID)}
 		return decision, RecordDecision(dir, decision)
 	}
 	if entry.ContentHash != "" && entry.ContentHash == hash && entry.ArchiveURI != "" {
+		fullPassTurn := entry.LastTurnID
 		updateObservedEntry(entry, req, hash, entry.ArchiveURI, content, state.TurnSeq)
 		if err := readCacheSaveSession(dir, state); err != nil {
 			return Decision{}, err
 		}
 		decision := Decision{
-			Type:      DecisionBlock,
-			Reason:    unchangedReference(req.FilePath, entry.ArchiveURI),
-			BlockKind: BlockKindUnchanged,
+			Type:           DecisionBlock,
+			Reason:         unchangedReference(req.FilePath, entry.ArchiveURI),
+			BlockKind:      BlockKindUnchanged,
+			ArchiveURI:     entry.ArchiveURI,
+			FullPassTurnID: fullPassTurn,
 		}
 		return decision, RecordDecision(dir, decision)
 	}
 
 	oldHash := entry.ContentHash
+	fullPassTurn := entry.LastTurnID
 	archiveURI, archived := archiveObservedContent(archiveDir, req, content)
 	updateObservedEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
 	if err := readCacheSaveSession(dir, state); err != nil {
@@ -117,13 +121,13 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 		if delta != "" {
 			delta = delta + "\n" + archiveMarker("full-content", archiveURI)
 			if len(delta) < len(content) {
-				decision := Decision{Type: DecisionBlock, Reason: delta, BlockKind: BlockKindDelta}
+				decision := Decision{Type: DecisionBlock, Reason: delta, BlockKind: BlockKindDelta, ArchiveURI: archiveURI, FullPassTurnID: fullPassTurn}
 				return decision, RecordDecision(dir, decision)
 			}
-			decision := Decision{Type: DecisionAllow, Reason: "delta_not_shorter_full_pass"}
+			decision := Decision{Type: DecisionAllow, Reason: "delta_not_shorter_full_pass", ArchiveURI: archiveURI, FullPassTurnID: safeTurn(req.TurnID)}
 			return decision, RecordDecision(dir, decision)
 		}
-		decision := Decision{Type: DecisionAllow, Reason: "no_delta_full_pass"}
+		decision := Decision{Type: DecisionAllow, Reason: "no_delta_full_pass", ArchiveURI: archiveURI, FullPassTurnID: safeTurn(req.TurnID)}
 		return decision, RecordDecision(dir, decision)
 	}
 	reason := "first_observation_seeded"
@@ -132,7 +136,7 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 	} else if oldHash != "" {
 		reason = "previous_content_unavailable_full_pass"
 	}
-	decision := Decision{Type: DecisionAllow, Reason: reason}
+	decision := Decision{Type: DecisionAllow, Reason: reason, ArchiveURI: archiveURI, FullPassTurnID: safeTurn(req.TurnID)}
 	return decision, RecordDecision(dir, decision)
 }
 

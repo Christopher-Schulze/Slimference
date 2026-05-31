@@ -132,7 +132,7 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	return s
 }
 
-func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, commandLine, text string) {
+func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, sessionID, turnID, commandLine, text string) {
 	if s == nil || strings.TrimSpace(commandLine) == "" {
 		return
 	}
@@ -142,6 +142,8 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, comma
 	}
 	cwd := proxyLayer0ToolWorkdir(use)
 	if _, err := contextledger.BuildCommandCapsule(contextledger.CommandObservation{
+		SessionID:   sessionID,
+		TurnID:      turnID,
 		CommandLine: commandLine,
 		CWD:         cwd,
 		ExitCode:    exitCode,
@@ -149,16 +151,10 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, comma
 	}); err == nil {
 		s.LedgerCommandCapsules++
 	}
-	if req := readRequestFromCommandLine(commandLine); req.FilePath != "" {
-		if _, err := contextledger.BuildFileCapsule(contextledger.FileObservation{
-			Path:  req.FilePath,
-			Range: proxyLayer0ReadRangeFact(req),
-		}); err == nil {
-			s.LedgerFileCapsules++
-		}
-	}
 	if key := filter.SearchOutputKeyFromCommandLine(commandLine); key != "" {
 		if _, err := contextledger.BuildSearchCapsule(contextledger.SearchObservation{
+			SessionID:   sessionID,
+			TurnID:      turnID,
 			CommandLine: commandLine,
 			PatternHash: proxyLayer0ShortHash(key),
 		}); err == nil {
@@ -168,13 +164,35 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, comma
 	if hasExit && exitCode != 0 {
 		if msg := proxyLayer0FailureMessage(text); msg != "" {
 			if _, err := contextledger.BuildFailureCapsule(contextledger.FailureObservation{
-				Tool:     commandLine,
-				Message:  msg,
-				ExitCode: exitCode,
+				SessionID: sessionID,
+				TurnID:    turnID,
+				Tool:      commandLine,
+				Message:   msg,
+				ExitCode:  exitCode,
 			}); err == nil {
 				s.LedgerFailureCapsules++
 			}
 		}
+	}
+}
+
+func (s *proxyLayer0Stats) recordLedgerReadObservation(sessionID, turnID string, req readcache.Request, decision readcache.Decision) {
+	if s == nil || strings.TrimSpace(req.FilePath) == "" || strings.TrimSpace(decision.ArchiveURI) == "" {
+		return
+	}
+	fullPassTurn := decision.FullPassTurnID
+	if strings.TrimSpace(fullPassTurn) == "" && decision.Type == readcache.DecisionAllow {
+		fullPassTurn = turnID
+	}
+	if _, err := contextledger.BuildFileCapsule(contextledger.FileObservation{
+		SessionID:    sessionID,
+		TurnID:       turnID,
+		Path:         req.FilePath,
+		Range:        proxyLayer0ReadRangeFact(req),
+		ArchiveID:    decision.ArchiveURI,
+		FullPassTurn: fullPassTurn,
+	}); err == nil {
+		s.LedgerFileCapsules++
 	}
 }
 
@@ -314,11 +332,12 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			stats.CommandResolvedBlocks++
-			stats.recordLedgerObservation(use, commandLine, block.Text)
+			stats.recordLedgerObservation(use, req.SessionID, req.TurnID, commandLine, block.Text)
 			toolKey := proxyLayer0QualityToolKeyForUse(use, commandLine)
 			beforeTokens := tok.CountString(block.Text)
 			readCtx := proxyReadFileContext(req.SessionID, commandLine)
-			readCommand := readRequestFromCommandLine(commandLine).FilePath != ""
+			readReq := readRequestFromCommandLine(commandLine)
+			readCommand := readReq.FilePath != ""
 			workload := savingspolicy.CodexWorkloadCommand
 			if readCommand {
 				workload = savingspolicy.CodexWorkloadRead
@@ -353,9 +372,11 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
 			if policy.ReadDelta {
 				var cacheReason string
+				var readDecision readcache.Decision
 				latencyStart := time.Now()
-				afterText, changed, cacheReason = compactProxyReadDeltaDetailed(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
+				afterText, changed, cacheReason, readDecision = compactProxyReadDeltaWithDecision(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
 				stats.ReadDeltaLatencyNs += time.Since(latencyStart).Nanoseconds()
+				stats.recordLedgerReadObservation(req.SessionID, req.TurnID, readReq, readDecision)
 				if readDeltaAttempted {
 					action := proxyLayer0CacheMiss
 					if changed {
@@ -833,16 +854,21 @@ func compactProxyReadDelta(sessionID, turnID, commandLine, text string, ctx filt
 }
 
 func compactProxyReadDeltaDetailed(sessionID, turnID, commandLine, text string, ctx filter.FileReadContext, recentFullPassTurns int) (string, bool, string) {
+	out, ok, reason, _ := compactProxyReadDeltaWithDecision(sessionID, turnID, commandLine, text, ctx, recentFullPassTurns)
+	return out, ok, reason
+}
+
+func compactProxyReadDeltaWithDecision(sessionID, turnID, commandLine, text string, ctx filter.FileReadContext, recentFullPassTurns int) (string, bool, string, readcache.Decision) {
 	req := readRequestFromCommandLine(commandLine)
 	if req.FilePath == "" || strings.TrimSpace(sessionID) == "" {
 		if req.FilePath == "" {
-			return "", false, "not_read_command"
+			return "", false, "not_read_command", readcache.Decision{}
 		}
-		return "", false, "missing_session"
+		return "", false, "missing_session", readcache.Decision{}
 	}
 	home, err := proxyUserHomeDir()
 	if err != nil {
-		return "", false, "home_error"
+		return "", false, "home_error", readcache.Decision{}
 	}
 	decision, err := readcache.EvaluateObserved(readcache.DefaultDir(home), readcache.Request{
 		SessionID:               sessionID,
@@ -854,17 +880,17 @@ func compactProxyReadDeltaDetailed(sessionID, turnID, commandLine, text string, 
 	}, text, contentarchive.DefaultDir(home), ctx.RecentlyEdited)
 	if err != nil || decision.Type != readcache.DecisionBlock || decision.Reason == "" {
 		if err != nil {
-			return "", false, "readcache_error"
+			return "", false, "readcache_error", decision
 		}
 		if decision.Reason != "" {
-			return "", false, decision.Reason
+			return "", false, decision.Reason, decision
 		}
-		return "", false, "full_pass"
+		return "", false, "full_pass", decision
 	}
 	if decision.BlockKind != "" {
-		return decision.Reason, true, string(decision.BlockKind)
+		return decision.Reason, true, string(decision.BlockKind), decision
 	}
-	return decision.Reason, true, "block"
+	return decision.Reason, true, "block", decision
 }
 
 func readRequestFromCommandLine(commandLine string) readcache.Request {

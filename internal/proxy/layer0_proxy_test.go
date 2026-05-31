@@ -156,10 +156,11 @@ func TestProxyResolveToolUseBranches(t *testing.T) {
 }
 
 func TestApplyProxyLayer0LedgerObservationKinds(t *testing.T) {
-	t.Parallel()
+	t.Setenv("HOME", t.TempDir())
+	readOutput := "Process exited with code 0\nOutput:\n" + strings.Repeat("package proxy\nfunc ledgerObservation() {}\n", 20)
 	messages := []types.Message{
 		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-read", ToolName: "exec_command", ToolInput: `{"cmd":"sed -n '1,20p' internal/proxy/layer0_proxy.go","workdir":"/repo"}`}}},
-		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-read", Text: "Process exited with code 0\nOutput:\npackage proxy\n"}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-read", Text: readOutput}}},
 		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-search", ToolName: "exec_command", ToolInput: `{"cmd":"rg -n TODO .","workdir":"/repo"}`}}},
 		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-search", Text: "Process exited with code 0\nOutput:\na.go:1:TODO\n"}}},
 		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-fail", ToolName: "exec_command", ToolInput: `{"cmd":"go test ./pkg","workdir":"/repo"}`}}},
@@ -287,7 +288,8 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(second, "sess-read", nil)
 	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.ReadDeltaAttempts != 1 ||
-		stats.ReadDeltaMisses != 0 || stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 {
+		stats.ReadDeltaMisses != 0 || stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 ||
+		stats.LedgerFileCapsules != 1 {
 		t.Fatalf("read-delta stats mismatch: %+v", stats)
 	}
 	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Action != proxyLayer0CacheHit || stats.CacheEvents[0].Reason != "unchanged" {

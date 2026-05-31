@@ -386,6 +386,12 @@ visible in live proof logs without logging payloads. No ledger capsule is
 inserted into model-facing context until archive provenance, expansion replay,
 and live proof are complete.
 
+Readcache decisions expose structured `ArchiveURI` and `FullPassTurnID`
+provenance to the reducer. File ledger observations are counted only when an
+archive-backed source exists; the provenance comes from the readcache decision
+object, not by parsing model-facing marker text. This keeps the ledger path
+content-free and fail-closed.
+
 The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
 blocks, command-unresolved blocks, read-delta attempts, read-delta misses,

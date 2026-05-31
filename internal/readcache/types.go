@@ -29,9 +29,11 @@ const (
 )
 
 type Decision struct {
-	Type      DecisionType
-	Reason    string
-	BlockKind BlockKind
+	Type           DecisionType
+	Reason         string
+	BlockKind      BlockKind
+	ArchiveURI     string
+	FullPassTurnID string
 }
 
 type OutputRequest struct {

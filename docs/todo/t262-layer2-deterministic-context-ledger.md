@@ -60,7 +60,7 @@ The ledger stores deterministic capsules:
      capsules as telemetry
    - [x] `/admin/state.savings` exposes content-free capsule counts globally and
      per route
-   - [ ] readcache archive ids and full-pass turn provenance
+   - [x] readcache archive ids and full-pass turn provenance
    - [x] WSS Phase-F request summaries beyond Layer-0 stats
    - [x] quality/re-read canaries
 3. [x] Build capsule selection:
@@ -134,3 +134,8 @@ summary remains opt-in, not default.
   over-budget capsules out of any future replacement path. Archive expansion is
   loader-based and returns copied exact bytes or an error, so missing archive
   state cannot silently become model context.
+- 2026-05-31: Readcache decisions now carry structured `ArchiveURI` and
+  `FullPassTurnID` provenance. The Layer-0 reducer feeds that into file ledger
+  observations, so file capsules only count when the readcache has an actual
+  archive-backed source and a turn provenance path instead of relying on marker
+  text parsing.

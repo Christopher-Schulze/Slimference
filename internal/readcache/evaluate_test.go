@@ -111,7 +111,7 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 
 	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
-	req := Request{SessionID: "s1", FilePath: "main.go"}
+	req := Request{SessionID: "s1", TurnID: "turn-1", FilePath: "main.go"}
 	before := "package main\n" + strings.Repeat("func a() {}\n", 40)
 	decision, err := EvaluateObserved(dir, req, before, archiveDir, false)
 	if err != nil {
@@ -123,6 +123,9 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 	if decision.Reason != "first_observation_seeded" {
 		t.Fatalf("first observed read reason=%q", decision.Reason)
 	}
+	if decision.ArchiveURI == "" || decision.FullPassTurnID != "turn-1" {
+		t.Fatalf("first observed provenance missing: %+v", decision)
+	}
 
 	decision, err = EvaluateObserved(dir, req, before, archiveDir, false)
 	if err != nil {
@@ -130,6 +133,9 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 	}
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged || !strings.Contains(decision.Reason, "kind=file-read") || !strings.Contains(decision.Reason, "archive=local-archive://") {
 		t.Fatalf("unchanged observed read should block with archive reference: %+v", decision)
+	}
+	if decision.ArchiveURI == "" || decision.FullPassTurnID != "turn-1" {
+		t.Fatalf("unchanged observed provenance missing: %+v", decision)
 	}
 
 	state, err := LoadSession(dir, "s1")
@@ -145,12 +151,16 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 	}
 
 	after := before + "func b() {}\n"
+	req.TurnID = "turn-2"
 	decision, err = EvaluateObserved(dir, req, after, archiveDir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta || !strings.Contains(decision.Reason, "+func b() {}") {
 		t.Fatalf("changed observed read should block with delta: %+v", decision)
+	}
+	if decision.ArchiveURI == "" || decision.FullPassTurnID != "turn-1" {
+		t.Fatalf("changed observed provenance missing: %+v", decision)
 	}
 }
 
