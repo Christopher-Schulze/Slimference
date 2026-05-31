@@ -674,12 +674,12 @@ func proxyLayer0CommandLine(block types.ContentBlock) string {
 		workdir := proxyToolWorkdir(obj)
 		for _, key := range []string{"command", "cmd", "command_line", "cmdline", "commandLine", "shell_command", "shellCommand"} {
 			if s := strings.TrimSpace(rawJSONString(obj[key])); s != "" {
-				return applyWorkdirToReadCommand(normalizeLayer0CommandLine(s), workdir)
+				return applyWorkdirToLayer0Command(normalizeLayer0CommandLine(s), workdir)
 			}
 		}
 		for _, key := range []string{"command", "argv", "args", "cmd_args", "command_args"} {
 			if argv := proxyStringArray(obj[key]); len(argv) > 0 {
-				return applyWorkdirToReadCommand(normalizeLayer0CommandLine(joinShellArgs(argv)), workdir)
+				return applyWorkdirToLayer0Command(normalizeLayer0CommandLine(joinShellArgs(argv)), workdir)
 			}
 		}
 		if looksLikeReadTool(block.ToolName) {
@@ -695,6 +695,14 @@ func proxyLayer0CommandLine(block types.ContentBlock) string {
 		return normalizeLayer0CommandLine(input)
 	}
 	return ""
+}
+
+func applyWorkdirToLayer0Command(commandLine, workdir string) string {
+	commandLine = applyWorkdirToReadCommand(commandLine, workdir)
+	if git := applyWorkdirToGitCommand(commandLine, workdir); git != "" {
+		return git
+	}
+	return commandLine
 }
 
 func proxyToolWorkdir(obj map[string]json.RawMessage) string {
@@ -755,9 +763,60 @@ func normalizeLayer0CommandLine(commandLine string) string {
 		return stripped
 	}
 	if len(argv) >= 3 && looksLikeShellExecutable(argv[0]) && strings.Contains(argv[1], "c") && strings.HasPrefix(argv[1], "-") {
-		return argv[2]
+		return normalizeLayer0CommandLine(argv[2])
+	}
+	if stripped := normalizeLeadingCDCommand(commandLine); stripped != "" {
+		return stripped
 	}
 	return commandLine
+}
+
+func normalizeLeadingCDCommand(commandLine string) string {
+	idx := strings.Index(commandLine, "&&")
+	if idx < 0 {
+		return ""
+	}
+	prefix := strings.TrimSpace(commandLine[:idx])
+	rest := strings.TrimSpace(commandLine[idx+len("&&"):])
+	if rest == "" {
+		return ""
+	}
+	argv := filter.ArgvForCapturedOutput(prefix)
+	if len(argv) != 2 || strings.ToLower(filepath.Base(argv[0])) != "cd" {
+		return ""
+	}
+	workdir := proxyCleanAbsWorkdir(argv[1])
+	if workdir == "" {
+		return ""
+	}
+	inner := normalizeLayer0CommandLine(rest)
+	if filter.ReadPathFromCommandLine(inner) != "" {
+		return applyWorkdirToReadCommand(inner, workdir)
+	}
+	if git := applyWorkdirToGitCommand(inner, workdir); git != "" {
+		return git
+	}
+	return ""
+}
+
+func applyWorkdirToGitCommand(commandLine, workdir string) string {
+	workdir = proxyCleanAbsWorkdir(workdir)
+	if workdir == "" {
+		return ""
+	}
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) < 2 || filepath.Base(strings.TrimSpace(argv[0])) != "git" {
+		return ""
+	}
+	for i := 1; i < len(argv); i++ {
+		if argv[i] == "-C" || strings.HasPrefix(argv[i], "--git-dir") {
+			return commandLine
+		}
+	}
+	out := make([]string, 0, len(argv)+2)
+	out = append(out, argv[0], "-C", workdir)
+	out = append(out, argv[1:]...)
+	return joinShellArgs(out)
 }
 
 func stripSlimferenceFilterWrapper(argv []string) string {

@@ -1462,7 +1462,11 @@ only and promotes the per-process Codex CLI runner for T209.
   `/admin/state` plus `aggregate-savings` expose route-specific HTTP vs
   WSS-Phase-F attribution. Shell command arrays are normalized before
   classification, and relative single-file reads now resolve against Codex
-  `workdir`/`cwd` metadata before readcache evaluation. Single-text-part
+  `workdir`/`cwd` metadata before readcache evaluation, and plain `git ...`
+  commands with workdir metadata now normalize to repo-scoped `git -C <abs> ...`
+  keys. Safe `cd <abs> && ...` shell wrappers now normalize to absolute read
+  commands or repo-scoped `git -C <abs> ...` keys, improving cache/filter hits
+  without cross-repo collisions. Single-text-part
   `output` / `content` arrays and nested MCP-style result content now
   reconstruct in place and fail open on ambiguous multi-text arrays. Additional
   WSS Phase-F fixtures now prove repeated-read mutation for `local_shell_call`,

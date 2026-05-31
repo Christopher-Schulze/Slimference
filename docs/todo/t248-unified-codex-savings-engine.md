@@ -89,6 +89,16 @@ The product target is strict:
   single-file read commands against it before readcache evaluation. This raises
   repeat-read hit probability and prevents same-relative-path cache collisions
   across repositories without touching non-read commands.
+- [x] Apply the same absolute-workdir metadata to plain `git ...` commands by
+  normalizing them to `git -C <abs> ...`, while preserving commands that already
+  specify `-C` / `--git-dir`. This improves repeated git-output keys without
+  changing search or arbitrary shell command semantics.
+- [x] Normalize safe `cd <abs> && ...` shell wrappers where Codex hides the real
+  command behind `bash -lc`. For reads, the wrapper becomes an absolute
+  `cat`/`head`/`tail`/`sed` command so read/range cache keys hit. For git, the
+  wrapper becomes `git -C <abs> ...` so repeated git outputs are keyed per repo.
+  Unsupported `cd && rg` search wrappers intentionally stay unnormalized until a
+  repo-safe search path canonicalizer exists.
 - [x] Add safe single-text-part output-array extraction for Codex tool outputs.
   `output` / `content` arrays with exactly one `output_text` / `text` /
   `input_text` item now feed the same shared reducer and reconstruct the changed

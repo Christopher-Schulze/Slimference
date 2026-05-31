@@ -362,7 +362,12 @@ Codex tool metadata preserves `workdir` / `cwd` / `working_directory` /
 `directory` when present. Relative single-file read commands are resolved
 against that absolute workdir before readcache evaluation, which improves
 repeat-read hit rate and prevents same-relative-path cache collisions across
-repositories without changing non-read commands. Codex tool outputs that arrive
+repositories. Plain `git ...` commands with absolute workdir metadata become
+`git -C <abs> ...`, so repeated git output keys stay repo-scoped. Safe shell
+wrappers of the form `cd <abs> && <read>` are normalized to absolute `cat` /
+`head` / `tail` / `sed -n` commands, and `cd <abs> && git ...` is normalized to
+`git -C <abs> ...`. Search wrappers are not stripped until the path/key can be
+made repo-safe. Codex tool outputs that arrive
 as a single text part inside an `output` / `content` style array, or inside a
 nested MCP-style object such as `result.content[0].text`, are extracted and
 rewritten in place, preserving sibling non-text parts, metadata, and the

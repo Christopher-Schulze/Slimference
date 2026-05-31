@@ -170,6 +170,8 @@ func TestProxyLayer0CommandLineVariants(t *testing.T) {
 		{"shell_command", types.ContentBlock{ToolName: "bash_command", ToolInput: `{"shell_command":"git status --short"}`}, "git status --short"},
 		{"shellCommand", types.ContentBlock{ToolName: "bash_command", ToolInput: `{"shellCommand":"git diff --stat"}`}, "git diff --stat"},
 		{"commandLine", types.ContentBlock{ToolName: "terminal.exec", ToolInput: `{"commandLine":"rg TODO docs"}`}, "rg TODO docs"},
+		{"git_workdir_string", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"cmd":"git status --short","workdir":"/repo/project"}`}, "git -C /repo/project status --short"},
+		{"git_workdir_array", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["git","diff","--stat"],"cwd":"/repo/project"}`}, "git -C /repo/project diff --stat"},
 		{"bash_lc_wrapper", types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"/opt/homebrew/bin/bash -lc 'git status --short .'"}`}, "git status --short ."},
 		{"slimference_filter_wrapper", types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"slimference filter -- git status --short ."}`}, "git status --short ."},
 		{"slimference_filter_stream_wrapper", types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"slimference filter --stream -- rg TODO docs"}`}, "rg TODO docs"},
@@ -179,6 +181,8 @@ func TestProxyLayer0CommandLineVariants(t *testing.T) {
 		{"bash_lc_array_read", types.ContentBlock{ToolName: "container.exec", ToolInput: `{"command":["bash","-lc","cat /tmp/t248-target.md"]}`}, "cat /tmp/t248-target.md"},
 		{"bash_lc_array_relative_read_workdir", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cat docs/todo.md"],"workdir":"/repo/project"}`}, "cat /repo/project/docs/todo.md"},
 		{"bash_lc_array_relative_read_workingDirectory", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cat docs/todo.md"],"workingDirectory":"/repo/project"}`}, "cat /repo/project/docs/todo.md"},
+		{"bash_lc_cd_relative_sed", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cd /repo/project && sed -n '10,20p' docs/todo.md"]}`}, "sed -n 10,20p /repo/project/docs/todo.md"},
+		{"bash_lc_cd_git", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"command":["bash","-lc","cd /repo/project && git status --short"]}`}, "git -C /repo/project status --short"},
 		{"head_relative_read_workdir", types.ContentBlock{ToolName: "exec_command", ToolInput: `{"cmd":"head -n 20 internal/proxy/layer0_proxy.go","workdir":"/repo/project"}`}, "head -n 20 /repo/project/internal/proxy/layer0_proxy.go"},
 		{"argv", types.ContentBlock{ToolName: "exec", ToolInput: `{"argv":["go","test","./pkg with space"]}`}, `go test "./pkg with space"`},
 		{"args", types.ContentBlock{ToolName: "run_command", ToolInput: `{"args":["rg","needle","path with space"]}`}, `rg needle "path with space"`},
@@ -680,6 +684,12 @@ func TestProxyLayer0SmallHelpers(t *testing.T) {
 	if normalizeLayer0CommandLine("/bin/sh -c 'git status --short'") != "git status --short" ||
 		normalizeLayer0CommandLine("git status --short") != "git status --short" {
 		t.Fatal("shell wrapper normalization mismatch")
+	}
+	if got := normalizeLayer0CommandLine("cd /repo/project && rg needle docs"); got != "cd /repo/project && rg needle docs" {
+		t.Fatalf("unsupported cd-wrapped search must stay unnormalized to avoid cross-repo keys: %q", got)
+	}
+	if got := applyWorkdirToGitCommand("git -C /other status --short", "/repo/project"); got != "git -C /other status --short" {
+		t.Fatalf("git -C should not be rewritten: %q", got)
 	}
 	if stripSlimferenceFilterWrapper([]string{"slimference", "filter", "--bad", "git"}) != "" ||
 		stripSlimferenceFilterWrapper([]string{"other", "filter", "git"}) != "" ||
