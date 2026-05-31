@@ -14,6 +14,10 @@ measured hit rate and no silent information loss in product defaults.
 - Layer 0 exists and is productive.
 - File reads are not a Layer 0 lossy scan surface anymore. Product defaults must
   full-pass first reads.
+- The reducer dispatch order now has a metadata registry with mechanism id,
+  command family, safety class, default eligibility, and preserved-evidence
+  contract. This is telemetry/control-plane groundwork only; it does not change
+  model-facing output.
 - Many reducers are good and deterministic, but "deterministic" is not enough.
   Reducers must preserve the actionable payload: failures, paths, line numbers,
   exit status, changed files, destructive actions, match context, and summary
@@ -31,13 +35,14 @@ actionable information retained, and failure-open behavior under shape drift.
 ## Technical work packages
 
 1. Build a reducer registry that records, per reducer:
-   - mechanism id
-   - command family
-   - required structured fields
-   - preserved evidence contract
-   - lossy class: exact, structured-lossless-for-task, summary-only
-   - default eligibility
-   - known recovery path
+   - [x] mechanism id
+   - [x] command family
+   - [x] preserved evidence contract
+   - [x] safety class: exact, structured evidence, diagnostic priority, count
+     summary
+   - [x] default eligibility
+   - [ ] required structured fields per parser
+   - [ ] known recovery path per parser where recoverable
 2. Convert all remaining cap-first reducers to priority-first reducers:
    - preserve error/failure/warning/destructive lines before noise
    - preserve file, line, column, exit code, command, tool name
@@ -106,7 +111,15 @@ These are promotion targets, not claims:
   - parse_failures=0
   - compression_errors=0
   - degraded_sessions=0
-  - no repair/re-read spike
+- no repair/re-read spike
+
+## Progress
+
+- 2026-05-31: Added `Layer0ReducerRegistry()` and dispatch metadata for every
+  built-in Layer 0 reducer. The registry is copied on read, keeps the existing
+  reducer order, and is covered by uniqueness/order/evidence-contract tests.
+  This closes the first audit/control-plane slice without changing compression
+  behavior.
 
 ## Done
 

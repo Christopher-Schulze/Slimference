@@ -226,11 +226,14 @@ public install path writes `~/.claude`.
 
 1. Exec the tool command; capture stdout + stderr + exit code.
 2. ANSI strip on stdout.
-3. 24 built-in filters tried in priority order: git-status, git-diff,
-   git-log, git-show, build-output, test-output, dotnet, ruby, search,
-   ls, tree, strip-comments-file-read, lint, format, psql,
-   package-manager, container, gh list, glab list, log dedup, aws
-   json, python traceback, terraform plan, json minify.
+3. Built-in reducers tried in priority order from
+   `filter.Layer0ReducerRegistry()`. The registry records each reducer's
+   mechanism id, command family, safety class, default eligibility, and
+   preserved-evidence contract before the reducer can participate in product
+   dispatch. The default order covers git-status, git-diff, git-log, git-show,
+   build-output, test-output, dotnet, ruby, search, ls, tree, lint, log,
+   format, psql, package-manager, container, gh list, glab list, AWS JSON,
+   python traceback, terraform outputs, and JSON minify.
    `build-output` includes the shared diagnostic parser for Go, Cargo,
    GCC/Clang, TypeScript, Svelte, frontend tools (Next/Vite/Vitest/Jest/
    Playwright/ESLint/Biome/Oxlint/Turbo/Nx/Lerna/Bun), Python diagnostics

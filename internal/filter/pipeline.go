@@ -7,6 +7,46 @@ import (
 	"github.com/slimference/slimference/internal/compression"
 )
 
+// Layer0ReducerSafetyClass describes how much information a default reducer is
+// allowed to remove from a tool output.
+type Layer0ReducerSafetyClass string
+
+const (
+	Layer0ReducerSafetyExact              Layer0ReducerSafetyClass = "exact"
+	Layer0ReducerSafetyStructuredEvidence Layer0ReducerSafetyClass = "structured_evidence"
+	Layer0ReducerSafetyDiagnosticPriority Layer0ReducerSafetyClass = "diagnostic_priority"
+	Layer0ReducerSafetyCountSummary       Layer0ReducerSafetyClass = "count_summary"
+)
+
+// Layer0ReducerInfo is metadata only. It is safe for admin/TUI/reporting paths:
+// no raw command output, no function pointers, no model-facing text.
+type Layer0ReducerInfo struct {
+	ID                string
+	Family            string
+	SafetyClass       Layer0ReducerSafetyClass
+	DefaultEligible   bool
+	PreservedEvidence []string
+}
+
+type layer0ReducerFunc func(argv []string, stdout []byte, ctx FileReadContext) ([]byte, bool)
+
+type layer0ReducerSpec struct {
+	Layer0ReducerInfo
+	fn layer0ReducerFunc
+}
+
+// Layer0ReducerRegistry returns the product reducer contract in dispatch order.
+func Layer0ReducerRegistry() []Layer0ReducerInfo {
+	specs := layer0ReducerSpecs()
+	out := make([]Layer0ReducerInfo, 0, len(specs))
+	for _, spec := range specs {
+		info := spec.Layer0ReducerInfo
+		info.PreservedEvidence = append([]string(nil), info.PreservedEvidence...)
+		out = append(out, info)
+	}
+	return out
+}
+
 // PipelineResult is stdout/stderr after Layer-0 processing plus token estimates for analytics.
 type PipelineResult struct {
 	Stdout []byte
@@ -100,67 +140,17 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 		return stdout, ""
 	}
 
-	type filterEntry struct {
-		name string
-		fn   func() ([]byte, bool)
-	}
-	filters := []filterEntry{
-		// Tier-1: strict structured JSON parsers. Parse the wire
-		// schema directly; refuse to match on anything else. Beats
-		// every regex-based Tier-2 below on accuracy and savings, so
-		// they sit at the top. RTK's catalog has no Tier-1 — this is
-		// where we surpass it.
-		{"tier1_sarif", func() ([]byte, bool) { return TryCompactSARIF(argv, stdout) }},
-		{"tier1_go_test_json", func() ([]byte, bool) { return TryCompactGoTestJSON(argv, stdout) }},
-		{"tier1_vitest_jest_json", func() ([]byte, bool) { return TryCompactVitestJSON(argv, stdout) }},
-		{"tier1_pytest_json", func() ([]byte, bool) { return TryCompactPytestJSON(argv, stdout) }},
-		{"tier1_cargo_test_json", func() ([]byte, bool) { return TryCompactCargoTestJSON(argv, stdout) }},
-		{"tier1_eslint_json", func() ([]byte, bool) { return TryCompactEslintJSON(argv, stdout) }},
-		{"tier1_tsc_diagnostics", func() ([]byte, bool) { return TryCompactTscDiagnostics(argv, stdout) }},
-		{"tier1_kubectl_json", func() ([]byte, bool) { return TryCompactKubectlJSON(argv, stdout) }},
-		{"tier1_cargo_metadata_json", func() ([]byte, bool) { return TryCompactCargoMetadataJSON(argv, stdout) }},
-		{"tier1_terraform_show_json", func() ([]byte, bool) { return TryCompactTerraformShowJSON(argv, stdout) }},
-		// Tier-2: hand-written Go compactors (regex/heuristic-based).
-		{"git_status", func() ([]byte, bool) { return TryCompactGitStatus(argv, stdout) }},
-		{"git_diff", func() ([]byte, bool) { return TryCompactGitDiff(argv, stdout) }},
-		{"git_log", func() ([]byte, bool) { return TryCompactGitLog(argv, stdout) }},
-		{"git_show", func() ([]byte, bool) { return TryCompactGitShow(argv, stdout) }},
-		{"git_f05", func() ([]byte, bool) { return TryCompactGitF05(argv, stdout) }},
-		{"build_output", func() ([]byte, bool) { return TryCompactBuildOutput(argv, stdout) }},
-		{"test_output", func() ([]byte, bool) { return TryCompactTestOutput(argv, stdout) }},
-		{"dotnet", func() ([]byte, bool) { return TryCompactDotnet(argv, stdout) }},
-		{"ruby_output", func() ([]byte, bool) { return TryCompactRubyOutput(argv, stdout) }},
-		{"search_output", func() ([]byte, bool) { return TryCompactSearchOutput(argv, stdout) }},
-		{"ls", func() ([]byte, bool) { return TryCompactLs(argv, stdout) }},
-		{"tree", func() ([]byte, bool) { return TryCompactTree(argv, stdout) }},
-		{"lint_output", func() ([]byte, bool) { return TryCompactLintOutput(argv, stdout) }},
-		{"log_output", func() ([]byte, bool) { return TryCompactLogOutput(argv, stdout) }},
-		{"format_output", func() ([]byte, bool) { return TryCompactFormatOutput(argv, stdout) }},
-		{"psql", func() ([]byte, bool) { return TryCompactPsql(argv, stdout) }},
-		{"package_output", func() ([]byte, bool) { return TryCompactPackageOutput(argv, stdout) }},
-		{"container_output", func() ([]byte, bool) { return TryCompactContainerOutput(argv, stdout) }},
-		{"gh_list", func() ([]byte, bool) { return TryCompactGhList(argv, stdout) }},
-		{"glab_list", func() ([]byte, bool) { return TryCompactGlabList(argv, stdout) }},
-		{"aws_json", func() ([]byte, bool) { return TryCompactAwsJSON(argv, stdout) }},
-		{"python_traceback", func() ([]byte, bool) { return TryCompactPythonTraceback(stdout) }},
-		{"terraform_plan", func() ([]byte, bool) { return TryCompactTerraformPlan(argv, stdout) }},
-		{"terraform_init", func() ([]byte, bool) { return TryCompactTerraformInit(argv, stdout) }},
-		{"terraform_validate", func() ([]byte, bool) { return TryCompactTerraformValidate(argv, stdout) }},
-		{"terraform_state_list", func() ([]byte, bool) { return TryCompactTerraformStateList(argv, stdout) }},
-		{"terraform_output", func() ([]byte, bool) { return TryCompactTerraformOutput(argv, stdout) }},
-		{"terraform_show", func() ([]byte, bool) { return TryCompactTerraformShow(argv, stdout) }},
-		{"json_minify", func() ([]byte, bool) { return TryCompactJSONMinify(stdout) }},
-	}
-
 	inBytes := len(stdout)
-	for _, f := range filters {
-		out, ok, stats := runFilter(f.name, f.fn)
+	for _, reducer := range layer0ReducerSpecs() {
+		out, ok, stats := runFilter(reducer.ID, func() ([]byte, bool) {
+			return reducer.fn(argv, stdout, ctx)
+		})
 		stats.InBytes = inBytes
 		stats.OutBytes = inBytes
 		if ok {
 			stats.OutBytes = len(out)
 			globalObservability.Record(stats)
-			return out, f.name
+			return out, reducer.ID
 		}
 		globalObservability.Record(stats)
 	}
@@ -196,4 +186,97 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 func productDefaultFileReadMustFullPass(argv []string) bool {
 	_, ok := readRequestFromArgv(argv)
 	return ok
+}
+
+func layer0ReducerSpecs() []layer0ReducerSpec {
+	return []layer0ReducerSpec{
+		// Tier-1: strict structured parsers. They parse the wire schema directly
+		// and refuse to match on anything else, so they run before heuristic reducers.
+		structuredReducer("tier1_sarif", "security", []string{"rule id", "severity", "path", "line", "message"}, TryCompactSARIF),
+		structuredReducer("tier1_go_test_json", "test", []string{"package", "test name", "fail action", "output line"}, TryCompactGoTestJSON),
+		structuredReducer("tier1_vitest_jest_json", "test", []string{"suite", "test name", "failure message", "stack frame"}, TryCompactVitestJSON),
+		structuredReducer("tier1_pytest_json", "test", []string{"node id", "outcome", "failure message", "traceback frame"}, TryCompactPytestJSON),
+		structuredReducer("tier1_cargo_test_json", "test", []string{"package", "test name", "failure message", "stdout"}, TryCompactCargoTestJSON),
+		structuredReducer("tier1_eslint_json", "lint", []string{"rule id", "severity", "path", "line", "column", "message"}, TryCompactEslintJSON),
+		structuredReducer("tier1_tsc_diagnostics", "lint", []string{"path", "line", "column", "diagnostic code", "message"}, TryCompactTscDiagnostics),
+		structuredReducer("tier1_kubectl_json", "container", []string{"resource kind", "name", "namespace", "status", "reason"}, TryCompactKubectlJSON),
+		structuredReducer("tier1_cargo_metadata_json", "package", []string{"package", "target", "dependency edge"}, TryCompactCargoMetadataJSON),
+		structuredReducer("tier1_terraform_show_json", "terraform", []string{"resource address", "action", "attribute path", "sensitive marker"}, TryCompactTerraformShowJSON),
+
+		evidenceReducer("git_status", "git", []string{"staged count", "worktree count", "untracked count", "renames", "conflicts"}, TryCompactGitStatus),
+		evidenceReducer("git_diff", "git", []string{"file path", "hunk header", "added line", "removed line"}, TryCompactGitDiff),
+		evidenceReducer("git_log", "git", []string{"commit hash", "subject", "file count", "insertions", "deletions"}, TryCompactGitLog),
+		evidenceReducer("git_show", "git", []string{"commit hash", "subject", "file path", "hunk header", "added line", "removed line"}, TryCompactGitShow),
+		evidenceReducer("git_f05", "git", []string{"ref update", "changed count", "success marker", "failure line"}, TryCompactGitF05),
+		diagnosticReducer("build_output", "build", []string{"tool", "exit evidence", "error line", "file", "line", "column"}, TryCompactBuildOutput),
+		diagnosticReducer("test_output", "test", []string{"tool", "failed test", "failure line", "summary", "file", "line"}, TryCompactTestOutput),
+		diagnosticReducer("dotnet", "build", []string{"tool", "error code", "file", "line", "message"}, TryCompactDotnet),
+		diagnosticReducer("ruby_output", "test", []string{"tool", "failed example", "file", "line", "message"}, TryCompactRubyOutput),
+		evidenceReducer("search_output", "search", []string{"file", "line", "match text", "match count", "omitted count"}, TryCompactSearchOutput),
+		countReducer("ls", "listing", []string{"entry count", "empty marker"}, TryCompactLs),
+		countReducer("tree", "listing", []string{"directory count", "file count", "empty marker"}, TryCompactTree),
+		diagnosticReducer("lint_output", "lint", []string{"tool", "rule id", "severity", "file", "line", "message"}, TryCompactLintOutput),
+		diagnosticReducer("log_output", "log", []string{"severity", "timestamp", "error line", "count marker"}, TryCompactLogOutput),
+		evidenceReducer("format_output", "format", []string{"tool", "changed file", "failure line", "success marker"}, TryCompactFormatOutput),
+		evidenceReducer("psql", "database", []string{"row count", "column header", "error line"}, TryCompactPsql),
+		evidenceReducer("package_output", "package", []string{"package manager", "changed package count", "error line", "success marker"}, TryCompactPackageOutput),
+		evidenceReducer("container_output", "container", []string{"resource name", "status", "reason", "attention row"}, TryCompactContainerOutput),
+		evidenceReducer("gh_list", "vcs_host", []string{"item number", "title", "state", "author"}, TryCompactGhList),
+		evidenceReducer("glab_list", "vcs_host", []string{"item number", "title", "state", "author"}, TryCompactGlabList),
+		evidenceReducer("aws_json", "cloud", []string{"service payload", "resource id", "error field"}, TryCompactAwsJSON),
+		stdoutReducer("python_traceback", "runtime", Layer0ReducerSafetyDiagnosticPriority, []string{"exception type", "message", "file", "line", "stack frame"}, TryCompactPythonTraceback),
+		evidenceReducer("terraform_plan", "terraform", []string{"resource address", "action", "change summary", "warning", "error"}, TryCompactTerraformPlan),
+		evidenceReducer("terraform_init", "terraform", []string{"backend status", "provider status", "warning", "error"}, TryCompactTerraformInit),
+		evidenceReducer("terraform_validate", "terraform", []string{"valid marker", "diagnostic severity", "message", "range"}, TryCompactTerraformValidate),
+		evidenceReducer("terraform_state_list", "terraform", []string{"resource address", "count marker"}, TryCompactTerraformStateList),
+		evidenceReducer("terraform_output", "terraform", []string{"output name", "sensitive marker", "value summary"}, TryCompactTerraformOutput),
+		evidenceReducer("terraform_show", "terraform", []string{"resource address", "attribute", "value summary", "sensitive marker"}, TryCompactTerraformShow),
+		stdoutReducer("json_minify", "json", Layer0ReducerSafetyExact, []string{"all JSON fields", "all scalar values", "array order"}, TryCompactJSONMinify),
+	}
+}
+
+func structuredReducer(id, family string, preserved []string, fn func([]string, []byte) ([]byte, bool)) layer0ReducerSpec {
+	return argvReducer(id, family, Layer0ReducerSafetyStructuredEvidence, preserved, fn)
+}
+
+func diagnosticReducer(id, family string, preserved []string, fn func([]string, []byte) ([]byte, bool)) layer0ReducerSpec {
+	return argvReducer(id, family, Layer0ReducerSafetyDiagnosticPriority, preserved, fn)
+}
+
+func evidenceReducer(id, family string, preserved []string, fn func([]string, []byte) ([]byte, bool)) layer0ReducerSpec {
+	return argvReducer(id, family, Layer0ReducerSafetyStructuredEvidence, preserved, fn)
+}
+
+func countReducer(id, family string, preserved []string, fn func([]string, []byte) ([]byte, bool)) layer0ReducerSpec {
+	return argvReducer(id, family, Layer0ReducerSafetyCountSummary, preserved, fn)
+}
+
+func argvReducer(id, family string, safety Layer0ReducerSafetyClass, preserved []string, fn func([]string, []byte) ([]byte, bool)) layer0ReducerSpec {
+	return layer0ReducerSpec{
+		Layer0ReducerInfo: Layer0ReducerInfo{
+			ID:                id,
+			Family:            family,
+			SafetyClass:       safety,
+			DefaultEligible:   true,
+			PreservedEvidence: append([]string(nil), preserved...),
+		},
+		fn: func(argv []string, stdout []byte, _ FileReadContext) ([]byte, bool) {
+			return fn(argv, stdout)
+		},
+	}
+}
+
+func stdoutReducer(id, family string, safety Layer0ReducerSafetyClass, preserved []string, fn func([]byte) ([]byte, bool)) layer0ReducerSpec {
+	return layer0ReducerSpec{
+		Layer0ReducerInfo: Layer0ReducerInfo{
+			ID:                id,
+			Family:            family,
+			SafetyClass:       safety,
+			DefaultEligible:   true,
+			PreservedEvidence: append([]string(nil), preserved...),
+		},
+		fn: func(_ []string, stdout []byte, _ FileReadContext) ([]byte, bool) {
+			return fn(stdout)
+		},
+	}
 }

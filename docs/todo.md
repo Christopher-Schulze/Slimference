@@ -1890,9 +1890,11 @@ be called complete, default-safe, and production-grade.
 
 ### Original layer max-out tasks
 
-- [ ] **T260** Layer 0 parser frontier and safe pre-entry max-out - make every
-  default Layer 0 reducer structured, error-prioritized, repo-safe, measured,
-  and fail-open. Detail: `docs/todo/t260-layer0-parser-frontier-maxx.md`
+- [~] **T260** Layer 0 parser frontier and safe pre-entry max-out - Layer 0 now
+  has a reducer safety/evidence registry in dispatch order; remaining work is
+  parser required-field contracts, recovery metadata, corpus fixtures,
+  priority-first hardening, and live route proof. Detail:
+  `docs/todo/t260-layer0-parser-frontier-maxx.md`
 - [ ] **T261** Layer 1 exact/reversible safety-tier max-out - split Layer 1
   sublayers into exact, reversible, recoverable, and non-default tiers so the
   default path cannot silently remove needed context. Detail:
