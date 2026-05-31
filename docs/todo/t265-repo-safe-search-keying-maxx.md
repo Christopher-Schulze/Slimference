@@ -55,6 +55,34 @@ is capped.
    - no collapse if command flags are not understood
    - no collapse if output format is non-standard and parser confidence is low
 
+## Progress
+
+2026-05-31 core implementation slice:
+
+- `filter.SearchOutputKeyFromCommandLine` now recognizes repo-scoped
+  `git -C <repo> grep ...` keys.
+- `filter.NormalizeSearchCommandLine` canonicalizes search commands for
+  compaction/keying only, never for execution:
+  - `cd /repo && rg -n needle internal` -> `rg -n needle /repo/internal`
+  - `rg -n needle internal` with workdir `/repo` -> `rg -n needle /repo/internal`
+  - `grep -R needle .` with workdir `/repo` -> `grep -R needle /repo`
+  - `git grep needle -- internal` with workdir `/repo` -> `git -C /repo grep needle -- internal`
+- Captured-output compaction now recognizes `cd <repo> && rg|grep...` instead
+  of treating the compound command as opaque noise.
+- WSS/HTTP proxy command normalization now applies workdir-aware search
+  canonicalization, so repeated search-output keys include repository scope.
+- Regression coverage proves identical `rg -n TODO src` commands in `/repo/a`
+  and `/repo/b` do not share a repeated-output key.
+
+Remaining before this task can close:
+
+- Add live CLI/Desktop captures for repeated `rg`, changed result sets, `git
+  grep`, and grep variants.
+- Add fixture coverage for more complex option forms where paths and patterns
+  are ambiguous.
+- Add explicit proof report showing large search grouping, repeated exact
+  collapse, and changed search delta all stay repo-scoped with `lost=0`.
+
 ## Zero product-drawdown gates
 
 - A compacted search must never hide the only matching file without a recovery

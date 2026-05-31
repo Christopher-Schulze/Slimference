@@ -18,6 +18,11 @@ func CompactCapturedOutput(workDir, commandLine, output string, maxRunes int) ([
 func CompactCapturedOutputWithContext(workDir, commandLine, output string, maxRunes int, ctx FileReadContext) ([]byte, bool) {
 	stripped := compression.StripANSICodes(output)
 	argv := primaryArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		if normalized := NormalizeSearchCommandLine(commandLine, workDir); normalized != "" {
+			argv = primaryArgvForCapturedOutput(normalized)
+		}
+	}
 
 	compacted := []byte(stripped)
 	if len(argv) == 0 {

@@ -1912,7 +1912,7 @@ be called complete, default-safe, and production-grade.
   exact cache hits for file reads, ranged reads, repeated commands, and repeated
   non-file outputs without first-read elision. Detail:
   `docs/todo/t264-codex-read-cache-hit-maximizer.md`
-- [ ] **T265** Repo-safe search keying and search-output savings max-out -
+- [~] **T265** Repo-safe search keying and search-output savings max-out -
   normalize `cd && rg|grep|git grep` and related search shapes to
   repository-scoped keys, preserve match context, and prevent cross-repo false
   hits. Detail: `docs/todo/t265-repo-safe-search-keying-maxx.md`

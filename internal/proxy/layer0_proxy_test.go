@@ -685,8 +685,11 @@ func TestProxyLayer0SmallHelpers(t *testing.T) {
 		normalizeLayer0CommandLine("git status --short") != "git status --short" {
 		t.Fatal("shell wrapper normalization mismatch")
 	}
-	if got := normalizeLayer0CommandLine("cd /repo/project && rg needle docs"); got != "cd /repo/project && rg needle docs" {
-		t.Fatalf("unsupported cd-wrapped search must stay unnormalized to avoid cross-repo keys: %q", got)
+	if got := normalizeLayer0CommandLine("cd /repo/project && rg needle docs"); got != "rg needle /repo/project/docs" {
+		t.Fatalf("cd-wrapped search must normalize to repo-scoped key: %q", got)
+	}
+	if got := applyWorkdirToLayer0Command("rg needle docs", "/repo/project"); got != "rg needle /repo/project/docs" {
+		t.Fatalf("workdir search must normalize to repo-scoped key: %q", got)
 	}
 	if got := applyWorkdirToGitCommand("git -C /other status --short", "/repo/project"); got != "git -C /other status --short" {
 		t.Fatalf("git -C should not be rewritten: %q", got)
@@ -705,6 +708,31 @@ func TestProxyLayer0SmallHelpers(t *testing.T) {
 	}
 	if quoteShellArg("plain") != "plain" || quoteShellArg("two words") != `"two words"` {
 		t.Fatal("quoteShellArg mismatch")
+	}
+}
+
+func TestProxyRepeatedSearchOutputKeepsRepoScopedKeys(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	sessionID := "search-repo-scope"
+	outputA := strings.Repeat("src/a.go:10:TODO repo A context\n", 30)
+	outputB := strings.Repeat("src/a.go:10:TODO repo B context\n", 30)
+	cmdA := applyWorkdirToLayer0Command("rg -n TODO src", "/repo/a")
+	cmdB := applyWorkdirToLayer0Command("rg -n TODO src", "/repo/b")
+	if cmdA == cmdB || !strings.Contains(cmdA, "/repo/a/src") || !strings.Contains(cmdB, "/repo/b/src") {
+		t.Fatalf("repo-scoped search commands not distinct: A=%q B=%q", cmdA, cmdB)
+	}
+	if out, ok := compactProxyRepeatedToolOutput(sessionID, cmdA, outputA); ok || out != "" {
+		t.Fatalf("first repo A search should seed without collapse: ok=%v out=%q", ok, out)
+	}
+	if out, ok := compactProxyRepeatedToolOutput(sessionID, cmdB, outputB); ok || out != "" {
+		t.Fatalf("first repo B search must not reuse repo A key: ok=%v out=%q", ok, out)
+	}
+	if out, ok := compactProxyRepeatedToolOutput(sessionID, cmdB, outputB); !ok || !strings.Contains(out, "status=unchanged") || !strings.Contains(out, "/repo/b/src") {
+		t.Fatalf("second repo B search should collapse on its own key: ok=%v out=%q", ok, out)
 	}
 }
 

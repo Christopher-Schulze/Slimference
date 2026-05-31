@@ -286,8 +286,95 @@ func TestSearchOutputKeyFromCommandLine(t *testing.T) {
 	if got := SearchOutputKeyFromCommandLine(`git grep needle -- internal`); got != "git\tgrep\tneedle\t--\tinternal" {
 		t.Fatalf("git grep search key = %q", got)
 	}
+	if got := SearchOutputKeyFromCommandLine(`git -C /repo/a grep needle -- internal`); got != "git\t-C\t/repo/a\tgrep\tneedle\t--\tinternal" {
+		t.Fatalf("git -C grep search key = %q", got)
+	}
+	if got := SearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/a/internal" {
+		t.Fatalf("cd-wrapped rg search key = %q", got)
+	}
+	if got := SearchOutputKeyFromCommandLine(`cd /repo/b && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/b/internal" {
+		t.Fatalf("cd-wrapped rg cross-repo key = %q", got)
+	}
 	if got := SearchOutputKeyFromCommandLine(`go test ./...`); got != "" {
 		t.Fatalf("non-search command produced key %q", got)
+	}
+}
+
+func TestNormalizeSearchCommandLine(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		command string
+		workdir string
+		want    string
+	}{
+		{
+			name:    "workdir appended when rg has no path",
+			command: `rg -n "needle"`,
+			workdir: "/repo/a",
+			want:    `rg -n needle /repo/a`,
+		},
+		{
+			name:    "workdir resolves rg relative path",
+			command: `rg -n "needle" internal`,
+			workdir: "/repo/a",
+			want:    `rg -n needle /repo/a/internal`,
+		},
+		{
+			name:    "leading cd resolves relative path",
+			command: `cd /repo/a && rg -n "needle" internal`,
+			want:    `rg -n needle /repo/a/internal`,
+		},
+		{
+			name:    "grep recursive dot",
+			command: `grep -R "needle" .`,
+			workdir: "/repo/a",
+			want:    `grep -R needle /repo/a`,
+		},
+		{
+			name:    "rg pattern option still resolves path",
+			command: `rg -e "needle" src`,
+			workdir: "/repo/a",
+			want:    `rg -e needle /repo/a/src`,
+		},
+		{
+			name:    "git grep gets git C",
+			command: `git grep needle -- internal`,
+			workdir: "/repo/a",
+			want:    `git -C /repo/a grep needle -- internal`,
+		},
+		{
+			name:    "git C preserved",
+			command: `git -C /repo/b grep needle -- internal`,
+			workdir: "/repo/a",
+			want:    `git -C /repo/b grep needle -- internal`,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := NormalizeSearchCommandLine(tc.command, tc.workdir); got != tc.want {
+				t.Fatalf("NormalizeSearchCommandLine() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCompactCapturedOutputWithContextCDWrappedSearch(t *testing.T) {
+	t.Parallel()
+
+	var input strings.Builder
+	for i := 1; i <= 40; i++ {
+		input.WriteString(fmt.Sprintf("internal/file_%02d.go:%d:TODO repeated search context that is intentionally long\n", i%4, i))
+	}
+	out, changed := CompactCapturedOutputWithContext("", `cd /repo/a && rg -n TODO internal`, input.String(), 0, FileReadContext{Mode: "scan"})
+	if !changed {
+		t.Fatal("cd-wrapped search output should compact")
+	}
+	if !strings.Contains(string(out), "[rg] 40 match(es)") || !strings.Contains(string(out), "internal/file_") {
+		t.Fatalf("unexpected compacted search output: %s", out)
 	}
 }
 
@@ -309,6 +396,7 @@ func TestIsGrepStyleTool(t *testing.T) {
 		{[]string{"sift", "."}, true},
 		// git grep → true
 		{[]string{"git", "grep", "."}, true},
+		{[]string{"git", "-C", "/repo", "grep", "."}, true},
 		// git without grep → false
 		{[]string{"git", "log"}, false},
 		// unknown tool → false

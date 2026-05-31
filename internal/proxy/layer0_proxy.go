@@ -702,6 +702,9 @@ func applyWorkdirToLayer0Command(commandLine, workdir string) string {
 	if git := applyWorkdirToGitCommand(commandLine, workdir); git != "" {
 		return git
 	}
+	if search := filter.NormalizeSearchCommandLine(commandLine, workdir); search != "" {
+		return search
+	}
 	return commandLine
 }
 
@@ -795,6 +798,9 @@ func normalizeLeadingCDCommand(commandLine string) string {
 	}
 	if git := applyWorkdirToGitCommand(inner, workdir); git != "" {
 		return git
+	}
+	if search := filter.NormalizeSearchCommandLine(inner, workdir); search != "" {
+		return search
 	}
 	return ""
 }

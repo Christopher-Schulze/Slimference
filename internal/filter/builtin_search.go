@@ -3,6 +3,7 @@ package filter
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -193,7 +194,7 @@ func searchToolName(argv []string) string {
 	}
 	base := strings.ToLower(filepath.Base(argv[0]))
 	base = strings.TrimSuffix(base, ".exe")
-	if base == "git" && len(argv) >= 2 && argv[1] == "grep" {
+	if base == "git" && gitGrepIndex(argv) >= 0 {
 		return "git grep"
 	}
 	return base
@@ -202,11 +203,40 @@ func searchToolName(argv []string) string {
 // SearchOutputKeyFromCommandLine returns a stable key for grep-style search
 // commands whose output can be safely compared across turns.
 func SearchOutputKeyFromCommandLine(commandLine string) string {
+	if normalized := NormalizeSearchCommandLine(commandLine, ""); normalized != "" {
+		argv := primaryArgvForCapturedOutput(normalized)
+		if isGrepStyleTool(argv) {
+			return strings.Join(argv, "\t")
+		}
+	}
 	argv := primaryArgvForCapturedOutput(commandLine)
 	if !isGrepStyleTool(argv) {
 		return ""
 	}
 	return strings.Join(argv, "\t")
+}
+
+// NormalizeSearchCommandLine returns a canonical search command line that keeps
+// repository scope in the argv itself. It is used only for compaction/keying,
+// never to execute a user command.
+func NormalizeSearchCommandLine(commandLine, workdir string) string {
+	commandLine = strings.TrimSpace(commandLine)
+	workdir = cleanSearchWorkdir(workdir)
+	if cdWorkdir, inner, ok := splitLeadingCDSearch(commandLine); ok {
+		workdir = cdWorkdir
+		commandLine = inner
+	}
+	argv := primaryArgvForCapturedOutput(commandLine)
+	if !isGrepStyleTool(argv) {
+		return ""
+	}
+	if workdir == "" {
+		return ""
+	}
+	if gitGrepIndex(argv) >= 0 {
+		return joinSearchArgs(ensureGitCSearchArgv(argv, workdir))
+	}
+	return joinSearchArgs(applySearchWorkdir(argv, workdir))
 }
 
 // TryCompactRipgrep summarizes empty stdout from ripgrep (F10 partial).
@@ -374,13 +404,7 @@ func TryCompactSk(argv []string, stdout []byte) ([]byte, bool) {
 
 // TryCompactGitGrep summarizes empty stdout from `git grep` (F10 partial).
 func TryCompactGitGrep(argv []string, stdout []byte) ([]byte, bool) {
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	if strings.ToLower(filepath.Base(argv[0])) != "git" {
-		return stdout, false
-	}
-	if argv[1] != "grep" {
+	if gitGrepIndex(argv) < 0 {
 		return stdout, false
 	}
 	if strings.TrimSpace(string(stdout)) != "" {
@@ -425,7 +449,186 @@ func isGrepStyleTool(argv []string) bool {
 	case "rg", "grep", "ggrep", "ag", "ack", "ug", "ugrep", "sift":
 		return true
 	case "git":
-		return len(argv) >= 2 && argv[1] == "grep"
+		return gitGrepIndex(argv) >= 0
 	}
 	return false
+}
+
+func gitGrepIndex(argv []string) int {
+	if len(argv) < 2 || strings.ToLower(filepath.Base(argv[0])) != "git" {
+		return -1
+	}
+	for i := 1; i < len(argv); i++ {
+		arg := argv[i]
+		switch {
+		case arg == "grep":
+			return i
+		case arg == "-C", arg == "--git-dir", arg == "--work-tree", arg == "-c":
+			if i+1 < len(argv) {
+				i++
+			}
+		case strings.HasPrefix(arg, "--git-dir="), strings.HasPrefix(arg, "--work-tree="), strings.HasPrefix(arg, "-c"):
+			continue
+		case strings.HasPrefix(arg, "-"):
+			continue
+		default:
+			return -1
+		}
+	}
+	return -1
+}
+
+func ensureGitCSearchArgv(argv []string, workdir string) []string {
+	out := append([]string(nil), argv...)
+	for i := 1; i < len(out); i++ {
+		if out[i] == "-C" {
+			if i+1 < len(out) {
+				out[i+1] = cleanSearchPath(out[i+1], workdir)
+			}
+			return out
+		}
+	}
+	withC := make([]string, 0, len(out)+2)
+	withC = append(withC, out[0], "-C", workdir)
+	withC = append(withC, out[1:]...)
+	return withC
+}
+
+func applySearchWorkdir(argv []string, workdir string) []string {
+	out := append([]string(nil), argv...)
+	indexes := searchPathArgIndexes(out)
+	if len(indexes) == 0 {
+		return append(out, workdir)
+	}
+	for _, idx := range indexes {
+		out[idx] = cleanSearchPath(out[idx], workdir)
+	}
+	return out
+}
+
+func searchPathArgIndexes(argv []string) []int {
+	if len(argv) == 0 || gitGrepIndex(argv) >= 0 {
+		return nil
+	}
+	patternSeen := false
+	stopOptions := false
+	var indexes []int
+	for i := 1; i < len(argv); i++ {
+		arg := argv[i]
+		if !stopOptions && arg == "--" {
+			stopOptions = true
+			continue
+		}
+		if !stopOptions && strings.HasPrefix(arg, "-") {
+			kind := searchOptionKind(arg)
+			if kind.consumesValue && i+1 < len(argv) {
+				if kind.patternValue {
+					patternSeen = true
+				}
+				i++
+			} else if kind.patternValue {
+				patternSeen = true
+			}
+			continue
+		}
+		if !patternSeen {
+			patternSeen = true
+			continue
+		}
+		indexes = append(indexes, i)
+	}
+	return indexes
+}
+
+type searchOptionInfo struct {
+	consumesValue bool
+	patternValue  bool
+}
+
+func searchOptionKind(arg string) searchOptionInfo {
+	switch {
+	case arg == "-e" || arg == "--regexp":
+		return searchOptionInfo{consumesValue: true, patternValue: true}
+	case strings.HasPrefix(arg, "-e") && len(arg) > 2:
+		return searchOptionInfo{patternValue: true}
+	case strings.HasPrefix(arg, "--regexp="):
+		return searchOptionInfo{patternValue: true}
+	case arg == "-f" || arg == "--file":
+		return searchOptionInfo{consumesValue: true, patternValue: true}
+	case strings.HasPrefix(arg, "--file="):
+		return searchOptionInfo{patternValue: true}
+	case arg == "-g" || arg == "--glob" || arg == "-t" || arg == "--type" ||
+		arg == "-T" || arg == "--type-not" || arg == "-A" || arg == "-B" ||
+		arg == "-C" || arg == "--context" || arg == "--after-context" ||
+		arg == "--before-context" || arg == "-m" || arg == "--max-count" ||
+		arg == "-j" || arg == "--threads":
+		return searchOptionInfo{consumesValue: true}
+	case strings.HasPrefix(arg, "--glob="), strings.HasPrefix(arg, "--type="),
+		strings.HasPrefix(arg, "--type-not="), strings.HasPrefix(arg, "--context="),
+		strings.HasPrefix(arg, "--after-context="), strings.HasPrefix(arg, "--before-context="),
+		strings.HasPrefix(arg, "--max-count="), strings.HasPrefix(arg, "--threads="):
+		return searchOptionInfo{}
+	default:
+		return searchOptionInfo{}
+	}
+}
+
+func splitLeadingCDSearch(commandLine string) (workdir, inner string, ok bool) {
+	idx := strings.Index(commandLine, "&&")
+	if idx < 0 {
+		return "", "", false
+	}
+	prefix := strings.TrimSpace(commandLine[:idx])
+	rest := strings.TrimSpace(commandLine[idx+len("&&"):])
+	argv := primaryArgvForCapturedOutput(prefix)
+	if len(argv) != 2 || strings.ToLower(filepath.Base(argv[0])) != "cd" {
+		return "", "", false
+	}
+	workdir = cleanSearchWorkdir(argv[1])
+	if workdir == "" || rest == "" {
+		return "", "", false
+	}
+	return workdir, rest, true
+}
+
+func cleanSearchWorkdir(workdir string) string {
+	workdir = strings.TrimSpace(workdir)
+	if workdir == "" || !filepath.IsAbs(workdir) {
+		return ""
+	}
+	return filepath.Clean(workdir)
+}
+
+func cleanSearchPath(path, workdir string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return path
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	if path == "." {
+		return workdir
+	}
+	return filepath.Clean(filepath.Join(workdir, path))
+}
+
+func joinSearchArgs(argv []string) string {
+	parts := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		parts = append(parts, quoteSearchArg(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteSearchArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if strings.IndexFunc(arg, func(r rune) bool {
+		return r == '"' || r == '\\' || r <= ' ' || r == '\'' || r == '$' || r == '`' || r == '|' || r == '&' || r == ';'
+	}) < 0 {
+		return arg
+	}
+	return strconv.Quote(arg)
 }
