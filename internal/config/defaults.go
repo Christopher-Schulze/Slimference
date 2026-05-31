@@ -112,21 +112,22 @@ func defaultsRaw() *Config {
 				// T165/T166/T167: deterministic output-token
 				// reductions default-on. Operators can disable
 				// individually via env or TOML.
-				StopSequencesEnabled:               true,
-				StreamCutEnabled:                   true,
-				RepetitionDetectionEnabled:         true,
-				StaleReadAgingEnabled:              true,
-				StaleReadAgingMinTurnGap:           3,
-				ObsoleteReadPruneEnabled:           true,
-				BeTerseHintEnabled:                 false,
-				ArchiveRecoveryNoteEnabled:         false,
-				CodexSavingsPolicyMode:             "auto",
-				CodexChunkDedupEnabled:             false,
-				CodexChunkDedupMinBytes:            4096,
-				CodexChunkDedupMaxSessions:         256,
-				CodexChunkDedupMaxChunksPerSession: 8192,
-				CodexChunkDedupTTLSeconds:          4 * 60 * 60,
-				CodexChunkDedupMaxReferencePercent: 90,
+				StopSequencesEnabled:                      true,
+				StreamCutEnabled:                          true,
+				RepetitionDetectionEnabled:                true,
+				StaleReadAgingEnabled:                     true,
+				StaleReadAgingMinTurnGap:                  3,
+				ObsoleteReadPruneEnabled:                  true,
+				BeTerseHintEnabled:                        false,
+				ArchiveRecoveryNoteEnabled:                false,
+				CodexSavingsPolicyMode:                    "auto",
+				CodexChunkDedupEnabled:                    false,
+				CodexChunkDedupMinBytes:                   4096,
+				CodexChunkDedupMaxSessions:                256,
+				CodexChunkDedupMaxChunksPerSession:        8192,
+				CodexChunkDedupTTLSeconds:                 4 * 60 * 60,
+				CodexChunkDedupMaxReferencePercent:        90,
+				CodexChunkDedupMaxSessionReferencePercent: 70,
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,
@@ -308,6 +309,7 @@ codex_chunk_dedup_enabled = false
 	codex_chunk_dedup_max_chunks_per_session = 8192
 	codex_chunk_dedup_ttl_seconds = 14400
 	codex_chunk_dedup_max_reference_percent = 90
+	codex_chunk_dedup_max_session_reference_percent = 70
 	
 	[compression.minimax]
 # Historical section name, but the client is OpenAI-compatible:

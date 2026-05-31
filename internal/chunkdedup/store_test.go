@@ -94,6 +94,21 @@ func TestStore_FailsOpenWhenArchiveURICollides(t *testing.T) {
 	}
 }
 
+func TestStore_SessionReferenceBudgetFailsOpen(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 50}, archiveFake(nil))
+	data := genBytes(64*1024, 24)
+
+	store.Encode("s1", data)
+	result := store.EncodeWithReport("s1", data)
+	if result.Saved != 0 || result.Verified {
+		t.Fatalf("session budget should full-pass over-dense reference output: saved=%d verified=%v", result.Saved, result.Verified)
+	}
+	if !bytes.Equal(result.Data, data) {
+		t.Fatal("session budget full-pass must keep original data")
+	}
+}
+
 func TestStore_PartialOverlapDedups(t *testing.T) {
 	t.Parallel()
 	store := NewStore(Config{}, archiveFake(nil))

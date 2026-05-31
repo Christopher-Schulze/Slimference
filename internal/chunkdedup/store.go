@@ -17,12 +17,14 @@ type StoreLimits struct {
 	MaxSessions         int
 	MaxChunksPerSession int
 	TTL                 time.Duration
+	MaxSessionRefPct    int
 }
 
 const (
 	defaultMaxSessions         = 256
 	defaultMaxChunksPerSession = 8192
 	defaultTTL                 = 4 * time.Hour
+	defaultMaxSessionRefPct    = 100
 )
 
 func (l StoreLimits) normalized() StoreLimits {
@@ -34,6 +36,12 @@ func (l StoreLimits) normalized() StoreLimits {
 	}
 	if l.TTL <= 0 {
 		l.TTL = defaultTTL
+	}
+	if l.MaxSessionRefPct <= 0 {
+		l.MaxSessionRefPct = defaultMaxSessionRefPct
+	}
+	if l.MaxSessionRefPct > 100 {
+		l.MaxSessionRefPct = 100
 	}
 	return l
 }
@@ -55,6 +63,8 @@ type sessionChunks struct {
 	chunks   map[string]chunkState
 	lastSeen time.Time
 	seq      uint64
+	refBytes int
+	inBytes  int
 }
 
 type chunkState struct {
@@ -174,6 +184,9 @@ func (s *Store) EncodeWithReport(sessionID string, data []byte) EncodeResult {
 	if !changed || !bytes.Equal([]byte(decoded), data) {
 		return EncodeResult{Data: data}
 	}
+	if !s.recordReferenceBudget(sessionID, len(data), referencedBytes) {
+		return EncodeResult{Data: data}
+	}
 	return EncodeResult{
 		Data:            encoded,
 		Saved:           saved,
@@ -181,6 +194,36 @@ func (s *Store) EncodeWithReport(sessionID string, data []byte) EncodeResult {
 		ReferencedBytes: referencedBytes,
 		Verified:        true,
 	}
+}
+
+func (s *Store) recordReferenceBudget(sessionID string, inputBytes, referencedBytes int) bool {
+	if s == nil || sessionID == "" || inputBytes <= 0 || referencedBytes <= 0 {
+		return true
+	}
+	limit := s.limits.MaxSessionRefPct
+	if limit <= 0 || limit >= 100 {
+		s.mu.Lock()
+		if session := s.sessions[sessionID]; session != nil {
+			session.inBytes += inputBytes
+			session.refBytes += referencedBytes
+		}
+		s.mu.Unlock()
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session := s.sessions[sessionID]
+	if session == nil {
+		return true
+	}
+	nextInput := session.inBytes + inputBytes
+	nextRef := session.refBytes + referencedBytes
+	if nextInput > 0 && nextRef*100 > nextInput*limit {
+		return false
+	}
+	session.inBytes = nextInput
+	session.refBytes = nextRef
+	return true
 }
 
 func (s *Store) pruneExpiredLocked(now time.Time) {

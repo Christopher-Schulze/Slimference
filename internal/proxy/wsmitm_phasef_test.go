@@ -363,6 +363,7 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	var sharedBuilder strings.Builder
@@ -407,6 +408,7 @@ func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
 	cfg.Compression.OutputReduce.CodexChunkDedupMinBytes = 0
 	cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 100
+	cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = 100
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	shared := strings.Repeat("auto policy shared region keeps model context recoverable\n", 1000)

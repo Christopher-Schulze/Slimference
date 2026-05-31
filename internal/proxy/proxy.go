@@ -288,6 +288,7 @@ func New(cfg *config.Config) *Proxy {
 			MaxSessions:         cfg.Compression.OutputReduce.CodexChunkDedupMaxSessions,
 			MaxChunksPerSession: cfg.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession,
 			TTL:                 time.Duration(cfg.Compression.OutputReduce.CodexChunkDedupTTLSeconds) * time.Second,
+			MaxSessionRefPct:    cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent,
 		}, func(sessionID, chunkID string, chunk []byte) string {
 			entry, err := contentarchive.Put(archiveDir, contentarchive.Input{
 				SessionID: sessionID,

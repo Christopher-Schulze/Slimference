@@ -48,6 +48,8 @@ Chunk dedup may be always-auto only for routes/workloads where:
    - [x] add content-free chunk reference density reporting to WSS audit/admin state
    - [x] per-output reference-density cap defaults to 90% and full-passes when
      the candidate would replace too much fresh model-facing output
+   - [x] per-session accepted-reference budget defaults to 70% and full-passes
+     once cumulative chunk references would dominate the session
 4. Add recency policy:
    - deliberate re-read of same file may full-pass or provide salient summary
      plus refs, never bare refs if canary says the model is struggling
@@ -68,6 +70,7 @@ Chunk dedup may be always-auto only for routes/workloads where:
 - Re-read spike disables chunk dedup for that session.
 - Any decode mismatch fails open before model-facing context.
 - Any output above the configured reference-density threshold full-passes.
+- Any session above the configured cumulative reference-density threshold full-passes.
 - Aggressive chunking must not affect patches, final code output, or terminal
   protocol correctness.
 
