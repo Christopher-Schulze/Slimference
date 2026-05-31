@@ -1747,6 +1747,18 @@ adapter:
 - WSS streamcut is intentionally disabled until T236 proves a terminal-safe
   Codex WSS early-cut sequence. HTTP/SSE streamcut is unchanged.
 
+WSS frame-shape inspection is content-free. `wscompact.FrameSummary` records
+route, direction, opcode, payload size, JSON top-level shape, top-level field
+names, top-level field types, protocol message type, and a stable shape hash
+derived from those schema facts. `wscompact.ShapeRegistry` stores counts plus
+mutation eligibility and fallback behavior for each observed shape. Arbitrary
+JSON and non-Codex routes are inspect-only and do not mark WSS mutation
+shape-known for planner gating. Only registered Phase-F-compatible
+request/response shapes on the Codex responses route can become
+mutation-capable, and even those remain subject to route certification and live
+corpus confidence. Unknown or inspect-only shapes stay byte-equal bridge
+candidates.
+
 `/_slimference/admin/state` `.wss` reports whether the engine is active,
 whether frames are only forwarded byte-equal, whether parser degradation
 occurred, how many compressed messages were inspected/mutated/bypassed,
@@ -1862,7 +1874,8 @@ edited files. Live-corpus confidence defaults to `unknown`, can be asserted via
 `[compression.tuning] planner_live_corpus_confidence`, or derived from
 `planner_live_corpus_metadata_path` metadata. WebSocket shape confidence is fed
 by the inspect-only `wscompact.ShapeRegistry`; it records observed JSON frame
-shapes without changing bytes.
+shapes without changing bytes, and it exposes mutation confidence only for
+registered Phase-F-compatible shapes rather than arbitrary JSON envelopes.
 Layer 4 cooldown is sourced from the T141 output-reduce tracker and the T151
 tool-prune session bucket; the planner marks it as a `cheap_only`
 `quality_cooldown_soften_layer4` decision because the runtime softens Layer 4

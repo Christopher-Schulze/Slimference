@@ -18,6 +18,7 @@ const (
 )
 
 type FrameSummary struct {
+	Route        string         `json:"route,omitempty"`
 	Direction    Direction      `json:"direction"`
 	Opcode       string         `json:"opcode"`
 	Fin          bool           `json:"fin"`
@@ -27,7 +28,9 @@ type FrameSummary struct {
 	JSON         bool           `json:"json,omitempty"`
 	JSONTopLevel string         `json:"json_top_level,omitempty"`
 	JSONKeys     []string       `json:"json_keys,omitempty"`
+	JSONTypes    []string       `json:"json_types,omitempty"`
 	MessageType  string         `json:"message_type,omitempty"`
+	ShapeHash    string         `json:"shape_hash,omitempty"`
 	InspectNote  string         `json:"inspect_note,omitempty"`
 	Shadow       *ShadowSummary `json:"shadow,omitempty"`
 }
@@ -54,6 +57,19 @@ func (fn InspectorFunc) Observe(summary FrameSummary) {
 	if fn != nil {
 		fn(summary)
 	}
+}
+
+func RouteInspector(route string, inner Inspector) Inspector {
+	if inner == nil {
+		return nil
+	}
+	return InspectorFunc(func(summary FrameSummary) {
+		summary.Route = route
+		if summary.JSON {
+			summary.ShapeHash = ContentFreeShapeHash(summary)
+		}
+		inner.Observe(summary)
+	})
 }
 
 type Frame struct {
@@ -235,16 +251,40 @@ func applyJSONShape(summary *FrameSummary, payload []byte) {
 	case map[string]any:
 		summary.JSONTopLevel = "object"
 		keys := make([]string, 0, len(typed))
+		types := make([]string, 0, len(typed))
 		for key := range typed {
 			keys = append(keys, key)
+			types = append(types, key+":"+jsonShapeType(typed[key]))
 		}
 		sort.Strings(keys)
+		sort.Strings(types)
 		summary.JSONKeys = keys
+		summary.JSONTypes = types
 		summary.MessageType = firstStringField(typed, "type", "event", "method")
 	case []any:
 		summary.JSONTopLevel = "array"
 	default:
 		summary.JSONTopLevel = "scalar"
+	}
+	summary.ShapeHash = ContentFreeShapeHash(*summary)
+}
+
+func jsonShapeType(value any) string {
+	switch value.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "bool"
+	case string:
+		return "string"
+	case float64:
+		return "number"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	default:
+		return "unknown"
 	}
 }
 

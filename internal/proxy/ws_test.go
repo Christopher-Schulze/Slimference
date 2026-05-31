@@ -626,6 +626,9 @@ func TestWebSocketTunnel_ServeRawUpgradeNoFrameBridgeInspectorForwardsFrames(t *
 	for !(seenClient && seenServer) {
 		select {
 		case summary := <-summaries:
+			if summary.Route != "/backend-api/accounts/check" {
+				t.Fatalf("summary route=%q", summary.Route)
+			}
 			if summary.Direction == wscompact.DirectionClientToServer {
 				seenClient = true
 			}

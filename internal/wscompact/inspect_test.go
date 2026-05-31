@@ -137,11 +137,27 @@ func TestInspectStream_ByteForByteAndJSONShape(t *testing.T) {
 		t.Fatalf("summaries=%d", len(summaries))
 	}
 	got := summaries[0]
-	if !got.JSON || got.JSONTopLevel != "object" || got.MessageType != "responses.create" || strings.Join(got.JSONKeys, ",") != "a,method,z" {
+	if !got.JSON || got.JSONTopLevel != "object" || got.MessageType != "responses.create" || strings.Join(got.JSONKeys, ",") != "a,method,z" || strings.Join(got.JSONTypes, ",") != "a:number,method:string,z:number" || got.ShapeHash == "" {
 		t.Fatalf("summary=%+v", got)
 	}
 	if got.Shadow == nil || !got.Shadow.Eligible || got.Shadow.SavedBytes <= 0 || strings.Join(got.Shadow.AppliedLayers, ",") != "json_compact" {
 		t.Fatalf("shadow=%+v", got.Shadow)
+	}
+}
+
+func TestRouteInspector_AttachesRoute(t *testing.T) {
+	t.Parallel()
+	var got FrameSummary
+	before := ContentFreeShapeHash(FrameSummary{JSONTopLevel: "object"})
+	inspector := RouteInspector("/backend-api/codex/responses?x=1", InspectorFunc(func(summary FrameSummary) {
+		got = summary
+	}))
+	inspector.Observe(FrameSummary{JSON: true, JSONTopLevel: "object"})
+	if got.Route != "/backend-api/codex/responses?x=1" {
+		t.Fatalf("route=%q", got.Route)
+	}
+	if got.ShapeHash == "" || got.ShapeHash == before {
+		t.Fatalf("route-bound shape hash=%q before=%q", got.ShapeHash, before)
 	}
 }
 

@@ -231,14 +231,30 @@ func TestWebSocketShapeKnown_UsesRegistry(t *testing.T) {
 		t.Fatal("fresh websocket shape registry must be unknown")
 	}
 	p.webSocketShapes.Observe(wscompact.FrameSummary{
+		Route:        "/backend-api/dev",
 		Direction:    wscompact.DirectionClientToServer,
 		JSON:         true,
 		JSONTopLevel: "object",
 		JSONKeys:     []string{"type"},
+		JSONTypes:    []string{"type:string"},
 		MessageType:  "hello",
+		Opcode:       "text",
+	})
+	if p.webSocketShapeKnown() {
+		t.Fatal("inspect-only websocket JSON shape must not mark mutation shape known")
+	}
+	p.webSocketShapes.Observe(wscompact.FrameSummary{
+		Route:        "/backend-api/codex/responses",
+		Direction:    wscompact.DirectionClientToServer,
+		JSON:         true,
+		JSONTopLevel: "object",
+		JSONKeys:     []string{"request", "type"},
+		JSONTypes:    []string{"request:object", "type:string"},
+		MessageType:  "request",
+		Opcode:       "text",
 	})
 	if !p.webSocketShapeKnown() {
-		t.Fatal("observed websocket JSON shape must mark registry known")
+		t.Fatal("registered websocket Phase-F request shape must mark mutation shape known")
 	}
 }
 

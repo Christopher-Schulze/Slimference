@@ -153,7 +153,7 @@ func (t *WebSocketTunnel) ServeUpgradeWithBridge(clientConn net.Conn, r *http.Re
 				pipeBytes(clientConn, upstream)
 				return
 			}
-			pipeWebSocketBytes(clientConn, upstream, t.Inspector)
+			pipeWebSocketBytes(clientConn, upstream, r.URL.Path, t.Inspector)
 			return
 		}
 		bridgeUpstream := net.Conn(upstream)
@@ -176,7 +176,7 @@ func (t *WebSocketTunnel) ServeUpgradeWithBridge(clientConn net.Conn, r *http.Re
 		pipeBytes(clientConn, upstream)
 		return
 	}
-	pipeWebSocketBytes(clientConn, upstream, t.Inspector)
+	pipeWebSocketBytes(clientConn, upstream, r.URL.Path, t.Inspector)
 }
 
 // ServeRawUpgrade handles a WebSocket Upgrade whose HTTP header was
@@ -225,7 +225,7 @@ func (t *WebSocketTunnel) ServeRawUpgrade(ctx context.Context, clientConn net.Co
 				pipeBytes(clientConn, upstream)
 				return
 			}
-			pipeWebSocketBytes(clientConn, upstream, t.Inspector)
+			pipeWebSocketBytes(clientConn, upstream, path, t.Inspector)
 			return
 		}
 		bridgeUpstream := net.Conn(upstream)
@@ -248,7 +248,7 @@ func (t *WebSocketTunnel) ServeRawUpgrade(ctx context.Context, clientConn net.Co
 		pipeBytes(clientConn, upstream)
 		return
 	}
-	pipeWebSocketBytes(clientConn, upstream, t.Inspector)
+	pipeWebSocketBytes(clientConn, upstream, path, t.Inspector)
 }
 
 type bufferedReadConn struct {
@@ -389,7 +389,8 @@ func writeBadGateway(client net.Conn) error {
 	return err
 }
 
-func pipeWebSocketBytes(client, upstream net.Conn, inspector wscompact.Inspector) {
+func pipeWebSocketBytes(client, upstream net.Conn, route string, inspector wscompact.Inspector) {
+	inspector = wscompact.RouteInspector(route, inspector)
 	done := make(chan struct{}, 2)
 	go func() {
 		_, _ = wscompact.InspectStream(client, upstream, wscompact.DirectionServerToClient, inspector)
