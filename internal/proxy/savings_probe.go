@@ -52,6 +52,9 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 		ProxyLayer0Envelope:      int64(snap.ProxyLayer0EnvelopeBlocks),
 		ProxyLayer0Repeated:      int64(snap.ProxyLayer0RepeatedOutputBlocks),
 		ProxyLayer0ChunkDedup:    int64(snap.ProxyLayer0ChunkDedupBlocks),
+		ProxyLayer0ChunkRefs:     int64(snap.ProxyLayer0ChunkDedupReferences),
+		ProxyLayer0ChunkRefBytes: int64(snap.ProxyLayer0ChunkDedupRefBytes),
+		ProxyLayer0ChunkInBytes:  int64(snap.ProxyLayer0ChunkDedupInputBytes),
 		ProxyLayer0Routes: control.ProxyLayer0RoutesSummary{
 			HTTP:      proxyLayer0RouteSummary(snap.ProxyLayer0Routes.HTTP),
 			WSSPhaseF: proxyLayer0RouteSummary(snap.ProxyLayer0Routes.WSSPhaseF),
@@ -126,6 +129,9 @@ func proxyLayer0RouteSummary(t ProxyLayer0RouteTelemetry) control.ProxyLayer0Rou
 		EnvelopeBlocks:   int64(t.EnvelopeBlocks),
 		RepeatedBlocks:   int64(t.RepeatedOutputBlocks),
 		ChunkDedupBlocks: int64(t.ChunkDedupBlocks),
+		ChunkDedupRefs:   int64(t.ChunkDedupReferences),
+		ChunkDedupRefB:   int64(t.ChunkDedupRefBytes),
+		ChunkDedupInB:    int64(t.ChunkDedupInputBytes),
 		Cache:            proxyLayer0CacheSummary(t.Cache),
 	}
 }

@@ -52,10 +52,13 @@ const aggregateSampleAdminState = `{
     "proxy_layer0_blocks": 4,
     "proxy_layer0_read_delta_blocks": 2,
     "proxy_layer0_captured_output_blocks": 1,
-    "proxy_layer0_codex_exec_envelope_blocks": 1,
-    "proxy_layer0_repeated_output_blocks": 1,
-    "proxy_layer0_chunk_dedup_blocks": 1,
-    "proxy_layer0_routes": {
+	    "proxy_layer0_codex_exec_envelope_blocks": 1,
+	    "proxy_layer0_repeated_output_blocks": 1,
+	    "proxy_layer0_chunk_dedup_blocks": 1,
+	    "proxy_layer0_chunk_dedup_references": 4,
+	    "proxy_layer0_chunk_dedup_referenced_bytes": 8192,
+	    "proxy_layer0_chunk_dedup_input_bytes": 16384,
+	    "proxy_layer0_routes": {
       "http": {
         "tool_result_blocks": 1,
         "tool_use_unresolved_blocks": 1,
@@ -70,8 +73,11 @@ const aggregateSampleAdminState = `{
         "captured_output_blocks": 0,
         "codex_exec_envelope_blocks": 0,
         "repeated_output_blocks": 0,
-        "chunk_dedup_blocks": 0
-      },
+	        "chunk_dedup_blocks": 0,
+	        "chunk_dedup_references": 0,
+	        "chunk_dedup_referenced_bytes": 0,
+	        "chunk_dedup_input_bytes": 0
+	      },
       "wss_phasef": {
         "tool_result_blocks": 7,
         "tool_use_unresolved_blocks": 1,
@@ -86,8 +92,11 @@ const aggregateSampleAdminState = `{
         "captured_output_blocks": 1,
         "codex_exec_envelope_blocks": 1,
         "repeated_output_blocks": 1,
-        "chunk_dedup_blocks": 1
-      }
+	        "chunk_dedup_blocks": 1,
+	        "chunk_dedup_references": 4,
+	        "chunk_dedup_referenced_bytes": 8192,
+	        "chunk_dedup_input_bytes": 16384
+	      }
     },
     "proxy_layer0_policy": [
       {
@@ -175,6 +184,7 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"codex_exec_envelope:        1",
 		"repeated_output:            1",
 		"chunk_dedup:                1",
+		"chunk refs/bytes/input:     4 / 8192 / 16384",
 		"route_wss_phasef_tokens:      42000",
 		"route_wss_phasef_misses:      tool=1 command=1 read=1",
 		"route_http_tokens:            0",

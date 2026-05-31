@@ -171,6 +171,9 @@ type SavingsSummary struct {
 	ProxyLayer0Envelope      int64                    `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0Repeated      int64                    `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedup    int64                    `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkRefs     int64                    `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkRefBytes int64                    `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkInBytes  int64                    `json:"proxy_layer0_chunk_dedup_input_bytes"`
 	ProxyLayer0Routes        ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
 	ProxyLayer0Policy        []ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
 	ProxyLayer0Cache         []ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
@@ -218,6 +221,9 @@ type ProxyLayer0RouteSummary struct {
 	EnvelopeBlocks   int64                   `json:"codex_exec_envelope_blocks"`
 	RepeatedBlocks   int64                   `json:"repeated_output_blocks"`
 	ChunkDedupBlocks int64                   `json:"chunk_dedup_blocks"`
+	ChunkDedupRefs   int64                   `json:"chunk_dedup_references"`
+	ChunkDedupRefB   int64                   `json:"chunk_dedup_referenced_bytes"`
+	ChunkDedupInB    int64                   `json:"chunk_dedup_input_bytes"`
 	Cache            []ProxyLayer0CacheEntry `json:"cache,omitempty"`
 }
 

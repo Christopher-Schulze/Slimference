@@ -42,6 +42,9 @@ type aggregateWSSBlock struct {
 	ProxyLayer0Envelope       int64                            `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0Repeated       int64                            `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedup     int64                            `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkRefs      int64                            `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkRefBytes  int64                            `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkInputB    int64                            `json:"proxy_layer0_chunk_dedup_input_bytes"`
 	ProxyLayer0Routes         control.ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
 	ProxyLayer0Policy         []control.ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
 	ProxyLayer0Cache          []control.ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
@@ -324,6 +327,9 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			ProxyLayer0Envelope:       state.Savings.ProxyLayer0Envelope,
 			ProxyLayer0Repeated:       state.Savings.ProxyLayer0Repeated,
 			ProxyLayer0ChunkDedup:     state.Savings.ProxyLayer0ChunkDedup,
+			ProxyLayer0ChunkRefs:      state.Savings.ProxyLayer0ChunkRefs,
+			ProxyLayer0ChunkRefBytes:  state.Savings.ProxyLayer0ChunkRefBytes,
+			ProxyLayer0ChunkInputB:    state.Savings.ProxyLayer0ChunkInBytes,
 			ProxyLayer0Routes:         state.Savings.ProxyLayer0Routes,
 			ProxyLayer0Policy:         state.Savings.ProxyLayer0Policy,
 			ProxyLayer0Cache:          state.Savings.ProxyLayer0Cache,
@@ -434,6 +440,10 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "    codex_exec_envelope:        %d\n", report.WSS.ProxyLayer0Envelope)
 	fmt.Fprintf(w, "    repeated_output:            %d\n", report.WSS.ProxyLayer0Repeated)
 	fmt.Fprintf(w, "    chunk_dedup:                %d\n", report.WSS.ProxyLayer0ChunkDedup)
+	if report.WSS.ProxyLayer0ChunkRefs > 0 || report.WSS.ProxyLayer0ChunkRefBytes > 0 || report.WSS.ProxyLayer0ChunkInputB > 0 {
+		fmt.Fprintf(w, "    chunk refs/bytes/input:     %d / %d / %d\n",
+			report.WSS.ProxyLayer0ChunkRefs, report.WSS.ProxyLayer0ChunkRefBytes, report.WSS.ProxyLayer0ChunkInputB)
+	}
 	fmt.Fprintf(w, "  route_wss_phasef_tokens:      %d\n", report.WSS.ProxyLayer0Routes.WSSPhaseF.TokensSaved)
 	fmt.Fprintf(w, "  route_wss_phasef_misses:      tool=%d command=%d read=%d\n",
 		report.WSS.ProxyLayer0Routes.WSSPhaseF.ToolMisses,

@@ -87,6 +87,9 @@ type proxyLayer0Stats struct {
 	CodexExecEnvelopeBlocks int
 	RepeatedOutputBlocks    int
 	ChunkDedupBlocks        int
+	ChunkDedupReferences    int
+	ChunkDedupRefBytes      int
+	ChunkDedupInputBytes    int
 	ReadDeltaKeys           []string
 	PolicyDecisions         []savingspolicy.CodexMechanismDecision
 	CacheEvents             []proxyLayer0CacheEvent
@@ -100,6 +103,9 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.CodexExecEnvelopeBlocks = 0
 	s.RepeatedOutputBlocks = 0
 	s.ChunkDedupBlocks = 0
+	s.ChunkDedupReferences = 0
+	s.ChunkDedupRefBytes = 0
+	s.ChunkDedupInputBytes = 0
 	s.ReadDeltaKeys = nil
 	s.PolicyDecisions = nil
 	s.CacheEvents = nil
@@ -214,6 +220,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			afterText, changed := "", false
 			mechanism := proxyLayer0MechanismReadDelta
+			chunkReport := chunkdedup.EncodeResult{}
 			if policy.ReadDelta {
 				var cacheReason string
 				afterText, changed, cacheReason = compactProxyReadDeltaDetailed(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
@@ -234,7 +241,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if readCommand && !changed {
 				if policy.ChunkDedup {
-					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
+					afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
 				}
 				if !changed {
 					continue
@@ -276,7 +283,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			if !changed && policy.ChunkDedup {
-				afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes)
+				afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes)
 			}
 			if !changed {
 				continue
@@ -301,6 +308,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					stats.RepeatedOutputBlocks++
 				case proxyLayer0MechanismChunkDedup:
 					stats.ChunkDedupBlocks++
+					stats.ChunkDedupReferences += chunkReport.ReferenceCount
+					stats.ChunkDedupRefBytes += chunkReport.ReferencedBytes
+					stats.ChunkDedupInputBytes += len(candidateText)
 				default:
 					stats.CapturedOutputBlocks++
 				}
@@ -762,36 +772,36 @@ func compactProxyRepeatedToolOutputWithKeyDetailed(sessionID, key, commandLine, 
 	return decision.Reason, true, "block"
 }
 
-func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool, proxyLayer0Mechanism) {
+func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool, proxyLayer0Mechanism, chunkdedup.EncodeResult) {
 	if store == nil || strings.TrimSpace(sessionID) == "" || len(text) == 0 {
-		return "", false, ""
+		return "", false, "", chunkdedup.EncodeResult{}
 	}
 	if header, payload, ok := splitCodexExecEnvelope(text); ok {
-		encoded, changed := encodeProxyChunkDedup(store, sessionID, payload, minBytes)
+		encoded, changed, report := encodeProxyChunkDedup(store, sessionID, payload, minBytes)
 		if changed {
-			return header + encoded, true, proxyLayer0MechanismChunkDedup
+			return header + encoded, true, proxyLayer0MechanismChunkDedup, report
 		}
-		return "", false, ""
+		return "", false, "", chunkdedup.EncodeResult{}
 	}
-	encoded, changed := encodeProxyChunkDedup(store, sessionID, text, minBytes)
+	encoded, changed, report := encodeProxyChunkDedup(store, sessionID, text, minBytes)
 	if !changed {
-		return "", false, ""
+		return "", false, "", chunkdedup.EncodeResult{}
 	}
-	return encoded, true, proxyLayer0MechanismChunkDedup
+	return encoded, true, proxyLayer0MechanismChunkDedup, report
 }
 
-func encodeProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool) {
+func encodeProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool, chunkdedup.EncodeResult) {
 	if minBytes < 0 {
 		minBytes = 0
 	}
 	if len(text) < minBytes {
-		return "", false
+		return "", false, chunkdedup.EncodeResult{}
 	}
-	encoded, saved := store.Encode(sessionID, []byte(text))
-	if saved <= 0 || bytesEqualString(encoded, text) {
-		return "", false
+	result := store.EncodeWithReport(sessionID, []byte(text))
+	if result.Saved <= 0 || bytesEqualString(result.Data, text) {
+		return "", false, chunkdedup.EncodeResult{}
 	}
-	return string(encoded), true
+	return string(result.Data), true, result
 }
 
 func bytesEqualString(data []byte, text string) bool {

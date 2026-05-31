@@ -35,6 +35,9 @@ type wssAuditReport struct {
 	PolicySource           string                           `json:"policy_source,omitempty"`
 	Policy                 []control.ProxyLayer0PolicyEntry `json:"policy,omitempty"`
 	Cache                  []control.ProxyLayer0CacheEntry  `json:"cache,omitempty"`
+	ChunkDedupReferences   int64                            `json:"chunk_dedup_references,omitempty"`
+	ChunkDedupRefBytes     int64                            `json:"chunk_dedup_referenced_bytes,omitempty"`
+	ChunkDedupInputBytes   int64                            `json:"chunk_dedup_input_bytes,omitempty"`
 	Sessions               []wssAuditSessionSummary         `json:"sessions,omitempty"`
 	Notes                  []string                         `json:"notes,omitempty"`
 }
@@ -292,27 +295,30 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	report.GateFailures = wssAuditGateFailures(report, flags)
 	report.GatePassed = len(report.GateFailures) == 0
 	if flags.adminStateFile != "" {
-		policy, cache, err := loadWSSAuditTelemetry(flags.adminStateFile)
+		policy, cache, savings, err := loadWSSAuditTelemetry(flags.adminStateFile)
 		if err != nil {
 			return wssAuditReport{}, err
 		}
 		report.PolicySource = "file:" + flags.adminStateFile
 		report.Policy = policy
 		report.Cache = cache
+		report.ChunkDedupReferences = savings.ProxyLayer0ChunkRefs
+		report.ChunkDedupRefBytes = savings.ProxyLayer0ChunkRefBytes
+		report.ChunkDedupInputBytes = savings.ProxyLayer0ChunkInBytes
 	}
 	return report, nil
 }
 
-func loadWSSAuditTelemetry(path string) ([]control.ProxyLayer0PolicyEntry, []control.ProxyLayer0CacheEntry, error) {
+func loadWSSAuditTelemetry(path string) ([]control.ProxyLayer0PolicyEntry, []control.ProxyLayer0CacheEntry, control.SavingsSummary, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read admin state file %s: %w", path, err)
+		return nil, nil, control.SavingsSummary{}, fmt.Errorf("read admin state file %s: %w", path, err)
 	}
 	state, err := parseAdminStateJSON(data)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, control.SavingsSummary{}, err
 	}
-	return state.Savings.ProxyLayer0Policy, state.Savings.ProxyLayer0Cache, nil
+	return state.Savings.ProxyLayer0Policy, state.Savings.ProxyLayer0Cache, state.Savings, nil
 }
 
 func wssAuditRouteMode(summary dbg.RequestSummary) string {
@@ -435,6 +441,15 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 			fmt.Fprintf(w, "  %s/%s/%s %s: %d\n",
 				valueOrDash(entry.Route), entry.Mechanism, entry.Action, entry.Reason, entry.Count)
 		}
+	}
+	if report.ChunkDedupReferences > 0 || report.ChunkDedupRefBytes > 0 || report.ChunkDedupInputBytes > 0 {
+		fmt.Fprintln(w, "\nChunk dedup density:")
+		if report.PolicySource != "" {
+			fmt.Fprintf(w, "  source: %s\n", report.PolicySource)
+		}
+		fmt.Fprintf(w, "  references:              %d\n", report.ChunkDedupReferences)
+		fmt.Fprintf(w, "  referenced bytes:        %d\n", report.ChunkDedupRefBytes)
+		fmt.Fprintf(w, "  input bytes:             %d\n", report.ChunkDedupInputBytes)
 	}
 	if len(report.Sessions) > 0 {
 		fmt.Fprintln(w, "\nSessions:")

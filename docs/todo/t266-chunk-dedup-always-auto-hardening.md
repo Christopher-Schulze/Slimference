@@ -45,7 +45,7 @@ Chunk dedup may be always-auto only for routes/workloads where:
    - [x] exact local decode self-check before returning a changed stream
    - [x] fail open on archive URI collision or orphan references
    - [x] route refuses chunk refs if archive write fails
-   - add content-free chunk reference density reporting to WSS audit/admin state
+   - [x] add content-free chunk reference density reporting to WSS audit/admin state
 4. Add recency policy:
    - deliberate re-read of same file may full-pass or provide salient summary
      plus refs, never bare refs if canary says the model is struggling
@@ -65,7 +65,8 @@ Chunk dedup may be always-auto only for routes/workloads where:
 - No chunk ref without a known previous full-seen or exact archive-backed source.
 - Re-read spike disables chunk dedup for that session.
 - Any decode mismatch fails open before model-facing context; session/global
-  disable is added once chunk-density telemetry is wired.
+  disable can be driven by the chunk-density telemetry once budget thresholds are
+  enforced.
 - Aggressive chunking must not affect patches, final code output, or terminal
   protocol correctness.
 
@@ -81,7 +82,7 @@ Chunk dedup may be always-auto only for routes/workloads where:
 
 - Chunk encode/decode exactness tests.
 - Store TTL/LRU tests.
-- Integrity budget tests.
+- Integrity budget tests using the admin/audit chunk-density counters.
 - WSS replay with `--fail-on-lost`.
 - Live CLI/Desktop matrix with canary counters and no repair-loop increase.
 

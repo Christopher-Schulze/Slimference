@@ -36,6 +36,9 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		BlocksModified:       1,
 		RepeatedOutputBlocks: 1,
 		ChunkDedupBlocks:     1,
+		ChunkDedupReferences: 2,
+		ChunkDedupRefBytes:   1024,
+		ChunkDedupInputBytes: 4096,
 		CacheEvents: []proxyLayer0CacheEvent{
 			{Mechanism: "repeated_output", Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
 		},
@@ -80,6 +83,11 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	}
 	if got.ProxyLayer0ChunkDedup != 1 {
 		t.Errorf("ProxyLayer0ChunkDedup=%d want 1", got.ProxyLayer0ChunkDedup)
+	}
+	if got.ProxyLayer0ChunkRefs != 2 ||
+		got.ProxyLayer0ChunkRefBytes != 1024 ||
+		got.ProxyLayer0ChunkInBytes != 4096 {
+		t.Errorf("ProxyLayer0 chunk density mismatch: %+v", got)
 	}
 	if len(got.ProxyLayer0Cache) != 1 || got.ProxyLayer0Cache[0].Reason != "first_observation_seeded" {
 		t.Errorf("ProxyLayer0Cache mismatch: %+v", got.ProxyLayer0Cache)

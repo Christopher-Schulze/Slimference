@@ -174,7 +174,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Policy decisions:") ||
 		!strings.Contains(stdout.String(), "wss_phasef/chunk_dedup/allow recoverable_chunk_dedup: 3") ||
 		!strings.Contains(stdout.String(), "Cache decisions:") ||
-		!strings.Contains(stdout.String(), "wss_phasef/read_delta/miss first_observation_seeded: 1") {
+		!strings.Contains(stdout.String(), "wss_phasef/read_delta/miss first_observation_seeded: 1") ||
+		!strings.Contains(stdout.String(), "Chunk dedup density:") ||
+		!strings.Contains(stdout.String(), "references:              4") {
 		t.Fatalf("text output missing policy/cache details:\n%s", stdout.String())
 	}
 
@@ -195,6 +197,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if len(report.Cache) != 2 {
 		t.Fatalf("cache join missing from JSON report: %+v", report)
+	}
+	if report.ChunkDedupReferences != 4 || report.ChunkDedupRefBytes != 8192 || report.ChunkDedupInputBytes != 16384 {
+		t.Fatalf("chunk density join missing from JSON report: %+v", report)
 	}
 }
 

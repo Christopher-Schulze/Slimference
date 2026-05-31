@@ -102,6 +102,9 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 		CodexExecEnvelopeBlocks: 1,
 		RepeatedOutputBlocks:    1,
 		ChunkDedupBlocks:        1,
+		ChunkDedupReferences:    7,
+		ChunkDedupRefBytes:      4096,
+		ChunkDedupInputBytes:    8192,
 		PolicyDecisions: []savingspolicy.CodexMechanismDecision{
 			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyAllow, Reason: "recoverable_chunk_dedup"},
 			{Mechanism: savingspolicy.CodexMechanismFirstReadElision, Action: savingspolicy.CodexPolicyShadow, Reason: "capture_or_ab_proof_required", BlockReason: "capture_or_ab_proof_required"},
@@ -157,6 +160,12 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	if s.ProxyLayer0ChunkDedupBlocks != 1 {
 		t.Errorf("proxy layer0 chunk-dedup blocks=%d want 1", s.ProxyLayer0ChunkDedupBlocks)
 	}
+	if s.ProxyLayer0ChunkDedupReferences != 7 ||
+		s.ProxyLayer0ChunkDedupRefBytes != 4096 ||
+		s.ProxyLayer0ChunkDedupInputBytes != 8192 {
+		t.Errorf("proxy layer0 chunk density mismatch: refs=%d ref_bytes=%d input_bytes=%d",
+			s.ProxyLayer0ChunkDedupReferences, s.ProxyLayer0ChunkDedupRefBytes, s.ProxyLayer0ChunkDedupInputBytes)
+	}
 	if len(s.ProxyLayer0Policy) != 2 {
 		t.Fatalf("policy entries=%d want 2: %+v", len(s.ProxyLayer0Policy), s.ProxyLayer0Policy)
 	}
@@ -184,6 +193,9 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		CodexExecEnvelopeBlocks: 1,
 		RepeatedOutputBlocks:    1,
 		ChunkDedupBlocks:        1,
+		ChunkDedupReferences:    3,
+		ChunkDedupRefBytes:      2048,
+		ChunkDedupInputBytes:    4096,
 		PolicyDecisions: []savingspolicy.CodexMechanismDecision{
 			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyAllow, Reason: "recoverable_chunk_dedup"},
 		},
@@ -207,7 +219,10 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		s.ProxyLayer0Routes.WSSPhaseF.BlocksModified != 3 ||
 		s.ProxyLayer0Routes.WSSPhaseF.ReadDeltaBlocks != 2 ||
 		s.ProxyLayer0Routes.WSSPhaseF.RepeatedOutputBlocks != 1 ||
-		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupBlocks != 1 {
+		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupBlocks != 1 ||
+		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupReferences != 3 ||
+		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupRefBytes != 2048 ||
+		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupInputBytes != 4096 {
 		t.Fatalf("wss route counters mismatch: %+v", s.ProxyLayer0Routes.WSSPhaseF)
 	}
 	if s.ProxyLayer0Routes.HTTP.ToolResultBlocks != 2 ||

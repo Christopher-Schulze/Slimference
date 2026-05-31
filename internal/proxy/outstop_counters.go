@@ -23,6 +23,9 @@ type proxyLayer0RouteCounters struct {
 	envelopeBlocks        atomic.Uint64
 	repeatedOutputBlocks  atomic.Uint64
 	chunkDedupBlocks      atomic.Uint64
+	chunkDedupReferences  atomic.Uint64
+	chunkDedupRefBytes    atomic.Uint64
+	chunkDedupInputBytes  atomic.Uint64
 	cacheMu               sync.Mutex
 	cacheCounters         map[proxyLayer0CacheKey]uint64
 }
@@ -70,6 +73,15 @@ func (c *proxyLayer0RouteCounters) record(stats proxyLayer0Stats) {
 		if stats.ChunkDedupBlocks > 0 {
 			c.chunkDedupBlocks.Add(uint64(stats.ChunkDedupBlocks))
 		}
+		if stats.ChunkDedupReferences > 0 {
+			c.chunkDedupReferences.Add(uint64(stats.ChunkDedupReferences))
+		}
+		if stats.ChunkDedupRefBytes > 0 {
+			c.chunkDedupRefBytes.Add(uint64(stats.ChunkDedupRefBytes))
+		}
+		if stats.ChunkDedupInputBytes > 0 {
+			c.chunkDedupInputBytes.Add(uint64(stats.ChunkDedupInputBytes))
+		}
 	}
 	if len(stats.CacheEvents) > 0 {
 		c.recordCacheEvents(stats.Route, stats.CacheEvents)
@@ -95,6 +107,9 @@ func (c *proxyLayer0RouteCounters) snapshot() ProxyLayer0RouteTelemetry {
 		EnvelopeBlocks:        c.envelopeBlocks.Load(),
 		RepeatedOutputBlocks:  c.repeatedOutputBlocks.Load(),
 		ChunkDedupBlocks:      c.chunkDedupBlocks.Load(),
+		ChunkDedupReferences:  c.chunkDedupReferences.Load(),
+		ChunkDedupRefBytes:    c.chunkDedupRefBytes.Load(),
+		ChunkDedupInputBytes:  c.chunkDedupInputBytes.Load(),
 		Cache:                 c.snapshotCacheEvents(),
 	}
 }
@@ -149,6 +164,9 @@ type OutputReduceCounters struct {
 	proxyLayer0EnvelopeBlocks        atomic.Uint64
 	proxyLayer0RepeatedOutputBlocks  atomic.Uint64
 	proxyLayer0ChunkDedupBlocks      atomic.Uint64
+	proxyLayer0ChunkDedupReferences  atomic.Uint64
+	proxyLayer0ChunkDedupRefBytes    atomic.Uint64
+	proxyLayer0ChunkDedupInputBytes  atomic.Uint64
 	proxyLayer0HTTP                  proxyLayer0RouteCounters
 	proxyLayer0WSSPhaseF             proxyLayer0RouteCounters
 	proxyLayer0PolicyMu              sync.Mutex
@@ -250,6 +268,15 @@ func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
 		if stats.ChunkDedupBlocks > 0 {
 			c.proxyLayer0ChunkDedupBlocks.Add(uint64(stats.ChunkDedupBlocks))
 		}
+		if stats.ChunkDedupReferences > 0 {
+			c.proxyLayer0ChunkDedupReferences.Add(uint64(stats.ChunkDedupReferences))
+		}
+		if stats.ChunkDedupRefBytes > 0 {
+			c.proxyLayer0ChunkDedupRefBytes.Add(uint64(stats.ChunkDedupRefBytes))
+		}
+		if stats.ChunkDedupInputBytes > 0 {
+			c.proxyLayer0ChunkDedupInputBytes.Add(uint64(stats.ChunkDedupInputBytes))
+		}
 	}
 }
 
@@ -267,6 +294,9 @@ func proxyLayer0StatsEmpty(stats proxyLayer0Stats) bool {
 		stats.CodexExecEnvelopeBlocks == 0 &&
 		stats.RepeatedOutputBlocks == 0 &&
 		stats.ChunkDedupBlocks == 0 &&
+		stats.ChunkDedupReferences == 0 &&
+		stats.ChunkDedupRefBytes == 0 &&
+		stats.ChunkDedupInputBytes == 0 &&
 		stats.ReadDeltaBlocks == 0 &&
 		len(stats.ReadDeltaKeys) == 0 &&
 		len(stats.PolicyDecisions) == 0 &&
@@ -417,6 +447,9 @@ type OutputReduceTelemetry struct {
 	ProxyLayer0EnvelopeBlocks        uint64                     `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0RepeatedOutputBlocks  uint64                     `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedupBlocks      uint64                     `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkDedupReferences  uint64                     `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkDedupRefBytes    uint64                     `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkDedupInputBytes  uint64                     `json:"proxy_layer0_chunk_dedup_input_bytes"`
 	ProxyLayer0Routes                ProxyLayer0RoutesTelemetry `json:"proxy_layer0_routes"`
 	ProxyLayer0Policy                []ProxyLayer0PolicyEntry   `json:"proxy_layer0_policy"`
 	ProxyLayer0Cache                 []ProxyLayer0CacheEntry    `json:"proxy_layer0_cache"`
@@ -467,6 +500,9 @@ type ProxyLayer0RouteTelemetry struct {
 	EnvelopeBlocks        uint64                  `json:"codex_exec_envelope_blocks"`
 	RepeatedOutputBlocks  uint64                  `json:"repeated_output_blocks"`
 	ChunkDedupBlocks      uint64                  `json:"chunk_dedup_blocks"`
+	ChunkDedupReferences  uint64                  `json:"chunk_dedup_references"`
+	ChunkDedupRefBytes    uint64                  `json:"chunk_dedup_referenced_bytes"`
+	ChunkDedupInputBytes  uint64                  `json:"chunk_dedup_input_bytes"`
 	Cache                 []ProxyLayer0CacheEntry `json:"cache,omitempty"`
 }
 
@@ -493,6 +529,9 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 		ProxyLayer0EnvelopeBlocks:        c.proxyLayer0EnvelopeBlocks.Load(),
 		ProxyLayer0RepeatedOutputBlocks:  c.proxyLayer0RepeatedOutputBlocks.Load(),
 		ProxyLayer0ChunkDedupBlocks:      c.proxyLayer0ChunkDedupBlocks.Load(),
+		ProxyLayer0ChunkDedupReferences:  c.proxyLayer0ChunkDedupReferences.Load(),
+		ProxyLayer0ChunkDedupRefBytes:    c.proxyLayer0ChunkDedupRefBytes.Load(),
+		ProxyLayer0ChunkDedupInputBytes:  c.proxyLayer0ChunkDedupInputBytes.Load(),
 		ProxyLayer0Routes: ProxyLayer0RoutesTelemetry{
 			HTTP:      c.proxyLayer0HTTP.snapshot(),
 			WSSPhaseF: c.proxyLayer0WSSPhaseF.snapshot(),
