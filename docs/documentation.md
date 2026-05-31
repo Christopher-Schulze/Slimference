@@ -388,6 +388,17 @@ re-read) while a body-not-needed read saves ~66%, so auto-on-every-read is
 net-positive only when the re-read rate stays under 0.66. `/admin/state` savings
 exposes `proxy_layer0_scan_reads_applied` (A) and `proxy_layer0_scan_read_rereads`
 (B); B/A measured over real workloads with scan on is the auto-promotion gate.
+Real-workload capture (2026-05-31) showed Codex reads files via `sed -n '1,Np' file`
+partial reads, plus `rg`/`find`, and never `cat` - so the original `cat`-only scan
+gate could not fire on real Codex behavior (`scan_reads_applied=0` across 30 tool
+calls). `sed` was therefore added to the file-read compaction whitelist
+(`internal/filter/builtin_read.go`): Go reads over the signature threshold use the
+regex `ExtractStructure` path (handles partial/invalid Go, unlike the AST compactor)
+with the same recovery note and collapsed-key re-read recovery; edit/recently-edited
+reads full-pass. On that same real session the lossless reducers saved 36533 billable
+tokens with zero parse/compression/degraded errors, and the occasional
+`400 invalid_request` was an upstream oversized-request rejection (one `rg` returned
+42631 tokens), not a Slimference fault - Slimference compaction shrinks the request.
 
 Model-facing readcache replacements use neutral `[context-* ...]` markers and
 preserve the `local-archive://<id>` pattern without naming Slimference inside

@@ -1565,6 +1565,16 @@ only and promotes the per-process Codex CLI runner for T209.
   on real-workload B/A < 0.66. Other sub-tasks (2nd language, predictive post-edit,
   apply_patch dedup, reasoning) still queued. Commits d1fd30e,1791832,51555bb,e7773d2,
   a7ffbc4,285fb5b,0666699.
+  REAL-WORKLOAD FINDING (2026-05-31): live capture proved Codex reads via `sed -n '1,Np'`
+  (never `cat`), so the cat-only scan was structurally dead (applied=0 on 30 real calls).
+  Fixed: `sed` added to the file-read scan whitelist via the regex ExtractStructure path
+  (handles partial Go) + same recovery (commit a208abf, 1066 filter tests green). Lossless
+  reducers saved 36533 tokens on that real session with 0 drift; the 400 invalid_request is
+  upstream oversized-request, not Slimference. STILL gated (max/env). To reach the user's
+  "always-auto, no opt-in, no drawdown": promote sed/cat scan into `auto` WITH per-session
+  self-regulation (back off when re-read rate > ~0.66 break-even, using the
+  applied/rereads instrument) + aggressive rg/search-output compaction. Live-verify
+  sed-scan fires (applied>0) before auto.
   Detail: `docs/todo/t253-codex-aggressive-read-compression.md`
 - [ ] **T254** Codex server-state mirror (radical, TASK-SPLIT candidate, gated by T257/T258) —
   maintain a precise mirror of server-side conversation state from forwarded bytes along

@@ -166,6 +166,48 @@ mode), read `B/A`. If `B/A < 0.66` sustained, flip `ScanRead` into `CodexModeAut
 `internal/proxy/layer0_scan_shadow_test.go`). If `B/A >= 0.66`, keep `max`-only or scope
 scan to orient-only reads. Do not flip auto on intuition; the instrument is the gate.
 
+## Real-workload finding + sed extension (2026-05-31)
+
+Live capture of a real codebase-exploration session (30 tool calls, content-free
+command extraction) revealed how Codex actually reads: `sed -n '1,Np' file` is the
+dominant pattern (11x), plus `rg` (search) and `find`. Codex NEVER uses `cat`
+(0 calls). Because scan-mode's file-read path gated on `isFullFileCat`, scan was
+structurally unable to fire on real Codex behavior: 0/30 reads scan-eligible,
+`scan_reads_applied=0` confirmed live. scan-mode as originally built was effectively
+dead code for Codex.
+
+Meanwhile the lossless reducers performed well on the same real workload: 36533
+billable tokens saved (Codex exec-envelope etc.) with `parse_failures=0`,
+`compression_errors=0`, `degraded_sessions=0` - zero drift. The recurring
+`400 invalid_request` that interrupted long sessions is UPSTREAM and correlates with
+oversized requests (a single `rg "TODO|panic|..."` returned 42631 tokens); Slimference
+stayed clean (2 mutations that session, 0 compression errors) and its compaction
+REDUCES request size, making 400s less likely rather than more.
+
+Fix (`a208abf`): scan-mode now fires on `sed` partial reads too. `sed` was added to
+the `TryStripCommentsFileReadWithContext` command whitelist in
+`internal/filter/builtin_read.go` (previously cat/head/tail only). For Go reads >=3000
+bytes the regex `ExtractStructure` path (which, unlike the AST `codecompact`, handles
+partial/invalid Go) elides bodies to signatures with the recovery note; the proven
+collapsed-key re-read recovery applies (key includes the sed range); edit-mode /
+recently-edited / force-full reads full-pass (risk-scope). Unit-proven; 1066 filter
+tests green, no regression. Still gated by `ScanRead` (max mode / `SLIMFERENCE_SCAN_APPLY`),
+so default-off in auto.
+
+Reframe on drawdown (per the user): a re-read's TOKEN cost is NOT a drawdown - drawdown
+is comprehension loss only (dumber, worse memory, drift, hallucination). So
+lossy+recovery preserves comprehension = no drawdown, just lower net savings, which is
+acceptable. The only remaining question for AUTO is economics (net-positive savings).
+
+OPEN to reach "always-auto, safe, no opt-in":
+- Promote `sed`/`cat` scan into `auto` (currently max-only) WITH self-regulation: track
+  per-session re-read rate (the `scan_reads_applied`/`scan_read_rereads` instrument) and
+  deterministically back off scan for a session once the rate exceeds the ~0.66
+  break-even. Always-on, self-correcting, comprehension-safe by recovery.
+- Aggressive `rg`/search-output compaction (`TryCompactSearchOutput`): the 42631-token
+  rg was barely compacted; this both saves and shrinks requests (400 mitigation).
+- Live-verify `sed` scan fires on a real Codex session (`applied>0`) before auto.
+
 ## Deviations
 
 (none)
