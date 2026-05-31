@@ -33,17 +33,23 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 	}
 	fileOrder := []string{}
 	fileMatches := map[string][]matchLine{}
+	skipped, nonEmpty := 0, 0
 
 	for _, raw := range lines {
 		line := strings.TrimRight(raw, "\r")
 		if line == "" {
 			continue
 		}
-		// Try "file:linenum:content" (rg/grep -n style)
+		nonEmpty++
+		// Try "file:linenum:content" (rg/grep -n style).
 		firstColon := strings.IndexByte(line, ':')
 		if firstColon <= 0 {
-			// Not parseable as grep output; fall through.
-			return stdout, false
+			// A colon-less line is noise: a header line (e.g. rg's
+			// "Total output lines: N"), a context separator, or a line cut off
+			// by Codex's output truncation. Skip it rather than abandoning the
+			// whole grouping - a single such line must not defeat compaction.
+			skipped++
+			continue
 		}
 		filePart := line[:firstColon]
 		rest := line[firstColon+1:]
@@ -77,6 +83,14 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 	totalMatches := 0
 	for _, ms := range fileMatches {
 		totalMatches += len(ms)
+	}
+
+	// Robustness guard: only group when this really looks like grep output -
+	// at least one parsed match and noise (colon-less lines) does not dominate.
+	// This keeps a few truncation/header lines from defeating compaction while
+	// refusing to summarize an output that is not actually file:line:content.
+	if totalMatches == 0 || skipped*2 > nonEmpty {
+		return stdout, false
 	}
 
 	var sb strings.Builder
