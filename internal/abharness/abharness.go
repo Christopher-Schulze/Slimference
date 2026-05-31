@@ -9,10 +9,13 @@ package abharness
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
 )
+
+var archiveURIPattern = regexp.MustCompile(`(?:local-archive://|slim://archive/)([A-Za-z0-9_\-]+)`)
 
 // Turn holds one request's content messages before and after compression. The
 // reducer preserves block order and count, so blocks are paired by index.
@@ -31,6 +34,12 @@ const (
 	// SeverityReferenced: content was elided but the replacement carries a
 	// recovery reference (local-archive://); recoverable in principle.
 	SeverityReferenced Severity = "elided_with_reference"
+	// SeverityReferenceMissing: content was elided with an archive reference,
+	// but the replay resolver could not expand any referenced archive.
+	SeverityReferenceMissing Severity = "reference_missing"
+	// SeverityReferenceMismatch: content was elided with an archive reference,
+	// but replay expansion did not match the elided source bytes.
+	SeverityReferenceMismatch Severity = "reference_mismatch"
 	// SeverityLost: content was elided with neither a prior full copy nor a
 	// recovery reference. This is a real comprehension drawdown.
 	SeverityLost Severity = "lost"
@@ -67,7 +76,7 @@ func (r Report) Lost() int {
 	n := 0
 	for _, e := range r.Elisions {
 		switch e.Severity {
-		case SeverityLost, SeverityChanged, SeverityExtra:
+		case SeverityLost, SeverityChanged, SeverityExtra, SeverityReferenceMissing, SeverityReferenceMismatch:
 			n++
 		}
 	}
@@ -82,6 +91,16 @@ func (r Report) Saved() int { return r.BytesBefore - r.BytesAfter }
 // later collapse of the same content is recognised as recoverable rather than
 // lost.
 func Compare(turns []Turn) Report {
+	return compare(turns, nil)
+}
+
+type ArchiveResolver func(id string) ([]byte, error)
+
+func CompareWithArchiveExpansion(turns []Turn, resolve ArchiveResolver) Report {
+	return compare(turns, resolve)
+}
+
+func compare(turns []Turn, resolve ArchiveResolver) Report {
 	rep := Report{Turns: len(turns)}
 	seenFull := map[string]struct{}{}
 	for ti := range turns {
@@ -102,7 +121,7 @@ func Compare(turns []Turn) Report {
 				rep.Elisions = append(rep.Elisions, Elision{
 					Turn:     ti,
 					Block:    i,
-					Severity: classifyReplacement(bt, "", seenFull),
+					Severity: classifyReplacement(bt, "", seenFull, resolve),
 					Bytes:    len(bt),
 					Preview:  preview(bt),
 				})
@@ -116,7 +135,7 @@ func Compare(turns []Turn) Report {
 			rep.Elisions = append(rep.Elisions, Elision{
 				Turn:     ti,
 				Block:    i,
-				Severity: classifyReplacement(bt, at, seenFull),
+				Severity: classifyReplacement(bt, at, seenFull, resolve),
 				Bytes:    len(bt) - len(at),
 				Preview:  preview(bt),
 			})
@@ -155,17 +174,56 @@ func indexMaybe(s []string, i int) (string, bool) {
 	return "", false
 }
 
-func classifyReplacement(before string, after string, seenFull map[string]struct{}) Severity {
+func classifyReplacement(before string, after string, seenFull map[string]struct{}, resolve ArchiveResolver) Severity {
 	if _, ok := seenFull[hashText(before)]; ok {
 		return SeverityRecoverable
 	}
-	if strings.Contains(after, "local-archive://") {
-		return SeverityReferenced
+	ids := archiveIDs(after)
+	if len(ids) > 0 {
+		if resolve == nil {
+			return SeverityReferenced
+		}
+		resolvedAny := false
+		for _, id := range ids {
+			body, err := resolve(id)
+			if err != nil {
+				continue
+			}
+			resolvedAny = true
+			if string(body) == before {
+				return SeverityReferenced
+			}
+		}
+		if !resolvedAny {
+			return SeverityReferenceMissing
+		}
+		return SeverityReferenceMismatch
 	}
 	if len(after) < len(before) {
 		return SeverityLost
 	}
 	return SeverityChanged
+}
+
+func archiveIDs(text string) []string {
+	matches := archiveURIPattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(matches))
+	seen := map[string]struct{}{}
+	for _, match := range matches {
+		id := strings.TrimSpace(match[1])
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 func hashText(s string) string {

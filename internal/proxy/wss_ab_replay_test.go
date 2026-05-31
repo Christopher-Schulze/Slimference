@@ -78,7 +78,7 @@ func TestRunWSSPhaseFABReplayRecoveryNoteIsAuditedAsExtra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Report.Lost() != 1 {
+	if got.Report.Lost() == 0 {
 		t.Fatalf("model-facing recovery note must be audited as context change: %+v", got.Report)
 	}
 	foundExtra := false

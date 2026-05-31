@@ -9,6 +9,7 @@ import (
 
 	"github.com/slimference/slimference/internal/abharness"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -45,12 +46,12 @@ func RunWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame) (WSSABR
 		proxyUserHomeDir = oldHome
 		wssABReplayHomeMu.Unlock()
 	}()
-	return runWSSPhaseFABReplay(cfg, frames)
+	return runWSSPhaseFABReplay(cfg, frames, contentarchive.DefaultDir(home))
 }
 
 var wssABReplayHomeMu sync.Mutex
 
-func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame) (WSSABReplayResult, error) {
+func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archiveDir string) (WSSABReplayResult, error) {
 	if cfg == nil {
 		cfg = config.Defaults()
 	}
@@ -91,7 +92,10 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame) (WSSABR
 			return WSSABReplayResult{}, fmt.Errorf("frame %d has unsupported direction %q", i, frame.Direction)
 		}
 	}
-	out.Report = abharness.Compare(turns)
+	out.Report = abharness.CompareWithArchiveExpansion(turns, func(id string) ([]byte, error) {
+		_, body, err := contentarchive.Get(archiveDir, id)
+		return body, err
+	})
 	return out, nil
 }
 

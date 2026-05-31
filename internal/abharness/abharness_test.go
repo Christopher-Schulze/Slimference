@@ -104,6 +104,66 @@ func TestCompare_ReferencedElisionIsNotLost(t *testing.T) {
 	}
 }
 
+func TestCompareWithArchiveExpansion_VerifiesReferencedBytes(t *testing.T) {
+	t.Parallel()
+	content := strings.Repeat("exact archived source\n", 40)
+	rep := CompareWithArchiveExpansion([]Turn{
+		{Before: msg(content), After: msg("[context-archive uri=local-archive://good]")},
+	}, func(id string) ([]byte, error) {
+		if id != "good" {
+			t.Fatalf("unexpected archive id %q", id)
+		}
+		return []byte(content), nil
+	})
+	if rep.Lost() != 0 {
+		t.Fatalf("exact archive expansion should be recoverable: %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityReferenced {
+		t.Fatalf("want referenced severity, got %+v", rep.Elisions)
+	}
+}
+
+func TestCompareWithArchiveExpansion_FailsMissingOrMismatchedReference(t *testing.T) {
+	t.Parallel()
+	content := strings.Repeat("expected source\n", 40)
+	missing := CompareWithArchiveExpansion([]Turn{
+		{Before: msg(content), After: msg("[context-archive uri=local-archive://missing]")},
+	}, func(string) ([]byte, error) {
+		return nil, errArchiveMissing{}
+	})
+	if missing.Lost() != 1 || len(missing.Elisions) != 1 || missing.Elisions[0].Severity != SeverityReferenceMissing {
+		t.Fatalf("missing archive must be a lost issue: %+v", missing.Elisions)
+	}
+
+	mismatch := CompareWithArchiveExpansion([]Turn{
+		{Before: msg(content), After: msg("[context-archive uri=local-archive://wrong]")},
+	}, func(string) ([]byte, error) {
+		return []byte("different source"), nil
+	})
+	if mismatch.Lost() != 1 || len(mismatch.Elisions) != 1 || mismatch.Elisions[0].Severity != SeverityReferenceMismatch {
+		t.Fatalf("mismatched archive must be a lost issue: %+v", mismatch.Elisions)
+	}
+}
+
+func TestCompareWithArchiveExpansion_PriorFullWinsBeforeArchiveLookup(t *testing.T) {
+	t.Parallel()
+	content := strings.Repeat("prior full content\n", 40)
+	called := false
+	rep := CompareWithArchiveExpansion([]Turn{
+		{Before: msg(content), After: msg(content)},
+		{Before: msg(content), After: msg("[context-archive uri=local-archive://missing]")},
+	}, func(string) ([]byte, error) {
+		called = true
+		return nil, errArchiveMissing{}
+	})
+	if called {
+		t.Fatal("prior full content should not need archive lookup")
+	}
+	if rep.Lost() != 0 || len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityRecoverable {
+		t.Fatalf("prior full collapse should stay recoverable: %+v", rep.Elisions)
+	}
+}
+
 func TestCompare_BytesAndTurns(t *testing.T) {
 	t.Parallel()
 	a := strings.Repeat("a", 100)
@@ -121,3 +181,7 @@ func TestCompare_BytesAndTurns(t *testing.T) {
 		t.Fatalf("bytes after = %d", rep.BytesAfter)
 	}
 }
+
+type errArchiveMissing struct{}
+
+func (errArchiveMissing) Error() string { return "missing archive" }

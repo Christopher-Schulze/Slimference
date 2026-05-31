@@ -392,6 +392,12 @@ archive-backed source exists; the provenance comes from the readcache decision
 object, not by parsing model-facing marker text. This keeps the ledger path
 content-free and fail-closed.
 
+The offline A/B harness can replay archive-backed references with a caller
+provided archive resolver. A `local-archive://` marker is considered safe only
+when the resolver expands it to the exact elided bytes or when the same bytes
+were already sent verbatim earlier in the session; missing or mismatched archive
+expansion is counted as a lost comprehension issue.
+
 The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
 blocks, command-unresolved blocks, read-delta attempts, read-delta misses,

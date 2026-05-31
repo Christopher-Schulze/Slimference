@@ -72,8 +72,8 @@ The ledger stores deterministic capsules:
    - [x] every capsule referring to omitted content must carry archive ids
    - [x] expansion must restore exact source bytes
    - [x] missing archive means no replacement
-   - [ ] wire expansion replay into the A/B harness with real archived reducer
-     outputs
+   - [x] wire archive expansion replay into the A/B harness engine
+   - [ ] add real archived reducer-output fixtures/captures to the A/B harness
 5. [ ] Replace summary replacement with ledger insertion only behind proof:
    - default-off while shadowing
    - shadow produces ledger sidecar and compares against direct context
@@ -139,3 +139,7 @@ summary remains opt-in, not default.
   observations, so file capsules only count when the readcache has an actual
   archive-backed source and a turn provenance path instead of relying on marker
   text parsing.
+- 2026-05-31: The offline A/B harness now supports archive expansion replay.
+  Referenced elisions remain safe only if the resolver expands the archive id to
+  exact original bytes or the bytes were already sent verbatim earlier. Missing
+  or mismatched archive expansions are counted as lost comprehension issues.
