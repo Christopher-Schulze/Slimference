@@ -30,6 +30,19 @@ const (
 	proxyLayer0MechanismChunkDedup    proxyLayer0Mechanism = "chunk_dedup"
 )
 
+type proxyLayer0CacheAction string
+
+const (
+	proxyLayer0CacheHit  proxyLayer0CacheAction = "hit"
+	proxyLayer0CacheMiss proxyLayer0CacheAction = "miss"
+)
+
+type proxyLayer0CacheEvent struct {
+	Mechanism savingspolicy.CodexMechanism
+	Action    proxyLayer0CacheAction
+	Reason    string
+}
+
 type codexLayer0Route string
 
 const (
@@ -76,6 +89,7 @@ type proxyLayer0Stats struct {
 	ChunkDedupBlocks        int
 	ReadDeltaKeys           []string
 	PolicyDecisions         []savingspolicy.CodexMechanismDecision
+	CacheEvents             []proxyLayer0CacheEvent
 }
 
 func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
@@ -88,6 +102,7 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.ChunkDedupBlocks = 0
 	s.ReadDeltaKeys = nil
 	s.PolicyDecisions = nil
+	s.CacheEvents = nil
 	return s
 }
 
@@ -200,7 +215,19 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			afterText, changed := "", false
 			mechanism := proxyLayer0MechanismReadDelta
 			if policy.ReadDelta {
-				afterText, changed = compactProxyReadDelta(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
+				var cacheReason string
+				afterText, changed, cacheReason = compactProxyReadDeltaDetailed(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
+				if readDeltaAttempted {
+					action := proxyLayer0CacheMiss
+					if changed {
+						action = proxyLayer0CacheHit
+					}
+					stats.CacheEvents = append(stats.CacheEvents, proxyLayer0CacheEvent{
+						Mechanism: savingspolicy.CodexMechanismReadDelta,
+						Action:    action,
+						Reason:    cacheReason,
+					})
+				}
 				if readDeltaAttempted && !changed {
 					stats.ReadDeltaMisses++
 				}
@@ -232,7 +259,17 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateEligible = tok.CountString(candidateText) < beforeTokens
 			}
 			if !readCommand && candidateEligible && policy.RepeatedOutput {
-				if repeatedText, repeated := compactProxyRepeatedToolOutputWithKey(req.SessionID, toolKey, commandLine, candidateText); repeated {
+				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, candidateText)
+				action := proxyLayer0CacheMiss
+				if repeated {
+					action = proxyLayer0CacheHit
+				}
+				stats.CacheEvents = append(stats.CacheEvents, proxyLayer0CacheEvent{
+					Mechanism: savingspolicy.CodexMechanismRepeatedOutput,
+					Action:    action,
+					Reason:    cacheReason,
+				})
+				if repeated {
 					afterText = repeatedText
 					changed = true
 					mechanism = proxyLayer0MechanismRepeatedOut
@@ -638,13 +675,21 @@ func compactCodexExecEnvelope(commandLine, text string, ctx filter.FileReadConte
 }
 
 func compactProxyReadDelta(sessionID, turnID, commandLine, text string, ctx filter.FileReadContext, recentFullPassTurns int) (string, bool) {
+	out, ok, _ := compactProxyReadDeltaDetailed(sessionID, turnID, commandLine, text, ctx, recentFullPassTurns)
+	return out, ok
+}
+
+func compactProxyReadDeltaDetailed(sessionID, turnID, commandLine, text string, ctx filter.FileReadContext, recentFullPassTurns int) (string, bool, string) {
 	req := readRequestFromCommandLine(commandLine)
 	if req.FilePath == "" || strings.TrimSpace(sessionID) == "" {
-		return "", false
+		if req.FilePath == "" {
+			return "", false, "not_read_command"
+		}
+		return "", false, "missing_session"
 	}
 	home, err := proxyUserHomeDir()
 	if err != nil {
-		return "", false
+		return "", false, "home_error"
 	}
 	decision, err := readcache.EvaluateObserved(readcache.DefaultDir(home), readcache.Request{
 		SessionID:               sessionID,
@@ -655,9 +700,18 @@ func compactProxyReadDelta(sessionID, turnID, commandLine, text string, ctx filt
 		RecentFullPassTurnLimit: recentFullPassTurns,
 	}, text, contentarchive.DefaultDir(home), ctx.RecentlyEdited)
 	if err != nil || decision.Type != readcache.DecisionBlock || decision.Reason == "" {
-		return "", false
+		if err != nil {
+			return "", false, "readcache_error"
+		}
+		if decision.Reason != "" {
+			return "", false, decision.Reason
+		}
+		return "", false, "full_pass"
 	}
-	return decision.Reason, true
+	if decision.BlockKind != "" {
+		return decision.Reason, true, string(decision.BlockKind)
+	}
+	return decision.Reason, true, "block"
 }
 
 func readRequestFromCommandLine(commandLine string) readcache.Request {
@@ -673,12 +727,20 @@ func compactProxyRepeatedToolOutput(sessionID, commandLine, text string) (string
 }
 
 func compactProxyRepeatedToolOutputWithKey(sessionID, key, commandLine, text string) (string, bool) {
+	out, ok, _ := compactProxyRepeatedToolOutputWithKeyDetailed(sessionID, key, commandLine, text)
+	return out, ok
+}
+
+func compactProxyRepeatedToolOutputWithKeyDetailed(sessionID, key, commandLine, text string) (string, bool, string) {
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(key) == "" {
-		return "", false
+		if strings.TrimSpace(sessionID) == "" {
+			return "", false, "missing_session"
+		}
+		return "", false, "missing_key"
 	}
 	home, err := proxyUserHomeDir()
 	if err != nil {
-		return "", false
+		return "", false, "home_error"
 	}
 	decision, err := readcache.EvaluateObservedOutput(readcache.DefaultDir(home), readcache.OutputRequest{
 		SessionID:   sessionID,
@@ -686,9 +748,18 @@ func compactProxyRepeatedToolOutputWithKey(sessionID, key, commandLine, text str
 		CommandLine: commandLine,
 	}, text, contentarchive.DefaultDir(home))
 	if err != nil || decision.Type != readcache.DecisionBlock || decision.Reason == "" {
-		return "", false
+		if err != nil {
+			return "", false, "readcache_error"
+		}
+		if decision.Reason != "" {
+			return "", false, decision.Reason
+		}
+		return "", false, "full_pass"
 	}
-	return decision.Reason, true
+	if decision.BlockKind != "" {
+		return decision.Reason, true, string(decision.BlockKind)
+	}
+	return decision.Reason, true, "block"
 }
 
 func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool, proxyLayer0Mechanism) {

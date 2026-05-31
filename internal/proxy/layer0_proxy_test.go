@@ -270,6 +270,9 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 		stats.ReadDeltaMisses != 0 || stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 {
 		t.Fatalf("read-delta stats mismatch: %+v", stats)
 	}
+	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Action != proxyLayer0CacheHit || stats.CacheEvents[0].Reason != "unchanged" {
+		t.Fatalf("read-delta cache hit event mismatch: %+v", stats.CacheEvents)
+	}
 
 	changed := proxyReadMessages(strings.Repeat("line one\n", 80) + "line two\n")
 	out, saved = applyProxyLayer0WithSession(changed, "sess-read")
@@ -340,6 +343,10 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 		stats.BlocksModified != 1 || stats.RepeatedOutputBlocks != 1 ||
 		stats.ReadDeltaBlocks != 0 || stats.CapturedOutputBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 {
 		t.Fatalf("repeated-output stats mismatch: %+v", stats)
+	}
+	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Mechanism != "repeated_output" ||
+		stats.CacheEvents[0].Action != proxyLayer0CacheHit || stats.CacheEvents[0].Reason != "unchanged" {
+		t.Fatalf("repeated-output cache hit event mismatch: %+v", stats.CacheEvents)
 	}
 }
 
@@ -588,12 +595,16 @@ func TestApplyProxyLayer0ReadDeltaMissTelemetry(t *testing.T) {
 	t.Setenv("HOME", home)
 	messages := []types.Message{
 		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-1", ToolName: "Read", ToolInput: `{"path":"notes.txt"}`}}},
-		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-1", Text: "plain line\n"}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-1", Text: strings.Repeat("plain archived seed line\n", 4)}}},
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-miss", nil)
 	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.ReadDeltaAttempts != 1 ||
 		stats.ReadDeltaMisses != 1 || stats.TokensSaved != 0 || stats.ReadDeltaBlocks != 0 {
 		t.Fatalf("read-delta miss stats mismatch: %+v", stats)
+	}
+	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Action != proxyLayer0CacheMiss ||
+		stats.CacheEvents[0].Reason != "first_observation_seeded" {
+		t.Fatalf("read-delta cache miss event mismatch: %+v", stats.CacheEvents)
 	}
 }
 

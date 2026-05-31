@@ -36,6 +36,9 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		BlocksModified:       1,
 		RepeatedOutputBlocks: 1,
 		ChunkDedupBlocks:     1,
+		CacheEvents: []proxyLayer0CacheEvent{
+			{Mechanism: "repeated_output", Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
+		},
 	})
 
 	probe := &SavingsProbe{Proxy: p, USDPerMillionTokens: 6.0}
@@ -77,6 +80,9 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	}
 	if got.ProxyLayer0ChunkDedup != 1 {
 		t.Errorf("ProxyLayer0ChunkDedup=%d want 1", got.ProxyLayer0ChunkDedup)
+	}
+	if len(got.ProxyLayer0Cache) != 1 || got.ProxyLayer0Cache[0].Reason != "first_observation_seeded" {
+		t.Errorf("ProxyLayer0Cache mismatch: %+v", got.ProxyLayer0Cache)
 	}
 	// CostUSD = 2000 / 1_000_000 * 6.0 = 0.012
 	if got.CostUSD < 0.0119 || got.CostUSD > 0.0121 {

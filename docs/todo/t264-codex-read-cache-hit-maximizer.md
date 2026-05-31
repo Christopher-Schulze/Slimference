@@ -82,12 +82,21 @@ Maximize exact hits:
   `go.sum`, `Cargo.lock`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`,
   `pyproject.toml`, `poetry.lock`, and test config files. No raw file content is
   stored in the key, and oversized dependency files are skipped.
+- Read-delta and exact repeated-output now emit content-free cache decisions:
+  mechanism, hit/miss action, reason, route, and count. Reasons include first
+  seed, unchanged hit, recent-edit/full-pass, archive unavailable, missing
+  session/key, non-shorter delta, no delta, previous-content unavailable, and
+  dependency-safe repeated-output full-pass states.
+- `/admin/state`, `aggregate-savings`, and `wss-audit --admin-state-file` expose
+  the same cache decisions globally and per route, so future hit-rate work can
+  separate "not seen before" from "unsafe/not worth caching" without payload
+  capture.
 
 Remaining before this task can close:
 
-- Add explicit miss-reason diagnostics for unsafe command shapes, post-edit
-  reseed, reconnect hydration, TTL eviction, and ambiguous workdir.
 - Prove the broader command-shape matrix on real CLI/Desktop captures.
+- If live captures show unexplained cold misses, add narrower diagnostics for
+  reconnect hydration, TTL eviction, and ambiguous workdir.
 
 ## Zero product-drawdown gates
 

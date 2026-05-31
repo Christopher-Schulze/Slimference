@@ -173,6 +173,7 @@ type SavingsSummary struct {
 	ProxyLayer0ChunkDedup    int64                    `json:"proxy_layer0_chunk_dedup_blocks"`
 	ProxyLayer0Routes        ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
 	ProxyLayer0Policy        []ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
+	ProxyLayer0Cache         []ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
 	StreamcutFires           int64                    `json:"streamcut_fires"`
 	RepdetRewrites           int64                    `json:"repdet_rewrites"`
 	RepdetBytesSaved         int64                    `json:"repdet_bytes_saved"`
@@ -194,21 +195,30 @@ type ProxyLayer0PolicyEntry struct {
 	Count       int64  `json:"count"`
 }
 
+type ProxyLayer0CacheEntry struct {
+	Route     string `json:"route"`
+	Mechanism string `json:"mechanism"`
+	Action    string `json:"action"`
+	Reason    string `json:"reason"`
+	Count     int64  `json:"count"`
+}
+
 type ProxyLayer0RouteSummary struct {
-	ToolResults      int64 `json:"tool_result_blocks"`
-	ToolMisses       int64 `json:"tool_use_unresolved_blocks"`
-	Commands         int64 `json:"command_resolved_blocks"`
-	CommandMisses    int64 `json:"command_unresolved_blocks"`
-	ReadAttempts     int64 `json:"read_delta_attempts"`
-	ReadMisses       int64 `json:"read_delta_misses"`
-	RequestsModified int64 `json:"requests_modified"`
-	TokensSaved      int64 `json:"tokens_saved"`
-	BlocksModified   int64 `json:"blocks_modified"`
-	ReadDeltaBlocks  int64 `json:"read_delta_blocks"`
-	CapturedBlocks   int64 `json:"captured_output_blocks"`
-	EnvelopeBlocks   int64 `json:"codex_exec_envelope_blocks"`
-	RepeatedBlocks   int64 `json:"repeated_output_blocks"`
-	ChunkDedupBlocks int64 `json:"chunk_dedup_blocks"`
+	ToolResults      int64                   `json:"tool_result_blocks"`
+	ToolMisses       int64                   `json:"tool_use_unresolved_blocks"`
+	Commands         int64                   `json:"command_resolved_blocks"`
+	CommandMisses    int64                   `json:"command_unresolved_blocks"`
+	ReadAttempts     int64                   `json:"read_delta_attempts"`
+	ReadMisses       int64                   `json:"read_delta_misses"`
+	RequestsModified int64                   `json:"requests_modified"`
+	TokensSaved      int64                   `json:"tokens_saved"`
+	BlocksModified   int64                   `json:"blocks_modified"`
+	ReadDeltaBlocks  int64                   `json:"read_delta_blocks"`
+	CapturedBlocks   int64                   `json:"captured_output_blocks"`
+	EnvelopeBlocks   int64                   `json:"codex_exec_envelope_blocks"`
+	RepeatedBlocks   int64                   `json:"repeated_output_blocks"`
+	ChunkDedupBlocks int64                   `json:"chunk_dedup_blocks"`
+	Cache            []ProxyLayer0CacheEntry `json:"cache,omitempty"`
 }
 
 type ProxyLayer0RoutesSummary struct {

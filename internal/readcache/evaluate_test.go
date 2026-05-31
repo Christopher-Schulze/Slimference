@@ -120,6 +120,9 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 	if decision.Type != DecisionAllow {
 		t.Fatalf("first observed read should allow: %+v", decision)
 	}
+	if decision.Reason != "first_observation_seeded" {
+		t.Fatalf("first observed read reason=%q", decision.Reason)
+	}
 
 	decision, err = EvaluateObserved(dir, req, before, archiveDir, false)
 	if err != nil {
@@ -277,6 +280,9 @@ func TestEvaluateObserved_RecentFullPassTurns(t *testing.T) {
 	if decision.Type != DecisionAllow {
 		t.Fatalf("recent cross-turn read should full-pass, got %+v", decision)
 	}
+	if decision.Reason != "recent_full_pass_window" {
+		t.Fatalf("recent cross-turn reason=%q", decision.Reason)
+	}
 }
 
 func TestEvaluateObserved_RecentEditAllowsAndUpdates(t *testing.T) {
@@ -324,6 +330,9 @@ func TestEvaluateObservedOutput_ExactRepeatBlocks(t *testing.T) {
 	}
 	if decision.Type != DecisionAllow {
 		t.Fatalf("first observed output should allow: %+v", decision)
+	}
+	if decision.Reason != "first_observation_seeded" {
+		t.Fatalf("first observed output reason=%q", decision.Reason)
 	}
 
 	req.TurnID = "turn-2"

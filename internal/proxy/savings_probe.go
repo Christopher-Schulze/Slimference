@@ -57,6 +57,7 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 			WSSPhaseF: proxyLayer0RouteSummary(snap.ProxyLayer0Routes.WSSPhaseF),
 		},
 		ProxyLayer0Policy:      proxyLayer0PolicySummary(snap.ProxyLayer0Policy),
+		ProxyLayer0Cache:       proxyLayer0CacheSummary(snap.ProxyLayer0Cache),
 		StreamcutFires:         int64(snap.StreamcutFired),
 		RepdetRewrites:         int64(snap.RepdetResponsesRewritten),
 		RepdetBytesSaved:       int64(snap.RepdetBytesSaved),
@@ -70,6 +71,23 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 	}
 	if s.USDPerMillionTokens > 0 && out.InputTokensSaved > 0 {
 		out.CostUSD = float64(out.InputTokensSaved) / 1_000_000.0 * s.USDPerMillionTokens
+	}
+	return out
+}
+
+func proxyLayer0CacheSummary(entries []ProxyLayer0CacheEntry) []control.ProxyLayer0CacheEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]control.ProxyLayer0CacheEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, control.ProxyLayer0CacheEntry{
+			Route:     entry.Route,
+			Mechanism: entry.Mechanism,
+			Action:    entry.Action,
+			Reason:    entry.Reason,
+			Count:     int64(entry.Count),
+		})
 	}
 	return out
 }
@@ -108,6 +126,7 @@ func proxyLayer0RouteSummary(t ProxyLayer0RouteTelemetry) control.ProxyLayer0Rou
 		EnvelopeBlocks:   int64(t.EnvelopeBlocks),
 		RepeatedBlocks:   int64(t.RepeatedOutputBlocks),
 		ChunkDedupBlocks: int64(t.ChunkDedupBlocks),
+		Cache:            proxyLayer0CacheSummary(t.Cache),
 	}
 }
 

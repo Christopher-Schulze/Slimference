@@ -34,6 +34,7 @@ type wssAuditReport struct {
 	ContentClasses         map[string]int                   `json:"content_classes,omitempty"`
 	PolicySource           string                           `json:"policy_source,omitempty"`
 	Policy                 []control.ProxyLayer0PolicyEntry `json:"policy,omitempty"`
+	Cache                  []control.ProxyLayer0CacheEntry  `json:"cache,omitempty"`
 	Sessions               []wssAuditSessionSummary         `json:"sessions,omitempty"`
 	Notes                  []string                         `json:"notes,omitempty"`
 }
@@ -76,8 +77,8 @@ Flags:
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
 Phase-F request counts, session-key continuity, previous_response_id usage, and
 positive input-token savings. With --admin-state-file it also prints content-free
-policy counters from the matching admin snapshot. It does not inspect payload text
-or auth headers.`
+policy and cache hit/miss counters from the matching admin snapshot. It does not
+inspect payload text or auth headers.`
 
 func runWSSAudit(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSAuditFlags(args)
@@ -291,26 +292,27 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	report.GateFailures = wssAuditGateFailures(report, flags)
 	report.GatePassed = len(report.GateFailures) == 0
 	if flags.adminStateFile != "" {
-		policy, err := loadWSSAuditPolicy(flags.adminStateFile)
+		policy, cache, err := loadWSSAuditTelemetry(flags.adminStateFile)
 		if err != nil {
 			return wssAuditReport{}, err
 		}
 		report.PolicySource = "file:" + flags.adminStateFile
 		report.Policy = policy
+		report.Cache = cache
 	}
 	return report, nil
 }
 
-func loadWSSAuditPolicy(path string) ([]control.ProxyLayer0PolicyEntry, error) {
+func loadWSSAuditTelemetry(path string) ([]control.ProxyLayer0PolicyEntry, []control.ProxyLayer0CacheEntry, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read admin state file %s: %w", path, err)
+		return nil, nil, fmt.Errorf("read admin state file %s: %w", path, err)
 	}
 	state, err := parseAdminStateJSON(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return state.Savings.ProxyLayer0Policy, nil
+	return state.Savings.ProxyLayer0Policy, state.Savings.ProxyLayer0Cache, nil
 }
 
 func wssAuditRouteMode(summary dbg.RequestSummary) string {
@@ -420,6 +422,16 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 			fmt.Fprintf(w, "  source: %s\n", report.PolicySource)
 		}
 		for _, entry := range report.Policy {
+			fmt.Fprintf(w, "  %s/%s/%s %s: %d\n",
+				valueOrDash(entry.Route), entry.Mechanism, entry.Action, entry.Reason, entry.Count)
+		}
+	}
+	if len(report.Cache) > 0 {
+		fmt.Fprintln(w, "\nCache decisions:")
+		if report.PolicySource != "" {
+			fmt.Fprintf(w, "  source: %s\n", report.PolicySource)
+		}
+		for _, entry := range report.Cache {
 			fmt.Fprintf(w, "  %s/%s/%s %s: %d\n",
 				valueOrDash(entry.Route), entry.Mechanism, entry.Action, entry.Reason, entry.Count)
 		}

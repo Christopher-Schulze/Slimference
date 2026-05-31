@@ -106,6 +106,10 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyAllow, Reason: "recoverable_chunk_dedup"},
 			{Mechanism: savingspolicy.CodexMechanismFirstReadElision, Action: savingspolicy.CodexPolicyShadow, Reason: "capture_or_ab_proof_required", BlockReason: "capture_or_ab_proof_required"},
 		},
+		CacheEvents: []proxyLayer0CacheEvent{
+			{Mechanism: savingspolicy.CodexMechanismReadDelta, Action: proxyLayer0CacheHit, Reason: "unchanged"},
+			{Mechanism: savingspolicy.CodexMechanismRepeatedOutput, Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
+		},
 	})
 	c.RecordProxyLayer0(0)
 	c.RecordProxyLayer0(-1)
@@ -156,6 +160,11 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	if len(s.ProxyLayer0Policy) != 2 {
 		t.Fatalf("policy entries=%d want 2: %+v", len(s.ProxyLayer0Policy), s.ProxyLayer0Policy)
 	}
+	if len(s.ProxyLayer0Cache) != 2 ||
+		s.ProxyLayer0Cache[0].Mechanism != "read_delta" ||
+		s.ProxyLayer0Cache[1].Reason != "first_observation_seeded" {
+		t.Fatalf("cache entries mismatch: %+v", s.ProxyLayer0Cache)
+	}
 }
 
 func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
@@ -177,6 +186,9 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		ChunkDedupBlocks:        1,
 		PolicyDecisions: []savingspolicy.CodexMechanismDecision{
 			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyAllow, Reason: "recoverable_chunk_dedup"},
+		},
+		CacheEvents: []proxyLayer0CacheEvent{
+			{Mechanism: savingspolicy.CodexMechanismReadDelta, Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
 		},
 	})
 	c.RecordProxyLayer0Stats(proxyLayer0Stats{
@@ -209,6 +221,11 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		s.ProxyLayer0Policy[0].Route != "http" ||
 		s.ProxyLayer0Policy[1].Route != "wss_phasef" {
 		t.Fatalf("policy route counters mismatch: %+v", s.ProxyLayer0Policy)
+	}
+	if len(s.ProxyLayer0Routes.WSSPhaseF.Cache) != 1 ||
+		s.ProxyLayer0Routes.WSSPhaseF.Cache[0].Route != "wss_phasef" ||
+		len(s.ProxyLayer0Cache) != 1 {
+		t.Fatalf("cache route counters mismatch: route=%+v global=%+v", s.ProxyLayer0Routes.WSSPhaseF.Cache, s.ProxyLayer0Cache)
 	}
 }
 

@@ -106,6 +106,22 @@ const aggregateSampleAdminState = `{
         "count": 3
       }
     ],
+    "proxy_layer0_cache": [
+      {
+        "route": "wss_phasef",
+        "mechanism": "read_delta",
+        "action": "miss",
+        "reason": "first_observation_seeded",
+        "count": 1
+      },
+      {
+        "route": "wss_phasef",
+        "mechanism": "repeated_output",
+        "action": "hit",
+        "reason": "unchanged",
+        "count": 1
+      }
+    ],
     "repdet_rewrites": 7,
     "repdet_bytes_saved": 1024,
     "stale_read_blocks": 1,
@@ -166,6 +182,9 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"policy_decisions:",
 		"http/chunk_dedup/block http_archive_recovery_unproven: 2",
 		"wss_phasef/chunk_dedup/allow recoverable_chunk_dedup: 3",
+		"cache_decisions:",
+		"wss_phasef/read_delta/miss first_observation_seeded: 1",
+		"wss_phasef/repeated_output/hit unchanged: 1",
 		"Output-Reduce sub-layers (live counters):",
 		"output_wire_bytes_saved:       4096",
 		"request_side_bytes_reduced:    512",
@@ -231,6 +250,9 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	if len(got.WSS.ProxyLayer0Policy) != 2 || got.WSS.ProxyLayer0Policy[0].Action != "block" ||
 		got.WSS.ProxyLayer0Policy[1].Action != "allow" {
 		t.Fatalf("policy attribution mismatch: %+v", got.WSS.ProxyLayer0Policy)
+	}
+	if len(got.WSS.ProxyLayer0Cache) != 2 || got.WSS.ProxyLayer0Cache[0].Reason != "first_observation_seeded" {
+		t.Fatalf("cache attribution mismatch: %+v", got.WSS.ProxyLayer0Cache)
 	}
 	if got.OutputReduce.RepdetRewrites != 7 {
 		t.Fatalf("output_reduce.repdet_rewrites: got=%d want=7", got.OutputReduce.RepdetRewrites)

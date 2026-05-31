@@ -351,13 +351,18 @@ content-free policy counters under `proxy_layer0_policy` keyed by route,
 mechanism, action, reason, and block reason. Opportunity and miss fields make
 hit-rate visible without claiming savings. The modified-block and mechanism-hit
 fields are success counters and are only recorded with a positive token saving.
+Cache-decision counters under `proxy_layer0_cache` separately record route,
+mechanism, `hit`/`miss`, reason, and count for read-delta and exact
+repeated-output. Those reasons make cold starts, first-seed full passes,
+recent-edit bypasses, missing session/key state, non-shorter deltas, unavailable
+archives, and unchanged hits visible without raw payload capture.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually
 saved tokens before broadening mutation surfaces. `workday-savings` carries the
 same counters through start/finish deltas, and `wss-audit --admin-state-file`
-can join a matching admin snapshot to show policy decisions next to the
-decisions-log route/session audit.
+can join a matching admin snapshot to show policy and cache decisions next to
+the decisions-log route/session audit.
 Codex tool metadata preserves `workdir` / `cwd` / `working_directory` /
 `directory` when present. Relative single-file read commands are resolved
 against that absolute workdir before readcache evaluation, which improves
@@ -375,8 +380,9 @@ original object/array shape. Multi-text or otherwise ambiguous arrays fail open
 instead of being stringified.
 
 The readcache frontier is archive-backed for large observed tool reads. Full-file
-and recognized ranged outputs (`cat`, `head`, `tail`, `sed -n`) are hashed and
-stored in the local content archive while the session JSON keeps only the
+and recognized ranged outputs (`cat`, `head`, `tail`, `sed -n`, and strict
+single-file `awk` line ranges) are hashed and stored in the local content archive
+while the session JSON keeps only the
 hash/archive URI, avoiding unbounded session-state bloat. Ranged reads are keyed
 by `path+offset+limit`, so `head -n 80 x` and `sed -n 120,180p x` never collide
 with each other or with the full file. On a later same-session read, Slimference

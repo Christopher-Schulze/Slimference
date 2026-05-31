@@ -44,6 +44,7 @@ type aggregateWSSBlock struct {
 	ProxyLayer0ChunkDedup     int64                            `json:"proxy_layer0_chunk_dedup_blocks"`
 	ProxyLayer0Routes         control.ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
 	ProxyLayer0Policy         []control.ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
+	ProxyLayer0Cache          []control.ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
 	ParseFailures             int64                            `json:"parse_failures"`
 	DegradedSessions          int64                            `json:"degraded_sessions"`
 	CompressionErrors         int64                            `json:"compression_errors"`
@@ -325,6 +326,7 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			ProxyLayer0ChunkDedup:     state.Savings.ProxyLayer0ChunkDedup,
 			ProxyLayer0Routes:         state.Savings.ProxyLayer0Routes,
 			ProxyLayer0Policy:         state.Savings.ProxyLayer0Policy,
+			ProxyLayer0Cache:          state.Savings.ProxyLayer0Cache,
 			ParseFailures:             state.WSS.ParseFailures,
 			DegradedSessions:          state.WSS.DegradedSessions,
 			CompressionErrors:         state.WSS.CompressionErrors,
@@ -445,6 +447,13 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	if len(report.WSS.ProxyLayer0Policy) > 0 {
 		fmt.Fprintln(w, "  policy_decisions:")
 		for _, entry := range report.WSS.ProxyLayer0Policy {
+			fmt.Fprintf(w, "    %s/%s/%s %s: %d\n",
+				valueOrDash(entry.Route), entry.Mechanism, entry.Action, entry.Reason, entry.Count)
+		}
+	}
+	if len(report.WSS.ProxyLayer0Cache) > 0 {
+		fmt.Fprintln(w, "  cache_decisions:")
+		for _, entry := range report.WSS.ProxyLayer0Cache {
 			fmt.Fprintf(w, "    %s/%s/%s %s: %d\n",
 				valueOrDash(entry.Route), entry.Mechanism, entry.Action, entry.Reason, entry.Count)
 		}

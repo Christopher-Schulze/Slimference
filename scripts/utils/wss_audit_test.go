@@ -172,8 +172,10 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 		t.Fatalf("runWSSAudit policy text code=%d stderr=%s", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Policy decisions:") ||
-		!strings.Contains(stdout.String(), "wss_phasef/chunk_dedup/allow recoverable_chunk_dedup: 3") {
-		t.Fatalf("text output missing policy details:\n%s", stdout.String())
+		!strings.Contains(stdout.String(), "wss_phasef/chunk_dedup/allow recoverable_chunk_dedup: 3") ||
+		!strings.Contains(stdout.String(), "Cache decisions:") ||
+		!strings.Contains(stdout.String(), "wss_phasef/read_delta/miss first_observation_seeded: 1") {
+		t.Fatalf("text output missing policy/cache details:\n%s", stdout.String())
 	}
 
 	stdout.Reset()
@@ -190,6 +192,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if len(report.Policy) != 2 || report.PolicySource == "" {
 		t.Fatalf("policy join missing from JSON report: %+v", report)
+	}
+	if len(report.Cache) != 2 {
+		t.Fatalf("cache join missing from JSON report: %+v", report)
 	}
 }
 
