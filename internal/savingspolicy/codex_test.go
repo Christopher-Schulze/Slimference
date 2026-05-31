@@ -32,8 +32,8 @@ func TestDecideCodexToolOutputLoosensForContextRisk(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := DecideCodexToolOutput(tc.in)
-			if !got.Loosened || got.ChunkDedup || !got.ReadDelta || !got.RepeatedOutput {
-				t.Fatalf("context-risk signal should loosen only aggressive reducers: %+v", got)
+			if !got.Loosened || got.ChunkDedup || got.ReadDelta || got.RepeatedOutput {
+				t.Fatalf("context-risk signal should full-pass managed reducers: %+v", got)
 			}
 		})
 	}
@@ -207,6 +207,60 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			action: CodexPolicyFullPass, reason: "session_integrity_budget",
 		},
 		{
+			name: "quality spike full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, QualitySpike: true,
+			},
+			action: CodexPolicyFullPass, reason: "quality_signal_full_context",
+		},
+		{
+			name: "archive recovery loop full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, ArchiveRecoveryLoop: true,
+			},
+			action: CodexPolicyFullPass, reason: "archive_recovery_loop_full_context",
+		},
+		{
+			name: "missing tool retry full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, MissingToolRetry: true,
+			},
+			action: CodexPolicyFullPass, reason: "missing_tool_retry_full_context",
+		},
+		{
+			name: "degraded route full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, DegradedRoute: true,
+			},
+			action: CodexPolicyFullPass, reason: "degraded_route_full_context",
+		},
+		{
+			name: "host budget full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, HostBudgetExceeded: true,
+			},
+			action: CodexPolicyFullPass, reason: "host_budget_full_context",
+		},
+		{
+			name: "negative savings history full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, NegativeSavingsHistory: true,
+			},
+			action: CodexPolicyFullPass, reason: "negative_savings_full_context",
+		},
+		{
 			name: "below min bytes blocks chunk",
 			in: CodexMechanismInput{
 				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
@@ -231,6 +285,40 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			got := DecideCodexMechanism(tc.in)
 			if got.Action != tc.action || got.Reason != tc.reason || got.NeedsRecoveryNote != tc.note {
 				t.Fatalf("decision mismatch: got=%+v want action=%s reason=%s note=%v", got, tc.action, tc.reason, tc.note)
+			}
+		})
+	}
+}
+
+func TestDecideCodexToolOutputRuntimeSignalsFullPass(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*CodexToolOutputInput)
+		reason string
+	}{
+		{name: "quality spike", mutate: func(in *CodexToolOutputInput) { in.QualitySpike = true }, reason: "quality_signal_full_context"},
+		{name: "archive recovery loop", mutate: func(in *CodexToolOutputInput) { in.ArchiveRecoveryLoop = true }, reason: "archive_recovery_loop_full_context"},
+		{name: "missing tool retry", mutate: func(in *CodexToolOutputInput) { in.MissingToolRetry = true }, reason: "missing_tool_retry_full_context"},
+		{name: "degraded route", mutate: func(in *CodexToolOutputInput) { in.DegradedRoute = true }, reason: "degraded_route_full_context"},
+		{name: "host budget", mutate: func(in *CodexToolOutputInput) { in.HostBudgetExceeded = true }, reason: "host_budget_full_context"},
+		{name: "negative savings", mutate: func(in *CodexToolOutputInput) { in.NegativeSavingsHistory = true }, reason: "negative_savings_full_context"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := CodexToolOutputInput{
+				Mode:                     string(CodexModeAuto),
+				Route:                    CodexRouteWSSPhaseF,
+				ArchiveRecoveryAvailable: true,
+				OutputBytes:              9000,
+				ChunkMinBytes:            1,
+			}
+			tc.mutate(&in)
+			got := DecideCodexToolOutput(in)
+			if !got.Loosened || got.ReadDelta || got.RepeatedOutput || got.ChunkDedup || got.Reason != tc.reason {
+				t.Fatalf("runtime signal should force full-pass: got=%+v want reason=%s", got, tc.reason)
 			}
 		})
 	}

@@ -453,6 +453,10 @@ dedup becomes eligible only when archive recovery is available, the output is
 large enough, and no recency/context-risk signal asks for full text. The legacy
 `codex_chunk_dedup_enabled=true` toggle remains as an explicit override for
 conservative policy, not as the normal product path.
+Runtime demotion inputs also cover quality spikes, archive recovery loops,
+missing-tool retries, degraded routes, host-budget pressure, and negative-savings
+history. Any supplied demotion signal forces managed Codex tool-output reducers
+to full-pass and records the exact content-free reason in mechanism telemetry.
 The store is bounded by `codex_chunk_dedup_max_sessions`,
 `codex_chunk_dedup_max_chunks_per_session`, and
 `codex_chunk_dedup_ttl_seconds`; the default min block size is 4096 bytes so

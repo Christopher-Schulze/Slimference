@@ -105,6 +105,12 @@ type CodexMechanismInput struct {
 	RecentlyEdited            bool
 	PostCollapseReRead        bool
 	SessionIntegrityBudgetHit bool
+	QualitySpike              bool
+	ArchiveRecoveryLoop       bool
+	MissingToolRetry          bool
+	DegradedRoute             bool
+	HostBudgetExceeded        bool
+	NegativeSavingsHistory    bool
 }
 
 type CodexMechanismDecision struct {
@@ -127,6 +133,12 @@ type CodexToolOutputInput struct {
 	IsRead                   bool
 	RecentlyEdited           bool
 	PostCollapseReRead       bool
+	QualitySpike             bool
+	ArchiveRecoveryLoop      bool
+	MissingToolRetry         bool
+	DegradedRoute            bool
+	HostBudgetExceeded       bool
+	NegativeSavingsHistory   bool
 }
 
 type CodexToolOutputDecision struct {
@@ -182,14 +194,12 @@ func DecideCodexToolOutput(in CodexToolOutputInput) CodexToolOutputDecision {
 			Mechanisms:    toolOutputMechanismDecisions(in, mode),
 		}
 	}
-	if in.RecentlyEdited || in.PostCollapseReRead {
+	if reason, ok := toolOutputLoosenReason(in); ok {
 		decision.Loosened = true
+		decision.ReadDelta = false
+		decision.RepeatedOutput = false
 		decision.ChunkDedup = false
-		if in.RecentlyEdited {
-			decision.Reason = "recent_edit_full_context"
-		} else {
-			decision.Reason = "post_collapse_reread_full_context"
-		}
+		decision.Reason = reason
 		decision.Mechanisms = toolOutputMechanismDecisions(in, mode)
 		return decision
 	}
@@ -234,6 +244,9 @@ func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
 	if in.SessionIntegrityBudgetHit {
 		return fullPass(base, "session_integrity_budget")
 	}
+	if reason, ok := mechanismDemotionReason(in); ok {
+		return fullPass(base, reason)
+	}
 	if isFutureHighRisk(in.Mechanism) {
 		return shadow(base, "capture_or_ab_proof_required")
 	}
@@ -277,6 +290,12 @@ func chunkMechanismInput(in CodexToolOutputInput, mode CodexMode) CodexMechanism
 		MinBytes:                 in.ChunkMinBytes,
 		RecentlyEdited:           in.RecentlyEdited,
 		PostCollapseReRead:       in.PostCollapseReRead,
+		QualitySpike:             in.QualitySpike,
+		ArchiveRecoveryLoop:      in.ArchiveRecoveryLoop,
+		MissingToolRetry:         in.MissingToolRetry,
+		DegradedRoute:            in.DegradedRoute,
+		HostBudgetExceeded:       in.HostBudgetExceeded,
+		NegativeSavingsHistory:   in.NegativeSavingsHistory,
 	}
 }
 
@@ -315,6 +334,12 @@ func toolOutputMechanismDecisions(in CodexToolOutputInput, mode CodexMode) []Cod
 		MinBytes:                 in.ChunkMinBytes,
 		RecentlyEdited:           in.RecentlyEdited,
 		PostCollapseReRead:       in.PostCollapseReRead,
+		QualitySpike:             in.QualitySpike,
+		ArchiveRecoveryLoop:      in.ArchiveRecoveryLoop,
+		MissingToolRetry:         in.MissingToolRetry,
+		DegradedRoute:            in.DegradedRoute,
+		HostBudgetExceeded:       in.HostBudgetExceeded,
+		NegativeSavingsHistory:   in.NegativeSavingsHistory,
 	}
 	decisions := []CodexMechanismDecision{
 		DecideCodexMechanism(withMechanism(common, CodexMechanismReadDelta, CodexRiskLossless, CodexRecoveryExact, CodexProofLive, false)),
@@ -357,6 +382,48 @@ func isFutureHighRisk(mechanism CodexMechanism) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func toolOutputLoosenReason(in CodexToolOutputInput) (string, bool) {
+	switch {
+	case in.RecentlyEdited:
+		return "recent_edit_full_context", true
+	case in.PostCollapseReRead:
+		return "post_collapse_reread_full_context", true
+	case in.QualitySpike:
+		return "quality_signal_full_context", true
+	case in.ArchiveRecoveryLoop:
+		return "archive_recovery_loop_full_context", true
+	case in.MissingToolRetry:
+		return "missing_tool_retry_full_context", true
+	case in.DegradedRoute:
+		return "degraded_route_full_context", true
+	case in.HostBudgetExceeded:
+		return "host_budget_full_context", true
+	case in.NegativeSavingsHistory:
+		return "negative_savings_full_context", true
+	default:
+		return "", false
+	}
+}
+
+func mechanismDemotionReason(in CodexMechanismInput) (string, bool) {
+	switch {
+	case in.QualitySpike:
+		return "quality_signal_full_context", true
+	case in.ArchiveRecoveryLoop:
+		return "archive_recovery_loop_full_context", true
+	case in.MissingToolRetry:
+		return "missing_tool_retry_full_context", true
+	case in.DegradedRoute:
+		return "degraded_route_full_context", true
+	case in.HostBudgetExceeded:
+		return "host_budget_full_context", true
+	case in.NegativeSavingsHistory:
+		return "negative_savings_full_context", true
+	default:
+		return "", false
 	}
 }
 

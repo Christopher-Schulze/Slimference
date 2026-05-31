@@ -13,6 +13,14 @@ drawdowns show up.
 - A policy/planner exists and has route/mechanism counters.
 - It can block closed candidates and gate risky mechanisms.
 - The remaining value is dynamic runtime intelligence, not static feature flags.
+- Offline hardening done:
+  - Codex tool-output policy now has typed demotion inputs for quality spikes,
+    archive recovery loops, missing-tool retries, degraded routes, host-budget
+    pressure, and negative-savings history
+  - any supplied demotion signal forces a full-pass decision for managed Codex
+    tool-output reducers
+  - mechanism telemetry reports the exact demotion reason, so the product can
+    explain why savings loosened without logging content
 
 ## Product target
 
@@ -47,6 +55,9 @@ The policy engine controls the default product mode:
    - provider/model
    - workload class
    - mechanism
+   - current offline state: typed signal inputs and full-pass demotion reasons
+     exist; persistent bucket state for those signals remains live-telemetry
+     gated
 4. Add promotion rules:
    - proof gate passed
    - no quality spike
@@ -59,6 +70,10 @@ The policy engine controls the default product mode:
    - missing tool retry
    - degraded WSS tuple
    - host budget exceeded
+   - current offline state: archive recovery loop, missing tool retry, degraded
+     route, host budget exceeded, quality spike, negative-savings history,
+     recent edit, post-collapse re-read, and session integrity budget all have
+     deterministic full-pass policy outcomes
 6. Keep policy output explainable:
    - decision
    - reason
