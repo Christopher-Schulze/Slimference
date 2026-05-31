@@ -80,6 +80,7 @@ func Build(ctx context.Context, p Probes) SetupState {
 	for i := 0; i < 9; i++ {
 		<-done
 	}
+	state.HostBudget = EvaluateHostBudget(state.Daemon, state.WSS)
 	state.UpdatedAt = now()
 	return state
 }

@@ -35,6 +35,10 @@ type fakeIndistProbe struct{ s IndistState }
 
 func (f *fakeIndistProbe) ProbeIndist(ctx context.Context) IndistState { return f.s }
 
+type fakeWSSProbe struct{ s WSSState }
+
+func (f fakeWSSProbe) ProbeWSS(ctx context.Context) WSSState { return f.s }
+
 type fakeAppsProbe struct{ s []AppEntry }
 
 func (f *fakeAppsProbe) ProbeApps(ctx context.Context) []AppEntry { return f.s }
@@ -183,6 +187,62 @@ func TestSavingsSummaryProductSignalsStatusPriority(t *testing.T) {
 				t.Fatalf("Status=%q want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestEvaluateHostBudgetStatus(t *testing.T) {
+	tests := []struct {
+		name    string
+		daemon  DaemonState
+		wss     WSSState
+		want    string
+		reasons int
+	}{
+		{name: "unknown without probes", want: "unknown"},
+		{
+			name:   "ok under budget",
+			daemon: DaemonState{RSSBytes: 64 * 1024 * 1024},
+			wss:    WSSState{EngineActive: true, MutationActive: true},
+			want:   "ok",
+		},
+		{
+			name:    "rss exceeded",
+			daemon:  DaemonState{RSSBytes: DefaultHostRSSBudgetBytes + 1},
+			wss:     WSSState{EngineActive: true},
+			want:    "attention",
+			reasons: 1,
+		},
+		{
+			name: "wss errors exceeded",
+			wss: WSSState{
+				EngineActive:      true,
+				CompressionErrors: 1,
+				ParseFailures:     1,
+			},
+			want:    "attention",
+			reasons: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := EvaluateHostBudget(tt.daemon, tt.wss)
+			if got.Status != tt.want {
+				t.Fatalf("Status=%q want %q: %+v", got.Status, tt.want, got)
+			}
+			if len(got.Reasons) != tt.reasons {
+				t.Fatalf("Reasons=%v want count %d", got.Reasons, tt.reasons)
+			}
+		})
+	}
+}
+
+func TestBuildPopulatesHostBudget(t *testing.T) {
+	state := Build(context.Background(), Probes{
+		Daemon: &fakeDaemonProbe{s: DaemonState{RSSBytes: DefaultHostRSSBudgetBytes + 1}},
+		WSS:    fakeWSSProbe{s: WSSState{EngineActive: true}},
+	})
+	if !state.HostBudget.Exceeded || state.HostBudget.Status != "attention" {
+		t.Fatalf("HostBudget not populated from daemon/wss: %+v", state.HostBudget)
 	}
 }
 

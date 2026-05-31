@@ -382,6 +382,12 @@ counts, read/repeated/chunk hits, tool-resolution misses, and aggregate safety
 issues. The raw route, policy, parser, and cache counters remain available under
 the existing debug fields, but product surfaces should prefer this rollup instead
 of inventing their own mixed headline.
+`/admin/state.host_budget` is the product resource guard. It reports `ok`,
+`unknown`, or `attention`, the daemon RSS value when known, the 200 MiB default
+RSS budget, WSS compression/parse/degrade health, mutation activity, and
+content-free reason codes. Policy demotion uses the same concept through the
+`HostBudgetExceeded` input: if the host budget trips, managed Codex reducers
+full-pass instead of making Codex slower or less reliable.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually

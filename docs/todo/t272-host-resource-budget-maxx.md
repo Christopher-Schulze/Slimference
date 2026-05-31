@@ -12,6 +12,10 @@ sets hard budgets and auto-degradation rules.
 - The dominant latency is upstream model inference, but local overhead still
   matters in WSS frame parsing, permessage-deflate, archive writes, readcache,
   chunking, JSON parsing, and TUI/admin polling.
+- `/admin/state` now includes `host_budget`, a content-free product guard that
+  reports `ok`, `unknown`, or `attention` from the daemon RSS field and WSS
+  parse/degrade/compression state. This is the offline contract that runtime
+  policy can consume through `HostBudgetExceeded`.
 - Some performance tasks exist, but a single product budget across mechanisms is
   needed.
 
@@ -39,12 +43,13 @@ Initial targets for Apple Silicon macOS:
 
 ## Technical work packages
 
-1. Add host-budget telemetry:
-   - process RSS
-   - CPU estimate
-   - per-mechanism latency histogram
-   - disk write counters
-   - state sizes
+1. [~] Add host-budget telemetry:
+   - [x] product `host_budget` status in `/admin/state`
+   - [~] process RSS source alignment
+   - [ ] CPU estimate
+   - [ ] per-mechanism latency histogram
+   - [ ] disk write counters
+   - [ ] state sizes
 2. Add pprof/benchmark ceremony:
    - real CLI session
    - real Desktop session

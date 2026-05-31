@@ -31,6 +31,7 @@ type SetupState struct {
 	CodexRoute   CodexRouteState `json:"codex_route"`
 	Savings      SavingsSummary  `json:"savings"`
 	WSS          WSSState        `json:"wss"`
+	HostBudget   HostBudgetState `json:"host_budget"`
 	Preflight    PreflightState  `json:"preflight"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 	LastError    string          `json:"last_error,omitempty"`
@@ -325,6 +326,50 @@ type WSSState struct {
 	PhaseFMutations              int64 `json:"phasef_mutations"`
 	MutationActive               bool  `json:"mutation_active"`
 	ByteBridgeOnly               bool  `json:"byte_bridge_only"`
+}
+
+const DefaultHostRSSBudgetBytes int64 = 200 * 1024 * 1024
+
+type HostBudgetState struct {
+	Status         string   `json:"status"`
+	Exceeded       bool     `json:"exceeded"`
+	RSSBytes       int64    `json:"rss_bytes"`
+	RSSLimitBytes  int64    `json:"rss_limit_bytes"`
+	Reasons        []string `json:"reasons,omitempty"`
+	CompressionOK  bool     `json:"compression_ok"`
+	DegradationOK  bool     `json:"degradation_ok"`
+	MutationActive bool     `json:"mutation_active"`
+}
+
+func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
+	state := HostBudgetState{
+		Status:         "ok",
+		RSSBytes:       daemon.RSSBytes,
+		RSSLimitBytes:  DefaultHostRSSBudgetBytes,
+		CompressionOK:  wss.CompressionErrors == 0,
+		DegradationOK:  wss.ParseFailures == 0 && wss.DegradedSessions == 0,
+		MutationActive: wss.MutationActive,
+	}
+	if daemon.RSSBytes <= 0 && !wss.EngineActive {
+		state.Status = "unknown"
+		return state
+	}
+	if daemon.RSSBytes > DefaultHostRSSBudgetBytes {
+		state.Exceeded = true
+		state.Reasons = append(state.Reasons, "rss_budget_exceeded")
+	}
+	if !state.CompressionOK {
+		state.Exceeded = true
+		state.Reasons = append(state.Reasons, "wss_compression_errors")
+	}
+	if !state.DegradationOK {
+		state.Exceeded = true
+		state.Reasons = append(state.Reasons, "wss_parse_or_degrade")
+	}
+	if state.Exceeded {
+		state.Status = "attention"
+	}
+	return state
 }
 
 // Probes is the dependency surface Build() uses. Every method must be

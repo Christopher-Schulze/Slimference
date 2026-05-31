@@ -1942,9 +1942,10 @@ be called complete, default-safe, and production-grade.
   now exposes the content-free `savings.product` rollup for user-facing status;
   TUI cleanup, provider-cache alignment, and live-corpus proof gates remain.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
-- [ ] **T272** Host resource and latency budget max-out - prove the full stack
-  stays lightweight on Apple Silicon and auto-degrades before CPU, memory, disk,
-  or latency becomes a product drawdown. Detail:
+- [~] **T272** Host resource and latency budget max-out - `/admin/state` now
+  exposes a product `host_budget` guard and policy has a demotion input; RSS
+  source alignment, CPU/latency/disk/state telemetry, and live resource proof
+  remain. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria
