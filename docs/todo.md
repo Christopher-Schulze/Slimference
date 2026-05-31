@@ -1573,8 +1573,15 @@ only and promotes the per-process Codex CLI runner for T209.
   upstream oversized-request, not Slimference. STILL gated (max/env). To reach the user's
   "always-auto, no opt-in, no drawdown": promote sed/cat scan into `auto` WITH per-session
   self-regulation (back off when re-read rate > ~0.66 break-even, using the
-  applied/rereads instrument) + aggressive rg/search-output compaction. Live-verify
-  sed-scan fires (applied>0) before auto.
+  applied/rereads instrument) + aggressive rg/search-output compaction.
+  SELF-REGULATION BUILT (commit f892460): per-session A/B key sets persisted reconnect-safe,
+  `scanSelfRegBlock()` suppresses scan once |A|>=6 and |B|/|A|>=0.5, wired via
+  `ScanReadSelfRegBlock`; comprehension always safe via recovery. AUTO STILL BLOCKED by a new
+  finding: scan-compacting the first read cannibalizes the lossless read-delta/chunk seeding
+  (repeat reads go ~134% vs ~100%), degrading the proven 36533-token lossless win - real
+  regression, multiple WSS tests broke. So scan STAYS max-only; auto needs a scan<->lossless
+  interaction design first (self-reg is ready for that day). Better next lever: aggressive
+  rg/search-output compaction (no first-read-seeding conflict, also 400 mitigation).
   Detail: `docs/todo/t253-codex-aggressive-read-compression.md`
 - [ ] **T254** Codex server-state mirror (radical, TASK-SPLIT candidate, gated by T257/T258) —
   maintain a precise mirror of server-side conversation state from forwarded bytes along

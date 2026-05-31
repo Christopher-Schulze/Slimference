@@ -399,6 +399,17 @@ reads full-pass. On that same real session the lossless reducers saved 36533 bil
 tokens with zero parse/compression/degraded errors, and the occasional
 `400 invalid_request` was an upstream oversized-request rejection (one `rg` returned
 42631 tokens), not a Slimference fault - Slimference compaction shrinks the request.
+Scan-mode also has per-session self-regulation: the adapter persists the set of
+scan-elided read keys (A) and the subset the model re-read (B) across reconnects
+(`toolusecache.ScanReadKeysDir` / `ScanRereadKeysDir`) and suppresses scan via
+`codexLayer0Request.ScanReadSelfRegBlock` once `|A|>=6` and `|B|/|A|>=0.5` (below the
+~0.66 token break-even), so scan never runs net-negative for a session; comprehension
+stays safe via recovery regardless. Scan remains `max`-only and is NOT promoted to
+`auto`: scan-compacting a first read cannibalizes the lossless read-delta/chunk-dedup
+seeding (a later repeat read would full-pass via recovery instead of deduping against
+the full first read), which is net-negative on repeat-read workloads. Auto promotion is
+therefore gated on a scan-versus-lossless interaction design, not merely the re-read
+economics. The lossless reducers already deliver always-on, zero-drawdown savings.
 
 Model-facing readcache replacements use neutral `[context-* ...]` markers and
 preserve the `local-archive://<id>` pattern without naming Slimference inside
