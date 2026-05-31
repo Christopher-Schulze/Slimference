@@ -62,6 +62,17 @@ type chunkState struct {
 	seq      uint64
 }
 
+// EncodeResult describes a chunk-dedup attempt without exposing content. Data is
+// the byte stream that should be sent upstream; if Saved is zero it is the
+// original input.
+type EncodeResult struct {
+	Data            []byte
+	Saved           int
+	ReferenceCount  int
+	ReferencedBytes int
+	Verified        bool
+}
+
 // NewStore returns a chunk-dedup store. When archive is nil or returns an empty
 // URI, Encode fails open and keeps repeated chunks verbatim so it never emits an
 // unrecoverable reference.
@@ -88,8 +99,16 @@ func NewStoreWithLimits(cfg Config, limits StoreLimits, archive ArchiveFunc) *St
 // net saving is possible the original data is returned with 0; the dedup state
 // is still updated because the model received the full data.
 func (s *Store) Encode(sessionID string, data []byte) ([]byte, int) {
+	result := s.EncodeWithReport(sessionID, data)
+	return result.Data, result.Saved
+}
+
+// EncodeWithReport is Encode plus content-free metadata for tests and callers
+// that need to audit chunk-reference density. Any non-verifiable reference set
+// fails open to the original input.
+func (s *Store) EncodeWithReport(sessionID string, data []byte) EncodeResult {
 	if s == nil || sessionID == "" || len(data) == 0 {
-		return data, 0
+		return EncodeResult{Data: data}
 	}
 	chunks := Chunk(data, s.cfg)
 	ids := make([]string, len(chunks))
@@ -121,6 +140,9 @@ func (s *Store) Encode(sessionID string, data []byte) ([]byte, int) {
 	var out bytes.Buffer
 	out.Grow(len(data))
 	saved := 0
+	referenceCount := 0
+	referencedBytes := 0
+	expansions := map[string][]byte{}
 	for i, c := range chunks {
 		if repeated[i] {
 			if s.archive != nil {
@@ -130,6 +152,9 @@ func (s *Store) Encode(sessionID string, data []byte) ([]byte, int) {
 					if len(ref) < len(c) {
 						out.WriteString(ref)
 						saved += len(c) - len(ref)
+						referenceCount++
+						referencedBytes += len(c)
+						expansions[uri] = append([]byte(nil), c...)
 						continue
 					}
 				}
@@ -139,9 +164,23 @@ func (s *Store) Encode(sessionID string, data []byte) ([]byte, int) {
 	}
 
 	if saved <= 0 {
-		return data, 0
+		return EncodeResult{Data: data}
 	}
-	return out.Bytes(), saved
+	encoded := out.Bytes()
+	decoded, changed := DecodeReferences(string(encoded), func(uri string) ([]byte, bool) {
+		chunk, ok := expansions[uri]
+		return chunk, ok
+	})
+	if !changed || !bytes.Equal([]byte(decoded), data) {
+		return EncodeResult{Data: data}
+	}
+	return EncodeResult{
+		Data:            encoded,
+		Saved:           saved,
+		ReferenceCount:  referenceCount,
+		ReferencedBytes: referencedBytes,
+		Verified:        true,
+	}
 }
 
 func (s *Store) pruneExpiredLocked(now time.Time) {

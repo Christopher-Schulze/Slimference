@@ -2,6 +2,7 @@ package chunkdedup
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,6 +41,56 @@ func TestStore_RepeatSendDedups(t *testing.T) {
 	}
 	if len(archived) == 0 {
 		t.Fatal("referenced chunks must be archived for recovery")
+	}
+}
+
+func TestStore_EncodeWithReportVerifiesReferences(t *testing.T) {
+	t.Parallel()
+	archived := map[string][]byte{}
+	store := NewStore(Config{}, archiveFake(archived))
+	data := genBytes(64*1024, 22)
+
+	first := store.EncodeWithReport("s1", data)
+	if first.Saved != 0 || first.Verified {
+		t.Fatalf("first send should only seed state: saved=%d verified=%v", first.Saved, first.Verified)
+	}
+	second := store.EncodeWithReport("s1", data)
+	if second.Saved <= 0 {
+		t.Fatalf("second send should save, saved=%d", second.Saved)
+	}
+	if !second.Verified {
+		t.Fatal("changed chunk-dedup output must be locally verified")
+	}
+	if second.ReferenceCount <= 0 || second.ReferencedBytes <= 0 {
+		t.Fatalf("expected reference report, count=%d bytes=%d", second.ReferenceCount, second.ReferencedBytes)
+	}
+	decoded, changed := DecodeReferences(string(second.Data), func(uri string) ([]byte, bool) {
+		const prefix = "local-archive://"
+		if !strings.HasPrefix(uri, prefix) {
+			return nil, false
+		}
+		chunk, ok := archived[strings.TrimPrefix(uri, prefix)]
+		return chunk, ok
+	})
+	if !changed || decoded != string(data) {
+		t.Fatalf("verified references should expand to original content changed=%v", changed)
+	}
+}
+
+func TestStore_FailsOpenWhenArchiveURICollides(t *testing.T) {
+	t.Parallel()
+	store := NewStore(Config{}, func(_, _ string, _ []byte) string {
+		return "local-archive://same"
+	})
+	data := genBytes(64*1024, 23)
+
+	store.Encode("s1", data)
+	result := store.EncodeWithReport("s1", data)
+	if result.Saved != 0 || result.Verified {
+		t.Fatalf("unverifiable colliding archive URIs must fail open: saved=%d verified=%v", result.Saved, result.Verified)
+	}
+	if !bytes.Equal(result.Data, data) {
+		t.Fatal("unverifiable colliding archive URIs must pass through original data")
 	}
 }
 

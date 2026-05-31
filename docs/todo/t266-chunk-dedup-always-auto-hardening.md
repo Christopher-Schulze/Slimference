@@ -13,6 +13,9 @@ make chunk dedup automatic without product drawdowns.
 - FastCDC chunking and a bounded session chunk store exist.
 - WSS route attribution and replay proof exist.
 - Chunk references are recoverable where archive support is available.
+- Chunk encode now has local self-verification: a changed reference stream must
+  decode back to the exact original bytes before it can be returned. Archive URI
+  collisions or orphan references fail open to the original output.
 - It is not enough to prove one matching workload. Default-auto needs broad
   proof and runtime self-protection.
 
@@ -38,10 +41,11 @@ Chunk dedup may be always-auto only for routes/workloads where:
    - per-output maximum reference density
    - automatic full-pass when budget is exceeded
 3. Strengthen recovery:
-   - archive id for every referenced chunk group
-   - exact decode tests
-   - no orphan references
-   - route refuses chunk refs if archive write fails
+   - [x] archive id for every referenced chunk group
+   - [x] exact local decode self-check before returning a changed stream
+   - [x] fail open on archive URI collision or orphan references
+   - [x] route refuses chunk refs if archive write fails
+   - add content-free chunk reference density reporting to WSS audit/admin state
 4. Add recency policy:
    - deliberate re-read of same file may full-pass or provide salient summary
      plus refs, never bare refs if canary says the model is struggling
@@ -60,7 +64,8 @@ Chunk dedup may be always-auto only for routes/workloads where:
 - No unresolved reference can enter model-facing context.
 - No chunk ref without a known previous full-seen or exact archive-backed source.
 - Re-read spike disables chunk dedup for that session.
-- Any decode mismatch disables chunk dedup globally until repaired.
+- Any decode mismatch fails open before model-facing context; session/global
+  disable is added once chunk-density telemetry is wired.
 - Aggressive chunking must not affect patches, final code output, or terminal
   protocol correctness.
 
