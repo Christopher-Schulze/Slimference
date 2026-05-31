@@ -68,6 +68,7 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 		},
 		ProxyLayer0Policy:      proxyLayer0PolicySummary(snap.ProxyLayer0Policy),
 		ProxyLayer0Cache:       proxyLayer0CacheSummary(snap.ProxyLayer0Cache),
+		ProxyLayer0Latency:     proxyLayer0LatencySummary(snap.ProxyLayer0Latency),
 		StreamcutFires:         int64(snap.StreamcutFired),
 		RepdetRewrites:         int64(snap.RepdetResponsesRewritten),
 		RepdetBytesSaved:       int64(snap.RepdetBytesSaved),
@@ -83,6 +84,26 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 		out.CostUSD = float64(out.InputTokensSaved) / 1_000_000.0 * s.USDPerMillionTokens
 	}
 	out.Product = out.ProductSignals()
+	return out
+}
+
+func proxyLayer0LatencySummary(entries []ProxyLayer0LatencyEntry) []control.ProxyLayer0LatencyEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]control.ProxyLayer0LatencyEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, control.ProxyLayer0LatencyEntry{
+			Route:      entry.Route,
+			Mechanism:  entry.Mechanism,
+			Count:      entry.Count,
+			P50Ms:      entry.P50Ms,
+			P95Ms:      entry.P95Ms,
+			MaxMs:      entry.MaxMs,
+			AvgMs:      entry.AvgMs,
+			SampleSize: entry.SampleSize,
+		})
+	}
 	return out
 }
 

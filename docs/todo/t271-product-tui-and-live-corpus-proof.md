@@ -60,14 +60,21 @@ Debug/audit view:
    - provider-cache read/create tokens now flow through `/admin/state.savings`
      into the product panel as a separate savings class, not mixed into local
      Layer-0 input savings
-4. [ ] Define live-corpus promotion gates:
-   - minimum CLI captures
-   - minimum Desktop captures
-   - required workload classes
-   - zero lost context
-   - zero parse/degrade/compression errors
-   - no canary spikes
-   - positive net savings after overhead
+4. [x] Define live-corpus promotion gates:
+   - `benchmark-corpus --promotion-check` is the release/default-on gate, kept
+     separate from the normal synthetic CI corpus gate
+   - requires at least five `codex_cli` sessions and five `codex_desktop`
+     sessions
+   - requires live workload classes: `repeat_read`, `ranged_read`,
+     `search_loop`, `git_status`, `test_failure`, `apply_patch_edit_read`,
+     `large_tool_output`, and `long_workday`
+   - ignores synthetic categories for promotion
+   - every real category must carry `client_family`, `workload_class`,
+     `evidence_level=live_operator`, explicit zero error budget, explicit
+     re-read canary budget, explicit latency budget, and a positive savings
+     floor
+   - category failures are promoted into the release verdict, so positive
+     savings cannot mask parse/degrade/error/canary regressions
 5. [ ] Add release proof ceremony:
    - start clean
    - launch CLI and Desktop through product path
@@ -101,3 +108,11 @@ Debug/audit view:
 The TUI is done when a normal user can see whether Slimference is saving, why it
 is not saving, and whether it is safe, without reading debug counters. The proof
 gate is done when default promotions require live corpus evidence.
+
+## Progress
+
+- 2026-05-31: Added the opt-in live-corpus promotion gate to
+  `benchmark-corpus`. The normal corpus gate remains CI-friendly for synthetic
+  smoke data, while `--promotion-check` fails closed unless real CLI/Desktop
+  sessions cover the required workload classes and each category declares
+  explicit safety, latency, re-read, and savings expectations.

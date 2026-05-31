@@ -50,6 +50,8 @@ const sampleErrorLatencyRecord = `{"req_id":"req_error","provider":"openai","mod
 
 const sampleWebSocketRecord = `{"req_id":"req_ws","provider":"openai","model":"gpt-5","route_mode":"websocket","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":700,"final":650,"saved":350},"output_reduce":{"applied":true}}` + "\n"
 
+const sampleReReadRecord = `{"req_id":"req_reread","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"re_read_count":2}` + "\n"
+
 func TestLoadCategoryMetadata_Missing(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -190,6 +192,25 @@ func TestEvaluateCategory_EvidenceMetricsAndGates(t *testing.T) {
 	}
 	if combo := res.LayerCombinations["L0+L1+L3+L4"]; combo.Requests != 1 || combo.OutputTokens != 77 {
 		t.Fatalf("layer combinations: %+v", res.LayerCombinations)
+	}
+}
+
+func TestEvaluateCategory_ReReadGateFailure(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := writeCategory(t, root, "reread", CategoryMetadata{
+		Category:               "reread",
+		ExpectedReReadCountMax: 1,
+	}, []string{sampleReReadRecord})
+	res, err := EvaluateCategory(dir, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if res.ReReadCount != 2 {
+		t.Fatalf("reread count = %d, want 2", res.ReReadCount)
+	}
+	if len(res.Failures) == 0 || !strings.Contains(res.Failures[0], "reread_count=2") {
+		t.Fatalf("expected reread failure, got %v", res.Failures)
 	}
 }
 
@@ -429,6 +450,125 @@ func TestEvaluateCorpus_TracksSyntheticVsReal(t *testing.T) {
 	}
 }
 
+func promotionMeta(category, client, workload string) CategoryMetadata {
+	return CategoryMetadata{
+		Category:                category,
+		EvidenceLevel:           "live_operator",
+		ClientFamily:            client,
+		WorkloadClass:           workload,
+		ExpectedSavingsMin:      0.10,
+		ExpectedSavingsMax:      0.90,
+		ExpectedRequestCount:    1,
+		ExpectedMaxErrors:       0,
+		ExpectedLatencyP95MaxMs: 1000,
+		ExpectedReReadCountMax:  0,
+		ScenarioValidators:      []string{"tool_heavy", "low_error"},
+	}
+}
+
+func writePromotionCorpus(t *testing.T, root string) {
+	t.Helper()
+	workloads := []string{
+		"repeat_read",
+		"ranged_read",
+		"search_loop",
+		"git_status",
+		"test_failure",
+		"apply_patch_edit_read",
+		"large_tool_output",
+		"long_workday",
+		"repeat_read",
+		"search_loop",
+	}
+	for i, workload := range workloads {
+		client := "codex_cli"
+		if i >= 5 {
+			client = "codex_desktop"
+		}
+		name := client + "_" + workload + "_" + itoa(i)
+		dir := writeCategory(t, root, name, promotionMeta(name, client, workload), []string{sampleHighSavingsRecord})
+		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+	}
+}
+
+func forceMetadataNumber(t *testing.T, path, key string, value int) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read metadata: %v", err)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	meta[key] = value
+	rewritten, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		t.Fatalf("encode metadata: %v", err)
+	}
+	if err := os.WriteFile(path, rewritten, 0o644); err != nil {
+		t.Fatalf("write metadata: %v", err)
+	}
+}
+
+func TestEvaluatePromotionGate_Pass(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writePromotionCorpus(t, root)
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	gate := EvaluatePromotionGate(report)
+	if !gate.Passed {
+		t.Fatalf("expected promotion pass, got %+v", gate)
+	}
+	if gate.SessionsByClient["codex_cli"] != 5 || gate.SessionsByClient["codex_desktop"] != 5 {
+		t.Fatalf("client counts: %+v", gate.SessionsByClient)
+	}
+}
+
+func TestEvaluatePromotionGate_FailsSyntheticOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "syn", CategoryMetadata{Category: "syn", Synthetic: true, ExpectedSavingsMin: 0.30}, []string{sampleHighSavingsRecord})
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	gate := EvaluatePromotionGate(report)
+	got := strings.Join(gate.Failures, "\n")
+	for _, want := range []string{"no real live_operator categories", "client codex_cli", "client codex_desktop", "missing workload_class repeat_read"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures: %+v", want, gate)
+		}
+	}
+}
+
+func TestEvaluatePromotionGate_FailsIncompleteRealMetadata(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "real_incomplete", CategoryMetadata{
+		Category:           "real_incomplete",
+		EvidenceLevel:      "manual_note",
+		ClientFamily:       "codex_cli",
+		WorkloadClass:      "repeat_read",
+		ExpectedSavingsMin: 0.10,
+	}, []string{sampleHighSavingsRecord})
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	gate := EvaluatePromotionGate(report)
+	got := strings.Join(gate.Failures, "\n")
+	for _, want := range []string{"evidence_level", "expected_max_errors", "expected_reread_count_max", "expected_latency_p95_max_ms"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures: %+v", want, gate)
+		}
+	}
+}
+
 func TestFormatCorpusReport_RendersCategoriesAndPolicyHint(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -481,6 +621,24 @@ func TestFormatCorpusReport_GateFailRendered(t *testing.T) {
 	s := FormatCorpusReport(report)
 	if !strings.Contains(s, "FAIL") || !strings.Contains(s, "savings_ratio") {
 		t.Fatalf("expected FAIL+ratio in render, got %q", s)
+	}
+}
+
+func TestFormatCorpusReport_RendersPromotionGate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writePromotionCorpus(t, root)
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	gate := EvaluatePromotionGate(report)
+	report.PromotionGate = &gate
+	s := FormatCorpusReport(report)
+	for _, want := range []string{"Promotion gate", "gate:         PASS", "codex_cli=5", "long_workday=1"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in report:\n%s", want, s)
+		}
 	}
 }
 
@@ -638,6 +796,16 @@ func TestRunBenchmarkCorpus_RunsJSON(t *testing.T) {
 	rc := runBenchmarkCorpus([]string{root, "--json"})
 	if rc != 0 {
 		t.Fatalf("expected exit 0, got %d", rc)
+	}
+}
+
+func TestRunBenchmarkCorpus_PromotionCheckFailsSyntheticOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "ok", CategoryMetadata{Category: "ok", ExpectedSavingsMin: 0.30, Synthetic: true}, []string{sampleHighSavingsRecord})
+	rc := runBenchmarkCorpus([]string{root, "--promotion-check"})
+	if rc != 1 {
+		t.Fatalf("expected promotion failure on synthetic-only corpus, got %d", rc)
 	}
 }
 

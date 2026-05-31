@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/contentarchive"
@@ -100,6 +101,18 @@ type proxyLayer0Stats struct {
 	ReadDeltaKeys           []string
 	PolicyDecisions         []savingspolicy.CodexMechanismDecision
 	CacheEvents             []proxyLayer0CacheEvent
+	TotalLatencyNs          int64
+	ReadDeltaLatencyNs      int64
+	FilterLatencyNs         int64
+	RepeatedOutputLatencyNs int64
+	ChunkDedupLatencyNs     int64
+}
+
+func (s proxyLayer0Stats) finish(start time.Time) proxyLayer0Stats {
+	if !start.IsZero() {
+		s.TotalLatencyNs += time.Since(start).Nanoseconds()
+	}
+	return s
 }
 
 func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
@@ -272,6 +285,7 @@ func (p *Proxy) codexHTTPChunkDedupSettings() (*chunkdedup.Store, bool, int, int
 }
 
 func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
+	started := time.Now()
 	toolUses := proxyToolUseIndex(req.Messages)
 	for id, use := range req.RememberedToolUse {
 		if _, ok := toolUses[id]; !ok {
@@ -339,7 +353,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			chunkAllowed := chunkDedupAllowedForCommand(commandLine, readCommand)
 			if policy.ReadDelta {
 				var cacheReason string
+				latencyStart := time.Now()
 				afterText, changed, cacheReason = compactProxyReadDeltaDetailed(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
+				stats.ReadDeltaLatencyNs += time.Since(latencyStart).Nanoseconds()
 				if readDeltaAttempted {
 					action := proxyLayer0CacheMiss
 					if changed {
@@ -357,14 +373,18 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if readCommand && !changed {
 				if policy.ChunkDedup && chunkAllowed {
+					latencyStart := time.Now()
 					afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes, req.ChunkDedupMaxRefPct)
+					stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 				}
 				if !changed {
 					continue
 				}
 			}
 			if !changed {
+				latencyStart := time.Now()
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
+				stats.FilterLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			if changed && req.Route == codexLayer0RouteWSSPhaseF &&
 				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
@@ -382,7 +402,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateEligible = tok.CountString(candidateText) < beforeTokens
 			}
 			if !readCommand && candidateEligible && policy.RepeatedOutput {
+				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, candidateText)
+				stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()
 				action := proxyLayer0CacheMiss
 				if repeated {
 					action = proxyLayer0CacheHit
@@ -399,7 +421,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			if !changed && policy.ChunkDedup && chunkAllowed {
+				latencyStart := time.Now()
 				afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes, req.ChunkDedupMaxRefPct)
+				stats.ChunkDedupLatencyNs += time.Since(latencyStart).Nanoseconds()
 			}
 			if !changed {
 				continue
@@ -435,9 +459,9 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 	}
 
 	if out == nil {
-		return codexLayer0Result{Messages: req.Messages, Stats: stats}
+		return codexLayer0Result{Messages: req.Messages, Stats: stats.finish(started)}
 	}
-	return codexLayer0Result{Messages: out, Stats: stats}
+	return codexLayer0Result{Messages: out, Stats: stats.finish(started)}
 }
 
 func proxyEditedPathsFromMessages(messages []types.Message, rememberedToolUses map[string]types.ContentBlock) []string {

@@ -28,6 +28,8 @@ type CategoryMetadata struct {
 	Description                     string   `json:"description"`
 	Synthetic                       bool     `json:"synthetic"`
 	EvidenceLevel                   string   `json:"evidence_level"`
+	ClientFamily                    string   `json:"client_family,omitempty"`
+	WorkloadClass                   string   `json:"workload_class,omitempty"`
 	Language                        string   `json:"language"`
 	ToolMix                         string   `json:"tool_mix"`
 	ExpectedSavingsMin              float64  `json:"expected_savings_min"`
@@ -38,10 +40,15 @@ type CategoryMetadata struct {
 	ExpectedLatencyP95MaxMs         float64  `json:"expected_latency_p95_max_ms,omitempty"`
 	ExpectedProviderCacheReadMin    int64    `json:"expected_provider_cache_read_min,omitempty"`
 	ExpectedOutputReduceAppliedMin  int      `json:"expected_output_reduce_applied_min,omitempty"`
+	ExpectedReReadCountMax          int      `json:"expected_reread_count_max,omitempty"`
 	ExpectedPlannerMissedMax        int      `json:"expected_planner_missed_max,omitempty"`
 	ExpectedPlannerBypassAppliedMax int      `json:"expected_planner_bypass_applied_max,omitempty"`
 	ScenarioValidators              []string `json:"scenario_validators,omitempty"`
 	Notes                           string   `json:"notes"`
+
+	expectedMaxErrorsSet      bool
+	expectedReReadCountMaxSet bool
+	expectedLatencyP95MaxSet  bool
 }
 
 // CategoryResult is the per-category outcome of one gate evaluation.
@@ -63,11 +70,14 @@ type CategoryResult struct {
 	ProviderCachedTokens      int64                                `json:"provider_cached_tokens"`
 	OutputReduceApplied       int                                  `json:"output_reduce_applied"`
 	ErrorCount                int                                  `json:"error_count"`
+	ReReadCount               int                                  `json:"reread_count"`
 	LatencyP95Ms              float64                              `json:"latency_p95_ms"`
 	PlanReplay                planReplayAggregate                  `json:"plan_replay"`
 	LayerCombinations         map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
 	EvidenceLevel             string                               `json:"evidence_level"`
 	Synthetic                 bool                                 `json:"synthetic"`
+	ClientFamily              string                               `json:"client_family,omitempty"`
+	WorkloadClass             string                               `json:"workload_class,omitempty"`
 	Failures                  []string                             `json:"failures,omitempty"`
 	GateConfigured            bool                                 `json:"gate_configured"`
 	Metadata                  *CategoryMetadata                    `json:"metadata,omitempty"`
@@ -75,12 +85,27 @@ type CategoryResult struct {
 
 // CorpusReport is the aggregate of all categories.
 type CorpusReport struct {
-	Root          string           `json:"root"`
-	Categories    []CategoryResult `json:"categories"`
-	TotalRequests int              `json:"total_requests"`
-	OverallRatio  float64          `json:"overall_savings_ratio"`
-	HasSynthetic  bool             `json:"has_synthetic"`
-	HasReal       bool             `json:"has_real"`
+	Root               string               `json:"root"`
+	Categories         []CategoryResult     `json:"categories"`
+	TotalRequests      int                  `json:"total_requests"`
+	OverallRatio       float64              `json:"overall_savings_ratio"`
+	HasSynthetic       bool                 `json:"has_synthetic"`
+	HasReal            bool                 `json:"has_real"`
+	PromotionGate      *PromotionGateReport `json:"promotion_gate,omitempty"`
+	SessionsByClient   map[string]int       `json:"sessions_by_client,omitempty"`
+	SessionsByWorkload map[string]int       `json:"sessions_by_workload,omitempty"`
+}
+
+// PromotionGateReport is the release/default-promotion verdict. It is separate
+// from the ordinary corpus gate so synthetic CI smoke fixtures stay useful while
+// default-on changes still require real operator evidence.
+type PromotionGateReport struct {
+	Passed             bool           `json:"passed"`
+	RealCategories     int            `json:"real_categories"`
+	RealSessions       int            `json:"real_sessions"`
+	SessionsByClient   map[string]int `json:"sessions_by_client"`
+	SessionsByWorkload map[string]int `json:"sessions_by_workload"`
+	Failures           []string       `json:"failures,omitempty"`
 }
 
 // LoadCategoryMetadata reads `<dir>/metadata.json` and returns it. The
@@ -102,8 +127,18 @@ func LoadCategoryMetadata(dir string) (*CategoryMetadata, error) {
 	}
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(data, &raw)
-	if _, ok := raw["expected_max_errors"]; !ok {
+	if _, ok := raw["expected_max_errors"]; ok {
+		meta.expectedMaxErrorsSet = true
+	} else {
 		meta.ExpectedMaxErrors = -1
+	}
+	if _, ok := raw["expected_reread_count_max"]; ok {
+		meta.expectedReReadCountMaxSet = true
+	} else {
+		meta.ExpectedReReadCountMax = -1
+	}
+	if _, ok := raw["expected_latency_p95_max_ms"]; ok {
+		meta.expectedLatencyP95MaxSet = true
 	}
 	if _, ok := raw["expected_planner_missed_max"]; !ok {
 		meta.ExpectedPlannerMissedMax = -1
@@ -154,17 +189,21 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		ProviderCachedTokens:      agg.providerCachedSum,
 		OutputReduceApplied:       agg.outputReduceApplied,
 		ErrorCount:                agg.errorCount,
+		ReReadCount:               agg.reReadCount,
 		LatencyP95Ms:              percentileFloat64(agg.latenciesMs, 0.95),
 		PlanReplay:                clonePlanReplayAggregate(agg.planReplay),
 		LayerCombinations:         cloneLayerCombinations(agg.layerCombinations),
 		EvidenceLevel:             normalizeEvidenceLevel(meta),
 		Synthetic:                 meta.Synthetic,
+		ClientFamily:              strings.TrimSpace(meta.ClientFamily),
+		WorkloadClass:             strings.TrimSpace(meta.WorkloadClass),
 		GateConfigured: meta.ExpectedSavingsMin > 0 ||
 			meta.ExpectedRequestCount > 0 ||
 			meta.ExpectedLatencyP95MaxMs > 0 ||
 			meta.ExpectedProviderCacheReadMin > 0 ||
 			meta.ExpectedOutputReduceAppliedMin > 0 ||
-			meta.ExpectedMaxErrors >= 0 ||
+			meta.expectedReReadCountMaxSet ||
+			meta.expectedMaxErrorsSet ||
 			meta.ExpectedPlannerMissedMax >= 0 ||
 			meta.ExpectedPlannerBypassAppliedMax >= 0 ||
 			len(meta.ScenarioValidators) > 0,
@@ -215,6 +254,9 @@ func evaluateCategoryGate(res CategoryResult, meta *CategoryMetadata) []string {
 	}
 	if meta.ExpectedOutputReduceAppliedMin > 0 && res.OutputReduceApplied < meta.ExpectedOutputReduceAppliedMin {
 		failures = append(failures, fmt.Sprintf("output_reduce_applied=%d < min=%d", res.OutputReduceApplied, meta.ExpectedOutputReduceAppliedMin))
+	}
+	if meta.ExpectedReReadCountMax >= 0 && res.ReReadCount > meta.ExpectedReReadCountMax {
+		failures = append(failures, fmt.Sprintf("reread_count=%d > max=%d", res.ReReadCount, meta.ExpectedReReadCountMax))
 	}
 	if meta.ExpectedPlannerMissedMax >= 0 && res.PlanReplay.MissedActive > meta.ExpectedPlannerMissedMax {
 		failures = append(failures, fmt.Sprintf("planner_missed_active=%d > max=%d", res.PlanReplay.MissedActive, meta.ExpectedPlannerMissedMax))
@@ -297,12 +339,96 @@ func normalizeEvidenceLevel(meta *CategoryMetadata) string {
 	return "live_operator"
 }
 
+var requiredPromotionClientSessions = map[string]int{
+	"codex_cli":     5,
+	"codex_desktop": 5,
+}
+
+var requiredPromotionWorkloads = []string{
+	"repeat_read",
+	"ranged_read",
+	"search_loop",
+	"git_status",
+	"test_failure",
+	"apply_patch_edit_read",
+	"large_tool_output",
+	"long_workday",
+}
+
+// EvaluatePromotionGate applies the stricter release/default-promotion gate.
+// It intentionally ignores synthetic categories: synthetic data may keep CI
+// deterministic, but it cannot promote a savings mechanism into product default.
+func EvaluatePromotionGate(report CorpusReport) PromotionGateReport {
+	gate := PromotionGateReport{
+		SessionsByClient:   map[string]int{},
+		SessionsByWorkload: map[string]int{},
+	}
+	for _, c := range report.Categories {
+		if c.Synthetic {
+			continue
+		}
+		gate.RealCategories++
+		gate.RealSessions += c.Sessions
+		client := strings.TrimSpace(c.ClientFamily)
+		workload := strings.TrimSpace(c.WorkloadClass)
+		if client != "" {
+			gate.SessionsByClient[client] += c.Sessions
+		}
+		if workload != "" {
+			gate.SessionsByWorkload[workload] += c.Sessions
+		}
+		if c.EvidenceLevel != "live_operator" {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: evidence_level=%q is not live_operator", c.Category, c.EvidenceLevel))
+		}
+		if client == "" {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: missing client_family", c.Category))
+		}
+		if workload == "" {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: missing workload_class", c.Category))
+		}
+		if c.Metadata == nil || !c.Metadata.expectedMaxErrorsSet || c.Metadata.ExpectedMaxErrors != 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: expected_max_errors must be explicitly 0", c.Category))
+		}
+		if c.Metadata == nil || !c.Metadata.expectedReReadCountMaxSet || c.Metadata.ExpectedReReadCountMax < 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: expected_reread_count_max must be explicit", c.Category))
+		}
+		if c.Metadata == nil || !c.Metadata.expectedLatencyP95MaxSet || c.Metadata.ExpectedLatencyP95MaxMs <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: expected_latency_p95_max_ms must be explicit", c.Category))
+		}
+		if c.Metadata == nil || c.Metadata.ExpectedSavingsMin <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: expected_savings_min must be explicit and positive", c.Category))
+		}
+		for _, failure := range c.Failures {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: %s", c.Category, failure))
+		}
+	}
+	if gate.RealCategories == 0 {
+		gate.Failures = append(gate.Failures, "no real live_operator categories")
+	}
+	for client, want := range requiredPromotionClientSessions {
+		if got := gate.SessionsByClient[client]; got < want {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("client %s sessions=%d < min=%d", client, got, want))
+		}
+	}
+	for _, workload := range requiredPromotionWorkloads {
+		if got := gate.SessionsByWorkload[workload]; got <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("missing workload_class %s", workload))
+		}
+	}
+	gate.Passed = len(gate.Failures) == 0
+	return gate
+}
+
 // EvaluateCorpus walks the root directory and produces a CorpusReport.
 // Categories are detected as immediate subdirectories that contain a
 // `metadata.json`. Subdirectories without one are ignored with a warning
 // to errOut so a maintainer who forgot the metadata file sees the hint.
 func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
-	report := CorpusReport{Root: root}
+	report := CorpusReport{
+		Root:               root,
+		SessionsByClient:   map[string]int{},
+		SessionsByWorkload: map[string]int{},
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return report, fmt.Errorf("read corpus root: %w", err)
@@ -341,6 +467,12 @@ func EvaluateCorpus(root string, errOut io.Writer) (CorpusReport, error) {
 		} else {
 			report.HasReal = true
 		}
+		if res.ClientFamily != "" {
+			report.SessionsByClient[res.ClientFamily] += res.Sessions
+		}
+		if res.WorkloadClass != "" {
+			report.SessionsByWorkload[res.WorkloadClass] += res.Sessions
+		}
 	}
 	if totalOrig > 0 {
 		report.OverallRatio = float64(totalSaved) / float64(totalOrig)
@@ -374,7 +506,11 @@ func FormatCorpusReport(report CorpusReport) string {
 		sb.WriteString(fmt.Sprintf("  provider cache read/create/cached: %d / %d / %d\n", c.ProviderCacheReadTokens, c.ProviderCacheCreateTokens, c.ProviderCachedTokens))
 		sb.WriteString(fmt.Sprintf("  output-reduce:%d\n", c.OutputReduceApplied))
 		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
+		sb.WriteString(fmt.Sprintf("  re-reads:     %d\n", c.ReReadCount))
 		sb.WriteString(fmt.Sprintf("  latency p95:  %.1f ms\n", c.LatencyP95Ms))
+		if c.ClientFamily != "" || c.WorkloadClass != "" {
+			sb.WriteString(fmt.Sprintf("  client/work:  %s / %s\n", strOrUnset(c.ClientFamily), strOrUnset(c.WorkloadClass)))
+		}
 		if c.Metadata != nil && len(c.Metadata.ScenarioValidators) > 0 {
 			sb.WriteString(fmt.Sprintf("  validators:   %s\n", strings.Join(c.Metadata.ScenarioValidators, ", ")))
 		}
@@ -421,11 +557,49 @@ func FormatCorpusReport(report CorpusReport) string {
 	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("Total requests: %d\n", report.TotalRequests))
 	sb.WriteString(fmt.Sprintf("Overall ratio:  %.2f%%\n", report.OverallRatio*100))
+	if report.PromotionGate != nil {
+		sb.WriteString("\nPromotion gate\n")
+		if report.PromotionGate.Passed {
+			sb.WriteString("  gate:         PASS\n")
+		} else {
+			sb.WriteString("  gate:         FAIL\n")
+			for _, f := range report.PromotionGate.Failures {
+				sb.WriteString(fmt.Sprintf("    - %s\n", f))
+			}
+		}
+		sb.WriteString(fmt.Sprintf("  real sessions:%d\n", report.PromotionGate.RealSessions))
+		sb.WriteString(fmt.Sprintf("  clients:      %s\n", formatCountMap(report.PromotionGate.SessionsByClient)))
+		sb.WriteString(fmt.Sprintf("  workloads:    %s\n", formatCountMap(report.PromotionGate.SessionsByWorkload)))
+	}
 	if report.HasSynthetic && !report.HasReal {
 		sb.WriteString("\nNOTE: corpus is synthetic-only. See docs/live-corpus-policy.md for the\n")
 		sb.WriteString("operator-driven path to a real-session corpus (T118b).\n")
 	}
 	return sb.String()
+}
+
+func strOrUnset(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unset"
+	}
+	return value
+}
+
+func formatCountMap(values map[string]int) string {
+	if len(values) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, values[key]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // CorpusGate runs EvaluateCorpus and treats any per-category failure as
@@ -469,11 +643,12 @@ func CorpusReportJSON(report CorpusReport) (string, error) {
 // runBenchmarkCorpus is the CLI entrypoint hooked from main.go.
 func runBenchmarkCorpus(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: benchmark-corpus <corpus-root> [--check] [--json]")
+		fmt.Fprintln(os.Stderr, "Usage: benchmark-corpus <corpus-root> [--check] [--json] [--promotion-check]")
 		return 2
 	}
 	check := false
 	jsonOut := false
+	promotionCheck := false
 	var root string
 	for _, a := range args {
 		switch a {
@@ -481,6 +656,8 @@ func runBenchmarkCorpus(args []string) int {
 			check = true
 		case "--json":
 			jsonOut = true
+		case "--promotion-check":
+			promotionCheck = true
 		default:
 			if strings.HasPrefix(a, "--") {
 				fmt.Fprintf(os.Stderr, "unknown flag %q\n", a)
@@ -497,13 +674,17 @@ func runBenchmarkCorpus(args []string) int {
 		fmt.Fprintln(os.Stderr, "benchmark-corpus: corpus root required")
 		return 2
 	}
-	if check {
+	if check && !promotionCheck {
 		return CorpusGate(root, os.Stdout, os.Stderr)
 	}
 	report, err := EvaluateCorpus(root, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchmark-corpus: %v\n", err)
 		return 1
+	}
+	if promotionCheck {
+		gate := EvaluatePromotionGate(report)
+		report.PromotionGate = &gate
 	}
 	if jsonOut {
 		s, err := CorpusReportJSON(report)
@@ -512,8 +693,36 @@ func runBenchmarkCorpus(args []string) int {
 			return 1
 		}
 		fmt.Print(s)
+		if promotionCheck && !report.PromotionGate.Passed {
+			return 1
+		}
+		if check {
+			return corpusReportExitCode(report, root)
+		}
 		return 0
 	}
 	fmt.Print(FormatCorpusReport(report))
+	if promotionCheck && !report.PromotionGate.Passed {
+		fmt.Fprintf(os.Stdout, "benchmark-corpus promotion: FAIL on %s\n", root)
+		return 1
+	}
+	if check {
+		return corpusReportExitCode(report, root)
+	}
+	return 0
+}
+
+func corpusReportExitCode(report CorpusReport, root string) int {
+	if len(report.Categories) == 0 {
+		fmt.Fprintf(os.Stderr, "benchmark-corpus: corpus root %s has no categories\n", root)
+		return 1
+	}
+	for _, c := range report.Categories {
+		if len(c.Failures) > 0 {
+			fmt.Fprintf(os.Stdout, "benchmark-corpus: FAIL on %s\n", root)
+			return 1
+		}
+	}
+	fmt.Fprintf(os.Stdout, "benchmark-corpus: PASS on %s\n", root)
 	return 0
 }

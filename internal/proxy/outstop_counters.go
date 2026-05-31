@@ -4,7 +4,9 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/savingspolicy"
 )
 
@@ -197,6 +199,8 @@ type OutputReduceCounters struct {
 	proxyLayer0PolicyCounters        map[proxyLayer0PolicyKey]uint64
 	proxyLayer0CacheMu               sync.Mutex
 	proxyLayer0CacheCounters         map[proxyLayer0CacheKey]uint64
+	proxyLayer0LatencyMu             sync.Mutex
+	proxyLayer0Latency               map[proxyLayer0LatencyKey]*analytics.PhaseHistogram
 
 	stopSeqRequestsModified atomic.Uint64
 	stopSeqPhrasesAdded     atomic.Uint64
@@ -233,6 +237,11 @@ type proxyLayer0CacheKey struct {
 	reason    string
 }
 
+type proxyLayer0LatencyKey struct {
+	route     codexLayer0Route
+	mechanism string
+}
+
 // RecordProxyLayer0 increments the proxy-side deterministic captured
 // output compaction counters. savedTokens is token-count based, not
 // bytes, because this path runs before provider billing.
@@ -253,6 +262,7 @@ func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
 	if len(stats.CacheEvents) > 0 {
 		c.recordProxyLayer0Cache(stats.Route, stats.CacheEvents)
 	}
+	c.recordProxyLayer0Latencies(stats)
 	if stats.ToolResultBlocks > 0 {
 		c.proxyLayer0ToolResultBlocks.Add(uint64(stats.ToolResultBlocks))
 	}
@@ -314,6 +324,35 @@ func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
 	if stats.LedgerFailureCapsules > 0 {
 		c.proxyLayer0LedgerFailureCapsules.Add(uint64(stats.LedgerFailureCapsules))
 	}
+}
+
+func (c *OutputReduceCounters) recordProxyLayer0Latencies(stats proxyLayer0Stats) {
+	if c == nil {
+		return
+	}
+	c.recordProxyLayer0Latency(stats.Route, "total", stats.TotalLatencyNs)
+	c.recordProxyLayer0Latency(stats.Route, string(savingspolicy.CodexMechanismReadDelta), stats.ReadDeltaLatencyNs)
+	c.recordProxyLayer0Latency(stats.Route, "structured_filter", stats.FilterLatencyNs)
+	c.recordProxyLayer0Latency(stats.Route, string(savingspolicy.CodexMechanismRepeatedOutput), stats.RepeatedOutputLatencyNs)
+	c.recordProxyLayer0Latency(stats.Route, string(savingspolicy.CodexMechanismChunkDedup), stats.ChunkDedupLatencyNs)
+}
+
+func (c *OutputReduceCounters) recordProxyLayer0Latency(route codexLayer0Route, mechanism string, ns int64) {
+	if c == nil || ns <= 0 || mechanism == "" {
+		return
+	}
+	key := proxyLayer0LatencyKey{route: route, mechanism: mechanism}
+	c.proxyLayer0LatencyMu.Lock()
+	h := c.proxyLayer0Latency[key]
+	if h == nil {
+		if c.proxyLayer0Latency == nil {
+			c.proxyLayer0Latency = make(map[proxyLayer0LatencyKey]*analytics.PhaseHistogram)
+		}
+		h = analytics.NewPhaseHistogram(string(route)+":"+mechanism, 200)
+		c.proxyLayer0Latency[key] = h
+	}
+	c.proxyLayer0LatencyMu.Unlock()
+	h.Record(time.Duration(ns))
 }
 
 func proxyLayer0StatsEmpty(stats proxyLayer0Stats) bool {
@@ -497,6 +536,7 @@ type OutputReduceTelemetry struct {
 	ProxyLayer0Routes                ProxyLayer0RoutesTelemetry `json:"proxy_layer0_routes"`
 	ProxyLayer0Policy                []ProxyLayer0PolicyEntry   `json:"proxy_layer0_policy"`
 	ProxyLayer0Cache                 []ProxyLayer0CacheEntry    `json:"proxy_layer0_cache"`
+	ProxyLayer0Latency               []ProxyLayer0LatencyEntry  `json:"proxy_layer0_latency"`
 	StopSeqRequestsModified          uint64                     `json:"stop_seq_requests_modified"`
 	StopSeqPhrasesAdded              uint64                     `json:"stop_seq_phrases_added"`
 	StreamcutFired                   uint64                     `json:"streamcut_fired"`
@@ -527,6 +567,17 @@ type ProxyLayer0CacheEntry struct {
 	Action    string `json:"action"`
 	Reason    string `json:"reason"`
 	Count     uint64 `json:"count"`
+}
+
+type ProxyLayer0LatencyEntry struct {
+	Route      string  `json:"route"`
+	Mechanism  string  `json:"mechanism"`
+	Count      int64   `json:"count"`
+	P50Ms      float64 `json:"p50_ms"`
+	P95Ms      float64 `json:"p95_ms"`
+	MaxMs      float64 `json:"max_ms"`
+	AvgMs      float64 `json:"avg_ms"`
+	SampleSize int     `json:"sample_size"`
 }
 
 type ProxyLayer0RouteTelemetry struct {
@@ -590,6 +641,7 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 		},
 		ProxyLayer0Policy:        c.snapshotProxyLayer0Policy(),
 		ProxyLayer0Cache:         c.snapshotProxyLayer0Cache(),
+		ProxyLayer0Latency:       c.snapshotProxyLayer0Latency(),
 		StopSeqRequestsModified:  c.stopSeqRequestsModified.Load(),
 		StopSeqPhrasesAdded:      c.stopSeqPhrasesAdded.Load(),
 		StreamcutFired:           c.streamcutFired.Load(),
@@ -604,6 +656,44 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 		BeterseInjections:        c.beterseInjections.Load(),
 		BeterseHintBytes:         c.beterseHintBytes.Load(),
 	}
+}
+
+func (c *OutputReduceCounters) snapshotProxyLayer0Latency() []ProxyLayer0LatencyEntry {
+	if c == nil {
+		return nil
+	}
+	c.proxyLayer0LatencyMu.Lock()
+	keys := make([]proxyLayer0LatencyKey, 0, len(c.proxyLayer0Latency))
+	hists := make(map[proxyLayer0LatencyKey]*analytics.PhaseHistogram, len(c.proxyLayer0Latency))
+	for key, hist := range c.proxyLayer0Latency {
+		keys = append(keys, key)
+		hists[key] = hist
+	}
+	c.proxyLayer0LatencyMu.Unlock()
+	if len(keys) == 0 {
+		return nil
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].route != keys[j].route {
+			return keys[i].route < keys[j].route
+		}
+		return keys[i].mechanism < keys[j].mechanism
+	})
+	out := make([]ProxyLayer0LatencyEntry, 0, len(keys))
+	for _, key := range keys {
+		snap := hists[key].Snapshot()
+		out = append(out, ProxyLayer0LatencyEntry{
+			Route:      string(key.route),
+			Mechanism:  key.mechanism,
+			Count:      snap.Count,
+			P50Ms:      snap.P50Ms,
+			P95Ms:      snap.P95Ms,
+			MaxMs:      snap.MaxMs,
+			AvgMs:      snap.AvgMs,
+			SampleSize: snap.SampleSize,
+		})
+	}
+	return out
 }
 
 func (c *OutputReduceCounters) snapshotProxyLayer0Cache() []ProxyLayer0CacheEntry {

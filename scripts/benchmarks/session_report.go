@@ -43,6 +43,7 @@ type sessionReportAggregate struct {
 	outputTokenSum      int64
 	outputReduceApplied int
 	errorCount          int
+	reReadCount         int
 	latenciesMs         []float64
 	planReplay          planReplayAggregate
 	layerCombinations   map[string]layerCombinationAggregate
@@ -126,6 +127,7 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 			agg.outputReduceApplied++
 		}
 		agg.errorCount += len(rec.Errors)
+		agg.reReadCount += rec.ReReadCount
 		if rec.ProxyLatencyMs > 0 {
 			agg.latenciesMs = append(agg.latenciesMs, rec.ProxyLatencyMs)
 		}
@@ -181,6 +183,7 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.outputTokenSum += src.outputTokenSum
 	dst.outputReduceApplied += src.outputReduceApplied
 	dst.errorCount += src.errorCount
+	dst.reReadCount += src.reReadCount
 	dst.latenciesMs = append(dst.latenciesMs, src.latenciesMs...)
 	mergePlanReplayAggregate(&dst.planReplay, src.planReplay)
 	mergeLayerCombinations(dst.layerCombinations, src.layerCombinations)

@@ -117,6 +117,11 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 			{Mechanism: savingspolicy.CodexMechanismReadDelta, Action: proxyLayer0CacheHit, Reason: "unchanged"},
 			{Mechanism: savingspolicy.CodexMechanismRepeatedOutput, Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
 		},
+		TotalLatencyNs:          2_000_000,
+		ReadDeltaLatencyNs:      1_000_000,
+		FilterLatencyNs:         500_000,
+		RepeatedOutputLatencyNs: 300_000,
+		ChunkDedupLatencyNs:     200_000,
 	})
 	c.RecordProxyLayer0(0)
 	c.RecordProxyLayer0(-1)
@@ -183,6 +188,12 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 		s.ProxyLayer0Cache[0].Mechanism != "read_delta" ||
 		s.ProxyLayer0Cache[1].Reason != "first_observation_seeded" {
 		t.Fatalf("cache entries mismatch: %+v", s.ProxyLayer0Cache)
+	}
+	if len(s.ProxyLayer0Latency) != 5 {
+		t.Fatalf("latency entries=%d want 5: %+v", len(s.ProxyLayer0Latency), s.ProxyLayer0Latency)
+	}
+	if s.ProxyLayer0Latency[0].Count != 1 || s.ProxyLayer0Latency[0].P95Ms <= 0 {
+		t.Fatalf("latency entry not populated: %+v", s.ProxyLayer0Latency[0])
 	}
 }
 

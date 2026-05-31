@@ -64,6 +64,8 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
      "description": "<what kind of work this session represents>",
      "synthetic": false,
      "evidence_level": "live_operator",
+     "client_family": "codex_cli",
+     "workload_class": "<repeat_read|ranged_read|search_loop|git_status|test_failure|apply_patch_edit_read|large_tool_output|long_workday>",
      "language": "<primary language>",
      "tool_mix": "<short summary>",
      "expected_savings_min": 0.30,
@@ -73,6 +75,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
      "expected_latency_p95_max_ms": 1000,
      "expected_provider_cache_read_min": 0,
      "expected_output_reduce_applied_min": 0,
+     "expected_reread_count_max": 0,
      "expected_planner_missed_max": 0,
      "expected_planner_bypass_applied_max": 0,
      "scenario_validators": ["tool_heavy", "low_error"],
@@ -84,9 +87,20 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
 
    ```
    go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --check
+   go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --promotion-check
    ```
 
    The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`), or fails any declared `scenario_validators`. Supported validators are `tool_heavy`, `cache_reuse`, `output_reduce`, `planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`, and `l2_summary`; unknown names fail the gate so typos cannot silently weaken evidence. The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
+
+   `--promotion-check` is stricter and is only for release/default-on decisions.
+   It ignores synthetic categories and requires at least five `codex_cli`
+   sessions, five `codex_desktop` sessions, and live coverage for
+   `repeat_read`, `ranged_read`, `search_loop`, `git_status`, `test_failure`,
+   `apply_patch_edit_read`, `large_tool_output`, and `long_workday`. Each real
+   category must declare `client_family`, `workload_class`, explicit zero error
+   budget, explicit re-read canary budget, explicit latency budget, and a
+   positive savings floor. Missing metadata fails closed so no mechanism can be
+   promoted from vague evidence.
 
 6. Commit. The fixture is now part of the CI regression contract.
 

@@ -296,6 +296,8 @@ func renderLiveCorpusMetadataSkeleton(category, client string) string {
 		"description":                         "Real operator-captured session; replace this with the exact task shape before commit.",
 		"synthetic":                           false,
 		"evidence_level":                      "live_operator",
+		"client_family":                       client,
+		"workload_class":                      category,
 		"language":                            "mixed",
 		"tool_mix":                            client,
 		"expected_savings_min":                0.10,
@@ -305,8 +307,10 @@ func renderLiveCorpusMetadataSkeleton(category, client string) string {
 		"expected_latency_p95_max_ms":         1000,
 		"expected_provider_cache_read_min":    0,
 		"expected_output_reduce_applied_min":  0,
+		"expected_reread_count_max":           0,
 		"expected_planner_missed_max":         0,
 		"expected_planner_bypass_applied_max": 0,
+		"scenario_validators":                 []string{"low_error"},
 		"notes":                               "Scrubbed manually after T109 redaction; raw prompts, secrets, screenshots, and absolute paths verified absent.",
 	}
 	out, _ := json.MarshalIndent(payload, "   ", "  ")

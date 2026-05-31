@@ -2018,6 +2018,24 @@ simulated alternate-run replay. Category metadata can additionally declare
 actually present in the captured request summaries; unknown validator names fail
 closed.
 
+`scripts/benchmarks benchmark-corpus --promotion-check` is the stricter
+release/default-on gate. It ignores synthetic categories and fails closed unless
+the corpus contains at least five `codex_cli` sessions, five `codex_desktop`
+sessions, and real `live_operator` coverage for `repeat_read`, `ranged_read`,
+`search_loop`, `git_status`, `test_failure`, `apply_patch_edit_read`,
+`large_tool_output`, and `long_workday`. Every real category must also declare
+`client_family`, `workload_class`, explicit zero error budget, explicit
+re-read-canary budget, explicit latency budget, and a positive savings floor.
+This keeps unit tests and synthetic fixtures useful while preventing a default
+promotion from vague or one-sided evidence.
+
+Layer-0 mechanism cost is exposed as debug/audit telemetry, not product UI
+noise. `/admin/state.savings.proxy_layer0_latency` reports rolling p50/p95/max
+and average duration by route for `total`, `read_delta`, `structured_filter`,
+`repeated_output`, and `chunk_dedup`. This lets release proof compare savings
+against local host cost without logging payloads or charging the hot path with a
+new per-frame disk probe.
+
 ### Global flags
 
 ```

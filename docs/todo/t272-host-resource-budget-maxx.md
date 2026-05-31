@@ -52,7 +52,7 @@ Initial targets for Apple Silicon macOS:
    - [x] product `host_budget` status in `/admin/state`
    - [x] process RSS source alignment for daemon/admin state
    - [x] CPU estimate
-   - [ ] per-mechanism latency histogram
+   - [x] per-mechanism latency histogram
    - [ ] disk write counters
    - [x] state sizes
 2. Add pprof/benchmark ceremony:
@@ -113,6 +113,11 @@ Initial targets for Apple Silicon macOS:
   exceeded, read-delta, repeated-output, and chunk mechanisms full-pass instead
   of spending more local work. The hot path reads an atomic snapshot rather than
   re-measuring RSS/state size per frame.
+- 2026-05-31: Added content-free Layer-0 mechanism latency histograms under
+  `/admin/state.savings.proxy_layer0_latency`. The reducer records total,
+  read-delta, structured-filter, repeated-output, and chunk-dedup durations and
+  exposes rolling p50/p95/max/avg snapshots by route. This is debug/audit
+  telemetry, not normal TUI clutter.
 
 ## Done
 

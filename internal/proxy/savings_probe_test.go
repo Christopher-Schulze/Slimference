@@ -43,6 +43,8 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		ChunkDedupInputBytes:  4096,
 		LedgerCommandCapsules: 1,
 		LedgerSearchCapsules:  1,
+		TotalLatencyNs:        1_000_000,
+		ChunkDedupLatencyNs:   250_000,
 		CacheEvents: []proxyLayer0CacheEvent{
 			{Mechanism: "repeated_output", Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
 		},
@@ -122,6 +124,9 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	}
 	if len(got.ProxyLayer0Cache) != 1 || got.ProxyLayer0Cache[0].Reason != "first_observation_seeded" {
 		t.Errorf("ProxyLayer0Cache mismatch: %+v", got.ProxyLayer0Cache)
+	}
+	if len(got.ProxyLayer0Latency) != 2 || got.ProxyLayer0Latency[0].Count != 1 {
+		t.Errorf("ProxyLayer0Latency mismatch: %+v", got.ProxyLayer0Latency)
 	}
 	// CostUSD = 2000 / 1_000_000 * 6.0 = 0.012
 	if got.CostUSD < 0.0119 || got.CostUSD > 0.0121 {
