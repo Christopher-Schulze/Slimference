@@ -2,7 +2,9 @@ package toolprune
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/slimference/slimference/internal/types"
 )
@@ -109,21 +111,23 @@ func PruneToolDefinitions(body []byte, provider types.Provider, toPrune map[stri
 	return out, pruned, nil
 }
 
-// MentionedTools returns the subset of `candidates` whose name appears
-// in `text`. Pure function used by T103b reattach to decide which
-// previously-pruned tools should be restored on the next turn. The
-// match is case-sensitive and word-boundary friendly: occurrences
-// inside a longer identifier (e.g. "Bashful") do NOT match "Bash".
+// MentionedTools returns the subset of `candidates` whose name or safe alias
+// appears in `text`. Pure function used by T103b reattach to decide which
+// previously-pruned tools should be restored on the next turn. It prefers
+// reattaching over capability loss: false positives cost schema tokens, false
+// negatives can remove a needed tool.
 func MentionedTools(text string, candidates []string) []string {
 	if text == "" || len(candidates) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(candidates))
+	lowerText := strings.ToLower(text)
+	normalizedText := normalizeToolMention(text)
 	for _, name := range candidates {
 		if name == "" {
 			continue
 		}
-		if containsToolName(text, name) {
+		if containsToolAlias(lowerText, normalizedText, name) {
 			out = append(out, name)
 		}
 	}
@@ -131,6 +135,107 @@ func MentionedTools(text string, candidates []string) []string {
 		return nil
 	}
 	return out
+}
+
+func containsToolAlias(lowerText, normalizedText, name string) bool {
+	for _, alias := range toolNameAliases(name) {
+		if containsToolName(lowerText, alias) {
+			return true
+		}
+		normalizedAlias := normalizeToolMention(alias)
+		if len(normalizedAlias) >= 6 && strings.Contains(normalizedText, normalizedAlias) {
+			return true
+		}
+	}
+	return false
+}
+
+func toolNameAliases(name string) []string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil
+	}
+	aliases := []string{strings.ToLower(trimmed)}
+	words := splitToolNameWords(trimmed)
+	if len(words) > 0 {
+		aliases = append(aliases, strings.Join(words, " "))
+		aliases = append(aliases, strings.Join(words, "_"))
+		if tail := words[len(words)-1]; len(tail) >= 4 {
+			aliases = append(aliases, tail)
+		}
+	}
+	aliases = append(aliases, commandFamilyAliases(trimmed)...)
+	return uniqueNonEmpty(aliases)
+}
+
+func splitToolNameWords(name string) []string {
+	var words []string
+	var current []rune
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		words = append(words, strings.ToLower(string(current)))
+		current = current[:0]
+	}
+	var prev rune
+	for _, r := range name {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			flush()
+			prev = 0
+			continue
+		}
+		if len(current) > 0 && unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsDigit(prev)) {
+			flush()
+		}
+		current = append(current, unicode.ToLower(r))
+		prev = r
+	}
+	flush()
+	return words
+}
+
+func commandFamilyAliases(name string) []string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "bash") || strings.Contains(lower, "shell") || strings.Contains(lower, "exec") || strings.Contains(lower, "terminal"):
+		return []string{"bash", "shell", "exec", "terminal", "command"}
+	case strings.Contains(lower, "grep") || strings.Contains(lower, "search") || strings.Contains(lower, "rg"):
+		return []string{"grep", "rg", "search"}
+	case strings.Contains(lower, "read") || strings.Contains(lower, "open") || strings.Contains(lower, "view"):
+		return []string{"read", "open", "view"}
+	case strings.Contains(lower, "write") || strings.Contains(lower, "edit") || strings.Contains(lower, "patch"):
+		return []string{"write", "edit", "patch", "apply_patch"}
+	default:
+		return nil
+	}
+}
+
+func uniqueNonEmpty(items []string) []string {
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(strings.ToLower(item))
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
+func normalizeToolMention(s string) string {
+	var out strings.Builder
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			out.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return out.String()
 }
 
 // containsToolName tests whether `name` appears in `text` as a word
@@ -193,7 +298,13 @@ func ReattachToolDefinitions(body []byte, provider types.Provider, defs map[stri
 		}
 	}
 	added := 0
-	for name, def := range defs {
+	names := make([]string, 0, len(defs))
+	for name := range defs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		def := defs[name]
 		if _, dup := existing[name]; dup {
 			continue
 		}

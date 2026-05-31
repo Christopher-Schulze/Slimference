@@ -26,6 +26,10 @@ func TestMentionedTools(t *testing.T) {
 		{"end-of-string boundary", "use Bash", []string{"Bash"}, []string{"Bash"}},
 		{"start-of-string boundary", "Bash run", []string{"Bash"}, []string{"Bash"}},
 		{"mid-word match rejected", "BashCalculator", []string{"Bash"}, nil},
+		{"case-insensitive hit", "please use bash to list", []string{"Bash"}, []string{"Bash"}},
+		{"camel tail intent", "check the weather before replying", []string{"GetWeather"}, []string{"GetWeather"}},
+		{"snake alias intent", "send an email update", []string{"send_email"}, []string{"send_email"}},
+		{"command family intent", "run a shell command", []string{"BashTool"}, []string{"BashTool"}},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -99,6 +103,28 @@ func TestReattachToolDefinitions_OpenAIFunctionShape(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "Bash") {
 		t.Fatalf("body: %s", out)
+	}
+}
+
+func TestReattachToolDefinitions_DeterministicOrder(t *testing.T) {
+	t.Parallel()
+	body := []byte(`{"tools":[{"name":"Read"}]}`)
+	defs := map[string]json.RawMessage{
+		"Zulu":  json.RawMessage(`{"name":"Zulu"}`),
+		"Alpha": json.RawMessage(`{"name":"Alpha"}`),
+	}
+	out, n, err := ReattachToolDefinitions(body, types.Anthropic, defs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("added: %d", n)
+	}
+	text := string(out)
+	alpha := strings.Index(text, `"Alpha"`)
+	zulu := strings.Index(text, `"Zulu"`)
+	if alpha < 0 || zulu < 0 || alpha > zulu {
+		t.Fatalf("reattach order must be deterministic by tool name: %s", out)
 	}
 }
 

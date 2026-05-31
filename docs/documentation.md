@@ -1021,16 +1021,18 @@ or top-level `tools[].name`). Telemetry at
 miss_total,retry_total,always_keep_total,disabled_sessions,
 tokens_saved_sum}`. Default off.
 
-T151 makes the pruner soak-safe enough for wider testing: shell,
+T151/T268 make the pruner soak-safe enough for wider testing: shell,
 edit, read, safety, browser, and MCP tool classes are always kept, and
-`tool_prune_always_keep = []` can add project-specific exact tool
-names. Pruned definitions are archived by session and tool name. A
-later mention reattaches the definition before pruning runs again. If
-the upstream returns a conservative missing-tool 4xx, the proxy retries
-once with the full pre-prune schema, records miss/retry telemetry, and
-disables future pruning for that session bucket. `slimference gain
---proxy` includes tool-prune saved-token, pruned-tool, reattach, miss,
-and retry totals from the decision log.
+`tool_prune_always_keep = []` can add project-specific exact tool names.
+Pruned definitions are archived by session and tool name. A later tool-name
+mention, safe alias (`GetWeather` -> "weather", `send_email` -> "email"), or
+command-family hint reattaches the definition before pruning runs again.
+Reattached definitions are appended in deterministic tool-name order to avoid
+avoidable prompt-cache churn. If the upstream returns a conservative missing-tool
+4xx, the proxy retries once with the full pre-prune schema, records miss/retry
+telemetry, and disables future pruning for that session bucket. `slimference
+gain --proxy` includes tool-prune saved-token, pruned-tool, reattach, miss, and
+retry totals from the decision log.
 
 ### Posttool cross-session repetition marker (T93)
 

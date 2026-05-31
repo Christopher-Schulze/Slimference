@@ -75,6 +75,24 @@ Tool pruning should be default-safe only when:
 - Prompt-cache key stability tests.
 - Live corpus with tool-heavy tasks.
 
+## Notes
+
+- Offline hardening completed: reattach intent detection now matches
+  case-insensitive tool names, safe CamelCase/snake-case aliases such as
+  `GetWeather` -> "weather" and `send_email` -> "email", and conservative command
+  family hints for shell/search/read/write tools. This biases toward reattaching
+  a potentially needed tool; false positives only cost schema tokens, while false
+  negatives can be a capability drawdown.
+- Reattached tool definitions are appended in deterministic tool-name order
+  instead of Go map iteration order. This improves request-body stability and
+  avoids avoidable prompt-cache churn when the same reattach set appears again.
+- Existing recovery remains in force: core shell/edit/read/safety/browser/MCP
+  tool classes always stay attached, missing-tool 4xx responses retry once with
+  the full pre-prune schema, and the affected session enters quality cooldown.
+- Offline verification covered toolprune unit tests and proxy tool-prune retry /
+  always-keep / reattach paths. Live corpus proof for tool-heavy workflows remains
+  deferred until the capture phase.
+
 ## Done
 
 Tool pruning is maxxed when it saves schema tokens while making tool capability
