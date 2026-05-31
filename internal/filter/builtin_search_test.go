@@ -350,6 +350,24 @@ func TestNormalizeSearchCommandLine(t *testing.T) {
 			workdir: "/repo/a",
 			want:    `git -C /repo/b grep needle -- internal`,
 		},
+		{
+			name:    "rg separate value options preserve pattern path split",
+			command: `rg --type-add 'go:*.go' --glob '*.go' -e needle src`,
+			workdir: "/repo/a",
+			want:    `rg --type-add "go:*.go" --glob "*.go" -e needle /repo/a/src`,
+		},
+		{
+			name:    "grep include exclude options preserve pattern path split",
+			command: `grep -R --include '*.go' --exclude-dir vendor needle .`,
+			workdir: "/repo/a",
+			want:    `grep -R --include "*.go" --exclude-dir vendor needle /repo/a`,
+		},
+		{
+			name:    "rg replace option consumes value before pattern",
+			command: `rg --replace '$1' 'needle(.*)' src`,
+			workdir: "/repo/a",
+			want:    `rg --replace "$1" "needle(.*)" /repo/a/src`,
+		},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -375,6 +393,23 @@ func TestCompactCapturedOutputWithContextCDWrappedSearch(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "[rg] 40 match(es)") || !strings.Contains(string(out), "internal/file_") {
 		t.Fatalf("unexpected compacted search output: %s", out)
+	}
+}
+
+func TestSearchOutputGroupingSkipsNonMatchLineModes(t *testing.T) {
+	t.Parallel()
+
+	jsonOutput := strings.Repeat(`{"type":"match","data":{"path":{"text":"a.go"},"lines":{"text":"needle"}}}`+"\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"rg", "--json", "needle"}, []byte(jsonOutput)); ok {
+		t.Fatal("rg --json must not be grouped as file:line output")
+	}
+	listOutput := strings.Repeat("src/a.go\nsrc/b.go\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"rg", "-l", "needle"}, []byte(listOutput)); ok {
+		t.Fatal("rg -l must not be grouped as match-line output")
+	}
+	countOutput := strings.Repeat("src/a.go:12\nsrc/b.go:4\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"grep", "-Rc", "needle", "."}, []byte(countOutput)); ok {
+		t.Fatal("grep -c must not be grouped as match-line output")
 	}
 }
 

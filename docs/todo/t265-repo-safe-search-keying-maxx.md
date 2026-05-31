@@ -73,13 +73,21 @@ is capped.
   canonicalization, so repeated search-output keys include repository scope.
 - Regression coverage proves identical `rg -n TODO src` commands in `/repo/a`
   and `/repo/b` do not share a repeated-output key.
+- Search option parsing now recognizes more real `rg`/`grep`/`ag`/`ack`/`ugrep`
+  value-taking flags, including glob/type/context/include/exclude/sort/engine/
+  preprocessor/replace/size-limit forms, so the pattern/path split stays stable
+  instead of accidentally treating an option value as the search pattern.
+- Canonicalized wildcard arguments are quoted before re-parsing, preserving
+  literal `*.go`/`?` globs in keys without triggering shellism rejection.
+- Search grouping now full-passes non-matchline modes such as `--json`,
+  `--files`, `-l`, `-L`, `-c`, `-o`, `--count`, and `--vimgrep`. Exact repeated
+  output can still dedup later, but the first output is not semantically
+  regrouped into fake `file:line:content` evidence.
 
 Remaining before this task can close:
 
 - Add live CLI/Desktop captures for repeated `rg`, changed result sets, `git
   grep`, and grep variants.
-- Add fixture coverage for more complex option forms where paths and patterns
-  are ambiguous.
 - Add explicit proof report showing large search grouping, repeated exact
   collapse, and changed search delta all stay repo-scoped with `lost=0`.
 

@@ -427,8 +427,11 @@ func TryCompactSearchOutput(argv []string, stdout []byte) ([]byte, bool) {
 		}
 	}
 
-	// Non-empty: try grouped output for grep-style tools (file:line:content format).
-	if isGrepStyleTool(argv) {
+	// Non-empty: try grouped output only for grep-style tools that are expected
+	// to emit file:line:content rows. Flags such as --json, --files, -l, or -c
+	// intentionally full-pass because grouping those formats would change the
+	// meaning of the output instead of just removing repeated file prefixes.
+	if isGrepStyleTool(argv) && searchProducesMatchLineOutput(argv) {
 		tool := searchToolName(argv)
 		if out, ok := groupSearchResults(stdout, tool); ok {
 			return out, true
@@ -450,6 +453,49 @@ func isGrepStyleTool(argv []string) bool {
 		return true
 	case "git":
 		return gitGrepIndex(argv) >= 0
+	}
+	return false
+}
+
+func searchProducesMatchLineOutput(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	for i := 1; i < len(argv); i++ {
+		arg := argv[i]
+		if arg == "--" {
+			return true
+		}
+		switch {
+		case arg == "--json" || arg == "--files" || arg == "--files-with-matches" ||
+			arg == "--files-without-match" || arg == "--count" || arg == "--count-matches" ||
+			arg == "--only-matching" || arg == "--vimgrep" || arg == "--type-list":
+			return false
+		case arg == "-l" || arg == "-L" || arg == "-c" || arg == "-o":
+			return false
+		case strings.HasPrefix(arg, "--json="), strings.HasPrefix(arg, "--files="),
+			strings.HasPrefix(arg, "--files-with-matches="), strings.HasPrefix(arg, "--files-without-match="),
+			strings.HasPrefix(arg, "--count="), strings.HasPrefix(arg, "--count-matches="),
+			strings.HasPrefix(arg, "--only-matching="), strings.HasPrefix(arg, "--vimgrep="):
+			return false
+		case strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--"):
+			if shortSearchOutputFlagDisablesGrouping(arg) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func shortSearchOutputFlagDisablesGrouping(arg string) bool {
+	if len(arg) < 2 || !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
+		return false
+	}
+	for _, r := range arg[1:] {
+		switch r {
+		case 'l', 'L', 'c', 'o':
+			return true
+		}
 	}
 	return false
 }
@@ -557,16 +603,35 @@ func searchOptionKind(arg string) searchOptionInfo {
 		return searchOptionInfo{consumesValue: true, patternValue: true}
 	case strings.HasPrefix(arg, "--file="):
 		return searchOptionInfo{patternValue: true}
-	case arg == "-g" || arg == "--glob" || arg == "-t" || arg == "--type" ||
-		arg == "-T" || arg == "--type-not" || arg == "-A" || arg == "-B" ||
-		arg == "-C" || arg == "--context" || arg == "--after-context" ||
-		arg == "--before-context" || arg == "-m" || arg == "--max-count" ||
-		arg == "-j" || arg == "--threads":
+	case arg == "-g" || arg == "--glob" || arg == "--iglob" ||
+		arg == "-t" || arg == "--type" || arg == "-T" || arg == "--type-not" ||
+		arg == "--type-add" || arg == "-A" || arg == "-B" || arg == "-C" ||
+		arg == "--context" || arg == "--after-context" || arg == "--before-context" ||
+		arg == "-m" || arg == "--max-count" || arg == "-j" || arg == "--threads" ||
+		arg == "--include" || arg == "--exclude" || arg == "--exclude-dir" ||
+		arg == "--include-dir" || arg == "--exclude-from" || arg == "--include-from" ||
+		arg == "--path-separator" || arg == "--field-context-separator" ||
+		arg == "--field-match-separator" || arg == "--sort" || arg == "--sortr" ||
+		arg == "--engine" || arg == "--pre" || arg == "--pre-glob" ||
+		arg == "--replace" || arg == "-r" || arg == "--max-filesize" ||
+		arg == "--dfa-size-limit" || arg == "--regex-size-limit" || arg == "--hostname-bin":
 		return searchOptionInfo{consumesValue: true}
 	case strings.HasPrefix(arg, "--glob="), strings.HasPrefix(arg, "--type="),
-		strings.HasPrefix(arg, "--type-not="), strings.HasPrefix(arg, "--context="),
+		strings.HasPrefix(arg, "--iglob="), strings.HasPrefix(arg, "--type-not="),
+		strings.HasPrefix(arg, "--type-add="), strings.HasPrefix(arg, "--context="),
 		strings.HasPrefix(arg, "--after-context="), strings.HasPrefix(arg, "--before-context="),
-		strings.HasPrefix(arg, "--max-count="), strings.HasPrefix(arg, "--threads="):
+		strings.HasPrefix(arg, "--max-count="), strings.HasPrefix(arg, "--threads="),
+		strings.HasPrefix(arg, "--include="), strings.HasPrefix(arg, "--exclude="),
+		strings.HasPrefix(arg, "--exclude-dir="), strings.HasPrefix(arg, "--include-dir="),
+		strings.HasPrefix(arg, "--exclude-from="), strings.HasPrefix(arg, "--include-from="),
+		strings.HasPrefix(arg, "--path-separator="),
+		strings.HasPrefix(arg, "--field-context-separator="),
+		strings.HasPrefix(arg, "--field-match-separator="), strings.HasPrefix(arg, "--sort="),
+		strings.HasPrefix(arg, "--sortr="), strings.HasPrefix(arg, "--engine="),
+		strings.HasPrefix(arg, "--pre="), strings.HasPrefix(arg, "--pre-glob="),
+		strings.HasPrefix(arg, "--replace="), strings.HasPrefix(arg, "--max-filesize="),
+		strings.HasPrefix(arg, "--dfa-size-limit="), strings.HasPrefix(arg, "--regex-size-limit="),
+		strings.HasPrefix(arg, "--hostname-bin="):
 		return searchOptionInfo{}
 	default:
 		return searchOptionInfo{}
@@ -626,7 +691,8 @@ func quoteSearchArg(arg string) string {
 		return `""`
 	}
 	if strings.IndexFunc(arg, func(r rune) bool {
-		return r == '"' || r == '\\' || r <= ' ' || r == '\'' || r == '$' || r == '`' || r == '|' || r == '&' || r == ';'
+		return r == '"' || r == '\\' || r <= ' ' || r == '\'' || r == '$' || r == '`' ||
+			r == '|' || r == '&' || r == ';' || r == '*' || r == '?'
 	}) < 0 {
 		return arg
 	}
