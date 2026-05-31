@@ -67,7 +67,7 @@ func TryStripCommentsFileReadWithContext(argv []string, stdout []byte, ctx FileR
 		return stdout, false
 	}
 	b := strings.ToLower(filepath.Base(argv[0]))
-	if b != "cat" && b != "head" && b != "tail" {
+	if b != "cat" && b != "head" && b != "tail" && b != "sed" {
 		return stdout, false
 	}
 
