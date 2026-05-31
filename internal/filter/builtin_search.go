@@ -41,6 +41,10 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 			continue
 		}
 		nonEmpty++
+		if isSearchEnvelopeNoiseLine(line) {
+			skipped++
+			continue
+		}
 		// Try "file:linenum:content" (rg/grep -n style).
 		firstColon := strings.IndexByte(line, ':')
 		if firstColon <= 0 {
@@ -130,6 +134,26 @@ func groupSearchResults(stdout []byte, toolName string) ([]byte, bool) {
 		return stdout, false // no benefit
 	}
 	return []byte(result), true
+}
+
+func isSearchEnvelopeNoiseLine(line string) bool {
+	line = strings.TrimSpace(line)
+	switch {
+	case line == "Output:":
+		return true
+	case strings.HasPrefix(line, "Total output lines:"):
+		return true
+	case strings.HasPrefix(line, "Chunk ID:"):
+		return true
+	case strings.HasPrefix(line, "Wall time:"):
+		return true
+	case strings.HasPrefix(line, "Process exited with code "):
+		return true
+	case strings.HasPrefix(line, "Original token count:"):
+		return true
+	default:
+		return false
+	}
 }
 
 func cappedSearchIndexes(total, budget, tail int) []int {

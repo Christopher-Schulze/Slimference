@@ -14,11 +14,11 @@ const signatureOnlyThreshold = 3000
 
 // scanModeRecoveryNote makes structure/signature-only read output discoverable-
 // recoverable: it tells the model that bodies were elided and that re-running the
-// read returns the full file. The re-read full-pass path (a post-collapse re-read
-// loosens the policy to full context) already serves the full file, so this only
-// makes that recovery discoverable instead of silent, which removes the residual
-// comprehension drawdown of scan-mode. Neutral wording, no product name.
-const scanModeRecoveryNote = "\n[structure only: bodies elided; re-run the read to see the full file]"
+// same command returns the full elided output. The re-read full-pass path
+// (a post-collapse re-read loosens the policy to full context) already serves the
+// unelided command output, so this only makes that recovery discoverable instead
+// of silent. Neutral wording, no product name.
+const scanModeRecoveryNote = "\n[structure only: bodies elided; re-run the same command to see the full elided output]"
 
 // withScanRecoveryNote appends the recovery note to compacted scan-mode output,
 // returning a copy so the caller's slice is never mutated.

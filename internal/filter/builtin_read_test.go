@@ -307,7 +307,8 @@ func TestCompactSingleFileRead_UnknownLangAndEmptyArgv(t *testing.T) {
 
 // TestScanMode_AppendsDiscoverableRecoveryNote proves first-read scan-mode output
 // (signatures only) carries a neutral, discoverable recovery instruction so the
-// model can re-read for the full file instead of silently losing the bodies.
+// model can re-run the same command for the full elided output instead of
+// silently losing the bodies.
 func TestScanMode_AppendsDiscoverableRecoveryNote(t *testing.T) {
 	t.Parallel()
 	var sb strings.Builder
@@ -327,7 +328,7 @@ func TestScanMode_AppendsDiscoverableRecoveryNote(t *testing.T) {
 	if len(out) >= len(content) {
 		t.Fatalf("scan output should be shorter: %d vs %d", len(out), len(content))
 	}
-	if !strings.Contains(string(out), "re-run the read to see the full file") {
+	if !strings.Contains(string(out), "re-run the same command to see the full elided output") {
 		t.Fatalf("scan-mode output must carry the discoverable recovery note")
 	}
 }

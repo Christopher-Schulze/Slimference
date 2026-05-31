@@ -76,7 +76,7 @@ func TestReduceCodexLayer0ScanReadApplyGatedAndRecoverable(t *testing.T) {
 	if on.Stats.TokensSaved <= 0 || on.Stats.BlocksModified != 1 {
 		t.Fatalf("scan-apply enabled must compact the read, stats=%+v", on.Stats)
 	}
-	if !strings.Contains(text, "re-run the read to see the full file") {
+	if !strings.Contains(text, "re-run the same command to see the full elided output") {
 		t.Fatalf("scan output must carry the recovery note: %q", text[:min(len(text), 200)])
 	}
 	if !strings.Contains(text, "context-archive kind=tool-output uri=local-archive://") {
@@ -84,6 +84,14 @@ func TestReduceCodexLayer0ScanReadApplyGatedAndRecoverable(t *testing.T) {
 	}
 	if len(on.Stats.ReadDeltaKeys) == 0 {
 		t.Fatalf("scan-apply must register the read key for re-read recovery, stats=%+v", on.Stats)
+	}
+
+	blocked := reduceCodexLayer0(codexLayer0Request{
+		Route: codexLayer0RouteWSSPhaseF, Messages: mk(), SessionID: "s3",
+		ScanReadSelfRegBlock: true,
+	})
+	if blocked.Stats.BlocksModified != 0 {
+		t.Fatalf("scan-apply must respect self-regulation, stats=%+v", blocked.Stats)
 	}
 }
 
@@ -144,7 +152,7 @@ func TestReduceCodexLayer0ScanReadViaMaxPolicy(t *testing.T) {
 	if maxRes.Stats.TokensSaved <= 0 || maxRes.Stats.CapturedOutputBlocks != 1 {
 		t.Fatalf("max policy must scan-compact the first read, stats=%+v", maxRes.Stats)
 	}
-	if !strings.Contains(text, "re-run the read to see the full file") ||
+	if !strings.Contains(text, "re-run the same command to see the full elided output") ||
 		!strings.Contains(text, "context-archive kind=tool-output uri=local-archive://") ||
 		len(maxRes.Stats.ReadDeltaKeys) == 0 {
 		t.Fatalf("max-policy scan must keep triple recovery: text=%q stats=%+v", text[:min(len(text), 200)], maxRes.Stats)

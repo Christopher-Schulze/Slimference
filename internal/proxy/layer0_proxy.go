@@ -205,7 +205,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
 				}
 				if !changed {
-					if (policy.ScanRead && !req.ScanReadSelfRegBlock) || (scanApplyEnabled() && !readCtx.RecentlyEdited) {
+					if (policy.ScanRead || scanApplyEnabled()) && !req.ScanReadSelfRegBlock {
 						if scanText, scanChanged, _ := compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx); scanChanged {
 							afterText, changed, mechanism = scanText, true, proxyLayer0MechanismScanRead
 						}

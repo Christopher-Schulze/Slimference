@@ -1562,7 +1562,7 @@ only and promotes the per-process Codex CLI runner for T209.
   max only, dormant in auto), proven live (66% savings, reconnect-safe recovery,
   behavioral recovery n=2 across modalities), and instrumented with the re-read
   frequency gate (`scan_reads_applied` / `scan_read_rereads`). Auto-promotion now waits
-  on real-workload B/A < 0.66. Other sub-tasks (2nd language, predictive post-edit,
+  on both real-workload B/A < 0.66 and a no-first-read-information-loss proof. Other sub-tasks (2nd language, predictive post-edit,
   apply_patch dedup, reasoning) still queued. Commits d1fd30e,1791832,51555bb,e7773d2,
   a7ffbc4,285fb5b,0666699.
   REAL-WORKLOAD FINDING (2026-05-31): live capture proved Codex reads via `sed -n '1,Np'`
@@ -1570,21 +1570,22 @@ only and promotes the per-process Codex CLI runner for T209.
   Fixed: `sed` added to the file-read scan whitelist via the regex ExtractStructure path
   (handles partial Go) + same recovery (commit a208abf, 1066 filter tests green). Lossless
   reducers saved 36533 tokens on that real session with 0 drift; the 400 invalid_request is
-  upstream oversized-request, not Slimference. STILL gated (max/env). To reach the user's
-  "always-auto, no opt-in, no drawdown": promote sed/cat scan into `auto` WITH per-session
-  self-regulation (back off when re-read rate > ~0.66 break-even, using the
-  applied/rereads instrument) + aggressive rg/search-output compaction.
+  upstream oversized-request, not Slimference. STILL gated (max/lab only). The product path
+  is NOT "flip scan into auto"; it is better deterministic cache hits plus rg/search-output
+  compaction unless scan can prove no first-read information weakening.
   SELF-REGULATION BUILT (commit f892460): per-session A/B key sets persisted reconnect-safe,
   `scanSelfRegBlock()` suppresses scan once |A|>=6 and |B|/|A|>=0.5, wired via
-  `ScanReadSelfRegBlock`; comprehension always safe via recovery. AUTO STILL BLOCKED by a new
-  finding: scan-compacting the first read cannibalizes the lossless read-delta/chunk seeding
-  (repeat reads go ~134% vs ~100%), degrading the proven 36533-token lossless win - real
-  regression, multiple WSS tests broke. So scan STAYS max-only; auto needs a scan<->lossless
-  interaction design first (self-reg is ready for that day). SEARCH-OUTPUT COMPACTION DONE
+  `ScanReadSelfRegBlock`. This is an economics guard, not a product-safety proof:
+  first-read elision still gives the model less file information until it re-reads. AUTO STILL
+  BLOCKED by a new finding: scan-compacting the first read cannibalizes the lossless
+  read-delta/chunk seeding (repeat reads go ~134% vs ~100%), degrading the proven
+  36533-token lossless win - real regression, multiple WSS tests broke. So scan STAYS
+  max-only/lab-only; auto needs a design that proves no first-read information weakening and
+  no lossless-cache cannibalization. SEARCH-OUTPUT COMPACTION DONE
   (commit 1a2d478, the conflict-free lever): `groupSearchResults` abandoned the whole output
   on the first colon-less line; Codex's truncated exec output always has one, so search
   grouping never fired on real Codex searches. Fixed (skip noise, bail only if noise
-  dominates) -> real captured rg 40KB->9KB (78%), default-auto, comprehension-safe
+  dominates, strip Codex envelope metadata) -> real captured rg 40KB->9KB (78%), default-auto, low-risk
   (re-run search to recover), no read-seeding conflict, also 400 mitigation.
   Detail: `docs/todo/t253-codex-aggressive-read-compression.md`
 - [ ] **T254** Codex server-state mirror (radical, TASK-SPLIT candidate, gated by T257/T258) —
@@ -1645,7 +1646,7 @@ criteria; this index is the traceability map so nothing is lost.
 | 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255/T256 | DONE (live-proven; auto-policy default) |
 | 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (capture/proof gated by T257/T258) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
-| 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | DONE for Go: wired, triple recovery, reconnect-safe, policy-gated (max, dormant in auto), proven live (66%, behavioral recovery n=2), instrumented; auto-promotion gated on real-workload re-read rate B/A < 0.66 |
+| 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | DONE for Go as lab/max-only: wired, triple recovery, reconnect-safe, proven live (66%, behavioral recovery n=2), instrumented; NOT product-auto until it proves no first-read information weakening and no lossless-cache cannibalization |
 | 6 | Ranged/partial read caching | 5-15% | Lossless | T250 | DONE |
 | 7 | Search-output delta | 3-8% | Lossless | T250 | DONE |
 | 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (capture-first; may close as N/A) |

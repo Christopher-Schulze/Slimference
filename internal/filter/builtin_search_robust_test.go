@@ -29,6 +29,9 @@ func TestGroupSearchResultsRobustToNoiseLines(t *testing.T) {
 	if !strings.Contains(s, "[rg]") || !strings.Contains(s, "match(es)") {
 		t.Fatalf("grouped output missing summary: %q", s[:min(len(s), 120)])
 	}
+	if strings.Contains(s, "Total output lines") {
+		t.Fatalf("grouped output must not treat Codex envelope metadata as a search file: %q", s)
+	}
 
 	// Noise-dominated output (mostly colon-less) must stay literal, not be
 	// summarized into a wrong match count.

@@ -155,16 +155,16 @@ Proofs (all live via Codex.app, Desktop, hard-verified):
 
 ## Auto-promotion gate (economics, the real blocker)
 
-Recovery proves zero comprehension drawdown, but auto-on-every-read is net-positive on
-SAVINGS only if enough reads never need their bodies. A body-needed read costs ~34%
-(scan) + ~100% (full re-read) = ~134% vs a 100% baseline; a body-not-needed read saves
-~66%. Break-even is at re-read rate `B/A < 0.66`. The instrument measures the real rate:
+Recovery proves that missing bodies can be fetched again, but it does NOT make first-read
+elision a product-default safety proof: the model still sees less file information until it
+notices and re-reads. Auto-on-every-read is also net-positive on SAVINGS only if enough reads
+never need their bodies. A body-needed read costs ~34% (scan) + ~100% (full re-read) = ~134%
+vs a 100% baseline; a body-not-needed read saves ~66%. Break-even is at re-read rate
+`B/A < 0.66`. The instrument measures the real rate:
 `scan_reads_applied` (A) and `scan_read_rereads` (B) in `/admin/state` savings. To
 finish: run real Codex work with scan on (`SLIMFERENCE_SCAN_APPLY=1` daemon, or `max`
-mode), read `B/A`. If `B/A < 0.66` sustained, flip `ScanRead` into `CodexModeAuto` in
-`internal/savingspolicy/codex.go` (and update the auto-case assertions in
-`internal/proxy/layer0_scan_shadow_test.go`). If `B/A >= 0.66`, keep `max`-only or scope
-scan to orient-only reads. Do not flip auto on intuition; the instrument is the gate.
+mode), read `B/A`, and prove no first-read information weakening in the A/B harness. If
+either proof fails, keep scan out of product auto. Do not flip auto on intuition.
 
 ## Real-workload finding + sed extension (2026-05-31)
 
@@ -194,18 +194,20 @@ recently-edited / force-full reads full-pass (risk-scope). Unit-proven; 1066 fil
 tests green, no regression. Still gated by `ScanRead` (max mode / `SLIMFERENCE_SCAN_APPLY`),
 so default-off in auto.
 
-Reframe on drawdown (per the user): a re-read's TOKEN cost is NOT a drawdown - drawdown
-is comprehension loss only (dumber, worse memory, drift, hallucination). So
-lossy+recovery preserves comprehension = no drawdown, just lower net savings, which is
-acceptable. The only remaining question for AUTO is economics (net-positive savings).
+Product framing (per the user): a feature is useful only if it works automatically without
+making the model dumber, less informed, less context-faithful, or more likely to hallucinate.
+Recovery reduces the risk of first-read elision, but it is not enough for default-on by
+itself because the model may not know that the missing body detail matters. Product auto
+therefore prioritizes deterministic cache hits and repeat-output reuse; scan remains a
+lab/max-only mechanism until it can meet that stricter bar.
 
 Self-regulation BUILT (reconnect-safe, tested): per-session A set (scan-elided keys,
 `toolusecache.ScanReadKeysDir`) and B set (those re-read, `toolusecache.ScanRereadKeysDir`)
 persist across reconnect; `wsPhaseFAdapter.scanSelfRegBlock()` suppresses scan once
 `|A| >= 6` and `|B|/|A| >= 0.5` (conservatively below the ~0.66 token break-even), wired
-through `codexLayer0Request.ScanReadSelfRegBlock` so scan never runs net-negative for a
-session. Comprehension stays safe via the re-read recovery regardless; self-reg only
-guards token economics. Active whenever scan runs (currently max mode).
+through `codexLayer0Request.ScanReadSelfRegBlock` so scan backs off before it keeps losing
+tokens in a session. This guard now also applies to the `SLIMFERENCE_SCAN_APPLY` lab path.
+Active whenever scan runs (currently max mode/lab only).
 
 AUTO STILL BLOCKED - new finding (2026-05-31): flipping `ScanRead` into `auto` is NOT a
 clean win. Scan-compacting the FIRST read cannibalizes the lossless read-delta/chunk-dedup
@@ -213,9 +215,9 @@ seeding: a later repeat read full-passes via scan recovery instead of deduping a
 full first read, so a repeat-read workload goes net-negative (~134% vs ~100% baseline) and
 the proven lossless savings (36533 tokens/session) degrade. Multiple WSS tests (read-delta
 seeding, auto chunk-dedup, A/B replay recoverable) broke when auto scanned - that is a real
-regression signal, not test cosmetics. So scan stays max-only; auto promotion is gated on a
-scan<->lossless INTERACTION design (e.g. scan only when read-delta/chunk would not apply, or
-seed lossless on full bytes before scan elides), not just the re-read economics.
+regression signal, not test cosmetics. So scan stays max-only/lab-only; auto promotion is
+blocked until a design proves both no first-read information weakening and no lossless-cache
+cannibalization, not just the re-read economics.
 
 Search-output compaction DONE (`1a2d478`) - the better, conflict-free lever. Root cause
 (verified from the capture): `groupSearchResults` abandoned the whole output on the first
@@ -223,7 +225,7 @@ colon-less line, and Codex's truncated exec output always has one (cut-off tail 
 `Total output lines: N` header), so search grouping NEVER fired on real Codex searches. Fix:
 skip colon-less noise lines, bail only when nothing parses or noise dominates
 (`skipped*2 > nonEmpty`). On the real captured `rg` (402 matches, 79 files) this compacts
-40 KB -> ~9 KB (78%). Default-auto in the filter pipeline; comprehension-safe (match count +
+40 KB -> ~9 KB (78%). Default-auto in the filter pipeline; low-risk (match count +
 which files kept, re-run the search to recover dropped matches); a search-output reducer, so
 NO first-read-seeding conflict. Also shrinks requests, mitigating the upstream oversized-
 request 400.
@@ -232,8 +234,8 @@ OPEN:
 - Design the scan<->lossless interaction so auto-scan does not cannibalize read-delta/chunk
   seeding; only then promote first-read scan into auto (self-regulation is already built).
 - Live-verify `sed` scan fires on a real Codex session (`applied>0`) under max.
-- Minor: the `Total output lines: N` envelope-header line still appears as a one-entry fake
-  "file" in the grouped output; harmless but could be stripped in `splitCodexExecEnvelope`.
+- Fixed: the `Total output lines: N` envelope-header line is stripped as Codex metadata, not
+  grouped as a fake search file.
 
 ## Deviations
 

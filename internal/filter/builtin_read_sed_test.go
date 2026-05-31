@@ -32,7 +32,7 @@ func TestSedPartialGoReadScansWithRecovery(t *testing.T) {
 	if len(out) >= len(content) {
 		t.Fatalf("scan output must be smaller: in=%d out=%d", len(content), len(out))
 	}
-	if !strings.Contains(string(out), "re-run the read to see the full file") {
+	if !strings.Contains(string(out), "re-run the same command to see the full elided output") {
 		t.Fatalf("scan output must carry the recovery note: %q", string(out)[:min(len(out), 160)])
 	}
 

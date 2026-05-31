@@ -278,23 +278,27 @@ consumption.
 
 ### Codex read-compression (mechanisms and safety model)
 
-Goal: maximum Codex token savings with zero comprehension drawdown, where a
-drawdown is the model getting dumber, losing context, drifting, or hallucinating -
-NOT the token cost of a recovery re-read. Mechanisms split into two tiers.
+Goal: maximum Codex token savings with no model-quality drawdown. A drawdown is
+the model getting dumber, losing context, drifting from the real files, breaking
+workflow, or hallucinating because Slimference removed information too early.
+Mechanisms split into two product classes.
 
-Lossless tier (always-auto, zero drawdown, the proven bulk): read-delta (repeat
-reads collapse to references), exact repeated-output, content-defined chunk dedup,
-the Codex exec-envelope stripper, and search-output grouping. These elide only what
-the model already holds or can reconstruct exactly. On a real codebase-exploration
-session they saved 36533 billable tokens with zero parse/compression/degraded errors.
+Default-auto tier (the proven product bulk): read-delta (repeat reads collapse to
+references), exact repeated-output, content-defined chunk dedup, the Codex
+exec-envelope stripper, and low-risk search-output grouping. The exact reducers
+elide only what the model already holds or can reconstruct exactly; search grouping
+keeps representative match context plus the recovery path of re-running the search.
+On a real codebase-exploration session the default-auto reducers saved 36533
+billable tokens with zero parse/compression/degraded errors.
 
-Lossy tier (recovery-backed; the recovery, not avoidance, is what removes the
-drawdown): first-read AST/structure scan-mode elides function bodies to signatures
-and is recovered by a re-read full-pass (the model re-reads when it needs a body,
-proven behaviorally), a `local-archive://` reference, and a discoverable note.
-Search-output grouping caps a huge match list and is recovered by re-running the
-search. Each lossy elision is comprehension-safe because the model can always get the
-full content back; the only cost is tokens, which is acceptable.
+Recovery-backed tier (not product-default unless proven safe for the workload):
+first-read AST/structure scan-mode elides function bodies to signatures and can be
+recovered by a re-read full-pass, a `local-archive://` reference, and a discoverable
+note. This is useful research infrastructure, but it is not the standard auto path:
+on first sight the model receives less file information, and recovery only helps
+after the model notices it needs the missing detail. Product default therefore
+keeps first file reads unelided and spends engineering effort on better cache hits,
+repeat-output reuse, ranged-read reuse, and search/build/test compaction.
 
 Safety model: (1) recovery handles on every lossy elision, made reconnect-safe by
 persisting the collapsed/scan key sets; (2) edit-target guards - recently-edited or
@@ -318,8 +322,9 @@ blocks, command-unresolved blocks, read-delta attempts, read-delta misses,
 modified blocks, read-delta blocks, captured-output filter blocks, and Codex
 exec-envelope blocks, and exact repeated-output blocks. Scan-mode (T253) adds two
 frequency counters, `scan_reads_applied` and `scan_read_rereads`, whose ratio is
-the economic gate for promoting scan-mode from max to auto. Opportunity and miss
-fields make hit-rate visible without claiming savings. The modified-block and
+the economic signal for keeping scan out of net-negative sessions. It is not a
+product-auto gate by itself. Opportunity and miss fields make hit-rate visible
+without claiming savings. The modified-block and
 mechanism-hit fields are success counters and are only recorded with a positive
 token saving. These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and
@@ -374,8 +379,8 @@ the captured `rg` payload always ends in a cut-off line and carries a leading
 noise lines (header, context separators, truncated tail) and only abandons grouping
 when nothing parses or noise dominates (`skipped*2 > nonEmpty`). On the real captured
 `rg` (402 matches, 79 files) this compacts 40 KB to ~9 KB (78%). The compaction is
-default-auto in the filter pipeline, comprehension-safe (the model keeps the match
-count and which files matched, and can re-run the search to recover dropped matches),
+default-auto in the filter pipeline, low-risk (the model keeps the match count,
+representative file/match context, and can re-run the search to recover dropped matches),
 and is a search-output reducer, so it has none of the first-read-seeding conflict that
 keeps first-read scan-mode out of auto.
 
@@ -414,7 +419,7 @@ First-read scan-mode (T253) is the most aggressive Layer-0 read reducer: a full
 `cat` of a large Go file returns AST signatures with function bodies over
 `MaxIncludedBodyLines=12` elided, instead of the full text. It is lossy on first
 sight, so it ships with triple recovery: a discoverable note
-(`re-run the read to see the full file`), a `local-archive://` reference to the
+(`re-run the same command to see the full elided output`), a `local-archive://` reference to the
 full output, and registration of the read key so a later re-read of the same file
 is seen as a post-collapse re-read and full-passes (the same recency guard the
 auto policy uses). That re-read recovery is made reconnect-safe by persisting the
@@ -425,7 +430,8 @@ central `savingspolicy` decision (`CodexToolOutputDecision.ScanRead`): it is
 enabled only in `max` mode, only on reads, only when archive recovery is
 available, and never when the read is loosened (recent-edit or post-collapse
 re-read). It is dormant in the default `auto` mode. The env override
-`SLIMFERENCE_SCAN_APPLY=1` forces it on for measurement regardless of mode.
+`SLIMFERENCE_SCAN_APPLY=1` is a lab-only measurement path and still respects the
+per-session self-regulation block.
 Live proof (2026-05-31, Codex.app Desktop): 66% savings on a 4593-line read;
 recovery reconnect-safe (a re-read after a reconnect full-passed,
 `requests_modified=1`, billable did not double, `wss-ab-replay` lost=0); and
@@ -433,11 +439,12 @@ behavioral recovery confirmed twice across modalities - the model self-re-reads
 when it needs an elided body and recovers the exact facts (numeric primes
 7919/104729, then string secrets `ORCHID` / `vault::<seg>::granted`), with no
 re-read instruction. Promotion of scan-mode from `max` to `auto` is gated on
-economics, not comprehension: a body-needed read costs ~134% (scan plus full
-re-read) while a body-not-needed read saves ~66%, so auto-on-every-read is
-net-positive only when the re-read rate stays under 0.66. `/admin/state` savings
+economics and information safety: a body-needed read costs ~134% (scan plus full
+re-read) while a body-not-needed read saves ~66%, and first-read elision is only
+acceptable if an A/B gate proves the model does not lose needed detail. `/admin/state` savings
 exposes `proxy_layer0_scan_reads_applied` (A) and `proxy_layer0_scan_read_rereads`
-(B); B/A measured over real workloads with scan on is the auto-promotion gate.
+(B); B/A measured over real workloads with scan on is one measurement input, not an
+auto-promotion proof by itself.
 Real-workload capture (2026-05-31) showed Codex reads files via `sed -n '1,Np' file`
 partial reads, plus `rg`/`find`, and never `cat` - so the original `cat`-only scan
 gate could not fire on real Codex behavior (`scan_reads_applied=0` across 30 tool
@@ -453,13 +460,15 @@ Scan-mode also has per-session self-regulation: the adapter persists the set of
 scan-elided read keys (A) and the subset the model re-read (B) across reconnects
 (`toolusecache.ScanReadKeysDir` / `ScanRereadKeysDir`) and suppresses scan via
 `codexLayer0Request.ScanReadSelfRegBlock` once `|A|>=6` and `|B|/|A|>=0.5` (below the
-~0.66 token break-even), so scan never runs net-negative for a session; comprehension
-stays safe via recovery regardless. Scan remains `max`-only and is NOT promoted to
+~0.66 token break-even), so scan backs off before it can keep losing tokens in a
+session. This is an economics guard, not a guarantee that first-read elision is
+product-safe. Scan remains `max`-only and is NOT promoted to
 `auto`: scan-compacting a first read cannibalizes the lossless read-delta/chunk-dedup
 seeding (a later repeat read would full-pass via recovery instead of deduping against
 the full first read), which is net-negative on repeat-read workloads. Auto promotion is
-therefore gated on a scan-versus-lossless interaction design, not merely the re-read
-economics. The lossless reducers already deliver always-on, zero-drawdown savings.
+therefore blocked until a design can prove no first-read information weakening and no
+lossless-cache cannibalization. The default-auto reducers already deliver always-on,
+low-risk savings without weakening first file reads.
 
 Model-facing readcache replacements use neutral `[context-* ...]` markers and
 preserve the `local-archive://<id>` pattern without naming Slimference inside
