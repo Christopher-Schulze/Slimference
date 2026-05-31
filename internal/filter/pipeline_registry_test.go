@@ -30,6 +30,12 @@ func TestLayer0ReducerRegistryContracts(t *testing.T) {
 		if len(reducer.PreservedEvidence) == 0 {
 			t.Fatalf("%s has no preserved evidence contract", reducer.ID)
 		}
+		if len(reducer.RequiredFields) == 0 {
+			t.Fatalf("%s has no required fields contract", reducer.ID)
+		}
+		if reducer.RecoveryPath == "" {
+			t.Fatalf("%s has no recovery path contract", reducer.ID)
+		}
 	}
 
 	for _, id := range []string{
@@ -73,11 +79,15 @@ func TestLayer0ReducerRegistryReturnsCopy(t *testing.T) {
 		t.Fatal("registry unexpectedly empty")
 	}
 	first[0].ID = "mutated"
+	first[0].RequiredFields[0] = "mutated"
 	first[0].PreservedEvidence[0] = "mutated"
 
 	second := Layer0ReducerRegistry()
 	if second[0].ID == "mutated" {
 		t.Fatal("registry id was mutated through returned slice")
+	}
+	if second[0].RequiredFields[0] == "mutated" {
+		t.Fatal("registry required fields were mutated through returned slice")
 	}
 	if second[0].PreservedEvidence[0] == "mutated" {
 		t.Fatal("registry evidence was mutated through returned slice")

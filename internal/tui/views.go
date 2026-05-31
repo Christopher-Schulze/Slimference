@@ -1085,6 +1085,10 @@ func (m *Model) buildRightPanel(width int) []string {
 		add(" " + renderProductRouteLine(s, product))
 		add(" " + s.Saved.Render(formatTokens(int(product.BillableInputTokensSaved))+" input saved") +
 			"  " + s.Dim.Render(formatBytesCompact(product.OutputWireBytesSaved)+" wire"))
+		if product.ProviderCacheReadTokens > 0 || product.ProviderCacheCreateTokens > 0 {
+			add(" " + s.Highlight.Render(formatTokens(int(product.ProviderCacheReadTokens))+" provider-cache read") +
+				"  " + s.Dim.Render(formatTokens(int(product.ProviderCacheCreateTokens))+" create"))
+		}
 		add(" " + s.Muted.Render(fmt.Sprintf("cache %d/%d · read %d · repeated %d · chunk %d",
 			product.CacheHits, product.CacheHits+product.CacheMisses,
 			product.ReadDeltaHits, product.RepeatedOutputHits, product.ChunkDedupHits)))

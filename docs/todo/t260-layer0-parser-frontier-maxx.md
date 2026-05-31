@@ -41,8 +41,8 @@ actionable information retained, and failure-open behavior under shape drift.
    - [x] safety class: exact, structured evidence, diagnostic priority, count
      summary
    - [x] default eligibility
-   - [ ] required structured fields per parser
-   - [ ] known recovery path per parser where recoverable
+   - [x] required structured fields per parser
+   - [x] known recovery path per parser where recoverable
 2. Convert all remaining cap-first reducers to priority-first reducers:
    - preserve error/failure/warning/destructive lines before noise
    - preserve file, line, column, exit code, command, tool name
@@ -120,6 +120,10 @@ These are promotion targets, not claims:
   reducer order, and is covered by uniqueness/order/evidence-contract tests.
   This closes the first audit/control-plane slice without changing compression
   behavior.
+- 2026-05-31: Extended the reducer registry with required-field and recovery-path
+  contracts. This makes default reducer safety auditable beyond "has a name":
+  every parser now declares the evidence it must retain and the fail-open
+  recovery behavior expected when that evidence cannot be proven.
 
 ## Done
 

@@ -25,7 +25,9 @@ type Layer0ReducerInfo struct {
 	Family            string
 	SafetyClass       Layer0ReducerSafetyClass
 	DefaultEligible   bool
+	RequiredFields    []string
 	PreservedEvidence []string
+	RecoveryPath      string
 }
 
 type layer0ReducerFunc func(argv []string, stdout []byte, ctx FileReadContext) ([]byte, bool)
@@ -41,6 +43,7 @@ func Layer0ReducerRegistry() []Layer0ReducerInfo {
 	out := make([]Layer0ReducerInfo, 0, len(specs))
 	for _, spec := range specs {
 		info := spec.Layer0ReducerInfo
+		info.RequiredFields = append([]string(nil), info.RequiredFields...)
 		info.PreservedEvidence = append([]string(nil), info.PreservedEvidence...)
 		out = append(out, info)
 	}
@@ -258,7 +261,9 @@ func argvReducer(id, family string, safety Layer0ReducerSafetyClass, preserved [
 			Family:            family,
 			SafetyClass:       safety,
 			DefaultEligible:   true,
+			RequiredFields:    append([]string(nil), preserved...),
 			PreservedEvidence: append([]string(nil), preserved...),
+			RecoveryPath:      "parser fail-open to original output",
 		},
 		fn: func(argv []string, stdout []byte, _ FileReadContext) ([]byte, bool) {
 			return fn(argv, stdout)
@@ -273,7 +278,9 @@ func stdoutReducer(id, family string, safety Layer0ReducerSafetyClass, preserved
 			Family:            family,
 			SafetyClass:       safety,
 			DefaultEligible:   true,
+			RequiredFields:    append([]string(nil), preserved...),
 			PreservedEvidence: append([]string(nil), preserved...),
+			RecoveryPath:      "parser fail-open to original output",
 		},
 		fn: func(_ []string, stdout []byte, _ FileReadContext) ([]byte, bool) {
 			return fn(stdout)

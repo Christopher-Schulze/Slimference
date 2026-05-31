@@ -27,6 +27,7 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 		return control.SavingsSummary{}
 	}
 	snap := s.Proxy.OutputReduceCountersSnapshot()
+	analyticsSnap := s.Proxy.analytics.Snapshot()
 	ab := qualityab.QualityABTelemetry{}
 	if s.Proxy.qualityAB != nil {
 		ab = s.Proxy.qualityAB.Snapshot()
@@ -35,30 +36,32 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 	requestSideBytes := snap.StaleReadBytesReplaced + snap.ObsoleteReadBytesPruned
 
 	out := control.SavingsSummary{
-		InputTokensSaved:         int64(snap.ProxyLayer0TokensSaved),
-		OutputTokensSaved:        int64(outputWireBytes + requestSideBytes),
-		BillableInputTokensSaved: int64(snap.ProxyLayer0TokensSaved),
-		OutputWireBytesSaved:     int64(outputWireBytes),
-		RequestSideBytesReduced:  int64(requestSideBytes),
-		ProxyLayer0ToolResults:   int64(snap.ProxyLayer0ToolResultBlocks),
-		ProxyLayer0ToolMisses:    int64(snap.ProxyLayer0ToolUseUnresolved),
-		ProxyLayer0Commands:      int64(snap.ProxyLayer0CommandResolvedBlocks),
-		ProxyLayer0CommandMisses: int64(snap.ProxyLayer0CommandUnresolved),
-		ProxyLayer0ReadAttempts:  int64(snap.ProxyLayer0ReadDeltaAttempts),
-		ProxyLayer0ReadMisses:    int64(snap.ProxyLayer0ReadDeltaMisses),
-		ProxyLayer0Blocks:        int64(snap.ProxyLayer0BlocksModified),
-		ProxyLayer0ReadDelta:     int64(snap.ProxyLayer0ReadDeltaBlocks),
-		ProxyLayer0Captured:      int64(snap.ProxyLayer0CapturedBlocks),
-		ProxyLayer0Envelope:      int64(snap.ProxyLayer0EnvelopeBlocks),
-		ProxyLayer0Repeated:      int64(snap.ProxyLayer0RepeatedOutputBlocks),
-		ProxyLayer0ChunkDedup:    int64(snap.ProxyLayer0ChunkDedupBlocks),
-		ProxyLayer0ChunkRefs:     int64(snap.ProxyLayer0ChunkDedupReferences),
-		ProxyLayer0ChunkRefBytes: int64(snap.ProxyLayer0ChunkDedupRefBytes),
-		ProxyLayer0ChunkInBytes:  int64(snap.ProxyLayer0ChunkDedupInputBytes),
-		ProxyLayer0LedgerCommand: int64(snap.ProxyLayer0LedgerCommandCapsules),
-		ProxyLayer0LedgerFile:    int64(snap.ProxyLayer0LedgerFileCapsules),
-		ProxyLayer0LedgerSearch:  int64(snap.ProxyLayer0LedgerSearchCapsules),
-		ProxyLayer0LedgerFailure: int64(snap.ProxyLayer0LedgerFailureCapsules),
+		InputTokensSaved:          int64(snap.ProxyLayer0TokensSaved),
+		OutputTokensSaved:         int64(outputWireBytes + requestSideBytes),
+		BillableInputTokensSaved:  int64(snap.ProxyLayer0TokensSaved),
+		ProviderCacheReadTokens:   int64(analyticsSnap.PromptCacheReadTokens),
+		ProviderCacheCreateTokens: int64(analyticsSnap.PromptCacheCreateTokens),
+		OutputWireBytesSaved:      int64(outputWireBytes),
+		RequestSideBytesReduced:   int64(requestSideBytes),
+		ProxyLayer0ToolResults:    int64(snap.ProxyLayer0ToolResultBlocks),
+		ProxyLayer0ToolMisses:     int64(snap.ProxyLayer0ToolUseUnresolved),
+		ProxyLayer0Commands:       int64(snap.ProxyLayer0CommandResolvedBlocks),
+		ProxyLayer0CommandMisses:  int64(snap.ProxyLayer0CommandUnresolved),
+		ProxyLayer0ReadAttempts:   int64(snap.ProxyLayer0ReadDeltaAttempts),
+		ProxyLayer0ReadMisses:     int64(snap.ProxyLayer0ReadDeltaMisses),
+		ProxyLayer0Blocks:         int64(snap.ProxyLayer0BlocksModified),
+		ProxyLayer0ReadDelta:      int64(snap.ProxyLayer0ReadDeltaBlocks),
+		ProxyLayer0Captured:       int64(snap.ProxyLayer0CapturedBlocks),
+		ProxyLayer0Envelope:       int64(snap.ProxyLayer0EnvelopeBlocks),
+		ProxyLayer0Repeated:       int64(snap.ProxyLayer0RepeatedOutputBlocks),
+		ProxyLayer0ChunkDedup:     int64(snap.ProxyLayer0ChunkDedupBlocks),
+		ProxyLayer0ChunkRefs:      int64(snap.ProxyLayer0ChunkDedupReferences),
+		ProxyLayer0ChunkRefBytes:  int64(snap.ProxyLayer0ChunkDedupRefBytes),
+		ProxyLayer0ChunkInBytes:   int64(snap.ProxyLayer0ChunkDedupInputBytes),
+		ProxyLayer0LedgerCommand:  int64(snap.ProxyLayer0LedgerCommandCapsules),
+		ProxyLayer0LedgerFile:     int64(snap.ProxyLayer0LedgerFileCapsules),
+		ProxyLayer0LedgerSearch:   int64(snap.ProxyLayer0LedgerSearchCapsules),
+		ProxyLayer0LedgerFailure:  int64(snap.ProxyLayer0LedgerFailureCapsules),
 		ProxyLayer0Routes: control.ProxyLayer0RoutesSummary{
 			HTTP:      proxyLayer0RouteSummary(snap.ProxyLayer0Routes.HTTP),
 			WSSPhaseF: proxyLayer0RouteSummary(snap.ProxyLayer0Routes.WSSPhaseF),

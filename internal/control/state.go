@@ -158,72 +158,78 @@ type CodexRouteState struct {
 
 // SavingsSummary rolls up Phase F counters for the dashboard tile.
 type SavingsSummary struct {
-	Product                  ProductSavingsSummary    `json:"product"`
-	InputTokensSaved         int64                    `json:"input_tokens_saved"`
-	OutputTokensSaved        int64                    `json:"output_tokens_saved"`
-	BillableInputTokensSaved int64                    `json:"billable_input_tokens_saved"`
-	OutputWireBytesSaved     int64                    `json:"output_wire_bytes_saved"`
-	RequestSideBytesReduced  int64                    `json:"request_side_bytes_reduced"`
-	CostUSD                  float64                  `json:"cost_usd"`
-	ProxyLayer0ToolResults   int64                    `json:"proxy_layer0_tool_result_blocks"`
-	ProxyLayer0ToolMisses    int64                    `json:"proxy_layer0_tool_use_unresolved_blocks"`
-	ProxyLayer0Commands      int64                    `json:"proxy_layer0_command_resolved_blocks"`
-	ProxyLayer0CommandMisses int64                    `json:"proxy_layer0_command_unresolved_blocks"`
-	ProxyLayer0ReadAttempts  int64                    `json:"proxy_layer0_read_delta_attempts"`
-	ProxyLayer0ReadMisses    int64                    `json:"proxy_layer0_read_delta_misses"`
-	ProxyLayer0Blocks        int64                    `json:"proxy_layer0_blocks"`
-	ProxyLayer0ReadDelta     int64                    `json:"proxy_layer0_read_delta_blocks"`
-	ProxyLayer0Captured      int64                    `json:"proxy_layer0_captured_output_blocks"`
-	ProxyLayer0Envelope      int64                    `json:"proxy_layer0_codex_exec_envelope_blocks"`
-	ProxyLayer0Repeated      int64                    `json:"proxy_layer0_repeated_output_blocks"`
-	ProxyLayer0ChunkDedup    int64                    `json:"proxy_layer0_chunk_dedup_blocks"`
-	ProxyLayer0ChunkRefs     int64                    `json:"proxy_layer0_chunk_dedup_references"`
-	ProxyLayer0ChunkRefBytes int64                    `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
-	ProxyLayer0ChunkInBytes  int64                    `json:"proxy_layer0_chunk_dedup_input_bytes"`
-	ProxyLayer0LedgerCommand int64                    `json:"proxy_layer0_ledger_command_capsules"`
-	ProxyLayer0LedgerFile    int64                    `json:"proxy_layer0_ledger_file_capsules"`
-	ProxyLayer0LedgerSearch  int64                    `json:"proxy_layer0_ledger_search_capsules"`
-	ProxyLayer0LedgerFailure int64                    `json:"proxy_layer0_ledger_failure_capsules"`
-	ProxyLayer0Routes        ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
-	ProxyLayer0Policy        []ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
-	ProxyLayer0Cache         []ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
-	StreamcutFires           int64                    `json:"streamcut_fires"`
-	RepdetRewrites           int64                    `json:"repdet_rewrites"`
-	RepdetBytesSaved         int64                    `json:"repdet_bytes_saved"`
-	StaleReadBlocks          int64                    `json:"stale_read_blocks"`
-	ObsoletePruneBlocks      int64                    `json:"obsolete_prune_blocks"`
-	StopSeqInjections        int64                    `json:"stop_seq_injections"`
-	BeterseInjections        int64                    `json:"beterse_injections"`
-	QualityABRolledBack      bool                     `json:"quality_ab_rolled_back"`
-	QualityABControlFail     float64                  `json:"quality_ab_control_failure_rate"`
-	QualityABTreatmentFail   float64                  `json:"quality_ab_treatment_failure_rate"`
+	Product                   ProductSavingsSummary    `json:"product"`
+	InputTokensSaved          int64                    `json:"input_tokens_saved"`
+	OutputTokensSaved         int64                    `json:"output_tokens_saved"`
+	BillableInputTokensSaved  int64                    `json:"billable_input_tokens_saved"`
+	ProviderCacheReadTokens   int64                    `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens int64                    `json:"provider_cache_create_tokens"`
+	OutputWireBytesSaved      int64                    `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced   int64                    `json:"request_side_bytes_reduced"`
+	CostUSD                   float64                  `json:"cost_usd"`
+	ProxyLayer0ToolResults    int64                    `json:"proxy_layer0_tool_result_blocks"`
+	ProxyLayer0ToolMisses     int64                    `json:"proxy_layer0_tool_use_unresolved_blocks"`
+	ProxyLayer0Commands       int64                    `json:"proxy_layer0_command_resolved_blocks"`
+	ProxyLayer0CommandMisses  int64                    `json:"proxy_layer0_command_unresolved_blocks"`
+	ProxyLayer0ReadAttempts   int64                    `json:"proxy_layer0_read_delta_attempts"`
+	ProxyLayer0ReadMisses     int64                    `json:"proxy_layer0_read_delta_misses"`
+	ProxyLayer0Blocks         int64                    `json:"proxy_layer0_blocks"`
+	ProxyLayer0ReadDelta      int64                    `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0Captured       int64                    `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0Envelope       int64                    `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Repeated       int64                    `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedup     int64                    `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkRefs      int64                    `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkRefBytes  int64                    `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkInBytes   int64                    `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0LedgerCommand  int64                    `json:"proxy_layer0_ledger_command_capsules"`
+	ProxyLayer0LedgerFile     int64                    `json:"proxy_layer0_ledger_file_capsules"`
+	ProxyLayer0LedgerSearch   int64                    `json:"proxy_layer0_ledger_search_capsules"`
+	ProxyLayer0LedgerFailure  int64                    `json:"proxy_layer0_ledger_failure_capsules"`
+	ProxyLayer0Routes         ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
+	ProxyLayer0Policy         []ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
+	ProxyLayer0Cache          []ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
+	StreamcutFires            int64                    `json:"streamcut_fires"`
+	RepdetRewrites            int64                    `json:"repdet_rewrites"`
+	RepdetBytesSaved          int64                    `json:"repdet_bytes_saved"`
+	StaleReadBlocks           int64                    `json:"stale_read_blocks"`
+	ObsoletePruneBlocks       int64                    `json:"obsolete_prune_blocks"`
+	StopSeqInjections         int64                    `json:"stop_seq_injections"`
+	BeterseInjections         int64                    `json:"beterse_injections"`
+	QualityABRolledBack       bool                     `json:"quality_ab_rolled_back"`
+	QualityABControlFail      float64                  `json:"quality_ab_control_failure_rate"`
+	QualityABTreatmentFail    float64                  `json:"quality_ab_treatment_failure_rate"`
 }
 
 type ProductSavingsSummary struct {
-	Status                   string  `json:"status"`
-	BillableInputTokensSaved int64   `json:"billable_input_tokens_saved"`
-	OutputWireBytesSaved     int64   `json:"output_wire_bytes_saved"`
-	RequestSideBytesReduced  int64   `json:"request_side_bytes_reduced"`
-	CostUSD                  float64 `json:"cost_usd"`
-	CacheHits                int64   `json:"cache_hits"`
-	CacheMisses              int64   `json:"cache_misses"`
-	ReadDeltaHits            int64   `json:"read_delta_hits"`
-	RepeatedOutputHits       int64   `json:"repeated_output_hits"`
-	ChunkDedupHits           int64   `json:"chunk_dedup_hits"`
-	ToolResolutionMisses     int64   `json:"tool_resolution_misses"`
-	SafetyIssues             int64   `json:"safety_issues"`
+	Status                    string  `json:"status"`
+	BillableInputTokensSaved  int64   `json:"billable_input_tokens_saved"`
+	ProviderCacheReadTokens   int64   `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens int64   `json:"provider_cache_create_tokens"`
+	OutputWireBytesSaved      int64   `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced   int64   `json:"request_side_bytes_reduced"`
+	CostUSD                   float64 `json:"cost_usd"`
+	CacheHits                 int64   `json:"cache_hits"`
+	CacheMisses               int64   `json:"cache_misses"`
+	ReadDeltaHits             int64   `json:"read_delta_hits"`
+	RepeatedOutputHits        int64   `json:"repeated_output_hits"`
+	ChunkDedupHits            int64   `json:"chunk_dedup_hits"`
+	ToolResolutionMisses      int64   `json:"tool_resolution_misses"`
+	SafetyIssues              int64   `json:"safety_issues"`
 }
 
 func (s SavingsSummary) ProductSignals() ProductSavingsSummary {
 	product := ProductSavingsSummary{
-		BillableInputTokensSaved: s.BillableInputTokensSaved,
-		OutputWireBytesSaved:     s.OutputWireBytesSaved,
-		RequestSideBytesReduced:  s.RequestSideBytesReduced,
-		CostUSD:                  s.CostUSD,
-		ReadDeltaHits:            s.ProxyLayer0ReadDelta,
-		RepeatedOutputHits:       s.ProxyLayer0Repeated,
-		ChunkDedupHits:           s.ProxyLayer0ChunkDedup,
-		ToolResolutionMisses:     s.ProxyLayer0ToolMisses + s.ProxyLayer0CommandMisses,
+		BillableInputTokensSaved:  s.BillableInputTokensSaved,
+		ProviderCacheReadTokens:   s.ProviderCacheReadTokens,
+		ProviderCacheCreateTokens: s.ProviderCacheCreateTokens,
+		OutputWireBytesSaved:      s.OutputWireBytesSaved,
+		RequestSideBytesReduced:   s.RequestSideBytesReduced,
+		CostUSD:                   s.CostUSD,
+		ReadDeltaHits:             s.ProxyLayer0ReadDelta,
+		RepeatedOutputHits:        s.ProxyLayer0Repeated,
+		ChunkDedupHits:            s.ProxyLayer0ChunkDedup,
+		ToolResolutionMisses:      s.ProxyLayer0ToolMisses + s.ProxyLayer0CommandMisses,
 	}
 	for _, entry := range s.ProxyLayer0Cache {
 		switch entry.Action {
@@ -242,6 +248,7 @@ func (s SavingsSummary) ProductSignals() ProductSavingsSummary {
 	case product.SafetyIssues > 0:
 		product.Status = "attention"
 	case product.BillableInputTokensSaved > 0 ||
+		product.ProviderCacheReadTokens > 0 ||
 		product.OutputWireBytesSaved > 0 ||
 		product.RequestSideBytesReduced > 0 ||
 		product.CacheHits > 0 ||

@@ -88,6 +88,23 @@ func TestAdminStateHandlerReturnsBuiltState(t *testing.T) {
 	}
 }
 
+func TestSetupStateSnapshotStoresHostBudgetGate(t *testing.T) {
+	p := newProxyForAdminTest(t)
+	p.SetStateProvider(&control.Probes{
+		Daemon: adminDaemonProbe{state: control.DaemonState{RSSBytes: control.DefaultHostRSSBudgetBytes + 1}},
+	})
+
+	if p.codexHostBudgetExceeded() {
+		t.Fatal("host budget gate must start false before first state snapshot")
+	}
+	if _, ok := p.SetupStateSnapshot(context.Background()); !ok {
+		t.Fatal("expected state snapshot")
+	}
+	if !p.codexHostBudgetExceeded() {
+		t.Fatal("host budget snapshot should feed Codex reducer gate")
+	}
+}
+
 func TestAdminStateHandlerReturnsWSSMutationTelemetry(t *testing.T) {
 	p := newProxyForAdminTest(t)
 	d := &PhaseFDispatcher{}
@@ -142,6 +159,14 @@ func TestAdminStateHandlerReturnsWSSMutationTelemetry(t *testing.T) {
 		got.WSS.PhaseFMutations != 1 {
 		t.Fatalf("Phase-F WSS telemetry not propagated: %+v", got.WSS)
 	}
+}
+
+type adminDaemonProbe struct {
+	state control.DaemonState
+}
+
+func (p adminDaemonProbe) ProbeDaemon(context.Context) control.DaemonState {
+	return p.state
 }
 
 func TestAdminStateHandlerNilProviderClears(t *testing.T) {

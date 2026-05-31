@@ -3,9 +3,11 @@ package proxy
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/qualityab"
+	"github.com/slimference/slimference/internal/types"
 )
 
 func TestSavingsProbeNilSafe(t *testing.T) {
@@ -45,6 +47,14 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 			{Mechanism: "repeated_output", Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
 		},
 	})
+	p.analytics.Record(types.AnalyticsEvent{
+		Type:              types.EventRequestProcessed,
+		Timestamp:         time.Now(),
+		Provider:          types.Anthropic,
+		Model:             "claude",
+		CacheReadTokens:   700,
+		CacheCreateTokens: 120,
+	})
 
 	probe := &SavingsProbe{Proxy: p, USDPerMillionTokens: 6.0}
 	got := probe.ProbeSavings(context.Background())
@@ -74,6 +84,8 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		t.Errorf("Product.Status=%q want saving", got.Product.Status)
 	}
 	if got.Product.BillableInputTokensSaved != 2000 ||
+		got.Product.ProviderCacheReadTokens != 700 ||
+		got.Product.ProviderCacheCreateTokens != 120 ||
 		got.Product.OutputWireBytesSaved != 3072 ||
 		got.Product.RequestSideBytesReduced != 384 {
 		t.Errorf("Product savings mismatch: %+v", got.Product)

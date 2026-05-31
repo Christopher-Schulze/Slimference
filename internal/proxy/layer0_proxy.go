@@ -67,6 +67,7 @@ type codexLayer0Request struct {
 	ChunkStore          *chunkdedup.Store
 	PolicyMode          string
 	ArchiveRecovery     bool
+	HostBudgetExceeded  bool
 }
 
 type codexLayer0Result struct {
@@ -322,6 +323,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				IsRead:                   readCommand,
 				RecentlyEdited:           readCtx.RecentlyEdited,
 				PostCollapseReRead:       postCollapseReRead && toolKey != "",
+				HostBudgetExceeded:       req.HostBudgetExceeded,
 			})
 			stats.PolicyDecisions = append(stats.PolicyDecisions, policy.Mechanisms...)
 			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {

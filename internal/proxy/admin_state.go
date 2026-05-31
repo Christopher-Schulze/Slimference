@@ -40,7 +40,9 @@ func (p *Proxy) SetupStateSnapshot(ctx context.Context) (control.SetupState, boo
 	if probes == nil {
 		return control.SetupState{}, false
 	}
-	return control.Build(ctx, *probes), true
+	state := control.Build(ctx, *probes)
+	p.hostBudgetExceeded.Store(state.HostBudget.Exceeded)
+	return state, true
 }
 
 // adminStateHandler returns the current SetupState as JSON. GET only.

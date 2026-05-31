@@ -351,6 +351,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			ChunkStore:          chunkStore,
 			PolicyMode:          policyMode,
 			ArchiveRecovery:     archiveRecovery,
+			HostBudgetExceeded:  p.codexHostBudgetExceeded(),
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		p.outputReduceCounters.RecordProxyLayer0Stats(stats)

@@ -108,6 +108,11 @@ Initial targets for Apple Silicon macOS:
   probes, in-process daemon probes, and host-budget evaluation now carry these
   fields. State-size budget overrun demotes through the existing host budget
   path; CPU remains observation-only until a windowed idle sampler is built.
+- 2026-05-31: Wired the latest `/admin/state` host-budget snapshot into the
+  Codex Layer-0 savings policy hot path. When the product host budget is marked
+  exceeded, read-delta, repeated-output, and chunk mechanisms full-pass instead
+  of spending more local work. The hot path reads an atomic snapshot rather than
+  re-measuring RSS/state size per frame.
 
 ## Done
 

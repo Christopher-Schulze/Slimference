@@ -1222,22 +1222,24 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	p.productStatus = ProductStatus{
-		RouteStatus:              "WSS savings active",
-		SavingsStatus:            "saving",
-		BillableInputTokensSaved: 12000,
-		OutputWireBytesSaved:     2048,
-		CacheHits:                3,
-		CacheMisses:              1,
-		ReadDeltaHits:            2,
-		RepeatedOutputHits:       1,
-		ChunkDedupHits:           1,
+		RouteStatus:               "WSS savings active",
+		SavingsStatus:             "saving",
+		BillableInputTokensSaved:  12000,
+		ProviderCacheReadTokens:   5000,
+		ProviderCacheCreateTokens: 700,
+		OutputWireBytesSaved:      2048,
+		CacheHits:                 3,
+		CacheMisses:               1,
+		ReadDeltaHits:             2,
+		RepeatedOutputHits:        1,
+		ChunkDedupHits:            1,
 	}
 	m := NewModel(p)
 	m.width = 100
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"PRODUCT", "WSS savings active", "12.0K input saved", "cache 3/4", "safety ok"} {
+	for _, want := range []string{"PRODUCT", "WSS savings active", "12.0K input saved", "5.0K provider-cache read", "cache 3/4", "safety ok"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}

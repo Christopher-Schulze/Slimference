@@ -214,6 +214,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			ChunkStore:          chunkStore,
 			PolicyMode:          policyMode,
 			ArchiveRecovery:     archiveRecovery,
+			HostBudgetExceeded:  a.p.codexHostBudgetExceeded(),
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats

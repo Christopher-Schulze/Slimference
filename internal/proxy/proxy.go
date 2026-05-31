@@ -132,6 +132,10 @@ type Proxy struct {
 	// reloadable via admin POST /admin/bypass and the `B` TUI hotkey;
 	// persisted alongside other toggles.
 	bypassMode atomic.Bool
+	// hostBudgetExceeded is updated by /admin/state snapshots and gates
+	// optional Codex reducers without re-measuring RSS/state size in the
+	// frame hot path.
+	hostBudgetExceeded atomic.Bool
 	// Quality signals (T77). Re-read detector tracks repeated tool-key
 	// observations within a short window; cache-miss spike detector
 	// flags rolling prompt-cache regressions; net-savings keeps the
@@ -516,6 +520,13 @@ func (p *Proxy) daemonResourceSnapshot() hostmetrics.ProcessSnapshot {
 		}
 	}
 	return snap
+}
+
+func (p *Proxy) codexHostBudgetExceeded() bool {
+	if p == nil {
+		return false
+	}
+	return p.hostBudgetExceeded.Load()
 }
 
 func (p *Proxy) uptimeSeconds() int64 {

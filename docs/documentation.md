@@ -467,6 +467,11 @@ repeat savings for commands such as repeated repo-scoped `rg`, `git status`,
 build/test reports, partial file ranges, or custom deterministic tools without
 introducing semantic summaries or cross-repo false hits.
 
+Layer-0 reducer metadata is part of the safety contract. Every default reducer
+declares its mechanism id, command family, safety class, required retained
+fields, preserved evidence, and fail-open recovery path. The registry is used
+for audits/control surfaces only; it does not add model-facing text.
+
 First-pass search outputs are grouped by `TryCompactSearchOutput` /
 `groupSearchResults` (file -> match list with a `[tool] N match(es) in M file(s)`
 header, capped at 30 files with `[+N more files]`). This grouping used to abandon
@@ -1961,6 +1966,16 @@ evidence or exact workflow content more than maximal terse output. Tool-schema
 pruning runs only after strict schema extraction: if any `tools[]` entry cannot
 be named for the provider shape, the request keeps the full schema instead of
 partially pruning a mixed/unknown tool surface.
+
+Product status separates provider-cache savings from local input/output-wire
+savings. `/admin/state.savings.product` carries provider-cache read/create tokens
+from analytics, billable Layer-0 input savings, output-wire savings, cache hit
+counts, and safety/host-budget state as distinct fields so the TUI does not
+present a mixed headline number. Host-budget demotion is wired into the Codex
+Layer-0 policy: if the latest product host-budget snapshot is exceeded, WSS/HTTP
+Codex tool-output reducers full-pass until the process is back inside budget.
+The reducer hot path reads this as an atomic state bit, avoiding fresh RSS/state
+directory scans per frame.
 
 The proxy hot path attaches this plan to `debug.RequestSummary` and normalized
 `flight` records for upstream, local cache, transparent CONNECT, and direct

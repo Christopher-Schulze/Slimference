@@ -46,7 +46,7 @@ Debug/audit view:
    - route
    - billable input savings
    - output-wire savings
-   - provider cache (pending source alignment)
+   - [x] provider cache read/create tokens from analytics
    - cache hits
    - quality/safety
    - recert
@@ -57,6 +57,9 @@ Debug/audit view:
    - debug-only parser/policy/cache matrices remain outside the default product
      panel
    - route labels come from `/admin/state` through the local/remote TUI adapters
+   - provider-cache read/create tokens now flow through `/admin/state.savings`
+     into the product panel as a separate savings class, not mixed into local
+     Layer-0 input savings
 4. [ ] Define live-corpus promotion gates:
    - minimum CLI captures
    - minimum Desktop captures

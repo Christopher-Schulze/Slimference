@@ -1891,8 +1891,8 @@ be called complete, default-safe, and production-grade.
 ### Original layer max-out tasks
 
 - [~] **T260** Layer 0 parser frontier and safe pre-entry max-out - Layer 0 now
-  has a reducer safety/evidence registry in dispatch order; remaining work is
-  parser required-field contracts, recovery metadata, corpus fixtures,
+  has a reducer safety/evidence registry in dispatch order with required-field
+  and recovery-path contracts; remaining work is corpus fixtures,
   priority-first hardening, and live route proof. Detail:
   `docs/todo/t260-layer0-parser-frontier-maxx.md`
 - [~] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
@@ -1953,14 +1953,15 @@ be called complete, default-safe, and production-grade.
   `docs/todo/t270-runtime-savings-policy-autopilot.md`
 - [~] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
   now exposes the content-free `savings.product` rollup and the TUI default
-  product panel consumes it; provider-cache alignment and live-corpus proof
-  gates remain.
+  product panel consumes it; provider-cache read/create tokens now stay separate
+  from local input and output-wire savings. Live-corpus proof gates remain.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
 - [~] **T272** Host resource and latency budget max-out - `/admin/state` now
   exposes a product `host_budget` guard, policy has a demotion input, and
-  daemon RSS/CPU/state-size now come from real local probes; latency
-  histograms, disk-write counters, windowed idle CPU sampling, and live resource
-  proof remain. Detail:
+  daemon RSS/CPU/state-size now come from real local probes; the latest host
+  budget snapshot now feeds Codex Layer-0 auto-demotion. Latency histograms,
+  disk-write counters, windowed idle CPU sampling, state-budget hot-path feeding,
+  and live resource proof remain. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria

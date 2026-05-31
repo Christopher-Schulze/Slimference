@@ -371,6 +371,35 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0HostBudgetDemotesReducers(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	body := strings.Repeat("deterministic report row with unchanged non-file data\n", 80)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-report", ToolName: "exec_command", ToolInput: `{"cmd":"python generate_report.py"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-report", Text: body}}},
+	}
+	baseReq := codexLayer0Request{
+		Messages:  messages,
+		SessionID: "sess-host-budget",
+	}
+	seed := reduceCodexLayer0(baseReq)
+	if seed.Stats.TokensSaved != 0 {
+		t.Fatalf("first observation must only seed, stats=%+v", seed.Stats)
+	}
+	budgetReq := baseReq
+	budgetReq.HostBudgetExceeded = true
+	budgeted := reduceCodexLayer0(budgetReq)
+	if budgeted.Stats.TokensSaved != 0 || budgeted.Stats.RepeatedOutputBlocks != 0 ||
+		budgeted.Messages[1].Content[0].Text != body {
+		t.Fatalf("host budget must full-pass existing cache hit, stats=%+v text=%q", budgeted.Stats, budgeted.Messages[1].Content[0].Text)
+	}
+	unblocked := reduceCodexLayer0(baseReq)
+	if unblocked.Stats.TokensSaved <= 0 || unblocked.Stats.RepeatedOutputBlocks != 1 {
+		t.Fatalf("normal budget should still collapse repeated output, stats=%+v", unblocked.Stats)
+	}
+}
+
 func TestApplyProxyLayer0WithSessionRepeatedPartialReadOutput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
