@@ -52,6 +52,10 @@ type codexLayer0Request struct {
 	ChunkStore          *chunkdedup.Store
 	PolicyMode          string
 	ArchiveRecovery     bool
+	// ScanReadSelfRegBlock suppresses policy-driven scan-mode for this request
+	// when the session's measured re-read rate would make scan net-negative.
+	// Comprehension stays safe via recovery; this only guards token economics.
+	ScanReadSelfRegBlock bool
 }
 
 type codexLayer0Result struct {
@@ -201,7 +205,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
 				}
 				if !changed {
-					if policy.ScanRead || (scanApplyEnabled() && !readCtx.RecentlyEdited) {
+					if (policy.ScanRead && !req.ScanReadSelfRegBlock) || (scanApplyEnabled() && !readCtx.RecentlyEdited) {
 						if scanText, scanChanged, _ := compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx); scanChanged {
 							afterText, changed, mechanism = scanText, true, proxyLayer0MechanismScanRead
 						}

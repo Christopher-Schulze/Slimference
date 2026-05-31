@@ -62,6 +62,13 @@ func ScanReadKeysDir(home string) string {
 	return filepath.Join(home, ".slimference", "scan-read-keys")
 }
 
+// ScanRereadKeysDir returns the on-disk root for the subset of scan-read keys
+// the model actually re-read (the B set). Persisted per session so the auto
+// self-regulation re-read rate (|B|/|A|) survives a WSS reconnect.
+func ScanRereadKeysDir(home string) string {
+	return filepath.Join(home, ".slimference", "scan-reread-keys")
+}
+
 func sessionPath(dir, sessionID string) string {
 	return filepath.Join(dir, sessions.SafeSessionID(sessionID)+".json")
 }

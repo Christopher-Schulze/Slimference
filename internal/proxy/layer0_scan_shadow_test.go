@@ -122,7 +122,18 @@ func TestReduceCodexLayer0ScanReadViaMaxPolicy(t *testing.T) {
 		PolicyMode: "auto", ChunkDedupEnabled: true, ChunkStore: store, ArchiveRecovery: true,
 	})
 	if autoRes.Stats.CapturedOutputBlocks != 0 {
-		t.Fatalf("auto mode must not scan-compact a first read (not promoted yet), stats=%+v", autoRes.Stats)
+		t.Fatalf("auto mode must not scan-compact a first read (lossless-interaction gated), stats=%+v", autoRes.Stats)
+	}
+
+	// Self-regulation: even when scan is enabled (max), a high session re-read
+	// rate suppresses it via ScanReadSelfRegBlock so it never runs net-negative.
+	blocked := reduceCodexLayer0(codexLayer0Request{
+		Route: codexLayer0RouteWSSPhaseF, Messages: mk(), SessionID: "s-blocked",
+		PolicyMode: "max", ChunkDedupEnabled: true, ChunkStore: store, ArchiveRecovery: true,
+		ScanReadSelfRegBlock: true,
+	})
+	if blocked.Stats.CapturedOutputBlocks != 0 {
+		t.Fatalf("self-reg block must suppress scan even when enabled, stats=%+v", blocked.Stats)
 	}
 
 	maxRes := reduceCodexLayer0(codexLayer0Request{

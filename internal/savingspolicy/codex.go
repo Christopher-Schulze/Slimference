@@ -106,6 +106,13 @@ func DecideCodexToolOutput(in CodexToolOutputInput) CodexToolOutputDecision {
 	// only on reads, and only when archive recovery is available. The Loosened
 	// early-return above guarantees a recent-edit or post-collapse re-read never
 	// reaches here, so a re-read full-passes and recovers the elided bodies.
+	// NOT in auto: scan-compacting first reads cannibalizes the lossless
+	// read-delta/chunk-dedup seeding (repeat reads would full-pass via recovery
+	// instead of deduping), which is net-negative on repeat-read workloads. Auto
+	// promotion is gated on a scan<->lossless interaction design, not just the
+	// re-read economics. When scan does run (max, or via the self-regulation
+	// call site), per-session self-regulation suppresses it once the measured
+	// re-read rate would make it net-negative.
 	if mode == CodexModeMax && in.IsRead && in.ArchiveRecoveryAvailable {
 		decision.ScanRead = true
 		decision.NeedsRecoveryNote = true

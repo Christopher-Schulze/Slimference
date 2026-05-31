@@ -199,14 +199,31 @@ is comprehension loss only (dumber, worse memory, drift, hallucination). So
 lossy+recovery preserves comprehension = no drawdown, just lower net savings, which is
 acceptable. The only remaining question for AUTO is economics (net-positive savings).
 
-OPEN to reach "always-auto, safe, no opt-in":
-- Promote `sed`/`cat` scan into `auto` (currently max-only) WITH self-regulation: track
-  per-session re-read rate (the `scan_reads_applied`/`scan_read_rereads` instrument) and
-  deterministically back off scan for a session once the rate exceeds the ~0.66
-  break-even. Always-on, self-correcting, comprehension-safe by recovery.
-- Aggressive `rg`/search-output compaction (`TryCompactSearchOutput`): the 42631-token
-  rg was barely compacted; this both saves and shrinks requests (400 mitigation).
-- Live-verify `sed` scan fires on a real Codex session (`applied>0`) before auto.
+Self-regulation BUILT (reconnect-safe, tested): per-session A set (scan-elided keys,
+`toolusecache.ScanReadKeysDir`) and B set (those re-read, `toolusecache.ScanRereadKeysDir`)
+persist across reconnect; `wsPhaseFAdapter.scanSelfRegBlock()` suppresses scan once
+`|A| >= 6` and `|B|/|A| >= 0.5` (conservatively below the ~0.66 token break-even), wired
+through `codexLayer0Request.ScanReadSelfRegBlock` so scan never runs net-negative for a
+session. Comprehension stays safe via the re-read recovery regardless; self-reg only
+guards token economics. Active whenever scan runs (currently max mode).
+
+AUTO STILL BLOCKED - new finding (2026-05-31): flipping `ScanRead` into `auto` is NOT a
+clean win. Scan-compacting the FIRST read cannibalizes the lossless read-delta/chunk-dedup
+seeding: a later repeat read full-passes via scan recovery instead of deduping against the
+full first read, so a repeat-read workload goes net-negative (~134% vs ~100% baseline) and
+the proven lossless savings (36533 tokens/session) degrade. Multiple WSS tests (read-delta
+seeding, auto chunk-dedup, A/B replay recoverable) broke when auto scanned - that is a real
+regression signal, not test cosmetics. So scan stays max-only; auto promotion is gated on a
+scan<->lossless INTERACTION design (e.g. scan only when read-delta/chunk would not apply, or
+seed lossless on full bytes before scan elides), not just the re-read economics.
+
+OPEN:
+- Design the scan<->lossless interaction so auto-scan does not cannibalize read-delta/chunk
+  seeding; only then promote scan into auto (self-regulation is already built for that day).
+- Aggressive `rg`/search-output compaction (`TryCompactSearchOutput`): the 42631-token rg
+  was barely compacted; this both saves and shrinks requests (400 mitigation) and does NOT
+  have the first-read-seeding conflict.
+- Live-verify `sed` scan fires on a real Codex session (`applied>0`).
 
 ## Deviations
 

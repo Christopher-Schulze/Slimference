@@ -34,6 +34,7 @@ type wsPhaseFAdapter struct {
 	toolUseHydrated bool
 	collapsedKeys   map[string]struct{}
 	scanReadKeys    map[string]struct{}
+	scanRereadKeys  map[string]struct{}
 	qualityCohort   qualityab.Cohort
 	counters        wsPhaseFCounters
 }
@@ -176,7 +177,13 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		reReadKeys, count := a.observeWSSQualityToolKeys(out, messages, rememberedToolUses)
 		reReadCount = count
 		suppressedKeys := a.restoreKeysForReReads(reReadKeys)
-		a.p.outputReduceCounters.RecordScanReadReReads(a.countScanReadReReads(reReadKeys))
+		// Decide self-regulation from PRIOR re-read history, then fold in this
+		// request's hits so the rate converges over the session.
+		scanSelfRegBlock := a.scanSelfRegBlock()
+		if hits := a.scanReadReReadHits(reReadKeys); len(hits) > 0 {
+			a.p.outputReduceCounters.RecordScanReadReReads(len(hits))
+			a.rememberScanRereadKeys(hits)
+		}
 		a.observeWSSRecentEdits(out, messages, rememberedToolUses)
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
@@ -202,19 +209,20 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 		chunkStore, chunkEnabled, chunkMinBytes, explicitChunk, policyMode, archiveRecovery := a.p.codexChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
-			Route:               codexLayer0RouteWSSPhaseF,
-			Messages:            messages,
-			SessionID:           wsCodexSessionID(out),
-			TurnID:              wssPreviousResponseID(out),
-			RememberedToolUse:   rememberedToolUses,
-			SuppressedToolKey:   suppressedKeys,
-			RecentFullPassTurns: a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
-			ChunkDedupEnabled:   chunkEnabled,
-			ExplicitChunkDedup:  explicitChunk,
-			ChunkDedupMinBytes:  chunkMinBytes,
-			ChunkStore:          chunkStore,
-			PolicyMode:          policyMode,
-			ArchiveRecovery:     archiveRecovery,
+			Route:                codexLayer0RouteWSSPhaseF,
+			Messages:             messages,
+			SessionID:            wsCodexSessionID(out),
+			TurnID:               wssPreviousResponseID(out),
+			RememberedToolUse:    rememberedToolUses,
+			SuppressedToolKey:    suppressedKeys,
+			RecentFullPassTurns:  a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
+			ChunkDedupEnabled:    chunkEnabled,
+			ExplicitChunkDedup:   explicitChunk,
+			ChunkDedupMinBytes:   chunkMinBytes,
+			ChunkStore:           chunkStore,
+			PolicyMode:           policyMode,
+			ArchiveRecovery:      archiveRecovery,
+			ScanReadSelfRegBlock: scanSelfRegBlock,
 		})
 		l0Messages, stats := result.Messages, result.Stats
 		l0Stats = stats
@@ -500,24 +508,125 @@ func (a *wsPhaseFAdapter) persistScanReadKeys(sessionID string, keys []string) {
 	_, _ = toolusecache.Merge(dir, sessionID, add)
 }
 
-// countScanReadReReads returns how many of the re-read keys hit a scan-elided
-// read (body-was-needed events) for telemetry.
-func (a *wsPhaseFAdapter) countScanReadReReads(reReadKeys map[string]struct{}) int {
+const (
+	// scanSelfRegMinSample is the number of scan-elided reads a session must
+	// accumulate before the auto self-regulation may suppress scan-mode.
+	scanSelfRegMinSample = 6
+	// scanSelfRegBlockRate is the re-read rate |B|/|A| at or above which auto
+	// scan-mode suppresses itself for the session (conservatively below the
+	// ~0.66 token break-even so it never runs net-negative).
+	scanSelfRegBlockRate = 0.5
+)
+
+// scanReadReReadHits returns the re-read keys that hit a scan-elided read
+// (body-was-needed events) - the B set for telemetry and self-regulation.
+func (a *wsPhaseFAdapter) scanReadReReadHits(reReadKeys map[string]struct{}) []string {
 	if a == nil || len(reReadKeys) == 0 {
-		return 0
+		return nil
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if len(a.scanReadKeys) == 0 {
-		return 0
+		return nil
 	}
-	n := 0
+	var hits []string
 	for key := range reReadKeys {
 		if _, ok := a.scanReadKeys[key]; ok {
-			n++
+			hits = append(hits, key)
 		}
 	}
-	return n
+	return hits
+}
+
+// scanSelfRegBlock decides whether to suppress scan-mode for this session so it
+// never goes net-negative on tokens. Comprehension is always preserved by the
+// re-read recovery; this only guards economics. It blocks once enough scans are
+// observed (>= scanSelfRegMinSample) and the re-read rate |B|/|A| reaches the
+// conservative threshold (scanSelfRegBlockRate, below the ~0.66 break-even).
+func (a *wsPhaseFAdapter) scanSelfRegBlock() bool {
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	applied := len(a.scanReadKeys)
+	rereads := len(a.scanRereadKeys)
+	a.mu.Unlock()
+	if applied < scanSelfRegMinSample {
+		return false
+	}
+	return float64(rereads) >= scanSelfRegBlockRate*float64(applied)
+}
+
+// rememberScanRereadKeys records (and persists) the scan keys the model re-read
+// (the B set), so the self-regulation rate survives a reconnect.
+func (a *wsPhaseFAdapter) rememberScanRereadKeys(keys []string) {
+	if a == nil || len(keys) == 0 {
+		return
+	}
+	a.mu.Lock()
+	if a.scanRereadKeys == nil {
+		a.scanRereadKeys = make(map[string]struct{}, len(keys))
+	}
+	for _, key := range keys {
+		if key != "" {
+			a.scanRereadKeys[key] = struct{}{}
+		}
+	}
+	sid := a.sessionID
+	a.mu.Unlock()
+	a.persistScanRereadKeys(sid, keys)
+}
+
+func (a *wsPhaseFAdapter) scanRereadKeysDir() string {
+	home, err := proxyUserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return toolusecache.ScanRereadKeysDir(home)
+}
+
+func (a *wsPhaseFAdapter) hydrateScanRereadKeys(sessionID string) {
+	if a == nil || sessionID == "" {
+		return
+	}
+	dir := a.scanRereadKeysDir()
+	if dir == "" {
+		return
+	}
+	loaded, err := toolusecache.Load(dir, sessionID)
+	if err != nil || len(loaded) == 0 {
+		return
+	}
+	a.mu.Lock()
+	if a.scanRereadKeys == nil {
+		a.scanRereadKeys = make(map[string]struct{}, len(loaded))
+	}
+	for key := range loaded {
+		if key != "" {
+			a.scanRereadKeys[key] = struct{}{}
+		}
+	}
+	a.mu.Unlock()
+}
+
+func (a *wsPhaseFAdapter) persistScanRereadKeys(sessionID string, keys []string) {
+	if a == nil || sessionID == "" || len(keys) == 0 {
+		return
+	}
+	dir := a.scanRereadKeysDir()
+	if dir == "" {
+		return
+	}
+	add := make(map[string]toolusecache.Entry, len(keys))
+	for _, key := range keys {
+		if key != "" {
+			add[key] = toolusecache.Entry{ToolUseID: key}
+		}
+	}
+	if len(add) == 0 {
+		return
+	}
+	_, _ = toolusecache.Merge(dir, sessionID, add)
 }
 
 func (a *wsPhaseFAdapter) restoreKeysForReReads(reReadKeys map[string]struct{}) map[string]struct{} {
@@ -768,6 +877,7 @@ func (a *wsPhaseFAdapter) hydrateToolUses(sessionID string) {
 	// metadata is cached yet.
 	a.hydrateCollapsedKeys(sessionID)
 	a.hydrateScanReadKeys(sessionID)
+	a.hydrateScanRereadKeys(sessionID)
 
 	dir := a.toolUseCacheDir()
 	if dir == "" {

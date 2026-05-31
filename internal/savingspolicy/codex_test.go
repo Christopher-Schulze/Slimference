@@ -75,7 +75,7 @@ func TestDecideCodexToolOutputScanReadInvariant(t *testing.T) {
 		{name: "max read with recovery enables scan", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: true},
 		{name: "max read without recovery never scans", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: false, OutputBytes: 9000}, want: false},
 		{name: "max non-read never scans", in: CodexToolOutputInput{Mode: "max", IsRead: false, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: false},
-		{name: "auto not promoted to scan", in: CodexToolOutputInput{Mode: "auto", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: false},
+		{name: "auto not promoted to scan (lossless-interaction gated)", in: CodexToolOutputInput{Mode: "auto", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: false},
 		{name: "conservative not promoted to scan", in: CodexToolOutputInput{Mode: "conservative", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}, want: false},
 		{name: "recent edit full-passes the read", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000}, want: false},
 		{name: "post-collapse reread full-passes the read", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, PostCollapseReRead: true, OutputBytes: 9000}, want: false},
