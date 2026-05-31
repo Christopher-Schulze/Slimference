@@ -3,8 +3,6 @@ package filter
 import (
 	"context"
 	"log/slog"
-	"path/filepath"
-	"strings"
 
 	"github.com/slimference/slimference/internal/compression"
 )
@@ -196,13 +194,6 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 }
 
 func productDefaultFileReadMustFullPass(argv []string) bool {
-	if len(argv) == 0 || countReadPaths(argv) == 0 {
-		return false
-	}
-	switch strings.ToLower(filepath.Base(argv[0])) {
-	case "cat", "head", "tail", "sed":
-		return true
-	default:
-		return false
-	}
+	_, ok := readRequestFromArgv(argv)
+	return ok
 }

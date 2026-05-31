@@ -17,7 +17,7 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 		t.Fatalf("DefaultDir=%q", got)
 	}
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	state, err := LoadSession(dir, "")
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestReadCacheStoreAndHelperCoverage(t *testing.T) {
 func TestReadCacheEvaluateAndStatsBranches(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	missing := filepath.Join(dir, "missing.txt")
 	decision, err := Evaluate(dir, Request{SessionID: "s1", FilePath: missing})
 	if err != nil {
@@ -197,7 +197,7 @@ func TestReadCachePayloadCoverage(t *testing.T) {
 }
 
 func TestReadCacheInjectedErrorBranches(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	file := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(file, []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -246,7 +246,7 @@ func TestReadCacheInjectedErrorBranches(t *testing.T) {
 }
 
 func TestReadCacheMarshalWriteAndSnapshotErrors(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 
 	origMarshal := readCacheMarshalIndent
 	origWrite := readCacheWriteFile
@@ -282,7 +282,7 @@ func TestReadCacheMarshalWriteAndSnapshotErrors(t *testing.T) {
 }
 
 func TestReadCacheDeltaAndDecisionCoverage(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	file := filepath.Join(dir, "delta.txt")
 	original := strings.Repeat("same line\n", 40) + "old tail\n"
 	if err := os.WriteFile(file, []byte(original), 0o644); err != nil {
@@ -332,7 +332,7 @@ func TestReadCacheDeltaAndDecisionCoverage(t *testing.T) {
 }
 
 func TestReadCacheAdditionalErrorBranches(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 
 	origReadFile := readCacheReadFile
 	origSave := readCacheSaveSession
@@ -392,7 +392,7 @@ func TestReadCacheAdditionalErrorBranches(t *testing.T) {
 	}
 	readCacheAbsPath = origAbs
 
-	partialDir := t.TempDir()
+	partialDir := tempReadCacheDir(t)
 	partialFile := filepath.Join(partialDir, "partial.go")
 	if err := os.WriteFile(partialFile, []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)

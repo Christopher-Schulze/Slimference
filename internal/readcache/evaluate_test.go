@@ -13,7 +13,7 @@ import (
 func TestEvaluate_FirstReadAllowsAndStores(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	file := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(file, []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -31,7 +31,7 @@ func TestEvaluate_FirstReadAllowsAndStores(t *testing.T) {
 func TestEvaluate_UnchangedReadBlocks(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	file := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(file, []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestEvaluate_UnchangedReadBlocks(t *testing.T) {
 func TestEvaluate_ChangedFullReadBlocksWithDelta(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	file := filepath.Join(dir, "main.go")
 	before := "package main\n" + strings.Repeat("func a() {}\n", 40)
 	if err := os.WriteFile(file, []byte(before), 0o644); err != nil {
@@ -82,7 +82,7 @@ func TestEvaluate_ChangedFullReadBlocksWithDelta(t *testing.T) {
 func TestEvaluate_ChangedRangeAllows(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	file := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(file, []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestEvaluate_ChangedRangeAllows(t *testing.T) {
 func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := Request{SessionID: "s1", FilePath: "main.go"}
 	before := "package main\n" + strings.Repeat("func a() {}\n", 40)
@@ -154,7 +154,7 @@ func TestEvaluateObserved_UnchangedAndChangedArchiveBacked(t *testing.T) {
 func TestEvaluateObserved_LargeContentUsesArchiveWithoutInlineCache(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := Request{SessionID: "s1", FilePath: "large.md"}
 	before := "title\n" + strings.Repeat("same line\n", 40000)
@@ -199,7 +199,7 @@ func TestEvaluateObserved_LargeContentUsesArchiveWithoutInlineCache(t *testing.T
 func TestEvaluateObserved_RangedReadsAreDistinctAndDeltaCapable(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	rangeA := Request{SessionID: "s1", FilePath: "main.go", Offset: 1, Limit: 20}
 	rangeB := Request{SessionID: "s1", FilePath: "main.go", Offset: 21, Limit: 20}
@@ -248,7 +248,7 @@ func TestEvaluateObserved_RangedReadsAreDistinctAndDeltaCapable(t *testing.T) {
 func TestEvaluateObserved_RecentFullPassTurns(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := Request{
 		SessionID:               "s1",
@@ -282,7 +282,7 @@ func TestEvaluateObserved_RecentFullPassTurns(t *testing.T) {
 func TestEvaluateObserved_RecentEditAllowsAndUpdates(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := Request{SessionID: "s1", FilePath: "main.go"}
 	before := strings.Repeat("old line\n", 20)
@@ -309,7 +309,7 @@ func TestEvaluateObserved_RecentEditAllowsAndUpdates(t *testing.T) {
 func TestEvaluateObservedOutput_ExactRepeatBlocks(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := OutputRequest{
 		SessionID:   "s1",
@@ -357,7 +357,7 @@ func TestEvaluateObservedOutput_ExactRepeatBlocks(t *testing.T) {
 func TestEvaluateObservedOutput_ChangedShortOrUnarchivedAllows(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := OutputRequest{SessionID: "s1", Key: "command:tool", CommandLine: "tool"}
 	if decision, err := EvaluateObservedOutput(dir, req, "short output", archiveDir); err != nil || decision.Type != DecisionAllow {
@@ -375,7 +375,7 @@ func TestEvaluateObservedOutput_ChangedShortOrUnarchivedAllows(t *testing.T) {
 func TestEvaluateObservedOutput_SearchDeltaBlocks(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := OutputRequest{
 		SessionID:   "s1",
@@ -409,7 +409,7 @@ func TestEvaluateObservedOutput_SearchDeltaBlocks(t *testing.T) {
 func TestEvaluateObserved_FailOpenBranches(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	if decision, err := EvaluateObserved(dir, Request{SessionID: "s1", TurnID: "turn-1"}, "content", archiveDir, false); err != nil || decision.Type != DecisionAllow {
 		t.Fatalf("empty path should allow, decision=%+v err=%v", decision, err)
@@ -455,7 +455,7 @@ func TestEvaluateObserved_FailOpenBranches(t *testing.T) {
 }
 
 func TestEvaluateObserved_InjectedErrorBranches(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	archiveDir := t.TempDir()
 	req := Request{SessionID: "s1", FilePath: "main.go"}
 	content := strings.Repeat("line\n", 30)

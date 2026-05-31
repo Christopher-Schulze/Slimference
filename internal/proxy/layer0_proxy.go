@@ -901,6 +901,9 @@ func quoteShellArg(arg string) string {
 	if arg == "" {
 		return `""`
 	}
+	if strings.Contains(arg, "$") && !strings.Contains(arg, "'") {
+		return "'" + arg + "'"
+	}
 	if strings.IndexFunc(arg, func(r rune) bool {
 		return r == ' ' || r == '\t' || r == '\n' || r == '\'' || r == '"' || r == '\\' ||
 			r == '|' || r == '&' || r == ';' || r == '<' || r == '>' || r == '$' ||

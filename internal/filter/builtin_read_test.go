@@ -52,6 +52,9 @@ func TestReadPathFromCommandLine(t *testing.T) {
 	if got := ReadPathFromCommandLine("sed -n '10,20p' main.go"); got != "main.go" {
 		t.Fatalf("sed read path = %q", got)
 	}
+	if got := ReadPathFromCommandLine("awk 'NR>=10 && NR<=20 {print}' main.go"); got != "main.go" {
+		t.Fatalf("awk read path = %q", got)
+	}
 	if got := FullReadPathFromCommandLine("cat internal/filter/builtin_read.go"); got != "internal/filter/builtin_read.go" {
 		t.Fatalf("full read path = %q", got)
 	}
@@ -82,6 +85,14 @@ func TestReadRequestFromCommandLine(t *testing.T) {
 		{name: "tail plus", command: "tail -n +42 main.go", wantPath: "main.go", wantOffset: 42, wantLimit: 0, wantOK: true},
 		{name: "sed range", command: "sed -n '10,20p' main.go", wantPath: "main.go", wantOffset: 10, wantLimit: 11, wantOK: true},
 		{name: "sed single", command: "sed -n 42p main.go", wantPath: "main.go", wantOffset: 42, wantLimit: 1, wantOK: true},
+		{name: "awk range", command: "awk 'NR>=10 && NR<=20 {print}' main.go", wantPath: "main.go", wantOffset: 10, wantLimit: 11, wantOK: true},
+		{name: "awk print zero", command: "awk 'NR>=10&&NR<=20{print $0}' main.go", wantPath: "main.go", wantOffset: 10, wantLimit: 11, wantOK: true},
+		{name: "awk single", command: "awk 'NR==42{print}' main.go", wantPath: "main.go", wantOffset: 42, wantLimit: 1, wantOK: true},
+		{name: "awk from", command: "awk 'NR>=42{print}' main.go", wantPath: "main.go", wantOffset: 42, wantLimit: 0, wantOK: true},
+		{name: "awk until", command: "awk 'NR<=42{print}' main.go", wantPath: "main.go", wantOffset: 1, wantLimit: 42, wantOK: true},
+		{name: "awk projection unsupported", command: "awk '{print $1}' main.go", wantOK: false},
+		{name: "awk multi file unsupported", command: "awk 'NR>=10{print}' a.go b.go", wantOK: false},
+		{name: "awk vars unsupported", command: "awk -v start=10 'NR>=start{print}' main.go", wantOK: false},
 		{name: "byte head unsupported", command: "head -c 20 main.go", wantOK: false},
 		{name: "compound unsupported", command: "head -n 20 main.go | cat", wantOK: false},
 	}

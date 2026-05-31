@@ -16,7 +16,7 @@ func TestSanitizeSessionID(t *testing.T) {
 }
 
 func TestSaveSessionAsyncWriteBehind(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempReadCacheDir(t)
 	var writes atomic.Int64
 	origWrite := readCacheWriteFile
 	t.Cleanup(func() {

@@ -2,6 +2,7 @@ package filter
 
 import (
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -48,7 +49,7 @@ func FullReadPathFromCommandLine(commandLine string) string {
 }
 
 // ReadRequestFromCommandLine returns the file/range read represented by a simple
-// cat/head/tail/sed command line. Compound commands intentionally return false.
+// cat/head/tail/sed/awk command line. Compound commands intentionally return false.
 func ReadRequestFromCommandLine(commandLine string) (ReadRequest, bool) {
 	for _, tok := range tokenize(commandLine) {
 		if tok.Kind == TokenOperator || tok.Kind == TokenPipe || tok.Kind == TokenRedirect || tok.Kind == TokenShellism {
@@ -56,33 +57,51 @@ func ReadRequestFromCommandLine(commandLine string) (ReadRequest, bool) {
 		}
 	}
 	argv := primaryArgvForCapturedOutput(commandLine)
-	if len(argv) == 0 || countReadPaths(argv) != 1 {
+	return readRequestFromArgv(argv)
+}
+
+func readRequestFromArgv(argv []string) (ReadRequest, bool) {
+	if len(argv) == 0 {
 		return ReadRequest{}, false
 	}
 	switch strings.ToLower(filepath.Base(argv[0])) {
 	case "cat":
+		if countReadPaths(argv) != 1 {
+			return ReadRequest{}, false
+		}
 		if !isFullFileCat(argv) {
 			return ReadRequest{}, false
 		}
 		return ReadRequest{Path: lastReadFilePath(argv)}, true
 	case "head":
+		if countReadPaths(argv) != 1 {
+			return ReadRequest{}, false
+		}
 		limit, ok := headLineLimit(argv)
 		if !ok {
 			return ReadRequest{}, false
 		}
 		return ReadRequest{Path: lastReadFilePath(argv), Offset: 1, Limit: limit}, true
 	case "tail":
+		if countReadPaths(argv) != 1 {
+			return ReadRequest{}, false
+		}
 		offset, limit, ok := tailLineRange(argv)
 		if !ok {
 			return ReadRequest{}, false
 		}
 		return ReadRequest{Path: lastReadFilePath(argv), Offset: offset, Limit: limit}, true
 	case "sed":
+		if countReadPaths(argv) != 1 {
+			return ReadRequest{}, false
+		}
 		offset, limit, ok := sedLineRange(argv)
 		if !ok {
 			return ReadRequest{}, false
 		}
 		return ReadRequest{Path: lastReadFilePath(argv), Offset: offset, Limit: limit}, true
+	case "awk":
+		return awkReadRequest(argv)
 	default:
 		return ReadRequest{}, false
 	}
@@ -212,6 +231,68 @@ func sedLineRange(argv []string) (int, int, bool) {
 		return 0, 0, false
 	}
 	return start, end - start + 1, true
+}
+
+var (
+	awkSingleLinePattern = regexp.MustCompile(`^NR==([0-9]+)$`)
+	awkRangePattern      = regexp.MustCompile(`^NR>=([0-9]+)&&NR<=([0-9]+)$`)
+	awkFromPattern       = regexp.MustCompile(`^NR>=([0-9]+)$`)
+	awkUntilPattern      = regexp.MustCompile(`^NR<=([0-9]+)$`)
+)
+
+func awkReadRequest(argv []string) (ReadRequest, bool) {
+	if len(argv) != 3 || strings.TrimSpace(argv[2]) == "" || strings.TrimSpace(argv[2]) == "-" {
+		return ReadRequest{}, false
+	}
+	offset, limit, ok := awkLineRange(argv[1])
+	if !ok {
+		return ReadRequest{}, false
+	}
+	return ReadRequest{Path: argv[2], Offset: offset, Limit: limit}, true
+}
+
+func awkLineRange(expr string) (int, int, bool) {
+	expr = strings.TrimSpace(strings.Trim(expr, `'"`))
+	expr = strings.NewReplacer(" ", "", "\t", "", "\n", "", "\r", "").Replace(expr)
+	var selector string
+	switch {
+	case strings.HasSuffix(expr, "{print}"):
+		selector = strings.TrimSuffix(expr, "{print}")
+	case strings.HasSuffix(expr, "{print$0}"):
+		selector = strings.TrimSuffix(expr, "{print$0}")
+	default:
+		return 0, 0, false
+	}
+	if match := awkSingleLinePattern.FindStringSubmatch(selector); len(match) == 2 {
+		line, ok := parsePositiveLineCount(match[1])
+		return line, 1, ok
+	}
+	if match := awkRangePattern.FindStringSubmatch(selector); len(match) == 3 {
+		start, ok := parsePositiveLineCount(match[1])
+		if !ok {
+			return 0, 0, false
+		}
+		end, ok := parsePositiveLineCount(match[2])
+		if !ok || end < start {
+			return 0, 0, false
+		}
+		return start, end - start + 1, true
+	}
+	if match := awkFromPattern.FindStringSubmatch(selector); len(match) == 2 {
+		start, ok := parsePositiveLineCount(match[1])
+		if !ok {
+			return 0, 0, false
+		}
+		return start, 0, true
+	}
+	if match := awkUntilPattern.FindStringSubmatch(selector); len(match) == 2 {
+		end, ok := parsePositiveLineCount(match[1])
+		if !ok {
+			return 0, 0, false
+		}
+		return 1, end, true
+	}
+	return 0, 0, false
 }
 
 func parseTailLineRange(raw string) (int, int, bool) {

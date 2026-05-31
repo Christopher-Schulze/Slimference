@@ -29,4 +29,8 @@ func TestLayer0PipelineDoesNotElideFirstFileRead(t *testing.T) {
 	if string(out) != content {
 		t.Fatalf("first file read output changed without changed=true")
 	}
+	out, changed = CompactCapturedOutputWithContext("", "awk 'NR>=1 && NR<=80 {print}' /tmp/x.go", content, 0, FileReadContext{Mode: "scan"})
+	if changed || string(out) != content {
+		t.Fatalf("first awk range read must full-pass: changed=%v out len=%d input len=%d", changed, len(out), len(content))
+	}
 }

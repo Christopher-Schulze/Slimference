@@ -55,6 +55,32 @@ Maximize exact hits:
    - no raw secrets in metadata
    - archive raw content only through contentarchive policy
 
+## Progress
+
+2026-05-31 exact-read shape slice:
+
+- Added strict `awk` read recognition for deterministic line-range reads:
+  - `awk 'NR==42{print}' file`
+  - `awk 'NR>=10 && NR<=20 {print}' file`
+  - `awk 'NR>=42{print}' file`
+  - `awk 'NR<=42{print}' file`
+  - `print` and `print $0` only
+- Unsupported `awk` forms, multiple files, variables, projections, pipes,
+  redirects, and shellisms full-pass.
+- Product default first-read filtering now uses the same read-request parser as
+  readcache, so newly recognized read commands full-pass on first observation
+  and only become cache candidates on later exact observations.
+- Workdir and `cd <repo> && awk ...` normalization now inherit the existing
+  read command path canonicalization, preserving repo scope.
+
+Remaining before this task can close:
+
+- Add dependency-aware keys for repeated test/package commands where config or
+  lockfile state matters.
+- Add explicit miss-reason diagnostics for unsafe command shapes, post-edit
+  reseed, reconnect hydration, TTL eviction, and ambiguous workdir.
+- Prove the broader command-shape matrix on real CLI/Desktop captures.
+
 ## Zero product-drawdown gates
 
 - Never collapse first reads.

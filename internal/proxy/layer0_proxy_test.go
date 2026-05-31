@@ -368,6 +368,32 @@ func TestApplyProxyLayer0WithSessionRepeatedPartialReadOutput(t *testing.T) {
 	}
 }
 
+func TestApplyProxyLayer0WithSessionRepeatedAwkRangeReadOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var bodyBuilder strings.Builder
+	for i := 10; i <= 40; i++ {
+		fmt.Fprintf(&bodyBuilder, "awk range line %03d keeps exact context\n", i)
+	}
+	body := bodyBuilder.String()
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-awk", ToolName: "exec_command", ToolInput: `{"cmd":"awk 'NR>=10 && NR<=40 {print}' /tmp/range.data"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-awk", Text: body}}},
+	}
+	out, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-awk-range", nil)
+	if stats.ReadDeltaAttempts != 1 || stats.ReadDeltaMisses != 1 || stats.ReadDeltaBlocks != 0 ||
+		strings.Contains(out[1].Content[0].Text, "archive=local-archive://") {
+		t.Fatalf("first awk range read should full-pass and seed readcache, stats=%+v text=%q", stats, out[1].Content[0].Text)
+	}
+
+	out, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-awk-range", nil)
+	if stats.ReadDeltaAttempts != 1 || stats.ReadDeltaBlocks != 1 ||
+		stats.RepeatedOutputBlocks != 0 || stats.TokensSaved <= 0 ||
+		!strings.Contains(out[1].Content[0].Text, "archive=local-archive://") {
+		t.Fatalf("second awk range read should use read-delta, stats=%+v text=%q", stats, out[1].Content[0].Text)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupPartialOverlap(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -691,6 +717,15 @@ func TestProxyLayer0SmallHelpers(t *testing.T) {
 	if got := applyWorkdirToLayer0Command("rg needle docs", "/repo/project"); got != "rg needle /repo/project/docs" {
 		t.Fatalf("workdir search must normalize to repo-scoped key: %q", got)
 	}
+	if got := normalizeLayer0CommandLine("cd /repo/project && awk 'NR>=10 && NR<=20 {print}' src/main.go"); !strings.Contains(got, "/repo/project/src/main.go") {
+		t.Fatalf("cd-wrapped awk read must normalize to repo path: %q", got)
+	}
+	if got := applyWorkdirToLayer0Command("awk 'NR>=10 && NR<=20 {print}' src/main.go", "/repo/project"); !strings.Contains(got, "/repo/project/src/main.go") {
+		t.Fatalf("workdir awk read must normalize to repo path: %q", got)
+	}
+	if got := applyWorkdirToLayer0Command("awk 'NR>=10&&NR<=20{print $0}' src/main.go", "/repo/project"); readRequestFromCommandLine(got).FilePath != "/repo/project/src/main.go" {
+		t.Fatalf("workdir awk $0 read must remain parseable after normalization: %q", got)
+	}
 	if got := applyWorkdirToGitCommand("git -C /other status --short", "/repo/project"); got != "git -C /other status --short" {
 		t.Fatalf("git -C should not be rewritten: %q", got)
 	}
@@ -706,7 +741,8 @@ func TestProxyLayer0SmallHelpers(t *testing.T) {
 	if joinShellArgs([]string{"", "plain", "two words"}) != `"" plain "two words"` {
 		t.Fatal("joinShellArgs quoting mismatch")
 	}
-	if quoteShellArg("plain") != "plain" || quoteShellArg("two words") != `"two words"` {
+	if quoteShellArg("plain") != "plain" || quoteShellArg("two words") != `"two words"` ||
+		quoteShellArg("NR>=10&&NR<=20{print $0}") != `'NR>=10&&NR<=20{print $0}'` {
 		t.Fatal("quoteShellArg mismatch")
 	}
 }
