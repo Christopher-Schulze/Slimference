@@ -1580,8 +1580,12 @@ only and promotes the per-process Codex CLI runner for T209.
   finding: scan-compacting the first read cannibalizes the lossless read-delta/chunk seeding
   (repeat reads go ~134% vs ~100%), degrading the proven 36533-token lossless win - real
   regression, multiple WSS tests broke. So scan STAYS max-only; auto needs a scan<->lossless
-  interaction design first (self-reg is ready for that day). Better next lever: aggressive
-  rg/search-output compaction (no first-read-seeding conflict, also 400 mitigation).
+  interaction design first (self-reg is ready for that day). SEARCH-OUTPUT COMPACTION DONE
+  (commit 1a2d478, the conflict-free lever): `groupSearchResults` abandoned the whole output
+  on the first colon-less line; Codex's truncated exec output always has one, so search
+  grouping never fired on real Codex searches. Fixed (skip noise, bail only if noise
+  dominates) -> real captured rg 40KB->9KB (78%), default-auto, comprehension-safe
+  (re-run search to recover), no read-seeding conflict, also 400 mitigation.
   Detail: `docs/todo/t253-codex-aggressive-read-compression.md`
 - [ ] **T254** Codex server-state mirror (radical, TASK-SPLIT candidate, gated by T257/T258) —
   maintain a precise mirror of server-side conversation state from forwarded bytes along

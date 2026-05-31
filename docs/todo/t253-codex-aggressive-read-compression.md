@@ -217,13 +217,23 @@ regression signal, not test cosmetics. So scan stays max-only; auto promotion is
 scan<->lossless INTERACTION design (e.g. scan only when read-delta/chunk would not apply, or
 seed lossless on full bytes before scan elides), not just the re-read economics.
 
+Search-output compaction DONE (`1a2d478`) - the better, conflict-free lever. Root cause
+(verified from the capture): `groupSearchResults` abandoned the whole output on the first
+colon-less line, and Codex's truncated exec output always has one (cut-off tail + a leading
+`Total output lines: N` header), so search grouping NEVER fired on real Codex searches. Fix:
+skip colon-less noise lines, bail only when nothing parses or noise dominates
+(`skipped*2 > nonEmpty`). On the real captured `rg` (402 matches, 79 files) this compacts
+40 KB -> ~9 KB (78%). Default-auto in the filter pipeline; comprehension-safe (match count +
+which files kept, re-run the search to recover dropped matches); a search-output reducer, so
+NO first-read-seeding conflict. Also shrinks requests, mitigating the upstream oversized-
+request 400.
+
 OPEN:
 - Design the scan<->lossless interaction so auto-scan does not cannibalize read-delta/chunk
-  seeding; only then promote scan into auto (self-regulation is already built for that day).
-- Aggressive `rg`/search-output compaction (`TryCompactSearchOutput`): the 42631-token rg
-  was barely compacted; this both saves and shrinks requests (400 mitigation) and does NOT
-  have the first-read-seeding conflict.
-- Live-verify `sed` scan fires on a real Codex session (`applied>0`).
+  seeding; only then promote first-read scan into auto (self-regulation is already built).
+- Live-verify `sed` scan fires on a real Codex session (`applied>0`) under max.
+- Minor: the `Total output lines: N` envelope-header line still appears as a one-entry fake
+  "file" in the grouped output; harmless but could be stripped in `splitCodexExecEnvelope`.
 
 ## Deviations
 

@@ -329,6 +329,21 @@ savings to commands such as repeated `git status`, `rg`, build/test reports,
 partial file ranges, or custom deterministic tools without introducing semantic
 summaries.
 
+First-pass search outputs are grouped by `TryCompactSearchOutput` /
+`groupSearchResults` (file -> match list with a `[tool] N match(es) in M file(s)`
+header, capped at 30 files with `[+N more files]`). This grouping used to abandon
+the whole output on the FIRST colon-less line, which a real-workload capture showed
+defeats it on every Codex search: Codex truncates exec output to a token budget, so
+the captured `rg` payload always ends in a cut-off line and carries a leading
+`Total output lines: N` header - both colon-less. The grouper now SKIPS colon-less
+noise lines (header, context separators, truncated tail) and only abandons grouping
+when nothing parses or noise dominates (`skipped*2 > nonEmpty`). On the real captured
+`rg` (402 matches, 79 files) this compacts 40 KB to ~9 KB (78%). The compaction is
+default-auto in the filter pipeline, comprehension-safe (the model keeps the match
+count and which files matched, and can re-run the search to recover dropped matches),
+and is a search-output reducer, so it has none of the first-read-seeding conflict that
+keeps first-read scan-mode out of auto.
+
 Codex content-defined chunk dedup is available as a policy-gated extension of the
 same Layer-0 reducer. A FastCDC-style chunker splits large tool outputs/file
 reads into content-addressed regions, and a bounded in-memory session store tracks
