@@ -276,6 +276,41 @@ reads flight-recorder decision logs and reports provider-only proxied LLM
 requests with input/cache/output accounting. `--csv` / `--json` for machine
 consumption.
 
+### Codex read-compression (mechanisms and safety model)
+
+Goal: maximum Codex token savings with zero comprehension drawdown, where a
+drawdown is the model getting dumber, losing context, drifting, or hallucinating -
+NOT the token cost of a recovery re-read. Mechanisms split into two tiers.
+
+Lossless tier (always-auto, zero drawdown, the proven bulk): read-delta (repeat
+reads collapse to references), exact repeated-output, content-defined chunk dedup,
+the Codex exec-envelope stripper, and search-output grouping. These elide only what
+the model already holds or can reconstruct exactly. On a real codebase-exploration
+session they saved 36533 billable tokens with zero parse/compression/degraded errors.
+
+Lossy tier (recovery-backed; the recovery, not avoidance, is what removes the
+drawdown): first-read AST/structure scan-mode elides function bodies to signatures
+and is recovered by a re-read full-pass (the model re-reads when it needs a body,
+proven behaviorally), a `local-archive://` reference, and a discoverable note.
+Search-output grouping caps a huge match list and is recovered by re-running the
+search. Each lossy elision is comprehension-safe because the model can always get the
+full content back; the only cost is tokens, which is acceptable.
+
+Safety model: (1) recovery handles on every lossy elision, made reconnect-safe by
+persisting the collapsed/scan key sets; (2) edit-target guards - recently-edited or
+edit/debug reads full-pass; (3) per-session self-regulation that suppresses scan once
+the measured re-read rate would make it net-negative on tokens; (4) the riskiest
+mechanism (first-read scan) stays opt-in (`max` mode, default-off in `auto`) and is
+gated additionally on a scan-versus-lossless interaction (scan-compacting a first read
+would cannibalize the lossless read-delta/chunk seeding, so it is NOT in auto).
+
+Real-workload truth that shaped this: Codex reads files via `sed -n '1,Np'` partial
+reads and searches via `rg`, never full `cat`, and truncates every exec output to a
+token budget. So the original `cat`-only scan could not fire (extended to `sed`), and
+search grouping was defeated by the truncation tail (made robust). The recurring
+upstream `400 invalid_request` is an oversized-request rejection, which Slimference's
+compaction makes less likely by shrinking requests, not a Slimference fault.
+
 Codex WSS and HTTP proxy-Layer-0 savings now share one explicit reducer entry
 point with route labels (`http`, `wss_phasef`) and mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
