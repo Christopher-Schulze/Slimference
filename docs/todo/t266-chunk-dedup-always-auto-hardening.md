@@ -46,6 +46,8 @@ Chunk dedup may be always-auto only for routes/workloads where:
    - [x] fail open on archive URI collision or orphan references
    - [x] route refuses chunk refs if archive write fails
    - [x] add content-free chunk reference density reporting to WSS audit/admin state
+   - [x] per-output reference-density cap defaults to 90% and full-passes when
+     the candidate would replace too much fresh model-facing output
 4. Add recency policy:
    - deliberate re-read of same file may full-pass or provide salient summary
      plus refs, never bare refs if canary says the model is struggling
@@ -64,9 +66,8 @@ Chunk dedup may be always-auto only for routes/workloads where:
 - No unresolved reference can enter model-facing context.
 - No chunk ref without a known previous full-seen or exact archive-backed source.
 - Re-read spike disables chunk dedup for that session.
-- Any decode mismatch fails open before model-facing context; session/global
-  disable can be driven by the chunk-density telemetry once budget thresholds are
-  enforced.
+- Any decode mismatch fails open before model-facing context.
+- Any output above the configured reference-density threshold full-passes.
 - Aggressive chunking must not affect patches, final code output, or terminal
   protocol correctness.
 

@@ -75,7 +75,8 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	if cfg.Compression.OutputReduce.CodexChunkDedupMinBytes != 4096 ||
 		cfg.Compression.OutputReduce.CodexChunkDedupMaxSessions != 256 ||
 		cfg.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession != 8192 ||
-		cfg.Compression.OutputReduce.CodexChunkDedupTTLSeconds != 14400 {
+		cfg.Compression.OutputReduce.CodexChunkDedupTTLSeconds != 14400 ||
+		cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent != 90 {
 		t.Fatalf("Codex chunk dedup defaults mismatch: %+v", cfg.Compression.OutputReduce)
 	}
 }
@@ -123,6 +124,7 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_SESSIONS", "12")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_CHUNKS_PER_SESSION", "34")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_TTL_SECONDS", "56")
+	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_REFERENCE_PERCENT", "78")
 
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
@@ -141,7 +143,8 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 		!or.ArchiveRecoveryNoteEnabled || or.ArchiveRecoveryNoteText != "request archive ids" ||
 		or.ReadDeltaRecentFullPassTurns != 2 || or.CodexSavingsPolicyMode != "max" || !or.CodexChunkDedupEnabled ||
 		or.CodexChunkDedupMinBytes != 4096 || or.CodexChunkDedupMaxSessions != 12 ||
-		or.CodexChunkDedupMaxChunksPerSession != 34 || or.CodexChunkDedupTTLSeconds != 56 {
+		or.CodexChunkDedupMaxChunksPerSession != 34 || or.CodexChunkDedupTTLSeconds != 56 ||
+		or.CodexChunkDedupMaxReferencePercent != 78 {
 		t.Fatalf("output-reduce env not applied: %+v", or)
 	}
 }
@@ -456,6 +459,8 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 		{"chunk_sessions", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxSessions = -1 }},
 		{"chunk_per_session", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxChunksPerSession = -1 }},
 		{"chunk_ttl", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupTTLSeconds = -1 }},
+		{"chunk_reference_percent_low", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = -1 }},
+		{"chunk_reference_percent_high", func(c *Config) { c.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = 101 }},
 	}
 	for _, tc := range tests {
 		tc := tc

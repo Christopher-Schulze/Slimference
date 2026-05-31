@@ -198,7 +198,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 				}
 			}
 		}
-		chunkStore, chunkEnabled, chunkMinBytes, explicitChunk, policyMode, archiveRecovery := a.p.codexChunkDedupSettings()
+		chunkStore, chunkEnabled, chunkMinBytes, chunkMaxRefPct, explicitChunk, policyMode, archiveRecovery := a.p.codexChunkDedupSettings()
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:               codexLayer0RouteWSSPhaseF,
 			Messages:            messages,
@@ -210,6 +210,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 			ChunkDedupEnabled:   chunkEnabled,
 			ExplicitChunkDedup:  explicitChunk,
 			ChunkDedupMinBytes:  chunkMinBytes,
+			ChunkDedupMaxRefPct: chunkMaxRefPct,
 			ChunkStore:          chunkStore,
 			PolicyMode:          policyMode,
 			ArchiveRecovery:     archiveRecovery,

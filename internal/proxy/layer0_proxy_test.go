@@ -542,6 +542,48 @@ func TestReduceCodexLayer0ChunkDedupCodexTruncatedEnvelope(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ChunkDedupReferenceDensityGuard(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, chunkdedup.StoreLimits{}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	shared := strings.Repeat("stable repeated context line for chunk density\n", 220)
+	first := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-a", ToolName: "Read", ToolInput: `{"path":"a.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-a", Text: shared + "fresh A\n"}}},
+	}
+	second := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "read-b", ToolName: "Read", ToolInput: `{"path":"b.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "read-b", Text: shared + "fresh B\n"}}},
+	}
+
+	reduceCodexLayer0(codexLayer0Request{
+		Messages:            first,
+		SessionID:           "sess-density-guard",
+		ChunkDedupEnabled:   true,
+		ChunkDedupMinBytes:  0,
+		ChunkDedupMaxRefPct: 10,
+		ChunkStore:          store,
+		ArchiveRecovery:     true,
+	})
+	out := reduceCodexLayer0(codexLayer0Request{
+		Messages:            second,
+		SessionID:           "sess-density-guard",
+		ChunkDedupEnabled:   true,
+		ChunkDedupMinBytes:  0,
+		ChunkDedupMaxRefPct: 10,
+		ChunkStore:          store,
+		ArchiveRecovery:     true,
+	})
+	if out.Stats.ChunkDedupBlocks != 0 || strings.Contains(out.Messages[1].Content[0].Text, "context-chunk") {
+		t.Fatalf("high reference density should full-pass, stats=%+v text=%q", out.Stats, out.Messages[1].Content[0].Text)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupRequiresGateAndRecovery(t *testing.T) {
 	t.Parallel()
 	store := chunkdedup.NewStore(chunkdedup.Config{}, nil)
@@ -562,19 +604,19 @@ func TestCodexChunkDedupSettingsAutoPolicyEnablesRecoverableChunks(t *testing.T)
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = false
 	p := New(cfg)
-	if store, enabled, minBytes, explicit, mode, archive := p.codexChunkDedupSettings(); !enabled || store == nil || explicit || mode != "auto" || !archive || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes {
-		t.Fatalf("auto policy should make recoverable chunk dedup available: enabled=%v store=%v min=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, explicit, mode, archive)
+	if store, enabled, minBytes, maxRefPct, explicit, mode, archive := p.codexChunkDedupSettings(); !enabled || store == nil || explicit || mode != "auto" || !archive || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes || maxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
+		t.Fatalf("auto policy should make recoverable chunk dedup available: enabled=%v store=%v min=%d max_ref=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, maxRefPct, explicit, mode, archive)
 	}
 	cfg.Compression.OutputReduce.CodexSavingsPolicyMode = "conservative"
 	p = New(cfg)
-	if store, enabled, _, _, _, archive := p.codexChunkDedupSettings(); enabled || store != nil || archive {
+	if store, enabled, _, _, _, _, archive := p.codexChunkDedupSettings(); enabled || store != nil || archive {
 		t.Fatalf("conservative policy without explicit recovery should not enable chunk dedup: enabled=%v store=%v archive=%v", enabled, store, archive)
 	}
 	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	p = New(cfg)
-	if store, enabled, minBytes, explicit, mode, archive := p.codexChunkDedupSettings(); !enabled || store == nil || !explicit || mode != "conservative" || !archive || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes {
-		t.Fatalf("explicit chunk dedup settings not enabled with recovery note: enabled=%v store=%v min=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, explicit, mode, archive)
+	if store, enabled, minBytes, maxRefPct, explicit, mode, archive := p.codexChunkDedupSettings(); !enabled || store == nil || !explicit || mode != "conservative" || !archive || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes || maxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
+		t.Fatalf("explicit chunk dedup settings not enabled with recovery note: enabled=%v store=%v min=%d max_ref=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, maxRefPct, explicit, mode, archive)
 	}
 }
 
@@ -585,8 +627,8 @@ func TestCodexHTTPChunkDedupSettingsStayConservative(t *testing.T) {
 	cfg.Compression.OutputReduce.CodexChunkDedupEnabled = true
 	cfg.Compression.OutputReduce.ArchiveRecoveryNoteEnabled = true
 	p := New(cfg)
-	if store, enabled, minBytes, explicit, mode, archive := p.codexHTTPChunkDedupSettings(); enabled || store != nil || explicit || archive || mode != "max" || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes {
-		t.Fatalf("http route must not emit chunk/archive refs without route recovery wiring: enabled=%v store=%v min=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, explicit, mode, archive)
+	if store, enabled, minBytes, maxRefPct, explicit, mode, archive := p.codexHTTPChunkDedupSettings(); enabled || store != nil || explicit || archive || mode != "max" || minBytes != cfg.Compression.OutputReduce.CodexChunkDedupMinBytes || maxRefPct != cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent {
+		t.Fatalf("http route must not emit chunk/archive refs without route recovery wiring: enabled=%v store=%v min=%d max_ref=%d explicit=%v mode=%q archive=%v", enabled, store, minBytes, maxRefPct, explicit, mode, archive)
 	}
 }
 

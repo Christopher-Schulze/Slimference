@@ -299,6 +299,10 @@ type OutputReduceConfig struct {
 	// CodexChunkDedupTTLSeconds expires idle chunk identities. Raw content is
 	// not kept in this store; archive payloads are bounded separately.
 	CodexChunkDedupTTLSeconds int `toml:"codex_chunk_dedup_ttl_seconds"`
+	// CodexChunkDedupMaxReferencePercent caps how much of one model-facing
+	// output may be replaced by chunk references. This preserves fresh
+	// recency when an output is almost entirely old context.
+	CodexChunkDedupMaxReferencePercent int `toml:"codex_chunk_dedup_max_reference_percent"`
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
@@ -821,6 +825,9 @@ func applyEnvOverrides(cfg *Config) {
 	if n, ok := envIntOK("SLIMFERENCE_CODEX_CHUNK_DEDUP_TTL_SECONDS"); ok && n >= 0 {
 		cfg.Compression.OutputReduce.CodexChunkDedupTTLSeconds = n
 	}
+	if n, ok := envIntOK("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_REFERENCE_PERCENT"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.CodexChunkDedupMaxReferencePercent = n
+	}
 }
 
 // validate checks that configuration values are within acceptable ranges.
@@ -953,6 +960,9 @@ func validate(cfg *Config) error {
 	}
 	if or.CodexChunkDedupTTLSeconds < 0 {
 		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_ttl_seconds must be >= 0, got %d", or.CodexChunkDedupTTLSeconds)
+	}
+	if or.CodexChunkDedupMaxReferencePercent < 0 || or.CodexChunkDedupMaxReferencePercent > 100 {
+		return fmt.Errorf("compression.output_reduce.codex_chunk_dedup_max_reference_percent must be between 0 and 100, got %d", or.CodexChunkDedupMaxReferencePercent)
 	}
 	return nil
 }

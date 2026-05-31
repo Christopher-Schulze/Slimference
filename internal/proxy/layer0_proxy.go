@@ -62,6 +62,7 @@ type codexLayer0Request struct {
 	ChunkDedupEnabled   bool
 	ExplicitChunkDedup  bool
 	ChunkDedupMinBytes  int
+	ChunkDedupMaxRefPct int
 	ChunkStore          *chunkdedup.Store
 	PolicyMode          string
 	ArchiveRecovery     bool
@@ -135,27 +136,27 @@ func applyProxyLayer0WithSessionAndToolUsesDetailed(messages []types.Message, se
 	return result.Messages, result.Stats
 }
 
-func (p *Proxy) codexChunkDedupSettings() (*chunkdedup.Store, bool, int, bool, string, bool) {
+func (p *Proxy) codexChunkDedupSettings() (*chunkdedup.Store, bool, int, int, bool, string, bool) {
 	if p == nil || p.config == nil || p.codexChunkDedup == nil {
-		return nil, false, 0, false, "", false
+		return nil, false, 0, 0, false, "", false
 	}
 	or := p.config.Compression.OutputReduce
 	mode := or.CodexSavingsPolicyMode
 	policyMode := savingspolicy.NormalizeCodexMode(mode)
 	archiveRecovery := or.ArchiveRecoveryNoteEnabled || policyMode == savingspolicy.CodexModeAuto || policyMode == savingspolicy.CodexModeMax
 	if !archiveRecovery {
-		return nil, false, 0, or.CodexChunkDedupEnabled, mode, false
+		return nil, false, 0, or.CodexChunkDedupMaxReferencePercent, or.CodexChunkDedupEnabled, mode, false
 	}
 	chunkAvailable := or.CodexChunkDedupEnabled || policyMode == savingspolicy.CodexModeAuto || policyMode == savingspolicy.CodexModeMax
 	if !chunkAvailable {
-		return nil, false, 0, or.CodexChunkDedupEnabled, mode, archiveRecovery
+		return nil, false, 0, or.CodexChunkDedupMaxReferencePercent, or.CodexChunkDedupEnabled, mode, archiveRecovery
 	}
-	return p.codexChunkDedup, true, or.CodexChunkDedupMinBytes, or.CodexChunkDedupEnabled, mode, archiveRecovery
+	return p.codexChunkDedup, true, or.CodexChunkDedupMinBytes, or.CodexChunkDedupMaxReferencePercent, or.CodexChunkDedupEnabled, mode, archiveRecovery
 }
 
-func (p *Proxy) codexHTTPChunkDedupSettings() (*chunkdedup.Store, bool, int, bool, string, bool) {
-	_, _, minBytes, _, mode, _ := p.codexChunkDedupSettings()
-	return nil, false, minBytes, false, mode, false
+func (p *Proxy) codexHTTPChunkDedupSettings() (*chunkdedup.Store, bool, int, int, bool, string, bool) {
+	_, _, minBytes, maxRefPct, _, mode, _ := p.codexChunkDedupSettings()
+	return nil, false, minBytes, maxRefPct, false, mode, false
 }
 
 func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
@@ -241,7 +242,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			}
 			if readCommand && !changed {
 				if policy.ChunkDedup {
-					afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
+					afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes, req.ChunkDedupMaxRefPct)
 				}
 				if !changed {
 					continue
@@ -283,7 +284,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				}
 			}
 			if !changed && policy.ChunkDedup {
-				afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes)
+				afterText, changed, mechanism, chunkReport = compactProxyChunkDedup(req.ChunkStore, req.SessionID, candidateText, req.ChunkDedupMinBytes, req.ChunkDedupMaxRefPct)
 			}
 			if !changed {
 				continue
@@ -772,33 +773,39 @@ func compactProxyRepeatedToolOutputWithKeyDetailed(sessionID, key, commandLine, 
 	return decision.Reason, true, "block"
 }
 
-func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool, proxyLayer0Mechanism, chunkdedup.EncodeResult) {
+func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes, maxReferencePercent int) (string, bool, proxyLayer0Mechanism, chunkdedup.EncodeResult) {
 	if store == nil || strings.TrimSpace(sessionID) == "" || len(text) == 0 {
 		return "", false, "", chunkdedup.EncodeResult{}
 	}
 	if header, payload, ok := splitCodexExecEnvelope(text); ok {
-		encoded, changed, report := encodeProxyChunkDedup(store, sessionID, payload, minBytes)
+		encoded, changed, report := encodeProxyChunkDedup(store, sessionID, payload, minBytes, maxReferencePercent)
 		if changed {
 			return header + encoded, true, proxyLayer0MechanismChunkDedup, report
 		}
 		return "", false, "", chunkdedup.EncodeResult{}
 	}
-	encoded, changed, report := encodeProxyChunkDedup(store, sessionID, text, minBytes)
+	encoded, changed, report := encodeProxyChunkDedup(store, sessionID, text, minBytes, maxReferencePercent)
 	if !changed {
 		return "", false, "", chunkdedup.EncodeResult{}
 	}
 	return encoded, true, proxyLayer0MechanismChunkDedup, report
 }
 
-func encodeProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes int) (string, bool, chunkdedup.EncodeResult) {
+func encodeProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes, maxReferencePercent int) (string, bool, chunkdedup.EncodeResult) {
 	if minBytes < 0 {
 		minBytes = 0
+	}
+	if maxReferencePercent <= 0 || maxReferencePercent > 100 {
+		maxReferencePercent = 100
 	}
 	if len(text) < minBytes {
 		return "", false, chunkdedup.EncodeResult{}
 	}
 	result := store.EncodeWithReport(sessionID, []byte(text))
 	if result.Saved <= 0 || bytesEqualString(result.Data, text) {
+		return "", false, chunkdedup.EncodeResult{}
+	}
+	if result.ReferencedBytes*100 > len(text)*maxReferencePercent {
 		return "", false, chunkdedup.EncodeResult{}
 	}
 	return string(result.Data), true, result

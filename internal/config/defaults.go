@@ -126,6 +126,7 @@ func defaultsRaw() *Config {
 				CodexChunkDedupMaxSessions:         256,
 				CodexChunkDedupMaxChunksPerSession: 8192,
 				CodexChunkDedupTTLSeconds:          4 * 60 * 60,
+				CodexChunkDedupMaxReferencePercent: 90,
 			},
 			Tuning: TuningConfig{
 				IncrementalOverlapThreshold: 0.70,
@@ -302,12 +303,13 @@ codex_savings_policy_mode = "auto"
 # who want to force the mechanism under conservative policy; auto policy can
 # enable it without this field.
 codex_chunk_dedup_enabled = false
-codex_chunk_dedup_min_bytes = 4096
-codex_chunk_dedup_max_sessions = 256
-codex_chunk_dedup_max_chunks_per_session = 8192
-codex_chunk_dedup_ttl_seconds = 14400
-
-[compression.minimax]
+	codex_chunk_dedup_min_bytes = 4096
+	codex_chunk_dedup_max_sessions = 256
+	codex_chunk_dedup_max_chunks_per_session = 8192
+	codex_chunk_dedup_ttl_seconds = 14400
+	codex_chunk_dedup_max_reference_percent = 90
+	
+	[compression.minimax]
 # Historical section name, but the client is OpenAI-compatible:
 # set base_url/model/api_key_env to swap MiniMax M2.7 for another
 # /v1/chat/completions provider such as NVIDIA NIM.
