@@ -1,8 +1,7 @@
 # TASK 253: Codex aggressive read compression (default-safe only)
 
-Status: [~] IN PROGRESS - first-read scan-mode RETIRED from Codex runtime; default-safe
-lossless/recoverable reducers remain. Other sub-tasks (predictive post-edit, apply_patch
-dedup, reasoning) stay queued only if they can become one automatic no-drawdown mode.
+Status: [x] CLOSED - unsafe/reconstructive candidates retired from the product roadmap.
+Default-safe lossless/recoverable reducers remain in T248/T250/T255/T256.
 Priority: P2 - high savings potential, highest drawdown risk, must be proof-gated
 Scope: Codex-only WSS Phase-F. Compress reads more aggressively where it is provably
 safe and recoverable.
@@ -10,97 +9,95 @@ safe and recoverable.
 ## Why
 
 Today the first read of a file must pass full. Re-reads, ranged reads, repeated outputs,
-chunk overlap, and search/build/test output are the correct savings surface. Aggressive
-ideas remain valid only when they preserve that invariant:
+chunk overlap, and search/build/test output are the correct savings surface. T253
+was the audit bucket for aggressive read-context ideas. The final decision is:
+do not keep features that only make sense as manual experiments or lab toggles.
 
 - First-read scan-mode proved why this boundary exists: it saved tokens in probes, but
   it made the model see less file information on first sight and relied on recovery after
   the model noticed missing detail. That is not a product-default feature.
-- The proxy SEES `apply_patch` (it parses the patch in `proxyLayer0EditPaths`), so it
-  knows the new file content. A read immediately after a patch can be served as the
-  known patched result instead of a full re-read.
-- Codex Responses may carry reasoning items and apply_patch surrounding context that
-  the server already holds; some of it is redundant.
+- Predictive post-edit synthesis is not a product-default feature: the first read after
+  an edit is exactly where the model needs fresh, salient, byte-real context. Existing
+  recent-edit guards full-pass that read; later repeat reads can use the proven cache.
+- `apply_patch` context dedup is not product-default: patch context is part of the
+  model's working memory of what changed. A few percent of possible savings is not worth
+  patch-reasoning drift.
+- Reasoning compaction is closed unless a future Codex wire contract exposes a
+  deterministic, input-side, non-cognitive repeated payload. Current code only proves
+  response-side reasoning frame kinds, not a safe c2s savings surface.
 
 ## Acceptance
 
-Promotion into the single default product mode requires the t249 A/B harness to show no
-comprehension regression, a deterministic recovery path where content is elided, and the
-T258 policy matrix to classify the workload as safe for that mechanism.
-
 - First-read AST/structure scan-mode compression is retired from Codex runtime.
   First-read file outputs full-pass in all policy modes.
-- Predictive post-edit file state: a read right after an `apply_patch` to the same
-  path is served as the known patched result (proxy-synthesized), with archive
-  recovery; fail-open if the patch could not be applied deterministically.
-- Reasoning-trace compaction: FIRST verify whether reasoning is actually present in the
-  client->server `input` (it may be server-side only via `previous_response_id` and
-  already discounted). Only then compact stale reasoning.
-- apply_patch context dedup against known content.
-- Coverage gate green; doctrine clean; every transform recoverable.
+- Predictive post-edit file-state synthesis is explicitly not a product-default target.
+  Reads after edits full-pass first, then participate in normal repeat/ranged caching.
+- `apply_patch` context dedup is explicitly not a product-default target unless it later
+  reappears as exact repeated-output dedup through existing mechanisms.
+- Reasoning-trace compaction is explicitly not a product-default target without a new
+  wire contract and proof that it does not touch model cognition.
+- The remaining savings direction is cache-hit improvement only: stronger command/range
+  normalization, deterministic repeated-output keys, search/repeated command keys, and
+  server-state mirror shadow signals that feed safe reducers without model-facing
+  reconstruction.
 
 ## Sub-Tasks
 
-- [ ] Verify (capture-driven, content-free) whether reasoning items appear in the
-      c2s `input`; document the finding before building any reasoning compaction.
+- [x] Close reasoning compaction as not product-default: response-side reasoning frame
+      kinds exist, but there is no proven safe c2s input savings surface and no
+      acceptable cognition-risk budget.
 - [x] Remove first-read scan-mode from Codex runtime: no policy decision, no apply env,
       no live counters, no persisted scan-origin keys; first-read file outputs full-pass
       even in `max`.
-- [ ] Replace any desired scan-like idea only with a default-safe cache-hit design:
+- [x] Replace any desired scan-like idea only with a default-safe cache-hit design:
       no first-read information weakening and no lossless-cache cannibalization.
-- [ ] Predictive post-edit file state from the parsed `apply_patch`; fail-open on
-      ambiguity; fixtures.
-- [ ] apply_patch context dedup against known content.
-- [ ] Stale reasoning compaction (only if verified present in input).
+- [x] Close predictive post-edit synthesis: first post-edit read remains full context;
+      subsequent repeats are handled by normal read/ranged cache.
+- [x] Close `apply_patch` context dedup as a standalone roadmap item; exact repeated
+      outputs remain covered by existing repeated-output/chunk mechanisms.
+- [x] Close stale reasoning compaction.
 
 ## Target Metrics
 
 - First-read scan-mode: retired from runtime despite 20-50% probe savings because it
   weakens first-read information.
-- Predictive post-edit: 5-15% reduction on patch/read cycles; zero wrong-file or
-  stale-version substitutions.
-- apply_patch context dedup: 3-10% reduction where patch context repeats known file
-  content.
-- Reasoning compaction: only measured if c2s reasoning items are actually present;
-  otherwise close that sub-task as "not applicable on current Codex WSS wire".
+- Predictive post-edit synthesis: rejected for default-auto. Target savings 5-15% on
+  patch/read cycles is too narrow for the recency/context risk. Safe replacement:
+  first post-edit read full-passes, later repeats dedup normally.
+- apply_patch context dedup: rejected as standalone default-auto work. Target savings
+  3-10% is not worth patch-memory risk. Safe replacement: exact repeated tool outputs
+  dedup through existing mechanisms.
+- Reasoning compaction: rejected for default-auto. Any useful future path needs a new,
+  deterministic input-side wire proof; do not keep dead code or speculative tasks.
 
 ## Promotion Gates
 
-- Capture gate: at least 2 CLI and 2 Desktop captures for each mechanism's workload
-  class, plus one long mixed workday capture.
-- Replay gate: `wss-ab-replay --fail-on-lost --json` reports `gate_passed=true`,
-  `parse_failures=0`, `degraded_sessions=0`, and no unexpected elisions.
-- Comprehension gate: A/B harness shows no missing model-facing facts compared with
-  direct/full context. Any ambiguity keeps the mechanism shadow-only.
-- Recency gate: no post-collapse re-read canary spike after enabling the mechanism.
-- Recovery gate: every model-facing elision has a `local-archive://` recovery handle
-  and the recovery note is injected only when needed.
-- Policy gate: T258 classifies the mechanism as auto-eligible only for workload
-  classes where all above gates passed.
+- No manual/lab-only promotion gate remains for the rejected mechanisms. A feature that
+  cannot become part of the single automatic default product mode is closed, not kept
+  as an operator toggle.
+- Cache-hit improvements still use the existing T249/T257/T258 gates: captured
+  workloads, replay with no lost context, no parse/degrade/compression errors, no
+  post-collapse re-read spike, and positive billable-input savings.
 
 ## Technical Design Requirements
 
 - First-read file output must full-pass. Any future high-savings read design must be
   expressed as cache/delta after full context has already been sent.
-- Predictive post-edit may synthesize a known post-patch file state only when the
-  patch applies deterministically to the last known file bytes. Any mismatch, fuzzy
-  hunk, missing base, binary file, or multi-file ambiguity full-passes.
-- apply_patch context dedup may remove only context that is byte-identical to known
-  file state already forwarded to the server. It must preserve new/removed lines and
-  hunk metadata.
-- Reasoning compaction cannot be implemented from speculation. First capture the
-  actual Codex c2s input shape; if reasoning is server-side only through
-  `previous_response_id`, document that and do not build dead code.
+- Reads after edits full-pass at least once. The safe savings point is the next
+  repeated read, not the first post-edit recency refresh.
+- Do not mutate `apply_patch` tool-call context for savings. Preserve patch semantics
+  and the model's memory of what changed.
+- Do not mutate reasoning content for savings. Reasoning is model cognition surface,
+  not a compression target.
 
 ## Notes
 
 - % impact: first-read scan compression was measured at ~20-50% on exploration-heavy
-  sessions but retired due first-read information weakening. Predictive post-edit ~5-15%. Reasoning ~0-15%
-  (verify first). Patch-context dedup ~3-10%.
-- Dependencies: HARD dependency on t249 (A/B harness + recoverable archive). Do not
-  ship any of this default-on without the comprehension proof.
-- Doctrine: content-free, fail-open, scoped; every aggressive transform must be
-  recoverable so a loss is never permanent.
+  sessions but retired due first-read information weakening. Predictive post-edit
+  (~5-15%), reasoning (~0-15%), and patch-context dedup (~3-10%) are closed because
+  the drawdown risk is on the model's fresh context/cognition/patch memory surface.
+- Doctrine: one automatic default product mode. No manual experiment toggles for
+  features that cannot satisfy the no-drawdown bar.
 
 ## Progress (2026-05-31) - first-read scan retired
 
@@ -142,6 +139,14 @@ OPEN:
   repeated deterministic command output keys, and server-state mirror shadowing.
 - Fixed: the `Total output lines: N` envelope-header line is stripped as Codex metadata, not
   grouped as a fake search file.
+
+## Closure decision (2026-05-31)
+
+T253 is closed as a product-scope cleanup, not because the ideas were impossible to
+prototype, but because they do not meet the user's operating rule: Slimference must have
+one automatic default mode that is useful every day, not lab switches. The surviving
+engineering work belongs to default-safe cache-hit improvements in T248/T250/T254/T256.
+Nothing in this closure removes or weakens the proven reducers.
 
 ## Deviations
 

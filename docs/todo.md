@@ -1551,18 +1551,19 @@ only and promotes the per-process Codex CLI runner for T209.
   rows now survive late cap pressure; remaining caps are tested priority-preserving,
   summary-only, or explicit operator-configured limits.
   Detail: `docs/todo/t252-codex-savings-precision-and-filter-tweaks.md`
-- [~] **T253** Codex aggressive read compression (GATED by T257/T258) — retired first-read
-  AST/structure scan-mode from product runtime, plus predictive post-edit file state from the
-  parsed `apply_patch`, reasoning-trace compaction (verify-first), apply_patch context
-  dedup. High-savings candidates only survive if they become one automatic,
-  default-safe mode with no first-read information loss.
-  IN PROGRESS (2026-05-31): first-read scan-mode was removed from the Codex runtime
+- [x] **T253** Codex aggressive read compression cleanup — retired first-read
+  AST/structure scan-mode from product runtime and closed the remaining
+  reconstructive candidates. Predictive post-edit synthesis, apply_patch context
+  dedup, and reasoning compaction are not product-default targets because their
+  savings are narrower than their context/recency/cognition risk. The surviving
+  direction is cache-hit improvement only: first reads full-pass, reads after edits
+  full-pass once, and later repeat/ranged/repeated-output/search hits use the proven
+  reducers.
+  CLOSED (2026-05-31): first-read scan-mode was removed from the Codex runtime
   product path. It is no longer policy-reachable, has no apply env flag, no scan-read
   counters, no persisted scan-key state, and no active default Layer-0 filter pipeline
   entry. Tests enforce the product invariant:
   first-read file outputs full-pass even in `max` and through captured-output filters.
-  Other sub-tasks (predictive post-edit,
-  apply_patch dedup, reasoning) remain queued only if they can satisfy the same default-safe bar.
   REAL-WORKLOAD FINDING (2026-05-31): live capture proved Codex reads via `sed -n '1,Np'`
   (never `cat`), so the cat-only scan was structurally dead (applied=0 on 30 real calls).
   Lossless/default reducers saved 36533 tokens on that real session with 0 drift; the
@@ -1574,11 +1575,11 @@ only and promotes the per-process Codex CLI runner for T209.
   dominates, strip Codex envelope metadata) -> real captured rg 40KB->9KB (78%), default-auto, low-risk
   (re-run search to recover), no read-seeding conflict, also 400 mitigation.
   Detail: `docs/todo/t253-codex-aggressive-read-compression.md`
-- [ ] **T254** Codex server-state mirror (radical, TASK-SPLIT candidate, gated by T257/T258) —
-  maintain a precise mirror of server-side conversation state from forwarded bytes along
-  the `previous_response_id` chain, and reduce every client frame to pure novelty against
-  it. Generalizes read-delta/dedup/search-delta into one differential transport; design
-  first, shadow first, mutate only after no-false-elision proof.
+- [x] **T254** Codex server-state mirror shadow infrastructure — retained as exact
+  forwarded-state telemetry and future cache-hit signal only. The generalized
+  differential-transport ambition is closed: Slimference will not rewrite arbitrary
+  future frames into novelty references or introduce a new model-facing reference
+  language. Existing safe reducers remain the mutation owners.
   Detail: `docs/todo/t254-codex-server-state-mirror.md`
 - [x] **T255** Codex content-defined chunk dedup (radical, TASK-SPLIT candidate, gated by
   T249) — FastCDC rolling-hash chunking + session-scoped content-addressed chunk store to
@@ -1609,15 +1610,15 @@ only and promotes the per-process Codex CLI runner for T209.
 - [~] **T258** Codex savings policy engine v2 — extend the T256 policy from mechanism
   toggles into a full route/workload/risk/recovery/recency/proof autopilot. Foundation
   is active: typed mechanism decisions, WSS/HTTP route and workload inputs,
-  high-risk T253/T254 candidates shadow-only, HTTP archive refs blocked, and
+  closed-candidate blocking/telemetry for T253/T254, HTTP archive refs blocked, and
   content-free policy counters in `/admin/state`, `aggregate-savings`, `workday-savings`,
   and optional `wss-audit --admin-state-file`. Remaining work: feed broader proof
-  evidence into promotion rules.
+  evidence only into already default-safe cache-hit promotion rules.
   Detail: `docs/todo/t258-codex-savings-policy-engine-v2.md`
-- [~] **T259** Codex HTTP recovery and policy promotion — HTTP is now policy-locked
-  conservative for archive references even in `max`/explicit chunk mode. Promotion
-  remains possible only after separate HTTP recovery-note proof; until then there is no
-  second, weaker semantics surface.
+- [x] **T259** Codex HTTP recovery and policy promotion — closed as a conservative
+  route lock. HTTP remains fallback/legacy and keeps safe Layer-0 reducers, but it
+  cannot emit archive/chunk references even in `max`/explicit chunk mode. WSS remains
+  the only product path for recoverable archive-backed references.
   Detail: `docs/todo/t259-codex-http-recovery-and-policy-promotion.md`
 
 ### Codex savings v2 — full 24-item index + what the % mean (T249-T255)
@@ -1633,15 +1634,15 @@ criteria; this index is the traceability map so nothing is lost.
 
 | # | Item | Rough % | Type | Task | Status |
 |---|------|---------|------|------|--------|
-| 1 | Server-state-mirror / general differential transport | 15-40% on long sessions | Enabler + biggest lever | T254 | queued (design/shadow first; gated by T257/T258) |
+| 1 | Server-state mirror shadow telemetry | no direct savings claim | Cache-hit signal | T254 | CLOSED as shadow/policy infra; generalized mutation rejected |
 | 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255/T256 | DONE (live-proven; auto-policy default) |
-| 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (capture/proof gated by T257/T258) |
+| 3 | Predictive post-edit file state | rejected | Recency/context risk | T253 | CLOSED; first post-edit read full-passes, later repeats dedup normally |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
 | 5 | First-read AST/structure scan-mode compaction | Removed from product | High savings, high drawdown | T253 | RETIRED from Codex runtime: no policy path, no env apply path, no counters; first reads full-pass by test |
 | 6 | Ranged/partial read caching | 5-15% | Lossless | T250 | DONE |
 | 7 | Search-output delta | 3-8% | Lossless | T250 | DONE |
-| 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (capture-first; may close as N/A) |
-| 9 | apply_patch context dedup | 3-10% | Lossless-ish | T253 | queued (capture/proof gated by T257/T258) |
+| 8 | Reasoning-trace compaction | rejected | Cognition/context risk | T253 | CLOSED; do not mutate reasoning for savings |
+| 9 | apply_patch context dedup | rejected | Patch-memory risk | T253 | CLOSED as standalone feature; exact repeated outputs remain covered |
 | 10 | Resolvable-archive contract | enabler | Enabler | T249 | DONE (default-off recovery note landed; keep proof-gated before default-on) |
 | 11 | Comprehension A/B harness | enabler | Enabler | T249 | DONE (core engine + WSS reducer replay + capture/report CLI + live CLI and Desktop replay proofs landed) |
 | 12 | Recency-adaptive aggressiveness | +5-10% and drawdown down | Double positive | T251 | DONE (configurable, default 0 until A/B proof) |
@@ -1659,16 +1660,16 @@ criteria; this index is the traceability map so nothing is lost.
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | DONE |
 | 25 | Real workload capture/replay proof matrix | enabler | Proof + default-auto gate | T257 | DONE (13 captures, CLI+Desktop workday windows, lost=0, captures_with_issues=0) |
 | 26 | Policy engine v2 route/workload/risk autopilot | enabler | Architecture + drawdown control | T258 | in progress (foundation + policy telemetry active; proof-fed promotion remaining) |
-| 27 | HTTP recovery/promotion decision | 0-10% fallback-dependent | Safety + optional savings | T259 | in progress (HTTP archive refs policy-blocked; promotion proof still open) |
+| 27 | HTTP recovery/promotion decision | 0% by design | Safety | T259 | CLOSED: HTTP fallback is conservative; no archive refs |
 
 Combined-leverage order: T249 first (safety net + recovery unlock the gated items),
 then T250 + T252 (lossless + quick wins, low risk), then T251 (stability/multiplier),
-then the gated big plays T253/T254/T255 once the A/B harness proves no comprehension
-regression. Honest aggregate expectation with all lossless + gated-aggressive items and
-the comprehension proof: roughly +30-60% more billable reduction on repeat-read-heavy
-sessions, and a meaningfully higher FLOOR on sessions that save ~0 today (items 6, 7,
-and the landed item 4 fire without repeat reads). Items 1 and 2 are the only ones that
-break the savings-scales-with-session-length ceiling.
+then T251/T258 policy-fed cache-hit improvements. T253's reconstructive candidates and
+T254 generalized mutation are closed rather than carried as manual experiments. Honest
+aggregate expectation comes from the proven lossless/recoverable stack: repeat/ranged
+reads, repeated outputs, search/build/test/git filters, WSS chunk dedup where recovery is
+available, and better cache-hit rate. No current roadmap item is allowed to trade model
+context, memory, workflow quality, or reasoning surface for speculative savings.
 
 ### Sequencing within Phase H
 

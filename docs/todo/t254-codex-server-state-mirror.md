@@ -1,99 +1,85 @@
-# TASK 254: Codex server-state mirror (general differential transport)
+# TASK 254: Codex server-state mirror shadow infrastructure
 
-Status: [ ] QUEUED - design-first, shadow-first, mutation gated by T257/T258
-Priority: P2 - the architectural nordstern that generalizes all savings
-Scope: Codex-only WSS Phase-F. Replace reactive per-frame compression with a
-session-level model of server-side state, and reduce every client frame to pure
-novelty against it.
+Status: [x] CLOSED AS SHADOW/POLICY INFRA - no generalized model-facing mutation
+Priority: P2 - retained only where it improves safe cache-hit decisions
+Scope: Codex-only WSS Phase-F. Track exact content forwarded upstream so the policy can
+measure safe cache-hit opportunities. Do not replace arbitrary future frames with
+general novelty references.
 
 ## Why
 
 Today compression is reactive per frame, and read-delta is a hand-built special case
-of a much more general idea. Because the Codex Responses API keeps conversation state
-server-side via `previous_response_id`, the proxy can maintain a precise MIRROR of what
-the model already has (reconstructed from exactly the bytes the proxy forwarded along
-the `previous_response_id` chain). With that mirror, EVERY client->server frame can be
-diffed against "what the model already knows" and reduced to pure novelty - for all
-content classes, not just file re-reads. read-delta, non-file dedup, and search-delta
-all become special cases of one differential transport. The longer the session, the
-more redundancy the mirror catches, so it is the one lever that breaks the
-savings-scales-with-session-length ceiling.
+of a broader observation: the Responses API keeps conversation state server-side via
+`previous_response_id`. The safe part is tracking what Slimference actually forwarded
+upstream and using that to measure or improve exact cache hits. The unsafe part is a
+general differential transport that rewrites arbitrary future frames into references.
+That would create a new model-facing reference language and can degrade attention or
+comprehension even when the referenced bytes technically exist earlier in the session.
+
+Final decision: keep the mirror only as shadow telemetry and policy/cache-hit
+infrastructure. Do not build a generalized model-facing mutation layer.
 
 ## Acceptance
 
-- A server-state mirror module reconstructs and tracks server-side conversation state
-  from forwarded bytes along the `previous_response_id` chain, per session.
-- A generalized differential-transport pass diffs each new client frame against the
-  mirror and elides/references content the model provably already holds.
-- read-delta (and ideally non-file/search dedup) are reframed as special cases on top
-  of the mirror, without behavior regression on their existing fixtures.
-- The mirror provably NEVER elides content the server lacks (no false-elision); on any
-  ambiguity it fails open (passes full).
-- The t249 A/B harness shows no comprehension regression.
+- A server-state mirror module tracks exact forwarded text hashes per WSS session.
+- The mirror predicts referenceable blocks as shadow telemetry only and never changes
+  a frame.
+- Existing safe reducers remain the mutation owners: read-delta, ranged read-delta,
+  exact repeated output, search delta/grouping, build/test/git/lint filters, and
+  policy-gated WSS chunk dedup.
+- No generalized differential-transport pass is built.
 - Coverage gate green; doctrine clean.
 
 ## Sub-Tasks
 
-- [ ] Design the server-state mirror: structure, per-session lifecycle, how
-      `previous_response_id` chaining maps to mirror updates, memory/disk bounds.
-- [ ] Implement mirror tracking from forwarded bytes (content-free identity, not raw
-      retention where avoidable).
-- [ ] Implement the general differential pass (diff client frame vs mirror -> novelty
-      + references); fail-open on ambiguity.
-- [ ] Migrate read-delta onto the mirror as a special case; keep all existing read
-      fixtures green.
-- [ ] Extensive correctness tests + A/B harness run proving no false-elision and no
-      comprehension regression.
+- [x] Implement shadow mirror tracking from forwarded bytes, content-free identity only.
+- [x] Prove no-false-elision for the shadow predictor: exact same-session hash only;
+      eviction can only under-report.
+- [x] Wire WSS Phase-F shadow observation without mutating frames.
+- [x] Close generalized differential transport as not product-default safe.
+- [x] Keep existing safe reducers independent; no read-delta migration required.
 
 ## Target Metrics
 
-- 15-40% additional billable-input reduction on long multi-turn sessions after
-  existing read-delta, repeated-output, search-delta, and chunk-dedup mechanisms.
-- Zero false-elision: no reference may point to content the upstream server did not
-  receive earlier on the same `previous_response_id` chain.
-- Zero hard failures: `parse_failures=0`, `degraded_sessions=0`,
-  `compression_errors=0`; any mirror ambiguity full-passes.
-- Mirror overhead budget: p95 reducer overhead below 10 ms per request on captured
-  workday replays, unless a benchmark proves model latency dwarfs the added cost.
+- Shadow-only: potential savings can be reported, but no billable-input savings are
+  claimed from the mirror itself.
+- Zero false-elision by construction: no frame mutation exists in this task.
+- Zero hard failures: mirror ambiguity or missing session id reports no opportunity and
+  full-passes the original pipeline.
+- Useful only if it feeds safe cache-hit work; otherwise it remains a cheap observer.
 
 ## Required Architecture
 
 - Mirror input is only the exact bytes Slimference forwarded upstream. The mirror must
   never infer server state from local files, client intent, or unforwarded archive
   entries.
-- State key is a composite of WSS session identity plus `previous_response_id` chain.
-  Branching or missing response ids create separate mirror branches or full-pass.
-- Mirror entries store content hashes, byte ranges, tool-output identities, archive
-  ids, and provenance; raw payload retention must be bounded and only where needed for
-  replay/recovery.
-- Differential output must be lossless or archive-recoverable. Semantic summaries do
-  not belong in the mirror pass.
-- Existing mechanisms (`read_delta`, repeated non-file dedup, search-output delta,
-  chunk dedup) must be expressible as mirror-backed special cases before any new
-  generalized mutation is enabled.
+- Mirror entries store content hashes only in the current shadow implementation. Raw
+  payload retention is not required for this task.
+- Model-facing output must remain owned by the proven reducers. The mirror may inform
+  route/workload telemetry and future exact cache-hit keys, but not emit references.
+- Semantic summaries do not belong in the mirror path.
 
 ## Execution Gates
 
-- Design gate: a written mirror data model and failure-mode table is reviewed in this
-  file before code mutation starts.
-- Shadow gate: mirror observes at least 5 CLI/Desktop captures and reports potential
-  savings without changing frames.
-- Replay gate: shadow predictions exactly match known safe reducers on current
-  fixtures; all mismatches become full-pass cases.
-- Mutation gate: one narrow mechanism migrates to mirror-backed mutation with existing
-  tests unchanged and new A/B replay proof.
-- Auto-policy gate: T258 receives mirror risk/recovery/recency signals before any
-  mirror-backed mechanism can run under default `auto`.
+- No mutation gate remains in this task. If future evidence shows a narrow exact
+  cache-hit reducer worth building, open a new task for that specific reducer rather
+  than reopening generalized differential transport.
+- The mirror can continue to run as telemetry because it does not alter model-facing
+  context.
 
 ## Notes
 
-- % impact: ~15-40% on long sessions (grows with session length); high effort.
-- This is a TASK-SPLIT candidate: design first, then split the mirror, the diff pass,
-  and the read-delta migration into separate TASKs if scope grows.
-- Dependencies: HARD on t249 (A/B harness + recovery). Benefits from t251 state
-  plumbing (bounded state, persistence).
-- Doctrine: content-free where possible, fail-open, scoped; never elide what the
-  server does not have.
+- The old ~15-40% estimate belonged to generalized mutation and is no longer a product
+  claim. Shadow observations may reveal future exact-cache opportunities, but those
+  must be built as specific default-safe reducers.
+- Doctrine: content-free, fail-open, scoped, and no model-facing reconstruction layer.
+
+## Closure decision (2026-05-31)
+
+The mirror is retained because exact forwarded-state knowledge is useful for telemetry
+and future cache-hit improvements. The generalized differential-transport ambition is
+closed because it would turn Slimference into a context-rewriter with a new reference
+language. That is outside the no-drawdown product bar.
 
 ## Deviations
 

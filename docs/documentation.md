@@ -316,12 +316,12 @@ Current product status:
 | Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP blocked from archive refs | T255 live WSS replay proof, T256 policy wiring, T258 route/risk gate | Medium but guarded: archive recovery required, recent/re-read risk loosens |
 | Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
 | First-read AST/signature scan-mode | Removed | Removed by T253; tests enforce first file reads full-pass even in `max` | High drawdown, not product-safe |
-| Predictive post-edit file state | Not built | T253 queued | Only allowed if exact patch application to known bytes can be proven |
-| apply_patch context dedup | Not built | T253 queued | Only allowed for byte-identical known context, preserving patch semantics |
-| Reasoning-trace compaction | Not built | T253 capture-first; may be not applicable if reasoning is server-side only | No speculative implementation |
-| Server-state mirror | Not built | T254 queued for design/shadow/proof | Biggest possible lever, but mutate only after no-false-elision proof |
-| Policy engine v2 | Foundation active | T258 in progress | Central route/workload/risk/recovery/proof decisions; high-risk candidates shadow-only |
-| HTTP archive recovery/promotion | Conservative lock active | T259 in progress | HTTP cannot emit archive refs even in `max`; recovery promotion requires separate proof |
+| Predictive post-edit file state | Closed | T253 closed | Rejected for default-auto: first post-edit read full-passes to preserve recency/context; later repeats dedup normally |
+| apply_patch context dedup | Closed | T253 closed | Rejected as standalone work: patch context is model working memory; exact repeated outputs remain covered |
+| Reasoning-trace compaction | Closed | T253 closed | Rejected for default-auto: do not mutate reasoning/cognition surface for savings |
+| Server-state mirror | Shadow/policy infra only | T254 closed as shadow | Tracks exact forwarded-state opportunities; no generalized model-facing mutation or reference language |
+| Policy engine v2 | Foundation active | T258 in progress | Central route/workload/risk/recovery/proof decisions; unsafe candidates blocked or telemetry-only |
+| HTTP archive recovery/promotion | Conservative lock active | T259 closed | HTTP fallback keeps safe Layer-0 reducers but cannot emit archive refs even in `max` |
 
 Real-workload truth that shaped this: Codex reads files via `sed -n '1,Np'` partial
 reads and searches via `rg`, never full `cat`, and truncates every exec output to a
@@ -335,12 +335,12 @@ point and a central policy engine with route labels (`http`, `wss_phasef`),
 workload classes, mechanism risk, recovery level, and proof level. Current policy
 actions are `allow`, `shadow`, `full_pass`, and `block`: proven lossless reducers
 are allowed, recoverable WSS chunk dedup is allowed only with archive recovery,
-recent/edit and post-collapse re-read signals full-pass, and future lossy or
-reconstructive candidates such as first-read elision, server-state mirror,
-predictive post-edit, apply_patch context dedup, and reasoning compaction are
-shadow-only until capture/A-B proof promotes them. HTTP is explicitly blocked
-from archive-backed chunk references until T259 proves equivalent recovery-note
-wiring for that route.
+and recent/edit and post-collapse re-read signals full-pass. First-read elision,
+predictive post-edit synthesis, apply_patch context dedup, reasoning compaction,
+and generalized server-state-mirror mutation are closed as non-product-default
+surfaces. The server-state mirror remains telemetry/policy infrastructure only.
+HTTP is explicitly blocked from archive-backed chunk references; WSS is the
+product route for recoverable archive/chunk mechanisms.
 
 The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
