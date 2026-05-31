@@ -358,6 +358,57 @@ func TestRunLiveCorpusPlan_RendersDeterministicRunbook(t *testing.T) {
 	}
 }
 
+func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
+	var stdout bytes.Buffer
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stdout, r)
+		close(done)
+	}()
+	now := time.Date(2026, 5, 31, 8, 9, 10, 0, time.UTC)
+	rc := runReleaseProofPlan("tests/fixtures/live_corpus", now)
+	_ = w.Close()
+	<-done
+	if rc != 0 {
+		t.Fatalf("expected 0, got %d", rc)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"T271 release/default-on proof plan",
+		"release-proof-20260531_080910.jsonl",
+		"go run ./scripts/ci",
+		"workday-savings start",
+		"workday-savings finish",
+		"slimference codex run --transport=auto",
+		"slimference codex launch-desktop --transport=app-server --replace-existing",
+		"codex_cli",
+		"codex_desktop",
+		"repeat_read",
+		"long_workday",
+		"wss-proof-matrix",
+		"benchmark-corpus tests/fixtures/live_corpus --promotion-check",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("release runbook missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunReleaseProofPlan_RejectsMissingRoot(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 5, 31, 8, 9, 10, 0, time.UTC)
+	if rc := runReleaseProofPlan("", now); rc != 2 {
+		t.Fatalf("expected root error 2, got %d", rc)
+	}
+}
+
 func TestRunLiveCorpusPlan_RejectsMissingCategoryOrRoot(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 5, 14, 8, 9, 10, 0, time.UTC)

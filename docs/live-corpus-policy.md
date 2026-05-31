@@ -31,6 +31,18 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
 
    This prints the capture path, export command, metadata skeleton, and benchmark commands for the category.
 
+   For a release/default-on promotion, generate the full ceremony first:
+
+   ```
+   go run ./scripts/verify -mode release-proof-plan
+   ```
+
+   The release runbook prints the clean CI baseline, workday window commands,
+   scoped CLI and Desktop launch commands, required live-corpus category plans,
+   WSS proof-matrix command, and the `benchmark-corpus --promotion-check` gate.
+   It does not start capture or read private content; the operator still drives
+   every live session and reviews every exported JSONL before commit.
+
 1. Run a real coding session through Slimference with the debug decision log enabled:
 
    ```

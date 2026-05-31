@@ -9,6 +9,9 @@
 //     installed Codex login (no CLI modification required).
 //   - live-corpus-plan: T146 - print the exact local capture, export,
 //     metadata, benchmark, and policy-review steps for one corpus category.
+//   - release-proof-plan: T271 - print the complete operator ceremony for
+//     default-on promotion evidence across CLI, Desktop, workday, WSS proof,
+//     and the live-corpus promotion gate.
 //
 // All flows are READ-ONLY against the operator's secrets: the tool
 // never reads ANTHROPIC_API_KEY or chatgpt cookies itself; it only
@@ -20,6 +23,7 @@
 //	go run ./scripts/verify -mode prompt-cache -url http://127.0.0.1:8990 -count 10
 //	go run ./scripts/verify -mode codex-smoke -url http://127.0.0.1:8990
 //	go run ./scripts/verify -mode live-corpus-plan -category codex_cli_tool_heavy
+//	go run ./scripts/verify -mode release-proof-plan
 //
 // Exit code 0 = verdict PASS; 1 = verdict FAIL; 2 = invocation error.
 package main
@@ -38,7 +42,7 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "prompt-cache", "verification flow: prompt-cache | codex-smoke | live-corpus-plan")
+	mode := flag.String("mode", "prompt-cache", "verification flow: prompt-cache | codex-smoke | live-corpus-plan | release-proof-plan")
 	url := flag.String("url", "http://127.0.0.1:8990", "Slimference proxy base URL")
 	count := flag.Int("count", 10, "number of identical requests to send (prompt-cache mode)")
 	model := flag.String("model", "claude-3-5-sonnet-20241022", "model id for prompt-cache mode")
@@ -55,6 +59,8 @@ func main() {
 		os.Exit(runCodexSmoke(*url, *body))
 	case "live-corpus-plan":
 		os.Exit(runLiveCorpusPlan(*corpusRoot, *category, *client, time.Now().UTC()))
+	case "release-proof-plan":
+		os.Exit(runReleaseProofPlan(*corpusRoot, time.Now().UTC()))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown -mode %q\n", *mode)
 		os.Exit(2)
@@ -270,6 +276,70 @@ func runLiveCorpusPlan(root, category, client string, now time.Time) int {
 	fmt.Println("6. Privacy rule: read the JSONL end-to-end before commit. Delete and recapture on any redaction doubt.")
 	fmt.Printf("Metadata path: %s\n", metadataFile)
 	return 0
+}
+
+func runReleaseProofPlan(root string, now time.Time) int {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		fmt.Fprintln(os.Stderr, "release-proof-plan: -corpus-root is required")
+		return 2
+	}
+	matrixPath := fmt.Sprintf("~/.slimference/captures/release-proof-%s.jsonl", now.Format("20060102_150405"))
+
+	fmt.Println("Slimference T271 release/default-on proof plan")
+	fmt.Println(strings.Repeat("=", 60))
+	fmt.Println("Purpose: prove a default-on change with real operator evidence, not synthetic smoke data.")
+	fmt.Println("Privacy: this runbook is content-free. It prints commands only and never starts capture automatically.")
+	fmt.Printf("Corpus root:  %s\n", root)
+	fmt.Printf("Matrix file:  %s\n", matrixPath)
+	fmt.Println("")
+	fmt.Println("0. Clean local baseline:")
+	fmt.Println("   go run ./scripts/ci")
+	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --check\n", root)
+	fmt.Println("")
+	fmt.Println("1. Open the real workday window before launching product clients:")
+	fmt.Println("   go run ./scripts/utils workday-savings start")
+	fmt.Println("")
+	fmt.Println("2. Launch product paths only:")
+	fmt.Println("   slimference codex run --transport=auto -- <real CLI task>")
+	fmt.Println("   slimference codex launch-desktop --transport=app-server --replace-existing")
+	fmt.Println("")
+	fmt.Println("3. Capture the required live corpus categories for both clients:")
+	for _, client := range releaseProofClients() {
+		fmt.Printf("   # %s\n", client)
+		for _, workload := range releaseProofWorkloads() {
+			fmt.Printf("   go run ./scripts/verify -mode live-corpus-plan -corpus-root %s -client %s -category %s\n",
+				root, client, workload)
+		}
+	}
+	fmt.Println("")
+	fmt.Println("4. Close all Codex sessions so WSS counters flush, then finish measurement:")
+	fmt.Println("   go run ./scripts/utils workday-savings finish")
+	fmt.Println("")
+	fmt.Println("5. Run WSS proof and release promotion gates:")
+	fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --json\n", matrixPath)
+	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check\n", root)
+	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check --json\n", root)
+	fmt.Println("")
+	fmt.Println("6. Promotion rule: default-on is allowed only if CI, WSS proof, workday, and promotion corpus all pass with zero error/canary/latency regressions.")
+	return 0
+}
+
+func releaseProofClients() []string {
+	return []string{"codex_cli", "codex_desktop"}
+}
+
+func releaseProofWorkloads() []string {
+	return []string{
+		"repeat_read",
+		"ranged_read",
+		"search_loop",
+		"git_status",
+		"test_failure",
+		"apply_patch_edit_read",
+		"large_tool_output",
+		"long_workday",
+	}
 }
 
 func safePlanName(value string) string {

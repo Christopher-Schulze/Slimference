@@ -75,7 +75,7 @@ Debug/audit view:
      floor
    - category failures are promoted into the release verdict, so positive
      savings cannot mask parse/degrade/error/canary regressions
-5. [ ] Add release proof ceremony:
+5. [x] Add release proof ceremony:
    - start clean
    - launch CLI and Desktop through product path
    - run required workloads
@@ -116,3 +116,9 @@ gate is done when default promotions require live corpus evidence.
   smoke data, while `--promotion-check` fails closed unless real CLI/Desktop
   sessions cover the required workload classes and each category declares
   explicit safety, latency, re-read, and savings expectations.
+- 2026-05-31: Added `go run ./scripts/verify -mode release-proof-plan` as the
+  deterministic release/default-on ceremony. It prints the clean CI baseline,
+  real workday window, scoped CLI/Desktop launch paths, all required
+  live-corpus category plans for both clients, WSS proof-matrix command, and the
+  promotion corpus gate. It remains content-free and operator-driven; no live
+  capture is automated.

@@ -2029,6 +2029,15 @@ re-read-canary budget, explicit latency budget, and a positive savings floor.
 This keeps unit tests and synthetic fixtures useful while preventing a default
 promotion from vague or one-sided evidence.
 
+`go run ./scripts/verify -mode release-proof-plan` prints the deterministic
+operator ceremony for a release/default-on decision. The runbook starts from a
+clean CI and synthetic-corpus baseline, opens a `workday-savings` window, lists
+the scoped CLI and Desktop product launch paths, expands every required
+live-corpus workload for both `codex_cli` and `codex_desktop`, then finishes
+with `wss-proof-matrix` and `benchmark-corpus --promotion-check`. The command is
+content-free and plan-only: it does not start capture, read payloads, or create
+fixtures. This keeps proof collection manual, reviewable, and reproducible.
+
 Layer-0 mechanism cost is exposed as debug/audit telemetry, not product UI
 noise. `/admin/state.savings.proxy_layer0_latency` reports rolling p50/p95/max
 and average duration by route for `total`, `read_delta`, `structured_filter`,
