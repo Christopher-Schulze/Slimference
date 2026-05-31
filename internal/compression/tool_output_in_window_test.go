@@ -25,7 +25,7 @@ func TestToolOutputInWindowPass_CompactsLargeCurrentSearchOutput(t *testing.T) {
 	cfg.SlidingWindow = 5
 	cfg.Tuning.ToolOutputInWindow = true
 	cfg.Tuning.ToolOutputInWindowMinTokens = 100
-	c := NewDeterministicCompressor(&cfg)
+	c := NewDeterministicCompressor(&cfg).WithRecorder(&toolOutputWindowRecorder{})
 
 	var output strings.Builder
 	for i := 0; i < 300; i++ {

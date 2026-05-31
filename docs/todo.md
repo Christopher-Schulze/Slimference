@@ -1897,8 +1897,9 @@ be called complete, default-safe, and production-grade.
   `docs/todo/t260-layer0-parser-frontier-maxx.md`
 - [~] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
   sublayer safety registry with archive requirements, model-risk notes, and
-  recovery paths; executor enforcement, archive-failure full-pass behavior, and
-  round-trip proof remain. Detail:
+  recovery paths; archive-required executor enforcement and archive-failure
+  full-pass behavior are implemented, while per-sublayer decision records,
+  prompt-cache economics, and round-trip/live proof remain. Detail:
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
   `internal/contextledger` capsule builders now exist for command, file, search,
@@ -1959,9 +1960,10 @@ be called complete, default-safe, and production-grade.
 - [~] **T272** Host resource and latency budget max-out - `/admin/state` now
   exposes a product `host_budget` guard, policy has a demotion input, and
   daemon RSS/CPU/state-size now come from real local probes; the latest host
-  budget snapshot now feeds Codex Layer-0 auto-demotion. Latency histograms,
-  disk-write counters, windowed idle CPU sampling, state-budget hot-path feeding,
-  and live resource proof remain. Detail:
+  budget snapshot plus repeated Layer-0 latency breaches now feed Codex Layer-0
+  auto-demotion. Latency histograms and disk-write counters are visible; windowed
+  idle CPU sampling, polling backoff, batched hot-state flush proof, and live
+  resource proof remain. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria

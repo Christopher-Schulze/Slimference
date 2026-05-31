@@ -683,9 +683,11 @@ Plus:
 It classifies each sub-layer as exact, reversible, recoverable-with-archive,
 task-preserving summary, or non-default. The registry also records default
 eligibility, whether an archive is required, the model-risk being controlled,
-and the recovery path. This is the basis for the T261 executor hardening: exact
-and reversible transforms can stay automatic; context-dropping summaries must
-stay archive-backed or be bypassed.
+and the recovery path. The executor enforces that contract for archive-required
+mutations: if the original block cannot be archived and stamped with a valid
+archive id, the block full-passes and its per-block savings counters are reset.
+Exact and reversible transforms can stay automatic; context-dropping summaries
+must stay archive-backed or be bypassed.
 
 ### Reversible path dictionary (T143a)
 

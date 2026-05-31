@@ -73,6 +73,44 @@ func TestPruneRedundant_ReadEditReadPattern(t *testing.T) {
 	}
 }
 
+func TestPruneRedundantWithArchive_FullPassesWhenArchiveMissing(t *testing.T) {
+	t.Parallel()
+
+	original := strings.Repeat("file content v1\n", 50)
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{
+			Type:      "tool_result",
+			Text:      original,
+			ToolInput: `{"path": "pkg/foo.go"}`,
+		}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "ok"}}},
+		{Index: 2, Role: "user", Content: []types.ContentBlock{{
+			Type:      "tool_use",
+			ToolName:  "Edit",
+			ToolInput: `{"path": "pkg/foo.go"}`,
+			ToolUseID: "edit-1",
+		}}},
+		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "edited"}}},
+		{Index: 4, Role: "user", Content: []types.ContentBlock{{
+			Type:      "tool_result",
+			Text:      strings.Repeat("file content v2\n", 50),
+			ToolInput: `{"path": "pkg/foo.go"}`,
+		}}},
+	}
+
+	g := NewFileOpGraph()
+	saved := g.PruneRedundantWithArchive(msgs, 5, func(int, int, string) string { return "" })
+	if saved != 0 {
+		t.Fatalf("missing archive must full-pass, saved=%d", saved)
+	}
+	if msgs[0].Content[0].Text != original {
+		t.Fatalf("missing archive changed original text: %q", msgs[0].Content[0].Text)
+	}
+	if msgs[0].Content[0].ArchiveID != "" {
+		t.Fatalf("missing archive stamped id %q", msgs[0].Content[0].ArchiveID)
+	}
+}
+
 func TestPruneRedundant_NoEditBetweenReads_NoPrune(t *testing.T) {
 	t.Parallel()
 
@@ -267,7 +305,7 @@ func TestPruneFileRead_AllBranches(t *testing.T) {
 			},
 		},
 	}
-	saved := pruneFileRead(msgs, 0, "p", 5)
+	saved := pruneFileRead(msgs, 0, "p", 5, nil)
 	if saved != 0 {
 		t.Errorf("expected 0 saved (stub longer than orig), got %d", saved)
 	}

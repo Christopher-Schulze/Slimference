@@ -48,6 +48,13 @@ func (g *FileOpGraph) Reset() {
 // the old read and the newer read, AND no later message references the old message index.
 // Returns total bytes saved.
 func (g *FileOpGraph) PruneRedundant(messages []types.Message, prefixEnd int) int {
+	return g.PruneRedundantWithArchive(messages, prefixEnd, nil)
+}
+
+// PruneRedundantWithArchive identifies and prunes stale file reads in messages[0:prefixEnd].
+// If archiveOriginal is non-nil, the original tool-result text must archive
+// successfully before any model-facing replacement is accepted.
+func (g *FileOpGraph) PruneRedundantWithArchive(messages []types.Message, prefixEnd int, archiveOriginal func(msgIdx, blockIdx int, original string) string) int {
 	if prefixEnd <= 2 {
 		return 0
 	}
@@ -122,14 +129,14 @@ func (g *FileOpGraph) PruneRedundant(messages []types.Message, prefixEnd int) in
 		}
 		// Safe to prune: find the tool_result block in the candidate message
 		// that corresponds to the file read and replace its content
-		saved += pruneFileRead(messages, c.msgIdx, c.path, c.newerAt)
+		saved += pruneFileRead(messages, c.msgIdx, c.path, c.newerAt, archiveOriginal)
 	}
 
 	return saved
 }
 
 // pruneFileRead replaces the file content in a tool_result block with a reference.
-func pruneFileRead(messages []types.Message, msgIdx int, path string, newerMsgIdx int) int {
+func pruneFileRead(messages []types.Message, msgIdx int, path string, newerMsgIdx int, archiveOriginal func(msgIdx, blockIdx int, original string) string) int {
 	newContent := make([]types.ContentBlock, len(messages[msgIdx].Content))
 	copy(newContent, messages[msgIdx].Content)
 	saved := 0
@@ -148,6 +155,13 @@ func pruneFileRead(messages []types.Message, msgIdx int, path string, newerMsgId
 			"[File %s was read here but superseded by read in message %d]",
 			path, newerMsgIdx)
 		if len(stub) < len(orig) {
+			if archiveOriginal != nil {
+				id := archiveOriginal(msgIdx, bi, orig)
+				if id == "" {
+					continue
+				}
+				newContent[bi].ArchiveID = id
+			}
 			newContent[bi].Text = stub
 			saved += len(orig) - len(stub)
 		}

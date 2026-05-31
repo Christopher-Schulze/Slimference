@@ -371,12 +371,10 @@ func New(cfg *config.Config) *Proxy {
 	// Layer 1: Deterministic compressor.
 	p.layer1 = compression.NewDeterministicCompressor(&cfg.Compression)
 
-	// T76: wire the content-archive recorder so lossy Layer 1 sub-layers
-	// archive original content before mutation. This is the safety net
-	// that lets aggressive defaults (T74 default-on, T100 coordinator,
-	// T103 tool pruning) ship without being lossy. Best-effort: if home
-	// is unavailable, the compressor falls back to no archiving and
-	// continues to compress as before.
+	// T76: wire the content-archive recorder so archive-required Layer 1
+	// sub-layers can prove recovery before mutation. If home or archive
+	// writes are unavailable, those sub-layers full-pass rather than
+	// shipping unrecoverable summaries.
 	if home, err := os.UserHomeDir(); err == nil {
 		recorder := compression.NewDiskRecorder(
 			contentarchive.DefaultDir(home),

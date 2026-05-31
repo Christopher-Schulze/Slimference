@@ -231,7 +231,7 @@ func TestStructureInWindow_alsoRunsWhenPrefixExists(t *testing.T) {
 	cfg := buildInWindowCfg()
 	cfg.SlidingWindow = 1 // one exchange kept; earlier ones are prefix
 	cfg.MinMessagesForCompression = 1
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 	body := goBody(80)
 	msgs := []types.Message{
 		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "a"}}},

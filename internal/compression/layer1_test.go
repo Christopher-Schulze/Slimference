@@ -45,12 +45,16 @@ func defaultTestCfg(slidingWindow int) *config.CompressionConfig {
 	}
 }
 
+func testCompressorWithArchive(cfg *config.CompressionConfig) *DeterministicCompressor {
+	return NewDeterministicCompressor(cfg).WithRecorder(&stubRecorder{id: "archive-id"})
+}
+
 // TestCompress_BelowWindow verifies that messages below the sliding window pass through unchanged.
 func TestCompress_BelowWindow(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultTestCfg(5)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	msgs := []types.Message{
 		buildMessage(t, 0, "user", textBlock("hello")),
@@ -74,7 +78,7 @@ func TestCompress_JSONToolResult(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultTestCfg(1) // window=1 so all but last message is eligible
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	// Structural whitespace only (inside strings json.Compact cannot remove).
 	var jb strings.Builder
@@ -115,7 +119,7 @@ func TestCompress_RepeatedContent(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultTestCfg(1) // last 1 user exchange stays uncompressed (spec: user-started exchanges)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	// Use pre-compacted JSON so JSON sub-layer won't fire first.
 	content := `{"result":"identical content for dedup test","x":1}`
@@ -174,7 +178,7 @@ func TestCompress_PreservesWindow(t *testing.T) {
 func TestDeterministicCompressor_Reset(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 	msgs := []types.Message{
 		buildMessage(t, 0, "user", textBlock("hello")),
 		buildMessage(t, 1, "assistant", textBlock("hi")),
@@ -228,7 +232,7 @@ func TestCompress_FileDeltaSecondVersion(t *testing.T) {
 	cfg.StructureMinTokens = 10000
 	cfg.StructureLanguages = []string{}
 	cfg.DedupSimilarityThreshold = 2.0
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 	v1 := strings.Repeat("same line\n", 30) + "line thirty\n"
 	v2 := strings.Repeat("same line\n", 30) + "line CHANGED\n"
 	tool := func(body string) types.ContentBlock {
@@ -309,7 +313,7 @@ func TestCompress_ToolResultDeltaUsesResolvedToolCallKey(t *testing.T) {
 func TestCompress_ToolCompressorUsesResolvedCodexToolInput(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 	var output strings.Builder
 	for i := 0; i < 120; i++ {
 		output.WriteString(fmt.Sprintf("internal/pkg/file_%02d.go:%d:TODO marker %02d\n", i, i+1, i))
@@ -347,7 +351,7 @@ func TestCompress_DeltaTracksNormalizedCommentStrippedSource(t *testing.T) {
 	cfg.StructureMinTokens = 10000
 	cfg.StructureLanguages = []string{}
 	cfg.DedupSimilarityThreshold = 2.0
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	var comments strings.Builder
 	for i := 0; i < 40; i++ {
@@ -529,7 +533,7 @@ func TestCompress_TwoSimilarBlocksSameMsgIdx(t *testing.T) {
 func TestCompress_CommentStripViaPath(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	// Non-JSON Go code with // comments - path detection yields "go".
 	code := "package main\n\n// Top-level comment to be stripped\nfunc Hello() {}\n// Another comment\nvar x = 1\n"
@@ -581,7 +585,7 @@ func TestCompress_structureExtractLargeGoFile(t *testing.T) {
 	cfg := defaultTestCfg(1)
 	cfg.StructureMinTokens = 100
 	cfg.StructureLanguages = []string{"go"}
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 	body := "package p\n\nfunc Big() {\n" + strings.Repeat("\t_ = 1\n", 120) + "}\n"
 	msgs := []types.Message{
 		buildMessage(t, 0, "user", types.ContentBlock{
@@ -628,7 +632,7 @@ func TestShouldRunStructureExtraction_UsesTokenizerThreshold(t *testing.T) {
 func TestCompress_GitDiffToolCompressor(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	// Build a git diff with >60 diff lines so filterGitCompact truncates them.
 	var sb strings.Builder
@@ -678,7 +682,7 @@ func TestCompressMessage_UsesScalarDedupThresholdFallback(t *testing.T) {
 func TestCompress_SemanticDictionaryForRepeatedPaths(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 	path := "/Users/example/workspace/slimference/internal/proxy/handler.go"
 	body := "panic stack\n" + strings.Repeat(path+":123: failure in handler\n", 12)
 	msgs := []types.Message{
@@ -710,7 +714,7 @@ func TestCompress_SemanticDictionaryForRepeatedPaths(t *testing.T) {
 func TestCompress_InlineBase64ImageInToolResult(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	// Build text > 500 chars with an embedded data URI (matching reBase64DataURI).
 	b64Payload := strings.Repeat("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", 8)[:480]
@@ -744,7 +748,7 @@ func TestCompress_InlineBase64ImageInToolResult(t *testing.T) {
 func TestCompress_ImageBlock(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	// buildPNGHeader is defined in image_replace_test.go (same package).
 	pngData := buildPNGHeader(640, 480)

@@ -36,9 +36,11 @@ func (c *DeterministicCompressor) toolOutputInWindowPass(messages []types.Messag
 			if len(compressed) >= len(block.Text) {
 				continue
 			}
-			if id := c.archiveOriginal(i, bi, "tool_output_in_window", block.Text); id != "" {
-				block.ArchiveID = id
+			id := c.archiveOriginal(i, bi, "tool_output_in_window", block.Text)
+			if id == "" {
+				continue
 			}
+			block.ArchiveID = id
 			block.Text = compressed
 			msg.Content[bi] = block
 			messages[i] = msg

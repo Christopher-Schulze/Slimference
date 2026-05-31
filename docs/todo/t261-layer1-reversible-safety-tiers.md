@@ -102,6 +102,12 @@ compression shortcut.
   known sublayer is classified by safety tier, default eligibility, model risk,
   archive requirement, and recovery path. This does not yet change compression
   output; it makes the next enforcement step auditable.
+- 2026-05-31: Enforced archive-required Layer 1 mutations in the executor. Comment
+  stripping, structure extraction, tool-output summaries, image replacement,
+  preview, in-window tool-output compression, and product graph-pruning only
+  commit model-facing replacements after a valid archive id exists. Archive
+  failure now full-passes the original block and resets per-block savings
+  counters instead of silently shipping unrecoverable context loss.
 
 ## Done
 

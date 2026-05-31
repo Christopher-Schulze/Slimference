@@ -131,6 +131,36 @@ func TestArchiveOriginal_RecorderError(t *testing.T) {
 	}
 }
 
+func TestCompress_ArchiveRequiredMutationFullPassesOnRecorderError(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	stub := &stubRecorder{err: errors.New("record fail")}
+	c := NewDeterministicCompressor(cfg).WithRecorder(stub)
+
+	code := "package main\n\n// must remain if archive fails\nfunc main() {}\n// another retained comment\n"
+	msgs := []types.Message{
+		buildMessage(t, 0, "user", types.ContentBlock{
+			Type:      "tool_result",
+			Text:      code,
+			ToolInput: `{"path": "main.go"}`,
+		}),
+		buildMessage(t, 1, "assistant", textBlock("ok")),
+		buildMessage(t, 2, "user", textBlock("tail")),
+	}
+
+	result := c.Compress(msgs)
+	if result.CommentSaved != 0 {
+		t.Fatalf("archive-required comment strip must full-pass on archive failure, saved=%d", result.CommentSaved)
+	}
+	got := result.Messages[0].Content[0]
+	if got.Text != code {
+		t.Fatalf("archive failure must keep original text, got %q", got.Text)
+	}
+	if got.ArchiveID != "" {
+		t.Fatalf("archive failure must not stamp archive id, got %q", got.ArchiveID)
+	}
+}
+
 func TestArchiveOriginal_HappyPath(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression

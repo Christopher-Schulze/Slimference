@@ -46,7 +46,7 @@ func TestStructurePreviewPass_fires(t *testing.T) {
 	cfg := config.Defaults().Compression
 	cfg.SlidingWindow = 1
 	cfg.Tuning.StructurePreview = true
-	c := NewDeterministicCompressor(&cfg)
+	c := testCompressorWithArchive(&cfg)
 	msgs := []types.Message{
 		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "analyse"}}},
 		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "tool_result", ToolName: "Bash", Text: largeJSONPayload()}}},

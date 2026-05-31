@@ -104,8 +104,8 @@ func TestCompress_PerSubLayerAttribution_DedupExact(t *testing.T) {
 }
 
 // TestCompress_PerSubLayerAttribution_CoordinatorSubsumeFallback
-// verifies that the coordinator-subsume path keeps the legacy "layer1"
-// sub-layer tag (unattributed) since heavy passes are skipped.
+// verifies that the coordinator-subsume path keeps precise early-stage
+// attribution while heavy passes are skipped.
 func TestCompress_PerSubLayerAttribution_CoordinatorSubsumeFallback(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
@@ -121,8 +121,8 @@ func TestCompress_PerSubLayerAttribution_CoordinatorSubsumeFallback(t *testing.T
 	}
 	c.Compress(msgs)
 
-	if !anySubLayer(rec.calls, "layer1") {
-		t.Fatalf("coordinator subsume must keep coarse layer1 tag, got %s",
+	if !anySubLayer(rec.calls, "json_compact") {
+		t.Fatalf("coordinator subsume must keep early-stage tag, got %s",
 			tagListOf(rec.calls))
 	}
 }

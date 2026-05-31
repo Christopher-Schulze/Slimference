@@ -249,7 +249,9 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 
 	// Cross-message optimizations (L1.12 and L1.13)
 	result.RepeatedCollapseSaved = c.toolCallIndex.CollapseRepeated(out, prefixEnd)
-	result.GraphPruningSaved = c.fileOpGraph.PruneRedundant(out, prefixEnd)
+	result.GraphPruningSaved = c.fileOpGraph.PruneRedundantWithArchive(out, prefixEnd, func(msgIdx, blockIdx int, original string) string {
+		return c.archiveOriginal(msgIdx, blockIdx, "graph_pruning", original)
+	})
 
 	// T38 structure-aware preview. Runs after main sub-layers so preview
 	// only fires when no other transformation replaced the raw text.
@@ -318,6 +320,11 @@ func (c *DeterministicCompressor) compressMessage(
 		if block.Type == "image" {
 			updated, saved := replaceImageBase64(block, msgIdx, prefixEnd)
 			if saved > 0 {
+				id := c.archiveOriginal(msgIdx, bi, "image_replace", block.ImageData)
+				if id == "" {
+					continue
+				}
+				updated.ArchiveID = id
 				newContent[bi] = updated
 				imageSaved += saved
 			}
@@ -334,6 +341,17 @@ func (c *DeterministicCompressor) compressMessage(
 		}
 
 		originalLen := len(origText)
+		metadataBefore := msg.Metadata
+		jsonSavedBefore := jsonSaved
+		dedupSavedBefore := dedupSaved
+		commentSavedBefore := commentSaved
+		structSavedBefore := structSaved
+		deltaSavedBefore := deltaSaved
+		ansiSavedBefore := ansiSaved
+		successShortSavedBefore := successShortSaved
+		toolSavedBefore := toolSaved
+		imageSavedBefore := imageSaved
+		dictionarySavedBefore := dictionarySaved
 
 		// L1.14: Pre-Filtered Content Tagging - detect Layer 0 compact markers early.
 		// When content was already filtered by "slimference filter", skip JSON compact,
@@ -387,7 +405,25 @@ func (c *DeterministicCompressor) compressMessage(
 			c.coordinatorSkipped.Add(1)
 			if len(text) < originalLen || text != block.Text {
 				if !ansiOnlyChange(origText, text) {
-					if id := c.archiveOriginal(msgIdx, bi, "layer1", origText); id != "" {
+					tag := joinSubLayers(earlySubLayers)
+					if layer1MutationRequiresArchive(earlySubLayers) {
+						id := c.archiveOriginal(msgIdx, bi, tag, origText)
+						if id == "" {
+							jsonSaved = jsonSavedBefore
+							dedupSaved = dedupSavedBefore
+							commentSaved = commentSavedBefore
+							structSaved = structSavedBefore
+							deltaSaved = deltaSavedBefore
+							ansiSaved = ansiSavedBefore
+							successShortSaved = successShortSavedBefore
+							toolSaved = toolSavedBefore
+							imageSaved = imageSavedBefore
+							dictionarySaved = dictionarySavedBefore
+							msg.Metadata = metadataBefore
+							continue
+						}
+						newContent[bi].ArchiveID = id
+					} else if id := c.archiveOriginal(msgIdx, bi, tag, origText); id != "" {
 						newContent[bi].ArchiveID = id
 					}
 				}
@@ -536,7 +572,24 @@ func (c *DeterministicCompressor) compressMessage(
 				// attribution from before T76b for unattributed paths
 				// like comment_strip / json_compact done above).
 				tag := joinSubLayers(appliedSubLayers)
-				if id := c.archiveOriginal(msgIdx, bi, tag, origText); id != "" {
+				if layer1MutationRequiresArchive(appliedSubLayers) {
+					id := c.archiveOriginal(msgIdx, bi, tag, origText)
+					if id == "" {
+						jsonSaved = jsonSavedBefore
+						dedupSaved = dedupSavedBefore
+						commentSaved = commentSavedBefore
+						structSaved = structSavedBefore
+						deltaSaved = deltaSavedBefore
+						ansiSaved = ansiSavedBefore
+						successShortSaved = successShortSavedBefore
+						toolSaved = toolSavedBefore
+						imageSaved = imageSavedBefore
+						dictionarySaved = dictionarySavedBefore
+						msg.Metadata = metadataBefore
+						continue
+					}
+					newContent[bi].ArchiveID = id
+				} else if id := c.archiveOriginal(msgIdx, bi, tag, origText); id != "" {
 					newContent[bi].ArchiveID = id
 				}
 			}
