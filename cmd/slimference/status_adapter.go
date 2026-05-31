@@ -3,6 +3,7 @@ package main
 import (
 	"sort"
 
+	"github.com/slimference/slimference/internal/control"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/tui"
 )
@@ -69,5 +70,56 @@ func (a *proxyAdapter) GetToolArchiveStatus() tui.ToolArchiveStatus {
 		BytesStored:  status.BytesStored,
 		LastArchived: status.LastArchived,
 		LastExpanded: status.LastExpanded,
+	}
+}
+
+func productStatusFromSetupState(state control.SetupState) tui.ProductStatus {
+	product := state.Savings.Product
+	if product.Status == "" {
+		product = state.Savings.ProductSignals()
+	}
+	return tui.ProductStatus{
+		RouteStatus:              productRouteStatus(state),
+		FallbackReason:           state.CodexRoute.FallbackReason,
+		RecertStatus:             state.CodexRoute.RecertStatus,
+		SavingsStatus:            product.Status,
+		BillableInputTokensSaved: product.BillableInputTokensSaved,
+		OutputWireBytesSaved:     product.OutputWireBytesSaved,
+		RequestSideBytesReduced:  product.RequestSideBytesReduced,
+		CostUSD:                  product.CostUSD,
+		CacheHits:                product.CacheHits,
+		CacheMisses:              product.CacheMisses,
+		ReadDeltaHits:            product.ReadDeltaHits,
+		RepeatedOutputHits:       product.RepeatedOutputHits,
+		ChunkDedupHits:           product.ChunkDedupHits,
+		ToolResolutionMisses:     product.ToolResolutionMisses,
+		SafetyIssues:             product.SafetyIssues,
+		HostBudgetStatus:         state.HostBudget.Status,
+		HostBudgetExceeded:       state.HostBudget.Exceeded,
+		HostBudgetReasons:        append([]string(nil), state.HostBudget.Reasons...),
+		WSSParseFailures:         state.WSS.ParseFailures,
+		WSSDegradedSessions:      state.WSS.DegradedSessions,
+		WSSCompressionErrors:     state.WSS.CompressionErrors,
+		WSSCompressedMutated:     state.WSS.CompressedMessagesMutated,
+		WSSCompressedInspected:   state.WSS.CompressedMessagesInspected,
+		WSSByteBridgeOnly:        state.WSS.ByteBridgeOnly,
+		WSSMutationActive:        state.WSS.MutationActive,
+	}
+}
+
+func productRouteStatus(state control.SetupState) string {
+	switch {
+	case state.WSS.MutationActive || state.WSS.CompressedMessagesMutated > 0:
+		return "WSS savings active"
+	case state.WSS.ByteBridgeOnly || state.WSS.PhasefBridged > 0:
+		return "WSS bridge"
+	case state.CodexRoute.Transport == "http":
+		return "HTTP fallback"
+	case state.CodexRoute.Enabled && state.CodexRoute.Transport != "":
+		return state.CodexRoute.Transport
+	case state.CodexRoute.DaemonReachable:
+		return "route ready"
+	default:
+		return "direct"
 	}
 }

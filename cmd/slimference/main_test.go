@@ -656,6 +656,8 @@ func (p *testTUIProxy) GetReadCacheStatus() tui.ReadCacheStatus { return tui.Rea
 
 func (p *testTUIProxy) GetQualityStatus() tui.QualityStatus { return tui.QualityStatus{} }
 
+func (p *testTUIProxy) GetProductStatus() tui.ProductStatus { return tui.ProductStatus{} }
+
 func (p *testTUIProxy) GetProviderHealth(types.Provider) types.ProviderHealthInfo {
 	return types.ProviderHealthInfo{Status: types.ProviderHealthIdle}
 }

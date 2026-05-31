@@ -1051,6 +1051,7 @@ func (m *Model) buildLeftPanel(width int) []string {
 func (m *Model) buildRightPanel(width int) []string {
 	s := m.styles
 	snap := m.latestSnap
+	product := m.proxy.GetProductStatus()
 
 	pad := func(str string) string {
 		w := lipgloss.Width(str)
@@ -1063,31 +1064,36 @@ func (m *Model) buildRightPanel(width int) []string {
 	var lines []string
 	add := func(str string) { lines = append(lines, pad(str)) }
 
-	add(" " + s.PanelTitle.Render("FLOW"))
-
-	savedPct := 0
-	if snap.TotalInputTokens > 0 {
-		savedPct = int((1 - float64(snap.TotalInputTokens-snap.SavedInputTokens)/float64(snap.TotalInputTokens)) * 100)
+	add(" " + s.PanelTitle.Render("PRODUCT"))
+	if product.RouteStatus == "" && product.SavingsStatus == "" {
+		savedPct := 0
+		if snap.TotalInputTokens > 0 {
+			savedPct = int((1 - float64(snap.TotalInputTokens-snap.SavedInputTokens)/float64(snap.TotalInputTokens)) * 100)
+		}
+		origStr := formatTokens(snap.TotalInputTokens)
+		compStr := formatTokens(snap.TotalInputTokens - snap.SavedInputTokens)
+		savedTok := formatTokens(snap.SavedInputTokens)
+		add(" " + s.BigSaved.Render(fmt.Sprintf("%d%%", savedPct)) +
+			s.Dim.Render("  "+origStr+" → "+compStr+"  ") +
+			s.Saved.Render(savedTok+" saved"))
+		barWidth := width - 3
+		if barWidth < 8 {
+			barWidth = 8
+		}
+		add(" " + renderProgressBar(s, float64(savedPct)/100.0, barWidth))
+	} else {
+		add(" " + renderProductRouteLine(s, product))
+		add(" " + s.Saved.Render(formatTokens(int(product.BillableInputTokensSaved))+" input saved") +
+			"  " + s.Dim.Render(formatBytesCompact(product.OutputWireBytesSaved)+" wire"))
+		add(" " + s.Muted.Render(fmt.Sprintf("cache %d/%d · read %d · repeated %d · chunk %d",
+			product.CacheHits, product.CacheHits+product.CacheMisses,
+			product.ReadDeltaHits, product.RepeatedOutputHits, product.ChunkDedupHits)))
+		if product.SafetyIssues > 0 || product.HostBudgetExceeded {
+			add(" " + s.Warning.Render(productSafetyLine(product)))
+		} else {
+			add(" " + s.Muted.Render("safety ok"))
+		}
 	}
-
-	origStr := formatTokens(snap.TotalInputTokens)
-	compStr := formatTokens(snap.TotalInputTokens - snap.SavedInputTokens)
-	savedTok := formatTokens(snap.SavedInputTokens)
-	add(" " + s.BigSaved.Render(fmt.Sprintf("%d%%", savedPct)) +
-		s.Dim.Render("  "+origStr+" → "+compStr+"  ") +
-		s.Saved.Render(savedTok+" saved"))
-
-	barWidth := width - 3
-	if barWidth < 8 {
-		barWidth = 8
-	}
-	add(" " + renderProgressBar(s, float64(savedPct)/100.0, barWidth))
-
-	avgPrefill := m.proxy.Config().GetPrefillSpeed()
-	extraMsgs := snap.EstExtraMessages(snap.AvgTokensPerRequest)
-	ttftImprove := snap.AvgTTFTImprovement(avgPrefill)
-	add(" " + s.Saved.Render(fmt.Sprintf("+%d msgs", extraMsgs)) +
-		"  " + s.Highlight.Render(fmt.Sprintf("~%.1fs TTFT", ttftImprove)))
 	add("")
 
 	duration := time.Since(snap.SessionStart)
@@ -1156,6 +1162,41 @@ func l2Summary(status Layer2Status) string {
 		return fmt.Sprintf("last: %s · q:%d", formatAgo(status.LastRun), status.QueueDepth)
 	}
 	return "idle"
+}
+
+func renderProductRouteLine(s Styles, product ProductStatus) string {
+	route := fallbackLabel(product.RouteStatus, "direct")
+	switch {
+	case product.SafetyIssues > 0 || product.HostBudgetExceeded:
+		return s.Warning.Render("● ATTENTION") + "  " + s.Dim.Render(route)
+	case product.SavingsStatus == "saving":
+		return s.Saved.Render("● SAVING") + "  " + s.Dim.Render(route)
+	case product.SavingsStatus == "active_no_savings":
+		return s.Highlight.Render("● ACTIVE") + "  " + s.Dim.Render(route+" · no savings yet")
+	default:
+		return s.Muted.Render("○ IDLE") + "  " + s.Dim.Render(route)
+	}
+}
+
+func productSafetyLine(product ProductStatus) string {
+	parts := make([]string, 0, 4)
+	if product.SafetyIssues > 0 {
+		parts = append(parts, fmt.Sprintf("%d safety issue(s)", product.SafetyIssues))
+	}
+	if product.ToolResolutionMisses > 0 {
+		parts = append(parts, fmt.Sprintf("%d tool miss(es)", product.ToolResolutionMisses))
+	}
+	if product.HostBudgetExceeded {
+		reason := product.HostBudgetStatus
+		if len(product.HostBudgetReasons) > 0 {
+			reason = strings.Join(product.HostBudgetReasons, ",")
+		}
+		parts = append(parts, "host budget "+fallbackLabel(reason, "attention"))
+	}
+	if len(parts) == 0 {
+		return "safety ok"
+	}
+	return strings.Join(parts, " · ")
 }
 
 func formatFloatCompact(v float64) string {

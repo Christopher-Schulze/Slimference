@@ -226,6 +226,14 @@ func (a *remoteProxyAdapter) GetQualityStatus() tui.QualityStatus {
 	}
 }
 
+func (a *remoteProxyAdapter) GetProductStatus() tui.ProductStatus {
+	state, ok := a.fetchSetupState()
+	if !ok {
+		return tui.ProductStatus{}
+	}
+	return productStatusFromSetupState(state)
+}
+
 func (a *remoteProxyAdapter) GetReadCacheStatus() tui.ReadCacheStatus {
 	a.refresh()
 	a.mu.RLock()
@@ -327,21 +335,8 @@ func (a *remoteProxyAdapter) SetBypass(enabled bool) {
 // /admin/state. The TUI calls this whenever the Apps view renders.
 // Errors yield an empty slice — the view then shows "No apps".
 func (a *remoteProxyAdapter) AppEntries() []tui.AppEntry {
-	req, err := http.NewRequest(http.MethodGet,
-		"http://"+a.cfg.ListenAddr()+proxy.AdminStatePath, nil)
-	if err != nil {
-		return nil
-	}
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	var state control.SetupState
-	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+	state, ok := a.fetchSetupState()
+	if !ok {
 		return nil
 	}
 	out := make([]tui.AppEntry, 0, len(state.Apps))
@@ -356,6 +351,27 @@ func (a *remoteProxyAdapter) AppEntries() []tui.AppEntry {
 		})
 	}
 	return out
+}
+
+func (a *remoteProxyAdapter) fetchSetupState() (control.SetupState, bool) {
+	req, err := http.NewRequest(http.MethodGet,
+		"http://"+a.cfg.ListenAddr()+proxy.AdminStatePath, nil)
+	if err != nil {
+		return control.SetupState{}, false
+	}
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return control.SetupState{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return control.SetupState{}, false
+	}
+	var state control.SetupState
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		return control.SetupState{}, false
+	}
+	return state, true
 }
 
 // SetAppEnabled POSTs to /admin/apps. Returns an error if the daemon

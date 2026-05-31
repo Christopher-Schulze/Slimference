@@ -1940,8 +1940,9 @@ be called complete, default-safe, and production-grade.
   remains a later proof/wiring task. Detail:
   `docs/todo/t270-runtime-savings-policy-autopilot.md`
 - [~] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
-  now exposes the content-free `savings.product` rollup for user-facing status;
-  TUI cleanup, provider-cache alignment, and live-corpus proof gates remain.
+  now exposes the content-free `savings.product` rollup and the TUI default
+  product panel consumes it; provider-cache alignment and live-corpus proof
+  gates remain.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
 - [~] **T272** Host resource and latency budget max-out - `/admin/state` now
   exposes a product `host_budget` guard and policy has a demotion input; RSS

@@ -1523,6 +1523,13 @@ native WebSocket path while savings repair or fallback is active. The status
 surface includes recert attempt id, started/finished/last-success/retry times,
 last error, and the bounded recert log path when available.
 
+The main product panel reads the `/admin/state.savings.product` rollup through
+the same local or remote adapter path as the rest of the TUI. It shows route
+state, billable input saved, output-wire bytes, cache hit/miss totals,
+read-delta/repeated-output/chunk hits, and safety or host-budget attention. Raw
+parser matrices, policy internals, and mechanism debug counters stay in debug
+surfaces; the normal view does not invent a second mixed savings headline.
+
 ### Keybindings
 
 Auto-generated in `docs/tui-keybindings.md` from

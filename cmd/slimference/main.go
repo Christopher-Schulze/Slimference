@@ -3679,6 +3679,15 @@ func (a *proxyAdapter) GetQualityStatus() tui.QualityStatus {
 		NetSaved:          q.NetSavings.NetSaved,
 	}
 }
+func (a *proxyAdapter) GetProductStatus() tui.ProductStatus {
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	state, ok := a.p.SetupStateSnapshot(ctx)
+	if !ok {
+		return tui.ProductStatus{}
+	}
+	return productStatusFromSetupState(state)
+}
 func (a *proxyAdapter) GetReadCacheStatus() tui.ReadCacheStatus {
 	status := a.p.AdminStatusSnapshot().ReadCache
 	return tui.ReadCacheStatus{

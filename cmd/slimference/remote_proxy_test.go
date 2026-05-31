@@ -298,6 +298,11 @@ func TestRemoteProxyAdapterAppsEndpoints(t *testing.T) {
 			Routed:   7,
 			Bypassed: 1,
 		}},
+		Savings: control.SavingsSummary{Product: control.ProductSavingsSummary{
+			Status:                   "saving",
+			BillableInputTokensSaved: 99,
+		}},
+		WSS: control.WSSState{MutationActive: true},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -319,6 +324,9 @@ func TestRemoteProxyAdapterAppsEndpoints(t *testing.T) {
 	entries := a.AppEntries()
 	if len(entries) != 1 || entries[0].ID != string(apps.AppCodexCLI) || !entries[0].Enabled || entries[0].BinPath == "" {
 		t.Fatalf("app entries: %+v", entries)
+	}
+	if got := a.GetProductStatus(); got.RouteStatus != "WSS savings active" || got.BillableInputTokensSaved != 99 {
+		t.Fatalf("product status: %+v", got)
 	}
 	if err := a.SetAppEnabled(string(apps.AppCodexCLI), false); err != nil {
 		t.Fatalf("SetAppEnabled: %v", err)

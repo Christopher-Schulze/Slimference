@@ -535,7 +535,7 @@ func TestRenderHeaderMainAndBranchCoverage(t *testing.T) {
 	}
 
 	view := m.renderMainView()
-	for _, needle := range []string{"QUICK START", "operator notice", "LAUNCH CENTER", "Flow"} {
+	for _, needle := range []string{"QUICK START", "operator notice", "LAUNCH CENTER", "PRODUCT"} {
 		if !strings.Contains(strings.ToUpper(view), strings.ToUpper(needle)) {
 			t.Fatalf("main view missing %q in:\n%s", needle, view)
 		}

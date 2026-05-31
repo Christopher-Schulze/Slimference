@@ -35,6 +35,14 @@ func (p *Proxy) stateProbes() *control.Probes {
 	return p.adminState.probes.Load()
 }
 
+func (p *Proxy) SetupStateSnapshot(ctx context.Context) (control.SetupState, bool) {
+	probes := p.stateProbes()
+	if probes == nil {
+		return control.SetupState{}, false
+	}
+	return control.Build(ctx, *probes), true
+}
+
 // adminStateHandler returns the current SetupState as JSON. GET only.
 func (p *Proxy) adminStateHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -48,7 +56,7 @@ func (p *Proxy) adminStateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 250*time.Millisecond)
 	defer cancel()
-	state := control.Build(ctx, *probes)
+	state, _ := p.SetupStateSnapshot(ctx)
 	writeAdminJSON(w, http.StatusOK, state)
 }
 

@@ -14,7 +14,9 @@ fallbacks, cache hits, recovery, and quality signals.
   status, billable input savings, output-wire savings, request-side reductions,
   cache hit/miss counts, read/repeated/chunk hits, tool-resolution misses, and
   safety issues.
-- The TUI has accumulated setup/debug/status surfaces.
+- The TUI normal view now consumes the product rollup instead of rebuilding a
+  mixed savings headline from raw debug counters. Debug views still keep the
+  raw counters.
 - Real proof matrix and workday windows exist, but promotion criteria need to
   be explicit for every max-out feature.
 
@@ -48,10 +50,13 @@ Debug/audit view:
    - cache hits
    - quality/safety
    - recert
-3. [ ] Clean TUI:
-   - remove or hide debug-only counters from default view
-   - keep advanced debug view if needed
-   - show exact fallback reason
+3. [x] Clean TUI product surface:
+   - default right panel now shows route, billable input saved, output-wire
+     bytes, cache hit/miss totals, read/repeated/chunk hits, and safety/host
+     budget state
+   - debug-only parser/policy/cache matrices remain outside the default product
+     panel
+   - route labels come from `/admin/state` through the local/remote TUI adapters
 4. [ ] Define live-corpus promotion gates:
    - minimum CLI captures
    - minimum Desktop captures

@@ -15,6 +15,7 @@ import (
 	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/checkpoints"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/control"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/hooks"
 	"github.com/slimference/slimference/internal/proxy"
@@ -396,6 +397,19 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	}
 	if got := pa.GetRecentFlights(1); len(got) != 0 {
 		t.Fatalf("default proxy flights=%+v", got)
+	}
+	if got := productStatusFromSetupState(control.SetupState{
+		CodexRoute: control.CodexRouteState{Transport: "wss"},
+		Savings: control.SavingsSummary{
+			Product: control.ProductSavingsSummary{
+				Status:                   "saving",
+				BillableInputTokensSaved: 42,
+				CacheHits:                2,
+			},
+		},
+		WSS: control.WSSState{CompressedMessagesMutated: 1},
+	}); got.RouteStatus != "WSS savings active" || got.BillableInputTokensSaved != 42 || got.CacheHits != 2 {
+		t.Fatalf("product status=%+v", got)
 	}
 
 	rpa := newRemoteProxyAdapter(cfg)
