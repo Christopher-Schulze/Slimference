@@ -14,6 +14,9 @@ type ProcessSnapshot struct {
 	CPUSystemSeconds float64
 	CPUPercent       float64
 	CPUKnown         bool
+	DiskReadOps      int64
+	DiskWriteOps     int64
+	DiskIOKnown      bool
 }
 
 // CurrentProcess returns the best available local resource sample for pid.
@@ -31,6 +34,11 @@ func CurrentProcess(pid int) ProcessSnapshot {
 			s.CPUSystemSeconds = cpu.SystemSeconds
 			s.CPUKnown = true
 		}
+		if disk, ok := currentDiskIO(); ok {
+			s.DiskReadOps = disk.ReadOps
+			s.DiskWriteOps = disk.WriteOps
+			s.DiskIOKnown = true
+		}
 	}
 	return s
 }
@@ -39,6 +47,12 @@ func CurrentProcess(pid int) ProcessSnapshot {
 type CPUTime struct {
 	UserSeconds   float64
 	SystemSeconds float64
+}
+
+// DiskIO is the process lifetime block I/O operation count reported by the OS.
+type DiskIO struct {
+	ReadOps  int64
+	WriteOps int64
 }
 
 // DirectorySizeBytes returns the recursive size of root. It is best-effort and

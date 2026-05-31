@@ -1604,6 +1604,8 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		CPUUserSeconds    float64         `json:"cpu_user_seconds"`
 		CPUSystemSeconds  float64         `json:"cpu_system_seconds"`
 		CPUPercent        float64         `json:"cpu_percent"`
+		DiskReadOps       int64           `json:"disk_read_ops"`
+		DiskWriteOps      int64           `json:"disk_write_ops"`
 		StateBytes        int64           `json:"state_bytes"`
 		Layers            map[string]bool `json:"layers"`
 		Providers         map[string]bool `json:"providers"`
@@ -1620,6 +1622,8 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		CPUUserSeconds:   resource.CPUUserSeconds,
 		CPUSystemSeconds: resource.CPUSystemSeconds,
 		CPUPercent:       resource.CPUPercent,
+		DiskReadOps:      resource.DiskReadOps,
+		DiskWriteOps:     resource.DiskWriteOps,
 		StateBytes:       stateBytes,
 		Layers: map[string]bool{
 			"1": p.isLayerEnabled(1),

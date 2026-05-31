@@ -33,6 +33,9 @@ func TestDaemonProbeReportsLocalProcessState(t *testing.T) {
 	if got.CPUUserSeconds < 0 || got.CPUSystemSeconds < 0 || got.CPUPercent < 0 {
 		t.Fatalf("cpu fields invalid: %+v", got)
 	}
+	if got.DiskReadOps < 0 || got.DiskWriteOps < 0 {
+		t.Fatalf("disk fields invalid: %+v", got)
+	}
 	if got.StateBytes < 0 {
 		t.Fatalf("state bytes invalid: %+v", got)
 	}

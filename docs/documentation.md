@@ -403,16 +403,17 @@ the existing debug fields, but product surfaces should prefer this rollup instea
 of inventing their own mixed headline.
 `/admin/state.host_budget` is the product resource guard. It reports `ok`,
 `unknown`, or `attention`, daemon RSS, uptime, process CPU time, lifetime CPU
-percentage, bounded state-directory size, the 200 MiB RSS budget, the 512 MiB
-state budget, WSS compression/parse/degrade health, mutation activity, and
-content-free reason codes. The daemon/admin path uses an in-process resource
-probe for PID, uptime, real RSS, process CPU time, and state size where the
-platform can provide it, avoiding a loopback self-health guess for the product
-budget. Policy demotion uses the same concept through the `HostBudgetExceeded`
-input: if the host budget trips, managed Codex reducers full-pass instead of
-making Codex slower or less reliable. CPU is currently reported for visibility;
-automatic CPU demotion waits for a windowed idle sampler to avoid false
-positives during real work.
+percentage, OS-reported lifetime disk read/write operation counters, bounded
+state-directory size, the 200 MiB RSS budget, the 512 MiB state budget, WSS
+compression/parse/degrade health, mutation activity, and content-free reason
+codes. The daemon/admin path uses an in-process resource probe for PID, uptime,
+real RSS, process CPU time, disk I/O counters, and state size where the platform
+can provide it, avoiding a loopback self-health guess for the product budget.
+Policy demotion uses the same concept through the `HostBudgetExceeded` input:
+if the host budget trips, managed Codex reducers full-pass instead of making
+Codex slower or less reliable. CPU and disk operation counters are currently
+reported for visibility; automatic CPU/disk demotion waits for a windowed idle
+sampler to avoid false positives during real work.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually

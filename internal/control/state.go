@@ -59,6 +59,8 @@ type DaemonState struct {
 	CPUUserSeconds   float64 `json:"cpu_user_seconds"`
 	CPUSystemSeconds float64 `json:"cpu_system_seconds"`
 	CPUPercent       float64 `json:"cpu_percent"`
+	DiskReadOps      int64   `json:"disk_read_ops"`
+	DiskWriteOps     int64   `json:"disk_write_ops"`
 	StateBytes       int64   `json:"state_bytes"`
 	Version          string  `json:"version"`
 }
@@ -368,6 +370,8 @@ type HostBudgetState struct {
 	RSSBytes        int64    `json:"rss_bytes"`
 	RSSLimitBytes   int64    `json:"rss_limit_bytes"`
 	CPUPercent      float64  `json:"cpu_percent"`
+	DiskReadOps     int64    `json:"disk_read_ops"`
+	DiskWriteOps    int64    `json:"disk_write_ops"`
 	StateBytes      int64    `json:"state_bytes"`
 	StateLimitBytes int64    `json:"state_limit_bytes"`
 	Reasons         []string `json:"reasons,omitempty"`
@@ -382,6 +386,8 @@ func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 		RSSBytes:        daemon.RSSBytes,
 		RSSLimitBytes:   DefaultHostRSSBudgetBytes,
 		CPUPercent:      daemon.CPUPercent,
+		DiskReadOps:     daemon.DiskReadOps,
+		DiskWriteOps:    daemon.DiskWriteOps,
 		StateBytes:      daemon.StateBytes,
 		StateLimitBytes: DefaultHostStateBudgetBytes,
 		CompressionOK:   wss.CompressionErrors == 0,

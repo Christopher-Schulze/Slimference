@@ -29,6 +29,8 @@ func (p DaemonProbe) ProbeDaemon(_ context.Context) control.DaemonState {
 		CPUUserSeconds:   snap.CPUUserSeconds,
 		CPUSystemSeconds: snap.CPUSystemSeconds,
 		CPUPercent:       snap.CPUPercent,
+		DiskReadOps:      snap.DiskReadOps,
+		DiskWriteOps:     snap.DiskWriteOps,
 		StateBytes:       stateBytes,
 		Version:          Version,
 	}

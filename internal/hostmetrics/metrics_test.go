@@ -26,6 +26,9 @@ func TestCurrentProcessSelf(t *testing.T) {
 	if got.CPUKnown && got.CPUUserSeconds+got.CPUSystemSeconds < 0 {
 		t.Fatalf("known CPU time must be non-negative: %+v", got)
 	}
+	if got.DiskIOKnown && (got.DiskReadOps < 0 || got.DiskWriteOps < 0) {
+		t.Fatalf("known disk IO must be non-negative: %+v", got)
+	}
 }
 
 func TestDirectorySizeBytes(t *testing.T) {

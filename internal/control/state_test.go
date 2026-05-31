@@ -201,7 +201,7 @@ func TestEvaluateHostBudgetStatus(t *testing.T) {
 		{name: "unknown without probes", want: "unknown"},
 		{
 			name:   "ok under budget",
-			daemon: DaemonState{RSSBytes: 64 * 1024 * 1024},
+			daemon: DaemonState{RSSBytes: 64 * 1024 * 1024, DiskReadOps: 7, DiskWriteOps: 11},
 			wss:    WSSState{EngineActive: true, MutationActive: true},
 			want:   "ok",
 		},
@@ -235,6 +235,11 @@ func TestEvaluateHostBudgetStatus(t *testing.T) {
 			got := EvaluateHostBudget(tt.daemon, tt.wss)
 			if got.Status != tt.want {
 				t.Fatalf("Status=%q want %q: %+v", got.Status, tt.want, got)
+			}
+			if tt.daemon.DiskReadOps != 0 || tt.daemon.DiskWriteOps != 0 {
+				if got.DiskReadOps != tt.daemon.DiskReadOps || got.DiskWriteOps != tt.daemon.DiskWriteOps {
+					t.Fatalf("disk counters not propagated: %+v", got)
+				}
 			}
 			if len(got.Reasons) != tt.reasons {
 				t.Fatalf("Reasons=%v want count %d", got.Reasons, tt.reasons)

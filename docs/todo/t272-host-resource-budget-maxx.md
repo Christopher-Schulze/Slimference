@@ -16,11 +16,12 @@ sets hard budgets and auto-degradation rules.
   reports `ok`, `unknown`, or `attention` from the daemon RSS field and WSS
   parse/degrade/compression state. The daemon state is populated from an
   in-process probe with PID, uptime, real RSS, real process CPU time, lifetime
-  CPU percentage, and bounded state-directory size when platform sources are
-  available, so the budget no longer depends on a loopback self-health call.
-  State-size overrun now feeds the same `HostBudgetExceeded` demotion input as
-  RSS and WSS parse/compression errors. CPU is reported but not used as an
-  automatic demotion trigger until an idle/windowed sampler exists.
+  CPU percentage, OS-reported lifetime disk read/write operation counters, and
+  bounded state-directory size when platform sources are available, so the
+  budget no longer depends on a loopback self-health call. State-size overrun
+  now feeds the same `HostBudgetExceeded` demotion input as RSS and WSS
+  parse/compression errors. CPU and disk operation counters are reported but not
+  used as automatic demotion triggers until idle/windowed samplers exist.
 - Some performance tasks exist, but a single product budget across mechanisms is
   needed.
 
@@ -48,12 +49,12 @@ Initial targets for Apple Silicon macOS:
 
 ## Technical work packages
 
-1. [~] Add host-budget telemetry:
+1. [x] Add host-budget telemetry:
    - [x] product `host_budget` status in `/admin/state`
    - [x] process RSS source alignment for daemon/admin state
    - [x] CPU estimate
    - [x] per-mechanism latency histogram
-   - [ ] disk write counters
+   - [x] disk write counters
    - [x] state sizes
 2. Add pprof/benchmark ceremony:
    - real CLI session
@@ -118,6 +119,11 @@ Initial targets for Apple Silicon macOS:
   read-delta, structured-filter, repeated-output, and chunk-dedup durations and
   exposes rolling p50/p95/max/avg snapshots by route. This is debug/audit
   telemetry, not normal TUI clutter.
+- 2026-05-31: Added OS-backed lifetime disk I/O operation counters to the
+  daemon/admin resource snapshot and `/admin/state.host_budget`. The source is
+  `getrusage` on Unix platforms and fail-open unknown elsewhere. Disk counters
+  are visibility-only for now; automatic demotion waits for a windowed sampler
+  so long-running productive sessions are not punished for cumulative writes.
 
 ## Done
 
