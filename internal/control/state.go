@@ -171,8 +171,6 @@ type SavingsSummary struct {
 	ProxyLayer0Envelope      int64                    `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0Repeated      int64                    `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedup    int64                    `json:"proxy_layer0_chunk_dedup_blocks"`
-	ProxyLayer0ScanReads     int64                    `json:"proxy_layer0_scan_reads_applied"`
-	ProxyLayer0ScanReReads   int64                    `json:"proxy_layer0_scan_read_rereads"`
 	ProxyLayer0Routes        ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
 	StreamcutFires           int64                    `json:"streamcut_fires"`
 	RepdetRewrites           int64                    `json:"repdet_rewrites"`

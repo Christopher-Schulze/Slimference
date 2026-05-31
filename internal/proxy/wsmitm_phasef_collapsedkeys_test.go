@@ -2,11 +2,10 @@ package proxy
 
 import "testing"
 
-// TestWSPhaseF_CollapsedKeysPersistenceSurvivesReconnect proves the scan/read
-// re-read recovery survives a WSS socket reconnect: a collapsed read key learned
-// on one socket is rehydrated on a fresh adapter, so a re-read of the same key is
-// still recognized as a post-collapse re-read and full-passes (recovers the
-// elided bodies) instead of being scan-compacted again.
+// TestWSPhaseF_CollapsedKeysPersistenceSurvivesReconnect proves read-collapse
+// recovery survives a WSS socket reconnect: a collapsed read key learned on one
+// socket is rehydrated on a fresh adapter, so a re-read of the same key is still
+// recognized as a post-collapse re-read and full-passes.
 func TestWSPhaseF_CollapsedKeysPersistenceSurvivesReconnect(t *testing.T) {
 	home := t.TempDir()
 	orig := proxyUserHomeDir

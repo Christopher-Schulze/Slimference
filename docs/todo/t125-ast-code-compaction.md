@@ -218,12 +218,14 @@ Implemented subset:
 
 ### WP4 - Pipeline integration
 
-Completed by extending `internal/filter/builtin_read.go`:
+Historical implementation note:
 
-- Single-file `cat` on large Go files attempts `codecompact.Compact` before existing regex structure extraction.
-- `head` / `tail` bypass AST compaction and continue through the old path.
-- Unknown languages pass through or use existing comment-strip/structure fallback where available.
-- `CompactCapturedOutputWithContext` and `TryStripCommentsFileReadWithContext` preserve legacy behaviour for callers with no session context and use session-derived safety gates when available.
+- This work package originally extended captured file-read filtering with AST/signature
+  previews.
+- T253 later retired that first-read path from product code because it weakens the
+  model's first sight of file content.
+- Current default behavior is stricter: first file reads full-pass; repeat and ranged
+  savings are handled by readcache/delta mechanisms after full context has been sent.
 
 ### WP5 - Re-request handling
 
@@ -241,12 +243,14 @@ Shipped for Go archive-backed recovery:
 
 ### WP6 - Telemetry
 
-Existing per-filter observability records in/out bytes for `strip_comments_file_read`. Dedicated per-language AST counters and re-read/net-savings accounting remain pending until live corpus data proves this path fires often enough to justify another report surface.
+The `strip_comments_file_read` runtime filter and its dedicated observability surface
+were retired by T253. Dedicated per-language AST counters are not planned unless a
+future design preserves first-read information.
 
 ### WP7 - Tests
 
 - `internal/codecompact`: Go skeleton generation, large body omission, short body inclusion, relevant-symbol body inclusion, mode gates, unsupported/invalid input, main/init body inclusion, integer formatting helper.
-- `internal/filter`: AST compaction integration and partial-read bypass.
+- `internal/filter`: read command parsing and the invariant that first file reads full-pass.
 - Round-trip body-on-demand is covered for Go archived reads via `expand-body`.
 
 ## Acceptance criteria

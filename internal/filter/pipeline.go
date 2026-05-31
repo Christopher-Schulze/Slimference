@@ -3,6 +3,8 @@ package filter
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
+	"strings"
 
 	"github.com/slimference/slimference/internal/compression"
 )
@@ -96,6 +98,10 @@ func applyLayer0Filters(workDir string, argv []string, stdout []byte) ([]byte, s
 }
 
 func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte, ctx FileReadContext) ([]byte, string) {
+	if productDefaultFileReadMustFullPass(argv) {
+		return stdout, ""
+	}
+
 	type filterEntry struct {
 		name string
 		fn   func() ([]byte, bool)
@@ -129,7 +135,6 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 		{"search_output", func() ([]byte, bool) { return TryCompactSearchOutput(argv, stdout) }},
 		{"ls", func() ([]byte, bool) { return TryCompactLs(argv, stdout) }},
 		{"tree", func() ([]byte, bool) { return TryCompactTree(argv, stdout) }},
-		{"strip_comments_file_read", func() ([]byte, bool) { return TryStripCommentsFileReadWithContext(argv, stdout, ctx) }},
 		{"lint_output", func() ([]byte, bool) { return TryCompactLintOutput(argv, stdout) }},
 		{"log_output", func() ([]byte, bool) { return TryCompactLogOutput(argv, stdout) }},
 		{"format_output", func() ([]byte, bool) { return TryCompactFormatOutput(argv, stdout) }},
@@ -188,4 +193,16 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 		return out, "builtin_toml:" + name
 	}
 	return stdout, ""
+}
+
+func productDefaultFileReadMustFullPass(argv []string) bool {
+	if len(argv) == 0 || countReadPaths(argv) == 0 {
+		return false
+	}
+	switch strings.ToLower(filepath.Base(argv[0])) {
+	case "cat", "head", "tail", "sed":
+		return true
+	default:
+		return false
+	}
 }

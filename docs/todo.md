@@ -98,7 +98,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 - [x] F03: Git Diff — `TryCompactGitDiff` + `compactGitDiff`: leer → `[git diff] empty`; non-empty → hunk-headers + +/- Zeilen ohne Kontext-Zeilen, je Datei stats
 - [x] F04: Git Show — `TryCompactGitShow` + `compactGitShow`: leer → `[git show] empty`; hash+subject+stat-summary + compactGitDiff des Diff-Teils
 - [x] F05: Git — `TryCompactGitF05`: empty → ok; up-to-date (push/pull/fetch/merge/rebase); push success → ref-update lines kompakt; fetch/pull success → `N updated, M new`; merge fast-forward → stat-summary; rebase success → ok
-- [x] F06: File Read — `TryStripCommentsFileRead`: bei `cat`/`head`/`tail` mit **genau einer** Datei mit bekannter Extension → `compression.StripComments`; mehrere Dateien passthrough (kein false-positive Risiko)
+- [x] F06: File Read — retired from the active default Layer-0 pipeline. First file reads now full-pass; repeat/ranged savings belong to readcache and deterministic cache-hit reducers. The old comment/signature stripping helper has been removed from product code.
 - [x] F07: Build Output — `TryCompactBuildOutput`: 30+ Build-Tools erkannt (go, cargo, tsc, webpack, cmake, bazel, swift, etc.) + alle npx/pnpm exec/yarn Varianten; empty → `[tool] ok`; non-empty: `extractBuildErrors` → success-pattern → `ok`, error-keyword-lines → `FAILED\n<errors>` (nur wenn kuerzer)
 - [x] F08: Test Output — `TryCompactTestOutput`: 40+ Test-Runner erkannt (go test, cargo, pytest, jest, vitest, playwright, etc.); empty → `ok`; `TryCompactGoTestJSON` fuer `-json` Format; `extractTestFailures` → all-pass → `ok (summary)`, failures → `FAILED\n<fail-lines>` (nur wenn kuerzer)
 - [x] F09: Lint Output — `TryCompactLintOutput`: 50+ Linter erkannt (golangci-lint, clippy, eslint, ruff, etc.); empty → `[tool] ok`; non-empty: `truncateLintViolations` kuerzt auf max 60 non-empty Zeilen mit `... +N more violation(s)` (nur wenn kuerzer)
@@ -1551,37 +1551,23 @@ only and promotes the per-process Codex CLI runner for T209.
   rows now survive late cap pressure; remaining caps are tested priority-preserving,
   summary-only, or explicit operator-configured limits.
   Detail: `docs/todo/t252-codex-savings-precision-and-filter-tweaks.md`
-- [~] **T253** Codex aggressive read compression (GATED by T257/T258) — first-read AST/structure
-  scan-mode compression (extends `codecompact`), predictive post-edit file state from the
+- [~] **T253** Codex aggressive read compression (GATED by T257/T258) — retired first-read
+  AST/structure scan-mode from product runtime, plus predictive post-edit file state from the
   parsed `apply_patch`, reasoning-trace compaction (verify-first), apply_patch context
-  dedup. High savings, highest drawdown; starts shadow-only and becomes auto-eligible
-  only after the T257 capture matrix and T258 policy gates prove no comprehension
-  regression, live recovery, and safe workload classification.
-  IN PROGRESS (2026-05-31): first-read scan-mode DONE for Go — wired (`scan_read`),
-  triple recovery, reconnect-safe (persisted collapsed keys), policy-gated (`ScanRead`,
-  max only, dormant in auto), proven live (66% savings, reconnect-safe recovery,
-  behavioral recovery n=2 across modalities), and instrumented with the re-read
-  frequency gate (`scan_reads_applied` / `scan_read_rereads`). Auto-promotion now waits
-  on both real-workload B/A < 0.66 and a no-first-read-information-loss proof. Other sub-tasks (2nd language, predictive post-edit,
-  apply_patch dedup, reasoning) still queued. Commits d1fd30e,1791832,51555bb,e7773d2,
-  a7ffbc4,285fb5b,0666699.
+  dedup. High-savings candidates only survive if they become one automatic,
+  default-safe mode with no first-read information loss.
+  IN PROGRESS (2026-05-31): first-read scan-mode was removed from the Codex runtime
+  product path. It is no longer policy-reachable, has no apply env flag, no scan-read
+  counters, no persisted scan-key state, and no active default Layer-0 filter pipeline
+  entry. Tests enforce the product invariant:
+  first-read file outputs full-pass even in `max` and through captured-output filters.
+  Other sub-tasks (predictive post-edit,
+  apply_patch dedup, reasoning) remain queued only if they can satisfy the same default-safe bar.
   REAL-WORKLOAD FINDING (2026-05-31): live capture proved Codex reads via `sed -n '1,Np'`
   (never `cat`), so the cat-only scan was structurally dead (applied=0 on 30 real calls).
-  Fixed: `sed` added to the file-read scan whitelist via the regex ExtractStructure path
-  (handles partial Go) + same recovery (commit a208abf, 1066 filter tests green). Lossless
-  reducers saved 36533 tokens on that real session with 0 drift; the 400 invalid_request is
-  upstream oversized-request, not Slimference. STILL gated (max/lab only). The product path
-  is NOT "flip scan into auto"; it is better deterministic cache hits plus rg/search-output
-  compaction unless scan can prove no first-read information weakening.
-  SELF-REGULATION BUILT (commit f892460): per-session A/B key sets persisted reconnect-safe,
-  `scanSelfRegBlock()` suppresses scan once |A|>=6 and |B|/|A|>=0.5, wired via
-  `ScanReadSelfRegBlock`. This is an economics guard, not a product-safety proof:
-  first-read elision still gives the model less file information until it re-reads. AUTO STILL
-  BLOCKED by a new finding: scan-compacting the first read cannibalizes the lossless
-  read-delta/chunk seeding (repeat reads go ~134% vs ~100%), degrading the proven
-  36533-token lossless win - real regression, multiple WSS tests broke. So scan STAYS
-  max-only/lab-only; auto needs a design that proves no first-read information weakening and
-  no lossless-cache cannibalization. SEARCH-OUTPUT COMPACTION DONE
+  Lossless/default reducers saved 36533 tokens on that real session with 0 drift; the
+  400 invalid_request is upstream oversized-request, not Slimference. SEARCH-OUTPUT
+  COMPACTION DONE
   (commit 1a2d478, the conflict-free lever): `groupSearchResults` abandoned the whole output
   on the first colon-less line; Codex's truncated exec output always has one, so search
   grouping never fired on real Codex searches. Fixed (skip noise, bail only if noise
@@ -1646,7 +1632,7 @@ criteria; this index is the traceability map so nothing is lost.
 | 2 | Content-defined chunk dedup (FastCDC) | 10-30% read/log-heavy | Radical | T255/T256 | DONE (live-proven; auto-policy default) |
 | 3 | Predictive post-edit file state | 5-15% | Innovative | T253 | queued (capture/proof gated by T257/T258) |
 | 4 | Cross-turn non-file dedup | 10-25% | Lossless | **T248** | DONE (landed) |
-| 5 | First-read AST/structure scan-mode compaction | 20-50% explore-heavy | High savings, high drawdown | T253 | DONE for Go as lab/max-only: wired, triple recovery, reconnect-safe, proven live (66%, behavioral recovery n=2), instrumented; NOT product-auto until it proves no first-read information weakening and no lossless-cache cannibalization |
+| 5 | First-read AST/structure scan-mode compaction | Removed from product | High savings, high drawdown | T253 | RETIRED from Codex runtime: no policy path, no env apply path, no counters; first reads full-pass by test |
 | 6 | Ranged/partial read caching | 5-15% | Lossless | T250 | DONE |
 | 7 | Search-output delta | 3-8% | Lossless | T250 | DONE |
 | 8 | Reasoning-trace compaction | 0-15% (verify first) | Uncertain | T253 | queued (capture-first; may close as N/A) |

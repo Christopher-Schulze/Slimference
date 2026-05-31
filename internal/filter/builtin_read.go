@@ -3,39 +3,14 @@ package filter
 import (
 	"path/filepath"
 	"strings"
-
-	"github.com/slimference/slimference/internal/codecompact"
-	"github.com/slimference/slimference/internal/compression"
 )
 
-// signatureOnlyThreshold is the byte size above which we try structure extraction
-// (functions/types only) instead of comment strip alone.
-const signatureOnlyThreshold = 3000
-
-// scanModeRecoveryNote makes structure/signature-only read output discoverable-
-// recoverable: it tells the model that bodies were elided and that re-running the
-// same command returns the full elided output. The re-read full-pass path
-// (a post-collapse re-read loosens the policy to full context) already serves the
-// unelided command output, so this only makes that recovery discoverable instead
-// of silent. Neutral wording, no product name.
-const scanModeRecoveryNote = "\n[structure only: bodies elided; re-run the same command to see the full elided output]"
-
-// withScanRecoveryNote appends the recovery note to compacted scan-mode output,
-// returning a copy so the caller's slice is never mutated.
-func withScanRecoveryNote(compacted []byte) []byte {
-	out := make([]byte, 0, len(compacted)+len(scanModeRecoveryNote))
-	out = append(out, compacted...)
-	out = append(out, scanModeRecoveryNote...)
-	return out
-}
-
-// FileReadContext carries request/session signals that decide whether a file
-// read can be safely compacted. Empty context preserves legacy scan behaviour.
+// FileReadContext carries request/session signals used by readcache safety
+// decisions. First file reads full-pass; this context must not enable lossy
+// first-read file compaction.
 type FileReadContext struct {
-	Mode            string
-	RecentlyEdited  bool
-	ForceFull       bool
-	RelevantSymbols []string
+	Mode           string
+	RecentlyEdited bool
 }
 
 // ReadRequest describes the single file/range read represented by a simple
@@ -49,120 +24,6 @@ type ReadRequest struct {
 
 func (r ReadRequest) IsFull() bool {
 	return strings.TrimSpace(r.Path) != "" && r.Offset == 0 && r.Limit == 0
-}
-
-// TryStripCommentsFileRead compacts cat/head/tail stdout (F06).
-// Single file: strips comments. Large single file: also attempts signature extraction.
-// Multiple files with known extensions: applies comment strip to each section.
-func TryStripCommentsFileRead(argv []string, stdout []byte) ([]byte, bool) {
-	return TryStripCommentsFileReadWithContext(argv, stdout, FileReadContext{Mode: "scan"})
-}
-
-// TryStripCommentsFileReadWithContext is the context-aware variant used by
-// PostToolUse/session-aware paths. It bypasses compaction for recently edited
-// or edit/debug reads so the model receives exact file contents when it is
-// likely to modify or inspect details.
-func TryStripCommentsFileReadWithContext(argv []string, stdout []byte, ctx FileReadContext) ([]byte, bool) {
-	if len(argv) < 2 {
-		return stdout, false
-	}
-	b := strings.ToLower(filepath.Base(argv[0]))
-	if b != "cat" && b != "head" && b != "tail" && b != "sed" {
-		return stdout, false
-	}
-
-	nPaths := countReadPaths(argv)
-	if nPaths == 0 {
-		return stdout, false
-	}
-	if ctx.ForceFull || ctx.RecentlyEdited || isEditOrDebugReadMode(ctx.Mode) {
-		return stdout, false
-	}
-
-	if nPaths == 1 {
-		// Single-file path: strip comments, optionally extract signatures.
-		return compactSingleFileReadWithContext(argv, lastReadFilePath(argv), stdout, ctx)
-	}
-
-	// Multi-file: all file paths must have recognized extensions.
-	// We strip comments per file using the last file's extension as a hint
-	// (all files assumed to be the same language for simplicity).
-	lang := compression.LanguageFromPath(lastReadFilePath(argv))
-	if lang == "" {
-		return stdout, false
-	}
-	s := string(stdout)
-	out := compression.StripComments(s, lang)
-	if len(out) >= len(s) {
-		return stdout, false
-	}
-	return []byte(out), true
-}
-
-// compactSingleFileRead applies comment strip and optionally structure extraction to one file.
-func compactSingleFileRead(argv []string, path string, stdout []byte) ([]byte, bool) {
-	return compactSingleFileReadWithContext(argv, path, stdout, FileReadContext{Mode: "scan"})
-}
-
-func compactSingleFileReadWithContext(argv []string, path string, stdout []byte, ctx FileReadContext) ([]byte, bool) {
-	if ctx.ForceFull || ctx.RecentlyEdited || isEditOrDebugReadMode(ctx.Mode) {
-		return stdout, false
-	}
-	lang := compression.LanguageFromPath(path)
-	if lang == "" {
-		return stdout, false
-	}
-	s := string(stdout)
-
-	// For large Go files read via full `cat`, use the AST compactor before
-	// regex structure extraction. head/tail are already partial reads and must
-	// stay literal.
-	if isFullFileCat(argv) && lang == "go" {
-		if out, _, ok, err := codecompact.Compact(path, stdout, codecompact.Options{
-			Mode:                 fileReadMode(ctx.Mode),
-			RecentlyEdited:       ctx.RecentlyEdited,
-			ForceFull:            ctx.ForceFull,
-			RelevantSymbols:      append([]string(nil), ctx.RelevantSymbols...),
-			MaxIncludedBodyLines: 12,
-		}); err == nil && ok {
-			if marked := withScanRecoveryNote(out); len(marked) < len(stdout) {
-				return marked, true
-			}
-		}
-	}
-
-	// For large files, try structure (signature) extraction first.
-	if len(stdout) >= signatureOnlyThreshold {
-		if extracted, ok := compression.ExtractStructure(s, lang); ok {
-			if marked := withScanRecoveryNote([]byte(extracted)); len(marked) < len(s) {
-				return marked, true
-			}
-		}
-	}
-
-	// Fallback: comment strip.
-	out := compression.StripComments(s, lang)
-	if len(out) >= len(s) {
-		return stdout, false
-	}
-	return []byte(out), true
-}
-
-func isEditOrDebugReadMode(mode string) bool {
-	switch fileReadMode(mode) {
-	case "edit", "debug":
-		return true
-	default:
-		return false
-	}
-}
-
-func fileReadMode(mode string) string {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	if mode == "" {
-		return "scan"
-	}
-	return mode
 }
 
 // ReadPathFromCommandLine returns the single file path read by a simple

@@ -68,10 +68,10 @@ It is request-scoped where possible and process-scoped only behind explicit sess
 
 ### WP3 - T125 integration
 
-- `TryStripCommentsFileRead` / `compactSingleFileRead` receives `FileReadContext`.
-- If file was edited in current or previous N turns, disable AST skeletoning.
-- If tool intent is debug/edit, disable skeletoning.
-- If request is orientation/scan, enable skeletoning.
+- Historical T125 path: `TryStripCommentsFileRead` / `compactSingleFileRead` received
+  `FileReadContext`.
+- T253 retired that lossy first-read path from product code. The remaining session-turn
+  value is the recently-edited signal for readcache safety and other exact reducers.
 - Body-on-demand:
   - AST output must include stable body ids.
   - A later explicit expand/read request can retrieve exact function body from archive or original file.
@@ -137,8 +137,8 @@ It is request-scoped where possible and process-scoped only behind explicit sess
 - 2026-05-13 hook-backed context implementation:
   - `internal/sessions/hook_state.go` adds a file-backed, lock-protected hook turn-state adapter under `~/.slimference/turn-state/` so separate Codex hook processes can share session/turn/read/edit observations.
   - `SessionStart`, `UserPromptSubmit`, `Stop`, `ReadHook`, and `PostToolUse` now best-effort record turn boundaries, file reads, tool events, and edit paths.
-  - `internal/filter.FileReadContext` is wired through `CompactCapturedOutputWithContext`, `applyLayer0FiltersWithContext`, and `TryStripCommentsFileReadWithContext`.
-  - Recently-edited, force-full, edit-mode, and debug-mode reads return literal output instead of AST skeletons, signature extraction, or comment stripping.
+  - `internal/filter.FileReadContext` is wired through `CompactCapturedOutputWithContext` and `applyLayer0FiltersWithContext`.
+  - Recently-edited reads are still available as a safety signal; first file reads now return literal output unconditionally instead of AST skeletons, signature extraction, or comment stripping.
   - Hook state is intentionally file-backed rather than only in-memory because Codex invokes hooks as separate processes.
   - MiniMax/OpenAI-compatible Layer 2 provider knobs were hardened during the same stabilisation pass: direct `SLIMFERENCE_MINIMAX_API_KEY`, base URL/model/key-env overrides, honoured `temperature`/`top_p`, default MiniMax `reasoning_split`, and Rust summary examples.
 - 2026-05-14 T126 mini hot-path implementation:

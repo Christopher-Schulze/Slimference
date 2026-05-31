@@ -184,13 +184,14 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 			stdout:       []byte(""),
 			wantContains: "[tree] empty",
 		},
-		// file read comment strip (cat .go with comments -> shorter output)
+		// file reads full-pass; repeat/range savings live in readcache, not in
+		// lossy first-read filtering.
 		{
-			name:         "cat go comments stripped",
+			name:         "cat go file full pass",
 			argv:         []string{"cat", "main.go"},
 			stdout:       []byte("package main\n\n// This entire comment line gets stripped\nfunc main() {}\n"),
 			wantContains: "func main",
-			wantAbsent:   "// This entire",
+			wantAbsent:   "",
 		},
 		// lint (cargo clippy)
 		{

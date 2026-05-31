@@ -3,8 +3,6 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -27,7 +25,6 @@ const (
 	proxyLayer0MechanismCodexEnvelope proxyLayer0Mechanism = "codex_exec_envelope"
 	proxyLayer0MechanismRepeatedOut   proxyLayer0Mechanism = "repeated_tool_output"
 	proxyLayer0MechanismChunkDedup    proxyLayer0Mechanism = "chunk_dedup"
-	proxyLayer0MechanismScanRead      proxyLayer0Mechanism = "scan_read"
 )
 
 type codexLayer0Route string
@@ -52,10 +49,6 @@ type codexLayer0Request struct {
 	ChunkStore          *chunkdedup.Store
 	PolicyMode          string
 	ArchiveRecovery     bool
-	// ScanReadSelfRegBlock suppresses policy-driven scan-mode for this request
-	// when the session's measured re-read rate would make scan net-negative.
-	// Comprehension stays safe via recovery; this only guards token economics.
-	ScanReadSelfRegBlock bool
 }
 
 type codexLayer0Result struct {
@@ -79,7 +72,6 @@ type proxyLayer0Stats struct {
 	RepeatedOutputBlocks    int
 	ChunkDedupBlocks        int
 	ReadDeltaKeys           []string
-	ScanReadKeys            []string
 }
 
 func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
@@ -91,7 +83,6 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.RepeatedOutputBlocks = 0
 	s.ChunkDedupBlocks = 0
 	s.ReadDeltaKeys = nil
-	s.ScanReadKeys = nil
 	return s
 }
 
@@ -185,7 +176,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				RecentlyEdited:           readCtx.RecentlyEdited,
 				PostCollapseReRead:       postCollapseReRead && toolKey != "",
 			})
-			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup && !policy.ScanRead) {
+			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {
 				continue
 			}
 			readDeltaAttempted := policy.ReadDelta && readDeltaEligible(req.SessionID, commandLine)
@@ -205,22 +196,14 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					afterText, changed, mechanism = compactProxyChunkDedup(req.ChunkStore, req.SessionID, block.Text, req.ChunkDedupMinBytes)
 				}
 				if !changed {
-					if (policy.ScanRead || scanApplyEnabled()) && !req.ScanReadSelfRegBlock {
-						if scanText, scanChanged, _ := compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx); scanChanged {
-							afterText, changed, mechanism = scanText, true, proxyLayer0MechanismScanRead
-						}
-					}
-					if !changed {
-						_ = recordScanModeShadow(commandLine, block.Text, readCtx, beforeTokens, tok)
-						continue
-					}
+					continue
 				}
 			}
 			if !changed {
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
 			}
 			if changed && req.Route == codexLayer0RouteWSSPhaseF &&
-				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope || mechanism == proxyLayer0MechanismScanRead) {
+				(mechanism == proxyLayer0MechanismCapturedOut || mechanism == proxyLayer0MechanismCodexEnvelope) {
 				archivedText, archived := archiveProxyCapturedOutput(req.SessionID, commandLine, afterText, block.Text)
 				if !archived {
 					changed = false
@@ -267,16 +250,6 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					stats.RepeatedOutputBlocks++
 				case proxyLayer0MechanismChunkDedup:
 					stats.ChunkDedupBlocks++
-				case proxyLayer0MechanismScanRead:
-					stats.CapturedOutputBlocks++
-					// Register the read key so a later re-read of this file is seen
-					// as a post-collapse re-read and full-passed: that is the
-					// recovery path for the elided bodies. Also tag it scan-origin
-					// so re-read frequency (body-was-needed rate) is measurable.
-					if toolKey != "" {
-						stats.ReadDeltaKeys = append(stats.ReadDeltaKeys, toolKey)
-						stats.ScanReadKeys = append(stats.ScanReadKeys, toolKey)
-					}
 				default:
 					stats.CapturedOutputBlocks++
 				}
@@ -482,45 +455,6 @@ func compactProxyLayer0TextDetailed(commandLine, text string, ctx filter.FileRea
 	}
 	return "", false, ""
 }
-
-// scanShadowEnv enables measuring how much first-read scan-mode (structure
-// extraction) WOULD save on a Codex file read, without applying it. The read
-// still passes full (the first-read-full design stays), so this is pure
-// telemetry with zero drawdown; it exists to gather per-workload data before
-// scan-mode is wired into the read path behind a proof gate.
-const scanShadowEnv = "SLIMFERENCE_SCAN_SHADOW"
-
-// recordScanModeShadow returns the tokens first-read scan-mode would save on this
-// read (and logs it) when scanShadowEnv is set; otherwise it is a no-op. It never
-// mutates the block: the caller still full-passes the read.
-func recordScanModeShadow(commandLine, text string, ctx filter.FileReadContext, beforeTokens int, tok tokens.Tokenizer) int {
-	if os.Getenv(scanShadowEnv) == "" {
-		return 0
-	}
-	scanText, changed, _ := compactProxyLayer0TextDetailed(commandLine, text, ctx)
-	if !changed {
-		return 0
-	}
-	saved := beforeTokens - tok.CountString(scanText)
-	if saved <= 0 {
-		return 0
-	}
-	slog.Info("codex scan-mode shadow (read, not applied)",
-		"command", strings.TrimSpace(commandLine),
-		"before_tokens", beforeTokens,
-		"scan_would_save_tokens", saved)
-	return saved
-}
-
-// scanApplyEnv enables APPLYING first-read scan-mode on Codex reads (default off).
-// This is the per-workload A/B path: it stays off in production until A/B proof
-// shows the model loses no facts. When on, an eligible read is compacted to
-// signatures, but recovery is triple-covered: the discoverable recovery note in
-// the output, an archive reference for the full bytes, and registration of the
-// read key so a re-read loosens the policy to a full pass.
-const scanApplyEnv = "SLIMFERENCE_SCAN_APPLY"
-
-func scanApplyEnabled() bool { return os.Getenv(scanApplyEnv) != "" }
 
 func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original string) (string, bool) {
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(compacted) == "" || original == "" {
