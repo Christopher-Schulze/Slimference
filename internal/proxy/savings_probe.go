@@ -56,6 +56,7 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 			HTTP:      proxyLayer0RouteSummary(snap.ProxyLayer0Routes.HTTP),
 			WSSPhaseF: proxyLayer0RouteSummary(snap.ProxyLayer0Routes.WSSPhaseF),
 		},
+		ProxyLayer0Policy:      proxyLayer0PolicySummary(snap.ProxyLayer0Policy),
 		StreamcutFires:         int64(snap.StreamcutFired),
 		RepdetRewrites:         int64(snap.RepdetResponsesRewritten),
 		RepdetBytesSaved:       int64(snap.RepdetBytesSaved),
@@ -69,6 +70,24 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 	}
 	if s.USDPerMillionTokens > 0 && out.InputTokensSaved > 0 {
 		out.CostUSD = float64(out.InputTokensSaved) / 1_000_000.0 * s.USDPerMillionTokens
+	}
+	return out
+}
+
+func proxyLayer0PolicySummary(entries []ProxyLayer0PolicyEntry) []control.ProxyLayer0PolicyEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]control.ProxyLayer0PolicyEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, control.ProxyLayer0PolicyEntry{
+			Route:       entry.Route,
+			Mechanism:   entry.Mechanism,
+			Action:      entry.Action,
+			Reason:      entry.Reason,
+			BlockReason: entry.BlockReason,
+			Count:       int64(entry.Count),
+		})
 	}
 	return out
 }

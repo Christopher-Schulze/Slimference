@@ -14,8 +14,112 @@ const (
 	CodexModeMax          CodexMode = "max"
 )
 
+type CodexRoute string
+
+const (
+	CodexRouteUnknown   CodexRoute = ""
+	CodexRouteHTTP      CodexRoute = "http"
+	CodexRouteWSSPhaseF CodexRoute = "wss_phasef"
+)
+
+type CodexClient string
+
+const (
+	CodexClientUnknown CodexClient = ""
+	CodexClientCLI     CodexClient = "cli"
+	CodexClientDesktop CodexClient = "desktop"
+)
+
+type CodexWorkload string
+
+const (
+	CodexWorkloadUnknown CodexWorkload = ""
+	CodexWorkloadRead    CodexWorkload = "read"
+	CodexWorkloadSearch  CodexWorkload = "search"
+	CodexWorkloadCommand CodexWorkload = "command"
+)
+
+type CodexRisk string
+
+const (
+	CodexRiskLossless       CodexRisk = "lossless"
+	CodexRiskRecoverable    CodexRisk = "recoverable"
+	CodexRiskReconstructive CodexRisk = "reconstructive"
+	CodexRiskSemantic       CodexRisk = "semantic"
+)
+
+type CodexRecovery string
+
+const (
+	CodexRecoveryNone    CodexRecovery = "none"
+	CodexRecoveryExact   CodexRecovery = "exact"
+	CodexRecoveryArchive CodexRecovery = "archive"
+)
+
+type CodexProof string
+
+const (
+	CodexProofNone   CodexProof = "none"
+	CodexProofUnit   CodexProof = "unit"
+	CodexProofReplay CodexProof = "replay"
+	CodexProofLive   CodexProof = "live"
+)
+
+type CodexMechanism string
+
+const (
+	CodexMechanismReadDelta          CodexMechanism = "read_delta"
+	CodexMechanismRepeatedOutput     CodexMechanism = "repeated_output"
+	CodexMechanismRangedRead         CodexMechanism = "ranged_read"
+	CodexMechanismSearchDelta        CodexMechanism = "search_delta"
+	CodexMechanismChunkDedup         CodexMechanism = "chunk_dedup"
+	CodexMechanismFirstReadElision   CodexMechanism = "first_read_elision"
+	CodexMechanismServerStateMirror  CodexMechanism = "server_state_mirror"
+	CodexMechanismPredictivePostEdit CodexMechanism = "predictive_post_edit"
+	CodexMechanismPatchContextDedup  CodexMechanism = "patch_context_dedup"
+	CodexMechanismReasoningCompact   CodexMechanism = "reasoning_compaction"
+)
+
+type CodexPolicyAction string
+
+const (
+	CodexPolicyAllow    CodexPolicyAction = "allow"
+	CodexPolicyShadow   CodexPolicyAction = "shadow"
+	CodexPolicyFullPass CodexPolicyAction = "full_pass"
+	CodexPolicyBlock    CodexPolicyAction = "block"
+)
+
+type CodexMechanismInput struct {
+	Mode                      string
+	Route                     CodexRoute
+	Client                    CodexClient
+	Workload                  CodexWorkload
+	Mechanism                 CodexMechanism
+	Risk                      CodexRisk
+	Recovery                  CodexRecovery
+	Proof                     CodexProof
+	ArchiveRecoveryAvailable  bool
+	Explicit                  bool
+	OutputBytes               int
+	MinBytes                  int
+	RecentlyEdited            bool
+	PostCollapseReRead        bool
+	SessionIntegrityBudgetHit bool
+}
+
+type CodexMechanismDecision struct {
+	Mechanism         CodexMechanism    `json:"mechanism"`
+	Action            CodexPolicyAction `json:"action"`
+	NeedsRecoveryNote bool              `json:"needs_recovery_note,omitempty"`
+	Reason            string            `json:"reason"`
+	BlockReason       string            `json:"block_reason,omitempty"`
+}
+
 type CodexToolOutputInput struct {
 	Mode                     string
+	Route                    CodexRoute
+	Client                   CodexClient
+	Workload                 CodexWorkload
 	ArchiveRecoveryAvailable bool
 	ExplicitChunkDedup       bool
 	OutputBytes              int
@@ -33,6 +137,7 @@ type CodexToolOutputDecision struct {
 	Loosened          bool
 	Reason            string
 	EffectiveMode     CodexMode
+	Mechanisms        []CodexMechanismDecision
 }
 
 func ValidCodexMode(mode string) bool {
@@ -71,7 +176,11 @@ func DecideCodexToolOutput(in CodexToolOutputInput) CodexToolOutputDecision {
 		Reason:         "safe_lossless_reducers",
 	}
 	if mode == CodexModeOff {
-		return CodexToolOutputDecision{EffectiveMode: mode, Reason: "policy_off"}
+		return CodexToolOutputDecision{
+			EffectiveMode: mode,
+			Reason:        "policy_off",
+			Mechanisms:    toolOutputMechanismDecisions(in, mode),
+		}
 	}
 	if in.RecentlyEdited || in.PostCollapseReRead {
 		decision.Loosened = true
@@ -81,33 +190,206 @@ func DecideCodexToolOutput(in CodexToolOutputInput) CodexToolOutputDecision {
 		} else {
 			decision.Reason = "post_collapse_reread_full_context"
 		}
+		decision.Mechanisms = toolOutputMechanismDecisions(in, mode)
 		return decision
 	}
 	if mode == CodexModeConservative {
-		decision.ChunkDedup = in.ExplicitChunkDedup && in.ArchiveRecoveryAvailable && chunkCandidate(in)
+		chunk := DecideCodexMechanism(chunkMechanismInput(in, mode))
+		decision.ChunkDedup = chunk.Action == CodexPolicyAllow
 		if decision.ChunkDedup {
 			decision.NeedsRecoveryNote = true
 			decision.Reason = "explicit_chunk_dedup"
 		}
+		decision.Mechanisms = toolOutputMechanismDecisions(in, mode)
 		return decision
 	}
-	if in.ExplicitChunkDedup || (in.ArchiveRecoveryAvailable && chunkCandidate(in)) {
+	chunk := DecideCodexMechanism(chunkMechanismInput(in, mode))
+	if chunk.Action == CodexPolicyAllow {
 		decision.ChunkDedup = true
 		decision.NeedsRecoveryNote = true
 		decision.Reason = "auto_recoverable_chunk_dedup"
 	}
-	if mode == CodexModeMax && in.ArchiveRecoveryAvailable && in.OutputBytes > 0 {
-		decision.ChunkDedup = true
-		decision.NeedsRecoveryNote = true
+	if mode == CodexModeMax && decision.ChunkDedup {
 		decision.Reason = "max_recoverable_chunk_dedup"
 	}
+	decision.Mechanisms = toolOutputMechanismDecisions(in, mode)
 	return decision
 }
 
-func chunkCandidate(in CodexToolOutputInput) bool {
-	minBytes := in.ChunkMinBytes
+func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
+	mode := NormalizeCodexMode(in.Mode)
+	if mode == "" {
+		mode = CodexModeConservative
+	}
+	base := CodexMechanismDecision{Mechanism: in.Mechanism}
+	if mode == CodexModeOff {
+		return block(base, "policy_off")
+	}
+	if in.RecentlyEdited {
+		return fullPass(base, "recent_edit_full_context")
+	}
+	if in.PostCollapseReRead {
+		return fullPass(base, "post_collapse_reread_full_context")
+	}
+	if in.SessionIntegrityBudgetHit {
+		return fullPass(base, "session_integrity_budget")
+	}
+	if isFutureHighRisk(in.Mechanism) {
+		return shadow(base, "capture_or_ab_proof_required")
+	}
+	if in.Risk == CodexRiskLossless && (in.Recovery == CodexRecoveryExact || in.Recovery == CodexRecoveryNone) {
+		return allow(base, "lossless_or_exact_reducer", false)
+	}
+	if in.Mechanism == CodexMechanismChunkDedup {
+		return decideChunkDedup(base, in, mode)
+	}
+	if in.Risk == CodexRiskRecoverable && in.Recovery == CodexRecoveryArchive {
+		if in.Route == CodexRouteHTTP {
+			return block(base, "http_archive_recovery_unproven")
+		}
+		if !in.ArchiveRecoveryAvailable {
+			return block(base, "archive_recovery_unavailable")
+		}
+		if mode == CodexModeConservative && !in.Explicit {
+			return block(base, "conservative_requires_explicit_recovery")
+		}
+		return allow(base, "recoverable_with_archive", true)
+	}
+	if in.Risk == CodexRiskReconstructive || in.Risk == CodexRiskSemantic {
+		return shadow(base, "drawdown_proof_required")
+	}
+	return block(base, "unsupported_policy_shape")
+}
+
+func chunkMechanismInput(in CodexToolOutputInput, mode CodexMode) CodexMechanismInput {
+	return CodexMechanismInput{
+		Mode:                     string(mode),
+		Route:                    in.Route,
+		Client:                   in.Client,
+		Workload:                 in.Workload,
+		Mechanism:                CodexMechanismChunkDedup,
+		Risk:                     CodexRiskRecoverable,
+		Recovery:                 CodexRecoveryArchive,
+		Proof:                    CodexProofLive,
+		ArchiveRecoveryAvailable: in.ArchiveRecoveryAvailable,
+		Explicit:                 in.ExplicitChunkDedup,
+		OutputBytes:              in.OutputBytes,
+		MinBytes:                 in.ChunkMinBytes,
+		RecentlyEdited:           in.RecentlyEdited,
+		PostCollapseReRead:       in.PostCollapseReRead,
+	}
+}
+
+func decideChunkDedup(base CodexMechanismDecision, in CodexMechanismInput, mode CodexMode) CodexMechanismDecision {
+	if in.Route == CodexRouteHTTP {
+		return block(base, "http_archive_recovery_unproven")
+	}
+	if !in.ArchiveRecoveryAvailable {
+		return block(base, "archive_recovery_unavailable")
+	}
+	if !bytesCandidate(in.OutputBytes, in.MinBytes) {
+		return block(base, "below_min_bytes")
+	}
+	if mode == CodexModeConservative && !in.Explicit {
+		return block(base, "conservative_requires_explicit_recovery")
+	}
+	return allow(base, "recoverable_chunk_dedup", true)
+}
+
+func toolOutputMechanismDecisions(in CodexToolOutputInput, mode CodexMode) []CodexMechanismDecision {
+	workload := in.Workload
+	if workload == CodexWorkloadUnknown {
+		if in.IsRead {
+			workload = CodexWorkloadRead
+		} else {
+			workload = CodexWorkloadCommand
+		}
+	}
+	common := CodexMechanismInput{
+		Mode:                     string(mode),
+		Route:                    in.Route,
+		Client:                   in.Client,
+		Workload:                 workload,
+		ArchiveRecoveryAvailable: in.ArchiveRecoveryAvailable,
+		OutputBytes:              in.OutputBytes,
+		MinBytes:                 in.ChunkMinBytes,
+		RecentlyEdited:           in.RecentlyEdited,
+		PostCollapseReRead:       in.PostCollapseReRead,
+	}
+	decisions := []CodexMechanismDecision{
+		DecideCodexMechanism(withMechanism(common, CodexMechanismReadDelta, CodexRiskLossless, CodexRecoveryExact, CodexProofLive, false)),
+		DecideCodexMechanism(withMechanism(common, CodexMechanismRepeatedOutput, CodexRiskLossless, CodexRecoveryExact, CodexProofLive, false)),
+	}
+	if in.IsRead {
+		decisions = append(decisions,
+			DecideCodexMechanism(withMechanism(common, CodexMechanismRangedRead, CodexRiskLossless, CodexRecoveryExact, CodexProofLive, false)),
+			DecideCodexMechanism(withMechanism(common, CodexMechanismFirstReadElision, CodexRiskReconstructive, CodexRecoveryArchive, CodexProofReplay, false)),
+		)
+	} else if workload == CodexWorkloadSearch {
+		decisions = append(decisions, DecideCodexMechanism(withMechanism(common, CodexMechanismSearchDelta, CodexRiskLossless, CodexRecoveryExact, CodexProofReplay, false)))
+	}
+	decisions = append(decisions, DecideCodexMechanism(withMechanism(common, CodexMechanismChunkDedup, CodexRiskRecoverable, CodexRecoveryArchive, CodexProofLive, in.ExplicitChunkDedup)))
+	for _, mechanism := range []CodexMechanism{
+		CodexMechanismServerStateMirror,
+		CodexMechanismPredictivePostEdit,
+		CodexMechanismPatchContextDedup,
+		CodexMechanismReasoningCompact,
+	} {
+		decisions = append(decisions, DecideCodexMechanism(withMechanism(common, mechanism, CodexRiskReconstructive, CodexRecoveryArchive, CodexProofNone, false)))
+	}
+	return decisions
+}
+
+func withMechanism(in CodexMechanismInput, mechanism CodexMechanism, risk CodexRisk, recovery CodexRecovery, proof CodexProof, explicit bool) CodexMechanismInput {
+	in.Mechanism = mechanism
+	in.Risk = risk
+	in.Recovery = recovery
+	in.Proof = proof
+	in.Explicit = explicit
+	return in
+}
+
+func isFutureHighRisk(mechanism CodexMechanism) bool {
+	switch mechanism {
+	case CodexMechanismFirstReadElision, CodexMechanismServerStateMirror,
+		CodexMechanismPredictivePostEdit, CodexMechanismPatchContextDedup,
+		CodexMechanismReasoningCompact:
+		return true
+	default:
+		return false
+	}
+}
+
+func bytesCandidate(outputBytes, minBytes int) bool {
 	if minBytes < 0 {
 		minBytes = 0
 	}
-	return in.OutputBytes >= minBytes
+	return outputBytes >= minBytes
+}
+
+func allow(decision CodexMechanismDecision, reason string, note bool) CodexMechanismDecision {
+	decision.Action = CodexPolicyAllow
+	decision.Reason = reason
+	decision.NeedsRecoveryNote = note
+	return decision
+}
+
+func block(decision CodexMechanismDecision, reason string) CodexMechanismDecision {
+	decision.Action = CodexPolicyBlock
+	decision.Reason = reason
+	decision.BlockReason = reason
+	return decision
+}
+
+func shadow(decision CodexMechanismDecision, reason string) CodexMechanismDecision {
+	decision.Action = CodexPolicyShadow
+	decision.Reason = reason
+	decision.BlockReason = reason
+	return decision
+}
+
+func fullPass(decision CodexMechanismDecision, reason string) CodexMechanismDecision {
+	decision.Action = CodexPolicyFullPass
+	decision.Reason = reason
+	return decision
 }

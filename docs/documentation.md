@@ -313,15 +313,15 @@ Current product status:
 | Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; covered by default-auto proof classes | Low risk: exact same command/output only, archive-backed, fail-open on changes |
 | Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads | Low to medium: grouped first search keeps representative matches and can be re-run; no file-read context weakening |
 | Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
-| Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP conservative | T255 live WSS replay proof and T256 policy wiring | Medium but guarded: archive recovery required, recent/re-read risk loosens |
+| Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP blocked from archive refs | T255 live WSS replay proof, T256 policy wiring, T258 route/risk gate | Medium but guarded: archive recovery required, recent/re-read risk loosens |
 | Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
 | First-read AST/signature scan-mode | Removed | Removed by T253; tests enforce first file reads full-pass even in `max` | High drawdown, not product-safe |
 | Predictive post-edit file state | Not built | T253 queued | Only allowed if exact patch application to known bytes can be proven |
 | apply_patch context dedup | Not built | T253 queued | Only allowed for byte-identical known context, preserving patch semantics |
 | Reasoning-trace compaction | Not built | T253 capture-first; may be not applicable if reasoning is server-side only | No speculative implementation |
 | Server-state mirror | Not built | T254 queued for design/shadow/proof | Biggest possible lever, but mutate only after no-false-elision proof |
-| Policy engine v2 | Not complete | T258 queued | Needed to consolidate all future aggressive candidates into one automatic autopilot |
-| HTTP archive recovery/promotion | Not complete | T259 queued | HTTP stays conservative until recovery semantics are proven |
+| Policy engine v2 | Foundation active | T258 in progress | Central route/workload/risk/recovery/proof decisions; high-risk candidates shadow-only |
+| HTTP archive recovery/promotion | Conservative lock active | T259 in progress | HTTP cannot emit archive refs even in `max`; recovery promotion requires separate proof |
 
 Real-workload truth that shaped this: Codex reads files via `sed -n '1,Np'` partial
 reads and searches via `rg`, never full `cat`, and truncates every exec output to a
@@ -331,17 +331,33 @@ upstream `400 invalid_request` is an oversized-request rejection, which Slimfere
 compaction makes less likely by shrinking requests, not a Slimference fault.
 
 Codex WSS and HTTP proxy-Layer-0 savings now share one explicit reducer entry
-point with route labels (`http`, `wss_phasef`) and mechanism attribution:
+point and a central policy engine with route labels (`http`, `wss_phasef`),
+workload classes, mechanism risk, recovery level, and proof level. Current policy
+actions are `allow`, `shadow`, `full_pass`, and `block`: proven lossless reducers
+are allowed, recoverable WSS chunk dedup is allowed only with archive recovery,
+recent/edit and post-collapse re-read signals full-pass, and future lossy or
+reconstructive candidates such as first-read elision, server-state mirror,
+predictive post-edit, apply_patch context dedup, and reasoning compaction are
+shadow-only until capture/A-B proof promotes them. HTTP is explicitly blocked
+from archive-backed chunk references until T259 proves equivalent recovery-note
+wiring for that route.
+
+The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
 blocks, command-unresolved blocks, read-delta attempts, read-delta misses,
 modified blocks, read-delta blocks, captured-output filter blocks, and Codex
-exec-envelope blocks, and exact repeated-output blocks. Opportunity and miss fields
-make hit-rate visible without claiming savings. The modified-block and
-mechanism-hit fields are success counters and are only recorded with a positive
-token saving. These counters are emitted globally and under `proxy_layer0_routes.http` /
-`proxy_layer0_routes.wss_phasef` through `/admin/state` and
-`aggregate-savings`, so future cache or reducer work can measure which route
-and mechanism actually saved tokens before broadening mutation surfaces.
+exec-envelope blocks, exact repeated-output blocks, chunk-dedup blocks, and
+content-free policy counters under `proxy_layer0_policy` keyed by route,
+mechanism, action, reason, and block reason. Opportunity and miss fields make
+hit-rate visible without claiming savings. The modified-block and mechanism-hit
+fields are success counters and are only recorded with a positive token saving.
+These counters are emitted globally and under `proxy_layer0_routes.http` /
+`proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
+so future cache or reducer work can measure which route and mechanism actually
+saved tokens before broadening mutation surfaces. `workday-savings` carries the
+same counters through start/finish deltas, and `wss-audit --admin-state-file`
+can join a matching admin snapshot to show policy decisions next to the
+decisions-log route/session audit.
 Codex tool metadata preserves `workdir` / `cwd` / `working_directory` /
 `directory` when present. Relative single-file read commands are resolved
 against that absolute workdir before readcache evaluation, which improves

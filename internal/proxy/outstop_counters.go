@@ -1,6 +1,12 @@
 package proxy
 
-import "sync/atomic"
+import (
+	"sort"
+	"sync"
+	"sync/atomic"
+
+	"github.com/slimference/slimference/internal/savingspolicy"
+)
 
 type proxyLayer0RouteCounters struct {
 	toolResultBlocks      atomic.Uint64
@@ -108,6 +114,8 @@ type OutputReduceCounters struct {
 	proxyLayer0ChunkDedupBlocks      atomic.Uint64
 	proxyLayer0HTTP                  proxyLayer0RouteCounters
 	proxyLayer0WSSPhaseF             proxyLayer0RouteCounters
+	proxyLayer0PolicyMu              sync.Mutex
+	proxyLayer0PolicyCounters        map[proxyLayer0PolicyKey]uint64
 
 	stopSeqRequestsModified atomic.Uint64
 	stopSeqPhrasesAdded     atomic.Uint64
@@ -129,6 +137,14 @@ type OutputReduceCounters struct {
 	beterseHintBytes  atomic.Uint64
 }
 
+type proxyLayer0PolicyKey struct {
+	route       codexLayer0Route
+	mechanism   savingspolicy.CodexMechanism
+	action      savingspolicy.CodexPolicyAction
+	reason      string
+	blockReason string
+}
+
 // RecordProxyLayer0 increments the proxy-side deterministic captured
 // output compaction counters. savedTokens is token-count based, not
 // bytes, because this path runs before provider billing.
@@ -142,6 +158,9 @@ func (c *OutputReduceCounters) RecordProxyLayer0Stats(stats proxyLayer0Stats) {
 	}
 	if routeCounters := c.proxyLayer0RouteCounters(stats.Route); routeCounters != nil {
 		routeCounters.record(stats)
+	}
+	if len(stats.PolicyDecisions) > 0 {
+		c.recordProxyLayer0Policy(stats.Route, stats.PolicyDecisions)
 	}
 	if stats.ToolResultBlocks > 0 {
 		c.proxyLayer0ToolResultBlocks.Add(uint64(stats.ToolResultBlocks))
@@ -200,7 +219,32 @@ func proxyLayer0StatsEmpty(stats proxyLayer0Stats) bool {
 		stats.RepeatedOutputBlocks == 0 &&
 		stats.ChunkDedupBlocks == 0 &&
 		stats.ReadDeltaBlocks == 0 &&
-		len(stats.ReadDeltaKeys) == 0
+		len(stats.ReadDeltaKeys) == 0 &&
+		len(stats.PolicyDecisions) == 0
+}
+
+func (c *OutputReduceCounters) recordProxyLayer0Policy(route codexLayer0Route, decisions []savingspolicy.CodexMechanismDecision) {
+	if c == nil || len(decisions) == 0 {
+		return
+	}
+	c.proxyLayer0PolicyMu.Lock()
+	defer c.proxyLayer0PolicyMu.Unlock()
+	if c.proxyLayer0PolicyCounters == nil {
+		c.proxyLayer0PolicyCounters = make(map[proxyLayer0PolicyKey]uint64, len(decisions))
+	}
+	for _, decision := range decisions {
+		if decision.Mechanism == "" || decision.Action == "" {
+			continue
+		}
+		key := proxyLayer0PolicyKey{
+			route:       route,
+			mechanism:   decision.Mechanism,
+			action:      decision.Action,
+			reason:      decision.Reason,
+			blockReason: decision.BlockReason,
+		}
+		c.proxyLayer0PolicyCounters[key]++
+	}
 }
 
 func (c *OutputReduceCounters) proxyLayer0RouteCounters(route codexLayer0Route) *proxyLayer0RouteCounters {
@@ -301,6 +345,7 @@ type OutputReduceTelemetry struct {
 	ProxyLayer0RepeatedOutputBlocks  uint64                     `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedupBlocks      uint64                     `json:"proxy_layer0_chunk_dedup_blocks"`
 	ProxyLayer0Routes                ProxyLayer0RoutesTelemetry `json:"proxy_layer0_routes"`
+	ProxyLayer0Policy                []ProxyLayer0PolicyEntry   `json:"proxy_layer0_policy"`
 	StopSeqRequestsModified          uint64                     `json:"stop_seq_requests_modified"`
 	StopSeqPhrasesAdded              uint64                     `json:"stop_seq_phrases_added"`
 	StreamcutFired                   uint64                     `json:"streamcut_fired"`
@@ -314,6 +359,15 @@ type OutputReduceTelemetry struct {
 	ObsoleteReadBytesPruned          uint64                     `json:"obsolete_read_bytes_pruned"`
 	BeterseInjections                uint64                     `json:"beterse_injections"`
 	BeterseHintBytes                 uint64                     `json:"beterse_hint_bytes"`
+}
+
+type ProxyLayer0PolicyEntry struct {
+	Route       string `json:"route"`
+	Mechanism   string `json:"mechanism"`
+	Action      string `json:"action"`
+	Reason      string `json:"reason"`
+	BlockReason string `json:"block_reason,omitempty"`
+	Count       uint64 `json:"count"`
 }
 
 type ProxyLayer0RouteTelemetry struct {
@@ -360,6 +414,7 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 			HTTP:      c.proxyLayer0HTTP.snapshot(),
 			WSSPhaseF: c.proxyLayer0WSSPhaseF.snapshot(),
 		},
+		ProxyLayer0Policy:        c.snapshotProxyLayer0Policy(),
 		StopSeqRequestsModified:  c.stopSeqRequestsModified.Load(),
 		StopSeqPhrasesAdded:      c.stopSeqPhrasesAdded.Load(),
 		StreamcutFired:           c.streamcutFired.Load(),
@@ -374,4 +429,42 @@ func (c *OutputReduceCounters) Snapshot() OutputReduceTelemetry {
 		BeterseInjections:        c.beterseInjections.Load(),
 		BeterseHintBytes:         c.beterseHintBytes.Load(),
 	}
+}
+
+func (c *OutputReduceCounters) snapshotProxyLayer0Policy() []ProxyLayer0PolicyEntry {
+	if c == nil {
+		return nil
+	}
+	c.proxyLayer0PolicyMu.Lock()
+	defer c.proxyLayer0PolicyMu.Unlock()
+	if len(c.proxyLayer0PolicyCounters) == 0 {
+		return nil
+	}
+	out := make([]ProxyLayer0PolicyEntry, 0, len(c.proxyLayer0PolicyCounters))
+	for key, count := range c.proxyLayer0PolicyCounters {
+		out = append(out, ProxyLayer0PolicyEntry{
+			Route:       string(key.route),
+			Mechanism:   string(key.mechanism),
+			Action:      string(key.action),
+			Reason:      key.reason,
+			BlockReason: key.blockReason,
+			Count:       count,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Route != out[j].Route {
+			return out[i].Route < out[j].Route
+		}
+		if out[i].Mechanism != out[j].Mechanism {
+			return out[i].Mechanism < out[j].Mechanism
+		}
+		if out[i].Action != out[j].Action {
+			return out[i].Action < out[j].Action
+		}
+		if out[i].Reason != out[j].Reason {
+			return out[i].Reason < out[j].Reason
+		}
+		return out[i].BlockReason < out[j].BlockReason
+	})
+	return out
 }

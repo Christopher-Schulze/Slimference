@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/savingspolicy"
 )
 
 func TestOutputReduceCountersStopSeqInjection(t *testing.T) {
@@ -101,6 +102,10 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 		CodexExecEnvelopeBlocks: 1,
 		RepeatedOutputBlocks:    1,
 		ChunkDedupBlocks:        1,
+		PolicyDecisions: []savingspolicy.CodexMechanismDecision{
+			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyAllow, Reason: "recoverable_chunk_dedup"},
+			{Mechanism: savingspolicy.CodexMechanismFirstReadElision, Action: savingspolicy.CodexPolicyShadow, Reason: "capture_or_ab_proof_required", BlockReason: "capture_or_ab_proof_required"},
+		},
 	})
 	c.RecordProxyLayer0(0)
 	c.RecordProxyLayer0(-1)
@@ -148,6 +153,9 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 	if s.ProxyLayer0ChunkDedupBlocks != 1 {
 		t.Errorf("proxy layer0 chunk-dedup blocks=%d want 1", s.ProxyLayer0ChunkDedupBlocks)
 	}
+	if len(s.ProxyLayer0Policy) != 2 {
+		t.Fatalf("policy entries=%d want 2: %+v", len(s.ProxyLayer0Policy), s.ProxyLayer0Policy)
+	}
 }
 
 func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
@@ -167,6 +175,9 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		CodexExecEnvelopeBlocks: 1,
 		RepeatedOutputBlocks:    1,
 		ChunkDedupBlocks:        1,
+		PolicyDecisions: []savingspolicy.CodexMechanismDecision{
+			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyAllow, Reason: "recoverable_chunk_dedup"},
+		},
 	})
 	c.RecordProxyLayer0Stats(proxyLayer0Stats{
 		Route:                   codexLayer0RouteHTTP,
@@ -175,6 +186,9 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		CommandUnresolvedBlocks: 2,
 		ReadDeltaAttempts:       1,
 		ReadDeltaMisses:         1,
+		PolicyDecisions: []savingspolicy.CodexMechanismDecision{
+			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyBlock, Reason: "http_archive_recovery_unproven", BlockReason: "http_archive_recovery_unproven"},
+		},
 	})
 	s := c.Snapshot()
 	if s.ProxyLayer0Routes.WSSPhaseF.TokensSaved != 256 ||
@@ -190,6 +204,11 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		s.ProxyLayer0Routes.HTTP.ReadDeltaMisses != 1 ||
 		s.ProxyLayer0Routes.HTTP.TokensSaved != 0 {
 		t.Fatalf("http route counters mismatch: %+v", s.ProxyLayer0Routes.HTTP)
+	}
+	if len(s.ProxyLayer0Policy) != 2 ||
+		s.ProxyLayer0Policy[0].Route != "http" ||
+		s.ProxyLayer0Policy[1].Route != "wss_phasef" {
+		t.Fatalf("policy route counters mismatch: %+v", s.ProxyLayer0Policy)
 	}
 }
 

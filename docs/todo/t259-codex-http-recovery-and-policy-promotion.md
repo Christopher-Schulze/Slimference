@@ -1,6 +1,6 @@
 # TASK 259: Codex HTTP recovery and policy promotion
 
-Status: [ ] QUEUED - HTTP route remains conservative until recovery is proven
+Status: [~] IN PROGRESS - HTTP archive refs locked out by policy until recovery is proven
 Priority: P1 - avoid a hidden drawdown channel outside WSS
 Scope: Codex HTTP/scoped fallback path. Decide whether HTTP should support recoverable
 chunk/archive references or remain permanently conservative.
@@ -38,16 +38,20 @@ recovery or explicitly locks HTTP out of archive-reference mechanisms.
 
 - [ ] Audit current HTTP Codex fallback usage and whether it still carries real product
       traffic or only legacy/testing traffic.
-- [ ] Decide route strategy: implement HTTP recovery-note injection or permanently
+- [x] Decide route strategy: implement HTTP recovery-note injection or permanently
       disallow archive refs on HTTP.
-- [ ] Add tests that enforce the chosen strategy.
-- [ ] Update `docs/documentation.md`, T248, and T256 wording.
+- [x] Add tests that enforce the chosen strategy.
+- [~] Update `docs/documentation.md`, T248, and T256 wording.
 
 ## Notes
 
 - WSS remains the standard product path. HTTP promotion is useful only if fallback
   traffic still matters and can be made equally recoverable.
 - No savings gain is worth a second, weaker semantics surface.
+- 2026-05-31: chosen route strategy is "conservative lock" for now. T258 policy blocks
+  HTTP archive-backed chunk references even in `max` with explicit chunk flags. Tests
+  cover `codexHTTPChunkDedupSettings` and `DecideCodexToolOutput` on `CodexRouteHTTP`.
+  Promotion later requires a separate HTTP recovery-note/reinject proof.
 
 ## Deviations
 

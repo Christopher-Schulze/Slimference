@@ -41,7 +41,9 @@ type aggregateWSSBlock struct {
 	ProxyLayer0Captured       int64                            `json:"proxy_layer0_captured_output_blocks"`
 	ProxyLayer0Envelope       int64                            `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0Repeated       int64                            `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedup     int64                            `json:"proxy_layer0_chunk_dedup_blocks"`
 	ProxyLayer0Routes         control.ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
+	ProxyLayer0Policy         []control.ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
 	ParseFailures             int64                            `json:"parse_failures"`
 	DegradedSessions          int64                            `json:"degraded_sessions"`
 	CompressionErrors         int64                            `json:"compression_errors"`
@@ -320,7 +322,9 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			ProxyLayer0Captured:       state.Savings.ProxyLayer0Captured,
 			ProxyLayer0Envelope:       state.Savings.ProxyLayer0Envelope,
 			ProxyLayer0Repeated:       state.Savings.ProxyLayer0Repeated,
+			ProxyLayer0ChunkDedup:     state.Savings.ProxyLayer0ChunkDedup,
 			ProxyLayer0Routes:         state.Savings.ProxyLayer0Routes,
+			ProxyLayer0Policy:         state.Savings.ProxyLayer0Policy,
 			ParseFailures:             state.WSS.ParseFailures,
 			DegradedSessions:          state.WSS.DegradedSessions,
 			CompressionErrors:         state.WSS.CompressionErrors,
@@ -427,6 +431,7 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "    captured_output:            %d\n", report.WSS.ProxyLayer0Captured)
 	fmt.Fprintf(w, "    codex_exec_envelope:        %d\n", report.WSS.ProxyLayer0Envelope)
 	fmt.Fprintf(w, "    repeated_output:            %d\n", report.WSS.ProxyLayer0Repeated)
+	fmt.Fprintf(w, "    chunk_dedup:                %d\n", report.WSS.ProxyLayer0ChunkDedup)
 	fmt.Fprintf(w, "  route_wss_phasef_tokens:      %d\n", report.WSS.ProxyLayer0Routes.WSSPhaseF.TokensSaved)
 	fmt.Fprintf(w, "  route_wss_phasef_misses:      tool=%d command=%d read=%d\n",
 		report.WSS.ProxyLayer0Routes.WSSPhaseF.ToolMisses,
@@ -437,6 +442,13 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 		report.WSS.ProxyLayer0Routes.HTTP.ToolMisses,
 		report.WSS.ProxyLayer0Routes.HTTP.CommandMisses,
 		report.WSS.ProxyLayer0Routes.HTTP.ReadMisses)
+	if len(report.WSS.ProxyLayer0Policy) > 0 {
+		fmt.Fprintln(w, "  policy_decisions:")
+		for _, entry := range report.WSS.ProxyLayer0Policy {
+			fmt.Fprintf(w, "    %s/%s/%s %s: %d\n",
+				valueOrDash(entry.Route), entry.Mechanism, entry.Action, entry.Reason, entry.Count)
+		}
+	}
 	if report.WSS.ParseFailures+report.WSS.DegradedSessions+report.WSS.CompressionErrors > 0 {
 		fmt.Fprintf(w, "  HEALTH WARN parse=%d degraded=%d compression_errors=%d\n",
 			report.WSS.ParseFailures, report.WSS.DegradedSessions, report.WSS.CompressionErrors)

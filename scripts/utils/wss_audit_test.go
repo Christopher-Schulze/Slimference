@@ -167,7 +167,18 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := runWSSAudit([]string{path, "--json"}, &stdout, &stderr); code != 0 {
+	statePath := writeAggregateStateFile(t, aggregateSampleAdminState)
+	if code := runWSSAudit([]string{path, "--admin-state-file=" + statePath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("runWSSAudit policy text code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Policy decisions:") ||
+		!strings.Contains(stdout.String(), "wss_phasef/chunk_dedup/allow recoverable_chunk_dedup: 3") {
+		t.Fatalf("text output missing policy details:\n%s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWSSAudit([]string{path, "--json", "--admin-state-file=" + statePath}, &stdout, &stderr); code != 0 {
 		t.Fatalf("runWSSAudit json code=%d stderr=%s", code, stderr.String())
 	}
 	var report wssAuditReport
@@ -176,6 +187,9 @@ func TestRunWSSAuditJSONAndText(t *testing.T) {
 	}
 	if report.TokensSaved != 3 {
 		t.Fatalf("tokens saved = %d, want 3", report.TokensSaved)
+	}
+	if len(report.Policy) != 2 || report.PolicySource == "" {
+		t.Fatalf("policy join missing from JSON report: %+v", report)
 	}
 }
 

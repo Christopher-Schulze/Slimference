@@ -1,6 +1,7 @@
 # TASK 258: Codex savings policy engine v2
 
-Status: [ ] QUEUED - central auto policy for risk, recovery, recency, and workload class
+Status: [~] IN PROGRESS - central auto policy foundation active for route, risk,
+recovery, recency, workload, proof, and high-risk shadowing
 Priority: P0 - turns aggressive mechanisms into safe automatic behavior
 Scope: Extend `internal/savingspolicy` from mechanism toggles into a full Codex
 autopilot. Applies to WSS first; HTTP promotion depends on T259.
@@ -44,13 +45,15 @@ without manual toggles and without silently making the model worse.
 
 ## Sub-Tasks
 
-- [ ] Define policy enums and decision structs for risk, recovery, recency, workload,
+- [x] Define policy enums and decision structs for risk, recovery, recency, workload,
       and proof level.
-- [ ] Add policy evidence inputs from T257 reports and current session telemetry.
-- [ ] Move remaining route/mechanism ad-hoc gates into `internal/savingspolicy`.
-- [ ] Add shadow-only decision support for T253/T254 candidates.
-- [ ] Surface policy reason counters in admin state, `wss-audit`, and workday reports.
-- [ ] Document the auto/max/conservative/off semantics with exact safety guarantees.
+- [~] Add policy evidence inputs from T257 reports and current session telemetry.
+- [~] Move remaining route/mechanism ad-hoc gates into `internal/savingspolicy`.
+- [x] Add shadow-only decision support for T253/T254 candidates.
+- [x] Surface policy reason counters in admin state, `wss-audit`, and workday reports
+      (`/admin/state`, `aggregate-savings`, `workday-savings`, and optional
+      `wss-audit --admin-state-file` join done).
+- [x] Document the auto/max/conservative/off semantics with exact safety guarantees.
 
 ## Notes
 
@@ -59,6 +62,18 @@ without manual toggles and without silently making the model worse.
   cannot become safe.
 - T258 should stay small and explicit. No clever hidden scoring until evidence proves
   thresholds.
+- 2026-05-31: `internal/savingspolicy` now has typed route/client/workload/risk/
+  recovery/proof/mechanism/action enums and `DecideCodexMechanism`. The WSS/HTTP
+  Layer-0 reducer passes route and workload into policy. Proven lossless mechanisms are
+  allowed; WSS recoverable chunk-dedup is allowed only with archive recovery; HTTP
+  archive refs are blocked with reason `http_archive_recovery_unproven`; recent edits,
+  post-collapse re-reads, and session-integrity budget hits full-pass; first-read
+  elision, server-state mirror, predictive post-edit, apply_patch context dedup, and
+  reasoning compaction are shadow-only until capture/A-B proof promotes them.
+- 2026-05-31: `/admin/state`, `aggregate-savings`, `workday-savings`, and optional
+  `wss-audit --admin-state-file` savings telemetry now include content-free
+  `proxy_layer0_policy` counters keyed by route, mechanism, action, reason, block reason,
+  and count.
 
 ## Deviations
 

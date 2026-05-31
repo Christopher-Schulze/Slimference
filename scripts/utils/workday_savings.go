@@ -378,7 +378,9 @@ func diffAggregateWSS(base, current aggregateWSSBlock) aggregateWSSBlock {
 		ProxyLayer0Captured:       nonNegativeDelta(current.ProxyLayer0Captured, base.ProxyLayer0Captured),
 		ProxyLayer0Envelope:       nonNegativeDelta(current.ProxyLayer0Envelope, base.ProxyLayer0Envelope),
 		ProxyLayer0Repeated:       nonNegativeDelta(current.ProxyLayer0Repeated, base.ProxyLayer0Repeated),
+		ProxyLayer0ChunkDedup:     nonNegativeDelta(current.ProxyLayer0ChunkDedup, base.ProxyLayer0ChunkDedup),
 		ProxyLayer0Routes:         diffProxyLayer0Routes(base.ProxyLayer0Routes, current.ProxyLayer0Routes),
+		ProxyLayer0Policy:         diffProxyLayer0Policy(base.ProxyLayer0Policy, current.ProxyLayer0Policy),
 		ParseFailures:             nonNegativeDelta(current.ParseFailures, base.ParseFailures),
 		DegradedSessions:          nonNegativeDelta(current.DegradedSessions, base.DegradedSessions),
 		CompressionErrors:         nonNegativeDelta(current.CompressionErrors, base.CompressionErrors),
@@ -423,7 +425,30 @@ func diffProxyLayer0Route(base, current control.ProxyLayer0RouteSummary) control
 		CapturedBlocks:   nonNegativeDelta(current.CapturedBlocks, base.CapturedBlocks),
 		EnvelopeBlocks:   nonNegativeDelta(current.EnvelopeBlocks, base.EnvelopeBlocks),
 		RepeatedBlocks:   nonNegativeDelta(current.RepeatedBlocks, base.RepeatedBlocks),
+		ChunkDedupBlocks: nonNegativeDelta(current.ChunkDedupBlocks, base.ChunkDedupBlocks),
 	}
+}
+
+func diffProxyLayer0Policy(base, current []control.ProxyLayer0PolicyEntry) []control.ProxyLayer0PolicyEntry {
+	if len(current) == 0 {
+		return nil
+	}
+	baseByKey := make(map[string]int64, len(base))
+	for _, entry := range base {
+		baseByKey[proxyLayer0PolicyEntryKey(entry)] = entry.Count
+	}
+	out := make([]control.ProxyLayer0PolicyEntry, 0, len(current))
+	for _, entry := range current {
+		entry.Count = nonNegativeDelta(entry.Count, baseByKey[proxyLayer0PolicyEntryKey(entry)])
+		if entry.Count > 0 {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+func proxyLayer0PolicyEntryKey(entry control.ProxyLayer0PolicyEntry) string {
+	return entry.Route + "\x00" + entry.Mechanism + "\x00" + entry.Action + "\x00" + entry.Reason + "\x00" + entry.BlockReason
 }
 
 func diffFilterGainReports(base, current *analytics.FilterGainReport) *analytics.FilterGainReport {

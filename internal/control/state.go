@@ -172,6 +172,7 @@ type SavingsSummary struct {
 	ProxyLayer0Repeated      int64                    `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedup    int64                    `json:"proxy_layer0_chunk_dedup_blocks"`
 	ProxyLayer0Routes        ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
+	ProxyLayer0Policy        []ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
 	StreamcutFires           int64                    `json:"streamcut_fires"`
 	RepdetRewrites           int64                    `json:"repdet_rewrites"`
 	RepdetBytesSaved         int64                    `json:"repdet_bytes_saved"`
@@ -182,6 +183,15 @@ type SavingsSummary struct {
 	QualityABRolledBack      bool                     `json:"quality_ab_rolled_back"`
 	QualityABControlFail     float64                  `json:"quality_ab_control_failure_rate"`
 	QualityABTreatmentFail   float64                  `json:"quality_ab_treatment_failure_rate"`
+}
+
+type ProxyLayer0PolicyEntry struct {
+	Route       string `json:"route"`
+	Mechanism   string `json:"mechanism"`
+	Action      string `json:"action"`
+	Reason      string `json:"reason"`
+	BlockReason string `json:"block_reason,omitempty"`
+	Count       int64  `json:"count"`
 }
 
 type ProxyLayer0RouteSummary struct {

@@ -6,6 +6,7 @@ func TestDecideCodexToolOutputAutoEnablesRecoverableChunkDedup(t *testing.T) {
 	t.Parallel()
 	got := DecideCodexToolOutput(CodexToolOutputInput{
 		Mode:                     "auto",
+		Route:                    CodexRouteWSSPhaseF,
 		ArchiveRecoveryAvailable: true,
 		OutputBytes:              9000,
 		ChunkMinBytes:            8192,
@@ -24,8 +25,8 @@ func TestDecideCodexToolOutputLoosensForContextRisk(t *testing.T) {
 		name string
 		in   CodexToolOutputInput
 	}{
-		{name: "recent edit", in: CodexToolOutputInput{Mode: "auto", ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000, ChunkMinBytes: 1}},
-		{name: "post-collapse reread", in: CodexToolOutputInput{Mode: "auto", ArchiveRecoveryAvailable: true, PostCollapseReRead: true, OutputBytes: 9000, ChunkMinBytes: 1}},
+		{name: "recent edit", in: CodexToolOutputInput{Mode: "auto", Route: CodexRouteWSSPhaseF, ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000, ChunkMinBytes: 1}},
+		{name: "post-collapse reread", in: CodexToolOutputInput{Mode: "auto", Route: CodexRouteWSSPhaseF, ArchiveRecoveryAvailable: true, PostCollapseReRead: true, OutputBytes: 9000, ChunkMinBytes: 1}},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -40,12 +41,13 @@ func TestDecideCodexToolOutputLoosensForContextRisk(t *testing.T) {
 
 func TestDecideCodexToolOutputModes(t *testing.T) {
 	t.Parallel()
-	off := DecideCodexToolOutput(CodexToolOutputInput{Mode: "off", ArchiveRecoveryAvailable: true, OutputBytes: 9000})
+	off := DecideCodexToolOutput(CodexToolOutputInput{Mode: "off", Route: CodexRouteWSSPhaseF, ArchiveRecoveryAvailable: true, OutputBytes: 9000})
 	if off.ReadDelta || off.RepeatedOutput || off.ChunkDedup {
 		t.Fatalf("off mode must disable policy-managed reducers: %+v", off)
 	}
 	conservative := DecideCodexToolOutput(CodexToolOutputInput{
 		Mode:                     "conservative",
+		Route:                    CodexRouteWSSPhaseF,
 		ArchiveRecoveryAvailable: true,
 		OutputBytes:              9000,
 		ChunkMinBytes:            1,
@@ -55,6 +57,7 @@ func TestDecideCodexToolOutputModes(t *testing.T) {
 	}
 	forced := DecideCodexToolOutput(CodexToolOutputInput{
 		Mode:                     "conservative",
+		Route:                    CodexRouteWSSPhaseF,
 		ArchiveRecoveryAvailable: true,
 		ExplicitChunkDedup:       true,
 		OutputBytes:              9000,
@@ -71,13 +74,13 @@ func TestDecideCodexToolOutputNeverEnablesFirstReadScan(t *testing.T) {
 		name string
 		in   CodexToolOutputInput
 	}{
-		{name: "max read with recovery still does not scan", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}},
+		{name: "max read with recovery still does not scan", in: CodexToolOutputInput{Mode: "max", Route: CodexRouteWSSPhaseF, IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}},
 		{name: "max read without recovery", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: false, OutputBytes: 9000}},
-		{name: "max non-read", in: CodexToolOutputInput{Mode: "max", IsRead: false, ArchiveRecoveryAvailable: true, OutputBytes: 9000}},
-		{name: "auto read", in: CodexToolOutputInput{Mode: "auto", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}},
-		{name: "conservative read", in: CodexToolOutputInput{Mode: "conservative", IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}},
-		{name: "recent edit full-passes the read", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000}},
-		{name: "post-collapse reread full-passes the read", in: CodexToolOutputInput{Mode: "max", IsRead: true, ArchiveRecoveryAvailable: true, PostCollapseReRead: true, OutputBytes: 9000}},
+		{name: "max non-read", in: CodexToolOutputInput{Mode: "max", Route: CodexRouteWSSPhaseF, IsRead: false, ArchiveRecoveryAvailable: true, OutputBytes: 9000}},
+		{name: "auto read", in: CodexToolOutputInput{Mode: "auto", Route: CodexRouteWSSPhaseF, IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}},
+		{name: "conservative read", in: CodexToolOutputInput{Mode: "conservative", Route: CodexRouteWSSPhaseF, IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000}},
+		{name: "recent edit full-passes the read", in: CodexToolOutputInput{Mode: "max", Route: CodexRouteWSSPhaseF, IsRead: true, ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000}},
+		{name: "post-collapse reread full-passes the read", in: CodexToolOutputInput{Mode: "max", Route: CodexRouteWSSPhaseF, IsRead: true, ArchiveRecoveryAvailable: true, PostCollapseReRead: true, OutputBytes: 9000}},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -103,4 +106,172 @@ func TestValidCodexMode(t *testing.T) {
 	if ValidCodexMode("reckless") {
 		t.Fatal("unknown mode must be invalid")
 	}
+}
+
+func TestDecideCodexMechanismMatrix(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		in     CodexMechanismInput
+		action CodexPolicyAction
+		reason string
+		note   bool
+	}{
+		{
+			name: "wss lossless read delta allow",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismReadDelta, Risk: CodexRiskLossless, Recovery: CodexRecoveryExact,
+			},
+			action: CodexPolicyAllow, reason: "lossless_or_exact_reducer",
+		},
+		{
+			name: "wss recoverable chunk allow",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, MinBytes: 4096,
+			},
+			action: CodexPolicyAllow, reason: "recoverable_chunk_dedup", note: true,
+		},
+		{
+			name: "http archive refs blocked even in max",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeMax), Route: CodexRouteHTTP,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, MinBytes: 1, Explicit: true,
+			},
+			action: CodexPolicyBlock, reason: "http_archive_recovery_unproven",
+		},
+		{
+			name: "conservative recoverable chunk needs explicit",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeConservative), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, MinBytes: 1,
+			},
+			action: CodexPolicyBlock, reason: "conservative_requires_explicit_recovery",
+		},
+		{
+			name: "recent edit full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, RecentlyEdited: true, OutputBytes: 9000,
+			},
+			action: CodexPolicyFullPass, reason: "recent_edit_full_context",
+		},
+		{
+			name: "first read elision remains shadow only",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeMax), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismFirstReadElision, Risk: CodexRiskReconstructive, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000,
+			},
+			action: CodexPolicyShadow, reason: "capture_or_ab_proof_required",
+		},
+		{
+			name: "semantic reasoning compression shadow only",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeMax), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismReasoningCompact, Risk: CodexRiskSemantic, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000,
+			},
+			action: CodexPolicyShadow, reason: "capture_or_ab_proof_required",
+		},
+		{
+			name: "recoverable generic mechanism needs archive",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: "future_recoverable", Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				OutputBytes: 9000,
+			},
+			action: CodexPolicyBlock, reason: "archive_recovery_unavailable",
+		},
+		{
+			name: "recoverable generic mechanism allow with archive",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: "future_recoverable", Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000,
+			},
+			action: CodexPolicyAllow, reason: "recoverable_with_archive", note: true,
+		},
+		{
+			name: "session budget hit full pass",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 9000, SessionIntegrityBudgetHit: true,
+			},
+			action: CodexPolicyFullPass, reason: "session_integrity_budget",
+		},
+		{
+			name: "below min bytes blocks chunk",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismChunkDedup, Risk: CodexRiskRecoverable, Recovery: CodexRecoveryArchive,
+				ArchiveRecoveryAvailable: true, OutputBytes: 1000, MinBytes: 4096,
+			},
+			action: CodexPolicyBlock, reason: "below_min_bytes",
+		},
+		{
+			name: "unsupported shape blocks",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: "unsupported", Risk: "unknown", Recovery: "unknown",
+				OutputBytes: 9000,
+			},
+			action: CodexPolicyBlock, reason: "unsupported_policy_shape",
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := DecideCodexMechanism(tc.in)
+			if got.Action != tc.action || got.Reason != tc.reason || got.NeedsRecoveryNote != tc.note {
+				t.Fatalf("decision mismatch: got=%+v want action=%s reason=%s note=%v", got, tc.action, tc.reason, tc.note)
+			}
+		})
+	}
+}
+
+func TestDecideCodexToolOutputIncludesShadowTelemetryForFutureCandidates(t *testing.T) {
+	t.Parallel()
+	got := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+		IsRead: true, ArchiveRecoveryAvailable: true, OutputBytes: 9000, ChunkMinBytes: 1,
+	})
+	if got.ChunkDedup != true || len(got.Mechanisms) == 0 {
+		t.Fatalf("expected chunk dedup plus mechanism telemetry: %+v", got)
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismFirstReadElision) != CodexPolicyShadow {
+		t.Fatalf("first-read elision must stay shadow-only: %+v", got.Mechanisms)
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismServerStateMirror) != CodexPolicyShadow {
+		t.Fatalf("server-state mirror must stay shadow-only: %+v", got.Mechanisms)
+	}
+}
+
+func TestDecideCodexToolOutputHTTPBlocksArchiveRefs(t *testing.T) {
+	t.Parallel()
+	got := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode: string(CodexModeMax), Route: CodexRouteHTTP, ArchiveRecoveryAvailable: true,
+		ExplicitChunkDedup: true, OutputBytes: 9000, ChunkMinBytes: 1,
+	})
+	if got.ChunkDedup || got.NeedsRecoveryNote {
+		t.Fatalf("HTTP must not emit archive-backed chunk refs: %+v", got)
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyBlock {
+		t.Fatalf("HTTP chunk mechanism should be blocked: %+v", got.Mechanisms)
+	}
+}
+
+func actionForMechanism(decisions []CodexMechanismDecision, mechanism CodexMechanism) CodexPolicyAction {
+	for _, decision := range decisions {
+		if decision.Mechanism == mechanism {
+			return decision.Action
+		}
+	}
+	return ""
 }

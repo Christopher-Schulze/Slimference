@@ -72,6 +72,7 @@ type proxyLayer0Stats struct {
 	RepeatedOutputBlocks    int
 	ChunkDedupBlocks        int
 	ReadDeltaKeys           []string
+	PolicyDecisions         []savingspolicy.CodexMechanismDecision
 }
 
 func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
@@ -83,6 +84,7 @@ func (s proxyLayer0Stats) withoutSavings() proxyLayer0Stats {
 	s.RepeatedOutputBlocks = 0
 	s.ChunkDedupBlocks = 0
 	s.ReadDeltaKeys = nil
+	s.PolicyDecisions = nil
 	return s
 }
 
@@ -165,9 +167,17 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			beforeTokens := tok.CountString(block.Text)
 			readCtx := proxyReadFileContext(req.SessionID, commandLine)
 			readCommand := readRequestFromCommandLine(commandLine).FilePath != ""
+			workload := savingspolicy.CodexWorkloadCommand
+			if readCommand {
+				workload = savingspolicy.CodexWorkloadRead
+			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
+				workload = savingspolicy.CodexWorkloadSearch
+			}
 			_, postCollapseReRead := req.SuppressedToolKey[toolKey]
 			policy := savingspolicy.DecideCodexToolOutput(savingspolicy.CodexToolOutputInput{
 				Mode:                     req.PolicyMode,
+				Route:                    savingspolicy.CodexRoute(req.Route),
+				Workload:                 workload,
 				ArchiveRecoveryAvailable: req.ArchiveRecovery && req.ChunkDedupEnabled && req.ChunkStore != nil,
 				ExplicitChunkDedup:       req.ExplicitChunkDedup,
 				OutputBytes:              len(block.Text),
@@ -176,6 +186,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				RecentlyEdited:           readCtx.RecentlyEdited,
 				PostCollapseReRead:       postCollapseReRead && toolKey != "",
 			})
+			stats.PolicyDecisions = append(stats.PolicyDecisions, policy.Mechanisms...)
 			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {
 				continue
 			}

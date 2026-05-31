@@ -4,34 +4,38 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/slimference/slimference/internal/control"
 	dbg "github.com/slimference/slimference/internal/debug"
 )
 
 type wssAuditReport struct {
-	Path                   string                   `json:"path"`
-	Requests               int                      `json:"requests"`
-	WSSRequests            int                      `json:"wss_requests"`
-	PhaseFRequests         int                      `json:"phasef_requests"`
-	UniqueSessions         int                      `json:"unique_sessions"`
-	MissingSessionID       int                      `json:"missing_session_id"`
-	PreviousResponseIDUsed int                      `json:"previous_response_id_used"`
-	ReReadRequests         int                      `json:"re_read_requests"`
-	ReReadCount            int                      `json:"re_read_count"`
-	PositiveSavings        int                      `json:"positive_savings_requests"`
-	TokensSaved            int                      `json:"tokens_saved"`
-	Since                  *time.Time               `json:"since,omitempty"`
-	GatePassed             bool                     `json:"gate_passed"`
-	GateFailures           []string                 `json:"gate_failures,omitempty"`
-	RouteModes             map[string]int           `json:"route_modes,omitempty"`
-	ContentClasses         map[string]int           `json:"content_classes,omitempty"`
-	Sessions               []wssAuditSessionSummary `json:"sessions,omitempty"`
-	Notes                  []string                 `json:"notes,omitempty"`
+	Path                   string                           `json:"path"`
+	Requests               int                              `json:"requests"`
+	WSSRequests            int                              `json:"wss_requests"`
+	PhaseFRequests         int                              `json:"phasef_requests"`
+	UniqueSessions         int                              `json:"unique_sessions"`
+	MissingSessionID       int                              `json:"missing_session_id"`
+	PreviousResponseIDUsed int                              `json:"previous_response_id_used"`
+	ReReadRequests         int                              `json:"re_read_requests"`
+	ReReadCount            int                              `json:"re_read_count"`
+	PositiveSavings        int                              `json:"positive_savings_requests"`
+	TokensSaved            int                              `json:"tokens_saved"`
+	Since                  *time.Time                       `json:"since,omitempty"`
+	GatePassed             bool                             `json:"gate_passed"`
+	GateFailures           []string                         `json:"gate_failures,omitempty"`
+	RouteModes             map[string]int                   `json:"route_modes,omitempty"`
+	ContentClasses         map[string]int                   `json:"content_classes,omitempty"`
+	PolicySource           string                           `json:"policy_source,omitempty"`
+	Policy                 []control.ProxyLayer0PolicyEntry `json:"policy,omitempty"`
+	Sessions               []wssAuditSessionSummary         `json:"sessions,omitempty"`
+	Notes                  []string                         `json:"notes,omitempty"`
 }
 
 type wssAuditSessionSummary struct {
@@ -51,6 +55,7 @@ type wssAuditFlags struct {
 	expectDistinctSessions int
 	minPhaseF              int
 	requireSavings         bool
+	adminStateFile         string
 	since                  time.Time
 	help                   bool
 }
@@ -64,12 +69,15 @@ Flags:
   --expect-distinct-sessions=<n>  Fail if fewer than n non-empty WSS session ids are present
   --min-phasef=<n>                Fail if fewer than n Phase-F request summaries are present
   --require-savings               Fail if no positive input-token savings are present
+  --admin-state-file=<path>        Join current /admin/state policy counters into the report
   --since=<rfc3339>               Ignore records before this timestamp
   --json                          Output JSON
 
 Reads content-free RequestSummary JSONL records and reports WSS route coverage,
 Phase-F request counts, session-key continuity, previous_response_id usage, and
-positive input-token savings. It does not inspect payload text or auth headers.`
+positive input-token savings. With --admin-state-file it also prints content-free
+policy counters from the matching admin snapshot. It does not inspect payload text
+or auth headers.`
 
 func runWSSAudit(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSAuditFlags(args)
@@ -120,6 +128,14 @@ func parseWSSAuditFlags(args []string) (wssAuditFlags, error) {
 			flags.outputFormat = outputJSON
 		case a == "--require-savings":
 			flags.requireSavings = true
+		case a == "--admin-state-file":
+			v, err := aggregateFlagValue(args, &i, a)
+			if err != nil {
+				return flags, err
+			}
+			flags.adminStateFile = v
+		case strings.HasPrefix(a, "--admin-state-file="):
+			flags.adminStateFile = strings.TrimPrefix(a, "--admin-state-file=")
 		case a == "--since":
 			v, err := aggregateFlagValue(args, &i, a)
 			if err != nil {
@@ -274,7 +290,27 @@ func loadWSSAuditReport(flags wssAuditFlags) (wssAuditReport, error) {
 	report.Notes = wssAuditNotes(report)
 	report.GateFailures = wssAuditGateFailures(report, flags)
 	report.GatePassed = len(report.GateFailures) == 0
+	if flags.adminStateFile != "" {
+		policy, err := loadWSSAuditPolicy(flags.adminStateFile)
+		if err != nil {
+			return wssAuditReport{}, err
+		}
+		report.PolicySource = "file:" + flags.adminStateFile
+		report.Policy = policy
+	}
 	return report, nil
+}
+
+func loadWSSAuditPolicy(path string) ([]control.ProxyLayer0PolicyEntry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read admin state file %s: %w", path, err)
+	}
+	state, err := parseAdminStateJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	return state.Savings.ProxyLayer0Policy, nil
 }
 
 func wssAuditRouteMode(summary dbg.RequestSummary) string {
@@ -376,6 +412,16 @@ func writeWSSAuditText(w io.Writer, report wssAuditReport) {
 		fmt.Fprintln(w, "\nContent classes:")
 		for _, key := range sortedStringKeys(report.ContentClasses) {
 			fmt.Fprintf(w, "  %-24s %d\n", key, report.ContentClasses[key])
+		}
+	}
+	if len(report.Policy) > 0 {
+		fmt.Fprintln(w, "\nPolicy decisions:")
+		if report.PolicySource != "" {
+			fmt.Fprintf(w, "  source: %s\n", report.PolicySource)
+		}
+		for _, entry := range report.Policy {
+			fmt.Fprintf(w, "  %s/%s/%s %s: %d\n",
+				valueOrDash(entry.Route), entry.Mechanism, entry.Action, entry.Reason, entry.Count)
 		}
 	}
 	if len(report.Sessions) > 0 {

@@ -1606,13 +1606,18 @@ only and promotes the per-process Codex CLI runner for T209.
   `workday-savings start|finish` windows passed for CLI and Desktop with positive
   WSS savings and zero parse/degrade/compression errors.
   Detail: `docs/todo/t257-codex-real-workload-proof-matrix.md`
-- [ ] **T258** Codex savings policy engine v2 — extend the T256 policy from mechanism
-  toggles into a full route/workload/risk/recovery/recency/proof autopilot. Aggressive
-  reducers become active only where T257 evidence proves they are drawdown-neutral.
+- [~] **T258** Codex savings policy engine v2 — extend the T256 policy from mechanism
+  toggles into a full route/workload/risk/recovery/recency/proof autopilot. Foundation
+  is active: typed mechanism decisions, WSS/HTTP route and workload inputs,
+  high-risk T253/T254 candidates shadow-only, HTTP archive refs blocked, and
+  content-free policy counters in `/admin/state`, `aggregate-savings`, `workday-savings`,
+  and optional `wss-audit --admin-state-file`. Remaining work: feed broader proof
+  evidence into promotion rules.
   Detail: `docs/todo/t258-codex-savings-policy-engine-v2.md`
-- [ ] **T259** Codex HTTP recovery and policy promotion — decide and prove whether the
-  HTTP fallback path gets its own recoverable archive-reference support or stays
-  permanently conservative. Prevents a hidden weaker semantics surface.
+- [~] **T259** Codex HTTP recovery and policy promotion — HTTP is now policy-locked
+  conservative for archive references even in `max`/explicit chunk mode. Promotion
+  remains possible only after separate HTTP recovery-note proof; until then there is no
+  second, weaker semantics surface.
   Detail: `docs/todo/t259-codex-http-recovery-and-policy-promotion.md`
 
 ### Codex savings v2 — full 24-item index + what the % mean (T249-T255)
@@ -1653,8 +1658,8 @@ criteria; this index is the traceability map so nothing is lost.
 | 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | DONE |
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | DONE |
 | 25 | Real workload capture/replay proof matrix | enabler | Proof + default-auto gate | T257 | DONE (13 captures, CLI+Desktop workday windows, lost=0, captures_with_issues=0) |
-| 26 | Policy engine v2 route/workload/risk autopilot | enabler | Architecture + drawdown control | T258 | queued |
-| 27 | HTTP recovery/promotion decision | 0-10% fallback-dependent | Safety + optional savings | T259 | queued |
+| 26 | Policy engine v2 route/workload/risk autopilot | enabler | Architecture + drawdown control | T258 | in progress (foundation + policy telemetry active; proof-fed promotion remaining) |
+| 27 | HTTP recovery/promotion decision | 0-10% fallback-dependent | Safety + optional savings | T259 | in progress (HTTP archive refs policy-blocked; promotion proof still open) |
 
 Combined-leverage order: T249 first (safety net + recovery unlock the gated items),
 then T250 + T252 (lossless + quick wins, low risk), then T251 (stability/multiplier),
