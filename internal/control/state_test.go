@@ -113,6 +113,79 @@ func TestBuildHonoursClockDefault(t *testing.T) {
 	}
 }
 
+func TestSavingsSummaryProductSignalsSaving(t *testing.T) {
+	summary := SavingsSummary{
+		BillableInputTokensSaved: 2000,
+		OutputWireBytesSaved:     512,
+		RequestSideBytesReduced:  128,
+		CostUSD:                  0.012,
+		ProxyLayer0ReadDelta:     3,
+		ProxyLayer0Repeated:      2,
+		ProxyLayer0ChunkDedup:    1,
+		ProxyLayer0Cache: []ProxyLayer0CacheEntry{
+			{Action: "hit", Count: 4},
+			{Action: "miss", Count: 5},
+		},
+	}
+
+	got := summary.ProductSignals()
+	if got.Status != "saving" {
+		t.Fatalf("Status=%q want saving", got.Status)
+	}
+	if got.BillableInputTokensSaved != 2000 ||
+		got.OutputWireBytesSaved != 512 ||
+		got.RequestSideBytesReduced != 128 ||
+		got.CostUSD != 0.012 {
+		t.Fatalf("savings fields mismatch: %+v", got)
+	}
+	if got.CacheHits != 4 || got.CacheMisses != 5 {
+		t.Fatalf("cache fields mismatch: %+v", got)
+	}
+	if got.ReadDeltaHits != 3 || got.RepeatedOutputHits != 2 || got.ChunkDedupHits != 1 {
+		t.Fatalf("mechanism hits mismatch: %+v", got)
+	}
+}
+
+func TestSavingsSummaryProductSignalsStatusPriority(t *testing.T) {
+	tests := []struct {
+		name string
+		in   SavingsSummary
+		want string
+	}{
+		{name: "idle", in: SavingsSummary{}, want: "idle"},
+		{
+			name: "active without savings",
+			in: SavingsSummary{
+				ProxyLayer0ToolResults: 1,
+				ProxyLayer0Cache: []ProxyLayer0CacheEntry{
+					{Action: "miss", Count: 1},
+				},
+			},
+			want: "active_no_savings",
+		},
+		{
+			name: "attention beats savings",
+			in: SavingsSummary{
+				BillableInputTokensSaved: 100,
+				ProxyLayer0CommandMisses: 1,
+			},
+			want: "attention",
+		},
+		{
+			name: "rollback is safety issue",
+			in:   SavingsSummary{QualityABRolledBack: true},
+			want: "attention",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.in.ProductSignals().Status; got != tt.want {
+				t.Fatalf("Status=%q want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsHealthyAllGood(t *testing.T) {
 	s := SetupState{
 		CA:           CAState{Installed: true, InKeychain: true},

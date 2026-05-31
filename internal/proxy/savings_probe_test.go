@@ -68,6 +68,20 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	if got.BillableInputTokensSaved != 2000 {
 		t.Errorf("BillableInputTokensSaved=%d want 2000", got.BillableInputTokensSaved)
 	}
+	if got.Product.Status != "saving" {
+		t.Errorf("Product.Status=%q want saving", got.Product.Status)
+	}
+	if got.Product.BillableInputTokensSaved != 2000 ||
+		got.Product.OutputWireBytesSaved != 3072 ||
+		got.Product.RequestSideBytesReduced != 384 {
+		t.Errorf("Product savings mismatch: %+v", got.Product)
+	}
+	if got.Product.CacheMisses != 1 || got.Product.CacheHits != 0 {
+		t.Errorf("Product cache mismatch: %+v", got.Product)
+	}
+	if got.Product.RepeatedOutputHits != 1 || got.Product.ChunkDedupHits != 1 {
+		t.Errorf("Product mechanism hits mismatch: %+v", got.Product)
+	}
 	if got.OutputWireBytesSaved != 3072 {
 		t.Errorf("OutputWireBytesSaved=%d want 3072", got.OutputWireBytesSaved)
 	}

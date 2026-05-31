@@ -10,6 +10,10 @@ fallbacks, cache hits, recovery, and quality signals.
 ## Current reality check
 
 - Admin state and audit tools expose many counters.
+- `/admin/state` now exposes `savings.product`, a product-facing rollup for
+  status, billable input savings, output-wire savings, request-side reductions,
+  cache hit/miss counts, read/repeated/chunk hits, tool-resolution misses, and
+  safety issues.
 - The TUI has accumulated setup/debug/status surfaces.
 - Real proof matrix and workday windows exist, but promotion criteria need to
   be explicit for every max-out feature.
@@ -35,20 +39,20 @@ Debug/audit view:
 
 ## Technical work packages
 
-1. Define product signal schema for `/admin/state`.
-2. Map existing counters into product groups:
+1. [x] Define product signal schema for `/admin/state`.
+2. [~] Map existing counters into product groups:
    - route
    - billable input savings
    - output-wire savings
-   - provider cache
+   - provider cache (pending source alignment)
    - cache hits
    - quality/safety
    - recert
-3. Clean TUI:
+3. [ ] Clean TUI:
    - remove or hide debug-only counters from default view
    - keep advanced debug view if needed
    - show exact fallback reason
-4. Define live-corpus promotion gates:
+4. [ ] Define live-corpus promotion gates:
    - minimum CLI captures
    - minimum Desktop captures
    - required workload classes
@@ -56,7 +60,7 @@ Debug/audit view:
    - zero parse/degrade/compression errors
    - no canary spikes
    - positive net savings after overhead
-5. Add release proof ceremony:
+5. [ ] Add release proof ceremony:
    - start clean
    - launch CLI and Desktop through product path
    - run required workloads

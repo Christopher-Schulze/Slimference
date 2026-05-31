@@ -153,6 +153,7 @@ type CodexRouteState struct {
 
 // SavingsSummary rolls up Phase F counters for the dashboard tile.
 type SavingsSummary struct {
+	Product                  ProductSavingsSummary    `json:"product"`
 	InputTokensSaved         int64                    `json:"input_tokens_saved"`
 	OutputTokensSaved        int64                    `json:"output_tokens_saved"`
 	BillableInputTokensSaved int64                    `json:"billable_input_tokens_saved"`
@@ -187,6 +188,67 @@ type SavingsSummary struct {
 	QualityABRolledBack      bool                     `json:"quality_ab_rolled_back"`
 	QualityABControlFail     float64                  `json:"quality_ab_control_failure_rate"`
 	QualityABTreatmentFail   float64                  `json:"quality_ab_treatment_failure_rate"`
+}
+
+type ProductSavingsSummary struct {
+	Status                   string  `json:"status"`
+	BillableInputTokensSaved int64   `json:"billable_input_tokens_saved"`
+	OutputWireBytesSaved     int64   `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced  int64   `json:"request_side_bytes_reduced"`
+	CostUSD                  float64 `json:"cost_usd"`
+	CacheHits                int64   `json:"cache_hits"`
+	CacheMisses              int64   `json:"cache_misses"`
+	ReadDeltaHits            int64   `json:"read_delta_hits"`
+	RepeatedOutputHits       int64   `json:"repeated_output_hits"`
+	ChunkDedupHits           int64   `json:"chunk_dedup_hits"`
+	ToolResolutionMisses     int64   `json:"tool_resolution_misses"`
+	SafetyIssues             int64   `json:"safety_issues"`
+}
+
+func (s SavingsSummary) ProductSignals() ProductSavingsSummary {
+	product := ProductSavingsSummary{
+		BillableInputTokensSaved: s.BillableInputTokensSaved,
+		OutputWireBytesSaved:     s.OutputWireBytesSaved,
+		RequestSideBytesReduced:  s.RequestSideBytesReduced,
+		CostUSD:                  s.CostUSD,
+		ReadDeltaHits:            s.ProxyLayer0ReadDelta,
+		RepeatedOutputHits:       s.ProxyLayer0Repeated,
+		ChunkDedupHits:           s.ProxyLayer0ChunkDedup,
+		ToolResolutionMisses:     s.ProxyLayer0ToolMisses + s.ProxyLayer0CommandMisses,
+	}
+	for _, entry := range s.ProxyLayer0Cache {
+		switch entry.Action {
+		case "hit":
+			product.CacheHits += entry.Count
+		case "miss":
+			product.CacheMisses += entry.Count
+		}
+	}
+	product.SafetyIssues = product.ToolResolutionMisses
+	if s.QualityABRolledBack {
+		product.SafetyIssues++
+	}
+
+	switch {
+	case product.SafetyIssues > 0:
+		product.Status = "attention"
+	case product.BillableInputTokensSaved > 0 ||
+		product.OutputWireBytesSaved > 0 ||
+		product.RequestSideBytesReduced > 0 ||
+		product.CacheHits > 0 ||
+		product.ReadDeltaHits > 0 ||
+		product.RepeatedOutputHits > 0 ||
+		product.ChunkDedupHits > 0:
+		product.Status = "saving"
+	case s.ProxyLayer0ToolResults > 0 ||
+		s.ProxyLayer0Commands > 0 ||
+		s.ProxyLayer0ReadAttempts > 0 ||
+		product.CacheMisses > 0:
+		product.Status = "active_no_savings"
+	default:
+		product.Status = "idle"
+	}
+	return product
 }
 
 type ProxyLayer0PolicyEntry struct {

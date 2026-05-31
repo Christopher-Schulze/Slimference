@@ -374,6 +374,14 @@ mechanism, `hit`/`miss`, reason, and count for read-delta and exact
 repeated-output. Those reasons make cold starts, first-seed full passes,
 recent-edit bypasses, missing session/key state, non-shorter deltas, unavailable
 archives, and unchanged hits visible without raw payload capture.
+For product UI and low-noise status surfaces, `/admin/state` also exposes
+`savings.product`: a content-free rollup with `status` (`idle`,
+`active_no_savings`, `saving`, or `attention`), billable input tokens saved,
+output-wire bytes saved, request-side bytes reduced, cost estimate, cache hit/miss
+counts, read/repeated/chunk hits, tool-resolution misses, and aggregate safety
+issues. The raw route, policy, parser, and cache counters remain available under
+the existing debug fields, but product surfaces should prefer this rollup instead
+of inventing their own mixed headline.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually

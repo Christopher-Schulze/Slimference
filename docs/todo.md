@@ -1928,18 +1928,20 @@ be called complete, default-safe, and production-grade.
   default-safe savings lever through core-tool retention, mention reattach,
   missing-tool retry, cooldowns, and proof gates. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
-- [ ] **T269** WSS frame-level mutation frontier - expand beyond Phase-F only
-  through inspect-first frame registries, version gates, fixture replay, and
-  byte-equal fallback. Detail:
+- [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
+  registries now gate mutation capability; unknown or non-Codex shapes stay
+  byte-equal. Any expansion beyond Phase-F still requires fixture/live proof
+  before mutation. Detail:
   `docs/todo/t269-wss-frame-mutation-frontier.md`
-- [ ] **T270** Runtime savings policy autopilot - keep the policy engine only
-  as an intelligent runtime governor that uses route, recency, recovery,
-  re-read canaries, workload class, proof state, and cache economics. Detail:
+- [x] **T270** Runtime savings policy autopilot - runtime demotion ports now
+  force managed reducers to full-pass on quality, recovery-loop, missing-tool,
+  degraded-route, host-budget, or negative-savings signals. Live signal feeding
+  remains a later proof/wiring task. Detail:
   `docs/todo/t270-runtime-savings-policy-autopilot.md`
-- [ ] **T271** Product TUI signals and live-corpus proof gates - reduce TUI to
-  user-relevant product signals and make live CLI/Desktop proof the promotion
-  gate for every aggressive default. Detail:
-  `docs/todo/t271-product-tui-and-live-corpus-proof.md`
+- [~] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
+  now exposes the content-free `savings.product` rollup for user-facing status;
+  TUI cleanup, provider-cache alignment, and live-corpus proof gates remain.
+  Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
 - [ ] **T272** Host resource and latency budget max-out - prove the full stack
   stays lightweight on Apple Silicon and auto-degrades before CPU, memory, disk,
   or latency becomes a product drawdown. Detail:

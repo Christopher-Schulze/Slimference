@@ -75,6 +75,7 @@ func (s *SavingsProbe) ProbeSavings(_ context.Context) control.SavingsSummary {
 	if s.USDPerMillionTokens > 0 && out.InputTokensSaved > 0 {
 		out.CostUSD = float64(out.InputTokensSaved) / 1_000_000.0 * s.USDPerMillionTokens
 	}
+	out.Product = out.ProductSignals()
 	return out
 }
 
