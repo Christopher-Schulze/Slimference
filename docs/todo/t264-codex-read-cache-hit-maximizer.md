@@ -72,11 +72,19 @@ Maximize exact hits:
   and only become cache candidates on later exact observations.
 - Workdir and `cd <repo> && awk ...` normalization now inherit the existing
   read command path canonicalization, preserving repo scope.
+- Generic repeated-output keys now include Codex workdir metadata when present.
+  This prevents `go test ./...` or similar non-file commands in two repositories
+  from sharing a session key just because the command string and output hash are
+  identical.
+- Dependency-sensitive command keys (`go`, `cargo`, Node package managers,
+  Python test/package commands, `jest`, `vitest`, `tsc`, `eslint`) now include
+  a bounded hash over present dependency/config files such as `go.mod`,
+  `go.sum`, `Cargo.lock`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`,
+  `pyproject.toml`, `poetry.lock`, and test config files. No raw file content is
+  stored in the key, and oversized dependency files are skipped.
 
 Remaining before this task can close:
 
-- Add dependency-aware keys for repeated test/package commands where config or
-  lockfile state matters.
 - Add explicit miss-reason diagnostics for unsafe command shapes, post-edit
   reseed, reconnect hydration, TTL eviction, and ambiguous workdir.
 - Prove the broader command-shape matrix on real CLI/Desktop captures.

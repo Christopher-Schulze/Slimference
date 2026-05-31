@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -769,6 +770,79 @@ func TestProxyRepeatedSearchOutputKeepsRepoScopedKeys(t *testing.T) {
 	}
 	if out, ok := compactProxyRepeatedToolOutput(sessionID, cmdB, outputB); !ok || !strings.Contains(out, "status=unchanged") || !strings.Contains(out, "/repo/b/src") {
 		t.Fatalf("second repo B search should collapse on its own key: ok=%v out=%q", ok, out)
+	}
+}
+
+func TestProxyRepeatedGenericOutputKeepsWorkdirScopedKeys(t *testing.T) {
+	tmp := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return tmp, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	sessionID := "generic-repo-scope"
+	output := strings.Repeat("ok  pkg/example  cached test output\n", 30)
+	messagesFor := func(id, workdir string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: id, ToolName: "exec_command", ToolInput: `{"cmd":"go test ./...","workdir":"` + workdir + `"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: id, Text: output}}},
+		}
+	}
+
+	firstA := reduceCodexLayer0(codexLayer0Request{Messages: messagesFor("call-a", "/repo/a"), SessionID: sessionID})
+	if firstA.Stats.RepeatedOutputBlocks != 0 || firstA.Stats.TokensSaved != 0 {
+		t.Fatalf("first repo A generic command should seed only: %+v", firstA.Stats)
+	}
+	firstB := reduceCodexLayer0(codexLayer0Request{Messages: messagesFor("call-b", "/repo/b"), SessionID: sessionID})
+	if firstB.Stats.RepeatedOutputBlocks != 0 || firstB.Stats.TokensSaved != 0 {
+		t.Fatalf("first repo B generic command must not reuse repo A key: %+v text=%q", firstB.Stats, firstB.Messages[1].Content[0].Text)
+	}
+	secondB := reduceCodexLayer0(codexLayer0Request{Messages: messagesFor("call-b2", "/repo/b"), SessionID: sessionID})
+	if secondB.Stats.RepeatedOutputBlocks != 1 || secondB.Stats.TokensSaved <= 0 ||
+		!strings.Contains(secondB.Messages[1].Content[0].Text, "kind=tool-output") {
+		t.Fatalf("second repo B generic command should collapse on workdir key: %+v text=%q", secondB.Stats, secondB.Messages[1].Content[0].Text)
+	}
+
+	useA := messagesFor("key-a", "/repo/a")[0].Content[0]
+	useB := messagesFor("key-b", "/repo/b")[0].Content[0]
+	keyA := proxyLayer0QualityToolKeyForUse(useA, proxyLayer0CommandLine(useA))
+	keyB := proxyLayer0QualityToolKeyForUse(useB, proxyLayer0CommandLine(useB))
+	if keyA == keyB || !strings.Contains(keyA, "cwd:/repo/a") || !strings.Contains(keyB, "cwd:/repo/b") {
+		t.Fatalf("workdir-scoped keys not distinct: A=%q B=%q", keyA, keyB)
+	}
+}
+
+func TestProxyLayer0GenericOutputKeyIncludesDependencyFingerprint(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module example.test/a\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	use := types.ContentBlock{
+		Type:      "tool_use",
+		ToolName:  "exec_command",
+		ToolInput: `{"cmd":"go test ./...","workdir":"` + repo + `"}`,
+	}
+	commandLine := proxyLayer0CommandLine(use)
+	first := proxyLayer0QualityToolKeyForUse(use, commandLine)
+	if !strings.Contains(first, "cwd:"+repo) || !strings.Contains(first, ":deps:") {
+		t.Fatalf("dependency-sensitive key missing cwd/deps: %q", first)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, "go.sum"), []byte("example.test/dep v1.0.0 h1:abc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second := proxyLayer0QualityToolKeyForUse(use, commandLine)
+	if first == second || !strings.Contains(second, ":deps:") {
+		t.Fatalf("dependency fingerprint should change after lockfile update: first=%q second=%q", first, second)
+	}
+
+	plain := types.ContentBlock{
+		Type:      "tool_use",
+		ToolName:  "exec_command",
+		ToolInput: `{"cmd":"date","workdir":"` + repo + `"}`,
+	}
+	plainKey := proxyLayer0QualityToolKeyForUse(plain, proxyLayer0CommandLine(plain))
+	if strings.Contains(plainKey, ":deps:") || !strings.Contains(plainKey, "cwd:"+repo) {
+		t.Fatalf("non-sensitive command should stay cwd-scoped without dependency hash: %q", plainKey)
 	}
 }
 

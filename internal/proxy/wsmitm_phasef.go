@@ -329,7 +329,8 @@ func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []type
 				continue
 			}
 			use, _ := proxyResolveToolUseDetailed(block, toolUses)
-			key := proxyLayer0QualityToolKey(proxyLayer0CommandLine(use))
+			commandLine := proxyLayer0CommandLine(use)
+			key := proxyLayer0QualityToolKeyForUse(use, commandLine)
 			if key == "" {
 				continue
 			}

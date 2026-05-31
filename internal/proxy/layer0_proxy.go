@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -163,7 +166,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				continue
 			}
 			stats.CommandResolvedBlocks++
-			toolKey := proxyLayer0QualityToolKey(commandLine)
+			toolKey := proxyLayer0QualityToolKeyForUse(use, commandLine)
 			beforeTokens := tok.CountString(block.Text)
 			readCtx := proxyReadFileContext(req.SessionID, commandLine)
 			readCommand := readRequestFromCommandLine(commandLine).FilePath != ""
@@ -229,7 +232,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateEligible = tok.CountString(candidateText) < beforeTokens
 			}
 			if !readCommand && candidateEligible && policy.RepeatedOutput {
-				if repeatedText, repeated := compactProxyRepeatedToolOutput(req.SessionID, commandLine, candidateText); repeated {
+				if repeatedText, repeated := compactProxyRepeatedToolOutputWithKey(req.SessionID, toolKey, commandLine, candidateText); repeated {
 					afterText = repeatedText
 					changed = true
 					mechanism = proxyLayer0MechanismRepeatedOut
@@ -450,6 +453,141 @@ func proxyLayer0QualityToolKey(commandLine string) string {
 	return "command:" + commandLine
 }
 
+func proxyLayer0QualityToolKeyForUse(block types.ContentBlock, commandLine string) string {
+	key := proxyLayer0QualityToolKey(commandLine)
+	if !strings.HasPrefix(key, "command:") {
+		return key
+	}
+	workdir := proxyLayer0ToolWorkdir(block)
+	if workdir == "" {
+		return key
+	}
+	deps := proxyLayer0DependencyFingerprint(commandLine, workdir)
+	if deps != "" {
+		return "command:cwd:" + workdir + ":deps:" + deps + ":" + strings.TrimPrefix(key, "command:")
+	}
+	return "command:cwd:" + workdir + ":" + strings.TrimPrefix(key, "command:")
+}
+
+func proxyLayer0ToolWorkdir(block types.ContentBlock) string {
+	input := strings.TrimSpace(block.ToolInput)
+	if input == "" {
+		return ""
+	}
+	if raw := rawJSONString(json.RawMessage(input)); raw != "" {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(input), &obj); err != nil {
+		return ""
+	}
+	return proxyToolWorkdir(obj)
+}
+
+const proxyLayer0DependencyMaxBytes = 2 * 1024 * 1024
+
+var proxyLayer0DependencyFiles = []string{
+	"go.mod",
+	"go.sum",
+	"Cargo.toml",
+	"Cargo.lock",
+	"package.json",
+	"package-lock.json",
+	"pnpm-lock.yaml",
+	"yarn.lock",
+	"bun.lock",
+	"bun.lockb",
+	"pyproject.toml",
+	"poetry.lock",
+	"requirements.txt",
+	"uv.lock",
+	"Pipfile.lock",
+	"pytest.ini",
+	"tox.ini",
+	"vitest.config.ts",
+	"vitest.config.mts",
+	"jest.config.js",
+	"jest.config.ts",
+}
+
+func proxyLayer0DependencyFingerprint(commandLine, workdir string) string {
+	if !proxyLayer0DependencySensitiveCommand(commandLine) {
+		return ""
+	}
+	workdir = proxyCleanAbsWorkdir(workdir)
+	if workdir == "" {
+		return ""
+	}
+	hash := sha256.New()
+	files := 0
+	for _, path := range proxyLayer0DependencyFileCandidates(workdir) {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() || info.Size() <= 0 || info.Size() > proxyLayer0DependencyMaxBytes {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(workdir, path)
+		if err != nil {
+			rel = filepath.Base(path)
+		}
+		hash.Write([]byte(rel))
+		hash.Write([]byte{0})
+		hash.Write(data)
+		hash.Write([]byte{0})
+		files++
+	}
+	if files == 0 {
+		return ""
+	}
+	sum := hex.EncodeToString(hash.Sum(nil))
+	return strconv.Itoa(files) + "-" + sum[:16]
+}
+
+func proxyLayer0DependencySensitiveCommand(commandLine string) bool {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(argv[0]))
+	if base == "npx" && len(argv) >= 2 {
+		base = strings.ToLower(filepath.Base(argv[1]))
+	}
+	if (base == "pnpm" || base == "yarn" || base == "bun") && len(argv) >= 3 && (argv[1] == "exec" || argv[1] == "dlx") {
+		base = strings.ToLower(filepath.Base(argv[2]))
+	}
+	switch base {
+	case "go", "cargo", "npm", "pnpm", "yarn", "bun", "pytest", "tox", "uv", "pip", "python", "python3", "node", "jest", "vitest", "tsc", "eslint":
+		return true
+	default:
+		return false
+	}
+}
+
+func proxyLayer0DependencyFileCandidates(workdir string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	dir := filepath.Clean(workdir)
+	for depth := 0; depth < 5 && dir != "" && dir != string(filepath.Separator); depth++ {
+		for _, name := range proxyLayer0DependencyFiles {
+			path := filepath.Join(dir, name)
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			out = append(out, path)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return out
+}
+
 func compactProxyLayer0Text(commandLine, text string, ctx filter.FileReadContext) (string, bool) {
 	out, changed, _ := compactProxyLayer0TextDetailed(commandLine, text, ctx)
 	return out, changed
@@ -531,7 +669,10 @@ func readRequestFromCommandLine(commandLine string) readcache.Request {
 }
 
 func compactProxyRepeatedToolOutput(sessionID, commandLine, text string) (string, bool) {
-	key := proxyLayer0QualityToolKey(commandLine)
+	return compactProxyRepeatedToolOutputWithKey(sessionID, proxyLayer0QualityToolKey(commandLine), commandLine, text)
+}
+
+func compactProxyRepeatedToolOutputWithKey(sessionID, key, commandLine, text string) (string, bool) {
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(key) == "" {
 		return "", false
 	}
