@@ -126,6 +126,25 @@ func TestTryCompactSARIF_ErrorPastCapSurvives(t *testing.T) {
 	}
 }
 
+func TestTryCompactSARIF_LateErrorWithinErrorCapSurvives(t *testing.T) {
+	results := make([]string, 14)
+	for i := range results {
+		results[i] = `{"ruleId":"E` + string(rune('A'+i)) + `","level":"error","message":{"text":"error ` + string(rune('A'+i)) + `"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"err` + string(rune('A'+i)) + `.go"},"region":{"startLine":1}}}]}`
+	}
+	in := `{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"lint"}},"results":[` + strings.Join(results, ",") + `]}]}`
+	out, ok := TryCompactSARIF(nil, []byte(in))
+	if !ok {
+		t.Fatalf("expected match")
+	}
+	s := string(out)
+	if !strings.Contains(s, "errN.go:1 error [EN] error N") {
+		t.Fatalf("late same-priority error dropped: %q", s)
+	}
+	if strings.Contains(s, "errI.go") {
+		t.Fatalf("middle same-priority error should be capped before tail evidence: %q", s)
+	}
+}
+
 func TestTryCompactSARIF_NotSARIF_PassthroughTextRejected(t *testing.T) {
 	cases := [][]byte{
 		[]byte(""),

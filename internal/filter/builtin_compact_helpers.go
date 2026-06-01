@@ -216,3 +216,33 @@ func truncateViolationsPreservingErrors(kept []string, maxLines int) string {
 	}
 	return out
 }
+
+func cappedEvidenceIndexes(total, budget, tail int) []int {
+	if total <= 0 || budget <= 0 {
+		return nil
+	}
+	if total <= budget {
+		out := make([]int, total)
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+	if tail < 0 {
+		tail = 0
+	}
+	if tail > budget/2 {
+		tail = budget / 2
+	}
+	head := budget - tail
+	out := make([]int, 0, budget)
+	for i := 0; i < head; i++ {
+		out = append(out, i)
+	}
+	for i := total - tail; i < total; i++ {
+		if i >= head {
+			out = append(out, i)
+		}
+	}
+	return out
+}

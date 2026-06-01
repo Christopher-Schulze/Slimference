@@ -22,6 +22,10 @@ measured hit rate and no silent information loss in product defaults.
   Reducers must preserve the actionable payload: failures, paths, line numbers,
   exit status, changed files, destructive actions, match context, and summary
   counts.
+- Known default cap families now use priority/head-tail evidence retention
+  instead of blind first-N positional truncation. This covers search, log/lint,
+  Tier-1 test JSON, SARIF, ESLint JSON, kubectl JSON, cargo metadata, and
+  Terraform JSON.
 - Search and log reducers still need broader real-traffic proof and keying
   hygiene before "maxxed out" is true.
 
@@ -129,6 +133,12 @@ These are promotion targets, not claims:
   to a count-only summary. This aligns the reducer with its preserved-evidence
   contract and removes a small silent context-loss surface without changing the
   fail-shorter gate.
+- 2026-06-01: Converted the remaining known cap-first default reducers to
+  priority/head-tail evidence retention. Tier-1 Vitest/Jest, pytest, and Cargo
+  test JSON now keep late failures; SARIF and ESLint JSON keep late same-priority
+  errors; kubectl JSON keeps late attention rows; cargo metadata and Terraform
+  JSON keep late workspace/resource evidence while Terraform resource changes
+  still avoid letting benign no-op tails crowd out destructive changes.
 
 ## Done
 

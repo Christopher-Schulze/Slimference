@@ -65,28 +65,39 @@ func TryCompactVitestJSON(argv []string, stdout []byte) ([]byte, bool) {
 	var out strings.Builder
 	fmt.Fprintf(&out, "[%s] FAILED %d/%d tests in %d/%d suite(s)\n", label, r.NumFailedTests, r.NumTotalTests, r.NumFailedTestSuites, r.NumTotalTestSuites)
 	const maxFailures = 5
-	count := 0
+	type vitestFailure struct {
+		name     string
+		messages []string
+	}
+	failures := make([]vitestFailure, 0, r.NumFailedTests)
 	for _, suite := range r.TestResults {
 		for _, a := range suite.AssertionResults {
 			if a.Status != "failed" {
 				continue
 			}
-			if count >= maxFailures {
-				fmt.Fprintf(&out, "  ... +%d more failure(s)\n", r.NumFailedTests-count)
-				return []byte(out.String()), true
-			}
 			name := a.FullName
 			if name == "" {
 				name = a.Title
 			}
-			fmt.Fprintf(&out, "  FAIL %s\n", name)
-			for _, msg := range a.FailureMessages {
-				for _, line := range firstLines(msg, 3) {
-					fmt.Fprintf(&out, "    %s\n", line)
-				}
-			}
-			count++
+			failures = append(failures, vitestFailure{name: name, messages: a.FailureMessages})
 		}
+	}
+	previous := -1
+	for _, idx := range cappedEvidenceIndexes(len(failures), maxFailures, 2) {
+		if previous >= 0 && idx > previous+1 {
+			fmt.Fprintf(&out, "  ... +%d more failure(s)\n", idx-previous-1)
+		}
+		failure := failures[idx]
+		fmt.Fprintf(&out, "  FAIL %s\n", failure.name)
+		for _, msg := range failure.messages {
+			for _, line := range firstLines(msg, 3) {
+				fmt.Fprintf(&out, "    %s\n", line)
+			}
+		}
+		previous = idx
+	}
+	if len(failures) > 0 && previous < len(failures)-1 {
+		fmt.Fprintf(&out, "  ... +%d more failure(s)\n", len(failures)-previous-1)
 	}
 	return []byte(out.String()), true
 }
@@ -133,22 +144,29 @@ func TryCompactPytestJSON(argv []string, stdout []byte) ([]byte, bool) {
 	var out strings.Builder
 	fmt.Fprintf(&out, "[pytest --json-report] FAILED %d/%d tests\n", totalFail, r.Summary.Total)
 	const maxFailures = 5
-	count := 0
+	failures := make([]test, 0, totalFail)
 	for _, tc := range r.Tests {
 		if tc.Outcome != "failed" && tc.Outcome != "error" {
 			continue
 		}
-		if count >= maxFailures {
-			fmt.Fprintf(&out, "  ... +%d more failure(s)\n", totalFail-count)
-			return []byte(out.String()), true
+		failures = append(failures, tc)
+	}
+	previous := -1
+	for _, idx := range cappedEvidenceIndexes(len(failures), maxFailures, 2) {
+		if previous >= 0 && idx > previous+1 {
+			fmt.Fprintf(&out, "  ... +%d more failure(s)\n", idx-previous-1)
 		}
+		tc := failures[idx]
 		fmt.Fprintf(&out, "  FAIL %s\n", tc.NodeID)
 		if tc.LongRepr != "" {
 			for _, line := range firstLines(tc.LongRepr, 3) {
 				fmt.Fprintf(&out, "    %s\n", line)
 			}
 		}
-		count++
+		previous = idx
+	}
+	if len(failures) > 0 && previous < len(failures)-1 {
+		fmt.Fprintf(&out, "  ... +%d more failure(s)\n", len(failures)-previous-1)
 	}
 	return []byte(out.String()), true
 }
@@ -205,17 +223,22 @@ func TryCompactCargoTestJSON(argv []string, stdout []byte) ([]byte, bool) {
 	var out strings.Builder
 	fmt.Fprintf(&out, "[cargo test --format json] FAILED %d failed, %d passed\n", suiteFinal.Failed, suiteFinal.Passed)
 	const maxFailures = 5
-	for i, ft := range failedTests {
-		if i >= maxFailures {
-			fmt.Fprintf(&out, "  ... +%d more failure(s)\n", len(failedTests)-i)
-			break
+	previous := -1
+	for _, idx := range cappedEvidenceIndexes(len(failedTests), maxFailures, 2) {
+		if previous >= 0 && idx > previous+1 {
+			fmt.Fprintf(&out, "  ... +%d more failure(s)\n", idx-previous-1)
 		}
+		ft := failedTests[idx]
 		fmt.Fprintf(&out, "  FAIL %s\n", ft.Name)
 		if ft.Stdout != "" {
 			for _, line := range firstLines(ft.Stdout, 3) {
 				fmt.Fprintf(&out, "    %s\n", line)
 			}
 		}
+		previous = idx
+	}
+	if len(failedTests) > 0 && previous < len(failedTests)-1 {
+		fmt.Fprintf(&out, "  ... +%d more failure(s)\n", len(failedTests)-previous-1)
 	}
 	return []byte(out.String()), true
 }

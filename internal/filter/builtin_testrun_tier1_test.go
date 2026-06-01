@@ -62,6 +62,9 @@ func TestTryCompactVitestJSON_TruncatesAfterMaxFailures(t *testing.T) {
 	if !strings.Contains(string(out), "+3 more failure") {
 		t.Fatalf("expected truncation marker, got %q", string(out))
 	}
+	if !strings.Contains(string(out), "FAIL t7") || strings.Contains(string(out), "FAIL t4") {
+		t.Fatalf("late failure should survive while middle failures are capped: %q", string(out))
+	}
 }
 
 func TestTryCompactVitestJSON_NoMatchOnWrongArgv(t *testing.T) {
@@ -204,6 +207,9 @@ func TestTryCompactPytestJSON_Edges(t *testing.T) {
 	if !strings.Contains(string(out), "+2 more failure") || strings.Contains(string(out), "line4") {
 		t.Fatalf("pytest truncation/firstLines failed: %q", out)
 	}
+	if !strings.Contains(string(out), "test_mod.py::test_g") || strings.Contains(string(out), "test_mod.py::test_d") {
+		t.Fatalf("late pytest failure should survive while middle failures are capped: %q", out)
+	}
 }
 
 func TestTryCompactCargoTestJSON_AllPass(t *testing.T) {
@@ -287,6 +293,9 @@ func TestTryCompactCargoTestJSON_Edges(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "+3 more failure") || strings.Contains(string(out), "four") {
 		t.Fatalf("cargo truncation/firstLines failed: %q", out)
+	}
+	if !strings.Contains(string(out), "FAIL f6") || strings.Contains(string(out), "FAIL f3") {
+		t.Fatalf("late cargo failure should survive while middle failures are capped: %q", out)
 	}
 }
 

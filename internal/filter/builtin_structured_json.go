@@ -42,13 +42,14 @@ func TryCompactKubectlJSON(argv []string, stdout []byte) ([]byte, bool) {
 	fmt.Fprintf(&b, "[kubectl -o json] %d item(s)\n", len(items))
 	const maxRows = 24
 	rows := 0
-	for _, item := range kubectlPrioritizedItems(items) {
-		if rows >= maxRows {
-			fmt.Fprintf(&b, "  ... +%d more item(s)\n", len(items)-rows)
-			break
-		}
+	prioritizedItems := kubectlPrioritizedItems(items)
+	for _, idx := range cappedEvidenceIndexes(len(prioritizedItems), maxRows, 6) {
+		item := prioritizedItems[idx]
 		fmt.Fprintf(&b, "  %s\n", compactKubectlJSONItem(item))
 		rows++
+	}
+	if len(items) > rows {
+		fmt.Fprintf(&b, "  ... +%d more item(s)\n", len(items)-rows)
 	}
 	out := b.String()
 	if len(out) >= len(stdout) {
@@ -104,12 +105,14 @@ func TryCompactCargoMetadataJSON(argv []string, stdout []byte) ([]byte, bool) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[cargo metadata] %d package(s), %d workspace member(s), %d dependency edge(s)\n", len(m.Packages), len(workspaceRows), edges)
 	const maxMembers = 16
-	for i, row := range workspaceRows {
-		if i >= maxMembers {
-			fmt.Fprintf(&b, "  ... +%d more workspace member(s)\n", len(workspaceRows)-i)
-			break
-		}
+	emitted := 0
+	for _, idx := range cappedEvidenceIndexes(len(workspaceRows), maxMembers, 4) {
+		row := workspaceRows[idx]
 		fmt.Fprintf(&b, "  %s\n", row)
+		emitted++
+	}
+	if len(workspaceRows) > emitted {
+		fmt.Fprintf(&b, "  ... +%d more workspace member(s)\n", len(workspaceRows)-emitted)
 	}
 	out := b.String()
 	if len(out) >= len(stdout) {
@@ -139,22 +142,26 @@ func TryCompactTerraformShowJSON(argv []string, stdout []byte) ([]byte, bool) {
 	} else if changes := terraformJSONResourceChanges(root["resource_changes"]); len(changes) > 0 {
 		fmt.Fprintf(&b, "[terraform show -json] %d resource change(s)\n", len(changes))
 		const maxRows = 30
-		for i, row := range changes {
-			if i >= maxRows {
-				fmt.Fprintf(&b, "  ... +%d more change(s)\n", len(changes)-i)
-				break
-			}
-			fmt.Fprintf(&b, "  %s\n", row)
+		emitted := 0
+		for _, idx := range selectTerraformJSONChangeIndexes(changes, maxRows) {
+			row := changes[idx]
+			fmt.Fprintf(&b, "  %s\n", row.text)
+			emitted++
+		}
+		if len(changes) > emitted {
+			fmt.Fprintf(&b, "  ... +%d more change(s)\n", len(changes)-emitted)
 		}
 	} else if resources := terraformJSONStateResources(root); len(resources) > 0 {
 		fmt.Fprintf(&b, "[terraform show -json] %d state resource(s)\n", len(resources))
 		const maxRows = 30
-		for i, row := range resources {
-			if i >= maxRows {
-				fmt.Fprintf(&b, "  ... +%d more resource(s)\n", len(resources)-i)
-				break
-			}
+		emitted := 0
+		for _, idx := range cappedEvidenceIndexes(len(resources), maxRows, 6) {
+			row := resources[idx]
 			fmt.Fprintf(&b, "  %s\n", row)
+			emitted++
+		}
+		if len(resources) > emitted {
+			fmt.Fprintf(&b, "  ... +%d more resource(s)\n", len(resources)-emitted)
 		}
 	} else {
 		return stdout, false
@@ -307,7 +314,12 @@ func terraformJSONDiagnostics(raw json.RawMessage) []string {
 	return out
 }
 
-func terraformJSONResourceChanges(raw json.RawMessage) []string {
+type terraformJSONChangeRow struct {
+	text     string
+	priority int
+}
+
+func terraformJSONResourceChanges(raw json.RawMessage) []terraformJSONChangeRow {
 	var changes []struct {
 		Address string `json:"address"`
 		Type    string `json:"type"`
@@ -322,7 +334,7 @@ func terraformJSONResourceChanges(raw json.RawMessage) []string {
 	sort.SliceStable(changes, func(i, j int) bool {
 		return terraformJSONActionPriority(changes[i].Change.Actions) < terraformJSONActionPriority(changes[j].Change.Actions)
 	})
-	var out []string
+	var out []terraformJSONChangeRow
 	for _, c := range changes {
 		address := c.Address
 		if address == "" {
@@ -332,9 +344,46 @@ func terraformJSONResourceChanges(raw json.RawMessage) []string {
 		if actions == "" {
 			actions = "no-op"
 		}
-		out = append(out, address+" actions="+actions)
+		out = append(out, terraformJSONChangeRow{
+			text:     address + " actions=" + actions,
+			priority: terraformJSONActionPriority(c.Change.Actions),
+		})
 	}
 	return out
+}
+
+func selectTerraformJSONChangeIndexes(changes []terraformJSONChangeRow, budget int) []int {
+	if len(changes) <= budget {
+		return cappedEvidenceIndexes(len(changes), budget, 0)
+	}
+	selected := make([]int, 0, budget)
+	remaining := budget
+	for priority := 0; priority <= 3 && remaining > 0; priority++ {
+		group := make([]int, 0)
+		for i, row := range changes {
+			if row.priority == priority {
+				group = append(group, i)
+			}
+		}
+		if len(group) == 0 {
+			continue
+		}
+		if len(group) <= remaining {
+			selected = append(selected, group...)
+			remaining -= len(group)
+			continue
+		}
+		if priority <= 1 {
+			for _, rel := range cappedEvidenceIndexes(len(group), remaining, 6) {
+				selected = append(selected, group[rel])
+			}
+		} else {
+			selected = append(selected, group[:remaining]...)
+		}
+		remaining = 0
+	}
+	sort.Ints(selected)
+	return selected
 }
 
 func terraformJSONActionPriority(actions []string) int {

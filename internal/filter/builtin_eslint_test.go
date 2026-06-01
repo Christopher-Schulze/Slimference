@@ -80,6 +80,29 @@ func TestTryCompactEslintJSON_errorSurvivesPastWarningCap(t *testing.T) {
 	}
 }
 
+func TestTryCompactEslintJSON_lateErrorSurvivesWithinErrorCap(t *testing.T) {
+	t.Parallel()
+	var msgs strings.Builder
+	for i := 0; i < 26; i++ {
+		if i > 0 {
+			msgs.WriteString(",")
+		}
+		msgs.WriteString(fmt.Sprintf(`{"ruleId":"rule-%02d","severity":2,"message":"error-%02d","line":%d,"column":1}`, i, i, i+1))
+	}
+	in := `[{"filePath":"/src/errors.js","messages":[` + msgs.String() + `],"errorCount":26,"warningCount":0}]`
+	out, ok := TryCompactEslintJSON([]string{"eslint", "--format=json"}, []byte(in))
+	if !ok {
+		t.Fatalf("expected compaction")
+	}
+	got := string(out)
+	if !strings.Contains(got, "error-25") {
+		t.Fatalf("late same-priority error was dropped: %q", got)
+	}
+	if strings.Contains(got, "error-18") {
+		t.Fatalf("middle same-priority error should be capped before tail evidence: %q", got)
+	}
+}
+
 func TestTryCompactEslintJSON_passThrough(t *testing.T) {
 	t.Parallel()
 	// Not eslint argv.

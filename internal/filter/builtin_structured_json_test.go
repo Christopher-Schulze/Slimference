@@ -39,6 +39,26 @@ func TestTryCompactKubectlJSONKeepsAttentionRows(t *testing.T) {
 	}
 }
 
+func TestTryCompactKubectlJSONKeepsLateAttentionRowsWithinCap(t *testing.T) {
+	t.Parallel()
+	var items []string
+	for i := 0; i < 30; i++ {
+		items = append(items, fmt.Sprintf(`{"kind":"Pod","metadata":{"namespace":"prod","name":"bad-%02d"},"status":{"phase":"Pending","containerStatuses":[{"name":"app","ready":false,"restartCount":%d,"state":{"waiting":{"reason":"CrashLoopBackOff"}}}]}}`, i, i+1))
+	}
+	input := `{"kind":"List","items":[` + strings.Join(items, ",") + `]}`
+	out, ok := TryCompactKubectlJSON([]string{"kubectl", "get", "pods", "-o=json"}, []byte(input))
+	if !ok {
+		t.Fatal("expected kubectl json compaction")
+	}
+	got := string(out)
+	if !strings.Contains(got, "prod/bad-29") {
+		t.Fatalf("late attention row dropped: %q", got)
+	}
+	if strings.Contains(got, "prod/bad-20") {
+		t.Fatalf("middle attention row should be capped before tail evidence: %q", got)
+	}
+}
+
 func TestTryCompactCargoMetadataJSON(t *testing.T) {
 	t.Parallel()
 	input := `{"packages":[` +
@@ -56,6 +76,29 @@ func TestTryCompactCargoMetadataJSON(t *testing.T) {
 		!strings.Contains(got, "app 0.1.0") ||
 		!strings.Contains(got, "lib 0.2.0") {
 		t.Fatalf("bad cargo metadata summary: %q", got)
+	}
+}
+
+func TestTryCompactCargoMetadataJSONKeepsLateWorkspaceMembers(t *testing.T) {
+	t.Parallel()
+	var packages []string
+	var members []string
+	for i := 0; i < 24; i++ {
+		id := fmt.Sprintf("path+file:///crate%02d#0.1.0", i)
+		packages = append(packages, fmt.Sprintf(`{"name":"crate%02d","version":"0.1.0","id":"%s"}`, i, id))
+		members = append(members, `"`+id+`"`)
+	}
+	input := `{"packages":[` + strings.Join(packages, ",") + `],"workspace_members":[` + strings.Join(members, ",") + `]}`
+	out, ok := TryCompactCargoMetadataJSON([]string{"cargo", "metadata"}, []byte(input))
+	if !ok {
+		t.Fatal("expected cargo metadata compaction")
+	}
+	got := string(out)
+	if !strings.Contains(got, "crate23 0.1.0") {
+		t.Fatalf("late workspace member dropped: %q", got)
+	}
+	if strings.Contains(got, "crate18 0.1.0") {
+		t.Fatalf("middle workspace member should be capped before tail evidence: %q", got)
 	}
 }
 
@@ -104,6 +147,46 @@ func TestTryCompactTerraformShowJSONKeepsLateDestructiveChange(t *testing.T) {
 	}
 	if strings.Contains(got, "data.null_data_source.ok_34") {
 		t.Fatalf("benign tail should not crowd out destructive change: %q", got)
+	}
+}
+
+func TestTryCompactTerraformShowJSONKeepsLateSamePriorityChange(t *testing.T) {
+	t.Parallel()
+	var changes []string
+	for i := 0; i < 40; i++ {
+		changes = append(changes, fmt.Sprintf(`{"address":"aws_instance.replace_%02d","change":{"actions":["delete","create"]}}`, i))
+	}
+	plan := `{"format_version":"1.2","resource_changes":[` + strings.Join(changes, ",") + `]}`
+	out, ok := TryCompactTerraformShowJSON([]string{"terraform", "show", "-json", "plan.out"}, []byte(plan))
+	if !ok {
+		t.Fatal("expected terraform plan json compaction")
+	}
+	got := string(out)
+	if !strings.Contains(got, "aws_instance.replace_39 actions=delete,create") {
+		t.Fatalf("late same-priority change dropped: %q", got)
+	}
+	if strings.Contains(got, "aws_instance.replace_33") {
+		t.Fatalf("middle same-priority change should be capped before tail evidence: %q", got)
+	}
+}
+
+func TestTryCompactTerraformShowJSONKeepsLateStateResource(t *testing.T) {
+	t.Parallel()
+	var resources []string
+	for i := 0; i < 40; i++ {
+		resources = append(resources, fmt.Sprintf(`{"address":"aws_instance.node_%02d"}`, i))
+	}
+	state := `{"values":{"root_module":{"resources":[` + strings.Join(resources, ",") + `]}}}`
+	out, ok := TryCompactTerraformShowJSON([]string{"terraform", "show", "-json"}, []byte(state))
+	if !ok {
+		t.Fatal("expected terraform state json compaction")
+	}
+	got := string(out)
+	if !strings.Contains(got, "aws_instance.node_39") {
+		t.Fatalf("late state resource dropped: %q", got)
+	}
+	if strings.Contains(got, "aws_instance.node_33") {
+		t.Fatalf("middle state resource should be capped before tail evidence: %q", got)
 	}
 }
 

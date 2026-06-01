@@ -333,7 +333,7 @@ Current product status:
 | Ranged read-delta for `head` / `tail` / `sed -n` | On | Covered by T250/T257 capture matrix | Low risk: first range full-passes, later same range collapses only after exact observation |
 | Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; covered by default-auto proof classes | Low risk: exact same command/output only, archive-backed, fail-open on changes |
 | Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads | Low to medium: grouped first search keeps representative matches and can be re-run; no file-read context weakening |
-| Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
+| Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252/T260 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
 | Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP blocked from archive refs | T255 live WSS replay proof, T256 policy wiring, T258 route/risk gate | Medium but guarded: archive recovery required, recent/re-read risk loosens |
 | Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
 | First-read AST/signature scan-mode | Removed | Removed by T253; tests enforce first file reads full-pass even in `max` | High drawdown, not product-safe |
@@ -497,6 +497,15 @@ Layer-0 reducer metadata is part of the safety contract. Every default reducer
 declares its mechanism id, command family, safety class, required retained
 fields, preserved evidence, and fail-open recovery path. The registry is used
 for audits/control surfaces only; it does not add model-facing text.
+
+Layer-0 cap handling is evidence-first, not first-N. Known default reducers that
+truncate large outputs keep actionable rows before noise and sample the tail
+inside important groups: test JSON keeps late failures, SARIF/ESLint JSON keep
+late same-priority errors, kubectl JSON keeps late unhealthy rows, cargo metadata
+keeps late workspace members, Terraform JSON keeps late destructive or state
+resource evidence, and search grouping keeps head/tail matches per file and file
+set. Omitted-count markers remain explicit, and malformed or non-shorter outputs
+full-pass.
 
 First-pass search outputs are grouped by `TryCompactSearchOutput` /
 `groupSearchResults` (file -> match list with a `[tool] N match(es) in M file(s)`

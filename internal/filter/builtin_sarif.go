@@ -164,11 +164,34 @@ func TryCompactSARIF(argv []string, stdout []byte) ([]byte, bool) {
 	fmt.Fprintf(&out, "[sarif: %s] %d result(s) — %d error, %d warning, %d note\n",
 		toolLabel, c.Total, c.Errors, c.Warnings, c.Notes)
 	const maxLines = 10
+	selected := make(map[int]struct{}, maxLines)
+	remaining := maxLines
+	for priority := 0; priority <= 3 && remaining > 0; priority++ {
+		group := make([]int, 0)
+		for i, r := range allResults {
+			if resultPriority(r.res) == priority {
+				group = append(group, i)
+			}
+		}
+		if len(group) == 0 {
+			continue
+		}
+		if len(group) <= remaining {
+			for _, idx := range group {
+				selected[idx] = struct{}{}
+			}
+			remaining -= len(group)
+			continue
+		}
+		for _, rel := range cappedEvidenceIndexes(len(group), remaining, 3) {
+			selected[group[rel]] = struct{}{}
+		}
+		remaining = 0
+	}
 	emitted := 0
-	for _, r := range allResults {
-		if emitted >= maxLines {
-			fmt.Fprintf(&out, "  ... +%d more\n", c.Total-emitted)
-			break
+	for i, r := range allResults {
+		if _, ok := selected[i]; !ok {
+			continue
 		}
 		loc := "<no-location>"
 		if len(r.res.Locations) > 0 {
@@ -201,6 +224,9 @@ func TryCompactSARIF(argv []string, stdout []byte) ([]byte, bool) {
 		}
 		fmt.Fprintf(&out, "  %s %s [%s] %s\n", loc, level, rule, msg)
 		emitted++
+	}
+	if c.Total > emitted {
+		fmt.Fprintf(&out, "  ... +%d more\n", c.Total-emitted)
 	}
 	return []byte(out.String()), true
 }

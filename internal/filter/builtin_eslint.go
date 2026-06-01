@@ -87,32 +87,45 @@ func TryCompactEslintJSON(argv []string, stdout []byte) ([]byte, bool) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[eslint] %d error(s), %d warning(s) in %d file(s)\n", totalErr, totalWarn, len(files))
 	const maxRows = 20
-	rows := 0
-	emit := func(wantSeverity int) bool {
+	type problemRow struct {
+		filePath string
+		message  message
+	}
+	collect := func(wantSeverity int) []problemRow {
+		rows := make([]problemRow, 0)
 		for _, f := range files {
 			for _, m := range f.Messages {
 				if m.Severity != wantSeverity {
 					continue
 				}
-				if rows >= maxRows {
-					return false
-				}
-				sev := "warning"
-				if m.Severity == 2 {
-					sev = "error"
-				}
-				rule := m.RuleID
-				if rule == "" {
-					rule = "-"
-				}
-				fmt.Fprintf(&b, "  %s:%d:%d %s [%s] %s\n", f.FilePath, m.Line, m.Column, sev, rule, truncateEslintMessage(m.Message))
-				rows++
+				rows = append(rows, problemRow{filePath: f.FilePath, message: m})
 			}
 		}
-		return true
+		return rows
 	}
-	if emit(2) { // errors first
-		emit(1) // then warnings
+	emitRows := func(problemRows []problemRow, limit int) int {
+		emitted := 0
+		for _, idx := range cappedEvidenceIndexes(len(problemRows), limit, 4) {
+			row := problemRows[idx]
+			m := row.message
+			sev := "warning"
+			if m.Severity == 2 {
+				sev = "error"
+			}
+			rule := m.RuleID
+			if rule == "" {
+				rule = "-"
+			}
+			fmt.Fprintf(&b, "  %s:%d:%d %s [%s] %s\n", row.filePath, m.Line, m.Column, sev, rule, truncateEslintMessage(m.Message))
+			emitted++
+		}
+		return emitted
+	}
+	rows := 0
+	errorRows := collect(2)
+	rows += emitRows(errorRows, maxRows)
+	if rows < maxRows {
+		rows += emitRows(collect(1), maxRows-rows)
 	}
 	if totalErr+totalWarn > rows {
 		fmt.Fprintf(&b, "  ... +%d more problem(s)\n", totalErr+totalWarn-rows)

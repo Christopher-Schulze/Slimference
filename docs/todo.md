@@ -1658,7 +1658,7 @@ criteria; this index is the traceability map so nothing is lost.
 | 18 | Prompt-cache-aware mutation policy | avoids net-negative billing | Stability | T251 | DONE (byte-equal WSS prefix regression test) |
 | 19 | Bounded session state (TTL/LRU) | stability | Stability | T251 | DONE for readcache/tooluse state |
 | 20 | doubled-newline fix in delta.go | +1-2% changed-reads | Quick win | T252 | DONE |
-| 21 | Filter caps token-aware + error-priority | +1-3% | Quick win + drawdown | T252 | PARTIAL (log+lint/search/terraform done; broader parser caps remain) |
+| 21 | Filter caps token-aware + error-priority | +1-3% | Quick win + drawdown | T252/T260 | DONE for known default cap families; live corpus proof remains separate |
 | 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | DONE |
 | 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | DONE |
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | DONE |
@@ -1891,9 +1891,10 @@ be called complete, default-safe, and production-grade.
 ### Original layer max-out tasks
 
 - [~] **T260** Layer 0 parser frontier and safe pre-entry max-out - Layer 0 now
-  has a reducer safety/evidence registry in dispatch order with required-field
-  and recovery-path contracts; remaining work is corpus fixtures,
-  priority-first hardening, and live route proof. Detail:
+  has a reducer safety/evidence registry plus late-evidence cap hardening for
+  search, log/lint, test JSON, SARIF, ESLint JSON, kubectl JSON, cargo metadata,
+  and Terraform JSON. Remaining work is corpus breadth fixtures and live route
+  proof. Detail:
   `docs/todo/t260-layer0-parser-frontier-maxx.md`
 - [~] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
   sublayer safety registry with archive requirements, model-risk notes, and
