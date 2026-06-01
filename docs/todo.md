@@ -1898,9 +1898,10 @@ be called complete, default-safe, and production-grade.
   `docs/todo/t260-layer0-parser-frontier-maxx.md`
 - [~] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
   sublayer safety registry with archive requirements, model-risk notes, and
-  recovery paths; archive-required executor enforcement and archive-failure
-  full-pass behavior are implemented, while per-sublayer decision records,
-  prompt-cache economics, and round-trip/live proof remain. Detail:
+  recovery paths; archive-required executor enforcement, archive-failure
+  full-pass behavior, and content-free per-sublayer decision records are
+  implemented, while prompt-cache economics and round-trip/live proof remain.
+  Detail:
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
   `internal/contextledger` capsule builders now exist for command, file, search,

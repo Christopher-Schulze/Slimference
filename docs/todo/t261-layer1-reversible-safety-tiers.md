@@ -22,6 +22,9 @@ safe by construction through explicit tiers and enforcement.
     references
   - lossy or reconstructive: structure extraction, comment stripping, success
     short-circuit, graph pruning, tool-output compression
+- The Layer 1 result and HTTP decisions log now include content-free
+  per-sub-layer decision records with tier, applied flag, reason, saved tokens,
+  archive requirement, recovery path, and default eligibility.
 - Existing negative-savings guards protect token count, not comprehension.
 
 ## Product target
@@ -46,13 +49,15 @@ compression shortcut.
    - max: only mechanisms that still have recovery or live proof
    - off: byte-equivalent pass
 3. Add a per-sublayer decision record:
-   - attempted
-   - applied
-   - tier
-   - reason
-   - saved tokens
-   - recovered archive id count
-   - bypass reason
+   - [x] attempted
+   - [x] applied
+   - [x] tier
+   - [x] reason
+   - [x] saved tokens
+   - [x] archive requirement
+   - [x] recovery path
+   - [x] default eligibility
+   - [ ] per-sub-layer archive id counts if live proof shows this is needed
 4. Convert context-risky sublayers to archive-backed form where feasible:
    - structure extraction must preserve anchors and archive full original
    - comment strip must keep critical comments and archive original if applied
@@ -108,6 +113,12 @@ compression shortcut.
   commit model-facing replacements after a valid archive id exists. Archive
   failure now full-passes the original block and resets per-block savings
   counters instead of silently shipping unrecoverable context loss.
+- 2026-06-01: Added `Layer1DecisionRecord` telemetry to every Layer 1 result and
+  exposed it through proxy decision summaries. The record is content-free and
+  ties each sub-layer to its registry tier, default eligibility, recovery path,
+  archive requirement, application state, reason, and saved-token count. The
+  mapping separates `tool_compressor` from `tool_output_in_window` attribution
+  while preserving legacy aggregate accounting.
 
 ## Done
 

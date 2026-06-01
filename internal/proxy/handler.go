@@ -387,6 +387,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 4. Layer 1: Deterministic compression ---
 	var layer1Breakdown map[string]dbg.SubLayerBreakdown
+	var layer1Decisions []dbg.Layer1DecisionSummary
 	if p.isLayerEnabled(1) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull && layer1Action != planner.ActionBypass {
 		l1Start := time.Now()
 		// T76: thread the request id as the session scope so any archive
@@ -416,6 +417,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			)
 		}
 		layer1Breakdown = buildLayer1Breakdown(result)
+		layer1Decisions = buildLayer1Decisions(result)
 	}
 
 	// --- 4.5 Mid-exchange summary (T99, default off) ---
@@ -1052,6 +1054,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				Ratio:       compressionRatio,
 			},
 			Layer1Breakdown:      layer1Breakdown,
+			Layer1Decisions:      layer1Decisions,
 			CacheHit:             false,
 			CacheReadTokens:      upstreamCacheUsage.ReadTokens,
 			CacheCreateTokens:    upstreamCacheUsage.CreateTokens,
@@ -1276,6 +1279,27 @@ func buildLayer1Breakdown(r compression.Layer1Result) map[string]dbg.SubLayerBre
 	addBD("repeated_collapse", r.RepeatedCollapseSaved)
 	addBD("graph_pruning", r.GraphPruningSaved)
 	return bd
+}
+
+func buildLayer1Decisions(r compression.Layer1Result) []dbg.Layer1DecisionSummary {
+	if len(r.Decisions) == 0 {
+		return nil
+	}
+	out := make([]dbg.Layer1DecisionSummary, 0, len(r.Decisions))
+	for _, decision := range r.Decisions {
+		out = append(out, dbg.Layer1DecisionSummary{
+			SubLayer:        decision.SubLayer,
+			Tier:            string(decision.Tier),
+			Attempted:       decision.Attempted,
+			Applied:         decision.Applied,
+			Reason:          decision.Reason,
+			SavedTokens:     decision.SavedTokens,
+			RequiresArchive: decision.RequiresArchive,
+			Recovery:        decision.Recovery,
+			DefaultEligible: decision.DefaultEligible,
+		})
+	}
+	return out
 }
 
 // doUpstreamRequest builds and executes the upstream HTTP request.

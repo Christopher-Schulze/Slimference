@@ -40,6 +40,21 @@ type SubLayerBreakdown struct {
 	Saved  int `json:"saved"`
 }
 
+// Layer1DecisionSummary records the content-free per-sub-layer Layer 1 decision
+// emitted by the compressor. It carries safety-contract metadata and numeric
+// impact only, never raw prompt or tool payload.
+type Layer1DecisionSummary struct {
+	SubLayer        string `json:"sub_layer"`
+	Tier            string `json:"tier"`
+	Attempted       bool   `json:"attempted"`
+	Applied         bool   `json:"applied"`
+	Reason          string `json:"reason"`
+	SavedTokens     int    `json:"saved_tokens,omitempty"`
+	RequiresArchive bool   `json:"requires_archive,omitempty"`
+	Recovery        string `json:"recovery,omitempty"`
+	DefaultEligible bool   `json:"default_eligible"`
+}
+
 // MechanismAccounting records token impact for one concrete saving or overhead
 // mechanism. Saved is gross reduction, Added is extra prompt/context cost, Net
 // is Saved-Added. Negative Net is allowed and explicitly marks regressions.
@@ -164,6 +179,7 @@ type RequestSummary struct {
 	LayersApplied          []int                        `json:"layers_applied"`
 	Tokens                 TokenCounts                  `json:"tokens"`
 	Layer1Breakdown        map[string]SubLayerBreakdown `json:"layer1_breakdown"`
+	Layer1Decisions        []Layer1DecisionSummary      `json:"layer1_decisions,omitempty"`
 	Layer2                 Layer2Summary                `json:"layer2"`
 	ContextLedger          ContextLedgerSummary         `json:"context_ledger,omitempty"`
 	CacheHit               bool                         `json:"cache_hit"`

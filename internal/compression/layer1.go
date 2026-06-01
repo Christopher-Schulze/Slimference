@@ -34,6 +34,11 @@ type Layer1Result struct {
 	PreviewSaved int
 	// LoopNudgeSaved is T37: injected retry-loop nudge estimate.
 	LoopNudgeSaved int
+	// ToolOutputInWindowSaved is attributed separately for safety decisions.
+	// ToolCompressorSaved keeps including it for legacy aggregate accounting.
+	ToolOutputInWindowSaved int
+	// Decisions is a content-free per-sub-layer audit record for the call.
+	Decisions []Layer1DecisionRecord
 }
 
 // DeterministicCompressor runs Layer 1 sub-layers deterministically and synchronously.
@@ -134,6 +139,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 	}
 
 	if len(messages) == 0 {
+		result.Decisions = BuildLayer1DecisionRecords(result)
 		return result
 	}
 
@@ -166,6 +172,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 			saved := c.toolOutputInWindowPass(out, 0, toolUses)
 			if saved > 0 {
 				result.ToolCompressorSaved = saved
+				result.ToolOutputInWindowSaved = saved
 				result.TokensSaved = saved
 				result.Messages = out
 			}
@@ -182,6 +189,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 				result.Messages = out
 			}
 		}
+		result.Decisions = BuildLayer1DecisionRecords(result)
 		return result
 	}
 
@@ -263,7 +271,9 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 	// sliding window. Type-aware compaction is still safe there for large,
 	// classified tool outputs because it leaves explicit omission markers.
 	if c.cfg.Tuning.ToolOutputInWindow && prefixEnd < len(out)-1 {
-		result.ToolCompressorSaved += c.toolOutputInWindowPass(out, prefixEnd, toolUses)
+		saved := c.toolOutputInWindowPass(out, prefixEnd, toolUses)
+		result.ToolCompressorSaved += saved
+		result.ToolOutputInWindowSaved += saved
 	}
 
 	// T24: opt-in in-window structure extraction. Walks the tail of the
@@ -280,6 +290,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 		result.RepeatedCollapseSaved + result.GraphPruningSaved +
 		result.DictionarySaved + result.PreviewSaved + result.LoopNudgeSaved
 	result.Messages = out
+	result.Decisions = BuildLayer1DecisionRecords(result)
 
 	if result.TokensSaved > 0 {
 		slog.Debug("layer1 compression complete",
