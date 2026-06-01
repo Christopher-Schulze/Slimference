@@ -544,8 +544,12 @@ content already sent to the model in the same session, the reducer can emit the
 novel bytes plus neutral `[context-chunk status=unchanged uri=local-archive://...]`
 references to archived chunks. The product default is
 `codex_savings_policy_mode="auto"`: safe lossless reducers stay on, and chunk
-dedup is limited to recoverable WSS paths with archive support, density budgets,
-local decode verification, and patch/diff/edit-output guards. Commands such as
+dedup is limited to recoverable WSS paths with archive support, cross-send
+seeding, density budgets, local decode verification, and patch/diff/edit-output
+guards. Cross-send seeding means repeated chunks first encountered inside the
+same model-facing output stay verbatim and only seed future overlap; references
+are emitted only for chunks that were known before the current output started.
+Commands such as
 `apply_patch`, `patch`, `git diff`, `git show`, `git apply`, `git am`, and
 `git format-patch` do not receive chunk references, because those outputs are
 fresh reasoning material for edits and reviews. They can still use safer
@@ -616,7 +620,11 @@ route / auto-recert snapshot: auto mode, selected transport, WSS certification,
 bridge availability, `needs_recert`, fallback reason, recert status, attempt id,
 repair timestamps, last error, and bounded recert log path. Workday windows can
 therefore explain whether savings were active, bridged, repaired, or in
-fallback instead of only reporting token deltas.
+fallback instead of only reporting token deltas. The finish report also carries
+the host-resource budget snapshot: RSS, CPU-window percentage, disk-write delta,
+state bytes, compression/degradation health, status, and reasons. Release proof
+uses that snapshot as a promotion gate, because positive savings are not enough
+if local resource cost would hurt normal Codex operation.
 
 The 2026-05-30 T257 breadth gate completed with 13 local scoped WSS captures
 and two formal workday windows. The capture matrix covered 7 CLI captures,
@@ -658,6 +666,11 @@ the direct and compressed model-facing request context, and feeds both into
 read-delta is recoverable because the first full read was already sent, and that
 the recovery note is visibly audited as an expected extra model-facing context
 change when a recoverable-reference mechanism needs it.
+The harness aligns inserted recovery-note/system blocks before comparing changed
+tool-output blocks, so note insertion cannot create false content-loss findings.
+For chunk dedup, the harness expands every `[context-chunk ... local-archive://...]`
+reference and compares the reconstructed block to the exact direct model-facing
+source; a URI by itself is not enough to pass the no-loss gate.
 `go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]`
 is the operator-facing report wrapper. With default config it runs the same
 `auto` policy as the product path, including T255 when the capture presents a

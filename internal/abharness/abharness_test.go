@@ -90,6 +90,19 @@ func TestCompare_ExtraAfterBlockIsAuditedAsLost(t *testing.T) {
 	}
 }
 
+func TestCompare_InsertedLeadingBlockDoesNotCreateFalseChangedLoss(t *testing.T) {
+	t.Parallel()
+	rep := Compare([]Turn{
+		{Before: msg("continue"), After: msg("expected recovery note", "continue")},
+	})
+	if rep.Lost() != 1 {
+		t.Fatalf("only the inserted note should be audited as lost, got %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityExtra || rep.Elisions[0].Preview != "expected recovery note" {
+		t.Fatalf("want one leading extra note, got %+v", rep.Elisions)
+	}
+}
+
 func TestCompare_ReferencedElisionIsNotLost(t *testing.T) {
 	t.Parallel()
 	content := strings.Repeat("X", 500)
@@ -101,6 +114,27 @@ func TestCompare_ReferencedElisionIsNotLost(t *testing.T) {
 	}
 	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityReferenced {
 		t.Fatalf("want 1 referenced elision, got %+v", rep.Elisions)
+	}
+}
+
+func TestCompareWithArchiveExpansion_VerifiesChunkReferencesByReconstruction(t *testing.T) {
+	t.Parallel()
+	chunk := strings.Repeat("chunk body\n", 80)
+	content := "prefix\n" + chunk + "\nsuffix\n"
+	after := "prefix\n[context-chunk status=unchanged uri=local-archive://chunk1 bytes=880]\nsuffix\n"
+	rep := CompareWithArchiveExpansion([]Turn{
+		{Before: msg(content), After: msg(after)},
+	}, func(id string) ([]byte, error) {
+		if id != "chunk1" {
+			t.Fatalf("unexpected archive id %q", id)
+		}
+		return []byte(chunk), nil
+	})
+	if rep.Lost() != 0 {
+		t.Fatalf("chunk reference expansion should reconstruct the source: %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityReferenced {
+		t.Fatalf("want referenced severity, got %+v", rep.Elisions)
 	}
 }
 

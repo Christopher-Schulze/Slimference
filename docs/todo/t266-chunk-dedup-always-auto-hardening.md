@@ -13,6 +13,9 @@ make chunk dedup automatic without product drawdowns.
 - FastCDC chunking and a bounded session chunk store exist.
 - WSS route attribution and replay proof exist.
 - Chunk references are recoverable where archive support is available.
+- Chunk references are cross-send only. Repeated chunks introduced inside the
+  same first model-facing output now seed identity state but stay verbatim, so
+  the first observation is always full context.
 - Chunk encode now has local self-verification: a changed reference stream must
   decode back to the exact original bytes before it can be returned. Archive URI
   collisions or orphan references fail open to the original output.
@@ -41,7 +44,9 @@ Chunk dedup may be always-auto only for routes/workloads where:
 
 1. Make eligibility explicit:
    - WSS only unless HTTP recovery is proven
-   - no first-observation chunk references without full source seeding
+- no first-observation chunk references without full source seeding
+- [x] no same-output chunk references before the model has received that output
+  as full context
    - [x] no chunk refs for active patch/diff/edit outputs
    - no chunk refs under recent edit uncertainty
 2. Add integrity budget:
@@ -75,6 +80,8 @@ Chunk dedup may be always-auto only for routes/workloads where:
 
 - No unresolved reference can enter model-facing context.
 - No chunk ref without a known previous full-seen or exact archive-backed source.
+- No first-send repeated chunk inside a single output can become a reference;
+  those chunks only seed later sends.
 - Re-read spike disables chunk dedup for that session.
 - Any decode mismatch fails open before model-facing context.
 - Any output above the configured reference-density threshold full-passes.
@@ -96,6 +103,8 @@ Chunk dedup may be always-auto only for routes/workloads where:
 - Store TTL/LRU tests.
 - Integrity budget tests using the admin/audit chunk-density counters.
 - WSS replay with `--fail-on-lost`.
+- A/B replay must reconstruct chunk references back to the exact source block,
+  not merely detect that a URI exists.
 - Live CLI/Desktop matrix with canary counters and no repair-loop increase.
 
 ## Done
@@ -111,3 +120,11 @@ it remains guarded by policy.
   full-passes now still seeds chunk identity, because the model receives the
   original bytes, but it no longer consumes the accepted-reference session
   budget or skews density telemetry.
+- 2026-06-02: Hardened chunk dedup to cross-send-only. The store no longer emits
+  references for repeated chunks first seen earlier in the same output; it marks
+  them as seen only for future outputs. This preserves first-observation context
+  while keeping later overlap savings. The offline A/B harness now aligns
+  inserted recovery-note blocks instead of misclassifying shifted user/tool
+  blocks, and it verifies `[context-chunk ... local-archive://...]` references
+  by expanding all chunk refs and comparing the reconstructed block to the exact
+  direct model-facing source.

@@ -38,6 +38,25 @@ const aggregateSampleAdminState = `{
     "degraded_sessions": 0,
     "compression_errors": 0
   },
+  "host_budget": {
+    "status": "ok",
+    "exceeded": false,
+    "rss_bytes": 104857600,
+    "rss_limit_bytes": 209715200,
+    "cpu_percent": 1.25,
+    "cpu_window_percent": 2.5,
+    "cpu_window_limit_percent": 50,
+    "disk_read_ops": 100,
+    "disk_write_ops": 200,
+    "disk_read_ops_delta": 10,
+    "disk_write_ops_delta": 20,
+    "disk_write_ops_window_limit": 5000,
+    "state_bytes": 4096,
+    "state_limit_bytes": 536870912,
+    "compression_ok": true,
+    "degradation_ok": true,
+    "mutation_active": true
+  },
   "savings": {
     "input_tokens_saved": 42000,
     "billable_input_tokens_saved": 42000,
@@ -164,6 +183,14 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"auto_mode:                 wss_phasef",
 		"recert_status:             passed",
 		"recert_log:                /tmp/codex-wss-recert.log",
+		"Host resource budget:",
+		"status:                    ok",
+		"rss_bytes/limit:           104857600 / 209715200",
+		"cpu_percent/window/limit:  1.25 / 2.50 / 50.00",
+		"disk_write_ops/delta/limit:200 / 20 / 5000",
+		"state_bytes/limit:         4096 / 536870912",
+		"compression_ok:            true",
+		"degradation_ok:            true",
 		"WSS Phase-F (live counters):",
 		"phasef_bridged sessions:      2",
 		"frames_reencoded:             5",
@@ -238,6 +265,15 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 		got.CodexRoute.RecertFinishedAt == nil ||
 		got.CodexRoute.RecertLastSuccess == nil {
 		t.Fatalf("codex route recert snapshot mismatch: %+v", got.CodexRoute)
+	}
+	if got.HostBudget.Status != "ok" ||
+		got.HostBudget.RSSBytes != 104857600 ||
+		got.HostBudget.CPUWindowPercent != 2.5 ||
+		got.HostBudget.DiskWriteOpsDelta != 20 ||
+		got.HostBudget.StateBytes != 4096 ||
+		!got.HostBudget.CompressionOK ||
+		!got.HostBudget.DegradationOK {
+		t.Fatalf("host budget snapshot mismatch: %+v", got.HostBudget)
 	}
 	if got.WSS.InputTokensSaved != 42000 {
 		t.Fatalf("wss.input_tokens_saved: got=%d want=42000", got.WSS.InputTokensSaved)

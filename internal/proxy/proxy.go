@@ -300,11 +300,11 @@ func New(cfg *config.Config) *Proxy {
 	// without coordination. Failure to resolve home is silent: the
 	// proxy continues with the signal store disabled (HasRecentSignal
 	// will return false on every probe).
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
+	if home, err := proxyUserHomeDir(); err == nil && home != "" {
 		p.compactSignals = compactsignal.DefaultStore(home)
 	}
 
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
+	if home, err := proxyUserHomeDir(); err == nil && home != "" {
 		archiveDir := contentarchive.DefaultDir(home)
 		p.codexChunkDedup = chunkdedup.NewStoreWithLimits(chunkdedup.Config{}, chunkdedup.StoreLimits{
 			MaxSessions:         cfg.Compression.OutputReduce.CodexChunkDedupMaxSessions,
@@ -378,7 +378,7 @@ func New(cfg *config.Config) *Proxy {
 	// sub-layers can prove recovery before mutation. If home or archive
 	// writes are unavailable, those sub-layers full-pass rather than
 	// shipping unrecoverable summaries.
-	if home, err := os.UserHomeDir(); err == nil {
+	if home, err := proxyUserHomeDir(); err == nil {
 		recorder := compression.NewDiskRecorder(
 			contentarchive.DefaultDir(home),
 			contentarchive.Limits{},

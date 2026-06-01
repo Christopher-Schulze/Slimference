@@ -86,6 +86,14 @@ which is not chunk-level and not on the WSS path. This is genuinely new infrastr
   auto-eligible by default on WSS when the policy can also inject the recovery
   note and no recency/context-risk signal is active. HTTP stays conservative
   until route-specific recovery-note support exists.
+- 2026-06-02: Chunk dedup was tightened to cross-send-only. Repeated chunks
+  first encountered within the same output no longer emit references, because
+  the model has not yet received that full output as prior context. The first
+  output seeds chunk identities verbatim; later outputs can reference those
+  chunks if archive recovery, density budgets, policy, and token guards pass.
+  The A/B harness now verifies chunk references by reconstructing the full
+  model-facing block from archived chunk refs, and it aligns inserted recovery
+  notes without creating false content-loss findings.
 - Doctrine: content-free identity, fail-open, scoped; references always recoverable so
   no loss is permanent.
 

@@ -85,6 +85,27 @@ type aggregateCodexRouteBlock struct {
 	RecertLogPath      string     `json:"recert_log_path,omitempty"`
 }
 
+type aggregateHostBudgetBlock struct {
+	Status                  string   `json:"status"`
+	Exceeded                bool     `json:"exceeded"`
+	RSSBytes                int64    `json:"rss_bytes"`
+	RSSLimitBytes           int64    `json:"rss_limit_bytes"`
+	CPUPercent              float64  `json:"cpu_percent"`
+	CPUWindowPercent        float64  `json:"cpu_window_percent"`
+	CPUWindowLimitPercent   float64  `json:"cpu_window_limit_percent"`
+	DiskReadOps             int64    `json:"disk_read_ops"`
+	DiskWriteOps            int64    `json:"disk_write_ops"`
+	DiskReadOpsDelta        int64    `json:"disk_read_ops_delta"`
+	DiskWriteOpsDelta       int64    `json:"disk_write_ops_delta"`
+	DiskWriteOpsWindowLimit int64    `json:"disk_write_ops_window_limit"`
+	StateBytes              int64    `json:"state_bytes"`
+	StateLimitBytes         int64    `json:"state_limit_bytes"`
+	Reasons                 []string `json:"reasons,omitempty"`
+	CompressionOK           bool     `json:"compression_ok"`
+	DegradationOK           bool     `json:"degradation_ok"`
+	MutationActive          bool     `json:"mutation_active"`
+}
+
 type aggregateTotalsBlock struct {
 	WSSInputTokensSaved     int64   `json:"wss_input_tokens_saved"`
 	Layer0FilterTokensSaved int64   `json:"layer0_filter_tokens_saved"`
@@ -96,6 +117,7 @@ type aggregateSavingsReport struct {
 	Source       string                      `json:"source"`
 	Generated    time.Time                   `json:"generated"`
 	CodexRoute   aggregateCodexRouteBlock    `json:"codex_route"`
+	HostBudget   aggregateHostBudgetBlock    `json:"host_budget"`
 	WSS          aggregateWSSBlock           `json:"wss"`
 	OutputReduce aggregateOutputReduceBlock  `json:"output_reduce"`
 	FilterLayer0 *analytics.FilterGainReport `json:"filter_layer0,omitempty"`
@@ -309,6 +331,26 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			RecertLastError:    state.CodexRoute.RecertLastError,
 			RecertLogPath:      state.CodexRoute.RecertLogPath,
 		},
+		HostBudget: aggregateHostBudgetBlock{
+			Status:                  state.HostBudget.Status,
+			Exceeded:                state.HostBudget.Exceeded,
+			RSSBytes:                state.HostBudget.RSSBytes,
+			RSSLimitBytes:           state.HostBudget.RSSLimitBytes,
+			CPUPercent:              state.HostBudget.CPUPercent,
+			CPUWindowPercent:        state.HostBudget.CPUWindowPercent,
+			CPUWindowLimitPercent:   state.HostBudget.CPUWindowLimitPercent,
+			DiskReadOps:             state.HostBudget.DiskReadOps,
+			DiskWriteOps:            state.HostBudget.DiskWriteOps,
+			DiskReadOpsDelta:        state.HostBudget.DiskReadOpsDelta,
+			DiskWriteOpsDelta:       state.HostBudget.DiskWriteOpsDelta,
+			DiskWriteOpsWindowLimit: state.HostBudget.DiskWriteOpsWindowLimit,
+			StateBytes:              state.HostBudget.StateBytes,
+			StateLimitBytes:         state.HostBudget.StateLimitBytes,
+			Reasons:                 append([]string(nil), state.HostBudget.Reasons...),
+			CompressionOK:           state.HostBudget.CompressionOK,
+			DegradationOK:           state.HostBudget.DegradationOK,
+			MutationActive:          state.HostBudget.MutationActive,
+		},
 		WSS: aggregateWSSBlock{
 			PhasefBridged:             state.WSS.PhasefBridged,
 			CompressedMessagesMutated: state.WSS.CompressedMessagesMutated,
@@ -385,6 +427,10 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 		report.Notes = append(report.Notes,
 			"needs_recert=true: Codex stays safe while WSS savings repair runs or awaits retry.")
 	}
+	if report.HostBudget.Status != "" && report.HostBudget.Status != "ok" {
+		report.Notes = append(report.Notes,
+			fmt.Sprintf("host_budget=%s: resource guard is not green; managed reducers should loosen before UX is affected.", report.HostBudget.Status))
+	}
 	return report
 }
 
@@ -417,6 +463,22 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	}
 	if report.CodexRoute.RecertLogPath != "" {
 		fmt.Fprintf(w, "  recert_log:                %s\n", report.CodexRoute.RecertLogPath)
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "Host resource budget:")
+	fmt.Fprintf(w, "  status:                    %s\n", valueOrDash(report.HostBudget.Status))
+	fmt.Fprintf(w, "  exceeded:                  %v\n", report.HostBudget.Exceeded)
+	fmt.Fprintf(w, "  rss_bytes/limit:           %d / %d\n", report.HostBudget.RSSBytes, report.HostBudget.RSSLimitBytes)
+	fmt.Fprintf(w, "  cpu_percent/window/limit:  %.2f / %.2f / %.2f\n",
+		report.HostBudget.CPUPercent, report.HostBudget.CPUWindowPercent, report.HostBudget.CPUWindowLimitPercent)
+	fmt.Fprintf(w, "  disk_write_ops/delta/limit:%d / %d / %d\n",
+		report.HostBudget.DiskWriteOps, report.HostBudget.DiskWriteOpsDelta, report.HostBudget.DiskWriteOpsWindowLimit)
+	fmt.Fprintf(w, "  state_bytes/limit:         %d / %d\n", report.HostBudget.StateBytes, report.HostBudget.StateLimitBytes)
+	fmt.Fprintf(w, "  compression_ok:            %v\n", report.HostBudget.CompressionOK)
+	fmt.Fprintf(w, "  degradation_ok:            %v\n", report.HostBudget.DegradationOK)
+	if len(report.HostBudget.Reasons) > 0 {
+		fmt.Fprintf(w, "  reasons:                   %s\n", strings.Join(report.HostBudget.Reasons, ","))
 	}
 	fmt.Fprintln(w)
 

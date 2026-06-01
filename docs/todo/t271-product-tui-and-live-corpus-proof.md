@@ -79,7 +79,7 @@ Debug/audit view:
    - start clean
    - launch CLI and Desktop through product path
    - run required workloads
-   - finish workday windows
+   - finish workday windows including host-resource snapshot
    - export proof report
 
 ## Zero product-drawdown gates
@@ -125,3 +125,7 @@ gate is done when default promotions require live corpus evidence.
 - 2026-05-31: Product TUI route line now includes fallback reason and recert
   status in the normal product surface, closing the remaining route/safety
   visibility gap without exposing parser or policy debug internals.
+- 2026-06-02: Release proof ceremony now explicitly requires host-resource
+  measurement and host-resource budget pass alongside CI, WSS replay, workday
+  savings, and promotion corpus gates. This keeps "savings proven" separate
+  from "safe and cheap enough for product operation."

@@ -386,6 +386,7 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		"go run ./scripts/ci",
 		"workday-savings start",
 		"workday-savings finish",
+		"host-resource measurement",
 		"slimference codex run --transport=auto",
 		"slimference codex launch-desktop --transport=app-server --replace-existing",
 		"codex_cli",
@@ -394,6 +395,7 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		"long_workday",
 		"wss-proof-matrix",
 		"benchmark-corpus tests/fixtures/live_corpus --promotion-check",
+		"host-resource budget",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("release runbook missing %q:\n%s", want, out)

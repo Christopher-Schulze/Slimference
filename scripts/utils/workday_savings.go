@@ -310,6 +310,7 @@ func diffAggregateSavingsReports(base, current aggregateSavingsReport) aggregate
 	out := current
 	out.Source = base.Source + " -> " + current.Source
 	out.CodexRoute = current.CodexRoute
+	out.HostBudget = diffAggregateHostBudget(base.HostBudget, current.HostBudget)
 	out.WSS = diffAggregateWSS(base.WSS, current.WSS)
 	out.OutputReduce = diffAggregateOutputReduce(base.OutputReduce, current.OutputReduce)
 	out.FilterLayer0 = diffFilterGainReports(base.FilterLayer0, current.FilterLayer0)
@@ -357,6 +358,31 @@ func diffAggregateSavingsReports(base, current aggregateSavingsReport) aggregate
 	if current.CodexRoute.RecertAttemptID != "" && current.CodexRoute.RecertAttemptID != base.CodexRoute.RecertAttemptID {
 		out.Notes = append(out.Notes, "Recert attempt changed during the measured window: "+current.CodexRoute.RecertAttemptID)
 	}
+	if current.HostBudget.Status != "" {
+		out.Notes = append(out.Notes, fmt.Sprintf("Host budget finished as %s with RSS=%d bytes, CPU window=%.2f%%, disk write delta=%d, state=%d bytes.",
+			current.HostBudget.Status,
+			current.HostBudget.RSSBytes,
+			current.HostBudget.CPUWindowPercent,
+			current.HostBudget.DiskWriteOpsDelta,
+			current.HostBudget.StateBytes))
+	}
+	if current.HostBudget.Exceeded {
+		out.Notes = append(out.Notes, "Host resource budget exceeded during finish snapshot; managed reducers should have demoted/loosened.")
+	}
+	return out
+}
+
+func diffAggregateHostBudget(base, current aggregateHostBudgetBlock) aggregateHostBudgetBlock {
+	out := current
+	out.RSSBytes = current.RSSBytes
+	out.CPUPercent = current.CPUPercent
+	out.CPUWindowPercent = current.CPUWindowPercent
+	out.DiskReadOps = nonNegativeDelta(current.DiskReadOps, base.DiskReadOps)
+	out.DiskWriteOps = nonNegativeDelta(current.DiskWriteOps, base.DiskWriteOps)
+	out.DiskReadOpsDelta = current.DiskReadOpsDelta
+	out.DiskWriteOpsDelta = current.DiskWriteOpsDelta
+	out.StateBytes = current.StateBytes
+	out.Reasons = append([]string(nil), current.Reasons...)
 	return out
 }
 

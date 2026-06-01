@@ -16,6 +16,7 @@ import (
 )
 
 var archiveURIPattern = regexp.MustCompile(`(?:local-archive://|slim://archive/)([A-Za-z0-9_\-]+)`)
+var contextChunkPattern = regexp.MustCompile(`\[context-chunk status=unchanged uri=((?:local-archive://|slim://archive/)[A-Za-z0-9_\-]+) bytes=[0-9]+\]`)
 
 // Turn holds one request's content messages before and after compression. The
 // reducer preserves block order and count, so blocks are paired by index.
@@ -109,52 +110,133 @@ func compare(turns []Turn, resolve ArchiveResolver) Report {
 		for _, at := range after {
 			rep.BytesAfter += len(at)
 		}
-		// First record everything sent verbatim this turn, then classify changes,
-		// so within-turn ordering does not affect the verdict.
-		for i, bt := range before {
+		for _, bt := range before {
 			rep.BytesBefore += len(bt)
-			at, ok := indexMaybe(after, i)
-			if bt != "" && at == bt {
+		}
+		pairs := lcsEqualPairs(before, after)
+		for _, pair := range pairs {
+			bt := before[pair.before]
+			if bt != "" {
 				seenFull[hashText(bt)] = struct{}{}
 			}
-			if !ok && bt != "" {
-				rep.Elisions = append(rep.Elisions, Elision{
-					Turn:     ti,
-					Block:    i,
+		}
+		rep.Elisions = append(rep.Elisions, compareTurnSegments(ti, before, after, pairs, seenFull, resolve)...)
+	}
+	return rep
+}
+
+type equalPair struct {
+	before int
+	after  int
+}
+
+func lcsEqualPairs(before, after []string) []equalPair {
+	dp := make([][]int, len(before)+1)
+	for i := range dp {
+		dp[i] = make([]int, len(after)+1)
+	}
+	for i := len(before) - 1; i >= 0; i-- {
+		for j := len(after) - 1; j >= 0; j-- {
+			if before[i] != "" && before[i] == after[j] {
+				dp[i][j] = dp[i+1][j+1] + 1
+				continue
+			}
+			if dp[i+1][j] >= dp[i][j+1] {
+				dp[i][j] = dp[i+1][j]
+			} else {
+				dp[i][j] = dp[i][j+1]
+			}
+		}
+	}
+	var pairs []equalPair
+	for i, j := 0, 0; i < len(before) && j < len(after); {
+		if before[i] != "" && before[i] == after[j] {
+			pairs = append(pairs, equalPair{before: i, after: j})
+			i++
+			j++
+			continue
+		}
+		if dp[i+1][j] >= dp[i][j+1] {
+			i++
+		} else {
+			j++
+		}
+	}
+	return pairs
+}
+
+func compareTurnSegments(turn int, before, after []string, pairs []equalPair, seenFull map[string]struct{}, resolve ArchiveResolver) []Elision {
+	var out []Elision
+	beforeAt, afterAt := 0, 0
+	flush := func(beforeEnd, afterEnd int) {
+		for beforeAt < beforeEnd && strings.TrimSpace(before[beforeAt]) == "" {
+			beforeAt++
+		}
+		for afterAt < afterEnd && strings.TrimSpace(after[afterAt]) == "" {
+			afterAt++
+		}
+		for beforeEnd-beforeAt > 0 && afterEnd-afterAt > beforeEnd-beforeAt {
+			at := after[afterAt]
+			if strings.TrimSpace(at) != "" {
+				out = append(out, Elision{
+					Turn:     turn,
+					Block:    afterAt,
+					Severity: SeverityExtra,
+					Bytes:    -len(at),
+					Preview:  preview(at),
+				})
+			}
+			afterAt++
+		}
+		for beforeAt < beforeEnd && afterAt < afterEnd {
+			bt := before[beforeAt]
+			at := after[afterAt]
+			if strings.TrimSpace(bt) != "" || strings.TrimSpace(at) != "" {
+				out = append(out, Elision{
+					Turn:     turn,
+					Block:    beforeAt,
+					Severity: classifyReplacement(bt, at, seenFull, resolve),
+					Bytes:    len(bt) - len(at),
+					Preview:  preview(bt),
+				})
+			}
+			beforeAt++
+			afterAt++
+		}
+		for beforeAt < beforeEnd {
+			bt := before[beforeAt]
+			if strings.TrimSpace(bt) != "" {
+				out = append(out, Elision{
+					Turn:     turn,
+					Block:    beforeAt,
 					Severity: classifyReplacement(bt, "", seenFull, resolve),
 					Bytes:    len(bt),
 					Preview:  preview(bt),
 				})
 			}
+			beforeAt++
 		}
-		for i, bt := range before {
-			at, ok := indexMaybe(after, i)
-			if bt == "" || !ok || at == bt {
-				continue
+		for afterAt < afterEnd {
+			at := after[afterAt]
+			if strings.TrimSpace(at) != "" {
+				out = append(out, Elision{
+					Turn:     turn,
+					Block:    afterAt,
+					Severity: SeverityExtra,
+					Bytes:    -len(at),
+					Preview:  preview(at),
+				})
 			}
-			rep.Elisions = append(rep.Elisions, Elision{
-				Turn:     ti,
-				Block:    i,
-				Severity: classifyReplacement(bt, at, seenFull, resolve),
-				Bytes:    len(bt) - len(at),
-				Preview:  preview(bt),
-			})
-		}
-		for i := len(before); i < len(after); i++ {
-			at := strings.TrimSpace(after[i])
-			if at == "" {
-				continue
-			}
-			rep.Elisions = append(rep.Elisions, Elision{
-				Turn:     ti,
-				Block:    i,
-				Severity: SeverityExtra,
-				Bytes:    -len(after[i]),
-				Preview:  preview(after[i]),
-			})
+			afterAt++
 		}
 	}
-	return rep
+	for _, pair := range pairs {
+		flush(pair.before, pair.after)
+		beforeAt = pair.before + 1
+		afterAt = pair.after + 1
+	}
+	flush(len(before), len(after))
+	return out
 }
 
 func blockTexts(msgs []types.Message) []string {
@@ -167,13 +249,6 @@ func blockTexts(msgs []types.Message) []string {
 	return out
 }
 
-func indexMaybe(s []string, i int) (string, bool) {
-	if i < len(s) {
-		return s[i], true
-	}
-	return "", false
-}
-
 func classifyReplacement(before string, after string, seenFull map[string]struct{}, resolve ArchiveResolver) Severity {
 	if _, ok := seenFull[hashText(before)]; ok {
 		return SeverityRecoverable
@@ -184,9 +259,11 @@ func classifyReplacement(before string, after string, seenFull map[string]struct
 			return SeverityReferenced
 		}
 		resolvedAny := false
+		unresolved := false
 		for _, id := range ids {
 			body, err := resolve(id)
 			if err != nil {
+				unresolved = true
 				continue
 			}
 			resolvedAny = true
@@ -197,12 +274,47 @@ func classifyReplacement(before string, after string, seenFull map[string]struct
 		if !resolvedAny {
 			return SeverityReferenceMissing
 		}
+		if !unresolved {
+			if expanded, ok := expandReferencedText(after, resolve); ok && expanded == before {
+				return SeverityReferenced
+			}
+		}
 		return SeverityReferenceMismatch
 	}
 	if len(after) < len(before) {
 		return SeverityLost
 	}
 	return SeverityChanged
+}
+
+func expandReferencedText(text string, resolve ArchiveResolver) (string, bool) {
+	if text == "" || resolve == nil {
+		return text, false
+	}
+	changed := false
+	expanded := contextChunkPattern.ReplaceAllStringFunc(text, func(match string) string {
+		parts := contextChunkPattern.FindStringSubmatch(match)
+		if len(parts) != 2 {
+			return match
+		}
+		body, err := resolve(archiveIDFromURI(parts[1]))
+		if err != nil {
+			return match
+		}
+		changed = true
+		return string(body)
+	})
+	if changed {
+		return expanded, true
+	}
+	return text, false
+}
+
+func archiveIDFromURI(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "local-archive://")
+	raw = strings.TrimPrefix(raw, "slim://archive/")
+	return raw
 }
 
 func archiveIDs(text string) []string {

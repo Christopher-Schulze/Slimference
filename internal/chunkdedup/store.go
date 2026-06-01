@@ -151,6 +151,8 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 		if _, seenBefore := session.chunks[id]; seenBefore {
 			repeated[i] = true
 		}
+	}
+	for _, id := range ids {
 		session.seq++
 		session.chunks[id] = chunkState{lastSeen: now, seq: session.seq}
 	}

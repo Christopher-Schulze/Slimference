@@ -18,6 +18,10 @@ func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
 	currentBody = strings.Replace(currentBody, `"recert_attempt_id": "attempt-1"`, `"recert_attempt_id": "attempt-2"`, 1)
 	currentBody = strings.Replace(currentBody, `"recert_status": "passed"`, `"recert_status": "running"`, 1)
 	currentBody = strings.Replace(currentBody, `"needs_recert": false`, `"needs_recert": true`, 1)
+	currentBody = strings.Replace(currentBody, `"disk_write_ops": 200`, `"disk_write_ops": 260`, 1)
+	currentBody = strings.Replace(currentBody, `"disk_write_ops_delta": 20`, `"disk_write_ops_delta": 60`, 1)
+	currentBody = strings.Replace(currentBody, `"cpu_window_percent": 2.5`, `"cpu_window_percent": 4.5`, 1)
+	currentBody = strings.Replace(currentBody, `"state_bytes": 4096`, `"state_bytes": 8192`, 1)
 	currentState := writeAggregateStateFile(t, currentBody)
 	baseline := filepath.Join(t.TempDir(), "workday-baseline.json")
 
@@ -52,8 +56,17 @@ func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
 	if got.Current.CodexRoute.RecertAttemptID != "attempt-2" || got.Delta.CodexRoute.RecertAttemptID != "attempt-2" {
 		t.Fatalf("workday report should carry current recert snapshot: current=%+v delta=%+v", got.Current.CodexRoute, got.Delta.CodexRoute)
 	}
+	if got.Current.HostBudget.CPUWindowPercent != 4.5 ||
+		got.Delta.HostBudget.DiskWriteOps != 60 ||
+		got.Delta.HostBudget.DiskWriteOpsDelta != 60 ||
+		got.Delta.HostBudget.StateBytes != 8192 {
+		t.Fatalf("workday report should carry host budget current/delta proof: current=%+v delta=%+v", got.Current.HostBudget, got.Delta.HostBudget)
+	}
 	if len(got.Delta.Notes) == 0 || !strings.Contains(strings.Join(got.Delta.Notes, "\n"), "Route-ready is not a savings claim") {
 		t.Fatalf("delta notes should preserve honest proof language: %+v", got.Delta.Notes)
+	}
+	if !strings.Contains(strings.Join(got.Delta.Notes, "\n"), "Host budget finished as ok") {
+		t.Fatalf("delta notes should mention final host budget state: %+v", got.Delta.Notes)
 	}
 	if !strings.Contains(strings.Join(got.Delta.Notes, "\n"), "Recert attempt changed") {
 		t.Fatalf("delta notes should mention recert attempt changes: %+v", got.Delta.Notes)

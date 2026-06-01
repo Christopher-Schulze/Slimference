@@ -1934,8 +1934,9 @@ be called complete, default-safe, and production-grade.
   dedup into a guarded automatic WSS feature only where archive recovery,
   recency, integrity budget, and proof gates make drawdowns practically
   excluded. Offline hardening now blocks patch/diff/edit outputs from chunk
-  references and enforces per-output reference density before accepted session
-  budget accounting; live matrix proof remains. Detail:
+  references, forbids same-output first-observation references, verifies chunk
+  references through reconstructed A/B replay, and enforces per-output reference
+  density before accepted session budget accounting; live matrix proof remains. Detail:
   `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
 - [~] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact
@@ -1974,8 +1975,9 @@ be called complete, default-safe, and production-grade.
   auto-demotion. Latency histograms and disk-write counters are visible; TUI
   product-status polling backs off under host-budget attention, and readcache +
   WSS tool-use hot state use write-behind persistence. Windowed CPU/disk-write
-  demotion is wired; host-cost micro-benchmarks cover WSS/Layer-0, readcache,
-  chunking, archive, and planner overhead. Live resource proof remains. Detail:
+  demotion is wired; aggregate/workday/release proof output now carries the
+  host-budget snapshot, and host-cost micro-benchmarks cover WSS/Layer-0,
+  readcache, chunking, archive, and planner overhead. Live resource proof remains. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria

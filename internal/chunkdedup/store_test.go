@@ -44,6 +44,26 @@ func TestStore_RepeatSendDedups(t *testing.T) {
 	}
 }
 
+func TestStore_RepeatedChunksInFirstSendOnlySeed(t *testing.T) {
+	t.Parallel()
+	archived := map[string][]byte{}
+	store := NewStore(Config{MinSize: 1024, AvgSize: 2048, MaxSize: 4096}, archiveFake(archived))
+	data := []byte(strings.Repeat("same first-send line\n", 9000))
+
+	first := store.EncodeWithReport("s1", data)
+	if first.Saved != 0 || first.Verified || !bytes.Equal(first.Data, data) {
+		t.Fatalf("first send must not reference chunks introduced by the same output: saved=%d verified=%v", first.Saved, first.Verified)
+	}
+	if len(archived) != 0 {
+		t.Fatalf("first send should not archive same-output chunk refs, archived=%d", len(archived))
+	}
+
+	second := store.EncodeWithReport("s1", data)
+	if second.Saved <= 0 || !second.Verified || !bytes.Contains(second.Data, []byte("local-archive://")) {
+		t.Fatalf("second send should dedup chunks seeded by the first send: saved=%d verified=%v", second.Saved, second.Verified)
+	}
+}
+
 func TestStore_EncodeWithReportVerifiesReferences(t *testing.T) {
 	t.Parallel()
 	archived := map[string][]byte{}

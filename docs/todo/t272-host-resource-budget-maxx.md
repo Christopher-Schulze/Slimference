@@ -29,6 +29,10 @@ sets hard budgets and auto-degradation rules.
   state plus short write-behind flushes for hot-path updates. Reconnect safety
   stays same-process immediate because `Load` sees the in-memory merge before
   disk flush.
+- `aggregate-savings`, `workday-savings finish`, and the release-proof plan now
+  surface the host-budget snapshot. Workday delta output carries final RSS,
+  CPU-window, disk-write delta, state bytes, status, and attention notes, so a
+  savings proof cannot omit local resource cost.
 
 ## Product target
 
@@ -83,8 +87,8 @@ Initial targets for Apple Silicon macOS:
    - evaluate faster compression libraries only after profiling
    - keep one stripped Go binary unless evidence proves split binary needed
 5. Add resource proof output:
-   - included in workday-savings finish
-   - included in release certification
+   - [x] included in aggregate-savings and workday-savings finish
+   - [x] included in release certification runbook
    - red/yellow/green thresholds in product status
 
 ## Zero product-drawdown gates
@@ -166,6 +170,13 @@ Initial targets for Apple Silicon macOS:
   unnecessary archive expansion from unchanged archive-backed readcache hits:
   once the observed content hash matches the stored hash, the full gzip archive
   is not needed unless the content changed and a delta must be built.
+- 2026-06-02: Wired host-budget proof into the operator evidence tools.
+  `aggregate-savings` now prints and emits JSON for host-budget status, RSS,
+  CPU window, disk write ops/delta, state bytes, compression/degradation health,
+  and reasons. `workday-savings finish` carries the current host snapshot plus
+  deltaed disk ops and adds explicit final host-budget notes. The release proof
+  plan now names host-resource measurement and makes the host-resource budget a
+  promotion gate.
 
 ## Done
 

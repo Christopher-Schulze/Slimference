@@ -313,7 +313,7 @@ func runReleaseProofPlan(root string, now time.Time) int {
 		}
 	}
 	fmt.Println("")
-	fmt.Println("4. Close all Codex sessions so WSS counters flush, then finish measurement:")
+	fmt.Println("4. Close all Codex sessions so WSS counters flush, then finish savings + host-resource measurement:")
 	fmt.Println("   go run ./scripts/utils workday-savings finish")
 	fmt.Println("")
 	fmt.Println("5. Run WSS proof and release promotion gates:")
@@ -321,7 +321,7 @@ func runReleaseProofPlan(root string, now time.Time) int {
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check\n", root)
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check --json\n", root)
 	fmt.Println("")
-	fmt.Println("6. Promotion rule: default-on is allowed only if CI, WSS proof, workday, and promotion corpus all pass with zero error/canary/latency regressions.")
+	fmt.Println("6. Promotion rule: default-on is allowed only if CI, WSS proof, workday savings, host-resource budget, and promotion corpus all pass with zero error/canary/latency regressions.")
 	return 0
 }
 
