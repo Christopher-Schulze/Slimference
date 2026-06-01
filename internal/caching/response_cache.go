@@ -344,14 +344,20 @@ func ExtractDependencyPaths(body []byte) []string {
 	return out
 }
 
-// IsRequestCacheSafe reports whether a request body is safe to serve from the response cache
-// without changing expected model behavior. Explicit stochastic settings disable Layer 3.
+// IsRequestCacheSafe reports whether a request body is safe to serve from the
+// response cache without changing expected model behavior. Local response replay
+// is stricter than provider prompt caching: the request must explicitly opt into
+// deterministic sampling. Missing sampling fields are provider defaults, not a
+// proof that replaying a prior model response is semantics-preserving.
 func IsRequestCacheSafe(body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
 	var root map[string]interface{}
 	if err := json.Unmarshal(body, &root); err != nil {
+		return false
+	}
+	if !explicitDeterministicSampling(root) {
 		return false
 	}
 	if truthyBool(root["stream"]) {
@@ -367,6 +373,18 @@ func IsRequestCacheSafe(body []byte) bool {
 		return false
 	}
 	if requestCanProduceToolCalls(root) {
+		return false
+	}
+	return true
+}
+
+func explicitDeterministicSampling(root map[string]interface{}) bool {
+	temp, ok := numericValue(root["temperature"])
+	if !ok || temp != 0 {
+		return false
+	}
+	topP, ok := numericValue(root["top_p"])
+	if ok && topP > 0 && topP < 1 {
 		return false
 	}
 	return true

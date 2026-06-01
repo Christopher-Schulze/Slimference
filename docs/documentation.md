@@ -924,11 +924,13 @@ headers. Hits skip Layer 1 and Layer 2 entirely and serve the cached upstream
 response. Route keying is deliberate: the same body on two provider endpoints
 cannot alias.
 
-The local response cache only serves deterministic, non-tool request shapes.
-Streaming, stochastic sampling, multiple completions, tool definitions,
-explicit tool choices, function-call fields, tool/function roles, and Responses
-function-call outputs all full-pass upstream. This keeps Layer 3 from replaying
-a cached tool workflow where fresh tool state or timing matters.
+The local response cache only serves explicitly deterministic, non-tool request
+shapes. Missing sampling fields are treated as provider defaults, not as proof
+that replay is safe. Streaming, non-zero temperature, top-p sampling, multiple
+completions, tool definitions, explicit tool choices, function-call fields,
+tool/function roles, and Responses function-call outputs all full-pass upstream.
+This keeps Layer 3 from replaying a cached tool workflow or a fresh model sample
+where timing, tool state, or stochasticity matters.
 
 ### Invalidation
 

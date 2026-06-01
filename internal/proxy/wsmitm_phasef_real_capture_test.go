@@ -11,6 +11,8 @@ import (
 
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
+	"github.com/slimference/slimference/internal/readcache"
+	"github.com/slimference/slimference/internal/toolusecache"
 )
 
 // TestWSPhaseFRealCodexMultiReadProducesDeltaMarker locks in the behaviour
@@ -54,6 +56,7 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 		path           = "/tmp/t247-synthetic.md"
 		promptCacheKey = "019e5220-deadbeef-0000-0000-000000000000"
 	)
+	cleanupPhaseFTempHome(t, tmp, "codex-wss:"+promptCacheKey)
 
 	// Real Codex 0.133.0 exec_command argument shape (captured 2026-05-23,
 	// see /tmp/t247-dump-evidence.tgz resp-response.output_item.done):
@@ -184,6 +187,21 @@ func TestWSPhaseFRealCodexMultiReadProducesDeltaMarker(t *testing.T) {
 	}
 }
 
+func cleanupPhaseFTempHome(t *testing.T, home string, sessionID string) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := readcache.FlushDir(readcache.DefaultDir(home)); err != nil {
+			t.Fatalf("flush readcache temp home: %v", err)
+		}
+		if err := toolusecache.FlushSession(toolusecache.DefaultDir(home), sessionID); err != nil {
+			t.Fatalf("flush tooluse temp home: %v", err)
+		}
+		if err := toolusecache.FlushSession(toolusecache.CollapsedKeysDir(home), sessionID); err != nil {
+			t.Fatalf("flush collapsed-key temp home: %v", err)
+		}
+	})
+}
+
 func TestWSPhaseFAdditionalCodexToolShapesProduceDeltaMarkers(t *testing.T) {
 	type toolShapeFixture struct {
 		name        string
@@ -308,6 +326,7 @@ func TestWSPhaseFAdditionalCodexToolShapesProduceDeltaMarkers(t *testing.T) {
 			workdir := filepath.Join(tmp, "repo")
 			expectedPath := filepath.Join(workdir, fixture.fileName)
 			promptCacheKey := "019e5220-t248-" + strings.ReplaceAll(fixture.name, "_", "-")
+			cleanupPhaseFTempHome(t, tmp, "codex-wss:"+promptCacheKey)
 			var fileBody strings.Builder
 			for i := 0; i < 260; i++ {
 				fmt.Fprintf(&fileBody, "%s baseline line %03d for Codex WSS shape fixture coverage.\n", fixture.name, i)

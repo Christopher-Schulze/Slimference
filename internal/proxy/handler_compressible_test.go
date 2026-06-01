@@ -263,7 +263,7 @@ func TestServeHTTP_layer3CacheHit(t *testing.T) {
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
-	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"cache probe"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"cache probe"}]}`
 	post := func() string {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))

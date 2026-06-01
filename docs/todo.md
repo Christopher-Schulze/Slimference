@@ -1911,8 +1911,10 @@ be called complete, default-safe, and production-grade.
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [~] **T263** Layer 3 provider/prompt cache max-out - local response cache now
   full-passes tool-capable request shapes and includes HTTP route path/query in
-  cache keys to avoid workflow replay and cross-endpoint alias drawdowns;
-  provider-accounting alignment and long-session proof remain. Detail:
+  cache keys to avoid workflow replay and cross-endpoint alias drawdowns; local
+  replay also requires explicit deterministic sampling, so provider default
+  sampling full-passes upstream. Provider-accounting alignment and long-session
+  proof remain. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
 
 ### Codex savings mechanism max-out tasks

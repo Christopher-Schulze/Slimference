@@ -80,7 +80,7 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 	t.Run("cache hit", func(t *testing.T) {
 		p := New(config.Defaults())
 		fillAnalyticsQueue(p)
-		body := []byte(`{"model":"claude","messages":[{"role":"user","content":"cache"}]}`)
+		body := []byte(`{"model":"claude","temperature":0,"messages":[{"role":"user","content":"cache"}]}`)
 		key := p.responseCache.ComputeRequestKeyWithRoute(types.Anthropic, "/v1/messages", body, nil)
 		p.responseCache.Set(key, &caching.CacheEntry{
 			Response:    []byte(`{"ok":true}`),

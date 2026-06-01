@@ -85,9 +85,9 @@ func TestIsRequestCacheSafe(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "deterministic default request",
+			name: "missing temperature is not replay safe",
 			body: `{"model":"claude","messages":[{"role":"user","content":"hello"}]}`,
-			want: true,
+			want: false,
 		},
 		{
 			name: "explicit zero temperature still cache safe",
@@ -101,42 +101,42 @@ func TestIsRequestCacheSafe(t *testing.T) {
 		},
 		{
 			name: "top_p below one disables cache",
-			body: `{"model":"claude","top_p":0.8,"messages":[{"role":"user","content":"hello"}]}`,
+			body: `{"model":"claude","temperature":0,"top_p":0.8,"messages":[{"role":"user","content":"hello"}]}`,
 			want: false,
 		},
 		{
 			name: "multiple completions disable cache",
-			body: `{"model":"gpt-4","n":2,"messages":[{"role":"user","content":"hello"}]}`,
+			body: `{"model":"gpt-4","temperature":0,"n":2,"messages":[{"role":"user","content":"hello"}]}`,
 			want: false,
 		},
 		{
 			name: "streaming disables cache",
-			body: `{"model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hello"}]}`,
+			body: `{"model":"gpt-4","temperature":0,"stream":true,"messages":[{"role":"user","content":"hello"}]}`,
 			want: false,
 		},
 		{
 			name: "string boolean disables cache",
-			body: `{"model":"gpt-4","stream":"true","messages":[{"role":"user","content":"hello"}]}`,
+			body: `{"model":"gpt-4","temperature":0,"stream":"true","messages":[{"role":"user","content":"hello"}]}`,
 			want: false,
 		},
 		{
 			name: "string numeric disables cache",
-			body: `{"model":"gpt-4","top_p":"0.5","messages":[{"role":"user","content":"hello"}]}`,
+			body: `{"model":"gpt-4","temperature":0,"top_p":"0.5","messages":[{"role":"user","content":"hello"}]}`,
 			want: false,
 		},
 		{
 			name: "tools disable cache",
-			body: `{"model":"gpt-4","tools":[{"type":"function","function":{"name":"read_file"}}],"messages":[{"role":"user","content":"hello"}]}`,
+			body: `{"model":"gpt-4","temperature":0,"tools":[{"type":"function","function":{"name":"read_file"}}],"messages":[{"role":"user","content":"hello"}]}`,
 			want: false,
 		},
 		{
 			name: "tool choice disables cache",
-			body: `{"model":"gpt-4","tool_choice":{"type":"function","function":{"name":"read_file"}},"messages":[{"role":"user","content":"hello"}]}`,
+			body: `{"model":"gpt-4","temperature":0,"tool_choice":{"type":"function","function":{"name":"read_file"}},"messages":[{"role":"user","content":"hello"}]}`,
 			want: false,
 		},
 		{
 			name: "tool role disables cache",
-			body: `{"model":"gpt-4","messages":[{"role":"tool","content":"result"}]}`,
+			body: `{"model":"gpt-4","temperature":0,"messages":[{"role":"tool","content":"result"}]}`,
 			want: false,
 		},
 		{

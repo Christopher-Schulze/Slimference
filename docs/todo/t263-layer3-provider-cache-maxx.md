@@ -14,6 +14,9 @@ and long-session proof.
   `functions`, `tool_choice`, `function_call`, tool/function roles, and
   Responses `function_call_output` inputs full-pass upstream instead of being
   replayed from cache.
+- Local response-cache safety now also requires explicit deterministic sampling
+  (`temperature: 0`). Missing sampling fields are provider defaults, not proof
+  that replaying a prior model answer is behavior-preserving.
 - Local response-cache keys now include the HTTP route path and query string in
   addition to provider, canonical body, and semantic headers. The same provider
   and body on `/v1/responses`, `/v1/chat/completions`, or route variants cannot
@@ -96,6 +99,10 @@ accounting or locally proven upstream bypass, not mixed counters.
 - 2026-05-31: Hardened local response-cache keying with route-aware request keys
   and tests for path/query partitioning. Existing cache-hit tests now seed the
   exact route key, so cache proofs cannot rely on cross-endpoint aliasing.
+- 2026-06-01: Hardened local response-cache eligibility again: implicit provider
+  sampling defaults now full-pass upstream, and cache replay requires an
+  explicit deterministic request. Integration coverage proves both explicit
+  stochastic settings and missing sampling fields bypass Layer 3.
 
 ## Done
 

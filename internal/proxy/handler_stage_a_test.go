@@ -71,7 +71,7 @@ func TestServeHTTP_stageACacheHitSkipsCompressionPipeline(t *testing.T) {
 
 	p := New(cfg)
 
-	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"hi"},{"role":"user","content":"again"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"temperature":0,"messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"hi"},{"role":"user","content":"again"}]}`
 
 	// Cold: upstream is called, Stage B entry stored, Stage A pointer registered.
 	req1 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))

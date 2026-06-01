@@ -58,7 +58,7 @@ func TestServeHTTP_layer3CacheHit_partitionsByAPIKey(t *testing.T) {
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
-	body := `{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"cache me"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","temperature":0,"messages":[{"role":"user","content":"cache me"}]}`
 
 	post := func(apiKey string) {
 		t.Helper()
@@ -122,6 +122,46 @@ func TestServeHTTP_layer3CacheHit_skipsExplicitStochasticRequests(t *testing.T) 
 	}
 }
 
+func TestServeHTTP_layer3CacheHit_skipsImplicitSamplingDefaults(t *testing.T) {
+	t.Parallel()
+
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = true
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"sample"}]}`
+
+	for range 2 {
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-API-Key", "key-a")
+		rec := httptest.NewRecorder()
+		p.ServeHTTP(rec, req)
+		res := rec.Result()
+		t.Cleanup(func() { _ = res.Body.Close() })
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+		}
+	}
+
+	if upstreamCalls.Load() != 2 {
+		t.Fatalf("upstream calls = %d, want 2 when sampling defaults are implicit", upstreamCalls.Load())
+	}
+}
+
 func TestServeHTTP_layer3CacheHit_recordsProcessedRequestMetrics(t *testing.T) {
 	t.Parallel()
 
@@ -142,7 +182,7 @@ func TestServeHTTP_layer3CacheHit_recordsProcessedRequestMetrics(t *testing.T) {
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
-	body := `{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"cache me"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","temperature":0,"messages":[{"role":"user","content":"cache me"}]}`
 
 	for range 2 {
 		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
@@ -203,7 +243,7 @@ func TestServeHTTP_layer3CacheHit_invalidatesOnWatchedDependencyChange(t *testin
 	}
 	defer p.fileWatcher.Close()
 
-	body := `{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"read ` + depPath + ` before replying"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","temperature":0,"messages":[{"role":"user","content":"read ` + depPath + ` before replying"}]}`
 
 	post := func() {
 		t.Helper()
@@ -267,7 +307,7 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWithoutDependencyWatcher(t *testin
 		p.fileWatcher = nil
 	}
 
-	body := `{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"read ` + depPath + ` before replying"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","temperature":0,"messages":[{"role":"user","content":"read ` + depPath + ` before replying"}]}`
 
 	for range 2 {
 		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
@@ -377,7 +417,7 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWhenDependencyWatchIsNotArmed(t *t
 		}
 	}
 
-	body := `{"model":"claude-3-5-sonnet-20241022","messages":[{"role":"user","content":"read ` + depPath + ` before replying"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","temperature":0,"messages":[{"role":"user","content":"read ` + depPath + ` before replying"}]}`
 
 	for range 2 {
 		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
