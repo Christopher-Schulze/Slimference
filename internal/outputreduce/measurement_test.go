@@ -75,7 +75,7 @@ func TestTrackerAutoTuneDowngradesOnRepairSignal(t *testing.T) {
 	t.Parallel()
 	tr := NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{
 		Enabled:             true,
-		MinSamples:          1,
+		MinSamples:          30,
 		MaxFailureRateDelta: 0.1,
 		CooldownTurns:       2,
 	})
@@ -83,6 +83,23 @@ func TestTrackerAutoTuneDowngradesOnRepairSignal(t *testing.T) {
 	tr.ObserveRepairSignal("codex", "gpt", ProfileCodexAggressive, ShapeCodeEdit)
 	if got := tr.SelectProfile("codex", "gpt", ProfileCodexAggressive, ShapeCodeEdit); got != ProfileStandard {
 		t.Fatalf("repair downgrade=%s", got)
+	}
+}
+
+func TestTrackerAutoTuneRepairSignalCreatesCooldownBucket(t *testing.T) {
+	t.Parallel()
+	tr := NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{
+		Enabled:             true,
+		MinSamples:          30,
+		MaxFailureRateDelta: 0.1,
+		CooldownTurns:       2,
+	})
+	tr.ObserveRepairSignal("codex", "gpt", ProfileCodexAggressive, ShapeDirectAnswer)
+	if got := tr.SelectProfile("codex", "gpt", ProfileCodexAggressive, ShapeDirectAnswer); got != ProfileStandard {
+		t.Fatalf("repair signal should immediately soften even without prior samples, got %s", got)
+	}
+	if !tr.InCooldown("codex", "gpt", ProfileCodexAggressive, ShapeDirectAnswer) {
+		t.Fatal("repair-created bucket should enter cooldown")
 	}
 }
 
@@ -126,8 +143,8 @@ func TestTrackerAutoTuneSkipBranches(t *testing.T) {
 	tr = NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{Enabled: true, MinSamples: 3, MaxFailureRateDelta: 0.1, CooldownTurns: 2})
 	tr.ObserveOutcome(Outcome{Provider: "p", Model: "m", Profile: string(ProfileAggressive), TaskShape: ShapeCodeEdit, Applied: true, OutputTokens: 100})
 	tr.ObserveRepairSignal("p", "m", ProfileAggressive, ShapeCodeEdit)
-	if got := tr.SelectProfile("p", "m", ProfileAggressive, ShapeCodeEdit); got != ProfileAggressive {
-		t.Fatalf("below-min repair should not downgrade=%s", got)
+	if got := tr.SelectProfile("p", "m", ProfileAggressive, ShapeCodeEdit); got != ProfileStandard {
+		t.Fatalf("repair signal must downgrade without waiting for min samples=%s", got)
 	}
 	tr = NewTrackerWithAutoTune(true, "auto", AutoTuneConfig{Enabled: true, MinSamples: 1, MaxFailureRateDelta: 0.1, CooldownTurns: 2})
 	tr.ObserveOutcome(Outcome{Provider: "p", Model: "m", Profile: string(ProfileAggressive), TaskShape: ShapeReview, Applied: true, Failed: true})

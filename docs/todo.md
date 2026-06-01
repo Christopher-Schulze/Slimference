@@ -1939,7 +1939,8 @@ be called complete, default-safe, and production-grade.
 - [~] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact
   code/patch/explanation workflows. Offline hardening now caps aggressive
-  profiles for read-only analysis and planning as safety-sensitive shapes.
+  profiles for read-only analysis and planning as safety-sensitive shapes and
+  turns repair/re-ask signals into immediate profile cooldowns.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a

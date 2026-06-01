@@ -236,6 +236,68 @@ func TestServeHTTP_OutputReduceCooldownFeedsPlannerAndSoftensProfile(t *testing.
 	}
 }
 
+func TestServeHTTP_OutputReduceRepairFollowupImmediatelySoftensNextBucket(t *testing.T) {
+	t.Parallel()
+	var capturedBodies []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBodies = append(capturedBodies, string(body))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"output_tokens":500}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.OutputReduce.Enabled = true
+	cfg.Compression.OutputReduce.Profile = string(outputreduce.ProfileAggressive)
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	cfg.Compression.OutputReduce.AutoTuneEnabled = true
+	cfg.Compression.OutputReduce.AutoTuneMinSamples = 30
+	cfg.Compression.OutputReduce.MaxFailureRateDelta = 0.1
+	cfg.Compression.OutputReduce.CooldownTurns = 3
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	model := "claude-3-5-sonnet-20241022"
+	send := func(content string) {
+		t.Helper()
+		body := `{"model":"` + model + `","max_tokens":512,"messages":[{"role":"user","content":"` + content + `"}]}`
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("anthropic-trace-id", "output-reduce-repair-session")
+		rec := httptest.NewRecorder()
+		p.ServeHTTP(rec, req)
+		res := rec.Result()
+		t.Cleanup(func() { _ = res.Body.Close() })
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+		}
+	}
+
+	direct := strings.Repeat("answer this operational question tersely ", 9000)
+	send(direct)
+	send(strings.Repeat("you skipped the requested detail, explain more ", 2000))
+	send(direct)
+
+	if len(capturedBodies) != 3 {
+		t.Fatalf("captured %d bodies", len(capturedBodies))
+	}
+	if !strings.Contains(capturedBodies[0], "Aggressive output rules") {
+		t.Fatalf("first direct turn should use aggressive directive: %s", capturedBodies[0])
+	}
+	if strings.Contains(capturedBodies[1], "#slimference-output-rules") {
+		t.Fatalf("repair follow-up should skip injection: %s", capturedBodies[1])
+	}
+	if strings.Contains(capturedBodies[2], "Aggressive output rules") || !strings.Contains(capturedBodies[2], "Output rules:") {
+		t.Fatalf("repair signal should immediately soften next matching bucket: %s", capturedBodies[2])
+	}
+}
+
 func TestServeHTTP_OutputReduceCapsAggressiveCodeEditProfile(t *testing.T) {
 	t.Parallel()
 	var captured []byte

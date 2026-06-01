@@ -91,15 +91,18 @@ Output reduction becomes a runtime-governed layer:
   and planning. The cap runs in both the proxy hot path before tracker/cooldown
   selection and in `InjectBody` as defense in depth.
 - Existing repair-signal plumbing remains active: "you skipped" / "too short" /
-  malformed-patch style follow-ups downgrade the stored provider/model/profile/
-  task-shape bucket through the output-reduce tracker.
+  malformed-patch style follow-ups immediately downgrade the stored
+  provider/model/profile/task-shape bucket through the output-reduce tracker
+  without waiting for the normal sample window. A repair signal can also create
+  the cooldown bucket directly, so the next matching request is softened even if
+  the prior outcome sample was not retained.
 - Existing WSS guard remains active: WSS text deltas are not streamcut even when
   the global HTTP streamcut toggle is on; terminal WSS responses stay byte-equal
   to avoid corrupting code, patch, or final-answer payloads.
 - Offline verification covered profile selection, injection, task-shape
-  detection, proxy hot-path profile capping, and repair lifecycle. Live corpus
-  proof for aggressive direct-answer/status workloads remains deferred until the
-  capture phase.
+  detection, proxy hot-path profile capping, immediate repair-signal cooldown,
+  and repair lifecycle. Live corpus proof for aggressive direct-answer/status
+  workloads remains deferred until the capture phase.
 
 ## Done
 

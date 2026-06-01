@@ -291,11 +291,13 @@ rewritten after the model emits it.
 The output directive injector is task-shape aware. Exact replies and repair
 follow-ups skip injection. Aggressive profiles are statically capped to
 `standard` for safety-sensitive tasks: code edits, new-file generation,
-debugging, reviews, tool-result reasoning, and final summaries. That cap runs
-before runtime cooldown selection in the proxy and again inside the injector as
-defense in depth. Repair signals such as "you skipped", "too short", missing
-detail, malformed patches, or failed apply-patch feedback are stored by session
-and downgrade the affected provider/model/profile/task-shape bucket.
+debugging, reviews, tool-result reasoning, final summaries, read-only analysis,
+and planning. That cap runs before runtime cooldown selection in the proxy and
+again inside the injector as defense in depth. Repair signals such as "you
+skipped", "too short", missing detail, malformed patches, or failed apply-patch
+feedback are stored by session and immediately downgrade the affected
+provider/model/profile/task-shape bucket without waiting for the normal sample
+window.
 
 ### Codex read-compression (mechanisms and safety model)
 

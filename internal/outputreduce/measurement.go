@@ -140,14 +140,7 @@ func (t *Tracker) ObserveOutcome(outcome Outcome) {
 		return
 	}
 	if shouldDowngrade(b, t.auto) {
-		next := NextSofter(b.profile)
-		t.downgrades[key] = next
-		b.profile = next
-		b.cooldown = int64(t.auto.CooldownTurns)
-		b.samples = 0
-		b.failures = 0
-		b.inputOverheadTokens = 0
-		b.outputTokens = 0
+		downgradeBucketLocked(t, key, b)
 	}
 }
 
@@ -160,26 +153,22 @@ func (t *Tracker) ObserveRepairSignal(provider, model string, profile Profile, s
 	key := bucketKey(provider, model, profile, shape)
 	b := t.buckets[key]
 	if b == nil {
-		return
+		b = &bucket{profile: profile}
+		t.buckets[key] = b
 	}
 	b.failures++
-	if b.cooldown > 0 {
-		b.cooldown--
-		return
-	}
-	if b.samples < int64(t.auto.MinSamples) {
-		return
-	}
-	if shouldDowngrade(b, t.auto) {
-		next := NextSofter(b.profile)
-		t.downgrades[key] = next
-		b.profile = next
-		b.cooldown = int64(t.auto.CooldownTurns)
-		b.samples = 0
-		b.failures = 0
-		b.inputOverheadTokens = 0
-		b.outputTokens = 0
-	}
+	downgradeBucketLocked(t, key, b)
+}
+
+func downgradeBucketLocked(t *Tracker, key string, b *bucket) {
+	next := NextSofter(b.profile)
+	t.downgrades[key] = next
+	b.profile = next
+	b.cooldown = int64(t.auto.CooldownTurns)
+	b.samples = 0
+	b.failures = 0
+	b.inputOverheadTokens = 0
+	b.outputTokens = 0
 }
 
 func (t *Tracker) ObserveOutput(outputTokens int) {
