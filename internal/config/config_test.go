@@ -110,6 +110,7 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_L2_MODE", "extractive")
 	t.Setenv("SLIMFERENCE_L2_REQUIRE_DETERMINISTIC", "off")
 	t.Setenv("SLIMFERENCE_L2_OUTBOUND_REDACTION", "strict")
+	t.Setenv("SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT", "true")
 	t.Setenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH", "/tmp/prompt.md")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING", "on")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING_MIN_TURN_GAP", "9")
@@ -136,6 +137,7 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	if cfg.Compression.Summary.Mode != "extractive" ||
 		cfg.Compression.Summary.RequireDeterministic ||
 		cfg.Compression.Summary.OutboundRedaction != "strict" ||
+		!cfg.Compression.Summary.AllowModelFacingReplacement ||
 		cfg.Compression.PromptOverridePath != "/tmp/prompt.md" {
 		t.Fatalf("layer2 env not applied: %+v", cfg.Compression)
 	}
@@ -849,6 +851,9 @@ func TestDefaults_Layer2Disabled(t *testing.T) {
 	cfg := Defaults()
 	if cfg.Compression.Layer2Enabled {
 		t.Fatal("Layer2Enabled must be false by default — deterministic-only ships by default; users opt into model-based summarization explicitly")
+	}
+	if cfg.Compression.Summary.AllowModelFacingReplacement {
+		t.Fatal("Layer 2 summary replacement must be blocked by default; product direction is ledger, not summary-as-truth")
 	}
 }
 

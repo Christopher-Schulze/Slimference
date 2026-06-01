@@ -281,6 +281,9 @@ func TestHandleLayer2AcknowledgeAndStatus(t *testing.T) {
 	if !strings.Contains(out, "Policy ack:    recorded") {
 		t.Fatalf("status should show recorded ack, got: %q", out)
 	}
+	if !strings.Contains(out, "Model-facing:  summary replacement blocked") {
+		t.Fatalf("status should show model-facing summary gate, got: %q", out)
+	}
 }
 
 func TestEnsureLayer2PolicyAcknowledgedInteractiveAndNonInteractive(t *testing.T) {

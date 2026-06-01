@@ -637,6 +637,7 @@ func TestLayer2BackgroundCandidateBranches(t *testing.T) {
 
 func TestLayer2SessionAPIsAndApply(t *testing.T) {
 	l := testLayer2ForCurrentTests()
+	l.cfg.Summary.AllowModelFacingReplacement = true
 	msgs := longLayer2Messages(8)
 	if _, _, ok := l.ApplyToMessagesSession("s", msgs); ok {
 		t.Fatal("missing cache should not apply")

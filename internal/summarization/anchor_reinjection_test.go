@@ -28,6 +28,7 @@ func buildAnchorMessages(t *testing.T) ([]types.Message, []int) {
 func TestApplyToMessagesSession_AnchorVerbatim(t *testing.T) {
 	t.Parallel()
 	l := NewLayer2(testCompressionConfig())
+	l.cfg.Summary.AllowModelFacingReplacement = true
 
 	msgs, anchorIndices := buildAnchorMessages(t)
 	anchorMsgs := make([]types.Message, len(anchorIndices))
@@ -105,6 +106,7 @@ func TestApplyToMessagesSession_BudgetOverflow(t *testing.T) {
 	t.Parallel()
 	cfg := testCompressionConfig()
 	cfg.Summary.MaxAnchorsInlined = 3
+	cfg.Summary.AllowModelFacingReplacement = true
 	l := NewLayer2(cfg)
 
 	msgs := make([]types.Message, 20)
@@ -167,6 +169,7 @@ func TestApplyToMessagesSession_BudgetOverflow(t *testing.T) {
 func TestApplyToMessagesSession_ValidatorFallback(t *testing.T) {
 	t.Parallel()
 	l := NewLayer2(testCompressionConfig())
+	l.cfg.Summary.AllowModelFacingReplacement = true
 
 	msgs := make([]types.Message, 10)
 	for i := range msgs {
@@ -202,6 +205,7 @@ func TestApplyToMessagesSession_ValidatorFallback(t *testing.T) {
 func TestApplyToMessagesSession_NoAnchors(t *testing.T) {
 	t.Parallel()
 	l := NewLayer2(testCompressionConfig())
+	l.cfg.Summary.AllowModelFacingReplacement = true
 
 	msgs := makeTestMessages(10)
 	l.sessions.Store("s4", &CachedSummary{
@@ -429,6 +433,7 @@ func TestAnchorCategoryString(t *testing.T) {
 func TestApplyToMessages_LegacyWithAnchors(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
+	cfg.Summary.AllowModelFacingReplacement = true
 	l := NewLayer2(&cfg)
 
 	msgs := []types.Message{

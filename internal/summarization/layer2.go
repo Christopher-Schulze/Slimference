@@ -955,6 +955,9 @@ func (l *Layer2) minProjectedLayer2Savings() int {
 // --- Session-keyed API (T110) ---
 
 func (l *Layer2) ApplyToMessagesSession(sessionID string, messages []types.Message) ([]types.Message, int, bool) {
+	if l == nil || l.cfg == nil || !l.cfg.Summary.AllowModelFacingReplacement {
+		return messages, 0, false
+	}
 	cached, coveredRange := l.sessions.GetCurrentMatchingPrefix(sessionID, messages)
 	if cached == nil {
 		return messages, 0, false

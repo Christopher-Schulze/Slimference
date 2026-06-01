@@ -378,6 +378,14 @@ loader-based and must restore exact bytes or fail. It is not yet a default
 hot-path replacement mechanism; readcache provenance, replay, and live corpus
 proof remain the promotion gates.
 
+Classical Layer 2 summary replacement is now gated separately from
+`layer2_enabled`. Even if an operator enables Layer 2, cached extractive or
+provider summaries remain shadow/background artifacts unless
+`[compression.summary].allow_model_facing_replacement = true` (or
+`SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT=1`) is explicitly set. This keeps
+summary-as-truth out of the product path while the context-ledger replacement is
+being proven.
+
 The Codex Layer-0 reducer now feeds the ledger builders in the hot path as
 telemetry only. It builds command/file/search/failure capsule observations from
 tool-output metadata and exposes only content-free capsule counts in
@@ -835,7 +843,10 @@ with `slimference layer2 enable --acknowledge-data-policy` or an explicit
 enabled records an explicit acknowledgement under
 `~/.slimference/policy/layer2-default-on-ack.json`; non-interactive startup
 warns without blocking. `slimference layer2 acknowledge` records the marker
-manually, and `slimference layer2 status` prints the ack state.
+manually, and `slimference layer2 status` prints the ack state. Model-facing
+summary replacement stays blocked unless
+`[compression.summary].allow_model_facing_replacement = true` is explicitly
+configured; this is a legacy override, not the product direction.
 
 T152 hardens Layer 2 as a background-only optimizer. After the active
 request completes, `ScoreBackgroundCandidateSession` checks provider
@@ -843,10 +854,10 @@ availability, compressible-prefix size, recent edit/error anchors,
 projected savings, and existing summary coverage. Eligible jobs enter
 the bounded `compressQueue` with a session candidate hash. The worker
 drops stale hashes before running the summariser, and `ApplyToMessagesSession`
-only replaces messages when the cached summary hash still matches the
-live covered prefix. Hash mismatch, stale worker job, provider failure,
-timeout, validation failure, and anchor-loss validation all fail open to
-the original context. Telemetry is exposed at
+only replaces messages when the legacy model-facing replacement gate is enabled
+and the cached summary hash still matches the live covered prefix. Gate disabled,
+hash mismatch, stale worker job, provider failure, timeout, validation failure,
+and anchor-loss validation all fail open to the original context. Telemetry is exposed at
 `/admin/status.layer2.cache_stats`.
 
 Layer 2 caps formatted summariser input before preprocessing or density

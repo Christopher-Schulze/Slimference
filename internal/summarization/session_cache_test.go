@@ -266,6 +266,10 @@ func TestLayer2_ApplyToMessagesSession(t *testing.T) {
 		CreatedAt:        time.Now(),
 	})
 	msgs := makeTestMessages(10)
+	if _, _, applied := l.ApplyToMessagesSession("s1", msgs); applied {
+		t.Fatal("summary replacement must be gated off by default")
+	}
+	l.cfg.Summary.AllowModelFacingReplacement = true
 	result, saved, applied := l.ApplyToMessagesSession("s1", msgs)
 	if !applied {
 		t.Fatal("expected applied")

@@ -24,6 +24,10 @@ replacement for reality.
   content-free telemetry only. `/admin/state.savings` exposes command, file,
   search, and failure capsule counts globally and per route. No capsule is
   inserted into model-facing context yet.
+- Classical summary replacement is now separately gated. `layer2_enabled=true`
+  can no longer make cached summaries replace model-facing history unless the
+  explicit legacy override
+  `[compression.summary].allow_model_facing_replacement=true` is also set.
 
 ## Product target
 
@@ -74,7 +78,9 @@ The ledger stores deterministic capsules:
    - [x] missing archive means no replacement
    - [x] wire archive expansion replay into the A/B harness engine
    - [x] add real archived reducer-output fixtures to the A/B harness
-5. [ ] Replace summary replacement with ledger insertion only behind proof:
+5. [~] Replace summary replacement with ledger insertion only behind proof:
+   - [x] classical summary replacement is blocked by default, even when Layer 2
+     background work is enabled
    - default-off while shadowing
    - shadow produces ledger sidecar and compares against direct context
    - promotion only after live corpus proof
@@ -147,3 +153,9 @@ summary remains opt-in, not default.
   emits a changed-read delta with an archive handle. The A/B harness must expand
   that reducer-created archive entry to the exact changed read bytes, otherwise
   the replay is counted as lost.
+- 2026-06-01: Added an explicit legacy gate for model-facing Layer 2 summary
+  replacement. Cached summaries now stay shadow/background-only unless
+  `[compression.summary].allow_model_facing_replacement=true` or
+  `SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT=1` is set. This prevents
+  classical summary-as-truth from being accidentally promoted while the ledger
+  insertion path remains live-proof gated.

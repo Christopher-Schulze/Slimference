@@ -132,7 +132,7 @@ func TestHealthHandler(t *testing.T) {
 			body.DiskWriteOpsDelta, body.StateBytes)
 	}
 	// 2026-05-15: Slimference ships deterministic-only by default.
-	// L1 + L3 are on; L2 (MiniMax-backed semantic summarization) is
+	// L1 + L3 are on; L2 model-facing summary replacement remains
 	// opt-in. Supersedes T129's default-on policy.
 	if !body.Layers["1"] || body.Layers["2"] || !body.Layers["3"] {
 		t.Errorf("layers = %v, want L1=true L2=false L3=true (deterministic-only defaults)", body.Layers)
@@ -209,7 +209,9 @@ func TestBuildAggressiveCompressedBody_contextCancelled(t *testing.T) {
 // read-only Layer 2 apply branch when a cached summary covers the messages.
 func TestBuildAggressiveCompressedBody_appliesCachedSummary(t *testing.T) {
 	t.Parallel()
-	p := New(config.Defaults())
+	cfg := config.Defaults()
+	cfg.Compression.Summary.AllowModelFacingReplacement = true
+	p := New(cfg)
 	// Seed an existing Layer 2 summary that covers indices 0..1.
 	p.layer2.GetCache().Store(&summarization.CachedSummary{
 		Summary:          "stashed summary",

@@ -499,6 +499,12 @@ type SummaryConfig struct {
 	// verbatim into the compressed output. Excess anchors become one-line
 	// digests. Default 8.
 	MaxAnchorsInlined int `toml:"max_anchors_inlined"`
+	// AllowModelFacingReplacement gates classical Layer 2 summary insertion.
+	// Default false: background/telemetry can exist, but a lossy summary cannot
+	// replace conversation history unless an operator explicitly accepts that
+	// legacy behaviour after proof. Env override:
+	// SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT.
+	AllowModelFacingReplacement bool `toml:"allow_model_facing_replacement"`
 }
 
 // CacheConfig controls response caching behaviour.
@@ -757,6 +763,11 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_OUTBOUND_REDACTION")); v != "" {
 		cfg.Compression.Summary.OutboundRedaction = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.Summary.AllowModelFacingReplacement = b
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH")); v != "" {
 		cfg.Compression.PromptOverridePath = v

@@ -1906,8 +1906,9 @@ be called complete, default-safe, and production-grade.
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
   `internal/contextledger` capsule builders now exist for command, file, search,
   and failure observations, and Codex Layer-0 now feeds them as content-free
-  reducer telemetry; archive provenance, quality inputs, and proof-gated
-  insertion remain. Detail:
+  reducer telemetry; classical summary replacement is now blocked by default
+  behind an explicit legacy override, while archive provenance, quality inputs,
+  and proof-gated ledger insertion remain. Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [~] **T263** Layer 3 provider/prompt cache max-out - local response cache now
   full-passes tool-capable request shapes and includes HTTP route path/query in

@@ -2250,7 +2250,7 @@ func handleDoctorCmd() {
 		if !cfg.Compression.Layer2Enabled {
 			return "Layer 2 disabled"
 		}
-		return "Layer 2 enabled - runs in-process, deterministic, no outbound data"
+		return "Layer 2 enabled - model-facing summary replacement blocked unless explicitly allowed"
 	})
 
 	check("Content archive", func() (string, bool) {

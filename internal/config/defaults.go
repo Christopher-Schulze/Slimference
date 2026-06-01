@@ -64,12 +64,11 @@ func defaultsRaw() *Config {
 		},
 		Compression: CompressionConfig{
 			Layer1Enabled: true,
-			// Layer 2 (MiniMax-backed semantic summarization) defaults
-			// to OFF: Slimference ships deterministic-only by default
-			// (decision 2026-05-15). Users who explicitly opt into
-			// model-based summarization can flip layer2_enabled=true in
-			// their config. MiniMax code is preserved for that opt-in
-			// path but is not on the default token-saving hot path.
+			// Layer 2 defaults to OFF. When explicitly enabled it may prepare
+			// deterministic background summaries, but model-facing summary
+			// replacement remains blocked unless
+			// Summary.AllowModelFacingReplacement is explicitly set. The product
+			// direction is context ledger, not summary-as-conversation-truth.
 			Layer2Enabled:                     false,
 			Layer3Enabled:                     true,
 			SlidingWindow:                     5,
@@ -350,6 +349,11 @@ mode = "balanced"
 # [compression.minimax] enable_seed = true) before adding a second
 # OpenAI-style fallback whose determinism is unverified.
 require_deterministic = false
+# Classical summary replacement is not a product-default safety claim. Keep this
+# false unless a legacy/operator proof explicitly accepts model-facing summaries.
+# The Layer 2 product direction is deterministic context ledger, not summary as
+# conversation truth. Env: SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT.
+allow_model_facing_replacement = false
 
 [compression.tuning]
 # Incremental-summary overlap threshold: if an existing summary covers at
