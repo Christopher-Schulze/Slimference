@@ -117,8 +117,19 @@ func (s *Store) Encode(sessionID string, data []byte) ([]byte, int) {
 // that need to audit chunk-reference density. Any non-verifiable reference set
 // fails open to the original input.
 func (s *Store) EncodeWithReport(sessionID string, data []byte) EncodeResult {
+	return s.EncodeWithReportWithMaxReferencePercent(sessionID, data, 100)
+}
+
+// EncodeWithReportWithMaxReferencePercent applies a per-output reference-density
+// cap before a candidate is accepted into the cumulative session reference
+// budget. A rejected dense candidate still seeds chunk identity state because
+// the caller will full-pass the original bytes to the model.
+func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data []byte, maxReferencePercent int) EncodeResult {
 	if s == nil || sessionID == "" || len(data) == 0 {
 		return EncodeResult{Data: data}
+	}
+	if maxReferencePercent <= 0 || maxReferencePercent > 100 {
+		maxReferencePercent = 100
 	}
 	chunks := Chunk(data, s.cfg)
 	ids := make([]string, len(chunks))
@@ -182,6 +193,9 @@ func (s *Store) EncodeWithReport(sessionID string, data []byte) EncodeResult {
 		return chunk, ok
 	})
 	if !changed || !bytes.Equal([]byte(decoded), data) {
+		return EncodeResult{Data: data}
+	}
+	if referencedBytes*100 > len(data)*maxReferencePercent {
 		return EncodeResult{Data: data}
 	}
 	if !s.recordReferenceBudget(sessionID, len(data), referencedBytes) {

@@ -16,6 +16,9 @@ make chunk dedup automatic without product drawdowns.
 - Chunk encode now has local self-verification: a changed reference stream must
   decode back to the exact original bytes before it can be returned. Archive URI
   collisions or orphan references fail open to the original output.
+- Per-output reference-density rejection happens before cumulative session
+  reference-budget accounting, so candidates that full-pass because they are too
+  reference-dense do not poison later session budget decisions.
 - Chunk refs are now suppressed for patch/diff/edit-style command outputs such
   as `apply_patch`, `patch`, `git diff`, `git show`, `git apply`, `git am`, and
   `git format-patch`. These outputs can still use deterministic filters and
@@ -100,3 +103,11 @@ Chunk dedup may be always-auto only for routes/workloads where:
 Chunk dedup is always-auto only when it is automatic, recoverable, budgeted,
 canary-protected, and proven across multiple real Codex workloads. Before that,
 it remains guarded by policy.
+
+## Progress
+
+- 2026-06-01: Moved per-output reference-density enforcement into the chunk
+  store before cumulative session budget accounting. A dense candidate that
+  full-passes now still seeds chunk identity, because the model receives the
+  original bytes, but it no longer consumes the accepted-reference session
+  budget or skews density telemetry.

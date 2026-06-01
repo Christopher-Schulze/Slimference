@@ -1933,7 +1933,8 @@ be called complete, default-safe, and production-grade.
   dedup into a guarded automatic WSS feature only where archive recovery,
   recency, integrity budget, and proof gates make drawdowns practically
   excluded. Offline hardening now blocks patch/diff/edit outputs from chunk
-  references; live matrix proof remains. Detail:
+  references and enforces per-output reference density before accepted session
+  budget accounting; live matrix proof remains. Detail:
   `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
 - [~] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact

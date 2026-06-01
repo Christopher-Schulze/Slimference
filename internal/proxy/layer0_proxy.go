@@ -1037,11 +1037,8 @@ func encodeProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minB
 	if len(text) < minBytes {
 		return "", false, chunkdedup.EncodeResult{}
 	}
-	result := store.EncodeWithReport(sessionID, []byte(text))
+	result := store.EncodeWithReportWithMaxReferencePercent(sessionID, []byte(text), maxReferencePercent)
 	if result.Saved <= 0 || bytesEqualString(result.Data, text) {
-		return "", false, chunkdedup.EncodeResult{}
-	}
-	if result.ReferencedBytes*100 > len(text)*maxReferencePercent {
 		return "", false, chunkdedup.EncodeResult{}
 	}
 	return string(result.Data), true, result

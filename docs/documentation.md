@@ -544,6 +544,9 @@ Runtime demotion inputs also cover quality spikes, archive recovery loops,
 missing-tool retries, degraded routes, host-budget pressure, and negative-savings
 history. Any supplied demotion signal forces managed Codex tool-output reducers
 to full-pass and records the exact content-free reason in mechanism telemetry.
+Per-output reference-density caps are enforced before cumulative session-budget
+accounting, so a chunk candidate that full-passes because it is too reference
+dense does not consume the session's accepted-reference budget.
 The store is bounded by `codex_chunk_dedup_max_sessions`,
 `codex_chunk_dedup_max_chunks_per_session`, and
 `codex_chunk_dedup_ttl_seconds`; the default min block size is 4096 bytes so

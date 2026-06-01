@@ -109,6 +109,32 @@ func TestStore_SessionReferenceBudgetFailsOpen(t *testing.T) {
 	}
 }
 
+func TestStore_OutputReferenceBudgetDoesNotConsumeSessionBudget(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 60}, archiveFake(nil))
+	shared := genBytes(48*1024, 25)
+	tailA := genBytes(16*1024, 26)
+	tailB := genBytes(16*1024, 27)
+	tailC := genBytes(16*1024, 28)
+	dataA := append(append([]byte{}, shared...), tailA...)
+	dataB := append(append([]byte{}, shared...), tailB...)
+	dataC := append(append([]byte{}, tailB...), tailC...)
+
+	store.EncodeWithReportWithMaxReferencePercent("s1", dataA, 100)
+	rejected := store.EncodeWithReportWithMaxReferencePercent("s1", dataB, 10)
+	if rejected.Saved != 0 || rejected.Verified {
+		t.Fatalf("dense per-output reference candidate should full-pass: saved=%d verified=%v", rejected.Saved, rejected.Verified)
+	}
+	if !bytes.Equal(rejected.Data, dataB) {
+		t.Fatal("dense per-output reference candidate must keep original bytes")
+	}
+
+	accepted := store.EncodeWithReportWithMaxReferencePercent("s1", dataC, 100)
+	if accepted.Saved <= 0 || !accepted.Verified {
+		t.Fatalf("rejected per-output candidate must not consume session budget: saved=%d verified=%v", accepted.Saved, accepted.Verified)
+	}
+}
+
 func TestStore_PartialOverlapDedups(t *testing.T) {
 	t.Parallel()
 	store := NewStore(Config{}, archiveFake(nil))
