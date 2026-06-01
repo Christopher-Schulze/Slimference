@@ -1957,8 +1957,10 @@ be called complete, default-safe, and production-grade.
   `docs/todo/t269-wss-frame-mutation-frontier.md`
 - [x] **T270** Runtime savings policy autopilot - runtime demotion ports now
   force managed reducers to full-pass on quality, recovery-loop, missing-tool,
-  degraded-route, host-budget, or negative-savings signals. Live signal feeding
-  remains a later proof/wiring task. Detail:
+  degraded-route, host-budget, or negative-savings signals, and planner L2
+  `run` now requires the explicit model-facing legacy summary gate instead of
+  `layer2_enabled` alone. Live signal feeding remains a later proof/wiring
+  task. Detail:
   `docs/todo/t270-runtime-savings-policy-autopilot.md`
 - [~] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
   now exposes the content-free `savings.product` rollup and the TUI default

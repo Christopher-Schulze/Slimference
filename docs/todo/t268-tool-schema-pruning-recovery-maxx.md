@@ -9,8 +9,12 @@ default is pruning with automatic reattach and full-schema retry.
 ## Current reality check
 
 - Tool pruning exists with usage tracking and reattach mechanisms.
-- Missing-tool retry/cooldowns exist in later work.
-- It still needs a hard product gate: no model capability loss.
+- Missing-tool retry/cooldowns are wired in the product hot path.
+- Unknown or mixed provider tool schema shapes full-pass before pruning, core
+  tools stay attached, intent reattach runs before pruning, missing-tool 4xx
+  responses retry once with the full pre-prune schema, and affected sessions
+  enter cooldown. The remaining gate is live proof on tool-heavy workflows, not
+  an offline code gap.
 
 ## Product target
 
@@ -100,6 +104,11 @@ Tool pruning should be default-safe only when:
 - Offline verification covered toolprune unit tests and proxy tool-prune retry /
   always-keep / same-pass reattach preservation paths. Live corpus proof for
   tool-heavy workflows remains deferred until the capture phase.
+- 2026-06-01: Re-read the tool-prune implementation after the safety pass.
+  `ExtractToolNamesForPruning` is strict for Anthropic/OpenAI/Codex shapes,
+  proxy pruning full-passes on unknown schema, reattach is deterministic, and
+  retry/cooldown are covered by offline tests. No additional offline code gap
+  found; tool-heavy live corpus remains the blocker.
 
 ## Done
 
