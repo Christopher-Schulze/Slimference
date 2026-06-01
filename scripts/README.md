@@ -36,10 +36,11 @@ go run ./scripts/build --out ./slimference      # Optimiertes lokales Binary
 go run ./scripts/release --version v2.0.2       # Portable macOS-arm64 Release-Tarball + SHA256SUMS
 go run ./scripts/release --version v2.0.2 --targets=all  # Alle aktuell unterstützten Targets
 go run ./scripts/coverage -min=95.0              # Coverage-Gate (aggregate)
-go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s)
+go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s): compression/filter/proxy/readcache/archive/chunk/planner
 go run ./scripts/benchmarks -- -benchtime=1s     # Schneller Durchlauf
 go run ./scripts/benchmarks -- -count=3          # 3 Runden für Stabilität
 go run ./scripts/benchmarks -- -pkg=compression  # Nur compression-Paket
+go run ./scripts/benchmarks -- -pkg=proxy        # Nur Codex/WSS Layer-0 Hotpath
 go run ./scripts/benchmarks session-report tests/fixtures/codex
 go run ./scripts/benchmarks session-report --markdown tests/fixtures/codex
 go run ./scripts/benchmarks codex-smoke-gate tests/fixtures/codex   # CI-enforced regression gate

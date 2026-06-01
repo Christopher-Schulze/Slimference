@@ -69,12 +69,6 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 	}
 
 	hash := hashObservedContent(content)
-	oldContent := entry.CachedContent
-	if oldContent == "" && entry.ArchiveURI != "" && archiveDir != "" {
-		if _, body, err := contentarchive.Get(archiveDir, entry.ArchiveURI); err == nil {
-			oldContent = string(body)
-		}
-	}
 	if recentlyEdited {
 		archiveURI, _ := archiveObservedContent(archiveDir, req, content)
 		updateObservedEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
@@ -111,6 +105,12 @@ func EvaluateObserved(dir string, req Request, content string, archiveDir string
 
 	oldHash := entry.ContentHash
 	fullPassTurn := entry.LastTurnID
+	oldContent := entry.CachedContent
+	if oldContent == "" && entry.ArchiveURI != "" && archiveDir != "" {
+		if _, body, err := contentarchive.Get(archiveDir, entry.ArchiveURI); err == nil {
+			oldContent = string(body)
+		}
+	}
 	archiveURI, archived := archiveObservedContent(archiveDir, req, content)
 	updateObservedEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
 	if err := readCacheSaveSession(dir, state); err != nil {
@@ -161,12 +161,6 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 	}
 
 	hash := hashObservedContent(content)
-	oldContent := entry.CachedContent
-	if oldContent == "" && entry.ArchiveURI != "" && archiveDir != "" {
-		if _, body, err := contentarchive.Get(archiveDir, entry.ArchiveURI); err == nil {
-			oldContent = string(body)
-		}
-	}
 	if entry.ContentHash != "" && entry.ContentHash == hash && entry.ArchiveURI != "" {
 		updateObservedOutputEntry(entry, req, hash, entry.ArchiveURI, content, state.TurnSeq)
 		if err := readCacheSaveSession(dir, state); err != nil {
@@ -181,6 +175,12 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 	}
 
 	oldHash := entry.ContentHash
+	oldContent := entry.CachedContent
+	if oldContent == "" && entry.ArchiveURI != "" && archiveDir != "" {
+		if _, body, err := contentarchive.Get(archiveDir, entry.ArchiveURI); err == nil {
+			oldContent = string(body)
+		}
+	}
 	archiveURI, archived := archiveObservedOutputContent(archiveDir, req, content)
 	updateObservedOutputEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
 	if err := readCacheSaveSession(dir, state); err != nil {

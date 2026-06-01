@@ -19,18 +19,25 @@ import (
 )
 
 var benchPackages = []string{
+	"./internal/chunkdedup/...",
 	"./internal/compression/...",
+	"./internal/contentarchive/...",
 	"./internal/filter/...",
+	"./internal/planner/...",
+	"./internal/proxy/...",
+	"./internal/readcache/...",
 }
 
 func main() {
+	args := normalizeCLIArgs(os.Args[1:])
+
 	// T34 session-report subcommand: aggregate a RequestSummary JSONL log
 	// produced by the live proxy (or tests/fixtures/sample_session.jsonl)
 	// into a human-readable report or a docs/benchmarks.md snippet.
-	if len(os.Args) > 1 && os.Args[1] == "session-report" {
+	if len(args) > 0 && args[0] == "session-report" {
 		format := "text"
 		var path string
-		for _, a := range os.Args[2:] {
+		for _, a := range args[1:] {
 			switch {
 			case a == "--markdown":
 				format = "markdown"
@@ -56,17 +63,17 @@ func main() {
 	// corpus directory, aggregate each category, and check it against the
 	// declared metadata expectations. Used both standalone and as a CI
 	// step so a regression in real-world savings ratio fails the build.
-	if len(os.Args) > 1 && os.Args[1] == "benchmark-corpus" {
-		os.Exit(runBenchmarkCorpus(os.Args[2:]))
+	if len(args) > 0 && args[0] == "benchmark-corpus" {
+		os.Exit(runBenchmarkCorpus(args[1:]))
 	}
 
 	// T75 codex-smoke-gate subcommand: aggregate a Codex evidence corpus
 	// directory and assert it still meets the regression baseline declared
 	// in `codex-metadata.json`. Exits non-zero on any miss so it can run as
 	// a hard step inside `scripts/ci`.
-	if len(os.Args) > 1 && os.Args[1] == "codex-smoke-gate" {
+	if len(args) > 0 && args[0] == "codex-smoke-gate" {
 		var dir string
-		for _, a := range os.Args[2:] {
+		for _, a := range args[1:] {
 			if strings.HasPrefix(a, "--") {
 				fmt.Fprintf(os.Stderr, "unknown flag %q\n", a)
 				os.Exit(2)
@@ -83,10 +90,11 @@ func main() {
 		os.Exit(codexSmokeGate(dir, os.Stdout, os.Stderr))
 	}
 
-	benchtime := flag.String("benchtime", "3s", "benchmark duration per benchmark (go -benchtime)")
-	count := flag.Int("count", 1, "number of benchmark rounds (go -count)")
-	pkg := flag.String("pkg", "", "restrict to a single package name (e.g. compression, filter)")
-	flag.Parse()
+	flags := flag.NewFlagSet("benchmarks", flag.ExitOnError)
+	benchtime := flags.String("benchtime", "3s", "benchmark duration per benchmark (go -benchtime)")
+	count := flags.Int("count", 1, "number of benchmark rounds (go -count)")
+	pkg := flags.String("pkg", "", "restrict to a single package name (e.g. compression, filter)")
+	flags.Parse(args)
 
 	root, err := findModuleRoot()
 	if err != nil {
@@ -127,6 +135,13 @@ func main() {
 	if failed {
 		os.Exit(1)
 	}
+}
+
+func normalizeCLIArgs(args []string) []string {
+	if len(args) > 0 && args[0] == "--" {
+		return args[1:]
+	}
+	return args
 }
 
 func findModuleRoot() (string, error) {

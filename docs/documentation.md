@@ -474,10 +474,11 @@ while the session JSON keeps only the
 hash/archive URI, avoiding unbounded session-state bloat. Ranged reads are keyed
 by `path+offset+limit`, so `head -n 80 x` and `sed -n 120,180p x` never collide
 with each other or with the full file. On a later same-session read, Slimference
-expands the archive only when needed to build an exact delta or unchanged
-reference. If the archive is missing or the delta is not shorter, the original
-content is sent unchanged. This keeps the savings path reconstructable and
-fail-open while improving repeat-read hit-rate for both WSS and HTTP Codex traffic.
+expands the archive only when needed to build an exact delta; unchanged reads
+use the stored content hash and archive URI without inflating the gzip payload.
+If the archive is missing or the delta is not shorter, the original content is
+sent unchanged. This keeps the savings path reconstructable and fail-open while
+improving repeat-read hit-rate for both WSS and HTTP Codex traffic.
 
 The same session state also tracks exact repeated non-file tool outputs. For
 non-read commands, the reducer first applies deterministic captured-output
@@ -2275,6 +2276,21 @@ branches, or always-green assertions.
   `BenchmarkExtractStructure`: per-sub-layer hot paths.
 
 `internal/filter/bench_test.go`: filter hot paths.
+
+`internal/proxy/layer0_bench_test.go`: Codex/WSS Layer-0 hot paths for
+large git status compaction and repeated read-delta.
+
+`internal/readcache/bench_test.go`: full-file and ranged read repeat-cache
+hot paths, including archive-backed unchanged decisions.
+
+`internal/chunkdedup/bench_test.go`: FastCDC chunking and partial-overlap
+chunk-reference encoding.
+
+`internal/contentarchive/bench_test.go`: archive write and archive expansion
+for 64 KB-class payloads.
+
+`internal/planner/bench_test.go`: runtime planner decision overhead for a
+large Codex WSS tool-output shape.
 
 `internal/analytics/phase_hist_test.go::BenchmarkPhaseHistogram_Record`:
 phase recorder overhead (~15 ns/op on M1).

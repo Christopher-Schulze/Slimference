@@ -62,12 +62,14 @@ Initial targets for Apple Silicon macOS:
    - [x] disk write counters
    - [x] state sizes
 2. Add pprof/benchmark ceremony:
-   - real CLI session
-   - real Desktop session
-   - repeat read
-   - search loop
-   - chunk-dedup workload
-   - long workday
+   - [x] deterministic local benchmark harness covers WSS/Layer-0 mutation,
+     chunking, readcache, content archive, and planner overhead
+   - [ ] live CLI pprof/resource run
+   - [ ] live Desktop pprof/resource run
+   - [ ] repeat read
+   - [ ] search loop
+   - [ ] chunk-dedup workload
+   - [ ] long workday
 3. Add auto-degradation:
    - skip expensive chunking when output is too small
    - [x] disable managed Codex reducers under repeated Layer-0 latency pressure
@@ -152,6 +154,18 @@ Initial targets for Apple Silicon macOS:
   CPU-window percentage and disk read/write operation deltas between probes;
   `/admin/state.host_budget` reports those values and demotes managed reducers
   on CPU-window or disk-write-window budget spikes.
+- 2026-06-01: Added deterministic micro-benchmarks for the T272 host-cost
+  surface: Codex/WSS Layer-0 mutation, readcache full/ranged repeat decisions,
+  FastCDC/chunk-store encoding, content-archive write/read, and planner
+  decision overhead. `scripts/benchmarks` now runs these packages by default, so
+  host-cost regressions are measured with the same benchmark ceremony as the
+  older compression/filter hot paths. Live CLI/Desktop pprof remains operator
+  capture work.
+- 2026-06-01: Fixed the benchmark CLI's documented `-- -benchtime=...` path so
+  short local runs do not silently fall back to the 3s default. Also removed an
+  unnecessary archive expansion from unchanged archive-backed readcache hits:
+  once the observed content hash matches the stored hash, the full gzip archive
+  is not needed unless the content changed and a delta must be built.
 
 ## Done
 

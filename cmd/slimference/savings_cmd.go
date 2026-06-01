@@ -534,12 +534,14 @@ func handleSavingsCmd(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		exitFn(1)
+		return
 	}
 	switch period {
 	case "today", "week", "month", "all":
 	default:
 		fmt.Fprintln(os.Stderr, "usage: slimference savings [today|week|month|all] [--json] [--csv] [--project <path>]")
 		exitFn(1)
+		return
 	}
 	cfg, err := configLoadFn()
 	if err != nil {

@@ -1971,7 +1971,8 @@ be called complete, default-safe, and production-grade.
   auto-demotion. Latency histograms and disk-write counters are visible; TUI
   product-status polling backs off under host-budget attention, and readcache +
   WSS tool-use hot state use write-behind persistence. Windowed CPU/disk-write
-  demotion is wired; live resource proof remains. Detail:
+  demotion is wired; host-cost micro-benchmarks cover WSS/Layer-0, readcache,
+  chunking, archive, and planner overhead. Live resource proof remains. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria
