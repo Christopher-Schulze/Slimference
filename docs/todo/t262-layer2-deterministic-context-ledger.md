@@ -28,6 +28,9 @@ replacement for reality.
   can no longer make cached summaries replace model-facing history unless the
   explicit legacy override
   `[compression.summary].allow_model_facing_replacement=true` is also set.
+- The planner now uses the same split: Layer 2 can be enabled for background
+  work, but it cannot report or drive a model-facing `run` decision for
+  classical summaries unless that legacy override is set.
 
 ## Product target
 
@@ -159,3 +162,7 @@ summary remains opt-in, not default.
   `SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT=1` is set. This prevents
   classical summary-as-truth from being accidentally promoted while the ledger
   insertion path remains live-proof gated.
+- 2026-06-01: Aligned the cross-layer planner with the same safety gate. Long
+  contexts now produce `context_ledger_shadow_summary_replacement_blocked`
+  instead of planner `run` unless model-facing legacy summary replacement is
+  explicitly allowed.

@@ -83,8 +83,18 @@ func TestPlan_L2PolicyAndThresholds(t *testing.T) {
 		t.Fatalf("not ready L2=%+v", d)
 	}
 	ready := Plan(RequestFacts{EstimatedInputTokens: 20000, ExternalLayer2Allowed: true, Layer2Acknowledged: true, LiveCorpusConfidence: "medium"})
-	if d := findDecision(t, ready, Layer2); d.Action != ActionRun || d.Confidence != "medium" {
+	if d := findDecision(t, ready, Layer2); d.Action != ActionShadow || d.Reason != "context_ledger_shadow_summary_replacement_blocked" || d.Confidence != "medium" {
 		t.Fatalf("ready L2=%+v", d)
+	}
+	legacyAllowed := Plan(RequestFacts{
+		EstimatedInputTokens:     20000,
+		ExternalLayer2Allowed:    true,
+		Layer2Acknowledged:       true,
+		Layer2ModelFacingAllowed: true,
+		LiveCorpusConfidence:     "medium",
+	})
+	if d := findDecision(t, legacyAllowed, Layer2); d.Action != ActionRun || d.Confidence != "medium" {
+		t.Fatalf("legacy-allowed L2=%+v", d)
 	}
 	adaptive := Plan(RequestFacts{EstimatedInputTokens: 8000, ContentClasses: []string{"repeated_tool_output"}, ExternalLayer2Allowed: true, Layer2Acknowledged: true})
 	if d := findDecision(t, adaptive, Layer2); d.Action != ActionShadow || d.Reason != "adaptive_roi_candidate" {

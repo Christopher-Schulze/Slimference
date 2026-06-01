@@ -21,6 +21,9 @@ drawdowns show up.
     tool-output reducers
   - mechanism telemetry reports the exact demotion reason, so the product can
     explain why savings loosened without logging content
+  - planner Layer 2 `run` now requires the explicit legacy model-facing summary
+    replacement gate; otherwise long-context Layer 2 remains shadow-only for the
+    deterministic context-ledger path
 
 ## Product target
 
@@ -73,7 +76,8 @@ The policy engine controls the default product mode:
    - current offline state: archive recovery loop, missing tool retry, degraded
      route, host budget exceeded, quality spike, negative-savings history,
      recent edit, post-collapse re-read, and session integrity budget all have
-     deterministic full-pass policy outcomes
+     deterministic full-pass policy outcomes; classical Layer 2 model-facing
+     summary replacement cannot be promoted by `layer2_enabled` alone
 6. Keep policy output explainable:
    - decision
    - reason

@@ -23,6 +23,7 @@ type planInspectFlags struct {
 	recentEdit           bool
 	layer2Allowed        bool
 	layer2Acknowledged   bool
+	layer2ModelFacing    bool
 	providerCache        bool
 	previousResponse     bool
 	outputCooldown       bool
@@ -156,6 +157,8 @@ func parsePlanInspectArgs(args []string) (planInspectFlags, error) {
 			flags.layer2Allowed = false
 		case "--no-l2-ack":
 			flags.layer2Acknowledged = false
+		case "--allow-l2-summary-replacement":
+			flags.layer2ModelFacing = true
 		case "--provider-cache":
 			flags.providerCache = true
 		case "--previous-response":
@@ -233,6 +236,7 @@ func buildInspectablePlan(flags planInspectFlags) (planner.CompressionPlan, erro
 		RecentEdit:                  flags.recentEdit,
 		ExternalLayer2Allowed:       flags.layer2Allowed,
 		Layer2Acknowledged:          flags.layer2Acknowledged,
+		Layer2ModelFacingAllowed:    flags.layer2ModelFacing,
 		ProviderCacheSupported:      flags.providerCache,
 		PreviousResponseIDAvailable: flags.previousResponse,
 		OutputReduceCooldown:        flags.outputCooldown,

@@ -2064,10 +2064,14 @@ first behavior gates: L0 proxy compaction skips planner
 `bypass`, L1 skips planner `bypass` and uses cheap-only mode for planner
 `cheap_only`, L1/L2 coordination keys off the planner's L2 `run` decision, and
 L2 cache apply/background enqueue skip hard L2 bypasses (operator-disabled,
-external policy disabled, recent-edit window). Soft below-ROI L2 bypasses still
-fall through to Layer2's session cache and candidate scoring so the planner does
-not suppress already-proven cache wins. Layer-local fallbacks remain active; the
-planner is an early governor, not the only safety mechanism.
+external policy disabled, recent-edit window). Classical Layer 2 summaries can
+only reach planner `run` when the explicit legacy
+`allow_model_facing_replacement` gate is set; otherwise long-context Layer 2
+stays a context-ledger shadow candidate instead of replacing conversation
+truth. Soft below-ROI L2 bypasses still fall through to Layer2's session cache
+and candidate scoring so the planner does not suppress already-proven cache
+wins. Layer-local fallbacks remain active; the planner is an early governor,
+not the only safety mechanism.
 
 `slimference plan inspect` dry-runs the same planner without sending upstream
 traffic. It accepts provider/model/route/token/cache/WebSocket facts, can

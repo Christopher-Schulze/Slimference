@@ -67,6 +67,7 @@ func (p *Proxy) buildCompressionPlan(in plannerInput) planner.CompressionPlan {
 		RecentEdit:                  in.recentEdit,
 		ExternalLayer2Allowed:       p.config.Compression.Layer2Enabled,
 		Layer2Acknowledged:          p.config.Compression.Layer2Enabled,
+		Layer2ModelFacingAllowed:    p.config.Compression.Summary.AllowModelFacingReplacement,
 		ProviderCacheSupported:      providerCacheSupported,
 		PreviousResponseIDAvailable: in.previousResponseIDAvailable,
 		ToolPruneCooldown:           in.toolPruneCooldown,

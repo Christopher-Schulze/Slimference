@@ -2233,7 +2233,7 @@ func handleDoctorCmd() {
 		}
 		switch mode {
 		case summarization.RedactionModeOff:
-			return "OFF - L2 ships raw conversation prefixes to MiniMax (set [compression.summary] outbound_redaction = \"default\" to enable)", false
+			return "OFF - configured external L2 providers can receive raw conversation prefixes (set [compression.summary] outbound_redaction = \"default\" to enable)", false
 		case summarization.RedactionModeStrict:
 			return "strict (secrets + paths + headers + JSON sweep + tool_input drop)", true
 		case summarization.RedactionModeDefault:

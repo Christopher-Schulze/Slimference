@@ -37,6 +37,7 @@ type RequestFacts struct {
 	RecentEdit                  bool
 	ExternalLayer2Allowed       bool
 	Layer2Acknowledged          bool
+	Layer2ModelFacingAllowed    bool
 	ProviderCacheSupported      bool
 	PreviousResponseIDAvailable bool
 	ToolPruneCooldown           bool
@@ -144,6 +145,9 @@ func decideL2(f RequestFacts) LayerDecision {
 		return decision(Layer2, ActionShadow, "codex_wss_l2_requires_fixture_live_proof", f.EstimatedInputTokens/4, "medium", confidenceFromCorpus(f))
 	}
 	if f.EstimatedInputTokens >= 15000 {
+		if !f.Layer2ModelFacingAllowed {
+			return decision(Layer2, ActionShadow, "context_ledger_shadow_summary_replacement_blocked", f.EstimatedInputTokens/4, "medium", confidenceFromCorpus(f))
+		}
 		return decision(Layer2, ActionRun, "long_context_threshold", f.EstimatedInputTokens/3, "medium", confidenceFromCorpus(f))
 	}
 	if f.EstimatedInputTokens >= 7000 && hasClass(f, "repeated_tool_output") {
