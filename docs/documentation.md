@@ -438,9 +438,12 @@ reliable. Repeated Layer-0 latency budget breaches set a separate
 cheap frames, so one spike does not disable savings but repeated local overhead
 cannot degrade Codex UX. Readcache and WSS tool-use/collapsed-key state use
 same-process memory plus short write-behind flushes, so reconnect hydration is
-immediate while per-frame sync writes stay out of the hot path. Windowed CPU and
-disk-write spikes also trip host-budget attention, which makes managed Codex
-reducers full-pass until the next healthy snapshot.
+immediate while per-frame sync writes stay out of the hot path. Readcache
+write-behind flushes are version-guarded: a delayed disk flush can only mark the
+same state revision clean, and it cannot overwrite a newer in-memory save made
+while the flush was in flight. Windowed CPU and disk-write spikes also trip
+host-budget attention, which makes managed Codex reducers full-pass until the
+next healthy snapshot.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually
@@ -1154,9 +1157,11 @@ Pruned definitions are archived by session and tool name. A later tool-name
 mention, safe alias (`GetWeather` -> "weather", `send_email` -> "email"), or
 command-family hint reattaches the definition before pruning runs again.
 Reattached definitions are appended in deterministic tool-name order to avoid
-avoidable prompt-cache churn. If the upstream returns a conservative missing-tool
-4xx, the proxy retries once with the full pre-prune schema, records miss/retry
-telemetry, and disables future pruning for that session bucket. `slimference
+avoidable prompt-cache churn, and the reattached tool names count as active for
+the same prune decision so the idle pass cannot immediately remove the recovered
+tool again. If the upstream returns a conservative missing-tool 4xx, the proxy
+retries once with the full pre-prune schema, records miss/retry telemetry, and
+disables future pruning for that session bucket. `slimference
 gain --proxy` includes tool-prune saved-token, pruned-tool, reattach, miss, and
 retry totals from the decision log.
 

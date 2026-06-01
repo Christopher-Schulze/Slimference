@@ -354,6 +354,8 @@ func TestWSPhaseFArchiveRecoveryNoteInjectsOncePerSession(t *testing.T) {
 func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	const promptCacheKey = "chunk-wss-session"
+	cleanupPhaseFTempHome(t, home, "codex-wss:"+promptCacheKey)
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -374,7 +376,7 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 	body := func(path, callID, text string) []byte {
 		return mustMarshal(map[string]any{
 			"model":            "gpt-5-codex",
-			"prompt_cache_key": "chunk-wss-session",
+			"prompt_cache_key": promptCacheKey,
 			"input": []map[string]any{
 				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
 				{"type": "function_call_output", "call_id": callID, "output": text},
@@ -401,6 +403,8 @@ func TestWSPhaseFChunkDedupWiringForSimilarReads(t *testing.T) {
 func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	const promptCacheKey = "auto-policy-chunk-session"
+	cleanupPhaseFTempHome(t, home, "codex-wss:"+promptCacheKey)
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -415,7 +419,7 @@ func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
 	body := func(path, callID, text string) []byte {
 		return mustMarshal(map[string]any{
 			"model":            "gpt-5-codex",
-			"prompt_cache_key": "auto-policy-chunk-session",
+			"prompt_cache_key": promptCacheKey,
 			"input": []map[string]any{
 				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
 				{"type": "function_call_output", "call_id": callID, "output": text},
@@ -439,6 +443,8 @@ func TestWSPhaseFAutoPolicyEnablesRecoverableChunkDedup(t *testing.T) {
 func TestWSPhaseFConservativePolicyKeepsChunkDedupOptIn(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	const promptCacheKey = "conservative-policy-chunk-session"
+	cleanupPhaseFTempHome(t, home, "codex-wss:"+promptCacheKey)
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -452,7 +458,7 @@ func TestWSPhaseFConservativePolicyKeepsChunkDedupOptIn(t *testing.T) {
 	body := func(path, callID, text string) []byte {
 		return mustMarshal(map[string]any{
 			"model":            "gpt-5-codex",
-			"prompt_cache_key": "conservative-policy-chunk-session",
+			"prompt_cache_key": promptCacheKey,
 			"input": []map[string]any{
 				{"type": "function_call", "call_id": callID, "name": "read_file", "arguments": map[string]any{"path": path}},
 				{"type": "function_call_output", "call_id": callID, "output": text},

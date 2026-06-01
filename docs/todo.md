@@ -1946,7 +1946,8 @@ be called complete, default-safe, and production-grade.
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
   default-safe savings lever through core-tool retention, mention reattach,
   missing-tool retry, cooldowns, and proof gates. Offline hardening now makes
-  unknown/mixed tool schema shapes full-pass before pruning. Detail:
+  unknown/mixed tool schema shapes full-pass before pruning and keeps
+  reattached intent tools active through the same prune pass. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay

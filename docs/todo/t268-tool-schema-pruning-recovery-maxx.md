@@ -86,6 +86,9 @@ Tool pruning should be default-safe only when:
 - Reattached tool definitions are appended in deterministic tool-name order
   instead of Go map iteration order. This improves request-body stability and
   avoids avoidable prompt-cache churn when the same reattach set appears again.
+- Reattached tools are treated as active for the current prune decision, so an
+  intent-restored tool cannot be appended and then immediately removed by the
+  same idle-prune pass.
 - The product hot path now uses strict tool-schema extraction before pruning:
   if any `tools[]` entry cannot be named for the provider shape, the whole tool
   schema full-passes with `unknown_tool_schema_full_pass`. This closes the mixed
@@ -95,8 +98,8 @@ Tool pruning should be default-safe only when:
   tool classes always stay attached, missing-tool 4xx responses retry once with
   the full pre-prune schema, and the affected session enters quality cooldown.
 - Offline verification covered toolprune unit tests and proxy tool-prune retry /
-  always-keep / reattach paths. Live corpus proof for tool-heavy workflows remains
-  deferred until the capture phase.
+  always-keep / same-pass reattach preservation paths. Live corpus proof for
+  tool-heavy workflows remains deferred until the capture phase.
 
 ## Done
 

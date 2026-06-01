@@ -71,6 +71,9 @@ guard against mutating items inside the server-cached prefix (net-negative billi
   hot path. `EvaluateObserved` sees cached state after the first load and writes via
   `SaveSessionAsync`; `FlushSession`/`FlushDir` persist dirty sessions, and proxy
   shutdown performs a final readcache flush.
+- 2026-06-01: readcache write-behind flushes are revision-guarded. A delayed disk
+  flush can no longer overwrite newer in-memory session state that was saved while
+  the flush was in flight; regression coverage simulates that race directly.
 - 2026-05-30: `read_delta_recent_full_pass_turns` was added as a proof-gated
   recency policy. Default `0` preserves maximum savings and T249 proofs; operators can
   raise it after A/B proof to keep immediate cross-turn re-reads full when recency is

@@ -60,3 +60,49 @@ func TestSaveSessionAsyncWriteBehind(t *testing.T) {
 		t.Fatalf("session should be flushed to disk: %v", err)
 	}
 }
+
+func TestFlushSessionDoesNotOverwriteNewerAsyncState(t *testing.T) {
+	dir := tempReadCacheDir(t)
+	var injected atomic.Bool
+	origWrite := readCacheWriteFile
+	t.Cleanup(func() {
+		readCacheWriteFile = origWrite
+		_ = Clear(dir)
+	})
+	readCacheWriteFile = func(path string, data []byte, mode os.FileMode) error {
+		if filepath.Base(path) == "race.json" && injected.CompareAndSwap(false, true) {
+			newer := &SessionState{
+				SessionID: "race",
+				Files: map[string]*FileEntry{
+					"old.go": {Path: "old.go", ContentHash: "old"},
+					"new.go": {Path: "new.go", ContentHash: "new"},
+				},
+			}
+			if err := SaveSessionAsync(dir, newer); err != nil {
+				t.Fatalf("SaveSessionAsync newer state: %v", err)
+			}
+		}
+		return origWrite(path, data, mode)
+	}
+
+	initial := &SessionState{
+		SessionID: "race",
+		Files: map[string]*FileEntry{
+			"old.go": {Path: "old.go", ContentHash: "old"},
+		},
+	}
+	if err := SaveSessionAsync(dir, initial); err != nil {
+		t.Fatalf("SaveSessionAsync initial: %v", err)
+	}
+	if err := FlushSession(dir, "race"); err != nil {
+		t.Fatalf("FlushSession: %v", err)
+	}
+
+	loaded, err := LoadSession(dir, "race")
+	if err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+	if loaded.Files["old.go"] == nil || loaded.Files["new.go"] == nil {
+		t.Fatalf("stale flush overwrote newer memory state: %+v", loaded.Files)
+	}
+}

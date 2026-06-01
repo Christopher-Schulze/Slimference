@@ -13,6 +13,7 @@ type memorySessionEntry struct {
 	dirty          bool
 	flushScheduled bool
 	lastUsed       time.Time
+	version        uint64
 }
 
 var readCacheMemory = struct {
@@ -70,6 +71,7 @@ func SaveSessionAsync(dir string, state *SessionState) error {
 	entry.state = normalized
 	entry.dirty = true
 	entry.lastUsed = time.Now()
+	entry.version++
 	if !entry.flushScheduled {
 		entry.flushScheduled = true
 		go delayedFlushSession(dir, normalized.SessionID)
@@ -97,6 +99,7 @@ func FlushSession(dir string, sessionID string) error {
 		return nil
 	}
 	state := cloneSessionState(entry.state)
+	version := entry.version
 	entry.dirty = false
 	entry.flushScheduled = false
 	readCacheMemory.mu.Unlock()
@@ -109,7 +112,14 @@ func FlushSession(dir string, sessionID string) error {
 		readCacheMemory.mu.Unlock()
 		return err
 	}
-	rememberSessionClean(dir, state)
+	readCacheMemory.mu.Lock()
+	if current := readCacheMemory.sessions[key]; current != nil && current.version == version {
+		current.state = cloneSessionState(state)
+		current.dirty = false
+		current.flushScheduled = false
+		current.lastUsed = time.Now()
+	}
+	readCacheMemory.mu.Unlock()
 	return nil
 }
 

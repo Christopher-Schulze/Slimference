@@ -141,6 +141,10 @@ Initial targets for Apple Silicon macOS:
   immediately for reconnect hydration and flushes JSON state on a short
   write-behind delay; readcache already uses the same pattern. Tests prove no
   synchronous write, immediate cached `Load`, and later disk hydration.
+- 2026-06-01: Readcache write-behind is revision-guarded, so an older delayed
+  flush cannot replace newer in-memory state captured after the flush started.
+  This closes a full-CI race where ranged-read cache entries could disappear
+  before the async flush settled.
 - 2026-05-31: Reduced TUI product-status overhead. The model now refreshes
   product status on ticks/events and renders from the cached snapshot; when
   host-budget attention is active, the next tick slows from 500 ms to 2 s.

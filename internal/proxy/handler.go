@@ -505,12 +505,17 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		// before the prune decision so a freshly reattached tool also
 		// shows up in the active list and survives the next idle
 		// check.
+		reattachedToolNames := []string(nil)
 		if mentions := messageMentionsAnyPrunedTool(messages, p.toolPrune, toolPruneSessionKey); len(mentions) > 0 {
 			defs := p.toolPrune.LookupPrunedDefs(toolPruneSessionKey, mentions)
 			if reattached, n, err := toolprune.ReattachToolDefinitions(newBody, provider, defs); err == nil && n > 0 {
 				newBody = reattached
 				preToolPruneBody = newBody
 				toolPruneSummary.Reattached += n
+				reattachedToolNames = make([]string, 0, len(defs))
+				for name := range defs {
+					reattachedToolNames = append(reattachedToolNames, name)
+				}
 				for range n {
 					p.toolPrune.MarkReattached()
 				}
@@ -523,7 +528,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		if toolNames, schemaSafe := toolprune.ExtractToolNamesForPruning(newBody, provider); !schemaSafe {
 			toolPruneSummary.Reason = "unknown_tool_schema_full_pass"
 		} else if len(toolNames) > 0 {
-			p.toolPrune.ObserveTurn(toolPruneSessionKey, extractUsedToolNames(messages))
+			usedToolNames := extractUsedToolNames(messages)
+			usedToolNames = append(usedToolNames, reattachedToolNames...)
+			p.toolPrune.ObserveTurn(toolPruneSessionKey, usedToolNames)
 			decision := p.toolPrune.DecideWithOptions(toolPruneSessionKey, toolNames, toolprune.DecisionOptions{
 				MinKeep:    1,
 				AlwaysKeep: p.config.Compression.Tuning.ToolPruneAlwaysKeep,

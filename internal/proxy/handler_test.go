@@ -960,7 +960,9 @@ func TestHandleCompressibleRequest_ToolPruneUnknownSchemaFullPasses(t *testing.T
 // T103b reattach path: a tool that was previously cached as pruned
 // is reattached when the next request mentions its name. T103b.
 func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
+	var captured []byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`))
@@ -975,6 +977,7 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
 
 	// Override request id generation so the test can pre-seed the
 	// tracker under a known session key.
@@ -984,13 +987,16 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	newRequestIDFn = func() string { return fixedID }
 	t.Cleanup(func() { newRequestIDFn = prev })
 
+	p.toolPrune.ObserveTurn(trackerID, []string{"GetWeather"})
+	p.toolPrune.ObserveTurn(trackerID, []string{"Other"})
+	p.toolPrune.ObserveTurn(trackerID, []string{"Other"})
 	p.toolPrune.RememberPrunedDef(
 		trackerID,
-		"Bash",
-		[]byte(`{"name":"Bash","description":"run shell"}`),
+		"GetWeather",
+		[]byte(`{"name":"GetWeather","description":"read weather"}`),
 	)
 
-	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"Read","description":"read"}],"messages":[{"role":"user","content":"please use Bash to list files"}]}`
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"name":"Read","description":"read"}],"messages":[{"role":"user","content":"please check the weather"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("anthropic-trace-id", fixedID)
@@ -1004,6 +1010,9 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	}
 	if got := p.toolPrune.Snapshot().ReattachTotal; got != 1 {
 		t.Fatalf("reattach counter: %d want 1", got)
+	}
+	if !strings.Contains(string(captured), `"GetWeather"`) {
+		t.Fatalf("reattached intent tool must survive the same prune pass: %s", captured)
 	}
 }
 
