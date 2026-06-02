@@ -211,6 +211,13 @@ Initial targets for Apple Silicon macOS:
   from about 44.5 ms/op, 9.1 MB/op, and 87k allocs/op to about 2.2 ms/op,
   0.59 MB/op, and 882 allocs/op on the Apple M1 run, with no model-facing
   semantic change.
+- 2026-06-02: Removed the unconditional double body copy in the WSS Phase-F
+  input pipeline. The reducer now uses copy-on-write: it reads/parses the
+  original frame body directly and only allocates a replacement body when a
+  reducer, recovery note, or output-reduce injection actually changes the
+  request. The changed flag still compares against the original bytes, so the
+  model-facing semantics and fail-open behavior stay unchanged while no-op WSS
+  frames avoid two full-body allocations.
 
 ## Done
 

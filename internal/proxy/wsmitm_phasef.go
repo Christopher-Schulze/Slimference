@@ -164,8 +164,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 }
 
 func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int) {
-	original := append([]byte(nil), body...)
-	out := append([]byte(nil), body...)
+	out := body
 	var l0Stats proxyLayer0Stats
 	reReadCount := 0
 	messages, _, err := extractMessages(types.CodexChatGPT, out)
@@ -262,7 +261,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 		a.rememberWSSQualityCohort(recordCohort)
 	}
-	return out, messages, !bytes.Equal(original, out), l0Stats, reReadCount
+	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount
 }
 
 func (a *wsPhaseFAdapter) rememberWSSQualityCohort(cohort qualityab.Cohort) {
