@@ -350,11 +350,22 @@ func ExtractDependencyPaths(body []byte) []string {
 // deterministic sampling. Missing sampling fields are provider defaults, not a
 // proof that replaying a prior model response is semantics-preserving.
 func IsRequestCacheSafe(body []byte) bool {
+	return IsRequestCacheSafeWithRoute("", body)
+}
+
+// IsRequestCacheSafeWithRoute reports whether a request is safe to serve from
+// the local response cache for the effective upstream route. Stateful response
+// routes must explicitly opt out of provider-side storage, otherwise replaying a
+// cached response would skip upstream response-id creation.
+func IsRequestCacheSafeWithRoute(route string, body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
 	var root map[string]interface{}
 	if err := json.Unmarshal(body, &root); err != nil {
+		return false
+	}
+	if responseCacheHasServerStateSideEffect(route, root) {
 		return false
 	}
 	if !explicitDeterministicSampling(root) {
@@ -376,6 +387,39 @@ func IsRequestCacheSafe(body []byte) bool {
 		return false
 	}
 	return true
+}
+
+func responseCacheHasServerStateSideEffect(route string, root map[string]interface{}) bool {
+	if nonEmptyJSONValue(root["previous_response_id"]) ||
+		nonEmptyJSONValue(root["conversation"]) ||
+		nonEmptyJSONValue(root["thread"]) ||
+		nonEmptyJSONValue(root["thread_id"]) ||
+		nonEmptyJSONValue(root["assistant_id"]) {
+		return true
+	}
+	if truthyBool(root["store"]) {
+		return true
+	}
+	if responseCacheRouteCanStore(route) && !explicitFalseBool(root["store"]) {
+		return true
+	}
+	return false
+}
+
+func responseCacheRouteCanStore(route string) bool {
+	route = strings.ToLower(strings.TrimSpace(route))
+	return strings.Contains(route, "/v1/responses") || strings.Contains(route, "/responses")
+}
+
+func explicitFalseBool(v interface{}) bool {
+	switch current := v.(type) {
+	case bool:
+		return !current
+	case string:
+		return strings.EqualFold(strings.TrimSpace(current), "false")
+	default:
+		return false
+	}
 }
 
 func explicitDeterministicSampling(root map[string]interface{}) bool {

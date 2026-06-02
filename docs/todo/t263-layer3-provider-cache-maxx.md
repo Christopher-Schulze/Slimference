@@ -28,6 +28,11 @@ and long-session proof.
 - Streaming OpenAI/Codex provider-cache accounting now treats `cached_tokens`
   usage reports as per-request totals, not additive deltas, so intermediate and
   final SSE usage events cannot inflate provider-cache read-token claims.
+- Local response-cache eligibility is now route-aware for server-state routes:
+  OpenAI/Codex Responses requests full-pass unless they explicitly set
+  `store:false`, and any `previous_response_id`, conversation, thread, or
+  assistant state marker full-passes upstream. This prevents local replay from
+  skipping upstream response-id creation or continuation side effects.
 - Prompt-cache planning exists for stable prefixes.
 - Layer 3 is default-enabled for supported paths.
 - Savings claims must be separated from local byte savings and output-wire
@@ -75,6 +80,8 @@ accounting or locally proven upstream bypass, not mixed counters.
   semantics.
 - Local response-cache bypass must be disabled for streaming or tool-call shapes
   where replaying a cached response would change workflow timing or tool state.
+- Local response-cache bypass must be disabled for upstream server-state shapes
+  unless the request explicitly proves it is stateless.
 - Prompt-cache optimization must not mutate model-facing prompt blocks just to
   increase local savings counters.
 - Any key uncertainty full-passes upstream.
@@ -127,6 +134,12 @@ accounting or locally proven upstream bypass, not mixed counters.
   per-request total instead of summed across intermediate and final usage
   frames. Regression coverage proves a stream with 250 cached tokens followed
   by a final 300 cached-token event reports 300, not 550.
+- 2026-06-03: Hardened local response-cache eligibility for server-state
+  routes. `IsRequestCacheSafeWithRoute` now blocks local replay for Responses
+  requests without explicit `store:false`, for `store:true`, and for
+  continuation/server-state fields such as `previous_response_id`,
+  conversation, thread, or assistant ids. Handler Stage-A and Stage-B cache
+  checks now use the same effective route key for eligibility and hashing.
 
 ## Done
 

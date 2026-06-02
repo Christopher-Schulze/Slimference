@@ -1066,6 +1066,12 @@ shapes. Missing sampling fields are treated as provider defaults, not as proof
 that replay is safe. Streaming, non-zero temperature, top-p sampling, multiple
 completions, tool definitions, explicit tool choices, function-call fields,
 tool/function roles, and Responses function-call outputs all full-pass upstream.
+Routes that can create or continue upstream server state are also fail-closed:
+Responses requests must explicitly set `store:false`, and any
+`previous_response_id`, conversation, thread, or assistant state marker
+full-passes upstream. Local replay is allowed only for stateless deterministic
+requests, because skipping upstream response-id creation would change workflow
+state even if the visible text matched.
 This keeps Layer 3 from replaying a cached tool workflow or a fresh model sample
 where timing, tool state, or stochasticity matters.
 

@@ -375,9 +375,10 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// If an identical original request already produced a cached upstream
 	// response, serve it without running Layer 1 or Layer 2 at all.
 	var stageACacheKey [32]byte
-	stageAEnabled := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(body)
+	effectiveRouteKey := p.responseCacheEffectiveRouteKey(r, sessionID)
+	stageAEnabled := p.isLayerEnabled(3) && caching.IsRequestCacheSafeWithRoute(effectiveRouteKey, body)
 	if stageAEnabled {
-		stageACacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, p.responseCacheEffectiveRouteKey(r, sessionID), body, r.Header)
+		stageACacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, effectiveRouteKey, body, r.Header)
 		if cached, _, ok := p.responseCache.GetByOriginal(stageACacheKey); ok {
 			p.serveStageACacheHit(w, cached, reqID, start, provider, model, len(messages), origTokens, log, windowDecision)
 			return
@@ -679,9 +680,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- 8.5 Response cache lookup (Layer 3) ---
 	var cacheKey [32]byte
-	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(newBody)
+	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafeWithRoute(effectiveRouteKey, newBody)
 	if requestCacheSafe {
-		cacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, p.responseCacheEffectiveRouteKey(r, sessionID), newBody, r.Header)
+		cacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, effectiveRouteKey, newBody, r.Header)
 		if cached, ok := p.responseCache.Get(cacheKey); ok {
 			log.Debug("cache hit")
 			for k, vv := range cached.Headers {

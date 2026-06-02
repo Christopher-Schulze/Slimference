@@ -1930,8 +1930,9 @@ be called complete, default-safe, and production-grade.
   response replay; streaming OpenAI/Codex cached-token usage now treats provider
   usage events as per-request totals instead of additive deltas; local replay
   also requires explicit deterministic sampling, so provider default sampling
-  full-passes upstream. Provider-accounting alignment and long-session proof
-  remain. Detail:
+  full-passes upstream; Responses server-state shapes now require explicit
+  `store:false` and no continuation state before local replay.
+  Provider-accounting alignment and long-session proof remain. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
 
 ### Codex savings mechanism max-out tasks
@@ -2107,7 +2108,8 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   proves preserved task decisions with recoverable raw context.
 - [ ] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
-  eligibility, and 30+ turn long-session proof. Do not claim provider-cache
+  eligibility, and 30+ turn long-session proof. Local response-cache eligibility
+  now fail-closes for server-state side effects; do not claim provider-cache
   savings as local token deletion.
 - [x] **T264 read/ranged/repeated-output closeout** - finish fresh Desktop
   live-token proof for read, ranged-read, repeated-command, repeated-search,

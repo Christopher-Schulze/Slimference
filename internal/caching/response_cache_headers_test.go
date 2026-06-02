@@ -170,6 +170,70 @@ func TestIsRequestCacheSafe(t *testing.T) {
 	}
 }
 
+func TestIsRequestCacheSafeWithRouteStatefulResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		route string
+		body  string
+		want  bool
+	}{
+		{
+			name:  "stateless chat route remains cache safe",
+			route: "POST /v1/chat/completions",
+			body:  `{"model":"gpt-5","temperature":0,"messages":[{"role":"user","content":"hello"}]}`,
+			want:  true,
+		},
+		{
+			name:  "responses route requires explicit store false",
+			route: "POST /v1/responses",
+			body:  `{"model":"gpt-5","temperature":0,"input":"hello"}`,
+			want:  false,
+		},
+		{
+			name:  "responses route with explicit store false is cache safe",
+			route: "POST /v1/responses",
+			body:  `{"model":"gpt-5","temperature":0,"store":false,"input":"hello"}`,
+			want:  true,
+		},
+		{
+			name:  "responses route with string store false is cache safe",
+			route: "POST /v1/responses?include=usage",
+			body:  `{"model":"gpt-5","temperature":0,"store":"false","input":"hello"}`,
+			want:  true,
+		},
+		{
+			name:  "store true disables cache on any route",
+			route: "POST /v1/chat/completions",
+			body:  `{"model":"gpt-5","temperature":0,"store":true,"messages":[{"role":"user","content":"hello"}]}`,
+			want:  false,
+		},
+		{
+			name:  "previous response continuation disables cache",
+			route: "POST /v1/responses",
+			body:  `{"model":"gpt-5","temperature":0,"store":false,"previous_response_id":"resp_123","input":"again"}`,
+			want:  false,
+		},
+		{
+			name:  "conversation state disables cache",
+			route: "POST /v1/responses",
+			body:  `{"model":"gpt-5","temperature":0,"store":false,"conversation":"conv_123","input":"again"}`,
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := IsRequestCacheSafeWithRoute(tt.route, []byte(tt.body)); got != tt.want {
+				t.Fatalf("IsRequestCacheSafeWithRoute() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCanonicalizeCacheHeaders(t *testing.T) {
 	t.Parallel()
 
