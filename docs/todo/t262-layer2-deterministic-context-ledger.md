@@ -31,6 +31,9 @@ replacement for reality.
 - The planner now uses the same split: Layer 2 can be enabled for background
   work, but it cannot report or drive a model-facing `run` decision for
   classical summaries unless that legacy override is set.
+- Capsule selection now requires an explicit policy session id. If a future
+  insertion caller cannot prove the current session namespace, capsules stay
+  verbatim instead of risking cross-session memory contamination.
 
 ## Product target
 
@@ -99,6 +102,7 @@ The ledger stores deterministic capsules:
 - A capsule cannot stand in for raw details unless the raw details are
   recoverable through archive.
 - If capsule provenance is missing, full-pass.
+- If the selection policy lacks a current session id, full-pass.
 - If archive expansion fails, full-pass and disable the mechanism for the
   session.
 - No LLM-produced summary can be default-on.
@@ -172,3 +176,7 @@ summary remains opt-in, not default.
   with archive provenance also require `full_pass_turn`, so telemetry cannot
   count archive-backed file context unless the exact prior full-read turn is
   known.
+- 2026-06-02: Hardened the selector against missing caller session scope.
+  `SelectCapsules` now keeps all capsules verbatim when `SelectionPolicy`
+  lacks a session id, so a future model-facing insertion path cannot silently
+  select archive-backed context across session namespaces.

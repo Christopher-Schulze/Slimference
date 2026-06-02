@@ -22,6 +22,7 @@ const (
 	SelectionReasonRecentTurn              SelectionReason = "recent_turn"
 	SelectionReasonHighRiskFailure         SelectionReason = "high_risk_failure"
 	SelectionReasonMissingArchive          SelectionReason = "missing_archive"
+	SelectionReasonMissingPolicySession    SelectionReason = "missing_policy_session"
 	SelectionReasonMissingProvenance       SelectionReason = "missing_provenance"
 	SelectionReasonMissingFacts            SelectionReason = "missing_facts"
 	SelectionReasonWrongSession            SelectionReason = "wrong_session"
@@ -72,13 +73,17 @@ func selectCapsule(capsule Capsule, policy SelectionPolicy, recentTurns map[stri
 	if !knownKind(capsule.Kind) {
 		return SelectionReject, SelectionReasonUnknownKind
 	}
+	wantSession := strings.TrimSpace(policy.SessionID)
+	if wantSession == "" {
+		return SelectionVerbatim, SelectionReasonMissingPolicySession
+	}
 	sessionID := strings.TrimSpace(capsule.Provenance.SessionID)
 	turnID := strings.TrimSpace(capsule.Provenance.TurnID)
 	source := strings.TrimSpace(capsule.Provenance.Source)
 	if sessionID == "" || turnID == "" || source == "" {
 		return SelectionVerbatim, SelectionReasonMissingProvenance
 	}
-	if wantSession := strings.TrimSpace(policy.SessionID); wantSession != "" && sessionID != wantSession {
+	if sessionID != wantSession {
 		return SelectionReject, SelectionReasonWrongSession
 	}
 	if active := strings.TrimSpace(policy.ActiveTurnID); active != "" && turnID == active {

@@ -45,6 +45,17 @@ func TestSelectCapsulesFailsClosedOnMissingArchiveAndProvenance(t *testing.T) {
 	assertDecision(t, report.Decisions[3], SelectionReject, SelectionReasonUnknownKind)
 }
 
+func TestSelectCapsulesRequiresPolicySession(t *testing.T) {
+	t.Parallel()
+	report := SelectCapsules([]Capsule{
+		testCapsule(CapsuleCommand, "s", "old", "arch-command"),
+	}, SelectionPolicy{})
+	if report.Capsules != 0 || report.Verbatim != 1 || report.Rejected != 0 {
+		t.Fatalf("summary mismatch: %+v", report)
+	}
+	assertDecision(t, report.Decisions[0], SelectionVerbatim, SelectionReasonMissingPolicySession)
+}
+
 func TestSelectCapsulesKeepsIncompleteCapsulesVerbatim(t *testing.T) {
 	t.Parallel()
 	capsules := []Capsule{

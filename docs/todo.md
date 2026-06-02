@@ -1917,8 +1917,9 @@ be called complete, default-safe, and production-grade.
   reducer telemetry; classical summary replacement is now blocked by default
   behind an explicit legacy override. Archive-backed capsules now fail closed
   when required recoverability facts are missing, including full-pass turn
-  provenance for file capsules; quality inputs and proof-gated ledger insertion
-  remain. Detail:
+  provenance for file capsules, and capsule selection requires an explicit
+  policy session id to prevent cross-session context selection; quality inputs
+  and proof-gated ledger insertion remain. Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [~] **T263** Layer 3 provider/prompt cache max-out - local response cache now
   full-passes tool-capable request shapes and includes HTTP method plus route
