@@ -3958,3 +3958,34 @@ Live proof:
   model-facing bytes saved, `lost=0`, `gate_passed=true`.
 - The one-row proof matrix correctly stayed red for corpus breadth, so this is
   a harness proof, not a replacement for the full 10-capture release matrix.
+
+Follow-up hardening:
+- Added `--codex-timeout` so scoped Codex runs cannot hang a release proof
+  indefinitely.
+- The PTY marker watcher now normalizes ANSI/control-rendered output. This
+  fixed real Codex TUI output where a marker was visually printed one character
+  at a time with escape sequences between letters.
+- Added `--quiet-codex-output` so unattended proof runs can suppress the Codex
+  TUI stream while still producing the final capture/replay summary.
+
+Fresh CLI-only matrix:
+- Matrix file: `/tmp/slimference-cli-matrix-20260602T120119Z.jsonl`.
+- Valid rows: 8 CLI captures, 0 Desktop captures.
+- All rows replayed with `lost=0`.
+- Positive savings rows:
+  - repeat full read: 106 frames, 1 mutation, 11,463 bytes saved.
+  - ranged read: 122 frames, 1 mutation, 10,200 bytes saved.
+  - search loop: 171 frames, 2 mutations, 414 bytes saved.
+  - git status/diff: 122 frames, 1 mutation, 77 bytes saved.
+- Safety/zero rows:
+  - no-savings control: expected zero, 22 frames, 0 mutations.
+  - build/test failure: 71 frames, 0 mutations, `lost=0`; not a positive
+    compaction proof for this fixture.
+  - changed file: 124 frames, 0 mutations, `lost=0`; safe full-pass after edit.
+  - similar files: 115 frames, 0 mutations, `lost=0`; current auto policy did
+    not promote chunk dedup for this synthetic similarity fixture.
+- Full matrix gate failed correctly: no Desktop captures, only 8 captures,
+  missing `apply_patch_then_read` and valid `long_mixed_workday`, and only 5
+  positive-or-expected-zero rows under the recorded metadata.
+- A long-mixed CLI attempt hit upstream Codex `400 invalid_request` and was
+  discarded.

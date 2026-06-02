@@ -184,6 +184,24 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   `gate_passed=true`. The one-row matrix correctly stayed red for breadth, so
   this closes the automation-lifecycle gap, not the full release-corpus breadth
   requirement.
+- 2026-06-02: Follow-up CLI automation hardening fixed two real Codex TUI
+  issues: the marker watcher now normalizes ANSI/control-rendered output so
+  character-by-character markers are detected, and `--codex-timeout` bounds the
+  scoped Codex command so a release capture cannot hang indefinitely.
+  `--quiet-codex-output` keeps unattended runs readable without changing the
+  capture or replay path. A fresh CLI-only matrix collected 8 valid rows:
+  repeat full read, ranged read, search loop, git status/diff, build/test
+  failure, no-savings control, changed file, and similar files. Replay results
+  were `lost=0` for every row. Positive savings appeared on repeat full read
+  (11,463 bytes), ranged read (10,200 bytes), search loop (414 bytes), and git
+  status/diff (77 bytes). The build/test failure, changed file, and similar-file
+  runs were safety proofs with zero mutation/savings under current auto policy;
+  they should not be counted as positive savings. The CLI-only matrix
+  intentionally failed the full T257 breadth gate because it has no Desktop
+  captures, lacks `apply_patch_then_read` and a valid long mixed workday row,
+  and only 5 rows were positive-or-expected-zero under the recorded metadata.
+  A long-mixed CLI attempt hit upstream Codex `400 invalid_request` and was
+  discarded.
 
 ## Deviations
 

@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/slimference/slimference/internal/compression"
 )
 
 type codexCaptureRunFlags struct {
@@ -21,6 +23,7 @@ type codexCaptureRunFlags struct {
 	host                string
 	port                string
 	healthTimeout       time.Duration
+	codexTimeout        time.Duration
 	matrixPath          string
 	id                  string
 	client              string
@@ -31,6 +34,7 @@ type codexCaptureRunFlags struct {
 	model               string
 	exitMarker          string
 	exitMarkerCount     int
+	quietCodexOutput    bool
 	expectedReducers    []string
 	expectedZeroSavings bool
 	help                bool
@@ -71,6 +75,7 @@ Flags:
   --host HOST                Daemon host (default: 127.0.0.1)
   --port PORT                Daemon port (default: 8990)
   --health-timeout DURATION  Time to wait for daemon /health (default: 10s)
+  --codex-timeout DURATION   Max runtime for the scoped Codex command (default: 5m)
   --matrix-row PATH          Append a wss-proof-matrix JSONL row after replay
   --id ID                    Matrix row id
   --client cli|desktop       Matrix row client (default: cli)
@@ -84,6 +89,7 @@ Flags:
   --exit-marker TEXT         Interrupt Codex automatically once TEXT appears in output.
                              On macOS this uses script(1) so Codex still sees a TTY.
   --exit-marker-count N      Required marker occurrences before interrupt (default: 1)
+  --quiet-codex-output       Hide Codex TUI output and print only the final summary
 
 The tool starts the daemon as its own child process with SLIMFERENCE_WSS_AB_CAPTURE
 set, waits for /health, runs "slimference codex run --transport=auto -- ...",
@@ -148,7 +154,16 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
-	if err := deps.runCodex(ctx, flags, stdout, stderr); err != nil {
+	runStdout := stdout
+	runStderr := stderr
+	if flags.quietCodexOutput {
+		runStdout = io.Discard
+		runStderr = io.Discard
+	}
+	runCtx, cancelRun := context.WithTimeout(ctx, flags.codexTimeout)
+	err = deps.runCodex(runCtx, flags, runStdout, runStderr)
+	cancelRun()
+	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
@@ -190,6 +205,7 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 		host:            "127.0.0.1",
 		port:            "8990",
 		healthTimeout:   10 * time.Second,
+		codexTimeout:    5 * time.Minute,
 		client:          "cli",
 		exitMarkerCount: 1,
 	}
@@ -204,8 +220,10 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			flags.help = true
 		case arg == "--expected-zero":
 			flags.expectedZeroSavings = true
+		case arg == "--quiet-codex-output":
+			flags.quietCodexOutput = true
 		case arg == "--binary", arg == "--capture", arg == "--host", arg == "--port",
-			arg == "--health-timeout", arg == "--matrix-row", arg == "--id",
+			arg == "--health-timeout", arg == "--codex-timeout", arg == "--matrix-row", arg == "--id",
 			arg == "--client", arg == "--workload-class", arg == "--expected-reducer",
 			arg == "--codex-version", arg == "--slimference-commit", arg == "--repo",
 			arg == "--model", arg == "--exit-marker":
@@ -286,6 +304,12 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 			return fmt.Errorf("--health-timeout must be a positive duration")
 		}
 		flags.healthTimeout = d
+	case "--codex-timeout":
+		d, err := time.ParseDuration(value)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("--codex-timeout must be a positive duration")
+		}
+		flags.codexTimeout = d
 	case "--matrix-row":
 		flags.matrixPath = value
 	case "--id":
@@ -411,7 +435,7 @@ func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout,
 	cmd := exec.CommandContext(ctx, flags.binary, args...)
 	cmd.Stdin = os.Stdin
 	if flags.exitMarker != "" {
-		return runCodexCaptureCLIUntilMarker(cmd, flags.exitMarker, flags.exitMarkerCount, stdout, stderr)
+		return runCodexCaptureCLIUntilMarker(ctx, cmd, flags.exitMarker, flags.exitMarkerCount, stdout, stderr)
 	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -421,7 +445,7 @@ func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout,
 	return nil
 }
 
-func runCodexCaptureCLIUntilMarker(cmd *exec.Cmd, marker string, markerCount int, stdout, stderr io.Writer) error {
+func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, marker string, markerCount int, stdout, stderr io.Writer) error {
 	if runtime.GOOS != "darwin" {
 		return errors.New("--exit-marker requires macOS script(1) PTY support; rerun without --exit-marker and interrupt Codex manually after the marker")
 	}
@@ -436,7 +460,7 @@ func runCodexCaptureCLIUntilMarker(cmd *exec.Cmd, marker string, markerCount int
 	}()
 
 	args := append([]string{"-q", logPath}, cmd.Args...)
-	scriptCmd := exec.Command("script", args...)
+	scriptCmd := exec.CommandContext(ctx, "script", args...)
 	scriptCmd.Stdin = cmd.Stdin
 	scriptCmd.Stdout = stdout
 	scriptCmd.Stderr = stderr
@@ -457,6 +481,11 @@ func runCodexCaptureCLIUntilMarker(cmd *exec.Cmd, marker string, markerCount int
 			_ = scriptCmd.Process.Signal(os.Interrupt)
 		}
 		errWait = waitCodexCapturePTYAfterMarker(scriptCmd, waitErr)
+	case <-ctx.Done():
+		errWait = stopCodexCapturePTY(scriptCmd, waitErr, 2*time.Second)
+		if errWait == nil {
+			errWait = ctx.Err()
+		}
 	case errWait = <-waitErr:
 	}
 	close(stopWatch)
@@ -472,7 +501,11 @@ func runCodexCaptureCLIUntilMarker(cmd *exec.Cmd, marker string, markerCount int
 }
 
 func waitCodexCapturePTYAfterMarker(scriptCmd *exec.Cmd, waitErr <-chan error) error {
-	timer := time.NewTimer(10 * time.Second)
+	return stopCodexCapturePTY(scriptCmd, waitErr, 10*time.Second)
+}
+
+func stopCodexCapturePTY(scriptCmd *exec.Cmd, waitErr <-chan error, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case err := <-waitErr:
@@ -504,12 +537,31 @@ func watchCodexCaptureMarker(path, marker string, markerCount int, hit chan<- st
 			if err != nil {
 				continue
 			}
-			if !signaled && strings.Count(string(data), marker) >= markerCount {
+			if !signaled && strings.Count(normalizeCodexCaptureMarkerText(string(data)), normalizeCodexCaptureMarkerText(marker)) >= markerCount {
 				signaled = true
 				close(hit)
 			}
 		}
 	}
+}
+
+func normalizeCodexCaptureMarkerText(s string) string {
+	s = compression.StripANSICodes(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '_':
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func stopCodexCaptureDaemon(ctx context.Context, daemon *codexCaptureDaemon) error {

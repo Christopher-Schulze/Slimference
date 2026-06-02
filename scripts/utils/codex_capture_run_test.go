@@ -22,6 +22,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 		"--host=127.0.0.2",
 		"--port", "8991",
 		"--health-timeout=2s",
+		"--codex-timeout=3s",
 		"--matrix-row", "~/matrix.jsonl",
 		"--id", "cli-git",
 		"--client", "cli",
@@ -35,6 +36,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 		"--model", "gpt-5.5",
 		"--exit-marker", "DONE",
 		"--exit-marker-count=2",
+		"--quiet-codex-output",
 		"--", "Run", "git status",
 	}, now)
 	if err != nil {
@@ -52,6 +54,9 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	if flags.healthTimeout != 2*time.Second {
 		t.Fatalf("healthTimeout = %s", flags.healthTimeout)
 	}
+	if flags.codexTimeout != 3*time.Second {
+		t.Fatalf("codexTimeout = %s", flags.codexTimeout)
+	}
 	if !flags.expectedZeroSavings || len(flags.expectedReducers) != 2 {
 		t.Fatalf("bad expected reducer flags: %+v", flags)
 	}
@@ -63,6 +68,9 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	}
 	if flags.exitMarkerCount != 2 {
 		t.Fatalf("exitMarkerCount = %d", flags.exitMarkerCount)
+	}
+	if !flags.quietCodexOutput {
+		t.Fatal("quietCodexOutput = false")
 	}
 
 	defaults, err := parseCodexCaptureRunFlags([]string{"--", "hello"}, now)
@@ -159,6 +167,52 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	}
 	if got := strings.Join(records[0].ExpectedReducers, ","); got != "read_delta" {
 		t.Fatalf("ExpectedReducers = %q", got)
+	}
+}
+
+func TestRunCodexCaptureRunStopsDaemonOnCodexTimeout(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	capturePath := filepath.Join(t.TempDir(), "capture.jsonl")
+	var calls []string
+	deps := codexCaptureRunDeps{
+		now: func() time.Time { return time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC) },
+		ensureNoDaemon: func(context.Context, codexCaptureRunFlags) error {
+			calls = append(calls, "preflight")
+			return nil
+		},
+		startDaemon: func(context.Context, codexCaptureRunFlags, io.Writer) (*codexCaptureDaemon, error) {
+			calls = append(calls, "start")
+			return &codexCaptureDaemon{done: make(chan error)}, nil
+		},
+		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error {
+			calls = append(calls, "health")
+			return nil
+		},
+		runCodex: func(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
+			calls = append(calls, "codex")
+			<-ctx.Done()
+			return ctx.Err()
+		},
+		stopDaemon: func(context.Context, *codexCaptureDaemon) error {
+			calls = append(calls, "stop")
+			return nil
+		},
+		replay: func(wssABReplayFlags) (wssABReplayReport, error) {
+			t.Fatal("replay should not run after Codex timeout")
+			return wssABReplayReport{}, nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runCodexCaptureRunWithDeps([]string{
+		"--capture", capturePath,
+		"--codex-timeout=1ns",
+		"--", "prompt",
+	}, &stdout, &stderr, deps)
+	if code != 1 || !strings.Contains(stderr.String(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("expected timeout failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if got := strings.Join(calls, ","); got != "preflight,start,health,codex,stop" {
+		t.Fatalf("calls = %s", got)
 	}
 }
 
@@ -264,6 +318,25 @@ func TestWatchCodexCaptureMarker(t *testing.T) {
 	case <-hit:
 	case <-time.After(time.Second):
 		t.Fatal("marker did not fire")
+	}
+	close(stop)
+}
+
+func TestWatchCodexCaptureMarkerFindsANSISeparatedMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "typescript.log")
+	rendered := "\x1b[;mC\x1b[0m\n\x1b[;mL\x1b[0m\n\x1b[;mI\x1b[0m\n" +
+		"\x1b[;m_\x1b[0m\n\x1b[;mM\x1b[0m\n\x1b[;mA\x1b[0m\n\x1b[;mT\x1b[0m\n" +
+		"\x1b[;mR\x1b[0m\n\x1b[;mI\x1b[0m\n\x1b[;mX\x1b[0m\n"
+	if err := os.WriteFile(path, []byte(rendered), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hit := make(chan struct{})
+	stop := make(chan struct{})
+	go watchCodexCaptureMarker(path, "CLI_MATRIX", 1, hit, stop)
+	select {
+	case <-hit:
+	case <-time.After(time.Second):
+		t.Fatal("ANSI-separated marker did not fire")
 	}
 	close(stop)
 }

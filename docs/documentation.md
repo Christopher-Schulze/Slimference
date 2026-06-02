@@ -2165,9 +2165,12 @@ Unattended CLI capture collection uses
 `go run ./scripts/utils codex-capture-run`, which owns the daemon foreground
 process, sets `SLIMFERENCE_WSS_AB_CAPTURE`, waits for `/health`, runs scoped
 Codex, replays with fail-on-lost semantics, and appends an optional
-`wss-proof-matrix` row. This is the preferred release-proof path for CLI
-workloads because it avoids detached background daemons that do not inherit the
-capture environment reliably.
+`wss-proof-matrix` row. The runner supports `--codex-timeout` for bounded proof
+runs, `--exit-marker` / `--exit-marker-count` for unattended shutdown, and
+`--quiet-codex-output` for machine-readable runs without Codex TUI noise. This
+is the preferred release-proof path for CLI workloads because it avoids
+detached background daemons that do not inherit the capture environment
+reliably.
 
 Layer-0 mechanism cost is exposed as debug/audit telemetry, not product UI
 noise. `/admin/state.savings.proxy_layer0_latency` reports rolling p50/p95/max
