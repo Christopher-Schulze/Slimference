@@ -154,6 +154,22 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   compression_errors=0. A larger mixed CLI/Desktop prompt also produced savings
   but hit an upstream Codex `400 invalid_request` during final response, so it
   is documented as non-gating evidence and not counted as the clean workday pass.
+- 2026-06-02: Release revalidation captured three fresh automatic CLI workloads
+  before Desktop/manual breadth: `repeat_full_read`, `ranged_read`, and
+  `search_loop`. Per-capture replay gates all passed with `lost=0` and positive
+  savings: repeat read saved 11,463 model-facing bytes, ranged `sed -n` saved
+  4,303 bytes, and search-loop compaction saved 4,381 bytes. The temporary
+  matrix at `/tmp/slimference-release-proof-matrix.jsonl` therefore had
+  `captures_with_issues=0` and `positive_savings_captures=3`, but the full
+  release matrix correctly remained red because it needs 10 captures, at least
+  5 CLI, at least 5 Desktop, and all required workload classes. The same run
+  also found an automation-only harness gap: starting `daemon` via `go run` or a
+  detached `/tmp` binary for a subsequent `codex run` caused the daemon to
+  disappear before the `/health` check or before
+  `/backend-api/codex/responses`, so the attempted automatic `git_status_diff`
+  capture was discarded. Manual/Desktop captures and the previously documented
+  T257 matrix remain valid; the automation harness should be hardened before
+  relying on unattended multi-workload release captures.
 
 ## Deviations
 
