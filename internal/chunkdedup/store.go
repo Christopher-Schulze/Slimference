@@ -83,6 +83,12 @@ type EncodeResult struct {
 	Verified        bool
 }
 
+type chunkPlan struct {
+	chunks   [][]byte
+	ids      []string
+	repeated []bool
+}
+
 // NewStore returns a chunk-dedup store. When archive is nil or returns an empty
 // URI, Encode fails open and keeps repeated chunks verbatim so it never emits an
 // unrecoverable reference.
@@ -133,14 +139,11 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 	if maxReferencePercent <= 0 || maxReferencePercent > 100 {
 		maxReferencePercent = 100
 	}
-	chunks := Chunk(data, s.cfg)
-	ids := make([]string, len(chunks))
-	for i, c := range chunks {
-		ids[i] = ChunkID(c)
-	}
+	fastPlan := newChunkPlan(Chunk(data, s.cfg), "")
+	linePlan, hasLinePlan := newLineChunkPlan(data, s.cfg)
 
 	now := s.now()
-	repeated := make([]bool, len(chunks))
+	sessionReferenceLimit := len(data)
 	s.mu.Lock()
 	s.pruneExpiredLocked(now)
 	session := s.sessions[sessionID]
@@ -150,45 +153,122 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 	}
 	session.lastSeen = now
 	session.inBytes += len(data)
-	for i, id := range ids {
-		if _, seenBefore := session.chunks[id]; seenBefore {
-			repeated[i] = true
-		}
+	sessionReferenceLimit = s.remainingReferenceBudgetLocked(session)
+	markRepeatedLocked(session, &fastPlan)
+	if hasLinePlan {
+		markRepeatedLocked(session, &linePlan)
 	}
-	for _, id := range ids {
-		session.seq++
-		session.chunks[id] = chunkState{lastSeen: now, seq: session.seq}
+	seedPlanLocked(session, fastPlan, now)
+	if hasLinePlan {
+		seedPlanLocked(session, linePlan, now)
 	}
 	s.pruneSessionLocked(session)
 	s.pruneSessionsLocked()
 	s.mu.Unlock()
 
+	if s.archive == nil {
+		return EncodeResult{Data: data}
+	}
+	maxReferenceBytes := len(data) * maxReferencePercent / 100
+	if sessionReferenceLimit < maxReferenceBytes {
+		maxReferenceBytes = sessionReferenceLimit
+	}
+	if maxReferenceBytes <= 0 {
+		return EncodeResult{Data: data}
+	}
+
+	bestPlan := fastPlan
+	best := encodePlan(data, fastPlan, maxReferenceBytes, func(id string, _ []byte) (string, bool) {
+		return "local-archive://" + id, true
+	})
+	if hasLinePlan {
+		line := encodePlan(data, linePlan, maxReferenceBytes, func(id string, _ []byte) (string, bool) {
+			return "local-archive://" + id, true
+		})
+		if line.Saved > best.Saved {
+			bestPlan = linePlan
+			best = line
+		}
+	}
+	if best.Saved <= 0 {
+		return EncodeResult{Data: data}
+	}
+	result := encodePlan(data, bestPlan, maxReferenceBytes, func(id string, chunk []byte) (string, bool) {
+		uri := s.archive(sessionID, id, chunk)
+		return uri, uri != ""
+	})
+	if result.Saved <= 0 {
+		return EncodeResult{Data: data}
+	}
+	if !s.recordReferenceBudget(sessionID, result.ReferencedBytes) {
+		return EncodeResult{Data: data}
+	}
+	return result
+}
+
+func newChunkPlan(chunks [][]byte, prefix string) chunkPlan {
+	plan := chunkPlan{
+		chunks:   chunks,
+		ids:      make([]string, len(chunks)),
+		repeated: make([]bool, len(chunks)),
+	}
+	for i, c := range chunks {
+		plan.ids[i] = prefix + ChunkID(c)
+	}
+	return plan
+}
+
+func markRepeatedLocked(session *sessionChunks, plan *chunkPlan) {
+	for i, id := range plan.ids {
+		if _, seenBefore := session.chunks[id]; seenBefore {
+			plan.repeated[i] = true
+		}
+	}
+}
+
+func seedPlanLocked(session *sessionChunks, plan chunkPlan, now time.Time) {
+	for _, id := range plan.ids {
+		session.seq++
+		session.chunks[id] = chunkState{lastSeen: now, seq: session.seq}
+	}
+}
+
+func (s *Store) remainingReferenceBudgetLocked(session *sessionChunks) int {
+	limit := s.limits.MaxSessionRefPct
+	if limit <= 0 || limit >= 100 {
+		return int(^uint(0) >> 1)
+	}
+	maxRef := session.inBytes * limit / 100
+	remaining := maxRef - session.refBytes
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+func encodePlan(data []byte, plan chunkPlan, maxReferenceBytes int, archive func(id string, chunk []byte) (string, bool)) EncodeResult {
 	var out bytes.Buffer
 	out.Grow(len(data))
 	saved := 0
 	referenceCount := 0
 	referencedBytes := 0
 	expansions := map[string][]byte{}
-	for i, c := range chunks {
-		if repeated[i] {
-			if s.archive != nil {
-				uri := s.archive(sessionID, ids[i], c)
-				if uri != "" {
-					ref := FormatReference(uri, len(c))
-					if len(ref) < len(c) {
-						out.WriteString(ref)
-						saved += len(c) - len(ref)
-						referenceCount++
-						referencedBytes += len(c)
-						expansions[uri] = append([]byte(nil), c...)
-						continue
-					}
+	for i, c := range plan.chunks {
+		if plan.repeated[i] && referencedBytes+len(c) <= maxReferenceBytes {
+			if uri, ok := archive(plan.ids[i], c); ok {
+				ref := FormatReference(uri, len(c))
+				if len(ref) < len(c) {
+					out.WriteString(ref)
+					saved += len(c) - len(ref)
+					referenceCount++
+					referencedBytes += len(c)
+					expansions[uri] = append([]byte(nil), c...)
+					continue
 				}
 			}
 		}
 		out.Write(c)
 	}
-
 	if saved <= 0 {
 		return EncodeResult{Data: data}
 	}
@@ -200,12 +280,6 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 	if !changed || !bytes.Equal([]byte(decoded), data) {
 		return EncodeResult{Data: data}
 	}
-	if referencedBytes*100 > len(data)*maxReferencePercent {
-		return EncodeResult{Data: data}
-	}
-	if !s.recordReferenceBudget(sessionID, referencedBytes) {
-		return EncodeResult{Data: data}
-	}
 	return EncodeResult{
 		Data:            encoded,
 		Saved:           saved,
@@ -213,6 +287,72 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 		ReferencedBytes: referencedBytes,
 		Verified:        true,
 	}
+}
+
+const (
+	lineChunkIDPrefix = "line-"
+	lineChunkMinLines = 32
+)
+
+func newLineChunkPlan(data []byte, cfg Config) (chunkPlan, bool) {
+	chunks, ok := lineChunks(data, cfg)
+	if !ok {
+		return chunkPlan{}, false
+	}
+	return newChunkPlan(chunks, lineChunkIDPrefix), true
+}
+
+func lineChunks(data []byte, cfg Config) ([][]byte, bool) {
+	if len(data) == 0 || bytes.Count(data, []byte{'\n'}) < lineChunkMinLines {
+		return nil, false
+	}
+	min, avg, max, _, _ := cfg.normalized()
+	if min < 512 {
+		min = 512
+	}
+	if avg < min {
+		avg = min
+	}
+	if max < avg {
+		max = avg
+	}
+	var chunks [][]byte
+	blockStart := 0
+	lineStart := 0
+	lineCount := 0
+	for lineStart < len(data) {
+		lineEnd := lineStart
+		for lineEnd < len(data) && data[lineEnd] != '\n' {
+			lineEnd++
+		}
+		if lineEnd < len(data) {
+			lineEnd++
+		}
+		line := data[lineStart:lineEnd]
+		lineCount++
+		blockLen := lineEnd - blockStart
+		if blockLen >= max || (blockLen >= avg && lineBoundary(line)) {
+			chunks = append(chunks, data[blockStart:lineEnd:lineEnd])
+			blockStart = lineEnd
+		}
+		lineStart = lineEnd
+	}
+	if blockStart < len(data) {
+		chunks = append(chunks, data[blockStart:len(data):len(data)])
+	}
+	if lineCount < lineChunkMinLines || len(chunks) < 2 {
+		return nil, false
+	}
+	return chunks, true
+}
+
+func lineBoundary(line []byte) bool {
+	hash := uint64(1469598103934665603)
+	for _, b := range line {
+		hash ^= uint64(b)
+		hash *= 1099511628211
+	}
+	return hash&lowMask(3) == 0
 }
 
 func (s *Store) recordReferenceBudget(sessionID string, referencedBytes int) bool {

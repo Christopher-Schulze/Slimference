@@ -1970,8 +1970,14 @@ be called complete, default-safe, and production-grade.
   focused CLI rerun is positive (`1722` live billable input tokens saved,
   one live chunk block/ref, `host_budget_ok`) and the focused Desktop
   Codex.app rerun is also positive (`1719` live billable input tokens saved,
-  one live chunk block/ref, `host_budget_ok`). Remaining: broader workload
-  breadth before default-safety claim. Detail:
+  one live chunk block/ref, `host_budget_ok`). Similar-log hardening now adds
+  exact line-boundary chunk planning and partial budgeted references; replay on
+  real Desktop log frames produces one chunk block, 16 refs, and 7155 reducer
+  tokens saved. Live Desktop log workload is handled earlier by the safer
+  captured-output reducer with 16192 billable input tokens saved, so chunk dedup
+  remains the guarded fallback for large similar outputs that survive stricter
+  parsers. Remaining: broader workload breadth before default-safety claim.
+  Detail:
   `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
 - [~] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact
@@ -2098,8 +2104,9 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   focused CLI WSS proof passes live under corrected host-budget gating with
   `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; focused Desktop
   Codex.app proof now passes the same gate with live billable-token savings.
-  Remaining closeout is broader real workload coverage beyond the focused
-  similar-file proof.
+  Similar-log replay now hits chunk refs, while live log proof saves through the
+  safer captured-output reducer first. Remaining closeout is broader real
+  workload coverage beyond focused similar-file/log cases.
 - [ ] **T267 output-reduce closeout** - prove aggressive profiles on real
   direct-answer/status/read-only/planning/edit workflows with repair/re-ask
   rollback active. WSS streamcut remains disabled until terminal-safe proof

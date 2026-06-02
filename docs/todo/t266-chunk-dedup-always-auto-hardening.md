@@ -20,8 +20,15 @@ make chunk dedup automatic without product drawdowns.
   decode back to the exact original bytes before it can be returned. Archive URI
   collisions or orphan references fail open to the original output.
 - Per-output reference-density rejection happens before cumulative session
-  reference-budget accounting, so candidates that full-pass because they are too
-  reference-dense do not poison later session budget decisions.
+  reference-budget accounting. The store now uses the remaining per-output and
+  per-session byte budgets during encoding: references stop when the budget is
+  exhausted and the rest of the output stays verbatim, so useful overlap is not
+  lost just because a whole candidate would be too dense.
+- Chunk encode now evaluates both FastCDC chunks and a line-boundary chunk plan.
+  The line plan is exact and only selected if it locally reconstructs the
+  original output with higher net savings, which gives long logs and stable
+  command-output lines a second chance without making generic chunking more
+  aggressive.
 - Chunk refs are now suppressed for patch/diff/edit-style command outputs such
   as `apply_patch`, `patch`, `git diff`, `git show`, `git apply`, `git am`, and
   `git format-patch`. These outputs can still use deterministic filters and
@@ -44,9 +51,9 @@ Chunk dedup may be always-auto only for routes/workloads where:
 
 1. Make eligibility explicit:
    - WSS only unless HTTP recovery is proven
-- no first-observation chunk references without full source seeding
-- [x] no same-output chunk references before the model has received that output
-  as full context
+   - no first-observation chunk references without full source seeding
+   - [x] no same-output chunk references before the model has received that output
+     as full context
    - [x] no chunk refs for active patch/diff/edit outputs
    - no chunk refs under recent edit uncertainty
 2. Add integrity budget:
@@ -63,6 +70,10 @@ Chunk dedup may be always-auto only for routes/workloads where:
      the candidate would replace too much fresh model-facing output
    - [x] per-session accepted-reference budget defaults to 70% and full-passes
      once cumulative chunk references would dominate the session
+   - [x] encode references only up to the remaining byte budget and leave the
+     rest verbatim, preserving recency while keeping positive savings
+   - [x] use Codex Responses top-level `instructions` for the recovery note;
+     never emit an `input` item with `role=system`
 4. Add recency policy:
    - deliberate re-read of same file may full-pass or provide salient summary
      plus refs, never bare refs if canary says the model is struggling
@@ -210,3 +221,37 @@ it remains guarded by policy.
   passed. Replay on the same Desktop frames reports
   `reducer_tokens_saved=1719`, `bytes_saved=7907`, one chunk reference,
   `expected_extras=1`, and `gate_passed=true`.
+- 2026-06-02: Hardened similar-log coverage. The chunk store now evaluates a
+  second exact line-boundary chunk plan beside the FastCDC plan and chooses the
+  locally verified best result. It also treats reference caps as byte budgets:
+  once the per-output or per-session budget is exhausted, later repeated chunks
+  stay verbatim instead of forcing the whole candidate to full-pass. The focused
+  unit proof `TestStore_LineOrientedLogsDedupWithinReferenceBudget` verifies
+  two 520-line logs with one differing failure line: first output seeds only,
+  second output emits archive-backed references within a 90% cap, and decoding
+  reconstructs the exact second output.
+- 2026-06-02: Replayed the earlier real Desktop log capture
+  `/Users/christopher/.slimference/captures/desktop-chunk-log-proof-20260602T182050Z.jsonl`
+  after the line-boundary hardening. The same real WSS frames now produce
+  `mutated_requests=1`, `bytes_saved=33843`, `reducer_tokens_saved=7155`,
+  `reducer_chunk_dedup_blocks=1`, `reducer_chunk_dedup_references=16`,
+  `reducer_chunk_dedup_referenced_bytes=35378`,
+  `reducer_chunk_dedup_input_bytes=40158`, `lost=0`, and `gate_passed=true`.
+  This closes the offline reducer gap for similar logs.
+- 2026-06-02: Fixed a real Codex Responses recovery-note regression found during
+  the Desktop log proof. The archive-recovery hint previously used an `input`
+  item with `role=system`, and Codex returned `400 System messages are not
+  allowed`. `internal/beterse` now writes Codex hints to the top-level
+  `instructions` string, appends idempotently, and refuses to create
+  `instructions` on JSON bodies without a Responses `input` field. The tests
+  assert no `input` system item is emitted.
+- 2026-06-02: Re-ran the Desktop log workload with short commands after the
+  recovery-note fix:
+  `/Users/christopher/.slimference/captures/desktop-chunk-log-proof-short-20260602T195730Z.jsonl`.
+  The real commands produced two ~40 KB outputs and live WSS saved
+  `16192` billable input tokens with `wss_phasef.requests_modified=2`,
+  `captured_output_blocks=2`, `chunk_dedup_blocks=0`, zero lost blocks in replay,
+  and no `System messages are not allowed` error. This is the desired product
+  behavior: the stricter captured-output/log reducer wins first on this workload,
+  and chunk dedup remains the guarded fallback for large similar outputs that
+  survive safer deterministic reducers.

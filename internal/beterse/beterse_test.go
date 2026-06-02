@@ -198,49 +198,49 @@ func TestInjectCodexChatGPT(t *testing.T) {
 	}
 }
 
-func TestInjectCodexResponsesInputPrependsSystemMessage(t *testing.T) {
-	body := []byte(`{"model":"gpt-5-codex","input":[{"type":"message","role":"user","content":"hi"}],"stream":true}`)
+func TestInjectCodexResponsesUsesInstructionsNotInputSystem(t *testing.T) {
+	body := []byte(`{"model":"gpt-5-codex","instructions":"base","input":[{"type":"message","role":"user","content":"hi"}],"stream":true}`)
 	out, res := Inject(types.CodexChatGPT, body, "hint")
 	if !res.Applied {
 		t.Fatalf("expected applied")
 	}
-	if res.FieldUsed != "input[system]" {
-		t.Fatalf("field=%q, want input[system]", res.FieldUsed)
+	if res.FieldUsed != "instructions" {
+		t.Fatalf("field=%q, want instructions", res.FieldUsed)
 	}
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(out, &raw)
+	var instructions string
+	_ = json.Unmarshal(raw["instructions"], &instructions)
+	if instructions != "base\n\nhint" {
+		t.Fatalf("instructions not appended: %q", instructions)
+	}
 	var items []map[string]string
 	_ = json.Unmarshal(raw["input"], &items)
-	if len(items) < 2 {
-		t.Fatalf("expected prepended system item, got %s", out)
-	}
-	if items[0]["role"] != "system" || items[0]["content"] != "hint" {
-		t.Fatalf("bad system item: %+v", items[0])
-	}
-	if items[1]["content"] != "hi" {
+	if len(items) != 1 || items[0]["role"] == "system" || items[0]["content"] != "hi" {
 		t.Fatalf("user item not preserved: %+v", items)
 	}
 }
 
-func TestInjectCodexResponsesInputExistingSystemIdempotent(t *testing.T) {
-	body := []byte(`{"input":[{"type":"message","role":"system","content":"hint"},{"type":"message","role":"user","content":"hi"}]}`)
+func TestInjectCodexResponsesInstructionsIdempotent(t *testing.T) {
+	body := []byte(`{"instructions":"base hint","input":[{"type":"message","role":"user","content":"hi"}]}`)
 	_, res := Inject(types.CodexChatGPT, body, "hint")
 	if res.Applied {
 		t.Fatalf("already-present hint should not re-inject")
 	}
 }
 
-func TestInjectCodexResponsesInputExistingSystemAppendsAndSkipsBadContent(t *testing.T) {
-	body := []byte(`{"input":[{"type":"message","role":"system","content":42},{"type":"message","role":"system","content":"base"},{"type":"message","role":"user","content":"hi"}]}`)
+func TestInjectCodexResponsesCreatesInstructionsWhenMissing(t *testing.T) {
+	body := []byte(`{"input":[{"type":"message","role":"user","content":"hi"}]}`)
 	out, res := Inject(types.CodexChatGPT, body, "hint")
 	if !res.Applied {
-		t.Fatal("expected append to string system item after skipping bad content")
+		t.Fatal("expected instructions injection")
 	}
-	if res.FieldUsed != "input[system]" {
-		t.Fatalf("field=%q, want input[system]", res.FieldUsed)
+	if res.FieldUsed != "instructions" {
+		t.Fatalf("field=%q, want instructions", res.FieldUsed)
 	}
-	if !strings.Contains(string(out), "base\\n\\nhint") {
-		t.Fatalf("hint not appended to existing system item: %s", out)
+	if !strings.Contains(string(out), `"instructions":"hint"`) ||
+		strings.Contains(string(out), `"role":"system"`) {
+		t.Fatalf("hint should use top-level instructions, not input system item: %s", out)
 	}
 }
 
@@ -248,7 +248,7 @@ func TestInjectCodexResponsesInputNoMatchEdges(t *testing.T) {
 	for _, body := range [][]byte{
 		[]byte(`{not-json`),
 		[]byte(`{"model":"gpt-5-codex"}`),
-		[]byte(`{"input":"not-array"}`),
+		[]byte(`{"instructions":42,"input":[{"type":"message","role":"user","content":"hi"}]}`),
 	} {
 		out, res := Inject(types.CodexChatGPT, body, "hint")
 		if res.Applied {

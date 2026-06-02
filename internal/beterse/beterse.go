@@ -9,9 +9,9 @@
 // Cohort routing lives in internal/qualityab. This package owns the
 // per-provider body rewrite: Anthropic uses `system` (string or
 // array of content blocks), OpenAI uses a `system` role message at
-// the head of `messages`, and Codex also supports a `system` item at
-// the head of Responses-API `input`. These shapes accept an appended
-// hint without changing the rest of the payload.
+// the head of `messages`, and Codex Responses uses the top-level
+// `instructions` string. Codex's backend rejects `system` items inside
+// `input`, so this package never injects those.
 package beterse
 
 import (
@@ -71,17 +71,17 @@ func Inject(provider types.Provider, body []byte, hint string) ([]byte, Result) 
 		}
 		return body, res
 	case types.CodexChatGPT:
-		out, ok := injectOpenAI(body, hint)
+		out, ok := injectCodexInstructions(body, hint)
 		if ok {
 			res.Applied = true
-			res.FieldUsed = "messages[system]"
+			res.FieldUsed = "instructions"
 			res.Bytes = len(hint)
 			return out, res
 		}
-		out, ok = injectCodexInput(body, hint)
+		out, ok = injectOpenAI(body, hint)
 		if ok {
 			res.Applied = true
-			res.FieldUsed = "input[system]"
+			res.FieldUsed = "messages[system]"
 			res.Bytes = len(hint)
 			return out, res
 		}
@@ -205,46 +205,28 @@ func mustMarshalString(s string) json.RawMessage {
 	return b
 }
 
-func injectCodexInput(body []byte, hint string) ([]byte, bool) {
+func injectCodexInstructions(body []byte, hint string) ([]byte, bool) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return body, false
 	}
-	inputRaw, ok := raw["input"]
-	if !ok {
-		return body, false
-	}
-	var items []map[string]json.RawMessage
-	if err := json.Unmarshal(inputRaw, &items); err != nil {
-		return body, false
-	}
-	for i, item := range items {
-		role := rawString(item["role"])
-		if role != "system" {
-			continue
-		}
-		content, ok := rawStringOK(item["content"])
-		if !ok {
-			continue
-		}
-		if bytes.Contains([]byte(content), []byte(hint)) {
+	instructionsRaw, has := raw["instructions"]
+	if !has {
+		if _, ok := raw["input"]; !ok {
 			return body, false
 		}
-		item["content"] = mustMarshalString(content + "\n\n" + hint)
-		items[i] = item
-		nextInput, _ := json.Marshal(items)
-		raw["input"] = nextInput
+		raw["instructions"] = mustMarshalString(hint)
 		out, _ := json.Marshal(raw)
 		return out, true
 	}
-	system := map[string]json.RawMessage{
-		"type":    json.RawMessage(`"message"`),
-		"role":    json.RawMessage(`"system"`),
-		"content": mustMarshalString(hint),
+	instructions, ok := rawStringOK(instructionsRaw)
+	if !ok {
+		return body, false
 	}
-	prepended := append([]map[string]json.RawMessage{system}, items...)
-	nextInput, _ := json.Marshal(prepended)
-	raw["input"] = nextInput
+	if bytes.Contains([]byte(instructions), []byte(hint)) {
+		return body, false
+	}
+	raw["instructions"] = mustMarshalString(instructions + "\n\n" + hint)
 	out, _ := json.Marshal(raw)
 	return out, true
 }

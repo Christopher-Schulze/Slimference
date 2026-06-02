@@ -2,6 +2,7 @@ package chunkdedup
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -114,18 +115,18 @@ func TestStore_FailsOpenWhenArchiveURICollides(t *testing.T) {
 	}
 }
 
-func TestStore_SessionReferenceBudgetFailsOpen(t *testing.T) {
+func TestStore_SessionReferenceBudgetLimitsReferences(t *testing.T) {
 	t.Parallel()
 	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 40}, archiveFake(nil))
 	data := genBytes(64*1024, 24)
 
 	store.Encode("s1", data)
 	result := store.EncodeWithReport("s1", data)
-	if result.Saved != 0 || result.Verified {
-		t.Fatalf("session budget should full-pass over-dense reference output: saved=%d verified=%v", result.Saved, result.Verified)
+	if result.Saved <= 0 || !result.Verified {
+		t.Fatalf("session budget should allow bounded references: saved=%d verified=%v", result.Saved, result.Verified)
 	}
-	if !bytes.Equal(result.Data, data) {
-		t.Fatal("session budget full-pass must keep original data")
+	if result.ReferencedBytes*100 > (len(data)*2)*40 {
+		t.Fatalf("session reference budget exceeded: referenced=%d visible=%d", result.ReferencedBytes, len(data)*2)
 	}
 }
 
@@ -148,7 +149,7 @@ func TestStore_SessionReferenceBudgetCountsSeedOutputs(t *testing.T) {
 	}
 }
 
-func TestStore_OutputReferenceBudgetDoesNotConsumeSessionBudget(t *testing.T) {
+func TestStore_OutputReferenceBudgetLimitsReferences(t *testing.T) {
 	t.Parallel()
 	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 60}, archiveFake(nil))
 	shared := genBytes(48*1024, 25)
@@ -160,17 +161,17 @@ func TestStore_OutputReferenceBudgetDoesNotConsumeSessionBudget(t *testing.T) {
 	dataC := append(append([]byte{}, tailB...), tailC...)
 
 	store.EncodeWithReportWithMaxReferencePercent("s1", dataA, 100)
-	rejected := store.EncodeWithReportWithMaxReferencePercent("s1", dataB, 10)
-	if rejected.Saved != 0 || rejected.Verified {
-		t.Fatalf("dense per-output reference candidate should full-pass: saved=%d verified=%v", rejected.Saved, rejected.Verified)
+	capped := store.EncodeWithReportWithMaxReferencePercent("s1", dataB, 10)
+	if capped.Saved <= 0 || !capped.Verified {
+		t.Fatalf("dense per-output reference candidate should save within cap: saved=%d verified=%v", capped.Saved, capped.Verified)
 	}
-	if !bytes.Equal(rejected.Data, dataB) {
-		t.Fatal("dense per-output reference candidate must keep original bytes")
+	if capped.ReferencedBytes*100 > len(dataB)*10 {
+		t.Fatalf("per-output reference budget exceeded: referenced=%d len=%d", capped.ReferencedBytes, len(dataB))
 	}
 
 	accepted := store.EncodeWithReportWithMaxReferencePercent("s1", dataC, 100)
 	if accepted.Saved <= 0 || !accepted.Verified {
-		t.Fatalf("rejected per-output candidate must not consume session budget: saved=%d verified=%v", accepted.Saved, accepted.Verified)
+		t.Fatalf("bounded prior candidate should leave enough session budget: saved=%d verified=%v", accepted.Saved, accepted.Verified)
 	}
 }
 
@@ -195,6 +196,53 @@ func TestStore_PartialOverlapDedups(t *testing.T) {
 	if len(enc) >= len(d2) {
 		t.Fatalf("partial encode should shorten: %d vs %d", len(enc), len(d2))
 	}
+}
+
+func TestStore_LineOrientedLogsDedupWithinReferenceBudget(t *testing.T) {
+	t.Parallel()
+	archived := map[string][]byte{}
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 100}, archiveFake(archived))
+	first := genLineOrientedLog("alpha/test_case_a.go:42 expected=17 actual=19")
+	second := genLineOrientedLog("alpha/test_case_b.go:77 expected=23 actual=29")
+
+	seed := store.EncodeWithReportWithMaxReferencePercent("s-log", first, 90)
+	if seed.Saved != 0 || seed.Verified || !bytes.Equal(seed.Data, first) {
+		t.Fatalf("first log output should seed only: saved=%d verified=%v", seed.Saved, seed.Verified)
+	}
+
+	result := store.EncodeWithReportWithMaxReferencePercent("s-log", second, 90)
+	if result.Saved <= 0 || !result.Verified {
+		t.Fatalf("second similar log should dedup within budget: saved=%d verified=%v", result.Saved, result.Verified)
+	}
+	if result.ReferencedBytes*100 > len(second)*90 {
+		t.Fatalf("referenced bytes exceed per-output budget: referenced=%d len=%d", result.ReferencedBytes, len(second))
+	}
+	if !bytes.Contains(result.Data, []byte("local-archive://")) {
+		t.Fatal("deduped log must carry recoverable chunk refs")
+	}
+	decoded, changed := DecodeReferences(string(result.Data), func(uri string) ([]byte, bool) {
+		const prefix = "local-archive://"
+		if !strings.HasPrefix(uri, prefix) {
+			return nil, false
+		}
+		chunk, ok := archived[strings.TrimPrefix(uri, prefix)]
+		return chunk, ok
+	})
+	if !changed || decoded != string(second) {
+		t.Fatalf("deduped log should reconstruct exact second output changed=%v", changed)
+	}
+}
+
+func genLineOrientedLog(failure string) []byte {
+	var b strings.Builder
+	for i := 0; i < 520; i++ {
+		if i == 260 {
+			fmt.Fprintf(&b, "FAIL package %s slow-path checksum mismatch\n", failure)
+			continue
+		}
+		fmt.Fprintf(&b, "INFO worker=%02d shard=%02d package=alpha case=%03d status=ok checksum=stable trace=compile-test-loop\n", i%17, i%13, i)
+	}
+	return []byte(b.String())
 }
 
 func TestStore_Reset(t *testing.T) {

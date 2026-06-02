@@ -559,12 +559,15 @@ and is a search-output reducer, so it has none of the first-read-seeding conflic
 made first-read scan-mode unsuitable for the product default.
 
 Codex content-defined chunk dedup is available as a policy-gated extension of the
-same Layer-0 reducer. A FastCDC-style chunker splits large tool outputs/file
-reads into content-addressed regions, and a bounded in-memory session store tracks
-only chunk identities, not raw payloads. When a later output shares chunks with
-content already sent to the model in the same session, the reducer can emit the
-novel bytes plus neutral `[context-chunk status=unchanged uri=local-archive://...]`
-references to archived chunks. The product default is
+same Layer-0 reducer. A multi-plan chunker splits large tool outputs/file reads
+into content-addressed regions: FastCDC handles general binary/text overlap, and
+a line-boundary plan handles long logs and command outputs where line stability is
+stronger than byte-window stability. A bounded in-memory session store tracks only
+chunk identities, not raw payloads. When a later output shares chunks with content
+already sent to the model in the same session, the reducer chooses the best locally
+verified plan and emits the novel bytes plus neutral
+`[context-chunk status=unchanged uri=local-archive://...]` references to archived
+chunks. The product default is
 `codex_savings_policy_mode="auto"`: safe lossless reducers stay on, and chunk
 dedup is limited to recoverable WSS paths with archive support, cross-send
 seeding, density budgets, local decode verification, and patch/diff/edit-output
@@ -584,23 +587,27 @@ Runtime demotion inputs also cover quality spikes, archive recovery loops,
 missing-tool retries, degraded routes, host-budget pressure, and negative-savings
 history. Any supplied demotion signal forces managed Codex tool-output reducers
 to full-pass and records the exact content-free reason in mechanism telemetry.
-Per-output reference-density caps are enforced before cumulative session-budget
-accounting, so a chunk candidate that full-passes because it is too reference
-dense does not consume accepted-reference bytes. The cumulative session budget's
-denominator counts every observed output sent through the chunk store, including
-first-send seed outputs and rejected full-pass candidates. Those bytes were
-visible to the model and therefore increase the safe budget for later references
-instead of blocking the first useful overlap hit.
+Per-output and cumulative session reference-density caps are enforced as byte
+budgets during encoding, not as a crude all-or-nothing rejection. A candidate can
+replace repeated chunks only until the remaining budget is exhausted; repeated
+chunks past that point stay verbatim in the model-facing output, preserving fresh
+recency while still capturing the safe part of the overlap. The cumulative session
+budget's denominator counts every observed output sent through the chunk store,
+including first-send seed outputs and candidates that produced no accepted
+references. Those bytes were visible to the model and therefore increase the safe
+budget for later references instead of blocking the first useful overlap hit.
 The store is bounded by `codex_chunk_dedup_max_sessions`,
 `codex_chunk_dedup_max_chunks_per_session`, and
 `codex_chunk_dedup_ttl_seconds`; the default min block size is 4096 bytes so
 auto mode catches Codex's observed ~8 KiB truncated exec-output envelope. It
 fails open if archive recovery is unavailable or the token guard is not positive.
 WSS Phase-F and HTTP share the same reducer primitives, but only WSS can
-currently emit chunk/archive references because it also injects the recovery note
-automatically when a reference is actually emitted. HTTP stays conservative and
-does not emit chunk/archive references until that route has its own proven
-recovery-note wiring. `/admin/state` reports chunk-dedup hits globally plus
+currently emit chunk/archive references because it can inject the recovery note
+automatically when a reference is actually emitted. For Codex Responses bodies the
+note is written to the top-level `instructions` string, never as a `system` item
+inside `input`, because Codex's backend rejects `input` system messages. HTTP stays
+conservative and does not emit chunk/archive references until that route has its
+own proven recovery-note wiring. `/admin/state` reports chunk-dedup hits globally plus
 under `proxy_layer0_routes.wss_phasef` / `.http`.
 The 2026-05-30 T255 live proof used scoped Codex WSS frames with
 `--codex-chunk-dedup --chunk-dedup-min-bytes=0 --fail-on-lost`: replay saved
@@ -609,6 +616,17 @@ The 2026-05-30 T255 live proof used scoped Codex WSS frames with
 with zero parse, degraded-session, or compression errors. The follow-up T256
 policy engine makes that proof usable by default through auto mode instead of
 requiring operators to decide when a raw feature flag is safe.
+
+Real log-heavy Codex.app workloads can be handled before chunk dedup by safer
+deterministic filters. A 2026-06-02 Desktop proof with two ~40 KB similar log
+outputs saved 16,192 billable input tokens through captured-output compaction,
+`lost=0`, and zero safety counters; chunk dedup correctly recorded no live block
+because the earlier reducer produced a stronger, lower-risk compaction. Replaying
+the pre-filter log capture through the chunk store after the line-boundary plan
+saved 7155 reducer tokens with 16 archive-backed references and exact
+reconstruction. Product interpretation: chunk dedup is a fallback/overlap lever
+for large similar outputs that survive stricter deterministic reducers, not a
+reason to bypass safer log/search/test parsers.
 
 First-read scan-mode (T253) is retired from Codex runtime. Earlier prototypes replaced
 large first file reads with code signatures plus recovery notes. That mechanism is no
