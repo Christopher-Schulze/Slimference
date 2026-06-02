@@ -273,6 +273,15 @@ func (s SavingsSummary) ProductSignals() ProductSavingsSummary {
 	return product
 }
 
+func (s SavingsSummary) ProductSignalsWithHostBudget(host HostBudgetState) ProductSavingsSummary {
+	product := s.ProductSignals()
+	if host.Exceeded {
+		product.SafetyIssues++
+		product.Status = "attention"
+	}
+	return product
+}
+
 type ProxyLayer0PolicyEntry struct {
 	Route       string `json:"route"`
 	Mechanism   string `json:"mechanism"`

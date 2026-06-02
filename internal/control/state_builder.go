@@ -81,6 +81,7 @@ func Build(ctx context.Context, p Probes) SetupState {
 		<-done
 	}
 	state.HostBudget = EvaluateHostBudget(state.Daemon, state.WSS)
+	state.Savings.Product = state.Savings.ProductSignalsWithHostBudget(state.HostBudget)
 	state.UpdatedAt = now()
 	return state
 }

@@ -1986,7 +1986,9 @@ be called complete, default-safe, and production-grade.
 - [~] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
   now exposes the content-free `savings.product` rollup and the TUI default
   product panel consumes it; provider-cache read/create tokens now stay separate
-  from local input and output-wire savings. Live-corpus proof gates remain.
+  from local input and output-wire savings, and WSS parse/degrade/compression
+  failures force product attention with concrete TUI safety details. Live-corpus
+  proof gates remain.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
 - [~] **T272** Host resource and latency budget max-out - `/admin/state` now
   exposes a product `host_budget` guard, policy has a demotion input, and

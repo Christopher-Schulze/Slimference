@@ -190,6 +190,18 @@ func TestSavingsSummaryProductSignalsStatusPriority(t *testing.T) {
 	}
 }
 
+func TestSavingsSummaryProductSignalsWithHostBudgetMarksAttention(t *testing.T) {
+	summary := SavingsSummary{BillableInputTokensSaved: 100}
+	got := summary.ProductSignalsWithHostBudget(HostBudgetState{
+		Status:   "attention",
+		Exceeded: true,
+		Reasons:  []string{"wss_parse_or_degrade"},
+	})
+	if got.Status != "attention" || got.SafetyIssues == 0 {
+		t.Fatalf("host budget attention must surface in product signals: %+v", got)
+	}
+}
+
 func TestEvaluateHostBudgetStatus(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -269,6 +281,20 @@ func TestBuildPopulatesHostBudget(t *testing.T) {
 	})
 	if !state.HostBudget.Exceeded || state.HostBudget.Status != "attention" {
 		t.Fatalf("HostBudget not populated from daemon/wss: %+v", state.HostBudget)
+	}
+}
+
+func TestBuildPropagatesWSSHostBudgetIntoProductSignals(t *testing.T) {
+	state := Build(context.Background(), Probes{
+		Savings: &fakeSavingsProbe{s: SavingsSummary{BillableInputTokensSaved: 100}},
+		WSS: fakeWSSProbe{s: WSSState{
+			EngineActive:      true,
+			ParseFailures:     1,
+			CompressionErrors: 1,
+		}},
+	})
+	if state.Savings.Product.Status != "attention" || state.Savings.Product.SafetyIssues == 0 {
+		t.Fatalf("product signals did not surface WSS safety: %+v", state.Savings.Product)
 	}
 }
 

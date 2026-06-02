@@ -1309,13 +1309,16 @@ func TestView_MainRender_ProductAttention(t *testing.T) {
 		ToolResolutionMisses: 1,
 		HostBudgetExceeded:   true,
 		HostBudgetReasons:    []string{"rss_budget_exceeded"},
+		WSSParseFailures:     1,
+		WSSDegradedSessions:  1,
+		WSSCompressionErrors: 1,
 	}
 	m := NewModel(p)
 	m.width = 100
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"ATTENTION", "WSS bridge", "tool miss", "rss_budget_exceeded"} {
+	for _, want := range []string{"ATTENTION", "WSS bridge", "tool miss", "WSS parse", "WSS degraded session", "WSS compression error", "rss_budget_exceeded"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}

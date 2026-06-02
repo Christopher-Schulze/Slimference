@@ -17,6 +17,9 @@ fallbacks, cache hits, recovery, and quality signals.
 - The TUI normal view now consumes the product rollup instead of rebuilding a
   mixed savings headline from raw debug counters. Debug views still keep the
   raw counters.
+- WSS parse failures, degraded sessions, compression errors, and host-budget
+  attention now force product `attention` status and render concrete WSS safety
+  details in the normal TUI product panel.
 - Real proof matrix and workday windows exist, but promotion criteria need to
   be explicit for every max-out feature.
 
@@ -143,3 +146,7 @@ gate is done when default promotions require live corpus evidence.
   `bytes_saved=4128`; its workday window saved 1518 WSS input tokens and ended
   with host budget `ok`. Desktop breadth still remains an operator-driven live
   proof requirement, but CLI search/git breadth is no longer speculative.
+- 2026-06-02: Product safety status now includes WSS parse/degrade/compression
+  failures through the `/admin/state` build path and TUI adapter fallback. The
+  normal product panel renders those concrete WSS counters, so a degraded WSS
+  path cannot be presented as "safety ok."

@@ -411,6 +411,14 @@ func TestLocalAndRemoteAdapterCheckpointArchiveStatus(t *testing.T) {
 	}); got.RouteStatus != "WSS savings active" || got.BillableInputTokensSaved != 42 || got.CacheHits != 2 {
 		t.Fatalf("product status=%+v", got)
 	}
+	if got := productStatusFromSetupState(control.SetupState{
+		Savings: control.SavingsSummary{
+			Product: control.ProductSavingsSummary{Status: "saving"},
+		},
+		WSS: control.WSSState{ParseFailures: 1},
+	}); got.SavingsStatus != "attention" || got.SafetyIssues == 0 || got.WSSParseFailures != 1 {
+		t.Fatalf("wss safety product status=%+v", got)
+	}
 
 	rpa := newRemoteProxyAdapter(cfg)
 	rpa.mu.Lock()

@@ -1201,6 +1201,15 @@ func productSafetyLine(product ProductStatus) string {
 	if product.ToolResolutionMisses > 0 {
 		parts = append(parts, fmt.Sprintf("%d tool miss(es)", product.ToolResolutionMisses))
 	}
+	if product.WSSParseFailures > 0 {
+		parts = append(parts, fmt.Sprintf("%d WSS parse failure(s)", product.WSSParseFailures))
+	}
+	if product.WSSDegradedSessions > 0 {
+		parts = append(parts, fmt.Sprintf("%d WSS degraded session(s)", product.WSSDegradedSessions))
+	}
+	if product.WSSCompressionErrors > 0 {
+		parts = append(parts, fmt.Sprintf("%d WSS compression error(s)", product.WSSCompressionErrors))
+	}
 	if product.HostBudgetExceeded {
 		reason := product.HostBudgetStatus
 		if len(product.HostBudgetReasons) > 0 {

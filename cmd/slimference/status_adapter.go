@@ -76,13 +76,23 @@ func (a *proxyAdapter) GetToolArchiveStatus() tui.ToolArchiveStatus {
 func productStatusFromSetupState(state control.SetupState) tui.ProductStatus {
 	product := state.Savings.Product
 	if product.Status == "" {
-		product = state.Savings.ProductSignals()
+		product = state.Savings.ProductSignalsWithHostBudget(state.HostBudget)
+	}
+	safetyIssues := product.SafetyIssues
+	if state.HostBudget.Exceeded {
+		safetyIssues++
+	} else if state.WSS.ParseFailures > 0 || state.WSS.DegradedSessions > 0 || state.WSS.CompressionErrors > 0 {
+		safetyIssues++
+	}
+	savingsStatus := product.Status
+	if safetyIssues > 0 {
+		savingsStatus = "attention"
 	}
 	return tui.ProductStatus{
 		RouteStatus:               productRouteStatus(state),
 		FallbackReason:            state.CodexRoute.FallbackReason,
 		RecertStatus:              state.CodexRoute.RecertStatus,
-		SavingsStatus:             product.Status,
+		SavingsStatus:             savingsStatus,
 		BillableInputTokensSaved:  product.BillableInputTokensSaved,
 		ProviderCacheReadTokens:   product.ProviderCacheReadTokens,
 		ProviderCacheCreateTokens: product.ProviderCacheCreateTokens,
@@ -95,7 +105,7 @@ func productStatusFromSetupState(state control.SetupState) tui.ProductStatus {
 		RepeatedOutputHits:        product.RepeatedOutputHits,
 		ChunkDedupHits:            product.ChunkDedupHits,
 		ToolResolutionMisses:      product.ToolResolutionMisses,
-		SafetyIssues:              product.SafetyIssues,
+		SafetyIssues:              safetyIssues,
 		HostBudgetStatus:          state.HostBudget.Status,
 		HostBudgetExceeded:        state.HostBudget.Exceeded,
 		HostBudgetReasons:         append([]string(nil), state.HostBudget.Reasons...),
