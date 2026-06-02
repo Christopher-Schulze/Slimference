@@ -143,13 +143,32 @@ Maximize exact hits:
   `proxy_layer0_repeated_output_blocks=1`, `captured_output_blocks=1`, zero
   command/tool misses, and replay `bytes_saved=57084`, `lost=0`,
   `gate_passed=true`.
+- 2026-06-02 the base release proof matrix
+  `/Users/christopher/.slimference/captures/release-proof-20260602_112516-cli-desktop-v2.jsonl`
+  covers the exact-cache-hit target across CLI and Desktop: repeat full read,
+  ranged read, search loop, git status/diff, changed file, apply-patch-then-read,
+  no-savings control, similar-files safe-zero, build/test/lint failure, and
+  long mixed workday. The matrix passes with `captures=15`, `cli=9`,
+  `desktop=6`, `positive_token_savings_captures=12`, `expected_zero_captures=3`,
+  `capture_issues=0`, and `gate_passed=true`. Relevant Desktop live rows:
+  repeat full read `billable_input_tokens_saved=3178` and
+  `read_delta_blocks=1`; ranged read `2550` and `read_delta_blocks=1`;
+  search loop `8467`, `captured_output_blocks=2`; git status/diff `1974` and
+  `codex_exec_envelope_blocks=2`; long mixed workday `8394` with
+  `read_delta_blocks=1`, `captured_output_blocks=1`, and
+  `codex_exec_envelope_blocks=1`.
+- 2026-06-02 the focused Search proof matrix
+  `/Users/christopher/.slimference/captures/search-focused-proof-20260602T181619Z.jsonl`
+  adds the missing Desktop repeated-output breadth: Desktop `git grep`,
+  `grep -R`, and `rg` against a 340-match temporary repo saved 35,402 live
+  billable input tokens with `captured_output_blocks=3`,
+  `repeated_output_blocks=3`, `host_budget_ok`, zero safety counters, and
+  replay `lost=0`. This closes the remaining Desktop live-token proof gap for
+  repeated search and repeated non-file output hits.
 
-Remaining before this task can close:
-
-- Prove the remaining command-shape matrix on real Desktop captures and on CLI
-  shapes not covered by the 2026-06-02 automatic ranged/search run.
-- If live captures show unexplained cold misses, add narrower diagnostics for
-  reconnect hydration, TTL eviction, and ambiguous workdir.
+Remaining before this task can close: none for the current Codex WSS
+cache-hit target. If future live captures show unexplained cold misses, open a
+new diagnostics task for reconnect hydration, TTL eviction, or ambiguous workdir.
 
 ## Zero product-drawdown gates
 

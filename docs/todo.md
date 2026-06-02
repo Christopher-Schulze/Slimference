@@ -1929,12 +1929,15 @@ be called complete, default-safe, and production-grade.
 
 ### Codex savings mechanism max-out tasks
 
-- [~] **T264** Codex read/ranged/repeated-output cache-hit maximizer - improve
+- [x] **T264** Codex read/ranged/repeated-output cache-hit maximizer - improve
   exact cache hits for file reads, ranged reads, repeated commands, and repeated
   non-file outputs without first-read elision. Automatic CLI proof now covers
   ranged `sed`, repeated search outputs, and large `git status`; offline
-  Desktop search replay now proves same-match-set repeated-output collapse with
-  `lost=0`, while fresh live Desktop token proof remains. Detail:
+  Desktop search replay proved same-match-set repeated-output collapse with
+  `lost=0`; release matrix now passes with live Desktop repeat full read,
+  ranged read, search loop, git status/diff, and long mixed workday rows, and
+  the focused Search matrix adds Desktop `git grep`, `grep -R`, and `rg`
+  repeated-output breadth with `host_budget_ok`. Detail:
   `docs/todo/t264-codex-read-cache-hit-maximizer.md`
 - [x] **T265** Repo-safe search keying and search-output savings max-out -
   normalize `cd && rg|grep|git grep` and related search shapes to
@@ -2078,10 +2081,10 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Do not claim provider-cache
   savings as local token deletion.
-- [ ] **T264 read/ranged/repeated-output closeout** - finish fresh Desktop
+- [x] **T264 read/ranged/repeated-output closeout** - finish fresh Desktop
   live-token proof for read, ranged-read, repeated-command, repeated-search,
-  and repeated non-file output hits. First reads must stay full-pass; only
-  repeat/range/delta mechanisms may save by default.
+  and repeated non-file output hits. First reads stay full-pass; only
+  repeat/range/delta and exact/recoverable command reducers save by default.
 - [x] **T265 search max-out closeout** - focused Search proof now passes with
   one positive CLI row and one positive Desktop row, both live-token-positive
   and `lost=0`; it now also includes Desktop `git grep`, `grep -R`, `rg`, and
