@@ -212,6 +212,17 @@ func TestEvaluateHostBudgetStatus(t *testing.T) {
 	}{
 		{name: "unknown without probes", want: "unknown"},
 		{
+			name: "unknown resources with active WSS",
+			wss:  WSSState{EngineActive: true, MutationActive: true},
+			want: "unknown",
+		},
+		{
+			name:   "unknown without rss even if state measured",
+			daemon: DaemonState{StateBytes: 1024},
+			wss:    WSSState{EngineActive: true},
+			want:   "unknown",
+		},
+		{
 			name:   "ok under budget",
 			daemon: DaemonState{RSSBytes: 64 * 1024 * 1024, DiskReadOps: 7, DiskWriteOps: 11},
 			wss:    WSSState{EngineActive: true, MutationActive: true},

@@ -424,10 +424,7 @@ func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 		DegradationOK:           wss.ParseFailures == 0 && wss.DegradedSessions == 0,
 		MutationActive:          wss.MutationActive,
 	}
-	if daemon.RSSBytes <= 0 && daemon.StateBytes <= 0 && !wss.EngineActive {
-		state.Status = "unknown"
-		return state
-	}
+	resourceUnknown := daemon.RSSBytes <= 0
 	if daemon.RSSBytes > DefaultHostRSSBudgetBytes {
 		state.Exceeded = true
 		state.Reasons = append(state.Reasons, "rss_budget_exceeded")
@@ -454,6 +451,8 @@ func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 	}
 	if state.Exceeded {
 		state.Status = "attention"
+	} else if resourceUnknown {
+		state.Status = "unknown"
 	}
 	return state
 }

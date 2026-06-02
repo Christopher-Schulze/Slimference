@@ -465,6 +465,10 @@ and state size where the platform can provide it, avoiding a loopback
 self-health guess for the product budget. State-directory scans are entry-bound:
 if a state tree exceeds the bounded scan limit, the host budget treats that as
 resource pressure instead of reporting a partial undercount as healthy.
+If the RSS resource probe is missing while WSS is otherwise active, the status
+remains `unknown` instead of becoming `ok`; proof gates must not treat an
+unmeasured host as a green resource budget. The TUI product panel renders that
+as `host budget unknown` instead of `safety ok`.
 CPU-window demotion ignores sub-second windows: tiny startup/admin-poll samples
 remain visible in telemetry but cannot force managed reducers into full-pass.
 Only a stable window of at least one second can trigger

@@ -94,7 +94,7 @@ Initial targets for Apple Silicon macOS:
 5. Add resource proof output:
    - [x] included in aggregate-savings and workday-savings finish
    - [x] included in release certification runbook
-   - red/yellow/green thresholds in product status
+   - [x] red/yellow/green thresholds in product status
 
 ## Zero product-drawdown gates
 
@@ -279,6 +279,12 @@ Initial targets for Apple Silicon macOS:
   treats an incomplete state-tree scan as host-budget pressure instead of
   accepting a partial byte total as healthy. This prevents too many tiny cache or
   archive files from bypassing the product resource guard.
+- 2026-06-03: Hardened missing-resource handling. If the daemon RSS probe is
+  unavailable while WSS is otherwise active, `/admin/state.host_budget` now stays
+  `unknown` instead of reporting `ok`; WSS parse/compression/degrade errors still
+  escalate to `attention`. The TUI product panel renders `host budget unknown`
+  rather than `safety ok`, so release proof cannot accidentally treat an
+  unmeasured host as green.
 
 ## Done
 

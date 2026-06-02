@@ -1351,6 +1351,27 @@ func TestView_MainRender_ProductAttention(t *testing.T) {
 	}
 }
 
+func TestView_MainRender_ProductHostBudgetUnknown(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.productStatus = ProductStatus{
+		RouteStatus:      "WSS savings active",
+		SavingsStatus:    "saving",
+		HostBudgetStatus: "unknown",
+	}
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+
+	output := m.View()
+	if !strings.Contains(output, "host budget unknown") {
+		t.Fatalf("main view missing host-budget unknown warning:\n%s", output)
+	}
+	if strings.Contains(output, "safety ok") {
+		t.Fatalf("main view must not claim safety ok when host budget is unknown:\n%s", output)
+	}
+}
+
 // TestRenderRequestLog_WithRequests verifies renderRequestLog returns lines when reqs exist.
 func TestRenderRequestLog_WithRequests(t *testing.T) {
 	t.Parallel()

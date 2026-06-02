@@ -1074,7 +1074,7 @@ func (m *Model) buildRightPanel(width int) []string {
 	add(" " + s.Muted.Render(fmt.Sprintf("cache %d/%d · read %d · repeated %d · chunk %d",
 		product.CacheHits, product.CacheHits+product.CacheMisses,
 		product.ReadDeltaHits, product.RepeatedOutputHits, product.ChunkDedupHits)))
-	if product.SafetyIssues > 0 || product.HostBudgetExceeded {
+	if product.SafetyIssues > 0 || product.HostBudgetExceeded || product.HostBudgetStatus == "unknown" {
 		add(" " + s.Warning.Render(productSafetyLine(product)))
 	} else {
 		add(" " + s.Muted.Render("safety ok"))
@@ -1191,7 +1191,7 @@ func productSafetyLine(product ProductStatus) string {
 	if product.WSSCompressionErrors > 0 {
 		parts = append(parts, fmt.Sprintf("%d WSS compression error(s)", product.WSSCompressionErrors))
 	}
-	if product.HostBudgetExceeded {
+	if product.HostBudgetExceeded || product.HostBudgetStatus == "unknown" {
 		reason := product.HostBudgetStatus
 		if len(product.HostBudgetReasons) > 0 {
 			reason = strings.Join(product.HostBudgetReasons, ",")
