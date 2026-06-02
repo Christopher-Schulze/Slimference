@@ -175,8 +175,13 @@ func TestReattachToolDefinitions_Edges(t *testing.T) {
 	if _, n, _ := ReattachToolDefinitions([]byte(`{not-json`), types.Anthropic, map[string]json.RawMessage{"x": []byte(`{}`)}); n != 0 {
 		t.Fatal("malformed body must fail-open")
 	}
-	if _, n, _ := ReattachToolDefinitions([]byte(`{"tools":"oops"}`), types.Anthropic, map[string]json.RawMessage{"x": []byte(`{"name":"x"}`)}); n != 1 {
-		t.Fatal("non-array tools field becomes empty entries; new def must still be added")
+	body := []byte(`{"tools":"oops"}`)
+	if out, n, _ := ReattachToolDefinitions(body, types.Anthropic, map[string]json.RawMessage{"x": []byte(`{"name":"x"}`)}); n != 0 || string(out) != string(body) {
+		t.Fatalf("non-array tools field must fail open unchanged, n=%d out=%s", n, out)
+	}
+	unknown := []byte(`{"tools":[{"description":"unknown"}]}`)
+	if out, n, _ := ReattachToolDefinitions(unknown, types.Anthropic, map[string]json.RawMessage{"x": []byte(`{"name":"x"}`)}); n != 0 || string(out) != string(unknown) {
+		t.Fatalf("unknown tool entry must fail open unchanged, n=%d out=%s", n, out)
 	}
 }
 
@@ -203,6 +208,24 @@ func TestUsageTracker_PrunedDefRoundTrip(t *testing.T) {
 	remaining := u.PrunedToolNames("sess-1")
 	if len(remaining) != 1 || remaining[0] != "Read" {
 		t.Fatalf("remaining: %v", remaining)
+	}
+}
+
+func TestUsageTracker_PeekPrunedDefsDoesNotConsume(t *testing.T) {
+	t.Parallel()
+	u := NewUsageTracker(20)
+	u.RememberPrunedDef("sess-1", "Bash", json.RawMessage(`{"name":"Bash"}`))
+
+	defs := u.PeekPrunedDefs("sess-1", []string{"Bash"})
+	if len(defs) != 1 || string(defs["Bash"]) != `{"name":"Bash"}` {
+		t.Fatalf("peek: %v", defs)
+	}
+	if names := u.PrunedToolNames("sess-1"); len(names) != 1 || names[0] != "Bash" {
+		t.Fatalf("peek should not consume cached def: %v", names)
+	}
+	u.ForgetPrunedDefs("sess-1", []string{"Bash"})
+	if names := u.PrunedToolNames("sess-1"); names != nil {
+		t.Fatalf("forget should consume cached def: %v", names)
 	}
 }
 

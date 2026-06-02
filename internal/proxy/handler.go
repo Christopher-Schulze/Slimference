@@ -544,8 +544,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		// check.
 		reattachedToolNames := []string(nil)
 		if mentions := messageMentionsAnyPrunedTool(messages, p.toolPrune, toolPruneSessionKey); len(mentions) > 0 {
-			defs := p.toolPrune.LookupPrunedDefs(toolPruneSessionKey, mentions)
+			defs := p.toolPrune.PeekPrunedDefs(toolPruneSessionKey, mentions)
 			if reattached, n, err := toolprune.ReattachToolDefinitions(newBody, provider, defs); err == nil && n > 0 {
+				p.toolPrune.ForgetPrunedDefs(toolPruneSessionKey, mentions)
 				newBody = reattached
 				preToolPruneBody = newBody
 				toolPruneSummary.Reattached += n

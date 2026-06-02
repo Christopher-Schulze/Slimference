@@ -223,12 +223,11 @@ func (u *UsageTracker) PrunedToolNames(sessionID string) []string {
 	return out
 }
 
-// LookupPrunedDefs returns the previously-pruned definitions for the
-// supplied tool names. Tools without a cached definition are simply
-// omitted from the returned map. The returned definitions are removed
-// from the cache so a subsequent request does not re-attach them
-// twice. T103b.
-func (u *UsageTracker) LookupPrunedDefs(sessionID string, names []string) map[string]json.RawMessage {
+// PeekPrunedDefs returns cloned previously-pruned definitions for the supplied
+// tool names without consuming them. Callers that still need to validate the
+// current provider tool-schema shape should peek first and forget only after a
+// safe reattach succeeded.
+func (u *UsageTracker) PeekPrunedDefs(sessionID string, names []string) map[string]json.RawMessage {
 	if sessionID == "" || len(names) == 0 {
 		return nil
 	}
@@ -241,13 +240,45 @@ func (u *UsageTracker) LookupPrunedDefs(sessionID string, names []string) map[st
 	out := make(map[string]json.RawMessage, len(names))
 	for _, n := range names {
 		if def, has := st.prunedDefs[n]; has {
-			out[n] = def
-			delete(st.prunedDefs, n)
+			clone := make(json.RawMessage, len(def))
+			copy(clone, def)
+			out[n] = clone
 		}
 	}
 	if len(out) == 0 {
 		return nil
 	}
+	return out
+}
+
+// ForgetPrunedDefs consumes cached pruned definitions after a safe reattach
+// succeeded. Tools without a cached definition are ignored.
+func (u *UsageTracker) ForgetPrunedDefs(sessionID string, names []string) {
+	if sessionID == "" || len(names) == 0 {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	st, ok := u.sessions[sessionID]
+	if !ok || len(st.prunedDefs) == 0 {
+		return
+	}
+	for _, n := range names {
+		delete(st.prunedDefs, n)
+	}
+}
+
+// LookupPrunedDefs returns the previously-pruned definitions for the
+// supplied tool names. Tools without a cached definition are simply
+// omitted from the returned map. The returned definitions are removed
+// from the cache so a subsequent request does not re-attach them
+// twice. T103b.
+func (u *UsageTracker) LookupPrunedDefs(sessionID string, names []string) map[string]json.RawMessage {
+	out := u.PeekPrunedDefs(sessionID, names)
+	if len(out) == 0 {
+		return nil
+	}
+	u.ForgetPrunedDefs(sessionID, names)
 	return out
 }
 

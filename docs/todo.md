@@ -1996,7 +1996,10 @@ be called complete, default-safe, and production-grade.
   unknown/mixed tool schema shapes full-pass before pruning and keeps
   reattached intent tools active through the same prune pass. Proof-matrix rows
   now carry tool-prune prune/reattach/miss/retry/always-keep/disabled/token
-  counters. Detail:
+  counters. Reattach now also peeks cached tool definitions and consumes them
+  only after a safe schema-preserving reattach succeeds, so malformed `tools`
+  shapes stay byte-equal and retain recovery state for later known-shape
+  requests. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay

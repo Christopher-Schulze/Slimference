@@ -1255,9 +1255,12 @@ command-family hint reattaches the definition before pruning runs again.
 Reattached definitions are appended in deterministic tool-name order to avoid
 avoidable prompt-cache churn, and the reattached tool names count as active for
 the same prune decision so the idle pass cannot immediately remove the recovered
-tool again. If the upstream returns a conservative missing-tool 4xx, the proxy
-retries once with the full pre-prune schema, records miss/retry telemetry, and
-disables future pruning for that session bucket. `slimference
+tool again. Reattach is schema-safe: cached pruned definitions are only consumed
+after a successful safe reattach, and malformed or unnameable existing `tools`
+entries full-pass unchanged instead of being rewritten. If the upstream returns
+a conservative missing-tool 4xx, the proxy retries once with the full pre-prune
+schema, records miss/retry telemetry, and disables future pruning for that
+session bucket. `slimference
 gain --proxy` includes tool-prune saved-token, pruned-tool, reattach, miss, and
 retry totals from the decision log.
 

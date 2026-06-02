@@ -98,6 +98,13 @@ Tool pruning should be default-safe only when:
   schema full-passes with `unknown_tool_schema_full_pass`. This closes the mixed
   known/unknown schema case where pruning known tools could still mutate an
   unproven provider shape.
+- 2026-06-02: Hardened the same invariant for reattach. Intent reattach now
+  peeks cached pruned definitions first and consumes them only after a safe
+  reattach succeeds. `ReattachToolDefinitions` refuses to mutate malformed
+  `tools` fields or existing unnameable tool entries, so an unknown provider
+  schema cannot be rewritten before the strict pruning check sees it. A failed
+  safe reattach leaves the cached tool definition available for a later request
+  with a known schema.
 - Existing recovery remains in force: core shell/edit/read/safety/browser/MCP
   tool classes always stay attached, missing-tool 4xx responses retry once with
   the full pre-prune schema, and the affected session enters quality cooldown.

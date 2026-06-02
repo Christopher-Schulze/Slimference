@@ -1019,6 +1019,61 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	}
 }
 
+func TestHandleCompressibleRequest_ToolPruneReattachUnknownSchemaFullPassesAndKeepsCache(t *testing.T) {
+	var captured []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`))
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	cfg.Secrets.Mode = "off"
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+
+	const fixedID = "test-reattach-unknown-schema"
+	const trackerID = "anthropic:test-reattach-unknown-schema"
+	prev := newRequestIDFn
+	newRequestIDFn = func() string { return fixedID }
+	t.Cleanup(func() { newRequestIDFn = prev })
+
+	p.toolPrune.RememberPrunedDef(
+		trackerID,
+		"GetWeather",
+		[]byte(`{"name":"GetWeather","description":"read weather"}`),
+	)
+
+	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"tools":[{"description":"unknown schema"}],"messages":[{"role":"user","content":"please check the weather"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("anthropic-trace-id", fixedID)
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	if strings.Contains(string(captured), `"GetWeather"`) {
+		t.Fatalf("unknown schema request must not be mutated by reattach: %s", captured)
+	}
+	if got := p.toolPrune.Snapshot().ReattachTotal; got != 0 {
+		t.Fatalf("reattach counter=%d want 0", got)
+	}
+	if names := p.toolPrune.PrunedToolNames(trackerID); len(names) != 1 || names[0] != "GetWeather" {
+		t.Fatalf("failed safe reattach must keep cached definition for later: %v", names)
+	}
+}
+
 func TestHandleCompressibleRequest_ToolPruneAlwaysKeepsCoreTools(t *testing.T) {
 	var toolCount int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

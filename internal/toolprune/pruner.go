@@ -316,14 +316,16 @@ func ReattachToolDefinitions(body []byte, provider types.Provider, defs map[stri
 	var entries []json.RawMessage
 	if rawTools, ok := raw["tools"]; ok {
 		if err := json.Unmarshal(rawTools, &entries); err != nil {
-			entries = nil
+			return body, 0, nil
 		}
 	}
 	existing := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
-		if name := extractToolName(e, provider); name != "" {
-			existing[name] = struct{}{}
+		name := extractToolName(e, provider)
+		if name == "" {
+			return body, 0, nil
 		}
+		existing[name] = struct{}{}
 	}
 	added := 0
 	names := make([]string, 0, len(defs))
