@@ -2118,8 +2118,11 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
 - [ ] **T266 chunk-dedup closeout** - run the live CLI + Desktop matrix before
   treating chunk references as a default-safe production claim. Chunk refs must
   remain cross-send only, never patch/diff/edit, never first-observation, density
-  bounded, archive-backed, canary-governed, and host-budget aware. Latest
-  focused CLI WSS proof passes live under corrected host-budget gating with
+  bounded, archive-backed, canary-governed, and host-budget aware. The offline
+  guard now blocks broader diff-producing commands across direct diff tools,
+  Git/GitHub CLI/Jujutsu/Mercurial/Subversion, and `.patch`/`.diff` reads while
+  preserving normal search/status savings. Latest focused CLI WSS proof passes
+  live under corrected host-budget gating with
   `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; focused Desktop
   Codex.app proof now passes the same gate with live billable-token savings.
   Similar-log replay now hits chunk refs, while live log proof saves through the

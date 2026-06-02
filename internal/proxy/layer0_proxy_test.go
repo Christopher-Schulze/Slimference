@@ -805,6 +805,32 @@ func TestReduceCodexLayer0ChunkDedupSkipsPatchAndDiffOutputs(t *testing.T) {
 		chunkDedupAllowedForCommand("git -C /repo show HEAD -- a.go", false) {
 		t.Fatal("chunk patch/diff guard classification mismatch")
 	}
+	for _, tc := range []struct {
+		name        string
+		commandLine string
+		read        bool
+		want        bool
+	}{
+		{name: "plain file read", commandLine: "cat a.go", read: true, want: true},
+		{name: "patch file read", commandLine: "cat changes.patch", read: true, want: false},
+		{name: "diff file read", commandLine: "sed -n '1,80p' review.diff", read: true, want: false},
+		{name: "compound git diff", commandLine: "git -C /repo diff -- a.go | cat", want: false},
+		{name: "git log patch", commandLine: "git log -p -- a.go", want: false},
+		{name: "git log plain", commandLine: "git log --oneline -5", want: true},
+		{name: "gh pr diff", commandLine: "gh pr diff 123", want: false},
+		{name: "gh pr view patch", commandLine: "gh pr view 123 --patch", want: false},
+		{name: "jj diff", commandLine: "jj diff", want: false},
+		{name: "hg diff", commandLine: "hg diff -- a.go", want: false},
+		{name: "svn diff", commandLine: "svn diff a.go", want: false},
+		{name: "plain diff", commandLine: "diff -u a.go b.go", want: false},
+		{name: "search mentioning diff", commandLine: "rg diff docs", want: true},
+		{name: "search mentioning git diff", commandLine: `rg "git diff" docs`, want: true},
+		{name: "git status remains safe", commandLine: "git -C /repo status --short", want: true},
+	} {
+		if got := chunkDedupAllowedForCommand(tc.commandLine, tc.read); got != tc.want {
+			t.Fatalf("%s: chunkDedupAllowedForCommand(%q, %v)=%v want %v", tc.name, tc.commandLine, tc.read, got, tc.want)
+		}
+	}
 }
 
 func TestReduceCodexLayer0ChunkDedupRequiresGateAndRecovery(t *testing.T) {

@@ -1001,32 +1001,45 @@ func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, min
 }
 
 func chunkDedupAllowedForCommand(commandLine string, readCommand bool) bool {
-	if readCommand {
-		return true
-	}
 	raw := strings.ToLower(strings.TrimSpace(commandLine))
-	if strings.Contains(raw, "apply_patch") ||
-		strings.Contains(raw, "*** begin patch") ||
-		strings.Contains(raw, "*** update file:") ||
-		strings.Contains(raw, "*** add file:") ||
-		strings.Contains(raw, "*** delete file:") {
-		return false
-	}
 	argv := filter.ArgvForCapturedOutput(commandLine)
 	if len(argv) == 0 {
+		if chunkDedupBlockedRawCommand(raw) {
+			return false
+		}
+		return true
+	}
+	if argvHasPatchLikeFile(argv) {
+		return false
+	}
+	if readCommand {
 		return true
 	}
 	base := strings.ToLower(filepath.Base(strings.TrimSpace(argv[0])))
 	base = strings.TrimSuffix(base, ".exe")
 	switch base {
-	case "apply_patch", "patch":
+	case "apply_patch", "patch", "diff", "colordiff", "combinediff", "interdiff", "filterdiff", "difft", "diff-so-fancy", "delta":
 		return false
 	case "git":
 		if subcommand := gitSubcommand(argv); subcommand != "" {
 			switch subcommand {
 			case "diff", "show", "apply", "am", "format-patch":
 				return false
+			case "log":
+				return gitLogChunkDedupSafe(argv)
 			}
+		}
+	case "gh":
+		if ghCommandProducesDiff(argv) {
+			return false
+		}
+	case "jj":
+		if jjCommandProducesDiff(argv) {
+			return false
+		}
+	case "hg", "svn":
+		if vcsSubcommand(argv, base) == "diff" {
+			return false
 		}
 	}
 	for _, arg := range argv {
@@ -1040,6 +1053,62 @@ func chunkDedupAllowedForCommand(commandLine string, readCommand bool) bool {
 		}
 	}
 	return true
+}
+
+func chunkDedupBlockedRawCommand(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	if strings.Contains(raw, "apply_patch") ||
+		strings.Contains(raw, "*** begin patch") ||
+		strings.Contains(raw, "*** update file:") ||
+		strings.Contains(raw, "*** add file:") ||
+		strings.Contains(raw, "*** delete file:") {
+		return true
+	}
+	for _, needle := range []string{
+		"git diff", "git show", "git apply", "git am", "git format-patch",
+		"gh pr diff", "gh pr view --patch", "jj diff", "jj show",
+		"hg diff", "svn diff", "diff -", "colordiff ", "diff-so-fancy",
+	} {
+		if strings.Contains(raw, needle) {
+			return true
+		}
+	}
+	for _, words := range [][]string{
+		{"git", "diff"},
+		{"git", "show"},
+		{"git", "format-patch"},
+		{"gh", "pr", "diff"},
+		{"jj", "diff"},
+		{"jj", "show"},
+		{"hg", "diff"},
+		{"svn", "diff"},
+	} {
+		if rawHasOrderedWords(raw, words...) {
+			return true
+		}
+	}
+	return false
+}
+
+func rawHasOrderedWords(raw string, words ...string) bool {
+	if raw == "" || len(words) == 0 {
+		return false
+	}
+	tokens := strings.FieldsFunc(raw, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+	})
+	next := 0
+	for _, token := range tokens {
+		if token == words[next] {
+			next++
+			if next == len(words) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func gitSubcommand(argv []string) string {
@@ -1064,6 +1133,73 @@ func gitSubcommand(argv []string) string {
 		}
 	}
 	return ""
+}
+
+func gitLogChunkDedupSafe(argv []string) bool {
+	for _, arg := range argv[1:] {
+		switch strings.ToLower(strings.TrimSpace(arg)) {
+		case "-p", "--patch", "--stat", "--patch-with-stat", "--name-status", "--name-only", "--numstat", "--raw":
+			return false
+		}
+	}
+	return true
+}
+
+func ghCommandProducesDiff(argv []string) bool {
+	if len(argv) < 3 || strings.ToLower(filepath.Base(strings.TrimSpace(argv[0]))) != "gh" {
+		return false
+	}
+	for i := 1; i < len(argv)-1; i++ {
+		if strings.ToLower(strings.TrimSpace(argv[i])) == "pr" {
+			next := strings.ToLower(strings.TrimSpace(argv[i+1]))
+			if next == "diff" {
+				return true
+			}
+			if next == "view" {
+				for _, arg := range argv[i+2:] {
+					if strings.ToLower(strings.TrimSpace(arg)) == "--patch" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func jjCommandProducesDiff(argv []string) bool {
+	if len(argv) < 2 || strings.ToLower(filepath.Base(strings.TrimSpace(argv[0]))) != "jj" {
+		return false
+	}
+	switch vcsSubcommand(argv, "jj") {
+	case "diff", "show":
+		return true
+	}
+	return false
+}
+
+func vcsSubcommand(argv []string, bin string) string {
+	if len(argv) < 2 || strings.ToLower(filepath.Base(strings.TrimSpace(argv[0]))) != bin {
+		return ""
+	}
+	for _, arg := range argv[1:] {
+		arg = strings.ToLower(strings.TrimSpace(arg))
+		if arg == "" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func argvHasPatchLikeFile(argv []string) bool {
+	for _, arg := range argv {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		if strings.HasSuffix(lower, ".patch") || strings.HasSuffix(lower, ".diff") {
+			return true
+		}
+	}
+	return false
 }
 
 func encodeProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes, maxReferencePercent int) (string, bool, chunkdedup.EncodeResult) {

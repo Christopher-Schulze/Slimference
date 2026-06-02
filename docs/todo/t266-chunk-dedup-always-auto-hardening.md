@@ -29,11 +29,15 @@ make chunk dedup automatic without product drawdowns.
   original output with higher net savings, which gives long logs and stable
   command-output lines a second chance without making generic chunking more
   aggressive.
-- Chunk refs are now suppressed for patch/diff/edit-style command outputs such
-  as `apply_patch`, `patch`, `git diff`, `git show`, `git apply`, `git am`, and
-  `git format-patch`. These outputs can still use deterministic filters and
-  exact repeated-output reducers, but content-defined references are not allowed
-  to split fresh patch reasoning context.
+- Chunk refs are now suppressed for patch/diff/edit-style command outputs and
+  patch/diff file reads such as `apply_patch`, `patch`, `diff`, `colordiff`,
+  `git diff`, `git show`, `git log -p`, `git apply`, `git am`,
+  `git format-patch`, `gh pr diff`, `gh pr view --patch`, `jj diff`,
+  `jj show`, `hg diff`, and `svn diff`. Normal search/status commands remain
+  eligible, including searches whose pattern is the word `diff`. Patch/diff
+  outputs can still use deterministic filters and exact repeated-output
+  reducers, but content-defined references are not allowed to split fresh patch
+  reasoning context.
 - It is not enough to prove one matching workload. Default-auto needs broad
   proof and runtime self-protection.
 
@@ -255,3 +259,9 @@ it remains guarded by policy.
   behavior: the stricter captured-output/log reducer wins first on this workload,
   and chunk dedup remains the guarded fallback for large similar outputs that
   survive safer deterministic reducers.
+- 2026-06-03: Broadened the patch/diff/edit guard for chunk-dedup eligibility.
+  The guard now blocks direct and wrapped diff-producing commands across
+  `diff`/`colordiff`, Git, GitHub CLI, Jujutsu, Mercurial, and Subversion, plus
+  `.patch`/`.diff` file reads, while explicitly preserving normal `rg diff ...`
+  searches and `git status` outputs. Focused proxy tests prove the guard and the
+  existing WSS chunk-dedup policy tests still pass.

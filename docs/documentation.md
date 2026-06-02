@@ -593,12 +593,16 @@ guards. Cross-send seeding means repeated chunks first encountered inside the
 same model-facing output stay verbatim and only seed future overlap; references
 are emitted only for chunks that were known before the current output started.
 Commands such as
-`apply_patch`, `patch`, `git diff`, `git show`, `git apply`, `git am`, and
-`git format-patch` do not receive chunk references, because those outputs are
-fresh reasoning material for edits and reviews. They can still use safer
-deterministic filters or exact repeated-output collapse when eligible. Chunk
-dedup becomes eligible only when the output is large enough and no
-recency/context-risk signal asks for full text. The legacy
+`apply_patch`, `patch`, `diff`, `colordiff`, patch/diff file reads,
+`git diff`, `git show`, `git log -p`, `git apply`, `git am`,
+`git format-patch`, `gh pr diff`, `gh pr view --patch`, `jj diff`,
+`jj show`, `hg diff`, and `svn diff` do not receive chunk references, because
+those outputs are fresh reasoning material for edits and reviews. Normal
+search/status commands, including searches whose pattern is the word `diff`,
+remain eligible. Patch/diff outputs can still use safer deterministic filters
+or exact repeated-output collapse when eligible. Chunk dedup becomes eligible
+only when the output is large enough and no recency/context-risk signal asks for
+full text. The legacy
 `codex_chunk_dedup_enabled=true` toggle remains as an explicit override for
 conservative policy, not as the normal product path.
 Runtime demotion inputs also cover quality spikes, archive recovery loops,
