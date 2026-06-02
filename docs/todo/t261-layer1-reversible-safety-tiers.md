@@ -135,6 +135,11 @@ compression shortcut.
   empty sub-layer tag list now also requires archive recovery, so a future
   mutating pass cannot bypass recovery merely by forgetting to append its
   registry id.
+- 2026-06-02: Hardened the `structure_in_window` side path. It now archives the
+  original block before replacing in-window tool-result text with a structural
+  summary and full-passes when no archive id is available. This brings the
+  opt-in in-window path under the same `structure_extract` archive-required
+  safety contract as the normal Layer 1 executor.
 
 ## Done
 

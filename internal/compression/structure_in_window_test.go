@@ -74,7 +74,8 @@ func TestStructureInWindow_disabledByDefault(t *testing.T) {
 func TestStructureInWindow_compressesMiddleToolResult(t *testing.T) {
 	t.Parallel()
 	cfg := buildInWindowCfg()
-	c := NewDeterministicCompressor(cfg)
+	rec := &captureSubLayerRecorder{}
+	c := NewDeterministicCompressor(cfg).WithRecorder(rec)
 	body := goBody(80)
 	msgs := []types.Message{
 		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "please read"}}},
@@ -90,6 +91,34 @@ func TestStructureInWindow_compressesMiddleToolResult(t *testing.T) {
 	}
 	if got := result.Messages[1].Content[0].Text; !strings.Contains(got, "Structural summary") {
 		t.Fatalf("middle block not structured: %s", got)
+	}
+	if got := result.Messages[1].Content[0].ArchiveID; got == "" {
+		t.Fatal("structure_in_window must stamp archive id")
+	}
+	if !anySubLayer(rec.calls, "structure_extract") {
+		t.Fatalf("structure_in_window must archive original, calls=%s", tagListOf(rec.calls))
+	}
+}
+
+func TestStructureInWindowFullPassesWithoutArchive(t *testing.T) {
+	t.Parallel()
+	cfg := buildInWindowCfg()
+	c := NewDeterministicCompressor(cfg)
+	body := goBody(80)
+	msgs := []types.Message{
+		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "please read"}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{
+			Type: "tool_result", ToolName: "Read",
+			ToolInput: `{"path":"/tmp/huge.go"}`, Text: body,
+		}}},
+		{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "what's in it?"}}},
+	}
+	result := c.Compress(msgs)
+	if result.StructureSaved != 0 {
+		t.Fatalf("archive-required structure_in_window must full-pass without recorder, saved=%d", result.StructureSaved)
+	}
+	if got := result.Messages[1].Content[0]; got.Text != body || got.ArchiveID != "" {
+		t.Fatalf("archive-required structure_in_window mutated without archive: %+v", got)
 	}
 }
 
@@ -269,7 +298,7 @@ func TestStructureInWindow_minTokensFallback(t *testing.T) {
 func TestStructureInWindow_mixedRolesSkipUserInMiddle(t *testing.T) {
 	t.Parallel()
 	cfg := buildInWindowCfg()
-	c := NewDeterministicCompressor(cfg)
+	c := NewDeterministicCompressor(cfg).WithRecorder(&captureSubLayerRecorder{})
 	body := goBody(80)
 	// Inserting a user message in the middle of the in-window range.
 	msgs := []types.Message{
@@ -292,7 +321,7 @@ func TestStructureInWindow_mixedRolesSkipUserInMiddle(t *testing.T) {
 func TestStructureInWindow_textBlockSkippedInMiddle(t *testing.T) {
 	t.Parallel()
 	cfg := buildInWindowCfg()
-	c := NewDeterministicCompressor(cfg)
+	c := NewDeterministicCompressor(cfg).WithRecorder(&captureSubLayerRecorder{})
 	body := goBody(80)
 	msgs := []types.Message{
 		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "a"}}},

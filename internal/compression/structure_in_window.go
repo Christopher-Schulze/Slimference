@@ -19,6 +19,8 @@ import (
 //   - blocks that look like PR / diff / patch context are skipped.
 //   - zero-downside: if the structural summary is not strictly shorter
 //     than the original, the block is unchanged.
+//   - the original block must archive successfully before any structural
+//     summary replaces model-facing text.
 func (c *DeterministicCompressor) structureInWindowPass(messages []types.Message, startIdx int) int {
 	saved := 0
 	minTokens := c.cfg.Tuning.StructureInWindowMinTokens
@@ -44,8 +46,13 @@ func (c *DeterministicCompressor) structureInWindowPass(messages []types.Message
 			if !changed || len(summary) >= len(block.Text) {
 				continue
 			}
+			id := c.archiveOriginal(i, bi, "structure_extract", block.Text)
+			if id == "" {
+				continue
+			}
 			delta := len(block.Text) - len(summary)
 			blocks[bi].Text = summary
+			blocks[bi].ArchiveID = id
 			messages[i].Metadata.WasStructured = true
 			saved += delta
 			slog.Debug("structure_in_window applied",

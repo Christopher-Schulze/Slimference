@@ -811,6 +811,10 @@ mutations: if the original block cannot be archived and stamped with a valid
 archive id, the block full-passes and its per-block savings counters are reset.
 Exact and reversible transforms can stay automatic; context-dropping summaries
 must stay archive-backed or be bypassed.
+The same archive-required rule applies to side paths such as
+`structure_in_window`: even when an in-window tool-result block is eligible for
+structural extraction, the original must archive successfully before the summary
+can replace model-facing text.
 
 Every Layer 1 compression call also emits content-free `layer1_decisions`
 telemetry in the proxy decisions log. Each record names the sub-layer, safety
