@@ -221,6 +221,24 @@ func TestIsRequestCacheSafeWithRouteStatefulResponses(t *testing.T) {
 			body:  `{"model":"gpt-5","temperature":0,"store":false,"conversation":"conv_123","input":"again"}`,
 			want:  false,
 		},
+		{
+			name:  "metadata session state disables cache",
+			route: "POST /v1/chat/completions",
+			body:  `{"model":"gpt-5","temperature":0,"metadata":{"session_id":"sess_123"},"messages":[{"role":"user","content":"hello"}]}`,
+			want:  false,
+		},
+		{
+			name:  "metadata conversation state disables cache",
+			route: "POST /v1/chat/completions",
+			body:  `{"model":"gpt-5","temperature":0,"metadata":{"conversation_id":"conv_123"},"messages":[{"role":"user","content":"hello"}]}`,
+			want:  false,
+		},
+		{
+			name:  "codex turn metadata disables cache",
+			route: "POST /backend-api/codex/responses",
+			body:  `{"model":"gpt-5.5","temperature":0,"store":false,"client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread_123\"}"},"input":"hello"}`,
+			want:  false,
+		},
 	}
 
 	for _, tt := range tests {

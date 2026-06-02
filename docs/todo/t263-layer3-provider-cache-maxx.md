@@ -33,6 +33,12 @@ and long-session proof.
   `store:false`, and any `previous_response_id`, conversation, thread, or
   assistant state marker full-passes upstream. This prevents local replay from
   skipping upstream response-id creation or continuation side effects.
+- Local response-cache eligibility also blocks nested state metadata:
+  `metadata.session_id`, `metadata.conversation_id`, `metadata.thread_id`,
+  `metadata.assistant_id`, and Codex
+  `client_metadata.x-codex-turn-metadata`. This matches the server-state key
+  extractor and prevents a local cache hit from skipping an upstream
+  conversation/session state update.
 - Prompt-cache planning exists for stable prefixes.
 - Layer 3 is default-enabled for supported paths.
 - Savings claims must be separated from local byte savings and output-wire
@@ -140,6 +146,11 @@ accounting or locally proven upstream bypass, not mixed counters.
   continuation/server-state fields such as `previous_response_id`,
   conversation, thread, or assistant ids. Handler Stage-A and Stage-B cache
   checks now use the same effective route key for eligibility and hashing.
+- 2026-06-03: Aligned response-cache safety with server-state metadata
+  extraction. The cache now full-passes requests carrying
+  `metadata.session_id`, `metadata.conversation_id`, metadata thread/assistant
+  ids, or Codex turn metadata, and handler coverage proves repeated metadata
+  session requests go upstream twice instead of replaying locally.
 
 ## Done
 

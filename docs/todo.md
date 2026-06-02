@@ -1934,6 +1934,10 @@ be called complete, default-safe, and production-grade.
   also requires explicit deterministic sampling, so provider default sampling
   full-passes upstream; Responses server-state shapes now require explicit
   `store:false` and no continuation state before local replay.
+  Nested server-state metadata now also full-passes, including
+  `metadata.session_id`, `metadata.conversation_id`, metadata thread/assistant
+  ids, and Codex turn metadata, so Layer 3 cannot skip upstream conversation
+  state updates via a local hit.
   Provider-accounting alignment and long-session proof remain. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
 

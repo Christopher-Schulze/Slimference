@@ -397,6 +397,10 @@ func responseCacheHasServerStateSideEffect(route string, root map[string]interfa
 		nonEmptyJSONValue(root["assistant_id"]) {
 		return true
 	}
+	if nonEmptyNestedJSONValue(root, "metadata", "session_id", "conversation_id", "thread_id", "assistant_id") ||
+		nonEmptyNestedJSONValue(root, "client_metadata", "x-codex-turn-metadata") {
+		return true
+	}
 	if truthyBool(root["store"]) {
 		return true
 	}
@@ -462,6 +466,19 @@ func nonEmptyJSONValue(value interface{}) bool {
 	default:
 		return true
 	}
+}
+
+func nonEmptyNestedJSONValue(root map[string]interface{}, parent string, keys ...string) bool {
+	obj, ok := root[parent].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	for _, key := range keys {
+		if nonEmptyJSONValue(obj[key]) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsToolRole(value interface{}) bool {
