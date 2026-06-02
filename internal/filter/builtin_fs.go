@@ -1,15 +1,12 @@
 package filter
 
 import (
-	"fmt"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
-var reTreeSummary = regexp.MustCompile(`\d+ director`)
-
-// TryCompactLs summarizes empty stdout from `ls`; non-empty → entry count (F11).
+// TryCompactLs summarizes empty stdout from `ls`. Non-empty directory listings
+// full-pass because file names are the evidence the model asked for.
 func TryCompactLs(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 1 {
 		return stdout, false
@@ -22,33 +19,14 @@ func TryCompactLs(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte("[ls] empty\n"), true
 	}
-	compact := compactLsOutput(s)
-	if compact == "" || len(compact) >= len(s) {
-		return stdout, false
+	if lsOnlyTotalLines(s) {
+		return []byte("[ls] empty\n"), true
 	}
-	return []byte(compact), true
+	return stdout, false
 }
 
-// compactLsOutput counts entries and returns a summary if output is large enough.
-func compactLsOutput(s string) string {
-	lines := strings.Split(s, "\n")
-	var entries []string
-	for _, l := range lines {
-		t := strings.TrimSpace(l)
-		if t != "" && t != "total 0" && !strings.HasPrefix(t, "total ") {
-			entries = append(entries, t)
-		}
-	}
-	if len(entries) == 0 {
-		return "[ls] empty\n"
-	}
-	if len(entries) <= 10 {
-		return "" // short enough, pass through
-	}
-	return fmt.Sprintf("[ls] %d entries\n", len(entries))
-}
-
-// TryCompactTree summarizes empty stdout from `tree`; non-empty → summary line (F11).
+// TryCompactTree summarizes empty stdout from `tree`. Non-empty tree output
+// full-passes because path names and hierarchy are model-relevant evidence.
 func TryCompactTree(argv []string, stdout []byte) ([]byte, bool) {
 	if len(argv) < 1 {
 		return stdout, false
@@ -61,27 +39,21 @@ func TryCompactTree(argv []string, stdout []byte) ([]byte, bool) {
 	if s == "" {
 		return []byte("[tree] empty\n"), true
 	}
-	compact := compactTreeOutput(s)
-	if compact == "" || len(compact) >= len(s) {
-		return stdout, false
-	}
-	return []byte(compact), true
+	return stdout, false
 }
 
-// compactTreeOutput extracts the trailing summary line from tree output (e.g. "3 directories, 12 files").
-func compactTreeOutput(s string) string {
+func lsOnlyTotalLines(s string) bool {
 	lines := strings.Split(s, "\n")
-	// Find summary line: last non-empty line containing "director"
-	var summaryLine string
-	for i := len(lines) - 1; i >= 0; i-- {
-		t := strings.TrimSpace(lines[i])
-		if t != "" && reTreeSummary.MatchString(t) {
-			summaryLine = t
-			break
+	sawLine := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		sawLine = true
+		if trimmed != "total 0" && !strings.HasPrefix(trimmed, "total ") {
+			return false
 		}
 	}
-	if summaryLine == "" {
-		return ""
-	}
-	return fmt.Sprintf("[tree] %s\n", summaryLine)
+	return sawLine
 }

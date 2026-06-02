@@ -42,48 +42,31 @@ func TestTryCompactFs_guards(t *testing.T) {
 
 func TestTryCompactLs_manyEntries(t *testing.T) {
 	t.Parallel()
-	// Build ls -la output with 20 file entries (> 10 threshold)
 	var sb strings.Builder
 	sb.WriteString("total 80\n")
 	for i := 0; i < 20; i++ {
-		sb.WriteString("drwxr-xr-x  2 user group 4096 Jan 01 00:00 subdir\n")
+		sb.WriteString("drwxr-xr-x  2 user group 4096 Jan 01 00:00 subdir")
+		sb.WriteString(string(rune('a' + i%26)))
+		sb.WriteString("\n")
 	}
 	input := sb.String()
-	out, ok := TryCompactLs([]string{"ls", "-la"}, []byte(input))
-	if !ok {
-		t.Fatalf("expected compaction for %d entries, got pass-through", 20)
-	}
-	s := string(out)
-	if !strings.Contains(s, "[ls] 20 entries") {
-		t.Errorf("want entry count, got: %q", s)
-	}
-	if len(s) >= len(input) {
-		t.Errorf("compact should be shorter: %d vs %d", len(s), len(input))
+	if _, ok := TryCompactLs([]string{"ls", "-la"}, []byte(input)); ok {
+		t.Fatal("non-empty ls output must full-pass; filenames are model evidence")
 	}
 }
 
 func TestTryCompactTree_withSummary(t *testing.T) {
 	t.Parallel()
 	input := ".\n├── src\n│   ├── main.go\n│   └── config.go\n├── go.mod\n└── README.md\n\n2 directories, 4 files\n"
-	out, ok := TryCompactTree([]string{"tree"}, []byte(input))
-	if !ok {
-		t.Fatalf("expected tree compaction, got pass-through")
-	}
-	s := string(out)
-	if s != "[tree] 2 directories, 4 files\n" {
-		t.Errorf("want summary line, got: %q", s)
-	}
-	if len(s) >= len(input) {
-		t.Errorf("compact should be shorter: %d vs %d", len(s), len(input))
+	if _, ok := TryCompactTree([]string{"tree"}, []byte(input)); ok {
+		t.Fatal("non-empty tree output must full-pass; hierarchy is model evidence")
 	}
 }
 
-// TestCompactLsOutput_emptyEntries covers the len(entries)==0 path (line 42-44):
-// input with only "total" lines produces no real entries → returns "[ls] empty\n".
-func TestCompactLsOutput_emptyEntries(t *testing.T) {
+func TestTryCompactLs_onlyTotalLinesAreEmpty(t *testing.T) {
 	t.Parallel()
-	got := compactLsOutput("total 8\ntotal 16\n")
-	if got != "[ls] empty\n" {
-		t.Errorf("only-total lines: want '[ls] empty\\n', got %q", got)
+	out, ok := TryCompactLs([]string{"ls", "-la"}, []byte("total 8\ntotal 16\n"))
+	if !ok || string(out) != "[ls] empty\n" {
+		t.Errorf("only-total lines: want '[ls] empty\\n', got ok=%v out=%q", ok, out)
 	}
 }

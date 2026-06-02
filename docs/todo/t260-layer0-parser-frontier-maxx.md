@@ -162,6 +162,13 @@ These are promotion targets, not claims:
   markers now survive compaction, including hunks with no added/removed lines.
   Focused tests prove rename-only, mode-only, and binary/new-file metadata are
   retained instead of being reduced to misleading `+0/-0` file entries.
+- 2026-06-03: Removed the unsafe non-empty `ls` / `tree` count-only reducer
+  behavior from the default Layer-0 path. Directory names and tree hierarchy are
+  the evidence the model requested; without exact recovery, reducing them to
+  counts is a product drawdown. Empty and total-only `ls` output still compacts
+  to `[ls] empty`, empty `tree` still compacts to `[tree] empty`, and repeated
+  non-empty listings remain available to exact repeated-output/read-cache
+  savings later in the session.
 
 ## Done
 
