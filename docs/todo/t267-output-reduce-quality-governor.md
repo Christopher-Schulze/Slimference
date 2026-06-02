@@ -132,6 +132,13 @@ Output reduction becomes a runtime-governed layer:
   explanation requests now cap aggressive/Codex-aggressive profiles to
   `standard`, preserving reasoning steps, caveats, concrete evidence, and
   requested detail instead of treating the turn as a short direct answer.
+- 2026-06-03: Hardened exact-output and repair detection. `reply/respond/answer/
+  output/return only`, `json only`, `only json`, and German `gib/antworte/sage
+  nur` prompts are now classified as `exact_reply`, so output-reduce injection
+  full-passes instead of adding any directive to exact-format turns. German
+  re-ask phrases such as `da fehlt ...` and `nochmal ausführlicher/genauer`
+  now trigger the same immediate repair cooldown as English "you skipped" style
+  feedback.
 
 ## Done
 

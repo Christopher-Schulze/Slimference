@@ -289,14 +289,17 @@ stay byte-equal so code, patch, JSON, and final-answer text cannot be silently
 rewritten after the model emits it.
 
 The output directive injector is task-shape aware. Exact replies and repair
-follow-ups skip injection. Aggressive profiles are statically capped to
+follow-ups skip injection; exact replies include `reply only`/`respond only`/
+`return only`/`json only` style prompts and the German `gib/antworte/sage nur`
+variants, not only `reply exactly`. Aggressive profiles are statically capped to
 `standard` for safety-sensitive tasks: code edits, new-file generation,
 debugging, reviews, tool-result reasoning, final summaries, read-only analysis,
 deep explanations, and planning. That cap runs before runtime cooldown
 selection in the proxy and again inside the injector as defense in depth. Repair
 signals such as "you
-skipped", "too short", missing detail, malformed patches, or failed apply-patch
-feedback are stored by session and immediately downgrade the affected
+skipped", "too short", missing detail, malformed patches, failed apply-patch
+feedback, and German `fehlt`/`nochmal ausführlicher` style re-asks are stored by
+session and immediately downgrade the affected
 provider/model/profile/task-shape bucket without waiting for the normal sample
 window.
 For Codex Responses bodies, output-reduce directives are written only to the

@@ -173,6 +173,10 @@ func TestInjectBody_SkipsOverCapAndNoop(t *testing.T) {
 	if out, stats, err := InjectBody(types.OpenAI, exact, Options{Enabled: true, Profile: "openai"}); err != nil || stats.Applied || stats.Reason != "exact_reply" || string(out) != string(exact) {
 		t.Fatalf("exact out=%s stats=%+v err=%v", out, stats, err)
 	}
+	jsonOnly := []byte(`{"messages":[{"role":"user","content":"return JSON only with the requested fields"}]}`)
+	if out, stats, err := InjectBody(types.OpenAI, jsonOnly, Options{Enabled: true, Profile: "openai"}); err != nil || stats.Applied || stats.Reason != "exact_reply" || string(out) != string(jsonOnly) {
+		t.Fatalf("json-only out=%s stats=%+v err=%v", out, stats, err)
+	}
 }
 
 func TestInjectBody_ErrorBranches(t *testing.T) {

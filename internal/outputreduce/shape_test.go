@@ -14,7 +14,10 @@ func TestDetectTaskShape(t *testing.T) {
 		want TaskShape
 	}{
 		{name: "exact reply", body: []byte(`{"messages":[{"role":"user","content":"reply exactly: ok"}]}`), want: ShapeExactReply},
+		{name: "reply only", body: []byte(`{"messages":[{"role":"user","content":"reply only: OK"}]}`), want: ShapeExactReply},
+		{name: "json only", body: []byte(`{"messages":[{"role":"user","content":"return JSON only with the id"}]}`), want: ShapeExactReply},
 		{name: "german exact reply", body: []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"Antworte exakt nur mit: OK. Nutze keine Tools."}]}]}`), want: ShapeExactReply},
+		{name: "german reply only", body: []byte(`{"messages":[{"role":"user","content":"gib nur READY zurück"}]}`), want: ShapeExactReply},
 		{name: "new file", body: []byte(`{"messages":[{"role":"user","content":"create file internal/x.go"}]}`), want: ShapeNewFile},
 		{name: "read only beats edit words", body: []byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"Read-only probe. Do not edit files. Inspect internal/proxy/handler.go and report in German."}]}]}`), want: ShapeReadOnly},
 		{name: "german no touch beats patch", body: []byte(`{"messages":[{"role":"user","content":"nur analysieren, nichts anfassen, apply_patch nur erwähnen"}]}`), want: ShapeReadOnly},
@@ -76,6 +79,10 @@ func TestDetectRepairSignal(t *testing.T) {
 	signal = DetectRepairSignalText("apply_patch failed with invalid patch")
 	if !signal.Repair || signal.UserReask || signal.Reason != "repair_turn" {
 		t.Fatalf("repair signal=%+v", signal)
+	}
+	signal = DetectRepairSignalText("Da fehlt der wichtigste Output, nochmal ausführlicher bitte")
+	if !signal.Repair || !signal.UserReask || signal.Reason != "user_reask" {
+		t.Fatalf("german repair signal=%+v", signal)
 	}
 	signal = DetectRepairSignalText("normal next task")
 	if signal.Repair || signal.UserReask || signal.Reason != "" {

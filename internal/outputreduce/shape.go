@@ -31,7 +31,10 @@ func DetectTaskShape(provider types.Provider, body []byte) TaskShape {
 	switch {
 	case containsAny(lower,
 		"reply exactly", "respond exactly", "answer exactly", "say exactly", "output exactly",
+		"reply only", "respond only", "answer only", "say only", "output only", "return only",
+		"just reply", "just respond", "just answer", "just say", "json only", "only json",
 		"antworte exakt", "antwort exakt", "gib exakt", "sage exakt", "nur mit:",
+		"antworte nur", "gib nur", "sage nur", "nur ausgeben", "nur json",
 	):
 		return ShapeExactReply
 	case DetectRepairSignalText(lower).Repair:
@@ -90,6 +93,7 @@ func DetectRepairSignalText(text string) RepairSignal {
 		"what did you do", "what changed", "show the output", "give details",
 		"du hast übersprungen", "du hast ausgelassen", "zu kurz", "mehr details",
 		"erklär mehr", "erklaer mehr", "was hast du gemacht", "was wurde geändert",
+		"du hast nicht", "fehlt", "nochmal ausführlicher", "nochmal genauer",
 	):
 		return RepairSignal{Repair: true, UserReask: true, Reason: "user_reask"}
 	case containsAny(lower,
