@@ -75,7 +75,7 @@ func ResolveProfile(provider types.Provider, configured Profile) Profile {
 
 func SafeProfileForShape(profile Profile, shape TaskShape) Profile {
 	switch shape {
-	case ShapeCodeEdit, ShapeDebugging, ShapeReview, ShapeToolReasoning, ShapeNewFile, ShapeFinalSummary, ShapeReadOnly, ShapePlanning:
+	case ShapeCodeEdit, ShapeDebugging, ShapeExplanation, ShapeReview, ShapeToolReasoning, ShapeNewFile, ShapeFinalSummary, ShapeReadOnly, ShapePlanning:
 		if profile == ProfileAggressive || profile == ProfileCodexAggressive || profile == ProfileCodex {
 			return ProfileStandard
 		}
@@ -148,6 +148,8 @@ func shapeDirective(shape TaskShape) string {
 		return " For review tasks, keep all actionable findings; do not compress away severity, file, or line."
 	case ShapeDebugging:
 		return " For debugging, preserve exact error text, command, path, and line numbers."
+	case ShapeExplanation:
+		return " For explanations and deep analysis, preserve reasoning steps, caveats, concrete evidence, and requested detail."
 	case ShapeToolReasoning:
 		return " For tool-result reasoning, summarize only the decision-relevant lines."
 	case ShapePlanning:

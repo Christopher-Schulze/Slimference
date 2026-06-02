@@ -88,8 +88,8 @@ Output reduction becomes a runtime-governed layer:
   statically caps `aggressive`, `codex_aggressive`, and `codex` profiles to
   `standard` for safety-sensitive shapes: code edits, new-file generation,
   debugging, reviews, tool-result reasoning, final summaries, read-only analysis,
-  and planning. The cap runs in both the proxy hot path before tracker/cooldown
-  selection and in `InjectBody` as defense in depth.
+  deep explanations, and planning. The cap runs in both the proxy hot path
+  before tracker/cooldown selection and in `InjectBody` as defense in depth.
 - Existing repair-signal plumbing remains active: "you skipped" / "too short" /
   malformed-patch style follow-ups immediately downgrade the stored
   provider/model/profile/task-shape bucket through the output-reduce tracker
@@ -128,6 +128,10 @@ Output reduction becomes a runtime-governed layer:
   Anthropic or OpenAI/Codex usage total appears, that total wins for the request
   instead of being added on top of earlier estimates. This keeps output-reduce
   telemetry conservative and avoids fake output-token savings.
+- 2026-06-03: Added an `explanation_deep_analysis` task shape. Explicit deep
+  explanation requests now cap aggressive/Codex-aggressive profiles to
+  `standard`, preserving reasoning steps, caveats, concrete evidence, and
+  requested detail instead of treating the turn as a short direct answer.
 
 ## Done
 

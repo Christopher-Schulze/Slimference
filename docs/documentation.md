@@ -292,8 +292,9 @@ The output directive injector is task-shape aware. Exact replies and repair
 follow-ups skip injection. Aggressive profiles are statically capped to
 `standard` for safety-sensitive tasks: code edits, new-file generation,
 debugging, reviews, tool-result reasoning, final summaries, read-only analysis,
-and planning. That cap runs before runtime cooldown selection in the proxy and
-again inside the injector as defense in depth. Repair signals such as "you
+deep explanations, and planning. That cap runs before runtime cooldown
+selection in the proxy and again inside the injector as defense in depth. Repair
+signals such as "you
 skipped", "too short", missing detail, malformed patches, or failed apply-patch
 feedback are stored by session and immediately downgrade the affected
 provider/model/profile/task-shape bucket without waiting for the normal sample
@@ -2162,8 +2163,9 @@ tool-prune session bucket; the planner marks it as a `cheap_only`
 rather than blindly continuing aggressive behavior. Output-reduce task-shape
 selection also caps aggressive/Codex-aggressive profiles to `standard` for
 code edits, new-file generation, debugging, reviews, tool-result reasoning,
-final summaries, read-only analysis, and planning; those shapes need complete
-evidence or exact workflow content more than maximal terse output. Tool-schema
+final summaries, read-only analysis, deep explanations, and planning; those
+shapes need complete evidence or exact workflow content more than maximal terse
+output. Tool-schema
 pruning runs only after strict schema extraction: if any `tools[]` entry cannot
 be named for the provider shape, the request keeps the full schema instead of
 partially pruning a mixed/unknown tool surface.

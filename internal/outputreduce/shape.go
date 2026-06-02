@@ -16,6 +16,7 @@ const (
 	ShapeReadOnly       TaskShape = "read_only_analysis"
 	ShapeCodeEdit       TaskShape = "code_edit"
 	ShapeDebugging      TaskShape = "debugging"
+	ShapeExplanation    TaskShape = "explanation_deep_analysis"
 	ShapePlanning       TaskShape = "planning"
 	ShapeRepairFollowup TaskShape = "repair_followup"
 	ShapeReview         TaskShape = "review"
@@ -42,9 +43,16 @@ func DetectTaskShape(provider types.Provider, body []byte) TaskShape {
 		return ShapeFinalSummary
 	case containsAny(lower,
 		"read-only", "read only", "do not edit", "don't edit", "do not modify", "do not write", "no edits",
-		"inspect", "analyze", "analyse", "audit", "report in", "nur analysieren", "nichts anfassen", "nicht anfassen",
+		"inspect", "analyze", "analyse", "audit", "report in", "nur analysieren", "analysiere",
+		"untersuche", "bewerte", "nichts anfassen", "nicht anfassen",
 	):
 		return ShapeReadOnly
+	case containsAny(lower,
+		"explain", "explanation", "deep dive", "deep analysis", "detailed analysis", "detailed explanation",
+		"go deep", "forensic", "walk me through", "why is", "how does", "how it works",
+		"erklär", "erklaer", "erklärung", "erklaerung", "detailliert", "detailiert", "tief", "forensisch",
+	):
+		return ShapeExplanation
 	case containsAny(lower, "create file", "new file", "write a file", "add file", "*** add file"):
 		return ShapeNewFile
 	case containsAny(lower, "apply_patch", "patch", "diff", "edit", "modify", "fix this file", "implement"):

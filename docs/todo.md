@@ -1991,7 +1991,9 @@ be called complete, default-safe, and production-grade.
   reduction route/task aware, quality-rollback capable, and safe for exact
   code/patch/explanation workflows. Offline hardening now caps aggressive
   profiles for read-only analysis and planning as safety-sensitive shapes and
-  turns repair/re-ask signals into immediate profile cooldowns. Proof-matrix
+  now also treats explicit deep explanation tasks as safety-sensitive instead
+  of direct-answer brevity candidates; repair/re-ask signals become immediate
+  profile cooldowns. Proof-matrix
   rows now carry output-reduce live counters and can require injected/skipped/
   downgraded/stop-seq/streamcut/repdet/stale/obsolete/beterse signals.
   Codex Responses output-reduce injection now uses top-level `instructions`

@@ -283,7 +283,7 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 
 func TestSafeProfileForShapeCapsAggressiveProfiles(t *testing.T) {
 	t.Parallel()
-	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeDebugging, ShapeReview, ShapeToolReasoning, ShapeFinalSummary, ShapeReadOnly, ShapePlanning} {
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeDebugging, ShapeExplanation, ShapeReview, ShapeToolReasoning, ShapeFinalSummary, ShapeReadOnly, ShapePlanning} {
 		if got := SafeProfileForShape(ProfileCodexAggressive, shape); got != ProfileStandard {
 			t.Fatalf("codex aggressive shape %s = %s, want standard", shape, got)
 		}
