@@ -29,7 +29,10 @@ func TestDetectTaskShape(t *testing.T) {
 		{name: "final summary", body: []byte(`{"messages":[{"role":"user","content":"final summary with files, tests, and risks"}]}`), want: ShapeFinalSummary},
 		{name: "review", body: []byte(`{"messages":[{"role":"user","content":"review for severity findings"}]}`), want: ShapeReview},
 		{name: "planning", body: []byte(`{"messages":[{"role":"user","content":"plan next steps"}]}`), want: ShapePlanning},
-		{name: "tool", body: []byte(`{"messages":[{"role":"user","content":"stderr exit code command output"}]}`), want: ShapeToolReasoning},
+		{name: "tool", body: []byte(`{"messages":[{"role":"user","content":"stderr exit code tool_result"}]}`), want: ShapeToolReasoning},
+		{name: "plain command output relay is not repair", body: []byte(`{"messages":[{"role":"user","content":"show the output from that command"}]}`), want: ShapeCommandRelay},
+		{name: "command output relay", body: []byte(`{"messages":[{"role":"user","content":"show me the full terminal output from the failing command"}]}`), want: ShapeCommandRelay},
+		{name: "german command output relay", body: []byte(`{"messages":[{"role":"user","content":"gib mir die komplette Terminal-Ausgabe mit exit code"}]}`), want: ShapeCommandRelay},
 		{name: "direct", body: []byte(`{"messages":[{"role":"user","content":"what is this"}]}`), want: ShapeDirectAnswer},
 		{name: "invalid json fallback", body: []byte(`debug error`), want: ShapeDebugging},
 		{name: "ignores schema text", body: []byte(`{"tools":[{"description":"create file"}],"messages":[{"role":"user","content":"what is this"}]}`), want: ShapeDirectAnswer},
@@ -55,6 +58,7 @@ func TestShapeDirectiveBranches(t *testing.T) {
 		ShapeDebugging,
 		ShapeExplanation,
 		ShapeToolReasoning,
+		ShapeCommandRelay,
 		ShapePlanning,
 		ShapeFinalSummary,
 	} {
@@ -87,6 +91,10 @@ func TestDetectRepairSignal(t *testing.T) {
 	signal = DetectRepairSignalText("normal next task")
 	if signal.Repair || signal.UserReask || signal.Reason != "" {
 		t.Fatalf("normal signal=%+v", signal)
+	}
+	signal = DetectRepairSignalText("show the output from that command")
+	if signal.Repair || signal.UserReask || signal.Reason != "" {
+		t.Fatalf("plain command output relay should not be repair signal=%+v", signal)
 	}
 	body := []byte(`{"messages":[{"role":"user","content":"what did you do?"}]}`)
 	if signal = DetectRepairSignal(types.OpenAI, body); !signal.Repair || !signal.UserReask {

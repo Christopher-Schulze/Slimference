@@ -2009,7 +2009,9 @@ be called complete, default-safe, and production-grade.
   accounts naturally flushed holdback lines so output-wire token accounting does
   not undercount when a stream ends without forced cutting, and provider final
   output-token totals now replace earlier text estimates instead of inflating
-  output telemetry.
+  output telemetry. Explicit command-output relay prompts now full-pass
+  output-reduce injection with `command_output_relay_exact_output`, preserving
+  requested terminal output, paths, errors, exit codes, and line order.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a

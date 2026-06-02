@@ -293,8 +293,12 @@ follow-ups skip injection; exact replies include `reply only`/`respond only`/
 `return only`/`json only` style prompts and the German `gib/antworte/sage nur`
 variants, not only `reply exactly`. Aggressive profiles are statically capped to
 `standard` for safety-sensitive tasks: code edits, new-file generation,
-debugging, reviews, tool-result reasoning, final summaries, read-only analysis,
-deep explanations, and planning. That cap runs before runtime cooldown
+debugging, reviews, tool-result reasoning, command-output relay, final
+summaries, read-only analysis, deep explanations, and planning. Explicit
+command-output relay turns such as "show the output", "full terminal output", or
+German `gib die komplette Terminal-Ausgabe` skip output-reduce injection entirely
+with `command_output_relay_exact_output`, preserving requested output, paths,
+errors, exit codes, and line order. The safety cap runs before runtime cooldown
 selection in the proxy and again inside the injector as defense in depth. Repair
 signals such as "you
 skipped", "too short", missing detail, malformed patches, failed apply-patch
@@ -2191,9 +2195,11 @@ tool-prune session bucket; the planner marks it as a `cheap_only`
 rather than blindly continuing aggressive behavior. Output-reduce task-shape
 selection also caps aggressive/Codex-aggressive profiles to `standard` for
 code edits, new-file generation, debugging, reviews, tool-result reasoning,
-final summaries, read-only analysis, deep explanations, and planning; those
-shapes need complete evidence or exact workflow content more than maximal terse
-output. Tool-schema
+command-output relay, final summaries, read-only analysis, deep explanations,
+and planning; those shapes need complete evidence or exact workflow content more
+than maximal terse output. Command-output relay is stricter than the cap: it
+skips output-reduce injection entirely so requested terminal output is not
+shortened by policy text. Tool-schema
 pruning runs only after strict schema extraction: if any `tools[]` entry cannot
 be named for the provider shape, the request keeps the full schema instead of
 partially pruning a mixed/unknown tool surface.

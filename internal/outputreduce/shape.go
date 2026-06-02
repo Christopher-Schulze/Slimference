@@ -21,6 +21,7 @@ const (
 	ShapeRepairFollowup TaskShape = "repair_followup"
 	ShapeReview         TaskShape = "review"
 	ShapeToolReasoning  TaskShape = "tool_result_reasoning"
+	ShapeCommandRelay   TaskShape = "command_output_relay"
 	ShapeNewFile        TaskShape = "new_file_generation"
 	ShapeFinalSummary   TaskShape = "final_summary"
 )
@@ -37,6 +38,8 @@ func DetectTaskShape(provider types.Provider, body []byte) TaskShape {
 		"antworte nur", "gib nur", "sage nur", "nur ausgeben", "nur json",
 	):
 		return ShapeExactReply
+	case commandOutputRelayRequested(lower) && !repairComplaintText(lower):
+		return ShapeCommandRelay
 	case DetectRepairSignalText(lower).Repair:
 		return ShapeRepairFollowup
 	case containsAny(lower,
@@ -66,6 +69,8 @@ func DetectTaskShape(provider types.Provider, body []byte) TaskShape {
 		return ShapeReview
 	case containsAny(lower, "plan", "roadmap", "steps", "todo"):
 		return ShapePlanning
+	case commandOutputRelayRequested(lower):
+		return ShapeCommandRelay
 	case containsAny(lower, "tool_result", "stdout", "stderr", "exit code", "command output"):
 		return ShapeToolReasoning
 	case strings.TrimSpace(lower) != "":
@@ -90,7 +95,7 @@ func DetectRepairSignalText(text string) RepairSignal {
 	switch {
 	case containsAny(lower,
 		"you skipped", "you omitted", "missing detail", "too short", "explain more",
-		"what did you do", "what changed", "show the output", "give details",
+		"what did you do", "what changed", "give details",
 		"du hast übersprungen", "du hast ausgelassen", "zu kurz", "mehr details",
 		"erklär mehr", "erklaer mehr", "was hast du gemacht", "was wurde geändert",
 		"du hast nicht", "fehlt", "nochmal ausführlicher", "nochmal genauer",
@@ -142,4 +147,27 @@ func containsAny(s string, needles ...string) bool {
 		}
 	}
 	return false
+}
+
+func commandOutputRelayRequested(lower string) bool {
+	return containsAny(lower,
+		"show the output", "show me the output", "paste the output", "print the output",
+		"relay the output", "return the output", "include the output", "full output",
+		"exact output", "terminal output", "shell output", "command output", "tool output",
+		"zeige die ausgabe", "zeig die ausgabe", "gib die ausgabe", "poste die ausgabe",
+		"kopiere die ausgabe", "vollständige ausgabe", "vollstaendige ausgabe",
+		"komplette ausgabe", "terminal-ausgabe", "terminal ausgabe", "befehl ausgabe",
+		"kommando ausgabe", "fehlerausgabe",
+	)
+}
+
+func repairComplaintText(lower string) bool {
+	return containsAny(lower,
+		"you skipped", "you omitted", "missing detail", "too short", "explain more",
+		"du hast übersprungen", "du hast ausgelassen", "zu kurz", "mehr details",
+		"erklär mehr", "erklaer mehr", "du hast nicht", "fehlt", "nochmal",
+		"patch failed", "apply_patch failed", "malformed patch", "invalid patch",
+		"did not apply", "could not apply", "build failed after your change",
+		"test failed after your change", "kaputter patch", "patch ging nicht",
+	)
 }

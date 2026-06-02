@@ -139,6 +139,14 @@ Output reduction becomes a runtime-governed layer:
   re-ask phrases such as `da fehlt ...` and `nochmal ausführlicher/genauer`
   now trigger the same immediate repair cooldown as English "you skipped" style
   feedback.
+- 2026-06-03: Added a dedicated `command_output_relay` task shape for explicit
+  output relay prompts such as "show the output", "full terminal output", and
+  German `gib die komplette Terminal-Ausgabe`. These turns now full-pass
+  output-reduce injection with reason `command_output_relay_exact_output`, even
+  for large requests and aggressive profiles, so exact requested command output,
+  paths, errors, exit codes, and line order cannot be shortened by a terse
+  directive. Repair complaints such as "you skipped" / `fehlt` still classify as
+  repair follow-ups and keep the cooldown behavior.
 
 ## Done
 

@@ -75,7 +75,7 @@ func ResolveProfile(provider types.Provider, configured Profile) Profile {
 
 func SafeProfileForShape(profile Profile, shape TaskShape) Profile {
 	switch shape {
-	case ShapeCodeEdit, ShapeDebugging, ShapeExplanation, ShapeReview, ShapeToolReasoning, ShapeNewFile, ShapeFinalSummary, ShapeReadOnly, ShapePlanning:
+	case ShapeCodeEdit, ShapeDebugging, ShapeExplanation, ShapeReview, ShapeToolReasoning, ShapeCommandRelay, ShapeNewFile, ShapeFinalSummary, ShapeReadOnly, ShapePlanning:
 		if profile == ProfileAggressive || profile == ProfileCodexAggressive || profile == ProfileCodex {
 			return ProfileStandard
 		}
@@ -152,6 +152,8 @@ func shapeDirective(shape TaskShape) string {
 		return " For explanations and deep analysis, preserve reasoning steps, caveats, concrete evidence, and requested detail."
 	case ShapeToolReasoning:
 		return " For tool-result reasoning, summarize only the decision-relevant lines."
+	case ShapeCommandRelay:
+		return " For command-output relay, preserve exact requested output, paths, errors, exit codes, and line order; do not summarize unless explicitly asked."
 	case ShapePlanning:
 		return " For planning, use compact ordered steps with no filler."
 	case ShapeFinalSummary:
@@ -167,6 +169,8 @@ func LowROISkipReason(shape TaskShape, inputTokens int) string {
 	switch shape {
 	case ShapeRepairFollowup:
 		return "repair_followup_low_roi"
+	case ShapeCommandRelay:
+		return "command_output_relay_exact_output"
 	case ShapeReadOnly:
 		if inputTokens > 0 && inputTokens < 60000 {
 			return "read_only_low_roi"

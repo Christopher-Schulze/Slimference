@@ -235,6 +235,10 @@ func TestInjectBody_LowROIGates(t *testing.T) {
 	if out, stats, err := InjectBody(types.OpenAI, repair, Options{Enabled: true, Profile: "openai", InputTokens: 90000}); err != nil || stats.Applied || stats.Reason != "repair_followup_low_roi" || string(out) != string(repair) {
 		t.Fatalf("repair out=%s stats=%+v err=%v", out, stats, err)
 	}
+	commandRelay := []byte(`{"messages":[{"role":"user","content":"show me the full terminal output and exit code from the failing command"}]}`)
+	if out, stats, err := InjectBody(types.OpenAI, commandRelay, Options{Enabled: true, Profile: "aggressive", InputTokens: 90000}); err != nil || stats.Applied || stats.Reason != "command_output_relay_exact_output" || stats.TaskShape != ShapeCommandRelay || string(out) != string(commandRelay) {
+		t.Fatalf("command relay out=%s stats=%+v err=%v", out, stats, err)
+	}
 }
 
 func TestInjectBody_AnthropicUnsupportedSystemShape(t *testing.T) {
@@ -272,7 +276,7 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 	if got := NextSofter(ProfileOff); got != ProfileOff {
 		t.Fatalf("NextSofter off=%s", got)
 	}
-	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReadOnly, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapePlanning, ShapeFinalSummary, ShapeDirectAnswer, ShapeUnknown} {
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeReadOnly, ShapeReview, ShapeDebugging, ShapeToolReasoning, ShapeCommandRelay, ShapePlanning, ShapeFinalSummary, ShapeDirectAnswer, ShapeUnknown} {
 		if text := DirectiveForShape(ProfileCodexAggressive, shape, DefaultMarker); text == "" {
 			t.Fatalf("empty directive for shape %s", shape)
 		}
@@ -287,7 +291,7 @@ func TestProfilesAndShapeDirective(t *testing.T) {
 
 func TestSafeProfileForShapeCapsAggressiveProfiles(t *testing.T) {
 	t.Parallel()
-	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeDebugging, ShapeExplanation, ShapeReview, ShapeToolReasoning, ShapeFinalSummary, ShapeReadOnly, ShapePlanning} {
+	for _, shape := range []TaskShape{ShapeCodeEdit, ShapeNewFile, ShapeDebugging, ShapeExplanation, ShapeReview, ShapeToolReasoning, ShapeCommandRelay, ShapeFinalSummary, ShapeReadOnly, ShapePlanning} {
 		if got := SafeProfileForShape(ProfileCodexAggressive, shape); got != ProfileStandard {
 			t.Fatalf("codex aggressive shape %s = %s, want standard", shape, got)
 		}
