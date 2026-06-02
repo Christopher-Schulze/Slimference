@@ -4026,3 +4026,29 @@ Validation:
   lag in mid-proof admin deltas. The product proof therefore keys positive
   savings on live token/reducer counters and uses replay mutation/lost fields
   for model-facing safety.
+
+## 2026-06-02 - WSS live snapshot counter perfection
+
+Goal: remove the remaining proof ambiguity where live token counters arrived
+immediately but WSS frame/mutation counters could lag until `sess.Serve()`
+returned and dispatcher counters were folded.
+
+Changes:
+- `PhaseFDispatcher.Snapshot()` now includes active WSS MITM sessions in the
+  returned telemetry.
+- Active sessions contribute live `wsmitm.Session` frame counters and live
+  Phase-F adapter counters (`requests`, `mutations`, terminals, text deltas)
+  while they are still open.
+- When a session finishes, the dispatcher unregisters it and folds the same
+  final telemetry into monotonic dispatcher counters under the same lock, so
+  `/admin/state` does not double-count active plus completed sessions.
+
+Validation:
+- Added a regression test proving active Phase-F counters appear in
+  `Snapshot()` and are not double-counted after finish.
+- Live managed capture with `/tmp/slimference-live-wss-snapshot` on two
+  `cat AGENTS.md` calls passed:
+  `billable_input_tokens_saved=3179`, `replay_bytes_saved=11463`, `lost=0`,
+  safety `parse/degraded/compression=0/0/0`, and now live WSS counters
+  `compressed_messages_mutated=1`, `frames_reencoded=1`,
+  `phasef_mutations=1`.

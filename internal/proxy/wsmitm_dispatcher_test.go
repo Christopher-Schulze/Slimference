@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/proxy/sniroute"
+	"github.com/slimference/slimference/internal/proxy/wsmitm"
 )
 
 // fakePair returns two connected net.Pipe conns. closeWrite is
@@ -275,6 +276,28 @@ func TestDispatcherMITMConversationAlsoBridges(t *testing.T) {
 	}
 	if got := d.Snapshot().MITMBridged; got != 1 {
 		t.Errorf("mitm counter = %d, want 1", got)
+	}
+}
+
+func TestDispatcherSnapshotIncludesActivePhaseFSession(t *testing.T) {
+	d := &PhaseFDispatcher{}
+	adapter := &wsPhaseFAdapter{}
+	adapter.counters.requestsSeen.Add(3)
+	adapter.counters.mutations.Add(2)
+
+	activeID := d.registerActiveWSMITMSession(&wsmitm.Session{}, adapter)
+	active := d.Snapshot()
+	if active.WSMITMPhaseFRequests != 3 || active.WSMITMPhaseFMutations != 2 {
+		t.Fatalf("active snapshot missing phase-f counters: %+v", active)
+	}
+
+	d.finishActiveWSMITMSession(activeID, wsmitm.SessionTelemetry{FramesReencoded: 1}, adapter.snapshot())
+	finished := d.Snapshot()
+	if finished.WSMITMPhaseFRequests != 3 || finished.WSMITMPhaseFMutations != 2 {
+		t.Fatalf("finished snapshot double-counted or lost phase-f counters: %+v", finished)
+	}
+	if finished.WSMITMReencoded != 1 {
+		t.Fatalf("finished snapshot missing session telemetry: %+v", finished)
 	}
 }
 

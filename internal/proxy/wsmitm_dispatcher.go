@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -57,7 +58,15 @@ type PhaseFDispatcher struct {
 	BridgeTimeout time.Duration
 
 	// Counters surface per-dispatcher activity to /admin/state.
-	counters DispatcherCounters
+	counters       DispatcherCounters
+	activeMu       sync.Mutex
+	activeNext     atomic.Uint64
+	activeSessions map[uint64]activeWSMITMSession
+}
+
+type activeWSMITMSession struct {
+	session *wsmitm.Session
+	adapter *wsPhaseFAdapter
 }
 
 // DispatcherCounters captures the observable state of the dispatcher.
@@ -126,7 +135,10 @@ type DispatcherTelemetry struct {
 
 // Snapshot returns a value-copy of the counters.
 func (d *PhaseFDispatcher) Snapshot() DispatcherTelemetry {
-	return DispatcherTelemetry{
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+
+	out := DispatcherTelemetry{
 		PassthroughBridged:        d.counters.passthroughBridged.Load(),
 		MITMBridged:               d.counters.mitmBridged.Load(),
 		PhasefBridged:             d.counters.phasefBridged.Load(),
@@ -151,6 +163,15 @@ func (d *PhaseFDispatcher) Snapshot() DispatcherTelemetry {
 		WSMITMPhaseFTerminals:     d.counters.wsmitmPhaseFTerminals.Load(),
 		WSMITMPhaseFMutations:     d.counters.wsmitmPhaseFMutations.Load(),
 	}
+	for _, active := range d.activeSessions {
+		if active.session != nil {
+			addSessionTelemetryToDispatcher(&out, active.session.Snapshot())
+		}
+		if active.adapter != nil {
+			addPhaseFTelemetryToDispatcher(&out, active.adapter.snapshot())
+		}
+	}
+	return out
 }
 
 // Handle implements transparent.Dispatcher.
@@ -357,29 +378,11 @@ func (d *PhaseFDispatcher) runWSMITM(ctx context.Context, client, upstream net.C
 		UpstreamHandler: capture.Wrap(adapter.handle),
 		Extensions:      opts.Extensions,
 	}
+	activeID := d.registerActiveWSMITMSession(sess, adapter)
 	err := sess.Serve(ctx)
 	snap := sess.Snapshot()
-	d.counters.wsmitmC2SFrames.Add(snap.C2SFrames)
-	d.counters.wsmitmS2CFrames.Add(snap.S2CFrames)
-	d.counters.wsmitmParseFailures.Add(snap.ParseFailures)
-	d.counters.wsmitmReencoded.Add(snap.FramesReencoded)
-	d.counters.wsmitmForwarded.Add(snap.FramesForwarded)
-	d.counters.wsmitmCompressedInspected.Add(snap.CompressedMessagesInspected)
-	d.counters.wsmitmCompressedMutated.Add(snap.CompressedMessagesMutated)
-	d.counters.wsmitmCompressedBypassed.Add(snap.CompressedMessagesBypassed)
-	d.counters.wsmitmCompressionErrors.Add(snap.CompressionErrors)
 	phaseF := adapter.snapshot()
-	d.counters.wsmitmPhaseFRequests.Add(phaseF.RequestsSeen)
-	d.counters.wsmitmPhaseFRequestBodies.Add(phaseF.RequestBodiesSeen)
-	d.counters.wsmitmPhaseFIndexed.Add(phaseF.RequestMessagesIndexed)
-	d.counters.wsmitmPhaseFTextDeltas.Add(phaseF.ResponseTextDeltasSeen)
-	d.counters.wsmitmPhaseFTerminals.Add(phaseF.TerminalResponsesSeen)
-	d.counters.wsmitmPhaseFMutations.Add(phaseF.Mutations)
-	d.counters.bytesC2S.Add(snap.C2SBytes)
-	d.counters.bytesS2C.Add(snap.S2CBytes)
-	if snap.Degraded {
-		d.counters.wsmitmDegraded.Add(1)
-	}
+	d.finishActiveWSMITMSession(activeID, snap, phaseF)
 	return err
 }
 
@@ -397,8 +400,36 @@ func (d *PhaseFDispatcher) runWSBridge(ctx context.Context, client, upstream net
 		Upstream:   upstream,
 		Extensions: opts.Extensions,
 	}
+	activeID := d.registerActiveWSMITMSession(sess, nil)
 	err := sess.Serve(ctx)
 	snap := sess.Snapshot()
+	d.finishActiveWSMITMSession(activeID, snap, wsPhaseFTelemetry{})
+	return err
+}
+
+func (d *PhaseFDispatcher) registerActiveWSMITMSession(session *wsmitm.Session, adapter *wsPhaseFAdapter) uint64 {
+	if d == nil || session == nil {
+		return 0
+	}
+	id := d.activeNext.Add(1)
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+	if d.activeSessions == nil {
+		d.activeSessions = make(map[uint64]activeWSMITMSession)
+	}
+	d.activeSessions[id] = activeWSMITMSession{session: session, adapter: adapter}
+	return id
+}
+
+func (d *PhaseFDispatcher) finishActiveWSMITMSession(id uint64, snap wsmitm.SessionTelemetry, phaseF wsPhaseFTelemetry) {
+	if d == nil {
+		return
+	}
+	d.activeMu.Lock()
+	defer d.activeMu.Unlock()
+	if id != 0 && d.activeSessions != nil {
+		delete(d.activeSessions, id)
+	}
 	d.counters.wsmitmC2SFrames.Add(snap.C2SFrames)
 	d.counters.wsmitmS2CFrames.Add(snap.S2CFrames)
 	d.counters.wsmitmParseFailures.Add(snap.ParseFailures)
@@ -413,7 +444,51 @@ func (d *PhaseFDispatcher) runWSBridge(ctx context.Context, client, upstream net
 	if snap.Degraded {
 		d.counters.wsmitmDegraded.Add(1)
 	}
-	return err
+	addPhaseFTelemetryToCounters(&d.counters, phaseF)
+}
+
+func addSessionTelemetryToDispatcher(out *DispatcherTelemetry, snap wsmitm.SessionTelemetry) {
+	if out == nil {
+		return
+	}
+	out.WSMITMC2SFrames += snap.C2SFrames
+	out.WSMITMS2CFrames += snap.S2CFrames
+	out.WSMITMParseFailures += snap.ParseFailures
+	out.WSMITMReencoded += snap.FramesReencoded
+	out.WSMITMForwarded += snap.FramesForwarded
+	out.WSMITMCompressedInspected += snap.CompressedMessagesInspected
+	out.WSMITMCompressedMutated += snap.CompressedMessagesMutated
+	out.WSMITMCompressedBypassed += snap.CompressedMessagesBypassed
+	out.WSMITMCompressionErrors += snap.CompressionErrors
+	out.BytesC2S += snap.C2SBytes
+	out.BytesS2C += snap.S2CBytes
+	if snap.Degraded {
+		out.WSMITMDegraded++
+	}
+}
+
+func addPhaseFTelemetryToDispatcher(out *DispatcherTelemetry, phaseF wsPhaseFTelemetry) {
+	if out == nil {
+		return
+	}
+	out.WSMITMPhaseFRequests += phaseF.RequestsSeen
+	out.WSMITMPhaseFRequestBodies += phaseF.RequestBodiesSeen
+	out.WSMITMPhaseFIndexed += phaseF.RequestMessagesIndexed
+	out.WSMITMPhaseFTextDeltas += phaseF.ResponseTextDeltasSeen
+	out.WSMITMPhaseFTerminals += phaseF.TerminalResponsesSeen
+	out.WSMITMPhaseFMutations += phaseF.Mutations
+}
+
+func addPhaseFTelemetryToCounters(counters *DispatcherCounters, phaseF wsPhaseFTelemetry) {
+	if counters == nil {
+		return
+	}
+	counters.wsmitmPhaseFRequests.Add(phaseF.RequestsSeen)
+	counters.wsmitmPhaseFRequestBodies.Add(phaseF.RequestBodiesSeen)
+	counters.wsmitmPhaseFIndexed.Add(phaseF.RequestMessagesIndexed)
+	counters.wsmitmPhaseFTextDeltas.Add(phaseF.ResponseTextDeltasSeen)
+	counters.wsmitmPhaseFTerminals.Add(phaseF.TerminalResponsesSeen)
+	counters.wsmitmPhaseFMutations.Add(phaseF.Mutations)
 }
 
 // bridge copies bytes both directions between client and upstream

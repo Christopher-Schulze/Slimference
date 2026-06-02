@@ -2176,6 +2176,11 @@ proof runs, `--exit-marker` / `--exit-marker-count` for unattended shutdown, and
 is the preferred release-proof path for CLI workloads because it avoids
 detached background daemons that do not inherit the capture environment
 reliably.
+The WSS dispatcher includes active in-flight Phase-F sessions in `/admin/state`
+snapshots, so capture deltas can see `frames_reencoded`,
+`compressed_messages_mutated`, and `phasef_mutations` before the WebSocket
+session fully tears down. Completed sessions are then folded into the same
+monotonic dispatcher counters without double-counting.
 
 Layer-0 mechanism cost is exposed as debug/audit telemetry, not product UI
 noise. `/admin/state.savings.proxy_layer0_latency` reports rolling p50/p95/max
