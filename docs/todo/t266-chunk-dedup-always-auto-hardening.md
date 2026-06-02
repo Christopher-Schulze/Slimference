@@ -120,6 +120,9 @@ Chunk dedup may be always-auto only for routes/workloads where:
 - WSS replay with `--fail-on-lost`.
 - A/B replay must reconstruct chunk references back to the exact source block,
   not merely detect that a URI exists.
+- A/B replay must include Codex Responses top-level `instructions` as
+  model-facing context, so recovery notes and output-reduce hints cannot be
+  invisible to the no-drawdown gate.
 - Live CLI/Desktop matrix with canary counters and no repair-loop increase.
 
 ## Done
@@ -265,3 +268,9 @@ it remains guarded by policy.
   `.patch`/`.diff` file reads, while explicitly preserving normal `rg diff ...`
   searches and `git status` outputs. Focused proxy tests prove the guard and the
   existing WSS chunk-dedup policy tests still pass.
+- 2026-06-03: Closed a WSS A/B replay blind spot for Codex Responses
+  `instructions`. Recovery notes and other Codex top-level instruction
+  mutations are now included as synthetic model-facing system context during
+  replay comparison, so the no-drawdown gate can see them. The focused proxy and
+  `scripts/utils` replay tests now prove recovery-note extras are separated from
+  true loss while chunk references still pass through exact archive expansion.

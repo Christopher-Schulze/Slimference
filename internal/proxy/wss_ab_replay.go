@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
@@ -90,13 +91,13 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 				return WSSABReplayResult{}, fmt.Errorf("handle server frame %d: %w", i, err)
 			}
 		case wsmitm.DirClientToServer:
-			before, _, err := extractMessages(types.CodexChatGPT, frame.Payload)
+			before, err := extractWSSReplayModelFacingMessages(frame.Payload)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract direct request %d: %w", i, err)
 			}
 			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(frame.Payload)
 			out.ReducerStats.add(stats)
-			after, _, err := extractMessages(types.CodexChatGPT, mutatedBody)
+			after, err := extractWSSReplayModelFacingMessages(mutatedBody)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract compressed request %d: %w", i, err)
 			}
@@ -117,6 +118,45 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 		return body, err
 	})
 	return out, nil
+}
+
+func extractWSSReplayModelFacingMessages(body []byte) ([]types.Message, error) {
+	messages, _, err := extractMessages(types.CodexChatGPT, body)
+	if err != nil {
+		return nil, err
+	}
+	instructions, ok := codexReplayInstructions(body)
+	if !ok {
+		return messages, nil
+	}
+	system := types.Message{
+		Index: -1,
+		Role:  "system",
+		Content: []types.ContentBlock{{
+			Type: "text",
+			Text: instructions,
+		}},
+	}
+	return append([]types.Message{system}, messages...), nil
+}
+
+func codexReplayInstructions(body []byte) (string, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", false
+	}
+	instructionsRaw, ok := raw["instructions"]
+	if !ok {
+		return "", false
+	}
+	var instructions string
+	if err := json.Unmarshal(instructionsRaw, &instructions); err != nil {
+		return "", false
+	}
+	if instructions == "" {
+		return "", false
+	}
+	return instructions, true
 }
 
 func (s *WSSABReplayReducerStats) add(stats proxyLayer0Stats) {

@@ -138,6 +138,45 @@ func TestRunWSSPhaseFABReplayRecoveryNoteIsAuditedAsExtra(t *testing.T) {
 	}
 }
 
+func TestRunWSSPhaseFABReplayInstructionsAreModelFacing(t *testing.T) {
+	direct := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "base instructions",
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"stream": true,
+	})
+	compressed := mustMarshal(map[string]any{
+		"model":        "gpt-5-codex",
+		"instructions": "base instructions\n\nextra recovery note",
+		"input": []map[string]any{{
+			"type":    "message",
+			"role":    "user",
+			"content": "continue",
+		}},
+		"stream": true,
+	})
+
+	before, err := extractWSSReplayModelFacingMessages(direct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := extractWSSReplayModelFacingMessages(compressed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := abharness.Compare([]abharness.Turn{{Before: before, After: after}})
+	if rep.Lost() == 0 || len(rep.Elisions) == 0 {
+		t.Fatalf("top-level Codex instructions must be audited as model-facing context: %+v", rep)
+	}
+	if rep.Elisions[0].Severity != abharness.SeverityChanged {
+		t.Fatalf("instruction mutation should be classified as changed model-facing context, got %+v", rep.Elisions)
+	}
+}
+
 func TestRunWSSPhaseFABReplayRejectsBadFrames(t *testing.T) {
 	if _, err := RunWSSPhaseFABReplay(config.Defaults(), []WSSABReplayFrame{{
 		Direction: wsmitm.DirClientToServer,

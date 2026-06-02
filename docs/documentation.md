@@ -759,6 +759,10 @@ the direct and compressed model-facing request context, and feeds both into
 read-delta is recoverable because the first full read was already sent, and that
 the recovery note is visibly audited as an expected extra model-facing context
 change when a recoverable-reference mechanism needs it.
+The replay extractor includes Codex Responses top-level `instructions` as
+model-facing system context, so recovery-note or output-reduce hint injection
+cannot bypass the no-drawdown comparison just because it does not live in
+`input`.
 The harness aligns inserted recovery-note/system blocks before comparing changed
 tool-output blocks, so note insertion cannot create false content-loss findings.
 For chunk dedup, the harness expands every `[context-chunk ... local-archive://...]`
