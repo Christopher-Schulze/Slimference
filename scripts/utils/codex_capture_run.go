@@ -121,6 +121,7 @@ type codexCaptureAdminSnapshot struct {
 	HostBudgetReasons       []string `json:"host_budget_reasons,omitempty"`
 	HostBudgetRSSBytes      int64    `json:"host_budget_rss_bytes,omitempty"`
 	HostBudgetCPUWindowPct  float64  `json:"host_budget_cpu_window_percent,omitempty"`
+	HostBudgetCPUWindowSec  float64  `json:"host_budget_cpu_window_seconds,omitempty"`
 	HostBudgetDiskWriteOps  int64    `json:"host_budget_disk_write_ops_delta,omitempty"`
 	HostBudgetStateBytes    int64    `json:"host_budget_state_bytes,omitempty"`
 	HostBudgetCompressionOK bool     `json:"host_budget_compression_ok,omitempty"`
@@ -178,6 +179,7 @@ type codexCaptureLiveDelta struct {
 	HostBudgetReasons       []string `json:"host_budget_reasons,omitempty"`
 	HostBudgetRSSBytes      int64    `json:"host_budget_rss_bytes,omitempty"`
 	HostBudgetCPUWindowPct  float64  `json:"host_budget_cpu_window_percent,omitempty"`
+	HostBudgetCPUWindowSec  float64  `json:"host_budget_cpu_window_seconds,omitempty"`
 	HostBudgetDiskWriteOps  int64    `json:"host_budget_disk_write_ops_delta,omitempty"`
 	HostBudgetStateBytes    int64    `json:"host_budget_state_bytes,omitempty"`
 	HostBudgetCompressionOK bool     `json:"host_budget_compression_ok,omitempty"`
@@ -703,6 +705,7 @@ func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptu
 		HostBudgetReasons:       append([]string(nil), setup.HostBudget.Reasons...),
 		HostBudgetRSSBytes:      setup.HostBudget.RSSBytes,
 		HostBudgetCPUWindowPct:  setup.HostBudget.CPUWindowPercent,
+		HostBudgetCPUWindowSec:  setup.HostBudget.CPUWindowSeconds,
 		HostBudgetDiskWriteOps:  setup.HostBudget.DiskWriteOpsDelta,
 		HostBudgetStateBytes:    setup.HostBudget.StateBytes,
 		HostBudgetCompressionOK: setup.HostBudget.CompressionOK,
@@ -762,6 +765,7 @@ func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *co
 		HostBudgetReasons:       append([]string(nil), current.HostBudgetReasons...),
 		HostBudgetRSSBytes:      current.HostBudgetRSSBytes,
 		HostBudgetCPUWindowPct:  current.HostBudgetCPUWindowPct,
+		HostBudgetCPUWindowSec:  current.HostBudgetCPUWindowSec,
 		HostBudgetDiskWriteOps:  current.HostBudgetDiskWriteOps,
 		HostBudgetStateBytes:    current.HostBudgetStateBytes,
 		HostBudgetCompressionOK: current.HostBudgetCompressionOK,
@@ -1108,6 +1112,9 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 		fmt.Fprintf(w, "  billable_input_tokens_saved: %d\n", result.LiveDelta.BillableInputTokensSaved)
 		fmt.Fprintf(w, "  input_tokens_saved:          %d\n", result.LiveDelta.InputTokensSaved)
 		fmt.Fprintf(w, "  output_wire_bytes_saved:     %d\n", result.LiveDelta.OutputWireBytesSaved)
+		fmt.Fprintf(w, "  layer0_live read/repeated/chunk/refs: %d / %d / %d / %d\n",
+			result.LiveDelta.ProxyLayer0ReadDelta, result.LiveDelta.ProxyLayer0Repeated,
+			result.LiveDelta.ProxyLayer0ChunkDedup, result.LiveDelta.ProxyLayer0ChunkRefs)
 		fmt.Fprintf(w, "  safety_parse/degraded/compression: %d / %d / %d\n",
 			result.LiveDelta.ParseFailures, result.LiveDelta.DegradedSessions, result.LiveDelta.CompressionErrors)
 		writeCodexCaptureHostBudgetSummary(w, result.LiveDelta)
@@ -1127,9 +1134,9 @@ func writeCodexCaptureHostBudgetSummary(w io.Writer, delta *codexCaptureLiveDelt
 	if len(delta.HostBudgetReasons) > 0 {
 		reasons = strings.Join(delta.HostBudgetReasons, ",")
 	}
-	fmt.Fprintf(w, "  host_budget: %s exceeded=%v reasons=%s cpu_window=%.2f%% rss=%d state=%d\n",
+	fmt.Fprintf(w, "  host_budget: %s exceeded=%v reasons=%s cpu_window=%.2f%%/%.2fs rss=%d state=%d\n",
 		delta.HostBudgetStatus, delta.HostBudgetExceeded, reasons, delta.HostBudgetCPUWindowPct,
-		delta.HostBudgetRSSBytes, delta.HostBudgetStateBytes)
+		delta.HostBudgetCPUWindowSec, delta.HostBudgetRSSBytes, delta.HostBudgetStateBytes)
 }
 
 func writeCodexCapturePolicySummary(w io.Writer, entries []control.ProxyLayer0PolicyEntry) {

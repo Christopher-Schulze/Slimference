@@ -168,6 +168,27 @@ it remains guarded by policy.
   is product-resource stability, not reducer correctness. Next proof must either
   show live chunk hits under `host_budget_ok`, or make the chunk hotpath cheaper
   enough that the host-budget guard stays green on the real capture workload.
+- 2026-06-02: Follow-up host-budget hardening removed the false startup-poll
+  class from this blocker: CPU-window demotion now requires at least a one-second
+  measured window. The focused chunk proof still needs to be rerun with the new
+  guard and a clean latency-budget state; a pass must show live
+  `proxy_layer0_chunk_dedup_blocks>0`, `proxy_layer0_chunk_dedup_references>0`,
+  `host_budget_ok`, zero parse/degrade/compression errors, and replay
+  reconstruction gate pass on the same frames.
+- 2026-06-02: Reran the focused CLI WSS chunk proof after the host-budget
+  minimum-sample fix:
+  `/Users/christopher/.slimference/captures/live-cli-chunk-dedup-hostguard-cat-20260602T170717Z.jsonl`.
+  Result: live `billable_input_tokens_saved=1722`,
+  `proxy_layer0_chunk_dedup_blocks=1`,
+  `proxy_layer0_chunk_dedup_references=1`,
+  `proxy_layer0_chunk_dedup_referenced_bytes=8192`,
+  `proxy_layer0_chunk_dedup_input_bytes=32064`, `phasef_mutations=2`,
+  `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`,
+  `host_budget_status=ok`, and policy delta
+  `chunk_dedup/allow recoverable_chunk_dedup`. The focused matrix gate with
+  `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok` passed. Replay on the
+  same frames reports `reducer_tokens_saved=1722`, `bytes_saved=7907`,
+  one chunk reference, `expected_extras=1`, and `gate_passed=true`.
 - 2026-06-02: `codex-capture-run` now supports `--transport=wss` for focused
   mechanism proofs. Release proof can stay on `auto`, but chunk-dedup promotion
   should force `wss` while debugging so bridge/fallback cannot be mistaken for

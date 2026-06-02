@@ -233,10 +233,16 @@ func TestEvaluateHostBudgetStatus(t *testing.T) {
 		},
 		{
 			name:    "cpu window exceeded",
-			daemon:  DaemonState{RSSBytes: 64 * 1024 * 1024, CPUWindowPercent: DefaultHostCPUWindowBudgetPercent + 0.1},
+			daemon:  DaemonState{RSSBytes: 64 * 1024 * 1024, CPUWindowPercent: DefaultHostCPUWindowBudgetPercent + 0.1, CPUWindowSeconds: DefaultHostCPUWindowMinSampleSeconds},
 			wss:     WSSState{EngineActive: true},
 			want:    "attention",
 			reasons: 1,
+		},
+		{
+			name:   "short cpu window ignored",
+			daemon: DaemonState{RSSBytes: 64 * 1024 * 1024, CPUWindowPercent: DefaultHostCPUWindowBudgetPercent * 10, CPUWindowSeconds: DefaultHostCPUWindowMinSampleSeconds / 2},
+			wss:    WSSState{EngineActive: true},
+			want:   "ok",
 		},
 		{
 			name:    "disk write window exceeded",

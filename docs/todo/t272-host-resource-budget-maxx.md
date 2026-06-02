@@ -254,6 +254,17 @@ Initial targets for Apple Silicon macOS:
   the intended zero-drawdown behavior, but it means chunk-dedup default
   promotion still needs either a `host_budget_ok` live proof or a cheaper
   hotpath.
+- 2026-06-02: Added a CPU-window minimum-sample guard. The daemon now reports
+  `cpu_window_seconds`; `/admin/state.host_budget`, aggregate/workday reports,
+  and `codex-capture-run` carry it through. `cpu_window_budget_exceeded` only
+  demotes managed reducers after at least a one-second measured window. This
+  preserves the product guard against sustained CPU pressure while eliminating
+  the false startup/admin-poll demotion that blocked the first focused
+  chunk-dedup live proof before the session workload had run.
+- 2026-06-02: The rerun after the minimum-sample guard stayed under product
+  host budget (`host_budget_status=ok`, RSS 25 MB, state 3.7 MB) and allowed
+  chunk-dedup live. This proves the guard now distinguishes startup-poll
+  measurement artifacts from real product resource pressure.
 
 ## Done
 

@@ -60,6 +60,7 @@ type DaemonState struct {
 	CPUSystemSeconds  float64 `json:"cpu_system_seconds"`
 	CPUPercent        float64 `json:"cpu_percent"`
 	CPUWindowPercent  float64 `json:"cpu_window_percent"`
+	CPUWindowSeconds  float64 `json:"cpu_window_seconds"`
 	DiskReadOps       int64   `json:"disk_read_ops"`
 	DiskWriteOps      int64   `json:"disk_write_ops"`
 	DiskReadOpsDelta  int64   `json:"disk_read_ops_delta"`
@@ -376,6 +377,7 @@ type WSSState struct {
 const DefaultHostRSSBudgetBytes int64 = 200 * 1024 * 1024
 const DefaultHostStateBudgetBytes int64 = 512 * 1024 * 1024
 const DefaultHostCPUWindowBudgetPercent = 50.0
+const DefaultHostCPUWindowMinSampleSeconds = 1.0
 const DefaultHostDiskWriteOpsWindowBudget int64 = 5000
 
 type HostBudgetState struct {
@@ -386,6 +388,8 @@ type HostBudgetState struct {
 	CPUPercent              float64  `json:"cpu_percent"`
 	CPUWindowPercent        float64  `json:"cpu_window_percent"`
 	CPUWindowLimitPercent   float64  `json:"cpu_window_limit_percent"`
+	CPUWindowSeconds        float64  `json:"cpu_window_seconds"`
+	CPUWindowMinSeconds     float64  `json:"cpu_window_min_seconds"`
 	DiskReadOps             int64    `json:"disk_read_ops"`
 	DiskWriteOps            int64    `json:"disk_write_ops"`
 	DiskReadOpsDelta        int64    `json:"disk_read_ops_delta"`
@@ -407,6 +411,8 @@ func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 		CPUPercent:              daemon.CPUPercent,
 		CPUWindowPercent:        daemon.CPUWindowPercent,
 		CPUWindowLimitPercent:   DefaultHostCPUWindowBudgetPercent,
+		CPUWindowSeconds:        daemon.CPUWindowSeconds,
+		CPUWindowMinSeconds:     DefaultHostCPUWindowMinSampleSeconds,
 		DiskReadOps:             daemon.DiskReadOps,
 		DiskWriteOps:            daemon.DiskWriteOps,
 		DiskReadOpsDelta:        daemon.DiskReadOpsDelta,
@@ -430,7 +436,7 @@ func EvaluateHostBudget(daemon DaemonState, wss WSSState) HostBudgetState {
 		state.Exceeded = true
 		state.Reasons = append(state.Reasons, "state_budget_exceeded")
 	}
-	if daemon.CPUWindowPercent > DefaultHostCPUWindowBudgetPercent {
+	if daemon.CPUWindowSeconds >= DefaultHostCPUWindowMinSampleSeconds && daemon.CPUWindowPercent > DefaultHostCPUWindowBudgetPercent {
 		state.Exceeded = true
 		state.Reasons = append(state.Reasons, "cpu_window_budget_exceeded")
 	}

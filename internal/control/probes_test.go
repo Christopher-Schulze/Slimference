@@ -170,7 +170,7 @@ func TestKeychainCAProbeNilLooker(t *testing.T) {
 func TestHTTPDaemonProbeOK(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"pid":42,"version":"v9.9","rss_bytes":123456,"uptime_sec":77,"cpu_user_seconds":1.25,"cpu_system_seconds":0.5,"cpu_percent":2.5,"cpu_window_percent":4.5,"disk_read_ops":3,"disk_write_ops":4,"disk_read_ops_delta":5,"disk_write_ops_delta":6,"state_bytes":999}`))
+		_, _ = w.Write([]byte(`{"pid":42,"version":"v9.9","rss_bytes":123456,"uptime_sec":77,"cpu_user_seconds":1.25,"cpu_system_seconds":0.5,"cpu_percent":2.5,"cpu_window_percent":4.5,"cpu_window_seconds":1.25,"disk_read_ops":3,"disk_write_ops":4,"disk_read_ops_delta":5,"disk_write_ops_delta":6,"state_bytes":999}`))
 	}))
 	defer srv.Close()
 	probe := &HTTPDaemonProbe{BaseURL: srv.URL}
@@ -188,7 +188,8 @@ func TestHTTPDaemonProbeOK(t *testing.T) {
 		t.Errorf("resource fields rss=%d uptime=%d", state.RSSBytes, state.UptimeSec)
 	}
 	if state.CPUUserSeconds != 1.25 || state.CPUSystemSeconds != 0.5 || state.CPUPercent != 2.5 ||
-		state.CPUWindowPercent != 4.5 || state.DiskReadOps != 3 || state.DiskWriteOps != 4 ||
+		state.CPUWindowPercent != 4.5 || state.CPUWindowSeconds != 1.25 ||
+		state.DiskReadOps != 3 || state.DiskWriteOps != 4 ||
 		state.DiskReadOpsDelta != 5 || state.DiskWriteOpsDelta != 6 || state.StateBytes != 999 {
 		t.Errorf("extended resource fields mismatch: %+v", state)
 	}

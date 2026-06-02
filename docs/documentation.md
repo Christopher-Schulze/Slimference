@@ -446,6 +446,11 @@ and content-free reason codes. The daemon/admin path uses an in-process
 resource probe for PID, uptime, real RSS, process CPU time, disk I/O counters,
 and state size where the platform can provide it, avoiding a loopback
 self-health guess for the product budget.
+CPU-window demotion ignores sub-second windows: tiny startup/admin-poll samples
+remain visible in telemetry but cannot force managed reducers into full-pass.
+Only a stable window of at least one second can trigger
+`cpu_window_budget_exceeded`, which prevents false startup demotion while still
+protecting the product path from sustained local CPU pressure.
 Policy demotion uses the same concept through budget inputs. Host-budget
 attention demotes recoverable or heavier mechanisms such as chunk references
 while keeping cheap lossless/exact cache-hit reducers (`read_delta`,

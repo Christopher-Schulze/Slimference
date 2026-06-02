@@ -1689,6 +1689,7 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		CPUSystemSeconds  float64         `json:"cpu_system_seconds"`
 		CPUPercent        float64         `json:"cpu_percent"`
 		CPUWindowPercent  float64         `json:"cpu_window_percent"`
+		CPUWindowSeconds  float64         `json:"cpu_window_seconds"`
 		DiskReadOps       int64           `json:"disk_read_ops"`
 		DiskWriteOps      int64           `json:"disk_write_ops"`
 		DiskReadOpsDelta  int64           `json:"disk_read_ops_delta"`
@@ -1710,6 +1711,7 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		CPUSystemSeconds:  resource.CPUSystemSeconds,
 		CPUPercent:        resource.CPUPercent,
 		CPUWindowPercent:  resource.CPUWindowPercent,
+		CPUWindowSeconds:  resource.CPUWindowSeconds,
 		DiskReadOps:       resource.DiskReadOps,
 		DiskWriteOps:      resource.DiskWriteOps,
 		DiskReadOpsDelta:  resource.DiskReadOpsDelta,

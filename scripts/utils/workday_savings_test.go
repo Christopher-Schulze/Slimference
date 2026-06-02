@@ -21,6 +21,7 @@ func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
 	currentBody = strings.Replace(currentBody, `"disk_write_ops": 200`, `"disk_write_ops": 260`, 1)
 	currentBody = strings.Replace(currentBody, `"disk_write_ops_delta": 20`, `"disk_write_ops_delta": 60`, 1)
 	currentBody = strings.Replace(currentBody, `"cpu_window_percent": 2.5`, `"cpu_window_percent": 4.5`, 1)
+	currentBody = strings.Replace(currentBody, `"cpu_window_seconds": 3.5`, `"cpu_window_seconds": 5.5`, 1)
 	currentBody = strings.Replace(currentBody, `"state_bytes": 4096`, `"state_bytes": 8192`, 1)
 	currentState := writeAggregateStateFile(t, currentBody)
 	baseline := filepath.Join(t.TempDir(), "workday-baseline.json")
@@ -57,6 +58,8 @@ func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
 		t.Fatalf("workday report should carry current recert snapshot: current=%+v delta=%+v", got.Current.CodexRoute, got.Delta.CodexRoute)
 	}
 	if got.Current.HostBudget.CPUWindowPercent != 4.5 ||
+		got.Current.HostBudget.CPUWindowSeconds != 5.5 ||
+		got.Delta.HostBudget.CPUWindowSeconds != 5.5 ||
 		got.Delta.HostBudget.DiskWriteOps != 60 ||
 		got.Delta.HostBudget.DiskWriteOpsDelta != 60 ||
 		got.Delta.HostBudget.StateBytes != 8192 {

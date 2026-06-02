@@ -359,10 +359,11 @@ func diffAggregateSavingsReports(base, current aggregateSavingsReport) aggregate
 		out.Notes = append(out.Notes, "Recert attempt changed during the measured window: "+current.CodexRoute.RecertAttemptID)
 	}
 	if current.HostBudget.Status != "" {
-		out.Notes = append(out.Notes, fmt.Sprintf("Host budget finished as %s with RSS=%d bytes, CPU window=%.2f%%, disk write delta=%d, state=%d bytes.",
+		out.Notes = append(out.Notes, fmt.Sprintf("Host budget finished as %s with RSS=%d bytes, CPU window=%.2f%% over %.2fs, disk write delta=%d, state=%d bytes.",
 			current.HostBudget.Status,
 			current.HostBudget.RSSBytes,
 			current.HostBudget.CPUWindowPercent,
+			current.HostBudget.CPUWindowSeconds,
 			current.HostBudget.DiskWriteOpsDelta,
 			current.HostBudget.StateBytes))
 	}
@@ -377,6 +378,8 @@ func diffAggregateHostBudget(base, current aggregateHostBudgetBlock) aggregateHo
 	out.RSSBytes = current.RSSBytes
 	out.CPUPercent = current.CPUPercent
 	out.CPUWindowPercent = current.CPUWindowPercent
+	out.CPUWindowSeconds = current.CPUWindowSeconds
+	out.CPUWindowMinSeconds = current.CPUWindowMinSeconds
 	out.DiskReadOps = nonNegativeDelta(current.DiskReadOps, base.DiskReadOps)
 	out.DiskWriteOps = nonNegativeDelta(current.DiskWriteOps, base.DiskWriteOps)
 	out.DiskReadOpsDelta = current.DiskReadOpsDelta

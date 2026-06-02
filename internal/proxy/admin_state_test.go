@@ -185,7 +185,7 @@ func TestAnnotateResourceWindowComputesCPUAndDiskDeltas(t *testing.T) {
 		DiskIOKnown:      true,
 	}
 	p.annotateResourceWindow(&snap)
-	if !snap.CPUWindowKnown || snap.CPUWindowPercent <= 0 {
+	if !snap.CPUWindowKnown || snap.CPUWindowPercent <= 0 || snap.CPUWindowSeconds <= 0 {
 		t.Fatalf("CPU window not computed: %+v", snap)
 	}
 	if !snap.DiskWindowKnown || snap.DiskReadOpsDelta != 5 || snap.DiskWriteOpsDelta != 11 {

@@ -125,6 +125,7 @@ func (p *HTTPDaemonProbe) ProbeDaemon(ctx context.Context) DaemonState {
 		CPUSystemSeconds  float64 `json:"cpu_system_seconds"`
 		CPUPercent        float64 `json:"cpu_percent"`
 		CPUWindowPercent  float64 `json:"cpu_window_percent"`
+		CPUWindowSeconds  float64 `json:"cpu_window_seconds"`
 		DiskReadOps       int64   `json:"disk_read_ops"`
 		DiskWriteOps      int64   `json:"disk_write_ops"`
 		DiskReadOpsDelta  int64   `json:"disk_read_ops_delta"`
@@ -139,6 +140,7 @@ func (p *HTTPDaemonProbe) ProbeDaemon(ctx context.Context) DaemonState {
 	state.CPUSystemSeconds = body.CPUSystemSeconds
 	state.CPUPercent = body.CPUPercent
 	state.CPUWindowPercent = body.CPUWindowPercent
+	state.CPUWindowSeconds = body.CPUWindowSeconds
 	state.DiskReadOps = body.DiskReadOps
 	state.DiskWriteOps = body.DiskWriteOps
 	state.DiskReadOpsDelta = body.DiskReadOpsDelta

@@ -125,6 +125,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 				PhasefMutations:           1,
 				ProxyLayer0ReadDelta:      1,
 				ProxyLayer0ChunkRefs:      2,
+				ProxyLayer0ChunkDedup:     1,
 				ProxyLayer0Policy: []control.ProxyLayer0PolicyEntry{
 					{Route: "wss_phasef", Mechanism: "chunk_dedup", Action: "allow", Reason: "recoverable_chunk_dedup", Count: 1},
 				},
@@ -136,6 +137,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 				StopSeqRequestsModified: 5,
 				HostBudgetStatus:        "ok",
 				HostBudgetCPUWindowPct:  2.5,
+				HostBudgetCPUWindowSec:  1.5,
 				HostBudgetRSSBytes:      1000,
 				HostBudgetStateBytes:    2000,
 				HostBudgetCompressionOK: true,
@@ -194,6 +196,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "billable_input_tokens_saved: 321") ||
 		!strings.Contains(stdout.String(), "replay_bytes_saved: 1234") ||
+		!strings.Contains(stdout.String(), "layer0_live read/repeated/chunk/refs: 1 / 0 / 1 / 2") ||
 		!strings.Contains(stdout.String(), "host_budget: ok exceeded=false") ||
 		!strings.Contains(stdout.String(), "gate:          PASS") {
 		t.Fatalf("summary missing replay fields:\n%s", stdout.String())
@@ -294,6 +297,7 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	    "exceeded": false,
 	    "rss_bytes": 123,
 	    "cpu_window_percent": 1.5,
+	    "cpu_window_seconds": 2.5,
 	    "disk_write_ops_delta": 8,
 	    "state_bytes": 456,
 	    "compression_ok": true,
@@ -319,7 +323,7 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	if snapshot.OutputReduceInjected != 3 || snapshot.OutputReduceDowngrades != 1 || snapshot.BeterseInjections != 6 {
 		t.Fatalf("output reduce fields missing: %+v", snapshot)
 	}
-	if snapshot.HostBudgetStatus != "ok" || snapshot.HostBudgetRSSBytes != 123 || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
+	if snapshot.HostBudgetStatus != "ok" || snapshot.HostBudgetRSSBytes != 123 || snapshot.HostBudgetCPUWindowSec != 2.5 || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
 		t.Fatalf("host budget fields missing: %+v", snapshot)
 	}
 }

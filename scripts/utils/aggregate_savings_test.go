@@ -46,6 +46,8 @@ const aggregateSampleAdminState = `{
     "cpu_percent": 1.25,
     "cpu_window_percent": 2.5,
     "cpu_window_limit_percent": 50,
+    "cpu_window_seconds": 3.5,
+    "cpu_window_min_seconds": 1,
     "disk_read_ops": 100,
     "disk_write_ops": 200,
     "disk_read_ops_delta": 10,
@@ -269,6 +271,8 @@ func TestAggregateSavingsJSONShape(t *testing.T) {
 	if got.HostBudget.Status != "ok" ||
 		got.HostBudget.RSSBytes != 104857600 ||
 		got.HostBudget.CPUWindowPercent != 2.5 ||
+		got.HostBudget.CPUWindowSeconds != 3.5 ||
+		got.HostBudget.CPUWindowMinSeconds != 1 ||
 		got.HostBudget.DiskWriteOpsDelta != 20 ||
 		got.HostBudget.StateBytes != 4096 ||
 		!got.HostBudget.CompressionOK ||

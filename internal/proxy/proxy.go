@@ -561,6 +561,7 @@ func (p *Proxy) annotateResourceWindow(snap *hostmetrics.ProcessSnapshot) {
 	if snap.CPUKnown && prev.CPUKnown {
 		delta := (snap.CPUUserSeconds + snap.CPUSystemSeconds) - (prev.CPUUserSeconds + prev.CPUSystemSeconds)
 		if delta >= 0 {
+			snap.CPUWindowSeconds = elapsed
 			snap.CPUWindowPercent = delta / elapsed * 100
 			snap.CPUWindowKnown = true
 		}

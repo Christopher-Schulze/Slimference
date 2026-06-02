@@ -93,6 +93,8 @@ type aggregateHostBudgetBlock struct {
 	CPUPercent              float64  `json:"cpu_percent"`
 	CPUWindowPercent        float64  `json:"cpu_window_percent"`
 	CPUWindowLimitPercent   float64  `json:"cpu_window_limit_percent"`
+	CPUWindowSeconds        float64  `json:"cpu_window_seconds"`
+	CPUWindowMinSeconds     float64  `json:"cpu_window_min_seconds"`
 	DiskReadOps             int64    `json:"disk_read_ops"`
 	DiskWriteOps            int64    `json:"disk_write_ops"`
 	DiskReadOpsDelta        int64    `json:"disk_read_ops_delta"`
@@ -339,6 +341,8 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			CPUPercent:              state.HostBudget.CPUPercent,
 			CPUWindowPercent:        state.HostBudget.CPUWindowPercent,
 			CPUWindowLimitPercent:   state.HostBudget.CPUWindowLimitPercent,
+			CPUWindowSeconds:        state.HostBudget.CPUWindowSeconds,
+			CPUWindowMinSeconds:     state.HostBudget.CPUWindowMinSeconds,
 			DiskReadOps:             state.HostBudget.DiskReadOps,
 			DiskWriteOps:            state.HostBudget.DiskWriteOps,
 			DiskReadOpsDelta:        state.HostBudget.DiskReadOpsDelta,
@@ -470,8 +474,9 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "  status:                    %s\n", valueOrDash(report.HostBudget.Status))
 	fmt.Fprintf(w, "  exceeded:                  %v\n", report.HostBudget.Exceeded)
 	fmt.Fprintf(w, "  rss_bytes/limit:           %d / %d\n", report.HostBudget.RSSBytes, report.HostBudget.RSSLimitBytes)
-	fmt.Fprintf(w, "  cpu_percent/window/limit:  %.2f / %.2f / %.2f\n",
-		report.HostBudget.CPUPercent, report.HostBudget.CPUWindowPercent, report.HostBudget.CPUWindowLimitPercent)
+	fmt.Fprintf(w, "  cpu_percent/window/limit:  %.2f / %.2f / %.2f (window %.2fs, min %.2fs)\n",
+		report.HostBudget.CPUPercent, report.HostBudget.CPUWindowPercent, report.HostBudget.CPUWindowLimitPercent,
+		report.HostBudget.CPUWindowSeconds, report.HostBudget.CPUWindowMinSeconds)
 	fmt.Fprintf(w, "  disk_write_ops/delta/limit:%d / %d / %d\n",
 		report.HostBudget.DiskWriteOps, report.HostBudget.DiskWriteOpsDelta, report.HostBudget.DiskWriteOpsWindowLimit)
 	fmt.Fprintf(w, "  state_bytes/limit:         %d / %d\n", report.HostBudget.StateBytes, report.HostBudget.StateLimitBytes)

@@ -14,6 +14,7 @@ type ProcessSnapshot struct {
 	CPUSystemSeconds  float64
 	CPUPercent        float64
 	CPUWindowPercent  float64
+	CPUWindowSeconds  float64
 	CPUKnown          bool
 	CPUWindowKnown    bool
 	DiskReadOps       int64
