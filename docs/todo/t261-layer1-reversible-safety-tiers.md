@@ -131,6 +131,10 @@ compression shortcut.
   sub-layer tags. Any future unclassified mutation now requires archive recovery
   before model-facing text can change, preventing accidental unrecoverable
   context loss from new Layer 1 work.
+- 2026-06-02: Hardened the same guard for unattributed non-ANSI mutations. An
+  empty sub-layer tag list now also requires archive recovery, so a future
+  mutating pass cannot bypass recovery merely by forgetting to append its
+  registry id.
 
 ## Done
 

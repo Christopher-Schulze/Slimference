@@ -85,6 +85,9 @@ func TestLayer1SubLayerByID(t *testing.T) {
 
 func TestLayer1MutationRequiresArchiveFailsClosedForUnknownSubLayer(t *testing.T) {
 	t.Parallel()
+	if !layer1MutationRequiresArchive(nil) {
+		t.Fatal("unattributed non-ANSI mutation must require archive until classified")
+	}
 	if !layer1MutationRequiresArchive([]string{"new_lossy_candidate"}) {
 		t.Fatal("unknown sub-layer must require archive until classified")
 	}
