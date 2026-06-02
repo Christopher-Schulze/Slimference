@@ -1960,7 +1960,9 @@ be called complete, default-safe, and production-grade.
   references through reconstructed A/B replay, and enforces per-output reference
   density before accepted session budget accounting. Proof-matrix rows can now
   require live `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; live
-  matrix proof remains. Detail:
+  matrix proof remains, with the latest live zero-hit root cause identified as
+  `host_budget_full_context` from `cpu_window_budget_exceeded`, not reducer
+  miswiring. Detail:
   `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
 - [~] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact
@@ -2081,7 +2083,10 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
 - [ ] **T266 chunk-dedup closeout** - run the live CLI + Desktop matrix before
   treating chunk references as a default-safe production claim. Chunk refs must
   remain cross-send only, never patch/diff/edit, never first-observation, density
-  bounded, archive-backed, canary-governed, and host-budget aware.
+  bounded, archive-backed, canary-governed, and host-budget aware. Latest
+  focused CLI WSS proof shows replay chunk refs on the same frames, but live
+  full-passes chunk-dedup under host-budget CPU-window attention, so the next
+  step is a `host_budget_ok` live proof or a cheaper chunk hotpath.
 - [ ] **T267 output-reduce closeout** - prove aggressive profiles on real
   direct-answer/status/read-only/planning/edit workflows with repair/re-ask
   rollback active. WSS streamcut remains disabled until terminal-safe proof

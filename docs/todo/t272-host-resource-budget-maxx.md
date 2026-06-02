@@ -244,6 +244,16 @@ Initial targets for Apple Silicon macOS:
   focused gates can explicitly require `host_budget_ok`. Existing legacy rows
   without host-budget fields remain readable, but new release/resource rows can
   no longer pass while local overhead is in attention/degraded state.
+- 2026-06-02: `codex-capture-run` now also prints and persists Layer-0 policy
+  and cache deltas. This closes the proof blind spot where a live capture could
+  show replay savings but zero live savings without explaining whether the
+  mechanism was blocked, full-passed, or simply missed. The first rerun exposed
+  a real product guard decision: chunk-dedup full-passed under
+  `host_budget_full_context` due to `cpu_window_budget_exceeded`, while
+  lossless read/repeated reducers remained allowed under host pressure. This is
+  the intended zero-drawdown behavior, but it means chunk-dedup default
+  promotion still needs either a `host_budget_ok` live proof or a cheaper
+  hotpath.
 
 ## Done
 

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/slimference/slimference/internal/control"
 )
 
 func TestParseCodexCaptureRunFlags(t *testing.T) {
@@ -123,12 +125,21 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 				PhasefMutations:           1,
 				ProxyLayer0ReadDelta:      1,
 				ProxyLayer0ChunkRefs:      2,
-				ToolPrunePruned:           3,
-				OutputReduceInjected:      4,
-				StopSeqRequestsModified:   5,
-				HostBudgetStatus:          "ok",
-				HostBudgetCompressionOK:   true,
-				HostBudgetDegradationOK:   true,
+				ProxyLayer0Policy: []control.ProxyLayer0PolicyEntry{
+					{Route: "wss_phasef", Mechanism: "chunk_dedup", Action: "allow", Reason: "recoverable_chunk_dedup", Count: 1},
+				},
+				ProxyLayer0Cache: []control.ProxyLayer0CacheEntry{
+					{Route: "wss_phasef", Mechanism: "read_delta", Action: "hit", Reason: "unchanged", Count: 1},
+				},
+				ToolPrunePruned:         3,
+				OutputReduceInjected:    4,
+				StopSeqRequestsModified: 5,
+				HostBudgetStatus:        "ok",
+				HostBudgetCPUWindowPct:  2.5,
+				HostBudgetRSSBytes:      1000,
+				HostBudgetStateBytes:    2000,
+				HostBudgetCompressionOK: true,
+				HostBudgetDegradationOK: true,
 			}, nil
 		},
 		runCodex: func(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
@@ -183,6 +194,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "billable_input_tokens_saved: 321") ||
 		!strings.Contains(stdout.String(), "replay_bytes_saved: 1234") ||
+		!strings.Contains(stdout.String(), "host_budget: ok exceeded=false") ||
 		!strings.Contains(stdout.String(), "gate:          PASS") {
 		t.Fatalf("summary missing replay fields:\n%s", stdout.String())
 	}
@@ -208,6 +220,16 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		!records[0].LiveDelta.HostBudgetDegradationOK {
 		t.Fatalf("matrix row missing extended live delta: %+v", records[0].LiveDelta)
 	}
+	if len(records[0].LiveDelta.ProxyLayer0Policy) != 1 ||
+		records[0].LiveDelta.ProxyLayer0Policy[0].Mechanism != "chunk_dedup" ||
+		records[0].LiveDelta.ProxyLayer0Policy[0].Count != 1 {
+		t.Fatalf("matrix row missing policy delta: %+v", records[0].LiveDelta.ProxyLayer0Policy)
+	}
+	if len(records[0].LiveDelta.ProxyLayer0Cache) != 1 ||
+		records[0].LiveDelta.ProxyLayer0Cache[0].Mechanism != "read_delta" ||
+		records[0].LiveDelta.ProxyLayer0Cache[0].Count != 1 {
+		t.Fatalf("matrix row missing cache delta: %+v", records[0].LiveDelta.ProxyLayer0Cache)
+	}
 }
 
 func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
@@ -217,7 +239,25 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	    "proxy_layer0_chunk_dedup_blocks": 1,
 	    "proxy_layer0_chunk_dedup_references": 4,
 	    "proxy_layer0_chunk_dedup_referenced_bytes": 8192,
-	    "proxy_layer0_chunk_dedup_input_bytes": 16384
+	    "proxy_layer0_chunk_dedup_input_bytes": 16384,
+	    "proxy_layer0_policy": [
+	      {
+	        "route": "wss_phasef",
+	        "mechanism": "chunk_dedup",
+	        "action": "allow",
+	        "reason": "recoverable_chunk_dedup",
+	        "count": 3
+	      }
+	    ],
+	    "proxy_layer0_cache": [
+	      {
+	        "route": "wss_phasef",
+	        "mechanism": "read_delta",
+	        "action": "hit",
+	        "reason": "unchanged",
+	        "count": 2
+	      }
+	    ]
 	  },
 	  "wss": {
 	    "phasef_bridged": 1,
@@ -267,6 +307,12 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	if snapshot.ProxyLayer0ChunkRefs != 4 || snapshot.ProxyLayer0ChunkRefB != 8192 || snapshot.ProxyLayer0ChunkInB != 16384 {
 		t.Fatalf("chunk fields missing: %+v", snapshot)
 	}
+	if len(snapshot.ProxyLayer0Policy) != 1 || snapshot.ProxyLayer0Policy[0].Count != 3 {
+		t.Fatalf("policy fields missing: %+v", snapshot.ProxyLayer0Policy)
+	}
+	if len(snapshot.ProxyLayer0Cache) != 1 || snapshot.ProxyLayer0Cache[0].Count != 2 {
+		t.Fatalf("cache fields missing: %+v", snapshot.ProxyLayer0Cache)
+	}
 	if snapshot.ToolPrunePruned != 7 || snapshot.ToolPruneReattach != 2 || snapshot.ToolPruneTokensSaved != 120 {
 		t.Fatalf("tool prune fields missing: %+v", snapshot)
 	}
@@ -275,6 +321,52 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	}
 	if snapshot.HostBudgetStatus != "ok" || snapshot.HostBudgetRSSBytes != 123 || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
 		t.Fatalf("host budget fields missing: %+v", snapshot)
+	}
+}
+
+func TestDeltaCodexCaptureAdminSnapshotIncludesPolicyAndCacheDeltas(t *testing.T) {
+	base := codexCaptureAdminSnapshot{
+		ProxyLayer0Policy: []control.ProxyLayer0PolicyEntry{
+			{Route: "wss_phasef", Mechanism: "chunk_dedup", Action: "block", Reason: "below_min_bytes", BlockReason: "below_min_bytes", Count: 2},
+			{Route: "wss_phasef", Mechanism: "read_delta", Action: "allow", Reason: "lossless_or_exact_reducer", Count: 5},
+		},
+		ProxyLayer0Cache: []control.ProxyLayer0CacheEntry{
+			{Route: "wss_phasef", Mechanism: "read_delta", Action: "miss", Reason: "first_observation_seeded", Count: 1},
+		},
+	}
+	current := codexCaptureAdminSnapshot{
+		ProxyLayer0Policy: []control.ProxyLayer0PolicyEntry{
+			{Route: "wss_phasef", Mechanism: "chunk_dedup", Action: "block", Reason: "below_min_bytes", BlockReason: "below_min_bytes", Count: 2},
+			{Route: "wss_phasef", Mechanism: "chunk_dedup", Action: "allow", Reason: "recoverable_chunk_dedup", Count: 3},
+			{Route: "wss_phasef", Mechanism: "read_delta", Action: "allow", Reason: "lossless_or_exact_reducer", Count: 7},
+		},
+		ProxyLayer0Cache: []control.ProxyLayer0CacheEntry{
+			{Route: "wss_phasef", Mechanism: "read_delta", Action: "miss", Reason: "first_observation_seeded", Count: 2},
+			{Route: "wss_phasef", Mechanism: "read_delta", Action: "hit", Reason: "unchanged", Count: 1},
+		},
+	}
+	delta := deltaCodexCaptureAdminSnapshot(base, current)
+	if len(delta.ProxyLayer0Policy) != 2 {
+		t.Fatalf("policy delta count = %d: %+v", len(delta.ProxyLayer0Policy), delta.ProxyLayer0Policy)
+	}
+	policyCounts := map[string]int64{}
+	for _, entry := range delta.ProxyLayer0Policy {
+		policyCounts[entry.Mechanism+"/"+entry.Action+"/"+entry.Reason] = entry.Count
+	}
+	if policyCounts["chunk_dedup/allow/recoverable_chunk_dedup"] != 3 ||
+		policyCounts["read_delta/allow/lossless_or_exact_reducer"] != 2 {
+		t.Fatalf("policy delta mismatch: %+v", delta.ProxyLayer0Policy)
+	}
+	if len(delta.ProxyLayer0Cache) != 2 {
+		t.Fatalf("cache delta count = %d: %+v", len(delta.ProxyLayer0Cache), delta.ProxyLayer0Cache)
+	}
+	cacheCounts := map[string]int64{}
+	for _, entry := range delta.ProxyLayer0Cache {
+		cacheCounts[entry.Mechanism+"/"+entry.Action+"/"+entry.Reason] = entry.Count
+	}
+	if cacheCounts["read_delta/miss/first_observation_seeded"] != 1 ||
+		cacheCounts["read_delta/hit/unchanged"] != 1 {
+		t.Fatalf("cache delta mismatch: %+v", delta.ProxyLayer0Cache)
 	}
 }
 

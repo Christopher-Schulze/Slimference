@@ -156,6 +156,18 @@ it remains guarded by policy.
   sufficient for default promotion. Follow-up must prove the same mechanism
   through a live `phasef_mutations>0` row, or fix the live wiring/counter path
   if replay and live continue to diverge.
+- 2026-06-02: Added policy/cache deltas to `codex-capture-run` live output and
+  matrix rows, then reran the clean two-file CLI WSS proof:
+  `/Users/christopher/.slimference/captures/live-cli-chunk-dedup-policy-cat-20260602T165831Z.jsonl`.
+  The new live delta explains the previous zero-hit result: chunk-dedup was not
+  miswired; it was deliberately demoted with `chunk_dedup/full_pass
+  host_budget_full_context` because `/admin/state.host_budget` reported
+  `cpu_window_budget_exceeded` (`cpu_window_percent=428.57`, RSS 17 MB, state
+  3.98 MB). Replay on the same frames still produces one chunk-dedup mutation
+  and 7907 request bytes saved, so the remaining blocker for default promotion
+  is product-resource stability, not reducer correctness. Next proof must either
+  show live chunk hits under `host_budget_ok`, or make the chunk hotpath cheaper
+  enough that the host-budget guard stays green on the real capture workload.
 - 2026-06-02: `codex-capture-run` now supports `--transport=wss` for focused
   mechanism proofs. Release proof can stay on `auto`, but chunk-dedup promotion
   should force `wss` while debugging so bridge/fallback cannot be mistaken for

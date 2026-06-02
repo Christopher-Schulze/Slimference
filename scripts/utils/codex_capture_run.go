@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -80,14 +81,16 @@ type codexCaptureAdminSnapshot struct {
 	FramesReencoded           int64 `json:"frames_reencoded"`
 	PhasefMutations           int64 `json:"phasef_mutations"`
 
-	ProxyLayer0ReadDelta  int64 `json:"proxy_layer0_read_delta_blocks"`
-	ProxyLayer0Captured   int64 `json:"proxy_layer0_captured_output_blocks"`
-	ProxyLayer0Envelope   int64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
-	ProxyLayer0Repeated   int64 `json:"proxy_layer0_repeated_output_blocks"`
-	ProxyLayer0ChunkDedup int64 `json:"proxy_layer0_chunk_dedup_blocks"`
-	ProxyLayer0ChunkRefs  int64 `json:"proxy_layer0_chunk_dedup_references"`
-	ProxyLayer0ChunkRefB  int64 `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
-	ProxyLayer0ChunkInB   int64 `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0ReadDelta  int64                            `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0Captured   int64                            `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0Envelope   int64                            `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Repeated   int64                            `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedup int64                            `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkRefs  int64                            `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkRefB  int64                            `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkInB   int64                            `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0Policy     []control.ProxyLayer0PolicyEntry `json:"proxy_layer0_policy,omitempty"`
+	ProxyLayer0Cache      []control.ProxyLayer0CacheEntry  `json:"proxy_layer0_cache,omitempty"`
 
 	ToolPrunePruned      int64 `json:"tool_prune_pruned_total"`
 	ToolPruneReattach    int64 `json:"tool_prune_reattach_total"`
@@ -135,14 +138,16 @@ type codexCaptureLiveDelta struct {
 	FramesReencoded           int64 `json:"frames_reencoded"`
 	PhasefMutations           int64 `json:"phasef_mutations"`
 
-	ProxyLayer0ReadDelta  int64 `json:"proxy_layer0_read_delta_blocks"`
-	ProxyLayer0Captured   int64 `json:"proxy_layer0_captured_output_blocks"`
-	ProxyLayer0Envelope   int64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
-	ProxyLayer0Repeated   int64 `json:"proxy_layer0_repeated_output_blocks"`
-	ProxyLayer0ChunkDedup int64 `json:"proxy_layer0_chunk_dedup_blocks"`
-	ProxyLayer0ChunkRefs  int64 `json:"proxy_layer0_chunk_dedup_references"`
-	ProxyLayer0ChunkRefB  int64 `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
-	ProxyLayer0ChunkInB   int64 `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0ReadDelta  int64                            `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0Captured   int64                            `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0Envelope   int64                            `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Repeated   int64                            `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedup int64                            `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkRefs  int64                            `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkRefB  int64                            `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkInB   int64                            `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0Policy     []control.ProxyLayer0PolicyEntry `json:"proxy_layer0_policy,omitempty"`
+	ProxyLayer0Cache      []control.ProxyLayer0CacheEntry  `json:"proxy_layer0_cache,omitempty"`
 
 	ToolPrunePruned      int64 `json:"tool_prune_pruned_total"`
 	ToolPruneReattach    int64 `json:"tool_prune_reattach_total"`
@@ -666,6 +671,8 @@ func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptu
 		ProxyLayer0ChunkRefs:  setup.Savings.ProxyLayer0ChunkRefs,
 		ProxyLayer0ChunkRefB:  setup.Savings.ProxyLayer0ChunkRefBytes,
 		ProxyLayer0ChunkInB:   setup.Savings.ProxyLayer0ChunkInBytes,
+		ProxyLayer0Policy:     append([]control.ProxyLayer0PolicyEntry(nil), setup.Savings.ProxyLayer0Policy...),
+		ProxyLayer0Cache:      append([]control.ProxyLayer0CacheEntry(nil), setup.Savings.ProxyLayer0Cache...),
 
 		ToolPrunePruned:      setup.ToolPrune.PrunedTotal,
 		ToolPruneReattach:    setup.ToolPrune.ReattachTotal,
@@ -723,6 +730,8 @@ func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *co
 		ProxyLayer0ChunkRefs:  nonNegativeDelta(current.ProxyLayer0ChunkRefs, base.ProxyLayer0ChunkRefs),
 		ProxyLayer0ChunkRefB:  nonNegativeDelta(current.ProxyLayer0ChunkRefB, base.ProxyLayer0ChunkRefB),
 		ProxyLayer0ChunkInB:   nonNegativeDelta(current.ProxyLayer0ChunkInB, base.ProxyLayer0ChunkInB),
+		ProxyLayer0Policy:     deltaCodexCapturePolicyEntries(base.ProxyLayer0Policy, current.ProxyLayer0Policy),
+		ProxyLayer0Cache:      deltaCodexCaptureCacheEntries(base.ProxyLayer0Cache, current.ProxyLayer0Cache),
 
 		ToolPrunePruned:      nonNegativeDelta(current.ToolPrunePruned, base.ToolPrunePruned),
 		ToolPruneReattach:    nonNegativeDelta(current.ToolPruneReattach, base.ToolPruneReattach),
@@ -758,6 +767,54 @@ func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *co
 		HostBudgetCompressionOK: current.HostBudgetCompressionOK,
 		HostBudgetDegradationOK: current.HostBudgetDegradationOK,
 	}
+}
+
+func deltaCodexCapturePolicyEntries(base, current []control.ProxyLayer0PolicyEntry) []control.ProxyLayer0PolicyEntry {
+	baseCounts := make(map[string]int64, len(base))
+	for _, entry := range base {
+		baseCounts[codexCapturePolicyEntryKey(entry)] += entry.Count
+	}
+	out := make([]control.ProxyLayer0PolicyEntry, 0, len(current))
+	for _, entry := range current {
+		count := nonNegativeDelta(entry.Count, baseCounts[codexCapturePolicyEntryKey(entry)])
+		if count == 0 {
+			continue
+		}
+		entry.Count = count
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return codexCapturePolicyEntryKey(out[i]) < codexCapturePolicyEntryKey(out[j])
+	})
+	return out
+}
+
+func codexCapturePolicyEntryKey(entry control.ProxyLayer0PolicyEntry) string {
+	return entry.Route + "\x00" + entry.Mechanism + "\x00" + entry.Action + "\x00" + entry.Reason + "\x00" + entry.BlockReason
+}
+
+func deltaCodexCaptureCacheEntries(base, current []control.ProxyLayer0CacheEntry) []control.ProxyLayer0CacheEntry {
+	baseCounts := make(map[string]int64, len(base))
+	for _, entry := range base {
+		baseCounts[codexCaptureCacheEntryKey(entry)] += entry.Count
+	}
+	out := make([]control.ProxyLayer0CacheEntry, 0, len(current))
+	for _, entry := range current {
+		count := nonNegativeDelta(entry.Count, baseCounts[codexCaptureCacheEntryKey(entry)])
+		if count == 0 {
+			continue
+		}
+		entry.Count = count
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return codexCaptureCacheEntryKey(out[i]) < codexCaptureCacheEntryKey(out[j])
+	})
+	return out
+}
+
+func codexCaptureCacheEntryKey(entry control.ProxyLayer0CacheEntry) string {
+	return entry.Route + "\x00" + entry.Mechanism + "\x00" + entry.Action + "\x00" + entry.Reason
 }
 
 func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
@@ -1053,8 +1110,48 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 		fmt.Fprintf(w, "  output_wire_bytes_saved:     %d\n", result.LiveDelta.OutputWireBytesSaved)
 		fmt.Fprintf(w, "  safety_parse/degraded/compression: %d / %d / %d\n",
 			result.LiveDelta.ParseFailures, result.LiveDelta.DegradedSessions, result.LiveDelta.CompressionErrors)
+		writeCodexCaptureHostBudgetSummary(w, result.LiveDelta)
+		writeCodexCapturePolicySummary(w, result.LiveDelta.ProxyLayer0Policy)
+		writeCodexCaptureCacheSummary(w, result.LiveDelta.ProxyLayer0Cache)
 	}
 	fmt.Fprintf(w, "  replay_bytes_saved: %d\n", result.Replay.BytesSaved)
 	fmt.Fprintf(w, "  lost:          %d\n", result.Replay.Lost)
 	fmt.Fprintf(w, "  gate:          %s\n", passFail(result.Replay.GatePassed))
+}
+
+func writeCodexCaptureHostBudgetSummary(w io.Writer, delta *codexCaptureLiveDelta) {
+	if delta == nil || delta.HostBudgetStatus == "" {
+		return
+	}
+	reasons := "-"
+	if len(delta.HostBudgetReasons) > 0 {
+		reasons = strings.Join(delta.HostBudgetReasons, ",")
+	}
+	fmt.Fprintf(w, "  host_budget: %s exceeded=%v reasons=%s cpu_window=%.2f%% rss=%d state=%d\n",
+		delta.HostBudgetStatus, delta.HostBudgetExceeded, reasons, delta.HostBudgetCPUWindowPct,
+		delta.HostBudgetRSSBytes, delta.HostBudgetStateBytes)
+}
+
+func writeCodexCapturePolicySummary(w io.Writer, entries []control.ProxyLayer0PolicyEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "  policy_delta:")
+	for _, entry := range entries {
+		reason := entry.Reason
+		if entry.BlockReason != "" {
+			reason += " block=" + entry.BlockReason
+		}
+		fmt.Fprintf(w, "    %s/%s/%s %s: %d\n", valueOrDash(entry.Route), entry.Mechanism, entry.Action, reason, entry.Count)
+	}
+}
+
+func writeCodexCaptureCacheSummary(w io.Writer, entries []control.ProxyLayer0CacheEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "  cache_delta:")
+	for _, entry := range entries {
+		fmt.Fprintf(w, "    %s/%s/%s %s: %d\n", valueOrDash(entry.Route), entry.Mechanism, entry.Action, entry.Reason, entry.Count)
+	}
 }
