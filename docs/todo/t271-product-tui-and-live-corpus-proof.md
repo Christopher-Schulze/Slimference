@@ -150,3 +150,12 @@ gate is done when default promotions require live corpus evidence.
   failures through the `/admin/state` build path and TUI adapter fallback. The
   normal product panel renders those concrete WSS counters, so a degraded WSS
   path cannot be presented as "safety ok."
+- 2026-06-02: Existing release matrix
+  `/Users/christopher/.slimference/captures/release-proof-20260602_112516-cli-desktop-v2.jsonl`
+  now passes `go run ./scripts/utils wss-proof-matrix ... --require-live-token-delta --json`
+  with `captures=15`, `cli=9`, `desktop=6`, all required release workload
+  classes present, `positive_token_savings_captures=12`,
+  `expected_zero_captures=3`, `captures_with_issues=0`, and
+  `gate_passed=true`. This proves the base CLI+Desktop WSS release matrix, but
+  it does not close the separate chunk-dedup, tool-schema pruning,
+  output-reduce aggressive-profile, or host-resource proof gates.

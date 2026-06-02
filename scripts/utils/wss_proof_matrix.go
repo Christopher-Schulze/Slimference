@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -14,11 +15,29 @@ type wssProofMatrixFlags struct {
 	path                  string
 	outputFormat          string
 	requireLiveTokenDelta bool
+	requiredWorkloads     []string
+	minCaptures           int
+	minCLI                int
+	minDesktop            int
+	minPositive           int
 	help                  bool
 }
 
 type wssProofMatrixOptions struct {
 	requireLiveTokenDelta bool
+	requiredWorkloads     []string
+	minCaptures           int
+	minCLI                int
+	minDesktop            int
+	minPositive           int
+}
+
+type wssProofMatrixRequirements struct {
+	requiredWorkloads []string
+	minCaptures       int
+	minCLI            int
+	minDesktop        int
+	minPositive       int
 }
 
 type wssProofMatrixCapture struct {
@@ -102,7 +121,19 @@ The tool replays each frames file with wss-ab-replay semantics, optionally audit
 the matching decisions log, and emits a content-free PASS/FAIL matrix. Use
 --require-live-token-delta for release proofs where replay bytes are not allowed
 to stand in for real billable token deltas. Raw frame payloads stay local and are
-not copied into the report.`
+not copied into the report.
+
+Optional focused-proof gates:
+  --required-workload=<class>     Require one workload class; repeatable.
+  --required-workloads=a,b        Require comma-separated workload classes.
+  --min-captures=N                Minimum capture rows.
+  --min-cli=N                     Minimum CLI capture rows.
+  --min-desktop=N                 Minimum Desktop capture rows.
+  --min-positive=N                Minimum positive-token or expected-zero rows.
+
+Without focused-proof flags, the tool enforces the full release matrix:
+10 captures, 5 CLI, 5 Desktop, all release workload classes, and 7 positive/zero
+rows.`
 
 func runWSSProofMatrix(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSProofMatrixFlags(args)
@@ -120,6 +151,11 @@ func runWSSProofMatrix(args []string, stdout, stderr io.Writer) int {
 	}
 	report, err := loadWSSProofMatrixReportWithOptions(flags.path, wssProofMatrixOptions{
 		requireLiveTokenDelta: flags.requireLiveTokenDelta,
+		requiredWorkloads:     flags.requiredWorkloads,
+		minCaptures:           flags.minCaptures,
+		minCLI:                flags.minCLI,
+		minDesktop:            flags.minDesktop,
+		minPositive:           flags.minPositive,
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
@@ -154,6 +190,50 @@ func parseWSSProofMatrixFlags(args []string) (wssProofMatrixFlags, error) {
 			flags.outputFormat = outputJSON
 		case arg == "--require-live-token-delta":
 			flags.requireLiveTokenDelta = true
+		case strings.HasPrefix(arg, "--required-workload="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--required-workload="))
+			if value == "" {
+				return flags, fmt.Errorf("--required-workload requires a non-empty value")
+			}
+			flags.requiredWorkloads = append(flags.requiredWorkloads, value)
+		case strings.HasPrefix(arg, "--required-workloads="):
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--required-workloads="))
+			if value == "" {
+				return flags, fmt.Errorf("--required-workloads requires a non-empty value")
+			}
+			for _, part := range strings.Split(value, ",") {
+				workload := strings.TrimSpace(part)
+				if workload != "" {
+					flags.requiredWorkloads = append(flags.requiredWorkloads, workload)
+				}
+			}
+			if len(flags.requiredWorkloads) == 0 {
+				return flags, fmt.Errorf("--required-workloads requires at least one non-empty value")
+			}
+		case strings.HasPrefix(arg, "--min-captures="):
+			value, err := parseNonNegativeProofInt(arg, "--min-captures=")
+			if err != nil {
+				return flags, err
+			}
+			flags.minCaptures = value
+		case strings.HasPrefix(arg, "--min-cli="):
+			value, err := parseNonNegativeProofInt(arg, "--min-cli=")
+			if err != nil {
+				return flags, err
+			}
+			flags.minCLI = value
+		case strings.HasPrefix(arg, "--min-desktop="):
+			value, err := parseNonNegativeProofInt(arg, "--min-desktop=")
+			if err != nil {
+				return flags, err
+			}
+			flags.minDesktop = value
+		case strings.HasPrefix(arg, "--min-positive="):
+			value, err := parseNonNegativeProofInt(arg, "--min-positive=")
+			if err != nil {
+				return flags, err
+			}
+			flags.minPositive = value
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -164,6 +244,15 @@ func parseWSSProofMatrixFlags(args []string) (wssProofMatrixFlags, error) {
 		}
 	}
 	return flags, nil
+}
+
+func parseNonNegativeProofInt(arg, prefix string) (int, error) {
+	raw := strings.TrimSpace(strings.TrimPrefix(arg, prefix))
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("%s requires a non-negative integer", strings.TrimSuffix(prefix, "="))
+	}
+	return value, nil
 }
 
 func loadWSSProofMatrixReport(path string) (wssProofMatrixReport, error) {
@@ -276,10 +365,41 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 		}
 		report.CaptureReports = append(report.CaptureReports, capture)
 	}
-	report.MissingWorkloads = missingWSSProofWorkloads(report.WorkloadClasses)
-	report.GateFailures = wssProofMatrixGateFailures(report)
+	requirements := wssProofRequirements(options)
+	report.MissingWorkloads = missingWSSProofWorkloads(report.WorkloadClasses, requirements.requiredWorkloads)
+	report.GateFailures = wssProofMatrixGateFailures(report, requirements)
 	report.GatePassed = len(report.GateFailures) == 0
 	return report, nil
+}
+
+func wssProofRequirements(options wssProofMatrixOptions) wssProofMatrixRequirements {
+	requirements := wssProofMatrixRequirements{
+		requiredWorkloads: requiredWSSProofWorkloads,
+		minCaptures:       10,
+		minCLI:            5,
+		minDesktop:        5,
+		minPositive:       7,
+	}
+	if len(options.requiredWorkloads) > 0 {
+		requirements.requiredWorkloads = append([]string(nil), options.requiredWorkloads...)
+		requirements.minCaptures = len(requirements.requiredWorkloads)
+		requirements.minCLI = 0
+		requirements.minDesktop = 0
+		requirements.minPositive = len(requirements.requiredWorkloads)
+	}
+	if options.minCaptures > 0 {
+		requirements.minCaptures = options.minCaptures
+	}
+	if options.minCLI > 0 {
+		requirements.minCLI = options.minCLI
+	}
+	if options.minDesktop > 0 {
+		requirements.minDesktop = options.minDesktop
+	}
+	if options.minPositive > 0 {
+		requirements.minPositive = options.minPositive
+	}
+	return requirements
 }
 
 func readWSSProofMatrixRecords(path string) ([]wssProofMatrixRecord, error) {
@@ -374,22 +494,22 @@ func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
 	}
 }
 
-func wssProofMatrixGateFailures(report wssProofMatrixReport) []string {
+func wssProofMatrixGateFailures(report wssProofMatrixReport, requirements wssProofMatrixRequirements) []string {
 	var failures []string
-	if report.Captures < 10 {
-		failures = append(failures, fmt.Sprintf("expected at least 10 captures, got %d", report.Captures))
+	if report.Captures < requirements.minCaptures {
+		failures = append(failures, fmt.Sprintf("expected at least %d captures, got %d", requirements.minCaptures, report.Captures))
 	}
-	if report.CLI < 5 {
-		failures = append(failures, fmt.Sprintf("expected at least 5 CLI captures, got %d", report.CLI))
+	if report.CLI < requirements.minCLI {
+		failures = append(failures, fmt.Sprintf("expected at least %d CLI captures, got %d", requirements.minCLI, report.CLI))
 	}
-	if report.Desktop < 5 {
-		failures = append(failures, fmt.Sprintf("expected at least 5 Desktop captures, got %d", report.Desktop))
+	if report.Desktop < requirements.minDesktop {
+		failures = append(failures, fmt.Sprintf("expected at least %d Desktop captures, got %d", requirements.minDesktop, report.Desktop))
 	}
 	if len(report.MissingWorkloads) > 0 {
 		failures = append(failures, "missing workload classes: "+strings.Join(report.MissingWorkloads, ", "))
 	}
-	if report.PositiveSavings+report.ExpectedZero < 7 {
-		failures = append(failures, fmt.Sprintf("expected at least 7 positive-token-savings or expected-zero captures, got %d", report.PositiveSavings+report.ExpectedZero))
+	if report.PositiveSavings+report.ExpectedZero < requirements.minPositive {
+		failures = append(failures, fmt.Sprintf("expected at least %d positive-token-savings or expected-zero captures, got %d", requirements.minPositive, report.PositiveSavings+report.ExpectedZero))
 	}
 	if report.CapturesWithIssues > 0 {
 		failures = append(failures, fmt.Sprintf("%d capture(s) failed per-capture gates", report.CapturesWithIssues))
@@ -397,9 +517,9 @@ func wssProofMatrixGateFailures(report wssProofMatrixReport) []string {
 	return failures
 }
 
-func missingWSSProofWorkloads(classes map[string]int) []string {
+func missingWSSProofWorkloads(classes map[string]int, required []string) []string {
 	var missing []string
-	for _, class := range requiredWSSProofWorkloads {
+	for _, class := range required {
 		if classes[class] == 0 {
 			missing = append(missing, class)
 		}

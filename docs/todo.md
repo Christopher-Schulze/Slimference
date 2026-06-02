@@ -1947,7 +1947,10 @@ be called complete, default-safe, and production-grade.
   canonical same-match-set identity
   now improves Desktop search replay from `26880` to `48522` bytes saved with
   `lost=0`, and fresh Desktop live proof shows search-delta repeated-output
-  hit with 14,973 billable input tokens saved. Detail:
+  hit with 14,973 billable input tokens saved. A focused Search proof-matrix
+  gate now passes for one positive CLI row plus one positive Desktop row; the
+  remaining gap is Desktop `git grep` / `grep -R` breadth and one larger
+  search-grouping proof row. Detail:
   `docs/todo/t265-repo-safe-search-keying-maxx.md`
 - [~] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
   dedup into a guarded automatic WSS feature only where archive recovery,
@@ -1987,7 +1990,9 @@ be called complete, default-safe, and production-grade.
   now exposes the content-free `savings.product` rollup and the TUI default
   product panel consumes it; provider-cache read/create tokens now stay separate
   from local input and output-wire savings, and WSS parse/degrade/compression
-  failures force product attention with concrete TUI safety details. Live-corpus
+  failures force product attention with concrete TUI safety details. The base
+  CLI+Desktop WSS release matrix now passes with 15 captures and live token
+  deltas; mechanism-specific chunk/tool-prune/output-reduce and host-resource
   proof gates remain.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
 - [~] **T272** Host resource and latency budget max-out - `/admin/state` now
@@ -2022,3 +2027,74 @@ be called complete, default-safe, and production-grade.
   positive net billable-input savings, zero parse/degrade/compression errors,
   no quality canary spikes, no unexpected recovery loops, and no visible
   workflow degradation.
+
+### Explicit 1009%-max-out backlog
+
+This section is the non-forgettable closeout list. If an item below is open,
+the program is not yet "1009% maxxed, verified, tested, finished, and
+optimized". Development work, captures, and proof effort are not product
+drawdowns; only runtime model/workflow degradation counts as drawdown.
+
+- [ ] **Live corpus proof breadth** - base CLI + Desktop WSS release matrix
+  passes for repeat reads, ranged reads, search loops, git status,
+  test-failure output, apply/edit/read, long workday sessions, and no-savings
+  control. Remaining breadth: chunk-dedup workloads, tool-heavy workflows,
+  output-reduce workflows, and any mechanism-specific Desktop variants called
+  out below. Gate every window on positive net billable-input savings where a
+  saving mechanism is expected, `lost=0`, zero parse/degrade/compression errors,
+  no quality-canary spike, no unexpected recovery loop, and no visible workflow
+  degradation.
+- [ ] **T260 Layer 0 max-out closeout** - finish Desktop breadth and any
+  uncovered corpus fixtures for parser families beyond the automatic scoped CLI
+  proof. Large/late evidence must stay preserved, and any unproven parser shape
+  must full-pass instead of compressing by assumption.
+- [ ] **T261 Layer 1 max-out closeout** - complete prompt-cache economics,
+  round-trip proof, and live-corpus proof for exact/reversible sublayers.
+  Unknown or archive-required sublayers must continue to fail closed to
+  full-pass unless recovery is proven.
+- [ ] **T262 Layer 2 max-out closeout** - keep classical summary replacement
+  outside the product path unless explicitly legacy-gated; finish archive
+  provenance, quality inputs, A/B replay, and proof-gated deterministic
+  context-ledger insertion. Model-facing Layer 2 is not product-ready until it
+  proves preserved task decisions with recoverable raw context.
+- [ ] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
+  provider prompt-cache read/create token reporting, local response-cache
+  eligibility, and 30+ turn long-session proof. Do not claim provider-cache
+  savings as local token deletion.
+- [ ] **T264 read/ranged/repeated-output closeout** - finish fresh Desktop
+  live-token proof for read, ranged-read, repeated-command, repeated-search,
+  and repeated non-file output hits. First reads must stay full-pass; only
+  repeat/range/delta mechanisms may save by default.
+- [ ] **T265 search max-out closeout** - focused Search proof now passes with
+  one positive CLI row and one positive Desktop row, both live-token-positive
+  and `lost=0`. Remaining: extend it with Desktop `git grep` / `grep -R`
+  variants and one larger search-grouping row. Ambiguous cwd, context-rich,
+  custom-separator, multiline, or heading searches must full-pass.
+- [ ] **T266 chunk-dedup closeout** - run the live CLI + Desktop matrix before
+  treating chunk references as a default-safe production claim. Chunk refs must
+  remain cross-send only, never patch/diff/edit, never first-observation, density
+  bounded, archive-backed, canary-governed, and host-budget aware.
+- [ ] **T267 output-reduce closeout** - prove aggressive profiles on real
+  direct-answer/status/read-only/planning/edit workflows with repair/re-ask
+  rollback active. WSS streamcut remains disabled until terminal-safe proof
+  exists; exact reply, patch, code, and user-requested detail must not be
+  shortened in a way that degrades workflow or model usefulness.
+- [ ] **T268 tool-schema pruning closeout** - run tool-heavy live proof and net
+  prompt-cache economics. Pruning must never remove core tools, unknown or mixed
+  provider schema shapes must full-pass, mention reattach must happen in the
+  same prune pass, and missing-tool retry/cooldown must be visible in product
+  evidence.
+- [ ] **T271 product-status closeout** - finish live-corpus proof gates in the
+  product rollup. The TUI must show product signals only by default: active
+  route/fallback, billable input saved, output-wire saved, provider-cache
+  read/create tokens, read/search/repeated/chunk hit families, and safety/host
+  attention. Debug-only counters must stay out of the default product view.
+- [ ] **T272 host-resource closeout** - run live CLI + Desktop RSS/CPU/latency,
+  disk-write, state-size, and pprof/resource proof for normal workday,
+  search-loop, chunk-dedup, and tool-heavy workloads. Host-budget demotion must
+  prove that local overhead stays below user-visible workflow impact.
+- [ ] **Release proof report** - after all task-specific gates pass, produce one
+  coherent release proof that separates local billable-input savings,
+  output-wire savings, provider-cache savings, local overhead, fallback events,
+  recovery events, and quality canary signals. No single headline number may
+  mix billing-relevant input savings with non-billing output-wire savings.

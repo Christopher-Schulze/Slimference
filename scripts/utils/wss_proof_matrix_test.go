@@ -151,6 +151,72 @@ func TestWSSProofMatrixRequireLiveTokenDelta(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixFocusedGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "focused-search")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:               "focused-search",
+		Client:           "cli",
+		WorkloadClass:    "search_loop",
+		FramesPath:       framesPath,
+		ExpectedReducers: []string{"read_delta"},
+		LiveDelta:        proofMatrixLiveDelta(false),
+	})
+
+	releaseReport, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if releaseReport.GatePassed || !strings.Contains(strings.Join(releaseReport.GateFailures, "\n"), "expected at least 10 captures") {
+		t.Fatalf("single-row release gate should fail: %+v", releaseReport)
+	}
+
+	focusedReport, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"search_loop"},
+		minCaptures:           1,
+		minCLI:                1,
+		minDesktop:            0,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !focusedReport.GatePassed || len(focusedReport.MissingWorkloads) != 0 {
+		t.Fatalf("focused proof gate should pass: %+v", focusedReport)
+	}
+}
+
+func TestParseWSSProofMatrixFocusedFlags(t *testing.T) {
+	flags, err := parseWSSProofMatrixFlags([]string{
+		"matrix.jsonl",
+		"--require-live-token-delta",
+		"--required-workload=search_loop",
+		"--required-workloads=git_status_diff,ranged_read",
+		"--min-captures=3",
+		"--min-cli=2",
+		"--min-desktop=1",
+		"--min-positive=3",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !flags.requireLiveTokenDelta || flags.minCaptures != 3 || flags.minCLI != 2 || flags.minDesktop != 1 || flags.minPositive != 3 {
+		t.Fatalf("focused flags not parsed: %+v", flags)
+	}
+	if strings.Join(flags.requiredWorkloads, ",") != "search_loop,git_status_diff,ranged_read" {
+		t.Fatalf("required workloads not parsed: %+v", flags.requiredWorkloads)
+	}
+	if _, err := parseWSSProofMatrixFlags([]string{"--min-captures=-1"}); err == nil {
+		t.Fatal("negative minimum should fail")
+	}
+}
+
 func TestWSSProofMatrixExpectedReducerGate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

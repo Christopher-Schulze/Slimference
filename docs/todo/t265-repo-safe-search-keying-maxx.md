@@ -170,12 +170,25 @@ is capped.
   `request_turns=4`, `mutated_requests=2`, `bytes_saved=15095`, `lost=0`, and
   `gate_passed=true`. The matching matrix row is appended to
   `/tmp/slimference-live-extra-matrix.jsonl`.
+- 2026-06-02 added focused proof-matrix gates to
+  `go run ./scripts/utils wss-proof-matrix`, so a mechanism-specific proof can
+  require exactly the relevant workload classes, client mix, positive live-token
+  rows, and `--fail-on-lost` replay without being forced through the full
+  release matrix. The persisted focused search matrix
+  `/Users/christopher/.slimference/captures/search-focused-proof-20260602T171339Z.jsonl`
+  combines the positive CLI `git grep` row and positive Desktop search-delta
+  row. It passes:
+  `go run ./scripts/utils wss-proof-matrix ... --require-live-token-delta --required-workload=search_loop --min-captures=2 --min-cli=1 --min-desktop=1 --min-positive=2 --json`
+  with `captures=2`, `cli=1`, `desktop=1`, `positive_token_savings_captures=2`,
+  expected `captured_output` + `repeated_output` hits on both rows, `lost=0` in
+  replay, and zero parse/degraded/compression errors.
 
 Remaining before this task can close:
 
 - Add remaining live captures for Desktop `git grep` and grep variants.
-- Add explicit proof report showing large search grouping, repeated exact
-  collapse, and changed search delta all stay repo-scoped with `lost=0`.
+- Extend the focused proof report with Desktop `git grep` / `grep -R` variants
+  and one larger search-grouping row, then close the Search task if those stay
+  repo-scoped with `lost=0`.
 
 ## Zero product-drawdown gates
 
