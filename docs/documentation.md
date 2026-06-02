@@ -453,9 +453,13 @@ while keeping cheap lossless/exact cache-hit reducers (`read_delta`,
 the safest savings. Repeated Layer-0 latency budget breaches set a separate
 `latency_budget_full_context` gate after three slow frames and recover after
 cheap frames, so one spike does not disable savings but repeated local overhead
-cannot degrade Codex UX. Readcache and WSS tool-use/collapsed-key state use
-same-process memory plus short write-behind flushes, so reconnect hydration is
-immediate while per-frame sync writes stay out of the hot path. Readcache
+cannot degrade Codex UX. The latency demotion bucket is persisted under
+`.slimference/runtime-budget` with a 30 minute TTL and capped strike debt, so a
+daemon restart does not immediately forget recent local-overhead pressure, while
+cheap frames still auto-recover without operator action. Readcache and WSS
+tool-use/collapsed-key state use same-process memory plus short write-behind
+flushes, so reconnect hydration is immediate while per-frame sync writes stay
+out of the hot path. Readcache
 write-behind flushes are version-guarded: a delayed disk flush can only mark the
 same state revision clean, and it cannot overwrite a newer in-memory save made
 while the flush was in flight. Windowed CPU and disk-write spikes also trip

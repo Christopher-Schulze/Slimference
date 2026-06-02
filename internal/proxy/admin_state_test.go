@@ -129,6 +129,41 @@ func TestCodexLayer0LatencyBudgetDemotesAndRecovers(t *testing.T) {
 	}
 }
 
+func TestCodexLayer0LatencyBudgetPersistsAcrossProxyRestart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	slow := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyBudget + time.Millisecond)}
+	fast := proxyLayer0Stats{Route: codexLayer0RouteWSSPhaseF, TotalLatencyNs: int64(codexLayer0LatencyRecoveryBudget)}
+
+	p := New(config.Defaults())
+	for range codexLayer0LatencyStrikeLimit + 5 {
+		p.observeCodexLayer0LatencyBudget(slow)
+	}
+	if !p.codexRuntimeBudgetExceeded() {
+		t.Fatal("slow frames should demote managed Codex reducers")
+	}
+
+	restarted := New(config.Defaults())
+	if !restarted.codexRuntimeBudgetExceeded() {
+		t.Fatal("latency demotion should persist across proxy restart")
+	}
+	if got := restarted.codexLayer0LatencyStrikes.Load(); got != codexLayer0LatencyStrikeLimit {
+		t.Fatalf("persisted strikes = %d, want capped %d", got, codexLayer0LatencyStrikeLimit)
+	}
+
+	for range codexLayer0LatencyStrikeLimit {
+		restarted.observeCodexLayer0LatencyBudget(fast)
+	}
+	if restarted.codexRuntimeBudgetExceeded() {
+		t.Fatal("cheap frames should recover persisted latency demotion")
+	}
+
+	recovered := New(config.Defaults())
+	if recovered.codexRuntimeBudgetExceeded() {
+		t.Fatal("recovered latency state should persist across proxy restart")
+	}
+}
+
 func TestAnnotateResourceWindowComputesCPUAndDiskDeltas(t *testing.T) {
 	p := newProxyForAdminTest(t)
 	p.lastResourceSample = hostmetrics.ProcessSnapshot{

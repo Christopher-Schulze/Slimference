@@ -59,8 +59,9 @@ The policy engine controls the default product mode:
    - workload class
    - mechanism
    - current offline state: typed signal inputs and full-pass demotion reasons
-     exist; persistent bucket state for those signals remains live-telemetry
-     gated
+     exist; the Layer-0 latency demotion bucket is persisted with capped strike
+     debt and TTL so restart/recovery behavior is automatic. Broader
+     route/workload/provider promotion buckets remain live-telemetry gated.
 4. Add promotion rules:
    - proof gate passed
    - no quality spike
@@ -77,7 +78,9 @@ The policy engine controls the default product mode:
      route, host budget exceeded, quality spike, negative-savings history,
      recent edit, post-collapse re-read, and session integrity budget all have
      deterministic full-pass policy outcomes; classical Layer 2 model-facing
-     summary replacement cannot be promoted by `layer2_enabled` alone
+     summary replacement cannot be promoted by `layer2_enabled` alone. Repeated
+     Layer-0 latency pressure now survives proxy restart and recovers after
+     cheap frames.
 6. Keep policy output explainable:
    - decision
    - reason
@@ -114,3 +117,11 @@ The policy engine controls the default product mode:
 The policy engine is justified only when it is the automatic runtime brain that
 maximizes savings while actively preventing product drawdowns. If a branch is
 static bookkeeping, remove it from the hot path or move it to reporting.
+
+## Notes
+
+- 2026-06-02: Persisted the content-free Layer-0 latency demotion bucket under
+  `.slimference/runtime-budget/codex-layer0-latency.json`. Slow-frame strike
+  debt is capped at the demotion threshold, restored across proxy restart for 30
+  minutes, and cleared by cheap frames. Regression coverage proves demotion,
+  restart persistence, capped strikes, recovery, and recovered restart state.

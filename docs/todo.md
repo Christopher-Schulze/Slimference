@@ -1966,8 +1966,9 @@ be called complete, default-safe, and production-grade.
   force managed reducers to full-pass on quality, recovery-loop, missing-tool,
   degraded-route, host-budget, or negative-savings signals, and planner L2
   `run` now requires the explicit model-facing legacy summary gate instead of
-  `layer2_enabled` alone. Live signal feeding remains a later proof/wiring
-  task. Detail:
+  `layer2_enabled` alone. Layer-0 latency demotion now persists with capped
+  strike debt and automatic cheap-frame recovery across proxy restarts. Live
+  signal feeding remains a later proof/wiring task. Detail:
   `docs/todo/t270-runtime-savings-policy-autopilot.md`
 - [~] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
   now exposes the content-free `savings.product` rollup and the TUI default
@@ -1988,7 +1989,8 @@ be called complete, default-safe, and production-grade.
   host-budget snapshot, host-cost micro-benchmarks cover WSS/Layer-0,
   readcache, chunking, archive, and planner overhead, and exact large-text token
   counts are content-hash cached to keep repeated Codex read/search accounting
-  cheap without changing model-facing semantics. Live resource proof remains. Detail:
+  cheap without changing model-facing semantics. Layer-0 latency demotion is
+  persisted with TTL and capped strike debt. Live resource proof remains. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria

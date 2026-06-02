@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -55,6 +56,7 @@ const (
 	codexLayer0LatencyBudget         = 25 * time.Millisecond
 	codexLayer0LatencyRecoveryBudget = 12 * time.Millisecond
 	codexLayer0LatencyStrikeLimit    = int64(3)
+	codexLayer0LatencyStateTTL       = 30 * time.Minute
 )
 
 // Version is the binary version string exposed by health/status surfaces.
@@ -330,6 +332,7 @@ func New(cfg *config.Config) *Proxy {
 	// breakpoint optimiser (L3). Defaults: 1024 sessions in LRU,
 	// 30 min TTL.
 	p.promptCacheStability = promptcache.NewTracker(0, 0)
+	p.loadCodexLayer0LatencyBudgetState()
 
 	// Default all toggles to enabled.
 	p.providerEnabled[types.Anthropic].Store(true)
@@ -601,9 +604,15 @@ func (p *Proxy) observeCodexLayer0LatencyBudget(stats proxyLayer0Stats) {
 	}
 	latency := time.Duration(stats.TotalLatencyNs)
 	if latency > codexLayer0LatencyBudget {
-		if p.codexLayer0LatencyStrikes.Add(1) >= codexLayer0LatencyStrikeLimit {
+		strikes := p.codexLayer0LatencyStrikes.Add(1)
+		if strikes > codexLayer0LatencyStrikeLimit {
+			strikes = codexLayer0LatencyStrikeLimit
+			p.codexLayer0LatencyStrikes.Store(strikes)
+		}
+		if strikes >= codexLayer0LatencyStrikeLimit {
 			p.codexLayer0LatencyExceeded.Store(true)
 		}
+		p.saveCodexLayer0LatencyBudgetState()
 		return
 	}
 	if latency > codexLayer0LatencyRecoveryBudget {
@@ -619,9 +628,85 @@ func (p *Proxy) observeCodexLayer0LatencyBudget(stats proxyLayer0Stats) {
 			if strikes == 1 {
 				p.codexLayer0LatencyExceeded.Store(false)
 			}
+			p.saveCodexLayer0LatencyBudgetState()
 			return
 		}
 	}
+}
+
+type codexLayer0LatencyBudgetState struct {
+	Version   int       `json:"version"`
+	Strikes   int64     `json:"strikes"`
+	Exceeded  bool      `json:"exceeded"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func codexLayer0LatencyBudgetStatePath(home string) string {
+	return filepath.Join(home, ".slimference", "runtime-budget", "codex-layer0-latency.json")
+}
+
+func (p *Proxy) loadCodexLayer0LatencyBudgetState() {
+	if p == nil {
+		return
+	}
+	home, err := proxyUserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	data, err := os.ReadFile(codexLayer0LatencyBudgetStatePath(home))
+	if err != nil {
+		return
+	}
+	var state codexLayer0LatencyBudgetState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return
+	}
+	if state.UpdatedAt.IsZero() || time.Since(state.UpdatedAt) > codexLayer0LatencyStateTTL {
+		return
+	}
+	if state.Strikes < 0 {
+		state.Strikes = 0
+	}
+	if state.Strikes > codexLayer0LatencyStrikeLimit {
+		state.Strikes = codexLayer0LatencyStrikeLimit
+	}
+	p.codexLayer0LatencyStrikes.Store(state.Strikes)
+	p.codexLayer0LatencyExceeded.Store(state.Exceeded && state.Strikes >= codexLayer0LatencyStrikeLimit)
+}
+
+func (p *Proxy) saveCodexLayer0LatencyBudgetState() {
+	if p == nil {
+		return
+	}
+	home, err := proxyUserHomeDir()
+	if err != nil || home == "" {
+		return
+	}
+	path := codexLayer0LatencyBudgetStatePath(home)
+	state := codexLayer0LatencyBudgetState{
+		Version:   1,
+		Strikes:   p.codexLayer0LatencyStrikes.Load(),
+		Exceeded:  p.codexLayer0LatencyExceeded.Load(),
+		UpdatedAt: time.Now(),
+	}
+	if state.Strikes < 0 {
+		state.Strikes = 0
+	}
+	if state.Strikes > codexLayer0LatencyStrikeLimit {
+		state.Strikes = codexLayer0LatencyStrikeLimit
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, path)
 }
 
 func (p *Proxy) uptimeSeconds() int64 {

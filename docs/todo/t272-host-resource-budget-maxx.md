@@ -153,6 +153,11 @@ Initial targets for Apple Silicon macOS:
   with `latency_budget_full_context`; cheap frames recover the gate. This keeps a
   single spike from disabling savings while preventing repeated local overhead
   from becoming Codex UX degradation.
+- 2026-06-02: Persisted the Layer-0 latency demotion bucket in a content-free
+  runtime-budget state file. The bucket survives proxy restart for 30 minutes,
+  caps strike debt at the demotion threshold, and still recovers automatically
+  after cheap frames. This closes the offline autopilot gap where a daemon
+  restart could immediately forget recent local-overhead pressure.
 - 2026-05-31: Removed synchronous WSS tool-use/collapsed-key writes from the
   frame hot path. `toolusecache.MergeAsync` updates same-process memory
   immediately for reconnect hydration and flushes JSON state on a short
