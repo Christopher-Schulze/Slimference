@@ -265,6 +265,15 @@ Initial targets for Apple Silicon macOS:
   host budget (`host_budget_status=ok`, RSS 25 MB, state 3.7 MB) and allowed
   chunk-dedup live. This proves the guard now distinguishes startup-poll
   measurement artifacts from real product resource pressure.
+- 2026-06-02: The focused Desktop Codex.app chunk proof stayed under product
+  host budget while chunk-dedup fired live. The proof matrix row
+  `/Users/christopher/.slimference/captures/desktop-chunk-dedup-matrix.jsonl`
+  reports `host_budget_status=ok`, RSS about 15 MB, `cpu_window_percent=0.32`
+  over a 58.8 second window, disk write delta 0, state 3.7 MB,
+  `compression_ok=true`, and `degradation_ok=true`. This closes the focused
+  Desktop host-budget regression that previously made chunk-dedup look live-cold
+  under a startup CPU artifact; broader workday/tool-heavy pprof/resource proof
+  remains open.
 
 ## Done
 

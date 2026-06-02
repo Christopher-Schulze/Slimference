@@ -1964,8 +1964,10 @@ be called complete, default-safe, and production-grade.
   `host_budget_full_context` from `cpu_window_budget_exceeded`, not reducer
   miswiring; host-budget now ignores sub-second startup CPU windows, so the next
   focused CLI rerun is positive (`1722` live billable input tokens saved,
-  one live chunk block/ref, `host_budget_ok`). Remaining: Desktop and broader
-  workload breadth before default-safety claim. Detail:
+  one live chunk block/ref, `host_budget_ok`) and the focused Desktop
+  Codex.app rerun is also positive (`1719` live billable input tokens saved,
+  one live chunk block/ref, `host_budget_ok`). Remaining: broader workload
+  breadth before default-safety claim. Detail:
   `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
 - [~] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact
@@ -2023,7 +2025,8 @@ be called complete, default-safe, and production-grade.
   cheap without changing model-facing semantics. Layer-0 latency demotion is
   persisted with TTL and capped strike debt. Proof-matrix rows now fail closed
   on reported host-budget attention/degradation and can require `host_budget_ok`.
-  Live resource proof remains. Detail:
+  Focused CLI and Desktop chunk proofs now pass with `host_budget_ok`; broader
+  workday, search-loop, tool-heavy, and pprof/resource proof remains. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria
@@ -2088,8 +2091,10 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   remain cross-send only, never patch/diff/edit, never first-observation, density
   bounded, archive-backed, canary-governed, and host-budget aware. Latest
   focused CLI WSS proof passes live under corrected host-budget gating with
-  `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; remaining closeout is
-  Desktop plus broader real workload coverage.
+  `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; focused Desktop
+  Codex.app proof now passes the same gate with live billable-token savings.
+  Remaining closeout is broader real workload coverage beyond the focused
+  similar-file proof.
 - [ ] **T267 output-reduce closeout** - prove aggressive profiles on real
   direct-answer/status/read-only/planning/edit workflows with repair/re-ask
   rollback active. WSS streamcut remains disabled until terminal-safe proof
@@ -2108,7 +2113,9 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
 - [ ] **T272 host-resource closeout** - run live CLI + Desktop RSS/CPU/latency,
   disk-write, state-size, and pprof/resource proof for normal workday,
   search-loop, chunk-dedup, and tool-heavy workloads. Host-budget demotion must
-  prove that local overhead stays below user-visible workflow impact.
+  prove that local overhead stays below user-visible workflow impact. Focused
+  CLI and Desktop chunk proofs now pass with `host_budget_ok`; broad workday and
+  pprof/resource runs remain.
 - [ ] **Release proof report** - after all task-specific gates pass, produce one
   coherent release proof that separates local billable-input savings,
   output-wire savings, provider-cache savings, local overhead, fallback events,

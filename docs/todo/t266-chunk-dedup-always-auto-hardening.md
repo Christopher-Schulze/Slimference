@@ -193,3 +193,20 @@ it remains guarded by policy.
   mechanism proofs. Release proof can stay on `auto`, but chunk-dedup promotion
   should force `wss` while debugging so bridge/fallback cannot be mistaken for
   a negative reducer result.
+- 2026-06-02: Ran the matching focused Desktop Codex.app chunk proof:
+  `/Users/christopher/.slimference/captures/desktop-chunk-dedup-proof-20260602T172859Z.jsonl`
+  with matrix row
+  `/Users/christopher/.slimference/captures/desktop-chunk-dedup-matrix.jsonl`.
+  The live Desktop delta reports `billable_input_tokens_saved=1719`,
+  `proxy_layer0_chunk_dedup_blocks=1`,
+  `proxy_layer0_chunk_dedup_references=1`,
+  `proxy_layer0_chunk_dedup_referenced_bytes=8192`,
+  `proxy_layer0_chunk_dedup_input_bytes=32064`, `phasef_mutations=3`,
+  `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`,
+  `host_budget_status=ok`, and policy delta
+  `chunk_dedup/allow recoverable_chunk_dedup`. The focused matrix gate with
+  `--require-live-token-delta`, `--required-workload=similar_files`,
+  `--min-desktop=1`, `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`
+  passed. Replay on the same Desktop frames reports
+  `reducer_tokens_saved=1719`, `bytes_saved=7907`, one chunk reference,
+  `expected_extras=1`, and `gate_passed=true`.
