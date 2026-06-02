@@ -111,7 +111,10 @@ accounting or locally proven upstream bypass, not mixed counters.
   partitions. Stage-A and Stage-B cache keys now include stop-sequence policy
   and be-terse cohort/hint partitioning. Regression coverage proves a cached
   deterministic Anthropic response is not reused after stop-sequence injection
-  becomes active for the same user request.
+  becomes active for the same user request. Follow-up regression coverage also
+  proves Stage-A cannot replay a control-cohort response into a treatment-cohort
+  BeTerse request when the original user body and account key are otherwise
+  identical.
 
 ## Done
 

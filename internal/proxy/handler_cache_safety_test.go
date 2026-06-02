@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slimference/slimference/internal/beterse"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/qualityab"
 )
 
 func drainAnalyticsQueueForTest(p *Proxy) {
@@ -219,6 +221,78 @@ func TestServeHTTP_layer3CacheHit_partitionsRequestPolicy(t *testing.T) {
 	}
 	if upstreamCalls.Load() != 2 {
 		t.Fatalf("upstream calls after policy change = %d, want 2", upstreamCalls.Load())
+	}
+}
+
+func TestServeHTTP_layer3CacheHit_partitionsBeTerseCohorts(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if strings.Contains(string(body), beterse.DefaultHint) {
+			_, _ = io.WriteString(w, `{"id":"m2","type":"message","role":"assistant","content":[{"type":"text","text":"terse policy"}],"model":"claude","stop_reason":"end_turn"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"baseline"}],"model":"claude","stop_reason":"end_turn"}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	orgForCohort := func(want qualityab.Cohort) string {
+		t.Helper()
+		for i := 0; i < 2000; i++ {
+			org := "org-cache-policy-" + strconv.Itoa(i)
+			if p.qualityAB.Cohort("anthropic:"+org) == want {
+				return org
+			}
+		}
+		t.Fatalf("could not find %s org", want)
+		return ""
+	}
+	controlOrg := orgForCohort(qualityab.CohortControl)
+	treatmentOrg := orgForCohort(qualityab.CohortTreatment)
+	body := `{"model":"claude-3-5-sonnet-20241022","temperature":0,"messages":[{"role":"user","content":"cache me"}]}`
+
+	post := func(org string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-API-Key", "key-a")
+		req.Header.Set("Anthropic-Organization-Id", org)
+		rec := httptest.NewRecorder()
+		p.ServeHTTP(rec, req)
+		res := rec.Result()
+		t.Cleanup(func() { _ = res.Body.Close() })
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	if got := post(controlOrg); !strings.Contains(got, "baseline") {
+		t.Fatalf("control first response = %s, want baseline", got)
+	}
+	if got := post(controlOrg); !strings.Contains(got, "baseline") {
+		t.Fatalf("control second response = %s, want baseline cache hit", got)
+	}
+	if upstreamCalls.Load() != 1 {
+		t.Fatalf("control upstream calls = %d, want 1", upstreamCalls.Load())
+	}
+	if got := post(treatmentOrg); !strings.Contains(got, "terse policy") {
+		t.Fatalf("treatment response = %s, want fresh be-terse upstream response", got)
+	}
+	if upstreamCalls.Load() != 2 {
+		t.Fatalf("upstream calls after treatment = %d, want 2", upstreamCalls.Load())
 	}
 }
 
