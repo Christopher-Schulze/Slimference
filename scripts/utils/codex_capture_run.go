@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/slimference/slimference/internal/compression"
@@ -135,6 +136,8 @@ Flags:
   --model VALUE              Matrix row model label
   --exit-marker TEXT         Interrupt Codex automatically once TEXT appears in output.
                              On macOS this uses script(1) so Codex still sees a TTY.
+                             The marker is also watched in captured function_call_output
+                             frames, so quiet TUI output cannot hide it.
   --exit-marker-count N      Required marker occurrences before interrupt (default: 1)
   --quiet-codex-output       Hide Codex TUI output and print only the final summary
 
@@ -571,7 +574,7 @@ func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout,
 	cmd := exec.CommandContext(ctx, flags.binary, args...)
 	cmd.Stdin = os.Stdin
 	if flags.exitMarker != "" {
-		return runCodexCaptureCLIUntilMarker(ctx, cmd, flags.exitMarker, flags.exitMarkerCount, stdout, stderr)
+		return runCodexCaptureCLIUntilMarker(ctx, cmd, flags.capturePath, flags.exitMarker, flags.exitMarkerCount, stdout, stderr)
 	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -581,7 +584,7 @@ func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout,
 	return nil
 }
 
-func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, marker string, markerCount int, stdout, stderr io.Writer) error {
+func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, capturePath, marker string, markerCount int, stdout, stderr io.Writer) error {
 	if runtime.GOOS != "darwin" {
 		return errors.New("--exit-marker requires macOS script(1) PTY support; rerun without --exit-marker and interrupt Codex manually after the marker")
 	}
@@ -604,8 +607,15 @@ func runCodexCaptureCLIUntilMarker(ctx context.Context, cmd *exec.Cmd, marker st
 		return fmt.Errorf("start Codex PTY capture: %w", err)
 	}
 	markerHit := make(chan struct{})
+	var markerOnce sync.Once
+	signalMarker := func() {
+		markerOnce.Do(func() {
+			close(markerHit)
+		})
+	}
 	stopWatch := make(chan struct{})
-	go watchCodexCaptureMarker(logPath, marker, markerCount, markerHit, stopWatch)
+	go watchCodexCaptureMarkerFunc(logPath, marker, markerCount, signalMarker, stopWatch)
+	go watchCodexCaptureFunctionOutputMarker(capturePath, marker, markerCount, signalMarker, stopWatch)
 	waitErr := make(chan error, 1)
 	go func() {
 		waitErr <- scriptCmd.Wait()
@@ -655,6 +665,10 @@ func stopCodexCapturePTY(scriptCmd *exec.Cmd, waitErr <-chan error, timeout time
 }
 
 func watchCodexCaptureMarker(path, marker string, markerCount int, hit chan<- struct{}, stop <-chan struct{}) {
+	watchCodexCaptureMarkerFunc(path, marker, markerCount, func() { close(hit) }, stop)
+}
+
+func watchCodexCaptureMarkerFunc(path, marker string, markerCount int, signal func(), stop <-chan struct{}) {
 	if marker == "" {
 		return
 	}
@@ -675,10 +689,69 @@ func watchCodexCaptureMarker(path, marker string, markerCount int, hit chan<- st
 			}
 			if !signaled && strings.Count(normalizeCodexCaptureMarkerText(string(data)), normalizeCodexCaptureMarkerText(marker)) >= markerCount {
 				signaled = true
-				close(hit)
+				signal()
 			}
 		}
 	}
+}
+
+func watchCodexCaptureFunctionOutputMarker(path, marker string, markerCount int, signal func(), stop <-chan struct{}) {
+	if marker == "" {
+		return
+	}
+	if markerCount <= 0 {
+		markerCount = 1
+	}
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	signaled := false
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			if !signaled && countCodexCaptureFunctionOutputMarker(data, marker) >= markerCount {
+				signaled = true
+				signal()
+			}
+		}
+	}
+}
+
+func countCodexCaptureFunctionOutputMarker(data []byte, marker string) int {
+	needle := normalizeCodexCaptureMarkerText(marker)
+	if needle == "" {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var frame struct {
+			Payload struct {
+				Input []struct {
+					Type   string `json:"type"`
+					Output string `json:"output"`
+				} `json:"input"`
+			} `json:"payload"`
+		}
+		if err := json.Unmarshal([]byte(line), &frame); err != nil {
+			continue
+		}
+		for _, item := range frame.Payload.Input {
+			if item.Type != "function_call_output" {
+				continue
+			}
+			count += strings.Count(normalizeCodexCaptureMarkerText(item.Output), needle)
+		}
+	}
+	return count
 }
 
 func normalizeCodexCaptureMarkerText(s string) string {

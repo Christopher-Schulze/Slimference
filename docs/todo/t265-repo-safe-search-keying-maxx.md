@@ -158,6 +158,18 @@ is capped.
   the generic command key, but they cannot be collapsed as same-match-set or
   search-delta because those reductions would not preserve the extra context
   semantics.
+- 2026-06-02 fresh automatic scoped Codex CLI proof covered repeated
+  repo-scoped `git grep` through the managed WSS capture runner. Capture
+  `/Users/christopher/.slimference/captures/live-cli-git-grep-token3-20260602-extra.jsonl`
+  produced live product counters with `billable_input_tokens_saved=4530`,
+  `input_tokens_saved=4530`, `compressed_messages_mutated=2`,
+  `frames_reencoded=2`, `phasef_mutations=2`,
+  `proxy_layer0_captured_output_blocks=1`,
+  `proxy_layer0_repeated_output_blocks=1`, and zero parse, degraded-session, or
+  compression errors. Replay passed `--fail-on-lost` with `frames=151`,
+  `request_turns=4`, `mutated_requests=2`, `bytes_saved=15095`, `lost=0`, and
+  `gate_passed=true`. The matching matrix row is appended to
+  `/tmp/slimference-live-extra-matrix.jsonl`.
 
 Remaining before this task can close:
 

@@ -257,6 +257,17 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   `bytes_saved=32195`, and `gate_passed=true`. This upgrades chunk dedup from
   synthetic-only to real-frame reducer replay proof. It is not yet included in
   the strict live-token matrix totals above.
+- 2026-06-02: The unattended `codex-capture-run` marker exit is now robust to
+  quiet Codex TUI output. The runner still watches the macOS `script(1)` PTY log,
+  but it also watches the WSS capture JSONL and counts `--exit-marker` only in
+  real `function_call_output` items. Prompt text no longer creates false marker
+  hits, and hidden/quiet TUI rendering no longer prevents automatic shutdown.
+  The proving run
+  `/Users/christopher/.slimference/captures/live-cli-git-grep-token3-20260602-extra.jsonl`
+  completed end to end and appended a live-token matrix row: 151 frames, 4
+  request turns, 2 mutated requests, 4,530 billable/input tokens saved,
+  `captured_output_blocks=1`, `repeated_output_blocks=1`, `lost=0`,
+  `gate_passed=true`, and safety counters all zero.
 
 ## Deviations
 

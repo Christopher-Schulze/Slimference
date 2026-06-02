@@ -1606,8 +1606,9 @@ only and promotes the per-process Codex CLI runner for T209.
   Desktop workday windows. This is the breadth gate for "default-auto is safe", not a
   new reducer. The `wss-proof-matrix` report command and JSONL metadata schema are
   implemented. The `codex-capture-run` helper now manages unattended CLI capture
-  sessions end to end with a foreground daemon, `/health` preflight, PTY marker
-  exit, fail-on-lost replay, and optional matrix-row append. The strict
+  sessions end to end with a foreground daemon, `/health` preflight, PTY plus
+  captured-tool-output marker exit, fail-on-lost replay, and optional matrix-row
+  append. The strict
   2026-06-02 release matrix now passes across 14 captures,
   9 CLI captures, 5 Desktop captures, all 10 required workload classes, 11
   positive live-token-savings captures, 3 expected-zero controls, 43,113 live
@@ -1939,7 +1940,10 @@ be called complete, default-safe, and production-grade.
   repository-scoped keys, preserve match context, and prevent cross-repo false
   hits. Offline hardening now rejects implicit-cwd searches for reusable
   cache/delta keys; automatic CLI proof covers `rg`, changed results,
-  `git grep`, and `grep -R` with `lost=0`; canonical same-match-set identity
+  `git grep`, and `grep -R` with `lost=0`; fresh automatic CLI live proof for
+  repeated repo-scoped `git grep` saves 4,530 billable input tokens with
+  `captured_output=1`, `repeated_output=1`, and all safety counters zero;
+  canonical same-match-set identity
   now improves Desktop search replay from `26880` to `48522` bytes saved with
   `lost=0`, and fresh Desktop live proof shows search-delta repeated-output
   hit with 14,973 billable input tokens saved. Detail:

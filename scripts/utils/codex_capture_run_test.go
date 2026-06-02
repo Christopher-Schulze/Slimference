@@ -369,3 +369,29 @@ func TestWatchCodexCaptureMarkerFindsANSISeparatedMarker(t *testing.T) {
 	}
 	close(stop)
 }
+
+func TestWatchCodexCaptureFunctionOutputMarkerIgnoresPrompt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "capture.jsonl")
+	promptOnly := `{"payload":{"type":"response.create","input":[{"type":"message","content":"CAPTURE_DONE in prompt"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(promptOnly), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hit := make(chan struct{})
+	stop := make(chan struct{})
+	go watchCodexCaptureFunctionOutputMarker(path, "CAPTURE_DONE", 1, func() { close(hit) }, stop)
+	select {
+	case <-hit:
+		t.Fatal("marker fired from prompt content")
+	case <-time.After(150 * time.Millisecond):
+	}
+	withOutput := promptOnly + `{"payload":{"type":"response.create","input":[{"type":"function_call_output","output":"tool says CAPTURE_DONE"}]}}` + "\n"
+	if err := os.WriteFile(path, []byte(withOutput), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-hit:
+	case <-time.After(time.Second):
+		t.Fatal("marker did not fire from function_call_output")
+	}
+	close(stop)
+}

@@ -4270,3 +4270,43 @@ Validation:
   `reducer_chunk_dedup_referenced_bytes=32768`,
   `reducer_chunk_dedup_input_bytes=40158`, `bytes_saved=32195`,
   `expected_extras=1`, and `gate_passed=true`.
+
+## 2026-06-02 - T257/T265 automatic CLI git-grep live-token proof
+
+Goal: prove the repo-safe search keying path on repeated `git grep` with real
+scoped Codex CLI WSS traffic and live token counters, not only replay bytes.
+
+Finding:
+- The first long-command attempt was invalid as a search proof because Codex
+  combined the requested steps into one shell script, which correctly
+  full-passed through the search parser.
+- Follow-up captures proved the reducer path, but the unattended
+  `codex-capture-run` marker exit did not stop reliably when Codex TUI output
+  was hidden.
+
+Changes:
+- `codex-capture-run` now watches both the macOS `script(1)` PTY log and the
+  WSS capture JSONL. The capture watcher counts `--exit-marker` only inside real
+  `function_call_output` items, so prompt text cannot trigger a false positive
+  and quiet TUI rendering cannot hide a real tool-output marker.
+
+Validation:
+- Failing captures
+  `/Users/christopher/.slimference/captures/live-cli-git-grep-simple-20260602-extra.jsonl`
+  and
+  `/Users/christopher/.slimference/captures/live-cli-git-grep-token2-20260602-extra.jsonl`
+  replayed cleanly with `lost=0`, `gate_passed=true`, and about 4.5k reducer
+  tokens saved, but did not produce clean live matrix rows because the runner
+  timed out before the marker fix.
+- Fresh managed capture
+  `/Users/christopher/.slimference/captures/live-cli-git-grep-token3-20260602-extra.jsonl`
+  completed end to end and appended a matrix row to
+  `/tmp/slimference-live-extra-matrix.jsonl`.
+- Product counters: `billable_input_tokens_saved=4530`,
+  `input_tokens_saved=4530`, `compressed_messages_mutated=2`,
+  `frames_reencoded=2`, `phasef_mutations=2`,
+  `proxy_layer0_captured_output_blocks=1`,
+  `proxy_layer0_repeated_output_blocks=1`, and zero parse, degraded-session, or
+  compression errors.
+- Replay gate: `frames=151`, `request_turns=4`, `mutated_requests=2`,
+  `bytes_saved=15095`, `lost=0`, and `gate_passed=true`.
