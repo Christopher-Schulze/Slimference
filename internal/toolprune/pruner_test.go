@@ -322,6 +322,15 @@ func TestLooksLikeMissingToolError(t *testing.T) {
 	if !LooksLikeMissingToolError(422, []byte(`tool_use id not found in tools`)) {
 		t.Fatal("expected not found in tools to match")
 	}
+	if !LooksLikeMissingToolError(400, []byte(`{"error":"no such tool: GetWeather"}`)) {
+		t.Fatal("expected no such tool error to match")
+	}
+	if !LooksLikeMissingToolError(400, []byte(`{"error":"requested tool is not available"}`)) {
+		t.Fatal("expected unavailable tool error to match")
+	}
+	if !LooksLikeMissingToolError(400, []byte(`{"error":"tool was not provided in this request"}`)) {
+		t.Fatal("expected not-provided tool error to match")
+	}
 	if LooksLikeMissingToolError(500, []byte(`unknown tool`)) {
 		t.Fatal("5xx should not trigger tool fallback")
 	}

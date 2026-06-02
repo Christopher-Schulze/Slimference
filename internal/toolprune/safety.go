@@ -73,6 +73,12 @@ func LooksLikeMissingToolError(statusCode int, body []byte) bool {
 		return true
 	case strings.Contains(lower, "tool not found"):
 		return true
+	case strings.Contains(lower, "no such tool"):
+		return true
+	case strings.Contains(lower, "tool is not available"):
+		return true
+	case strings.Contains(lower, "tool was not provided"):
+		return true
 	case strings.Contains(lower, "not found in tools"):
 		return true
 	case strings.Contains(lower, "not among the tools"):
