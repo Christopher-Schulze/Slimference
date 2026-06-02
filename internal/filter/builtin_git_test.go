@@ -529,6 +529,36 @@ func TestCompactGitDiff_notInHunk(t *testing.T) {
 	if got == "" {
 		t.Fatal("expected non-empty output")
 	}
+	if !strings.Contains(got, "old mode 100644") || !strings.Contains(got, "new mode 100755") {
+		t.Fatalf("mode-change metadata must be preserved: %q", got)
+	}
+}
+
+func TestCompactGitDiff_preservesFileMetadataWithoutHunks(t *testing.T) {
+	t.Parallel()
+	input := `diff --git a/old.go b/new.go
+similarity index 91%
+rename from old.go
+rename to new.go
+diff --git a/bin.dat b/bin.dat
+new file mode 100644
+Binary files /dev/null and b/bin.dat differ
+`
+	got := compactGitDiff(input)
+	if got == "" {
+		t.Fatal("expected non-empty output")
+	}
+	for _, want := range []string{
+		"similarity index 91%",
+		"rename from old.go",
+		"rename to new.go",
+		"new file mode 100644",
+		"Binary files /dev/null and b/bin.dat differ",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing metadata %q in %q", want, got)
+		}
+	}
 }
 
 // TestCompactGitDiff_noFiles covers the len(files)==0 return "" (line 222-224):

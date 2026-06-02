@@ -158,6 +158,7 @@ func compactGitDiff(s string) string {
 		path    string // "x"
 		added   int
 		removed int
+		meta    []string
 		hunks   []string // @@ + changed lines only
 	}
 
@@ -185,9 +186,11 @@ func compactGitDiff(s string) string {
 		}
 
 		if strings.HasPrefix(line, "index ") || strings.HasPrefix(line, "--- ") ||
-			strings.HasPrefix(line, "+++ ") || strings.HasPrefix(line, "Binary ") ||
-			strings.HasPrefix(line, "new file") || strings.HasPrefix(line, "deleted file") ||
-			strings.HasPrefix(line, "rename ") || strings.HasPrefix(line, "similarity ") {
+			strings.HasPrefix(line, "+++ ") {
+			continue
+		}
+		if isGitDiffMetadataLine(line) {
+			cur.meta = append(cur.meta, line)
 			continue
 		}
 
@@ -233,6 +236,11 @@ func compactGitDiff(s string) string {
 	sb.WriteString(fmt.Sprintf("[git diff] %d file(s) +%d/-%d\n", len(files), totalAdded, totalRemoved))
 	for _, f := range files {
 		sb.WriteString(fmt.Sprintf("  %s (+%d/-%d)\n", f.path, f.added, f.removed))
+		for _, m := range f.meta {
+			sb.WriteString("    ")
+			sb.WriteString(m)
+			sb.WriteByte('\n')
+		}
 		for _, h := range f.hunks {
 			sb.WriteString("    ")
 			sb.WriteString(h)
@@ -240,6 +248,25 @@ func compactGitDiff(s string) string {
 		}
 	}
 	return sb.String()
+}
+
+func isGitDiffMetadataLine(line string) bool {
+	for _, prefix := range []string{
+		"Binary ",
+		"new file",
+		"deleted file",
+		"old mode ",
+		"new mode ",
+		"rename ",
+		"copy ",
+		"similarity ",
+		"dissimilarity ",
+	} {
+		if strings.HasPrefix(line, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractDiffPath extracts the b-path from "diff --git a/foo b/foo".

@@ -156,6 +156,12 @@ These are promotion targets, not claims:
   context flags after `git grep` are blocked. This prevents fake file names,
   dropped context lines, and unsafe search-delta identities while preserving
   exact repeated-output dedup for byte-identical repeats.
+- 2026-06-03: Hardened git diff/show compaction to preserve structural diff
+  metadata before stripping context lines. Mode changes, new/deleted files,
+  rename/copy metadata, similarity/dissimilarity markers, and binary-file
+  markers now survive compaction, including hunks with no added/removed lines.
+  Focused tests prove rename-only, mode-only, and binary/new-file metadata are
+  retained instead of being reduced to misleading `+0/-0` file entries.
 
 ## Done
 

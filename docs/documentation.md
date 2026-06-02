@@ -561,6 +561,13 @@ resource evidence, and search grouping keeps head/tail matches per file and file
 set. Omitted-count markers remain explicit, and malformed or non-shorter outputs
 full-pass.
 
+Git diff/show compaction is evidence-preserving: it keeps file paths, hunk
+headers, added/removed lines, and structural diff metadata such as mode changes,
+new/deleted files, renames/copies, similarity markers, and binary-file markers.
+Context lines are stripped only after that metadata is retained. This avoids the
+old silent loss where a rename-only or mode-only diff could collapse to a
+`+0/-0` file entry without the reason for the change.
+
 First-pass search outputs are grouped by `TryCompactSearchOutput` /
 `groupSearchResults` (file -> match list with a `[tool] N match(es) in M file(s)`
 header, capped at 30 files with `[+N more files]`). This grouping used to abandon

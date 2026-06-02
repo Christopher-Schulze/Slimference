@@ -2091,7 +2091,9 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
 - [ ] **T260 Layer 0 max-out closeout** - finish Desktop breadth and any
   uncovered corpus fixtures for parser families beyond the automatic scoped CLI
   proof. Large/late evidence must stay preserved, and any unproven parser shape
-  must full-pass instead of compressing by assumption.
+  must full-pass instead of compressing by assumption. Git diff/show compaction
+  now preserves rename/copy, mode, new/deleted-file, similarity, and binary-file
+  metadata before stripping context lines.
 - [ ] **T261 Layer 1 max-out closeout** - complete prompt-cache economics,
   round-trip proof, and live-corpus proof for exact/reversible sublayers.
   Unknown or archive-required sublayers must continue to fail closed to
