@@ -37,6 +37,7 @@ func TestLayer1SubLayerRegistryContracts(t *testing.T) {
 		"json_compact",
 		"semantic_dictionary",
 		"dedup",
+		"dedup_near",
 		"delta",
 		"comment_strip",
 		"structure_extract",
@@ -96,5 +97,8 @@ func TestLayer1MutationRequiresArchiveFailsClosedForUnknownSubLayer(t *testing.T
 	}
 	if !layer1MutationRequiresArchive([]string{"json_compact", "structure_extract"}) {
 		t.Fatal("archive-required sub-layer in chain must require archive")
+	}
+	if !layer1MutationRequiresArchive([]string{"dedup_near"}) {
+		t.Fatal("near-dedup must require archive because similar text is not identical")
 	}
 }

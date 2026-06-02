@@ -22,8 +22,8 @@ safe by construction through explicit tiers and enforcement.
 - It contains a mix of safety classes:
   - exact/lossless: ANSI stripping when only terminal control bytes are removed,
     JSON minification, path dictionary with recovery
-  - reversible/recoverable: archive-backed replacement, repeated exact content
-    references
+  - reversible/recoverable: repeated exact content references, archive-backed
+    near-duplicate references, archive-backed replacement
   - lossy or reconstructive: structure extraction, comment stripping, success
     short-circuit, graph pruning, tool-output compression
 - The Layer 1 result and HTTP decisions log now include content-free
@@ -150,6 +150,12 @@ compression shortcut.
   same inline `[P1]=/absolute/path` legend and strict positive-savings gate. This
   removes a prompt-contamination surface from a default-eligible reversible
   sub-layer without reducing reconstructability.
+- 2026-06-03: Split fuzzy MinHash dedup from exact dedup. Exact duplicate
+  collapse keeps the existing reversible `dedup` contract, but non-identical
+  near-duplicate collapse now uses `dedup_near`, requires content-archive
+  recovery, full-passes when no archive id is available, and reports its own
+  decision counter. This removes the silent context-loss risk where similar but
+  changed text could previously be replaced by a bare "near duplicate" marker.
 
 ## Done
 

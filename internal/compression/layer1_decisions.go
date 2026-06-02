@@ -63,7 +63,13 @@ func layer1SavedForSubLayer(result Layer1Result, id string) int {
 	case "semantic_dictionary":
 		return result.DictionarySaved
 	case "dedup":
-		return result.DedupSaved
+		saved := result.DedupSaved - result.NearDedupSaved
+		if saved < 0 {
+			return 0
+		}
+		return saved
+	case "dedup_near":
+		return result.NearDedupSaved
 	case "delta":
 		return result.DeltaSaved
 	case "comment_strip":

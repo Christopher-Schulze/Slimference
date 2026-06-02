@@ -398,7 +398,8 @@ func TestCompress_NearDupeToolResult(t *testing.T) {
 	cfg := defaultTestCfg(1)
 	// Lower threshold so a one-token tail change stays above MinHash Jaccard estimate.
 	cfg.DedupSimilarityThreshold = 0.45
-	c := NewDeterministicCompressor(cfg)
+	rec := &stubRecorder{id: "near-dedup-archive"}
+	c := NewDeterministicCompressor(cfg).WithRecorder(rec)
 	prefix := strings.Repeat("alpha beta gamma delta ", 25)
 	body1 := prefix + "suffixaaaa"
 	body2 := prefix + "suffixaaab"
@@ -422,6 +423,36 @@ func TestCompress_NearDupeToolResult(t *testing.T) {
 	got := result.Messages[2].Content[0].Text
 	if !strings.Contains(got, "Near-duplicate") {
 		t.Fatalf("want near-dupe marker, got %q", got)
+	}
+	if result.Messages[2].Content[0].ArchiveID != "near-dedup-archive" {
+		t.Fatalf("near-dedup must stamp archive id, got %q", result.Messages[2].Content[0].ArchiveID)
+	}
+	if len(rec.calls) == 0 || rec.calls[0].SubLayer != "dedup_near" || rec.calls[0].Original != body2 {
+		t.Fatalf("near-dedup archive call mismatch: %+v", rec.calls)
+	}
+}
+
+func TestCompress_NearDupeFullPassesWithoutArchive(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	cfg.DedupSimilarityThreshold = 0.45
+	c := NewDeterministicCompressor(cfg)
+	prefix := strings.Repeat("alpha beta gamma delta ", 25)
+	body1 := prefix + "suffixaaaa"
+	body2 := prefix + "suffixaaab"
+	msgs := []types.Message{
+		buildMessage(t, 0, "user", toolResultBlock(body1)),
+		buildMessage(t, 1, "assistant", textBlock("x")),
+		buildMessage(t, 2, "user", toolResultBlock(body2)),
+		buildMessage(t, 3, "assistant", textBlock("y")),
+		buildMessage(t, 4, "user", textBlock("z")),
+	}
+	result := c.Compress(msgs)
+	if result.DedupSaved != 0 {
+		t.Fatalf("near-dedup without archive must roll back savings, got %d", result.DedupSaved)
+	}
+	if got := result.Messages[2].Content[0]; got.Text != body2 || got.ArchiveID != "" {
+		t.Fatalf("near-dedup archive failure must keep original, got text=%q archive=%q", got.Text, got.ArchiveID)
 	}
 }
 
@@ -691,12 +722,12 @@ func TestCompressMessage_UsesScalarDedupThresholdFallback(t *testing.T) {
 		Type: "tool_result",
 		Text: strings.Repeat("same words ", 80),
 	})
-	_, _, _, _, _, _, _, _, _, _, _ = c.compressMessage(msg, 0, 2, nil)
+	_, _, _, _, _, _, _, _, _, _, _, _ = c.compressMessage(msg, 0, 2, nil)
 	dupe := buildMessage(t, 1, "user", types.ContentBlock{
 		Type: "tool_result",
 		Text: strings.Repeat("same words ", 80),
 	})
-	_, _, dedupSaved, _, _, _, _, _, _, _, _ := c.compressMessage(dupe, 1, 2, nil)
+	_, _, dedupSaved, _, _, _, _, _, _, _, _, _ := c.compressMessage(dupe, 1, 2, nil)
 	if dedupSaved <= 0 {
 		t.Fatalf("dedup fallback did not trigger, saved=%d", dedupSaved)
 	}

@@ -51,6 +51,14 @@ var layer1SubLayerRegistry = []Layer1SubLayerInfo{
 		Recovery:        "previous in-session full block plus archive attribution when active",
 	},
 	{
+		ID:              "dedup_near",
+		Tier:            Layer1SafetyRecoverableWithArchive,
+		DefaultEligible: true,
+		RequiresArchive: true,
+		ModelRisk:       "near-duplicate text is similar but not identical, so omitted details need archive recovery",
+		Recovery:        "content archive",
+	},
+	{
 		ID:              "delta",
 		Tier:            Layer1SafetyReversible,
 		DefaultEligible: true,

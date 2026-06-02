@@ -21,6 +21,7 @@ type Layer1Result struct {
 	ANSISaved             int
 	JSONSaved             int
 	DedupSaved            int
+	NearDedupSaved        int
 	CommentSaved          int
 	StructureSaved        int
 	DeltaSaved            int
@@ -206,8 +207,8 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 	// most 4 in-flight compressMessage calls.
 	if c.cfg.Tuning.CoordinatorParallel && prefixEnd > 1 {
 		type fanOut struct {
-			msg                                       types.Message
-			js, ds, cs, ss, d2, as, sc, ts, ims, dict int
+			msg                                            types.Message
+			js, ds, nds, cs, ss, d2, as, sc, ts, ims, dict int
 		}
 		fan := make([]fanOut, prefixEnd)
 		var wg sync.WaitGroup
@@ -219,8 +220,8 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 				defer wg.Done()
 				defer func() { <-sem }()
 				m := out[idx]
-				m, js, ds, cs, ss, d2, as, sc, ts, ims, dict := c.compressMessage(m, idx, prefixEnd, toolUses)
-				fan[idx] = fanOut{m, js, ds, cs, ss, d2, as, sc, ts, ims, dict}
+				m, js, ds, nds, cs, ss, d2, as, sc, ts, ims, dict := c.compressMessage(m, idx, prefixEnd, toolUses)
+				fan[idx] = fanOut{m, js, ds, nds, cs, ss, d2, as, sc, ts, ims, dict}
 			}(i)
 		}
 		wg.Wait()
@@ -228,6 +229,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 			out[i] = r.msg
 			result.JSONSaved += r.js
 			result.DedupSaved += r.ds
+			result.NearDedupSaved += r.nds
 			result.CommentSaved += r.cs
 			result.StructureSaved += r.ss
 			result.DeltaSaved += r.d2
@@ -240,10 +242,11 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 	} else {
 		for i := 0; i < prefixEnd; i++ {
 			msg := out[i]
-			msg, js, ds, cs, ss, ds2, as, sc, ts, ims, dict := c.compressMessage(msg, i, prefixEnd, toolUses)
+			msg, js, ds, nds, cs, ss, ds2, as, sc, ts, ims, dict := c.compressMessage(msg, i, prefixEnd, toolUses)
 			out[i] = msg
 			result.JSONSaved += js
 			result.DedupSaved += ds
+			result.NearDedupSaved += nds
 			result.CommentSaved += cs
 			result.StructureSaved += ss
 			result.DeltaSaved += ds2
@@ -318,7 +321,7 @@ func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages
 // L1.12 (repeated collapse) and L1.13 (graph pruning) run cross-message after this loop.
 func (c *DeterministicCompressor) compressMessage(
 	msg types.Message, msgIdx, prefixEnd int, toolUses map[string]toolUseInfo,
-) (out types.Message, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved, dictionarySaved int) {
+) (out types.Message, jsonSaved, dedupSaved, nearDedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved, dictionarySaved int) {
 	out = msg
 	newContent := make([]types.ContentBlock, len(msg.Content))
 	copy(newContent, msg.Content)
@@ -355,6 +358,7 @@ func (c *DeterministicCompressor) compressMessage(
 		metadataBefore := msg.Metadata
 		jsonSavedBefore := jsonSaved
 		dedupSavedBefore := dedupSaved
+		nearDedupSavedBefore := nearDedupSaved
 		commentSavedBefore := commentSaved
 		structSavedBefore := structSaved
 		deltaSavedBefore := deltaSaved
@@ -422,6 +426,7 @@ func (c *DeterministicCompressor) compressMessage(
 						if id == "" {
 							jsonSaved = jsonSavedBefore
 							dedupSaved = dedupSavedBefore
+							nearDedupSaved = nearDedupSavedBefore
 							commentSaved = commentSavedBefore
 							structSaved = structSavedBefore
 							deltaSaved = deltaSavedBefore
@@ -469,9 +474,10 @@ func (c *DeterministicCompressor) compressMessage(
 			appliedSubLayers = append(appliedSubLayers, "dedup")
 		} else if nearDupe {
 			dedupSaved += len(text)
+			nearDedupSaved += len(text)
 			text = formatNearDupeReference(firstIdx, msgIdx)
 			msg.Metadata.WasDeduped = true
-			appliedSubLayers = append(appliedSubLayers, "dedup")
+			appliedSubLayers = append(appliedSubLayers, "dedup_near")
 		} else if !jsonCompacted && !preFiltered {
 			// L1.4: Structure extraction (skipped for pre-filtered content).
 			lang := c.detectLanguage(block, text)
@@ -588,6 +594,7 @@ func (c *DeterministicCompressor) compressMessage(
 					if id == "" {
 						jsonSaved = jsonSavedBefore
 						dedupSaved = dedupSavedBefore
+						nearDedupSaved = nearDedupSavedBefore
 						commentSaved = commentSavedBefore
 						structSaved = structSavedBefore
 						deltaSaved = deltaSavedBefore
@@ -610,7 +617,7 @@ func (c *DeterministicCompressor) compressMessage(
 
 	out.Content = newContent
 	out.Metadata = msg.Metadata
-	return out, jsonSaved, dedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved, dictionarySaved
+	return out, jsonSaved, dedupSaved, nearDedupSaved, commentSaved, structSaved, deltaSaved, ansiSaved, successShortSaved, toolSaved, imageSaved, dictionarySaved
 }
 
 func shouldRunStructureExtraction(text string, minTokens int) bool {

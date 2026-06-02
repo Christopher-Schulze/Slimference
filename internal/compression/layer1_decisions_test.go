@@ -10,6 +10,8 @@ func TestBuildLayer1DecisionRecordsUsesRegistryAndCounters(t *testing.T) {
 	t.Parallel()
 	result := Layer1Result{
 		JSONSaved:               12,
+		DedupSaved:              20,
+		NearDedupSaved:          8,
 		ToolCompressorSaved:     30,
 		ToolOutputInWindowSaved: 7,
 	}
@@ -28,6 +30,12 @@ func TestBuildLayer1DecisionRecordsUsesRegistryAndCounters(t *testing.T) {
 	}
 	if got := byID["json_compact"]; !got.Applied || got.SavedTokens != 12 || got.Reason != "applied_positive_savings" {
 		t.Fatalf("json decision = %+v", got)
+	}
+	if got := byID["dedup"]; !got.Applied || got.SavedTokens != 12 || got.RequiresArchive {
+		t.Fatalf("exact dedup decision = %+v", got)
+	}
+	if got := byID["dedup_near"]; !got.Applied || got.SavedTokens != 8 || !got.RequiresArchive {
+		t.Fatalf("near dedup decision = %+v", got)
 	}
 	if got := byID["tool_compressor"]; !got.Applied || got.SavedTokens != 23 {
 		t.Fatalf("tool compressor should exclude in-window attribution: %+v", got)

@@ -806,7 +806,7 @@ semantic frontier:
 | 1 | ANSI / control-char strip          | `ansi_strip.go`                |
 | 2 | JSON minify                        | `json_minify.go`               |
 | 3 | Comment strip (38 path languages)  | `comment_strip.go`             |
-| 4 | Exact dedup + MinHash/LSH          | `dedup.go` + `dedup_minhash.go`|
+| 4 | Exact dedup + archive-backed near dedup | `dedup.go` + `dedup_minhash.go`|
 | 5 | Structure extraction               | `structure.go`                 |
 | 6 | Delta encoding (LCS unified diff)  | `delta.go`                     |
 | 7 | Tool classifier                    | `tool_classifier.go`           |
@@ -833,7 +833,11 @@ and the recovery path. The executor enforces that contract for archive-required
 mutations: if the original block cannot be archived and stamped with a valid
 archive id, the block full-passes and its per-block savings counters are reset.
 Exact and reversible transforms can stay automatic; context-dropping summaries
-must stay archive-backed or be bypassed.
+must stay archive-backed or be bypassed. Exact dedup remains reversible without
+an archive because the referenced block was already model-facing in the same
+context. MinHash/near-dedup is not exact and is therefore classified separately
+as `dedup_near`: it full-passes unless the current omitted block is archived and
+stamped, and its decision telemetry is reported separately from exact `dedup`.
 The same archive-required rule applies to side paths such as
 `structure_in_window`: even when an in-window tool-result block is eligible for
 structural extraction, the original must archive successfully before the summary
