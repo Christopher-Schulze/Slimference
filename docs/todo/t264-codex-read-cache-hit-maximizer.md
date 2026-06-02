@@ -132,6 +132,17 @@ Maximize exact hits:
   `mutated_requests=2`. This is an offline replay proof of the stronger hit
   path; a fresh live Desktop matrix row is still required before increasing the
   live-token release claim.
+- 2026-06-02 live Desktop follow-up proved the realistic search path. A repeated
+  `rg` command produced overlapping but not identical truncated result sets, so
+  exact same-match-set collapse correctly did not fire. The reducer now emits a
+  search-set delta (`removed=N added=M`) for changed canonical match sets,
+  archives the current raw output, and full-passes if the delta is not shorter.
+  Capture
+  `/Users/christopher/.slimference/captures/live-desktop-search-delta-20260602T144108.jsonl`
+  reported `billable_input_tokens_saved=14973`,
+  `proxy_layer0_repeated_output_blocks=1`, `captured_output_blocks=1`, zero
+  command/tool misses, and replay `bytes_saved=57084`, `lost=0`,
+  `gate_passed=true`.
 
 Remaining before this task can close:
 

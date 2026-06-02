@@ -454,6 +454,51 @@ func TestReduceCodexLayer0RepeatedSearchSameMatchSetBeforeGrouping(t *testing.T)
 	}
 }
 
+func TestReduceCodexLayer0RepeatedSearchChangedMatchSetDeltaBeforeGrouping(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	command := `cd /repo/search && rg -n needle src`
+	output := func(start, end int, extra string) string {
+		var lines []string
+		for i := start; i <= end; i++ {
+			lines = append(lines, fmt.Sprintf("src/a.go:%d:needle alpha context %s", i, strings.Repeat("detail ", 30)))
+		}
+		if extra != "" {
+			lines = append(lines, extra+" "+strings.Repeat("detail ", 30))
+		}
+		lines = append([]string{"Chunk ID: changed", "Wall time: 0.0001 seconds"}, lines...)
+		return strings.Join(lines, "\n") + "\n"
+	}
+	messagesFor := func(callID, text string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: callID, ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: callID, Text: text}}},
+		}
+	}
+	seed := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messagesFor("search-delta-a", output(1, 80, "")),
+		SessionID: "sess-search-match-delta",
+	})
+	if seed.Stats.CapturedOutputBlocks != 1 || seed.Stats.RepeatedOutputBlocks != 0 || seed.Stats.TokensSaved <= 0 {
+		t.Fatalf("first changed-set search should group and seed: %+v", seed.Stats)
+	}
+	out := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messagesFor("search-delta-b", output(6, 80, "src/c.go:90:needle gamma context")),
+		SessionID: "sess-search-match-delta",
+	})
+	text := out.Messages[1].Content[0].Text
+	if out.Stats.RepeatedOutputBlocks != 1 || out.Stats.CapturedOutputBlocks != 0 || out.Stats.TokensSaved <= 0 ||
+		!strings.Contains(text, "kind=search-output") ||
+		!strings.Contains(text, "removed=5 added=1") ||
+		!strings.Contains(text, "-src/a.go:1:needle alpha context") ||
+		!strings.Contains(text, "+src/c.go:90:needle gamma context") ||
+		!strings.Contains(text, "[context-archive kind=full-output uri=local-archive://") {
+		t.Fatalf("changed search match-set should delta before grouping: stats=%+v text=%q", out.Stats, text)
+	}
+}
+
 func TestReduceCodexLayer0HostBudgetDemotesReducers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

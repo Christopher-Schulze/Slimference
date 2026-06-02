@@ -1941,7 +1941,8 @@ be called complete, default-safe, and production-grade.
   cache/delta keys; automatic CLI proof covers `rg`, changed results,
   `git grep`, and `grep -R` with `lost=0`; canonical same-match-set identity
   now improves Desktop search replay from `26880` to `48522` bytes saved with
-  `lost=0`, while fresh Desktop live-token proof remains. Detail:
+  `lost=0`, and fresh Desktop live proof shows search-delta repeated-output
+  hit with 14,973 billable input tokens saved. Detail:
   `docs/todo/t265-repo-safe-search-keying-maxx.md`
 - [~] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
   dedup into a guarded automatic WSS feature only where archive recovery,

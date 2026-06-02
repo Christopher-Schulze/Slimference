@@ -136,11 +136,25 @@ is capped.
   This closes the offline gap that caused the strict matrix to report zero
   `repeated_output` live block hits for Desktop search, but the live-token claim
   remains unchanged until a fresh Desktop capture is recorded.
+- 2026-06-02 added search-set delta for changed canonical search evidence. Real
+  Desktop `rg` repeats can return a different truncated subset even for the same
+  command; treating that as unchanged would be wrong. The reducer now compares
+  canonical match lines as sets, emits only removed and added match evidence,
+  appends `[context-archive kind=full-output ...]`, and fail-opens when the delta
+  is not shorter than the raw current output.
+- 2026-06-02 fresh scoped Codex Desktop live proof with the current source
+  recorded
+  `/Users/christopher/.slimference/captures/live-desktop-search-delta-20260602T144108.jsonl`.
+  Product counters: `billable_input_tokens_saved=14973`,
+  `proxy_layer0_repeated_output_blocks=1`, `proxy_layer0_captured_output_blocks=1`,
+  `tool_use_unresolved_blocks=0`, `command_unresolved_blocks=0`. Cache
+  counters show `repeated_output hit reason=delta count=1` after the first seed.
+  Replay passed `--fail-on-lost` with `frames=186`, `request_turns=4`,
+  `mutated_requests=2`, `bytes_saved=57084`, `lost=0`, and `gate_passed=true`.
 
 Remaining before this task can close:
 
-- Add remaining live captures for Desktop repeated `rg`, changed result sets,
-  `git grep`, and grep variants.
+- Add remaining live captures for Desktop `git grep` and grep variants.
 - Add explicit proof report showing large search grouping, repeated exact
   collapse, and changed search delta all stay repo-scoped with `lost=0`.
 

@@ -4182,3 +4182,42 @@ Validation:
   `gate_passed=true`. The prior strict-release baseline for the same capture
   was `bytes_saved=26880`, so this is a stronger offline replay result. It is
   not yet a new live-token release claim.
+
+## 2026-06-02 - T265 live Desktop repeated-search delta proof
+
+Goal: prove the stronger search repeated-output path with real Codex Desktop
+traffic and live billable token counters, not only offline replay.
+
+Finding:
+- The first live same-match-set attempt saved product tokens through
+  captured-output grouping, but exact repeated-output did not fire because real
+  `rg` returned overlapping but different truncated match subsets. That was the
+  correct zero-drawdown behavior: different visible evidence cannot be called
+  unchanged.
+
+Changes:
+- Added a search-set delta path for canonical search identities. When the same
+  repo-scoped search command returns changed match evidence, the reducer emits
+  `[context-delta kind=search-output ... removed=N added=M]` with exact removed
+  and added match lines, plus a `local-archive://` handle for the current raw
+  output.
+- The delta path is used only for canonical search-output keys and still
+  full-passes when the delta is not shorter or archive recovery is unavailable.
+
+Validation:
+- Added readcache and Codex Layer-0 hotpath tests for changed search match-set
+  deltas, current-output archive recovery, and pre-grouping mutation.
+- Replayed the first Desktop capture after the code change:
+  `/Users/christopher/.slimference/captures/live-desktop-search-samematch-20260602T143436.jsonl`
+  improved from `bytes_saved=258937` to `bytes_saved=299899` with `lost=0`.
+- Fresh scoped Codex Desktop capture using the current source:
+  `/Users/christopher/.slimference/captures/live-desktop-search-delta-20260602T144108.jsonl`.
+  Live product counters reported `billable_input_tokens_saved=14973`,
+  `proxy_layer0_repeated_output_blocks=1`,
+  `proxy_layer0_captured_output_blocks=1`, `tool_use_unresolved_blocks=0`, and
+  `command_unresolved_blocks=0`.
+- Cache counters reported `repeated_output hit reason=delta count=1` after
+  `first_observation_seeded`.
+- Replay passed `wss-ab-replay --fail-on-lost --json` with `frames=186`,
+  `request_turns=4`, `mutated_requests=2`, `bytes_saved=57084`, `lost=0`, and
+  `gate_passed=true`.

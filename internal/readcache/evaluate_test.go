@@ -482,7 +482,10 @@ func TestEvaluateObservedOutput_SearchSameMatchSetBlocksAcrossOrder(t *testing.T
 		t.Fatal(err)
 	}
 	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta ||
-		!strings.Contains(decision.Reason, "+src/c.go:30:needle new context") {
+		!strings.Contains(decision.Reason, "kind=search-output") ||
+		!strings.Contains(decision.Reason, "removed=0 added=1") ||
+		!strings.Contains(decision.Reason, "+src/c.go:30:needle new context") ||
+		!strings.Contains(decision.Reason, "[context-archive kind=full-output uri=local-archive://") {
 		t.Fatalf("changed search match set should still produce delta, got %+v", decision)
 	}
 }

@@ -207,7 +207,12 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 	}
 	if oldHash != "" && oldContent != "" && outputDeltaEligible(req.Key) {
 		oldIdentity, _ := outputIdentityContent(req.Key, oldContent)
-		delta := buildDeltaSummary("tool output for "+strings.TrimSpace(req.CommandLine), oldIdentity, identityContent)
+		delta := ""
+		if searchIdentity {
+			delta = buildSearchSetDeltaSummary(req.CommandLine, oldIdentity, identityContent)
+		} else {
+			delta = buildDeltaSummary("tool output for "+strings.TrimSpace(req.CommandLine), oldIdentity, identityContent)
+		}
 		if delta != "" {
 			delta = delta + "\n" + archiveMarker("full-output", archiveURI)
 			if len(delta) < len(content) {
@@ -412,6 +417,69 @@ func unchangedOutputReferenceForIdentity(commandLine string, archiveURI string, 
 		commandLine = "this search command"
 	}
 	return fmt.Sprintf("[context-elided kind=search-output status=same-match-set command=%q archive=%s]", commandLine, archiveURI)
+}
+
+func buildSearchSetDeltaSummary(commandLine string, oldIdentity string, newIdentity string) string {
+	removed, added := canonicalLineSetDiff(oldIdentity, newIdentity)
+	if len(removed) == 0 && len(added) == 0 {
+		return ""
+	}
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		commandLine = "this search command"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[context-delta kind=search-output command=%q removed=%d added=%d]\n", commandLine, len(removed), len(added))
+	for _, line := range removed {
+		b.WriteByte('-')
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	for _, line := range added {
+		b.WriteByte('+')
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func canonicalLineSetDiff(oldIdentity string, newIdentity string) ([]string, []string) {
+	oldLines := canonicalIdentityLineSet(oldIdentity)
+	newLines := canonicalIdentityLineSet(newIdentity)
+	removed := make([]string, 0)
+	added := make([]string, 0)
+	for _, line := range splitCanonicalIdentityLines(oldIdentity) {
+		if _, ok := newLines[line]; !ok {
+			removed = append(removed, line)
+		}
+	}
+	for _, line := range splitCanonicalIdentityLines(newIdentity) {
+		if _, ok := oldLines[line]; !ok {
+			added = append(added, line)
+		}
+	}
+	return removed, added
+}
+
+func canonicalIdentityLineSet(identity string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, line := range splitCanonicalIdentityLines(identity) {
+		out[line] = struct{}{}
+	}
+	return out
+}
+
+func splitCanonicalIdentityLines(identity string) []string {
+	raw := strings.Split(strings.TrimSpace(identity), "\n")
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 func outputIdentityContent(key, content string) (string, bool) {
