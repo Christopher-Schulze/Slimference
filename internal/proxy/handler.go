@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -76,6 +77,42 @@ func responseCacheRouteKey(r *http.Request) string {
 		return path + "?" + r.URL.RawQuery
 	}
 	return path
+}
+
+func (p *Proxy) responseCacheEffectiveRouteKey(r *http.Request, sessionID string) string {
+	base := responseCacheRouteKey(r)
+	partition := p.responseCachePolicyPartition(sessionID)
+	if partition == "" {
+		return base
+	}
+	if base == "" {
+		return "policy:" + partition
+	}
+	return base + "#policy:" + partition
+}
+
+func (p *Proxy) responseCachePolicyPartition(sessionID string) string {
+	if p == nil || p.config == nil {
+		return ""
+	}
+	outputReduce := p.config.Compression.OutputReduce
+	var parts []string
+	if outputReduce.StopSequencesEnabled {
+		parts = append(parts, "stopseq=on")
+	}
+	if outputReduce.BeTerseHintEnabled && p.qualityAB != nil {
+		cohort := p.qualityAB.Cohort(sessionID)
+		parts = append(parts, "beterse="+string(cohort))
+		if cohort == qualityab.CohortTreatment {
+			parts = append(parts, "beterse_hint="+shortResponseCachePolicyHash(outputReduce.BeTerseHintText))
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
+func shortResponseCachePolicyHash(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:8])
 }
 
 type pipelineStashKey struct{}
@@ -336,7 +373,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	var stageACacheKey [32]byte
 	stageAEnabled := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(body)
 	if stageAEnabled {
-		stageACacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, responseCacheRouteKey(r), body, r.Header)
+		stageACacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, p.responseCacheEffectiveRouteKey(r, sessionID), body, r.Header)
 		if cached, _, ok := p.responseCache.GetByOriginal(stageACacheKey); ok {
 			p.serveStageACacheHit(w, cached, reqID, start, provider, model, len(messages), origTokens, log, windowDecision)
 			return
@@ -639,7 +676,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	var cacheKey [32]byte
 	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafe(newBody)
 	if requestCacheSafe {
-		cacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, responseCacheRouteKey(r), newBody, r.Header)
+		cacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, p.responseCacheEffectiveRouteKey(r, sessionID), newBody, r.Header)
 		if cached, ok := p.responseCache.Get(cacheKey); ok {
 			log.Debug("cache hit")
 			for k, vv := range cached.Headers {

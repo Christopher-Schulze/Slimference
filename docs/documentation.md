@@ -978,10 +978,13 @@ biases towards preserving high-priority content.
 ## 7. Layer 3 - Response Cache
 
 `internal/caching/response_cache.go` is an LRU keyed by the SHA-256 of
-the provider, HTTP route path/query, canonical request body, and pertinent
-headers. Hits skip Layer 1 and Layer 2 entirely and serve the cached upstream
-response. Route keying is deliberate: the same body on two provider endpoints
-cannot alias.
+the provider, HTTP route path/query, request-affecting Slimference policy
+partition, canonical request body, and pertinent headers. Hits skip Layer 1 and
+Layer 2 entirely and serve the cached upstream response. Route keying is
+deliberate: the same body on two provider endpoints cannot alias. Policy keying
+is equally deliberate: local response-cache hits do not cross request policies
+such as stop-sequence injection or be-terse treatment cohorts, because those can
+change the upstream model response even when the user body is identical.
 
 The local response cache only serves explicitly deterministic, non-tool request
 shapes. Missing sampling fields are treated as provider defaults, not as proof

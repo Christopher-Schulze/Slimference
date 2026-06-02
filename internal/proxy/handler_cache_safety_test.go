@@ -162,6 +162,66 @@ func TestServeHTTP_layer3CacheHit_skipsImplicitSamplingDefaults(t *testing.T) {
 	}
 }
 
+func TestServeHTTP_layer3CacheHit_partitionsRequestPolicy(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if strings.Contains(string(body), "stop_sequences") {
+			_, _ = io.WriteString(w, `{"id":"m2","type":"message","role":"assistant","content":[{"type":"text","text":"stop policy"}],"model":"claude","stop_reason":"end_turn"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"baseline"}],"model":"claude","stop_reason":"end_turn"}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"claude-3-5-sonnet-20241022","temperature":0,"messages":[{"role":"user","content":"cache me"}]}`
+
+	post := func() string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-API-Key", "key-a")
+		rec := httptest.NewRecorder()
+		p.ServeHTTP(rec, req)
+		res := rec.Result()
+		t.Cleanup(func() { _ = res.Body.Close() })
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+
+	if got := post(); !strings.Contains(got, "baseline") {
+		t.Fatalf("first response = %s, want baseline", got)
+	}
+	if got := post(); !strings.Contains(got, "baseline") {
+		t.Fatalf("second response = %s, want baseline cache hit", got)
+	}
+	if upstreamCalls.Load() != 1 {
+		t.Fatalf("upstream calls before policy change = %d, want 1", upstreamCalls.Load())
+	}
+
+	p.config.Compression.OutputReduce.StopSequencesEnabled = true
+	if got := post(); !strings.Contains(got, "stop policy") {
+		t.Fatalf("policy-changed response = %s, want fresh stop-policy upstream response", got)
+	}
+	if upstreamCalls.Load() != 2 {
+		t.Fatalf("upstream calls after policy change = %d, want 2", upstreamCalls.Load())
+	}
+}
+
 func TestServeHTTP_layer3CacheHit_recordsProcessedRequestMetrics(t *testing.T) {
 	t.Parallel()
 

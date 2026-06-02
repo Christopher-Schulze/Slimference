@@ -21,6 +21,10 @@ and long-session proof.
   addition to provider, canonical body, and semantic headers. The same provider
   and body on `/v1/responses`, `/v1/chat/completions`, or route variants cannot
   alias.
+- Local response-cache keys now also include request-affecting Slimference policy
+  partitions for stop-sequence injection and be-terse treatment cohorts. A
+  cached deterministic response from one request-policy state cannot replay
+  across a later policy change.
 - Prompt-cache planning exists for stable prefixes.
 - Layer 3 is default-enabled for supported paths.
 - Savings claims must be separated from local byte savings and output-wire
@@ -103,6 +107,11 @@ accounting or locally proven upstream bypass, not mixed counters.
   sampling defaults now full-pass upstream, and cache replay requires an
   explicit deterministic request. Integration coverage proves both explicit
   stochastic settings and missing sampling fields bypass Layer 3.
+- 2026-06-02: Hardened local response-cache keying with request-policy
+  partitions. Stage-A and Stage-B cache keys now include stop-sequence policy
+  and be-terse cohort/hint partitioning. Regression coverage proves a cached
+  deterministic Anthropic response is not reused after stop-sequence injection
+  becomes active for the same user request.
 
 ## Done
 

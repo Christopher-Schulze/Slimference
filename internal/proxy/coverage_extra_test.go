@@ -13,6 +13,7 @@ import (
 
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -81,7 +82,9 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 		p := New(config.Defaults())
 		fillAnalyticsQueue(p)
 		body := []byte(`{"model":"claude","temperature":0,"messages":[{"role":"user","content":"cache"}]}`)
-		key := p.responseCache.ComputeRequestKeyWithRoute(types.Anthropic, "/v1/messages", body, nil)
+		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
+		sessionID := summarization.ExtractSessionID(types.Anthropic, body, req.Header)
+		key := p.responseCache.ComputeRequestKeyWithRoute(types.Anthropic, p.responseCacheEffectiveRouteKey(req, sessionID), body, req.Header)
 		p.responseCache.Set(key, &caching.CacheEntry{
 			Response:    []byte(`{"ok":true}`),
 			Headers:     map[string][]string{"Content-Type": {"application/json"}},
@@ -89,7 +92,6 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 			CreatedAt:   time.Now(),
 			TokensSaved: 1,
 		})
-		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
 		rec := httptest.NewRecorder()
 		p.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
