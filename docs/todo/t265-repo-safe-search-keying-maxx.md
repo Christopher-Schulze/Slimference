@@ -182,13 +182,35 @@ is capped.
   with `captures=2`, `cli=1`, `desktop=1`, `positive_token_savings_captures=2`,
   expected `captured_output` + `repeated_output` hits on both rows, `lost=0` in
   replay, and zero parse/degraded/compression errors.
+- 2026-06-02 fresh scoped Codex Desktop breadth proof covered repeated
+  repo-scoped `git grep`, `grep -R`, and `rg` against a temporary 340-match
+  git repo, using exact `cd /tmp/slimference-search-proof-repo && ...`
+  commands. Capture
+  `/Users/christopher/.slimference/captures/desktop-search-breadth-proof-20260602T180619Z.jsonl`
+  produced live product counters with `billable_input_tokens_saved=35402`,
+  `input_tokens_saved=35402`, `compressed_messages_mutated=6`,
+  `frames_reencoded=6`, `phasef_mutations=6`,
+  `proxy_layer0_captured_output_blocks=3`,
+  `proxy_layer0_repeated_output_blocks=3`, `ledger_search_capsules=6`, and zero
+  tool/command resolution misses, parse failures, degraded sessions, or
+  compression errors. Host budget stayed `ok` with RSS about 15 MB, CPU window
+  about 0.68% over a 47 second window, and disk write delta 0. Replay passed
+  `--fail-on-lost` with `frames=2555`, `request_turns=10`,
+  `mutated_requests=6`, `bytes_saved=106911`, `reducer_tokens_saved=35402`,
+  `lost=0`, and `gate_passed=true`.
+- 2026-06-02 extended the focused Search proof matrix to
+  `/Users/christopher/.slimference/captures/search-focused-proof-20260602T181619Z.jsonl`.
+  It now passes
+  `go run ./scripts/utils wss-proof-matrix ... --require-live-token-delta --required-workload=search_loop --min-captures=3 --min-cli=1 --min-desktop=2 --min-positive=3`
+  with one positive CLI row, two positive Desktop rows, live
+  `captured_output` + `repeated_output` hits, `host_budget_ok` on the Desktop
+  breadth row, `lost=0` replay, and zero parse/degraded/compression errors.
 
-Remaining before this task can close:
-
-- Add remaining live captures for Desktop `git grep` and grep variants.
-- Extend the focused proof report with Desktop `git grep` / `grep -R` variants
-  and one larger search-grouping row, then close the Search task if those stay
-  repo-scoped with `lost=0`.
+Remaining before this task can close: none for the scoped max-out target. Future
+search parser families can still add fixtures under T260 if new command shapes
+appear, but repo-safe `rg`, `grep -R`, `git grep`, repeated-output, changed
+search delta, and large search grouping are now covered by focused CLI + Desktop
+proof.
 
 ## Zero product-drawdown gates
 

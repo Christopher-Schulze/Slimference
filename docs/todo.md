@@ -1936,7 +1936,7 @@ be called complete, default-safe, and production-grade.
   Desktop search replay now proves same-match-set repeated-output collapse with
   `lost=0`, while fresh live Desktop token proof remains. Detail:
   `docs/todo/t264-codex-read-cache-hit-maximizer.md`
-- [~] **T265** Repo-safe search keying and search-output savings max-out -
+- [x] **T265** Repo-safe search keying and search-output savings max-out -
   normalize `cd && rg|grep|git grep` and related search shapes to
   repository-scoped keys, preserve match context, and prevent cross-repo false
   hits. Offline hardening now rejects implicit-cwd searches for reusable
@@ -1948,9 +1948,10 @@ be called complete, default-safe, and production-grade.
   now improves Desktop search replay from `26880` to `48522` bytes saved with
   `lost=0`, and fresh Desktop live proof shows search-delta repeated-output
   hit with 14,973 billable input tokens saved. A focused Search proof-matrix
-  gate now passes for one positive CLI row plus one positive Desktop row; the
-  remaining gap is Desktop `git grep` / `grep -R` breadth and one larger
-  search-grouping proof row. Detail:
+  gate now passes with one positive CLI row plus two positive Desktop rows,
+  including Desktop `git grep`, `grep -R`, `rg`, and a 340-match large
+  search-grouping row with 35,402 live billable input tokens saved, `lost=0`,
+  zero safety counters, and `host_budget_ok`. Detail:
   `docs/todo/t265-repo-safe-search-keying-maxx.md`
 - [~] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
   dedup into a guarded automatic WSS feature only where archive recovery,
@@ -2081,11 +2082,12 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   live-token proof for read, ranged-read, repeated-command, repeated-search,
   and repeated non-file output hits. First reads must stay full-pass; only
   repeat/range/delta mechanisms may save by default.
-- [ ] **T265 search max-out closeout** - focused Search proof now passes with
+- [x] **T265 search max-out closeout** - focused Search proof now passes with
   one positive CLI row and one positive Desktop row, both live-token-positive
-  and `lost=0`. Remaining: extend it with Desktop `git grep` / `grep -R`
-  variants and one larger search-grouping row. Ambiguous cwd, context-rich,
-  custom-separator, multiline, or heading searches must full-pass.
+  and `lost=0`; it now also includes Desktop `git grep`, `grep -R`, `rg`, and
+  one larger 340-match search-grouping row. Ambiguous cwd, context-rich,
+  custom-separator, multiline, or heading searches full-pass or stay outside
+  same-match-set collapse.
 - [ ] **T266 chunk-dedup closeout** - run the live CLI + Desktop matrix before
   treating chunk references as a default-safe production claim. Chunk refs must
   remain cross-send only, never patch/diff/edit, never first-observation, density
