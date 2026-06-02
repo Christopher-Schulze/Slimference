@@ -23,8 +23,9 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   workload class, expected reducer candidates, start/end timestamps, route mode,
   model, and whether the session was CLI or Desktop.
 - Every capture runs through `wss-ab-replay --fail-on-lost --json` and records
-  `gate_passed`, `bytes_saved`, expected extras, unexpected losses, mutation count,
-  and route counters.
+  `gate_passed`, replay `bytes_saved` as the model-facing regression proxy,
+  expected extras, unexpected losses, mutation count, live admin-state
+  `billable_input_tokens_saved`, and route/safety counters.
 - Workday ceremony runs at least twice: one CLI-heavy window and one Desktop-heavy
   window using `workday-savings start|finish` after sessions are closed.
 - PASS requires: `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`,
@@ -174,8 +175,9 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   `go run ./scripts/utils codex-capture-run`. The command owns the daemon as a
   foreground child with `SLIMFERENCE_WSS_AB_CAPTURE`, preflights that no existing
   healthy daemon would steal the capture route, waits for `/health`, runs scoped
-  `codex run --transport=auto`, stops the daemon, replays the capture with
-  fail-on-lost semantics, and can append the matching `wss-proof-matrix` row.
+  `codex run --transport=auto`, records before/after admin-state token deltas,
+  stops the daemon, replays the capture with fail-on-lost semantics, and can
+  append the matching `wss-proof-matrix` row.
   On macOS, `--exit-marker` uses a `script(1)` PTY so Codex still sees a real
   terminal; `--exit-marker-count=2` handles the normal prompt-echo plus final
   marker pattern without manual Ctrl-C. Live proof
@@ -202,6 +204,15 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   and only 5 rows were positive-or-expected-zero under the recorded metadata.
   A long-mixed CLI attempt hit upstream Codex `400 invalid_request` and was
   discarded.
+- 2026-06-02: The capture runner and proof matrix are now token-first. Each
+  managed `codex-capture-run` stores a live before/after admin-state delta in
+  the matrix row: `billable_input_tokens_saved`, `input_tokens_saved`,
+  output-wire/request-side byte counters, reducer-hit counters, and
+  parse/degraded/compression safety counters. `wss-proof-matrix` uses live
+  `billable_input_tokens_saved>0` as the positive-savings gate when `live_delta`
+  is present and keeps replay `bytes_saved` only as the model-facing
+  lost/regression proxy. This fixes the earlier ambiguity where byte replay was
+  printed as the headline despite product savings being token savings.
 
 ## Deviations
 

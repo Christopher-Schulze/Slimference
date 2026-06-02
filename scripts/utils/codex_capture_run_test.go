@@ -108,6 +108,21 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 			calls = append(calls, "health:"+flags.host+":"+flags.port)
 			return nil
 		},
+		adminSnapshot: func(ctx context.Context, flags codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+			calls = append(calls, "admin")
+			if strings.Count(strings.Join(calls, ","), "admin") == 1 {
+				return codexCaptureAdminSnapshot{}, nil
+			}
+			return codexCaptureAdminSnapshot{
+				BillableInputTokensSaved:  321,
+				InputTokensSaved:          321,
+				PhasefBridged:             1,
+				CompressedMessagesMutated: 1,
+				FramesReencoded:           1,
+				PhasefMutations:           1,
+				ProxyLayer0ReadDelta:      1,
+			}, nil
+		},
 		runCodex: func(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
 			calls = append(calls, "codex:"+strings.Join(flags.codexArgs, " "))
 			return nil
@@ -148,14 +163,18 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		"preflight:127.0.0.1:8990",
 		"start:" + capturePath,
 		"health:127.0.0.1:8990",
+		"admin",
 		"codex:Read AGENTS.md twice",
+		"admin",
 		"stop",
 		"replay:" + capturePath,
 	}
 	if strings.Join(calls, "\n") != strings.Join(wantCalls, "\n") {
 		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(calls, "\n"), strings.Join(wantCalls, "\n"))
 	}
-	if !strings.Contains(stdout.String(), "bytes_saved:   1234") || !strings.Contains(stdout.String(), "gate:          PASS") {
+	if !strings.Contains(stdout.String(), "billable_input_tokens_saved: 321") ||
+		!strings.Contains(stdout.String(), "replay_bytes_saved: 1234") ||
+		!strings.Contains(stdout.String(), "gate:          PASS") {
 		t.Fatalf("summary missing replay fields:\n%s", stdout.String())
 	}
 	records, err := readWSSProofMatrixRecords(matrixPath)
@@ -167,6 +186,9 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	}
 	if got := strings.Join(records[0].ExpectedReducers, ","); got != "read_delta" {
 		t.Fatalf("ExpectedReducers = %q", got)
+	}
+	if records[0].LiveDelta == nil || records[0].LiveDelta.BillableInputTokensSaved != 321 || records[0].LiveDelta.ProxyLayer0ReadDelta != 1 {
+		t.Fatalf("matrix row missing live token delta: %+v", records[0].LiveDelta)
 	}
 }
 
@@ -187,6 +209,10 @@ func TestRunCodexCaptureRunStopsDaemonOnCodexTimeout(t *testing.T) {
 		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error {
 			calls = append(calls, "health")
 			return nil
+		},
+		adminSnapshot: func(context.Context, codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+			calls = append(calls, "admin")
+			return codexCaptureAdminSnapshot{}, nil
 		},
 		runCodex: func(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
 			calls = append(calls, "codex")
@@ -211,7 +237,7 @@ func TestRunCodexCaptureRunStopsDaemonOnCodexTimeout(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr.String(), context.DeadlineExceeded.Error()) {
 		t.Fatalf("expected timeout failure, code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
-	if got := strings.Join(calls, ","); got != "preflight,start,health,codex,stop" {
+	if got := strings.Join(calls, ","); got != "preflight,start,health,admin,codex,stop" {
 		t.Fatalf("calls = %s", got)
 	}
 }
@@ -228,6 +254,9 @@ func TestRunCodexCaptureRunValidationAndReplayFailure(t *testing.T) {
 			return &codexCaptureDaemon{done: make(chan error)}, nil
 		},
 		waitHealth: func(context.Context, codexCaptureRunFlags, <-chan error) error { return nil },
+		adminSnapshot: func(context.Context, codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+			return codexCaptureAdminSnapshot{}, nil
+		},
 		runCodex:   func(context.Context, codexCaptureRunFlags, io.Writer, io.Writer) error { return nil },
 		stopDaemon: func(context.Context, *codexCaptureDaemon) error { return nil },
 		replay: func(wssABReplayFlags) (wssABReplayReport, error) {

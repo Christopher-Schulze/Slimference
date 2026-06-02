@@ -17,54 +17,58 @@ type wssProofMatrixFlags struct {
 }
 
 type wssProofMatrixCapture struct {
-	ID                  string            `json:"id"`
-	Client              string            `json:"client"`
-	WorkloadClass       string            `json:"workload_class"`
-	FramesPath          string            `json:"frames_path"`
-	DecisionsPath       string            `json:"decisions_path,omitempty"`
-	CodexVersion        string            `json:"codex_version,omitempty"`
-	SlimferenceCommit   string            `json:"slimference_commit,omitempty"`
-	Repo                string            `json:"repo,omitempty"`
-	Model               string            `json:"model,omitempty"`
-	StartedAt           string            `json:"started_at,omitempty"`
-	EndedAt             string            `json:"ended_at,omitempty"`
-	ExpectedReducers    []string          `json:"expected_reducers,omitempty"`
-	ExpectedZeroSavings bool              `json:"expected_zero_savings,omitempty"`
-	Replay              wssABReplayReport `json:"replay"`
-	Audit               *wssAuditReport   `json:"audit,omitempty"`
-	GatePassed          bool              `json:"gate_passed"`
-	GateFailures        []string          `json:"gate_failures,omitempty"`
+	ID                  string                 `json:"id"`
+	Client              string                 `json:"client"`
+	WorkloadClass       string                 `json:"workload_class"`
+	FramesPath          string                 `json:"frames_path"`
+	DecisionsPath       string                 `json:"decisions_path,omitempty"`
+	CodexVersion        string                 `json:"codex_version,omitempty"`
+	SlimferenceCommit   string                 `json:"slimference_commit,omitempty"`
+	Repo                string                 `json:"repo,omitempty"`
+	Model               string                 `json:"model,omitempty"`
+	StartedAt           string                 `json:"started_at,omitempty"`
+	EndedAt             string                 `json:"ended_at,omitempty"`
+	ExpectedReducers    []string               `json:"expected_reducers,omitempty"`
+	ExpectedZeroSavings bool                   `json:"expected_zero_savings,omitempty"`
+	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
+	Replay              wssABReplayReport      `json:"replay"`
+	Audit               *wssAuditReport        `json:"audit,omitempty"`
+	GatePassed          bool                   `json:"gate_passed"`
+	GateFailures        []string               `json:"gate_failures,omitempty"`
 }
 
 type wssProofMatrixReport struct {
-	Path               string                  `json:"path"`
-	Captures           int                     `json:"captures"`
-	CLI                int                     `json:"cli"`
-	Desktop            int                     `json:"desktop"`
-	PositiveSavings    int                     `json:"positive_savings_captures"`
-	ExpectedZero       int                     `json:"expected_zero_captures"`
-	WorkloadClasses    map[string]int          `json:"workload_classes"`
-	MissingWorkloads   []string                `json:"missing_workloads,omitempty"`
-	CapturesWithIssues int                     `json:"captures_with_issues"`
-	GatePassed         bool                    `json:"gate_passed"`
-	GateFailures       []string                `json:"gate_failures,omitempty"`
-	CaptureReports     []wssProofMatrixCapture `json:"capture_reports"`
+	Path                      string                  `json:"path"`
+	Captures                  int                     `json:"captures"`
+	CLI                       int                     `json:"cli"`
+	Desktop                   int                     `json:"desktop"`
+	PositiveSavings           int                     `json:"positive_savings_captures"`
+	PositiveTokenSavings      int                     `json:"positive_token_savings_captures"`
+	PositiveReplayByteSavings int                     `json:"positive_replay_byte_savings_captures"`
+	ExpectedZero              int                     `json:"expected_zero_captures"`
+	WorkloadClasses           map[string]int          `json:"workload_classes"`
+	MissingWorkloads          []string                `json:"missing_workloads,omitempty"`
+	CapturesWithIssues        int                     `json:"captures_with_issues"`
+	GatePassed                bool                    `json:"gate_passed"`
+	GateFailures              []string                `json:"gate_failures,omitempty"`
+	CaptureReports            []wssProofMatrixCapture `json:"capture_reports"`
 }
 
 type wssProofMatrixRecord struct {
-	ID                  string   `json:"id"`
-	Client              string   `json:"client"`
-	WorkloadClass       string   `json:"workload_class"`
-	FramesPath          string   `json:"frames_path"`
-	DecisionsPath       string   `json:"decisions_path"`
-	CodexVersion        string   `json:"codex_version"`
-	SlimferenceCommit   string   `json:"slimference_commit"`
-	Repo                string   `json:"repo"`
-	Model               string   `json:"model"`
-	StartedAt           string   `json:"started_at"`
-	EndedAt             string   `json:"ended_at"`
-	ExpectedReducers    []string `json:"expected_reducers"`
-	ExpectedZeroSavings bool     `json:"expected_zero_savings"`
+	ID                  string                 `json:"id"`
+	Client              string                 `json:"client"`
+	WorkloadClass       string                 `json:"workload_class"`
+	FramesPath          string                 `json:"frames_path"`
+	DecisionsPath       string                 `json:"decisions_path"`
+	CodexVersion        string                 `json:"codex_version"`
+	SlimferenceCommit   string                 `json:"slimference_commit"`
+	Repo                string                 `json:"repo"`
+	Model               string                 `json:"model"`
+	StartedAt           string                 `json:"started_at"`
+	EndedAt             string                 `json:"ended_at"`
+	ExpectedReducers    []string               `json:"expected_reducers"`
+	ExpectedZeroSavings bool                   `json:"expected_zero_savings"`
+	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
 }
 
 var requiredWSSProofWorkloads = []string{
@@ -176,6 +180,7 @@ func loadWSSProofMatrixReport(path string) (wssProofMatrixReport, error) {
 			EndedAt:             record.EndedAt,
 			ExpectedReducers:    append([]string(nil), record.ExpectedReducers...),
 			ExpectedZeroSavings: record.ExpectedZeroSavings,
+			LiveDelta:           record.LiveDelta,
 			GatePassed:          true,
 		}
 		if capture.ID == "" {
@@ -191,10 +196,32 @@ func loadWSSProofMatrixReport(path string) (wssProofMatrixReport, error) {
 			if !replay.GatePassed {
 				capture.GateFailures = append(capture.GateFailures, replay.GateFailures...)
 			}
-			if !capture.ExpectedZeroSavings && replay.BytesSaved <= 0 {
-				capture.GateFailures = append(capture.GateFailures, "expected positive savings, got bytes_saved<=0")
-			}
 			if replay.BytesSaved > 0 {
+				report.PositiveReplayByteSavings++
+			}
+		}
+		if capture.LiveDelta != nil {
+			tokenPositive := capture.LiveDelta.BillableInputTokensSaved > 0
+			if tokenPositive {
+				report.PositiveTokenSavings++
+				report.PositiveSavings++
+			}
+			if capture.ExpectedZeroSavings && tokenPositive {
+				capture.GateFailures = append(capture.GateFailures, "expected zero savings, got positive live billable_input_tokens_saved")
+			}
+			if !capture.ExpectedZeroSavings && !tokenPositive {
+				capture.GateFailures = append(capture.GateFailures, "expected positive live billable_input_tokens_saved, got <=0")
+			}
+			if safety := capture.LiveDelta.ParseFailures + capture.LiveDelta.DegradedSessions + capture.LiveDelta.CompressionErrors; safety > 0 {
+				capture.GateFailures = append(capture.GateFailures,
+					fmt.Sprintf("live safety counters non-zero: parse=%d degraded=%d compression_errors=%d",
+						capture.LiveDelta.ParseFailures, capture.LiveDelta.DegradedSessions, capture.LiveDelta.CompressionErrors))
+			}
+		} else if capture.Replay.Path != "" {
+			if !capture.ExpectedZeroSavings && capture.Replay.BytesSaved <= 0 {
+				capture.GateFailures = append(capture.GateFailures, "expected positive savings, no live token delta and replay bytes_saved<=0")
+			}
+			if capture.Replay.BytesSaved > 0 {
 				report.PositiveSavings++
 			}
 		}
@@ -294,7 +321,7 @@ func wssProofMatrixGateFailures(report wssProofMatrixReport) []string {
 		failures = append(failures, "missing workload classes: "+strings.Join(report.MissingWorkloads, ", "))
 	}
 	if report.PositiveSavings+report.ExpectedZero < 7 {
-		failures = append(failures, fmt.Sprintf("expected at least 7 positive-savings or expected-zero captures, got %d", report.PositiveSavings+report.ExpectedZero))
+		failures = append(failures, fmt.Sprintf("expected at least 7 positive-token-savings or expected-zero captures, got %d", report.PositiveSavings+report.ExpectedZero))
 	}
 	if report.CapturesWithIssues > 0 {
 		failures = append(failures, fmt.Sprintf("%d capture(s) failed per-capture gates", report.CapturesWithIssues))
@@ -337,6 +364,7 @@ func writeWSSProofMatrixText(w io.Writer, report wssProofMatrixReport) {
 	fmt.Fprintf(w, "  captures:          %d\n", report.Captures)
 	fmt.Fprintf(w, "  cli/desktop:       %d / %d\n", report.CLI, report.Desktop)
 	fmt.Fprintf(w, "  positive/zero:     %d / %d\n", report.PositiveSavings, report.ExpectedZero)
+	fmt.Fprintf(w, "  token/replay+:     %d / %d\n", report.PositiveTokenSavings, report.PositiveReplayByteSavings)
 	fmt.Fprintf(w, "  capture issues:    %d\n", report.CapturesWithIssues)
 	fmt.Fprintf(w, "  gate:              %s\n", passFail(report.GatePassed))
 	if len(report.WorkloadClasses) > 0 {
@@ -349,9 +377,13 @@ func writeWSSProofMatrixText(w io.Writer, report wssProofMatrixReport) {
 		fmt.Fprintln(w, "\nCaptures:")
 		for _, capture := range report.CaptureReports {
 			status := passFail(capture.GatePassed)
-			fmt.Fprintf(w, "  %-24s %-7s %-24s saved=%d mutated=%d gate=%s\n",
+			tokens := int64(0)
+			if capture.LiveDelta != nil {
+				tokens = capture.LiveDelta.BillableInputTokensSaved
+			}
+			fmt.Fprintf(w, "  %-24s %-7s %-24s billable_tokens=%d replay_bytes=%d mutated=%d gate=%s\n",
 				capture.ID, capture.Client, capture.WorkloadClass,
-				capture.Replay.BytesSaved, capture.Replay.MutatedRequests, status)
+				tokens, capture.Replay.BytesSaved, capture.Replay.MutatedRequests, status)
 			for _, failure := range capture.GateFailures {
 				fmt.Fprintf(w, "    - %s\n", failure)
 			}

@@ -3989,3 +3989,40 @@ Fresh CLI-only matrix:
   positive-or-expected-zero rows under the recorded metadata.
 - A long-mixed CLI attempt hit upstream Codex `400 invalid_request` and was
   discarded.
+
+## 2026-06-02 - T257 capture proof token-delta hardening
+
+Goal: stop treating replay byte reduction as the headline savings proof. The
+product claim is token savings with zero model/runtime drawdown; replay bytes
+are only a deterministic local proxy for model-facing payload shrink and
+`lost=0` regression safety.
+
+Changes:
+- `codex-capture-run` now records admin-state before and after the scoped Codex
+  run while the managed daemon is still alive.
+- Matrix rows now include `live_delta` with `billable_input_tokens_saved`,
+  `input_tokens_saved`, output-wire/request-side byte counters, reducer-hit
+  counters, and parse/degraded/compression safety counters.
+- `wss-proof-matrix` gates new rows with live
+  `billable_input_tokens_saved>0` for positive-savings workloads. Replay
+  `bytes_saved` is still reported, but only as the model-facing replay proxy.
+- Per-capture live parse/degraded/compression deltas must stay zero. Non-zero
+  values fail the matrix row even if token savings are positive.
+
+Validation:
+- `go test ./scripts/utils`, `go test ./docs ./scripts/utils`, `go test ./...`,
+  `go vet ./...`, and `go run ./scripts/ci` passed after the token-first runner
+  and matrix changes.
+- Live smoke with `/tmp/slimference-token-proof` and managed
+  `codex-capture-run` on two `cat AGENTS.md` calls passed:
+  `billable_input_tokens_saved=3177`, `input_tokens_saved=3177`,
+  `replay_bytes_saved=11463`, `lost=0`, and safety
+  `parse/degraded/compression=0/0/0`.
+- One-row `wss-proof-matrix` correctly reported the capture itself as
+  `gate_passed=true`, `positive_token_savings_captures=1`, and
+  `positive_replay_byte_savings_captures=1`, while the full matrix stayed red
+  for breadth because it had only one CLI row and no Desktop coverage.
+- The smoke also confirmed the old warning: some WSS frame counters can still
+  lag in mid-proof admin deltas. The product proof therefore keys positive
+  savings on live token/reducer counters and uses replay mutation/lost fields
+  for model-facing safety.

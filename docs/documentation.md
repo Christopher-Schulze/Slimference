@@ -2164,9 +2164,14 @@ fixtures. This keeps proof collection manual, reviewable, and reproducible.
 Unattended CLI capture collection uses
 `go run ./scripts/utils codex-capture-run`, which owns the daemon foreground
 process, sets `SLIMFERENCE_WSS_AB_CAPTURE`, waits for `/health`, runs scoped
-Codex, replays with fail-on-lost semantics, and appends an optional
-`wss-proof-matrix` row. The runner supports `--codex-timeout` for bounded proof
-runs, `--exit-marker` / `--exit-marker-count` for unattended shutdown, and
+Codex, records before/after admin-state deltas, replays with fail-on-lost
+semantics, and appends an optional `wss-proof-matrix` row. The matrix row stores
+live `billable_input_tokens_saved` and safety counters
+(`parse_failures`, `degraded_sessions`, `compression_errors`) next to replay
+bytes. Release proof treats live billable input-token savings as the product
+savings signal; replay bytes are retained only as a model-facing
+regression/safety proxy. The runner supports `--codex-timeout` for bounded
+proof runs, `--exit-marker` / `--exit-marker-count` for unattended shutdown, and
 `--quiet-codex-output` for machine-readable runs without Codex TUI noise. This
 is the preferred release-proof path for CLI workloads because it avoids
 detached background daemons that do not inherit the capture environment

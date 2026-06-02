@@ -62,6 +62,7 @@ func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {
 			Model:               "gpt-5-codex",
 			ExpectedReducers:    []string{"read_delta"},
 			ExpectedZeroSavings: expectedZero,
+			LiveDelta:           proofMatrixLiveDelta(expectedZero),
 		})
 	}
 	writeJSONLFile(t, matrixPath, records...)
@@ -75,6 +76,35 @@ func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {
 	}
 	if report.PositiveSavings < 9 || report.ExpectedZero != 1 || len(report.MissingWorkloads) != 0 {
 		t.Fatalf("bad proof aggregate: %+v", report)
+	}
+	if report.PositiveTokenSavings != 9 || report.PositiveReplayByteSavings != 9 {
+		t.Fatalf("bad token/replay aggregate: %+v", report)
+	}
+}
+
+func TestWSSProofMatrixLiveTokensGateBeatsReplayBytes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "token-gate")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "token-zero",
+		Client:        "cli",
+		WorkloadClass: "repeat_full_read",
+		FramesPath:    framesPath,
+		LiveDelta:     &codexCaptureLiveDelta{},
+	})
+
+	report, err := loadWSSProofMatrixReport(matrixPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("expected live-token gate failure, got %+v", report)
+	}
+	if len(report.CaptureReports) != 1 || !strings.Contains(strings.Join(report.CaptureReports[0].GateFailures, "\n"), "live billable_input_tokens_saved") {
+		t.Fatalf("missing token gate failure: %+v", report.CaptureReports)
 	}
 }
 
@@ -154,4 +184,19 @@ func writeProofControlFrames(t *testing.T, path, session string) {
 		}},
 		"stream": true,
 	}))
+}
+
+func proofMatrixLiveDelta(expectedZero bool) *codexCaptureLiveDelta {
+	if expectedZero {
+		return &codexCaptureLiveDelta{}
+	}
+	return &codexCaptureLiveDelta{
+		BillableInputTokensSaved:  100,
+		InputTokensSaved:          100,
+		PhasefBridged:             1,
+		CompressedMessagesMutated: 1,
+		FramesReencoded:           1,
+		PhasefMutations:           1,
+		ProxyLayer0ReadDelta:      1,
+	}
 }

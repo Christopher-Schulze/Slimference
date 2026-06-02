@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/compression"
+	"github.com/slimference/slimference/internal/control"
 )
 
 type codexCaptureRunFlags struct {
@@ -46,6 +47,7 @@ type codexCaptureRunDeps struct {
 	ensureNoDaemon func(context.Context, codexCaptureRunFlags) error
 	startDaemon    func(context.Context, codexCaptureRunFlags, io.Writer) (*codexCaptureDaemon, error)
 	waitHealth     func(context.Context, codexCaptureRunFlags, <-chan error) error
+	adminSnapshot  func(context.Context, codexCaptureRunFlags) (codexCaptureAdminSnapshot, error)
 	runCodex       func(context.Context, codexCaptureRunFlags, io.Writer, io.Writer) error
 	stopDaemon     func(context.Context, *codexCaptureDaemon) error
 	replay         func(wssABReplayFlags) (wssABReplayReport, error)
@@ -57,11 +59,56 @@ type codexCaptureDaemon struct {
 }
 
 type codexCaptureRunResult struct {
-	CapturePath string            `json:"capture_path"`
-	MatrixPath  string            `json:"matrix_path,omitempty"`
-	Replay      wssABReplayReport `json:"replay"`
-	StartedAt   string            `json:"started_at"`
-	EndedAt     string            `json:"ended_at"`
+	CapturePath string                 `json:"capture_path"`
+	MatrixPath  string                 `json:"matrix_path,omitempty"`
+	Replay      wssABReplayReport      `json:"replay"`
+	LiveDelta   *codexCaptureLiveDelta `json:"live_delta,omitempty"`
+	StartedAt   string                 `json:"started_at"`
+	EndedAt     string                 `json:"ended_at"`
+}
+
+type codexCaptureAdminSnapshot struct {
+	BillableInputTokensSaved int64 `json:"billable_input_tokens_saved"`
+	InputTokensSaved         int64 `json:"input_tokens_saved"`
+	OutputWireBytesSaved     int64 `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced  int64 `json:"request_side_bytes_reduced"`
+
+	PhasefBridged             int64 `json:"phasef_bridged"`
+	CompressedMessagesMutated int64 `json:"compressed_messages_mutated"`
+	FramesReencoded           int64 `json:"frames_reencoded"`
+	PhasefMutations           int64 `json:"phasef_mutations"`
+
+	ProxyLayer0ReadDelta  int64 `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0Captured   int64 `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0Envelope   int64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Repeated   int64 `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedup int64 `json:"proxy_layer0_chunk_dedup_blocks"`
+
+	ParseFailures     int64 `json:"parse_failures"`
+	DegradedSessions  int64 `json:"degraded_sessions"`
+	CompressionErrors int64 `json:"compression_errors"`
+}
+
+type codexCaptureLiveDelta struct {
+	BillableInputTokensSaved int64 `json:"billable_input_tokens_saved"`
+	InputTokensSaved         int64 `json:"input_tokens_saved"`
+	OutputWireBytesSaved     int64 `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced  int64 `json:"request_side_bytes_reduced"`
+
+	PhasefBridged             int64 `json:"phasef_bridged"`
+	CompressedMessagesMutated int64 `json:"compressed_messages_mutated"`
+	FramesReencoded           int64 `json:"frames_reencoded"`
+	PhasefMutations           int64 `json:"phasef_mutations"`
+
+	ProxyLayer0ReadDelta  int64 `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0Captured   int64 `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0Envelope   int64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Repeated   int64 `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedup int64 `json:"proxy_layer0_chunk_dedup_blocks"`
+
+	ParseFailures     int64 `json:"parse_failures"`
+	DegradedSessions  int64 `json:"degraded_sessions"`
+	CompressionErrors int64 `json:"compression_errors"`
 }
 
 const codexCaptureRunHelpText = `codex-capture-run: run a scoped Codex CLI capture with a managed foreground daemon
@@ -93,9 +140,11 @@ Flags:
 
 The tool starts the daemon as its own child process with SLIMFERENCE_WSS_AB_CAPTURE
 set, waits for /health, runs "slimference codex run --transport=auto -- ...",
-stops the daemon, then replays the capture with --fail-on-lost semantics. It
-does not use a detached background daemon, because detached shell starts are too
-fragile for unattended release captures.`
+records live admin-state token deltas, stops the daemon, then replays the
+capture with --fail-on-lost semantics. Live billable input-token savings are the
+product savings signal; replay bytes are only the model-facing regression/safety
+proxy. It does not use a detached background daemon, because detached shell
+starts are too fragile for unattended release captures.`
 
 func runCodexCaptureRun(args []string, stdout, stderr io.Writer) int {
 	deps := codexCaptureRunDeps{
@@ -103,6 +152,7 @@ func runCodexCaptureRun(args []string, stdout, stderr io.Writer) int {
 		ensureNoDaemon: ensureNoCodexCaptureDaemon,
 		startDaemon:    startCodexCaptureDaemon,
 		waitHealth:     waitCodexCaptureHealth,
+		adminSnapshot:  loadCodexCaptureAdminSnapshot,
 		runCodex:       runCodexCaptureCLI,
 		stopDaemon:     stopCodexCaptureDaemon,
 		replay:         loadWSSABReplayReport,
@@ -154,6 +204,11 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
+	before, err := deps.adminSnapshot(ctx, flags)
+	if err != nil {
+		fmt.Fprintf(stderr, "read initial admin state: %v\n", err)
+		return 1
+	}
 	runStdout := stdout
 	runStderr := stderr
 	if flags.quietCodexOutput {
@@ -165,6 +220,11 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 	cancelRun()
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	after, err := deps.adminSnapshot(ctx, flags)
+	if err != nil {
+		fmt.Fprintf(stderr, "read final admin state: %v\n", err)
 		return 1
 	}
 	if err := deps.stopDaemon(ctx, daemon); err != nil {
@@ -183,6 +243,7 @@ func runCodexCaptureRunWithDeps(args []string, stdout, stderr io.Writer, deps co
 		CapturePath: flags.capturePath,
 		MatrixPath:  flags.matrixPath,
 		Replay:      replay,
+		LiveDelta:   deltaCodexCaptureAdminSnapshot(before, after),
 		StartedAt:   startedAt.Format(time.RFC3339),
 		EndedAt:     endedAt.Format(time.RFC3339),
 	}
@@ -429,6 +490,81 @@ func waitCodexCaptureHealth(ctx context.Context, flags codexCaptureRunFlags, dae
 	}
 }
 
+func loadCodexCaptureAdminSnapshot(ctx context.Context, flags codexCaptureRunFlags) (codexCaptureAdminSnapshot, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	url := "http://" + flags.host + ":" + flags.port + "/_slimference/admin/state"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return codexCaptureAdminSnapshot{}, fmt.Errorf("build admin state request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return codexCaptureAdminSnapshot{}, fmt.Errorf("fetch %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return codexCaptureAdminSnapshot{}, fmt.Errorf("admin state returned HTTP %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return codexCaptureAdminSnapshot{}, fmt.Errorf("read admin state body: %w", err)
+	}
+	state, err := parseAdminStateJSON(data)
+	if err != nil {
+		return codexCaptureAdminSnapshot{}, err
+	}
+	return codexCaptureAdminSnapshotFromState(state), nil
+}
+
+func codexCaptureAdminSnapshotFromState(setup control.SetupState) codexCaptureAdminSnapshot {
+	return codexCaptureAdminSnapshot{
+		BillableInputTokensSaved: setup.Savings.BillableInputTokensSaved,
+		InputTokensSaved:         setup.Savings.InputTokensSaved,
+		OutputWireBytesSaved:     setup.Savings.OutputWireBytesSaved,
+		RequestSideBytesReduced:  setup.Savings.RequestSideBytesReduced,
+
+		PhasefBridged:             setup.WSS.PhasefBridged,
+		CompressedMessagesMutated: setup.WSS.CompressedMessagesMutated,
+		FramesReencoded:           setup.WSS.FramesReencoded,
+		PhasefMutations:           setup.WSS.PhaseFMutations,
+
+		ProxyLayer0ReadDelta:  setup.Savings.ProxyLayer0ReadDelta,
+		ProxyLayer0Captured:   setup.Savings.ProxyLayer0Captured,
+		ProxyLayer0Envelope:   setup.Savings.ProxyLayer0Envelope,
+		ProxyLayer0Repeated:   setup.Savings.ProxyLayer0Repeated,
+		ProxyLayer0ChunkDedup: setup.Savings.ProxyLayer0ChunkDedup,
+
+		ParseFailures:     setup.WSS.ParseFailures,
+		DegradedSessions:  setup.WSS.DegradedSessions,
+		CompressionErrors: setup.WSS.CompressionErrors,
+	}
+}
+
+func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *codexCaptureLiveDelta {
+	return &codexCaptureLiveDelta{
+		BillableInputTokensSaved: nonNegativeDelta(current.BillableInputTokensSaved, base.BillableInputTokensSaved),
+		InputTokensSaved:         nonNegativeDelta(current.InputTokensSaved, base.InputTokensSaved),
+		OutputWireBytesSaved:     nonNegativeDelta(current.OutputWireBytesSaved, base.OutputWireBytesSaved),
+		RequestSideBytesReduced:  nonNegativeDelta(current.RequestSideBytesReduced, base.RequestSideBytesReduced),
+
+		PhasefBridged:             nonNegativeDelta(current.PhasefBridged, base.PhasefBridged),
+		CompressedMessagesMutated: nonNegativeDelta(current.CompressedMessagesMutated, base.CompressedMessagesMutated),
+		FramesReencoded:           nonNegativeDelta(current.FramesReencoded, base.FramesReencoded),
+		PhasefMutations:           nonNegativeDelta(current.PhasefMutations, base.PhasefMutations),
+
+		ProxyLayer0ReadDelta:  nonNegativeDelta(current.ProxyLayer0ReadDelta, base.ProxyLayer0ReadDelta),
+		ProxyLayer0Captured:   nonNegativeDelta(current.ProxyLayer0Captured, base.ProxyLayer0Captured),
+		ProxyLayer0Envelope:   nonNegativeDelta(current.ProxyLayer0Envelope, base.ProxyLayer0Envelope),
+		ProxyLayer0Repeated:   nonNegativeDelta(current.ProxyLayer0Repeated, base.ProxyLayer0Repeated),
+		ProxyLayer0ChunkDedup: nonNegativeDelta(current.ProxyLayer0ChunkDedup, base.ProxyLayer0ChunkDedup),
+
+		ParseFailures:     nonNegativeDelta(current.ParseFailures, base.ParseFailures),
+		DegradedSessions:  nonNegativeDelta(current.DegradedSessions, base.DegradedSessions),
+		CompressionErrors: nonNegativeDelta(current.CompressionErrors, base.CompressionErrors),
+	}
+}
+
 func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
 	args := []string{"codex", "run", "--transport=auto", "--"}
 	args = append(args, flags.codexArgs...)
@@ -622,6 +758,7 @@ func appendCodexCaptureMatrixRow(flags codexCaptureRunFlags, result codexCapture
 		EndedAt:             result.EndedAt,
 		ExpectedReducers:    append([]string(nil), flags.expectedReducers...),
 		ExpectedZeroSavings: flags.expectedZeroSavings,
+		LiveDelta:           result.LiveDelta,
 	}
 	f, err := os.OpenFile(flags.matrixPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
@@ -645,7 +782,14 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 	fmt.Fprintf(w, "  frames:        %d\n", result.Replay.Frames)
 	fmt.Fprintf(w, "  request_turns: %d\n", result.Replay.RequestTurns)
 	fmt.Fprintf(w, "  mutated:       %d\n", result.Replay.MutatedRequests)
-	fmt.Fprintf(w, "  bytes_saved:   %d\n", result.Replay.BytesSaved)
+	if result.LiveDelta != nil {
+		fmt.Fprintf(w, "  billable_input_tokens_saved: %d\n", result.LiveDelta.BillableInputTokensSaved)
+		fmt.Fprintf(w, "  input_tokens_saved:          %d\n", result.LiveDelta.InputTokensSaved)
+		fmt.Fprintf(w, "  output_wire_bytes_saved:     %d\n", result.LiveDelta.OutputWireBytesSaved)
+		fmt.Fprintf(w, "  safety_parse/degraded/compression: %d / %d / %d\n",
+			result.LiveDelta.ParseFailures, result.LiveDelta.DegradedSessions, result.LiveDelta.CompressionErrors)
+	}
+	fmt.Fprintf(w, "  replay_bytes_saved: %d\n", result.Replay.BytesSaved)
 	fmt.Fprintf(w, "  lost:          %d\n", result.Replay.Lost)
 	fmt.Fprintf(w, "  gate:          %s\n", passFail(result.Replay.GatePassed))
 }
