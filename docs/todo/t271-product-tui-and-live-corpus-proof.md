@@ -168,3 +168,9 @@ gate is done when default promotions require live corpus evidence.
   keeps the user-facing surface honest: token savings are the money claim,
   request bytes are local reducer efficiency, and output-wire bytes are UX/stream
   savings rather than billable input savings.
+- 2026-06-03: Removed the remaining legacy right-panel fallback that rebuilt a
+  mixed percent/snapshot savings headline when product status was empty. The
+  default product panel now always renders the product rollup shape, including
+  explicit zero values for output-wire and provider-cache savings, so the TUI
+  cannot blur `0` with "metric absent" and cannot invent a second headline from
+  raw debug counters.

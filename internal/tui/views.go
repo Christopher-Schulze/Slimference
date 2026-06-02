@@ -1065,41 +1065,19 @@ func (m *Model) buildRightPanel(width int) []string {
 	add := func(str string) { lines = append(lines, pad(str)) }
 
 	add(" " + s.PanelTitle.Render("PRODUCT"))
-	if product.RouteStatus == "" && product.SavingsStatus == "" {
-		savedPct := 0
-		if snap.TotalInputTokens > 0 {
-			savedPct = int((1 - float64(snap.TotalInputTokens-snap.SavedInputTokens)/float64(snap.TotalInputTokens)) * 100)
-		}
-		origStr := formatTokens(snap.TotalInputTokens)
-		compStr := formatTokens(snap.TotalInputTokens - snap.SavedInputTokens)
-		savedTok := formatTokens(snap.SavedInputTokens)
-		add(" " + s.BigSaved.Render(fmt.Sprintf("%d%%", savedPct)) +
-			s.Dim.Render("  "+origStr+" → "+compStr+"  ") +
-			s.Saved.Render(savedTok+" saved"))
-		barWidth := width - 3
-		if barWidth < 8 {
-			barWidth = 8
-		}
-		add(" " + renderProgressBar(s, float64(savedPct)/100.0, barWidth))
+	add(" " + renderProductRouteLine(s, product))
+	add(" " + s.Saved.Render(formatTokens(int(product.BillableInputTokensSaved))+" input saved") +
+		"  " + s.Dim.Render(formatBytesCompact(product.RequestSideBytesReduced)+" request"))
+	add(" " + s.Dim.Render(formatBytesCompact(product.OutputWireBytesSaved)+" output-wire saved"))
+	add(" " + s.Highlight.Render(formatTokens(int(product.ProviderCacheReadTokens))+" provider-cache read") +
+		"  " + s.Dim.Render(formatTokens(int(product.ProviderCacheCreateTokens))+" create"))
+	add(" " + s.Muted.Render(fmt.Sprintf("cache %d/%d · read %d · repeated %d · chunk %d",
+		product.CacheHits, product.CacheHits+product.CacheMisses,
+		product.ReadDeltaHits, product.RepeatedOutputHits, product.ChunkDedupHits)))
+	if product.SafetyIssues > 0 || product.HostBudgetExceeded {
+		add(" " + s.Warning.Render(productSafetyLine(product)))
 	} else {
-		add(" " + renderProductRouteLine(s, product))
-		add(" " + s.Saved.Render(formatTokens(int(product.BillableInputTokensSaved))+" input saved") +
-			"  " + s.Dim.Render(formatBytesCompact(product.RequestSideBytesReduced)+" request"))
-		if product.OutputWireBytesSaved > 0 {
-			add(" " + s.Dim.Render(formatBytesCompact(product.OutputWireBytesSaved)+" output-wire saved"))
-		}
-		if product.ProviderCacheReadTokens > 0 || product.ProviderCacheCreateTokens > 0 {
-			add(" " + s.Highlight.Render(formatTokens(int(product.ProviderCacheReadTokens))+" provider-cache read") +
-				"  " + s.Dim.Render(formatTokens(int(product.ProviderCacheCreateTokens))+" create"))
-		}
-		add(" " + s.Muted.Render(fmt.Sprintf("cache %d/%d · read %d · repeated %d · chunk %d",
-			product.CacheHits, product.CacheHits+product.CacheMisses,
-			product.ReadDeltaHits, product.RepeatedOutputHits, product.ChunkDedupHits)))
-		if product.SafetyIssues > 0 || product.HostBudgetExceeded {
-			add(" " + s.Warning.Render(productSafetyLine(product)))
-		} else {
-			add(" " + s.Muted.Render("safety ok"))
-		}
+		add(" " + s.Muted.Render("safety ok"))
 	}
 	add("")
 

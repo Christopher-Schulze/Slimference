@@ -1279,6 +1279,31 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	}
 }
 
+func TestView_MainRender_ProductStatusEmptyUsesExplicitProductZeros(t *testing.T) {
+	t.Parallel()
+	p := newMockProxy()
+	p.snap = analytics.AnalyticsSnapshot{
+		SessionStart:     time.Now(),
+		TotalInputTokens: 10000,
+		SavedInputTokens: 5000,
+	}
+	m := NewModel(p)
+	m.width = 100
+	m.height = 30
+
+	output := m.View()
+	for _, want := range []string{"PRODUCT", "direct", "0 input saved", "0 output-wire saved", "0 provider-cache read", "safety ok"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("main view missing %q in:\n%s", want, output)
+		}
+	}
+	for _, blocked := range []string{"50%", "10.0K"} {
+		if strings.Contains(output, blocked) {
+			t.Fatalf("main view leaked legacy snapshot headline %q in:\n%s", blocked, output)
+		}
+	}
+}
+
 func TestView_MainRender_UsesCachedProductStatus(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()

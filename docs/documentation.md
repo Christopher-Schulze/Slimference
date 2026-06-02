@@ -1774,10 +1774,12 @@ the same local or remote adapter path as the rest of the TUI. It shows route
 state, billable input saved, output-wire bytes, cache hit/miss totals,
 read-delta/repeated-output/chunk hits, and safety or host-budget attention. Raw
 parser matrices, policy internals, and mechanism debug counters stay in debug
-surfaces; the normal view does not invent a second mixed savings headline. The
-TUI caches product status in the model and refreshes it on ticks/events instead
-of fetching during render; host-budget attention slows the next tick from 500 ms
-to 2 s.
+surfaces; the normal view does not invent a second mixed savings headline. It
+renders explicit zero values for output-wire and provider-cache savings instead
+of hiding absent counters, so `0` and "not shown" are never confused. The TUI
+caches product status in the model and refreshes it on ticks/events instead of
+fetching during render; host-budget attention slows the next tick from 500 ms to
+2 s.
 
 ### Keybindings
 
