@@ -283,11 +283,20 @@ func TestSearchOutputKeyFromCommandLine(t *testing.T) {
 	if got := SearchOutputKeyFromCommandLine(`rg -n "needle" internal`); got != "rg\t-n\tneedle\tinternal" {
 		t.Fatalf("rg search key = %q", got)
 	}
+	if got := SearchOutputKeyFromCommandLine(`rg --heading -n "needle" internal`); got != "" {
+		t.Fatalf("heading search must not produce a plain match-set key: %q", got)
+	}
+	if got := SearchOutputKeyFromCommandLine(`rg -C 2 -n "needle" internal`); got != "" {
+		t.Fatalf("context search must not produce a plain match-set key: %q", got)
+	}
 	if got := SearchOutputKeyFromCommandLine(`git grep needle -- internal`); got != "git\tgrep\tneedle\t--\tinternal" {
 		t.Fatalf("git grep search key = %q", got)
 	}
 	if got := SearchOutputKeyFromCommandLine(`git -C /repo/a grep needle -- internal`); got != "git\t-C\t/repo/a\tgrep\tneedle\t--\tinternal" {
 		t.Fatalf("git -C grep search key = %q", got)
+	}
+	if got := SearchOutputKeyFromCommandLine(`git -C /repo/a grep -C 2 needle -- internal`); got != "" {
+		t.Fatalf("git grep context search must not produce a plain match-set key: %q", got)
 	}
 	if got := SearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/a/internal" {
 		t.Fatalf("cd-wrapped rg search key = %q", got)
@@ -310,6 +319,9 @@ func TestRepoScopedSearchOutputKeyFromCommandLine(t *testing.T) {
 	}
 	if got := RepoScopedSearchOutputKeyFromCommandLine(`cd /repo/a && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/a/internal" {
 		t.Fatalf("cd-wrapped rg repo key = %q", got)
+	}
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`cd /repo/a && rg --heading -n "needle" internal`); got != "" {
+		t.Fatalf("heading rg must not get a repo-scoped match-set key: %q", got)
 	}
 	if got := RepoScopedSearchOutputKeyFromCommandLine(`rg -n "needle" /repo/a/internal`); got != "rg\t-n\tneedle\t/repo/a/internal" {
 		t.Fatalf("absolute-path rg repo key = %q", got)
@@ -446,6 +458,18 @@ func TestSearchOutputGroupingSkipsNonMatchLineModes(t *testing.T) {
 	countOutput := strings.Repeat("src/a.go:12\nsrc/b.go:4\n", 8)
 	if _, ok := TryCompactSearchOutput([]string{"grep", "-Rc", "needle", "."}, []byte(countOutput)); ok {
 		t.Fatal("grep -c must not be grouped as match-line output")
+	}
+	headingOutput := strings.Repeat("src/a.go\n12: needle with heading mode\n13: another heading mode match\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"rg", "--heading", "-n", "needle"}, []byte(headingOutput)); ok {
+		t.Fatal("rg --heading must not be grouped as file:line output")
+	}
+	contextOutput := strings.Repeat("src/a.go-11-before context\nsrc/a.go:12:needle match\nsrc/a.go-13-after context\n--\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"rg", "-C", "1", "-n", "needle"}, []byte(contextOutput)); ok {
+		t.Fatal("rg -C must not drop context lines through match-line grouping")
+	}
+	customSeparatorOutput := strings.Repeat("src/a.go=12=needle with custom separator\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"rg", "--field-match-separator", "=", "-n", "needle"}, []byte(customSeparatorOutput)); ok {
+		t.Fatal("custom search separators must not be grouped by the colon parser")
 	}
 }
 

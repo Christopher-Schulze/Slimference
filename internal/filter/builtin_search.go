@@ -271,12 +271,12 @@ func searchToolName(argv []string) string {
 func SearchOutputKeyFromCommandLine(commandLine string) string {
 	if normalized := NormalizeSearchCommandLine(commandLine, ""); normalized != "" {
 		argv := primaryArgvForCapturedOutput(normalized)
-		if isGrepStyleTool(argv) {
+		if isGrepStyleTool(argv) && searchProducesMatchLineOutput(argv) {
 			return strings.Join(argv, "\t")
 		}
 	}
 	argv := primaryArgvForCapturedOutput(commandLine)
-	if !isGrepStyleTool(argv) {
+	if !isGrepStyleTool(argv) || !searchProducesMatchLineOutput(argv) {
 		return ""
 	}
 	return strings.Join(argv, "\t")
@@ -289,12 +289,12 @@ func SearchOutputKeyFromCommandLine(commandLine string) string {
 func RepoScopedSearchOutputKeyFromCommandLine(commandLine string) string {
 	if normalized := NormalizeSearchCommandLine(commandLine, ""); normalized != "" {
 		argv := primaryArgvForCapturedOutput(normalized)
-		if isGrepStyleTool(argv) && searchArgvHasRepoScope(argv) {
+		if isGrepStyleTool(argv) && searchProducesMatchLineOutput(argv) && searchArgvHasRepoScope(argv) {
 			return strings.Join(argv, "\t")
 		}
 	}
 	argv := primaryArgvForCapturedOutput(commandLine)
-	if !isGrepStyleTool(argv) || !searchArgvHasRepoScope(argv) {
+	if !isGrepStyleTool(argv) || !searchProducesMatchLineOutput(argv) || !searchArgvHasRepoScope(argv) {
 		return ""
 	}
 	return strings.Join(argv, "\t")
@@ -545,39 +545,84 @@ func searchProducesMatchLineOutput(argv []string) bool {
 	if len(argv) == 0 {
 		return false
 	}
-	for i := 1; i < len(argv); i++ {
-		arg := argv[i]
+	args := searchOutputModeArgs(argv)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		if arg == "--" {
 			return true
 		}
 		switch {
-		case arg == "--json" || arg == "--files" || arg == "--files-with-matches" ||
-			arg == "--files-without-match" || arg == "--count" || arg == "--count-matches" ||
-			arg == "--only-matching" || arg == "--vimgrep" || arg == "--type-list":
+		case searchOutputFlagDisablesGrouping(arg):
 			return false
 		case arg == "-l" || arg == "-L" || arg == "-c" || arg == "-o":
-			return false
-		case strings.HasPrefix(arg, "--json="), strings.HasPrefix(arg, "--files="),
-			strings.HasPrefix(arg, "--files-with-matches="), strings.HasPrefix(arg, "--files-without-match="),
-			strings.HasPrefix(arg, "--count="), strings.HasPrefix(arg, "--count-matches="),
-			strings.HasPrefix(arg, "--only-matching="), strings.HasPrefix(arg, "--vimgrep="):
 			return false
 		case strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--"):
 			if shortSearchOutputFlagDisablesGrouping(arg) {
 				return false
+			}
+			if kind := searchOptionKind(arg); kind.consumesValue && i+1 < len(args) {
+				i++
+			}
+		case strings.HasPrefix(arg, "--"):
+			if kind := searchOptionKind(arg); kind.consumesValue && i+1 < len(args) {
+				i++
 			}
 		}
 	}
 	return true
 }
 
+func searchOutputModeArgs(argv []string) []string {
+	if idx := gitGrepIndex(argv); idx >= 0 {
+		return argv[idx+1:]
+	}
+	if len(argv) <= 1 {
+		return nil
+	}
+	return argv[1:]
+}
+
+func searchOutputFlagDisablesGrouping(arg string) bool {
+	switch arg {
+	case "--json", "--files", "--files-with-matches", "--files-without-match",
+		"--count", "--count-matches", "--only-matching", "--vimgrep", "--type-list",
+		"--heading", "--pretty", "--context", "--after-context", "--before-context",
+		"--passthru", "--multiline", "--multiline-dotall",
+		"--field-context-separator", "--field-match-separator":
+		return true
+	default:
+		return strings.HasPrefix(arg, "--json=") ||
+			strings.HasPrefix(arg, "--files=") ||
+			strings.HasPrefix(arg, "--files-with-matches=") ||
+			strings.HasPrefix(arg, "--files-without-match=") ||
+			strings.HasPrefix(arg, "--count=") ||
+			strings.HasPrefix(arg, "--count-matches=") ||
+			strings.HasPrefix(arg, "--only-matching=") ||
+			strings.HasPrefix(arg, "--vimgrep=") ||
+			strings.HasPrefix(arg, "--heading=") ||
+			strings.HasPrefix(arg, "--pretty=") ||
+			strings.HasPrefix(arg, "--context=") ||
+			strings.HasPrefix(arg, "--after-context=") ||
+			strings.HasPrefix(arg, "--before-context=") ||
+			strings.HasPrefix(arg, "--passthru=") ||
+			strings.HasPrefix(arg, "--multiline=") ||
+			strings.HasPrefix(arg, "--multiline-dotall=") ||
+			strings.HasPrefix(arg, "--field-context-separator=") ||
+			strings.HasPrefix(arg, "--field-match-separator=")
+	}
+}
+
 func shortSearchOutputFlagDisablesGrouping(arg string) bool {
 	if len(arg) < 2 || !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
 		return false
 	}
+	if strings.HasPrefix(arg, "-A") || strings.HasPrefix(arg, "-B") || strings.HasPrefix(arg, "-C") ||
+		strings.HasPrefix(arg, "-U") || strings.HasPrefix(arg, "-p") {
+		return true
+	}
 	for _, r := range arg[1:] {
 		switch r {
-		case 'l', 'L', 'c', 'o':
+		case 'l', 'L', 'c', 'o', 'A', 'B', 'C', 'U', 'p':
 			return true
 		}
 	}

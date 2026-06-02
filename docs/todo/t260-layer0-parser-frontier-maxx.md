@@ -149,6 +149,13 @@ These are promotion targets, not claims:
   replayed with `lost=0` and saved 1518 live WSS input tokens through the
   Codex exec-envelope/git-status reducer. Both runs had zero tool/command
   resolution misses and zero parse/degraded/compression errors.
+- 2026-06-02: Hardened the search reducer's plain-match-line gate. `rg`/`grep`
+  modes that emit headings, context blocks, passthrough output, multiline
+  matches, or custom field separators now full-pass instead of being grouped by
+  the `file:line:match` parser. `git -C <repo> grep ...` remains eligible, but
+  context flags after `git grep` are blocked. This prevents fake file names,
+  dropped context lines, and unsafe search-delta identities while preserving
+  exact repeated-output dedup for byte-identical repeats.
 
 ## Done
 

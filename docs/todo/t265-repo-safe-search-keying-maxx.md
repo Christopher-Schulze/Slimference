@@ -151,6 +151,13 @@ is capped.
   counters show `repeated_output hit reason=delta count=1` after the first seed.
   Replay passed `--fail-on-lost` with `frames=186`, `request_turns=4`,
   `mutated_requests=2`, `bytes_saved=57084`, `lost=0`, and `gate_passed=true`.
+- 2026-06-02 tightened repo-safe search identity to plain match-line output
+  only. Heading/context/passthrough/multiline/custom-separator searches no
+  longer produce `search:` repeated-output keys and no longer enter the grouped
+  match parser. They can still be saved by exact repeated-output identity under
+  the generic command key, but they cannot be collapsed as same-match-set or
+  search-delta because those reductions would not preserve the extra context
+  semantics.
 
 Remaining before this task can close:
 
