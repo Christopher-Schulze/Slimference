@@ -104,6 +104,7 @@ type CodexMechanismInput struct {
 	MinBytes                  int
 	RecentlyEdited            bool
 	PostCollapseReRead        bool
+	RecentEditUncertainty     bool
 	SessionIntegrityBudgetHit bool
 	QualitySpike              bool
 	ArchiveRecoveryLoop       bool
@@ -134,6 +135,7 @@ type CodexToolOutputInput struct {
 	IsRead                   bool
 	RecentlyEdited           bool
 	PostCollapseReRead       bool
+	RecentEditUncertainty    bool
 	QualitySpike             bool
 	ArchiveRecoveryLoop      bool
 	MissingToolRetry         bool
@@ -295,6 +297,7 @@ func chunkMechanismInput(in CodexToolOutputInput, mode CodexMode) CodexMechanism
 		MinBytes:                 in.ChunkMinBytes,
 		RecentlyEdited:           in.RecentlyEdited,
 		PostCollapseReRead:       in.PostCollapseReRead,
+		RecentEditUncertainty:    in.RecentEditUncertainty,
 		QualitySpike:             in.QualitySpike,
 		ArchiveRecoveryLoop:      in.ArchiveRecoveryLoop,
 		MissingToolRetry:         in.MissingToolRetry,
@@ -314,6 +317,9 @@ func decideChunkDedup(base CodexMechanismDecision, in CodexMechanismInput, mode 
 	}
 	if !bytesCandidate(in.OutputBytes, in.MinBytes) {
 		return block(base, "below_min_bytes")
+	}
+	if in.RecentEditUncertainty {
+		return fullPass(base, "recent_edit_uncertain_chunk_full_context")
 	}
 	if mode == CodexModeConservative && !in.Explicit {
 		return block(base, "conservative_requires_explicit_recovery")
@@ -340,6 +346,7 @@ func toolOutputMechanismDecisions(in CodexToolOutputInput, mode CodexMode) []Cod
 		MinBytes:                 in.ChunkMinBytes,
 		RecentlyEdited:           in.RecentlyEdited,
 		PostCollapseReRead:       in.PostCollapseReRead,
+		RecentEditUncertainty:    in.RecentEditUncertainty,
 		QualitySpike:             in.QualitySpike,
 		ArchiveRecoveryLoop:      in.ArchiveRecoveryLoop,
 		MissingToolRetry:         in.MissingToolRetry,

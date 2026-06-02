@@ -68,6 +68,7 @@ type codexLayer0Request struct {
 	ChunkStore            *chunkdedup.Store
 	PolicyMode            string
 	ArchiveRecovery       bool
+	RecentEditUncertainty bool
 	HostBudgetExceeded    bool
 	LatencyBudgetExceeded bool
 }
@@ -317,6 +318,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 	// Codex (GPT-4o / GPT-5-codex) bills in o200k_base; count the savings guard
 	// with the matching encoding so before/after token math reflects real cost.
 	tok := tokens.ForProvider(types.CodexChatGPT)
+	recentEditUncertainty := req.RecentEditUncertainty || len(proxyEditedPathsFromMessages(req.Messages, req.RememberedToolUse)) > 0
 
 	for msgIdx, msg := range req.Messages {
 		for blockIdx, block := range msg.Content {
@@ -358,6 +360,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				IsRead:                   readCommand,
 				RecentlyEdited:           readCtx.RecentlyEdited,
 				PostCollapseReRead:       postCollapseReRead && toolKey != "",
+				RecentEditUncertainty:    recentEditUncertainty && !readCtx.RecentlyEdited,
 				HostBudgetExceeded:       req.HostBudgetExceeded,
 				LatencyBudgetExceeded:    req.LatencyBudgetExceeded,
 			})

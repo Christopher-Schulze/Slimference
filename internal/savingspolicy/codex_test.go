@@ -362,6 +362,29 @@ func TestDecideCodexToolOutputHostBudgetKeepsLosslessReducers(t *testing.T) {
 	}
 }
 
+func TestDecideCodexToolOutputRecentEditUncertaintyOnlyDemotesChunk(t *testing.T) {
+	t.Parallel()
+	got := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode:                     string(CodexModeAuto),
+		Route:                    CodexRouteWSSPhaseF,
+		ArchiveRecoveryAvailable: true,
+		OutputBytes:              9000,
+		ChunkMinBytes:            1,
+		RecentEditUncertainty:    true,
+	})
+	if got.Loosened || !got.ReadDelta || !got.RepeatedOutput || got.ChunkDedup {
+		t.Fatalf("recent edit uncertainty should keep lossless reducers but demote chunk: %+v", got)
+	}
+	for _, mechanism := range []CodexMechanism{CodexMechanismReadDelta, CodexMechanismRepeatedOutput} {
+		if actionForMechanism(got.Mechanisms, mechanism) != CodexPolicyAllow {
+			t.Fatalf("%s should remain allowed: %+v", mechanism, got.Mechanisms)
+		}
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyFullPass {
+		t.Fatalf("chunk dedup should full-pass on edit uncertainty: %+v", got.Mechanisms)
+	}
+}
+
 func TestDecideCodexToolOutputIncludesShadowTelemetryForFutureCandidates(t *testing.T) {
 	t.Parallel()
 	got := DecideCodexToolOutput(CodexToolOutputInput{

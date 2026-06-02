@@ -608,9 +608,13 @@ chunks. The product default is
 `codex_savings_policy_mode="auto"`: safe lossless reducers stay on, and chunk
 dedup is limited to recoverable WSS paths with archive support, cross-send
 seeding, density budgets, local decode verification, and patch/diff/edit-output
-guards. Cross-send seeding means repeated chunks first encountered inside the
-same model-facing output stay verbatim and only seed future overlap; references
-are emitted only for chunks that were known before the current output started.
+guards. Same-batch edit uncertainty also demotes only chunk dedup: if the current
+Layer-0 batch carries an edit/apply-patch/write signal, fresh command/search/log
+outputs stay full context while lossless read-delta and exact repeated-output
+reducers may still run. Cross-send seeding means repeated chunks first
+encountered inside the same model-facing output stay verbatim and only seed
+future overlap; references are emitted only for chunks that were known before the
+current output started.
 Commands such as
 `apply_patch`, `patch`, `diff`, `colordiff`, patch/diff file reads,
 `git diff`, `git show`, `git log -p`, `git apply`, `git am`,

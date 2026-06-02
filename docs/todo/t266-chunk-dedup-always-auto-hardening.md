@@ -38,6 +38,11 @@ make chunk dedup automatic without product drawdowns.
   outputs can still use deterministic filters and exact repeated-output
   reducers, but content-defined references are not allowed to split fresh patch
   reasoning context.
+- Chunk refs are now also suppressed when the current Layer-0 batch carries an
+  edit/apply-patch/write signal. This recent-edit uncertainty only demotes
+  chunk dedup; lossless read-delta and exact repeated-output reducers remain
+  available. Fresh post-edit command/search/log outputs therefore stay full
+  context instead of being represented as chunk references.
 - It is not enough to prove one matching workload. Default-auto needs broad
   proof and runtime self-protection.
 
@@ -59,7 +64,7 @@ Chunk dedup may be always-auto only for routes/workloads where:
    - [x] no same-output chunk references before the model has received that output
      as full context
    - [x] no chunk refs for active patch/diff/edit outputs
-   - no chunk refs under recent edit uncertainty
+   - [x] no chunk refs under recent edit uncertainty
 2. Add integrity budget:
    - per-session ratio of referenced bytes to total tool-output bytes
    - per-output maximum reference density
@@ -274,3 +279,9 @@ it remains guarded by policy.
   replay comparison, so the no-drawdown gate can see them. The focused proxy and
   `scripts/utils` replay tests now prove recovery-note extras are separated from
   true loss while chunk references still pass through exact archive expansion.
+- 2026-06-03: Added a chunk-specific recent-edit uncertainty guard. Layer-0 now
+  detects edit/apply-patch/write signals in the current batch and passes that
+  signal to savings policy. Policy full-passes chunk dedup with reason
+  `recent_edit_uncertain_chunk_full_context` while leaving lossless reducers
+  enabled. Focused policy and reducer tests prove a fresh post-edit command
+  output with prior chunk overlap does not receive `context-chunk` references.

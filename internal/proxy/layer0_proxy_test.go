@@ -853,6 +853,45 @@ func TestReduceCodexLayer0ChunkDedupSkipsPatchAndDiffOutputs(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ChunkDedupFullPassesAfterRecentEditUncertainty(t *testing.T) {
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{}, chunkdedup.StoreLimits{MaxSessionRefPct: 100}, func(_, id string, chunk []byte) string {
+		return "local-archive://" + id
+	})
+	shared := strings.Repeat("stable command output line with useful context\n", 1200)
+	req := func(messages []types.Message) codexLayer0Request {
+		return codexLayer0Request{
+			Route:               codexLayer0RouteWSSPhaseF,
+			Messages:            messages,
+			SessionID:           "chunk-edit-uncertainty",
+			ChunkStore:          store,
+			ArchiveRecovery:     true,
+			ChunkDedupEnabled:   true,
+			ChunkDedupMinBytes:  0,
+			ChunkDedupMaxRefPct: 100,
+			PolicyMode:          "auto",
+		}
+	}
+	seed := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "cmd-1", ToolName: "exec_command", ToolInput: `{"cmd":"python emit_context.py"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "cmd-1", Text: shared + "first tail\n"}}},
+	}
+	freshAfterEdit := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "edit-1", ToolName: "apply_patch", ToolInput: `{"path":"src/x.go","patch":"*** Begin Patch\n*** Update File: src/x.go\n@@\n-old\n+new\n*** End Patch"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "edit-1", Text: "patch applied"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "cmd-2", ToolName: "exec_command", ToolInput: `{"cmd":"python emit_context.py"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "cmd-2", Text: shared + "fresh tail after edit\n"}}},
+	}
+
+	reduceCodexLayer0(req(seed))
+	out := reduceCodexLayer0(req(freshAfterEdit))
+	if out.Stats.ChunkDedupBlocks != 0 || strings.Contains(out.Messages[3].Content[0].Text, "context-chunk") {
+		t.Fatalf("fresh post-edit command output must not receive chunk refs: stats=%+v text=%q", out.Stats, out.Messages[3].Content[0].Text)
+	}
+	if actionForMechanism(out.Stats.PolicyDecisions, savingspolicy.CodexMechanismChunkDedup) != savingspolicy.CodexPolicyFullPass {
+		t.Fatalf("chunk mechanism should full-pass on edit uncertainty: %+v", out.Stats.PolicyDecisions)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupRequiresGateAndRecovery(t *testing.T) {
 	t.Parallel()
 	store := chunkdedup.NewStore(chunkdedup.Config{}, nil)
@@ -1289,4 +1328,13 @@ func TestToolPruneRetryHelpers(t *testing.T) {
 	if got := p.rewriteToolPruneRetryBody(types.OpenAI, body, false, "conv"); string(got) != string(body) {
 		t.Fatalf("unused server state should keep body: %s", got)
 	}
+}
+
+func actionForMechanism(decisions []savingspolicy.CodexMechanismDecision, mechanism savingspolicy.CodexMechanism) savingspolicy.CodexPolicyAction {
+	for _, decision := range decisions {
+		if decision.Mechanism == mechanism {
+			return decision.Action
+		}
+	}
+	return ""
 }

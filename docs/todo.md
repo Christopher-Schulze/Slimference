@@ -1976,7 +1976,9 @@ be called complete, default-safe, and production-grade.
   excluded. Offline hardening now blocks patch/diff/edit outputs from chunk
   references, forbids same-output first-observation references, verifies chunk
   references through reconstructed A/B replay, and enforces per-output reference
-  density before accepted session budget accounting. Proof-matrix rows can now
+  density before accepted session budget accounting. Same-batch edit uncertainty
+  now demotes only chunk dedup while leaving lossless reducers available, so
+  fresh post-edit outputs stay full context. Proof-matrix rows can now
   require live `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; live
   matrix proof remains, with the latest live zero-hit root cause identified as
   `host_budget_full_context` from `cpu_window_budget_exceeded`, not reducer
