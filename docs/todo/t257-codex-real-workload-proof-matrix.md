@@ -219,6 +219,10 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   reducer must have a positive live block counter. `none` is the explicit
   expected-zero/control marker. Unknown reducer names fail the capture row so a
   typo cannot make the proof look stronger than it is.
+- 2026-06-02: `wss-proof-matrix --require-live-token-delta` is the release-proof
+  mode. In that mode every row must contain a real `live_delta` captured from
+  admin-state while the scoped daemon is alive; replay `bytes_saved` remains
+  visible as a regression proxy but cannot count as positive savings.
 
 ## Deviations
 

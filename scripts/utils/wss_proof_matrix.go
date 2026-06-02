@@ -11,9 +11,14 @@ import (
 )
 
 type wssProofMatrixFlags struct {
-	path         string
-	outputFormat string
-	help         bool
+	path                  string
+	outputFormat          string
+	requireLiveTokenDelta bool
+	help                  bool
+}
+
+type wssProofMatrixOptions struct {
+	requireLiveTokenDelta bool
 }
 
 type wssProofMatrixCapture struct {
@@ -88,14 +93,16 @@ var requiredWSSProofWorkloads = []string{
 const wssProofMatrixHelpText = `wss-proof-matrix: verify the Codex WSS real-workload proof matrix
 
 Usage:
-  go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json]
+  go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]
 
 Input JSONL rows:
   {"id":"cli-repeat-1","client":"cli","workload_class":"repeat_full_read","frames_path":"/tmp/frames.jsonl","decisions_path":"~/.slimference/debug/decisions.jsonl","expected_reducers":["read_delta"]}
 
 The tool replays each frames file with wss-ab-replay semantics, optionally audits
-the matching decisions log, and emits a content-free PASS/FAIL matrix. Raw frame
-payloads stay local and are not copied into the report.`
+the matching decisions log, and emits a content-free PASS/FAIL matrix. Use
+--require-live-token-delta for release proofs where replay bytes are not allowed
+to stand in for real billable token deltas. Raw frame payloads stay local and are
+not copied into the report.`
 
 func runWSSProofMatrix(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseWSSProofMatrixFlags(args)
@@ -111,7 +118,9 @@ func runWSSProofMatrix(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Usage: wss-proof-matrix <captures.jsonl> [--json]")
 		return 2
 	}
-	report, err := loadWSSProofMatrixReport(flags.path)
+	report, err := loadWSSProofMatrixReportWithOptions(flags.path, wssProofMatrixOptions{
+		requireLiveTokenDelta: flags.requireLiveTokenDelta,
+	})
 	if err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 1
@@ -143,6 +152,8 @@ func parseWSSProofMatrixFlags(args []string) (wssProofMatrixFlags, error) {
 			flags.help = true
 		case arg == "--json":
 			flags.outputFormat = outputJSON
+		case arg == "--require-live-token-delta":
+			flags.requireLiveTokenDelta = true
 		case strings.HasPrefix(arg, "-"):
 			return flags, fmt.Errorf("unknown flag: %s", arg)
 		default:
@@ -156,6 +167,10 @@ func parseWSSProofMatrixFlags(args []string) (wssProofMatrixFlags, error) {
 }
 
 func loadWSSProofMatrixReport(path string) (wssProofMatrixReport, error) {
+	return loadWSSProofMatrixReportWithOptions(path, wssProofMatrixOptions{})
+}
+
+func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOptions) (wssProofMatrixReport, error) {
 	records, err := readWSSProofMatrixRecords(path)
 	if err != nil {
 		return wssProofMatrixReport{}, err
@@ -221,6 +236,8 @@ func loadWSSProofMatrixReport(path string) (wssProofMatrixReport, error) {
 			hits, failures := validateExpectedReducers(capture.ExpectedReducers, capture.LiveDelta)
 			capture.ExpectedReducerHits = hits
 			capture.GateFailures = append(capture.GateFailures, failures...)
+		} else if options.requireLiveTokenDelta {
+			capture.GateFailures = append(capture.GateFailures, "live_delta is required in --require-live-token-delta mode")
 		} else if capture.Replay.Path != "" {
 			if !capture.ExpectedZeroSavings && capture.Replay.BytesSaved <= 0 {
 				capture.GateFailures = append(capture.GateFailures, "expected positive savings, no live token delta and replay bytes_saved<=0")

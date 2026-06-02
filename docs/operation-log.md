@@ -4073,3 +4073,19 @@ Validation:
 - Added tests for expected reducer hits and for failure on a missing/unknown
   reducer.
 - `go test ./scripts/utils` passed.
+
+## 2026-06-02 - T257 live-token required release gate
+
+Goal: keep old proof-matrix rows readable while making release proofs incapable
+of passing on replay byte savings alone. Product savings are billable token
+savings, not byte shrinkage.
+
+Changes:
+- Added `wss-proof-matrix --require-live-token-delta`.
+- In strict mode, every capture row must include `live_delta`; replay
+  `bytes_saved` is still reported but does not count as positive savings.
+- Legacy mode remains backward-compatible for old rows and diagnostics.
+
+Validation:
+- Added a regression test where a replay-positive row without `live_delta`
+  passes the per-capture legacy fallback but fails strict mode.

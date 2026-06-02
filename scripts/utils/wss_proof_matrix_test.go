@@ -115,6 +115,42 @@ func TestWSSProofMatrixLiveTokensGateBeatsReplayBytes(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixRequireLiveTokenDelta(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "strict-token-gate")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "legacy-replay-only",
+		Client:        "cli",
+		WorkloadClass: "repeat_full_read",
+		FramesPath:    framesPath,
+	})
+
+	legacyReport, err := loadWSSProofMatrixReport(matrixPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !legacyReport.CaptureReports[0].GatePassed || legacyReport.GatePassed {
+		t.Fatalf("single-row aggregate should fail but capture should use replay fallback in legacy mode: %+v", legacyReport)
+	}
+	if legacyReport.PositiveSavings != 1 || legacyReport.PositiveTokenSavings != 0 || legacyReport.PositiveReplayByteSavings != 1 {
+		t.Fatalf("legacy fallback counters wrong: %+v", legacyReport)
+	}
+
+	strictReport, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{requireLiveTokenDelta: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strictReport.CaptureReports[0].GatePassed || strictReport.PositiveSavings != 0 || strictReport.PositiveReplayByteSavings != 1 {
+		t.Fatalf("strict mode should fail without counting replay as positive savings: %+v", strictReport)
+	}
+	if !strings.Contains(strings.Join(strictReport.CaptureReports[0].GateFailures, "\n"), "live_delta is required") {
+		t.Fatalf("missing strict live_delta failure: %+v", strictReport.CaptureReports[0].GateFailures)
+	}
+}
+
 func TestWSSProofMatrixExpectedReducerGate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
