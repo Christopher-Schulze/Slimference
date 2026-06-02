@@ -4104,3 +4104,41 @@ Changes:
 
 Validation:
 - `go test ./scripts/verify ./scripts/utils` passed.
+
+## 2026-06-02 - T257 strict CLI/Desktop release matrix PASS
+
+Goal: finish the strict live-token release matrix with fresh CLI and Desktop
+captures, not replay bytes alone. Product savings are billable input-token
+savings; replay bytes remain only the deterministic model-facing regression
+proxy.
+
+Evidence:
+- Matrix:
+  `/Users/christopher/.slimference/captures/release-proof-20260602_112516-cli-desktop-v1.jsonl`.
+- Strict command:
+  `go run ./scripts/utils wss-proof-matrix "$matrix" --require-live-token-delta --json`.
+- Result: `gate_passed=true`, 14 captures total, 9 CLI, 5 Desktop, all 10
+  required workload classes present, 11 positive live-token captures, 3
+  expected-zero controls, `captures_with_issues=0`, and no missing workloads.
+- Live product savings across the matrix: 43,113 billable/input tokens saved.
+- Live reducer coverage: 17 Phase-F mutations, 7 read-delta blocks, 5
+  captured-output/search blocks, 5 Codex exec-envelope blocks.
+- Safety counters across the matrix: `parse_failures=0`,
+  `degraded_sessions=0`, `compression_errors=0`.
+- Added Desktop captures during this pass:
+  - `desktop-release-search-loop`: 8,467 billable/input tokens saved, 2
+    captured-output blocks, replay `bytes_saved=26880`, `lost=0`.
+  - `desktop-release-git-status-diff`: 1,974 billable/input tokens saved, 2
+    Codex exec-envelope blocks, replay `bytes_saved=5752`, `lost=0`.
+  - `desktop-release-long-mixed-workday`: 8,394 billable/input tokens saved,
+    read-delta + captured-output + Codex exec-envelope all fired, replay
+    `bytes_saved=27779`, `lost=0`.
+
+Honesty notes:
+- `repeated_output` and `chunk_dedup` recorded zero live block hits in this
+  strict matrix. They must not be included in the 43,113-token release claim.
+- The earlier similar-files/chunk-dedup diagnostic with no live token savings
+  remains excluded from the release matrix.
+- The replay tool's scoped-desktop CA warnings are benign temporary-HOME
+  warnings from replay setup. The real Desktop captures used the app-server WSS
+  route and had clean route/safety counters.

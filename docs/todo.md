@@ -1607,10 +1607,11 @@ only and promotes the per-process Codex CLI runner for T209.
   new reducer. The `wss-proof-matrix` report command and JSONL metadata schema are
   implemented. The `codex-capture-run` helper now manages unattended CLI capture
   sessions end to end with a foreground daemon, `/health` preflight, PTY marker
-  exit, fail-on-lost replay, and optional matrix-row append. The local
-  13-capture matrix now passes across 7 CLI captures,
-  6 Desktop captures, all 10 required workload classes, 9 positive-savings captures,
-  4 expected-zero captures, lost=0, and captures_with_issues=0. Formal clean
+  exit, fail-on-lost replay, and optional matrix-row append. The strict
+  2026-06-02 release matrix now passes across 14 captures,
+  9 CLI captures, 5 Desktop captures, all 10 required workload classes, 11
+  positive live-token-savings captures, 3 expected-zero controls, 43,113 live
+  billable/input tokens saved, lost=0, and captures_with_issues=0. Formal clean
   `workday-savings start|finish` windows passed for CLI and Desktop with positive
   WSS savings and zero parse/degrade/compression errors.
   Detail: `docs/todo/t257-codex-real-workload-proof-matrix.md`
@@ -1665,7 +1666,7 @@ criteria; this index is the traceability map so nothing is lost.
 | 22 | More Tier-1 parsers (eslint-json/tsc/kubectl-json/cargo-metadata/tf-show-json) | +2-5% | Quick win | T252 | DONE |
 | 23 | stderr compaction (CLI path) | +1-3% | Quick win | T252 | DONE |
 | 24 | Marker structured notation | cleaner/parseable | Quick win + drawdown | T252 | DONE |
-| 25 | Real workload capture/replay proof matrix | enabler | Proof + default-auto gate | T257 | DONE (13 captures, CLI+Desktop workday windows, lost=0, captures_with_issues=0) |
+| 25 | Real workload capture/replay proof matrix | enabler | Proof + default-auto gate | T257 | DONE (14 strict live-token captures, 9 CLI + 5 Desktop, all workloads, 43,113 live billable/input tokens saved, lost=0, captures_with_issues=0) |
 | 26 | Policy engine v2 route/workload/risk autopilot | enabler | Architecture + drawdown control | T258 | in progress (foundation + policy telemetry active; proof-fed promotion remaining) |
 | 27 | HTTP recovery/promotion decision | 0% by design | Safety | T259 | CLOSED: HTTP fallback is conservative; no archive refs |
 

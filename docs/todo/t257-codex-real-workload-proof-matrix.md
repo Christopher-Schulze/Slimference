@@ -223,6 +223,21 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   mode. In that mode every row must contain a real `live_delta` captured from
   admin-state while the scoped daemon is alive; replay `bytes_saved` remains
   visible as a regression proxy but cannot count as positive savings.
+- 2026-06-02: Fresh strict release matrix
+  `/Users/christopher/.slimference/captures/release-proof-20260602_112516-cli-desktop-v1.jsonl`
+  passed with `wss-proof-matrix --require-live-token-delta`: 14 captures total,
+  9 CLI, 5 Desktop, all 10 required workload classes present, 11 positive live
+  token-savings captures, 3 expected-zero controls, `captures_with_issues=0`,
+  `gate_passed=true`, and no missing workloads. The matrix saved 43,113 live
+  billable/input tokens across the included rows, with 17 Phase-F mutations, 7
+  read-delta blocks, 5 captured-output/search blocks, 5 Codex exec-envelope
+  blocks, and safety counters `parse_failures=0`, `degraded_sessions=0`,
+  `compression_errors=0`. Replay gates for the added Desktop search, git-status,
+  and long-mixed captures passed with `lost=0`; the long-mixed Desktop row
+  proved `read_delta`, `captured_output`, and `codex_exec_envelope` together in
+  one scoped Codex.app session. `repeated_output` and `chunk_dedup` had zero live
+  block hits in this strict matrix and must not be claimed from this release
+  proof.
 
 ## Deviations
 
