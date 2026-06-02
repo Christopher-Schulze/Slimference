@@ -2,6 +2,7 @@ package readcache
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -422,6 +423,67 @@ func TestEvaluateObservedOutput_SearchDeltaBlocks(t *testing.T) {
 	}
 	if decision, err := EvaluateObservedOutput(dir, nonSearch, after, archiveDir); err != nil || decision.Type != DecisionAllow {
 		t.Fatalf("changed non-search output should remain allow, decision=%+v err=%v", decision, err)
+	}
+}
+
+func TestEvaluateObservedOutput_SearchSameMatchSetBlocksAcrossOrder(t *testing.T) {
+	t.Parallel()
+
+	dir := tempReadCacheDir(t)
+	archiveDir := t.TempDir()
+	req := OutputRequest{
+		SessionID:   "s1",
+		Key:         "search:rg\t-n\tneedle\t.",
+		CommandLine: "rg -n needle .",
+	}
+	var beforeLines []string
+	for i := 1; i <= 30; i++ {
+		beforeLines = append(beforeLines, fmt.Sprintf("src/b.go:%d:needle beta context %s", i+100, strings.Repeat("detail ", 30)))
+		beforeLines = append(beforeLines, fmt.Sprintf("src/a.go:%d:needle alpha context %s", i, strings.Repeat("detail ", 30)))
+	}
+	beforeLines = append([]string{"Chunk ID: volatile-a"}, beforeLines...)
+	beforeLines = append(beforeLines, "Wall time: 0.0003 seconds")
+	before := strings.Join(beforeLines, "\n") + "\n"
+	if decision, err := EvaluateObservedOutput(dir, req, before, archiveDir); err != nil || decision.Type != DecisionAllow {
+		t.Fatalf("first search output should allow, decision=%+v err=%v", decision, err)
+	}
+	var afterLines []string
+	for i := 30; i >= 1; i-- {
+		afterLines = append(afterLines, fmt.Sprintf("src/a.go:%d:needle alpha context %s", i, strings.Repeat("detail ", 30)))
+		afterLines = append(afterLines, fmt.Sprintf("src/b.go:%d:needle beta context %s", i+100, strings.Repeat("detail ", 30)))
+	}
+	afterLines = append([]string{"Original token count: 1024"}, afterLines...)
+	after := strings.Join(afterLines, "\n") + "\n"
+	decision, err := EvaluateObservedOutput(dir, req, after, archiveDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindUnchanged ||
+		!strings.Contains(decision.Reason, "kind=search-output") ||
+		!strings.Contains(decision.Reason, "status=same-match-set") ||
+		!strings.Contains(decision.Reason, "archive=local-archive://") {
+		t.Fatalf("same search match set should block despite order/noise changes: %+v", decision)
+	}
+	archivePos := strings.Index(decision.Reason, "archive=local-archive://")
+	if archivePos < 0 {
+		t.Fatalf("same search match-set marker must include archive URI: %+v", decision)
+	}
+	archiveURI := strings.TrimRight(decision.Reason[archivePos+len("archive="):], "]")
+	_, archivedCurrent, err := contentarchive.Get(archiveDir, archiveURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(archivedCurrent) != after {
+		t.Fatal("same search match-set marker must archive the current raw output for exact recovery")
+	}
+	changed := after + "src/c.go:30:needle new context " + strings.Repeat("detail ", 30) + "\n"
+	decision, err = EvaluateObservedOutput(dir, req, changed, archiveDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Type != DecisionBlock || decision.BlockKind != BlockKindDelta ||
+		!strings.Contains(decision.Reason, "+src/c.go:30:needle new context") {
+		t.Fatalf("changed search match set should still produce delta, got %+v", decision)
 	}
 }
 

@@ -449,6 +449,42 @@ func TestSearchOutputGroupingSkipsNonMatchLineModes(t *testing.T) {
 	}
 }
 
+func TestCanonicalSearchMatchSetIgnoresResultOrder(t *testing.T) {
+	t.Parallel()
+
+	first := strings.Join([]string{
+		"src/b.go:20:needle beta",
+		"Chunk ID: volatile",
+		"src/a.go:2:needle alpha",
+		"Wall time: 0.0001 seconds",
+		"src/a.go:10:needle zeta",
+	}, "\n")
+	second := strings.Join([]string{
+		"src/a.go:10:needle zeta",
+		"src/a.go:2:needle alpha",
+		"Original token count: 42",
+		"src/b.go:20:needle beta",
+	}, "\n")
+	firstCanonical, ok := CanonicalSearchMatchSet([]byte(first))
+	if !ok {
+		t.Fatal("first search output should canonicalize")
+	}
+	secondCanonical, ok := CanonicalSearchMatchSet([]byte(second))
+	if !ok {
+		t.Fatal("second search output should canonicalize")
+	}
+	if firstCanonical != secondCanonical {
+		t.Fatalf("canonical search identity should ignore order/noise:\nfirst=%q\nsecond=%q", firstCanonical, secondCanonical)
+	}
+	want := "src/a.go:2:needle alpha\nsrc/a.go:10:needle zeta\nsrc/b.go:20:needle beta\n"
+	if firstCanonical != want {
+		t.Fatalf("canonical search identity = %q, want %q", firstCanonical, want)
+	}
+	if canonical, ok := CanonicalSearchMatchSet([]byte("[rg] 3 match(es) in 1 file(s)\n  src/a.go (3 match(es))\n    1: needle\n")); ok || canonical != "" {
+		t.Fatalf("grouped/capped search summaries must not become canonical identity: %q", canonical)
+	}
+}
+
 // TestIsGrepStyleTool exercises isGrepStyleTool branches.
 func TestIsGrepStyleTool(t *testing.T) {
 	t.Parallel()

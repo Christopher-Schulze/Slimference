@@ -404,6 +404,27 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 					continue
 				}
 			}
+			preFilterRepeated := false
+			if !readCommand && workload == savingspolicy.CodexWorkloadSearch && policy.RepeatedOutput {
+				preFilterRepeated = true
+				latencyStart := time.Now()
+				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, block.Text)
+				stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()
+				action := proxyLayer0CacheMiss
+				if repeated {
+					action = proxyLayer0CacheHit
+				}
+				stats.CacheEvents = append(stats.CacheEvents, proxyLayer0CacheEvent{
+					Mechanism: savingspolicy.CodexMechanismRepeatedOutput,
+					Action:    action,
+					Reason:    cacheReason,
+				})
+				if repeated {
+					afterText = repeatedText
+					changed = true
+					mechanism = proxyLayer0MechanismRepeatedOut
+				}
+			}
 			if !changed {
 				latencyStart := time.Now()
 				afterText, changed, mechanism = compactProxyLayer0TextDetailed(commandLine, block.Text, readCtx)
@@ -424,7 +445,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				candidateText = afterText
 				candidateEligible = tok.CountString(candidateText) < beforeTokens
 			}
-			if !readCommand && candidateEligible && policy.RepeatedOutput {
+			if !readCommand && !preFilterRepeated && candidateEligible && policy.RepeatedOutput {
 				latencyStart := time.Now()
 				repeatedText, repeated, cacheReason := compactProxyRepeatedToolOutputWithKeyDetailed(req.SessionID, toolKey, commandLine, candidateText)
 				stats.RepeatedOutputLatencyNs += time.Since(latencyStart).Nanoseconds()

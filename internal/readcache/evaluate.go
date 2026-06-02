@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/sessions"
 )
 
@@ -160,15 +161,29 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 		state.Outputs[key] = entry
 	}
 
-	hash := hashObservedContent(content)
+	identityContent, searchIdentity := outputIdentityContent(req.Key, content)
+	hash := hashObservedContent(identityContent)
 	if entry.ContentHash != "" && entry.ContentHash == hash && entry.ArchiveURI != "" {
-		updateObservedOutputEntry(entry, req, hash, entry.ArchiveURI, content, state.TurnSeq)
+		archiveURI := entry.ArchiveURI
+		if searchIdentity && content != entry.CachedContent {
+			currentArchiveURI, archived := archiveObservedOutputContent(archiveDir, req, content)
+			if !archived {
+				updateObservedOutputEntry(entry, req, hash, "", content, state.TurnSeq)
+				if err := readCacheSaveSession(dir, state); err != nil {
+					return Decision{}, err
+				}
+				decision := Decision{Type: DecisionAllow, Reason: "archive_unavailable_full_pass"}
+				return decision, RecordDecision(dir, decision)
+			}
+			archiveURI = currentArchiveURI
+		}
+		updateObservedOutputEntry(entry, req, hash, archiveURI, content, state.TurnSeq)
 		if err := readCacheSaveSession(dir, state); err != nil {
 			return Decision{}, err
 		}
 		decision := Decision{
 			Type:      DecisionBlock,
-			Reason:    unchangedOutputReference(req.CommandLine, entry.ArchiveURI),
+			Reason:    unchangedOutputReferenceForIdentity(req.CommandLine, archiveURI, searchIdentity),
 			BlockKind: BlockKindUnchanged,
 		}
 		return decision, RecordDecision(dir, decision)
@@ -191,7 +206,8 @@ func EvaluateObservedOutput(dir string, req OutputRequest, content string, archi
 		return decision, RecordDecision(dir, decision)
 	}
 	if oldHash != "" && oldContent != "" && outputDeltaEligible(req.Key) {
-		delta := buildDeltaSummary("tool output for "+strings.TrimSpace(req.CommandLine), oldContent, content)
+		oldIdentity, _ := outputIdentityContent(req.Key, oldContent)
+		delta := buildDeltaSummary("tool output for "+strings.TrimSpace(req.CommandLine), oldIdentity, identityContent)
 		if delta != "" {
 			delta = delta + "\n" + archiveMarker("full-output", archiveURI)
 			if len(delta) < len(content) {
@@ -385,6 +401,26 @@ func unchangedOutputReference(commandLine string, archiveURI string) string {
 		commandLine = "this tool command"
 	}
 	return fmt.Sprintf("[context-elided kind=tool-output status=unchanged command=%q archive=%s]", commandLine, archiveURI)
+}
+
+func unchangedOutputReferenceForIdentity(commandLine string, archiveURI string, searchIdentity bool) string {
+	if !searchIdentity {
+		return unchangedOutputReference(commandLine, archiveURI)
+	}
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		commandLine = "this search command"
+	}
+	return fmt.Sprintf("[context-elided kind=search-output status=same-match-set command=%q archive=%s]", commandLine, archiveURI)
+}
+
+func outputIdentityContent(key, content string) (string, bool) {
+	if outputDeltaEligible(key) {
+		if canonical, ok := filter.CanonicalSearchMatchSet([]byte(content)); ok {
+			return canonical, true
+		}
+	}
+	return content, false
 }
 
 func archiveMarker(kind string, archiveURI string) string {

@@ -14,6 +14,7 @@ import (
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/filter"
+	"github.com/slimference/slimference/internal/savingspolicy"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -399,6 +400,57 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Mechanism != "repeated_output" ||
 		stats.CacheEvents[0].Action != proxyLayer0CacheHit || stats.CacheEvents[0].Reason != "unchanged" {
 		t.Fatalf("repeated-output cache hit event mismatch: %+v", stats.CacheEvents)
+	}
+}
+
+func TestReduceCodexLayer0RepeatedSearchSameMatchSetBeforeGrouping(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	command := `cd /repo/search && rg -n needle src`
+	output := func(reverse bool) string {
+		var lines []string
+		for i := 1; i <= 30; i++ {
+			lines = append(lines, fmt.Sprintf("src/b.go:%d:needle beta context %s", i+100, strings.Repeat("detail ", 30)))
+			lines = append(lines, fmt.Sprintf("src/a.go:%d:needle alpha context %s", i, strings.Repeat("detail ", 30)))
+		}
+		if reverse {
+			for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+				lines[i], lines[j] = lines[j], lines[i]
+			}
+			lines = append([]string{"Chunk ID: second", "Wall time: 0.0001 seconds"}, lines...)
+		} else {
+			lines = append([]string{"Chunk ID: first", "Wall time: 0.0003 seconds"}, lines...)
+		}
+		return strings.Join(lines, "\n") + "\n"
+	}
+	messagesFor := func(callID, text string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: callID, ToolName: "exec_command", ToolInput: `{"cmd":"` + command + `"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: callID, Text: text}}},
+		}
+	}
+	seed := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messagesFor("search-a", output(false)),
+		SessionID: "sess-search-match-set",
+	})
+	if seed.Stats.RepeatedOutputBlocks != 0 || seed.Stats.CapturedOutputBlocks != 1 || seed.Stats.TokensSaved <= 0 {
+		t.Fatalf("first search should group and seed raw match identity: %+v", seed.Stats)
+	}
+	if len(seed.Stats.CacheEvents) != 1 || seed.Stats.CacheEvents[0].Mechanism != savingspolicy.CodexMechanismRepeatedOutput ||
+		seed.Stats.CacheEvents[0].Action != proxyLayer0CacheMiss {
+		t.Fatalf("first search should record repeated-output seed miss: %+v", seed.Stats.CacheEvents)
+	}
+	out := reduceCodexLayer0(codexLayer0Request{
+		Route:     codexLayer0RouteWSSPhaseF,
+		Messages:  messagesFor("search-b", output(true)),
+		SessionID: "sess-search-match-set",
+	})
+	text := out.Messages[1].Content[0].Text
+	if out.Stats.RepeatedOutputBlocks != 1 || out.Stats.CapturedOutputBlocks != 0 || out.Stats.TokensSaved <= 0 ||
+		!strings.Contains(text, "kind=search-output") ||
+		!strings.Contains(text, "status=same-match-set") {
+		t.Fatalf("same search match-set should collapse before grouping: stats=%+v text=%q", out.Stats, text)
 	}
 }
 
@@ -839,7 +891,8 @@ func TestProxyRepeatedOutputIgnoresCodexExecEnvelopeVolatileHeader(t *testing.T)
 	if strings.Contains(out, payload) {
 		t.Fatalf("unchanged repeated output should not repeat payload: %q", out)
 	}
-	if !strings.Contains(out, "Chunk ID: bbb222") || !strings.Contains(out, "[context-elided kind=tool-output status=unchanged") {
+	if !strings.Contains(out, "Chunk ID: bbb222") ||
+		!strings.Contains(out, "[context-elided kind=search-output status=same-match-set") {
 		t.Fatalf("envelope header and unchanged output marker not preserved: %q", out)
 	}
 }
@@ -993,7 +1046,10 @@ func TestProxyRepeatedSearchOutputKeepsRepoScopedKeys(t *testing.T) {
 	if out, ok := compactProxyRepeatedToolOutput(sessionID, cmdB, outputB); ok || out != "" {
 		t.Fatalf("first repo B search must not reuse repo A key: ok=%v out=%q", ok, out)
 	}
-	if out, ok := compactProxyRepeatedToolOutput(sessionID, cmdB, outputB); !ok || !strings.Contains(out, "status=unchanged") || !strings.Contains(out, "/repo/b/src") {
+	if out, ok := compactProxyRepeatedToolOutput(sessionID, cmdB, outputB); !ok ||
+		!strings.Contains(out, "kind=search-output") ||
+		!strings.Contains(out, "status=same-match-set") ||
+		!strings.Contains(out, "/repo/b/src") {
 		t.Fatalf("second repo B search should collapse on its own key: ok=%v out=%q", ok, out)
 	}
 }

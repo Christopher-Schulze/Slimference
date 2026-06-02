@@ -117,6 +117,25 @@ is capped.
   command forms such as `cd "/Users/.../My Repo" && rg ... "src files"` and
   `git -C "/Users/.../My Repo" grep ...`, preventing future normalization work
   from silently dropping repository scope or corrupting quoted path identity.
+- 2026-06-02 added canonical search match-set identity for repo-scoped
+  repeated-output keys. The identity parser accepts grep-style `file:line:body`
+  and `file:body` lines, skips Codex envelope noise, rejects grouped/capped
+  summaries and noisy low-confidence output, and sorts only for cache identity.
+  Model-facing replacements remain archive-backed and point at the current raw
+  output, preserving exact recovery for order-sensitive inspection.
+- 2026-06-02 wired search repeated-output lookup before search grouping on the
+  Codex Layer-0 hotpath. This avoids caching already-grouped summaries under
+  the same key and lets a second equivalent `rg` result collapse before the
+  normal first-pass grouping reducer. Regression coverage proves the first
+  search still groups and seeds, the second same-match-set search collapses,
+  repo-scoped commands remain distinct, and ambiguous implicit-cwd searches do
+  not get reusable keys.
+- 2026-06-02 replayed the prior Desktop search-loop capture through the real
+  WSS A/B reducer with `--fail-on-lost`: `frames=106`, `request_turns=4`,
+  `mutated_requests=2`, `bytes_saved=48522`, `lost=0`, `gate_passed=true`.
+  This closes the offline gap that caused the strict matrix to report zero
+  `repeated_output` live block hits for Desktop search, but the live-token claim
+  remains unchanged until a fresh Desktop capture is recorded.
 
 Remaining before this task can close:
 

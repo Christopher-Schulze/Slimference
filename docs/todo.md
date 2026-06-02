@@ -1930,15 +1930,18 @@ be called complete, default-safe, and production-grade.
 - [~] **T264** Codex read/ranged/repeated-output cache-hit maximizer - improve
   exact cache hits for file reads, ranged reads, repeated commands, and repeated
   non-file outputs without first-read elision. Automatic CLI proof now covers
-  ranged `sed`, repeated search outputs, and large `git status`; Desktop breadth
-  remains. Detail:
+  ranged `sed`, repeated search outputs, and large `git status`; offline
+  Desktop search replay now proves same-match-set repeated-output collapse with
+  `lost=0`, while fresh live Desktop token proof remains. Detail:
   `docs/todo/t264-codex-read-cache-hit-maximizer.md`
 - [~] **T265** Repo-safe search keying and search-output savings max-out -
   normalize `cd && rg|grep|git grep` and related search shapes to
   repository-scoped keys, preserve match context, and prevent cross-repo false
   hits. Offline hardening now rejects implicit-cwd searches for reusable
   cache/delta keys; automatic CLI proof covers `rg`, changed results,
-  `git grep`, and `grep -R` with `lost=0`, while Desktop proof remains. Detail:
+  `git grep`, and `grep -R` with `lost=0`; canonical same-match-set identity
+  now improves Desktop search replay from `26880` to `48522` bytes saved with
+  `lost=0`, while fresh Desktop live-token proof remains. Detail:
   `docs/todo/t265-repo-safe-search-keying-maxx.md`
 - [~] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
   dedup into a guarded automatic WSS feature only where archive recovery,

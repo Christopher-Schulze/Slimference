@@ -4142,3 +4142,43 @@ Honesty notes:
 - The replay tool's scoped-desktop CA warnings are benign temporary-HOME
   warnings from replay setup. The real Desktop captures used the app-server WSS
   route and had clean route/safety counters.
+
+## 2026-06-02 - T264/T265 search same-match-set repeated-output hardening
+
+Goal: turn the strict release matrix's zero `repeated_output` Desktop-search
+finding into a safe cache-hit improvement without weakening the no-drawdown
+standard. Exact generic output dedup should stay exact; search output gets a
+search-specific identity because Codex/rg can return the same match evidence in
+different order or with volatile envelope noise.
+
+Changes:
+- Added canonical search match-set identity for grep-style output. It accepts
+  `file:line:content` and `file:content` evidence, skips Codex envelope noise,
+  rejects grouped/capped summaries and low-confidence noisy output, and sorts
+  only for cache identity.
+- Wired repo-scoped search repeated-output lookup before search grouping in the
+  Codex Layer-0 hotpath, so the first search can group and seed raw evidence
+  while the second same-match-set search can collapse before grouping.
+- Search same-match-set markers now use
+  `[context-elided kind=search-output status=same-match-set ...]` and archive
+  the current raw output. This avoids the subtle recovery bug where an
+  order-insensitive hit could point at a prior archive instead of the exact
+  current raw output.
+- Generic repeated-output remains byte-exact. The canonical identity is gated to
+  repo-scoped `search:` keys.
+
+Validation:
+- Added unit coverage for canonical search identity, same-match-set readcache
+  blocking and delta behavior, current-output archive recovery, and hotpath
+  pre-grouping collapse.
+- Updated existing repo-safe search tests to assert the new search-output marker
+  while preserving repo-scoped command checks.
+- `go test ./internal/filter ./internal/readcache ./internal/proxy ./scripts/utils`
+  passed.
+- Desktop search replay
+  `/Users/christopher/.slimference/captures/release-desktop-search-loop.jsonl`
+  passed `wss-ab-replay --fail-on-lost --json` with `frames=106`,
+  `request_turns=4`, `mutated_requests=2`, `bytes_saved=48522`, `lost=0`, and
+  `gate_passed=true`. The prior strict-release baseline for the same capture
+  was `bytes_saved=26880`, so this is a stronger offline replay result. It is
+  not yet a new live-token release claim.

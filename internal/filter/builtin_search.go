@@ -3,6 +3,7 @@ package filter
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -155,6 +156,97 @@ func isSearchEnvelopeNoiseLine(line string) bool {
 	default:
 		return false
 	}
+}
+
+// CanonicalSearchMatchSet returns a stable, order-insensitive representation of
+// grep-style file:line:content output. It is an identity primitive for search
+// caches, not a model-facing replacement by itself.
+func CanonicalSearchMatchSet(stdout []byte) (string, bool) {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return "", false
+	}
+	if strings.HasPrefix(s, "[") {
+		return "", false
+	}
+	lines := strings.Split(s, "\n")
+	type matchLine struct {
+		file    string
+		lineNum string
+		content string
+	}
+	matches := make([]matchLine, 0, len(lines))
+	skipped, nonEmpty := 0, 0
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		if line == "" {
+			continue
+		}
+		nonEmpty++
+		if isSearchEnvelopeNoiseLine(line) {
+			skipped++
+			continue
+		}
+		firstColon := strings.IndexByte(line, ':')
+		if firstColon <= 0 {
+			skipped++
+			continue
+		}
+		filePart := line[:firstColon]
+		rest := line[firstColon+1:]
+		secColon := strings.IndexByte(rest, ':')
+		lineNum := ""
+		content := rest
+		if secColon > 0 {
+			potentialNum := rest[:secColon]
+			allDigits := true
+			for _, c := range potentialNum {
+				if c < '0' || c > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits && len(potentialNum) > 0 {
+				lineNum = potentialNum
+				content = rest[secColon+1:]
+			}
+		}
+		matches = append(matches, matchLine{
+			file:    filePart,
+			lineNum: lineNum,
+			content: strings.TrimSpace(content),
+		})
+	}
+	if len(matches) == 0 || skipped*2 > nonEmpty {
+		return "", false
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		a, b := matches[i], matches[j]
+		if a.file != b.file {
+			return a.file < b.file
+		}
+		if a.lineNum != b.lineNum {
+			ai, aerr := strconv.Atoi(a.lineNum)
+			bi, berr := strconv.Atoi(b.lineNum)
+			if aerr == nil && berr == nil {
+				return ai < bi
+			}
+			return a.lineNum < b.lineNum
+		}
+		return a.content < b.content
+	})
+	var sb strings.Builder
+	for _, m := range matches {
+		sb.WriteString(m.file)
+		sb.WriteByte(':')
+		if m.lineNum != "" {
+			sb.WriteString(m.lineNum)
+			sb.WriteByte(':')
+		}
+		sb.WriteString(m.content)
+		sb.WriteByte('\n')
+	}
+	return sb.String(), true
 }
 
 func cappedSearchIndexes(total, budget, tail int) []int {

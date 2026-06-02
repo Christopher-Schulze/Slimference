@@ -117,6 +117,21 @@ Maximize exact hits:
   a git/status Layer-0 reducer win rather than an exact repeated-output hit:
   the repeated-output cache correctly reported `missing_key_session_or_short_output`
   while the safer git-status/envelope reducer carried the savings.
+- 2026-06-02 repeated-output cache identity now canonicalizes repo-scoped
+  search match sets before search grouping. Two `rg` outputs with the same
+  file/line/snippet evidence but different arrival order or volatile Codex
+  envelope noise collapse to a small `kind=search-output status=same-match-set`
+  marker. The marker archives the current raw output, not merely a prior
+  equivalent output, so exact recovery remains available and A/B replay stays
+  zero-loss. The change is search-specific and does not weaken generic
+  exact-output dedup semantics.
+- 2026-06-02 Desktop search replay
+  `/Users/christopher/.slimference/captures/release-desktop-search-loop.jsonl`
+  improved from the strict-release baseline `bytes_saved=26880` to
+  `bytes_saved=48522` with `lost=0`, `gate_passed=true`, and
+  `mutated_requests=2`. This is an offline replay proof of the stronger hit
+  path; a fresh live Desktop matrix row is still required before increasing the
+  live-token release claim.
 
 Remaining before this task can close:
 
