@@ -65,20 +65,31 @@ type DiskIO struct {
 // bounded by maxEntries so admin polling cannot spend unbounded time in a large
 // state tree. Missing directories are known-empty.
 func DirectorySizeBytes(root string, maxEntries int) (int64, bool) {
+	size, ok, _ := DirectorySizeBytesBounded(root, maxEntries)
+	return size, ok
+}
+
+// DirectorySizeBytesBounded is DirectorySizeBytes plus a completeness flag.
+// complete=false means the scan hit maxEntries before finishing. Callers that
+// enforce resource budgets should treat that as pressure instead of accepting a
+// partial undercount as healthy.
+func DirectorySizeBytesBounded(root string, maxEntries int) (int64, bool, bool) {
 	if root == "" {
-		return 0, false
+		return 0, false, false
 	}
 	if maxEntries <= 0 {
 		maxEntries = 20_000
 	}
 	var total int64
 	seen := 0
+	complete := true
 	err := fs.WalkDir(os.DirFS(root), ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		seen++
 		if seen > maxEntries {
+			complete = false
 			return fs.SkipAll
 		}
 		if d.IsDir() {
@@ -92,9 +103,9 @@ func DirectorySizeBytes(root string, maxEntries int) (int64, bool) {
 	})
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, true
+			return 0, true, true
 		}
-		return 0, false
+		return 0, false, false
 	}
-	return total, true
+	return total, true, complete
 }

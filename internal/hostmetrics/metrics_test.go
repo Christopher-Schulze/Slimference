@@ -64,3 +64,17 @@ func TestDirectorySizeBytesEmptyRoot(t *testing.T) {
 		t.Fatalf("empty root size=%d ok=%v, want 0/false", size, ok)
 	}
 }
+
+func TestDirectorySizeBytesBoundedReportsIncompleteScan(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	size, ok, complete := DirectorySizeBytesBounded(dir, 2)
+	if !ok || complete || size <= 0 {
+		t.Fatalf("bounded scan size=%d ok=%v complete=%v, want partial known incomplete", size, ok, complete)
+	}
+}

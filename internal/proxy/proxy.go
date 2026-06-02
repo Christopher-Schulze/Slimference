@@ -27,6 +27,7 @@ import (
 	"github.com/slimference/slimference/internal/compression"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
+	"github.com/slimference/slimference/internal/control"
 	"github.com/slimference/slimference/internal/control/apps"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/hostmetrics"
@@ -722,6 +723,10 @@ func (p *Proxy) daemonStateBytes() (int64, bool) {
 	if err != nil || home == "" {
 		return 0, false
 	}
+	return daemonStateBytesForHome(home, 20_000)
+}
+
+func daemonStateBytesForHome(home string, maxEntriesPerDir int) (int64, bool) {
 	dirs := []string{
 		contentarchive.DefaultDir(home),
 		readcache.DefaultDir(home),
@@ -731,10 +736,13 @@ func (p *Proxy) daemonStateBytes() (int64, bool) {
 	var total int64
 	known := false
 	for _, dir := range dirs {
-		size, ok := hostmetrics.DirectorySizeBytes(dir, 20_000)
+		size, ok, complete := hostmetrics.DirectorySizeBytesBounded(dir, maxEntriesPerDir)
 		if ok {
 			total += size
 			known = true
+		}
+		if ok && !complete {
+			total += control.DefaultHostStateBudgetBytes + 1
 		}
 	}
 	return total, known

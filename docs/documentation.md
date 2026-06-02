@@ -450,7 +450,9 @@ operation counters, bounded state-directory size, the 200 MiB RSS budget, the
 and content-free reason codes. The daemon/admin path uses an in-process
 resource probe for PID, uptime, real RSS, process CPU time, disk I/O counters,
 and state size where the platform can provide it, avoiding a loopback
-self-health guess for the product budget.
+self-health guess for the product budget. State-directory scans are entry-bound:
+if a state tree exceeds the bounded scan limit, the host budget treats that as
+resource pressure instead of reporting a partial undercount as healthy.
 CPU-window demotion ignores sub-second windows: tiny startup/admin-poll samples
 remain visible in telemetry but cannot force managed reducers into full-pass.
 Only a stable window of at least one second can trigger
@@ -2136,7 +2138,8 @@ present a mixed headline number. Host-budget demotion is wired into the Codex
 Layer-0 policy: if the latest product host-budget snapshot is exceeded, WSS/HTTP
 Codex tool-output reducers full-pass until the process is back inside budget.
 The reducer hot path reads this as an atomic state bit, avoiding fresh RSS/state
-directory scans per frame.
+directory scans per frame. Oversized state trees that cannot be fully measured
+within the bounded scan limit are treated as budget pressure.
 
 The proxy hot path attaches this plan to `debug.RequestSummary` and normalized
 `flight` records for upstream, local cache, transparent CONNECT, and direct

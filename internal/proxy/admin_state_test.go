@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/control"
 	"github.com/slimference/slimference/internal/control/apps"
 	"github.com/slimference/slimference/internal/hostmetrics"
@@ -190,6 +191,23 @@ func TestAnnotateResourceWindowComputesCPUAndDiskDeltas(t *testing.T) {
 	}
 	if !snap.DiskWindowKnown || snap.DiskReadOpsDelta != 5 || snap.DiskWriteOpsDelta != 11 {
 		t.Fatalf("disk window not computed: %+v", snap)
+	}
+}
+
+func TestDaemonStateBytesTreatsIncompleteScanAsBudgetPressure(t *testing.T) {
+	home := t.TempDir()
+	dir := contentarchive.DefaultDir(home)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	size, ok := daemonStateBytesForHome(home, 2)
+	if !ok || size <= control.DefaultHostStateBudgetBytes {
+		t.Fatalf("state bytes should exceed budget on incomplete scan: size=%d ok=%v", size, ok)
 	}
 }
 

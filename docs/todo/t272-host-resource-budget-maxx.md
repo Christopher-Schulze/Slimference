@@ -274,6 +274,11 @@ Initial targets for Apple Silicon macOS:
   Desktop host-budget regression that previously made chunk-dedup look live-cold
   under a startup CPU artifact; broader workday/tool-heavy pprof/resource proof
   remains open.
+- 2026-06-02: Hardened state-size accounting against partial undercounts. The
+  bounded directory-size probe now reports whether it completed; the daemon
+  treats an incomplete state-tree scan as host-budget pressure instead of
+  accepting a partial byte total as healthy. This prevents too many tiny cache or
+  archive files from bypassing the product resource guard.
 
 ## Done
 
