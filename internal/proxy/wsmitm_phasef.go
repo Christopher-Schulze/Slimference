@@ -141,7 +141,10 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	// server already holds (pre-pipeline = full model intent) and record this
 	// frame's forwarded content. Telemetry-only; never changes a frame.
 	if sid := wsCodexSessionID(body); sid != "" {
-		pre, _, _ := extractMessages(types.CodexChatGPT, body)
+		pre := messages
+		if changed {
+			pre, _, _ = extractMessages(types.CodexChatGPT, body)
+		}
 		if rep := recordShadowMirror(sid, pre, messages); rep.ReferenceableBlocks > 0 {
 			slog.Info("wss server-state mirror shadow",
 				"session", sid,
@@ -169,12 +172,14 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 	reReadCount := 0
 	messages, _, err := extractMessages(types.CodexChatGPT, out)
 	if err == nil && len(messages) > 0 {
-		a.hydrateToolUses(wsCodexSessionID(out))
+		sessionID := wsCodexSessionID(out)
+		turnID := wssPreviousResponseID(out)
+		a.hydrateToolUses(sessionID)
 		rememberedToolUses := a.loadToolUses()
-		reReadKeys, count := a.observeWSSQualityToolKeys(out, messages, rememberedToolUses)
+		reReadKeys, count := a.observeWSSQualityToolKeysForSession(sessionID, turnID, messages, rememberedToolUses)
 		reReadCount = count
 		suppressedKeys := a.restoreKeysForReReads(reReadKeys)
-		a.observeWSSRecentEdits(out, messages, rememberedToolUses)
+		a.observeWSSRecentEditsForSession(sessionID, messages, rememberedToolUses)
 		if a.p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 			aged, stats := staleread.AgeMessages(messages, staleread.Options{
 				MinTurnGap: a.p.config.Compression.OutputReduce.StaleReadAgingMinTurnGap,
@@ -201,8 +206,8 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		result := reduceCodexLayer0(codexLayer0Request{
 			Route:                 codexLayer0RouteWSSPhaseF,
 			Messages:              messages,
-			SessionID:             wsCodexSessionID(out),
-			TurnID:                wssPreviousResponseID(out),
+			SessionID:             sessionID,
+			TurnID:                turnID,
 			RememberedToolUse:     rememberedToolUses,
 			SuppressedToolKey:     suppressedKeys,
 			RecentFullPassTurns:   a.p.config.Compression.OutputReduce.ReadDeltaRecentFullPassTurns,
@@ -239,7 +244,8 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 	}
 	archiveNoteEnabled := a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteEnabled || l0Stats.ChunkDedupBlocks > 0
-	if sessionID := wsCodexSessionID(out); a.p.reserveArchiveRecoveryNote(sessionID, archiveNoteEnabled) {
+	sessionID := wsCodexSessionID(out)
+	if a.p.reserveArchiveRecoveryNote(sessionID, archiveNoteEnabled) {
 		note := archiveRecoveryNoteText(a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteText)
 		if injected, res := beterse.Inject(types.CodexChatGPT, out, note); res.Applied {
 			out = injected
@@ -248,7 +254,6 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 	}
 	if a.p.config.Compression.OutputReduce.BeTerseHintEnabled && a.p.qualityAB != nil {
-		sessionID := wsCodexSessionID(out)
 		cohort := a.p.qualityAB.Cohort(sessionID)
 		recordCohort := cohort
 		if cohort == qualityab.CohortTreatment {
@@ -293,6 +298,10 @@ func (a *wsPhaseFAdapter) recordWSSQualityOutcome(kind wsmitm.FrameKind) {
 
 func (a *wsPhaseFAdapter) observeWSSRecentEdits(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
 	sessionID := wsCodexSessionID(body)
+	a.observeWSSRecentEditsForSession(sessionID, messages, rememberedToolUses)
+}
+
+func (a *wsPhaseFAdapter) observeWSSRecentEditsForSession(sessionID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) {
 	if sessionID == "" {
 		return
 	}
@@ -312,6 +321,11 @@ func (a *wsPhaseFAdapter) observeWSSRecentEdits(body []byte, messages []types.Me
 
 func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (map[string]struct{}, int) {
 	sessionID := wsCodexSessionID(body)
+	turnID := wssPreviousResponseID(body)
+	return a.observeWSSQualityToolKeysForSession(sessionID, turnID, messages, rememberedToolUses)
+}
+
+func (a *wsPhaseFAdapter) observeWSSQualityToolKeysForSession(sessionID, turnID string, messages []types.Message, rememberedToolUses map[string]types.ContentBlock) (map[string]struct{}, int) {
 	if sessionID == "" || a == nil || a.p == nil {
 		return nil, 0
 	}
@@ -321,7 +335,6 @@ func (a *wsPhaseFAdapter) observeWSSQualityToolKeys(body []byte, messages []type
 			toolUses[id] = use
 		}
 	}
-	turnID := wssPreviousResponseID(body)
 	seen := make(map[string]struct{})
 	reReadKeys := make(map[string]struct{})
 	reReads := 0
@@ -465,21 +478,24 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	if replaced && l0Stats.TokensSaved > 0 {
 		layersApplied = []int{0}
 	}
+	sessionID := wsCodexSessionID(body)
+	model := wssPlannerModel(body)
+	previousResponseID := wssPreviousResponseID(body)
 	summary := dbg.RequestSummary{
 		RequestID:              newRequestIDFn(),
 		Timestamp:              time.Now(),
-		SessionID:              wsCodexSessionID(body),
+		SessionID:              sessionID,
 		Source:                 "proxy",
 		Provider:               types.CodexChatGPT.String(),
 		Path:                   "/backend-api/codex/responses",
 		RouteMode:              "websocket_phasef",
 		BypassReason:           bypassReason,
-		Model:                  wssPlannerModel(body),
+		Model:                  model,
 		TotalMessages:          len(messages),
 		MessagesInWindow:       len(messages),
 		MessagesCompressed:     l0Stats.BlocksModified,
 		LayersApplied:          layersApplied,
-		PreviousResponseIDUsed: wssPreviousResponseIDAvailable(body),
+		PreviousResponseIDUsed: previousResponseID != "",
 		Tokens: dbg.TokenCounts{
 			Original:    originalTokens,
 			AfterLayer0: finalTokens,
@@ -506,11 +522,11 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 		NetSavedTokens: saved,
 		Plan: a.p.dryRunPlan(plannerInput{
 			provider:                    types.CodexChatGPT,
-			model:                       wssPlannerModel(body),
+			model:                       model,
 			routeMode:                   "websocket_phasef",
 			estimatedInputTokens:        originalTokens,
 			contentClasses:              classes,
-			previousResponseIDAvailable: wssPreviousResponseIDAvailable(body),
+			previousResponseIDAvailable: previousResponseID != "",
 			webSocketShapeKnown:         len(messages) > 0,
 			webSocketMutationRequested:  true,
 			liveCorpusConfidence:        a.p.plannerLiveCorpusConfidence(),

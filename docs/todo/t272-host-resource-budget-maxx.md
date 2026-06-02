@@ -218,6 +218,18 @@ Initial targets for Apple Silicon macOS:
   request. The changed flag still compares against the original bytes, so the
   model-facing semantics and fail-open behavior stay unchanged while no-op WSS
   frames avoid two full-body allocations.
+- 2026-06-02: Removed a second unnecessary full request parse from the WSS
+  shadow-mirror path for no-op frames. The mirror now reuses the messages that
+  `applyInputPipeline` already extracted when the frame is unchanged, and only
+  re-extracts the original request on real mutations where pre-pipeline and
+  forwarded model-facing context can differ. This keeps T254 telemetry exact
+  while avoiding duplicate JSON work on the common no-mutation path.
+- 2026-06-02: Cached WSS request metadata inside the Phase-F hot path. Session
+  id, previous-response id, and model are now resolved once per request stage
+  and reused for tool-use hydration, re-read canary, recent-edit observation,
+  reducer invocation, request summaries, and planner dry-runs. Existing wrapper
+  functions stay for tests and non-hot callers, but the common WSS path avoids
+  repeated full-map JSON unmarshalling of the same frame body.
 
 ## Done
 
