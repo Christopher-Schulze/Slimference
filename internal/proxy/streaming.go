@@ -202,6 +202,7 @@ func streamingRelayWithCutter(ctx context.Context, w http.ResponseWriter, upstre
 			if !writeLine(line) {
 				return outputTokens, usage, fire
 			}
+			accountFor(line)
 			fire.BytesObserved += int64(len(line)) + 1
 		}
 	}

@@ -118,6 +118,11 @@ Output reduction becomes a runtime-governed layer:
   `stop_seq`, `streamcut`, `repdet`, `stale_read`, `obsolete_prune`, `beterse`,
   and `host_budget_ok`. This makes aggressive-profile promotion a hard
   live-evidence gate instead of a manual interpretation of admin counters.
+- 2026-06-02: Fixed HTTP/SSE streamcut holdback accounting. When streamcut is
+  armed but the stream ends naturally, delayed text-delta lines flushed from the
+  holdback queue now still feed output-token and provider-usage accounting. This
+  keeps output-reduce quality and savings telemetry honest without changing
+  client-visible bytes or model-facing context.
 
 ## Done
 

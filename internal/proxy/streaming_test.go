@@ -365,6 +365,31 @@ func TestStreamingRelay_CountsTokens(t *testing.T) {
 	}
 }
 
+func TestStreamingRelayWithCutterCountsNaturallyFlushedHoldback(t *testing.T) {
+	t.Parallel()
+	sse := strings.Join([]string{
+		`data: {"choices":[{"delta":{"content":"substantive response text that ends naturally"}}]}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	rec := httptest.NewRecorder()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader(sse)),
+	}
+	output, _, fire := streamingRelayWithCutter(context.Background(), rec, resp, "openai", streamcut.NewCutterWithHoldback("openai", 3))
+	if fire.Fired {
+		t.Fatal("natural stream end must not fire streamcut")
+	}
+	if output <= 0 {
+		t.Fatalf("flushed holdback text must still count output tokens, got %d", output)
+	}
+	if !strings.Contains(rec.Body.String(), "substantive response text") {
+		t.Fatalf("flushed holdback text missing from client body: %s", rec.Body.String())
+	}
+}
+
 func TestStreamingRelayWithUsage_DropsContentLength(t *testing.T) {
 	t.Parallel()
 	rec := httptest.NewRecorder()
