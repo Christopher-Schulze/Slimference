@@ -123,7 +123,7 @@ func capsuleHasRequiredFacts(capsule Capsule) bool {
 	case CapsuleFile:
 		return hasFact(capsule, "path") && hasFact(capsule, "full_pass_turn")
 	case CapsuleSearch:
-		return hasFact(capsule, "command") && hasFact(capsule, "pattern_hash")
+		return hasFact(capsule, "command") && hasFact(capsule, "repo_root") && hasFact(capsule, "pattern_hash")
 	case CapsuleFailure:
 		return hasFact(capsule, "message") && hasFact(capsule, "exit_code")
 	default:

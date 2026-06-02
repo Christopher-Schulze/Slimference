@@ -68,6 +68,9 @@ func TestBuildFileCapsuleRequiresArchiveForOmittedContent(t *testing.T) {
 }
 
 func TestBuildSearchCapsuleSortsEvidence(t *testing.T) {
+	if _, err := BuildSearchCapsule(SearchObservation{CommandLine: "rg -n TODO .", PatternHash: "pat"}); err == nil {
+		t.Fatal("expected search scope requirement")
+	}
 	capsule, err := BuildSearchCapsule(SearchObservation{
 		CommandLine:  "rg -n TODO .",
 		RepoRoot:     "/repo",

@@ -157,6 +157,7 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, sessi
 			SessionID:   sessionID,
 			TurnID:      turnID,
 			CommandLine: commandLine,
+			RepoRoot:    cwd,
 			PatternHash: proxyLayer0ShortHash(key),
 		}); err == nil {
 			s.LedgerSearchCapsules++

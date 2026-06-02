@@ -129,6 +129,9 @@ func BuildSearchCapsule(obs SearchObservation) (Capsule, error) {
 	if strings.TrimSpace(obs.CommandLine) == "" {
 		return Capsule{}, errors.New("search command is required")
 	}
+	if strings.TrimSpace(obs.RepoRoot) == "" {
+		return Capsule{}, errors.New("search scope is required")
+	}
 	if len(obs.Output) > 0 && strings.TrimSpace(obs.ArchiveID) == "" {
 		return Capsule{}, errors.New("archive id is required for omitted search output")
 	}

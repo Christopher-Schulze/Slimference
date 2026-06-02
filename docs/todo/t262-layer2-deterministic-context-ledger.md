@@ -103,6 +103,7 @@ The ledger stores deterministic capsules:
   recoverable through archive.
 - If capsule provenance is missing, full-pass.
 - If the selection policy lacks a current session id, full-pass.
+- If a search capsule lacks an explicit execution scope, full-pass.
 - If archive expansion fails, full-pass and disable the mechanism for the
   session.
 - No LLM-produced summary can be default-on.
@@ -180,3 +181,9 @@ summary remains opt-in, not default.
   `SelectCapsules` now keeps all capsules verbatim when `SelectionPolicy`
   lacks a session id, so a future model-facing insertion path cannot silently
   select archive-backed context across session namespaces.
+- 2026-06-03: Hardened search capsule scope. `BuildSearchCapsule` now requires
+  an explicit repo/workdir scope and `SelectCapsules` requires the `repo_root`
+  fact before any search capsule can become promotable old context. The Codex
+  reducer only counts search ledger telemetry when the tool call carries a
+  scoped workdir, so implicit-cwd searches cannot later become cross-repo
+  context.
