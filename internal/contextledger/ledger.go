@@ -109,6 +109,9 @@ func BuildFileCapsule(obs FileObservation) (Capsule, error) {
 	if len(obs.Content) > 0 && strings.TrimSpace(obs.ArchiveID) == "" {
 		return Capsule{}, errors.New("archive id is required for omitted file content")
 	}
+	if strings.TrimSpace(obs.ArchiveID) != "" && strings.TrimSpace(obs.FullPassTurn) == "" {
+		return Capsule{}, errors.New("full-pass turn is required for archived file content")
+	}
 	facts := map[string]string{
 		"path":           cleanPathFact(obs.Path),
 		"repo_root":      cleanPathFact(obs.RepoRoot),

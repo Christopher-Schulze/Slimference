@@ -42,6 +42,9 @@ func TestBuildFileCapsuleRequiresArchiveForOmittedContent(t *testing.T) {
 	if _, err := BuildFileCapsule(FileObservation{Path: "/repo/a.go", Content: []byte("package main")}); err == nil {
 		t.Fatal("expected archive requirement for omitted file content")
 	}
+	if _, err := BuildFileCapsule(FileObservation{Path: "/repo/a.go", ArchiveID: "arch"}); err == nil {
+		t.Fatal("expected full-pass turn requirement for archived file content")
+	}
 	capsule, err := BuildFileCapsule(FileObservation{
 		Path:         "/repo/./a.go",
 		RepoRoot:     "/repo",

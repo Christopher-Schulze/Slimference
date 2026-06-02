@@ -23,6 +23,7 @@ const (
 	SelectionReasonHighRiskFailure         SelectionReason = "high_risk_failure"
 	SelectionReasonMissingArchive          SelectionReason = "missing_archive"
 	SelectionReasonMissingProvenance       SelectionReason = "missing_provenance"
+	SelectionReasonMissingFacts            SelectionReason = "missing_facts"
 	SelectionReasonWrongSession            SelectionReason = "wrong_session"
 	SelectionReasonBudgetExhausted         SelectionReason = "budget_exhausted"
 	SelectionReasonUnknownKind             SelectionReason = "unknown_kind"
@@ -86,6 +87,9 @@ func selectCapsule(capsule Capsule, policy SelectionPolicy, recentTurns map[stri
 	if _, ok := recentTurns[turnID]; ok {
 		return SelectionVerbatim, SelectionReasonRecentTurn
 	}
+	if !capsuleHasRequiredFacts(capsule) {
+		return SelectionVerbatim, SelectionReasonMissingFacts
+	}
 	if capsule.Kind == CapsuleFailure {
 		return SelectionVerbatim, SelectionReasonHighRiskFailure
 	}
@@ -105,6 +109,25 @@ func knownKind(kind CapsuleKind) bool {
 	default:
 		return false
 	}
+}
+
+func capsuleHasRequiredFacts(capsule Capsule) bool {
+	switch capsule.Kind {
+	case CapsuleCommand:
+		return hasFact(capsule, "command") && hasFact(capsule, "exit_code")
+	case CapsuleFile:
+		return hasFact(capsule, "path") && hasFact(capsule, "full_pass_turn")
+	case CapsuleSearch:
+		return hasFact(capsule, "command") && hasFact(capsule, "pattern_hash")
+	case CapsuleFailure:
+		return hasFact(capsule, "message") && hasFact(capsule, "exit_code")
+	default:
+		return false
+	}
+}
+
+func hasFact(capsule Capsule, key string) bool {
+	return strings.TrimSpace(capsule.Facts[key]) != ""
 }
 
 func stringSet(values []string) map[string]struct{} {

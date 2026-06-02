@@ -45,6 +45,39 @@ func TestSelectCapsulesFailsClosedOnMissingArchiveAndProvenance(t *testing.T) {
 	assertDecision(t, report.Decisions[3], SelectionReject, SelectionReasonUnknownKind)
 }
 
+func TestSelectCapsulesKeepsIncompleteCapsulesVerbatim(t *testing.T) {
+	t.Parallel()
+	capsules := []Capsule{
+		{
+			Kind:       CapsuleCommand,
+			Provenance: Provenance{SessionID: "s", TurnID: "old", Source: "test"},
+			Facts:      map[string]string{"exit_code": "0"},
+			Archives:   []string{"arch-command"},
+		},
+		{
+			Kind:       CapsuleFile,
+			Provenance: Provenance{SessionID: "s", TurnID: "old", Source: "test"},
+			Facts:      map[string]string{"path": "/repo/a.go"},
+			Archives:   []string{"arch-file"},
+		},
+		{
+			Kind:       CapsuleSearch,
+			Provenance: Provenance{SessionID: "s", TurnID: "old", Source: "test"},
+			Facts:      map[string]string{"command": "rg needle ."},
+			Archives:   []string{"arch-search"},
+		},
+	}
+	report := SelectCapsules(capsules, SelectionPolicy{SessionID: "s"})
+	if report.Capsules != 0 || report.Verbatim != 3 || report.Rejected != 0 {
+		t.Fatalf("summary mismatch: %+v", report)
+	}
+	for i, decision := range report.Decisions {
+		if decision.Action != SelectionVerbatim || decision.Reason != SelectionReasonMissingFacts {
+			t.Fatalf("decision[%d]=%+v want missing-facts verbatim", i, decision)
+		}
+	}
+}
+
 func TestSelectCapsulesHonorsBudget(t *testing.T) {
 	t.Parallel()
 	report := SelectCapsules([]Capsule{
@@ -96,8 +129,23 @@ func testCapsule(kind CapsuleKind, sessionID, turnID string, archives ...string)
 	return Capsule{
 		Kind:       kind,
 		Provenance: Provenance{SessionID: sessionID, TurnID: turnID, Source: "test"},
-		Facts:      map[string]string{"k": "v"},
+		Facts:      testCapsuleFacts(kind),
 		Archives:   sortedStrings(archives),
+	}
+}
+
+func testCapsuleFacts(kind CapsuleKind) map[string]string {
+	switch kind {
+	case CapsuleCommand:
+		return map[string]string{"command": "go test ./...", "exit_code": "0"}
+	case CapsuleFile:
+		return map[string]string{"path": "/repo/a.go", "full_pass_turn": "turn-1"}
+	case CapsuleSearch:
+		return map[string]string{"command": "rg needle .", "pattern_hash": "hash"}
+	case CapsuleFailure:
+		return map[string]string{"message": "failed", "exit_code": "1"}
+	default:
+		return map[string]string{"k": "v"}
 	}
 }
 

@@ -166,3 +166,9 @@ summary remains opt-in, not default.
   contexts now produce `context_ledger_shadow_summary_replacement_blocked`
   instead of planner `run` unless model-facing legacy summary replacement is
   explicitly allowed.
+- 2026-06-02: Hardened context-ledger promotion safety. Capsule selection now
+  keeps command/file/search/failure capsules verbatim when their required
+  deterministic facts are missing, even if an archive id exists. File capsules
+  with archive provenance also require `full_pass_turn`, so telemetry cannot
+  count archive-backed file context unless the exact prior full-read turn is
+  known.

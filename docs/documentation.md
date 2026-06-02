@@ -405,7 +405,10 @@ Readcache decisions expose structured `ArchiveURI` and `FullPassTurnID`
 provenance to the reducer. File ledger observations are counted only when an
 archive-backed source exists; the provenance comes from the readcache decision
 object, not by parsing model-facing marker text. This keeps the ledger path
-content-free and fail-closed.
+content-free and fail-closed. Future capsule selection also refuses command,
+file, search, and failure capsules whose required deterministic facts are
+missing, and archived file capsules require the prior full-pass turn before they
+can be counted or promoted.
 
 The offline A/B harness can replay archive-backed references with a caller
 provided archive resolver. A `local-archive://` marker is considered safe only
