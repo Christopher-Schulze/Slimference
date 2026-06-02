@@ -2213,7 +2213,11 @@ Layer-0 policy: if the latest product host-budget snapshot is exceeded, WSS/HTTP
 Codex tool-output reducers full-pass until the process is back inside budget.
 The reducer hot path reads this as an atomic state bit, avoiding fresh RSS/state
 directory scans per frame. Oversized state trees that cannot be fully measured
-within the bounded scan limit are treated as budget pressure.
+within the bounded scan limit are treated as budget pressure. Phase-F request
+metadata for session id, previous-response id, and model is derived from the raw
+request map already parsed for message extraction, so normal WSS request handling
+does not repeatedly unmarshal the same frame just to fill planner and recovery
+fields.
 
 The proxy hot path attaches this plan to `debug.RequestSummary` and normalized
 `flight` records for upstream, local cache, transparent CONNECT, and direct

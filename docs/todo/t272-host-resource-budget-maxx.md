@@ -285,6 +285,13 @@ Initial targets for Apple Silicon macOS:
   escalate to `attention`. The TUI product panel renders `host budget unknown`
   rather than `safety ok`, so release proof cannot accidentally treat an
   unmeasured host as green.
+- 2026-06-03: Consolidated WSS Phase-F request metadata parsing. The hot path now
+  derives session id, previous-response id, and model from the raw request map
+  already produced by `extractMessages`, and only the internal detailed pipeline
+  returns that metadata to the adapter. Existing body-based helpers remain for
+  tests and non-hot callers. This removes repeated full-map JSON unmarshalling
+  from normal request handling without changing any model-facing bytes, reducer
+  decisions, or planner semantics.
 
 ## Done
 

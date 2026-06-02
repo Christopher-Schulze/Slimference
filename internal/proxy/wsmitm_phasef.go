@@ -55,6 +55,12 @@ type wsPhaseFTelemetry struct {
 	Mutations              int64
 }
 
+type wssRequestMeta struct {
+	SessionID          string
+	PreviousResponseID string
+	Model              string
+}
+
 func (a *wsPhaseFAdapter) snapshot() wsPhaseFTelemetry {
 	if a == nil {
 		return wsPhaseFTelemetry{}
@@ -123,7 +129,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		return false
 	}
 	a.counters.requestBodiesSeen.Add(1)
-	mutated, messages, changed, l0Stats, reReadCount := a.applyInputPipeline(body)
+	mutated, messages, changed, l0Stats, reReadCount, meta := a.applyInputPipelineDetailed(body)
 	if len(messages) > 0 {
 		a.counters.requestMessagesIndexed.Add(1)
 	}
@@ -140,7 +146,7 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 	// T254 server-state mirror, SHADOW only: predict referenceable content the
 	// server already holds (pre-pipeline = full model intent) and record this
 	// frame's forwarded content. Telemetry-only; never changes a frame.
-	if sid := wsCodexSessionID(body); sid != "" {
+	if sid := meta.SessionID; sid != "" {
 		pre := messages
 		if changed {
 			pre, _, _ = extractMessages(types.CodexChatGPT, body)
@@ -154,26 +160,35 @@ func (a *wsPhaseFAdapter) handleRequest(env *wsmitm.Envelope) bool {
 		}
 	}
 	if !changed {
-		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "", reReadCount)
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "", reReadCount, meta)
 		return false
 	}
 	if err := replace(mutated); err != nil {
-		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "replace_failed", reReadCount)
+		a.recordRequestPlan(body, mutated, messages, l0Stats, false, "replace_failed", reReadCount, meta)
 		return false
 	}
 	a.counters.mutations.Add(1)
-	a.recordRequestPlan(body, mutated, messages, l0Stats, true, "", reReadCount)
+	a.recordRequestPlan(body, mutated, messages, l0Stats, true, "", reReadCount, meta)
 	return true
 }
 
 func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int) {
+	out, messages, changed, l0Stats, reReadCount, _ := a.applyInputPipelineDetailed(body)
+	return out, messages, changed, l0Stats, reReadCount
+}
+
+func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []types.Message, bool, proxyLayer0Stats, int, wssRequestMeta) {
 	out := body
 	var l0Stats proxyLayer0Stats
 	reReadCount := 0
-	messages, _, err := extractMessages(types.CodexChatGPT, out)
+	var meta wssRequestMeta
+	messages, raw, err := extractMessages(types.CodexChatGPT, out)
+	if err == nil {
+		meta = wssRequestMetaFromRaw(raw)
+	}
 	if err == nil && len(messages) > 0 {
-		sessionID := wsCodexSessionID(out)
-		turnID := wssPreviousResponseID(out)
+		sessionID := meta.SessionID
+		turnID := meta.PreviousResponseID
 		a.hydrateToolUses(sessionID)
 		rememberedToolUses := a.loadToolUses()
 		reReadKeys, count := a.observeWSSQualityToolKeysForSession(sessionID, turnID, messages, rememberedToolUses)
@@ -244,17 +259,16 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 	}
 	archiveNoteEnabled := a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteEnabled || l0Stats.ChunkDedupBlocks > 0
-	sessionID := wsCodexSessionID(out)
-	if a.p.reserveArchiveRecoveryNote(sessionID, archiveNoteEnabled) {
+	if a.p.reserveArchiveRecoveryNote(meta.SessionID, archiveNoteEnabled) {
 		note := archiveRecoveryNoteText(a.p.config.Compression.OutputReduce.ArchiveRecoveryNoteText)
 		if injected, res := beterse.Inject(types.CodexChatGPT, out, note); res.Applied {
 			out = injected
 		} else {
-			a.p.forgetArchiveRecoveryNote(sessionID)
+			a.p.forgetArchiveRecoveryNote(meta.SessionID)
 		}
 	}
 	if a.p.config.Compression.OutputReduce.BeTerseHintEnabled && a.p.qualityAB != nil {
-		cohort := a.p.qualityAB.Cohort(sessionID)
+		cohort := a.p.qualityAB.Cohort(meta.SessionID)
 		recordCohort := cohort
 		if cohort == qualityab.CohortTreatment {
 			if injected, res := beterse.Inject(types.CodexChatGPT, out, a.p.config.Compression.OutputReduce.BeTerseHintText); res.Applied {
@@ -266,7 +280,7 @@ func (a *wsPhaseFAdapter) applyInputPipeline(body []byte) ([]byte, []types.Messa
 		}
 		a.rememberWSSQualityCohort(recordCohort)
 	}
-	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount
+	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta
 }
 
 func (a *wsPhaseFAdapter) rememberWSSQualityCohort(cohort qualityab.Cohort) {
@@ -461,7 +475,7 @@ func (a *wsPhaseFAdapter) restoreKeysForReReads(reReadKeys map[string]struct{}) 
 	return out
 }
 
-func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, reReadCount int) {
+func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, messages []types.Message, l0Stats proxyLayer0Stats, replaced bool, bypassReason string, reReadCount int, meta wssRequestMeta) {
 	if a == nil || a.p == nil || a.p.debugRecorder == nil {
 		return
 	}
@@ -478,24 +492,21 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 	if replaced && l0Stats.TokensSaved > 0 {
 		layersApplied = []int{0}
 	}
-	sessionID := wsCodexSessionID(body)
-	model := wssPlannerModel(body)
-	previousResponseID := wssPreviousResponseID(body)
 	summary := dbg.RequestSummary{
 		RequestID:              newRequestIDFn(),
 		Timestamp:              time.Now(),
-		SessionID:              sessionID,
+		SessionID:              meta.SessionID,
 		Source:                 "proxy",
 		Provider:               types.CodexChatGPT.String(),
 		Path:                   "/backend-api/codex/responses",
 		RouteMode:              "websocket_phasef",
 		BypassReason:           bypassReason,
-		Model:                  model,
+		Model:                  meta.Model,
 		TotalMessages:          len(messages),
 		MessagesInWindow:       len(messages),
 		MessagesCompressed:     l0Stats.BlocksModified,
 		LayersApplied:          layersApplied,
-		PreviousResponseIDUsed: previousResponseID != "",
+		PreviousResponseIDUsed: meta.PreviousResponseID != "",
 		Tokens: dbg.TokenCounts{
 			Original:    originalTokens,
 			AfterLayer0: finalTokens,
@@ -522,11 +533,11 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 		NetSavedTokens: saved,
 		Plan: a.p.dryRunPlan(plannerInput{
 			provider:                    types.CodexChatGPT,
-			model:                       model,
+			model:                       meta.Model,
 			routeMode:                   "websocket_phasef",
 			estimatedInputTokens:        originalTokens,
 			contentClasses:              classes,
-			previousResponseIDAvailable: previousResponseID != "",
+			previousResponseIDAvailable: meta.PreviousResponseID != "",
 			webSocketShapeKnown:         len(messages) > 0,
 			webSocketMutationRequested:  true,
 			liveCorpusConfidence:        a.p.plannerLiveCorpusConfidence(),
@@ -562,7 +573,7 @@ func wssPlannerModel(body []byte) string {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return ""
 	}
-	return rawJSONString(raw["model"])
+	return wssPlannerModelFromRaw(raw)
 }
 
 func wssPreviousResponseIDAvailable(body []byte) bool {
@@ -574,7 +585,7 @@ func wssPreviousResponseID(body []byte) string {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return ""
 	}
-	return rawJSONString(raw["previous_response_id"])
+	return wssPreviousResponseIDFromRaw(raw)
 }
 
 func wssPlannerOutputReduceReason(replaced bool, l0Stats proxyLayer0Stats) string {
@@ -861,6 +872,29 @@ func wsCodexSessionID(body []byte) string {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return ""
 	}
+	return wssCodexSessionIDFromRaw(raw)
+}
+
+func wssRequestMetaFromRaw(raw map[string]json.RawMessage) wssRequestMeta {
+	if len(raw) == 0 {
+		return wssRequestMeta{}
+	}
+	return wssRequestMeta{
+		SessionID:          wssCodexSessionIDFromRaw(raw),
+		PreviousResponseID: wssPreviousResponseIDFromRaw(raw),
+		Model:              wssPlannerModelFromRaw(raw),
+	}
+}
+
+func wssPlannerModelFromRaw(raw map[string]json.RawMessage) string {
+	return rawJSONString(raw["model"])
+}
+
+func wssPreviousResponseIDFromRaw(raw map[string]json.RawMessage) string {
+	return rawJSONString(raw["previous_response_id"])
+}
+
+func wssCodexSessionIDFromRaw(raw map[string]json.RawMessage) string {
 	for _, key := range []string{"conversation_id", "session_id", "user_id"} {
 		if s := rawJSONString(raw[key]); s != "" {
 			return "codex-wss:" + s

@@ -1412,6 +1412,24 @@ func TestWSCodexSessionIDFromCodexResponsesShape(t *testing.T) {
 	}
 }
 
+func TestWSSRequestMetaFromRawMatchesBodyHelpers(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.5","previous_response_id":"resp_prev","prompt_cache_key":"pck-key","client_metadata":{"x-codex-turn-metadata":"{\"thread_id\":\"thread-key\"}"},"input":[]}`)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatal(err)
+	}
+	meta := wssRequestMetaFromRaw(raw)
+	if meta.SessionID != wsCodexSessionID(body) {
+		t.Fatalf("session id from raw = %q, body helper = %q", meta.SessionID, wsCodexSessionID(body))
+	}
+	if meta.PreviousResponseID != wssPreviousResponseID(body) {
+		t.Fatalf("previous response id from raw = %q, body helper = %q", meta.PreviousResponseID, wssPreviousResponseID(body))
+	}
+	if meta.Model != wssPlannerModel(body) {
+		t.Fatalf("model from raw = %q, body helper = %q", meta.Model, wssPlannerModel(body))
+	}
+}
+
 func TestWSPhaseFBeTerseRecordsQualityOutcomeOnTerminalFrame(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true

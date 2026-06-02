@@ -2065,7 +2065,10 @@ be called complete, default-safe, and production-grade.
   readcache, chunking, archive, and planner overhead, and exact large-text token
   counts are content-hash cached to keep repeated Codex read/search accounting
   cheap without changing model-facing semantics. Layer-0 latency demotion is
-  persisted with TTL and capped strike debt. Proof-matrix rows now fail closed
+  persisted with TTL and capped strike debt. WSS Phase-F request metadata now
+  reuses the raw request map already parsed for message extraction, removing
+  repeated hot-path JSON unmarshalling for session/model/previous-response
+  fields without changing model-facing bytes. Proof-matrix rows now fail closed
   on reported host-budget attention/degradation and can require `host_budget_ok`.
   Focused CLI and Desktop chunk proofs now pass with `host_budget_ok`; broader
   workday, search-loop, tool-heavy, and pprof/resource proof remains. Detail:
