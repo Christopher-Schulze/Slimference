@@ -4221,3 +4221,12 @@ Validation:
 - Replay passed `wss-ab-replay --fail-on-lost --json` with `frames=186`,
   `request_turns=4`, `mutated_requests=2`, `bytes_saved=57084`, `lost=0`, and
   `gate_passed=true`.
+- Combined strict release matrix
+  `/Users/christopher/.slimference/captures/release-proof-20260602_112516-cli-desktop-v2.jsonl`
+  passed `wss-proof-matrix --require-live-token-delta`: 15 captures total, 9
+  CLI, 6 Desktop, all required workload classes present,
+  `positive_token_savings_captures=12`, `captures_with_issues=0`, and
+  `gate_passed=true`.
+- The v2 matrix totals are 58,086 live billable/input tokens saved with live
+  reducer coverage: 7 read-delta blocks, 6 captured-output/search blocks, 5
+  Codex exec-envelope blocks, 1 repeated-output block, and 0 chunk-dedup blocks.

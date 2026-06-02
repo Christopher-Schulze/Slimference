@@ -238,6 +238,17 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   one scoped Codex.app session. `repeated_output` and `chunk_dedup` had zero live
   block hits in this strict matrix and must not be claimed from this release
   proof.
+- 2026-06-02: Follow-up strict matrix
+  `/Users/christopher/.slimference/captures/release-proof-20260602_112516-cli-desktop-v2.jsonl`
+  adds the fresh Desktop search-delta proof from commit `3efd5f4`. It passed
+  `wss-proof-matrix --require-live-token-delta` with 15 captures total, 9 CLI,
+  6 Desktop, all required workload classes still present,
+  `positive_token_savings_captures=12`, `captures_with_issues=0`, and
+  `gate_passed=true`. The matrix now saves 58,086 live billable/input tokens and
+  includes positive live reducer coverage for 7 read-delta blocks, 6
+  captured-output/search blocks, 5 Codex exec-envelope blocks, and 1
+  repeated-output block. `chunk_dedup` remains zero in the strict release matrix
+  and must still stay out of live-token claims.
 
 ## Deviations
 
