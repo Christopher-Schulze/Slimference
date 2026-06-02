@@ -1299,9 +1299,11 @@ the same prune decision so the idle pass cannot immediately remove the recovered
 tool again. Reattach is schema-safe: cached pruned definitions are only consumed
 after a successful safe reattach, and malformed or unnameable existing `tools`
 entries full-pass unchanged instead of being rewritten. If the upstream returns
-a conservative missing-tool 4xx, the proxy retries once with the full pre-prune
-schema, records miss/retry telemetry, and disables future pruning for that
-session bucket. `slimference
+a conservative missing-tool 4xx, including common provider phrasings such as
+unknown tool, no tool named, not in available tools, tool/function not found, or
+not a valid function, the proxy retries once with the full pre-prune schema,
+records miss/retry telemetry, and disables future pruning for that session
+bucket. `slimference
 gain --proxy` includes tool-prune saved-token, pruned-tool, reattach, miss, and
 retry totals from the decision log.
 

@@ -224,6 +224,12 @@ func TestSafetyAndTelemetryBranches(t *testing.T) {
 		"not among the tools",
 		"not a valid tool",
 		"tool_use id not found",
+		"no tool named get_weather",
+		"tool get_weather does not exist",
+		"get_weather is not in the list of available tools",
+		"function not found",
+		"not a valid function",
+		"function_call id not found",
 	} {
 		if !LooksLikeMissingToolError(400, []byte(body)) {
 			t.Fatalf("body should look like missing-tool error: %q", body)

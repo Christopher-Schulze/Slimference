@@ -74,11 +74,17 @@ func LooksLikeMissingToolError(statusCode int, body []byte) bool {
 		return true
 	case strings.Contains(lower, "tool not found"):
 		return true
+	case strings.Contains(lower, "no tool named"):
+		return true
 	case strings.Contains(lower, "no such tool"):
 		return true
 	case strings.Contains(lower, "tool is not available"):
 		return true
 	case strings.Contains(lower, "tool was not provided"):
+		return true
+	case strings.Contains(lower, "tool") && strings.Contains(lower, "does not exist"):
+		return true
+	case strings.Contains(lower, "tool") && strings.Contains(lower, "not in the list of available"):
 		return true
 	case strings.Contains(lower, "not found in tools"):
 		return true
@@ -87,6 +93,16 @@ func LooksLikeMissingToolError(statusCode int, body []byte) bool {
 	case strings.Contains(lower, "not a valid tool"):
 		return true
 	case strings.Contains(lower, "tool_use") && strings.Contains(lower, "not found"):
+		return true
+	case strings.Contains(lower, "function not found"):
+		return true
+	case strings.Contains(lower, "no function named"):
+		return true
+	case strings.Contains(lower, "not a valid function"):
+		return true
+	case strings.Contains(lower, "function") && strings.Contains(lower, "does not exist"):
+		return true
+	case strings.Contains(lower, "function_call") && strings.Contains(lower, "not found"):
 		return true
 	default:
 		return false

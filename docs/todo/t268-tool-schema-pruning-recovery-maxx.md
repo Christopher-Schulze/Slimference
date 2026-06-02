@@ -131,6 +131,12 @@ Tool pruning should be default-safe only when:
   This biases toward full-schema retry plus cooldown when pruning may have
   removed a needed tool. False positives cost one retry; false negatives are the
   real capability-drawdown risk.
+- 2026-06-03: Broadened the same recovery detector again for function/tool
+  provider variants (`no tool named`, `tool does not exist`, `not in the list of
+  available tools`, `function not found`, `not a valid function`,
+  `function_call ... not found`). Tool/function schema errors are all treated as
+  possible pruning misses because the safe response is full-schema retry and
+  cooldown, not trying to classify provider wording narrowly.
 
 ## Done
 
