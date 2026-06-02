@@ -85,8 +85,9 @@ var layer1SubLayerRegistry = []Layer1SubLayerInfo{
 		ID:              "success_short_circuit",
 		Tier:            Layer1SafetyTaskPreservingSummary,
 		DefaultEligible: true,
+		RequiresArchive: true,
 		ModelRisk:       "success-only logs are summarized",
-		Recovery:        "success classifier refuses failures and errors",
+		Recovery:        "content archive plus success classifier refusing failures and errors",
 	},
 	{
 		ID:              "image_replace",

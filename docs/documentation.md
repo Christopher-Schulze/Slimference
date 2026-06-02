@@ -815,6 +815,9 @@ The same archive-required rule applies to side paths such as
 `structure_in_window`: even when an in-window tool-result block is eligible for
 structural extraction, the original must archive successfully before the summary
 can replace model-facing text.
+Success short-circuit summaries follow the same rule: a verbose success-only
+tool output can become an `[ok]` marker only when the original output has been
+archived, so the marker never becomes an unrecoverable source of truth.
 
 Every Layer 1 compression call also emits content-free `layer1_decisions`
 telemetry in the proxy decisions log. Each record names the sub-layer, safety

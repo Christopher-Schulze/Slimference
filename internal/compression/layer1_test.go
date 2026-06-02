@@ -561,7 +561,7 @@ func TestCompress_CommentStripViaPath(t *testing.T) {
 func TestCompress_SuccessShortCircuit(t *testing.T) {
 	t.Parallel()
 	cfg := defaultTestCfg(1)
-	c := NewDeterministicCompressor(cfg)
+	c := testCompressorWithArchive(cfg)
 
 	// Text matching reTestsOK, > 80 chars, no error patterns, non-JSON.
 	buildOutput := "Running test suite...\nInitializing runner\nLoading fixtures\n\nAll tests passed\n\nElapsed: 1.2s\nDone.\n"
@@ -577,6 +577,29 @@ func TestCompress_SuccessShortCircuit(t *testing.T) {
 	got := result.Messages[0].Content[0].Text
 	if !strings.Contains(got, "[ok]") {
 		t.Errorf("want success short-circuit marker, got %q", got)
+	}
+	if result.Messages[0].Content[0].ArchiveID == "" {
+		t.Fatal("success short-circuit must stamp archive id")
+	}
+}
+
+func TestCompress_SuccessShortCircuitFullPassesWithoutArchive(t *testing.T) {
+	t.Parallel()
+	cfg := defaultTestCfg(1)
+	c := NewDeterministicCompressor(cfg)
+
+	buildOutput := "Running test suite...\nInitializing runner\nLoading fixtures\n\nAll tests passed\n\nElapsed: 1.2s\nDone.\n"
+	msgs := []types.Message{
+		buildMessage(t, 0, "user", toolResultBlock(buildOutput)),
+		buildMessage(t, 1, "assistant", textBlock("ok")),
+		buildMessage(t, 2, "user", textBlock("done")),
+	}
+	result := c.Compress(msgs)
+	if result.SuccessShortSaved != 0 {
+		t.Fatalf("archive-required success short-circuit must full-pass without recorder, saved=%d", result.SuccessShortSaved)
+	}
+	if got := result.Messages[0].Content[0]; got.Text != buildOutput || got.ArchiveID != "" {
+		t.Fatalf("archive-required success short-circuit mutated without archive: %+v", got)
 	}
 }
 

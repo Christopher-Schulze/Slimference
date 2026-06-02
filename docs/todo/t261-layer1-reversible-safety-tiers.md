@@ -140,6 +140,10 @@ compression shortcut.
   summary and full-passes when no archive id is available. This brings the
   opt-in in-window path under the same `structure_extract` archive-required
   safety contract as the normal Layer 1 executor.
+- 2026-06-02: Promoted `success_short_circuit` to archive-required. Success-only
+  build/test/log summaries still require the success classifier, but they now
+  also full-pass unless the verbose original can be archived and stamped before
+  the `[ok]` marker replaces model-facing text.
 
 ## Done
 

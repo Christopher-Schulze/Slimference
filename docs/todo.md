@@ -1907,9 +1907,9 @@ be called complete, default-safe, and production-grade.
   sublayer safety registry with archive requirements, model-risk notes, and
   recovery paths; archive-required executor enforcement, archive-failure
   full-pass behavior, unknown or unattributed mutation fail-closed archive
-  gating, `structure_in_window` archive enforcement, and content-free
-  per-sublayer decision records are implemented, while prompt-cache economics
-  and round-trip/live proof remain.
+  gating, `structure_in_window` and `success_short_circuit` archive enforcement,
+  and content-free per-sublayer decision records are implemented, while
+  prompt-cache economics and round-trip/live proof remain.
   Detail:
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
