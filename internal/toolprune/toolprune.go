@@ -8,6 +8,7 @@ package toolprune
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 )
@@ -384,7 +385,7 @@ func (u *UsageTracker) DecideWithOptions(sessionID string, tools []string, opts 
 	}
 	alwaysKeep := AlwaysKeepSet(opts.AlwaysKeep)
 	for _, t := range tools {
-		if alwaysKeep[t] || IsDefaultAlwaysKeep(t) {
+		if alwaysKeep[strings.ToLower(strings.TrimSpace(t))] || IsDefaultAlwaysKeep(t) {
 			out.Keep = append(out.Keep, t)
 			out.AlwaysKept++
 			continue

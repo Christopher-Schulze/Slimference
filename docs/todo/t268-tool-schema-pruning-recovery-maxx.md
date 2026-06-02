@@ -87,6 +87,9 @@ Tool pruning should be default-safe only when:
   family hints for shell/search/read/write tools. This biases toward reattaching
   a potentially needed tool; false positives only cost schema tokens, while false
   negatives can be a capability drawdown.
+- Configured `tool_prune_always_keep` names now match case-insensitively. A
+  project-specific keep rule cannot silently fail just because a provider or
+  Codex surface changes tool-name casing.
 - Reattached tool definitions are appended in deterministic tool-name order
   instead of Go map iteration order. This improves request-body stability and
   avoids avoidable prompt-cache churn when the same reattach set appears again.

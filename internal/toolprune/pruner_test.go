@@ -291,7 +291,7 @@ func TestDecideWithOptions_AlwaysKeepAndCooldown(t *testing.T) {
 
 	decision := u.DecideWithOptions(session, []string{"Bash", "ColdTool", "CustomKeep"}, DecisionOptions{
 		MinKeep:    1,
-		AlwaysKeep: []string{"CustomKeep"},
+		AlwaysKeep: []string{"customkeep"},
 	})
 	if !containsString(decision.Keep, "Bash") || !containsString(decision.Keep, "CustomKeep") {
 		t.Fatalf("always-keep tools missing: %+v", decision)

@@ -1260,7 +1260,8 @@ tokens_saved_sum}`. Default off.
 
 T151/T268 make the pruner soak-safe enough for wider testing: shell,
 edit, read, safety, browser, and MCP tool classes are always kept, and
-`tool_prune_always_keep = []` can add project-specific exact tool names.
+`tool_prune_always_keep = []` can add project-specific exact tool names with
+case-insensitive matching.
 Pruned definitions are archived by session and tool name. A later tool-name
 mention, safe alias (`GetWeather` -> "weather", `send_email` -> "email"), or
 command-family hint reattaches the definition before pruning runs again.

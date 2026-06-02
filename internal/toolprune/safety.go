@@ -32,11 +32,12 @@ var defaultAlwaysKeepTokens = []string{
 
 // AlwaysKeepSet returns a map for names that must never be pruned. The
 // default class keeps shell, edit, read, safety, browser, and MCP tools
-// attached. Extra names are exact case-sensitive tool names supplied by config.
+// attached. Extra names are exact tool names supplied by config, matched
+// case-insensitively because provider/tool casing is not a capability boundary.
 func AlwaysKeepSet(extra []string) map[string]bool {
 	out := make(map[string]bool, len(extra))
 	for _, name := range extra {
-		name = strings.TrimSpace(name)
+		name = strings.ToLower(strings.TrimSpace(name))
 		if name != "" {
 			out[name] = true
 		}

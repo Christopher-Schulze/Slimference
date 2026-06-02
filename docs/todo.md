@@ -2009,7 +2009,8 @@ be called complete, default-safe, and production-grade.
   shapes stay byte-equal and retain recovery state for later known-shape
   requests. Missing-tool recovery detection now recognizes common provider
   phrasings such as no-such-tool and tool-not-available errors, preferring a
-  harmless full-schema retry over a capability drawdown. Detail:
+  harmless full-schema retry over a capability drawdown; configured
+  project-specific always-keep tools now match case-insensitively. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay
