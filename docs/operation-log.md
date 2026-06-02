@@ -4089,3 +4089,18 @@ Changes:
 Validation:
 - Added a regression test where a replay-positive row without `live_delta`
   passes the per-capture legacy fallback but fails strict mode.
+
+## 2026-06-02 - T271 strict release plan wiring
+
+Goal: make the operator-facing release ceremony use the same hard live-token
+proof gate as the matrix tool. A release/default-on proof should not depend on
+the operator remembering an extra flag.
+
+Changes:
+- `go run ./scripts/verify -mode release-proof-plan` now prints
+  `wss-proof-matrix ... --require-live-token-delta --json`.
+- Updated the release-plan test, scripts README, package usage text, and product
+  documentation to state the strict live-token requirement.
+
+Validation:
+- `go test ./scripts/verify ./scripts/utils` passed.

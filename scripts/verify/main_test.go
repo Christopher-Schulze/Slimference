@@ -393,7 +393,7 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		"codex_desktop",
 		"repeat_read",
 		"long_workday",
-		"wss-proof-matrix",
+		"wss-proof-matrix ~/.slimference/captures/release-proof-20260531_080910.jsonl --require-live-token-delta --json",
 		"benchmark-corpus tests/fixtures/live_corpus --promotion-check",
 		"host-resource budget",
 	} {

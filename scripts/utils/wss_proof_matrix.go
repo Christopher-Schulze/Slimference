@@ -115,7 +115,7 @@ func runWSSProofMatrix(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if flags.path == "" {
-		fmt.Fprintln(stderr, "Usage: wss-proof-matrix <captures.jsonl> [--json]")
+		fmt.Fprintln(stderr, "Usage: wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]")
 		return 2
 	}
 	report, err := loadWSSProofMatrixReportWithOptions(flags.path, wssProofMatrixOptions{

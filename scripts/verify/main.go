@@ -317,7 +317,7 @@ func runReleaseProofPlan(root string, now time.Time) int {
 	fmt.Println("   go run ./scripts/utils workday-savings finish")
 	fmt.Println("")
 	fmt.Println("5. Run WSS proof and release promotion gates:")
-	fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --json\n", matrixPath)
+	fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --require-live-token-delta --json\n", matrixPath)
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check\n", root)
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check --json\n", root)
 	fmt.Println("")

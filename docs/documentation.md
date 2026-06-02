@@ -2158,9 +2158,12 @@ operator ceremony for a release/default-on decision. The runbook starts from a
 clean CI and synthetic-corpus baseline, opens a `workday-savings` window, lists
 the scoped CLI and Desktop product launch paths, expands every required
 live-corpus workload for both `codex_cli` and `codex_desktop`, then finishes
-with `wss-proof-matrix` and `benchmark-corpus --promotion-check`. The command is
-content-free and plan-only: it does not start capture, read payloads, or create
-fixtures. This keeps proof collection manual, reviewable, and reproducible.
+with `wss-proof-matrix --require-live-token-delta` and
+`benchmark-corpus --promotion-check`. The strict matrix mode requires real
+admin-state `live_delta` rows; replay bytes remain visible but cannot stand in
+for product token savings. The command is content-free and plan-only: it does
+not start capture, read payloads, or create fixtures. This keeps proof
+collection manual, reviewable, and reproducible.
 Unattended CLI capture collection uses
 `go run ./scripts/utils codex-capture-run`, which owns the daemon foreground
 process, sets `SLIMFERENCE_WSS_AB_CAPTURE`, waits for `/health`, runs scoped

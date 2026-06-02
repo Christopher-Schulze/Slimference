@@ -11,7 +11,7 @@
 //	go run ./scripts/utils codex-capture-run [flags] -- <codex run args...>
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
 //	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]
-//	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json]
+//	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
 package main
 

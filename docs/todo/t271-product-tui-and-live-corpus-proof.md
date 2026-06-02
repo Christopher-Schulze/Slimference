@@ -129,6 +129,9 @@ gate is done when default promotions require live corpus evidence.
   measurement and host-resource budget pass alongside CI, WSS replay, workday
   savings, and promotion corpus gates. This keeps "savings proven" separate
   from "safe and cheap enough for product operation."
+- 2026-06-02: Release proof ceremony now calls
+  `wss-proof-matrix --require-live-token-delta`, so replay byte savings cannot
+  satisfy the product gate without real live billable-token deltas.
 - 2026-06-02: Added two automatic scoped CLI release-style proof windows without
   Desktop operator input. Search breadth:
   `/Users/christopher/.slimference/captures/auto-proof-search-clean-20260602T004340Z.jsonl`
