@@ -163,3 +163,8 @@ gate is done when default promotions require live corpus evidence.
   `auto`. Focused mechanism proofs can force `wss`; release proof should keep
   `auto` to test the product route. The README examples now include the required
   `exec` Codex subcommand and call out forced-WSS mechanism proof usage.
+- 2026-06-02: Product TUI now separates billable input tokens, request-side byte
+  reductions, and output-wire byte savings in the default product panel. This
+  keeps the user-facing surface honest: token savings are the money claim,
+  request bytes are local reducer efficiency, and output-wire bytes are UX/stream
+  savings rather than billable input savings.

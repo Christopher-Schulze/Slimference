@@ -1260,6 +1260,7 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 		ProviderCacheReadTokens:   5000,
 		ProviderCacheCreateTokens: 700,
 		OutputWireBytesSaved:      2048,
+		RequestSideBytesReduced:   1536,
 		CacheHits:                 3,
 		CacheMisses:               1,
 		ReadDeltaHits:             2,
@@ -1271,7 +1272,7 @@ func TestView_MainRender_ProductStatus(t *testing.T) {
 	m.height = 30
 
 	output := m.View()
-	for _, want := range []string{"PRODUCT", "WSS savings active", "fallback: bridge", "while repair runs", "recert running", "12.0K input saved", "5.0K provider-cache read", "cache 3/4", "safety ok"} {
+	for _, want := range []string{"PRODUCT", "WSS savings active", "fallback: bridge", "while repair runs", "recert running", "12.0K input saved", "1.5K request", "2.0K output-wire saved", "5.0K provider-cache read", "cache 3/4", "safety ok"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("main view missing %q in:\n%s", want, output)
 		}

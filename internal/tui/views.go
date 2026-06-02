@@ -1084,7 +1084,10 @@ func (m *Model) buildRightPanel(width int) []string {
 	} else {
 		add(" " + renderProductRouteLine(s, product))
 		add(" " + s.Saved.Render(formatTokens(int(product.BillableInputTokensSaved))+" input saved") +
-			"  " + s.Dim.Render(formatBytesCompact(product.OutputWireBytesSaved)+" wire"))
+			"  " + s.Dim.Render(formatBytesCompact(product.RequestSideBytesReduced)+" request"))
+		if product.OutputWireBytesSaved > 0 {
+			add(" " + s.Dim.Render(formatBytesCompact(product.OutputWireBytesSaved)+" output-wire saved"))
+		}
 		if product.ProviderCacheReadTokens > 0 || product.ProviderCacheCreateTokens > 0 {
 			add(" " + s.Highlight.Render(formatTokens(int(product.ProviderCacheReadTokens))+" provider-cache read") +
 				"  " + s.Dim.Render(formatTokens(int(product.ProviderCacheCreateTokens))+" create"))
