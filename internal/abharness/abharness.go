@@ -262,6 +262,7 @@ func classifyReplacement(before string, after string, seenFull map[string]struct
 		if resolve == nil {
 			return SeverityReferenced
 		}
+		beforeStable := stableSeenFullTexts(before)
 		resolvedAny := false
 		unresolved := false
 		for _, id := range ids {
@@ -271,7 +272,8 @@ func classifyReplacement(before string, after string, seenFull map[string]struct
 				continue
 			}
 			resolvedAny = true
-			if string(body) == before {
+			bodyText := string(body)
+			if archiveBodyMatchesStable(bodyText, beforeStable, resolve, map[string]struct{}{id: struct{}{}}, 0) {
 				return SeverityReferenced
 			}
 		}
@@ -279,8 +281,12 @@ func classifyReplacement(before string, after string, seenFull map[string]struct
 			return SeverityReferenceMissing
 		}
 		if !unresolved {
-			if expanded, ok := expandReferencedText(after, resolve); ok && expanded == before {
-				return SeverityReferenced
+			if expanded, ok := expandReferencedText(after, resolve); ok {
+				for _, stable := range beforeStable {
+					if expanded == stable {
+						return SeverityReferenced
+					}
+				}
 			}
 		}
 		return SeverityReferenceMismatch
@@ -289,6 +295,31 @@ func classifyReplacement(before string, after string, seenFull map[string]struct
 		return SeverityLost
 	}
 	return SeverityChanged
+}
+
+func archiveBodyMatchesStable(body string, beforeStable []string, resolve ArchiveResolver, seen map[string]struct{}, depth int) bool {
+	for _, stable := range beforeStable {
+		if body == stable {
+			return true
+		}
+	}
+	if resolve == nil || depth >= 4 {
+		return false
+	}
+	for _, id := range archiveIDs(body) {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		nested, err := resolve(id)
+		if err != nil {
+			continue
+		}
+		if archiveBodyMatchesStable(string(nested), beforeStable, resolve, seen, depth+1) {
+			return true
+		}
+	}
+	return false
 }
 
 func stableSeenFullTexts(text string) []string {

@@ -69,6 +69,54 @@ func TestCompare_CodexExecEnvelopeRepeatReadIsRecoverableByPayload(t *testing.T)
 	}
 }
 
+func TestCompare_CodexExecEnvelopeArchiveReferenceCanResolvePayload(t *testing.T) {
+	t.Parallel()
+	payload := strings.Repeat("internal/proxy/example.go:42:stable search result\n", 40)
+	before := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
+	after := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n[context-elided kind=tool-output status=unchanged command=\"rg -n stable internal\" archive=local-archive://payload]"
+	rep := CompareWithArchiveExpansion([]Turn{
+		{Before: msg(before), After: msg(after)},
+	}, func(id string) ([]byte, error) {
+		if id != "payload" {
+			t.Fatalf("unexpected archive id %q", id)
+		}
+		return []byte(payload), nil
+	})
+	if rep.Lost() != 0 {
+		t.Fatalf("payload archive should recover Codex envelope elision: %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityReferenced {
+		t.Fatalf("want referenced envelope elision, got %+v", rep.Elisions)
+	}
+}
+
+func TestCompare_CodexExecEnvelopeNestedArchiveReferenceCanResolvePayload(t *testing.T) {
+	t.Parallel()
+	payload := strings.Repeat("internal/proxy/example.go:42:stable search result\n", 40)
+	before := "Chunk ID: ccc333\nWall time: 0.5678 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
+	compactedWithRecovery := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n[rg] 40 match(es)\n[context-archive kind=tool-output uri=local-archive://full-payload]"
+	after := "Chunk ID: ccc333\nWall time: 0.5678 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n[context-elided kind=tool-output status=unchanged command=\"rg -n stable internal\" archive=local-archive://prior-compact]"
+	rep := CompareWithArchiveExpansion([]Turn{
+		{Before: msg(before), After: msg(after)},
+	}, func(id string) ([]byte, error) {
+		switch id {
+		case "prior-compact":
+			return []byte(compactedWithRecovery), nil
+		case "full-payload":
+			return []byte(payload), nil
+		default:
+			t.Fatalf("unexpected archive id %q", id)
+			return nil, errArchiveMissing{}
+		}
+	})
+	if rep.Lost() != 0 {
+		t.Fatalf("nested payload archive should recover Codex envelope elision: %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityReferenced {
+		t.Fatalf("want referenced nested envelope elision, got %+v", rep.Elisions)
+	}
+}
+
 func TestCompare_CollapseWithoutPriorFullIsLost(t *testing.T) {
 	t.Parallel()
 	secret := strings.Repeat("NEVER SENT FULL\n", 50)

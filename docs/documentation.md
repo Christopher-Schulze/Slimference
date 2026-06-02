@@ -332,9 +332,9 @@ Current product status:
 |---|---|---|---|
 | WSS Phase-F routing for Codex CLI/Desktop | On when route proof is fresh; bridge/fallback on drift | CLI and Desktop route plus mutation proofs recorded; auto-recert guards version drift | Fail-open; route-ready is still distinct from savings-proven |
 | Read-delta for repeated full-file reads | On | Proven in real CLI/Desktop repeat-read captures and A/B replay with `lost=0`; 2026-06-02 CLI replay saved 11463 model-facing bytes and live WSS saved 3175 billable input tokens | Low risk: first read was already sent in full |
-| Ranged read-delta for `head` / `tail` / `sed -n` | On | Covered by T250/T257 capture matrix | Low risk: first range full-passes, later same range collapses only after exact observation |
-| Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; covered by default-auto proof classes | Low risk: exact same command/output only, archive-backed, fail-open on changes |
-| Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads | Low to medium: grouped first search keeps representative matches and can be re-run; no file-read context weakening |
+| Ranged read-delta for `head` / `tail` / `sed -n` | On | Covered by T250/T257 capture matrix; 2026-06-02 automatic CLI `sed -n` replay saved 9196 model-facing bytes and live WSS saved 2552 billable input tokens for the ranged hit | Low risk: first range full-passes, later same range collapses only after exact observation |
+| Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; 2026-06-02 automatic CLI replay covered Codex exec-envelope repeated-output recovery with `lost=0` | Low risk: exact same command/output only, archive-backed, fail-open on changes |
+| Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads; 2026-06-02 automatic CLI search-loop replay saved 11381 model-facing bytes overall with `lost=0` | Low to medium: grouped first search keeps representative matches and can be re-run; no file-read context weakening |
 | Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252/T260 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
 | Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP blocked from archive refs | T255 live WSS replay proof, T256 policy wiring, T258 route/risk gate | Medium but guarded: archive recovery required, recent/re-read risk loosens |
 | Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
@@ -409,7 +409,11 @@ were already sent verbatim earlier in the session; missing or mismatched archive
 expansion is counted as a lost comprehension issue. Codex exec envelopes are
 normalized for this prior-full check: the harness tracks the stable payload after
 `Output:\n` in addition to the full block, so volatile `Chunk ID` / `Wall time`
-headers do not turn a safe repeat-read collapse into a false loss.
+headers do not turn a safe repeat-read collapse into a false loss. Archive-backed
+Codex exec compaction also stores the stable `Output:` payload, not volatile
+envelope metadata, and the harness follows bounded nested archive references so
+`captured_output` followed by `repeated_output` can be proven recoverable without
+pretending the model needs the changing `Chunk ID` line.
 
 The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
@@ -643,6 +647,11 @@ window saved 382 billable WSS-input tokens on an archive-backed `rg -n TODO`
 workload with `phasef_bridged=2`, `compressed_messages_mutated=1`,
 `frames_reencoded=1`, and zero parse, degraded-session, or compression errors.
 This proves representative CLI/Desktop WSS savings breadth for deterministic
+reducers. A later 2026-06-02 automatic CLI window covered ranged reads plus
+repeated search output through the same product path: 4 WSS mutations, 2945
+billable WSS-input tokens saved, `read_delta=1`, `captured_output=1`,
+`repeated_output=2`, `lost=0` in replay, final host budget `ok`, and zero
+parse/degraded/compression errors.
 default-auto reducers. It does not promote similar-output chunk dedup beyond the
 existing conservative policy: the similar-files capture stayed expected-zero /
 net-negative for default-auto.

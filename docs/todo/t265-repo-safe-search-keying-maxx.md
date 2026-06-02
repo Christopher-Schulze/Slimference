@@ -89,11 +89,20 @@ is capped.
   `rg -n TODO src` can still be grouped on the first output but cannot seed a
   cross-turn cache/delta key. This removes the last offline-visible cross-repo
   false-hit path without reducing safe first-pass grouping savings.
+- 2026-06-02 automatic scoped CLI search-loop proof covered a repeated `rg -n`
+  workload through WSS Phase-F with repo/workdir metadata. Capture
+  `/Users/christopher/.slimference/captures/auto-proof-cli-20260602T002703Z.jsonl`
+  replayed with `lost=0`, `mutated_requests=4`, `bytes_saved=11381`, and live
+  counters reported `captured_output_blocks=1`, `repeated_output_blocks=2`,
+  `ledger_search_capsules=3`, and zero command/tool resolution misses. The run
+  first exposed a nested archive proof gap for search-output compaction followed
+  by exact repeated-output elision; the reducer and A/B harness now prove the
+  nested full-payload archive rather than treating it as `reference_mismatch`.
 
 Remaining before this task can close:
 
-- Add live CLI/Desktop captures for repeated `rg`, changed result sets, `git
-  grep`, and grep variants.
+- Add remaining live captures for Desktop repeated `rg`, changed result sets,
+  `git grep`, and grep variants.
 - Add explicit proof report showing large search grouping, repeated exact
   collapse, and changed search delta all stay repo-scoped with `lost=0`.
 

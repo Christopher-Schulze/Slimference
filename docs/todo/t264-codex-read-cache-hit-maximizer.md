@@ -91,10 +91,26 @@ Maximize exact hits:
   the same cache decisions globally and per route, so future hit-rate work can
   separate "not seen before" from "unsafe/not worth caching" without payload
   capture.
+- 2026-06-02 automatic scoped CLI proof covered ranged read-delta through the
+  product WSS path. Capture
+  `/Users/christopher/.slimference/captures/auto-proof-cli-20260602T002703Z.jsonl`
+  includes a repeated `sed -n '1,160p' AGENTS.md` workload. Replay passed
+  `--fail-on-lost`, the ranged hit contributed a `recoverable_prior_full`
+  elision, and live counters reported `read_delta_blocks=1`,
+  `read_delta_misses=1`, `tool_resolution_misses=0`, and positive billable WSS
+  input savings. The same run proved repeated non-read output hits through
+  `repeated_output_blocks=2`.
+- 2026-06-02 hardened Codex exec-envelope normalization for repeated non-read
+  outputs, matching the read-delta fix. Repeated-output now hashes/caches the
+  stable payload after `Output:\n` while preserving the current envelope header
+  around the marker; captured-output archives also store stable payload bytes.
+  This prevents volatile `Chunk ID` / `Wall time` metadata from lowering hit
+  rate or producing unreconstructable nested archive chains.
 
 Remaining before this task can close:
 
-- Prove the broader command-shape matrix on real CLI/Desktop captures.
+- Prove the remaining command-shape matrix on real Desktop captures and on CLI
+  shapes not covered by the 2026-06-02 automatic ranged/search run.
 - If live captures show unexplained cold misses, add narrower diagnostics for
   reconnect hydration, TTL eviction, and ambiguous workdir.
 

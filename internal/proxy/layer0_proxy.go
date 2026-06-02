@@ -826,10 +826,14 @@ func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original stri
 	if err != nil {
 		return "", false
 	}
+	archiveOriginal := original
+	if _, payload, ok := splitCodexExecEnvelope(original); ok {
+		archiveOriginal = payload
+	}
 	entry, err := contentarchive.Put(contentarchive.DefaultDir(home), contentarchive.Input{
 		SessionID: sessionID,
 		SubLayer:  "codex_wss_captured_output",
-		Original:  original,
+		Original:  archiveOriginal,
 		Preview:   fmt.Sprintf("tool output %s", strings.TrimSpace(commandLine)),
 	}, contentarchive.Limits{})
 	if err != nil || entry == nil || strings.TrimSpace(entry.URI) == "" {
@@ -930,11 +934,17 @@ func compactProxyRepeatedToolOutputWithKeyDetailed(sessionID, key, commandLine, 
 	if err != nil {
 		return "", false, "home_error"
 	}
+	evaluateText := text
+	envelopeHeader := ""
+	if header, payload, ok := splitCodexExecEnvelope(text); ok {
+		envelopeHeader = header
+		evaluateText = payload
+	}
 	decision, err := readcache.EvaluateObservedOutput(readcache.DefaultDir(home), readcache.OutputRequest{
 		SessionID:   sessionID,
 		Key:         key,
 		CommandLine: commandLine,
-	}, text, contentarchive.DefaultDir(home))
+	}, evaluateText, contentarchive.DefaultDir(home))
 	if err != nil || decision.Type != readcache.DecisionBlock || decision.Reason == "" {
 		if err != nil {
 			return "", false, "readcache_error"
@@ -944,10 +954,11 @@ func compactProxyRepeatedToolOutputWithKeyDetailed(sessionID, key, commandLine, 
 		}
 		return "", false, "full_pass"
 	}
+	reason := envelopeHeader + decision.Reason
 	if decision.BlockKind != "" {
-		return decision.Reason, true, string(decision.BlockKind)
+		return reason, true, string(decision.BlockKind)
 	}
-	return decision.Reason, true, "block"
+	return reason, true, "block"
 }
 
 func compactProxyChunkDedup(store *chunkdedup.Store, sessionID, text string, minBytes, maxReferencePercent int) (string, bool, proxyLayer0Mechanism, chunkdedup.EncodeResult) {

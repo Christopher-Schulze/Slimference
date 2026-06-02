@@ -138,6 +138,28 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
   `compressed_messages_mutated=1`, `frames_reencoded=1`, `read_delta_hits=1`,
   `read_delta_blocks=1`, `billable_input_tokens_saved=3175`,
   `tool_resolution_misses=0`, and zero parse/degraded/compression errors.
+- 2026-06-02: A broader automatic scoped CLI proof exposed and fixed the same
+  volatile-envelope class for non-read repeated tool outputs. The repeated-output
+  path now evaluates the stable Codex exec payload after `Output:\n`, preserves
+  the current envelope header around the marker, and captured-output archives
+  store the stable payload instead of volatile `Chunk ID` / `Wall time` metadata.
+  The A/B harness also follows bounded nested archive references, so a compacted
+  search output that is later exact-deduped can prove recovery through the nested
+  full-payload archive instead of failing as `reference_mismatch`. Regression
+  coverage:
+  `TestProxyRepeatedOutputIgnoresCodexExecEnvelopeVolatileHeader`,
+  `TestArchiveProxyCapturedOutputArchivesCodexPayload`, and
+  `TestCompare_CodexExecEnvelopeNestedArchiveReferenceCanResolvePayload`.
+- 2026-06-02: Automatic ranged/search CLI proof:
+  `/Users/christopher/.slimference/captures/auto-proof-cli-20260602T002703Z.jsonl`
+  replayed 284 frames / 8 request turns, mutated 4 requests, saved 11381
+  model-facing bytes, reported `lost=0`, and passed `--fail-on-lost`. The
+  matching workday window reported `phasef_bridged=4`,
+  `compressed_messages_mutated=4`, `frames_reencoded=4`,
+  `billable_input_tokens_saved=2945`, `read_delta_blocks=1`,
+  `captured_output_blocks=1`, `repeated_output_blocks=2`,
+  `tool_resolution_misses=0`, final host budget `ok`, and zero
+  parse/degraded/compression errors.
 - 2026-05-30: WSS archive-recovery note injection landed behind
   `archive_recovery_note_enabled`, default-off, once per session, and voice-neutral.
   It injects no product name and keeps recovery proof-gated instead of making a new

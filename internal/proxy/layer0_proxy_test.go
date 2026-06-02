@@ -12,6 +12,7 @@ import (
 
 	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/types"
@@ -113,6 +114,34 @@ func TestReduceCodexLayer0WSSCapturedOutputCarriesArchiveReference(t *testing.T)
 	}
 	if !strings.Contains(text, "[git status]") || !strings.Contains(text, "[context-archive kind=tool-output uri=local-archive://") {
 		t.Fatalf("WSS captured output must be compact and recoverable: %q", text)
+	}
+}
+
+func TestArchiveProxyCapturedOutputArchivesCodexPayload(t *testing.T) {
+	home := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	payload := strings.Repeat("src/example.go:42:stable match\n", 40)
+	original := "Chunk ID: volatile\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 500\nOutput:\n" + payload
+	compacted := "Chunk ID: volatile\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 500\nOutput:\n[rg] 40 match(es)"
+	out, ok := archiveProxyCapturedOutput("sess-archive-payload", "rg -n stable src", compacted, original)
+	if !ok {
+		t.Fatal("expected captured output archive")
+	}
+	const marker = "uri=local-archive://"
+	idx := strings.LastIndex(out, marker)
+	if idx < 0 {
+		t.Fatalf("archive marker missing: %q", out)
+	}
+	id := strings.TrimSpace(strings.TrimSuffix(out[idx+len("uri="):], "]"))
+	_, archived, err := contentarchive.Get(contentarchive.DefaultDir(home), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(archived) != payload {
+		t.Fatalf("Codex exec archive should store stable payload only, got %q", string(archived[:min(len(archived), 120)]))
 	}
 }
 
@@ -788,6 +817,30 @@ func TestProxyReadDeltaIgnoresCodexExecEnvelopeVolatileHeader(t *testing.T) {
 	}
 	if !strings.Contains(out, "Chunk ID: bbb222") || !strings.Contains(out, "[context-elided kind=file-read status=unchanged") {
 		t.Fatalf("envelope header and unchanged marker not preserved: %q", out)
+	}
+}
+
+func TestProxyRepeatedOutputIgnoresCodexExecEnvelopeVolatileHeader(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	payload := strings.Repeat("internal/proxy/example.go:42:stable search result\n", 40)
+	first := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + payload
+	second := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
+	key := "search:rg\t-n\tstable\t/Users/christopher/CODE/Slimference/internal/proxy"
+	command := "rg -n stable /Users/christopher/CODE/Slimference/internal/proxy"
+
+	if out, ok := compactProxyRepeatedToolOutputWithKey("sess-repeated-envelope", key, command, first); ok || out != "" {
+		t.Fatalf("first envelope output must seed without mutation, ok=%v out=%q", ok, out)
+	}
+	out, ok := compactProxyRepeatedToolOutputWithKey("sess-repeated-envelope", key, command, second)
+	if !ok {
+		t.Fatalf("second envelope output should collapse despite volatile header")
+	}
+	if strings.Contains(out, payload) {
+		t.Fatalf("unchanged repeated output should not repeat payload: %q", out)
+	}
+	if !strings.Contains(out, "Chunk ID: bbb222") || !strings.Contains(out, "[context-elided kind=tool-output status=unchanged") {
+		t.Fatalf("envelope header and unchanged output marker not preserved: %q", out)
 	}
 }
 
