@@ -664,6 +664,32 @@ func TestWSRequestBodyNoBodyAndMalformedRawReplacement(t *testing.T) {
 	}
 }
 
+func TestWSRequestBodyReturnsReadOnlyAliasAndCopiesReplacement(t *testing.T) {
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":  "gpt-5-codex",
+			"stream": true,
+			"input":  "x",
+		},
+	})
+	body, replace, ok := wsRequestBody(&env)
+	if !ok {
+		t.Fatal("request body not detected")
+	}
+	if len(body) == 0 || len(env.Body) == 0 || &body[0] != &env.Body[0] {
+		t.Fatal("wsRequestBody should not copy request bytes before mutation")
+	}
+	next := []byte(`{"model":"gpt-5-codex","stream":true,"input":"y"}`)
+	if err := replace(next); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	next[0] = '['
+	if !jsonObject(env.Body) || !jsonObject(env.Fields["body"]) {
+		t.Fatalf("replacement must copy bytes into envelope fields: body=%s field=%s", env.Body, env.Fields["body"])
+	}
+}
+
 func TestWSPhaseFStreamcutStaysDisabledAfterMultipleWSSDeltas(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StreamCutEnabled = true

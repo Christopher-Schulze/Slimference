@@ -230,6 +230,13 @@ Initial targets for Apple Silicon macOS:
   reducer invocation, request summaries, and planner dry-runs. Existing wrapper
   functions stay for tests and non-hot callers, but the common WSS path avoids
   repeated full-map JSON unmarshalling of the same frame body.
+- 2026-06-02: Removed the remaining eager WSS request-body copy in
+  `wsRequestBody`. The Phase-F input pipeline now receives a read-only alias to
+  the envelope body/request/raw bytes and only allocates when the replacer writes
+  a mutated frame back into the envelope. Replacement still copies into
+  envelope fields, so caller-owned mutation buffers cannot alias live frame
+  state. This completes the copy-on-write direction for normal no-op WSS frames
+  without changing model-facing semantics.
 
 ## Done
 

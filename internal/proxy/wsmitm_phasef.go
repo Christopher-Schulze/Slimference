@@ -807,7 +807,7 @@ type wsRequestReplacer func([]byte) error
 
 func wsRequestBody(env *wsmitm.Envelope) ([]byte, wsRequestReplacer, bool) {
 	if jsonObject(env.Body) {
-		return append([]byte(nil), env.Body...), func(next []byte) error {
+		return env.Body, func(next []byte) error {
 			env.Body = append(json.RawMessage(nil), next...)
 			if env.Fields != nil {
 				env.Fields["body"] = append(json.RawMessage(nil), next...)
@@ -816,7 +816,7 @@ func wsRequestBody(env *wsmitm.Envelope) ([]byte, wsRequestReplacer, bool) {
 		}, true
 	}
 	if jsonObject(env.Request) {
-		return append([]byte(nil), env.Request...), func(next []byte) error {
+		return env.Request, func(next []byte) error {
 			env.Request = append(json.RawMessage(nil), next...)
 			if env.Fields != nil {
 				env.Fields["request"] = append(json.RawMessage(nil), next...)
@@ -825,7 +825,7 @@ func wsRequestBody(env *wsmitm.Envelope) ([]byte, wsRequestReplacer, bool) {
 		}, true
 	}
 	if wsEnvelopeLooksLikeRequestBody(env) {
-		return append([]byte(nil), env.Raw...), func(next []byte) error {
+		return env.Raw, func(next []byte) error {
 			parsed, err := wsmitm.Parse(next)
 			if err != nil {
 				return err
