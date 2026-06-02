@@ -229,8 +229,30 @@ func TestStreamingRelayWithUsage_AggregatesOpenAICacheFields(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	output, usage := streamingRelayWithUsage(context.Background(), rec, resp, "codex_chatgpt")
-	if output != 9 || usage.ReadTokens != 550 || usage.InputTokens != 1200 {
+	if output != 9 || usage.ReadTokens != 300 || usage.InputTokens != 1200 {
 		t.Fatalf("output=%d usage=%+v", output, usage)
+	}
+}
+
+func TestStreamingRelayWithUsage_ProviderOutputTotalReplacesEstimates(t *testing.T) {
+	t.Parallel()
+	sse := strings.Join([]string{
+		`data: {"choices":[{"delta":{"content":"estimated delta content before usage"}}]}`,
+		``,
+		`data: {"type":"response.completed","response":{"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":300},"output_tokens":9}}}`,
+		``,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       readCloser(sse),
+	}
+	rec := httptest.NewRecorder()
+	output, usage := streamingRelayWithUsage(context.Background(), rec, resp, "codex_chatgpt")
+	if output != 9 || usage.OutputTokens != 9 {
+		t.Fatalf("provider output total must replace estimates: output=%d usage=%+v", output, usage)
 	}
 }
 

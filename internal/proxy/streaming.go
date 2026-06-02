@@ -137,8 +137,21 @@ func streamingRelayWithCutter(ctx context.Context, w http.ResponseWriter, upstre
 		return true
 	}
 
+	var estimatedOutputTokens int
+	var reportedOutputTokens int
+
 	accountFor := func(line []byte) {
-		outputTokens += extractOutputTokensFromSSE(line, provider)
+		estimated, reported, hasReported := extractOutputTokenAccountingFromSSE(line, provider)
+		if hasReported {
+			if reported > reportedOutputTokens {
+				reportedOutputTokens = reported
+				outputTokens = reportedOutputTokens
+				usage.OutputTokens = reportedOutputTokens
+			}
+		} else if reportedOutputTokens == 0 {
+			estimatedOutputTokens += estimated
+			outputTokens = estimatedOutputTokens
+		}
 		switch provider {
 		case "anthropic":
 			if r, c, in := extractAnthropicCacheUsage(line); r > 0 || c > 0 || in > 0 {
@@ -150,7 +163,9 @@ func streamingRelayWithCutter(ctx context.Context, w http.ResponseWriter, upstre
 			}
 		case "openai", "codex_chatgpt":
 			if r, in := extractOpenAICacheUsage(line); r > 0 || in > 0 {
-				usage.ReadTokens += r
+				if r > usage.ReadTokens {
+					usage.ReadTokens = r
+				}
 				if in > usage.InputTokens {
 					usage.InputTokens = in
 				}
@@ -401,25 +416,34 @@ func passthrough(w http.ResponseWriter, upstreamResp *http.Response) (responseBo
 	return body
 }
 
-// extractOutputTokensFromSSE parses an SSE line and returns output token delta count.
+// extractOutputTokensFromSSE parses an SSE line and returns either an
+// estimated output-token delta or a provider-reported output-token total.
 // It handles both Anthropic and OpenAI streaming formats.
 func extractOutputTokensFromSSE(line []byte, provider string) int {
+	estimated, reported, hasReported := extractOutputTokenAccountingFromSSE(line, provider)
+	if hasReported {
+		return reported
+	}
+	return estimated
+}
+
+func extractOutputTokenAccountingFromSSE(line []byte, provider string) (estimatedDelta, reportedTotal int, hasReportedTotal bool) {
 	// SSE lines are: "data: {...}" or "event: ..." or empty.
 	if !bytes.HasPrefix(line, []byte("data: ")) {
-		return 0
+		return 0, 0, false
 	}
 	data := line[6:]
 	if bytes.Equal(data, []byte("[DONE]")) {
-		return 0
+		return 0, 0, false
 	}
 
 	switch provider {
 	case "anthropic":
-		return extractAnthropicOutputTokens(data)
+		return extractAnthropicOutputTokenAccounting(data)
 	case "openai", "codex_chatgpt":
-		return extractOpenAIOutputTokens(data)
+		return extractOpenAIOutputTokenAccounting(data)
 	}
-	return 0
+	return 0, 0, false
 }
 
 // anthropicUsageEvent is the structure of Anthropic's usage reporting in SSE.
@@ -435,19 +459,27 @@ type anthropicUsageEvent struct {
 }
 
 func extractAnthropicOutputTokens(data []byte) int {
+	estimated, reported, hasReported := extractAnthropicOutputTokenAccounting(data)
+	if hasReported {
+		return reported
+	}
+	return estimated
+}
+
+func extractAnthropicOutputTokenAccounting(data []byte) (estimatedDelta, reportedTotal int, hasReportedTotal bool) {
 	var ev anthropicUsageEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return 0
+		return 0, 0, false
 	}
 	// message_delta event contains the final usage stats.
 	if ev.Type == "message_delta" && ev.Usage != nil {
-		return ev.Usage.OutputTokens
+		return 0, ev.Usage.OutputTokens, true
 	}
 	// content_block_delta: count text length as approximate token estimate.
 	if ev.Type == "content_block_delta" && ev.Delta != nil && ev.Delta.Type == "text_delta" {
-		return estimateTokensFromText(ev.Delta.Text)
+		return estimateTokensFromText(ev.Delta.Text), 0, false
 	}
-	return 0
+	return 0, 0, false
 }
 
 // openAIChunk is the structure of an OpenAI streaming chunk.
@@ -461,20 +493,28 @@ type openAIChunk struct {
 }
 
 func extractOpenAIOutputTokens(data []byte) int {
+	estimated, reported, hasReported := extractOpenAIOutputTokenAccounting(data)
+	if hasReported {
+		return reported
+	}
+	return estimated
+}
+
+func extractOpenAIOutputTokenAccounting(data []byte) (estimatedDelta, reportedTotal int, hasReportedTotal bool) {
 	if usage, ok := extractOpenAIUsageFromData(data); ok && usage.outputTokens() > 0 {
-		return usage.outputTokens()
+		return 0, usage.outputTokens(), true
 	}
 	var chunk openAIChunk
 	if err := json.Unmarshal(data, &chunk); err != nil {
-		return 0
+		return 0, 0, false
 	}
 	// Approximate from delta content.
 	for _, c := range chunk.Choices {
 		if c.Delta.Content != "" {
-			return estimateTokensFromText(c.Delta.Content)
+			return estimateTokensFromText(c.Delta.Content), 0, false
 		}
 	}
-	return 0
+	return 0, 0, false
 }
 
 func extractOpenAIUsageFromData(data []byte) (openAIUsage, bool) {

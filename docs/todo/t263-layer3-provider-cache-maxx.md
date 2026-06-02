@@ -25,6 +25,9 @@ and long-session proof.
   partitions for stop-sequence injection and be-terse treatment cohorts. A
   cached deterministic response from one request-policy state cannot replay
   across a later policy change.
+- Streaming OpenAI/Codex provider-cache accounting now treats `cached_tokens`
+  usage reports as per-request totals, not additive deltas, so intermediate and
+  final SSE usage events cannot inflate provider-cache read-token claims.
 - Prompt-cache planning exists for stable prefixes.
 - Layer 3 is default-enabled for supported paths.
 - Savings claims must be separated from local byte savings and output-wire
@@ -119,6 +122,11 @@ accounting or locally proven upstream bypass, not mixed counters.
   HTTP method in the effective route key. This closes the remaining theoretical
   cross-method alias path while preserving the existing path/query, provider,
   policy, body, and header partitions.
+- 2026-06-02: Hardened streaming provider-cache accounting. OpenAI/Codex
+  `cached_tokens` in SSE usage events are now merged by maximum/final
+  per-request total instead of summed across intermediate and final usage
+  frames. Regression coverage proves a stream with 250 cached tokens followed
+  by a final 300 cached-token event reports 300, not 550.
 
 ## Done
 

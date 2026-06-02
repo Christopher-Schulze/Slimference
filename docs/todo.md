@@ -1924,8 +1924,9 @@ be called complete, default-safe, and production-grade.
   full-passes tool-capable request shapes and includes HTTP method plus route
   path/query in cache keys plus request-affecting policy partitions to avoid
   workflow replay, cross-endpoint aliasing, method aliasing, and cross-policy
-  response replay; local replay also requires explicit deterministic sampling,
-  so provider default sampling
+  response replay; streaming OpenAI/Codex cached-token usage now treats provider
+  usage events as per-request totals instead of additive deltas; local replay
+  also requires explicit deterministic sampling, so provider default sampling
   full-passes upstream. Provider-accounting alignment and long-session proof
   remain. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
@@ -1992,7 +1993,9 @@ be called complete, default-safe, and production-grade.
   Codex Responses output-reduce injection now uses top-level `instructions`
   only and never rewrites `input` into a forbidden `system` item. Streamcut now
   accounts naturally flushed holdback lines so output-wire token accounting does
-  not undercount when a stream ends without forced cutting.
+  not undercount when a stream ends without forced cutting, and provider final
+  output-token totals now replace earlier text estimates instead of inflating
+  output telemetry.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a

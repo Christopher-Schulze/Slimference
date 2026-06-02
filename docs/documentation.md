@@ -303,6 +303,13 @@ top-level `instructions` string. The injector does not rewrite `input` and never
 creates `input` items with `role=system`, because Codex rejects those and because
 output-reduce must not alter the model's task/tool context while trying to save
 output tokens.
+Streaming provider usage is accounted by field semantics, not by blind addition:
+if an OpenAI/Codex or Anthropic stream reports final `output_tokens`, that total
+replaces earlier text estimates for the request; OpenAI/Codex `cached_tokens`
+usage is likewise treated as a per-request total. Anthropic cache read/create
+fields remain separate provider counters. This prevents output-wire or
+OpenAI/Codex provider-cache claims from being inflated by counting an
+intermediate usage event plus the final usage event.
 
 ### Codex read-compression (mechanisms and safety model)
 

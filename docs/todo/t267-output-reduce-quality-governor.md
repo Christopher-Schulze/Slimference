@@ -123,6 +123,11 @@ Output reduction becomes a runtime-governed layer:
   holdback queue now still feed output-token and provider-usage accounting. This
   keeps output-reduce quality and savings telemetry honest without changing
   client-visible bytes or model-facing context.
+- 2026-06-02: Hardened streaming output-token accounting. Text-delta estimates
+  are used only until the provider reports a final output-token total; once an
+  Anthropic or OpenAI/Codex usage total appears, that total wins for the request
+  instead of being added on top of earlier estimates. This keeps output-reduce
+  telemetry conservative and avoids fake output-token savings.
 
 ## Done
 
