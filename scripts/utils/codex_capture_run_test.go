@@ -21,6 +21,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 		"--capture=~/captures/out.jsonl",
 		"--host=127.0.0.2",
 		"--port", "8991",
+		"--transport=wss",
 		"--health-timeout=2s",
 		"--codex-timeout=3s",
 		"--matrix-row", "~/matrix.jsonl",
@@ -42,7 +43,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseCodexCaptureRunFlags: %v", err)
 	}
-	if flags.binary != "/tmp/slimference" || flags.host != "127.0.0.2" || flags.port != "8991" {
+	if flags.binary != "/tmp/slimference" || flags.host != "127.0.0.2" || flags.port != "8991" || flags.transport != "wss" {
 		t.Fatalf("bad route flags: %+v", flags)
 	}
 	if !strings.HasSuffix(flags.capturePath, filepath.Join("captures", "out.jsonl")) {
@@ -77,7 +78,7 @@ func TestParseCodexCaptureRunFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse defaults: %v", err)
 	}
-	if defaults.binary != "slimference" || defaults.host != "127.0.0.1" || defaults.port != "8990" {
+	if defaults.binary != "slimference" || defaults.host != "127.0.0.1" || defaults.port != "8990" || defaults.transport != "auto" {
 		t.Fatalf("bad defaults: %+v", defaults)
 	}
 	if !strings.Contains(defaults.capturePath, "codex-capture-20260602T120000Z.jsonl") {
@@ -131,7 +132,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 			}, nil
 		},
 		runCodex: func(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
-			calls = append(calls, "codex:"+strings.Join(flags.codexArgs, " "))
+			calls = append(calls, "codex:"+flags.transport+":"+strings.Join(flags.codexArgs, " "))
 			return nil
 		},
 		stopDaemon: func(ctx context.Context, daemon *codexCaptureDaemon) error {
@@ -157,6 +158,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	code := runCodexCaptureRunWithDeps([]string{
 		"--binary", "/tmp/slimference",
 		"--capture", capturePath,
+		"--transport", "wss",
 		"--matrix-row", matrixPath,
 		"--id", "cli-repeat",
 		"--workload-class", "repeat_full_read",
@@ -171,7 +173,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 		"start:" + capturePath,
 		"health:127.0.0.1:8990",
 		"admin",
-		"codex:Read AGENTS.md twice",
+		"codex:wss:Read AGENTS.md twice",
 		"admin",
 		"stop",
 		"replay:" + capturePath,

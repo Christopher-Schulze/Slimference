@@ -159,3 +159,7 @@ gate is done when default promotions require live corpus evidence.
   `gate_passed=true`. This proves the base CLI+Desktop WSS release matrix, but
   it does not close the separate chunk-dedup, tool-schema pruning,
   output-reduce aggressive-profile, or host-resource proof gates.
+- 2026-06-02: `codex-capture-run` now accepts `--transport` with default
+  `auto`. Focused mechanism proofs can force `wss`; release proof should keep
+  `auto` to test the product route. The README examples now include the required
+  `exec` Codex subcommand and call out forced-WSS mechanism proof usage.

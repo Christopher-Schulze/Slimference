@@ -146,3 +146,17 @@ it remains guarded by policy.
   and `--expected-reducer chunk_dedup_refs`, plus `host_budget_ok`, so a future
   chunk proof cannot pass on replay bytes alone or on a block counter without
   actual chunk references.
+- 2026-06-02: Live CLI chunk proof remains open. The capture
+  `/Users/christopher/.slimference/captures/live-cli-chunk-dedup-current-20260602T182411.jsonl`
+  contains two real 40 KB `function_call_output` frames and replay mutates them
+  with `reducer_chunk_dedup_blocks=1`, `reducer_chunk_dedup_references=1`,
+  `reducer_tokens_saved=1807`, `bytes_saved=7907`, `lost=1`,
+  `expected_extras=1`, and `gate_passed=true`, but the live daemon matrix row
+  recorded zero billable-token savings and zero live chunk counters. This is not
+  sufficient for default promotion. Follow-up must prove the same mechanism
+  through a live `phasef_mutations>0` row, or fix the live wiring/counter path
+  if replay and live continue to diverge.
+- 2026-06-02: `codex-capture-run` now supports `--transport=wss` for focused
+  mechanism proofs. Release proof can stay on `auto`, but chunk-dedup promotion
+  should force `wss` while debugging so bridge/fallback cannot be mistaken for
+  a negative reducer result.

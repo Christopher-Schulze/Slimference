@@ -24,6 +24,7 @@ type codexCaptureRunFlags struct {
 	capturePath         string
 	host                string
 	port                string
+	transport           string
 	healthTimeout       time.Duration
 	codexTimeout        time.Duration
 	matrixPath          string
@@ -222,6 +223,7 @@ Flags:
   --capture PATH             WSS frame capture path (default: ~/.slimference/captures/codex-capture-<timestamp>.jsonl)
   --host HOST                Daemon host (default: 127.0.0.1)
   --port PORT                Daemon port (default: 8990)
+  --transport VALUE          Scoped Codex transport: auto, http, wss, wss-bridge, or direct (default: auto)
   --health-timeout DURATION  Time to wait for daemon /health (default: 10s)
   --codex-timeout DURATION   Max runtime for the scoped Codex command (default: 5m)
   --matrix-row PATH          Append a wss-proof-matrix JSONL row after replay
@@ -242,7 +244,7 @@ Flags:
   --quiet-codex-output       Hide Codex TUI output and print only the final summary
 
 The tool starts the daemon as its own child process with SLIMFERENCE_WSS_AB_CAPTURE
-set, waits for /health, runs "slimference codex run --transport=auto -- ...",
+set, waits for /health, runs "slimference codex run --transport=<value> -- ...",
 records live admin-state token deltas, stops the daemon, then replays the
 capture with --fail-on-lost semantics. Live billable input-token savings are the
 product savings signal; replay bytes are only the model-facing regression/safety
@@ -368,6 +370,7 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 		binary:          "slimference",
 		host:            "127.0.0.1",
 		port:            "8990",
+		transport:       "auto",
 		healthTimeout:   10 * time.Second,
 		codexTimeout:    5 * time.Minute,
 		client:          "cli",
@@ -386,7 +389,7 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 			flags.expectedZeroSavings = true
 		case arg == "--quiet-codex-output":
 			flags.quietCodexOutput = true
-		case arg == "--binary", arg == "--capture", arg == "--host", arg == "--port",
+		case arg == "--binary", arg == "--capture", arg == "--host", arg == "--port", arg == "--transport",
 			arg == "--health-timeout", arg == "--codex-timeout", arg == "--matrix-row", arg == "--id",
 			arg == "--client", arg == "--workload-class", arg == "--expected-reducer",
 			arg == "--codex-version", arg == "--slimference-commit", arg == "--repo",
@@ -448,6 +451,10 @@ func parseCodexCaptureRunFlags(args []string, now time.Time) (codexCaptureRunFla
 	if flags.client != "cli" && flags.client != "desktop" {
 		return flags, fmt.Errorf("--client must be cli or desktop")
 	}
+	flags.transport = strings.ToLower(strings.TrimSpace(flags.transport))
+	if !validCodexCaptureTransport(flags.transport) {
+		return flags, fmt.Errorf("--transport must be auto, http, wss, wss-bridge, or direct")
+	}
 	return flags, nil
 }
 
@@ -462,6 +469,8 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 		flags.host = value
 	case "--port":
 		flags.port = value
+	case "--transport":
+		flags.transport = value
 	case "--health-timeout":
 		d, err := time.ParseDuration(value)
 		if err != nil || d <= 0 {
@@ -500,6 +509,15 @@ func setCodexCaptureRunFlag(flags *codexCaptureRunFlags, name, value string) err
 		return fmt.Errorf("unknown flag: %s", name)
 	}
 	return nil
+}
+
+func validCodexCaptureTransport(transport string) bool {
+	switch transport {
+	case "auto", "http", "wss", "wss-bridge", "direct":
+		return true
+	default:
+		return false
+	}
 }
 
 func expandCodexCapturePath(path string) (string, error) {
@@ -743,7 +761,7 @@ func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *co
 }
 
 func runCodexCaptureCLI(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
-	args := []string{"codex", "run", "--transport=auto", "--"}
+	args := []string{"codex", "run", "--transport=" + flags.transport, "--"}
 	args = append(args, flags.codexArgs...)
 	cmd := exec.CommandContext(ctx, flags.binary, args...)
 	cmd.Stdin = os.Stdin
