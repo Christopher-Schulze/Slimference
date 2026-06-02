@@ -331,7 +331,7 @@ Current product status:
 | Mechanism | Default status | Proof state | Drawdown position |
 |---|---|---|---|
 | WSS Phase-F routing for Codex CLI/Desktop | On when route proof is fresh; bridge/fallback on drift | CLI and Desktop route plus mutation proofs recorded; auto-recert guards version drift | Fail-open; route-ready is still distinct from savings-proven |
-| Read-delta for repeated full-file reads | On | Proven in real CLI/Desktop repeat-read captures and A/B replay with `lost=0` | Low risk: first read was already sent in full |
+| Read-delta for repeated full-file reads | On | Proven in real CLI/Desktop repeat-read captures and A/B replay with `lost=0`; 2026-06-02 CLI replay saved 11463 model-facing bytes and live WSS saved 3175 billable input tokens | Low risk: first read was already sent in full |
 | Ranged read-delta for `head` / `tail` / `sed -n` | On | Covered by T250/T257 capture matrix | Low risk: first range full-passes, later same range collapses only after exact observation |
 | Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; covered by default-auto proof classes | Low risk: exact same command/output only, archive-backed, fail-open on changes |
 | Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads | Low to medium: grouped first search keeps representative matches and can be re-run; no file-read context weakening |
@@ -406,7 +406,10 @@ The offline A/B harness can replay archive-backed references with a caller
 provided archive resolver. A `local-archive://` marker is considered safe only
 when the resolver expands it to the exact elided bytes or when the same bytes
 were already sent verbatim earlier in the session; missing or mismatched archive
-expansion is counted as a lost comprehension issue.
+expansion is counted as a lost comprehension issue. Codex exec envelopes are
+normalized for this prior-full check: the harness tracks the stable payload after
+`Output:\n` in addition to the full block, so volatile `Chunk ID` / `Wall time`
+headers do not turn a safe repeat-read collapse into a false loss.
 
 The reducer telemetry includes mechanism attribution:
 tool-result blocks seen, unresolved tool-use references, command-resolved
@@ -439,9 +442,11 @@ and content-free reason codes. The daemon/admin path uses an in-process
 resource probe for PID, uptime, real RSS, process CPU time, disk I/O counters,
 and state size where the platform can provide it, avoiding a loopback
 self-health guess for the product budget.
-Policy demotion uses the same concept through budget inputs: if the host budget
-trips, managed Codex reducers full-pass instead of making Codex slower or less
-reliable. Repeated Layer-0 latency budget breaches set a separate
+Policy demotion uses the same concept through budget inputs. Host-budget
+attention demotes recoverable or heavier mechanisms such as chunk references
+while keeping cheap lossless/exact cache-hit reducers (`read_delta`,
+`repeated_output`) available, so a transient local resource spike does not erase
+the safest savings. Repeated Layer-0 latency budget breaches set a separate
 `latency_budget_full_context` gate after three slow frames and recover after
 cheap frames, so one spike does not disable savings but repeated local overhead
 cannot degrade Codex UX. Readcache and WSS tool-use/collapsed-key state use
@@ -450,8 +455,8 @@ immediate while per-frame sync writes stay out of the hot path. Readcache
 write-behind flushes are version-guarded: a delayed disk flush can only mark the
 same state revision clean, and it cannot overwrite a newer in-memory save made
 while the flush was in flight. Windowed CPU and disk-write spikes also trip
-host-budget attention, which makes managed Codex reducers full-pass until the
-next healthy snapshot.
+host-budget attention, which demotes heavier managed Codex reducers until the
+next healthy snapshot without turning off lossless exact repeat-read savings.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually

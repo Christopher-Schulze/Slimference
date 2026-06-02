@@ -246,6 +246,9 @@ func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
 	if in.SessionIntegrityBudgetHit {
 		return fullPass(base, "session_integrity_budget")
 	}
+	if in.HostBudgetExceeded && in.Risk == CodexRiskLossless && (in.Recovery == CodexRecoveryExact || in.Recovery == CodexRecoveryNone) {
+		return allow(base, "lossless_or_exact_reducer_host_budget", false)
+	}
 	if reason, ok := mechanismDemotionReason(in); ok {
 		return fullPass(base, reason)
 	}
@@ -403,8 +406,6 @@ func toolOutputLoosenReason(in CodexToolOutputInput) (string, bool) {
 		return "missing_tool_retry_full_context", true
 	case in.DegradedRoute:
 		return "degraded_route_full_context", true
-	case in.HostBudgetExceeded:
-		return "host_budget_full_context", true
 	case in.LatencyBudgetExceeded:
 		return "latency_budget_full_context", true
 	case in.NegativeSavingsHistory:

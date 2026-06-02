@@ -392,9 +392,9 @@ func TestReduceCodexLayer0HostBudgetDemotesReducers(t *testing.T) {
 	budgetReq := baseReq
 	budgetReq.HostBudgetExceeded = true
 	budgeted := reduceCodexLayer0(budgetReq)
-	if budgeted.Stats.TokensSaved != 0 || budgeted.Stats.RepeatedOutputBlocks != 0 ||
-		budgeted.Messages[1].Content[0].Text != body {
-		t.Fatalf("host budget must full-pass existing cache hit, stats=%+v text=%q", budgeted.Stats, budgeted.Messages[1].Content[0].Text)
+	if budgeted.Stats.TokensSaved <= 0 || budgeted.Stats.RepeatedOutputBlocks != 1 ||
+		!strings.Contains(budgeted.Messages[1].Content[0].Text, "[context-elided kind=tool-output status=unchanged") {
+		t.Fatalf("host budget should keep cheap lossless cache hits, stats=%+v text=%q", budgeted.Stats, budgeted.Messages[1].Content[0].Text)
 	}
 	latencyReq := baseReq
 	latencyReq.LatencyBudgetExceeded = true
@@ -766,6 +766,28 @@ func TestProxyReadDeltaWorkdirSeparatesRelativePaths(t *testing.T) {
 	largeB := uniqueProxyReadPayload("beta")
 	if out, changed := compactProxyReadDelta("sess-workdir", "", command(dirB), largeB, filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
 		t.Fatalf("first workdir B read must not reuse workdir A cache, changed=%v out=%q", changed, out)
+	}
+}
+
+func TestProxyReadDeltaIgnoresCodexExecEnvelopeVolatileHeader(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	payload := uniqueProxyReadPayload("envelope")
+	first := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + payload
+	second := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
+
+	if out, changed := compactProxyReadDelta("sess-envelope", "turn-1", "cat AGENTS.md", first, filter.FileReadContext{Mode: "scan"}, 0); changed || out != "" {
+		t.Fatalf("first envelope read must seed without mutation, changed=%v out=%q", changed, out)
+	}
+	out, changed := compactProxyReadDelta("sess-envelope", "turn-2", "cat AGENTS.md", second, filter.FileReadContext{Mode: "scan"}, 0)
+	if !changed {
+		t.Fatalf("second envelope read should delta despite volatile header")
+	}
+	if strings.Contains(out, payload) {
+		t.Fatalf("unchanged envelope read should not repeat payload: %q", out)
+	}
+	if !strings.Contains(out, "Chunk ID: bbb222") || !strings.Contains(out, "[context-elided kind=file-read status=unchanged") {
+		t.Fatalf("envelope header and unchanged marker not preserved: %q", out)
 	}
 }
 

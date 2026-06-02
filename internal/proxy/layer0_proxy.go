@@ -872,6 +872,12 @@ func compactProxyReadDeltaWithDecision(sessionID, turnID, commandLine, text stri
 	if err != nil {
 		return "", false, "home_error", readcache.Decision{}
 	}
+	evaluateText := text
+	envelopeHeader := ""
+	if header, payload, ok := splitCodexExecEnvelope(text); ok {
+		envelopeHeader = header
+		evaluateText = payload
+	}
 	decision, err := readcache.EvaluateObserved(readcache.DefaultDir(home), readcache.Request{
 		SessionID:               sessionID,
 		TurnID:                  turnID,
@@ -879,7 +885,7 @@ func compactProxyReadDeltaWithDecision(sessionID, turnID, commandLine, text stri
 		Offset:                  req.Offset,
 		Limit:                   req.Limit,
 		RecentFullPassTurnLimit: recentFullPassTurns,
-	}, text, contentarchive.DefaultDir(home), ctx.RecentlyEdited)
+	}, evaluateText, contentarchive.DefaultDir(home), ctx.RecentlyEdited)
 	if err != nil || decision.Type != readcache.DecisionBlock || decision.Reason == "" {
 		if err != nil {
 			return "", false, "readcache_error", decision
@@ -889,10 +895,11 @@ func compactProxyReadDeltaWithDecision(sessionID, turnID, commandLine, text stri
 		}
 		return "", false, "full_pass", decision
 	}
+	reason := envelopeHeader + decision.Reason
 	if decision.BlockKind != "" {
-		return decision.Reason, true, string(decision.BlockKind), decision
+		return reason, true, string(decision.BlockKind), decision
 	}
-	return decision.Reason, true, "block", decision
+	return reason, true, "block", decision
 }
 
 func readRequestFromCommandLine(commandLine string) readcache.Request {

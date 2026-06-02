@@ -123,10 +123,16 @@ Initial targets for Apple Silicon macOS:
   path; CPU was initially observation-only until the later windowed sampler
   entry below.
 - 2026-05-31: Wired the latest `/admin/state` host-budget snapshot into the
-  Codex Layer-0 savings policy hot path. When the product host budget is marked
-  exceeded, read-delta, repeated-output, and chunk mechanisms full-pass instead
-  of spending more local work. The hot path reads an atomic snapshot rather than
-  re-measuring RSS/state size per frame.
+  Codex Layer-0 savings policy hot path. The hot path reads an atomic snapshot
+  rather than re-measuring RSS/state size per frame.
+- 2026-06-02: Refined host-budget demotion after a live proof run showed a
+  transient host-budget signal could suppress the safest savings. Host-budget
+  attention now demotes recoverable/heavier mechanisms such as chunk references
+  but keeps cheap lossless/exact cache-hit reducers (`read_delta` and
+  `repeated_output`) available. Repeated Layer-0 latency pressure still has its
+  own stronger `latency_budget_full_context` gate. Regression coverage:
+  `TestDecideCodexToolOutputHostBudgetKeepsLosslessReducers` and the updated
+  `TestReduceCodexLayer0HostBudgetDemotesReducers`.
 - 2026-05-31: Added content-free Layer-0 mechanism latency histograms under
   `/admin/state.savings.proxy_layer0_latency`. The reducer records total,
   read-delta, structured-filter, repeated-output, and chunk-dedup durations and
@@ -182,4 +188,6 @@ Initial targets for Apple Silicon macOS:
 
 The host budget is maxxed when savings mechanisms are not just correct but
 cheap, bounded, observable, and automatically demoted before they hurt the
-operator's machine or Codex workflow.
+operator's machine or Codex workflow. Lossless exact cache-hit reducers remain
+available under host-budget attention because they are the safest high-value
+savings path; heavier recoverable mechanisms full-pass until the host is healthy.

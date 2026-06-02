@@ -252,6 +252,15 @@ func TestDecideCodexMechanismMatrix(t *testing.T) {
 			action: CodexPolicyFullPass, reason: "host_budget_full_context",
 		},
 		{
+			name: "host budget keeps lossless exact reducers",
+			in: CodexMechanismInput{
+				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
+				Mechanism: CodexMechanismReadDelta, Risk: CodexRiskLossless, Recovery: CodexRecoveryExact,
+				OutputBytes: 9000, HostBudgetExceeded: true,
+			},
+			action: CodexPolicyAllow, reason: "lossless_or_exact_reducer_host_budget",
+		},
+		{
 			name: "latency budget full pass",
 			in: CodexMechanismInput{
 				Mode: string(CodexModeAuto), Route: CodexRouteWSSPhaseF,
@@ -310,7 +319,6 @@ func TestDecideCodexToolOutputRuntimeSignalsFullPass(t *testing.T) {
 		{name: "archive recovery loop", mutate: func(in *CodexToolOutputInput) { in.ArchiveRecoveryLoop = true }, reason: "archive_recovery_loop_full_context"},
 		{name: "missing tool retry", mutate: func(in *CodexToolOutputInput) { in.MissingToolRetry = true }, reason: "missing_tool_retry_full_context"},
 		{name: "degraded route", mutate: func(in *CodexToolOutputInput) { in.DegradedRoute = true }, reason: "degraded_route_full_context"},
-		{name: "host budget", mutate: func(in *CodexToolOutputInput) { in.HostBudgetExceeded = true }, reason: "host_budget_full_context"},
 		{name: "latency budget", mutate: func(in *CodexToolOutputInput) { in.LatencyBudgetExceeded = true }, reason: "latency_budget_full_context"},
 		{name: "negative savings", mutate: func(in *CodexToolOutputInput) { in.NegativeSavingsHistory = true }, reason: "negative_savings_full_context"},
 	}
@@ -331,6 +339,26 @@ func TestDecideCodexToolOutputRuntimeSignalsFullPass(t *testing.T) {
 				t.Fatalf("runtime signal should force full-pass: got=%+v want reason=%s", got, tc.reason)
 			}
 		})
+	}
+}
+
+func TestDecideCodexToolOutputHostBudgetKeepsLosslessReducers(t *testing.T) {
+	t.Parallel()
+	got := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode:                     string(CodexModeAuto),
+		Route:                    CodexRouteWSSPhaseF,
+		ArchiveRecoveryAvailable: true,
+		OutputBytes:              9000,
+		ChunkMinBytes:            1,
+		HostBudgetExceeded:       true,
+	})
+	if got.Loosened || !got.ReadDelta || !got.RepeatedOutput || got.ChunkDedup {
+		t.Fatalf("host budget should keep lossless reducers but demote chunk: %+v", got)
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismReadDelta) != CodexPolicyAllow ||
+		actionForMechanism(got.Mechanisms, CodexMechanismRepeatedOutput) != CodexPolicyAllow ||
+		actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyFullPass {
+		t.Fatalf("host budget mechanism actions mismatch: %+v", got.Mechanisms)
 	}
 }
 

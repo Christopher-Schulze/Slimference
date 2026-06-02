@@ -48,6 +48,27 @@ func TestCompare_RepeatReadIsRecoverable(t *testing.T) {
 	}
 }
 
+func TestCompare_CodexExecEnvelopeRepeatReadIsRecoverableByPayload(t *testing.T) {
+	t.Parallel()
+	payload := strings.Repeat("FILE CONTENT LINE\n", 50)
+	first := "Chunk ID: aaa111\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 900\nOutput:\n" + payload
+	secondBefore := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n" + payload
+	secondAfter := "Chunk ID: bbb222\nWall time: 0.1234 seconds\nProcess exited with code 0\nOriginal token count: 901\nOutput:\n[context-elided kind=file-read status=unchanged path=\"AGENTS.md\"]"
+	rep := Compare([]Turn{
+		{Before: msg(first), After: msg(first)},
+		{Before: msg(secondBefore), After: msg(secondAfter)},
+	})
+	if rep.Lost() != 0 {
+		t.Fatalf("codex envelope re-read should be recoverable through stable payload: %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 1 || rep.Elisions[0].Severity != SeverityRecoverable {
+		t.Fatalf("want recoverable envelope elision, got %+v", rep.Elisions)
+	}
+	if rep.Saved() <= 0 {
+		t.Fatalf("collapse should save bytes, got %d", rep.Saved())
+	}
+}
+
 func TestCompare_CollapseWithoutPriorFullIsLost(t *testing.T) {
 	t.Parallel()
 	secret := strings.Repeat("NEVER SENT FULL\n", 50)

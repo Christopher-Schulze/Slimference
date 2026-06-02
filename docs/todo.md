@@ -1972,7 +1972,10 @@ be called complete, default-safe, and production-grade.
   exposes a product `host_budget` guard, policy has a demotion input, and
   daemon RSS/CPU/state-size now come from real local probes; the latest host
   budget snapshot plus repeated Layer-0 latency breaches now feed Codex Layer-0
-  auto-demotion. Latency histograms and disk-write counters are visible; TUI
+  auto-demotion. Host-budget attention demotes heavier/recoverable mechanisms
+  but keeps cheap lossless exact cache-hit reducers (`read_delta`,
+  `repeated_output`) live; latency pressure remains the stronger local-overhead
+  full-pass gate. Latency histograms and disk-write counters are visible; TUI
   product-status polling backs off under host-budget attention, and readcache +
   WSS tool-use hot state use write-behind persistence. Windowed CPU/disk-write
   demotion is wired; aggregate/workday/release proof output now carries the

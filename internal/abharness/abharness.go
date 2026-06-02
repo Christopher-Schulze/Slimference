@@ -116,8 +116,10 @@ func compare(turns []Turn, resolve ArchiveResolver) Report {
 		pairs := lcsEqualPairs(before, after)
 		for _, pair := range pairs {
 			bt := before[pair.before]
-			if bt != "" {
-				seenFull[hashText(bt)] = struct{}{}
+			for _, stable := range stableSeenFullTexts(bt) {
+				if stable != "" {
+					seenFull[hashText(stable)] = struct{}{}
+				}
 			}
 		}
 		rep.Elisions = append(rep.Elisions, compareTurnSegments(ti, before, after, pairs, seenFull, resolve)...)
@@ -250,8 +252,10 @@ func blockTexts(msgs []types.Message) []string {
 }
 
 func classifyReplacement(before string, after string, seenFull map[string]struct{}, resolve ArchiveResolver) Severity {
-	if _, ok := seenFull[hashText(before)]; ok {
-		return SeverityRecoverable
+	for _, stable := range stableSeenFullTexts(before) {
+		if _, ok := seenFull[hashText(stable)]; ok {
+			return SeverityRecoverable
+		}
 	}
 	ids := archiveIDs(after)
 	if len(ids) > 0 {
@@ -285,6 +289,32 @@ func classifyReplacement(before string, after string, seenFull map[string]struct
 		return SeverityLost
 	}
 	return SeverityChanged
+}
+
+func stableSeenFullTexts(text string) []string {
+	if text == "" {
+		return nil
+	}
+	out := []string{text}
+	if payload, ok := codexExecPayload(text); ok {
+		out = append(out, payload)
+	}
+	return out
+}
+
+func codexExecPayload(text string) (string, bool) {
+	if !strings.Contains(text, "Process exited with code ") {
+		return "", false
+	}
+	for _, marker := range []string{"\nOutput:\n", "\r\nOutput:\r\n"} {
+		idx := strings.Index(text, marker)
+		if idx < 0 {
+			continue
+		}
+		payload := text[idx+len(marker):]
+		return payload, payload != ""
+	}
+	return "", false
 }
 
 func expandReferencedText(text string, resolve ArchiveResolver) (string, bool) {

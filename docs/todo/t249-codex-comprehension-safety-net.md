@@ -112,6 +112,32 @@ chunk dedup t255), we need (a) a way to PROVE the model still behaves identicall
   parse/degraded/compression errors. Verdict: Desktop cross-turn read-delta works
   across the scoped app-server WSS path when the Desktop-generated shell command
   actually performs a successful file read.
+- 2026-06-02: A fresh scoped Desktop/CLI proof exposed and fixed a real
+  Codex-exec envelope issue. Read-delta had been hashing the whole Codex exec
+  envelope, including volatile `Chunk ID`, `Wall time`, and `Original token
+  count` lines, so repeated file reads could miss even when the `Output:` payload
+  was identical. The reducer now caches only the stable payload after `Output:\n`
+  while preserving the current envelope header around the replacement marker.
+  Regression coverage:
+  `TestProxyReadDeltaIgnoresCodexExecEnvelopeVolatileHeader`.
+- 2026-06-02: The A/B harness now treats Codex exec-envelope payloads as stable
+  prior-full content. It stores the payload hash alongside the full block hash,
+  so a later envelope with a different volatile header and an unchanged marker is
+  classified as `recoverable_prior_full`, not `reference_mismatch`. Regression
+  coverage:
+  `TestCompare_CodexExecEnvelopeRepeatReadIsRecoverableByPayload`.
+- 2026-06-02: Real capture proof after the harness fix:
+  `/Users/christopher/.slimference/captures/release-proof-fixed-20260602T001149Z.jsonl`
+  replayed 146 frames / 5 request turns, mutated 1 request, saved 11463
+  model-facing bytes, reported `lost=0`, and passed `--fail-on-lost`.
+- 2026-06-02: Automatic scoped CLI proof:
+  `/Users/christopher/.slimference/captures/release-proof-cli-20260602T001815Z.jsonl`
+  replayed 131 frames / 5 request turns, mutated 1 request, saved 11463
+  model-facing bytes, reported `lost=0`, and passed `--fail-on-lost`. Live
+  `/admin/state` for the same daemon reported `status=saving`,
+  `compressed_messages_mutated=1`, `frames_reencoded=1`, `read_delta_hits=1`,
+  `read_delta_blocks=1`, `billable_input_tokens_saved=3175`,
+  `tool_resolution_misses=0`, and zero parse/degraded/compression errors.
 - 2026-05-30: WSS archive-recovery note injection landed behind
   `archive_recovery_note_enabled`, default-off, once per session, and voice-neutral.
   It injects no product name and keeps recovery proof-gated instead of making a new
