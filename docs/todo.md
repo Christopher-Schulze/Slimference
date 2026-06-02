@@ -1906,23 +1906,26 @@ be called complete, default-safe, and production-grade.
 - [~] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
   sublayer safety registry with archive requirements, model-risk notes, and
   recovery paths; archive-required executor enforcement, archive-failure
-  full-pass behavior, unknown-sublayer fail-closed archive gating, and
-  content-free per-sublayer decision records are implemented, while prompt-cache
-  economics and round-trip/live proof remain.
+  full-pass behavior, unknown or unattributed mutation fail-closed archive
+  gating, and content-free per-sublayer decision records are implemented, while
+  prompt-cache economics and round-trip/live proof remain.
   Detail:
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
   `internal/contextledger` capsule builders now exist for command, file, search,
   and failure observations, and Codex Layer-0 now feeds them as content-free
   reducer telemetry; classical summary replacement is now blocked by default
-  behind an explicit legacy override, while archive provenance, quality inputs,
-  and proof-gated ledger insertion remain. Detail:
+  behind an explicit legacy override. Archive-backed capsules now fail closed
+  when required recoverability facts are missing, including full-pass turn
+  provenance for file capsules; quality inputs and proof-gated ledger insertion
+  remain. Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [~] **T263** Layer 3 provider/prompt cache max-out - local response cache now
-  full-passes tool-capable request shapes and includes HTTP route path/query in
-  cache keys plus request-affecting policy partitions to avoid workflow replay,
-  cross-endpoint aliasing, and cross-policy response replay; local replay also
-  requires explicit deterministic sampling, so provider default sampling
+  full-passes tool-capable request shapes and includes HTTP method plus route
+  path/query in cache keys plus request-affecting policy partitions to avoid
+  workflow replay, cross-endpoint aliasing, method aliasing, and cross-policy
+  response replay; local replay also requires explicit deterministic sampling,
+  so provider default sampling
   full-passes upstream. Provider-accounting alignment and long-session proof
   remain. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
@@ -1987,7 +1990,9 @@ be called complete, default-safe, and production-grade.
   rows now carry output-reduce live counters and can require injected/skipped/
   downgraded/stop-seq/streamcut/repdet/stale/obsolete/beterse signals.
   Codex Responses output-reduce injection now uses top-level `instructions`
-  only and never rewrites `input` into a forbidden `system` item.
+  only and never rewrites `input` into a forbidden `system` item. Streamcut now
+  accounts naturally flushed holdback lines so output-wire token accounting does
+  not undercount when a stream ends without forced cutting.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
@@ -1999,7 +2004,9 @@ be called complete, default-safe, and production-grade.
   counters. Reattach now also peeks cached tool definitions and consumes them
   only after a safe schema-preserving reattach succeeds, so malformed `tools`
   shapes stay byte-equal and retain recovery state for later known-shape
-  requests. Detail:
+  requests. Missing-tool recovery detection now recognizes common provider
+  phrasings such as no-such-tool and tool-not-available errors, preferring a
+  harmless full-schema retry over a capability drawdown. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay
