@@ -29,6 +29,9 @@ sets hard budgets and auto-degradation rules.
   state plus short write-behind flushes for hot-path updates. Reconnect safety
   stays same-process immediate because `Load` sees the in-memory merge before
   disk flush.
+- Exact token counting for large repeated model-facing texts now uses a bounded
+  content-hash cache. It keeps the o200k/cl100k token counts exact while avoiding
+  repeated regexp-heavy BPE passes on identical large Codex tool outputs.
 - `aggregate-savings`, `workday-savings finish`, and the release-proof plan now
   surface the host-budget snapshot. Workday delta output carries final RSS,
   CPU-window, disk-write delta, state bytes, status, and attention notes, so a
@@ -81,6 +84,8 @@ Initial targets for Apple Silicon macOS:
    - [x] force async/batched flush for readcache and WSS tool-use hot state
    - [x] demote managed reducers on windowed CPU/disk-write budget spikes
 4. Optimize only with evidence:
+   - [x] cache exact large-text token counts by encoding + length + SHA-256
+     content hash
    - lazy JSON parsing for hot WSS request fields
    - copy-on-write body mutation
    - avoid full-body unmarshal for unneeded frames
@@ -194,6 +199,13 @@ Initial targets for Apple Silicon macOS:
   tokens and ended with host budget `ok` (RSS 86163456 bytes, CPU window 0.00%,
   disk write delta 0, state 3471943 bytes). Both windows had zero
   parse/degraded/compression errors.
+- 2026-06-02: Profiled `BenchmarkReduceCodexLayer0_WSSRepeatedRead64KB` and
+  found the hot cost was repeated exact o200k tokenization of identical large
+  tool-output text, not readcache I/O. Added a bounded exact token-count cache
+  keyed by encoding, byte length, and SHA-256 content hash. The benchmark moved
+  from about 44.5 ms/op, 9.1 MB/op, and 87k allocs/op to about 2.2 ms/op,
+  0.59 MB/op, and 882 allocs/op on the Apple M1 run, with no model-facing
+  semantic change.
 
 ## Done
 

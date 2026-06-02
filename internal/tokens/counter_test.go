@@ -1,6 +1,7 @@
 package tokens
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -145,5 +146,50 @@ func TestCounter_NilEncoder(t *testing.T) {
 	c.once.Do(func() {})
 	if got := c.Count("hello world"); got != 0 {
 		t.Errorf("Count with nil encoder = %d, want 0", got)
+	}
+}
+
+func TestTokenCountCache_LargeTextExactHit(t *testing.T) {
+	resetTokenCountCacheForTest()
+	text := strings.Repeat("package tokens\nfunc cached() {}\n", 300)
+	want := Count(text)
+	if want <= 0 {
+		t.Fatalf("Count(large) = %d, want > 0", want)
+	}
+	if len(tokenCountCache.values) != 1 {
+		t.Fatalf("cache entries after first count = %d, want 1", len(tokenCountCache.values))
+	}
+	if got := Count(text); got != want {
+		t.Fatalf("cached Count(large) = %d, want %d", got, want)
+	}
+	if len(tokenCountCache.values) != 1 {
+		t.Fatalf("cache entries after second count = %d, want 1", len(tokenCountCache.values))
+	}
+}
+
+func TestTokenCountCache_EncodingScoped(t *testing.T) {
+	resetTokenCountCacheForTest()
+	text := strings.Repeat("encoding scoped token cache\n", 300)
+	cl100k := (&Counter{}).Count(text)
+	o200k := (&Counter{encoding: "o200k_base"}).Count(text)
+	if cl100k <= 0 || o200k <= 0 {
+		t.Fatalf("counts = %d/%d, want both > 0", cl100k, o200k)
+	}
+	if len(tokenCountCache.values) != 2 {
+		t.Fatalf("cache entries = %d, want 2", len(tokenCountCache.values))
+	}
+}
+
+func TestTokenCountCache_Bounded(t *testing.T) {
+	resetTokenCountCacheForTest()
+	for i := 0; i < tokenCountCacheMaxItems+8; i++ {
+		text := "bounded token cache entry " + strconv.Itoa(i)
+		tokenCountCachePut("cl100k_base", text, i+1)
+	}
+	if len(tokenCountCache.values) != tokenCountCacheMaxItems {
+		t.Fatalf("cache entries = %d, want %d", len(tokenCountCache.values), tokenCountCacheMaxItems)
+	}
+	if len(tokenCountCache.order) != tokenCountCacheMaxItems {
+		t.Fatalf("cache order = %d, want %d", len(tokenCountCache.order), tokenCountCacheMaxItems)
 	}
 }

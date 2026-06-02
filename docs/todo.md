@@ -1984,8 +1984,10 @@ be called complete, default-safe, and production-grade.
   product-status polling backs off under host-budget attention, and readcache +
   WSS tool-use hot state use write-behind persistence. Windowed CPU/disk-write
   demotion is wired; aggregate/workday/release proof output now carries the
-  host-budget snapshot, and host-cost micro-benchmarks cover WSS/Layer-0,
-  readcache, chunking, archive, and planner overhead. Live resource proof remains. Detail:
+  host-budget snapshot, host-cost micro-benchmarks cover WSS/Layer-0,
+  readcache, chunking, archive, and planner overhead, and exact large-text token
+  counts are content-hash cached to keep repeated Codex read/search accounting
+  cheap without changing model-facing semantics. Live resource proof remains. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria

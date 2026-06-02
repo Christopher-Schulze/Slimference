@@ -461,6 +461,10 @@ same state revision clean, and it cannot overwrite a newer in-memory save made
 while the flush was in flight. Windowed CPU and disk-write spikes also trip
 host-budget attention, which demotes heavier managed Codex reducers until the
 next healthy snapshot without turning off lossless exact repeat-read savings.
+Exact token-count guards use the provider tokenizer, but large repeated texts
+are cached by encoding, byte length, and SHA-256 content hash. This keeps
+o200k/cl100k accounting exact while preventing repeated BPE regex passes from
+becoming the local bottleneck on repeated Codex reads/searches.
 These counters are emitted globally and under `proxy_layer0_routes.http` /
 `proxy_layer0_routes.wss_phasef` through `/admin/state` and `aggregate-savings`,
 so future cache or reducer work can measure which route and mechanism actually
@@ -2328,7 +2332,10 @@ branches, or always-green assertions.
 `internal/filter/bench_test.go`: filter hot paths.
 
 `internal/proxy/layer0_bench_test.go`: Codex/WSS Layer-0 hot paths for
-large git status compaction and repeated read-delta.
+large git status compaction and repeated read-delta. T272 profiling found
+repeated exact o200k tokenization as the dominant pre-cache cost for 64 KB
+repeat-read frames; the bounded token-count cache keeps that path in the
+low-millisecond range on Apple M1 benchmark runs.
 
 `internal/readcache/bench_test.go`: full-file and ranged read repeat-cache
 hot paths, including archive-backed unchanged decisions.

@@ -2,6 +2,7 @@
 package tokens
 
 import (
+	"crypto/sha256"
 	"sync"
 
 	tiktoken "github.com/pkoukk/tiktoken-go"
@@ -35,6 +36,25 @@ var o200kGlobal = Counter{encoding: "o200k_base"}
 // network-free.
 var loaderOnce sync.Once
 
+const (
+	tokenCountCacheMinBytes = 4096
+	tokenCountCacheMaxItems = 2048
+)
+
+type tokenCountCacheKey struct {
+	encoding string
+	length   int
+	hash     [32]byte
+}
+
+var tokenCountCache = struct {
+	sync.Mutex
+	values map[tokenCountCacheKey]int
+	order  []tokenCountCacheKey
+}{
+	values: map[tokenCountCacheKey]int{},
+}
+
 func ensureOfflineLoader() {
 	loaderOnce.Do(func() {
 		tiktoken.SetBpeLoader(tiktoken_loader.NewOfflineLoader())
@@ -62,11 +82,20 @@ func (c *Counter) encoder() *tiktoken.Tiktoken {
 // Count returns the token count for text using this counter's encoding.
 // Returns 0 on encoder initialization failure.
 func (c *Counter) Count(text string) int {
+	if len(text) >= tokenCountCacheMinBytes {
+		if count, ok := tokenCountCacheGet(c.encodingName(), text); ok {
+			return count
+		}
+	}
 	enc := c.encoder()
 	if enc == nil {
 		return 0
 	}
-	return len(enc.Encode(text, nil, nil))
+	count := len(enc.Encode(text, nil, nil))
+	if len(text) >= tokenCountCacheMinBytes {
+		tokenCountCachePut(c.encodingName(), text, count)
+	}
+	return count
 }
 
 // CountMessages sums the token count across all content blocks in all messages.
@@ -111,4 +140,45 @@ func CountString(s string) int {
 // Useful when full encoding is too slow (e.g. large binary blobs).
 func Estimate(byteLen int) int {
 	return byteLen / 4
+}
+
+func tokenCountCacheGet(encoding, text string) (int, bool) {
+	key := tokenCountCacheKeyFor(encoding, text)
+	tokenCountCache.Lock()
+	defer tokenCountCache.Unlock()
+	count, ok := tokenCountCache.values[key]
+	return count, ok
+}
+
+func tokenCountCachePut(encoding, text string, count int) {
+	key := tokenCountCacheKeyFor(encoding, text)
+	tokenCountCache.Lock()
+	defer tokenCountCache.Unlock()
+	if _, ok := tokenCountCache.values[key]; ok {
+		tokenCountCache.values[key] = count
+		return
+	}
+	if len(tokenCountCache.order) >= tokenCountCacheMaxItems {
+		evict := tokenCountCache.order[0]
+		copy(tokenCountCache.order, tokenCountCache.order[1:])
+		tokenCountCache.order = tokenCountCache.order[:len(tokenCountCache.order)-1]
+		delete(tokenCountCache.values, evict)
+	}
+	tokenCountCache.values[key] = count
+	tokenCountCache.order = append(tokenCountCache.order, key)
+}
+
+func tokenCountCacheKeyFor(encoding, text string) tokenCountCacheKey {
+	return tokenCountCacheKey{
+		encoding: encoding,
+		length:   len(text),
+		hash:     sha256.Sum256([]byte(text)),
+	}
+}
+
+func resetTokenCountCacheForTest() {
+	tokenCountCache.Lock()
+	defer tokenCountCache.Unlock()
+	tokenCountCache.values = map[tokenCountCacheKey]int{}
+	tokenCountCache.order = nil
 }
