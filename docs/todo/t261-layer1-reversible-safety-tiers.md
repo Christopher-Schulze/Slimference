@@ -144,6 +144,12 @@ compression shortcut.
   build/test/log summaries still require the success classifier, but they now
   also full-pass unless the verbose original can be archived and stamped before
   the `[ok]` marker replaces model-facing text.
+- 2026-06-03: Neutralized the reversible path-dictionary marker. The
+  `semantic_dictionary` sub-layer now emits `[path dictionary]` /
+  `[/path dictionary]` instead of product-branded marker text while keeping the
+  same inline `[P1]=/absolute/path` legend and strict positive-savings gate. This
+  removes a prompt-contamination surface from a default-eligible reversible
+  sub-layer without reducing reconstructability.
 
 ## Done
 

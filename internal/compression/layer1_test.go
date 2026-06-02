@@ -723,7 +723,7 @@ func TestCompress_SemanticDictionaryForRepeatedPaths(t *testing.T) {
 		t.Fatalf("DictionarySaved=%d", result.DictionarySaved)
 	}
 	got := result.Messages[0].Content[0].Text
-	if !strings.Contains(got, "[Slimference path dictionary]") || !strings.Contains(got, "[P1]="+path) {
+	if !strings.Contains(got, "[path dictionary]") || strings.Contains(got, "Slimference path dictionary") || !strings.Contains(got, "[P1]="+path) {
 		t.Fatalf("dictionary legend missing: %s", got)
 	}
 	if strings.Count(got, path) != 1 {

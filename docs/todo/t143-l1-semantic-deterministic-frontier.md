@@ -50,7 +50,7 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
   legend keeps the transform reversible and produces positive net savings.
 - Current guards: known local filesystem roots only, minimum path length,
   minimum occurrence count, maximum eight aliases, URL-style path rejection,
-  and negative-saving bypass.
+  negative-saving bypass, and neutral product-name-free legend markers.
 - Remaining dictionary classes:
   - long package/module names.
   - repeated test names.
@@ -167,6 +167,8 @@ Layer 1 becomes a multi-pass semantic reducer with a central budget plan:
     `semantic_dictionary` in Layer 1 breakdowns.
   - The dictionary is reversible by construction: the full original path stays
     in a local legend and body occurrences use compact aliases.
+  - 2026-06-03 follow-up: the legend marker is now neutral
+    `[path dictionary]`, not product-branded model-facing text.
   - Focus tests: `go test ./internal/compression ./internal/proxy -cover` at
     100% for both packages.
 - 2026-05-14 T143b:

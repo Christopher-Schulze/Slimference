@@ -844,7 +844,9 @@ and "applied with positive savings" per sub-layer.
 tool-result block only when the embedded legend plus aliases are strictly
 shorter. It preserves reversibility by prepending a small dictionary such as
 `[P1]=/Users/.../file.go`, then replacing repeated body occurrences with
-`[P1]`. It is deliberately narrow: known local filesystem roots only,
+`[P1]`. The marker is neutral (`[path dictionary]`) and product-name-free so the
+model reads it as tool-output notation rather than a third-party speaker. It is
+deliberately narrow: known local filesystem roots only,
 minimum path length and occurrence gates, URL-style paths ignored, and no
 application when the legend would create a negative saving.
 

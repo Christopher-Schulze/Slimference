@@ -2097,7 +2097,8 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
 - [ ] **T261 Layer 1 max-out closeout** - complete prompt-cache economics,
   round-trip proof, and live-corpus proof for exact/reversible sublayers.
   Unknown or archive-required sublayers must continue to fail closed to
-  full-pass unless recovery is proven.
+  full-pass unless recovery is proven. The reversible path dictionary now uses
+  neutral product-name-free marker text.
 - [ ] **T262 Layer 2 max-out closeout** - keep classical summary replacement
   outside the product path unless explicitly legacy-gated; finish archive
   provenance, quality inputs, A/B replay, and proof-gated deterministic

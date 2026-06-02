@@ -22,7 +22,7 @@ func TestApplySemanticDictionary_RepeatedPaths(t *testing.T) {
 	if !ok || saved <= 0 {
 		t.Fatalf("dictionary not applied: saved=%d ok=%v", saved, ok)
 	}
-	if !strings.Contains(out, "[Slimference path dictionary]") || !strings.Contains(out, "[P1]="+path) {
+	if !strings.Contains(out, "[path dictionary]") || strings.Contains(out, "Slimference path dictionary") || !strings.Contains(out, "[P1]="+path) {
 		t.Fatalf("legend missing: %s", out)
 	}
 	if strings.Count(out, path) != 1 {
@@ -76,7 +76,7 @@ func TestSemanticDictionaryCandidates_CapsEntries(t *testing.T) {
 
 func TestPathDictionaryLegend_Empty(t *testing.T) {
 	t.Parallel()
-	if got := pathDictionaryLegend(nil); got != "[Slimference path dictionary]\n[/Slimference path dictionary]\n" {
+	if got := pathDictionaryLegend(nil); got != "[path dictionary]\n[/path dictionary]\n" {
 		t.Fatalf("empty legend=%q", got)
 	}
 }

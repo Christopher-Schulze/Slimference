@@ -98,13 +98,13 @@ func isDictionaryPath(path string) bool {
 
 func pathDictionaryLegend(aliases []pathDictionaryAlias) string {
 	var b strings.Builder
-	b.WriteString("[Slimference path dictionary]\n")
+	b.WriteString("[path dictionary]\n")
 	for _, alias := range aliases {
 		b.WriteString(alias.token)
 		b.WriteString("=")
 		b.WriteString(alias.path)
 		b.WriteString("\n")
 	}
-	b.WriteString("[/Slimference path dictionary]\n")
+	b.WriteString("[/path dictionary]\n")
 	return b.String()
 }
