@@ -139,6 +139,16 @@ These are promotion targets, not claims:
   errors; kubectl JSON keeps late attention rows; cargo metadata and Terraform
   JSON keep late workspace/resource evidence while Terraform resource changes
   still avoid letting benign no-op tails crowd out destructive changes.
+- 2026-06-02: Added automatic scoped CLI route proof for Layer-0 search and git
+  families. The search breadth capture
+  `/Users/christopher/.slimference/captures/auto-proof-search-clean-20260602T004340Z.jsonl`
+  covered `rg`, changed `rg` result sets, `git grep`, and `grep -R`, replayed
+  with `lost=0`, and saved 45273 live WSS input tokens with 19 captured-output
+  blocks and 8 exact repeated-output blocks. The git-status capture
+  `/Users/christopher/.slimference/captures/auto-proof-git-status-20260602T004545Z.jsonl`
+  replayed with `lost=0` and saved 1518 live WSS input tokens through the
+  Codex exec-envelope/git-status reducer. Both runs had zero tool/command
+  resolution misses and zero parse/degraded/compression errors.
 
 ## Done
 

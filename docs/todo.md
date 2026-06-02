@@ -1893,8 +1893,10 @@ be called complete, default-safe, and production-grade.
 - [~] **T260** Layer 0 parser frontier and safe pre-entry max-out - Layer 0 now
   has a reducer safety/evidence registry plus late-evidence cap hardening for
   search, log/lint, test JSON, SARIF, ESLint JSON, kubectl JSON, cargo metadata,
-  and Terraform JSON. Remaining work is corpus breadth fixtures and live route
-  proof. Detail:
+  and Terraform JSON. 2026-06-02 automatic scoped CLI proof now covers real
+  WSS `rg`, changed `rg`, `git grep`, `grep -R`, and large `git status --short`
+  reductions with `lost=0`; remaining work is Desktop breadth and any still
+  uncovered corpus fixtures. Detail:
   `docs/todo/t260-layer0-parser-frontier-maxx.md`
 - [~] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
   sublayer safety registry with archive requirements, model-risk notes, and
@@ -1922,13 +1924,16 @@ be called complete, default-safe, and production-grade.
 
 - [~] **T264** Codex read/ranged/repeated-output cache-hit maximizer - improve
   exact cache hits for file reads, ranged reads, repeated commands, and repeated
-  non-file outputs without first-read elision. Detail:
+  non-file outputs without first-read elision. Automatic CLI proof now covers
+  ranged `sed`, repeated search outputs, and large `git status`; Desktop breadth
+  remains. Detail:
   `docs/todo/t264-codex-read-cache-hit-maximizer.md`
 - [~] **T265** Repo-safe search keying and search-output savings max-out -
   normalize `cd && rg|grep|git grep` and related search shapes to
   repository-scoped keys, preserve match context, and prevent cross-repo false
   hits. Offline hardening now rejects implicit-cwd searches for reusable
-  cache/delta keys; live CLI/Desktop proof remains. Detail:
+  cache/delta keys; automatic CLI proof covers `rg`, changed results,
+  `git grep`, and `grep -R` with `lost=0`, while Desktop proof remains. Detail:
   `docs/todo/t265-repo-safe-search-keying-maxx.md`
 - [~] **T266** Chunk dedup always-auto hardening - turn content-defined chunk
   dedup into a guarded automatic WSS feature only where archive recovery,

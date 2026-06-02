@@ -129,3 +129,14 @@ gate is done when default promotions require live corpus evidence.
   measurement and host-resource budget pass alongside CI, WSS replay, workday
   savings, and promotion corpus gates. This keeps "savings proven" separate
   from "safe and cheap enough for product operation."
+- 2026-06-02: Added two automatic scoped CLI release-style proof windows without
+  Desktop operator input. Search breadth:
+  `/Users/christopher/.slimference/captures/auto-proof-search-clean-20260602T004340Z.jsonl`
+  replayed with `lost=0`, `gate_passed=true`, `mutated_requests=13`, and
+  `bytes_saved=146507`; the matching workday window saved 45273 WSS input
+  tokens with zero parse/degrade/compression errors. Git status:
+  `/Users/christopher/.slimference/captures/auto-proof-git-status-20260602T004545Z.jsonl`
+  replayed with `lost=0`, `gate_passed=true`, `mutated_requests=3`, and
+  `bytes_saved=4128`; its workday window saved 1518 WSS input tokens and ended
+  with host budget `ok`. Desktop breadth still remains an operator-driven live
+  proof requirement, but CLI search/git breadth is no longer speculative.

@@ -98,6 +98,20 @@ is capped.
   first exposed a nested archive proof gap for search-output compaction followed
   by exact repeated-output elision; the reducer and A/B harness now prove the
   nested full-payload archive rather than treating it as `reference_mismatch`.
+- 2026-06-02 automatic scoped CLI breadth proof covered repo-scoped `rg`,
+  changed `rg` result sets, `git grep`, and `grep -R` in a temporary git repo
+  through the real WSS Phase-F product path. Capture
+  `/Users/christopher/.slimference/captures/auto-proof-search-clean-20260602T004340Z.jsonl`
+  replayed with `lost=0`, `gate_passed=true`, `mutated_requests=13`,
+  `bytes_saved=146507`, and live WSS counters reported `input_tokens_saved=45273`,
+  `captured_output_blocks=19`, `repeated_output_blocks=8`,
+  `ledger_search_capsules=28`, and zero tool/command resolution misses,
+  parse failures, degraded sessions, or compression errors. The run also proved
+  changed search results do not collapse against an obsolete exact-output key.
+  A first automatic attempt is intentionally excluded from proof because prompt
+  punctuation turned `.` into `..` and resumed in the wrong workdir; the clean
+  capture above uses self-contained `cd <tmp> && ...` commands and is the
+  citable artifact.
 
 Remaining before this task can close:
 

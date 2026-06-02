@@ -106,6 +106,17 @@ Maximize exact hits:
   around the marker; captured-output archives also store stable payload bytes.
   This prevents volatile `Chunk ID` / `Wall time` metadata from lowering hit
   rate or producing unreconstructable nested archive chains.
+- 2026-06-02 automatic scoped CLI proof broadened repeated non-file coverage
+  beyond `rg` into large `git status --short` output in a temporary git repo.
+  Capture
+  `/Users/christopher/.slimference/captures/auto-proof-git-status-20260602T004545Z.jsonl`
+  replayed with `lost=0`, `gate_passed=true`, `mutated_requests=3`, and
+  `bytes_saved=4128`; live WSS counters reported `input_tokens_saved=1518`,
+  `codex_exec_envelope_blocks=3`, zero tool/command/read misses, zero
+  parse/degraded/compression errors, and final host budget `ok`. This proof is
+  a git/status Layer-0 reducer win rather than an exact repeated-output hit:
+  the repeated-output cache correctly reported `missing_key_session_or_short_output`
+  while the safer git-status/envelope reducer carried the savings.
 
 Remaining before this task can close:
 

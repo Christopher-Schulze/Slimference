@@ -334,7 +334,7 @@ Current product status:
 | Read-delta for repeated full-file reads | On | Proven in real CLI/Desktop repeat-read captures and A/B replay with `lost=0`; 2026-06-02 CLI replay saved 11463 model-facing bytes and live WSS saved 3175 billable input tokens | Low risk: first read was already sent in full |
 | Ranged read-delta for `head` / `tail` / `sed -n` | On | Covered by T250/T257 capture matrix; 2026-06-02 automatic CLI `sed -n` replay saved 9196 model-facing bytes and live WSS saved 2552 billable input tokens for the ranged hit | Low risk: first range full-passes, later same range collapses only after exact observation |
 | Exact repeated non-file output dedup | On | Implemented through the shared Codex Layer-0 reducer; 2026-06-02 automatic CLI replay covered Codex exec-envelope repeated-output recovery with `lost=0` | Low risk: exact same command/output only, archive-backed, fail-open on changes |
-| Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads; 2026-06-02 automatic CLI search-loop replay saved 11381 model-facing bytes overall with `lost=0` | Low to medium: grouped first search keeps representative matches and can be re-run; no file-read context weakening |
+| Search-output grouping and repeated search delta | On | Real `rg` capture compacted about 40 KB to about 9 KB; T257 covers search workloads; 2026-06-02 automatic CLI search-loop replay saved 11381 model-facing bytes overall with `lost=0`; later automatic CLI breadth proof covered `rg`, changed `rg`, `git grep`, and `grep -R`, saving 146507 model-facing bytes in replay and 45273 live WSS input tokens | Low to medium: grouped first search keeps representative matches and can be re-run; no file-read context weakening |
 | Build/test/git/lint/parser compactors | On where parser recognizes the command/output | Unit/integration covered; T252/T260 hardened caps and error priority | Low to medium: deterministic parser summaries only, positive-token guard |
 | Content-defined chunk dedup | Auto-eligible on recoverable WSS tool-output workloads; HTTP blocked from archive refs | T255 live WSS replay proof, T256 policy wiring, T258 route/risk gate | Medium but guarded: archive recovery required, recent/re-read risk loosens |
 | Archive recovery note | Default-off | Mechanism and replay support exist | Kept off by default until route/workload proof needs it |
@@ -651,10 +651,18 @@ reducers. A later 2026-06-02 automatic CLI window covered ranged reads plus
 repeated search output through the same product path: 4 WSS mutations, 2945
 billable WSS-input tokens saved, `read_delta=1`, `captured_output=1`,
 `repeated_output=2`, `lost=0` in replay, final host budget `ok`, and zero
-parse/degraded/compression errors.
-default-auto reducers. It does not promote similar-output chunk dedup beyond the
-existing conservative policy: the similar-files capture stayed expected-zero /
-net-negative for default-auto.
+parse/degraded/compression errors. Two follow-up automatic CLI windows broadened
+that proof without Desktop operator input: search breadth (`rg`, changed `rg`,
+`git grep`, `grep -R`) replayed with `lost=0`, `gate_passed=true`,
+13 mutated requests, 146507 model-facing bytes saved, and 45273 live WSS input
+tokens saved; large `git status --short` replayed with `lost=0`,
+`gate_passed=true`, 3 mutated requests, 4128 model-facing bytes saved, and
+1518 live WSS input tokens saved. The status proof saved through the
+git-status/Codex exec-envelope reducer rather than repeated-output collapse,
+which correctly remained full-pass for the short-output key. These automatic
+proofs expand the safe default-auto reducer evidence; they do not promote
+similar-output chunk dedup beyond the existing conservative policy: the
+similar-files capture stayed expected-zero / net-negative for default-auto.
 
 `go run ./scripts/utils wss-audit` also reports a content-free re-read canary:
 the number of WSS request summaries that repeated a resolved read/tool key and

@@ -183,6 +183,17 @@ Initial targets for Apple Silicon macOS:
   deltaed disk ops and adds explicit final host-budget notes. The release proof
   plan now names host-resource measurement and makes the host-resource budget a
   promotion gate.
+- 2026-06-02: Automatic scoped CLI proof windows exercised the host-budget
+  reporting path. The long search breadth window saved 45273 live WSS input
+  tokens and ended with `workday-savings finish` host budget `ok` (RSS
+  93618176 bytes, CPU window 0.92%, disk write delta 0, state 3471253 bytes),
+  although an immediate post-finish aggregate sample briefly showed
+  `cpu_window_budget_exceeded`; this confirms the demotion signal is sensitive
+  to short CPU spikes and should be interpreted from the finish-window snapshot
+  for release proof. The isolated git-status window saved 1518 live WSS input
+  tokens and ended with host budget `ok` (RSS 86163456 bytes, CPU window 0.00%,
+  disk write delta 0, state 3471943 bytes). Both windows had zero
+  parse/degraded/compression errors.
 
 ## Done
 
