@@ -115,6 +115,10 @@ accounting or locally proven upstream bypass, not mixed counters.
   proves Stage-A cannot replay a control-cohort response into a treatment-cohort
   BeTerse request when the original user body and account key are otherwise
   identical.
+- 2026-06-02: Hardened local response-cache route keying again by including the
+  HTTP method in the effective route key. This closes the remaining theoretical
+  cross-method alias path while preserving the existing path/query, provider,
+  policy, body, and header partitions.
 
 ## Done
 

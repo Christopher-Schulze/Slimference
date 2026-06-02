@@ -28,12 +28,16 @@ func drainAnalyticsQueueForTest(p *Proxy) {
 	}
 }
 
-func TestResponseCacheRouteKeyIncludesPathAndQuery(t *testing.T) {
+func TestResponseCacheRouteKeyIncludesMethodPathAndQuery(t *testing.T) {
 	t.Parallel()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses?include=usage", nil)
-	if got := responseCacheRouteKey(req); got != "/v1/responses?include=usage" {
+	if got := responseCacheRouteKey(req); got != "POST /v1/responses?include=usage" {
 		t.Fatalf("route key = %q", got)
+	}
+	getReq := httptest.NewRequest(http.MethodGet, "/v1/responses?include=usage", nil)
+	if got := responseCacheRouteKey(getReq); got == responseCacheRouteKey(req) {
+		t.Fatalf("GET and POST route keys must differ, got %q", got)
 	}
 	if got := responseCacheRouteKey(nil); got != "" {
 		t.Fatalf("nil route key = %q", got)

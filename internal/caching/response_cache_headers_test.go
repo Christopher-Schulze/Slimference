@@ -60,9 +60,10 @@ func TestResponseCache_ComputeRequestKeyWithRoutePartitionsEndpoints(t *testing.
 	body := []byte(`{"model":"gpt-5","input":"hello"}`)
 	headers := http.Header{"Authorization": []string{"Bearer same"}}
 
-	responsesKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "/v1/responses", body, headers)
-	chatKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "/v1/chat/completions", body, headers)
-	queryKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "/v1/responses?experimental=1", body, headers)
+	responsesKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "POST /v1/responses", body, headers)
+	chatKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "POST /v1/chat/completions", body, headers)
+	queryKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "POST /v1/responses?experimental=1", body, headers)
+	getKey := cache.ComputeRequestKeyWithRoute(types.OpenAI, "GET /v1/responses", body, headers)
 	legacyKey := cache.ComputeRequestKeyWithHeaders(types.OpenAI, body, headers)
 
 	if responsesKey == chatKey {
@@ -70,6 +71,9 @@ func TestResponseCache_ComputeRequestKeyWithRoutePartitionsEndpoints(t *testing.
 	}
 	if responsesKey == queryKey {
 		t.Fatal("different endpoint queries must not share a response-cache key")
+	}
+	if responsesKey == getKey {
+		t.Fatal("different HTTP methods must not share a response-cache key")
 	}
 	if responsesKey == legacyKey {
 		t.Fatal("route-aware and legacy route-empty keys must differ")

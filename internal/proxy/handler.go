@@ -69,14 +69,18 @@ func responseCacheRouteKey(r *http.Request) string {
 	if r == nil || r.URL == nil {
 		return ""
 	}
+	method := strings.ToUpper(strings.TrimSpace(r.Method))
 	path := r.URL.EscapedPath()
 	if path == "" {
 		path = r.URL.Path
 	}
 	if r.URL.RawQuery != "" {
-		return path + "?" + r.URL.RawQuery
+		path += "?" + r.URL.RawQuery
 	}
-	return path
+	if method == "" {
+		return path
+	}
+	return method + " " + path
 }
 
 func (p *Proxy) responseCacheEffectiveRouteKey(r *http.Request, sessionID string) string {
