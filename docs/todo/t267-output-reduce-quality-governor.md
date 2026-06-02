@@ -99,6 +99,12 @@ Output reduction becomes a runtime-governed layer:
 - Existing WSS guard remains active: WSS text deltas are not streamcut even when
   the global HTTP streamcut toggle is on; terminal WSS responses stay byte-equal
   to avoid corrupting code, patch, or final-answer payloads.
+- 2026-06-02: Fixed the Codex Responses injection surface. Output-reduce no
+  longer rewrites Responses `input` into a synthetic `system` message. It now
+  appends to or creates the top-level `instructions` string, preserves `input`
+  unchanged, and full-passes unsupported Codex shapes. This removes the same
+  `400 System messages are not allowed` class found during the archive-recovery
+  note proof and keeps output-reduce from mutating task/tool context.
 - Offline verification covered profile selection, injection, task-shape
   detection, proxy hot-path profile capping, immediate repair-signal cooldown,
   and repair lifecycle. Live corpus proof for aggressive direct-answer/status

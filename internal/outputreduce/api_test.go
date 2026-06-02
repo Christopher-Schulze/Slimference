@@ -103,7 +103,7 @@ func TestInjectBody_OpenAIAppendsExistingSystem(t *testing.T) {
 	}
 }
 
-func TestInjectBody_CodexInputString(t *testing.T) {
+func TestInjectBody_CodexInputStringUsesInstructions(t *testing.T) {
 	t.Parallel()
 	body := []byte(`{"model":"codex","input":"inspect repo","stream":false}`)
 	out, stats, err := InjectBody(types.CodexChatGPT, body, Options{Enabled: true, Profile: "codex", SignatureMarker: DefaultMarker})
@@ -114,24 +114,17 @@ func TestInjectBody_CodexInputString(t *testing.T) {
 		t.Fatalf("stats: %+v", stats)
 	}
 	var root struct {
-		Input []struct {
-			Type    string `json:"type"`
-			Role    string `json:"role"`
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"input"`
+		Instructions string `json:"instructions"`
+		Input        string `json:"input"`
 	}
 	if err := json.Unmarshal(out, &root); err != nil {
 		t.Fatal(err)
 	}
-	if len(root.Input) != 2 ||
-		root.Input[0].Type != "message" ||
-		root.Input[0].Role != "system" ||
-		root.Input[0].Content[0].Type != "input_text" ||
-		root.Input[1].Content[0].Text != "inspect repo" {
-		t.Fatalf("input: %#v", root.Input)
+	if !strings.Contains(root.Instructions, DefaultMarker) || root.Input != "inspect repo" {
+		t.Fatalf("codex output-reduce should use top-level instructions and preserve input: %#v", root)
+	}
+	if strings.Contains(string(out), `"role":"system"`) {
+		t.Fatalf("codex output-reduce must not inject input system items: %s", out)
 	}
 }
 
@@ -351,19 +344,22 @@ func TestInjectBody_CodexMessagesAndInputBranches(t *testing.T) {
 	if out, stats, err := InjectBody(types.CodexChatGPT, messagesBody, Options{Enabled: true, Profile: "codex"}); err != nil || !stats.Applied || !strings.Contains(string(out), DefaultMarker) {
 		t.Fatalf("codex messages out=%s stats=%+v err=%v", out, stats, err)
 	}
-	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":[]}`), Options{Enabled: true, Profile: "codex"}); err != nil || !stats.Applied || !strings.Contains(string(out), DefaultMarker) {
+	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":[]}`), Options{Enabled: true, Profile: "codex"}); err != nil || !stats.Applied || !strings.Contains(string(out), `"instructions"`) || strings.Contains(string(out), `"role":"system"`) {
 		t.Fatalf("codex array out=%s stats=%+v err=%v", out, stats, err)
 	}
-	systemArrayBody := []byte(`{"input":[{"type":"message","role":"system","content":[{"type":"input_text","text":"base"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	systemArrayBody := []byte(`{"instructions":"base","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
 	out, stats, err := InjectBody(types.CodexChatGPT, systemArrayBody, Options{Enabled: true, Profile: "codex"})
 	if err != nil || !stats.Applied {
 		t.Fatalf("codex system array out=%s stats=%+v err=%v", out, stats, err)
 	}
-	if strings.Contains(string(out), `"type":"text"`) || !strings.Contains(string(out), `"type":"input_text"`) {
-		t.Fatalf("codex output-reduce must use Responses input_text blocks: %s", out)
+	if !strings.Contains(string(out), `"instructions":"base\n\n`) || strings.Contains(string(out), `"role":"system"`) {
+		t.Fatalf("codex output-reduce must append instructions without input system items: %s", out)
 	}
-	if _, _, err := InjectBody(types.CodexChatGPT, []byte(`{"input":{}}`), Options{Enabled: true, Profile: "codex"}); err == nil {
-		t.Fatal("expected object input error")
+	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"instructions":42,"input":[]}`), Options{Enabled: true, Profile: "codex"}); err != nil || stats.Applied || stats.Reason != "unsupported_shape" || string(out) != `{"instructions":42,"input":[]}` {
+		t.Fatalf("numeric instructions should fail open out=%s stats=%+v err=%v", out, stats, err)
+	}
+	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":{}}`), Options{Enabled: true, Profile: "codex"}); err != nil || stats.Applied || stats.Reason != "unsupported_shape" || string(out) != `{"input":{}}` {
+		t.Fatalf("object input should fail open out=%s stats=%+v err=%v", out, stats, err)
 	}
 	if out, stats, err := InjectBody(types.CodexChatGPT, []byte(`{"input":""}`), Options{Enabled: true, Profile: "codex"}); err != nil || !stats.Applied || !strings.Contains(string(out), DefaultMarker) {
 		t.Fatalf("empty string input out=%s stats=%+v err=%v", out, stats, err)
@@ -409,31 +405,6 @@ func TestAppendToMessageContentArrayAndFallback(t *testing.T) {
 	out = appendToMessageContent(msg, "rule")
 	if string(out["content"]) != `"rule"` {
 		t.Fatalf("fallback content: %s", out["content"])
-	}
-	codex := appendToCodexMessageContent(map[string]json.RawMessage{
-		"role":    mustJSON("system"),
-		"content": mustJSON([]map[string]string{{"type": "input_text", "text": "base"}}),
-	}, "rule")
-	if strings.Contains(string(codex["content"]), `"type":"text"`) || !strings.Contains(string(codex["content"]), "rule") {
-		t.Fatalf("codex content block: %s", codex["content"])
-	}
-	codex = appendToCodexMessageContent(map[string]json.RawMessage{
-		"role":    mustJSON("system"),
-		"content": mustJSON("base"),
-	}, "rule")
-	if !strings.Contains(string(codex["content"]), "base") || !strings.Contains(string(codex["content"]), "rule") {
-		t.Fatalf("codex string content: %s", codex["content"])
-	}
-	codex = appendToCodexMessageContent(map[string]json.RawMessage{
-		"role":    mustJSON("system"),
-		"content": json.RawMessage(`123`),
-	}, "rule")
-	if !strings.Contains(string(codex["content"]), `"type":"input_text"`) || !strings.Contains(string(codex["content"]), "rule") {
-		t.Fatalf("codex fallback content: %s", codex["content"])
-	}
-	codex = appendToCodexMessageContent(map[string]json.RawMessage{"role": mustJSON("system")}, "rule")
-	if !strings.Contains(string(codex["content"]), `"type":"input_text"`) || !strings.Contains(string(codex["content"]), "rule") {
-		t.Fatalf("codex missing content: %s", codex["content"])
 	}
 }
 

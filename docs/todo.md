@@ -1986,6 +1986,8 @@ be called complete, default-safe, and production-grade.
   turns repair/re-ask signals into immediate profile cooldowns. Proof-matrix
   rows now carry output-reduce live counters and can require injected/skipped/
   downgraded/stop-seq/streamcut/repdet/stale/obsolete/beterse signals.
+  Codex Responses output-reduce injection now uses top-level `instructions`
+  only and never rewrites `input` into a forbidden `system` item.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a

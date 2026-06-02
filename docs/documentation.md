@@ -298,6 +298,11 @@ skipped", "too short", missing detail, malformed patches, or failed apply-patch
 feedback are stored by session and immediately downgrade the affected
 provider/model/profile/task-shape bucket without waiting for the normal sample
 window.
+For Codex Responses bodies, output-reduce directives are written only to the
+top-level `instructions` string. The injector does not rewrite `input` and never
+creates `input` items with `role=system`, because Codex rejects those and because
+output-reduce must not alter the model's task/tool context while trying to save
+output tokens.
 
 ### Codex read-compression (mechanisms and safety model)
 
