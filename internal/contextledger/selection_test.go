@@ -83,9 +83,21 @@ func TestSelectCapsulesKeepsIncompleteCapsulesVerbatim(t *testing.T) {
 			Facts:      map[string]string{"command": "rg needle .", "pattern_hash": "hash"},
 			Archives:   []string{"arch-search"},
 		},
+		{
+			Kind:       CapsuleDecisionContext,
+			Provenance: Provenance{SessionID: "s", TurnID: "old", Source: "test"},
+			Facts:      map[string]string{"blocked_reason": "needs proof"},
+			Archives:   []string{"arch-decision"},
+		},
+		{
+			Kind:       CapsuleRecoveryContext,
+			Provenance: Provenance{SessionID: "s", TurnID: "old", Source: "test"},
+			Facts:      map[string]string{"archive_ids": "arch-recovery"},
+			Archives:   []string{"arch-recovery"},
+		},
 	}
 	report := SelectCapsules(capsules, SelectionPolicy{SessionID: "s"})
-	if report.Capsules != 0 || report.Verbatim != 4 || report.Rejected != 0 {
+	if report.Capsules != 0 || report.Verbatim != 6 || report.Rejected != 0 {
 		t.Fatalf("summary mismatch: %+v", report)
 	}
 	for i, decision := range report.Decisions {
@@ -106,6 +118,19 @@ func TestSelectCapsulesHonorsBudget(t *testing.T) {
 	}
 	assertDecision(t, report.Decisions[0], SelectionCapsule, SelectionReasonArchiveBackedOldContext)
 	assertDecision(t, report.Decisions[1], SelectionVerbatim, SelectionReasonBudgetExhausted)
+}
+
+func TestSelectCapsulesAcceptsArchiveBackedDecisionAndRecoveryCapsules(t *testing.T) {
+	t.Parallel()
+	report := SelectCapsules([]Capsule{
+		testCapsule(CapsuleDecisionContext, "s", "old-decision", "decision-arch"),
+		testCapsule(CapsuleRecoveryContext, "s", "old-recovery", "recovery-arch"),
+	}, SelectionPolicy{SessionID: "s"})
+	if report.Capsules != 2 || report.Verbatim != 0 || report.Rejected != 0 {
+		t.Fatalf("summary mismatch: %+v", report)
+	}
+	assertDecision(t, report.Decisions[0], SelectionCapsule, SelectionReasonArchiveBackedOldContext)
+	assertDecision(t, report.Decisions[1], SelectionCapsule, SelectionReasonArchiveBackedOldContext)
 }
 
 func TestExpandCapsuleArchivesCopiesAndFailsClosed(t *testing.T) {
@@ -161,6 +186,10 @@ func testCapsuleFacts(kind CapsuleKind) map[string]string {
 		return map[string]string{"command": "rg needle .", "repo_root": "/repo", "pattern_hash": "hash"}
 	case CapsuleFailure:
 		return map[string]string{"message": "failed", "exit_code": "1"}
+	case CapsuleDecisionContext:
+		return map[string]string{"goal": "preserve context", "accepted_plan": "archive-backed ledger"}
+	case CapsuleRecoveryContext:
+		return map[string]string{"archive_ids": "arch", "status": "success"}
 	default:
 		return map[string]string{"k": "v"}
 	}

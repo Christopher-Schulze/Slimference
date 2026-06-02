@@ -109,7 +109,7 @@ func selectCapsule(capsule Capsule, policy SelectionPolicy, recentTurns map[stri
 
 func knownKind(kind CapsuleKind) bool {
 	switch kind {
-	case CapsuleCommand, CapsuleFile, CapsuleSearch, CapsuleFailure:
+	case CapsuleCommand, CapsuleFile, CapsuleSearch, CapsuleFailure, CapsuleDecisionContext, CapsuleRecoveryContext:
 		return true
 	default:
 		return false
@@ -126,9 +126,22 @@ func capsuleHasRequiredFacts(capsule Capsule) bool {
 		return hasFact(capsule, "command") && hasFact(capsule, "repo_root") && hasFact(capsule, "pattern_hash")
 	case CapsuleFailure:
 		return hasFact(capsule, "message") && hasFact(capsule, "exit_code")
+	case CapsuleDecisionContext:
+		return hasAnyFact(capsule, "goal", "accepted_plan")
+	case CapsuleRecoveryContext:
+		return hasFact(capsule, "archive_ids") && hasFact(capsule, "status")
 	default:
 		return false
 	}
+}
+
+func hasAnyFact(capsule Capsule, keys ...string) bool {
+	for _, key := range keys {
+		if hasFact(capsule, key) {
+			return true
+		}
+	}
+	return false
 }
 
 func hasFact(capsule Capsule, key string) bool {

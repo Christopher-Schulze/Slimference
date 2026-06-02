@@ -18,12 +18,15 @@ replacement for reality.
 - Old context replacement is the real risk: the model sees the replacement as
   session memory.
 - `internal/contextledger` now contains pure deterministic capsule builders for
-  command, file, search, and failure observations. Capsules store compact facts,
-  provenance, stable hashes, and archive ids, never raw omitted content.
+  command, file, search, failure, decision, and recovery observations. Capsules
+  store compact facts, provenance, stable hashes where raw bytes exist, and
+  archive ids, never raw omitted content.
 - The Codex Layer-0 reducer now feeds those builders in the hot path as
-  content-free telemetry only. `/admin/state.savings` exposes command, file,
-  search, and failure capsule counts globally and per route. No capsule is
-  inserted into model-facing context yet.
+  content-free telemetry only for tool-output command/file/search/failure
+  observations. `/admin/state.savings` exposes those capsule counts globally and
+  per route. Decision/recovery capsules are pure primitives only until a real
+  provenance source is wired. No capsule is inserted into model-facing context
+  yet.
 - Classical summary replacement is now separately gated. `layer2_enabled=true`
   can no longer make cached summaries replace model-facing history unless the
   explicit legacy override
@@ -65,6 +68,8 @@ The ledger stores deterministic capsules:
 ## Technical work packages
 
 1. [x] Create `internal/contextledger` with pure deterministic builders.
+   - [x] command/file/search/failure capsules
+   - [x] decision/recovery capsules
 2. [x] Feed builders from existing reducer telemetry:
    - [x] Codex Layer-0 tool-result observations build command/file/search/failure
      capsules as telemetry
@@ -187,3 +192,10 @@ summary remains opt-in, not default.
   reducer only counts search ledger telemetry when the tool call carries a
   scoped workdir, so implicit-cwd searches cannot later become cross-repo
   context.
+- 2026-06-03: Added deterministic decision and recovery capsule primitives.
+  Decision capsules preserve explicit goals, constraints, accepted plans,
+  blocked reasons, active files, and optional archive provenance without
+  paraphrasing. Recovery capsules require archive ids plus an attempt status.
+  `SelectCapsules` now recognizes both kinds but still fails closed on missing
+  facts or missing archives, so they are safe building blocks for future ledger
+  insertion without changing model-facing context today.

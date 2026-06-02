@@ -111,6 +111,63 @@ func TestBuildFailureCapsuleRequiresMessage(t *testing.T) {
 	}
 }
 
+func TestBuildDecisionCapsulePreservesConstraintsAndSortsFiles(t *testing.T) {
+	if _, err := BuildDecisionCapsule(DecisionObservation{}); err == nil {
+		t.Fatal("expected decision goal or plan requirement")
+	}
+	capsule, err := BuildDecisionCapsule(DecisionObservation{
+		SessionID:     "s",
+		TurnID:        "t",
+		Goal:          "ship safe savings",
+		Constraints:   []string{"zero drawdown", "archive backed", "zero drawdown"},
+		AcceptedPlan:  "keep ledger telemetry only",
+		BlockedReason: "live proof pending",
+		ActiveFiles:   []string{"/repo/b.go", "/repo/./a.go", "/repo/b.go"},
+		ArchiveID:     "decision-arch",
+	})
+	if err != nil {
+		t.Fatalf("BuildDecisionCapsule error: %v", err)
+	}
+	if capsule.Kind != CapsuleDecisionContext || capsule.Facts["goal"] != "ship safe savings" {
+		t.Fatalf("decision capsule mismatch: %+v", capsule)
+	}
+	if capsule.Facts["constraints"] != "zero drawdown\narchive backed" {
+		t.Fatalf("constraints should preserve first-seen order: %+v", capsule.Facts)
+	}
+	if capsule.Facts["active_files"] != "/repo/a.go,/repo/b.go" {
+		t.Fatalf("active files should be stable path facts: %+v", capsule.Facts)
+	}
+	if len(capsule.Archives) != 1 || capsule.Archives[0] != "decision-arch" {
+		t.Fatalf("archive mismatch: %+v", capsule.Archives)
+	}
+}
+
+func TestBuildRecoveryCapsuleRequiresArchiveAndStatus(t *testing.T) {
+	if _, err := BuildRecoveryCapsule(RecoveryObservation{AttemptStatus: "success"}); err == nil {
+		t.Fatal("expected archive requirement")
+	}
+	if _, err := BuildRecoveryCapsule(RecoveryObservation{ArchiveIDs: []string{"a"}}); err == nil {
+		t.Fatal("expected status requirement")
+	}
+	capsule, err := BuildRecoveryCapsule(RecoveryObservation{
+		SessionID:     "s",
+		TurnID:        "t",
+		ArchiveIDs:    []string{"b", "a", "a"},
+		RequestedURI:  "local-archive://a",
+		AttemptStatus: "success",
+		LastError:     " ",
+	})
+	if err != nil {
+		t.Fatalf("BuildRecoveryCapsule error: %v", err)
+	}
+	if capsule.Kind != CapsuleRecoveryContext || capsule.Facts["archive_ids"] != "a,b" || capsule.Facts["status"] != "success" {
+		t.Fatalf("recovery capsule mismatch: %+v", capsule)
+	}
+	if len(capsule.Archives) != 2 || capsule.Archives[0] != "a" || capsule.Archives[1] != "b" {
+		t.Fatalf("archives not stable: %+v", capsule.Archives)
+	}
+}
+
 func sha256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])

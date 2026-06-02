@@ -383,15 +383,16 @@ product route for recoverable archive/chunk mechanisms.
 
 Layer 2 is being redirected away from "summary as truth" toward deterministic
 context ledgers. The pure `internal/contextledger` package builds archive-backed
-capsules for command, file, search, and failure observations: compact facts plus
-provenance, stable hashes, and archive ids, without storing raw omitted content
-inside the capsule. This is the safe replacement foundation for old-context
-compression. A deterministic selector now fails closed before any future
-model-facing use: active turns, recent turns, missing policy session scope,
-missing provenance, missing archive ids, search capsules without an explicit
-execution scope, and high-risk failure content stay verbatim; only old inactive
-archive-backed command/file/search capsules can be selected. Archive expansion is
-loader-based and must restore exact bytes or fail. It is not yet a default
+capsules for command, file, search, failure, decision, and recovery observations:
+compact facts plus provenance, stable hashes where raw bytes exist, and archive
+ids, without storing raw omitted content inside the capsule. This is the safe
+replacement foundation for old-context compression. A deterministic selector now
+fails closed before any future model-facing use: active turns, recent turns,
+missing policy session scope, missing provenance, missing archive ids, search
+capsules without an explicit execution scope, incomplete decision/recovery facts,
+and high-risk failure content stay verbatim; only old inactive archive-backed
+command/file/search/decision/recovery capsules can be selected. Archive expansion
+is loader-based and must restore exact bytes or fail. It is not yet a default
 hot-path replacement mechanism; readcache provenance, replay, and live corpus
 proof remain the promotion gates.
 
@@ -403,15 +404,18 @@ provider summaries remain shadow/background artifacts unless
 summary-as-truth out of the product path while the context-ledger replacement is
 being proven.
 
-The Codex Layer-0 reducer now feeds the ledger builders in the hot path as
-telemetry only. It builds command/file/search/failure capsule observations from
-tool-output metadata and exposes only content-free capsule counts in
-`/admin/state.savings`, globally and per `http` / `wss_phasef` route. WSS
-decision summaries also carry a `context_ledger` shadow block with capsule
-counts and the re-read canary count, making ledger coverage and context-pressure
-visible in live proof logs without logging payloads. No ledger capsule is
-inserted into model-facing context until archive provenance, expansion replay,
-and live proof are complete.
+The Codex Layer-0 reducer now feeds the tool-output ledger builders in the hot
+path as telemetry only. It builds command/file/search/failure capsule
+observations from tool-output metadata and exposes only content-free capsule
+counts in `/admin/state.savings`, globally and per `http` / `wss_phasef` route.
+Decision and recovery capsules are pure fail-closed primitives for the future
+ledger insertion path; they are not counted from the reducer until a real
+product source supplies explicit decision/recovery provenance. WSS decision
+summaries also carry a `context_ledger` shadow block with capsule counts and the
+re-read canary count, making ledger coverage and context-pressure visible in live
+proof logs without logging payloads. No ledger capsule is inserted into
+model-facing context until archive provenance, expansion replay, and live proof
+are complete.
 
 Readcache decisions expose structured `ArchiveURI` and `FullPassTurnID`
 provenance to the reducer. File ledger observations are counted only when an

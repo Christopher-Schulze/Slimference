@@ -13,10 +13,12 @@ import (
 type CapsuleKind string
 
 const (
-	CapsuleCommand CapsuleKind = "command"
-	CapsuleFile    CapsuleKind = "file"
-	CapsuleSearch  CapsuleKind = "search"
-	CapsuleFailure CapsuleKind = "failure"
+	CapsuleCommand         CapsuleKind = "command"
+	CapsuleFile            CapsuleKind = "file"
+	CapsuleSearch          CapsuleKind = "search"
+	CapsuleFailure         CapsuleKind = "failure"
+	CapsuleDecisionContext CapsuleKind = "decision"
+	CapsuleRecoveryContext CapsuleKind = "recovery"
 )
 
 type Capsule struct {
@@ -78,6 +80,26 @@ type FailureObservation struct {
 	Message   string
 	ExitCode  int
 	ArchiveID string
+}
+
+type DecisionObservation struct {
+	SessionID     string
+	TurnID        string
+	Goal          string
+	Constraints   []string
+	AcceptedPlan  string
+	BlockedReason string
+	ActiveFiles   []string
+	ArchiveID     string
+}
+
+type RecoveryObservation struct {
+	SessionID     string
+	TurnID        string
+	ArchiveIDs    []string
+	RequestedURI  string
+	AttemptStatus string
+	LastError     string
 }
 
 func BuildCommandCapsule(obs CommandObservation) (Capsule, error) {
@@ -165,6 +187,37 @@ func BuildFailureCapsule(obs FailureObservation) (Capsule, error) {
 	return newCapsule(CapsuleFailure, obs.SessionID, obs.TurnID, "failure", facts, nil, singleton(obs.ArchiveID)), nil
 }
 
+func BuildDecisionCapsule(obs DecisionObservation) (Capsule, error) {
+	if strings.TrimSpace(obs.Goal) == "" && strings.TrimSpace(obs.AcceptedPlan) == "" {
+		return Capsule{}, errors.New("decision goal or accepted plan is required")
+	}
+	facts := map[string]string{
+		"goal":           strings.TrimSpace(obs.Goal),
+		"constraints":    strings.Join(stableStrings(obs.Constraints), "\n"),
+		"accepted_plan":  strings.TrimSpace(obs.AcceptedPlan),
+		"blocked_reason": strings.TrimSpace(obs.BlockedReason),
+		"active_files":   strings.Join(sortedPathFacts(obs.ActiveFiles), ","),
+	}
+	return newCapsule(CapsuleDecisionContext, obs.SessionID, obs.TurnID, "decision", facts, nil, singleton(obs.ArchiveID)), nil
+}
+
+func BuildRecoveryCapsule(obs RecoveryObservation) (Capsule, error) {
+	archives := sortedStrings(obs.ArchiveIDs)
+	if len(archives) == 0 {
+		return Capsule{}, errors.New("archive ids are required for recovery capsule")
+	}
+	if strings.TrimSpace(obs.AttemptStatus) == "" {
+		return Capsule{}, errors.New("recovery attempt status is required")
+	}
+	facts := map[string]string{
+		"archive_ids":   strings.Join(archives, ","),
+		"requested_uri": strings.TrimSpace(obs.RequestedURI),
+		"status":        strings.TrimSpace(obs.AttemptStatus),
+		"last_error":    strings.TrimSpace(obs.LastError),
+	}
+	return newCapsule(CapsuleRecoveryContext, obs.SessionID, obs.TurnID, "recovery", facts, nil, archives), nil
+}
+
 func newCapsule(kind CapsuleKind, sessionID, turnID, source string, facts, hashes map[string]string, archives []string) Capsule {
 	return Capsule{
 		Kind: kind,
@@ -233,6 +286,44 @@ func sortedStrings(in []string) []string {
 		return nil
 	}
 	return out
+}
+
+func stableStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sortedPathFacts(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		value = cleanPathFact(value)
+		if value == "" {
+			continue
+		}
+		out = append(out, value)
+	}
+	return sortedStrings(out)
 }
 
 func singleton(value string) []string {

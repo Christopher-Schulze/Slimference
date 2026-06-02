@@ -1915,13 +1915,14 @@ be called complete, default-safe, and production-grade.
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
   `internal/contextledger` capsule builders now exist for command, file, search,
-  and failure observations, and Codex Layer-0 now feeds them as content-free
-  reducer telemetry; classical summary replacement is now blocked by default
-  behind an explicit legacy override. Archive-backed capsules now fail closed
-  when required recoverability facts are missing, including full-pass turn
-  provenance for file capsules and explicit execution scope for search
-  capsules, and capsule selection requires an explicit policy session id to
-  prevent cross-session context selection; quality inputs and proof-gated ledger
+  failure, decision, and recovery observations, while Codex Layer-0 feeds only
+  tool-output command/file/search/failure builders as content-free reducer
+  telemetry; classical summary replacement is now blocked by default behind an
+  explicit legacy override. Archive-backed capsules now fail closed when
+  required recoverability facts are missing, including full-pass turn provenance
+  for file capsules, explicit execution scope for search capsules, explicit
+  decision/recovery facts, archive ids, and a policy session id to prevent
+  cross-session context selection; quality inputs and proof-gated ledger
   insertion remain. Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [~] **T263** Layer 3 provider/prompt cache max-out - local response cache now
