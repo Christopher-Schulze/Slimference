@@ -58,7 +58,7 @@ go run ./scripts/utils workday-savings finish --filter-db=~/.slimference/filter.
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --json         # content-free WSS route/session/re-read audit
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --expect-distinct-sessions=2 --min-phasef=2  # fresh session-key gate
 go run ./scripts/utils wss-audit ~/.slimference/debug/decisions.jsonl --since=2026-05-30T00:30:00Z --min-phasef=2 --require-savings  # fresh savings gate
-SLIMFERENCE_WSS_AB_CAPTURE=/tmp/codex-wss-frames.jsonl slimference daemon start     # explicit local WSS frame capture for A/B replay
+go run ./scripts/utils codex-capture-run --binary ~/.local/bin/slimference --capture ~/.slimference/captures/repeat.jsonl --matrix-row /tmp/proof-matrix.jsonl --id cli-repeat --workload-class repeat_full_read --expected-reducer read_delta --exit-marker CAPTURE_DONE --exit-marker-count=2 -- "Run exactly two shell tool calls and do not modify files. First tool call cmd exactly: cat AGENTS.md Second tool call cmd exactly: cat AGENTS.md Then final message exactly CAPTURE_DONE"
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost # offline Phase-F comprehension A/B replay
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --json          # machine-readable A/B report
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost --json # auto-policy WSS reducer replay, including T255 when safe

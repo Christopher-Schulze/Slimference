@@ -1605,7 +1605,10 @@ only and promotes the per-process Codex CLI runner for T209.
   WSS captures across CLI/Desktop and the important workload classes, then run CLI and
   Desktop workday windows. This is the breadth gate for "default-auto is safe", not a
   new reducer. The `wss-proof-matrix` report command and JSONL metadata schema are
-  implemented. The local 13-capture matrix now passes across 7 CLI captures,
+  implemented. The `codex-capture-run` helper now manages unattended CLI capture
+  sessions end to end with a foreground daemon, `/health` preflight, PTY marker
+  exit, fail-on-lost replay, and optional matrix-row append. The local
+  13-capture matrix now passes across 7 CLI captures,
   6 Desktop captures, all 10 required workload classes, 9 positive-savings captures,
   4 expected-zero captures, lost=0, and captures_with_issues=0. Formal clean
   `workday-savings start|finish` windows passed for CLI and Desktop with positive

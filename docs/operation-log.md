@@ -3925,3 +3925,36 @@ Honest boundaries:
   proof, and the resume behavior should be tracked separately if it reproduces.
 - The replay command printed benign scoped-desktop-CA warnings from a temporary
   HOME. The actual Desktop captures used the no-CA app-server WSS route.
+
+## 2026-06-02 - T257 unattended capture runner hardening
+
+Goal: remove the fragile manual/background-daemon step from release proof
+capture collection without changing reducer semantics.
+
+Problem reproduced:
+- Running the daemon in the foreground kept `/health` healthy and scoped
+  `codex run --transport=auto` routed correctly.
+- The earlier unattended attempt failed because the daemon was started as a
+  detached shell child and disappeared before capture or before
+  `/backend-api/codex/responses`.
+- A direct stdout-pipe marker watcher was not viable because Codex expects
+  stdout to be a terminal.
+
+Fix:
+- Added `go run ./scripts/utils codex-capture-run`.
+- The command starts Slimference `daemon` as a managed foreground child with
+  `SLIMFERENCE_WSS_AB_CAPTURE=<path>`, refuses to run if an existing healthy
+  daemon would steal the capture route, waits for `/health`, runs scoped
+  `codex run --transport=auto`, stops the daemon, replays the frame capture with
+  fail-on-lost semantics, and optionally appends a `wss-proof-matrix` JSONL row.
+- On macOS, `--exit-marker` uses `script(1)` PTY support so Codex still sees a
+  real terminal. `--exit-marker-count=2` handles prompt echo plus the final
+  marker. Marker-triggered shutdown is bounded and kills the PTY wrapper if
+  interrupt does not finish promptly.
+
+Live proof:
+- `codex-capture-run-auto-repeat` ran unattended through the managed harness.
+- Replay result: 79 frames, 3 request turns, 1 mutated request, 11,499
+  model-facing bytes saved, `lost=0`, `gate_passed=true`.
+- The one-row proof matrix correctly stayed red for corpus breadth, so this is
+  a harness proof, not a replacement for the full 10-capture release matrix.

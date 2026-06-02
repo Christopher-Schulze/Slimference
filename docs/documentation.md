@@ -2161,6 +2161,13 @@ live-corpus workload for both `codex_cli` and `codex_desktop`, then finishes
 with `wss-proof-matrix` and `benchmark-corpus --promotion-check`. The command is
 content-free and plan-only: it does not start capture, read payloads, or create
 fixtures. This keeps proof collection manual, reviewable, and reproducible.
+Unattended CLI capture collection uses
+`go run ./scripts/utils codex-capture-run`, which owns the daemon foreground
+process, sets `SLIMFERENCE_WSS_AB_CAPTURE`, waits for `/health`, runs scoped
+Codex, replays with fail-on-lost semantics, and appends an optional
+`wss-proof-matrix` row. This is the preferred release-proof path for CLI
+workloads because it avoids detached background daemons that do not inherit the
+capture environment reliably.
 
 Layer-0 mechanism cost is exposed as debug/audit telemetry, not product UI
 noise. `/admin/state.savings.proxy_layer0_latency` reports rolling p50/p95/max

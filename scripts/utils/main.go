@@ -8,6 +8,7 @@
 //	go run ./scripts/utils combined-report <analytics.jsonl> <decisions.jsonl> <filter.db> [--json|--csv]
 //	go run ./scripts/utils aggregate-savings [--admin-url=... | --admin-state-file=...] [--filter-db=...] [--json]
 //	go run ./scripts/utils workday-savings <start|finish> [--baseline-file=...] [--json]
+//	go run ./scripts/utils codex-capture-run [flags] -- <codex run args...>
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
 //	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]
 //	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json]
@@ -32,7 +33,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, wss-audit, wss-ab-replay, wss-proof-matrix, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, tls-probe")
 		os.Exit(1)
 	}
 
@@ -101,6 +102,8 @@ func main() {
 		os.Exit(runAggregateSavings(os.Args[2:], os.Stdout, os.Stderr))
 	case "workday-savings":
 		os.Exit(runWorkdaySavings(os.Args[2:], os.Stdout, os.Stderr))
+	case "codex-capture-run":
+		os.Exit(runCodexCaptureRun(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-audit":
 		os.Exit(runWSSAudit(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-ab-replay":

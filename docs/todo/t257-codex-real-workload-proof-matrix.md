@@ -170,6 +170,20 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   capture was discarded. Manual/Desktop captures and the previously documented
   T257 matrix remain valid; the automation harness should be hardened before
   relying on unattended multi-workload release captures.
+- 2026-06-02: The unattended capture harness is now hardened by
+  `go run ./scripts/utils codex-capture-run`. The command owns the daemon as a
+  foreground child with `SLIMFERENCE_WSS_AB_CAPTURE`, preflights that no existing
+  healthy daemon would steal the capture route, waits for `/health`, runs scoped
+  `codex run --transport=auto`, stops the daemon, replays the capture with
+  fail-on-lost semantics, and can append the matching `wss-proof-matrix` row.
+  On macOS, `--exit-marker` uses a `script(1)` PTY so Codex still sees a real
+  terminal; `--exit-marker-count=2` handles the normal prompt-echo plus final
+  marker pattern without manual Ctrl-C. Live proof
+  `codex-capture-run-auto-repeat` passed end to end: 79 frames, 3 request turns,
+  1 mutated request, 11,499 model-facing bytes saved, `lost=0`, and
+  `gate_passed=true`. The one-row matrix correctly stayed red for breadth, so
+  this closes the automation-lifecycle gap, not the full release-corpus breadth
+  requirement.
 
 ## Deviations
 
