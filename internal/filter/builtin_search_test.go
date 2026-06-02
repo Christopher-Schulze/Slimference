@@ -295,6 +295,9 @@ func TestSearchOutputKeyFromCommandLine(t *testing.T) {
 	if got := SearchOutputKeyFromCommandLine(`cd /repo/b && rg -n "needle" internal`); got != "rg\t-n\tneedle\t/repo/b/internal" {
 		t.Fatalf("cd-wrapped rg cross-repo key = %q", got)
 	}
+	if got := SearchOutputKeyFromCommandLine(`cd "/Users/christopher/My Repo" && rg -n "needle" "src files"`); got != "rg\t-n\tneedle\t/Users/christopher/My Repo/src files" {
+		t.Fatalf("cd-wrapped rg with spaces key = %q", got)
+	}
 	if got := SearchOutputKeyFromCommandLine(`go test ./...`); got != "" {
 		t.Fatalf("non-search command produced key %q", got)
 	}
@@ -316,6 +319,9 @@ func TestRepoScopedSearchOutputKeyFromCommandLine(t *testing.T) {
 	}
 	if got := RepoScopedSearchOutputKeyFromCommandLine(`git -C /repo/a grep needle -- internal`); got != "git\t-C\t/repo/a\tgrep\tneedle\t--\tinternal" {
 		t.Fatalf("git -C grep repo key = %q", got)
+	}
+	if got := RepoScopedSearchOutputKeyFromCommandLine(`git -C "/Users/christopher/My Repo" grep needle -- "src files"`); got != "git\t-C\t/Users/christopher/My Repo\tgrep\tneedle\t--\tsrc files" {
+		t.Fatalf("git -C grep repo key with spaces = %q", got)
 	}
 }
 
@@ -386,6 +392,17 @@ func TestNormalizeSearchCommandLine(t *testing.T) {
 			command: `rg --replace '$1' 'needle(.*)' src`,
 			workdir: "/repo/a",
 			want:    `rg --replace "$1" "needle(.*)" /repo/a/src`,
+		},
+		{
+			name:    "workdir with spaces keeps quoted repo scope",
+			command: `rg -n "needle" "src files"`,
+			workdir: "/Users/christopher/My Repo",
+			want:    `rg -n needle "/Users/christopher/My Repo/src files"`,
+		},
+		{
+			name:    "leading cd with spaces keeps quoted repo scope",
+			command: `cd "/Users/christopher/My Repo" && rg -n "needle" "src files"`,
+			want:    `rg -n needle "/Users/christopher/My Repo/src files"`,
 		},
 	}
 	for _, tc := range cases {

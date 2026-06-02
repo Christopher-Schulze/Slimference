@@ -112,6 +112,11 @@ is capped.
   punctuation turned `.` into `..` and resumed in the wrong workdir; the clean
   capture above uses self-contained `cd <tmp> && ...` commands and is the
   citable artifact.
+- 2026-06-02 added explicit repo-safe keying regression coverage for quoted
+  repository and search paths containing spaces. This pins macOS-realistic
+  command forms such as `cd "/Users/.../My Repo" && rg ... "src files"` and
+  `git -C "/Users/.../My Repo" grep ...`, preventing future normalization work
+  from silently dropping repository scope or corrupting quoted path identity.
 
 Remaining before this task can close:
 
