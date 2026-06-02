@@ -155,7 +155,10 @@ func layer1SubLayerByID(id string) (Layer1SubLayerInfo, bool) {
 func layer1MutationRequiresArchive(ids []string) bool {
 	for _, id := range ids {
 		info, ok := layer1SubLayerByID(id)
-		if ok && info.RequiresArchive {
+		if !ok {
+			return true
+		}
+		if info.RequiresArchive {
 			return true
 		}
 	}

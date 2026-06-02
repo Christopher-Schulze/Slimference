@@ -1906,8 +1906,9 @@ be called complete, default-safe, and production-grade.
 - [~] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
   sublayer safety registry with archive requirements, model-risk notes, and
   recovery paths; archive-required executor enforcement, archive-failure
-  full-pass behavior, and content-free per-sublayer decision records are
-  implemented, while prompt-cache economics and round-trip/live proof remain.
+  full-pass behavior, unknown-sublayer fail-closed archive gating, and
+  content-free per-sublayer decision records are implemented, while prompt-cache
+  economics and round-trip/live proof remain.
   Detail:
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure

@@ -35,6 +35,7 @@ func TestLayer1SubLayerRegistryContracts(t *testing.T) {
 	for _, id := range []string{
 		"ansi_strip",
 		"json_compact",
+		"semantic_dictionary",
 		"dedup",
 		"delta",
 		"comment_strip",
@@ -46,6 +47,7 @@ func TestLayer1SubLayerRegistryContracts(t *testing.T) {
 		"graph_pruning",
 		"preview_pass",
 		"tool_output_in_window",
+		"loop_nudge",
 	} {
 		if !seen[id] {
 			t.Fatalf("registry missing %s", id)
@@ -78,5 +80,18 @@ func TestLayer1SubLayerByID(t *testing.T) {
 	}
 	if _, ok := layer1SubLayerByID("missing"); ok {
 		t.Fatal("missing sub-layer must not resolve")
+	}
+}
+
+func TestLayer1MutationRequiresArchiveFailsClosedForUnknownSubLayer(t *testing.T) {
+	t.Parallel()
+	if !layer1MutationRequiresArchive([]string{"new_lossy_candidate"}) {
+		t.Fatal("unknown sub-layer must require archive until classified")
+	}
+	if layer1MutationRequiresArchive([]string{"json_compact", "ansi_strip"}) {
+		t.Fatal("known exact sub-layers should not require archive")
+	}
+	if !layer1MutationRequiresArchive([]string{"json_compact", "structure_extract"}) {
+		t.Fatal("archive-required sub-layer in chain must require archive")
 	}
 }

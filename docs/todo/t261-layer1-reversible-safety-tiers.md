@@ -13,8 +13,12 @@ safe by construction through explicit tiers and enforcement.
 - Layer 1 is implemented and default-enabled.
 - Layer 1 now has `Layer1SubLayerRegistry()` with stable metadata for each
   sublayer's safety tier, default eligibility, archive requirement, model risk,
-  and recovery path. This is control-plane metadata; executor enforcement is
-  still tracked below.
+  and recovery path.
+- The executor enforces archive-required mutations in the hot path. If a
+  sublayer needs archive recovery and no archive id can be written, the original
+  block full-passes and per-block savings are rolled back.
+- Unknown future sublayer tags fail closed: they require archive recovery until
+  the registry explicitly classifies them.
 - It contains a mix of safety classes:
   - exact/lossless: ANSI stripping when only terminal control bytes are removed,
     JSON minification, path dictionary with recovery
@@ -44,10 +48,12 @@ compression shortcut.
    - [x] task-preserving-summary
    - [x] non-default/research
 2. Enforce tier rules in the Layer 1 executor:
-   - default: exact + reversible + proven recoverable only
-   - auto: default plus proof-gated task-preserving summaries
-   - max: only mechanisms that still have recovery or live proof
-   - off: byte-equivalent pass
+   - [x] archive-required mutations must full-pass on archive failure
+   - [x] unknown sublayer tags require archive recovery until classified
+   - [x] default exact/reversible sublayers can run without archive only when
+     their registry contract says recovery is not needed
+   - [ ] mode-specific default/auto/max enforcement needs a final corpus proof
+     pass before any broader policy change
 3. Add a per-sublayer decision record:
    - [x] attempted
    - [x] applied
@@ -78,6 +84,8 @@ compression shortcut.
 - Default Layer 1 cannot silently remove facts, code, comments marked critical,
   file paths, errors, or tool outputs unless the full original is recoverable.
 - If an archive write fails, the sublayer full-passes.
+- Unknown sublayer tags must fail closed by requiring archive recovery until the
+  registry is updated.
 - If reconstruction cannot be proven in unit tests, the sublayer is not eligible
   for default-auto.
 - Layer 1 must not cause prompt-cache invalidation that costs more than the
@@ -119,6 +127,10 @@ compression shortcut.
   archive requirement, application state, reason, and saved-token count. The
   mapping separates `tool_compressor` from `tool_output_in_window` attribution
   while preserving legacy aggregate accounting.
+- 2026-06-02: Hardened the Layer 1 registry guard to fail closed for unknown
+  sub-layer tags. Any future unclassified mutation now requires archive recovery
+  before model-facing text can change, preventing accidental unrecoverable
+  context loss from new Layer 1 work.
 
 ## Done
 
