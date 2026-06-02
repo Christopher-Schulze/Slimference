@@ -249,6 +249,14 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   captured-output/search blocks, 5 Codex exec-envelope blocks, and 1
   repeated-output block. `chunk_dedup` remains zero in the strict release matrix
   and must still stay out of live-token claims.
+- 2026-06-02: T266 fixed the chunk-dedup session budget denominator and replayed
+  the real CLI WSS chunk probe capture
+  `chunk-live-cli-similar-output-20260602T150301.jsonl` through default auto.
+  The reducer report now shows `reducer_tokens_saved=6636`,
+  `reducer_chunk_dedup_blocks=1`, `reducer_chunk_dedup_references=4`,
+  `bytes_saved=32195`, and `gate_passed=true`. This upgrades chunk dedup from
+  synthetic-only to real-frame reducer replay proof. It is not yet included in
+  the strict live-token matrix totals above.
 
 ## Deviations
 

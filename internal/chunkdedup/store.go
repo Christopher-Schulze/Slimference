@@ -122,8 +122,10 @@ func (s *Store) EncodeWithReport(sessionID string, data []byte) EncodeResult {
 
 // EncodeWithReportWithMaxReferencePercent applies a per-output reference-density
 // cap before a candidate is accepted into the cumulative session reference
-// budget. A rejected dense candidate still seeds chunk identity state because
-// the caller will full-pass the original bytes to the model.
+// budget. The session budget denominator counts every observed output passed to
+// Encode, including first-send seed outputs and rejected candidates that
+// full-pass. Those bytes are model-visible context and should increase the safe
+// budget for later references.
 func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data []byte, maxReferencePercent int) EncodeResult {
 	if s == nil || sessionID == "" || len(data) == 0 {
 		return EncodeResult{Data: data}
@@ -147,6 +149,7 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 		s.sessions[sessionID] = session
 	}
 	session.lastSeen = now
+	session.inBytes += len(data)
 	for i, id := range ids {
 		if _, seenBefore := session.chunks[id]; seenBefore {
 			repeated[i] = true
@@ -200,7 +203,7 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 	if referencedBytes*100 > len(data)*maxReferencePercent {
 		return EncodeResult{Data: data}
 	}
-	if !s.recordReferenceBudget(sessionID, len(data), referencedBytes) {
+	if !s.recordReferenceBudget(sessionID, referencedBytes) {
 		return EncodeResult{Data: data}
 	}
 	return EncodeResult{
@@ -212,15 +215,14 @@ func (s *Store) EncodeWithReportWithMaxReferencePercent(sessionID string, data [
 	}
 }
 
-func (s *Store) recordReferenceBudget(sessionID string, inputBytes, referencedBytes int) bool {
-	if s == nil || sessionID == "" || inputBytes <= 0 || referencedBytes <= 0 {
+func (s *Store) recordReferenceBudget(sessionID string, referencedBytes int) bool {
+	if s == nil || sessionID == "" || referencedBytes <= 0 {
 		return true
 	}
 	limit := s.limits.MaxSessionRefPct
 	if limit <= 0 || limit >= 100 {
 		s.mu.Lock()
 		if session := s.sessions[sessionID]; session != nil {
-			session.inBytes += inputBytes
 			session.refBytes += referencedBytes
 		}
 		s.mu.Unlock()
@@ -232,12 +234,11 @@ func (s *Store) recordReferenceBudget(sessionID string, inputBytes, referencedBy
 	if session == nil {
 		return true
 	}
-	nextInput := session.inBytes + inputBytes
+	nextInput := session.inBytes
 	nextRef := session.refBytes + referencedBytes
 	if nextInput > 0 && nextRef*100 > nextInput*limit {
 		return false
 	}
-	session.inBytes = nextInput
 	session.refBytes = nextRef
 	return true
 }

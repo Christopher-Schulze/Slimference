@@ -26,6 +26,25 @@ type WSSABReplayResult struct {
 	Report          abharness.Report
 	RequestTurns    int
 	MutatedRequests int
+	ReducerStats    WSSABReplayReducerStats
+}
+
+// WSSABReplayReducerStats is the content-free reducer activity observed while
+// replaying WSS frames. It is intentionally separate from Report.Saved(): the
+// comprehension report expands archive references back to their original bytes,
+// while these counters describe the model-facing compressed request sent by the
+// reducer.
+type WSSABReplayReducerStats struct {
+	TokensSaved          int
+	BlocksModified       int
+	ReadDeltaBlocks      int
+	RepeatedOutputBlocks int
+	ChunkDedupBlocks     int
+	CapturedOutputBlocks int
+	CodexEnvelopeBlocks  int
+	ChunkDedupReferences int
+	ChunkDedupRefBytes   int
+	ChunkDedupInputBytes int
 }
 
 // RunWSSPhaseFABReplay runs the real Codex WSS Phase-F reducer against a frame
@@ -75,7 +94,8 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract direct request %d: %w", i, err)
 			}
-			mutatedBody, runtimeMessages, changed, _, _ := adapter.applyInputPipeline(frame.Payload)
+			mutatedBody, runtimeMessages, changed, stats, _ := adapter.applyInputPipeline(frame.Payload)
+			out.ReducerStats.add(stats)
 			after, _, err := extractMessages(types.CodexChatGPT, mutatedBody)
 			if err != nil {
 				return WSSABReplayResult{}, fmt.Errorf("extract compressed request %d: %w", i, err)
@@ -97,6 +117,22 @@ func runWSSPhaseFABReplay(cfg *config.Config, frames []WSSABReplayFrame, archive
 		return body, err
 	})
 	return out, nil
+}
+
+func (s *WSSABReplayReducerStats) add(stats proxyLayer0Stats) {
+	if s == nil {
+		return
+	}
+	s.TokensSaved += stats.TokensSaved
+	s.BlocksModified += stats.BlocksModified
+	s.ReadDeltaBlocks += stats.ReadDeltaBlocks
+	s.RepeatedOutputBlocks += stats.RepeatedOutputBlocks
+	s.ChunkDedupBlocks += stats.ChunkDedupBlocks
+	s.CapturedOutputBlocks += stats.CapturedOutputBlocks
+	s.CodexEnvelopeBlocks += stats.CodexExecEnvelopeBlocks
+	s.ChunkDedupReferences += stats.ChunkDedupReferences
+	s.ChunkDedupRefBytes += stats.ChunkDedupRefBytes
+	s.ChunkDedupInputBytes += stats.ChunkDedupInputBytes
 }
 
 func rememberReplayRequestState(adapter *wsPhaseFAdapter, messages []types.Message) {

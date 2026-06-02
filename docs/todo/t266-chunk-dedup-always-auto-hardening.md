@@ -128,3 +128,14 @@ it remains guarded by policy.
   blocks, and it verifies `[context-chunk ... local-archive://...]` references
   by expanding all chunk refs and comparing the reconstructed block to the exact
   direct model-facing source.
+- 2026-06-02: Fixed the cumulative session reference-budget denominator. The
+  store now counts every observed output as model-visible budget, including
+  first-send seed outputs and rejected full-pass candidates, while counting only
+  accepted chunk refs in the numerator. This removes the false block where a
+  safe second output with large overlap was rejected because the first full
+  seed output was not counted. The real CLI WSS chunk probe capture
+  `chunk-live-cli-similar-output-20260602T150301.jsonl` now replays through
+  default auto with `reducer_tokens_saved=6636`,
+  `reducer_chunk_dedup_blocks=1`, `reducer_chunk_dedup_references=4`,
+  `bytes_saved=32195`, and `gate_passed=true`. This is a real-frame reducer
+  replay proof; a fresh live-token matrix row remains separate.

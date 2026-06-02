@@ -4230,3 +4230,43 @@ Validation:
 - The v2 matrix totals are 58,086 live billable/input tokens saved with live
   reducer coverage: 7 read-delta blocks, 6 captured-output/search blocks, 5
   Codex exec-envelope blocks, 1 repeated-output block, and 0 chunk-dedup blocks.
+
+## 2026-06-02 - T266 chunk-dedup session-budget fix and real-frame replay proof
+
+Goal: turn the zero-hit chunk diagnostic into a precise root cause instead of
+either overclaiming or discarding the mechanism.
+
+Finding:
+- The real CLI WSS chunk probe
+  `/Users/christopher/.slimference/captures/chunk-live-cli-similar-output-20260602T150301.jsonl`
+  contains two separate large `exec_command` outputs with stable
+  `prompt_cache_key` and resolvable tool calls.
+- Direct store diagnosis showed the second output can save 6,678 o200k tokens
+  on the payload, but default replay initially emitted no chunk block because
+  the cumulative session reference budget counted only accepted compressed
+  outputs as denominator.
+- That budget definition was too conservative and semantically wrong. The first
+  output had been sent full to the model and should count as model-visible
+  context when deciding whether later chunk references erode session context.
+
+Changes:
+- `chunkdedup.Store` now counts every observed output passed through the store
+  in the session budget denominator, including first-send seed outputs and
+  rejected full-pass candidates. Only accepted chunk references increase the
+  numerator.
+- `wss-ab-replay` now reports reducer token/counter telemetry separately from
+  the comprehension A/B byte report. `bytes_saved` still describes the
+  archive-expanded comparison; `reducer_tokens_saved` and `reducer_*` counters
+  describe the actual model-facing compressed request.
+
+Validation:
+- Added regression coverage for session-budget seed counting and replay reducer
+  telemetry.
+- `go test ./internal/chunkdedup ./internal/proxy ./scripts/utils` passed.
+- Default-auto replay of the real chunk probe passed:
+  `go run ./scripts/utils wss-ab-replay ~/.slimference/captures/chunk-live-cli-similar-output-20260602T150301.jsonl --fail-on-lost --json`
+  reported `reducer_tokens_saved=6636`,
+  `reducer_chunk_dedup_blocks=1`, `reducer_chunk_dedup_references=4`,
+  `reducer_chunk_dedup_referenced_bytes=32768`,
+  `reducer_chunk_dedup_input_bytes=40158`, `bytes_saved=32195`,
+  `expected_extras=1`, and `gate_passed=true`.

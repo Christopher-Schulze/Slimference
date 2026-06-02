@@ -116,7 +116,7 @@ func TestStore_FailsOpenWhenArchiveURICollides(t *testing.T) {
 
 func TestStore_SessionReferenceBudgetFailsOpen(t *testing.T) {
 	t.Parallel()
-	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 50}, archiveFake(nil))
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 40}, archiveFake(nil))
 	data := genBytes(64*1024, 24)
 
 	store.Encode("s1", data)
@@ -126,6 +126,25 @@ func TestStore_SessionReferenceBudgetFailsOpen(t *testing.T) {
 	}
 	if !bytes.Equal(result.Data, data) {
 		t.Fatal("session budget full-pass must keep original data")
+	}
+}
+
+func TestStore_SessionReferenceBudgetCountsSeedOutputs(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 70}, archiveFake(nil))
+	shared := genBytes(48*1024, 29)
+	tailA := genBytes(16*1024, 30)
+	tailB := genBytes(16*1024, 31)
+	first := append(append([]byte{}, shared...), tailA...)
+	second := append(append([]byte{}, shared...), tailB...)
+
+	seed := store.EncodeWithReportWithMaxReferencePercent("s1", first, 90)
+	if seed.Saved != 0 || seed.Verified {
+		t.Fatalf("first output should seed only: saved=%d verified=%v", seed.Saved, seed.Verified)
+	}
+	result := store.EncodeWithReportWithMaxReferencePercent("s1", second, 90)
+	if result.Saved <= 0 || !result.Verified {
+		t.Fatalf("session budget should include the full seed output and allow safe later references: saved=%d verified=%v", result.Saved, result.Verified)
 	}
 }
 

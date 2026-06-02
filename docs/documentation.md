@@ -581,7 +581,11 @@ history. Any supplied demotion signal forces managed Codex tool-output reducers
 to full-pass and records the exact content-free reason in mechanism telemetry.
 Per-output reference-density caps are enforced before cumulative session-budget
 accounting, so a chunk candidate that full-passes because it is too reference
-dense does not consume the session's accepted-reference budget.
+dense does not consume accepted-reference bytes. The cumulative session budget's
+denominator counts every observed output sent through the chunk store, including
+first-send seed outputs and rejected full-pass candidates. Those bytes were
+visible to the model and therefore increase the safe budget for later references
+instead of blocking the first useful overlap hit.
 The store is bounded by `codex_chunk_dedup_max_sessions`,
 `codex_chunk_dedup_max_chunks_per_session`, and
 `codex_chunk_dedup_ttl_seconds`; the default min block size is 4096 bytes so
@@ -667,6 +671,12 @@ tokens with `read_delta=1`, `captured_output=1`, `codex_exec_envelope=1`,
 `repeated_output` and `chunk_dedup` did not record live block hits and are not
 part of the 43,113-token claim. The similar-files capture stayed expected-zero /
 net-negative for default-auto.
+After the session-budget denominator fix, the real CLI chunk probe capture
+`chunk-live-cli-similar-output-20260602T150301.jsonl` replays through default
+auto with `reducer_tokens_saved=6636`, `reducer_chunk_dedup_blocks=1`,
+`reducer_chunk_dedup_references=4`, `bytes_saved=32195`, and `gate_passed=true`.
+That is a reducer/replay proof on real WSS frames, not yet a fresh live-token
+matrix claim.
 
 `go run ./scripts/utils wss-audit` also reports a content-free re-read canary:
 the number of WSS request summaries that repeated a resolved read/tool key and
@@ -702,8 +712,12 @@ is the operator-facing report wrapper. With default config it runs the same
 `auto` policy as the product path, including T255 when the capture presents a
 safe recoverable candidate. `--codex-chunk-dedup` remains a force flag for
 threshold experiments; it implies the recovery note and separates the expected
-once-per-session recovery-note extra block from true loss-gate failures. Its
-JSONL input is content-bearing by definition, so it belongs in local/private
+once-per-session recovery-note extra block from true loss-gate failures. The
+report separates two concepts: `bytes_saved` is the comprehension A/B byte delta
+after archive expansion and note alignment, while `reducer_tokens_saved` and the
+`reducer_*` mechanism counters report actual model-facing compressed request
+savings from the Phase-F reducer. Its JSONL input is content-bearing by
+definition, so it belongs in local/private
 captures only; it does not read auth headers or WebSocket upgrade metadata. Each
 replay uses an isolated temporary home directory so disk-backed
 readcache/tooluse/archive state from prior live sessions cannot skew the A/B

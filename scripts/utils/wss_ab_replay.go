@@ -27,19 +27,29 @@ type wssABReplayFlags struct {
 }
 
 type wssABReplayReport struct {
-	Path            string              `json:"path"`
-	Frames          int                 `json:"frames"`
-	RequestTurns    int                 `json:"request_turns"`
-	MutatedRequests int                 `json:"mutated_requests"`
-	BytesBefore     int                 `json:"bytes_before"`
-	BytesAfter      int                 `json:"bytes_after"`
-	BytesSaved      int                 `json:"bytes_saved"`
-	Lost            int                 `json:"lost"`
-	ExpectedExtras  int                 `json:"expected_extras,omitempty"`
-	Elisions        []abharness.Elision `json:"elisions,omitempty"`
-	GatePassed      bool                `json:"gate_passed"`
-	GateFailures    []string            `json:"gate_failures,omitempty"`
-	Notes           []string            `json:"notes,omitempty"`
+	Path                   string              `json:"path"`
+	Frames                 int                 `json:"frames"`
+	RequestTurns           int                 `json:"request_turns"`
+	MutatedRequests        int                 `json:"mutated_requests"`
+	BytesBefore            int                 `json:"bytes_before"`
+	BytesAfter             int                 `json:"bytes_after"`
+	BytesSaved             int                 `json:"bytes_saved"`
+	ReducerTokensSaved     int                 `json:"reducer_tokens_saved"`
+	ReducerBlocksModified  int                 `json:"reducer_blocks_modified"`
+	ReducerReadDeltaBlocks int                 `json:"reducer_read_delta_blocks"`
+	ReducerRepeatedBlocks  int                 `json:"reducer_repeated_output_blocks"`
+	ReducerChunkBlocks     int                 `json:"reducer_chunk_dedup_blocks"`
+	ReducerCapturedBlocks  int                 `json:"reducer_captured_output_blocks"`
+	ReducerEnvelopeBlocks  int                 `json:"reducer_codex_envelope_blocks"`
+	ReducerChunkRefs       int                 `json:"reducer_chunk_dedup_references"`
+	ReducerChunkRefBytes   int                 `json:"reducer_chunk_dedup_referenced_bytes"`
+	ReducerChunkInputBytes int                 `json:"reducer_chunk_dedup_input_bytes"`
+	Lost                   int                 `json:"lost"`
+	ExpectedExtras         int                 `json:"expected_extras,omitempty"`
+	Elisions               []abharness.Elision `json:"elisions,omitempty"`
+	GatePassed             bool                `json:"gate_passed"`
+	GateFailures           []string            `json:"gate_failures,omitempty"`
+	Notes                  []string            `json:"notes,omitempty"`
 }
 
 const wssABReplayHelpText = `wss-ab-replay: run Codex WSS frames through the Phase-F comprehension A/B harness
@@ -167,16 +177,26 @@ func loadWSSABReplayReport(flags wssABReplayFlags) (wssABReplayReport, error) {
 		return wssABReplayReport{}, fmt.Errorf("run WSS A/B replay: %w", err)
 	}
 	report := wssABReplayReport{
-		Path:            flags.path,
-		Frames:          len(frames),
-		RequestTurns:    result.RequestTurns,
-		MutatedRequests: result.MutatedRequests,
-		BytesBefore:     result.Report.BytesBefore,
-		BytesAfter:      result.Report.BytesAfter,
-		BytesSaved:      result.Report.Saved(),
-		Lost:            result.Report.Lost(),
-		Elisions:        result.Report.Elisions,
-		GatePassed:      true,
+		Path:                   flags.path,
+		Frames:                 len(frames),
+		RequestTurns:           result.RequestTurns,
+		MutatedRequests:        result.MutatedRequests,
+		BytesBefore:            result.Report.BytesBefore,
+		BytesAfter:             result.Report.BytesAfter,
+		BytesSaved:             result.Report.Saved(),
+		ReducerTokensSaved:     result.ReducerStats.TokensSaved,
+		ReducerBlocksModified:  result.ReducerStats.BlocksModified,
+		ReducerReadDeltaBlocks: result.ReducerStats.ReadDeltaBlocks,
+		ReducerRepeatedBlocks:  result.ReducerStats.RepeatedOutputBlocks,
+		ReducerChunkBlocks:     result.ReducerStats.ChunkDedupBlocks,
+		ReducerCapturedBlocks:  result.ReducerStats.CapturedOutputBlocks,
+		ReducerEnvelopeBlocks:  result.ReducerStats.CodexEnvelopeBlocks,
+		ReducerChunkRefs:       result.ReducerStats.ChunkDedupReferences,
+		ReducerChunkRefBytes:   result.ReducerStats.ChunkDedupRefBytes,
+		ReducerChunkInputBytes: result.ReducerStats.ChunkDedupInputBytes,
+		Lost:                   result.Report.Lost(),
+		Elisions:               result.Report.Elisions,
+		GatePassed:             true,
 	}
 	if flags.archiveRecoveryNote {
 		report.Notes = append(report.Notes, "archive recovery note was enabled for this replay; treat extra model-facing blocks as expected audit findings, not a default-on proof")
@@ -335,6 +355,16 @@ func writeWSSABReplayText(w io.Writer, report wssABReplayReport) {
 	fmt.Fprintf(w, "  bytes_before:     %d\n", report.BytesBefore)
 	fmt.Fprintf(w, "  bytes_after:      %d\n", report.BytesAfter)
 	fmt.Fprintf(w, "  bytes_saved:      %d\n", report.BytesSaved)
+	fmt.Fprintf(w, "  reducer_tokens:   %d\n", report.ReducerTokensSaved)
+	if report.ReducerBlocksModified > 0 {
+		fmt.Fprintf(w, "  reducer_blocks:   modified=%d read_delta=%d repeated=%d chunk=%d captured=%d envelope=%d\n",
+			report.ReducerBlocksModified, report.ReducerReadDeltaBlocks, report.ReducerRepeatedBlocks,
+			report.ReducerChunkBlocks, report.ReducerCapturedBlocks, report.ReducerEnvelopeBlocks)
+	}
+	if report.ReducerChunkRefs > 0 || report.ReducerChunkRefBytes > 0 || report.ReducerChunkInputBytes > 0 {
+		fmt.Fprintf(w, "  chunk_refs:       refs=%d referenced_bytes=%d input_bytes=%d\n",
+			report.ReducerChunkRefs, report.ReducerChunkRefBytes, report.ReducerChunkInputBytes)
+	}
 	fmt.Fprintf(w, "  lost:             %d\n", report.Lost)
 	if report.ExpectedExtras > 0 {
 		fmt.Fprintf(w, "  expected_extras:  %d\n", report.ExpectedExtras)

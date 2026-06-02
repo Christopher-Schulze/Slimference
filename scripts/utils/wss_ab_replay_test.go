@@ -168,7 +168,8 @@ func TestWSSABReplayReportChunkDedupProofGate(t *testing.T) {
 	if report.Frames != 4 || report.RequestTurns != 2 || report.MutatedRequests < 2 {
 		t.Fatalf("unexpected replay counts: %+v", report)
 	}
-	if !report.GatePassed || report.ExpectedExtras != 1 || report.BytesSaved <= 0 {
+	if !report.GatePassed || report.ExpectedExtras != 1 || report.BytesSaved <= 0 ||
+		report.ReducerTokensSaved <= 0 || report.ReducerChunkBlocks != 1 || report.ReducerChunkRefs == 0 {
 		t.Fatalf("chunk replay should pass the proof gate with savings: %+v", report)
 	}
 	foundChunkReference := false
@@ -219,7 +220,8 @@ func TestWSSABReplayAutoPolicySeparatesRecoveryNoteExtra(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.GatePassed || report.ExpectedExtras != 1 || report.BytesSaved <= 0 {
+	if !report.GatePassed || report.ExpectedExtras != 1 || report.BytesSaved <= 0 ||
+		report.ReducerTokensSaved <= 0 || report.ReducerChunkBlocks != 1 {
 		t.Fatalf("auto policy replay should pass while separating the recovery note: %+v", report)
 	}
 }

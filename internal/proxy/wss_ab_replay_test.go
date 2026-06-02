@@ -36,6 +36,9 @@ func TestRunWSSPhaseFABReplayReadDeltaIsRecoverable(t *testing.T) {
 	if got.RequestTurns != 2 || got.MutatedRequests != 1 {
 		t.Fatalf("unexpected replay activity: %+v", got)
 	}
+	if got.ReducerStats.TokensSaved <= 0 || got.ReducerStats.ReadDeltaBlocks != 1 {
+		t.Fatalf("read-delta reducer stats not recorded: %+v", got.ReducerStats)
+	}
 	if got.Report.Lost() != 0 || got.Report.Saved() <= 0 {
 		t.Fatalf("read-delta replay should save with no lost comprehension: %+v", got.Report)
 	}
@@ -83,6 +86,9 @@ func TestRunWSSPhaseFABReplayChangedReadDeltaExpandsArchive(t *testing.T) {
 	}
 	if got.RequestTurns != 2 || got.MutatedRequests != 1 {
 		t.Fatalf("unexpected changed-read replay activity: %+v", got)
+	}
+	if got.ReducerStats.TokensSaved <= 0 || got.ReducerStats.ReadDeltaBlocks != 1 {
+		t.Fatalf("changed read-delta reducer stats not recorded: %+v", got.ReducerStats)
 	}
 	if got.Report.Lost() != 0 || got.Report.Saved() <= 0 {
 		t.Fatalf("changed read-delta should save with exact archive recovery: %+v", got.Report)
