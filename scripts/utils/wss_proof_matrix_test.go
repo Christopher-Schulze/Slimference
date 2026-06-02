@@ -248,6 +248,111 @@ func TestWSSProofMatrixExpectedReducerGate(t *testing.T) {
 	}
 }
 
+func TestWSSProofMatrixExtendedExpectedSignals(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "extended-signals")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "extended-signals",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		ExpectedReducers: []string{
+			"chunk_dedup_refs",
+			"tool_prune",
+			"tool_prune_reattach",
+			"tool_prune_retry",
+			"output_reduce_injected",
+			"output_reduce_skipped",
+			"output_reduce_downgraded",
+			"stop_seq",
+			"streamcut",
+			"repdet",
+			"stale_read",
+			"obsolete_prune",
+			"beterse",
+			"host_budget_ok",
+		},
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 100,
+			ProxyLayer0ChunkRefs:     1,
+			ToolPrunePruned:          1,
+			ToolPruneReattach:        1,
+			ToolPruneRetry:           1,
+			OutputReduceInjected:     1,
+			OutputReduceSkipped:      1,
+			OutputReduceDowngrades:   1,
+			StopSeqRequestsModified:  1,
+			StreamcutFired:           1,
+			RepdetResponsesRewritten: 1,
+			StaleReadBlocksReplaced:  1,
+			ObsoleteReadBlocksPruned: 1,
+			BeterseInjections:        1,
+			HostBudgetStatus:         "ok",
+			HostBudgetCompressionOK:  true,
+			HostBudgetDegradationOK:  true,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"search_loop"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed {
+		t.Fatalf("extended signal proof should pass: %+v", report)
+	}
+	if got := report.CaptureReports[0].ExpectedReducerHits["host_budget_ok"]; got != 1 {
+		t.Fatalf("host_budget_ok hit = %d", got)
+	}
+}
+
+func TestWSSProofMatrixHostBudgetFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "host-budget-fail")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "host-budget-fail",
+		Client:        "cli",
+		WorkloadClass: "search_loop",
+		FramesPath:    framesPath,
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 100,
+			HostBudgetStatus:         "attention",
+			HostBudgetExceeded:       true,
+			HostBudgetReasons:        []string{"rss_budget_exceeded"},
+			HostBudgetCompressionOK:  true,
+			HostBudgetDegradationOK:  true,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"search_loop"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("host budget failure should fail matrix: %+v", report)
+	}
+	if !strings.Contains(strings.Join(report.CaptureReports[0].GateFailures, "\n"), "host budget not ok") {
+		t.Fatalf("missing host budget failure: %+v", report.CaptureReports[0].GateFailures)
+	}
+}
+
 func TestRunWSSProofMatrixJSONFailure(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

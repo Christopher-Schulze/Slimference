@@ -109,6 +109,13 @@ Tool pruning should be default-safe only when:
   proxy pruning full-passes on unknown schema, reattach is deterministic, and
   retry/cooldown are covered by offline tests. No additional offline code gap
   found; tool-heavy live corpus remains the blocker.
+- 2026-06-02: Proof-matrix live deltas now include tool-prune pruned,
+  reattached, miss, retry, always-keep, disabled-session, and token-saved
+  counters. Focused tool-heavy proof rows can require `tool_prune`,
+  `tool_prune_reattach`, `tool_prune_retry`, and `host_budget_ok`, while the
+  matrix still fails on non-zero WSS parse/degrade/compression errors. This
+  turns the remaining live proof into a strict gate for "saves schema tokens
+  without losing tool capability".
 
 ## Done
 

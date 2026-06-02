@@ -237,6 +237,13 @@ Initial targets for Apple Silicon macOS:
   envelope fields, so caller-owned mutation buffers cannot alias live frame
   state. This completes the copy-on-write direction for normal no-op WSS frames
   without changing model-facing semantics.
+- 2026-06-02: Host-budget state is now part of proof-matrix live deltas from
+  `codex-capture-run`: status, exceeded flag, reasons, RSS bytes, CPU window
+  percent, disk-write delta, state bytes, compression_ok, and degradation_ok.
+  `wss-proof-matrix` fails any new row that reports a non-ok host budget, and
+  focused gates can explicitly require `host_budget_ok`. Existing legacy rows
+  without host-budget fields remain readable, but new release/resource rows can
+  no longer pass while local overhead is in attention/degraded state.
 
 ## Done
 

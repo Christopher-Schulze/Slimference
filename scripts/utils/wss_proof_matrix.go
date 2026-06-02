@@ -131,6 +131,13 @@ Optional focused-proof gates:
   --min-desktop=N                 Minimum Desktop capture rows.
   --min-positive=N                Minimum positive-token or expected-zero rows.
 
+Expected signal names include:
+  read_delta, captured_output, codex_exec_envelope, repeated_output,
+  chunk_dedup, chunk_dedup_refs, tool_prune, tool_prune_reattach,
+  tool_prune_retry, output_reduce_injected, output_reduce_skipped,
+  output_reduce_downgraded, stop_seq, streamcut, repdet, stale_read,
+  obsolete_prune, beterse, host_budget_ok.
+
 Without focused-proof flags, the tool enforces the full release matrix:
 10 captures, 5 CLI, 5 Desktop, all release workload classes, and 7 positive/zero
 rows.`
@@ -322,6 +329,17 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 					fmt.Sprintf("live safety counters non-zero: parse=%d degraded=%d compression_errors=%d",
 						capture.LiveDelta.ParseFailures, capture.LiveDelta.DegradedSessions, capture.LiveDelta.CompressionErrors))
 			}
+			if capture.LiveDelta.HostBudgetStatus != "" {
+				if capture.LiveDelta.HostBudgetStatus != "ok" || capture.LiveDelta.HostBudgetExceeded || !capture.LiveDelta.HostBudgetCompressionOK || !capture.LiveDelta.HostBudgetDegradationOK {
+					capture.GateFailures = append(capture.GateFailures,
+						fmt.Sprintf("host budget not ok: status=%s exceeded=%t compression_ok=%t degradation_ok=%t reasons=%s",
+							capture.LiveDelta.HostBudgetStatus,
+							capture.LiveDelta.HostBudgetExceeded,
+							capture.LiveDelta.HostBudgetCompressionOK,
+							capture.LiveDelta.HostBudgetDegradationOK,
+							strings.Join(capture.LiveDelta.HostBudgetReasons, ",")))
+				}
+			}
 			hits, failures := validateExpectedReducers(capture.ExpectedReducers, capture.LiveDelta)
 			capture.ExpectedReducerHits = hits
 			capture.GateFailures = append(capture.GateFailures, failures...)
@@ -489,6 +507,37 @@ func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
 		return live.ProxyLayer0Repeated, true
 	case "chunk_dedup":
 		return live.ProxyLayer0ChunkDedup, true
+	case "chunk_dedup_refs":
+		return live.ProxyLayer0ChunkRefs, true
+	case "tool_prune":
+		return live.ToolPrunePruned, true
+	case "tool_prune_reattach":
+		return live.ToolPruneReattach, true
+	case "tool_prune_retry":
+		return live.ToolPruneRetry, true
+	case "output_reduce_injected":
+		return live.OutputReduceInjected, true
+	case "output_reduce_skipped":
+		return live.OutputReduceSkipped, true
+	case "output_reduce_downgraded":
+		return live.OutputReduceDowngrades, true
+	case "stop_seq":
+		return live.StopSeqRequestsModified, true
+	case "streamcut":
+		return live.StreamcutFired, true
+	case "repdet":
+		return live.RepdetResponsesRewritten, true
+	case "stale_read":
+		return live.StaleReadBlocksReplaced, true
+	case "obsolete_prune":
+		return live.ObsoleteReadBlocksPruned, true
+	case "beterse":
+		return live.BeterseInjections, true
+	case "host_budget_ok":
+		if live.HostBudgetStatus == "ok" && !live.HostBudgetExceeded && live.HostBudgetCompressionOK && live.HostBudgetDegradationOK {
+			return 1, true
+		}
+		return 0, true
 	default:
 		return 0, false
 	}

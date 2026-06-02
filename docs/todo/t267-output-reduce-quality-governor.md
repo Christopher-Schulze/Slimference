@@ -103,6 +103,15 @@ Output reduction becomes a runtime-governed layer:
   detection, proxy hot-path profile capping, immediate repair-signal cooldown,
   and repair lifecycle. Live corpus proof for aggressive direct-answer/status
   workloads remains deferred until the capture phase.
+- 2026-06-02: `codex-capture-run` now preserves output-reduce live counters in
+  proof-matrix rows: injected/skipped turns, input overhead, observed output
+  tokens, downgrade count, stop-sequence modifications, streamcut fires,
+  repdet rewrites, stale-read blocks, obsolete-prune blocks, and be-terse
+  injections. `wss-proof-matrix` can now require focused expected signals such
+  as `output_reduce_injected`, `output_reduce_skipped`, `output_reduce_downgraded`,
+  `stop_seq`, `streamcut`, `repdet`, `stale_read`, `obsolete_prune`, `beterse`,
+  and `host_budget_ok`. This makes aggressive-profile promotion a hard
+  live-evidence gate instead of a manual interpretation of admin counters.
 
 ## Done
 

@@ -121,6 +121,13 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 				FramesReencoded:           1,
 				PhasefMutations:           1,
 				ProxyLayer0ReadDelta:      1,
+				ProxyLayer0ChunkRefs:      2,
+				ToolPrunePruned:           3,
+				OutputReduceInjected:      4,
+				StopSeqRequestsModified:   5,
+				HostBudgetStatus:          "ok",
+				HostBudgetCompressionOK:   true,
+				HostBudgetDegradationOK:   true,
 			}, nil
 		},
 		runCodex: func(ctx context.Context, flags codexCaptureRunFlags, stdout, stderr io.Writer) error {
@@ -189,6 +196,83 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	}
 	if records[0].LiveDelta == nil || records[0].LiveDelta.BillableInputTokensSaved != 321 || records[0].LiveDelta.ProxyLayer0ReadDelta != 1 {
 		t.Fatalf("matrix row missing live token delta: %+v", records[0].LiveDelta)
+	}
+	if records[0].LiveDelta.ProxyLayer0ChunkRefs != 2 ||
+		records[0].LiveDelta.ToolPrunePruned != 3 ||
+		records[0].LiveDelta.OutputReduceInjected != 4 ||
+		records[0].LiveDelta.StopSeqRequestsModified != 5 ||
+		records[0].LiveDelta.HostBudgetStatus != "ok" ||
+		!records[0].LiveDelta.HostBudgetCompressionOK ||
+		!records[0].LiveDelta.HostBudgetDegradationOK {
+		t.Fatalf("matrix row missing extended live delta: %+v", records[0].LiveDelta)
+	}
+}
+
+func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
+	state, err := parseCodexCaptureAdminStateJSON([]byte(`{
+	  "savings": {
+	    "billable_input_tokens_saved": 10,
+	    "proxy_layer0_chunk_dedup_blocks": 1,
+	    "proxy_layer0_chunk_dedup_references": 4,
+	    "proxy_layer0_chunk_dedup_referenced_bytes": 8192,
+	    "proxy_layer0_chunk_dedup_input_bytes": 16384
+	  },
+	  "wss": {
+	    "phasef_bridged": 1,
+	    "parse_failures": 0,
+	    "degraded_sessions": 0,
+	    "compression_errors": 0
+	  },
+	  "tool_prune": {
+	    "pruned_total": 7,
+	    "reattach_total": 2,
+	    "miss_total": 1,
+	    "retry_total": 1,
+	    "always_keep_total": 5,
+	    "disabled_sessions": 1,
+	    "tokens_saved_sum": 120
+	  },
+	  "output_reduce": {
+	    "injected_turns": 3,
+	    "skipped_turns": 4,
+	    "input_overhead_tokens": 9,
+	    "output_tokens_observed": 200,
+	    "downgrades": [{"bucket":"x"}]
+	  },
+	  "output_reduce_counters": {
+	    "stop_seq_requests_modified": 1,
+	    "streamcut_fired": 2,
+	    "repdet_responses_rewritten": 3,
+	    "stale_read_blocks_replaced": 4,
+	    "obsolete_read_blocks_pruned": 5,
+	    "beterse_injections": 6
+	  },
+	  "host_budget": {
+	    "status": "ok",
+	    "exceeded": false,
+	    "rss_bytes": 123,
+	    "cpu_window_percent": 1.5,
+	    "disk_write_ops_delta": 8,
+	    "state_bytes": 456,
+	    "compression_ok": true,
+	    "degradation_ok": true
+	  }
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := codexCaptureAdminSnapshotFromState(state)
+	if snapshot.ProxyLayer0ChunkRefs != 4 || snapshot.ProxyLayer0ChunkRefB != 8192 || snapshot.ProxyLayer0ChunkInB != 16384 {
+		t.Fatalf("chunk fields missing: %+v", snapshot)
+	}
+	if snapshot.ToolPrunePruned != 7 || snapshot.ToolPruneReattach != 2 || snapshot.ToolPruneTokensSaved != 120 {
+		t.Fatalf("tool prune fields missing: %+v", snapshot)
+	}
+	if snapshot.OutputReduceInjected != 3 || snapshot.OutputReduceDowngrades != 1 || snapshot.BeterseInjections != 6 {
+		t.Fatalf("output reduce fields missing: %+v", snapshot)
+	}
+	if snapshot.HostBudgetStatus != "ok" || snapshot.HostBudgetRSSBytes != 123 || !snapshot.HostBudgetCompressionOK || !snapshot.HostBudgetDegradationOK {
+		t.Fatalf("host budget fields missing: %+v", snapshot)
 	}
 }
 

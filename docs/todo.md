@@ -1958,20 +1958,26 @@ be called complete, default-safe, and production-grade.
   excluded. Offline hardening now blocks patch/diff/edit outputs from chunk
   references, forbids same-output first-observation references, verifies chunk
   references through reconstructed A/B replay, and enforces per-output reference
-  density before accepted session budget accounting; live matrix proof remains. Detail:
+  density before accepted session budget accounting. Proof-matrix rows can now
+  require live `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; live
+  matrix proof remains. Detail:
   `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
 - [~] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact
   code/patch/explanation workflows. Offline hardening now caps aggressive
   profiles for read-only analysis and planning as safety-sensitive shapes and
-  turns repair/re-ask signals into immediate profile cooldowns.
+  turns repair/re-ask signals into immediate profile cooldowns. Proof-matrix
+  rows now carry output-reduce live counters and can require injected/skipped/
+  downgraded/stop-seq/streamcut/repdet/stale/obsolete/beterse signals.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
   default-safe savings lever through core-tool retention, mention reattach,
   missing-tool retry, cooldowns, and proof gates. Offline hardening now makes
   unknown/mixed tool schema shapes full-pass before pruning and keeps
-  reattached intent tools active through the same prune pass. Detail:
+  reattached intent tools active through the same prune pass. Proof-matrix rows
+  now carry tool-prune prune/reattach/miss/retry/always-keep/disabled/token
+  counters. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay
@@ -2010,7 +2016,9 @@ be called complete, default-safe, and production-grade.
   readcache, chunking, archive, and planner overhead, and exact large-text token
   counts are content-hash cached to keep repeated Codex read/search accounting
   cheap without changing model-facing semantics. Layer-0 latency demotion is
-  persisted with TTL and capped strike debt. Live resource proof remains. Detail:
+  persisted with TTL and capped strike debt. Proof-matrix rows now fail closed
+  on reported host-budget attention/degradation and can require `host_budget_ok`.
+  Live resource proof remains. Detail:
   `docs/todo/t272-host-resource-budget-maxx.md`
 
 ### Program-wide done criteria

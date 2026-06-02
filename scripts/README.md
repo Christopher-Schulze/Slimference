@@ -64,6 +64,7 @@ go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --json     
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost --json # auto-policy WSS reducer replay, including T255 when safe
 go run ./scripts/utils wss-proof-matrix captures/proof-matrix.jsonl --require-live-token-delta --json # T257 release proof gate: real live token deltas required
 go run ./scripts/utils wss-proof-matrix captures/search-proof.jsonl --require-live-token-delta --required-workload=search_loop --min-captures=2 --min-cli=1 --min-desktop=1 --min-positive=2 --json # focused mechanism gate, not a release substitute
+go run ./scripts/utils codex-capture-run --matrix-row /tmp/chunk-proof.jsonl --expected-reducer chunk_dedup --expected-reducer chunk_dedup_refs --expected-reducer host_budget_ok -- <prompt> # matrix rows can gate chunk refs, tool_prune, output_reduce_injected/skipped/downgraded, stop_seq, streamcut, repdet, stale_read, obsolete_prune, beterse, and host_budget_ok
 go run ./scripts/utils tls-probe --profile=chromium_stable --json
 go run ./scripts/utils/indist_probe capture --label codex-native-direct --out research/indist/codex-native-direct.json --iface en0 --host chatgpt.com --port 443
 go run ./scripts/utils/indist_probe diff research/indist/codex-native-direct.json research/indist/slimference-scoped-wss.json

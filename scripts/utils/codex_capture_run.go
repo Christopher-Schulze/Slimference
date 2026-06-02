@@ -84,10 +84,43 @@ type codexCaptureAdminSnapshot struct {
 	ProxyLayer0Envelope   int64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0Repeated   int64 `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedup int64 `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkRefs  int64 `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkRefB  int64 `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkInB   int64 `json:"proxy_layer0_chunk_dedup_input_bytes"`
+
+	ToolPrunePruned      int64 `json:"tool_prune_pruned_total"`
+	ToolPruneReattach    int64 `json:"tool_prune_reattach_total"`
+	ToolPruneMiss        int64 `json:"tool_prune_miss_total"`
+	ToolPruneRetry       int64 `json:"tool_prune_retry_total"`
+	ToolPruneAlwaysKeep  int64 `json:"tool_prune_always_keep_total"`
+	ToolPruneDisabled    int64 `json:"tool_prune_disabled_sessions"`
+	ToolPruneTokensSaved int64 `json:"tool_prune_tokens_saved_sum"`
+
+	OutputReduceInjected             int64 `json:"output_reduce_injected_turns"`
+	OutputReduceSkipped              int64 `json:"output_reduce_skipped_turns"`
+	OutputReduceInputOverheadTokens  int64 `json:"output_reduce_input_overhead_tokens"`
+	OutputReduceOutputTokensObserved int64 `json:"output_reduce_output_tokens_observed"`
+	OutputReduceDowngrades           int64 `json:"output_reduce_downgrades"`
+	StopSeqRequestsModified          int64 `json:"stop_seq_requests_modified"`
+	StreamcutFired                   int64 `json:"streamcut_fired"`
+	RepdetResponsesRewritten         int64 `json:"repdet_responses_rewritten"`
+	StaleReadBlocksReplaced          int64 `json:"stale_read_blocks_replaced"`
+	ObsoleteReadBlocksPruned         int64 `json:"obsolete_read_blocks_pruned"`
+	BeterseInjections                int64 `json:"beterse_injections"`
 
 	ParseFailures     int64 `json:"parse_failures"`
 	DegradedSessions  int64 `json:"degraded_sessions"`
 	CompressionErrors int64 `json:"compression_errors"`
+
+	HostBudgetStatus        string   `json:"host_budget_status,omitempty"`
+	HostBudgetExceeded      bool     `json:"host_budget_exceeded,omitempty"`
+	HostBudgetReasons       []string `json:"host_budget_reasons,omitempty"`
+	HostBudgetRSSBytes      int64    `json:"host_budget_rss_bytes,omitempty"`
+	HostBudgetCPUWindowPct  float64  `json:"host_budget_cpu_window_percent,omitempty"`
+	HostBudgetDiskWriteOps  int64    `json:"host_budget_disk_write_ops_delta,omitempty"`
+	HostBudgetStateBytes    int64    `json:"host_budget_state_bytes,omitempty"`
+	HostBudgetCompressionOK bool     `json:"host_budget_compression_ok,omitempty"`
+	HostBudgetDegradationOK bool     `json:"host_budget_degradation_ok,omitempty"`
 }
 
 type codexCaptureLiveDelta struct {
@@ -106,10 +139,77 @@ type codexCaptureLiveDelta struct {
 	ProxyLayer0Envelope   int64 `json:"proxy_layer0_codex_exec_envelope_blocks"`
 	ProxyLayer0Repeated   int64 `json:"proxy_layer0_repeated_output_blocks"`
 	ProxyLayer0ChunkDedup int64 `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkRefs  int64 `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkRefB  int64 `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkInB   int64 `json:"proxy_layer0_chunk_dedup_input_bytes"`
+
+	ToolPrunePruned      int64 `json:"tool_prune_pruned_total"`
+	ToolPruneReattach    int64 `json:"tool_prune_reattach_total"`
+	ToolPruneMiss        int64 `json:"tool_prune_miss_total"`
+	ToolPruneRetry       int64 `json:"tool_prune_retry_total"`
+	ToolPruneAlwaysKeep  int64 `json:"tool_prune_always_keep_total"`
+	ToolPruneDisabled    int64 `json:"tool_prune_disabled_sessions"`
+	ToolPruneTokensSaved int64 `json:"tool_prune_tokens_saved_sum"`
+
+	OutputReduceInjected             int64 `json:"output_reduce_injected_turns"`
+	OutputReduceSkipped              int64 `json:"output_reduce_skipped_turns"`
+	OutputReduceInputOverheadTokens  int64 `json:"output_reduce_input_overhead_tokens"`
+	OutputReduceOutputTokensObserved int64 `json:"output_reduce_output_tokens_observed"`
+	OutputReduceDowngrades           int64 `json:"output_reduce_downgrades"`
+	StopSeqRequestsModified          int64 `json:"stop_seq_requests_modified"`
+	StreamcutFired                   int64 `json:"streamcut_fired"`
+	RepdetResponsesRewritten         int64 `json:"repdet_responses_rewritten"`
+	StaleReadBlocksReplaced          int64 `json:"stale_read_blocks_replaced"`
+	ObsoleteReadBlocksPruned         int64 `json:"obsolete_read_blocks_pruned"`
+	BeterseInjections                int64 `json:"beterse_injections"`
 
 	ParseFailures     int64 `json:"parse_failures"`
 	DegradedSessions  int64 `json:"degraded_sessions"`
 	CompressionErrors int64 `json:"compression_errors"`
+
+	HostBudgetStatus        string   `json:"host_budget_status,omitempty"`
+	HostBudgetExceeded      bool     `json:"host_budget_exceeded,omitempty"`
+	HostBudgetReasons       []string `json:"host_budget_reasons,omitempty"`
+	HostBudgetRSSBytes      int64    `json:"host_budget_rss_bytes,omitempty"`
+	HostBudgetCPUWindowPct  float64  `json:"host_budget_cpu_window_percent,omitempty"`
+	HostBudgetDiskWriteOps  int64    `json:"host_budget_disk_write_ops_delta,omitempty"`
+	HostBudgetStateBytes    int64    `json:"host_budget_state_bytes,omitempty"`
+	HostBudgetCompressionOK bool     `json:"host_budget_compression_ok,omitempty"`
+	HostBudgetDegradationOK bool     `json:"host_budget_degradation_ok,omitempty"`
+}
+
+type codexCaptureAdminState struct {
+	control.SetupState
+	ToolPrune            codexCaptureToolPruneSnapshot            `json:"tool_prune"`
+	OutputReduce         codexCaptureOutputReduceSnapshot         `json:"output_reduce"`
+	OutputReduceCounters codexCaptureOutputReduceCountersSnapshot `json:"output_reduce_counters"`
+}
+
+type codexCaptureToolPruneSnapshot struct {
+	PrunedTotal      int64 `json:"pruned_total"`
+	ReattachTotal    int64 `json:"reattach_total"`
+	MissTotal        int64 `json:"miss_total"`
+	RetryTotal       int64 `json:"retry_total"`
+	AlwaysKeepTotal  int64 `json:"always_keep_total"`
+	DisabledSessions int   `json:"disabled_sessions"`
+	TokensSavedSum   int64 `json:"tokens_saved_sum"`
+}
+
+type codexCaptureOutputReduceSnapshot struct {
+	InjectedTurns        int64             `json:"injected_turns"`
+	SkippedTurns         int64             `json:"skipped_turns"`
+	InputOverheadTokens  int64             `json:"input_overhead_tokens"`
+	OutputTokensObserved int64             `json:"output_tokens_observed"`
+	Downgrades           []json.RawMessage `json:"downgrades,omitempty"`
+}
+
+type codexCaptureOutputReduceCountersSnapshot struct {
+	StopSeqRequestsModified  uint64 `json:"stop_seq_requests_modified"`
+	StreamcutFired           uint64 `json:"streamcut_fired"`
+	RepdetResponsesRewritten uint64 `json:"repdet_responses_rewritten"`
+	StaleReadBlocksReplaced  uint64 `json:"stale_read_blocks_replaced"`
+	ObsoleteReadBlocksPruned uint64 `json:"obsolete_read_blocks_pruned"`
+	BeterseInjections        uint64 `json:"beterse_injections"`
 }
 
 const codexCaptureRunHelpText = `codex-capture-run: run a scoped Codex CLI capture with a managed foreground daemon
@@ -513,14 +613,22 @@ func loadCodexCaptureAdminSnapshot(ctx context.Context, flags codexCaptureRunFla
 	if err != nil {
 		return codexCaptureAdminSnapshot{}, fmt.Errorf("read admin state body: %w", err)
 	}
-	state, err := parseAdminStateJSON(data)
+	state, err := parseCodexCaptureAdminStateJSON(data)
 	if err != nil {
 		return codexCaptureAdminSnapshot{}, err
 	}
 	return codexCaptureAdminSnapshotFromState(state), nil
 }
 
-func codexCaptureAdminSnapshotFromState(setup control.SetupState) codexCaptureAdminSnapshot {
+func parseCodexCaptureAdminStateJSON(data []byte) (codexCaptureAdminState, error) {
+	var state codexCaptureAdminState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return codexCaptureAdminState{}, fmt.Errorf("parse admin state JSON: %w", err)
+	}
+	return state, nil
+}
+
+func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptureAdminSnapshot {
 	return codexCaptureAdminSnapshot{
 		BillableInputTokensSaved: setup.Savings.BillableInputTokensSaved,
 		InputTokensSaved:         setup.Savings.InputTokensSaved,
@@ -537,10 +645,43 @@ func codexCaptureAdminSnapshotFromState(setup control.SetupState) codexCaptureAd
 		ProxyLayer0Envelope:   setup.Savings.ProxyLayer0Envelope,
 		ProxyLayer0Repeated:   setup.Savings.ProxyLayer0Repeated,
 		ProxyLayer0ChunkDedup: setup.Savings.ProxyLayer0ChunkDedup,
+		ProxyLayer0ChunkRefs:  setup.Savings.ProxyLayer0ChunkRefs,
+		ProxyLayer0ChunkRefB:  setup.Savings.ProxyLayer0ChunkRefBytes,
+		ProxyLayer0ChunkInB:   setup.Savings.ProxyLayer0ChunkInBytes,
+
+		ToolPrunePruned:      setup.ToolPrune.PrunedTotal,
+		ToolPruneReattach:    setup.ToolPrune.ReattachTotal,
+		ToolPruneMiss:        setup.ToolPrune.MissTotal,
+		ToolPruneRetry:       setup.ToolPrune.RetryTotal,
+		ToolPruneAlwaysKeep:  setup.ToolPrune.AlwaysKeepTotal,
+		ToolPruneDisabled:    int64(setup.ToolPrune.DisabledSessions),
+		ToolPruneTokensSaved: setup.ToolPrune.TokensSavedSum,
+
+		OutputReduceInjected:             setup.OutputReduce.InjectedTurns,
+		OutputReduceSkipped:              setup.OutputReduce.SkippedTurns,
+		OutputReduceInputOverheadTokens:  setup.OutputReduce.InputOverheadTokens,
+		OutputReduceOutputTokensObserved: setup.OutputReduce.OutputTokensObserved,
+		OutputReduceDowngrades:           int64(len(setup.OutputReduce.Downgrades)),
+		StopSeqRequestsModified:          int64(setup.OutputReduceCounters.StopSeqRequestsModified),
+		StreamcutFired:                   int64(setup.OutputReduceCounters.StreamcutFired),
+		RepdetResponsesRewritten:         int64(setup.OutputReduceCounters.RepdetResponsesRewritten),
+		StaleReadBlocksReplaced:          int64(setup.OutputReduceCounters.StaleReadBlocksReplaced),
+		ObsoleteReadBlocksPruned:         int64(setup.OutputReduceCounters.ObsoleteReadBlocksPruned),
+		BeterseInjections:                int64(setup.OutputReduceCounters.BeterseInjections),
 
 		ParseFailures:     setup.WSS.ParseFailures,
 		DegradedSessions:  setup.WSS.DegradedSessions,
 		CompressionErrors: setup.WSS.CompressionErrors,
+
+		HostBudgetStatus:        setup.HostBudget.Status,
+		HostBudgetExceeded:      setup.HostBudget.Exceeded,
+		HostBudgetReasons:       append([]string(nil), setup.HostBudget.Reasons...),
+		HostBudgetRSSBytes:      setup.HostBudget.RSSBytes,
+		HostBudgetCPUWindowPct:  setup.HostBudget.CPUWindowPercent,
+		HostBudgetDiskWriteOps:  setup.HostBudget.DiskWriteOpsDelta,
+		HostBudgetStateBytes:    setup.HostBudget.StateBytes,
+		HostBudgetCompressionOK: setup.HostBudget.CompressionOK,
+		HostBudgetDegradationOK: setup.HostBudget.DegradationOK,
 	}
 }
 
@@ -561,10 +702,43 @@ func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *co
 		ProxyLayer0Envelope:   nonNegativeDelta(current.ProxyLayer0Envelope, base.ProxyLayer0Envelope),
 		ProxyLayer0Repeated:   nonNegativeDelta(current.ProxyLayer0Repeated, base.ProxyLayer0Repeated),
 		ProxyLayer0ChunkDedup: nonNegativeDelta(current.ProxyLayer0ChunkDedup, base.ProxyLayer0ChunkDedup),
+		ProxyLayer0ChunkRefs:  nonNegativeDelta(current.ProxyLayer0ChunkRefs, base.ProxyLayer0ChunkRefs),
+		ProxyLayer0ChunkRefB:  nonNegativeDelta(current.ProxyLayer0ChunkRefB, base.ProxyLayer0ChunkRefB),
+		ProxyLayer0ChunkInB:   nonNegativeDelta(current.ProxyLayer0ChunkInB, base.ProxyLayer0ChunkInB),
+
+		ToolPrunePruned:      nonNegativeDelta(current.ToolPrunePruned, base.ToolPrunePruned),
+		ToolPruneReattach:    nonNegativeDelta(current.ToolPruneReattach, base.ToolPruneReattach),
+		ToolPruneMiss:        nonNegativeDelta(current.ToolPruneMiss, base.ToolPruneMiss),
+		ToolPruneRetry:       nonNegativeDelta(current.ToolPruneRetry, base.ToolPruneRetry),
+		ToolPruneAlwaysKeep:  nonNegativeDelta(current.ToolPruneAlwaysKeep, base.ToolPruneAlwaysKeep),
+		ToolPruneDisabled:    nonNegativeDelta(current.ToolPruneDisabled, base.ToolPruneDisabled),
+		ToolPruneTokensSaved: nonNegativeDelta(current.ToolPruneTokensSaved, base.ToolPruneTokensSaved),
+
+		OutputReduceInjected:             nonNegativeDelta(current.OutputReduceInjected, base.OutputReduceInjected),
+		OutputReduceSkipped:              nonNegativeDelta(current.OutputReduceSkipped, base.OutputReduceSkipped),
+		OutputReduceInputOverheadTokens:  nonNegativeDelta(current.OutputReduceInputOverheadTokens, base.OutputReduceInputOverheadTokens),
+		OutputReduceOutputTokensObserved: nonNegativeDelta(current.OutputReduceOutputTokensObserved, base.OutputReduceOutputTokensObserved),
+		OutputReduceDowngrades:           nonNegativeDelta(current.OutputReduceDowngrades, base.OutputReduceDowngrades),
+		StopSeqRequestsModified:          nonNegativeDelta(current.StopSeqRequestsModified, base.StopSeqRequestsModified),
+		StreamcutFired:                   nonNegativeDelta(current.StreamcutFired, base.StreamcutFired),
+		RepdetResponsesRewritten:         nonNegativeDelta(current.RepdetResponsesRewritten, base.RepdetResponsesRewritten),
+		StaleReadBlocksReplaced:          nonNegativeDelta(current.StaleReadBlocksReplaced, base.StaleReadBlocksReplaced),
+		ObsoleteReadBlocksPruned:         nonNegativeDelta(current.ObsoleteReadBlocksPruned, base.ObsoleteReadBlocksPruned),
+		BeterseInjections:                nonNegativeDelta(current.BeterseInjections, base.BeterseInjections),
 
 		ParseFailures:     nonNegativeDelta(current.ParseFailures, base.ParseFailures),
 		DegradedSessions:  nonNegativeDelta(current.DegradedSessions, base.DegradedSessions),
 		CompressionErrors: nonNegativeDelta(current.CompressionErrors, base.CompressionErrors),
+
+		HostBudgetStatus:        current.HostBudgetStatus,
+		HostBudgetExceeded:      current.HostBudgetExceeded,
+		HostBudgetReasons:       append([]string(nil), current.HostBudgetReasons...),
+		HostBudgetRSSBytes:      current.HostBudgetRSSBytes,
+		HostBudgetCPUWindowPct:  current.HostBudgetCPUWindowPct,
+		HostBudgetDiskWriteOps:  current.HostBudgetDiskWriteOps,
+		HostBudgetStateBytes:    current.HostBudgetStateBytes,
+		HostBudgetCompressionOK: current.HostBudgetCompressionOK,
+		HostBudgetDegradationOK: current.HostBudgetDegradationOK,
 	}
 }
 

@@ -139,3 +139,10 @@ it remains guarded by policy.
   `reducer_chunk_dedup_blocks=1`, `reducer_chunk_dedup_references=4`,
   `bytes_saved=32195`, and `gate_passed=true`. This is a real-frame reducer
   replay proof; a fresh live-token matrix row remains separate.
+- 2026-06-02: `codex-capture-run` and `wss-proof-matrix` now carry chunk
+  reference telemetry in matrix `live_delta`: `proxy_layer0_chunk_dedup_blocks`,
+  `proxy_layer0_chunk_dedup_references`, referenced bytes, and input bytes.
+  Chunk-specific live rows can now require both `--expected-reducer chunk_dedup`
+  and `--expected-reducer chunk_dedup_refs`, plus `host_budget_ok`, so a future
+  chunk proof cannot pass on replay bytes alone or on a block counter without
+  actual chunk references.
