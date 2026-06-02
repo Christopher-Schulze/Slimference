@@ -4052,3 +4052,24 @@ Validation:
   safety `parse/degraded/compression=0/0/0`, and now live WSS counters
   `compressed_messages_mutated=1`, `frames_reencoded=1`,
   `phasef_mutations=1`.
+
+## 2026-06-02 - T257 expected-reducer proof gate
+
+Goal: prevent proof rows from merely listing expected reducers as metadata.
+If a capture claims `expected_reducers`, the proof matrix should require those
+reducers to appear in the live token-delta counters.
+
+Changes:
+- `wss-proof-matrix` now exposes `expected_reducer_hits` per capture.
+- For rows with `live_delta`, known expected reducers must have positive live
+  counters:
+  `read_delta`, `captured_output`, `codex_exec_envelope`, `repeated_output`, and
+  `chunk_dedup`.
+- `none` is the explicit marker for expected-zero controls.
+- Unknown reducer names fail the row, so typoed proof metadata cannot inflate a
+  capture's apparent coverage.
+
+Validation:
+- Added tests for expected reducer hits and for failure on a missing/unknown
+  reducer.
+- `go test ./scripts/utils` passed.

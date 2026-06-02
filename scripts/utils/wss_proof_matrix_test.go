@@ -50,6 +50,10 @@ func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {
 		if i >= 5 {
 			client = "desktop"
 		}
+		expectedReducers := []string{"read_delta"}
+		if expectedZero {
+			expectedReducers = []string{"none"}
+		}
 		records = append(records, wssProofMatrixRecord{
 			ID:                  fmt.Sprintf("%s-%02d", client, i),
 			Client:              client,
@@ -60,7 +64,7 @@ func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {
 			SlimferenceCommit:   "test",
 			Repo:                "Slimference",
 			Model:               "gpt-5-codex",
-			ExpectedReducers:    []string{"read_delta"},
+			ExpectedReducers:    expectedReducers,
 			ExpectedZeroSavings: expectedZero,
 			LiveDelta:           proofMatrixLiveDelta(expectedZero),
 		})
@@ -79,6 +83,9 @@ func TestWSSProofMatrixPassesRepresentativeSet(t *testing.T) {
 	}
 	if report.PositiveTokenSavings != 9 || report.PositiveReplayByteSavings != 9 {
 		t.Fatalf("bad token/replay aggregate: %+v", report)
+	}
+	if got := report.CaptureReports[0].ExpectedReducerHits["read_delta"]; got != 1 {
+		t.Fatalf("expected reducer hit not recorded: %+v", report.CaptureReports[0].ExpectedReducerHits)
 	}
 }
 
@@ -105,6 +112,37 @@ func TestWSSProofMatrixLiveTokensGateBeatsReplayBytes(t *testing.T) {
 	}
 	if len(report.CaptureReports) != 1 || !strings.Contains(strings.Join(report.CaptureReports[0].GateFailures, "\n"), "live billable_input_tokens_saved") {
 		t.Fatalf("missing token gate failure: %+v", report.CaptureReports)
+	}
+}
+
+func TestWSSProofMatrixExpectedReducerGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "missing-reducer")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:               "missing-reducer",
+		Client:           "cli",
+		WorkloadClass:    "repeat_full_read",
+		FramesPath:       framesPath,
+		ExpectedReducers: []string{"read_delta", "not_a_reducer"},
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 100,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReport(matrixPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed || report.CapturesWithIssues != 1 {
+		t.Fatalf("expected reducer gate failure, got %+v", report)
+	}
+	failures := strings.Join(report.CaptureReports[0].GateFailures, "\n")
+	if !strings.Contains(failures, "expected reducer read_delta did not fire") ||
+		!strings.Contains(failures, "unknown expected reducer: not_a_reducer") {
+		t.Fatalf("missing reducer failures:\n%s", failures)
 	}
 }
 

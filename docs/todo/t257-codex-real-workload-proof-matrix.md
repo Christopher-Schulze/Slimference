@@ -213,6 +213,12 @@ both clients, and long-session behavior. This task turns "savings-proven in a ca
   is present and keeps replay `bytes_saved` only as the model-facing
   lost/regression proxy. This fixes the earlier ambiguity where byte replay was
   printed as the headline despite product savings being token savings.
+- 2026-06-02: `expected_reducers` is now a hard live-counter gate for new
+  token-delta rows. Known reducer names are `read_delta`, `captured_output`,
+  `codex_exec_envelope`, `repeated_output`, and `chunk_dedup`; each expected
+  reducer must have a positive live block counter. `none` is the explicit
+  expected-zero/control marker. Unknown reducer names fail the capture row so a
+  typo cannot make the proof look stronger than it is.
 
 ## Deviations
 

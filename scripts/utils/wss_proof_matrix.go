@@ -30,6 +30,7 @@ type wssProofMatrixCapture struct {
 	EndedAt             string                 `json:"ended_at,omitempty"`
 	ExpectedReducers    []string               `json:"expected_reducers,omitempty"`
 	ExpectedZeroSavings bool                   `json:"expected_zero_savings,omitempty"`
+	ExpectedReducerHits map[string]int64       `json:"expected_reducer_hits,omitempty"`
 	LiveDelta           *codexCaptureLiveDelta `json:"live_delta,omitempty"`
 	Replay              wssABReplayReport      `json:"replay"`
 	Audit               *wssAuditReport        `json:"audit,omitempty"`
@@ -217,6 +218,9 @@ func loadWSSProofMatrixReport(path string) (wssProofMatrixReport, error) {
 					fmt.Sprintf("live safety counters non-zero: parse=%d degraded=%d compression_errors=%d",
 						capture.LiveDelta.ParseFailures, capture.LiveDelta.DegradedSessions, capture.LiveDelta.CompressionErrors))
 			}
+			hits, failures := validateExpectedReducers(capture.ExpectedReducers, capture.LiveDelta)
+			capture.ExpectedReducerHits = hits
+			capture.GateFailures = append(capture.GateFailures, failures...)
 		} else if capture.Replay.Path != "" {
 			if !capture.ExpectedZeroSavings && capture.Replay.BytesSaved <= 0 {
 				capture.GateFailures = append(capture.GateFailures, "expected positive savings, no live token delta and replay bytes_saved<=0")
@@ -304,6 +308,53 @@ func validateWSSProofMetadata(capture wssProofMatrixCapture) []string {
 		failures = append(failures, "frames_path is required")
 	}
 	return failures
+}
+
+func validateExpectedReducers(expected []string, live *codexCaptureLiveDelta) (map[string]int64, []string) {
+	if len(expected) == 0 {
+		return nil, nil
+	}
+	hits := make(map[string]int64, len(expected))
+	var failures []string
+	for _, raw := range expected {
+		name := strings.TrimSpace(raw)
+		if name == "" || name == "none" {
+			continue
+		}
+		count, ok := liveReducerCount(name, live)
+		if !ok {
+			failures = append(failures, "unknown expected reducer: "+name)
+			continue
+		}
+		hits[name] = count
+		if count <= 0 {
+			failures = append(failures, fmt.Sprintf("expected reducer %s did not fire in live delta", name))
+		}
+	}
+	if len(hits) == 0 {
+		return nil, failures
+	}
+	return hits, failures
+}
+
+func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
+	if live == nil {
+		return 0, false
+	}
+	switch name {
+	case "read_delta":
+		return live.ProxyLayer0ReadDelta, true
+	case "captured_output":
+		return live.ProxyLayer0Captured, true
+	case "codex_exec_envelope":
+		return live.ProxyLayer0Envelope, true
+	case "repeated_output":
+		return live.ProxyLayer0Repeated, true
+	case "chunk_dedup":
+		return live.ProxyLayer0ChunkDedup, true
+	default:
+		return 0, false
+	}
 }
 
 func wssProofMatrixGateFailures(report wssProofMatrixReport) []string {
