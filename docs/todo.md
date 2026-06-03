@@ -2062,7 +2062,10 @@ be called complete, default-safe, and production-grade.
   failures force product attention with concrete TUI safety details. The base
   CLI+Desktop WSS release matrix now passes with 15 captures and live token
   deltas; mechanism-specific chunk/tool-prune/output-reduce and host-resource
-  proof gates remain.
+  proof gates are now represented by an explicit `benchmark-corpus --maxx-check`
+  gate that fails closed until the chunk-dedup, output-reduce, tool-heavy,
+  provider-cache long-session, and host-resource workday categories exist as
+  live operator evidence.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
 - [~] **T272** Host resource and latency budget max-out - `/admin/state` now
   exposes a product `host_budget` guard, policy has a demotion input, and
@@ -2115,10 +2118,11 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   test-failure output, apply/edit/read, long workday sessions, and no-savings
   control. Remaining breadth: chunk-dedup workloads, tool-heavy workflows,
   output-reduce workflows, and any mechanism-specific Desktop variants called
-  out below. Gate every window on positive net billable-input savings where a
-  saving mechanism is expected, `lost=0`, zero parse/degrade/compression errors,
-  no quality-canary spike, no unexpected recovery loop, and no visible workflow
-  degradation.
+  out below. `benchmark-corpus --maxx-check` now makes those mechanism-specific
+  categories a hard corpus gate instead of a prose-only reminder. Gate every
+  window on positive net billable-input savings where a saving mechanism is
+  expected, `lost=0`, zero parse/degrade/compression errors, no quality-canary
+  spike, no unexpected recovery loop, and no visible workflow degradation.
 - [ ] **T260 Layer 0 max-out closeout** - finish Desktop breadth and any
   uncovered corpus fixtures for parser families beyond the automatic scoped CLI
   proof. Large/late evidence must stay preserved, and any unproven parser shape

@@ -393,9 +393,16 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		"codex_desktop",
 		"repeat_read",
 		"long_workday",
+		"additional maxx mechanism categories",
+		"chunk_dedup_similar_outputs",
+		"output_reduce_aggressive",
+		"provider_cache_long_session",
+		"host_resource_long_workday",
 		"wss-proof-matrix ~/.slimference/captures/release-proof-20260531_080910.jsonl --require-live-token-delta --json",
 		"benchmark-corpus tests/fixtures/live_corpus --promotion-check",
+		"benchmark-corpus tests/fixtures/live_corpus --maxx-check",
 		"host-resource budget",
+		"maxx mechanism corpus",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("release runbook missing %q:\n%s", want, out)

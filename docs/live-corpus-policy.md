@@ -39,7 +39,8 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
 
    The release runbook prints the clean CI baseline, workday window commands,
    scoped CLI and Desktop launch commands, required live-corpus category plans,
-   WSS proof-matrix command, and the `benchmark-corpus --promotion-check` gate.
+   additional maxx mechanism category plans, WSS proof-matrix command, and the
+   `benchmark-corpus --promotion-check` / `--maxx-check` gates.
    It does not start capture or read private content; the operator still drives
    every live session and reviews every exported JSONL before commit.
 
@@ -100,6 +101,7 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    ```
    go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --check
    go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --promotion-check
+   go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus/ --maxx-check
    ```
 
    The gate fails if any category's measured ratio falls below its `expected_savings_min`, exceeds its `expected_savings_max`, has fewer requests than `expected_request_count`, exceeds `expected_max_errors`, exceeds `expected_latency_p95_max_ms`, misses an explicitly configured provider-cache/output-reduce threshold, exceeds explicitly configured planner replay thresholds (`expected_planner_missed_max`, `expected_planner_bypass_applied_max`), or fails any declared `scenario_validators`. Supported validators are `tool_heavy`, `cache_reuse`, `output_reduce`, `planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`, and `l2_summary`; unknown names fail the gate so typos cannot silently weaken evidence. The report also prints a factual layer-combination matrix (`L0+L1`, `L0+L1+L3`, `L4`, `WS`, `none`) so reviewers can see which combinations actually produced savings before adding stricter gates.
@@ -113,6 +115,14 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    budget, explicit re-read canary budget, explicit latency budget, and a
    positive savings floor. Missing metadata fails closed so no mechanism can be
    promoted from vague evidence.
+
+   `--maxx-check` includes the promotion gate and then requires the
+   mechanism-specific live workload classes that close the max-out program:
+   `chunk_dedup_similar_outputs`, `chunk_dedup_log_output`,
+   `chunk_dedup_test_output`, `output_reduce_aggressive`, `tool_heavy`,
+   `provider_cache_long_session`, and `host_resource_long_workday`. It is the
+   gate for "all currently planned savings mechanisms are broadly proven", not
+   just "the base release matrix is healthy".
 
 6. Commit. The fixture is now part of the CI regression contract.
 

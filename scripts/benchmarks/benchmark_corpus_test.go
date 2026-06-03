@@ -492,6 +492,46 @@ func writePromotionCorpus(t *testing.T, root string) {
 	}
 }
 
+func writeMaxxCorpus(t *testing.T, root string) {
+	t.Helper()
+	writePromotionCorpus(t, root)
+	for i, workload := range []string{
+		"chunk_dedup_similar_outputs",
+		"chunk_dedup_log_output",
+		"chunk_dedup_test_output",
+		"output_reduce_aggressive",
+		"tool_heavy",
+		"provider_cache_long_session",
+		"host_resource_long_workday",
+	} {
+		client := "codex_cli"
+		if i%2 == 1 {
+			client = "codex_desktop"
+		}
+		name := client + "_" + workload
+		meta := promotionMeta(name, client, workload)
+		switch workload {
+		case "output_reduce_aggressive":
+			meta.ExpectedOutputReduceAppliedMin = 1
+			meta.ScenarioValidators = []string{"output_reduce", "low_error"}
+		case "provider_cache_long_session":
+			meta.ExpectedProviderCacheReadMin = 100
+			meta.ScenarioValidators = []string{"cache_reuse", "low_error"}
+		case "host_resource_long_workday":
+			meta.ScenarioValidators = []string{"tool_heavy", "low_error"}
+		default:
+			meta.ScenarioValidators = []string{"tool_heavy", "low_error"}
+		}
+		session := sampleHighSavingsRecord
+		if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" || workload == "host_resource_long_workday" {
+			session = sampleEvidenceRecord
+		}
+		dir := writeCategory(t, root, name, meta, []string{session})
+		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+	}
+}
+
 func forceMetadataNumber(t *testing.T, path, key string, value int) {
 	t.Helper()
 	raw, err := os.ReadFile(path)
@@ -565,6 +605,50 @@ func TestEvaluatePromotionGate_FailsIncompleteRealMetadata(t *testing.T) {
 	for _, want := range []string{"evidence_level", "expected_max_errors", "expected_reread_count_max", "expected_latency_p95_max_ms"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in failures: %+v", want, gate)
+		}
+	}
+}
+
+func TestEvaluateMaxxGate_Pass(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMaxxCorpus(t, root)
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	gate := EvaluateMaxxGate(report)
+	if !gate.Passed {
+		t.Fatalf("expected maxx pass, got %+v", gate)
+	}
+	if gate.SessionsByWorkload["chunk_dedup_log_output"] != 1 ||
+		gate.SessionsByWorkload["provider_cache_long_session"] != 1 {
+		t.Fatalf("maxx workload counts: %+v", gate.SessionsByWorkload)
+	}
+}
+
+func TestEvaluateMaxxGate_FailsMissingMechanismBreadth(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writePromotionCorpus(t, root)
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	gate := EvaluateMaxxGate(report)
+	if gate.Passed {
+		t.Fatalf("expected maxx failure without mechanism breadth: %+v", gate)
+	}
+	got := strings.Join(gate.Failures, "\n")
+	for _, want := range []string{
+		"missing maxx workload_class chunk_dedup_similar_outputs",
+		"missing maxx workload_class output_reduce_aggressive",
+		"missing maxx workload_class tool_heavy",
+		"missing maxx workload_class provider_cache_long_session",
+		"missing maxx workload_class host_resource_long_workday",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures:\n%s", want, got)
 		}
 	}
 }

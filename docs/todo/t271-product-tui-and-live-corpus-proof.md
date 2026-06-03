@@ -66,6 +66,10 @@ Debug/audit view:
 4. [x] Define live-corpus promotion gates:
    - `benchmark-corpus --promotion-check` is the release/default-on gate, kept
      separate from the normal synthetic CI corpus gate
+   - `benchmark-corpus --maxx-check` includes the promotion gate and additionally
+     requires mechanism-specific live workload classes for chunk dedup,
+     output-reduce, tool pruning, provider-cache long sessions, and
+     host-resource workdays
    - requires at least five `codex_cli` sessions and five `codex_desktop`
      sessions
    - requires live workload classes: `repeat_read`, `ranged_read`,
@@ -174,3 +178,9 @@ gate is done when default promotions require live corpus evidence.
   explicit zero values for output-wire and provider-cache savings, so the TUI
   cannot blur `0` with "metric absent" and cannot invent a second headline from
   raw debug counters.
+- 2026-06-03: Added a separate `benchmark-corpus --maxx-check` gate. The normal
+  CI corpus gate stays synthetic-friendly, `--promotion-check` proves the base
+  CLI/Desktop release matrix, and `--maxx-check` fails closed until the
+  mechanism-specific workload classes for chunk dedup, output-reduce, tool
+  pruning, provider-cache long sessions, and host-resource workdays are all
+  present as live operator evidence.

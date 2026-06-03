@@ -202,6 +202,8 @@ func TestParseWSSProofMatrixFocusedFlags(t *testing.T) {
 		"--min-cli=2",
 		"--min-desktop=1",
 		"--min-positive=3",
+		"--expected-reducer", "chunk_dedup",
+		"--expected-reducer=host_budget_ok",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -212,8 +214,90 @@ func TestParseWSSProofMatrixFocusedFlags(t *testing.T) {
 	if strings.Join(flags.requiredWorkloads, ",") != "search_loop,git_status_diff,ranged_read" {
 		t.Fatalf("required workloads not parsed: %+v", flags.requiredWorkloads)
 	}
+	if strings.Join(flags.expectedReducers, ",") != "chunk_dedup,host_budget_ok" {
+		t.Fatalf("expected reducers not parsed: %+v", flags.expectedReducers)
+	}
 	if _, err := parseWSSProofMatrixFlags([]string{"--min-captures=-1"}); err == nil {
 		t.Fatal("negative minimum should fail")
+	}
+	if _, err := parseWSSProofMatrixFlags([]string{"--expected-reducer"}); err == nil {
+		t.Fatal("missing expected reducer value should fail")
+	}
+}
+
+func TestWSSProofMatrixRequiredReducerAggregateGate(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "aggregate-reducer")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "aggregate-reducer",
+		Client:        "desktop",
+		WorkloadClass: "similar_files",
+		FramesPath:    framesPath,
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 100,
+			ProxyLayer0ChunkDedup:    1,
+			ProxyLayer0ChunkRefs:     2,
+			HostBudgetStatus:         "ok",
+			HostBudgetCompressionOK:  true,
+			HostBudgetDegradationOK:  true,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"similar_files"},
+		expectedReducers:      []string{"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
+		minCaptures:           1,
+		minDesktop:            1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.GatePassed {
+		t.Fatalf("required reducer aggregate gate should pass: %+v", report)
+	}
+	if report.RequiredReducerHits["chunk_dedup_refs"] != 2 || report.RequiredReducerHits["host_budget_ok"] != 1 {
+		t.Fatalf("required reducer hits not recorded: %+v", report.RequiredReducerHits)
+	}
+}
+
+func TestWSSProofMatrixRequiredReducerAggregateGateFails(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	framesPath := filepath.Join(dir, "frames.jsonl")
+	writeProofRepeatReadFrames(t, framesPath, "aggregate-reducer-fail")
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "aggregate-reducer-fail",
+		Client:        "cli",
+		WorkloadClass: "similar_files",
+		FramesPath:    framesPath,
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 100,
+		},
+	})
+
+	report, err := loadWSSProofMatrixReportWithOptions(matrixPath, wssProofMatrixOptions{
+		requireLiveTokenDelta: true,
+		requiredWorkloads:     []string{"similar_files"},
+		expectedReducers:      []string{"chunk_dedup", "not_a_reducer"},
+		minCaptures:           1,
+		minCLI:                1,
+		minPositive:           1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed {
+		t.Fatalf("required reducer aggregate gate should fail: %+v", report)
+	}
+	failures := strings.Join(report.GateFailures, "\n")
+	if !strings.Contains(failures, "chunk_dedup") || !strings.Contains(failures, "unknown:not_a_reducer") {
+		t.Fatalf("missing required reducer failures: %s", failures)
 	}
 }
 

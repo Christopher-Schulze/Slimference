@@ -313,6 +313,15 @@ func runReleaseProofPlan(root string, now time.Time) int {
 		}
 	}
 	fmt.Println("")
+	fmt.Println("3b. Capture the additional maxx mechanism categories:")
+	for _, client := range releaseProofClients() {
+		fmt.Printf("   # %s\n", client)
+		for _, workload := range maxxProofWorkloads() {
+			fmt.Printf("   go run ./scripts/verify -mode live-corpus-plan -corpus-root %s -client %s -category %s\n",
+				root, client, workload)
+		}
+	}
+	fmt.Println("")
 	fmt.Println("4. Close all Codex sessions so WSS counters flush, then finish savings + host-resource measurement:")
 	fmt.Println("   go run ./scripts/utils workday-savings finish")
 	fmt.Println("")
@@ -320,8 +329,10 @@ func runReleaseProofPlan(root string, now time.Time) int {
 	fmt.Printf("   go run ./scripts/utils wss-proof-matrix %s --require-live-token-delta --json\n", matrixPath)
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check\n", root)
 	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --promotion-check --json\n", root)
+	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --maxx-check\n", root)
+	fmt.Printf("   go run ./scripts/benchmarks benchmark-corpus %s --maxx-check --json\n", root)
 	fmt.Println("")
-	fmt.Println("6. Promotion rule: default-on is allowed only if CI, WSS proof, workday savings, host-resource budget, and promotion corpus all pass with zero error/canary/latency regressions.")
+	fmt.Println("6. Promotion rule: default-on is allowed only if CI, WSS proof, workday savings, host-resource budget, promotion corpus, and maxx mechanism corpus all pass with zero error/canary/latency regressions.")
 	return 0
 }
 
@@ -339,6 +350,18 @@ func releaseProofWorkloads() []string {
 		"apply_patch_edit_read",
 		"large_tool_output",
 		"long_workday",
+	}
+}
+
+func maxxProofWorkloads() []string {
+	return []string{
+		"chunk_dedup_similar_outputs",
+		"chunk_dedup_log_output",
+		"chunk_dedup_test_output",
+		"output_reduce_aggressive",
+		"tool_heavy",
+		"provider_cache_long_session",
+		"host_resource_long_workday",
 	}
 }
 

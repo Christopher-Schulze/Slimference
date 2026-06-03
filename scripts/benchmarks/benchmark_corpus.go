@@ -92,6 +92,7 @@ type CorpusReport struct {
 	HasSynthetic       bool                 `json:"has_synthetic"`
 	HasReal            bool                 `json:"has_real"`
 	PromotionGate      *PromotionGateReport `json:"promotion_gate,omitempty"`
+	MaxxGate           *MaxxGateReport      `json:"maxx_gate,omitempty"`
 	SessionsByClient   map[string]int       `json:"sessions_by_client,omitempty"`
 	SessionsByWorkload map[string]int       `json:"sessions_by_workload,omitempty"`
 }
@@ -100,6 +101,18 @@ type CorpusReport struct {
 // from the ordinary corpus gate so synthetic CI smoke fixtures stay useful while
 // default-on changes still require real operator evidence.
 type PromotionGateReport struct {
+	Passed             bool           `json:"passed"`
+	RealCategories     int            `json:"real_categories"`
+	RealSessions       int            `json:"real_sessions"`
+	SessionsByClient   map[string]int `json:"sessions_by_client"`
+	SessionsByWorkload map[string]int `json:"sessions_by_workload"`
+	Failures           []string       `json:"failures,omitempty"`
+}
+
+// MaxxGateReport is the strict end-to-end evidence verdict for the user's
+// max-out bar: release proof plus the mechanism-specific proof breadth that
+// stays open after the base release matrix passes.
+type MaxxGateReport struct {
 	Passed             bool           `json:"passed"`
 	RealCategories     int            `json:"real_categories"`
 	RealSessions       int            `json:"real_sessions"`
@@ -355,6 +368,16 @@ var requiredPromotionWorkloads = []string{
 	"long_workday",
 }
 
+var requiredMaxxWorkloads = []string{
+	"chunk_dedup_similar_outputs",
+	"chunk_dedup_log_output",
+	"chunk_dedup_test_output",
+	"output_reduce_aggressive",
+	"tool_heavy",
+	"provider_cache_long_session",
+	"host_resource_long_workday",
+}
+
 // EvaluatePromotionGate applies the stricter release/default-promotion gate.
 // It intentionally ignores synthetic categories: synthetic data may keep CI
 // deterministic, but it cannot promote a savings mechanism into product default.
@@ -417,6 +440,38 @@ func EvaluatePromotionGate(report CorpusReport) PromotionGateReport {
 	}
 	gate.Passed = len(gate.Failures) == 0
 	return gate
+}
+
+// EvaluateMaxxGate applies the stricter whole-program max-out gate. It includes
+// the release/default-promotion gate and then requires the mechanism-specific
+// live workloads for chunk dedup, output-reduce, tool pruning, provider cache,
+// and host-resource proof.
+func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
+	promotion := EvaluatePromotionGate(report)
+	gate := MaxxGateReport{
+		RealCategories:     promotion.RealCategories,
+		RealSessions:       promotion.RealSessions,
+		SessionsByClient:   cloneCountMap(promotion.SessionsByClient),
+		SessionsByWorkload: cloneCountMap(promotion.SessionsByWorkload),
+	}
+	for _, failure := range promotion.Failures {
+		gate.Failures = append(gate.Failures, "promotion: "+failure)
+	}
+	for _, workload := range requiredMaxxWorkloads {
+		if got := gate.SessionsByWorkload[workload]; got <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("missing maxx workload_class %s", workload))
+		}
+	}
+	gate.Passed = len(gate.Failures) == 0
+	return gate
+}
+
+func cloneCountMap(in map[string]int) map[string]int {
+	out := make(map[string]int, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 // EvaluateCorpus walks the root directory and produces a CorpusReport.
@@ -571,6 +626,20 @@ func FormatCorpusReport(report CorpusReport) string {
 		sb.WriteString(fmt.Sprintf("  clients:      %s\n", formatCountMap(report.PromotionGate.SessionsByClient)))
 		sb.WriteString(fmt.Sprintf("  workloads:    %s\n", formatCountMap(report.PromotionGate.SessionsByWorkload)))
 	}
+	if report.MaxxGate != nil {
+		sb.WriteString("\nMaxx gate\n")
+		if report.MaxxGate.Passed {
+			sb.WriteString("  gate:         PASS\n")
+		} else {
+			sb.WriteString("  gate:         FAIL\n")
+			for _, f := range report.MaxxGate.Failures {
+				sb.WriteString(fmt.Sprintf("    - %s\n", f))
+			}
+		}
+		sb.WriteString(fmt.Sprintf("  real sessions:%d\n", report.MaxxGate.RealSessions))
+		sb.WriteString(fmt.Sprintf("  clients:      %s\n", formatCountMap(report.MaxxGate.SessionsByClient)))
+		sb.WriteString(fmt.Sprintf("  workloads:    %s\n", formatCountMap(report.MaxxGate.SessionsByWorkload)))
+	}
 	if report.HasSynthetic && !report.HasReal {
 		sb.WriteString("\nNOTE: corpus is synthetic-only. See docs/live-corpus-policy.md for the\n")
 		sb.WriteString("operator-driven path to a real-session corpus (T118b).\n")
@@ -643,12 +712,13 @@ func CorpusReportJSON(report CorpusReport) (string, error) {
 // runBenchmarkCorpus is the CLI entrypoint hooked from main.go.
 func runBenchmarkCorpus(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: benchmark-corpus <corpus-root> [--check] [--json] [--promotion-check]")
+		fmt.Fprintln(os.Stderr, "Usage: benchmark-corpus <corpus-root> [--check] [--json] [--promotion-check] [--maxx-check]")
 		return 2
 	}
 	check := false
 	jsonOut := false
 	promotionCheck := false
+	maxxCheck := false
 	var root string
 	for _, a := range args {
 		switch a {
@@ -658,6 +728,8 @@ func runBenchmarkCorpus(args []string) int {
 			jsonOut = true
 		case "--promotion-check":
 			promotionCheck = true
+		case "--maxx-check":
+			maxxCheck = true
 		default:
 			if strings.HasPrefix(a, "--") {
 				fmt.Fprintf(os.Stderr, "unknown flag %q\n", a)
@@ -686,6 +758,10 @@ func runBenchmarkCorpus(args []string) int {
 		gate := EvaluatePromotionGate(report)
 		report.PromotionGate = &gate
 	}
+	if maxxCheck {
+		gate := EvaluateMaxxGate(report)
+		report.MaxxGate = &gate
+	}
 	if jsonOut {
 		s, err := CorpusReportJSON(report)
 		if err != nil {
@@ -696,6 +772,9 @@ func runBenchmarkCorpus(args []string) int {
 		if promotionCheck && !report.PromotionGate.Passed {
 			return 1
 		}
+		if maxxCheck && !report.MaxxGate.Passed {
+			return 1
+		}
 		if check {
 			return corpusReportExitCode(report, root)
 		}
@@ -704,6 +783,10 @@ func runBenchmarkCorpus(args []string) int {
 	fmt.Print(FormatCorpusReport(report))
 	if promotionCheck && !report.PromotionGate.Passed {
 		fmt.Fprintf(os.Stdout, "benchmark-corpus promotion: FAIL on %s\n", root)
+		return 1
+	}
+	if maxxCheck && !report.MaxxGate.Passed {
+		fmt.Fprintf(os.Stdout, "benchmark-corpus maxx: FAIL on %s\n", root)
 		return 1
 	}
 	if check {

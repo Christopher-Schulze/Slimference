@@ -37,13 +37,15 @@ go run ./scripts/release --version v2.0.2       # Portable macOS-arm64 Release-T
 go run ./scripts/release --version v2.0.2 --targets=all  # Alle aktuell unterstützten Targets
 go run ./scripts/coverage -min=95.0              # Coverage-Gate (aggregate)
 go run ./scripts/benchmarks                      # Hot-path Benchmarks (3s): compression/filter/proxy/readcache/archive/chunk/planner
-go run ./scripts/benchmarks -- -benchtime=1s     # Schneller Durchlauf
-go run ./scripts/benchmarks -- -count=3          # 3 Runden für Stabilität
-go run ./scripts/benchmarks -- -pkg=compression  # Nur compression-Paket
-go run ./scripts/benchmarks -- -pkg=proxy        # Nur Codex/WSS Layer-0 Hotpath
+go run ./scripts/benchmarks -benchtime=1s        # Schneller Durchlauf
+go run ./scripts/benchmarks -count=3             # 3 Runden für Stabilität
+go run ./scripts/benchmarks -pkg=compression     # Nur compression-Paket
+go run ./scripts/benchmarks -pkg=proxy           # Nur Codex/WSS Layer-0 Hotpath
 go run ./scripts/benchmarks session-report tests/fixtures/codex
 go run ./scripts/benchmarks session-report --markdown tests/fixtures/codex
 go run ./scripts/benchmarks codex-smoke-gate tests/fixtures/codex   # CI-enforced regression gate
+go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --promotion-check # Base CLI/Desktop release corpus gate
+go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --maxx-check      # Base gate plus chunk/output/tool/provider-cache/resource mechanism breadth
 go run ./scripts/utils session-report ~/.slimference/analytics/2026-04-17.jsonl
 go run ./scripts/utils decision-report ~/.slimference/logs/decisions.jsonl --json
 go run ./scripts/utils filter-report ~/.slimference/filter.db --csv
@@ -63,7 +65,7 @@ go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-l
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --json          # machine-readable A/B report
 go run ./scripts/utils wss-ab-replay captures/codex-wss-frames.jsonl --fail-on-lost --json # auto-policy WSS reducer replay, including T255 when safe
 go run ./scripts/utils wss-proof-matrix captures/proof-matrix.jsonl --require-live-token-delta --json # T257 release proof gate: real live token deltas required
-go run ./scripts/utils wss-proof-matrix captures/search-proof.jsonl --require-live-token-delta --required-workload=search_loop --min-captures=2 --min-cli=1 --min-desktop=1 --min-positive=2 --json # focused mechanism gate, not a release substitute
+go run ./scripts/utils wss-proof-matrix captures/search-proof.jsonl --require-live-token-delta --required-workload=search_loop --min-captures=2 --min-cli=1 --min-desktop=1 --min-positive=2 --expected-reducer captured_output --json # focused mechanism gate, not a release substitute
 go run ./scripts/utils codex-capture-run --transport=wss --matrix-row /tmp/chunk-proof.jsonl --expected-reducer chunk_dedup --expected-reducer chunk_dedup_refs --expected-reducer host_budget_ok -- exec <prompt> # focused mechanism proofs can force wss; matrix rows can gate chunk refs, tool_prune, output_reduce_injected/skipped/downgraded, stop_seq, streamcut, repdet, stale_read, obsolete_prune, beterse, and host_budget_ok
 go run ./scripts/utils codex-capture-run --transport=wss --matrix-row /tmp/chunk-policy.jsonl --expected-reducer chunk_dedup -- exec <prompt> # prints live proxy_layer0_policy/cache deltas so zero live savings can be attributed to allow/block/full_pass/miss reasons without raw payloads
 go run ./scripts/utils tls-probe --profile=chromium_stable --json
