@@ -71,7 +71,7 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 
 - [x] **Hohe Go-Coverage** auf `cmd/`, `internal/` via `*_test.go` — produktive Pfade und Safety-Branches abgedeckt
 - [x] Coverage-Gate: Go-Tool unter **`scripts/coverage/`** — `go run ./scripts/coverage -min=95.0` implementiert + getestet
-- [x] Benchmarks: `scripts/benchmarks/main.go` — Runner fuer `go test -bench=.` ueber compression + filter; `internal/compression/bench_test.go` (8 Benchmarks: Compress_small/medium/large/code, StripANSI, StripComments, ExtractStructure); `internal/filter/bench_test.go` (7 Benchmarks: GitStatus, BuildOutput, JSONMinify, applyLayer0, Truncate); `go run ./scripts/benchmarks -- -benchtime=3s`
+- [x] Benchmarks: `scripts/benchmarks/main.go` — Runner fuer `go test -bench=.` ueber compression + filter; `internal/compression/bench_test.go` (8 Benchmarks: Compress_small/medium/large/code, StripANSI, StripComments, ExtractStructure); `internal/filter/bench_test.go` (7 Benchmarks: GitStatus, BuildOutput, JSONMinify, applyLayer0, Truncate); `go run ./scripts/benchmarks -benchtime=3s`
 - [x] **Zusätzliche** Testsuites: **`tests/ts/`** (TypeScript) — 6 Tests mit `bun:test`: session fixture schema-Validierung (3 Tests) + CLI integration (3 Tests); alle grün
 - [x] `tests/integration/` (Go), `tests/fixtures/`: 3 Integration-Tests (`//go:build integration`) grün: CompressesLargeConversation (ratio=0.80, layers=[1]), PassthroughNonCompressiblePath, HealthEndpoint; Fixtures: `sample_session.jsonl`, `sample_config.toml`
 - [x] Tests: Stil/Qualität wie `AGENTS.md` §5
@@ -2123,6 +2123,13 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   window on positive net billable-input savings where a saving mechanism is
   expected, `lost=0`, zero parse/degrade/compression errors, no quality-canary
   spike, no unexpected recovery loop, and no visible workflow degradation.
+  `wss-proof-inventory ~/.slimference/captures --json` now inventories local
+  proof-matrix rows without scanning raw WSS payloads; the current local
+  inventory has all base release workloads, 65 proof rows, 49 positive-token
+  rows, zero safety-issue rows, and still lacks the maxx classes
+  `chunk_dedup_log_output`, `chunk_dedup_test_output`,
+  `output_reduce_aggressive`, `tool_heavy`, `provider_cache_long_session`, and
+  `host_resource_long_workday`.
 - [ ] **T260 Layer 0 max-out closeout** - finish Desktop breadth and any
   uncovered corpus fixtures for parser families beyond the automatic scoped CLI
   proof. Large/late evidence must stay preserved, and any unproven parser shape

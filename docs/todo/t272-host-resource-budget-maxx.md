@@ -86,9 +86,9 @@ Initial targets for Apple Silicon macOS:
 4. Optimize only with evidence:
    - [x] cache exact large-text token counts by encoding + length + SHA-256
      content hash
-   - lazy JSON parsing for hot WSS request fields
-   - copy-on-write body mutation
-   - avoid full-body unmarshal for unneeded frames
+   - [x] lazy JSON parsing for hot WSS request fields
+   - [x] copy-on-write body mutation
+   - [x] avoid full-body unmarshal for unneeded frames
    - evaluate faster compression libraries only after profiling
    - keep one stripped Go binary unless evidence proves split binary needed
 5. Add resource proof output:

@@ -46,5 +46,5 @@ This task pairs with T96 (conversation-level dedup): T96 introduces the index, T
 
 ```
 go test ./internal/compression/...
-go run ./scripts/benchmarks -- -pkg=compression
+go run ./scripts/benchmarks -pkg=compression
 ```

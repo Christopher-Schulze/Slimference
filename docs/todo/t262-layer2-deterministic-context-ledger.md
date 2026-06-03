@@ -92,9 +92,9 @@ The ledger stores deterministic capsules:
 5. [~] Replace summary replacement with ledger insertion only behind proof:
    - [x] classical summary replacement is blocked by default, even when Layer 2
      background work is enabled
-   - default-off while shadowing
-   - shadow produces ledger sidecar and compares against direct context
-   - promotion only after live corpus proof
+   - [x] default-off while shadowing
+   - [x] shadow produces ledger sidecar and compares against direct context
+   - [ ] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
    - labelled in docs and admin state

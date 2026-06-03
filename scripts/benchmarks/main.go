@@ -4,9 +4,9 @@
 // Usage (from module root):
 //
 //	go run ./scripts/benchmarks                    # default: compression + filter, 3s
-//	go run ./scripts/benchmarks -- -benchtime=1s   # shorter run
-//	go run ./scripts/benchmarks -- -count=3        # 3 rounds for stability
-//	go run ./scripts/benchmarks -- -pkg=compression # single package
+//	go run ./scripts/benchmarks -benchtime=1s      # shorter run
+//	go run ./scripts/benchmarks -count=3           # 3 rounds for stability
+//	go run ./scripts/benchmarks -pkg=compression   # single package
 package main
 
 import (

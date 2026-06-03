@@ -897,7 +897,7 @@ Added benchmark functions and runner for performance regression tracking:
   `BenchmarkRunPipeline_gitStatus`, `BenchmarkApplyLayer0AfterANSI_noMatch`,
   `BenchmarkTruncateStdoutWithHint_noTrunc/truncates`
 - **`scripts/benchmarks/main.go`** (new) — standardized runner:
-  `go run ./scripts/benchmarks -- -benchtime=3s -count=1 -pkg=<name>`;
+  `go run ./scripts/benchmarks -benchtime=3s -count=1 -pkg=<name>`;
   runs `go test -bench=. -benchmem -run=^$` on compression + filter packages
 - **`scripts/README.md`** updated with concrete command examples
 

@@ -12,6 +12,7 @@
 //	go run ./scripts/utils wss-audit <decisions.jsonl> [--json]
 //	go run ./scripts/utils wss-ab-replay <frames.jsonl> [--json|--fail-on-lost|--archive-recovery-note|--codex-chunk-dedup]
 //	go run ./scripts/utils wss-proof-matrix <captures.jsonl> [--json] [--require-live-token-delta]
+//	go run ./scripts/utils wss-proof-inventory <dir-or-matrix.jsonl> [--json]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
 package main
 
@@ -33,7 +34,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, tls-probe")
 		os.Exit(1)
 	}
 
@@ -110,6 +111,8 @@ func main() {
 		os.Exit(runWSSABReplay(os.Args[2:], os.Stdout, os.Stderr))
 	case "wss-proof-matrix":
 		os.Exit(runWSSProofMatrix(os.Args[2:], os.Stdout, os.Stderr))
+	case "wss-proof-inventory":
+		os.Exit(runWSSProofInventory(os.Args[2:], os.Stdout, os.Stderr))
 	case "tls-probe":
 		os.Exit(runTLSProbe(os.Args[2:], os.Stdout, os.Stderr))
 	default:

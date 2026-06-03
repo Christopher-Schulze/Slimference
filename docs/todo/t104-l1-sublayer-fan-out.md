@@ -59,5 +59,5 @@ Spec asks for stage-partitioned parallelism (Stage 1: ANSI/image/JSON-compact in
 
 ```
 go test -race ./internal/compression/...
-go run ./scripts/benchmarks -- -benchtime=3s -pkg=compression
+go run ./scripts/benchmarks -benchtime=3s -pkg=compression
 ```

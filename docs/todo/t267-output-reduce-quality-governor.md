@@ -156,6 +156,11 @@ Output reduction becomes a runtime-governed layer:
   turn as code-edit, repair, or command-output relay. The result is more output
   savings where safe, with no added product drawdown because exact/repair/relay
   guards still trigger from the actual user instruction.
+- 2026-06-03: Offline proof scan over existing local WSS captures found no
+  positive live `output_reduce_injected`, `output_reduce_skipped`, or
+  `output_reduce_downgraded` rows. This is not a code failure; it means the
+  aggressive-output proof cannot be closed from the existing capture corpus and
+  must be run as a focused live workload before any stronger product claim.
 
 ## Done
 

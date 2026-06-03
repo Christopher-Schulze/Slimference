@@ -291,3 +291,10 @@ it remains guarded by policy.
   miss to `session_integrity_budget`, which full-passes chunk dedup while
   keeping lossless read-delta and exact repeated-output reducers enabled.
   Focused store, policy, and reducer tests cover the signal.
+- 2026-06-03: Local proof inventory now finds positive live chunk-dedup rows for
+  `chunk_dedup_similar_outputs` and live hits for both `chunk_dedup` and
+  `chunk_dedup_refs`. It also makes the remaining breadth explicit:
+  no committed live proof-matrix rows yet exist for `chunk_dedup_log_output` or
+  `chunk_dedup_test_output`, even though real log frames replay through the
+  offline chunk fallback and the live log workload saved earlier through the
+  stricter captured-output reducer.

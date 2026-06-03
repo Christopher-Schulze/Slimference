@@ -184,3 +184,13 @@ gate is done when default promotions require live corpus evidence.
   mechanism-specific workload classes for chunk dedup, output-reduce, tool
   pruning, provider-cache long sessions, and host-resource workdays are all
   present as live operator evidence.
+- 2026-06-03: Added `wss-proof-inventory`, a content-free inventory command for
+  local proof-matrix rows. It ignores raw WSS frame payloads, aggregates clients,
+  workload classes, expected reducers, live reducer hits, host-budget-ok rows,
+  positive-token rows, and missing release/maxx workload classes. Current local
+  capture inventory reports 13 matrix files, 65 rows, 48 CLI rows, 17 Desktop
+  rows, 49 positive-token rows, zero safety-issue rows, complete base release
+  workload coverage, and the exact remaining maxx gaps:
+  `chunk_dedup_log_output`, `chunk_dedup_test_output`,
+  `output_reduce_aggressive`, `tool_heavy`, `provider_cache_long_session`, and
+  `host_resource_long_workday`.

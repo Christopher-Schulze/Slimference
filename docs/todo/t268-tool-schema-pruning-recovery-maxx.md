@@ -144,6 +144,11 @@ Tool pruning should be default-safe only when:
   safety: actual user intent still reattaches by exact name, alias, or command
   family hint, and missing-tool 4xx recovery still retries once with the full
   schema.
+- 2026-06-03: Offline proof scan over existing local WSS captures found no
+  positive live `tool_prune` prune, reattach, retry, or token-saved rows. The
+  mechanism remains offline-hardened but not live-proven; closeout still
+  requires a focused tool-heavy capture where pruning saves schema tokens and
+  recovery counters prove no capability loss.
 
 ## Done
 
