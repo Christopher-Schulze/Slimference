@@ -18,19 +18,34 @@ type wssProofInventoryFlags struct {
 }
 
 type wssProofInventoryReport struct {
-	Path                    string           `json:"path"`
-	MatrixFiles             int              `json:"matrix_files"`
-	Rows                    int              `json:"rows"`
-	Clients                 map[string]int   `json:"clients"`
-	WorkloadClasses         map[string]int   `json:"workload_classes"`
-	ExpectedReducers        map[string]int   `json:"expected_reducers"`
-	LiveReducerHits         map[string]int64 `json:"live_reducer_hits"`
-	PositiveTokenRows       int              `json:"positive_token_rows"`
-	ExpectedZeroRows        int              `json:"expected_zero_rows"`
-	HostBudgetOKRows        int              `json:"host_budget_ok_rows"`
-	SafetyIssueRows         int              `json:"safety_issue_rows"`
-	MissingReleaseWorkloads []string         `json:"missing_release_workloads,omitempty"`
-	MissingMaxxWorkloads    []string         `json:"missing_maxx_workloads,omitempty"`
+	Path                    string                            `json:"path"`
+	MatrixFiles             int                               `json:"matrix_files"`
+	Rows                    int                               `json:"rows"`
+	Clients                 map[string]int                    `json:"clients"`
+	WorkloadClasses         map[string]int                    `json:"workload_classes"`
+	ExpectedReducers        map[string]int                    `json:"expected_reducers"`
+	LiveReducerHits         map[string]int64                  `json:"live_reducer_hits"`
+	PositiveTokenRows       int                               `json:"positive_token_rows"`
+	ExpectedZeroRows        int                               `json:"expected_zero_rows"`
+	HostBudgetOKRows        int                               `json:"host_budget_ok_rows"`
+	SafetyIssueRows         int                               `json:"safety_issue_rows"`
+	MissingReleaseWorkloads []string                          `json:"missing_release_workloads,omitempty"`
+	MissingMaxxWorkloads    []string                          `json:"missing_maxx_workloads,omitempty"`
+	MaxxWorkloadStatus      []wssProofInventoryWorkloadStatus `json:"maxx_workload_status,omitempty"`
+}
+
+type wssProofInventoryWorkloadStatus struct {
+	WorkloadClass     string           `json:"workload_class"`
+	Rows              int              `json:"rows"`
+	PositiveTokenRows int              `json:"positive_token_rows"`
+	ExpectedZeroRows  int              `json:"expected_zero_rows,omitempty"`
+	HostBudgetOKRows  int              `json:"host_budget_ok_rows"`
+	SafetyIssueRows   int              `json:"safety_issue_rows"`
+	ExpectedReducers  map[string]int   `json:"expected_reducers,omitempty"`
+	LiveReducerHits   map[string]int64 `json:"live_reducer_hits,omitempty"`
+	MissingSignals    []string         `json:"missing_signals,omitempty"`
+	Present           bool             `json:"present"`
+	Complete          bool             `json:"complete"`
 }
 
 var maxxWSSProofWorkloads = []string{
@@ -41,6 +56,16 @@ var maxxWSSProofWorkloads = []string{
 	"tool_heavy",
 	"provider_cache_long_session",
 	"host_resource_long_workday",
+}
+
+var maxxWSSProofRequiredSignals = map[string][]string{
+	"chunk_dedup_similar_outputs": {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
+	"chunk_dedup_log_output":      {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
+	"chunk_dedup_test_output":     {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
+	"output_reduce_aggressive":    {"output_reduce_injected", "host_budget_ok"},
+	"tool_heavy":                  {"tool_prune", "host_budget_ok"},
+	"provider_cache_long_session": {"provider_cache_read", "host_budget_ok"},
+	"host_resource_long_workday":  {"host_budget_ok"},
 }
 
 var inventoryReducerNames = []string{
@@ -136,6 +161,7 @@ func loadWSSProofInventory(path string) (wssProofInventoryReport, error) {
 		ExpectedReducers: make(map[string]int),
 		LiveReducerHits:  make(map[string]int64),
 	}
+	workloadStatus := make(map[string]*wssProofInventoryWorkloadStatus)
 	files, err := wssProofInventoryFiles(path)
 	if err != nil {
 		return wssProofInventoryReport{}, err
@@ -159,8 +185,15 @@ func loadWSSProofInventory(path string) (wssProofInventoryReport, error) {
 			if row.WorkloadClass != "" {
 				report.WorkloadClasses[row.WorkloadClass]++
 			}
+			status := inventoryWorkloadStatus(workloadStatus, row.WorkloadClass)
+			if status != nil {
+				status.Rows++
+			}
 			if row.ExpectedZeroSavings {
 				report.ExpectedZeroRows++
+				if status != nil {
+					status.ExpectedZeroRows++
+				}
 			}
 			for _, reducer := range row.ExpectedReducers {
 				name := strings.TrimSpace(reducer)
@@ -168,30 +201,103 @@ func loadWSSProofInventory(path string) (wssProofInventoryReport, error) {
 					continue
 				}
 				report.ExpectedReducers[name]++
+				if status != nil {
+					status.ExpectedReducers[name]++
+				}
 			}
 			if row.LiveDelta == nil {
 				continue
 			}
 			if row.LiveDelta.BillableInputTokensSaved > 0 {
 				report.PositiveTokenRows++
+				if status != nil {
+					status.PositiveTokenRows++
+				}
 			}
 			if row.LiveDelta.ParseFailures+row.LiveDelta.DegradedSessions+row.LiveDelta.CompressionErrors > 0 {
 				report.SafetyIssueRows++
+				if status != nil {
+					status.SafetyIssueRows++
+				}
 			}
 			for _, name := range inventoryReducerNames {
 				count, ok := liveReducerCount(name, row.LiveDelta)
 				if ok && count > 0 {
 					report.LiveReducerHits[name] += count
+					if status != nil {
+						status.LiveReducerHits[name] += count
+					}
 				}
 			}
 			if count, ok := liveReducerCount("host_budget_ok", row.LiveDelta); ok && count > 0 {
 				report.HostBudgetOKRows++
+				if status != nil {
+					status.HostBudgetOKRows++
+				}
 			}
 		}
 	}
 	report.MissingReleaseWorkloads = missingWSSProofWorkloads(report.WorkloadClasses, requiredWSSProofWorkloads)
 	report.MissingMaxxWorkloads = missingWSSProofWorkloads(report.WorkloadClasses, maxxWSSProofWorkloads)
+	report.MaxxWorkloadStatus = finalizeMaxxWorkloadStatus(workloadStatus)
 	return report, nil
+}
+
+func inventoryWorkloadStatus(values map[string]*wssProofInventoryWorkloadStatus, workloadClass string) *wssProofInventoryWorkloadStatus {
+	workloadClass = strings.TrimSpace(workloadClass)
+	if workloadClass == "" {
+		return nil
+	}
+	status := values[workloadClass]
+	if status != nil {
+		return status
+	}
+	status = &wssProofInventoryWorkloadStatus{
+		WorkloadClass:    workloadClass,
+		ExpectedReducers: make(map[string]int),
+		LiveReducerHits:  make(map[string]int64),
+	}
+	values[workloadClass] = status
+	return status
+}
+
+func finalizeMaxxWorkloadStatus(values map[string]*wssProofInventoryWorkloadStatus) []wssProofInventoryWorkloadStatus {
+	out := make([]wssProofInventoryWorkloadStatus, 0, len(maxxWSSProofWorkloads))
+	for _, workload := range maxxWSSProofWorkloads {
+		status := values[workload]
+		if status == nil {
+			status = &wssProofInventoryWorkloadStatus{
+				WorkloadClass:    workload,
+				ExpectedReducers: make(map[string]int),
+				LiveReducerHits:  make(map[string]int64),
+			}
+		}
+		status.Present = status.Rows > 0
+		status.MissingSignals = missingInventorySignals(status.LiveReducerHits, maxxWSSProofRequiredSignals[workload])
+		status.Complete = status.Present &&
+			status.PositiveTokenRows > 0 &&
+			status.SafetyIssueRows == 0 &&
+			status.HostBudgetOKRows > 0 &&
+			len(status.MissingSignals) == 0
+		if len(status.ExpectedReducers) == 0 {
+			status.ExpectedReducers = nil
+		}
+		if len(status.LiveReducerHits) == 0 {
+			status.LiveReducerHits = nil
+		}
+		out = append(out, *status)
+	}
+	return out
+}
+
+func missingInventorySignals(hits map[string]int64, required []string) []string {
+	var missing []string
+	for _, signal := range required {
+		if hits[signal] <= 0 {
+			missing = append(missing, signal)
+		}
+	}
+	return missing
 }
 
 func wssProofInventoryFiles(path string) ([]string, error) {
@@ -276,6 +382,19 @@ func writeWSSProofInventoryText(w io.Writer, report wssProofInventoryReport) {
 	if len(report.MissingMaxxWorkloads) > 0 {
 		fmt.Fprintf(w, "Missing maxx workloads: %s\n", strings.Join(report.MissingMaxxWorkloads, ", "))
 	}
+	if len(report.MaxxWorkloadStatus) > 0 {
+		fmt.Fprintln(w, "Maxx workload status:")
+		for _, status := range report.MaxxWorkloadStatus {
+			fmt.Fprintf(w, "  %s: rows=%d positive=%d host_budget_ok=%d safety_issues=%d missing_signals=%s complete=%v\n",
+				status.WorkloadClass,
+				status.Rows,
+				status.PositiveTokenRows,
+				status.HostBudgetOKRows,
+				status.SafetyIssueRows,
+				formatInventoryStringSlice(status.MissingSignals),
+				status.Complete)
+		}
+	}
 }
 
 func formatInventoryIntMap(values map[string]int) string {
@@ -308,4 +427,11 @@ func formatInventoryInt64Map(values map[string]int64) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", key, values[key]))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func formatInventoryStringSlice(values []string) string {
+	if len(values) == 0 {
+		return "(none)"
+	}
+	return strings.Join(values, ",")
 }

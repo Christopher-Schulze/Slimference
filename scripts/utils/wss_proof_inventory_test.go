@@ -29,6 +29,34 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 				HostBudgetDegradationOK:  true,
 			},
 		},
+		wssProofMatrixRecord{
+			ID:               "cli-provider-cache",
+			Client:           "cli",
+			WorkloadClass:    "provider_cache_long_session",
+			FramesPath:       framesPath,
+			ExpectedReducers: []string{"provider_cache_read", "host_budget_ok"},
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 17,
+				ProviderCacheReadTokens:  4444,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		},
+		wssProofMatrixRecord{
+			ID:               "desktop-log-chunk-incomplete",
+			Client:           "desktop",
+			WorkloadClass:    "chunk_dedup_log_output",
+			FramesPath:       framesPath,
+			ExpectedReducers: []string{"chunk_dedup", "chunk_dedup_refs"},
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved: 23,
+				ProxyLayer0Captured:      1,
+				HostBudgetStatus:         "ok",
+				HostBudgetCompressionOK:  true,
+				HostBudgetDegradationOK:  true,
+			},
+		},
 		map[string]string{"type": "response.completed", "client": "not-a-matrix"},
 	)
 
@@ -36,15 +64,24 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.MatrixFiles != 1 || report.Rows != 1 || report.Clients["cli"] != 1 || report.WorkloadClasses["search_loop"] != 1 {
+	if report.MatrixFiles != 1 || report.Rows != 3 || report.Clients["cli"] != 2 ||
+		report.Clients["desktop"] != 1 || report.WorkloadClasses["search_loop"] != 1 {
 		t.Fatalf("bad inventory aggregate: %+v", report)
 	}
-	if report.PositiveTokenRows != 1 || report.LiveReducerHits["captured_output"] != 1 ||
-		report.LiveReducerHits["provider_cache_read"] != 321 || report.HostBudgetOKRows != 1 {
+	if report.PositiveTokenRows != 3 || report.LiveReducerHits["captured_output"] != 2 ||
+		report.LiveReducerHits["provider_cache_read"] != 4765 || report.HostBudgetOKRows != 3 {
 		t.Fatalf("missing live signals: %+v", report)
 	}
-	if len(report.MissingMaxxWorkloads) == 0 {
+	if len(report.MissingMaxxWorkloads) == 0 || strings.Contains(strings.Join(report.MissingMaxxWorkloads, ","), "provider_cache_long_session") {
 		t.Fatalf("expected missing maxx workloads: %+v", report)
+	}
+	providerStatus := findInventoryWorkloadStatus(t, report, "provider_cache_long_session")
+	if !providerStatus.Complete || len(providerStatus.MissingSignals) != 0 {
+		t.Fatalf("provider cache workload should be complete: %+v", providerStatus)
+	}
+	logStatus := findInventoryWorkloadStatus(t, report, "chunk_dedup_log_output")
+	if logStatus.Complete || !strings.Contains(strings.Join(logStatus.MissingSignals, ","), "chunk_dedup") {
+		t.Fatalf("log chunk workload should expose missing chunk signals: %+v", logStatus)
 	}
 }
 
@@ -70,4 +107,15 @@ func TestRunWSSProofInventoryJSON(t *testing.T) {
 	if !strings.Contains(stdout.String(), `"rows": 1`) || !strings.Contains(stdout.String(), `"repeat_full_read": 1`) {
 		t.Fatalf("unexpected json output: %s", stdout.String())
 	}
+}
+
+func findInventoryWorkloadStatus(t *testing.T, report wssProofInventoryReport, workload string) wssProofInventoryWorkloadStatus {
+	t.Helper()
+	for _, status := range report.MaxxWorkloadStatus {
+		if status.WorkloadClass == workload {
+			return status
+		}
+	}
+	t.Fatalf("missing workload status for %s: %+v", workload, report.MaxxWorkloadStatus)
+	return wssProofInventoryWorkloadStatus{}
 }

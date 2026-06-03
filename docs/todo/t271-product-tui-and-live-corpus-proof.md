@@ -201,3 +201,13 @@ gate is done when default promotions require live corpus evidence.
   billable-input reducer savings. This makes the future
   `provider_cache_long_session` maxx category proofable by actual provider-cache
   counters instead of workload name alone.
+- 2026-06-03: Extended `wss-proof-inventory` from a presence checklist into a
+  maxx workload status gate. It now reports, for each maxx workload, row count,
+  positive-token rows, host-budget-ok rows, safety issues, live reducer hits,
+  missing required signals, and a `complete` boolean. Current local captures show
+  `chunk_dedup_similar_outputs` complete and the remaining maxx gaps precisely:
+  `chunk_dedup_log_output` and `chunk_dedup_test_output` have no live chunk-ref
+  rows yet, `output_reduce_aggressive` has no `output_reduce_injected` row,
+  `tool_heavy` has no `tool_prune` row, `provider_cache_long_session` has no
+  `provider_cache_read` row, and `host_resource_long_workday` has no
+  `host_budget_ok` row.
