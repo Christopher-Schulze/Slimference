@@ -2151,7 +2151,11 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility
   now fail-closes for server-state side effects, and HTTP debug records split
   Anthropic cache-read tokens from OpenAI/Codex cached-token fields; do not claim
-  provider-cache savings as local token deletion.
+  provider-cache savings as local token deletion. Codex WSS proof rows now carry
+  `provider_cache_read_tokens` and `provider_cache_create_tokens`, and
+  `wss-proof-matrix`/`wss-proof-inventory` can gate
+  `provider_cache_read`/`provider_cache_create`; the remaining work is the real
+  long-session capture that makes those counters positive.
 - [x] **T264 read/ranged/repeated-output closeout** - finish fresh Desktop
   live-token proof for read, ranged-read, repeated-command, repeated-search,
   and repeated non-file output hits. First reads stay full-pass; only
