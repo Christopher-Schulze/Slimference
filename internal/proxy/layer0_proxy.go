@@ -54,23 +54,24 @@ const (
 )
 
 type codexLayer0Request struct {
-	Route                 codexLayer0Route
-	Messages              []types.Message
-	SessionID             string
-	TurnID                string
-	RememberedToolUse     map[string]types.ContentBlock
-	SuppressedToolKey     map[string]struct{}
-	RecentFullPassTurns   int
-	ChunkDedupEnabled     bool
-	ExplicitChunkDedup    bool
-	ChunkDedupMinBytes    int
-	ChunkDedupMaxRefPct   int
-	ChunkStore            *chunkdedup.Store
-	PolicyMode            string
-	ArchiveRecovery       bool
-	RecentEditUncertainty bool
-	HostBudgetExceeded    bool
-	LatencyBudgetExceeded bool
+	Route                   codexLayer0Route
+	Messages                []types.Message
+	SessionID               string
+	TurnID                  string
+	RememberedToolUse       map[string]types.ContentBlock
+	SuppressedToolKey       map[string]struct{}
+	RecentFullPassTurns     int
+	ChunkDedupEnabled       bool
+	ExplicitChunkDedup      bool
+	ChunkDedupMinBytes      int
+	ChunkDedupMaxRefPct     int
+	ChunkStore              *chunkdedup.Store
+	PolicyMode              string
+	ArchiveRecovery         bool
+	RecentEditUncertainty   bool
+	HostBudgetExceeded      bool
+	LatencyBudgetExceeded   bool
+	ChunkIntegrityBudgetHit bool
 }
 
 type codexLayer0Result struct {
@@ -349,6 +350,10 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 			} else if filter.SearchOutputKeyFromCommandLine(commandLine) != "" {
 				workload = savingspolicy.CodexWorkloadSearch
 			}
+			chunkIntegrityBudgetHit := req.ChunkIntegrityBudgetHit
+			if !chunkIntegrityBudgetHit && req.ChunkStore != nil {
+				chunkIntegrityBudgetHit = !req.ChunkStore.ReferenceBudgetAvailableAfterInput(req.SessionID, len(block.Text), req.ChunkDedupMinBytes)
+			}
 			_, postCollapseReRead := req.SuppressedToolKey[toolKey]
 			policy := savingspolicy.DecideCodexToolOutput(savingspolicy.CodexToolOutputInput{
 				Mode:                     req.PolicyMode,
@@ -364,6 +369,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				RecentEditUncertainty:    recentEditUncertainty && !readCtx.RecentlyEdited,
 				HostBudgetExceeded:       req.HostBudgetExceeded,
 				LatencyBudgetExceeded:    req.LatencyBudgetExceeded,
+				ChunkIntegrityBudgetHit:  chunkIntegrityBudgetHit,
 			})
 			stats.PolicyDecisions = append(stats.PolicyDecisions, policy.Mechanisms...)
 			if policy.Loosened || (!policy.ReadDelta && !policy.RepeatedOutput && !policy.ChunkDedup) {

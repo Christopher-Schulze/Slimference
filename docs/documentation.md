@@ -647,9 +647,10 @@ full text. The legacy
 `codex_chunk_dedup_enabled=true` toggle remains as an explicit override for
 conservative policy, not as the normal product path.
 Runtime demotion inputs also cover quality spikes, archive recovery loops,
-missing-tool retries, degraded routes, host-budget pressure, and negative-savings
-history. Any supplied demotion signal forces managed Codex tool-output reducers
-to full-pass and records the exact content-free reason in mechanism telemetry.
+missing-tool retries, degraded routes, host-budget pressure, chunk
+session-integrity budget pressure, and negative-savings history. Any supplied
+demotion signal full-passes the affected managed Codex tool-output reducer and
+records the exact content-free reason in mechanism telemetry.
 Per-output and cumulative session reference-density caps are enforced as byte
 budgets during encoding, not as a crude all-or-nothing rejection. A candidate can
 replace repeated chunks only until the remaining budget is exhausted; repeated
@@ -659,6 +660,13 @@ budget's denominator counts every observed output sent through the chunk store,
 including first-send seed outputs and candidates that produced no accepted
 references. Those bytes were visible to the model and therefore increase the safe
 budget for later references instead of blocking the first useful overlap hit.
+Layer-0 also asks the chunk store for a content-free "budget available after this
+candidate" signal before policy evaluation. If the session budget cannot support
+another useful chunk reference, the policy full-passes only chunk dedup with
+reason `session_integrity_budget`; lossless read-delta and exact repeated-output
+reducers remain eligible. This avoids spending hot-path CPU on a recoverable
+reference mechanism that the integrity budget would reject while preserving the
+safe cache hits.
 The store is bounded by `codex_chunk_dedup_max_sessions`,
 `codex_chunk_dedup_max_chunks_per_session`, and
 `codex_chunk_dedup_ttl_seconds`; the default min block size is 4096 bytes so

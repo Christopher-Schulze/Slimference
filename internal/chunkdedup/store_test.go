@@ -149,6 +149,30 @@ func TestStore_SessionReferenceBudgetCountsSeedOutputs(t *testing.T) {
 	}
 }
 
+func TestStore_ReferenceBudgetAvailableReflectsRemainingBudget(t *testing.T) {
+	t.Parallel()
+	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 20}, archiveFake(nil))
+	data := genBytes(64*1024, 32)
+
+	if !store.ReferenceBudgetAvailable("s1", 4096) {
+		t.Fatal("new sessions should have budget available so first outputs can seed")
+	}
+	store.EncodeWithReportWithMaxReferencePercent("s1", data, 100)
+	if !store.ReferenceBudgetAvailable("s1", 4096) {
+		t.Fatal("seed output should create budget for later references")
+	}
+	result := store.EncodeWithReportWithMaxReferencePercent("s1", data, 100)
+	if result.Saved <= 0 || !result.Verified {
+		t.Fatalf("second output should consume reference budget: saved=%d verified=%v", result.Saved, result.Verified)
+	}
+	if store.ReferenceBudgetAvailable("s1", len(data)) {
+		t.Fatalf("session should not report enough budget for another full-size reference after consumption: result=%+v", result)
+	}
+	if store.ReferenceBudgetAvailable("", 1) {
+		t.Fatal("empty session id should not report available budget")
+	}
+}
+
 func TestStore_OutputReferenceBudgetLimitsReferences(t *testing.T) {
 	t.Parallel()
 	store := NewStoreWithLimits(Config{}, StoreLimits{MaxSessionRefPct: 60}, archiveFake(nil))

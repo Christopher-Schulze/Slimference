@@ -143,6 +143,7 @@ type CodexToolOutputInput struct {
 	HostBudgetExceeded       bool
 	LatencyBudgetExceeded    bool
 	NegativeSavingsHistory   bool
+	ChunkIntegrityBudgetHit  bool
 }
 
 type CodexToolOutputDecision struct {
@@ -246,6 +247,9 @@ func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
 		return fullPass(base, "post_collapse_reread_full_context")
 	}
 	if in.SessionIntegrityBudgetHit {
+		if in.Risk == CodexRiskLossless && (in.Recovery == CodexRecoveryExact || in.Recovery == CodexRecoveryNone) {
+			return allow(base, "lossless_or_exact_reducer_integrity_budget", false)
+		}
 		return fullPass(base, "session_integrity_budget")
 	}
 	if in.HostBudgetExceeded && in.Risk == CodexRiskLossless && (in.Recovery == CodexRecoveryExact || in.Recovery == CodexRecoveryNone) {
@@ -283,28 +287,29 @@ func DecideCodexMechanism(in CodexMechanismInput) CodexMechanismDecision {
 
 func chunkMechanismInput(in CodexToolOutputInput, mode CodexMode) CodexMechanismInput {
 	return CodexMechanismInput{
-		Mode:                     string(mode),
-		Route:                    in.Route,
-		Client:                   in.Client,
-		Workload:                 in.Workload,
-		Mechanism:                CodexMechanismChunkDedup,
-		Risk:                     CodexRiskRecoverable,
-		Recovery:                 CodexRecoveryArchive,
-		Proof:                    CodexProofLive,
-		ArchiveRecoveryAvailable: in.ArchiveRecoveryAvailable,
-		Explicit:                 in.ExplicitChunkDedup,
-		OutputBytes:              in.OutputBytes,
-		MinBytes:                 in.ChunkMinBytes,
-		RecentlyEdited:           in.RecentlyEdited,
-		PostCollapseReRead:       in.PostCollapseReRead,
-		RecentEditUncertainty:    in.RecentEditUncertainty,
-		QualitySpike:             in.QualitySpike,
-		ArchiveRecoveryLoop:      in.ArchiveRecoveryLoop,
-		MissingToolRetry:         in.MissingToolRetry,
-		DegradedRoute:            in.DegradedRoute,
-		HostBudgetExceeded:       in.HostBudgetExceeded,
-		LatencyBudgetExceeded:    in.LatencyBudgetExceeded,
-		NegativeSavingsHistory:   in.NegativeSavingsHistory,
+		Mode:                      string(mode),
+		Route:                     in.Route,
+		Client:                    in.Client,
+		Workload:                  in.Workload,
+		Mechanism:                 CodexMechanismChunkDedup,
+		Risk:                      CodexRiskRecoverable,
+		Recovery:                  CodexRecoveryArchive,
+		Proof:                     CodexProofLive,
+		ArchiveRecoveryAvailable:  in.ArchiveRecoveryAvailable,
+		Explicit:                  in.ExplicitChunkDedup,
+		OutputBytes:               in.OutputBytes,
+		MinBytes:                  in.ChunkMinBytes,
+		RecentlyEdited:            in.RecentlyEdited,
+		PostCollapseReRead:        in.PostCollapseReRead,
+		RecentEditUncertainty:     in.RecentEditUncertainty,
+		QualitySpike:              in.QualitySpike,
+		ArchiveRecoveryLoop:       in.ArchiveRecoveryLoop,
+		MissingToolRetry:          in.MissingToolRetry,
+		DegradedRoute:             in.DegradedRoute,
+		HostBudgetExceeded:        in.HostBudgetExceeded,
+		LatencyBudgetExceeded:     in.LatencyBudgetExceeded,
+		NegativeSavingsHistory:    in.NegativeSavingsHistory,
+		SessionIntegrityBudgetHit: in.ChunkIntegrityBudgetHit,
 	}
 }
 
@@ -337,23 +342,24 @@ func toolOutputMechanismDecisions(in CodexToolOutputInput, mode CodexMode) []Cod
 		}
 	}
 	common := CodexMechanismInput{
-		Mode:                     string(mode),
-		Route:                    in.Route,
-		Client:                   in.Client,
-		Workload:                 workload,
-		ArchiveRecoveryAvailable: in.ArchiveRecoveryAvailable,
-		OutputBytes:              in.OutputBytes,
-		MinBytes:                 in.ChunkMinBytes,
-		RecentlyEdited:           in.RecentlyEdited,
-		PostCollapseReRead:       in.PostCollapseReRead,
-		RecentEditUncertainty:    in.RecentEditUncertainty,
-		QualitySpike:             in.QualitySpike,
-		ArchiveRecoveryLoop:      in.ArchiveRecoveryLoop,
-		MissingToolRetry:         in.MissingToolRetry,
-		DegradedRoute:            in.DegradedRoute,
-		HostBudgetExceeded:       in.HostBudgetExceeded,
-		LatencyBudgetExceeded:    in.LatencyBudgetExceeded,
-		NegativeSavingsHistory:   in.NegativeSavingsHistory,
+		Mode:                      string(mode),
+		Route:                     in.Route,
+		Client:                    in.Client,
+		Workload:                  workload,
+		ArchiveRecoveryAvailable:  in.ArchiveRecoveryAvailable,
+		OutputBytes:               in.OutputBytes,
+		MinBytes:                  in.ChunkMinBytes,
+		RecentlyEdited:            in.RecentlyEdited,
+		PostCollapseReRead:        in.PostCollapseReRead,
+		RecentEditUncertainty:     in.RecentEditUncertainty,
+		QualitySpike:              in.QualitySpike,
+		ArchiveRecoveryLoop:       in.ArchiveRecoveryLoop,
+		MissingToolRetry:          in.MissingToolRetry,
+		DegradedRoute:             in.DegradedRoute,
+		HostBudgetExceeded:        in.HostBudgetExceeded,
+		LatencyBudgetExceeded:     in.LatencyBudgetExceeded,
+		NegativeSavingsHistory:    in.NegativeSavingsHistory,
+		SessionIntegrityBudgetHit: in.ChunkIntegrityBudgetHit,
 	}
 	decisions := []CodexMechanismDecision{
 		DecideCodexMechanism(withMechanism(common, CodexMechanismReadDelta, CodexRiskLossless, CodexRecoveryExact, CodexProofLive, false)),

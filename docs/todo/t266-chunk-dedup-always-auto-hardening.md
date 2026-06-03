@@ -66,9 +66,9 @@ Chunk dedup may be always-auto only for routes/workloads where:
    - [x] no chunk refs for active patch/diff/edit outputs
    - [x] no chunk refs under recent edit uncertainty
 2. Add integrity budget:
-   - per-session ratio of referenced bytes to total tool-output bytes
-   - per-output maximum reference density
-   - automatic full-pass when budget is exceeded
+   - [x] per-session ratio of referenced bytes to total tool-output bytes
+   - [x] per-output maximum reference density
+   - [x] automatic full-pass when budget is exceeded
 3. Strengthen recovery:
    - [x] archive id for every referenced chunk group
    - [x] exact local decode self-check before returning a changed stream
@@ -285,3 +285,9 @@ it remains guarded by policy.
   `recent_edit_uncertain_chunk_full_context` while leaving lossless reducers
   enabled. Focused policy and reducer tests prove a fresh post-edit command
   output with prior chunk overlap does not receive `context-chunk` references.
+- 2026-06-03: Wired the cumulative session reference budget into runtime policy
+  instead of leaving it only inside the encoder. The chunk store now exposes a
+  content-free budget-available-after-candidate signal; Layer-0 maps a budget
+  miss to `session_integrity_budget`, which full-passes chunk dedup while
+  keeping lossless read-delta and exact repeated-output reducers enabled.
+  Focused store, policy, and reducer tests cover the signal.

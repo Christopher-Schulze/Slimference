@@ -1983,7 +1983,9 @@ be called complete, default-safe, and production-grade.
   references through reconstructed A/B replay, and enforces per-output reference
   density before accepted session budget accounting. Same-batch edit uncertainty
   now demotes only chunk dedup while leaving lossless reducers available, so
-  fresh post-edit outputs stay full context. Proof-matrix rows can now
+  fresh post-edit outputs stay full context; the cumulative session reference
+  budget now also feeds runtime policy as `session_integrity_budget`, again
+  demoting only chunk dedup while preserving lossless reducers. Proof-matrix rows can now
   require live `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; live
   matrix proof remains, with the latest live zero-hit root cause identified as
   `host_budget_full_context` from `cpu_window_budget_exceeded`, not reducer
@@ -2045,12 +2047,13 @@ be called complete, default-safe, and production-grade.
   before mutation. Detail:
   `docs/todo/t269-wss-frame-mutation-frontier.md`
 - [x] **T270** Runtime savings policy autopilot - runtime demotion ports now
-  force managed reducers to full-pass on quality, recovery-loop, missing-tool,
-  degraded-route, host-budget, or negative-savings signals, and planner L2
-  `run` now requires the explicit model-facing legacy summary gate instead of
-  `layer2_enabled` alone. Layer-0 latency demotion now persists with capped
-  strike debt and automatic cheap-frame recovery across proxy restarts. Live
-  signal feeding remains a later proof/wiring task. Detail:
+  full-pass affected managed reducers on quality, recovery-loop, missing-tool,
+  degraded-route, host-budget, chunk session-integrity budget, or
+  negative-savings signals without disabling unrelated lossless reducers, and
+  planner L2 `run` now requires the explicit model-facing legacy summary gate
+  instead of `layer2_enabled` alone. Layer-0 latency demotion now persists with
+  capped strike debt and automatic cheap-frame recovery across proxy restarts.
+  Live signal feeding remains a later proof/wiring task. Detail:
   `docs/todo/t270-runtime-savings-policy-autopilot.md`
 - [~] **T271** Product TUI signals and live-corpus proof gates - `/admin/state`
   now exposes the content-free `savings.product` rollup and the TUI default

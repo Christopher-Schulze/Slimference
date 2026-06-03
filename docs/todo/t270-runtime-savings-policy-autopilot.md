@@ -16,9 +16,10 @@ drawdowns show up.
 - Offline hardening done:
   - Codex tool-output policy now has typed demotion inputs for quality spikes,
     archive recovery loops, missing-tool retries, degraded routes, host-budget
-    pressure, and negative-savings history
-  - any supplied demotion signal forces a full-pass decision for managed Codex
-    tool-output reducers
+    pressure, chunk session-integrity budget pressure, and negative-savings
+    history
+  - supplied demotion signals full-pass the affected managed Codex tool-output
+    reducers without disabling unrelated lossless reducers
   - mechanism telemetry reports the exact demotion reason, so the product can
     explain why savings loosened without logging content
   - planner Layer 2 `run` now requires the explicit legacy model-facing summary
@@ -125,3 +126,9 @@ static bookkeeping, remove it from the hot path or move it to reporting.
   debt is capped at the demotion threshold, restored across proxy restart for 30
   minutes, and cleared by cheap frames. Regression coverage proves demotion,
   restart persistence, capped strikes, recovery, and recovered restart state.
+- 2026-06-03: Chunk session-integrity budget is now a real runtime input, not
+  only a typed mechanism field. Layer-0 asks the chunk store whether the session
+  has enough reference budget after the current candidate, then demotes only
+  chunk dedup with `session_integrity_budget` when the recoverable reference
+  budget is exhausted. Lossless read-delta and exact repeated-output stay
+  eligible. Focused store, policy, and reducer tests prove the path.

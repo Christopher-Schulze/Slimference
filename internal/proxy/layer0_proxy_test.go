@@ -805,6 +805,58 @@ func TestReduceCodexLayer0ChunkDedupReferenceDensityGuard(t *testing.T) {
 	}
 }
 
+func TestReduceCodexLayer0ChunkDedupSessionBudgetPreDemotesChunk(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{}, chunkdedup.StoreLimits{MaxSessionRefPct: 20}, func(_, id string, chunk []byte) string {
+		if len(chunk) == 0 || id == "" {
+			return ""
+		}
+		return "local-archive://" + id
+	})
+	shared := strings.Repeat("chunk session integrity guard line keeps context recoverable\n", 1200)
+	messagesFor := func(id, path, tail string) []types.Message {
+		return []types.Message{
+			{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: id, ToolName: "Read", ToolInput: `{"path":"` + path + `"}`}}},
+			{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: id, Text: shared + tail}}},
+		}
+	}
+	req := func(messages []types.Message) codexLayer0Request {
+		return codexLayer0Request{
+			Route:               codexLayer0RouteWSSPhaseF,
+			Messages:            messages,
+			SessionID:           "chunk-session-budget-policy",
+			ChunkStore:          store,
+			ArchiveRecovery:     true,
+			ChunkDedupEnabled:   true,
+			ChunkDedupMinBytes:  1,
+			ChunkDedupMaxRefPct: 100,
+			PolicyMode:          "auto",
+		}
+	}
+
+	seed := reduceCodexLayer0(req(messagesFor("read-a", "a.txt", "first tail\n")))
+	if seed.Stats.ChunkDedupBlocks != 0 || seed.Stats.TokensSaved != 0 {
+		t.Fatalf("first output should seed only: %+v", seed.Stats)
+	}
+	second := reduceCodexLayer0(req(messagesFor("read-b", "b.txt", "second tail\n")))
+	if second.Stats.ChunkDedupBlocks != 1 || second.Stats.TokensSaved <= 0 {
+		t.Fatalf("second output should consume bounded chunk budget: %+v", second.Stats)
+	}
+	thirdReq := req(messagesFor("read-c", "c.txt", "third tail\n"))
+	thirdReq.ChunkIntegrityBudgetHit = true
+	third := reduceCodexLayer0(thirdReq)
+	if third.Stats.ChunkDedupBlocks != 0 || strings.Contains(third.Messages[1].Content[0].Text, "context-chunk") {
+		t.Fatalf("exhausted session budget should pre-demote chunk refs: stats=%+v text=%q", third.Stats, third.Messages[1].Content[0].Text)
+	}
+	if actionForMechanism(third.Stats.PolicyDecisions, savingspolicy.CodexMechanismChunkDedup) != savingspolicy.CodexPolicyFullPass {
+		t.Fatalf("policy should explain chunk budget full-pass: %+v", third.Stats.PolicyDecisions)
+	}
+	if actionForMechanism(third.Stats.PolicyDecisions, savingspolicy.CodexMechanismRepeatedOutput) != savingspolicy.CodexPolicyAllow {
+		t.Fatalf("lossless repeated-output should stay allowed under chunk budget pressure: %+v", third.Stats.PolicyDecisions)
+	}
+}
+
 func TestReduceCodexLayer0ChunkDedupSkipsPatchAndDiffOutputs(t *testing.T) {
 	store := chunkdedup.NewStoreWithLimits(chunkdedup.Config{}, chunkdedup.StoreLimits{MaxSessionRefPct: 100}, func(_, id string, chunk []byte) string {
 		return "local-archive://" + id

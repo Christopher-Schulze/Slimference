@@ -385,6 +385,26 @@ func TestDecideCodexToolOutputRecentEditUncertaintyOnlyDemotesChunk(t *testing.T
 	}
 }
 
+func TestDecideCodexToolOutputChunkIntegrityBudgetOnlyDemotesChunk(t *testing.T) {
+	t.Parallel()
+	got := DecideCodexToolOutput(CodexToolOutputInput{
+		Mode:                     string(CodexModeAuto),
+		Route:                    CodexRouteWSSPhaseF,
+		ArchiveRecoveryAvailable: true,
+		OutputBytes:              9000,
+		ChunkMinBytes:            1,
+		ChunkIntegrityBudgetHit:  true,
+	})
+	if got.Loosened || !got.ReadDelta || !got.RepeatedOutput || got.ChunkDedup {
+		t.Fatalf("chunk integrity budget should keep lossless reducers but demote chunk: %+v", got)
+	}
+	if actionForMechanism(got.Mechanisms, CodexMechanismReadDelta) != CodexPolicyAllow ||
+		actionForMechanism(got.Mechanisms, CodexMechanismRepeatedOutput) != CodexPolicyAllow ||
+		actionForMechanism(got.Mechanisms, CodexMechanismChunkDedup) != CodexPolicyFullPass {
+		t.Fatalf("chunk integrity budget mechanism actions mismatch: %+v", got.Mechanisms)
+	}
+}
+
 func TestDecideCodexToolOutputIncludesShadowTelemetryForFutureCandidates(t *testing.T) {
 	t.Parallel()
 	got := DecideCodexToolOutput(CodexToolOutputInput{

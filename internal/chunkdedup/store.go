@@ -246,6 +246,42 @@ func (s *Store) remainingReferenceBudgetLocked(session *sessionChunks) int {
 	return remaining
 }
 
+// ReferenceBudgetAvailable reports whether the session still has enough
+// cumulative reference budget for another useful reference. It is content-free
+// and lets the runtime policy full-pass chunk-dedup before spending hot-path
+// CPU on an encode that would be rejected by the session integrity budget.
+func (s *Store) ReferenceBudgetAvailable(sessionID string, minReferenceBytes int) bool {
+	return s.ReferenceBudgetAvailableAfterInput(sessionID, 0, minReferenceBytes)
+}
+
+// ReferenceBudgetAvailableAfterInput is ReferenceBudgetAvailable evaluated as
+// if inputBytes were about to be observed as model-facing context. This mirrors
+// Encode's integrity-budget denominator without mutating store state.
+func (s *Store) ReferenceBudgetAvailableAfterInput(sessionID string, inputBytes, minReferenceBytes int) bool {
+	if s == nil || sessionID == "" {
+		return false
+	}
+	if minReferenceBytes <= 0 {
+		minReferenceBytes = 1
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session := s.sessions[sessionID]
+	if session == nil {
+		return true
+	}
+	limit := s.limits.MaxSessionRefPct
+	if limit <= 0 || limit >= 100 {
+		return true
+	}
+	if inputBytes < 0 {
+		inputBytes = 0
+	}
+	maxRef := (session.inBytes + inputBytes) * limit / 100
+	remaining := maxRef - session.refBytes
+	return remaining >= minReferenceBytes
+}
+
 func encodePlan(data []byte, plan chunkPlan, maxReferenceBytes int, archive func(id string, chunk []byte) (string, bool)) EncodeResult {
 	var out bytes.Buffer
 	out.Grow(len(data))
