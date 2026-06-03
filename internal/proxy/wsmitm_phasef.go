@@ -21,6 +21,7 @@ import (
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/staleread"
 	"github.com/slimference/slimference/internal/tokens"
+	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/toolusecache"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -193,6 +194,9 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		turnID := meta.PreviousResponseID
 		a.hydrateToolUses(sessionID)
 		rememberedToolUses := a.loadToolUses()
+		if !wssBodyHasUserPromptInput(out) {
+			a.observeWSSToolPruneUsage(sessionID, messages)
+		}
 		reReadKeys, count := a.observeWSSQualityToolKeysForSession(sessionID, turnID, messages, rememberedToolUses)
 		reReadCount = count
 		suppressedKeys := a.restoreKeysForReReads(reReadKeys)
@@ -254,6 +258,12 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			a.p.recordCodexLayer0Stats(stats)
 		}
 	}
+	if pruned, changed := a.applyWSSToolPrune(out, messages, meta.SessionID); changed {
+		out = pruned
+		if refreshed, _, err := extractMessages(types.CodexChatGPT, out); err == nil {
+			messages = refreshed
+		}
+	}
 	if injected, stats := a.applyWSSOutputReduce(out); stats.Reason != "disabled" {
 		if stats.Applied {
 			out = injected
@@ -291,6 +301,74 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		a.rememberWSSQualityCohort(recordCohort)
 	}
 	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta
+}
+
+func (a *wsPhaseFAdapter) observeWSSToolPruneUsage(sessionID string, messages []types.Message) {
+	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
+		return
+	}
+	used := extractUsedToolNames(messages)
+	if len(used) == 0 {
+		return
+	}
+	a.p.toolPrune.ObserveTurn(sessionID, used)
+}
+
+func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Message, sessionID string) ([]byte, bool) {
+	if a == nil || a.p == nil || a.p.toolPrune == nil || !a.p.config.Compression.Tuning.ToolPruneEnabled {
+		return body, false
+	}
+	if sessionID == "" || !wssBodyHasUserPromptInput(body) {
+		return body, false
+	}
+	out := body
+	reattachedToolNames := []string(nil)
+	if mentions := messageMentionsAnyPrunedTool(messages, a.p.toolPrune, sessionID); len(mentions) > 0 {
+		defs := a.p.toolPrune.PeekPrunedDefs(sessionID, mentions)
+		if reattached, n, err := toolprune.ReattachToolDefinitions(out, types.CodexChatGPT, defs); err == nil && n > 0 {
+			a.p.toolPrune.ForgetPrunedDefs(sessionID, mentions)
+			out = reattached
+			reattachedToolNames = make([]string, 0, len(defs))
+			for name := range defs {
+				reattachedToolNames = append(reattachedToolNames, name)
+			}
+			for range n {
+				a.p.toolPrune.MarkReattached()
+			}
+		}
+	}
+	toolNames, schemaSafe := toolprune.ExtractToolNamesForPruning(out, types.CodexChatGPT)
+	if !schemaSafe || len(toolNames) == 0 {
+		return out, !bytes.Equal(body, out)
+	}
+	usedToolNames := extractUsedToolNames(messages)
+	usedToolNames = append(usedToolNames, reattachedToolNames...)
+	a.p.toolPrune.ObserveTurn(sessionID, usedToolNames)
+	decision := a.p.toolPrune.DecideWithOptions(sessionID, toolNames, toolprune.DecisionOptions{
+		MinKeep:    1,
+		AlwaysKeep: a.p.config.Compression.Tuning.ToolPruneAlwaysKeep,
+	})
+	a.p.toolPrune.MarkAlwaysKept(decision.AlwaysKept)
+	if len(decision.Pruned) == 0 {
+		return out, !bytes.Equal(body, out)
+	}
+	toPrune := make(map[string]bool, len(decision.Pruned))
+	for _, name := range decision.Pruned {
+		toPrune[name] = true
+	}
+	prunedBody, removed, err := toolprune.PruneToolDefinitions(out, types.CodexChatGPT, toPrune)
+	if err != nil || len(removed) == 0 {
+		return out, !bytes.Equal(body, out)
+	}
+	saved := tokens.ForProvider(types.CodexChatGPT).CountString(string(out)) - tokens.ForProvider(types.CodexChatGPT).CountString(string(prunedBody))
+	if saved <= 0 {
+		return out, !bytes.Equal(body, out)
+	}
+	for name, def := range removed {
+		a.p.toolPrune.RememberPrunedDef(sessionID, name, def)
+	}
+	a.p.toolPrune.MarkPruned(saved)
+	return prunedBody, true
 }
 
 func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte) ([]byte, outputreduce.Stats) {

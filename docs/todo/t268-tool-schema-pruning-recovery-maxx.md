@@ -153,6 +153,14 @@ Tool pruning should be default-safe only when:
   `SLIMFERENCE_TOOL_PRUNE_ENABLED` and
   `SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP`. These make live proof captures
   reproducible without changing the committed default-off product config.
+- 2026-06-03: Wired the same strict tool-prune safety model into Codex WSS
+  Phase-F. WSS tool-call frames now feed observed tool names into the
+  per-session tracker, while actual `tools[]` pruning only runs on prompt/user
+  request bodies with a known Codex tool schema. Unknown schemas full-pass,
+  core/always-keep tools survive, reattached tools stay active in the same
+  pass, and tests cover idle pruning, unknown-schema full-pass, and current
+  user-intent reattach. The remaining `tool_heavy` gap is now live proof,
+  not missing WSS wiring.
 
 ## Done
 

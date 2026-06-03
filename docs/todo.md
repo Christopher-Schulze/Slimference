@@ -2043,7 +2043,10 @@ be called complete, default-safe, and production-grade.
   project-specific always-keep tools now match case-insensitively. Reattach
   mention detection now reads current user/system/developer instruction text
   only, so historical assistant/tool output cannot reattach idle tools by
-  accident. Detail:
+  accident. Codex WSS Phase-F now uses the same strict pruner on prompt/user
+  turns, observes WSS tool-call names for session activity, and full-passes
+  unknown tool schemas. The `tool_heavy` maxx gap is now live proof, not missing
+  WSS wiring. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay

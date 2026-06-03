@@ -17,6 +17,7 @@ import (
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/staleread"
+	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
 	"github.com/slimference/slimference/internal/wscompact"
 )
@@ -519,6 +520,144 @@ func TestWSPhaseFOutputReduceSkipsEmptyInput(t *testing.T) {
 	snap := p.outputReduce.Snapshot()
 	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
 		t.Fatalf("empty input should not be counted as an output-reduce candidate: %+v", snap)
+	}
+}
+
+func TestWSPhaseFToolPrunePrunesIdleCodexTools(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune"
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash", "ColdTool"})
+	p.toolPrune.ObserveTurn(sessionID, []string{"Bash"})
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-tool-prune",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue with the available tools.",
+			}},
+			"tools": []map[string]any{
+				codexToolDefinition("Bash", "Run a shell command"),
+				codexToolDefinition("ColdTool", strings.Repeat("Idle expensive schema. ", 80)),
+			},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected WSS tool-prune mutation")
+	}
+	body := string(env.Body)
+	if strings.Contains(body, "ColdTool") {
+		t.Fatalf("idle tool still present after prune: %s", body)
+	}
+	if !strings.Contains(body, "Bash") {
+		t.Fatalf("always-keep tool was removed: %s", body)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.PrunedTotal != 1 || snap.TokensSavedSum <= 0 || snap.AlwaysKeepTotal == 0 {
+		t.Fatalf("tool-prune snapshot = %+v, want one pruned tool with savings and always-keep", snap)
+	}
+}
+
+func TestWSPhaseFToolPruneUnknownSchemaFullPasses(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-tool-prune-unknown",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Continue.",
+			}},
+			"tools":  []map[string]any{{"kind": "unknown-provider-shape"}},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace {
+		t.Fatalf("unknown tool schema must full-pass: %s", env.Body)
+	}
+	if snap := p.toolPrune.Snapshot(); snap.PrunedTotal != 0 {
+		t.Fatalf("unknown schema must not prune: %+v", snap)
+	}
+}
+
+func TestWSPhaseFToolPruneReattachesMentionedTool(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.Tuning.ToolPruneEnabled = true
+	p := New(cfg)
+	p.toolPrune = toolprune.NewUsageTracker(1)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+	const sessionID = "codex-wss:wss-tool-prune-reattach"
+	p.toolPrune.RememberPrunedDef(sessionID, "ColdTool", mustMarshal(codexToolDefinition("ColdTool", "Recovered schema")))
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":            "gpt-5-codex",
+			"prompt_cache_key": "wss-tool-prune-reattach",
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Please use ColdTool now.",
+			}},
+			"tools":  []map[string]any{codexToolDefinition("Bash", "Run a shell command")},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected reattach mutation")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "ColdTool") || !strings.Contains(body, "Bash") {
+		t.Fatalf("reattach must keep existing and mentioned tools: %s", body)
+	}
+	snap := p.toolPrune.Snapshot()
+	if snap.ReattachTotal != 1 || snap.PrunedTotal != 0 {
+		t.Fatalf("tool-prune snapshot = %+v, want one reattach and no same-turn prune", snap)
 	}
 }
 
@@ -1799,4 +1938,18 @@ func parseWSJSON(t *testing.T, v any) wsmitm.Envelope {
 		t.Fatalf("parse envelope: %v", err)
 	}
 	return env
+}
+
+func codexToolDefinition(name, description string) map[string]any {
+	return map[string]any{
+		"type": "function",
+		"function": map[string]any{
+			"name":        name,
+			"description": description,
+			"parameters": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"input": map[string]any{"type": "string"}},
+			},
+		},
+	}
 }

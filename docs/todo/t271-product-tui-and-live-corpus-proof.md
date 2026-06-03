@@ -238,3 +238,8 @@ gate is done when default promotions require live corpus evidence.
   bodies. Tool-output deltas containing `function_call_output` remain byte-equal
   unless a dedicated tool-output reducer changes them. The inventory gap is now a
   real live-capture gap, not missing WSS wiring.
+- 2026-06-03: Codex WSS tool-schema pruning is now offline-verified and
+  code-reachable for the `tool_heavy` maxx gate. Tool-call frames observe
+  session activity; `tools[]` pruning runs only on prompt/user turns with known
+  Codex schema, and unknown schemas full-pass. The remaining `tool_heavy` proof
+  gap is a real focused live-capture gap.
