@@ -443,9 +443,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		if layer1Action == planner.ActionCheapOnly {
 			coordinatorActive = true
 		}
-		p.layer1.SetCoordinatorSubsume(coordinatorActive)
-		result := p.layer1.CompressWithSession(reqID, compressedMessages)
-		p.layer1.SetCoordinatorSubsume(false)
+		result := p.layer1.CompressWithSessionOptions(reqID, compressedMessages, compression.Layer1CompressOptions{
+			CoordinatorSubsume: coordinatorActive,
+		})
 		p.pipelineHist.L1.Record(time.Since(l1Start))
 		if result.TokensSaved > 0 {
 			compressedMessages = result.Messages

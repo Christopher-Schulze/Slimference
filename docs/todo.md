@@ -1909,8 +1909,9 @@ be called complete, default-safe, and production-grade.
   full-pass behavior, unknown or unattributed mutation fail-closed archive
   gating, `structure_in_window` and `success_short_circuit` archive enforcement,
   content-free per-sublayer decision records, and archive-required `dedup_near`
-  separation from exact reversible `dedup` are implemented, while prompt-cache
-  economics and round-trip/live proof remain.
+  separation from exact reversible `dedup`, plus request-scoped coordinator
+  options and serialized receiver-local call state, are implemented, while
+  prompt-cache economics and round-trip/live proof remain.
   Detail:
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
 - [~] **T262** Layer 2 deterministic context ledger rewrite - the pure

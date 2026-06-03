@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1258,9 +1257,8 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	p := New(cfg)
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 
-	path := filepath.Join(tmp, "planner-repeat.md")
 	largeOutput := strings.Repeat("planner telemetry repeat-read line with enough body to trip the candidate gate\n", 1600)
-	argsJSON := string(mustMarshal(map[string]any{"cmd": "cat " + path}))
+	argsJSON := string(mustMarshal(map[string]any{"cmd": "cat planner-repeat.md", "workdir": tmp}))
 	seedToolCall := func(callID string) {
 		env := parseWSJSON(t, map[string]any{
 			"type": string(wsmitm.FrameKindResponseOutputItemDone),

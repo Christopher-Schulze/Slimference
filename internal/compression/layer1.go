@@ -52,14 +52,19 @@ type DeterministicCompressor struct {
 	fileOpGraph     *FileOpGraph
 	// activeDedupThreshold holds the staircase-resolved dedup similarity
 	// threshold for the current Compress() call. Computed once per call
-	// so every compressMessage invocation uses the same value.
+	// so every compressMessage invocation uses the same value. Protected by
+	// callMu for cross-request safety; parallel fan-out workers within one
+	// Compress call only read it.
 	activeDedupThreshold float64
 	// activeSessionID scopes archive entries for the current Compress()
 	// invocation. Set at the top of CompressWithSession so per-call value
-	// flows through compressMessage and the cross-message passes without
-	// racy concurrent mutation: callers must hold one compressor per
-	// in-flight session, or serialize their CompressWithSession calls.
+	// flows through compressMessage and the cross-message passes. Protected
+	// by callMu for cross-request safety.
 	activeSessionID string
+	// activeCoordinatorSubsume is the request-scoped coordinator decision for
+	// the current Compress call. Protected by callMu for cross-request safety;
+	// parallel fan-out workers within one call only read it.
+	activeCoordinatorSubsume bool
 	// recorder archives original block content before lossy sub-layers
 	// mutate it. Optional; nil means "no archiving" and every helper
 	// short-circuits cheaply. T76.
@@ -70,6 +75,10 @@ type DeterministicCompressor struct {
 	// are skipped on the prefix because L2 will replace it anyway.
 	// Cheap idempotent passes (ANSI strip, JSON compact) still run.
 	coordinatorSubsume bool
+	// callMu serialises Compress calls because activeSessionID,
+	// activeDedupThreshold, and legacy coordinatorSubsume are request-local
+	// fields stored on the receiver for inner fan-out workers.
+	callMu sync.Mutex
 	// recordMu serialises recorder.Record calls and coordinatorSkipped
 	// updates so compressMessage is safe to call from multiple goroutines
 	// when CoordinatorParallel is on (T104).
@@ -77,6 +86,12 @@ type DeterministicCompressor struct {
 	// coordinatorSkipped counts how often the coordinator skipped a
 	// per-block heavy pass for /admin/status.compression.coordinator.
 	coordinatorSkipped atomic.Int64
+}
+
+// Layer1CompressOptions carries request-scoped gates into a single Compress call
+// without mutating receiver-global policy state.
+type Layer1CompressOptions struct {
+	CoordinatorSubsume bool
 }
 
 // resolveDedupThreshold applies the T53 staircase: the first step whose
@@ -117,23 +132,48 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 
 // SetCoordinatorSubsume tells the compressor that Layer 2 will replace
 // the messages being passed in this call, so heavy L1 sub-layers can
-// skip on the prefix. T100. The flag is reset at the end of each
-// CompressWithSession call so callers must set it per-request.
-func (c *DeterministicCompressor) SetCoordinatorSubsume(v bool) { c.coordinatorSubsume = v }
+// skip on the prefix. T100. The flag stays set until changed.
+//
+// This setter is retained for legacy tests and preview-style single-threaded
+// callers. Live request paths should prefer CompressWithSessionOptions so
+// concurrent requests cannot observe each other's coordinator decision.
+func (c *DeterministicCompressor) SetCoordinatorSubsume(v bool) {
+	c.callMu.Lock()
+	c.coordinatorSubsume = v
+	c.callMu.Unlock()
+}
 
 // CoordinatorSkipped returns the cumulative count of per-block heavy
 // passes the coordinator decided to skip. T100 telemetry.
 func (c *DeterministicCompressor) CoordinatorSkipped() int { return int(c.coordinatorSkipped.Load()) }
 
-// CompressWithSession is the session-aware Compress entry point. The
-// sessionID is stamped on every archive entry produced during this call so
-// the proxy can later filter or attribute by session. Callers that share a
-// single compressor across concurrent requests MUST serialize calls or use
-// per-session compressors; the active session id is held on the receiver
-// for the duration of the call.
+// CompressWithSession is the session-aware Compress entry point. The sessionID
+// is stamped on every archive entry produced during this call so the proxy can
+// later filter or attribute by session.
 func (c *DeterministicCompressor) CompressWithSession(sessionID string, messages []types.Message) Layer1Result {
+	c.callMu.Lock()
+	defer c.callMu.Unlock()
+	opts := Layer1CompressOptions{CoordinatorSubsume: c.coordinatorSubsume}
+	return c.compressWithSessionLocked(sessionID, messages, opts)
+}
+
+// CompressWithSessionOptions is the request-scoped Layer 1 entry point. Unlike
+// SetCoordinatorSubsume + CompressWithSession, all mutable request gates are
+// carried as arguments, so HTTP handlers can call it concurrently without
+// leaking one request's policy into another request.
+func (c *DeterministicCompressor) CompressWithSessionOptions(sessionID string, messages []types.Message, opts Layer1CompressOptions) Layer1Result {
+	c.callMu.Lock()
+	defer c.callMu.Unlock()
+	return c.compressWithSessionLocked(sessionID, messages, opts)
+}
+
+func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, messages []types.Message, opts Layer1CompressOptions) Layer1Result {
 	c.activeSessionID = sessionID
-	defer func() { c.activeSessionID = "" }()
+	c.activeCoordinatorSubsume = opts.CoordinatorSubsume
+	defer func() {
+		c.activeSessionID = ""
+		c.activeCoordinatorSubsume = false
+	}()
 
 	result := Layer1Result{
 		Messages: messages,
@@ -416,7 +456,7 @@ func (c *DeterministicCompressor) compressMessage(
 		// (dedup, structure, delta, tool-compressor, success-short,
 		// image-replace) and let the cheap ANSI/JSON passes above
 		// stand. Counter is bumped per skipped block.
-		if c.coordinatorSubsume {
+		if c.activeCoordinatorSubsume {
 			c.coordinatorSkipped.Add(1)
 			if len(text) < originalLen || text != block.Text {
 				if !ansiOnlyChange(origText, text) {

@@ -29,6 +29,10 @@ safe by construction through explicit tiers and enforcement.
 - The Layer 1 result and HTTP decisions log now include content-free
   per-sub-layer decision records with tier, applied flag, reason, saved tokens,
   archive requirement, recovery path, and default eligibility.
+- Live HTTP callers now pass coordinator/subsume gates through request-scoped
+  `Layer1CompressOptions`, and the compressor serializes receiver-local call
+  state (`activeSessionID`, dedup threshold, active coordinator flag) so parallel
+  requests cannot mix archive session ids or policy decisions.
 - Existing negative-savings guards protect token count, not comprehension.
 
 ## Product target
@@ -156,6 +160,12 @@ compression shortcut.
   recovery, full-passes when no archive id is available, and reports its own
   decision counter. This removes the silent context-loss risk where similar but
   changed text could previously be replaced by a bare "near duplicate" marker.
+- 2026-06-03: Hardened Layer 1 request scoping. `CompressWithSessionOptions`
+  carries coordinator/subsume decisions per request, the HTTP hot path no longer
+  mutates receiver-global coordinator state, and the compressor serializes the
+  receiver-local fields used by inner fan-out workers. Focused tests prove
+  request-scoped options do not inherit legacy state and concurrent archive writes
+  keep the correct session id.
 
 ## Done
 

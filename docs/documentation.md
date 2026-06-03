@@ -1279,16 +1279,19 @@ savings. Surfaced via `/admin/status.quality`.
 sub-layers on the prefix that Layer 2 will summarise. Cheap passes
 (ANSI strip, JSON compact) always run. Default off until corpus data
 validates the trade-off. Skipped-block counter at
-`/admin/status.coordinator.skipped_total`.
+`/admin/status.coordinator.skipped_total`. HTTP request handling passes this as
+request-scoped `Layer1CompressOptions`, not as shared compressor state, so
+parallel requests cannot inherit each other's coordinator policy.
 
 ### L1 message-level fan-out (T104)
 
 `[compression.tuning] coordinator_parallel` runs `compressMessage`
 concurrently per message in the compressible prefix, bounded by
 `runtime.GOMAXPROCS(0)`. The `archiveOriginal` recorder is mutex-
-protected and the `coordinator_skipped` counter is atomic so the
-hot path stays race-clean. Default off until benchmarks show
-real-body wins. Note: shipped at message granularity, not the
+protected, the `coordinator_skipped` counter is atomic, and the receiver-local
+session/coordinator fields are serialized per Compress call so the hot path stays
+race-clean. Default off until benchmarks show real-body wins. Note: shipped at
+message granularity, not the
 spec's stage-partitioned sub-layer concurrency; reopens as T104b
 if message-level granularity turns out to be the wrong knob.
 

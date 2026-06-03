@@ -2,6 +2,7 @@ package compression
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/slimference/slimference/internal/config"
@@ -116,4 +117,83 @@ func TestCoordinatorSubsume_OffPreservesHeavyPasses(t *testing.T) {
 	if res.DedupSaved == 0 {
 		t.Fatal("dedup should fire when coordinator is off")
 	}
+}
+
+func TestCompressWithSessionOptions_RequestScopedCoordinator(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	cfg.SlidingWindow = 1
+	body := strings.Repeat("repeated tool output line\n", 80)
+	msgs := []types.Message{
+		{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "u"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_result", Text: body}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_result", Text: body}}},
+		{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "next"}}},
+	}
+
+	legacyTrue := NewDeterministicCompressor(&cfg)
+	legacyTrue.SetCoordinatorSubsume(true)
+	res := legacyTrue.CompressWithSessionOptions("sess", msgs, Layer1CompressOptions{})
+	if res.DedupSaved == 0 {
+		t.Fatal("request-scoped options must not inherit legacy coordinator subsume")
+	}
+
+	scopedTrue := NewDeterministicCompressor(&cfg)
+	res = scopedTrue.CompressWithSessionOptions("sess", msgs, Layer1CompressOptions{CoordinatorSubsume: true})
+	if res.DedupSaved != 0 || scopedTrue.CoordinatorSkipped() == 0 {
+		t.Fatalf("request-scoped coordinator subsume did not skip heavy passes: dedup=%d skipped=%d", res.DedupSaved, scopedTrue.CoordinatorSkipped())
+	}
+}
+
+func TestCompressWithSessionOptions_ConcurrentSessionScope(t *testing.T) {
+	cfg := config.Defaults().Compression
+	cfg.SlidingWindow = 1
+	rec := &sessionCapturingRecorder{}
+	c := NewDeterministicCompressor(&cfg).WithRecorder(rec)
+	body := "{\n" + strings.Repeat("    \"key\": \"value with lots of padding\",\n", 40) + "    \"last\": true\n}"
+	msgs := []types.Message{
+		{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "u"}}},
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_result", Text: body}}},
+		{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "next"}}},
+	}
+
+	var wg sync.WaitGroup
+	for _, sessionID := range []string{"sess-A", "sess-B"} {
+		wg.Add(1)
+		go func(sessionID string) {
+			defer wg.Done()
+			c.CompressWithSessionOptions(sessionID, msgs, Layer1CompressOptions{CoordinatorSubsume: true})
+		}(sessionID)
+	}
+	wg.Wait()
+
+	got := rec.sessions()
+	if len(got) != 2 {
+		t.Fatalf("recorded sessions=%v, want two archive writes", got)
+	}
+	if got["sess-A"] != 1 || got["sess-B"] != 1 {
+		t.Fatalf("archive session scope leaked across concurrent calls: %+v", got)
+	}
+}
+
+type sessionCapturingRecorder struct {
+	mu    sync.Mutex
+	calls []contentarchive.Input
+}
+
+func (r *sessionCapturingRecorder) Record(in contentarchive.Input) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, in)
+	return "stub-" + in.SessionID, nil
+}
+
+func (r *sessionCapturingRecorder) sessions() map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]int, len(r.calls))
+	for _, call := range r.calls {
+		out[call.SessionID]++
+	}
+	return out
 }
