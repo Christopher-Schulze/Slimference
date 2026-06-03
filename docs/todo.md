@@ -1920,8 +1920,9 @@ be called complete, default-safe, and production-grade.
   telemetry; classical summary replacement is now blocked by default behind an
   explicit legacy override. Archive-backed capsules now fail closed when
   required recoverability facts are missing, including full-pass turn provenance
-  for file capsules, explicit execution scope for search capsules, explicit
-  decision/recovery facts, archive ids, and a policy session id to prevent
+  and explicit repo/workdir scope for file capsules, explicit execution scope
+  for search capsules, explicit decision/recovery facts, archive ids, and a
+  policy session id to prevent
   cross-session context selection; quality inputs and proof-gated ledger
   insertion remain. Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`

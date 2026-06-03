@@ -225,6 +225,22 @@ func TestApplyProxyLayer0LedgerSearchRequiresScope(t *testing.T) {
 	}
 }
 
+func TestApplyProxyLayer0LedgerFileRequiresScope(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	readOutput := "Process exited with code 0\nOutput:\n" + strings.Repeat("package proxy\nfunc ledgerObservation() {}\n", 20)
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-read", ToolName: "exec_command", ToolInput: `{"cmd":"sed -n '1,20p' /repo/internal/proxy/layer0_proxy.go"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-read", Text: readOutput}}},
+	}
+	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-ledger", nil)
+	if stats.LedgerCommandCapsules != 1 {
+		t.Fatalf("command capsule should still be counted: %+v", stats)
+	}
+	if stats.LedgerFileCapsules != 0 {
+		t.Fatalf("file ledger capsule without explicit scope must full-pass telemetry: %+v", stats)
+	}
+}
+
 func TestProxyLayer0CommandLineVariants(t *testing.T) {
 	t.Parallel()
 

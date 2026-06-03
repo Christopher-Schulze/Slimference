@@ -72,6 +72,12 @@ func TestSelectCapsulesKeepsIncompleteCapsulesVerbatim(t *testing.T) {
 			Archives:   []string{"arch-file"},
 		},
 		{
+			Kind:       CapsuleFile,
+			Provenance: Provenance{SessionID: "s", TurnID: "old", Source: "test"},
+			Facts:      map[string]string{"path": "/repo/a.go", "full_pass_turn": "turn-1"},
+			Archives:   []string{"arch-file"},
+		},
+		{
 			Kind:       CapsuleSearch,
 			Provenance: Provenance{SessionID: "s", TurnID: "old", Source: "test"},
 			Facts:      map[string]string{"command": "rg needle ."},
@@ -97,7 +103,7 @@ func TestSelectCapsulesKeepsIncompleteCapsulesVerbatim(t *testing.T) {
 		},
 	}
 	report := SelectCapsules(capsules, SelectionPolicy{SessionID: "s"})
-	if report.Capsules != 0 || report.Verbatim != 6 || report.Rejected != 0 {
+	if report.Capsules != 0 || report.Verbatim != 7 || report.Rejected != 0 {
 		t.Fatalf("summary mismatch: %+v", report)
 	}
 	for i, decision := range report.Decisions {
@@ -181,7 +187,7 @@ func testCapsuleFacts(kind CapsuleKind) map[string]string {
 	case CapsuleCommand:
 		return map[string]string{"command": "go test ./...", "exit_code": "0"}
 	case CapsuleFile:
-		return map[string]string{"path": "/repo/a.go", "full_pass_turn": "turn-1"}
+		return map[string]string{"path": "/repo/a.go", "repo_root": "/repo", "full_pass_turn": "turn-1"}
 	case CapsuleSearch:
 		return map[string]string{"command": "rg needle .", "repo_root": "/repo", "pattern_hash": "hash"}
 	case CapsuleFailure:

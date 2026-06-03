@@ -55,7 +55,7 @@ The ledger stores deterministic capsules:
 
 - command capsule: command line, cwd, exit code, stdout/stderr hashes, archive
   ids, reducer mechanisms applied
-- file capsule: path, normalized repo root, read range, content hash, archive id,
+- file capsule: path, normalized repo/workdir scope, read range, content hash, archive id,
   edit state, latest known full-pass turn
 - failure capsule: tool, file, line, column, message, stack/test name, exit code
 - search capsule: pattern hash, repo root, files matched, line ranges, omitted
@@ -108,7 +108,7 @@ The ledger stores deterministic capsules:
   recoverable through archive.
 - If capsule provenance is missing, full-pass.
 - If the selection policy lacks a current session id, full-pass.
-- If a search capsule lacks an explicit execution scope, full-pass.
+- If a file or search capsule lacks an explicit execution scope, full-pass.
 - If archive expansion fails, full-pass and disable the mechanism for the
   session.
 - No LLM-produced summary can be default-on.
@@ -192,6 +192,11 @@ summary remains opt-in, not default.
   reducer only counts search ledger telemetry when the tool call carries a
   scoped workdir, so implicit-cwd searches cannot later become cross-repo
   context.
+- 2026-06-03: Hardened file capsule scope the same way. Archived file capsules
+  now require `repo_root` plus full-pass-turn provenance, and the Codex reducer
+  only counts file ledger telemetry when the read came from a tool call with an
+  explicit workdir. Absolute paths without session workdir still keep normal
+  read-delta behavior, but they cannot become promotable ledger context.
 - 2026-06-03: Added deterministic decision and recovery capsule primitives.
   Decision capsules preserve explicit goals, constraints, accepted plans,
   blocked reasons, active files, and optional archive provenance without

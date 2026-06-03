@@ -392,9 +392,9 @@ compact facts plus provenance, stable hashes where raw bytes exist, and archive
 ids, without storing raw omitted content inside the capsule. This is the safe
 replacement foundation for old-context compression. A deterministic selector now
 fails closed before any future model-facing use: active turns, recent turns,
-missing policy session scope, missing provenance, missing archive ids, search
-capsules without an explicit execution scope, incomplete decision/recovery facts,
-and high-risk failure content stay verbatim; only old inactive archive-backed
+missing policy session scope, missing provenance, missing archive ids, file or
+search capsules without an explicit execution scope, incomplete decision/recovery
+facts, and high-risk failure content stay verbatim; only old inactive archive-backed
 command/file/search/decision/recovery capsules can be selected. Archive expansion
 is loader-based and must restore exact bytes or fail. It is not yet a default
 hot-path replacement mechanism; readcache provenance, replay, and live corpus
@@ -423,12 +423,12 @@ are complete.
 
 Readcache decisions expose structured `ArchiveURI` and `FullPassTurnID`
 provenance to the reducer. File ledger observations are counted only when an
-archive-backed source exists; the provenance comes from the readcache decision
-object, not by parsing model-facing marker text. This keeps the ledger path
-content-free and fail-closed. Future capsule selection also refuses command,
-file, search, and failure capsules whose required deterministic facts are
-missing, and archived file capsules require the prior full-pass turn before they
-can be counted or promoted.
+archive-backed source and explicit tool-call workdir exist; the provenance comes
+from the readcache decision object, not by parsing model-facing marker text. This
+keeps the ledger path content-free and fail-closed. Future capsule selection also
+refuses command, file, search, and failure capsules whose required deterministic
+facts are missing, and archived file capsules require repo/workdir scope plus the
+prior full-pass turn before they can be counted or promoted.
 
 The offline A/B harness can replay archive-backed references with a caller
 provided archive resolver. A `local-archive://` marker is considered safe only

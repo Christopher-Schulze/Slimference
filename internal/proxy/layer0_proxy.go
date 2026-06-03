@@ -179,7 +179,7 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, sessi
 	}
 }
 
-func (s *proxyLayer0Stats) recordLedgerReadObservation(sessionID, turnID string, req readcache.Request, decision readcache.Decision) {
+func (s *proxyLayer0Stats) recordLedgerReadObservation(sessionID, turnID string, use types.ContentBlock, req readcache.Request, decision readcache.Decision) {
 	if s == nil || strings.TrimSpace(req.FilePath) == "" || strings.TrimSpace(decision.ArchiveURI) == "" {
 		return
 	}
@@ -191,6 +191,7 @@ func (s *proxyLayer0Stats) recordLedgerReadObservation(sessionID, turnID string,
 		SessionID:    sessionID,
 		TurnID:       turnID,
 		Path:         req.FilePath,
+		RepoRoot:     proxyLayer0ToolWorkdir(use),
 		Range:        proxyLayer0ReadRangeFact(req),
 		ArchiveID:    decision.ArchiveURI,
 		FullPassTurn: fullPassTurn,
@@ -382,7 +383,7 @@ func reduceCodexLayer0(req codexLayer0Request) codexLayer0Result {
 				latencyStart := time.Now()
 				afterText, changed, cacheReason, readDecision = compactProxyReadDeltaWithDecision(req.SessionID, req.TurnID, commandLine, block.Text, readCtx, req.RecentFullPassTurns)
 				stats.ReadDeltaLatencyNs += time.Since(latencyStart).Nanoseconds()
-				stats.recordLedgerReadObservation(req.SessionID, req.TurnID, readReq, readDecision)
+				stats.recordLedgerReadObservation(req.SessionID, req.TurnID, use, readReq, readDecision)
 				if readDeltaAttempted {
 					action := proxyLayer0CacheMiss
 					if changed {
