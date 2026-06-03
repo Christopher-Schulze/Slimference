@@ -60,12 +60,17 @@ var maxxWSSProofWorkloads = []string{
 
 var maxxWSSProofRequiredSignals = map[string][]string{
 	"chunk_dedup_similar_outputs": {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
-	"chunk_dedup_log_output":      {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
-	"chunk_dedup_test_output":     {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
+	"chunk_dedup_log_output":      {"host_budget_ok"},
+	"chunk_dedup_test_output":     {"host_budget_ok"},
 	"output_reduce_aggressive":    {"output_reduce_injected", "host_budget_ok"},
 	"tool_heavy":                  {"tool_prune", "tool_prune_tokens_saved", "host_budget_ok"},
 	"provider_cache_long_session": {"provider_cache_read", "host_budget_ok"},
 	"host_resource_long_workday":  {"host_budget_ok"},
+}
+
+var maxxWSSProofAlternativeSignals = map[string][][]string{
+	"chunk_dedup_log_output":  {{"captured_output", "chunk_dedup_refs"}},
+	"chunk_dedup_test_output": {{"captured_output", "chunk_dedup_refs"}},
 }
 
 var inventoryReducerNames = []string{
@@ -275,6 +280,7 @@ func finalizeMaxxWorkloadStatus(values map[string]*wssProofInventoryWorkloadStat
 		}
 		status.Present = status.Rows > 0
 		status.MissingSignals = missingInventorySignals(status.LiveReducerHits, maxxWSSProofRequiredSignals[workload])
+		status.MissingSignals = append(status.MissingSignals, missingInventoryAlternativeSignals(status.LiveReducerHits, maxxWSSProofAlternativeSignals[workload])...)
 		status.Complete = status.Present &&
 			maxxWorkloadHasPositiveEconomicSignal(status, workload) &&
 			status.SafetyIssueRows == 0 &&
@@ -293,6 +299,9 @@ func finalizeMaxxWorkloadStatus(values map[string]*wssProofInventoryWorkloadStat
 
 func maxxWorkloadHasPositiveEconomicSignal(status *wssProofInventoryWorkloadStatus, workload string) bool {
 	switch workload {
+	case "chunk_dedup_log_output", "chunk_dedup_test_output":
+		return status.PositiveTokenRows > 0 &&
+			(status.LiveReducerHits["captured_output"] > 0 || status.LiveReducerHits["chunk_dedup_refs"] > 0)
 	case "output_reduce_aggressive":
 		return status.LiveReducerHits["output_reduce_injected"] > 0
 	case "provider_cache_long_session":
@@ -311,6 +320,28 @@ func missingInventorySignals(hits map[string]int64, required []string) []string 
 	for _, signal := range required {
 		if hits[signal] <= 0 {
 			missing = append(missing, signal)
+		}
+	}
+	return missing
+}
+
+func missingInventoryAlternativeSignals(hits map[string]int64, alternatives [][]string) []string {
+	var missing []string
+	for _, group := range alternatives {
+		hasAny := false
+		var names []string
+		for _, signal := range group {
+			signal = strings.TrimSpace(signal)
+			if signal == "" {
+				continue
+			}
+			names = append(names, signal)
+			if hits[signal] > 0 {
+				hasAny = true
+			}
+		}
+		if !hasAny && len(names) > 0 {
+			missing = append(missing, strings.Join(names, "_or_"))
 		}
 	}
 	return missing

@@ -95,12 +95,48 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 		t.Fatalf("provider cache workload should be complete: %+v", providerStatus)
 	}
 	logStatus := findInventoryWorkloadStatus(t, report, "chunk_dedup_log_output")
-	if logStatus.Complete || !strings.Contains(strings.Join(logStatus.MissingSignals, ","), "chunk_dedup") {
-		t.Fatalf("log chunk workload should expose missing chunk signals: %+v", logStatus)
+	if !logStatus.Complete || len(logStatus.MissingSignals) != 0 {
+		t.Fatalf("log output workload should complete through captured-output or chunk fallback signals: %+v", logStatus)
 	}
 	toolStatus := findInventoryWorkloadStatus(t, report, "tool_heavy")
 	if !toolStatus.Complete || toolStatus.PositiveTokenRows != 0 {
 		t.Fatalf("tool-heavy should complete through tool-prune token savings, not local layer-0 savings: %+v", toolStatus)
+	}
+}
+
+func TestWSSProofInventoryRequiresLogOrTestReducerSignal(t *testing.T) {
+	status := &wssProofInventoryWorkloadStatus{
+		WorkloadClass:     "chunk_dedup_test_output",
+		Rows:              1,
+		PositiveTokenRows: 1,
+		HostBudgetOKRows:  1,
+		LiveReducerHits: map[string]int64{
+			"host_budget_ok": 1,
+		},
+	}
+	status.MissingSignals = missingInventorySignals(status.LiveReducerHits, maxxWSSProofRequiredSignals[status.WorkloadClass])
+	status.MissingSignals = append(status.MissingSignals, missingInventoryAlternativeSignals(status.LiveReducerHits, maxxWSSProofAlternativeSignals[status.WorkloadClass])...)
+	status.Complete = status.Present &&
+		maxxWorkloadHasPositiveEconomicSignal(status, status.WorkloadClass) &&
+		status.SafetyIssueRows == 0 &&
+		status.HostBudgetOKRows > 0 &&
+		len(status.MissingSignals) == 0
+
+	if status.Complete || !strings.Contains(strings.Join(status.MissingSignals, ","), "captured_output_or_chunk_dedup_refs") {
+		t.Fatalf("test output workload without product reducer signal should stay incomplete: %+v", status)
+	}
+
+	status.Present = true
+	status.LiveReducerHits["chunk_dedup_refs"] = 1
+	status.MissingSignals = missingInventorySignals(status.LiveReducerHits, maxxWSSProofRequiredSignals[status.WorkloadClass])
+	status.MissingSignals = append(status.MissingSignals, missingInventoryAlternativeSignals(status.LiveReducerHits, maxxWSSProofAlternativeSignals[status.WorkloadClass])...)
+	status.Complete = status.Present &&
+		maxxWorkloadHasPositiveEconomicSignal(status, status.WorkloadClass) &&
+		status.SafetyIssueRows == 0 &&
+		status.HostBudgetOKRows > 0 &&
+		len(status.MissingSignals) == 0
+	if !status.Complete {
+		t.Fatalf("test output workload should complete with recoverable chunk fallback signal: %+v", status)
 	}
 }
 

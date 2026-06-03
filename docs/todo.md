@@ -2177,7 +2177,10 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   `chunk_dedup`, `chunk_dedup_refs`, and `host_budget_ok`; focused Desktop
   Codex.app proof now passes the same gate with live billable-token savings.
   Similar-log replay now hits chunk refs, while live log proof saves through the
-  safer captured-output reducer first. Remaining closeout is broader real
+  safer captured-output reducer first. The product proof gate now accepts
+  either captured-output or recoverable chunk refs for large log/test output
+  workloads, because forcing chunk refs over a stricter deterministic reducer
+  would be less safe, not more maxxed. Remaining closeout is broader real
   workload coverage beyond focused similar-file/log cases.
 - [ ] **T267 output-reduce closeout** - prove aggressive profiles on real
   direct-answer/status/read-only/planning/edit workflows with repair/re-ask

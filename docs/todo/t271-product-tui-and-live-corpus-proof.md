@@ -225,3 +225,10 @@ gate is done when default promotions require live corpus evidence.
   Current remaining maxx gaps are now `chunk_dedup_log_output`,
   `chunk_dedup_test_output`, `output_reduce_aggressive`, `tool_heavy`, and
   `host_resource_long_workday`.
+- 2026-06-03: Corrected `wss-proof-inventory` maxx semantics for large log/test
+  outputs. These rows now complete when the product path saves through either
+  the stricter deterministic `captured_output` reducer or recoverable
+  `chunk_dedup_refs`, plus `host_budget_ok`, positive live token savings, and
+  zero safety issues. This keeps the gate aligned with the no-drawdown policy:
+  the proof must show the safest productive reducer won, not that a lower-priority
+  fallback displaced it.

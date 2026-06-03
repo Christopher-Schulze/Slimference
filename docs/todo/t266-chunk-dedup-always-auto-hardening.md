@@ -298,3 +298,11 @@ it remains guarded by policy.
   `chunk_dedup_test_output`, even though real log frames replay through the
   offline chunk fallback and the live log workload saved earlier through the
   stricter captured-output reducer.
+- 2026-06-03: Corrected the proof semantics for large log/test outputs. These
+  workload classes are product output-saving proofs, not an instruction to force
+  chunk references over a safer deterministic reducer. The inventory now accepts
+  either `captured_output` or recoverable `chunk_dedup_refs` for
+  `chunk_dedup_log_output` and `chunk_dedup_test_output`, while still requiring
+  positive live token savings, `host_budget_ok`, and zero safety issues. Similar
+  files still require actual chunk refs because that is the distinct chunk-dedup
+  product surface.
