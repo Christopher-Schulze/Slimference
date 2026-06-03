@@ -2017,6 +2017,9 @@ be called complete, default-safe, and production-grade.
   output telemetry. Explicit command-output relay prompts now full-pass
   output-reduce injection with `command_output_relay_exact_output`, preserving
   requested terminal output, paths, errors, exit codes, and line order.
+  Task-shape detection now ignores prior Codex tool calls, tool outputs, and
+  tool arguments, so historical terminal text cannot unnecessarily downgrade the
+  current user turn or create false repair/relay classifications.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a
@@ -2157,9 +2160,10 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   workload coverage beyond focused similar-file/log cases.
 - [ ] **T267 output-reduce closeout** - prove aggressive profiles on real
   direct-answer/status/read-only/planning/edit workflows with repair/re-ask
-  rollback active. WSS streamcut remains disabled until terminal-safe proof
-  exists; exact reply, patch, code, and user-requested detail must not be
-  shortened in a way that degrades workflow or model usefulness.
+  rollback active. The offline classifier now uses instruction text only and
+  ignores historical tool output/arguments. WSS streamcut remains disabled until
+  terminal-safe proof exists; exact reply, patch, code, and user-requested detail
+  must not be shortened in a way that degrades workflow or model usefulness.
 - [ ] **T268 tool-schema pruning closeout** - run tool-heavy live proof and net
   prompt-cache economics. Pruning must never remove core tools, unknown or mixed
   provider schema shapes must full-pass, mention reattach must happen in the

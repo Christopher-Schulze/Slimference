@@ -118,26 +118,56 @@ func requestText(provider types.Provider, body []byte) string {
 		return string(body)
 	}
 	var out strings.Builder
-	walkText(root, &out)
+	walkInstructionText(root, &out, false)
 	return out.String()
 }
 
-func walkText(v any, out *strings.Builder) {
+func walkInstructionText(v any, out *strings.Builder, allowContent bool) {
 	switch x := v.(type) {
 	case string:
-		out.WriteString(x)
-		out.WriteByte('\n')
+		if allowContent {
+			out.WriteString(x)
+			out.WriteByte('\n')
+		}
 	case []any:
 		for _, item := range x {
-			walkText(item, out)
+			walkInstructionText(item, out, allowContent)
 		}
 	case map[string]any:
-		for key, value := range x {
-			if key == "messages" || key == "content" || key == "text" || key == "input" || key == "system" || key == "command" || key == "stderr" || key == "stdout" || key == "output" || key == "arguments" {
-				walkText(value, out)
+		if role := strings.ToLower(strings.TrimSpace(stringValue(x["role"]))); role != "" {
+			if role == "user" || role == "system" || role == "developer" {
+				walkInstructionText(x["content"], out, true)
+				walkInstructionText(x["text"], out, true)
+			}
+			return
+		}
+		if typ := strings.ToLower(strings.TrimSpace(stringValue(x["type"]))); typ == "input_text" || typ == "text" {
+			walkInstructionText(x["text"], out, true)
+			return
+		}
+		for _, key := range []string{"messages", "input"} {
+			if value, ok := x[key]; ok {
+				walkInstructionText(value, out, stringValue(value) != "")
+			}
+		}
+		for _, key := range []string{"system", "instructions", "prompt"} {
+			if value, ok := x[key]; ok {
+				walkInstructionText(value, out, true)
+			}
+		}
+		if allowContent {
+			for _, key := range []string{"content", "text"} {
+				if value, ok := x[key]; ok {
+					walkInstructionText(value, out, true)
+				}
 			}
 		}
 	}
+}
+
+func stringValue(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 func containsAny(s string, needles ...string) bool {

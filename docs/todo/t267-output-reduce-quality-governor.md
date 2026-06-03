@@ -147,6 +147,15 @@ Output reduction becomes a runtime-governed layer:
   paths, errors, exit codes, and line order cannot be shortened by a terse
   directive. Repair complaints such as "you skipped" / `fehlt` still classify as
   repair follow-ups and keep the cooldown behavior.
+- 2026-06-03: Tightened task-shape input extraction to current instruction text.
+  The classifier now reads user/system/developer messages, top-level
+  `instructions`, top-level `system`, and top-level prompt/input text, but
+  ignores prior Codex `function_call`, `function_call_output`, tool stdout,
+  stderr, `output`, and `arguments`. This prevents historical terminal text such
+  as `apply_patch failed` or `show full output` from falsely classifying the next
+  turn as code-edit, repair, or command-output relay. The result is more output
+  savings where safe, with no added product drawdown because exact/repair/relay
+  guards still trigger from the actual user instruction.
 
 ## Done
 

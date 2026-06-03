@@ -306,6 +306,13 @@ feedback, and German `fehlt`/`nochmal ausführlicher` style re-asks are stored b
 session and immediately downgrade the affected
 provider/model/profile/task-shape bucket without waiting for the normal sample
 window.
+Task-shape detection reads only model instructions: user, system, developer,
+top-level `instructions`, top-level `system`, and top-level prompt/input text.
+It deliberately ignores prior Codex `function_call`, `function_call_output`,
+tool stdout/stderr, and tool arguments, so old terminal output cannot make the
+current user turn look like a patch, repair, or command-output relay request.
+This keeps aggressive-profile caps focused on the actual current instruction
+instead of silently sacrificing output savings because of historical tool text.
 For Codex Responses bodies, output-reduce directives are written only to the
 top-level `instructions` string. The injector does not rewrite `input` and never
 creates `input` items with `role=system`, because Codex rejects those and because
