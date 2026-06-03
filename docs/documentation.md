@@ -250,6 +250,10 @@ public install path writes `~/.claude`.
    SQLite, and SQLite3 outputs.
 4. Fallback: `FirstMatchingTOMLRule` applies user-defined 8-stage
    rules from `~/.slimference/filters.toml`.
+   The embedded default TOML catalog uses a product-safe application path:
+   line caps preserve late error/fatal/warning/diagnostic evidence and emit an
+   omitted-line marker. User and project TOML rules keep their literal DSL
+   semantics, because they are operator-owned configuration.
 5. Truncate with a short `[truncated …]` hint to
    `passthrough_max_chars` (default 4000; spec+.md §4.6).
 6. Emit to stdout + write the raw bytes to the tee dir for recovery.
@@ -580,9 +584,12 @@ truncate large outputs keep actionable rows before noise and sample the tail
 inside important groups: test JSON keeps late failures, SARIF/ESLint JSON keep
 late same-priority errors, kubectl JSON keeps late unhealthy rows, cargo metadata
 keeps late workspace members, Terraform JSON keeps late destructive or state
-resource evidence, and search grouping keeps head/tail matches per file and file
-set. Omitted-count markers remain explicit, and malformed or non-shorter outputs
-full-pass.
+resource evidence, search grouping keeps head/tail matches per file and file
+set, and the embedded default TOML catalog keeps late diagnostic evidence when
+`max_lines`, `head_lines`, or `tail_lines` would otherwise cut it away.
+Omitted-count markers remain explicit, and malformed or non-shorter outputs
+full-pass where the reducer owns that gate; operator-authored TOML rules remain
+literal user configuration.
 
 Git diff/show compaction is evidence-preserving: it keeps file paths, hunk
 headers, added/removed lines, and structural diff metadata such as mode changes,

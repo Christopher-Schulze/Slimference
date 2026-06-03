@@ -169,6 +169,12 @@ These are promotion targets, not claims:
   to `[ls] empty`, empty `tree` still compacts to `[tree] empty`, and repeated
   non-empty listings remain available to exact repeated-output/read-cache
   savings later in the session.
+- 2026-06-03: Hardened the embedded default TOML reducer catalog so bundled
+  `max_lines`, `head_lines`, and `tail_lines` caps preserve late fatal/error/
+  warning/diagnostic evidence and emit omitted-line markers. This closes the
+  remaining default cap-first surface below the handwritten Go reducers without
+  changing user/project TOML semantics, which remain operator-owned literal
+  configuration.
 
 ## Done
 

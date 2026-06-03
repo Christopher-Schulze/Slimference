@@ -91,6 +91,38 @@ func TestPipelineRoutesThroughEmbeddedCatalog(t *testing.T) {
 	}
 }
 
+func TestPipelineBuiltinTOMLMaxLinesKeepsLateImportantEvidence(t *testing.T) {
+	withBuiltinTOMLFS(t, fstest.MapFS{
+		"builtins_toml/custom.toml": {Data: []byte(`[filters.custom]
+match_command = "^custom$"
+max_lines = 5
+`)},
+	})
+	var input strings.Builder
+	for i := 0; i < 30; i++ {
+		input.WriteString("progress line\n")
+	}
+	input.WriteString("2026-06-03 FATAL database connection refused\n")
+	for i := 0; i < 30; i++ {
+		input.WriteString("more progress line\n")
+	}
+
+	out, name := applyLayer0FiltersWithContext("", []string{"custom"}, []byte(input.String()), FileReadContext{Mode: "scan"})
+	if name != "builtin_toml:custom" {
+		t.Fatalf("expected builtin custom filter, got %q", name)
+	}
+	s := string(out)
+	if !strings.Contains(s, "FATAL database connection refused") {
+		t.Fatalf("late important evidence was dropped: %q", s)
+	}
+	if !strings.Contains(s, "omitted line") {
+		t.Fatalf("omitted-count marker missing: %q", s)
+	}
+	if got := strings.Count(strings.TrimSpace(s), "\n") + 1; got > 5 {
+		t.Fatalf("line cap exceeded: got %d lines in %q", got, s)
+	}
+}
+
 // TestBuiltinTOMLSnapshots runs the [[tests.X]] blocks embedded in the
 // RTK-derived TOML files as table-driven Go tests. Catches regressions
 // when we touch filter parsing or DSL semantics. RTK ships these as

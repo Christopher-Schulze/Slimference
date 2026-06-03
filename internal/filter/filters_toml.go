@@ -1,6 +1,7 @@
 package filter
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -168,6 +169,22 @@ func FirstMatchingTOMLRule(wd string, argv []string) *FilterRule {
 // ApplyTOMLRule applies the §4.5 pipeline: strip_ansi → replace → match_output →
 // strip/keep lines → truncate_lines_at → head/tail → max_lines → on_empty.
 func ApplyTOMLRule(stdout []byte, rule *FilterRule) []byte {
+	return applyTOMLRule(stdout, rule, tomlRuleApplyOptions{})
+}
+
+// ApplyBuiltinTOMLRule applies an embedded product-default TOML rule. It keeps
+// the public/user TOML DSL semantics intact but makes the bundled catalog obey
+// Layer-0's evidence-first contract: line caps preserve late diagnostic lines
+// instead of blindly keeping only the first rows.
+func ApplyBuiltinTOMLRule(stdout []byte, rule *FilterRule) []byte {
+	return applyTOMLRule(stdout, rule, tomlRuleApplyOptions{preserveImportantLineCaps: true})
+}
+
+type tomlRuleApplyOptions struct {
+	preserveImportantLineCaps bool
+}
+
+func applyTOMLRule(stdout []byte, rule *FilterRule, opts tomlRuleApplyOptions) []byte {
 	if rule == nil {
 		return stdout
 	}
@@ -190,13 +207,25 @@ func ApplyTOMLRule(stdout []byte, rule *FilterRule) []byte {
 		lines = truncateEachLine(lines, rule.TruncateLinesAt)
 	}
 	if rule.HeadLines > 0 && len(lines) > rule.HeadLines {
-		lines = lines[:rule.HeadLines]
+		if opts.preserveImportantLineCaps {
+			lines = truncateTOMLLinesPreservingEvidence(lines, rule.HeadLines, "head")
+		} else {
+			lines = lines[:rule.HeadLines]
+		}
 	}
 	if rule.TailLines > 0 && len(lines) > rule.TailLines {
-		lines = lines[len(lines)-rule.TailLines:]
+		if opts.preserveImportantLineCaps {
+			lines = truncateTOMLLinesPreservingEvidence(lines, rule.TailLines, "tail")
+		} else {
+			lines = lines[len(lines)-rule.TailLines:]
+		}
 	}
 	if rule.MaxLines > 0 && len(lines) > rule.MaxLines {
-		lines = lines[:rule.MaxLines]
+		if opts.preserveImportantLineCaps {
+			lines = truncateTOMLLinesPreservingEvidence(lines, rule.MaxLines, "head_tail")
+		} else {
+			lines = lines[:rule.MaxLines]
+		}
 	}
 	out := strings.Join(lines, "\n")
 	if strings.TrimSpace(out) == "" && rule.OnEmpty != "" {
@@ -325,4 +354,90 @@ func truncateEachLine(lines []string, maxRunes int) []string {
 		out[i] = string(runes[:maxRunes])
 	}
 	return out
+}
+
+func truncateTOMLLinesPreservingEvidence(lines []string, maxLines int, mode string) []string {
+	if maxLines <= 0 || len(lines) <= maxLines {
+		return lines
+	}
+	budget := maxLines
+	includeMarker := maxLines > 1
+	if includeMarker {
+		budget--
+	}
+	if budget <= 0 {
+		return lines[:maxLines]
+	}
+	selected := make(map[int]struct{}, budget)
+	for i, line := range lines {
+		if len(selected) >= budget {
+			break
+		}
+		if importantTOMLLine(line) {
+			selected[i] = struct{}{}
+		}
+	}
+	for _, idx := range preferredTOMLIndexes(len(lines), budget, mode) {
+		if len(selected) >= budget {
+			break
+		}
+		selected[idx] = struct{}{}
+	}
+	out := make([]string, 0, maxLines)
+	for i, line := range lines {
+		if _, ok := selected[i]; ok {
+			out = append(out, line)
+		}
+	}
+	if includeMarker {
+		marker := fmt.Sprintf("... +%d omitted line(s) (evidence-first cap)", len(lines)-len(out))
+		out = append(out, marker)
+	}
+	return out
+}
+
+func preferredTOMLIndexes(total, budget int, mode string) []int {
+	if total <= 0 || budget <= 0 {
+		return nil
+	}
+	if total <= budget {
+		out := make([]int, total)
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+	switch mode {
+	case "tail":
+		out := make([]int, 0, budget)
+		for i := total - budget; i < total; i++ {
+			out = append(out, i)
+		}
+		return out
+	case "head_tail":
+		return cappedEvidenceIndexes(total, budget, min(6, budget/2))
+	default:
+		out := make([]int, budget)
+		for i := range out {
+			out[i] = i
+		}
+		return out
+	}
+}
+
+func importantTOMLLine(line string) bool {
+	if importantLogLine(line) {
+		return true
+	}
+	tl := strings.ToLower(line)
+	for _, tok := range []string{
+		"cannot", "undefined", "unresolved", "invalid", "denied", "timeout",
+		"timed out", "not found", "no such file", "crash", "segfault", "oom",
+		"out of memory", "abort", "diagnostic", "violation", "problem", "issue",
+	} {
+		if strings.Contains(tl, tok) {
+			return true
+		}
+	}
+	return false
 }

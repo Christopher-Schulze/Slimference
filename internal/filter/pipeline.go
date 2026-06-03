@@ -174,7 +174,7 @@ func applyLayer0FiltersWithContext(workDir string, argv []string, stdout []byte,
 	// hand-written compactors (git-status etc.) win over generic
 	// catalog filters.
 	if name, rule := FirstMatchingBuiltinTOMLRule(argv); rule != nil {
-		out := ApplyTOMLRule(stdout, rule)
+		out := ApplyBuiltinTOMLRule(stdout, rule)
 		globalObservability.Record(FilterStats{
 			Name:     "builtin_toml:" + name,
 			Matched:  true,
