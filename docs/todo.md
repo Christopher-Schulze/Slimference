@@ -2034,7 +2034,10 @@ be called complete, default-safe, and production-grade.
   requests. Missing-tool recovery detection now recognizes common provider
   phrasings such as no-such-tool and tool-not-available errors, preferring a
   harmless full-schema retry over a capability drawdown; configured
-  project-specific always-keep tools now match case-insensitively. Detail:
+  project-specific always-keep tools now match case-insensitively. Reattach
+  mention detection now reads current user/system/developer instruction text
+  only, so historical assistant/tool output cannot reattach idle tools by
+  accident. Detail:
   `docs/todo/t268-tool-schema-pruning-recovery-maxx.md`
 - [x] **T269** WSS frame-level mutation frontier - inspect-only route and shape
   registries now gate mutation capability; unknown or non-Codex shapes stay
@@ -2167,8 +2170,8 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
 - [ ] **T268 tool-schema pruning closeout** - run tool-heavy live proof and net
   prompt-cache economics. Pruning must never remove core tools, unknown or mixed
   provider schema shapes must full-pass, mention reattach must happen in the
-  same prune pass, and missing-tool retry/cooldown must be visible in product
-  evidence.
+  same prune pass from current instruction text only, and missing-tool
+  retry/cooldown must be visible in product evidence.
 - [ ] **T271 product-status closeout** - finish live-corpus proof gates in the
   product rollup. The TUI must show product signals only by default: active
   route/fallback, billable input saved, output-wire saved, provider-cache

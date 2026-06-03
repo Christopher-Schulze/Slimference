@@ -2076,6 +2076,10 @@ func messageMentionsAnyPrunedTool(messages []types.Message, tracker *toolprune.U
 	}
 	var text string
 	for _, msg := range messages {
+		role := strings.ToLower(strings.TrimSpace(msg.Role))
+		if role != "user" && role != "system" && role != "developer" {
+			continue
+		}
 		for _, b := range msg.Content {
 			if b.Text != "" {
 				text += b.Text + "\n"

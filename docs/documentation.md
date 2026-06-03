@@ -1338,7 +1338,10 @@ edit, read, safety, browser, and MCP tool classes are always kept, and
 case-insensitive matching.
 Pruned definitions are archived by session and tool name. A later tool-name
 mention, safe alias (`GetWeather` -> "weather", `send_email` -> "email"), or
-command-family hint reattaches the definition before pruning runs again.
+command-family hint in current user/system/developer instruction text reattaches
+the definition before pruning runs again. Historical assistant text and tool
+stdout/stderr do not trigger reattach, so old logs cannot silently add schema
+tokens back to a later unrelated turn.
 Reattached definitions are appended in deterministic tool-name order to avoid
 avoidable prompt-cache churn, and the reattached tool names count as active for
 the same prune decision so the idle pass cannot immediately remove the recovered

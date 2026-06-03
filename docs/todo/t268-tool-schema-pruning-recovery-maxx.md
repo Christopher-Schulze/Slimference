@@ -137,6 +137,13 @@ Tool pruning should be default-safe only when:
   `function_call ... not found`). Tool/function schema errors are all treated as
   possible pruning misses because the safe response is full-schema retry and
   cooldown, not trying to classify provider wording narrowly.
+- 2026-06-03: Tightened reattach intent extraction to current instruction text.
+  Reattach mentions now use user/system/developer message text only and ignore
+  historical assistant text, tool output, stdout, stderr, and logs. This avoids
+  unnecessary schema reattachment from old context while preserving capability
+  safety: actual user intent still reattaches by exact name, alias, or command
+  family hint, and missing-tool 4xx recovery still retries once with the full
+  schema.
 
 ## Done
 
