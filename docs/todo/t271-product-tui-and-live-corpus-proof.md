@@ -243,3 +243,14 @@ gate is done when default promotions require live corpus evidence.
   session activity; `tools[]` pruning runs only on prompt/user turns with known
   Codex schema, and unknown schemas full-pass. The remaining `tool_heavy` proof
   gap is a real focused live-capture gap.
+- 2026-06-03: Tightened maxx inventory semantics for the host-resource long
+  workday gate. `host_resource_long_workday` no longer completes from
+  `host_budget_ok` alone; it must also carry positive live billable input-token
+  savings. A host that stays green while nothing is saved is useful telemetry,
+  but it is not a max-out proof.
+- 2026-06-03: Extended `benchmark-corpus --maxx-check` with host-budget
+  evidence. Session reports now aggregate `host_budget` / flat
+  `host_budget_*` fields, render ok/issue counts, and support a
+  `host_budget_ok` scenario validator. The `host_resource_long_workday`
+  category therefore requires both real savings and a green resource guard in
+  the corpus gate, not just workload presence.

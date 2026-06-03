@@ -292,6 +292,16 @@ Initial targets for Apple Silicon macOS:
   tests and non-hot callers. This removes repeated full-map JSON unmarshalling
   from normal request handling without changing any model-facing bytes, reducer
   decisions, or planner semantics.
+- 2026-06-03: Hardened release inventory semantics for host-resource proof. A
+  `host_resource_long_workday` row must now show positive live billable
+  input-token savings plus `host_budget_ok`; host telemetry alone cannot close
+  the maxx gate. This keeps resource proof tied to the product goal: saving
+  tokens while staying cheap and stable.
+- 2026-06-03: Wired host-budget evidence into the live-corpus benchmark gate.
+  Corpus session records can now carry either nested `host_budget` snapshots or
+  flat `host_budget_*` fields, and `benchmark-corpus --maxx-check` can require
+  `host_budget_ok` as a scenario validator. This gives the long-workday resource
+  proof a second strict gate beside WSS proof-matrix inventory.
 
 ## Done
 

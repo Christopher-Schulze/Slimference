@@ -173,6 +173,21 @@ func TestFormatSessionReport_PlannerReplay(t *testing.T) {
 	}
 }
 
+func TestFormatSessionReport_HostBudgetRows(t *testing.T) {
+	t.Parallel()
+	agg, err := AggregateSessions(strings.NewReader(sampleHostBudgetOKRecord+sampleHostBudgetIssueRecord), &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	if agg.hostBudgetOK != 1 || agg.hostBudgetIssues != 1 {
+		t.Fatalf("host budget aggregate: ok=%d issue=%d", agg.hostBudgetOK, agg.hostBudgetIssues)
+	}
+	out := FormatSessionReport(agg)
+	if !strings.Contains(out, "Host budget ok/issue:1 / 1") {
+		t.Fatalf("host budget not rendered:\n%s", out)
+	}
+}
+
 func TestFormatSessionMarkdown_Empty(t *testing.T) {
 	t.Parallel()
 	if got := FormatSessionMarkdown(newSessionReportAggregate()); !strings.Contains(got, "no session records") {

@@ -46,6 +46,10 @@ const sampleLowSavingsRecord = `{"req_id":"req_low","provider":"anthropic","mode
 
 const sampleEvidenceRecord = `{"req_id":"req_evidence","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"cache_read_tokens":120,"cache_create_tokens":40,"provider_cached_tokens":120,"output_tokens":77,"output_reduce":{"applied":true,"profile":"codex_aggressive"},"proxy_latency_ms":42.5}` + "\n"
 
+const sampleHostBudgetOKRecord = `{"req_id":"req_host_ok","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"host_budget":{"status":"ok","exceeded":false,"compression_ok":true,"degradation_ok":true},"proxy_latency_ms":42.5}` + "\n"
+
+const sampleHostBudgetIssueRecord = `{"req_id":"req_host_issue","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"host_budget_status":"attention","host_budget_exceeded":true,"host_budget_compression_ok":true,"host_budget_degradation_ok":true,"proxy_latency_ms":42.5}` + "\n"
+
 const sampleErrorLatencyRecord = `{"req_id":"req_error","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"errors":["bad"],"proxy_latency_ms":2000}` + "\n"
 
 const sampleWebSocketRecord = `{"req_id":"req_ws","provider":"openai","model":"gpt-5","route_mode":"websocket","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":700,"final":650,"saved":350},"output_reduce":{"applied":true}}` + "\n"
@@ -283,16 +287,20 @@ func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
 			"output_reduce",
 			"websocket",
 			"low_error",
+			"host_budget_ok",
 			"layer_combo_diversity",
 			"l2_summary",
 		},
-	}, []string{sampleEvidenceRecord, sampleWebSocketRecord})
+	}, []string{sampleEvidenceRecord, sampleWebSocketRecord, sampleHostBudgetOKRecord})
 	res, err := EvaluateCategory(dir, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
 	if len(res.Failures) != 0 {
 		t.Fatalf("expected scenario validators to pass, got %v", res.Failures)
+	}
+	if res.HostBudgetOKRows != 1 || res.HostBudgetIssueRows != 0 {
+		t.Fatalf("host budget rows: %+v", res)
 	}
 }
 
@@ -306,11 +314,12 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 			"output_reduce",
 			"websocket",
 			"low_error",
+			"host_budget_ok",
 			"layer_combo_diversity",
 			"l2_summary",
 			"unknown_validator",
 		},
-	}, []string{sampleErrorLatencyRecord})
+	}, []string{sampleErrorLatencyRecord, sampleHostBudgetIssueRecord})
 	res, err := EvaluateCategory(dir, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
@@ -321,6 +330,7 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 		"scenario output_reduce",
 		"scenario websocket",
 		"scenario low_error",
+		"scenario host_budget_ok",
 		"scenario layer_combo_diversity",
 		"scenario l2_summary",
 		"unknown scenario validator",
@@ -518,13 +528,16 @@ func writeMaxxCorpus(t *testing.T, root string) {
 			meta.ExpectedProviderCacheReadMin = 100
 			meta.ScenarioValidators = []string{"cache_reuse", "low_error"}
 		case "host_resource_long_workday":
-			meta.ScenarioValidators = []string{"tool_heavy", "low_error"}
+			meta.ScenarioValidators = []string{"tool_heavy", "host_budget_ok", "low_error"}
 		default:
 			meta.ScenarioValidators = []string{"tool_heavy", "low_error"}
 		}
 		session := sampleHighSavingsRecord
-		if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" || workload == "host_resource_long_workday" {
+		if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" {
 			session = sampleEvidenceRecord
+		}
+		if workload == "host_resource_long_workday" {
+			session = sampleHostBudgetOKRecord
 		}
 		dir := writeCategory(t, root, name, meta, []string{session})
 		forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)

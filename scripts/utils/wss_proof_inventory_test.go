@@ -140,6 +140,26 @@ func TestWSSProofInventoryRequiresLogOrTestReducerSignal(t *testing.T) {
 	}
 }
 
+func TestWSSProofInventoryHostResourceLongWorkdayRequiresSavings(t *testing.T) {
+	status := &wssProofInventoryWorkloadStatus{
+		WorkloadClass:     "host_resource_long_workday",
+		Rows:              1,
+		PositiveTokenRows: 0,
+		HostBudgetOKRows:  1,
+		LiveReducerHits: map[string]int64{
+			"host_budget_ok": 1,
+		},
+	}
+	if maxxWorkloadHasPositiveEconomicSignal(status, status.WorkloadClass) {
+		t.Fatalf("host-resource long-workday without positive token savings must not complete: %+v", status)
+	}
+
+	status.PositiveTokenRows = 1
+	if !maxxWorkloadHasPositiveEconomicSignal(status, status.WorkloadClass) {
+		t.Fatalf("host-resource long-workday should complete its economic signal with savings plus host budget: %+v", status)
+	}
+}
+
 func TestRunWSSProofInventoryJSON(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

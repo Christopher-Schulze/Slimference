@@ -44,6 +44,8 @@ type sessionReportAggregate struct {
 	outputReduceApplied int
 	errorCount          int
 	reReadCount         int
+	hostBudgetOK        int
+	hostBudgetIssues    int
 	latenciesMs         []float64
 	planReplay          planReplayAggregate
 	layerCombinations   map[string]layerCombinationAggregate
@@ -128,6 +130,12 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 		}
 		agg.errorCount += len(rec.Errors)
 		agg.reReadCount += rec.ReReadCount
+		switch hostBudgetStateFromRaw(raw) {
+		case "ok":
+			agg.hostBudgetOK++
+		case "issue":
+			agg.hostBudgetIssues++
+		}
 		if rec.ProxyLatencyMs > 0 {
 			agg.latenciesMs = append(agg.latenciesMs, rec.ProxyLatencyMs)
 		}
@@ -167,6 +175,43 @@ func rawStringField(raw map[string]json.RawMessage, key string) string {
 	return value
 }
 
+func rawBoolField(raw map[string]json.RawMessage, key string) (bool, bool) {
+	if len(raw) == 0 {
+		return false, false
+	}
+	var value bool
+	if err := json.Unmarshal(raw[key], &value); err != nil {
+		return false, false
+	}
+	return value, true
+}
+
+func hostBudgetStateFromRaw(raw map[string]json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	status := strings.ToLower(strings.TrimSpace(rawStringField(raw, "host_budget_status")))
+	exceeded, exceededSet := rawBoolField(raw, "host_budget_exceeded")
+	compressionOK, compressionSet := rawBoolField(raw, "host_budget_compression_ok")
+	degradationOK, degradationSet := rawBoolField(raw, "host_budget_degradation_ok")
+	if status == "" {
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(raw["host_budget"], &nested); err == nil && len(nested) > 0 {
+			status = strings.ToLower(strings.TrimSpace(rawStringField(nested, "status")))
+			exceeded, exceededSet = rawBoolField(nested, "exceeded")
+			compressionOK, compressionSet = rawBoolField(nested, "compression_ok")
+			degradationOK, degradationSet = rawBoolField(nested, "degradation_ok")
+		}
+	}
+	if status == "" {
+		return ""
+	}
+	if status == "ok" && (!exceededSet || !exceeded) && (!compressionSet || compressionOK) && (!degradationSet || degradationOK) {
+		return "ok"
+	}
+	return "issue"
+}
+
 func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.requests += src.requests
 	dst.origTokens += src.origTokens
@@ -184,6 +229,8 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.outputReduceApplied += src.outputReduceApplied
 	dst.errorCount += src.errorCount
 	dst.reReadCount += src.reReadCount
+	dst.hostBudgetOK += src.hostBudgetOK
+	dst.hostBudgetIssues += src.hostBudgetIssues
 	dst.latenciesMs = append(dst.latenciesMs, src.latenciesMs...)
 	mergePlanReplayAggregate(&dst.planReplay, src.planReplay)
 	mergeLayerCombinations(dst.layerCombinations, src.layerCombinations)
@@ -447,6 +494,9 @@ func FormatSessionReport(agg *sessionReportAggregate) string {
 		sb.WriteString(fmt.Sprintf("Output-reduce hits: %d\n", agg.outputReduceApplied))
 		sb.WriteString(fmt.Sprintf("Errors:             %d\n", agg.errorCount))
 		sb.WriteString(fmt.Sprintf("Latency p95 ms:     %.1f\n", percentileFloat64(agg.latenciesMs, 0.95)))
+	}
+	if agg.hostBudgetOK > 0 || agg.hostBudgetIssues > 0 {
+		sb.WriteString(fmt.Sprintf("Host budget ok/issue:%d / %d\n", agg.hostBudgetOK, agg.hostBudgetIssues))
 	}
 	if agg.planReplay.RequestsWithPlan > 0 {
 		sb.WriteString(fmt.Sprintf("Planner requests:   %d\n", agg.planReplay.RequestsWithPlan))

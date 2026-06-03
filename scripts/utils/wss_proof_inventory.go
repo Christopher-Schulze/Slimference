@@ -309,7 +309,7 @@ func maxxWorkloadHasPositiveEconomicSignal(status *wssProofInventoryWorkloadStat
 	case "tool_heavy":
 		return status.LiveReducerHits["tool_prune_tokens_saved"] > 0
 	case "host_resource_long_workday":
-		return status.LiveReducerHits["host_budget_ok"] > 0
+		return status.PositiveTokenRows > 0 && status.LiveReducerHits["host_budget_ok"] > 0
 	default:
 		return status.PositiveTokenRows > 0
 	}

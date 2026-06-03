@@ -71,6 +71,8 @@ type CategoryResult struct {
 	OutputReduceApplied       int                                  `json:"output_reduce_applied"`
 	ErrorCount                int                                  `json:"error_count"`
 	ReReadCount               int                                  `json:"reread_count"`
+	HostBudgetOKRows          int                                  `json:"host_budget_ok_rows"`
+	HostBudgetIssueRows       int                                  `json:"host_budget_issue_rows"`
 	LatencyP95Ms              float64                              `json:"latency_p95_ms"`
 	PlanReplay                planReplayAggregate                  `json:"plan_replay"`
 	LayerCombinations         map[string]layerCombinationAggregate `json:"layer_combinations,omitempty"`
@@ -203,6 +205,8 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		OutputReduceApplied:       agg.outputReduceApplied,
 		ErrorCount:                agg.errorCount,
 		ReReadCount:               agg.reReadCount,
+		HostBudgetOKRows:          agg.hostBudgetOK,
+		HostBudgetIssueRows:       agg.hostBudgetIssues,
 		LatencyP95Ms:              percentileFloat64(agg.latenciesMs, 0.95),
 		PlanReplay:                clonePlanReplayAggregate(agg.planReplay),
 		LayerCombinations:         cloneLayerCombinations(agg.layerCombinations),
@@ -314,6 +318,10 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 		case "low_error":
 			if res.ErrorCount != 0 {
 				failures = append(failures, fmt.Sprintf("scenario low_error: errors=%d", res.ErrorCount))
+			}
+		case "host_budget_ok":
+			if res.HostBudgetOKRows <= 0 || res.HostBudgetIssueRows > 0 {
+				failures = append(failures, fmt.Sprintf("scenario host_budget_ok: ok_rows=%d issue_rows=%d", res.HostBudgetOKRows, res.HostBudgetIssueRows))
 			}
 		case "layer_combo_diversity":
 			if len(res.LayerCombinations) < 2 {
@@ -562,6 +570,9 @@ func FormatCorpusReport(report CorpusReport) string {
 		sb.WriteString(fmt.Sprintf("  output-reduce:%d\n", c.OutputReduceApplied))
 		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
 		sb.WriteString(fmt.Sprintf("  re-reads:     %d\n", c.ReReadCount))
+		if c.HostBudgetOKRows > 0 || c.HostBudgetIssueRows > 0 {
+			sb.WriteString(fmt.Sprintf("  host budget:  ok=%d issues=%d\n", c.HostBudgetOKRows, c.HostBudgetIssueRows))
+		}
 		sb.WriteString(fmt.Sprintf("  latency p95:  %.1f ms\n", c.LatencyP95Ms))
 		if c.ClientFamily != "" || c.WorkloadClass != "" {
 			sb.WriteString(fmt.Sprintf("  client/work:  %s / %s\n", strOrUnset(c.ClientFamily), strOrUnset(c.WorkloadClass)))
