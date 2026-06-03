@@ -615,6 +615,7 @@ func wssPlannerOutputReduceReason(replaced bool, l0Stats proxyLayer0Stats) strin
 
 func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
 	a.rememberToolUsesFromResponse(env)
+	a.recordWSSProviderUsage(env)
 	if env.Kind.IsTextDelta() {
 		a.counters.responseTextDeltasSeen.Add(1)
 	}
@@ -633,6 +634,28 @@ func (a *wsPhaseFAdapter) handleResponse(env *wsmitm.Envelope) bool {
 		a.counters.mutations.Add(1)
 	}
 	return mutated
+}
+
+func (a *wsPhaseFAdapter) recordWSSProviderUsage(env *wsmitm.Envelope) {
+	if a == nil || a.p == nil || env == nil || env.Kind != wsmitm.FrameKindResponseCompleted || len(env.Response) == 0 {
+		return
+	}
+	usage := extractOpenAICacheUsageFromBody(env.Response)
+	if usage.InputTokens <= 0 && usage.OutputTokens <= 0 && usage.ReadTokens <= 0 && usage.CreateTokens <= 0 {
+		return
+	}
+	a.p.trySendAnalytics(types.AnalyticsEvent{
+		Type:              types.EventRequestProcessed,
+		Timestamp:         time.Now(),
+		Provider:          types.CodexChatGPT,
+		InputTokensOrig:   usage.InputTokens,
+		InputTokensComp:   usage.InputTokens,
+		OutputTokens:      usage.OutputTokens,
+		CompressionRatio:  1,
+		CacheHit:          usage.ReadTokens > 0,
+		CacheReadTokens:   usage.ReadTokens,
+		CacheCreateTokens: usage.CreateTokens,
+	})
 }
 
 func (a *wsPhaseFAdapter) rememberToolUsesFromResponse(env *wsmitm.Envelope) {

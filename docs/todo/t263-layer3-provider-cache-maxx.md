@@ -167,6 +167,19 @@ accounting or locally proven upstream bypass, not mixed counters.
   `provider_cache_create` as distinct Layer-3 proof signals. This closes the
   offline proof-schema gap for the later `provider_cache_long_session` capture
   without mixing provider-cache tokens into local Layer-0 input savings.
+- 2026-06-03: Live provider-cache proof exposed and closed a WSS accounting gap.
+  The first managed CLI capture
+  `/Users/christopher/.slimference/captures/provider-cache-long-session-20260603T160815Z.jsonl`
+  contained Codex `response.completed.usage.input_tokens_details.cached_tokens`
+  in the raw WSS frame, but `/admin/state.savings` still reported
+  `provider_cache_read_tokens=0`. WSS Phase-F now records terminal
+  `response.completed` OpenAI/Codex usage through the same analytics path as
+  HTTP, without mutating the frame. The fixed capture
+  `/Users/christopher/.slimference/captures/provider-cache-long-session-fixed-20260603T161135Z.jsonl`
+  reports `provider_cache_read_tokens=3456`, `host_budget_status=ok`,
+  `parse_failures=0`, `degraded_sessions=0`, `compression_errors=0`, and
+  `wss-proof-matrix --require-live-token-delta --expected-reducer provider_cache_read --expected-reducer host_budget_ok`
+  passes.
 
 ## Done
 

@@ -206,8 +206,8 @@ type AnalyticsEvent struct {
 	Error            string
 	// CacheReadTokens is the number of upstream-cached (prompt-cache-hit)
 	// input tokens reported by the provider for this request. Anthropic
-	// surfaces this via usage.cache_read_input_tokens; OpenAI does not
-	// yet expose an equivalent. Zero when absent.
+	// surfaces this via usage.cache_read_input_tokens; OpenAI/Codex
+	// surfaces this via usage.input_tokens_details.cached_tokens. Zero when absent.
 	CacheReadTokens int
 	// CacheCreateTokens is the number of tokens newly cached by this
 	// request (Anthropic usage.cache_creation_input_tokens).

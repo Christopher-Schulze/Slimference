@@ -142,6 +142,47 @@ func TestWSPhaseFDoesNotStreamcutWSSDelta(t *testing.T) {
 	}
 }
 
+func TestWSPhaseFRecordsProviderCacheUsageFromCompletedResponse(t *testing.T) {
+	cfg := config.Defaults()
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	resp := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindResponseCompleted),
+		"response": map[string]any{
+			"id": "resp-cache",
+			"usage": map[string]any{
+				"input_tokens": 1000,
+				"input_tokens_details": map[string]any{
+					"cached_tokens": 345,
+				},
+				"output_tokens": 12,
+			},
+		},
+	})
+	replace, err := adapter.handle(context.Background(), wsmitm.DirServerToClient, &resp)
+	if err != nil {
+		t.Fatalf("response handle: %v", err)
+	}
+	if replace {
+		t.Fatal("usage accounting must not mutate the WSS response")
+	}
+
+	select {
+	case event := <-p.analyticsQueue:
+		p.analytics.Record(event)
+	default:
+		t.Fatal("expected WSS provider usage analytics event")
+	}
+	got := (&SavingsProbe{Proxy: p}).ProbeSavings(context.Background())
+	if got.ProviderCacheReadTokens != 345 || got.Product.ProviderCacheReadTokens != 345 {
+		t.Fatalf("provider cache read tokens not surfaced: %+v", got)
+	}
+	if got.Product.Status != "saving" {
+		t.Fatalf("product status=%q, want saving", got.Product.Status)
+	}
+}
+
 func TestWSPhaseFObservedEditBypassesReadDelta(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

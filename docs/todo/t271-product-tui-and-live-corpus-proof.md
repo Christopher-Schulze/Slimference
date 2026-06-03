@@ -218,3 +218,10 @@ gate is done when default promotions require live corpus evidence.
   tool-heavy workloads require `tool_prune_tokens_saved`, output-reduce
   aggressive rows require `output_reduce_injected`, and host-resource workdays
   require `host_budget_ok`.
+- 2026-06-03: Provider-cache long-session CLI proof is now complete in the local
+  inventory. After WSS `response.completed` usage accounting was wired into
+  analytics, the fixed capture matrix row reports `provider_cache_read=3456`,
+  `host_budget_ok=1`, zero safety issues, and a passing focused matrix gate.
+  Current remaining maxx gaps are now `chunk_dedup_log_output`,
+  `chunk_dedup_test_output`, `output_reduce_aggressive`, `tool_heavy`, and
+  `host_resource_long_workday`.

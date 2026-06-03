@@ -1134,11 +1134,12 @@ where timing, tool state, or stochasticity matters.
 
 Provider-cache accounting is intentionally split by provider shape. Anthropic
 `cache_read_input_tokens` and `cache_creation_input_tokens` are recorded as
-provider-cache read/create tokens. OpenAI and Codex `cached_tokens` are recorded
-as provider cached input tokens, not duplicated into the Anthropic-style read
-field. Derived decision and savings reports count either signal once and keep
-provider-cache numbers separate from local response-cache hits and output-wire
-savings.
+provider-cache read/create tokens. OpenAI and Codex `cached_tokens` are treated
+as provider-cache read tokens for product/admin savings, while debug flight
+records preserve the provider-specific cached-input shape so reports can avoid
+double counting. HTTP and WSS `response.completed` usage both feed the same
+admin-state savings rollup. Provider-cache numbers remain separate from local
+response-cache hits and output-wire savings.
 
 ### Invalidation
 
