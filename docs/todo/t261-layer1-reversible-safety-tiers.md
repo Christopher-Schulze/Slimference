@@ -79,9 +79,9 @@ compression shortcut.
    - recoverable sublayers include valid archive ids
    - risky sublayers full-pass when archive is unavailable
 6. Add prompt-cache-aware mutation checks:
-   - never mutate stable provider-cached prefixes when the token economics are
-     net negative
-   - never trade a provider cache hit for small local savings without proof
+   - [x] never mutate stable provider-cached prefixes when the token economics
+     are net negative
+   - [x] never trade a provider cache hit for small local savings without proof
 
 ## Zero product-drawdown gates
 
@@ -166,6 +166,12 @@ compression shortcut.
   receiver-local fields used by inner fan-out workers. Focused tests prove
   request-scoped options do not inherit legacy state and concurrent archive writes
   keep the correct session id.
+- 2026-06-03: Added prompt-cache boundary protection. Layer 1 now skips any
+  content block that already carries provider `cache_control`, so local
+  compression cannot mutate a stable cached prefix for small savings or disturb
+  provider prompt-cache economics. Regression coverage proves large
+  cache-controlled tool outputs remain byte-identical, unarchived, and
+  savings-neutral.
 
 ## Done
 

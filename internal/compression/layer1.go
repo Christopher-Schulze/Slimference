@@ -370,6 +370,10 @@ func (c *DeterministicCompressor) compressMessage(
 	messageAge := prefixEnd - msgIdx
 
 	for bi, block := range newContent {
+		if block.CacheControl != nil {
+			continue
+		}
+
 		// L1.11: Image replacement (applies to explicit image-type blocks)
 		if block.Type == "image" {
 			updated, saved := replaceImageBase64(block, msgIdx, prefixEnd)

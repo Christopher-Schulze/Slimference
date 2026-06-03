@@ -880,6 +880,12 @@ not add model-facing text and does not change compression output. It lets proofs
 separate "not applicable", "full-passed because archive recovery was unavailable",
 and "applied with positive savings" per sub-layer.
 
+Layer 1 also respects provider-cache boundaries. Any content block that already
+carries `cache_control` is skipped by the Layer-1 block mutators, even if a
+local sub-layer could save a few tokens. This prevents local compression from
+rotating or weakening a provider-cached stable prefix and keeps prompt-cache
+economics ahead of small local wins.
+
 ### Reversible path dictionary (T143a)
 
 `semantic_dictionary.go` aliases repeated absolute local paths inside one
