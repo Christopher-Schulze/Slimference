@@ -1141,6 +1141,11 @@ double counting. HTTP and WSS `response.completed` usage both feed the same
 admin-state savings rollup. Provider-cache numbers remain separate from local
 response-cache hits and output-wire savings.
 
+Output-reduce proof runs can override the runtime profile without editing the
+config file via `SLIMFERENCE_OUTPUT_REDUCE_PROFILE` and
+`SLIMFERENCE_OUTPUT_REDUCE_MIN_INPUT_TOKENS`. These env overrides are scoped to
+the daemon process that receives them; they do not change product defaults.
+
 ### Invalidation
 
 `internal/caching/file_watcher.go` watches every file referenced by
@@ -1358,6 +1363,9 @@ T151/T268 make the pruner soak-safe enough for wider testing: shell,
 edit, read, safety, browser, and MCP tool classes are always kept, and
 `tool_prune_always_keep = []` can add project-specific exact tool names with
 case-insensitive matching.
+Focused tool-heavy proof runs can enable the pruner without editing the config
+file via `SLIMFERENCE_TOOL_PRUNE_ENABLED=1` and can provide comma-separated
+project keeps via `SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP`.
 Pruned definitions are archived by session and tool name. A later tool-name
 mention, safe alias (`GetWeather` -> "weather", `send_email` -> "email"), or
 command-family hint in current user/system/developer instruction text reattaches

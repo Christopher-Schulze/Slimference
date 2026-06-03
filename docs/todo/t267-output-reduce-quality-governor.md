@@ -161,6 +161,11 @@ Output reduction becomes a runtime-governed layer:
   `output_reduce_downgraded` rows. This is not a code failure; it means the
   aggressive-output proof cannot be closed from the existing capture corpus and
   must be run as a focused live workload before any stronger product claim.
+- 2026-06-03: Added scoped env overrides for focused output-reduce proof runs:
+  `SLIMFERENCE_OUTPUT_REDUCE_PROFILE` and
+  `SLIMFERENCE_OUTPUT_REDUCE_MIN_INPUT_TOKENS`. These do not change defaults;
+  they make managed `codex-capture-run` sessions reproducible without editing
+  config files or leaving product state behind.
 
 ## Done
 

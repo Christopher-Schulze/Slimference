@@ -787,6 +787,12 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Compression.OutputReduce.RepetitionDetectionEnabled = b
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_PROFILE")); v != "" {
+		cfg.Compression.OutputReduce.Profile = v
+	}
+	if n, ok := envIntOK("SLIMFERENCE_OUTPUT_REDUCE_MIN_INPUT_TOKENS"); ok && n >= 0 {
+		cfg.Compression.OutputReduce.MinInputTokens = n
+	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.StaleReadAgingEnabled = b
@@ -845,6 +851,26 @@ func applyEnvOverrides(cfg *Config) {
 	if n, ok := envIntOK("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_SESSION_REFERENCE_PERCENT"); ok && n >= 0 {
 		cfg.Compression.OutputReduce.CodexChunkDedupMaxSessionReferencePercent = n
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_TOOL_PRUNE_ENABLED")); v != "" {
+		if b, ok := parseEnvBool(v); ok {
+			cfg.Compression.Tuning.ToolPruneEnabled = b
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP")); v != "" {
+		cfg.Compression.Tuning.ToolPruneAlwaysKeep = splitCommaEnv(v)
+	}
+}
+
+func splitCommaEnv(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // validate checks that configuration values are within acceptable ranges.

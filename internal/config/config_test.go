@@ -115,6 +115,8 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING", "on")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING_MIN_TURN_GAP", "9")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE", "yes")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_PROFILE", "codex_aggressive")
+	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_MIN_INPUT_TOKENS", "123")
 	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT", "true")
 	t.Setenv("SLIMFERENCE_OUTPUT_REDUCE_TERSE_HINT_TEXT", "be terse")
 	t.Setenv("SLIMFERENCE_ARCHIVE_RECOVERY_NOTE", "true")
@@ -128,6 +130,8 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_TTL_SECONDS", "56")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_REFERENCE_PERCENT", "78")
 	t.Setenv("SLIMFERENCE_CODEX_CHUNK_DEDUP_MAX_SESSION_REFERENCE_PERCENT", "67")
+	t.Setenv("SLIMFERENCE_TOOL_PRUNE_ENABLED", "true")
+	t.Setenv("SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP", "shell, read_file,  write_file ")
 
 	cfg := Defaults()
 	applyEnvOverrides(cfg)
@@ -142,7 +146,8 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 		t.Fatalf("layer2 env not applied: %+v", cfg.Compression)
 	}
 	or := cfg.Compression.OutputReduce
-	if !or.StaleReadAgingEnabled || or.StaleReadAgingMinTurnGap != 9 ||
+	if or.Profile != "codex_aggressive" || or.MinInputTokens != 123 ||
+		!or.StaleReadAgingEnabled || or.StaleReadAgingMinTurnGap != 9 ||
 		!or.ObsoleteReadPruneEnabled || !or.BeTerseHintEnabled || or.BeTerseHintText != "be terse" ||
 		!or.ArchiveRecoveryNoteEnabled || or.ArchiveRecoveryNoteText != "request archive ids" ||
 		or.ReadDeltaRecentFullPassTurns != 2 || or.CodexSavingsPolicyMode != "max" || !or.CodexChunkDedupEnabled ||
@@ -151,6 +156,11 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 		or.CodexChunkDedupMaxReferencePercent != 78 ||
 		or.CodexChunkDedupMaxSessionReferencePercent != 67 {
 		t.Fatalf("output-reduce env not applied: %+v", or)
+	}
+	if !cfg.Compression.Tuning.ToolPruneEnabled ||
+		len(cfg.Compression.Tuning.ToolPruneAlwaysKeep) != 3 ||
+		cfg.Compression.Tuning.ToolPruneAlwaysKeep[1] != "read_file" {
+		t.Fatalf("tool-prune env not applied: %+v", cfg.Compression.Tuning)
 	}
 }
 

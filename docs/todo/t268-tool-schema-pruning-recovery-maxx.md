@@ -149,6 +149,10 @@ Tool pruning should be default-safe only when:
   mechanism remains offline-hardened but not live-proven; closeout still
   requires a focused tool-heavy capture where pruning saves schema tokens and
   recovery counters prove no capability loss.
+- 2026-06-03: Added scoped env overrides for focused tool-heavy proof runs:
+  `SLIMFERENCE_TOOL_PRUNE_ENABLED` and
+  `SLIMFERENCE_TOOL_PRUNE_ALWAYS_KEEP`. These make live proof captures
+  reproducible without changing the committed default-off product config.
 
 ## Done
 
