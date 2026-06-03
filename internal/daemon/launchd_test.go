@@ -164,8 +164,8 @@ func TestInstallLaunchd_WritesFilesAndRunsLaunchctlLifecycle(t *testing.T) {
 
 		want := []string{
 			"bootout " + launchdDomain() + " " + LaunchdPlistPath(),
-			"bootstrap " + launchdDomain() + " " + LaunchdPlistPath(),
 			"enable " + launchdServiceTarget(),
+			"bootstrap " + launchdDomain() + " " + LaunchdPlistPath(),
 			"kickstart -k " + launchdServiceTarget(),
 		}
 		if len(*calls) != len(want) {

@@ -173,7 +173,7 @@ not intercepted. Run `slimference enable` to start intercepting.
 | One Step in Plan fails on Apply | Plan.Apply returns error; previously-applied Steps stay (LIFO rollback is the user's call via `uninstall`). CLI prints offending Step + suggests `uninstall`. |
 | Apply succeeds, Reverse fails on one Step | Plan.Reverse continues for other Steps; CLI reports partial-success with `--show-skipped`. |
 | `enable` called before `install` | CLI errors: "run `slimference install` first" — does NOT auto-install (explicit user intent). |
-| `enable` while daemon down | hosts patch goes in but no listener answers. CLI warns: "hosts armed but daemon not running — `launchctl start com.slimference.proxy` or `slimference daemon start`." |
+| `enable` while daemon down | hosts patch goes in but no listener answers. CLI warns: "hosts armed but daemon not running - `slimference service start`." |
 | Daemon already running on `disable` | sends SIGHUP after revert; daemon's hosts-lifecycle (T202) catches the config change. |
 
 ## Acceptance

@@ -258,7 +258,7 @@ func setSNIPeekMode(args []string, p installPrinter, target bool, verb string) i
 	} else if sent {
 		fmt.Fprintln(p.Out, "Daemon SIGHUP sent.")
 	} else {
-		fmt.Fprintln(p.Out, "Daemon not running. Start it with `slimference daemon start` to apply the change.")
+		fmt.Fprintln(p.Out, "Daemon not running. Start it with `slimference service start` to apply the change.")
 	}
 	fmt.Fprintf(p.Out, "Transparent MITM %s.\n", verbState)
 	return 0
@@ -282,7 +282,7 @@ func runStatusCmd(args []string, p installPrinter) int {
 	state, err := fetchSetupState(2 * time.Second)
 	if err != nil {
 		fmt.Fprintf(p.Err, "status: %v\n", err)
-		fmt.Fprintf(p.Err, "       daemon not running? try `slimference daemon start`.\n")
+		fmt.Fprintf(p.Err, "       daemon not running? try `slimference service start`.\n")
 		return 1
 	}
 	if f.preflight || state.NetworkRedir.HostsActive || state.Listener.BoundOnSNIPeek {
@@ -540,7 +540,7 @@ writing cfg.Transparent.SNIPeekMode to the resolved config path and
 signaling the daemon (SIGHUP). This alone still does not patch hosts.
 
 If the daemon is not running, the flag is still written; the next
-` + "`slimference daemon start`" + ` picks it up.
+` + "`slimference service start`" + ` picks it up.
 
 Full global transparent lab routing additionally requires:
   slimference lab cert-trust

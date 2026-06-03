@@ -458,10 +458,10 @@ func InstallLaunchd(binaryPath string) error {
 		return fmt.Errorf("write plist: %w", err)
 	}
 	_ = launchctlExec("bootout", launchdDomain(), LaunchdPlistPath())
-	if err := launchctlExec("bootstrap", launchdDomain(), LaunchdPlistPath()); err != nil {
+	if err := launchctlExec("enable", launchdServiceTarget()); err != nil {
 		return err
 	}
-	if err := launchctlExec("enable", launchdServiceTarget()); err != nil {
+	if err := launchctlExec("bootstrap", launchdDomain(), LaunchdPlistPath()); err != nil {
 		return err
 	}
 	if err := launchctlExec("kickstart", "-k", launchdServiceTarget()); err != nil {

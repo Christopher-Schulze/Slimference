@@ -86,7 +86,7 @@ Slimference TUI acts as an operator console:
 
 - Every TUI action must map to an existing or new CLI subcommand:
   - `slimference proxy install|enable|disable|status|uninstall`
-  - `slimference daemon start|stop|restart|status`
+  - `slimference service start|stop|restart|status`
   - `slimference service install|remove|status`
   - layer/provider/bypass commands.
 - If a TUI action needs new CLI plumbing, add the CLI first and make TUI call the same service adapter.

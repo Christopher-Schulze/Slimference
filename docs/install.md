@@ -538,7 +538,7 @@ What happens:
    the SNI-peek listener.
 
 If the daemon is not running, the flag is still written; the next
-`slimference daemon start` (or boot via launchd) will apply hosts and
+`slimference service start` (or boot via launchd) will apply hosts and
 arm the listener.
 
 ### 6. Disarm global lab mode

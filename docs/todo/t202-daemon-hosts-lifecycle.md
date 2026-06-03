@@ -86,7 +86,7 @@ slimference enable
   2. If daemon is running: send SIGHUP. The daemon's reload handler
      reads the new flag, applies the hosts patch, starts the engine.
   3. If daemon is not running: print "config armed, start the daemon
-     via `slimference daemon start` to begin intercepting."
+     via `slimference service start` to begin intercepting."
   4. Exit 0.
 
 slimference disable
@@ -104,7 +104,7 @@ contract honest.
 ### Edge case: enable + daemon-not-running
 
 CLI prints a warning AND does not patch hosts. The next time the
-daemon starts (via `slimference daemon start` or boot via launchd), the
+daemon starts (via `slimference service start` or boot via launchd), the
 hosts patch will be applied. Codex traffic in the gap goes direct -
 exactly the fail-open behavior the user wants.
 
