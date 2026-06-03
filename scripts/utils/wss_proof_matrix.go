@@ -143,7 +143,8 @@ Expected signal names include:
   chunk_dedup, chunk_dedup_refs, tool_prune, tool_prune_reattach,
   tool_prune_retry, output_reduce_injected, output_reduce_skipped,
   output_reduce_downgraded, stop_seq, streamcut, repdet, stale_read,
-  obsolete_prune, beterse, host_budget_ok.
+  obsolete_prune, beterse, provider_cache_read, provider_cache_create,
+  host_budget_ok.
 
 Without focused-proof flags, the tool enforces the full release matrix:
 10 captures, 5 CLI, 5 Desktop, all release workload classes, and 7 positive/zero
@@ -590,6 +591,10 @@ func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
 		return live.ObsoleteReadBlocksPruned, true
 	case "beterse":
 		return live.BeterseInjections, true
+	case "provider_cache_read":
+		return live.ProviderCacheReadTokens, true
+	case "provider_cache_create":
+		return live.ProviderCacheCreateTokens, true
 	case "host_budget_ok":
 		if live.HostBudgetStatus == "ok" && !live.HostBudgetExceeded && live.HostBudgetCompressionOK && live.HostBudgetDegradationOK {
 			return 1, true

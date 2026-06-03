@@ -159,6 +159,14 @@ accounting or locally proven upstream bypass, not mixed counters.
   tokens stay in `cache_read_tokens`, OpenAI/Codex cached input tokens stay in
   `provider_cached_tokens`, and regression tests prove the derived
   `provider_prompt_cache` mechanism counts each provider signal exactly once.
+- 2026-06-03: Added provider-cache live-delta proof signals to the Codex WSS
+  proof tooling. `codex-capture-run` now persists `provider_cache_read_tokens`
+  and `provider_cache_create_tokens` in matrix `live_delta` rows, prints them
+  in the content-free capture summary, and `wss-proof-matrix` /
+  `wss-proof-inventory` can require or inventory `provider_cache_read` and
+  `provider_cache_create` as distinct Layer-3 proof signals. This closes the
+  offline proof-schema gap for the later `provider_cache_long_session` capture
+  without mixing provider-cache tokens into local Layer-0 input savings.
 
 ## Done
 

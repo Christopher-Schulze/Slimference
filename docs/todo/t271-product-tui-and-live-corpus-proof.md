@@ -194,3 +194,10 @@ gate is done when default promotions require live corpus evidence.
   `chunk_dedup_log_output`, `chunk_dedup_test_output`,
   `output_reduce_aggressive`, `tool_heavy`, `provider_cache_long_session`, and
   `host_resource_long_workday`.
+- 2026-06-03: Extended proof live signals for Layer 3. `codex-capture-run`
+  matrix rows now carry provider-cache read/create token deltas, and
+  `wss-proof-matrix` / `wss-proof-inventory` can check
+  `provider_cache_read` and `provider_cache_create` separately from local
+  billable-input reducer savings. This makes the future
+  `provider_cache_long_session` maxx category proofable by actual provider-cache
+  counters instead of workload name alone.

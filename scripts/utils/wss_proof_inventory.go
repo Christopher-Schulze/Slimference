@@ -62,6 +62,8 @@ var inventoryReducerNames = []string{
 	"stale_read",
 	"obsolete_prune",
 	"beterse",
+	"provider_cache_read",
+	"provider_cache_create",
 	"host_budget_ok",
 }
 

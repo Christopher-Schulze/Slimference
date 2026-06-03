@@ -71,10 +71,12 @@ type codexCaptureRunResult struct {
 }
 
 type codexCaptureAdminSnapshot struct {
-	BillableInputTokensSaved int64 `json:"billable_input_tokens_saved"`
-	InputTokensSaved         int64 `json:"input_tokens_saved"`
-	OutputWireBytesSaved     int64 `json:"output_wire_bytes_saved"`
-	RequestSideBytesReduced  int64 `json:"request_side_bytes_reduced"`
+	BillableInputTokensSaved  int64 `json:"billable_input_tokens_saved"`
+	InputTokensSaved          int64 `json:"input_tokens_saved"`
+	OutputWireBytesSaved      int64 `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced   int64 `json:"request_side_bytes_reduced"`
+	ProviderCacheReadTokens   int64 `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens int64 `json:"provider_cache_create_tokens"`
 
 	PhasefBridged             int64 `json:"phasef_bridged"`
 	CompressedMessagesMutated int64 `json:"compressed_messages_mutated"`
@@ -129,10 +131,12 @@ type codexCaptureAdminSnapshot struct {
 }
 
 type codexCaptureLiveDelta struct {
-	BillableInputTokensSaved int64 `json:"billable_input_tokens_saved"`
-	InputTokensSaved         int64 `json:"input_tokens_saved"`
-	OutputWireBytesSaved     int64 `json:"output_wire_bytes_saved"`
-	RequestSideBytesReduced  int64 `json:"request_side_bytes_reduced"`
+	BillableInputTokensSaved  int64 `json:"billable_input_tokens_saved"`
+	InputTokensSaved          int64 `json:"input_tokens_saved"`
+	OutputWireBytesSaved      int64 `json:"output_wire_bytes_saved"`
+	RequestSideBytesReduced   int64 `json:"request_side_bytes_reduced"`
+	ProviderCacheReadTokens   int64 `json:"provider_cache_read_tokens"`
+	ProviderCacheCreateTokens int64 `json:"provider_cache_create_tokens"`
 
 	PhasefBridged             int64 `json:"phasef_bridged"`
 	CompressedMessagesMutated int64 `json:"compressed_messages_mutated"`
@@ -655,10 +659,12 @@ func parseCodexCaptureAdminStateJSON(data []byte) (codexCaptureAdminState, error
 
 func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptureAdminSnapshot {
 	return codexCaptureAdminSnapshot{
-		BillableInputTokensSaved: setup.Savings.BillableInputTokensSaved,
-		InputTokensSaved:         setup.Savings.InputTokensSaved,
-		OutputWireBytesSaved:     setup.Savings.OutputWireBytesSaved,
-		RequestSideBytesReduced:  setup.Savings.RequestSideBytesReduced,
+		BillableInputTokensSaved:  setup.Savings.BillableInputTokensSaved,
+		InputTokensSaved:          setup.Savings.InputTokensSaved,
+		OutputWireBytesSaved:      setup.Savings.OutputWireBytesSaved,
+		RequestSideBytesReduced:   setup.Savings.RequestSideBytesReduced,
+		ProviderCacheReadTokens:   setup.Savings.ProviderCacheReadTokens,
+		ProviderCacheCreateTokens: setup.Savings.ProviderCacheCreateTokens,
 
 		PhasefBridged:             setup.WSS.PhasefBridged,
 		CompressedMessagesMutated: setup.WSS.CompressedMessagesMutated,
@@ -715,10 +721,12 @@ func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptu
 
 func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *codexCaptureLiveDelta {
 	return &codexCaptureLiveDelta{
-		BillableInputTokensSaved: nonNegativeDelta(current.BillableInputTokensSaved, base.BillableInputTokensSaved),
-		InputTokensSaved:         nonNegativeDelta(current.InputTokensSaved, base.InputTokensSaved),
-		OutputWireBytesSaved:     nonNegativeDelta(current.OutputWireBytesSaved, base.OutputWireBytesSaved),
-		RequestSideBytesReduced:  nonNegativeDelta(current.RequestSideBytesReduced, base.RequestSideBytesReduced),
+		BillableInputTokensSaved:  nonNegativeDelta(current.BillableInputTokensSaved, base.BillableInputTokensSaved),
+		InputTokensSaved:          nonNegativeDelta(current.InputTokensSaved, base.InputTokensSaved),
+		OutputWireBytesSaved:      nonNegativeDelta(current.OutputWireBytesSaved, base.OutputWireBytesSaved),
+		RequestSideBytesReduced:   nonNegativeDelta(current.RequestSideBytesReduced, base.RequestSideBytesReduced),
+		ProviderCacheReadTokens:   nonNegativeDelta(current.ProviderCacheReadTokens, base.ProviderCacheReadTokens),
+		ProviderCacheCreateTokens: nonNegativeDelta(current.ProviderCacheCreateTokens, base.ProviderCacheCreateTokens),
 
 		PhasefBridged:             nonNegativeDelta(current.PhasefBridged, base.PhasefBridged),
 		CompressedMessagesMutated: nonNegativeDelta(current.CompressedMessagesMutated, base.CompressedMessagesMutated),
@@ -1112,6 +1120,8 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 		fmt.Fprintf(w, "  billable_input_tokens_saved: %d\n", result.LiveDelta.BillableInputTokensSaved)
 		fmt.Fprintf(w, "  input_tokens_saved:          %d\n", result.LiveDelta.InputTokensSaved)
 		fmt.Fprintf(w, "  output_wire_bytes_saved:     %d\n", result.LiveDelta.OutputWireBytesSaved)
+		fmt.Fprintf(w, "  provider_cache_read/create:  %d / %d\n",
+			result.LiveDelta.ProviderCacheReadTokens, result.LiveDelta.ProviderCacheCreateTokens)
 		fmt.Fprintf(w, "  layer0_live read/repeated/chunk/refs: %d / %d / %d / %d\n",
 			result.LiveDelta.ProxyLayer0ReadDelta, result.LiveDelta.ProxyLayer0Repeated,
 			result.LiveDelta.ProxyLayer0ChunkDedup, result.LiveDelta.ProxyLayer0ChunkRefs)

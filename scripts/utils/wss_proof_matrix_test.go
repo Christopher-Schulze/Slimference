@@ -357,26 +357,30 @@ func TestWSSProofMatrixExtendedExpectedSignals(t *testing.T) {
 			"stale_read",
 			"obsolete_prune",
 			"beterse",
+			"provider_cache_read",
+			"provider_cache_create",
 			"host_budget_ok",
 		},
 		LiveDelta: &codexCaptureLiveDelta{
-			BillableInputTokensSaved: 100,
-			ProxyLayer0ChunkRefs:     1,
-			ToolPrunePruned:          1,
-			ToolPruneReattach:        1,
-			ToolPruneRetry:           1,
-			OutputReduceInjected:     1,
-			OutputReduceSkipped:      1,
-			OutputReduceDowngrades:   1,
-			StopSeqRequestsModified:  1,
-			StreamcutFired:           1,
-			RepdetResponsesRewritten: 1,
-			StaleReadBlocksReplaced:  1,
-			ObsoleteReadBlocksPruned: 1,
-			BeterseInjections:        1,
-			HostBudgetStatus:         "ok",
-			HostBudgetCompressionOK:  true,
-			HostBudgetDegradationOK:  true,
+			BillableInputTokensSaved:  100,
+			ProxyLayer0ChunkRefs:      1,
+			ToolPrunePruned:           1,
+			ToolPruneReattach:         1,
+			ToolPruneRetry:            1,
+			OutputReduceInjected:      1,
+			OutputReduceSkipped:       1,
+			OutputReduceDowngrades:    1,
+			StopSeqRequestsModified:   1,
+			StreamcutFired:            1,
+			RepdetResponsesRewritten:  1,
+			StaleReadBlocksReplaced:   1,
+			ObsoleteReadBlocksPruned:  1,
+			BeterseInjections:         1,
+			ProviderCacheReadTokens:   777,
+			ProviderCacheCreateTokens: 111,
+			HostBudgetStatus:          "ok",
+			HostBudgetCompressionOK:   true,
+			HostBudgetDegradationOK:   true,
 		},
 	})
 
@@ -395,6 +399,9 @@ func TestWSSProofMatrixExtendedExpectedSignals(t *testing.T) {
 	}
 	if got := report.CaptureReports[0].ExpectedReducerHits["host_budget_ok"]; got != 1 {
 		t.Fatalf("host_budget_ok hit = %d", got)
+	}
+	if got := report.CaptureReports[0].ExpectedReducerHits["provider_cache_read"]; got != 777 {
+		t.Fatalf("provider_cache_read hit = %d", got)
 	}
 }
 

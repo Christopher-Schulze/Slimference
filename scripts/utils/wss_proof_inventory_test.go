@@ -23,6 +23,7 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 			LiveDelta: &codexCaptureLiveDelta{
 				BillableInputTokensSaved: 99,
 				ProxyLayer0Captured:      1,
+				ProviderCacheReadTokens:  321,
 				HostBudgetStatus:         "ok",
 				HostBudgetCompressionOK:  true,
 				HostBudgetDegradationOK:  true,
@@ -38,7 +39,8 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 	if report.MatrixFiles != 1 || report.Rows != 1 || report.Clients["cli"] != 1 || report.WorkloadClasses["search_loop"] != 1 {
 		t.Fatalf("bad inventory aggregate: %+v", report)
 	}
-	if report.PositiveTokenRows != 1 || report.LiveReducerHits["captured_output"] != 1 || report.HostBudgetOKRows != 1 {
+	if report.PositiveTokenRows != 1 || report.LiveReducerHits["captured_output"] != 1 ||
+		report.LiveReducerHits["provider_cache_read"] != 321 || report.HostBudgetOKRows != 1 {
 		t.Fatalf("missing live signals: %+v", report)
 	}
 	if len(report.MissingMaxxWorkloads) == 0 {

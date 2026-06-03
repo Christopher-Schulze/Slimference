@@ -119,6 +119,8 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 			return codexCaptureAdminSnapshot{
 				BillableInputTokensSaved:  321,
 				InputTokensSaved:          321,
+				ProviderCacheReadTokens:   1000,
+				ProviderCacheCreateTokens: 200,
 				PhasefBridged:             1,
 				CompressedMessagesMutated: 1,
 				FramesReencoded:           1,
@@ -196,6 +198,7 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "billable_input_tokens_saved: 321") ||
 		!strings.Contains(stdout.String(), "replay_bytes_saved: 1234") ||
+		!strings.Contains(stdout.String(), "provider_cache_read/create:  1000 / 200") ||
 		!strings.Contains(stdout.String(), "layer0_live read/repeated/chunk/refs: 1 / 0 / 1 / 2") ||
 		!strings.Contains(stdout.String(), "host_budget: ok exceeded=false") ||
 		!strings.Contains(stdout.String(), "gate:          PASS") {
@@ -213,6 +216,9 @@ func TestRunCodexCaptureRunWithDepsLifecycleAndMatrix(t *testing.T) {
 	}
 	if records[0].LiveDelta == nil || records[0].LiveDelta.BillableInputTokensSaved != 321 || records[0].LiveDelta.ProxyLayer0ReadDelta != 1 {
 		t.Fatalf("matrix row missing live token delta: %+v", records[0].LiveDelta)
+	}
+	if records[0].LiveDelta.ProviderCacheReadTokens != 1000 || records[0].LiveDelta.ProviderCacheCreateTokens != 200 {
+		t.Fatalf("matrix row missing provider-cache delta: %+v", records[0].LiveDelta)
 	}
 	if records[0].LiveDelta.ProxyLayer0ChunkRefs != 2 ||
 		records[0].LiveDelta.ToolPrunePruned != 3 ||
@@ -239,6 +245,8 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 	state, err := parseCodexCaptureAdminStateJSON([]byte(`{
 	  "savings": {
 	    "billable_input_tokens_saved": 10,
+	    "provider_cache_read_tokens": 700,
+	    "provider_cache_create_tokens": 120,
 	    "proxy_layer0_chunk_dedup_blocks": 1,
 	    "proxy_layer0_chunk_dedup_references": 4,
 	    "proxy_layer0_chunk_dedup_referenced_bytes": 8192,
@@ -308,6 +316,9 @@ func TestCodexCaptureAdminSnapshotParsesExtendedAdminState(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := codexCaptureAdminSnapshotFromState(state)
+	if snapshot.BillableInputTokensSaved != 10 || snapshot.ProviderCacheReadTokens != 700 || snapshot.ProviderCacheCreateTokens != 120 {
+		t.Fatalf("savings fields missing: %+v", snapshot)
+	}
 	if snapshot.ProxyLayer0ChunkRefs != 4 || snapshot.ProxyLayer0ChunkRefB != 8192 || snapshot.ProxyLayer0ChunkInB != 16384 {
 		t.Fatalf("chunk fields missing: %+v", snapshot)
 	}
