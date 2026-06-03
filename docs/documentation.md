@@ -1104,6 +1104,14 @@ updates would change workflow state even if the visible text matched.
 This keeps Layer 3 from replaying a cached tool workflow or a fresh model sample
 where timing, tool state, or stochasticity matters.
 
+Provider-cache accounting is intentionally split by provider shape. Anthropic
+`cache_read_input_tokens` and `cache_creation_input_tokens` are recorded as
+provider-cache read/create tokens. OpenAI and Codex `cached_tokens` are recorded
+as provider cached input tokens, not duplicated into the Anthropic-style read
+field. Derived decision and savings reports count either signal once and keep
+provider-cache numbers separate from local response-cache hits and output-wire
+savings.
+
 ### Invalidation
 
 `internal/caching/file_watcher.go` watches every file referenced by

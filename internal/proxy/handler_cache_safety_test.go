@@ -14,6 +14,7 @@ import (
 
 	"github.com/slimference/slimference/internal/beterse"
 	"github.com/slimference/slimference/internal/config"
+	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/qualityab"
 )
 
@@ -26,6 +27,15 @@ func drainAnalyticsQueueForTest(p *Proxy) {
 			return
 		}
 	}
+}
+
+func mechanismByNameForTest(items []dbg.MechanismAccounting, name string) dbg.MechanismAccounting {
+	for _, item := range items {
+		if item.Name == name {
+			return item
+		}
+	}
+	return dbg.MechanismAccounting{}
 }
 
 func TestResponseCacheRouteKeyIncludesMethodPathAndQuery(t *testing.T) {
@@ -205,6 +215,100 @@ func TestServeHTTP_layer3CacheHit_skipsMetadataServerState(t *testing.T) {
 
 	if upstreamCalls.Load() != 2 {
 		t.Fatalf("upstream calls = %d, want 2 when metadata carries server state", upstreamCalls.Load())
+	}
+}
+
+func TestServeHTTP_providerCacheAccountingSeparatesOpenAICachedTokens(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"chatcmpl-cache","choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":120,"prompt_tokens_details":{"cached_tokens":40},"completion_tokens":3}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.OpenAI.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"gpt-5","temperature":0,"messages":[{"role":"user","content":"cache accounting"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer key-a")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("summaries=%d, want 1", len(summaries))
+	}
+	summary := summaries[0]
+	if summary.CacheReadTokens != 0 || summary.ProviderCachedTokens != 40 {
+		t.Fatalf("OpenAI cached-token accounting double-count risk: cache_read=%d provider_cached=%d",
+			summary.CacheReadTokens, summary.ProviderCachedTokens)
+	}
+	summary.EnsureMechanisms()
+	cache := mechanismByNameForTest(summary.Mechanisms, "provider_prompt_cache")
+	if cache.SavedTokens != 40 || cache.NetTokens != 40 {
+		t.Fatalf("OpenAI provider-cache mechanism should count cached tokens once: %+v", cache)
+	}
+}
+
+func TestServeHTTP_providerCacheAccountingKeepsAnthropicReadTokens(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"msg-cache","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn","usage":{"input_tokens":120,"cache_read_input_tokens":42,"cache_creation_input_tokens":6,"output_tokens":3}}`)
+	}))
+	defer upstream.Close()
+
+	cfg := config.Defaults()
+	cfg.Upstream.Anthropic.BaseURL = upstream.URL
+	cfg.Compression.Layer1Enabled = false
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.OutputReduce.Enabled = false
+	cfg.Secrets.Mode = "off"
+
+	p := New(cfg)
+	body := `{"model":"claude-3-5-sonnet-20241022","temperature":0,"messages":[{"role":"user","content":"cache accounting"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "key-a")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, req)
+	res := rec.Result()
+	t.Cleanup(func() { _ = res.Body.Close() })
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+
+	summaries := p.DebugRecorder().Last(1, false)
+	if len(summaries) != 1 {
+		t.Fatalf("summaries=%d, want 1", len(summaries))
+	}
+	summary := summaries[0]
+	if summary.CacheReadTokens != 42 || summary.ProviderCachedTokens != 0 || summary.CacheCreateTokens != 6 {
+		t.Fatalf("Anthropic cache accounting mismatch: cache_read=%d provider_cached=%d cache_create=%d",
+			summary.CacheReadTokens, summary.ProviderCachedTokens, summary.CacheCreateTokens)
+	}
+	summary.EnsureMechanisms()
+	cache := mechanismByNameForTest(summary.Mechanisms, "provider_prompt_cache")
+	if cache.SavedTokens != 42 || cache.AddedTokens != 6 || cache.NetTokens != 36 {
+		t.Fatalf("Anthropic provider-cache mechanism should account read/create once: %+v", cache)
 	}
 }
 

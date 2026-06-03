@@ -28,6 +28,10 @@ and long-session proof.
 - Streaming OpenAI/Codex provider-cache accounting now treats `cached_tokens`
   usage reports as per-request totals, not additive deltas, so intermediate and
   final SSE usage events cannot inflate provider-cache read-token claims.
+- HTTP debug/accounting now separates Anthropic `cache_read_input_tokens` from
+  OpenAI/Codex `cached_tokens`. A single provider signal is never copied into
+  both `cache_read_tokens` and `provider_cached_tokens`, so decision reports and
+  savings summaries cannot double-count provider-cache reads.
 - Local response-cache eligibility is now route-aware for server-state routes:
   OpenAI/Codex Responses requests full-pass unless they explicitly set
   `store:false`, and any `previous_response_id`, conversation, thread, or
@@ -151,6 +155,10 @@ accounting or locally proven upstream bypass, not mixed counters.
   `metadata.session_id`, `metadata.conversation_id`, metadata thread/assistant
   ids, or Codex turn metadata, and handler coverage proves repeated metadata
   session requests go upstream twice instead of replaying locally.
+- 2026-06-03: Fixed provider-cache debug accounting split. Anthropic cache-read
+  tokens stay in `cache_read_tokens`, OpenAI/Codex cached input tokens stay in
+  `provider_cached_tokens`, and regression tests prove the derived
+  `provider_prompt_cache` mechanism counts each provider signal exactly once.
 
 ## Done
 

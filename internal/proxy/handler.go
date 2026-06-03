@@ -119,6 +119,15 @@ func shortResponseCachePolicyHash(text string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+func splitProviderCacheUsage(provider types.Provider, usage cacheUsage) (cacheReadTokens, providerCachedTokens int) {
+	switch provider {
+	case types.OpenAI, types.CodexChatGPT:
+		return 0, usage.ReadTokens
+	default:
+		return usage.ReadTokens, 0
+	}
+}
+
 type pipelineStashKey struct{}
 
 type requestBodyEncoding string
@@ -1080,6 +1089,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	// --- Debug decision recording ---
 	if p.debugRecorder != nil {
+		cacheReadTokens, providerCachedTokens := splitProviderCacheUsage(provider, upstreamCacheUsage)
 		summary := dbg.RequestSummary{
 			RequestID:          reqID,
 			Timestamp:          start,
@@ -1106,10 +1116,10 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			Layer1Breakdown:      layer1Breakdown,
 			Layer1Decisions:      layer1Decisions,
 			CacheHit:             false,
-			CacheReadTokens:      upstreamCacheUsage.ReadTokens,
+			CacheReadTokens:      cacheReadTokens,
 			CacheCreateTokens:    upstreamCacheUsage.CreateTokens,
 			ProviderInputTokens:  upstreamCacheUsage.InputTokens,
-			ProviderCachedTokens: upstreamCacheUsage.ReadTokens,
+			ProviderCachedTokens: providerCachedTokens,
 			ProviderOutputTokens: outputTokens,
 			OutputTokens:         outputTokens,
 			PromptCache: dbg.PromptCacheSummary{

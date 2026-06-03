@@ -1940,6 +1940,9 @@ be called complete, default-safe, and production-grade.
   `metadata.session_id`, `metadata.conversation_id`, metadata thread/assistant
   ids, and Codex turn metadata, so Layer 3 cannot skip upstream conversation
   state updates via a local hit.
+  HTTP debug accounting now separates Anthropic `cache_read_input_tokens` from
+  OpenAI/Codex `cached_tokens`, preventing decision/report mechanisms from
+  double-counting one provider-cache signal.
   Provider-accounting alignment and long-session proof remain. Detail:
   `docs/todo/t263-layer3-provider-cache-maxx.md`
 
@@ -2126,8 +2129,9 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
 - [ ] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility
-  now fail-closes for server-state side effects; do not claim provider-cache
-  savings as local token deletion.
+  now fail-closes for server-state side effects, and HTTP debug records split
+  Anthropic cache-read tokens from OpenAI/Codex cached-token fields; do not claim
+  provider-cache savings as local token deletion.
 - [x] **T264 read/ranged/repeated-output closeout** - finish fresh Desktop
   live-token proof for read, ranged-read, repeated-command, repeated-search,
   and repeated non-file output hits. First reads stay full-pass; only
