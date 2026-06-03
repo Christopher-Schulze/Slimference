@@ -58,6 +58,7 @@ func TestDashboardActions_LaunchCenterStructureAndStates(t *testing.T) {
 }
 
 func TestDashboardActions_AutoStartInstalledErrorAndCursorMoves(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	m := NewModel(newMockProxy())
 	if m.autoStartInstalled() {
 		t.Fatal("autoStartInstalled should be false without service and home path")

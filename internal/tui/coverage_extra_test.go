@@ -236,6 +236,7 @@ func TestRenderTransparentStatusLineStates(t *testing.T) {
 }
 
 func TestSetupSteps_ServiceActionAndPartialState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	model := NewModel(newMockProxy())
 	svc := &mockServiceControl{transparentStatus: TransparentStatus{CAExists: true}}
 	model.SetServiceControl(svc)

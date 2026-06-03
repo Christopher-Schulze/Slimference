@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/slimference/slimference/internal/beterse"
 	dbg "github.com/slimference/slimference/internal/debug"
+	"github.com/slimference/slimference/internal/outputreduce"
 	"github.com/slimference/slimference/internal/outstop"
 	"github.com/slimference/slimference/internal/outstop/repdet"
 	"github.com/slimference/slimference/internal/proxy/wsmitm"
@@ -252,6 +254,14 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 			a.p.recordCodexLayer0Stats(stats)
 		}
 	}
+	if injected, stats := a.applyWSSOutputReduce(out); stats.Reason != "disabled" {
+		if stats.Applied {
+			out = injected
+		}
+		if a.p.outputReduce != nil {
+			a.p.outputReduce.ObserveInjection(stats)
+		}
+	}
 	if a.p.config.Compression.OutputReduce.StopSequencesEnabled {
 		if injected, res := outstop.MergeIntoBody(types.CodexChatGPT, out); res.OK && res.AddedCount > 0 {
 			out = injected
@@ -281,6 +291,90 @@ func (a *wsPhaseFAdapter) applyInputPipelineDetailed(body []byte) ([]byte, []typ
 		a.rememberWSSQualityCohort(recordCohort)
 	}
 	return out, messages, !bytes.Equal(body, out), l0Stats, reReadCount, meta
+}
+
+func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte) ([]byte, outputreduce.Stats) {
+	if a == nil || a.p == nil || a.p.config == nil || !a.p.config.Compression.OutputReduce.Enabled {
+		return body, outputreduce.Stats{Reason: "disabled"}
+	}
+	if wssBodyContainsFunctionCallOutput(body) {
+		return body, outputreduce.Stats{Reason: "disabled"}
+	}
+	if !wssBodyHasUserPromptInput(body) {
+		return body, outputreduce.Stats{Reason: "disabled"}
+	}
+	inputTokens := tokens.ForProvider(types.CodexChatGPT).CountString(string(body))
+	minTokens := a.p.config.Compression.OutputReduce.MinInputTokens
+	if inputTokens < minTokens {
+		return body, outputreduce.Stats{Reason: "below_min_tokens"}
+	}
+	taskShape := outputreduce.DetectTaskShape(types.CodexChatGPT, body)
+	profileName := a.p.config.Compression.OutputReduce.Profile
+	if configuredProfile, err := outputreduce.ParseProfile(profileName); err == nil {
+		effective := outputreduce.ResolveProfile(types.CodexChatGPT, configuredProfile)
+		effective = outputreduce.SafeProfileForShape(effective, taskShape)
+		if a.p.outputReduce != nil {
+			model := wssPlannerModel(body)
+			effective = a.p.outputReduce.SelectProfile(types.CodexChatGPT.String(), model, effective, taskShape)
+		}
+		profileName = string(effective)
+	}
+	out, stats, err := outputreduce.InjectBody(types.CodexChatGPT, body, outputreduce.Options{
+		Enabled:             true,
+		Profile:             profileName,
+		CustomDirectivePath: a.p.config.Compression.OutputReduce.CustomDirectivePath,
+		SignatureMarker:     a.p.config.Compression.OutputReduce.SignatureMarker,
+		MaxAddedBytes:       a.p.config.Compression.OutputReduce.MaxAddedBytes,
+		TaskShape:           taskShape,
+		InputTokens:         inputTokens,
+	})
+	if err != nil {
+		return body, outputreduce.Stats{Reason: "error", TaskShape: taskShape}
+	}
+	return out, stats
+}
+
+func wssBodyContainsFunctionCallOutput(body []byte) bool {
+	var root struct {
+		Input []map[string]json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(body, &root); err != nil {
+		return false
+	}
+	for _, item := range root.Input {
+		var itemType string
+		if err := json.Unmarshal(item["type"], &itemType); err == nil && itemType == "function_call_output" {
+			return true
+		}
+	}
+	return false
+}
+
+func wssBodyHasUserPromptInput(body []byte) bool {
+	var root struct {
+		Input json.RawMessage `json:"input"`
+	}
+	if err := json.Unmarshal(body, &root); err != nil || len(root.Input) == 0 {
+		return false
+	}
+	var inputText string
+	if err := json.Unmarshal(root.Input, &inputText); err == nil {
+		return strings.TrimSpace(inputText) != ""
+	}
+	var inputItems []map[string]json.RawMessage
+	if err := json.Unmarshal(root.Input, &inputItems); err != nil {
+		return false
+	}
+	for _, item := range inputItems {
+		var itemType string
+		_ = json.Unmarshal(item["type"], &itemType)
+		var role string
+		_ = json.Unmarshal(item["role"], &role)
+		if itemType == "message" && role == "user" && len(item["content"]) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *wsPhaseFAdapter) rememberWSSQualityCohort(cohort qualityab.Cohort) {

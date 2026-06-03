@@ -232,3 +232,9 @@ gate is done when default promotions require live corpus evidence.
   zero safety issues. This keeps the gate aligned with the no-drawdown policy:
   the proof must show the safest productive reducer won, not that a lower-priority
   fallback displaced it.
+- 2026-06-03: Codex WSS output-reduce is now offline-verified and code-reachable
+  for the `output_reduce_aggressive` maxx gate. The WSS adapter injects only into
+  top-level Codex `instructions`, never into `input`, and only on prompt/user-turn
+  bodies. Tool-output deltas containing `function_call_output` remain byte-equal
+  unless a dedicated tool-output reducer changes them. The inventory gap is now a
+  real live-capture gap, not missing WSS wiring.

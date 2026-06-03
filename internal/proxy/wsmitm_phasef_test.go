@@ -354,6 +354,174 @@ func TestWSPhaseFBeTerseInjectsIntoCodexResponsesInputForTreatment(t *testing.T)
 	}
 }
 
+func TestWSPhaseFOutputReduceInjectsIntoCodexInstructions(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": "output-reduce-session",
+			"instructions":    strings.Repeat("stable project instruction ", 2200),
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Explain the implementation strategy and include tradeoffs.",
+			}},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !replace {
+		t.Fatal("expected output-reduce request mutation")
+	}
+	body := string(env.Body)
+	if !strings.Contains(body, "#slimference-output-rules") || !strings.Contains(body, `"instructions"`) {
+		t.Fatalf("output-reduce directive missing from Codex instructions: %s", body)
+	}
+	if strings.Contains(body, `"role":"system"`) {
+		t.Fatalf("Codex output-reduce must not inject an input system message: %s", body)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 1 || snap.SkippedTurns != 0 || snap.LastReason != "applied" {
+		t.Fatalf("output-reduce tracker = %+v, want one applied injection", snap)
+	}
+}
+
+func TestWSPhaseFOutputReduceSkipsExactReply(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": "output-reduce-exact-session",
+			"instructions":    strings.Repeat("stable project instruction ", 2200),
+			"input": []map[string]any{{
+				"type":    "message",
+				"role":    "user",
+				"content": "Reply only: EXACT_DONE",
+			}},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace {
+		t.Fatalf("exact reply must remain byte-equal, got body: %s", env.Body)
+	}
+	if strings.Contains(string(env.Body), "#slimference-output-rules") {
+		t.Fatalf("exact reply must not receive output-reduce instructions: %s", env.Body)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 0 || snap.SkippedTurns != 1 || snap.LastReason != "exact_reply" {
+		t.Fatalf("output-reduce tracker = %+v, want one exact_reply skip", snap)
+	}
+}
+
+func TestWSPhaseFOutputReduceSkipsToolOutputDelta(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": "output-reduce-tool-output-session",
+			"instructions":    strings.Repeat("stable project instruction ", 2200),
+			"input": []map[string]any{{
+				"type":    "function_call_output",
+				"call_id": "call_large",
+				"output":  strings.Repeat("large terminal line with details\n", 800),
+			}},
+			"stream": true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace {
+		t.Fatalf("tool-output deltas must not receive output-reduce instructions: %s", env.Body)
+	}
+	if strings.Contains(string(env.Body), "#slimference-output-rules") {
+		t.Fatalf("tool-output delta must not receive output-reduce instructions: %s", env.Body)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
+		t.Fatalf("tool-output delta should not be counted as an output-reduce candidate: %+v", snap)
+	}
+}
+
+func TestWSPhaseFOutputReduceSkipsEmptyInput(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OutputReduce.StopSequencesEnabled = false
+	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
+	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
+	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
+	cfg.Compression.OutputReduce.Profile = "codex_aggressive"
+	cfg.Compression.OutputReduce.MinInputTokens = 1
+	p := New(cfg)
+	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
+
+	env := parseWSJSON(t, map[string]any{
+		"type": string(wsmitm.FrameKindRequest),
+		"body": map[string]any{
+			"model":           "gpt-5-codex",
+			"conversation_id": "output-reduce-empty-input-session",
+			"instructions":    strings.Repeat("stable project instruction ", 2200),
+			"input":           []map[string]any{},
+			"stream":          true,
+		},
+	})
+
+	replace, err := adapter.handle(context.Background(), wsmitm.DirClientToServer, &env)
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if replace {
+		t.Fatalf("empty input must not receive output-reduce instructions: %s", env.Body)
+	}
+	if strings.Contains(string(env.Body), "#slimference-output-rules") {
+		t.Fatalf("empty input must not receive output-reduce instructions: %s", env.Body)
+	}
+	snap := p.outputReduce.Snapshot()
+	if snap.InjectedTurns != 0 || snap.SkippedTurns != 0 {
+		t.Fatalf("empty input should not be counted as an output-reduce candidate: %+v", snap)
+	}
+}
+
 func TestWSPhaseFArchiveRecoveryNoteInjectsOncePerSession(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false

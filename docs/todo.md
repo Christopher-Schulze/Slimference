@@ -2021,7 +2021,11 @@ be called complete, default-safe, and production-grade.
   requested terminal output, paths, errors, exit codes, and line order.
   Task-shape detection now ignores prior Codex tool calls, tool outputs, and
   tool arguments, so historical terminal text cannot unnecessarily downgrade the
-  current user turn or create false repair/relay classifications.
+  current user turn or create false repair/relay classifications. WSS Phase-F
+  now calls the same guarded output-reduce injector on prompt/user-turn request
+  bodies and explicitly skips `function_call_output` deltas, so output-reduce is
+  code-reachable on Codex WSS without touching read/search/git/test tool-output
+  context. Focused live `output_reduce_aggressive` proof is still pending.
   Detail:
   `docs/todo/t267-output-reduce-quality-governor.md`
 - [~] **T268** Tool-schema pruning full-recovery max-out - make tool pruning a

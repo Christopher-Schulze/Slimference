@@ -321,7 +321,10 @@ For Codex Responses bodies, output-reduce directives are written only to the
 top-level `instructions` string. The injector does not rewrite `input` and never
 creates `input` items with `role=system`, because Codex rejects those and because
 output-reduce must not alter the model's task/tool context while trying to save
-output tokens.
+output tokens. On the WSS Phase-F path, output-reduce is considered only for
+prompt/user-turn request bodies. Requests carrying `function_call_output` items
+are not output-reduce candidates, so read/search/git/test/tool-output reducers
+remain the only mechanisms that can alter tool-output deltas.
 Streaming provider usage is accounted by field semantics, not by blind addition:
 if an OpenAI/Codex or Anthropic stream reports final `output_tokens`, that total
 replaces earlier text estimates for the request; OpenAI/Codex `cached_tokens`

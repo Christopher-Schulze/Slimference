@@ -166,6 +166,15 @@ Output reduction becomes a runtime-governed layer:
   `SLIMFERENCE_OUTPUT_REDUCE_MIN_INPUT_TOKENS`. These do not change defaults;
   they make managed `codex-capture-run` sessions reproducible without editing
   config files or leaving product state behind.
+- 2026-06-03: Wired the guarded output-reduce injector into the Codex WSS
+  Phase-F request path. It uses the existing task-shape gates, exact-reply
+  guard, command-output relay guard, low-ROI gates, profile capping, and
+  top-level Codex `instructions` injection. The WSS adapter explicitly skips
+  any request body containing `function_call_output`, so output-reduce cannot
+  mutate read/search/git/test/tool-output deltas or corrupt first-read seeding.
+  New WSS tests prove both the positive instruction injection path and the
+  exact/tool-output full-pass guards. Live `output_reduce_aggressive` proof is
+  now code-reachable but still pending a focused CLI/Desktop capture.
 
 ## Done
 
