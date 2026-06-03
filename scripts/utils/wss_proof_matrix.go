@@ -141,10 +141,10 @@ Optional focused-proof gates:
 Expected signal names include:
   read_delta, captured_output, codex_exec_envelope, repeated_output,
   chunk_dedup, chunk_dedup_refs, tool_prune, tool_prune_reattach,
-  tool_prune_retry, output_reduce_injected, output_reduce_skipped,
-  output_reduce_downgraded, stop_seq, streamcut, repdet, stale_read,
-  obsolete_prune, beterse, provider_cache_read, provider_cache_create,
-  host_budget_ok.
+  tool_prune_retry, tool_prune_tokens_saved, output_reduce_injected,
+  output_reduce_skipped, output_reduce_downgraded, stop_seq, streamcut,
+  repdet, stale_read, obsolete_prune, beterse, provider_cache_read,
+  provider_cache_create, host_budget_ok.
 
 Without focused-proof flags, the tool enforces the full release matrix:
 10 captures, 5 CLI, 5 Desktop, all release workload classes, and 7 positive/zero
@@ -573,6 +573,8 @@ func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
 		return live.ToolPruneReattach, true
 	case "tool_prune_retry":
 		return live.ToolPruneRetry, true
+	case "tool_prune_tokens_saved":
+		return live.ToolPruneTokensSaved, true
 	case "output_reduce_injected":
 		return live.OutputReduceInjected, true
 	case "output_reduce_skipped":

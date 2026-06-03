@@ -63,7 +63,7 @@ var maxxWSSProofRequiredSignals = map[string][]string{
 	"chunk_dedup_log_output":      {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
 	"chunk_dedup_test_output":     {"chunk_dedup", "chunk_dedup_refs", "host_budget_ok"},
 	"output_reduce_aggressive":    {"output_reduce_injected", "host_budget_ok"},
-	"tool_heavy":                  {"tool_prune", "host_budget_ok"},
+	"tool_heavy":                  {"tool_prune", "tool_prune_tokens_saved", "host_budget_ok"},
 	"provider_cache_long_session": {"provider_cache_read", "host_budget_ok"},
 	"host_resource_long_workday":  {"host_budget_ok"},
 }
@@ -78,6 +78,7 @@ var inventoryReducerNames = []string{
 	"tool_prune",
 	"tool_prune_reattach",
 	"tool_prune_retry",
+	"tool_prune_tokens_saved",
 	"output_reduce_injected",
 	"output_reduce_skipped",
 	"output_reduce_downgraded",
@@ -275,7 +276,7 @@ func finalizeMaxxWorkloadStatus(values map[string]*wssProofInventoryWorkloadStat
 		status.Present = status.Rows > 0
 		status.MissingSignals = missingInventorySignals(status.LiveReducerHits, maxxWSSProofRequiredSignals[workload])
 		status.Complete = status.Present &&
-			status.PositiveTokenRows > 0 &&
+			maxxWorkloadHasPositiveEconomicSignal(status, workload) &&
 			status.SafetyIssueRows == 0 &&
 			status.HostBudgetOKRows > 0 &&
 			len(status.MissingSignals) == 0
@@ -288,6 +289,21 @@ func finalizeMaxxWorkloadStatus(values map[string]*wssProofInventoryWorkloadStat
 		out = append(out, *status)
 	}
 	return out
+}
+
+func maxxWorkloadHasPositiveEconomicSignal(status *wssProofInventoryWorkloadStatus, workload string) bool {
+	switch workload {
+	case "output_reduce_aggressive":
+		return status.LiveReducerHits["output_reduce_injected"] > 0
+	case "provider_cache_long_session":
+		return status.LiveReducerHits["provider_cache_read"] > 0
+	case "tool_heavy":
+		return status.LiveReducerHits["tool_prune_tokens_saved"] > 0
+	case "host_resource_long_workday":
+		return status.LiveReducerHits["host_budget_ok"] > 0
+	default:
+		return status.PositiveTokenRows > 0
+	}
 }
 
 func missingInventorySignals(hits map[string]int64, required []string) []string {

@@ -211,3 +211,10 @@ gate is done when default promotions require live corpus evidence.
   `tool_heavy` has no `tool_prune` row, `provider_cache_long_session` has no
   `provider_cache_read` row, and `host_resource_long_workday` has no
   `host_budget_ok` row.
+- 2026-06-03: Corrected the maxx inventory completion semantics so each workload
+  is judged against its own economic signal instead of a single local Layer-0
+  billable-input counter. Chunk workloads still require positive billable-input
+  savings, provider-cache long sessions require `provider_cache_read`,
+  tool-heavy workloads require `tool_prune_tokens_saved`, output-reduce
+  aggressive rows require `output_reduce_injected`, and host-resource workdays
+  require `host_budget_ok`.

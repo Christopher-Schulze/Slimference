@@ -57,6 +57,20 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 				HostBudgetDegradationOK:  true,
 			},
 		},
+		wssProofMatrixRecord{
+			ID:               "cli-tool-heavy",
+			Client:           "cli",
+			WorkloadClass:    "tool_heavy",
+			FramesPath:       framesPath,
+			ExpectedReducers: []string{"tool_prune", "tool_prune_tokens_saved", "host_budget_ok"},
+			LiveDelta: &codexCaptureLiveDelta{
+				ToolPrunePruned:         3,
+				ToolPruneTokensSaved:    1200,
+				HostBudgetStatus:        "ok",
+				HostBudgetCompressionOK: true,
+				HostBudgetDegradationOK: true,
+			},
+		},
 		map[string]string{"type": "response.completed", "client": "not-a-matrix"},
 	)
 
@@ -64,12 +78,13 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.MatrixFiles != 1 || report.Rows != 3 || report.Clients["cli"] != 2 ||
+	if report.MatrixFiles != 1 || report.Rows != 4 || report.Clients["cli"] != 3 ||
 		report.Clients["desktop"] != 1 || report.WorkloadClasses["search_loop"] != 1 {
 		t.Fatalf("bad inventory aggregate: %+v", report)
 	}
 	if report.PositiveTokenRows != 3 || report.LiveReducerHits["captured_output"] != 2 ||
-		report.LiveReducerHits["provider_cache_read"] != 4765 || report.HostBudgetOKRows != 3 {
+		report.LiveReducerHits["provider_cache_read"] != 4765 ||
+		report.LiveReducerHits["tool_prune_tokens_saved"] != 1200 || report.HostBudgetOKRows != 4 {
 		t.Fatalf("missing live signals: %+v", report)
 	}
 	if len(report.MissingMaxxWorkloads) == 0 || strings.Contains(strings.Join(report.MissingMaxxWorkloads, ","), "provider_cache_long_session") {
@@ -82,6 +97,10 @@ func TestWSSProofInventoryScansMatrixRowsOnly(t *testing.T) {
 	logStatus := findInventoryWorkloadStatus(t, report, "chunk_dedup_log_output")
 	if logStatus.Complete || !strings.Contains(strings.Join(logStatus.MissingSignals, ","), "chunk_dedup") {
 		t.Fatalf("log chunk workload should expose missing chunk signals: %+v", logStatus)
+	}
+	toolStatus := findInventoryWorkloadStatus(t, report, "tool_heavy")
+	if !toolStatus.Complete || toolStatus.PositiveTokenRows != 0 {
+		t.Fatalf("tool-heavy should complete through tool-prune token savings, not local layer-0 savings: %+v", toolStatus)
 	}
 }
 

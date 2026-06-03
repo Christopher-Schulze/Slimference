@@ -122,10 +122,10 @@ Tool pruning should be default-safe only when:
 - 2026-06-02: Proof-matrix live deltas now include tool-prune pruned,
   reattached, miss, retry, always-keep, disabled-session, and token-saved
   counters. Focused tool-heavy proof rows can require `tool_prune`,
-  `tool_prune_reattach`, `tool_prune_retry`, and `host_budget_ok`, while the
-  matrix still fails on non-zero WSS parse/degrade/compression errors. This
-  turns the remaining live proof into a strict gate for "saves schema tokens
-  without losing tool capability".
+  `tool_prune_tokens_saved`, `tool_prune_reattach`, `tool_prune_retry`, and
+  `host_budget_ok`, while the matrix still fails on non-zero WSS
+  parse/degrade/compression errors. This turns the remaining live proof into a
+  strict gate for "saves schema tokens without losing tool capability".
 - 2026-06-02: Broadened missing-tool recovery detection for common provider
   phrasings (`no such tool`, `tool is not available`, `tool was not provided`).
   This biases toward full-schema retry plus cooldown when pruning may have

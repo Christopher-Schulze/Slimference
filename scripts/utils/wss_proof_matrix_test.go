@@ -348,6 +348,7 @@ func TestWSSProofMatrixExtendedExpectedSignals(t *testing.T) {
 			"tool_prune",
 			"tool_prune_reattach",
 			"tool_prune_retry",
+			"tool_prune_tokens_saved",
 			"output_reduce_injected",
 			"output_reduce_skipped",
 			"output_reduce_downgraded",
@@ -367,6 +368,7 @@ func TestWSSProofMatrixExtendedExpectedSignals(t *testing.T) {
 			ToolPrunePruned:           1,
 			ToolPruneReattach:         1,
 			ToolPruneRetry:            1,
+			ToolPruneTokensSaved:      222,
 			OutputReduceInjected:      1,
 			OutputReduceSkipped:       1,
 			OutputReduceDowngrades:    1,
@@ -402,6 +404,9 @@ func TestWSSProofMatrixExtendedExpectedSignals(t *testing.T) {
 	}
 	if got := report.CaptureReports[0].ExpectedReducerHits["provider_cache_read"]; got != 777 {
 		t.Fatalf("provider_cache_read hit = %d", got)
+	}
+	if got := report.CaptureReports[0].ExpectedReducerHits["tool_prune_tokens_saved"]; got != 222 {
+		t.Fatalf("tool_prune_tokens_saved hit = %d", got)
 	}
 }
 
