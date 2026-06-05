@@ -84,6 +84,16 @@ decisions. The committed local upstream proof is necessary but not sufficient
 for that semantic promotion; it proves exact route mutation, exact archive
 recovery, and positive token savings.
 
+The executable real-LLM promotion gate is:
+
+`go run ./scripts/utils ocrl-llm-ab-proof --model <OPENAI_COMPATIBLE_MODEL> --api-key-env OPENAI_API_KEY --json`
+
+The runner sends Baseline-vs-OCRL requests through the real Slimference
+Full-History HTTP proxy path. It requires `irrelevant_old_context` to keep the
+same decision after OCRL. It also runs `detail_dependency_guard`, an adversarial
+broad-promotion check: if OCRL applies and a detail-dependent decision changes,
+the report blocks broad model-facing promotion. No API key is stored or printed.
+
 ## Exact Message Apply Primitive
 
 `internal/contextledger/message_apply.go` provides the first model-facing OCRL

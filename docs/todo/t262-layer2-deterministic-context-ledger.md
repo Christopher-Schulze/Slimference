@@ -274,6 +274,11 @@ Current closeout split:
   shadow/proof only; Full-History HTTP OCRL remains gated by explicit `auto|max`
   policy, exact archive recovery, quality-pressure full-pass, and positive
   net-token accounting.
+- Executable live gate: `go run ./scripts/utils ocrl-llm-ab-proof` with
+  `--model <OPENAI_COMPATIBLE_MODEL>`, `--api-key-env OPENAI_API_KEY`, and
+  `--json`. It runs Baseline-vs-OCRL through the real Full-History HTTP proxy
+  path and blocks broad promotion when OCRL changes a detail-dependent
+  old-context decision.
 
 ## Progress
 
@@ -535,6 +540,16 @@ Current closeout split:
   Benchmarks: full archive-match apply `3842609`, `3647210`, and
   `3853674 ns/op` across three `-benchtime=1s` runs, with about `1118-1120 KB/op`
   and `1095-1100 allocs/op`.
+- 2026-06-05: Added `scripts/utils ocrl-llm-ab-proof`, the executable real-LLM
+  OCRL A/B promotion gate. It runs the actual Slimference Full-History HTTP
+  proxy path twice per scenario, baseline with Layer 2 off and OCRL with
+  `mode=max`, then compares structured model decisions. The required
+  `irrelevant_old_context` scenario must stay equivalent. The adversarial
+  `detail_dependency_guard` scenario blocks broad model-facing promotion if
+  OCRL applies and the real model loses an old-context detail. Local tests cover
+  missing-key fail-closed behavior, positive irrelevant equivalence, and
+  broad-promotion blocking via a fake OpenAI-compatible upstream. The real run
+  still requires an external OpenAI-compatible key/model.
 - 2026-06-05: Removed duplicate selected-archive loading from exact
   full-history OCRL apply. The explicit apply path now passes its byte-equal
   selected-target proof into an internal builder option, preserving public

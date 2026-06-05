@@ -1976,7 +1976,8 @@ be called complete, default-safe, and production-grade.
   default-off product path. Full-History HTTP model-facing OCRL insertion and
   autonomous A/B archive recovery proof are implemented; only broader real-LLM
   live A/B certification remains for semantic task-decision equivalence before
-  any broader default model-facing promotion claim.
+  any broader default model-facing promotion claim. That remaining proof now has
+  an executable gate: `scripts/utils ocrl-llm-ab-proof`.
   Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [x] **T263** Layer 3 provider/prompt cache max-out - local response cache now
@@ -2305,7 +2306,11 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   that model-facing ledger context preserves task decisions, which cannot be
   proven by a local upstream stub. Until that proof exists, OCRL is complete as
   a deterministic guarded implementation and Codex-WSS shadow/proof path, but
-  not complete as a broad default model-facing savings claim.
+  not complete as a broad default model-facing savings claim. The live proof is
+  now executable via `go run ./scripts/utils ocrl-llm-ab-proof` with
+  `--model <OPENAI_COMPATIBLE_MODEL>`, `--api-key-env OPENAI_API_KEY`, and
+  `--json`; it blocks promotion if a detail-dependent old-context decision
+  changes after OCRL.
 - [x] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility

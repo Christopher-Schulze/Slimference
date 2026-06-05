@@ -1170,6 +1170,13 @@ decisions after old raw context is replaced by capsules. Until that live A/B
 proof exists, Codex WSS stays shadow/proof only and OCRL must not be advertised
 as broad default model-facing zero-drawdown savings.
 
+The executable promotion gate is `go run ./scripts/utils ocrl-llm-ab-proof`
+with `--model <OPENAI_COMPATIBLE_MODEL>`, `--api-key-env OPENAI_API_KEY`, and
+`--json`. It calls the real Slimference Full-History HTTP proxy path twice per
+scenario, once with Layer 2 off and once with OCRL enabled. A pass requires
+decision equivalence for irrelevant old context and blocks broad promotion if a
+detail-dependent old-context decision changes after OCRL applies.
+
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,
 so OCRL proof telemetry cannot pollute recovery metrics.

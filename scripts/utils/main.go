@@ -18,6 +18,7 @@
 //	go run ./scripts/utils wss-proof-live-row --matrix-row PATH --frames PATH --workload-class CLASS
 //	go run ./scripts/utils wss-output-reduce-ab-report <matrix.jsonl> [--json]
 //	go run ./scripts/utils release-proof-report <clean-release-matrix.jsonl> [--json] --resource-profile-proof DIR --resource-profile-proof DIR
+//	go run ./scripts/utils ocrl-llm-ab-proof --model MODEL [--base-url URL] [--api-key-env ENV] [--json]
 //	go run ./scripts/utils local-artifact-hygiene [--json|--clean]
 //	go run ./scripts/utils tls-probe [--profile=<name>] [--json]
 package main
@@ -40,7 +41,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: go run ./scripts/utils <subcommand> <path>")
-		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-output-reduce-ab-report, release-proof-report, local-artifact-hygiene, tls-probe")
+		fmt.Fprintln(os.Stderr, "Subcommands: session-report, decision-report, filter-report, combined-report, aggregate-savings, workday-savings, codex-capture-run, wss-audit, wss-ab-replay, wss-proof-matrix, wss-proof-inventory, wss-proof-export-corpus, wss-proof-clean-matrix, wss-proof-live-row, wss-output-reduce-ab-report, release-proof-report, ocrl-llm-ab-proof, local-artifact-hygiene, tls-probe")
 		os.Exit(1)
 	}
 
@@ -129,6 +130,8 @@ func main() {
 		os.Exit(runOutputReduceABReport(os.Args[2:], os.Stdout, os.Stderr))
 	case "release-proof-report":
 		os.Exit(runReleaseProofReport(os.Args[2:], os.Stdout, os.Stderr))
+	case "ocrl-llm-ab-proof":
+		os.Exit(runOCRLLLMABProof(os.Args[2:], os.Stdout, os.Stderr))
 	case "local-artifact-hygiene":
 		os.Exit(runLocalArtifactHygiene(os.Args[2:], os.Stdout, os.Stderr))
 	case "tls-probe":
