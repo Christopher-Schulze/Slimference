@@ -1,0 +1,24 @@
+{
+  "category": "cli_output_reduce_ab_brief_status",
+  "description": "Content-free paired CLI A/B proof for Codex output-reduce on a practical engineering status-update shape. Raw WSS frames stay outside the corpus.",
+  "synthetic": false,
+  "evidence_level": "live_operator",
+  "client_family": "codex_cli",
+  "workload_class": "output_reduce_ab",
+  "language": "mixed",
+  "tool_mix": "codex_wss",
+  "expected_savings_min": 0,
+  "expected_savings_max": 0,
+  "expected_request_count": 0,
+  "expected_max_errors": 0,
+  "expected_latency_p95_max_ms": 2500,
+  "expected_output_reduce_ab_pairs_min": 1,
+  "expected_output_reduce_ab_net_saved_min": 1,
+  "expected_output_reduce_ab_savings_pct_min": 20,
+  "expected_reread_count_max": 0,
+  "scenario_validators": [
+    "output_reduce_ab",
+    "low_error"
+  ],
+  "notes": "Generated from a scoped CLI baseline/directive A/B matrix. The gate requires positive net output-token savings after directive input overhead, host-budget OK, zero safety errors, and lost=0 replay."
+}

@@ -303,6 +303,16 @@ Output reduction becomes a runtime-governed layer:
   `directive missing positive output_reduce_input_overhead_tokens`. This keeps
   T267 honest: only paired, net-positive, overhead-accounted rows can support a
   savings claim.
+- 2026-06-05: Added a second positive CLI output-reduce A/B proof for a
+  practical engineering status-update shape. Pair
+  `t267-cli-brief-status-20260605T154405Z` passed the content-free gate with
+  baseline `631`, directive `240`, directive overhead `23`, output tokens saved
+  `391`, net tokens saved `368`, output reduction `61.97%`, `lost=0`, host
+  budget `ok`, and zero safety errors. It is committed as
+  `tests/fixtures/live_corpus/cli_output_reduce_ab_brief_status/` and broadens
+  the positive evidence beyond the first direct-answer/status pair. Desktop A/B
+  and repair/re-ask rollback breadth remain before broad default magnitude
+  claims.
 
 ## Done
 

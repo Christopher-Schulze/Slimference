@@ -1,0 +1,21 @@
+{
+  "path": "t267-cli-brief-status-20260605T154405Z.jsonl",
+  "pairs": [
+    {
+      "pair_id": "t267-cli-brief-status-20260605T154405Z",
+      "client": "cli",
+      "workload_class": "output_reduce_ab",
+      "baseline_row_id": "t267-cli-brief-status-20260605T154405Z-baseline",
+      "directive_row_id": "t267-cli-brief-status-20260605T154405Z-directive",
+      "baseline_output_tokens": 631,
+      "directive_output_tokens": 240,
+      "directive_input_overhead_tokens": 23,
+      "output_tokens_saved": 391,
+      "net_tokens_saved": 368,
+      "output_savings_pct": 61.96513470681458,
+      "gate_passed": true
+    }
+  ],
+  "pair_count": 1,
+  "gate_passed": true
+}

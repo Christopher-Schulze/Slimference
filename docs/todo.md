@@ -2329,8 +2329,11 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   gate. A committed content-free direct-answer/status A/B artifact now proves a
   concrete paired output-token reduction (`987` baseline vs `768` directive,
   `23` directive-overhead tokens, `196` net tokens saved, `22.19%` output-token
-  reduction). That percentage is limited to the proven direct-answer/status
-  shape; explanation/deep-analysis A/B stayed net-negative even after directive
+  reduction). A second positive CLI engineering-status pair now adds
+  `631 -> 240`, `23` overhead tokens, `368` net tokens saved, and `61.97%`
+  output-token reduction with `lost=0`, host-budget OK, and zero safety errors.
+  Those percentages are limited to the proven direct-answer/status shapes;
+  explanation/deep-analysis A/B stayed net-negative even after directive
   compaction and is intentionally not promoted. Remaining closeout is broader
   CLI/Desktop task-shape A/B breadth plus repair/re-ask rollback evidence before
   claiming a broad product-default output-reduction magnitude. WSS streamcut
