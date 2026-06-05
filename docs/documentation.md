@@ -2651,8 +2651,13 @@ percentage. The content-free pair is committed as
 `tests/fixtures/live_corpus/cli_output_reduce_ab_direct_answer/output_reduce_ab_report.json`;
 `benchmark-corpus --maxx-check` now requires an `output_reduce_ab` workload with
 positive net A/B tokens, so a plain output-reduce injection row can no longer
-satisfy the max-out gate by itself. Broader CLI/Desktop task-shape pairs are
-still required before promoting a cross-workload output-reduce savings claim.
+satisfy the max-out gate by itself. Broader task-shape pairs are still required
+before promoting a cross-workload output-reduce savings claim. The first clean
+Desktop direct-long A/B pair on 2026-06-05 proved route, guarded injection,
+host-budget OK, `lost=0`, and zero WSS safety errors, but it was net-negative
+(`245` baseline output tokens, `566` directive output tokens, `23` directive
+overhead tokens, `-344` net tokens saved), so Desktop output-reduce is not part
+of any broad savings claim from that evidence.
 An autonomous CLI explanation-shape A/B did not generalize the win: after
 compacting the standard preservation directive from `111` to `46` overhead
 tokens, the pair still failed net-positive (`baseline=222`, `directive=248`,

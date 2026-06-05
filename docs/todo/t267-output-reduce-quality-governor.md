@@ -313,6 +313,16 @@ Output reduction becomes a runtime-governed layer:
   the positive evidence beyond the first direct-answer/status pair. Desktop A/B
   and repair/re-ask rollback breadth remain before broad default magnitude
   claims.
+- 2026-06-05: Ran the first clean Desktop output-reduce A/B reality check after
+  excluding a prior upstream `invalid_request` diagnostic run from savings
+  evidence. Pair `t267-desktop-direct-long-20260605T160644Z` proved Desktop
+  app-server routing, output-reduce injection, host-budget `ok`, `lost=0`, and
+  zero WSS parser/degrade/compression errors, but it failed the positive savings
+  gate: baseline provider output `245`, directive provider output `566`,
+  directive overhead `23`, output tokens saved `-321`, net tokens saved `-344`.
+  This is intentionally not promoted into `tests/fixtures/live_corpus`; it is a
+  policy proof that Desktop/direct-long output-reduce must not support a broad
+  product-default savings claim yet.
 
 ## Done
 

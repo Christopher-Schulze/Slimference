@@ -2334,9 +2334,12 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   output-token reduction with `lost=0`, host-budget OK, and zero safety errors.
   Those percentages are limited to the proven direct-answer/status shapes;
   explanation/deep-analysis A/B stayed net-negative even after directive
-  compaction and is intentionally not promoted. Remaining closeout is broader
-  CLI/Desktop task-shape A/B breadth plus repair/re-ask rollback evidence before
-  claiming a broad product-default output-reduction magnitude. WSS streamcut
+  compaction and is intentionally not promoted. A clean Desktop direct-long A/B
+  pair proved route, injection, host-budget OK, `lost=0`, and zero WSS safety
+  errors, but was net-negative (`245 -> 566`, `23` overhead, `-344` net saved),
+  so it is also intentionally not promoted. Remaining closeout is broader
+  task-shape breadth plus repair/re-ask rollback evidence before claiming a
+  broad product-default output-reduction magnitude. WSS streamcut
   stays disabled until terminal-safe proof exists; exact reply, patch, code, and
   user-requested detail must not be shortened in a way that degrades workflow or
   model usefulness.
