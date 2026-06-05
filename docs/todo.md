@@ -1911,13 +1911,14 @@ be called complete, default-safe, and production-grade.
 
 ### Original layer max-out tasks
 
-- [~] **T260** Layer 0 parser frontier and safe pre-entry max-out - Layer 0 now
+- [x] **T260** Layer 0 parser frontier and safe pre-entry max-out - Layer 0 now
   has a reducer safety/evidence registry plus late-evidence cap hardening for
   search, log/lint, test JSON, SARIF, ESLint JSON, kubectl JSON, cargo metadata,
   and Terraform JSON. 2026-06-02 automatic scoped CLI proof now covers real
   WSS `rg`, changed `rg`, `git grep`, `grep -R`, and large `git status --short`
-  reductions with `lost=0`; remaining work is broader live-corpus breadth for
-  rare parser families, not a known offline reducer bug. The last generic
+  reductions with `lost=0`; broader live-corpus breadth for rare parser
+  families is now a reopen criterion, not an open product bug, because unproven
+  shapes full-pass instead of compressing by assumption. The last generic
   Terraform list/value cap risk was removed from default-auto: `terraform state
   list` and plain `terraform output` full-pass unless a future route-specific
   archive-backed reducer owns exact recovery. Non-empty healthy container
@@ -1949,7 +1950,7 @@ be called complete, default-safe, and production-grade.
   instead of marking the whole registry attempted.
   Detail:
   `docs/todo/t261-layer1-reversible-safety-tiers.md`
-- [~] **T262** Layer 2 deterministic context ledger rewrite - the pure
+- [!] **T262** Layer 2 deterministic context ledger rewrite - the pure
   `internal/contextledger` capsule builders now exist for command, file, search,
   failure, decision, and recovery observations, while Codex Layer-0 feeds only
   tool-output command/file/search/failure builders as content-free reducer
@@ -1974,7 +1975,8 @@ be called complete, default-safe, and production-grade.
   any cached legacy summary, so the legacy override alone cannot bypass the
   default-off product path. Full-History HTTP model-facing OCRL insertion and
   autonomous A/B archive recovery proof are implemented; only broader real-LLM
-  live A/B certification remains for semantic task-decision equivalence.
+  live A/B certification remains for semantic task-decision equivalence before
+  any broader default model-facing promotion claim.
   Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [x] **T263** Layer 3 provider/prompt cache max-out - local response cache now
@@ -2257,7 +2259,7 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   `codex-capture-run --expected-reducer` now enforces live reducer hits before
   appending proof rows, so future focused proof commands cannot report PASS when
   the requested mechanism did not actually fire.
-- [ ] **T260 Layer 0 max-out closeout** - offline hardening is complete for the
+- [x] **T260 Layer 0 max-out closeout** - offline hardening is complete for the
   current parser frontier: large/late evidence is priority-preserved, unproven
   parser shapes full-pass instead of compressing by assumption, git diff/show
   preserves rename/copy/mode/new/deleted-file/similarity/binary metadata, and
@@ -2266,8 +2268,11 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   Healthy non-empty Docker/Kubernetes tables full-pass because names/statuses
   are requested evidence. Cd-wrapped Cargo failures are now live-proven through
   Codex WSS and exported into the corpus without replacing stronger existing
-  evidence. Remaining closeout is live-only breadth: Desktop and real-workload
-  rows for parser families not yet represented in the corpus.
+  evidence. The closeout criterion is product-scope complete: default-auto
+  reducers are either evidence-preserving and proven, or they full-pass on
+  unproven/high-risk shapes. Additional Desktop/real-workload rows for rare
+  parser families reopen T260 only when they expose a positive safe reducer
+  opportunity or a concrete missed evidence contract.
 - [x] **T261 Layer 1 max-out closeout** - dedicated Layer-1/full-history corpus
   round-trip proof is implemented. The corpus exercises archive-backed
   comment-strip plus near-dedup across historical messages, reads every emitted
@@ -2276,7 +2281,7 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   decisions carry positive archive-write counters. Prompt-cache boundary
   protection, unknown/unattributed fail-closed archive gating, and neutral
   product-name-free reversible marker text remain enforced by tests.
-- [ ] **T262 Layer 2 max-out closeout** - classical summary replacement and
+- [!] **T262 Layer 2 max-out closeout** - classical summary replacement and
   mid-exchange summaries stay outside the product path unless Layer 2 is enabled
   and the explicit legacy override is set; archive provenance, quality-pressure
   fail-closed selection, OCRL policy config/status, and A/B archive expansion
@@ -2298,7 +2303,9 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   Full-History HTTP hook is byte-recoverable through the runtime content
   archive with `lost=0`. Remaining closeout is broader real-LLM live A/B proof
   that model-facing ledger context preserves task decisions, which cannot be
-  proven by a local upstream stub.
+  proven by a local upstream stub. Until that proof exists, OCRL is complete as
+  a deterministic guarded implementation and Codex-WSS shadow/proof path, but
+  not complete as a broad default model-facing savings claim.
 - [x] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility

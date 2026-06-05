@@ -1161,6 +1161,15 @@ shadow-only. The stricter `benchmark-corpus --maxx-check` repeats the
 applied/full-history/archive/savings/no-shadow checks and now passes with the
 real OCRL workload present.
 
+This closes OCRL as a deterministic implementation and proof-gated
+Full-History HTTP route, not as a broad default replacement for model memory.
+The remaining promotion boundary is real-LLM task-decision equivalence: a local
+upstream stub can prove exact request mutation, exact archive recovery, and token
+savings, but it cannot prove that a real model makes the same engineering
+decisions after old raw context is replaced by capsules. Until that live A/B
+proof exists, Codex WSS stays shadow/proof only and OCRL must not be advertised
+as broad default model-facing zero-drawdown savings.
+
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,
 so OCRL proof telemetry cannot pollute recovery metrics.

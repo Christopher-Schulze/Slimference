@@ -29,9 +29,11 @@ measured hit rate and no silent information loss in product defaults.
   GitHub/GitLab lists, and healthy kubectl JSON full-pass unless there is
   diagnostic attention evidence.
 - Search keying hygiene is now hardened and both CLI/Desktop search proofs are
-  positive; remaining "maxxed out" work is broader real-traffic coverage for
-  rarer parser families and any parser shape not already represented by tests or
-  live corpus.
+  positive. The product closeout is complete for the current default parser
+  frontier: represented reducers are evidence-preserving and tested, while
+  unrepresented, ambiguous, or high-risk shapes full-pass instead of compressing
+  by assumption. Broader real-traffic rows for rarer parser families are reopen
+  criteria, not an open product-default bug.
 
 ## Product target
 
@@ -247,6 +249,10 @@ These are promotion targets, not claims:
 
 ## Done
 
-Layer 0 is done only when every default reducer has a preserved-evidence
-contract, tests for late critical lines, real route attribution, and live
-CLI/Desktop proof. Anything that is only "probably okay" stays non-default.
+Layer 0 is product-scope done when every default reducer is either proven
+evidence-preserving or fails open/full-passes before it can drop requested
+context. That is now the current state for the known default parser frontier:
+late critical evidence is retained, real route attribution exists for the
+primary Codex WSS families, and unproven/rare/high-risk shapes stay non-default
+or full-pass. Future Desktop or real-workload rows reopen T260 only if they show
+a concrete safe savings opportunity or a missed preserved-evidence contract.

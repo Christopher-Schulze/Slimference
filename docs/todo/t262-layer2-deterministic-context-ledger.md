@@ -258,6 +258,23 @@ Layer 2 is product-ready only when it is a deterministic context ledger with
 archive-backed recovery and proof that it preserves task decisions. Classical
 summary remains opt-in, not default.
 
+Current closeout split:
+
+- Complete now: deterministic OCRL primitives, archive-backed capsule
+  selection, Codex-WSS shadow telemetry, Full-History HTTP runtime application,
+  proxy-level byte-recovery A/B proof, and `benchmark-corpus --maxx-check`
+  coverage with a real non-synthetic `ocrl_full_history` workload.
+- Not complete for broad default model-facing savings: real-LLM task-decision
+  equivalence. A local upstream stub can prove route mutation, exact archive
+  recoverability, and token savings, but it cannot prove that a real model makes
+  the same downstream engineering decisions after seeing capsules instead of old
+  raw context.
+- Product rule: until that real-LLM A/B proof exists, OCRL must not be claimed
+  as broad default model-facing zero-drawdown savings. Codex WSS remains
+  shadow/proof only; Full-History HTTP OCRL remains gated by explicit `auto|max`
+  policy, exact archive recovery, quality-pressure full-pass, and positive
+  net-token accounting.
+
 ## Progress
 
 - 2026-05-31: Added telemetry-only `context_ledger` summaries to WSS

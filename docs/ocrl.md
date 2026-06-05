@@ -76,6 +76,14 @@ OCRL shadow telemetry and route blocking, but they cannot satisfy the
 model-facing OCRL promotion gate while the upstream route uses
 Responses-delta/server-state semantics.
 
+Current product status: OCRL is implementation-complete for deterministic
+archive-backed replacement and proof-gated Full-History HTTP application. It is
+not a broad default model-facing savings claim until real-LLM A/B proof shows
+that replacing old raw context with capsules preserves downstream task
+decisions. The committed local upstream proof is necessary but not sufficient
+for that semantic promotion; it proves exact route mutation, exact archive
+recovery, and positive token savings.
+
 ## Exact Message Apply Primitive
 
 `internal/contextledger/message_apply.go` provides the first model-facing OCRL
