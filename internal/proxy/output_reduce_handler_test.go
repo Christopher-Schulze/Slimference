@@ -334,11 +334,17 @@ func TestServeHTTP_OutputReduceCapsAggressiveCodeEditProfile(t *testing.T) {
 	if strings.Contains(string(captured), "Aggressive output rules") || strings.Contains(string(captured), "fewest complete words") {
 		t.Fatalf("code-edit request received aggressive output directive: %s", captured)
 	}
+	if strings.Contains(string(captured), "#slimference-output-rules") {
+		t.Fatalf("code-edit request must not receive any output-reduce directive without paired A/B proof: %s", captured)
+	}
 	summaries := p.DebugRecorder().Last(1, false)
 	if len(summaries) != 1 {
 		t.Fatalf("missing summary: %#v", summaries)
 	}
 	if summaries[0].OutputReduce.Profile != string(outputreduce.ProfileStandard) || summaries[0].OutputReduce.TaskShape != string(outputreduce.ShapeCodeEdit) {
 		t.Fatalf("code-edit output-reduce safety cap missing: %+v", summaries[0].OutputReduce)
+	}
+	if summaries[0].OutputReduce.Applied || summaries[0].OutputReduce.Reason != "unproven_task_shape_ab_required" {
+		t.Fatalf("code-edit output-reduce should be fully gated without A/B proof: %+v", summaries[0].OutputReduce)
 	}
 }

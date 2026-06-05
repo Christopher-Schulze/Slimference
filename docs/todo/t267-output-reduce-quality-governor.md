@@ -285,6 +285,12 @@ Output reduction becomes a runtime-governed layer:
   for direct-answer/status shape. Explanation/deep-analysis and other
   detail-sensitive shapes now full-pass by default until paired A/B evidence
   proves positive net savings without repair/re-ask signals.
+- 2026-06-05: Tightened the proxy-level regression proof for detail-sensitive
+  shapes. The HTTP hot-path code-edit test now asserts that an unproven
+  code-edit request receives no output-reduce marker at all, reports
+  `unproven_task_shape_ab_required`, and leaves `Applied=false`. This locks the
+  stronger post-A/B policy: safety-sensitive shapes are not merely softened from
+  aggressive to standard; they full-pass until paired proof exists.
 
 ## Done
 
