@@ -51,6 +51,26 @@ func TestBuildOCRLReplacementKeepsCodexWSSShadowOnly(t *testing.T) {
 	}
 }
 
+func TestBuildOCRLReplacementCanCountOriginalTokensFromArchives(t *testing.T) {
+	t.Parallel()
+	result := BuildOCRLReplacement([]Capsule{
+		testCapsule(CapsuleFile, "s", "old-file", "file-arch"),
+	}, OCRLPolicy{
+		Mode:                     OCRLModeMax,
+		Route:                    OCRLRouteCodexWSS,
+		Selection:                SelectionPolicy{SessionID: "s"},
+		ArchiveLoader:            func(string) ([]byte, error) { return []byte("one two three four five"), nil },
+		CountTokens:              func(text string) int { return len(strings.Fields(text)) },
+		UseArchiveOriginalTokens: true,
+	})
+	if result.Applied || !result.ShadowOnly || result.Reason != OCRLReasonRouteNotEligible {
+		t.Fatalf("result=%+v want WSS shadow-only", result)
+	}
+	if result.OriginalTokens != 5 || result.ReplacementTokens == 0 || result.NetSavedTokens == 0 {
+		t.Fatalf("archive token accounting missing: %+v", result)
+	}
+}
+
 func TestBuildOCRLReplacementShadowModeNeverApplies(t *testing.T) {
 	t.Parallel()
 	result := BuildOCRLReplacement([]Capsule{

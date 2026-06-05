@@ -98,12 +98,24 @@ type Layer2Summary struct {
 // ContextLedgerSummary records deterministic ledger shadow telemetry. It is
 // content-free and does not mean capsules were inserted into model-facing text.
 type ContextLedgerSummary struct {
-	TelemetryOnly   bool `json:"telemetry_only,omitempty"`
-	CommandCapsules int  `json:"command_capsules,omitempty"`
-	FileCapsules    int  `json:"file_capsules,omitempty"`
-	SearchCapsules  int  `json:"search_capsules,omitempty"`
-	FailureCapsules int  `json:"failure_capsules,omitempty"`
-	ReReadCount     int  `json:"re_read_count,omitempty"`
+	TelemetryOnly         bool   `json:"telemetry_only,omitempty"`
+	CommandCapsules       int    `json:"command_capsules,omitempty"`
+	FileCapsules          int    `json:"file_capsules,omitempty"`
+	SearchCapsules        int    `json:"search_capsules,omitempty"`
+	FailureCapsules       int    `json:"failure_capsules,omitempty"`
+	ReReadCount           int    `json:"re_read_count,omitempty"`
+	OCRLMode              string `json:"ocrl_mode,omitempty"`
+	OCRLRoute             string `json:"ocrl_route,omitempty"`
+	OCRLReason            string `json:"ocrl_reason,omitempty"`
+	OCRLShadowOnly        bool   `json:"ocrl_shadow_only,omitempty"`
+	OCRLCandidateCapsules int    `json:"ocrl_candidate_capsules,omitempty"`
+	OCRLVerbatimCapsules  int    `json:"ocrl_verbatim_capsules,omitempty"`
+	OCRLRejectedCapsules  int    `json:"ocrl_rejected_capsules,omitempty"`
+	OCRLArchiveExpansions int    `json:"ocrl_archive_expansions,omitempty"`
+	OCRLOriginalTokens    int    `json:"ocrl_original_tokens,omitempty"`
+	OCRLReplacementTokens int    `json:"ocrl_replacement_tokens,omitempty"`
+	OCRLRecoveryOverhead  int    `json:"ocrl_recovery_overhead_tokens,omitempty"`
+	OCRLShadowSavedTokens int    `json:"ocrl_shadow_saved_tokens,omitempty"`
 }
 
 func (s ContextLedgerSummary) TotalCapsules() int {
@@ -334,13 +346,18 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 		})
 	}
 	if s.ContextLedger.TotalCapsules() > 0 || s.ContextLedger.ReReadCount > 0 {
+		reason := "telemetry_only"
+		if s.ContextLedger.OCRLReason != "" {
+			reason = "ocrl_shadow_" + s.ContextLedger.OCRLReason
+		}
 		out = append(out, MechanismAccounting{
-			Name:      "context_ledger_shadow",
-			Layer:     2,
-			Source:    "context_ledger",
-			Count:     s.ContextLedger.TotalCapsules(),
-			NetTokens: 0,
-			Reason:    "telemetry_only",
+			Name:        "context_ledger_shadow",
+			Layer:       2,
+			Source:      "context_ledger",
+			Count:       s.ContextLedger.TotalCapsules(),
+			SavedTokens: positive(s.ContextLedger.OCRLShadowSavedTokens),
+			NetTokens:   0,
+			Reason:      reason,
 		})
 	}
 	if s.PromptCache.Applied || s.PromptCache.Reason != "" || s.CacheReadTokens > 0 || s.CacheCreateTokens > 0 || s.ProviderCachedTokens > 0 {

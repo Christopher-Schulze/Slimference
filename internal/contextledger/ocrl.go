@@ -1,6 +1,7 @@
 package contextledger
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 )
@@ -41,15 +42,16 @@ const (
 type TokenCounter func(text string) int
 
 type OCRLPolicy struct {
-	Mode                   OCRLMode
-	Route                  OCRLRoute
-	Selection              SelectionPolicy
-	ArchiveLoader          ArchiveLoader
-	CountTokens            TokenCounter
-	OriginalTokens         int
-	RecoveryOverheadTokens int
-	MinNetSavedTokens      int
-	MaxReplacementTokens   int
+	Mode                     OCRLMode
+	Route                    OCRLRoute
+	Selection                SelectionPolicy
+	ArchiveLoader            ArchiveLoader
+	CountTokens              TokenCounter
+	OriginalTokens           int
+	UseArchiveOriginalTokens bool
+	RecoveryOverheadTokens   int
+	MinNetSavedTokens        int
+	MaxReplacementTokens     int
 }
 
 type OCRLResult struct {
@@ -82,13 +84,18 @@ func BuildOCRLReplacement(capsules []Capsule, policy OCRLPolicy) OCRLResult {
 		result.Reason = OCRLReasonNoCapsules
 		return result
 	}
+	archiveOriginalTokens := 0
 	for _, capsule := range selected {
-		expansions, err := VerifyCapsuleArchives(capsule, policy.ArchiveLoader)
+		expansions, originalTokens, err := verifyCapsuleArchivesForOCRL(capsule, policy.ArchiveLoader, policy.CountTokens, policy.UseArchiveOriginalTokens)
 		if err != nil {
 			result.Reason = OCRLReasonArchiveUnavailable
 			return result
 		}
 		result.ArchiveExpansions += expansions
+		archiveOriginalTokens += originalTokens
+	}
+	if result.OriginalTokens <= 0 && policy.UseArchiveOriginalTokens {
+		result.OriginalTokens = archiveOriginalTokens
 	}
 
 	result.Text = RenderOCRLCapsules(selected)
@@ -101,11 +108,11 @@ func BuildOCRLReplacement(capsules []Capsule, policy OCRLPolicy) OCRLResult {
 		result.Reason = OCRLReasonInvalidTokenCounter
 		return result
 	}
-	if policy.OriginalTokens <= 0 {
+	if result.OriginalTokens <= 0 {
 		result.Reason = OCRLReasonMissingOriginalCount
 		return result
 	}
-	result.NetSavedTokens = policy.OriginalTokens - result.ReplacementTokens - policy.RecoveryOverheadTokens
+	result.NetSavedTokens = result.OriginalTokens - result.ReplacementTokens - policy.RecoveryOverheadTokens
 	if policy.MaxReplacementTokens > 0 && result.ReplacementTokens > policy.MaxReplacementTokens {
 		result.Reason = OCRLReasonReplacementTooLarge
 		return result
@@ -133,6 +140,31 @@ func BuildOCRLReplacement(capsules []Capsule, policy OCRLPolicy) OCRLResult {
 	result.Applied = true
 	result.Reason = OCRLReasonApplied
 	return result
+}
+
+func verifyCapsuleArchivesForOCRL(capsule Capsule, load ArchiveLoader, count TokenCounter, countOriginal bool) (int, int, error) {
+	if !countOriginal {
+		expansions, err := VerifyCapsuleArchives(capsule, load)
+		return expansions, 0, err
+	}
+	if load == nil {
+		return 0, 0, errors.New("archive loader is required")
+	}
+	ids := sortedStrings(capsule.Archives)
+	if len(ids) == 0 {
+		return 0, 0, errors.New("capsule has no archive ids")
+	}
+	originalTokens := 0
+	for _, id := range ids {
+		body, err := load(id)
+		if err != nil {
+			return 0, 0, err
+		}
+		if count != nil {
+			originalTokens += count(string(body))
+		}
+	}
+	return len(ids), originalTokens, nil
 }
 
 func RenderOCRLCapsules(capsules []Capsule) string {

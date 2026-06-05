@@ -205,6 +205,23 @@ func (e *Entry) OutputSize() int { return e.OriginalSize }
 // may be the bare token, the local-archive:// URI, or the legacy
 // slim://archive/ URI.
 func Get(dir string, rawID string) (*Entry, []byte, error) {
+	meta, body, err := Peek(dir, rawID)
+	if err != nil {
+		return nil, nil, err
+	}
+	stats, err := LoadStats(dir)
+	if err == nil {
+		stats.Expanded++
+		stats.LastExpanded = time.Now().UTC()
+		_ = SaveStats(dir, stats)
+	}
+	return meta, body, nil
+}
+
+// Peek loads the metadata and decompressed payload for an archive id without
+// updating expansion telemetry. Use it for shadow/proof paths that must verify
+// recoverability without pretending the user requested recovery.
+func Peek(dir string, rawID string) (*Entry, []byte, error) {
 	id := normalizeID(rawID)
 	if id == "" {
 		return nil, nil, fmt.Errorf("empty archive id")
@@ -226,12 +243,6 @@ func Get(dir string, rawID string) (*Entry, []byte, error) {
 	body, err := io.ReadAll(gz)
 	if err != nil {
 		return nil, nil, err
-	}
-	stats, err := LoadStats(dir)
-	if err == nil {
-		stats.Expanded++
-		stats.LastExpanded = time.Now().UTC()
-		_ = SaveStats(dir, stats)
 	}
 	return meta, body, nil
 }

@@ -1046,10 +1046,16 @@ archive ids. `internal/contextledger/ocrl.go` adds the route-gated OCRL engine:
 `off`, `shadow`, `auto`, and `max` modes; Codex WSS stays shadow-only; only
 full-history HTTP-style routes are model-facing eligible; archive availability
 is verified before rendering; and net savings must remain positive after
-capsule and recovery overhead. The Codex Layer-0 reducer now retains the actual
-capsule objects in its internal stats path, not only counters, so future OCRL
-promotion can use real provenance objects instead of re-parsing telemetry. It
-still does not insert ledger capsules into model-facing context on Codex WSS.
+capsule and recovery overhead. When an exact old-context slice is not available
+yet, OCRL shadow telemetry can count original tokens from archive payloads and
+report those numbers as would-save proof only. The Codex Layer-0 reducer now
+retains the actual capsule objects in its internal stats path, not only
+counters, so future OCRL promotion can use real provenance objects instead of
+re-parsing telemetry. Codex WSS request summaries now include content-free OCRL
+shadow fields (`ocrl_mode`, `ocrl_route`, `ocrl_reason`, candidate counts,
+archive expansion count, original archive tokens, replacement tokens, and
+would-save tokens). Those values never change model-facing context and never add
+to product `net_tokens` while the route remains shadow-only.
 
 `internal/summarization/layer2.go` still exists as a background optimizer. Its
 local fallback is deterministic extractive summarisation, and an
@@ -1074,9 +1080,13 @@ Focused verification on 2026-06-05:
 - `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
 
-The OCRL benchmark on Apple M1 processed 512 file capsules in about 0.84 ms
-with 413944 B/op and 8201 allocs/op after archive verification and renderer
+The OCRL benchmark on Apple M1 processed 512 file capsules in about 0.875 ms
+with 413990 B/op and 8202 allocs/op after archive verification and renderer
 allocation trimming.
+
+The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
+loads the exact archived payload without incrementing real expansion counters,
+so OCRL proof telemetry cannot pollute recovery metrics.
 
 ### Decision rule (T54)
 

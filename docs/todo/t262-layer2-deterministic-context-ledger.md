@@ -30,6 +30,13 @@ replacement for reality.
   recoverability without copying raw bytes, renders stable machine-readable
   capsule text, keeps Codex WSS shadow-only, and applies only on full-history
   HTTP-style routes when net savings are positive.
+- Codex WSS Phase-F now records content-free OCRL shadow telemetry in debug
+  request summaries. It reports mode, route, reason, candidate/verbatim/rejected
+  counts, archive expansion count, original archive tokens, replacement tokens,
+  and would-save tokens without inserting any model-facing text or counting the
+  would-save value as product `net_tokens`.
+- `contentarchive.Peek` supports OCRL proof verification by loading exact
+  archive payloads without incrementing real expansion/recovery counters.
 - The Codex Layer-0 reducer now feeds those builders in the hot path as
   content-free telemetry only for tool-output command/file/search/failure
   observations. `/admin/state.savings` exposes those capsule counts globally and
@@ -103,6 +110,7 @@ The ledger stores deterministic capsules:
    - [x] add real archived reducer-output fixtures to the A/B harness
    - [x] add allocation-light archive recoverability verification for OCRL
      apply gates without copying archive bytes
+   - [x] add read-only archive peek for shadow/proof verification
 5. [~] Replace summary replacement with ledger insertion only behind proof:
    - [x] classical summary replacement is blocked by default, even when Layer 2
      background work is enabled
@@ -113,6 +121,8 @@ The ledger stores deterministic capsules:
    - [x] implement the pure OCRL route/recovery/token gate engine
    - [x] keep Codex WSS shadow-only unless a future surface resends old full
      context and live proof supports promotion
+   - [x] attach OCRL shadow results to WSS debug summaries without changing
+     model-facing frames
    - [ ] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
@@ -308,4 +318,15 @@ summary remains opt-in, not default.
   `go test ./internal/contextledger -count=1`,
   `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`,
   and `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
-  measured about 0.84 ms/op for 512 capsules on Apple M1.
+  measured about 0.875 ms/op for 512 capsules on Apple M1 after the latest
+  shadow-telemetry pass.
+- 2026-06-05: Wired OCRL into WSS Phase-F debug summaries as shadow proof.
+  `internal/proxy/ocrl_shadow.go` builds a content-free OCRL result from actual
+  Layer-0 ledger capsules, uses archive-payload token counting only for
+  would-save telemetry, keeps Codex WSS at `route_not_eligible`, and records no
+  product `net_tokens`. `internal/contentarchive.Peek` verifies exact archive
+  payloads without incrementing expansion telemetry. Focused verification
+  passed:
+  `go test ./internal/contentarchive ./internal/contextledger ./internal/debug ./internal/proxy -run 'TestPeekDoesNotRecordExpansion|TestBuildOCRL|TestRenderOCRL|TestBuildMechanismAccounting|TestBuildOCRLShadow|TestWSRecordRequestPlanIncludesOCRLShadowTelemetry' -count=1`.
+  `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
+  measured `874991 ns/op`, `413990 B/op`, and `8202 allocs/op`.

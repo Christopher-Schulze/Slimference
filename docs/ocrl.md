@@ -73,6 +73,22 @@ Net savings are:
 OCRL applies only when net savings are positive and meet the configured minimum
 threshold. Missing or unavailable token accounting means full-pass.
 
+For shadow/proof telemetry, OCRL can count original tokens from the selected
+archive payloads when the caller does not yet have an exact old-context slice.
+Those values are reported as would-save telemetry only. They never contribute to
+product `net_tokens` until a route actually applies OCRL.
+
+## Runtime Shadow Proof
+
+Codex WSS Phase-F records content-free OCRL shadow telemetry in debug request
+summaries. The summary includes mode, route, reason, selected/verbatim/rejected
+capsule counts, archive-expansion count, replacement tokens, original archive
+tokens, and would-save tokens. It intentionally omits rendered OCRL text and
+capsule facts.
+
+Shadow archive verification uses a read-only content-archive peek path, so proof
+telemetry does not increment real recovery/expansion counters.
+
 ## Zero Drawdown Gates
 
 OCRL full-passes on:

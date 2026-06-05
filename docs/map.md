@@ -102,6 +102,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 - `internal/contextledger/ledger.go`: deterministic command/file/search/failure/decision/recovery capsule builders
 - `internal/contextledger/selection.go`: fail-closed capsule selection, active-path/quality-pressure gates, archive expansion and archive recoverability verification
 - `internal/contextledger/ocrl.go`: pure OCRL route/recovery/token gate engine plus deterministic capsule renderer
+- `internal/proxy/ocrl_shadow.go`: Codex WSS OCRL shadow summary wiring with archive-token would-save telemetry and no model-facing mutation
 - `internal/summarization/layer2.go`: Layer2 coordinator, strict summary formatting, ROI candidate scoring, prefix-hash apply validation, context-aware compression jobs, timeout-wrapped parent contexts, no post-cancel cache writes
 - `internal/summarization/minimax.go`: MiniMax M2.7 API client with request-bound HTTP contexts and cancelable retry backoff
 - `internal/summarization/prompt_contract.go`: T144a task-shaped summary contract selector for coding/debug/review/planning/docs/live-E2E prompts
@@ -169,7 +170,7 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 - `internal/resilience/retry.go` + `health.go` + `latency.go`: HTTP resilience
 - `internal/sessions/logger.go` + `export.go`: Session log ring buffer
 - `internal/readcache/*.go`: session-scoped read-cache state, proxy-visible read deltas, contentarchive-backed reread references, decision accounting, persisted stats under `~/.slimference/read-cache/`
-- `internal/contentarchive/`: local reversible content archive used by Layer 1 lossy transforms, capsules, and proxy-visible read deltas
+- `internal/contentarchive/`: local reversible content archive used by Layer 1 lossy transforms, capsules, proxy-visible read deltas, and read-only `Peek` verification for shadow/proof paths
 - `internal/checkpoints/checkpoints.go`: deterministic checkpoint state and ranked restore under `~/.slimference/checkpoints/`
 - `internal/toolarchive/toolarchive.go`: bounded large-result archive under `~/.slimference/tool-archive/`
 - `internal/util/safego.go`: Safe goroutine launch with panic recovery

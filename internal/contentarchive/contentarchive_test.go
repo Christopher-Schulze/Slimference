@@ -104,6 +104,42 @@ func TestPutGet_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestPeekDoesNotRecordExpansion(t *testing.T) {
+	dir := t.TempDir()
+	entry, err := Put(dir, sampleInput(), Limits{})
+	if err != nil || entry == nil {
+		t.Fatalf("put: entry=%#v err=%v", entry, err)
+	}
+	before, err := LoadStats(dir)
+	if err != nil {
+		t.Fatalf("load stats before: %v", err)
+	}
+	gotEntry, body, err := Peek(dir, entry.URI)
+	if err != nil {
+		t.Fatalf("peek: %v", err)
+	}
+	if gotEntry.ID != entry.ID || !bytes.Equal(body, []byte(sampleInput().Original)) {
+		t.Fatalf("peek mismatch: entry=%+v body=%q", gotEntry, body)
+	}
+	afterPeek, err := LoadStats(dir)
+	if err != nil {
+		t.Fatalf("load stats after peek: %v", err)
+	}
+	if afterPeek.Expanded != before.Expanded || !afterPeek.LastExpanded.Equal(before.LastExpanded) {
+		t.Fatalf("peek mutated expansion stats: before=%+v after=%+v", before, afterPeek)
+	}
+	if _, _, err := Get(dir, entry.URI); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	afterGet, err := LoadStats(dir)
+	if err != nil {
+		t.Fatalf("load stats after get: %v", err)
+	}
+	if afterGet.Expanded != before.Expanded+1 {
+		t.Fatalf("get should record one expansion: before=%+v after=%+v", before, afterGet)
+	}
+}
+
 func TestGet_EmptyID(t *testing.T) {
 
 	if _, _, err := Get(t.TempDir(), "  "); err == nil {
