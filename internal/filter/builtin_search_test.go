@@ -509,6 +509,22 @@ func TestSearchOutputGroupingSkipsNonMatchLineModes(t *testing.T) {
 	if _, ok := TryCompactSearchOutput([]string{"rg", "--field-match-separator", "=", "-n", "needle"}, []byte(customSeparatorOutput)); ok {
 		t.Fatal("custom search separators must not be grouped by the colon parser")
 	}
+	nullOutput := strings.Repeat("src/a.go\x0012:needle with nul path terminator\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"rg", "-0", "-n", "needle"}, []byte(nullOutput)); ok {
+		t.Fatal("rg -0 must not be grouped as colon-delimited match-line output")
+	}
+	grepNullOutput := strings.Repeat("src/a.go\x00needle with nul filename terminator\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"grep", "-RZ", "needle", "."}, []byte(grepNullOutput)); ok {
+		t.Fatal("grep -Z must not be grouped as colon-delimited match-line output")
+	}
+	nullDataOutput := strings.Repeat("src/a.go:12:needle with nul-data mode\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"rg", "--null-data", "-n", "needle"}, []byte(nullDataOutput)); ok {
+		t.Fatal("rg --null-data must not be grouped as normal newline-delimited output")
+	}
+	pathSeparatorOutput := strings.Repeat("src::a.go:12:needle with path separator override\n", 8)
+	if _, ok := TryCompactSearchOutput([]string{"rg", "--path-separator", "::", "-n", "needle"}, []byte(pathSeparatorOutput)); ok {
+		t.Fatal("rg --path-separator must not be grouped by the default colon parser")
+	}
 }
 
 func TestCanonicalSearchMatchSetIgnoresResultOrder(t *testing.T) {

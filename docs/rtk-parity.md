@@ -16,6 +16,9 @@ This is the short closure companion to `docs/rtk-audit.md`.
 - Safe RTK-inspired `find`/`fd` path-list grouping: no command replacement,
   no result cap, preserves every path component and order, fail-open on
   ambiguous lines.
+- Search output-shape hardening: `rg -0`, GNU `grep -Z`, `--null`,
+  `--null-data`, and `--path-separator` full-pass before grouped search
+  compaction.
 
 ## Already Covered Better in Slimference
 

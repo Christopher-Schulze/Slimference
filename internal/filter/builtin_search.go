@@ -662,7 +662,8 @@ func searchOutputFlagDisablesGrouping(arg string) bool {
 		"--count", "--count-matches", "--only-matching", "--vimgrep", "--type-list",
 		"--heading", "--pretty", "--context", "--after-context", "--before-context",
 		"--passthru", "--multiline", "--multiline-dotall",
-		"--field-context-separator", "--field-match-separator":
+		"--field-context-separator", "--field-match-separator",
+		"--null", "--null-data", "--path-separator":
 		return true
 	default:
 		return strings.HasPrefix(arg, "--json=") ||
@@ -682,7 +683,10 @@ func searchOutputFlagDisablesGrouping(arg string) bool {
 			strings.HasPrefix(arg, "--multiline=") ||
 			strings.HasPrefix(arg, "--multiline-dotall=") ||
 			strings.HasPrefix(arg, "--field-context-separator=") ||
-			strings.HasPrefix(arg, "--field-match-separator=")
+			strings.HasPrefix(arg, "--field-match-separator=") ||
+			strings.HasPrefix(arg, "--null=") ||
+			strings.HasPrefix(arg, "--null-data=") ||
+			strings.HasPrefix(arg, "--path-separator=")
 	}
 }
 
@@ -696,7 +700,7 @@ func shortSearchOutputFlagDisablesGrouping(arg string) bool {
 	}
 	for _, r := range arg[1:] {
 		switch r {
-		case 'l', 'L', 'c', 'o', 'A', 'B', 'C', 'U', 'p':
+		case 'l', 'L', 'c', 'o', 'A', 'B', 'C', 'U', 'p', '0', 'Z':
 			return true
 		}
 	}

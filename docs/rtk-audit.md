@@ -22,9 +22,12 @@ No RTK compression rule is missing from Slimference's bundled TOML catalog:
 both trees currently contain 59 `.toml` filter files, and the filename diff is
 empty. RTK's Rust command files map to Slimference's `builtin_*.go` files plus
 generic build/test/lint/search/package/container dispatchers. The current
-accepted deltas from this refresh are `wc` compaction and safe large
-`find`/`fd` path-list grouping: both preserve requested evidence, require a
-shorter result, and fail open on ambiguous shapes.
+accepted deltas from this refresh are `wc` compaction, safe large `find`/`fd`
+path-list grouping, and stricter search output-shape refusal for NUL-delimited
+or custom path-separator modes. The compaction deltas preserve requested
+evidence, require a shorter result, and fail open on ambiguous shapes; the
+shape-refusal delta is safety-only and prevents the colon parser from touching
+formats it cannot prove.
 
 ## Current Matrix
 
@@ -45,6 +48,7 @@ shorter result, and fail open on ambiguous shapes.
 | Discover/learn/advisory tooling | RTK `discover/` and `learn/` | Not hot-path savings; Slimference has stats/gain and T210/T211 docs | not-needed |
 | `wc` compact output | RTK `src/cmds/system/wc_cmd.rs` strips alignment and common path prefixes | Slimference now has safe `TryCompactWc` Layer-0 reducer and rewrite coverage | ported |
 | Large `find`/`fd` path-list output | RTK groups file search results by directory, but its command executes a new gitignore-aware walk | Slimference ports only the safe output half: group large actual path lists by repeated directory prefix, preserve every path component and order, fail-open on ambiguous lines | ported-safe-subset |
+| NUL/custom-separator search output | RTK's registry treats output shape as a command-level safety boundary | Slimference refuses `rg -0`, GNU `grep -Z`, `--null`, `--null-data`, and `--path-separator` before match-line grouping | ported-guard |
 | Aggressive code-signature summaries | RTK `rtk read -l aggressive` keeps imports/signatures and removes implementation bodies; default `rtk read` level is `none` | Rejected as default for Codex. It may save many tokens but can remove body details GPT-5.x needs later. Reconsider only as explicit scan/repeated-read mode with exact archive recovery plus live quality proof. | reject-default |
 
 ## Port Queue
