@@ -30,6 +30,13 @@ replacement for reality.
   recoverability without copying raw bytes, renders stable machine-readable
   capsule text, keeps Codex WSS shadow-only, and applies only on full-history
   HTTP-style routes when net savings are positive.
+- `internal/contextledger/message_apply.go` now implements exact full-history
+  message/block application. It accepts only explicit targets, requires exactly
+  one archive per target capsule, requires the archive payload to be byte-equal
+  to the current target block text, counts only selected targets in final net
+  savings, includes covered-marker overhead, and full-passes invalid targets,
+  duplicate targets, archive mismatch, shadow mode, Codex WSS, and non-positive
+  selected savings.
 - Codex WSS Phase-F now records content-free OCRL shadow telemetry in debug
   request summaries. It reports mode, route, reason, candidate/verbatim/rejected
   counts, archive expansion count, original archive tokens, replacement tokens,
@@ -130,6 +137,9 @@ The ledger stores deterministic capsules:
      model-facing frames
    - [x] expose OCRL as `[compression.ocrl]`, env overrides, and
      `slimference layer2 status`
+   - [x] implement exact full-history message/block apply with archive
+     byte-match, explicit target mapping, selected-target-only token
+     accounting, marker-overhead accounting, and full-pass gates
    - [ ] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
@@ -354,3 +364,16 @@ summary remains opt-in, not default.
   mixed-case `AUTO` and `FULL_HISTORY_HTTP` still hit the intended guarded
   full-history apply path. `go test ./internal/contextledger -count=1` and
   `go test ./... -count=1` passed.
+- 2026-06-05: Added exact full-history OCRL message application in
+  `internal/contextledger/message_apply.go`. `ApplyOCRLToMessages` takes
+  explicit message/block targets, proves every target against a single
+  byte-equal archive payload, reruns the OCRL selector and route gates, clears
+  raw/archive metadata on rewritten blocks, inserts compact `covered_by`
+  markers only when a whole single-block message would otherwise disappear, and
+  counts final net savings only over selected targets plus marker overhead.
+  Regression tests cover positive application, multi-block deletion,
+  archive-mismatch full-pass, shadow/Codex-WSS route gates, marker-overhead
+  rejection, selected-only token accounting, and duplicate-target rejection.
+  `go test ./internal/contextledger -count=1` passed.
+  `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
+  measured `1207204 ns/op`, `414048 B/op`, and `8202 allocs/op`.

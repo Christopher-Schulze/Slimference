@@ -148,10 +148,12 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 
 - [x] OCRL (`docs/ocrl.md`, `internal/contextledger/ocrl.go`): deterministic
   Old Context Replacement Layer specified and implemented as a pure,
-  route-gated, archive-verified, positive-savings engine. `[compression.ocrl]`
-  and `slimference layer2 status` expose the effective OCRL policy. Codex WSS
-  remains shadow-only until live proof shows a safe old-context insertion
-  surface.
+  route-gated, archive-verified, positive-savings engine. Exact full-history
+  message apply now exists in `internal/contextledger/message_apply.go` for
+  explicit message/block targets with byte-equal archive proof and selected-only
+  savings accounting. `[compression.ocrl]` and `slimference layer2 status`
+  expose the effective OCRL policy. Codex WSS remains shadow-only until live
+  proof shows a safe old-context insertion surface.
 - [x] Adaptive Sliding Window: `adaptive_window.go` — dynamische Fensteranpassung (3-7) nach Session-Komplexität
 - [x] Tool Result Priority Classification: `priority.go` — HIGH/MEDIUM/LOW, aggressivere Kompression für LOW
 
@@ -1953,6 +1955,10 @@ be called complete, default-safe, and production-grade.
   decision/recovery facts, archive ids, and a
   policy session id to prevent cross-session context selection. Active-file and
   quality-pressure selection inputs now fail closed as tested primitives.
+  `internal/contextledger/message_apply.go` now provides an exact full-history
+  OCRL apply primitive for explicit message/block targets; it requires
+  byte-equal archive payloads, selected-target-only token accounting, marker
+  overhead accounting, and full-pass behavior for unsafe targets.
   Overflow recovery now also requires `layer2_enabled=true` before it may apply
   any cached legacy summary, so the legacy override alone cannot bypass the
   default-off product path. Only proof-gated model-facing ledger insertion and

@@ -1057,6 +1057,17 @@ archive expansion count, original archive tokens, replacement tokens, and
 would-save tokens). Those values never change model-facing context and never add
 to product `net_tokens` while the route remains shadow-only.
 
+`internal/contextledger/message_apply.go` is the exact full-history message
+apply primitive. It accepts only explicit message/block targets paired with
+capsules, verifies that each target capsule has exactly one archive id, requires
+the archived payload to be byte-equal to the current target block text, and then
+reruns the normal session, active-path, recent-turn, quality-pressure, route,
+archive, and token gates before mutating anything. Final savings accounting
+counts only selected targets, not verbatim or rejected candidates, and includes
+covered-marker overhead. Invalid targets, duplicate targets, archive mismatch,
+shadow mode, Codex WSS, and non-positive selected-target savings all full-pass
+the original messages.
+
 OCRL is operator-visible and configured under `[compression.ocrl]`. Fresh
 configs default to `mode = "shadow"`, `max_capsules = 512`,
 `min_net_saved_tokens = 1`, and `max_replacement_tokens = 0`. Env overrides are
@@ -1089,9 +1100,9 @@ Focused verification on 2026-06-05:
 - `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
 
-The OCRL benchmark on Apple M1 processed 512 file capsules in about 1.023 ms
-with 414016 B/op and 8202 allocs/op after archive verification and renderer
-allocation trimming.
+The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
+1.207 ms with 414048 B/op and 8202 allocs/op after archive verification and
+renderer allocation trimming.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,

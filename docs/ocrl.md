@@ -64,6 +64,29 @@ Full-history HTTP-style routes are the eligible product target because old
 messages are present in the request body and can be replaced before upstream
 delivery.
 
+## Exact Message Apply Primitive
+
+`internal/contextledger/message_apply.go` provides the first model-facing OCRL
+apply primitive for full-history routes. It is deliberately stricter than the
+pure renderer:
+
+- callers must provide explicit `(message_index, block_index, capsule)` targets
+- each target capsule must have exactly one archive id
+- the archive payload must be byte-equal to the current target block text
+- duplicate or out-of-range targets full-pass
+- selected targets are rechecked through the normal session, active-path,
+  recent-turn, quality-pressure, archive, route, and token gates
+- final net savings count only selected targets, not verbatim or rejected
+  candidates
+- single-block covered messages keep a compact `covered_by` marker; multi-block
+  covered blocks are deleted from their message
+- replacement and marker token overhead are both included before mutation is
+  accepted
+
+This primitive does not infer context mapping from rendered text. If a future
+route cannot prove exact old-message positions and exact archive equality, it
+must not call the apply path.
+
 ## Capsule Rendering
 
 The rendered OCRL block is deterministic and machine-readable:
@@ -122,6 +145,8 @@ OCRL full-passes on:
 - missing facts
 - missing archives
 - archive expansion error
+- invalid or duplicate message target
+- target archive payload mismatch
 - unknown capsule kind
 - capsule budget exhaustion
 - non-positive net savings
@@ -139,7 +164,9 @@ The engine requires:
 - archive expansion tests that prove copied exact bytes
 - benchmark coverage for large capsule sets
 - route tests proving Codex WSS stays shadow-only
-- full-history route tests proving positive-saving application
+- full-history message-apply tests proving positive-saving application,
+  archive-mismatch full-pass, route/shadow gates, marker overhead accounting,
+  duplicate-target rejection, and selected-target-only token accounting
 - docs and TODO state updated before a task can be closed
 
 Live Codex App/Desktop captures are a promotion gate for route claims, not a
