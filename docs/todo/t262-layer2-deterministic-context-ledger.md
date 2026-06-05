@@ -186,7 +186,10 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules in about 0.570 ms, 238070 B/op, 11 allocs/op.
+  512 file capsules render in about 0.709 ms, 238109 B/op, 11 allocs/op;
+  exact archive-to-message target derivation runs in about 0.406 ms, 190034 B/op,
+  946 allocs/op; full archive-match OCRL apply runs in about 2.289 ms,
+  1183727 B/op, 3860 allocs/op.
 
 ## Verification
 
@@ -199,7 +202,7 @@ The ledger stores deterministic capsules:
 - Proxy telemetry gate:
   `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - Benchmark gate:
-  `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
+  `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
 - Live corpus gate:
   - CLI and Desktop
   - no repair/re-read spike
@@ -401,8 +404,8 @@ summary remains opt-in, not default.
   weakening gates. `RenderOCRLCapsules` now writes quoted fields, archive lists,
   and maps directly into one builder with reusable scratch buffers, while
   singleton archive verification avoids per-capsule sort/map allocation.
-  `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
-  measured `570468 ns/op`, `238070 B/op`, and `11 allocs/op`.
+  `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
+  measured `709099 ns/op`, `238109 B/op`, and `11 allocs/op` for render-only.
 - 2026-06-05: Added safe full-history OCRL target derivation.
   `ApplyOCRLToMessagesByArchiveMatch` and `DeriveOCRLMessageTargets` load each
   capsule's single archive payload and derive a message/block target only when
@@ -410,4 +413,9 @@ summary remains opt-in, not default.
   matches, missing archives, archive read errors, unmatched payloads, and
   duplicate target positions are omitted and counted in the derivation report,
   so a future route can use model-facing OCRL only with proven target mapping.
+  The apply path now maps selected targets from the selector decision order
+  instead of rendering per-capsule keys. Current Apple M1 benchmarks measured
+  `405735 ns/op`, `190034 B/op`, and `946 allocs/op` for target derivation, and
+  `2289053 ns/op`, `1183727 B/op`, and `3860 allocs/op` for full archive-match
+  OCRL apply over 512 capsules.
   `go test ./internal/contextledger -count=1` passed.

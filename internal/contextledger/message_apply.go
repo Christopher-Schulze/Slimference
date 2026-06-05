@@ -58,8 +58,9 @@ func ApplyOCRLToMessagesByArchiveMatch(messages []types.Message, capsules []Caps
 func DeriveOCRLMessageTargets(messages []types.Message, capsules []Capsule, load ArchiveLoader) OCRLMessageTargetDerivation {
 	derivation := OCRLMessageTargetDerivation{Targets: make([]OCRLMessageTarget, 0, len(capsules))}
 	usedTargets := make(map[string]struct{}, len(capsules))
+	blockIndex := indexOCRLMessageBlocks(messages)
 	for _, capsule := range capsules {
-		target, reason := deriveOCRLMessageTarget(messages, capsule, load)
+		target, reason := deriveOCRLMessageTarget(blockIndex, capsule, load)
 		switch reason {
 		case "matched":
 			key := messageTargetKey(target)
@@ -83,7 +84,32 @@ func DeriveOCRLMessageTargets(messages []types.Message, capsules []Capsule, load
 	return derivation
 }
 
-func deriveOCRLMessageTarget(messages []types.Message, capsule Capsule, load ArchiveLoader) (OCRLMessageTarget, string) {
+type ocrlMessageBlockMatch struct {
+	MessageIndex int
+	BlockIndex   int
+	Count        int
+}
+
+func indexOCRLMessageBlocks(messages []types.Message) map[string]ocrlMessageBlockMatch {
+	index := make(map[string]ocrlMessageBlockMatch)
+	for msgIdx, msg := range messages {
+		for blockIdx, block := range msg.Content {
+			if block.Text == "" {
+				continue
+			}
+			match := index[block.Text]
+			if match.Count == 0 {
+				match.MessageIndex = msgIdx
+				match.BlockIndex = blockIdx
+			}
+			match.Count++
+			index[block.Text] = match
+		}
+	}
+	return index
+}
+
+func deriveOCRLMessageTarget(index map[string]ocrlMessageBlockMatch, capsule Capsule, load ArchiveLoader) (OCRLMessageTarget, string) {
 	if load == nil || len(capsule.Archives) != 1 {
 		return OCRLMessageTarget{}, "missing_archive"
 	}
@@ -96,23 +122,14 @@ func deriveOCRLMessageTarget(messages []types.Message, capsule Capsule, load Arc
 		return OCRLMessageTarget{}, "archive_error"
 	}
 	payload := string(body)
-	var match OCRLMessageTarget
-	matches := 0
-	for msgIdx, msg := range messages {
-		for blockIdx, block := range msg.Content {
-			if block.Text != "" && block.Text == payload {
-				match = OCRLMessageTarget{MessageIndex: msgIdx, BlockIndex: blockIdx, Capsule: capsule}
-				matches++
-				if matches > 1 {
-					return OCRLMessageTarget{}, "ambiguous"
-				}
-			}
-		}
-	}
-	if matches == 0 {
+	match, ok := index[payload]
+	if !ok {
 		return OCRLMessageTarget{}, "unmatched"
 	}
-	return match, "matched"
+	if match.Count > 1 {
+		return OCRLMessageTarget{}, "ambiguous"
+	}
+	return OCRLMessageTarget{MessageIndex: match.MessageIndex, BlockIndex: match.BlockIndex, Capsule: capsule}, "matched"
 }
 
 // ApplyOCRLToMessages replaces explicitly targeted old message blocks with one
@@ -146,8 +163,7 @@ func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy
 	if !ocrl.Applied {
 		return result
 	}
-	selected := selectedCapsuleKeys(ocrl.Selection)
-	selectedTargets := selectMessageTargets(policy.Targets, selected)
+	selectedTargets := selectMessageTargetsByDecision(policy.Targets, ocrl.Selection)
 	if len(selectedTargets) == 0 {
 		result.OCRL.Applied = false
 		result.OCRL.Reason = OCRLReasonNoCapsules
@@ -232,21 +248,14 @@ func messageTargetKey(target OCRLMessageTarget) string {
 	return strconv.Itoa(target.MessageIndex) + ":" + strconv.Itoa(target.BlockIndex)
 }
 
-func selectedCapsuleKeys(report SelectionReport) map[string]struct{} {
-	out := make(map[string]struct{}, report.Capsules)
-	for _, decision := range report.Decisions {
-		if decision.Action == SelectionCapsule {
-			out[renderCapsuleKey(decision.Capsule)] = struct{}{}
-		}
+func selectMessageTargetsByDecision(targets []OCRLMessageTarget, report SelectionReport) []OCRLMessageTarget {
+	if len(report.Decisions) != len(targets) {
+		return nil
 	}
-	return out
-}
-
-func selectMessageTargets(targets []OCRLMessageTarget, selected map[string]struct{}) []OCRLMessageTarget {
 	out := make([]OCRLMessageTarget, 0, len(targets))
-	for _, target := range targets {
-		if _, ok := selected[renderCapsuleKey(target.Capsule)]; ok {
-			out = append(out, target)
+	for i, decision := range report.Decisions {
+		if decision.Action == SelectionCapsule {
+			out = append(out, targets[i])
 		}
 	}
 	return out
@@ -311,8 +320,4 @@ func cloneMessages(messages []types.Message) []types.Message {
 
 func ocrlCoveredMarker(messageIndex, blockIndex int) string {
 	return ocrlCoveredMarkerPrefix + "message:" + strconv.Itoa(messageIndex) + ":block:" + strconv.Itoa(blockIndex) + "]"
-}
-
-func renderCapsuleKey(capsule Capsule) string {
-	return RenderOCRLCapsules([]Capsule{capsule})
 }

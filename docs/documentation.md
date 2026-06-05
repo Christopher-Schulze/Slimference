@@ -1108,11 +1108,14 @@ Focused verification on 2026-06-05:
 - `go test ./internal/contextledger -count=1`
 - `go test ./internal/abharness ./internal/contextledger -count=1`
 - `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
-- `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
+- `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
 
 The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
-0.570 ms with 238070 B/op and 11 allocs/op after archive verification and
-renderer scratch-buffer reuse.
+0.709 ms with 238109 B/op and 11 allocs/op after archive verification and
+renderer scratch-buffer reuse. Exact archive-to-message target derivation for
+512 capsules measured about 0.406 ms with 190034 B/op and 946 allocs/op; full
+archive-match OCRL apply measured about 2.289 ms with 1183727 B/op and 3860
+allocs/op.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,
