@@ -234,7 +234,7 @@ func readBodyOrStdin(path string) ([]byte, error) {
 
 func runLiveCorpusPlan(root, category, client string, now time.Time) int {
 	category = safePlanName(category)
-	client = strings.TrimSpace(client)
+	client = normalizeLiveCorpusClient(category, client)
 	root = strings.TrimSpace(root)
 	if category == "" {
 		fmt.Fprintln(os.Stderr, "live-corpus-plan: -category is required")
@@ -243,9 +243,6 @@ func runLiveCorpusPlan(root, category, client string, now time.Time) int {
 	if root == "" {
 		fmt.Fprintln(os.Stderr, "live-corpus-plan: -corpus-root is required")
 		return 2
-	}
-	if client == "" {
-		client = "codex_cli"
 	}
 	sessionName := fmt.Sprintf("%s_%s", category, now.Format("20060102_150405"))
 	capturePath := fmt.Sprintf("~/.slimference/captures/%s.jsonl", sessionName)
@@ -260,6 +257,11 @@ func runLiveCorpusPlan(root, category, client string, now time.Time) int {
 	fmt.Printf("Capture file: %s\n", capturePath)
 	fmt.Printf("Corpus file:  %s\n", sessionFile)
 	fmt.Println("")
+	if isOCRLFullHistoryCategory(category) {
+		fmt.Println("OCRL full-history note: this category must prove model-facing OCRL on a full-history HTTP-style route.")
+		fmt.Println("Codex WSS / Responses-delta sessions are intentionally shadow-only and do not satisfy this promotion proof.")
+		fmt.Println("")
+	}
 	fmt.Println("1. Start capture against a running local Slimference path:")
 	fmt.Printf("   SLIMFERENCE_DEBUG_DECISIONS_LOG=%s slimference start\n", capturePath)
 	fmt.Println("")
@@ -322,10 +324,15 @@ func runReleaseProofPlan(root string, now time.Time) int {
 	for _, client := range releaseProofClients() {
 		fmt.Printf("   # %s\n", client)
 		for _, workload := range maxxProofWorkloads() {
+			if isOCRLFullHistoryCategory(workload) {
+				continue
+			}
 			fmt.Printf("   go run ./scripts/verify -mode live-corpus-plan -corpus-root %s -client %s -category %s\n",
 				root, client, workload)
 		}
 	}
+	fmt.Println("   # full_history_http")
+	fmt.Printf("   go run ./scripts/verify -mode live-corpus-plan -corpus-root %s -client full_history_http -category ocrl_full_history\n", root)
 	fmt.Println("")
 	fmt.Println("4. Close all Codex sessions so WSS counters flush, then finish savings + host-resource measurement:")
 	fmt.Println("   go run ./scripts/utils workday-savings finish")
@@ -457,6 +464,21 @@ func maxxProofWorkloads() []string {
 	}
 }
 
+func normalizeLiveCorpusClient(category, client string) string {
+	if isOCRLFullHistoryCategory(category) {
+		return "full_history_http"
+	}
+	client = strings.TrimSpace(client)
+	if client == "" {
+		return "codex_cli"
+	}
+	return client
+}
+
+func isOCRLFullHistoryCategory(category string) bool {
+	return strings.TrimSpace(category) == "ocrl_full_history"
+}
+
 func safePlanName(value string) string {
 	var b strings.Builder
 	lastUnderscore := false
@@ -476,6 +498,7 @@ func safePlanName(value string) string {
 }
 
 func renderLiveCorpusMetadataSkeleton(category, client string) string {
+	client = normalizeLiveCorpusClient(category, client)
 	payload := map[string]any{
 		"category":                            category,
 		"description":                         "Real operator-captured session; replace this with the exact task shape before commit.",
@@ -540,6 +563,9 @@ func applyLiveCorpusWorkloadDefaults(payload map[string]any, workload string) {
 		payload["expected_savings_min"] = 0.0
 		payload["expected_saved_tokens_min"] = 1
 	case "ocrl_full_history":
+		payload["description"] = "Real full-history HTTP-style operator-captured session proving model-facing OCRL applied; Codex WSS / Responses-delta sessions are shadow-only and do not satisfy this category."
+		payload["client_family"] = "full_history_http"
+		payload["tool_mix"] = "full_history_http_archive_backed"
 		payload["expected_savings_min"] = 0.0
 		payload["expected_saved_tokens_min"] = 1
 	}

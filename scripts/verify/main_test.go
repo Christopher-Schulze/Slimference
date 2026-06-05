@@ -396,6 +396,8 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		"additional maxx mechanism categories",
 		"chunk_dedup_similar_outputs",
 		"ocrl_full_history",
+		"full_history_http",
+		"-client full_history_http -category ocrl_full_history",
 		"output_reduce_aggressive",
 		"output_reduce_ab",
 		"provider_cache_long_session",
@@ -425,6 +427,8 @@ func TestRenderLiveCorpusMetadataSkeleton_WorkloadDefaults(t *testing.T) {
 			wants: []string{
 				`"scenario_validators": [`,
 				`"ocrl_full_history"`,
+				`"client_family": "full_history_http"`,
+				`"tool_mix": "full_history_http_archive_backed"`,
 				`"expected_saved_tokens_min": 1`,
 			},
 		},
@@ -458,6 +462,41 @@ func TestRenderLiveCorpusMetadataSkeleton_WorkloadDefaults(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRunLiveCorpusPlan_OCRLFullHistoryUsesFullHistoryClient(t *testing.T) {
+	var stdout bytes.Buffer
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&stdout, r)
+		close(done)
+	}()
+	now := time.Date(2026, 6, 5, 8, 9, 10, 0, time.UTC)
+	rc := runLiveCorpusPlan("tests/fixtures/live_corpus", "ocrl_full_history", "codex_cli", now)
+	_ = w.Close()
+	<-done
+	if rc != 0 {
+		t.Fatalf("expected 0, got %d", rc)
+	}
+	out := stdout.String()
+	for _, want := range []string{
+		"Client:       full_history_http",
+		"must prove model-facing OCRL on a full-history HTTP-style route",
+		"Codex WSS / Responses-delta sessions are intentionally shadow-only",
+		`"client_family": "full_history_http"`,
+		`"tool_mix": "full_history_http_archive_backed"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("OCRL runbook missing %q:\n%s", want, out)
+		}
 	}
 }
 

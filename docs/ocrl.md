@@ -64,6 +64,12 @@ Full-history HTTP-style routes are the eligible product target because old
 messages are present in the request body and can be replaced before upstream
 delivery.
 
+The `ocrl_full_history` live-corpus category is therefore a
+`full_history_http` proof category. Codex CLI/Desktop WSS captures can prove
+OCRL shadow telemetry and route blocking, but they cannot satisfy the
+model-facing OCRL promotion gate while the upstream route uses
+Responses-delta/server-state semantics.
+
 ## Exact Message Apply Primitive
 
 `internal/contextledger/message_apply.go` provides the first model-facing OCRL
@@ -203,9 +209,9 @@ The engine requires:
   applied full-history evidence, candidate capsules, archive expansions,
   positive OCRL savings, and no shadow-only rows
 - max-out promotion coverage: `benchmark-corpus --maxx-check` requires a real,
-  non-synthetic `ocrl_full_history` workload and fails if it lacks applied
-  OCRL, full-history route rows, archive expansions, positive OCRL saved tokens,
-  or if any OCRL row is shadow-only
+  non-synthetic `ocrl_full_history` workload captured on a full-history HTTP
+  route and fails if it lacks applied OCRL, full-history route rows, archive
+  expansions, positive OCRL saved tokens, or if any OCRL row is shadow-only
 - docs and TODO state updated before a task can be closed
 
 Live Codex App/Desktop captures are a promotion gate for route claims, not a

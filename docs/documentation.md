@@ -1130,10 +1130,13 @@ The live-corpus gate now has an OCRL-aware validator. `ocrl_full_history`
 requires applied full-history OCRL evidence, selected capsules, archive
 expansions, positive OCRL saved tokens, and no shadow-only rows. The committed
 `synthetic_ocrl_full_history` fixture proves the gate wiring only; it is not a
-real Codex CLI/Desktop promotion claim. The stricter `benchmark-corpus
---maxx-check` also requires a real, non-synthetic `ocrl_full_history` workload
-and repeats the applied/full-history/archive/savings/no-shadow checks before
-the whole max-out program can pass.
+real Codex CLI/Desktop promotion claim. The live runbook treats
+`ocrl_full_history` as a `full_history_http` proof category because Codex WSS /
+Responses-delta sessions intentionally remain shadow-only. The stricter
+`benchmark-corpus --maxx-check` also requires a real, non-synthetic
+`ocrl_full_history` workload and repeats the
+applied/full-history/archive/savings/no-shadow checks before the whole max-out
+program can pass.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,

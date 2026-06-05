@@ -56,6 +56,11 @@ replacement for reality.
   `min_net_saved_tokens=1`, and `max_replacement_tokens=0`, with matching
   `SLIMFERENCE_OCRL_*` env overrides. `slimference layer2 status` reports the
   effective OCRL policy and the Codex WSS shadow-only route guard.
+- The OCRL live proof runbook now treats `ocrl_full_history` as a
+  `full_history_http` proof category. Codex CLI/Desktop WSS sessions remain
+  valid shadow/route-blocking evidence, but they do not satisfy model-facing
+  OCRL promotion while the protocol sends Responses deltas instead of old full
+  context.
 - `contentarchive.Peek` supports OCRL proof verification by loading exact
   archive payloads without incrementing real expansion/recovery counters.
 - `internal/abharness` now understands OCRL archive lists in rendered
@@ -217,10 +222,10 @@ The ledger stores deterministic capsules:
   gate wiring, not live promotion.
 - Maxx promotion gate:
   `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --maxx-check`
-  now requires a real non-synthetic `ocrl_full_history` workload and fails if
-  OCRL is not applied on a full-history route with archive expansions, positive
-  OCRL saved tokens, and no shadow-only OCRL rows. This is expected to remain
-  open until a real full-history OCRL capture exists.
+  now requires a real non-synthetic `ocrl_full_history` workload captured on a
+  full-history HTTP route and fails if OCRL is not applied with archive
+  expansions, positive OCRL saved tokens, and no shadow-only OCRL rows. This is
+  expected to remain open until a real full-history OCRL capture exists.
 - Live corpus gate:
   - CLI and Desktop
   - no repair/re-read spike
@@ -514,3 +519,11 @@ summary remains opt-in, not default.
   `11 allocs/op`; public target derivation `528107 ns/op`, `185817 B/op`,
   `21 allocs/op`; full archive-match apply `2865411 ns/op`, `1140472 B/op`,
   `1085 allocs/op`.
+- 2026-06-05: Hardened the live-proof runbook so `ocrl_full_history` no longer
+  points operators at a misleading Codex WSS capture. `verify -mode
+  live-corpus-plan -category ocrl_full_history` now emits `client_family:
+  full_history_http`, an explicit note that Codex WSS / Responses-delta
+  sessions are shadow-only, and metadata that matches the real model-facing
+  OCRL promotion route. `verify -mode release-proof-plan` lists the OCRL
+  full-history proof once under the full-history route instead of duplicating it
+  under CLI/Desktop WSS clients.
