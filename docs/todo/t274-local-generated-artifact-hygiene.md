@@ -2,7 +2,7 @@
 
 ## Status
 
-Open.
+Done.
 
 ## Source
 
@@ -11,7 +11,7 @@ External model-review follow-up after validating repository state at commit
 
 ## Evidence
 
-The following files or directories exist locally and are not tracked by git:
+The following files or directories existed locally and were not tracked by git:
 
 - `proxy.test` around 32 MB
 - `readcache.test` around 12 MB
@@ -50,19 +50,53 @@ to be preserved.
 
 ## Acceptance
 
-- `git status --short` is clean before and after cleanup.
-- `git ls-files proxy.test readcache.test benchmarks dist cmd/slimference/~`
-  remains empty unless a file is intentionally tracked.
-- Local stale artefacts are removed or reported by a repeatable guard.
-- `go run ./scripts/ci` passes after cleanup.
-- Disk reclaimed is measured with `du -sh` before and after.
+- [x] `git status --short` is clean before and after cleanup.
+- [x] `git ls-files proxy.test readcache.test benchmarks dist
+  cmd/slimference/~` remains empty unless a file is intentionally tracked.
+- [x] Local stale artefacts are removed and reported by a repeatable guard.
+- [x] `go run ./scripts/ci` passes after cleanup.
+- [x] Disk reclaimed is measured with `du -sh` before and after.
+
+## Implementation
+
+Added `go run ./scripts/utils local-artifact-hygiene` as a narrow fail-closed
+guard for only the known local generated artefacts:
+
+- `proxy.test`
+- `readcache.test`
+- `benchmarks`
+- `dist`
+- `cmd/slimference/~`
+
+The default check exits non-zero when these paths exist and emits text or JSON.
+`--clean` removes only these candidates, and only after the git status check
+confirms that the candidate is not tracked. If a candidate ever becomes tracked,
+the guard reports it as unsafe and does not remove it.
 
 ## Verification
 
-- Run `git status --short`.
-- Run `git ls-files` against all cleanup candidates.
-- Run `du -sh` for before/after.
-- Run the guard in check-only mode if implemented.
+- `git status --short` before cleanup: clean.
+- `git ls-files proxy.test readcache.test benchmarks dist cmd/slimference/~`:
+  empty.
+- `git check-ignore -v proxy.test readcache.test benchmarks dist
+  cmd/slimference/~`: all candidates ignored by the existing `.gitignore`
+  rules.
+- Before cleanup:
+  - `proxy.test`: 32M
+  - `readcache.test`: 12M
+  - `benchmarks`: 3.4M
+  - `dist`: 20M
+  - `cmd/slimference/~`: 0B
+- `go run ./scripts/utils local-artifact-hygiene --json` before cleanup:
+  found 70,606,266 bytes across five ignored, untracked candidates and exited
+  non-zero as intended.
+- `go run ./scripts/utils local-artifact-hygiene --clean`: removed 67.3MiB
+  across five candidates.
+- `go run ./scripts/utils local-artifact-hygiene --json` after cleanup:
+  `clean=true`, `total_bytes=0`.
+- `go test ./scripts/utils -run 'LocalArtifact|TestRunLocalArtifact' -count=1`:
+  passed.
+- `go run ./scripts/ci`: passed.
 
 ## Notes
 

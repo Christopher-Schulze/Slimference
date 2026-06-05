@@ -2339,10 +2339,13 @@ operability.
   `internal/proxy/handler.go`) into existing-domain files without changing
   exported behavior, route semantics, or product proof counters. Detail:
   `docs/todo/t273-cli-proxy-god-file-split.md`
-- [ ] **T274 Local generated-artifact hygiene** - remove untracked local build
+- [x] **T274 Local generated-artifact hygiene** - remove untracked local build
   artefacts (`proxy.test`, `readcache.test`, `benchmarks`, stale `dist/`, empty
   `cmd/slimference/~`) and add a repeatable guard so future local test binaries
-  or release scratch output do not pollute the working tree. Detail:
+  or release scratch output do not pollute the working tree. `scripts/utils
+  local-artifact-hygiene` now fails closed in check mode, reports JSON when
+  requested, and `--clean` removes only known untracked candidates. The local
+  cleanup removed 67.3MiB and the guard now reports `clean=true`. Detail:
   `docs/todo/t274-local-generated-artifact-hygiene.md`
 - [ ] **T275 Analytics/proof event queue hardening** - harden asynchronous
   analytics delivery so product proof events are prioritized or drained without

@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 2.3.0
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 
 Comprehensive reference for the Slimference token-optimising proxy. This
 document is re-written for the 2.3 line; sections follow current code
@@ -2824,7 +2824,8 @@ scripts/service/linux/        systemd unit + install.sh (T48).
 scripts/service/docker/       Distroless Dockerfile.
 scripts/benchmarks/           Benchmark runner.
 scripts/coverage/             Coverage gate.
-scripts/utils/                Offline session/decision/filter reports.
+scripts/utils/                Offline session/decision/filter/proof reports and
+                              local generated-artifact hygiene guard.
 
 docs/
   documentation.md            This file.
