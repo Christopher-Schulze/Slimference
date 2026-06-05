@@ -1101,7 +1101,10 @@ recovery, or comprehension canaries report pressure.
 Full-history message application can derive explicit OCRL targets only by exact
 archive-to-message matching: one capsule archive payload must equal exactly one
 current message block. Ambiguous, duplicate, missing, errored, or unmatched
-candidates are omitted and reported instead of guessed.
+candidates are omitted and reported instead of guessed. Target bookkeeping uses
+compact numeric keys instead of formatted strings, and explicit archive payload
+checks compare bytes to current message text without allocating converted
+payload strings.
 
 Focused verification on 2026-06-05:
 
@@ -1111,10 +1114,10 @@ Focused verification on 2026-06-05:
 - `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
 
 The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
-0.709 ms with 238109 B/op and 11 allocs/op after archive verification and
+1.353 ms with 238060 B/op and 11 allocs/op after archive verification and
 renderer scratch-buffer reuse. Exact archive-to-message target derivation for
-512 capsules measured about 0.406 ms with 190034 B/op and 946 allocs/op; full
-archive-match OCRL apply measured about 2.289 ms with 1183727 B/op and 3860
+512 capsules measured about 0.660 ms with 186132 B/op and 22 allocs/op; full
+archive-match OCRL apply measured about 3.509 ms with 1171594 B/op and 1085
 allocs/op.
 
 The live-corpus gate now has an OCRL-aware validator. `ocrl_full_history`

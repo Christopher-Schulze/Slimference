@@ -43,6 +43,11 @@ type OCRLMessageTargetDerivation struct {
 	DuplicateTarget int                 `json:"duplicate_target"`
 }
 
+type ocrlTargetKey struct {
+	MessageIndex int
+	BlockIndex   int
+}
+
 // ApplyOCRLToMessagesByArchiveMatch is the safe full-history convenience path:
 // it derives explicit targets only when a capsule's single archive payload is
 // byte-equal to exactly one current message block. Ambiguous, missing, or
@@ -57,7 +62,7 @@ func ApplyOCRLToMessagesByArchiveMatch(messages []types.Message, capsules []Caps
 
 func DeriveOCRLMessageTargets(messages []types.Message, capsules []Capsule, load ArchiveLoader) OCRLMessageTargetDerivation {
 	derivation := OCRLMessageTargetDerivation{Targets: make([]OCRLMessageTarget, 0, len(capsules))}
-	usedTargets := make(map[string]struct{}, len(capsules))
+	usedTargets := make(map[ocrlTargetKey]struct{}, len(capsules))
 	blockIndex := indexOCRLMessageBlocks(messages)
 	for _, capsule := range capsules {
 		target, reason := deriveOCRLMessageTarget(blockIndex, capsule, load)
@@ -195,12 +200,12 @@ func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy
 
 var errOCRLTargetArchiveMismatch = errors.New("ocrl target archive mismatch")
 
-func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget, load ArchiveLoader, count TokenCounter) (map[string]int, int, error) {
+func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget, load ArchiveLoader, count TokenCounter) (map[ocrlTargetKey]int, int, error) {
 	if load == nil || count == nil {
 		return nil, 0, errors.New("archive loader and token counter are required")
 	}
-	seen := make(map[string]struct{}, len(targets))
-	tokensByTarget := make(map[string]int, len(targets))
+	seen := make(map[ocrlTargetKey]struct{}, len(targets))
+	tokensByTarget := make(map[ocrlTargetKey]int, len(targets))
 	total := 0
 	for _, target := range targets {
 		if target.MessageIndex < 0 || target.MessageIndex >= len(messages) {
@@ -224,7 +229,7 @@ func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget,
 			return nil, 0, errOCRLTargetArchiveMismatch
 		}
 		text := msg.Content[target.BlockIndex].Text
-		if string(body) != text {
+		if !bytesEqualString(body, text) {
 			return nil, 0, errOCRLTargetArchiveMismatch
 		}
 		tokens := count(text)
@@ -237,7 +242,7 @@ func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget,
 	return tokensByTarget, total, nil
 }
 
-func sumMessageTargetTokens(targets []OCRLMessageTarget, tokens map[string]int) int {
+func sumMessageTargetTokens(targets []OCRLMessageTarget, tokens map[ocrlTargetKey]int) int {
 	total := 0
 	for _, target := range targets {
 		total += tokens[messageTargetKey(target)]
@@ -245,8 +250,20 @@ func sumMessageTargetTokens(targets []OCRLMessageTarget, tokens map[string]int) 
 	return total
 }
 
-func messageTargetKey(target OCRLMessageTarget) string {
-	return strconv.Itoa(target.MessageIndex) + ":" + strconv.Itoa(target.BlockIndex)
+func messageTargetKey(target OCRLMessageTarget) ocrlTargetKey {
+	return ocrlTargetKey{MessageIndex: target.MessageIndex, BlockIndex: target.BlockIndex}
+}
+
+func bytesEqualString(value []byte, text string) bool {
+	if len(value) != len(text) {
+		return false
+	}
+	for i, b := range value {
+		if b != text[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func selectMessageTargetsByDecision(targets []OCRLMessageTarget, report SelectionReport) []OCRLMessageTarget {

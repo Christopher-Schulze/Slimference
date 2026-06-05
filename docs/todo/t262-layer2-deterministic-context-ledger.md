@@ -188,10 +188,10 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules render in about 0.709 ms, 238109 B/op, 11 allocs/op;
-  exact archive-to-message target derivation runs in about 0.406 ms, 190034 B/op,
-  946 allocs/op; full archive-match OCRL apply runs in about 2.289 ms,
-  1183727 B/op, 3860 allocs/op.
+  512 file capsules render in about 1.353 ms, 238060 B/op, 11 allocs/op;
+  exact archive-to-message target derivation runs in about 0.660 ms, 186132 B/op,
+  22 allocs/op; full archive-match OCRL apply runs in about 3.509 ms,
+  1171594 B/op, 1085 allocs/op.
 
 ## Verification
 
@@ -463,3 +463,15 @@ summary remains opt-in, not default.
   their single archive id through the same sorted/trimmed archive-id rule used
   by target derivation, rendering, and archive verification. Added tests proving
   trimmed single ids apply and multi-id targets still fail closed.
+- 2026-06-05: Reduced exact full-history OCRL target bookkeeping allocations.
+  Message target maps now use compact struct keys instead of formatted
+  `message:block` strings, and explicit archive payload verification compares
+  bytes to message text without allocating a converted string.
+- 2026-06-05: Final verification for the OCRL target-key allocation pass
+  completed with `go run ./scripts/ci` green across all 8 steps and 96.9%
+  aggregate coverage. The final focused OCRL benchmark in the same pass
+  measured `1353336 ns/op`, `238060 B/op`, `11 allocs/op` for renderer/build,
+  `659655 ns/op`, `186132 B/op`, `22 allocs/op` for exact target derivation,
+  and `3509444 ns/op`, `1171594 B/op`, `1085 allocs/op` for full archive-match
+  apply. `benchmark-corpus --check` passed; `--maxx-check` still fails only on
+  the deliberately missing real non-synthetic `ocrl_full_history` workload.

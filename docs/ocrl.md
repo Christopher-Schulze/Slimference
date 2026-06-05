@@ -94,7 +94,10 @@ For full-history routes that already have the old message blocks locally,
 loads each capsule's single archive payload and accepts a target only when that
 payload is byte-equal to exactly one current message block. Ambiguous matches,
 missing archives, archive read errors, unmatched payloads, and duplicate target
-positions are omitted and counted in the derivation report.
+positions are omitted and counted in the derivation report. Target bookkeeping
+uses compact numeric keys instead of formatted strings, and explicit archive
+payload checks compare bytes to current message text without allocating a
+converted payload string.
 
 ## Capsule Rendering
 
