@@ -230,6 +230,20 @@ These are promotion targets, not claims:
   `tests/fixtures/live_corpus/cli_test_failure/session_wss_proof_export_002.jsonl`;
   `benchmark-corpus --promotion-check` and `--maxx-check` pass with
   `cli_test_failure` now gating two real rows and 12081 saved tokens.
+- 2026-06-05: Added an autonomous live Python `unittest` failure proof for the
+  same safe diagnostic path. The temp stdlib workload produced a real non-zero
+  `python3 -m unittest discover -s tests -v` failure with one assertion failure
+  and 90 passing tests. Local filter proof reduced 5827 bytes of raw test output
+  to 142 bytes while preserving `[python unittest] FAILED` and
+  `FAILED (failures=1)`. WSS live proof
+  `/tmp/slimference-t260-unittest-live-20260605T103410Z/matrix.jsonl` completed
+  with three request turns, `codex_exec_envelope=1`, `host_budget_ok`,
+  `lost=0`, zero parse/degrade/compression errors, 1610 billable input tokens
+  saved, and 5696 replay bytes saved. The content-free row was exported
+  additively into
+  `tests/fixtures/live_corpus/cli_test_failure/session_wss_proof_export_003.jsonl`;
+  `benchmark-corpus --promotion-check` and `--maxx-check` pass with
+  `cli_test_failure` now gating three real rows and 13691 saved tokens.
 
 ## Done
 

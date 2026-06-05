@@ -327,3 +327,10 @@ gate is done when default promotions require live corpus evidence.
   `benchmark-corpus --promotion-check` and `benchmark-corpus --maxx-check` now
   both pass on `tests/fixtures/live_corpus` with 51 real live operator rows
   across the release and maxx workload classes.
+- 2026-06-05: Refreshed the corpus after the autonomous Python `unittest`
+  Layer-0 proof. `cli_test_failure` now carries three real rows and 13691 saved
+  tokens, including a stdlib `python3 -m unittest discover -s tests -v` WSS
+  capture with `codex_exec_envelope=1`, `host_budget_ok`, `lost=0`, zero safety
+  counters, and 1610 billable input tokens saved. `benchmark-corpus
+  --promotion-check` and `benchmark-corpus --maxx-check` pass on
+  `tests/fixtures/live_corpus` with 53 real live sessions / 55 total requests.

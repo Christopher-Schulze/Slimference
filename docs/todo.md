@@ -1909,8 +1909,10 @@ be called complete, default-safe, and production-grade.
   tables now full-pass too; only diagnostic attention rows are compacted. Fresh
   CLI WSS proof now covers cd-wrapped `cargo check -vv`: `codex_exec_envelope=1`,
   `lost=0`, zero safety counters, 934 billable input tokens saved, and the
-  exported `cli_test_failure` corpus category now gates two real rows with
-  12081 saved tokens.
+  exported `cli_test_failure` corpus category was extended again by a real
+  Python `unittest` WSS proof (`codex_exec_envelope=1`, `host_budget_ok`,
+  `lost=0`, zero safety counters, 1610 billable input tokens saved). It now
+  gates three real rows with 13691 saved tokens.
   Detail:
   `docs/todo/t260-layer0-parser-frontier-maxx.md`
 - [x] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
@@ -2123,8 +2125,9 @@ be called complete, default-safe, and production-grade.
   CLI+Desktop WSS release matrix now passes with 15 captures and live token
   deltas; mechanism-specific chunk/tool-prune/output-reduce and host-resource
   proof gates are represented by `benchmark-corpus --maxx-check`. The current
-  exported corpus has 51 real live rows across the release and maxx workload
-  classes, and both `--promotion-check` and `--maxx-check` pass. The
+  exported corpus has 53 real live sessions / 55 total requests across the
+  release and maxx workload classes, and both `--promotion-check` and
+  `--maxx-check` pass. The
   visual/product surface includes tool-prune input-token savings and
   output-reduce injection/observed-output status without debug-counter leakage.
   Detail: `docs/todo/t271-product-tui-and-live-corpus-proof.md`
@@ -2200,9 +2203,10 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   Exported rows gate on absolute live saved-token counters or
   mechanism-specific counters because the proof matrix does not retain every
   original-token denominator needed for a real ratio claim.
-  The current exported corpus contains 51 real live rows across the release and
-  maxx workload classes; `benchmark-corpus --promotion-check` and the stricter
-  `benchmark-corpus --maxx-check` both pass. Matrix, inventory, and export
+  The current exported corpus contains 53 real live sessions / 55 total
+  requests across the release and maxx workload classes; `benchmark-corpus
+  --promotion-check` and the stricter `benchmark-corpus --maxx-check` both pass.
+  Matrix, inventory, and export
   tooling now enforce observed output-token evidence for
   `output_reduce_aggressive`, so provider-cache evidence cannot be re-exported
   as an output-reduce proof. `wss-proof-inventory ~/.slimference/captures
