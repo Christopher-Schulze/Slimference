@@ -2,7 +2,7 @@
 
 ## Status
 
-Open.
+Shipped 2026-06-05.
 
 ## Source
 
@@ -14,6 +14,15 @@ claims against commit `f0f96ed`.
 - `cmd/slimference/main.go`: 4602 lines.
 - `cmd/slimference/codex_cmd.go`: 1446 lines.
 - `internal/proxy/handler.go`: 2122 lines.
+- Post-split local line counts before final race/CI:
+  - `cmd/slimference/main.go`: 4457 lines.
+  - `cmd/slimference/codex_cmd.go`: 742 lines.
+  - `cmd/slimference/codex_desktop_proof_cmd.go`: 717 lines.
+  - `cmd/slimference/tui_proxy_adapter.go`: 159 lines.
+  - `internal/proxy/handler.go`: 1665 lines.
+  - `internal/proxy/handler_workers.go`: 243 lines.
+  - `internal/proxy/handler_shutdown.go`: 145 lines.
+  - `internal/proxy/handler_accessors.go`: 101 lines.
 - The concern is maintainability and AI re-entry cost, not runtime model
   quality. It is not a product drawdown and must not be represented as one.
 
@@ -71,3 +80,22 @@ Refactor in place, preserving existing packages and public behavior:
 
 - This is a high-value maintainability task, but it is not a token-savings
   mechanism. It should not block product release proofs.
+- 2026-06-05: moved Codex Desktop proof/status types and helpers from
+  `cmd/slimference/codex_cmd.go` to `cmd/slimference/codex_desktop_proof_cmd.go`.
+  The move keeps the same package-level symbols and tests exercise the same
+  helpers.
+- 2026-06-05: moved the in-process TUI `proxyAdapter` / `configAdapter` from
+  `cmd/slimference/main.go` to `cmd/slimference/tui_proxy_adapter.go`.
+- 2026-06-05: split the proxy handler tail into
+  `handler_workers.go`, `handler_shutdown.go`, and `handler_accessors.go`.
+  `handler.go` keeps the request path, upstream relay, overflow recovery, and
+  compression orchestration.
+- Verification so far:
+  - Baseline `go test ./cmd/slimference ./internal/proxy -count=1`: pass.
+  - Post-split `go test ./cmd/slimference ./internal/proxy -count=1`: pass.
+  - Post-split `go test -race ./cmd/slimference ./internal/proxy -count=1`:
+    pass.
+  - `go run ./scripts/ci`: pass, 8/8 steps, aggregate coverage 97.0%.
+  - Moved-function grep confirms one implementation for representative Desktop,
+    TUI adapter, proxy worker/shutdown/accessor/helper symbols.
+  - `git diff --check`: pass.

@@ -2335,10 +2335,13 @@ drawdowns by themselves, but they are valid max-out follow-ups for
 maintainability, local resource hygiene, proof fidelity, or long-session
 operability.
 
-- [ ] **T273 CLI/proxy God-file split** - split the remaining large
-  production files (`cmd/slimference/main.go`, `cmd/slimference/codex_cmd.go`,
-  `internal/proxy/handler.go`) into existing-domain files without changing
-  exported behavior, route semantics, or product proof counters. Detail:
+- [x] **T273 CLI/proxy God-file split** - split the remaining large
+  production files without changing exported behavior, route semantics, or
+  product proof counters. `codex_cmd.go` now delegates Desktop proof/status to
+  `codex_desktop_proof_cmd.go`, `main.go` delegates the in-process TUI proxy
+  adapter to `tui_proxy_adapter.go`, and `internal/proxy/handler.go` delegates
+  workers, shutdown, cache accessors, and tool-name helpers to focused handler
+  files. Focused tests, targeted race, and full CI are green. Detail:
   `docs/todo/t273-cli-proxy-god-file-split.md`
 - [x] **T274 Local generated-artifact hygiene** - remove untracked local build
   artefacts (`proxy.test`, `readcache.test`, `benchmarks`, stale `dist/`, empty

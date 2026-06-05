@@ -2782,6 +2782,9 @@ phase recorder overhead (~15 ns/op on M1).
 ```
 cmd/slimference/              Entry point + every CLI subcommand.
   main.go                     Flag dispatch, subcommand router.
+  codex_cmd.go                Codex route CLI core: run, enable, disable, status, certify.
+  codex_desktop_proof_cmd.go  Codex Desktop app-server proof/status flow.
+  tui_proxy_adapter.go        In-process proxy adapter for the Bubble Tea TUI.
   help.go + help_test.go      --help content; golden-file drift check (T64).
   headless.go                 --no-tui runner with signal traps (T44).
   integrate_cmd.go            integrate install|remove|status|emergency-off (T65).
@@ -2790,7 +2793,10 @@ cmd/slimference/              Entry point + every CLI subcommand.
 
 internal/proxy/               HTTP server + request pipeline.
   proxy.go                    New(), ServeHTTP(), toggles, admin router.
-  handler.go                  Hot path + overflow recovery + shutdown (T60).
+  handler.go                  Hot path, upstream relay, overflow recovery, compression orchestration.
+  handler_workers.go          Compression worker, analytics worker, health JSON, periodic flush.
+  handler_shutdown.go         Graceful shutdown, drain timeout, shutdown pprof dump.
+  handler_accessors.go        TUI/admin accessors, cache flush, tool-prune helper extraction.
   provider.go                 detectProviderWithUA + request/response reconstruction.
   admin.go                    AdminStatus snapshot + /admin/* handlers.
   version_negotiation.go      Anthropic version whitelist (T62).
