@@ -27,9 +27,9 @@ replacement for reality.
   per route. Decision/recovery capsules are pure primitives only until a real
   provenance source is wired. No capsule is inserted into model-facing context
   yet.
-- Classical summary replacement is now separately gated. `layer2_enabled=true`
-  can no longer make cached summaries replace model-facing history unless the
-  explicit legacy override
+- Model-facing summary replacement is now separately gated. `layer2_enabled=true`
+  can no longer make cached summaries or mid-exchange summaries replace
+  model-facing history unless the explicit legacy override
   `[compression.summary].allow_model_facing_replacement=true` is also set.
 - The planner now uses the same split: Layer 2 can be enabled for background
   work, but it cannot report or drive a model-facing `run` decision for
@@ -176,6 +176,11 @@ summary remains opt-in, not default.
   `SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT=1` is set. This prevents
   classical summary-as-truth from being accidentally promoted while the ledger
   insertion path remains live-proof gated.
+- 2026-06-05: Extended the same model-facing legacy gate to mid-exchange
+  summaries. `ApplyMidExchange` now returns full-pass unless
+  `allow_model_facing_replacement=true`, so enabling the old T99 tuning knob
+  cannot insert any summary-as-context path without the same explicit override
+  that protects cached Layer 2 replacement.
 - 2026-06-01: Aligned the cross-layer planner with the same safety gate. Long
   contexts now produce `context_ledger_shadow_summary_replacement_blocked`
   instead of planner `run` unless model-facing legacy summary replacement is
@@ -243,3 +248,9 @@ summary remains opt-in, not default.
   `SelectCapsules` now recognizes both kinds but still fails closed on missing
   facts or missing archives, so they are safe building blocks for future ledger
   insertion without changing model-facing context today.
+- 2026-06-05: Closed the remaining mid-exchange model-facing gap. The
+  Layer2-owned `ApplyMidExchange` method now full-passes unless
+  `allow_model_facing_replacement=true`, matching cached summary replacement.
+  The pure deterministic mid-exchange helper remains available for tests and
+  legacy labs, but the product proxy cannot insert any summary-as-context path
+  by only enabling `mid_exchange_enabled`.

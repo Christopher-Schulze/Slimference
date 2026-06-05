@@ -149,6 +149,9 @@ func (l *Layer2) applyOutboundRedaction(messages []types.Message) []types.Messag
 // much budget the in-progress summary may consume; the local splice
 // then applies its own length clamp.
 func (l *Layer2) ApplyMidExchange(ctx context.Context, messages []types.Message, threshold int) ([]types.Message, int, bool) {
+	if l == nil || l.cfg == nil || !l.cfg.Summary.AllowModelFacingReplacement {
+		return messages, 0, false
+	}
 	pt, ok := DetectMidExchangePoint(messages, threshold)
 	if !ok {
 		return messages, 0, false

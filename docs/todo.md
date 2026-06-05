@@ -2225,17 +2225,18 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   decisions carry positive archive-write counters. Prompt-cache boundary
   protection, unknown/unattributed fail-closed archive gating, and neutral
   product-name-free reversible marker text remain enforced by tests.
-- [ ] **T262 Layer 2 max-out closeout** - classical summary replacement stays
-  outside the product path unless explicitly legacy-gated; archive provenance,
-  quality-pressure fail-closed selection, and A/B archive expansion are
-  implemented offline. The legacy replacement path fail-closes without a
-  trusted session id, non-empty summary text, matching cached prefix, and
-  positive token savings. Ledger selection full-passes active-file capsules and
-  all capsules under quality/re-read pressure. Remaining closeout is live-only
-  and intentionally not default-on: proof-gated deterministic context-ledger
-  insertion plus live A/B proof that model-facing ledger context preserves task
-  decisions with recoverable raw context. Until that proof exists, Layer 2 is a
-  telemetry/recovery primitive, not a model-facing savings layer.
+- [ ] **T262 Layer 2 max-out closeout** - classical summary replacement and
+  mid-exchange summaries stay outside the product path unless explicitly
+  legacy-gated; archive provenance, quality-pressure fail-closed selection, and
+  A/B archive expansion are implemented offline. The legacy replacement path
+  fail-closes without a trusted session id, non-empty summary text, matching
+  cached prefix, and positive token savings. Ledger selection full-passes
+  active-file capsules and all capsules under quality/re-read pressure.
+  Remaining closeout is live-only and intentionally not default-on: proof-gated
+  deterministic context-ledger insertion plus live A/B proof that model-facing
+  ledger context preserves task decisions with recoverable raw context. Until
+  that proof exists, Layer 2 is a telemetry/recovery primitive, not a
+  model-facing savings layer.
 - [x] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility

@@ -1231,6 +1231,7 @@ func TestHandleCompressibleRequest_MidExchangeEnabled(t *testing.T) {
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.Tuning.MidExchangeEnabled = true
 	cfg.Compression.Tuning.MidExchangeThresholdTokens = 100
+	cfg.Compression.Summary.AllowModelFacingReplacement = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 

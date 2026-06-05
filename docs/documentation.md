@@ -1414,8 +1414,10 @@ in-progress summary block when the current exchange exceeds
 for completed tool-use cycles (`assistant[tool_use]` ->
 `user[tool_result]` -> `assistant`) inside the live exchange and
 collapses the range to `[in-progress summary, anchor=msg #N]`.
-Today the summary content is a deterministic placeholder; a live
-MiniMax-driven content path is tracked as T99b. Default off.
+Because this is model-facing context replacement, it is also blocked unless
+`[compression.summary].allow_model_facing_replacement = true` is explicitly set.
+Default off. The product direction remains deterministic context ledger
+shadowing, not summary-as-truth.
 
 ### Layer 4 tool-definition pruning (T103)
 

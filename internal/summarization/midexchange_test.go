@@ -357,6 +357,7 @@ func (f *fakeSummarizer) Summarize(_ context.Context, _ string, _, _, _ int) (st
 func TestLayer2_ApplyMidExchange_LiveSummary(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
+	cfg.Summary.AllowModelFacingReplacement = true
 	l := NewLayer2(&cfg)
 	l.chain.SetProviders(&fakeSummarizer{
 		name:       "fake",
@@ -396,6 +397,7 @@ func TestLayer2_ApplyMidExchange_LiveSummary(t *testing.T) {
 func TestLayer2_ApplyMidExchange_FallsBackOnError(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
+	cfg.Summary.AllowModelFacingReplacement = true
 	l := NewLayer2(&cfg)
 	l.chain.SetProviders(&fakeSummarizer{
 		name:       "fake",
@@ -425,6 +427,7 @@ func TestLayer2_ApplyMidExchange_FallsBackOnError(t *testing.T) {
 func TestLayer2_ApplyMidExchange_NoDetect(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults().Compression
+	cfg.Summary.AllowModelFacingReplacement = true
 	l := NewLayer2(&cfg)
 	msgs := []types.Message{{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "x"}}}}
 	out, _, applied := l.ApplyMidExchange(context.Background(), msgs, 100)
@@ -433,15 +436,30 @@ func TestLayer2_ApplyMidExchange_NoDetect(t *testing.T) {
 	}
 }
 
+func TestLayer2_ApplyMidExchange_BlockedByDefault(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults().Compression
+	l := NewLayer2(&cfg)
+	out, saved, applied := l.ApplyMidExchange(context.Background(), midExchangeTestMessages(), 100)
+	if applied || saved != 0 {
+		t.Fatalf("mid-exchange summary must be blocked without model-facing override: applied=%v saved=%d", applied, saved)
+	}
+	if len(out) != len(midExchangeTestMessages()) {
+		t.Fatalf("blocked mid-exchange must preserve original messages, got len=%d", len(out))
+	}
+}
+
 // TestLayer2_ApplyMidExchange_NilChain covers the path where Layer2
 // has no chain (defensive: chain is always non-nil after NewLayer2;
 // hand-build a Layer2 to exercise the branch).
 func TestLayer2_ApplyMidExchange_NilChain(t *testing.T) {
 	t.Parallel()
-	l := &Layer2{}
+	cfg := config.Defaults().Compression
+	cfg.Summary.AllowModelFacingReplacement = true
+	l := &Layer2{cfg: &cfg}
 	_, _, applied := l.ApplyMidExchange(context.Background(), midExchangeTestMessages(), 100)
 	if !applied {
-		t.Fatal("nil-chain fallback must still apply via stub")
+		t.Fatal("nil-chain fallback must still apply via stub when legacy model-facing override is explicit")
 	}
 }
 

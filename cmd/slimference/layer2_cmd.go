@@ -57,7 +57,7 @@ conversation summaries. The default engine is local and deterministic; if you
 configure an OpenAI-compatible summarization provider, redacted conversation
 content can leave your machine.
 
-Model-facing summary replacement stays blocked unless
+Model-facing summary replacement, including mid-exchange summaries, stays blocked unless
 [compression.summary].allow_model_facing_replacement is explicitly true. The
 product direction is the deterministic context ledger, not summary-as-truth.
 
@@ -110,7 +110,7 @@ func handleLayer2Enable(args []string) {
 		return
 	}
 	fmt.Printf("layer2: enabled (config written to %s)\n", path)
-	fmt.Println("layer2: model-facing summary replacement remains blocked unless allow_model_facing_replacement=true.")
+	fmt.Println("layer2: model-facing summary replacement, including mid-exchange summaries, remains blocked unless allow_model_facing_replacement=true.")
 	fmt.Println("layer2: outbound redaction is ON (default mode). Review: docs/data-policy.md")
 }
 
@@ -168,7 +168,7 @@ func handleLayer2Status() {
 
 	if enabled {
 		fmt.Println()
-		fmt.Println("  Classical summaries stay shadow-only unless allow_model_facing_replacement=true.")
+		fmt.Println("  Model-facing summaries, including mid-exchange summaries, stay shadow-only unless allow_model_facing_replacement=true.")
 		fmt.Println("  Runs locally unless an explicit OpenAI-compatible summarization provider is configured.")
 		fmt.Println("  Disable: slimference layer2 disable")
 	}
@@ -251,7 +251,7 @@ func ensureLayer2PolicyAcknowledged(cfg *config.Config, interactive bool, stdin 
 	if cfg == nil || !cfg.Compression.Layer2Enabled || layer2PolicyAcknowledged() {
 		return nil
 	}
-	msg := "Layer 2 is enabled in this config. Classical model-facing summary replacement stays blocked unless allow_model_facing_replacement=true; configured external summarization providers may receive redacted conversation content."
+	msg := "Layer 2 is enabled in this config. Model-facing summary replacement, including mid-exchange summaries, stays blocked unless allow_model_facing_replacement=true; configured external summarization providers may receive redacted conversation content."
 	if !interactive {
 		fmt.Fprintf(stderr, "[WARN] %s Run `slimference layer2 acknowledge` after reviewing docs/data-policy.md, or `slimference layer2 disable`.\n", msg)
 		return nil
