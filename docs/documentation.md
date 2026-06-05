@@ -1064,14 +1064,16 @@ to product `net_tokens` while the route remains shadow-only.
 
 `internal/contextledger/message_apply.go` is the exact full-history message
 apply primitive. It accepts only explicit message/block targets paired with
-capsules, verifies that each target capsule has exactly one archive id, requires
-the archived payload to be byte-equal to the current target block text, and then
-reruns the normal session, active-path, recent-turn, quality-pressure, route,
-archive, and token gates before mutating anything. Final savings accounting
-counts only selected targets, not verbatim or rejected candidates, and includes
-covered-marker overhead. Invalid targets, duplicate targets, archive mismatch,
-shadow mode, Codex WSS, and non-positive selected-target savings all full-pass
-the original messages.
+capsules, runs the normal session, active-path, recent-turn, quality-pressure,
+route, archive, and token gates before mutating anything, and verifies only the
+targets actually selected for replacement. Each selected target capsule must
+have exactly one archive id and the archived payload must be byte-equal to the
+current target block text. Final savings accounting counts only selected
+targets, not verbatim or rejected candidates, and includes covered-marker
+overhead. Invalid selected targets, duplicate selected targets, archive
+mismatch, shadow mode, Codex WSS, and non-positive selected-target savings all
+full-pass the original messages. Verbatim/rejected targets remain original and
+cannot block other independently safe old-context replacements.
 
 OCRL is operator-visible and configured under `[compression.ocrl]`. Fresh
 configs default to `mode = "shadow"`, `max_capsules = 512`,
@@ -1114,10 +1116,10 @@ Focused verification on 2026-06-05:
 - `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
 
 The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
-1.353 ms with 238060 B/op and 11 allocs/op after archive verification and
+1.986 ms with 238096 B/op and 11 allocs/op after archive verification and
 renderer scratch-buffer reuse. Exact archive-to-message target derivation for
-512 capsules measured about 0.660 ms with 186132 B/op and 22 allocs/op; full
-archive-match OCRL apply measured about 3.509 ms with 1171594 B/op and 1085
+512 capsules measured about 0.936 ms with 186211 B/op and 22 allocs/op; full
+archive-match OCRL apply measured about 4.273 ms with 1114840 B/op and 1086
 allocs/op.
 
 The live-corpus gate now has an OCRL-aware validator. `ocrl_full_history`

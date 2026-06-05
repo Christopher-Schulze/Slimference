@@ -79,8 +79,21 @@ func BuildOCRLReplacement(capsules []Capsule, policy OCRLPolicy) OCRLResult {
 		return result
 	}
 
-	result.Selection = SelectCapsules(capsules, policy.Selection)
-	selected := selectedCapsules(result.Selection)
+	selection := SelectCapsules(capsules, policy.Selection)
+	selected := selectedCapsules(selection)
+	return buildOCRLReplacementFromSelected(selected, selection, policy, mode)
+}
+
+func buildOCRLReplacementFromSelected(selected []Capsule, selection SelectionReport, policy OCRLPolicy, mode OCRLMode) OCRLResult {
+	result := OCRLResult{
+		Reason:                 OCRLReasonOff,
+		Selection:              selection,
+		OriginalTokens:         policy.OriginalTokens,
+		RecoveryOverheadTokens: policy.RecoveryOverheadTokens,
+	}
+	if mode == OCRLModeOff {
+		return result
+	}
 	if len(selected) == 0 {
 		result.Reason = OCRLReasonNoCapsules
 		return result

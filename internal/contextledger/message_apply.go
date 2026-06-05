@@ -148,13 +148,30 @@ func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy
 		result.OCRL.Reason = OCRLReasonNoCapsules
 		return result
 	}
+	mode := normalizedOCRLMode(policy.Mode)
+	if mode == OCRLModeOff {
+		result.OCRL.Reason = OCRLReasonOff
+		return result
+	}
 	capsules := make([]Capsule, 0, len(policy.Targets))
 	for _, target := range policy.Targets {
 		capsules = append(capsules, target.Capsule)
 	}
-	targetTokens, originalTokens, err := verifyMessageTargets(messages, policy.Targets, policy.ArchiveLoader, policy.CountTokens)
+	selection := SelectCapsules(capsules, policy.Selection)
+	selectedTargets := selectMessageTargetsByDecision(policy.Targets, selection)
+	if len(selectedTargets) == 0 {
+		result.OCRL.Reason = OCRLReasonNoCapsules
+		result.OCRL.Selection = selection
+		return result
+	}
+	selectedCapsules := capsules
+	if len(selectedTargets) != len(policy.Targets) {
+		selectedCapsules = messageTargetCapsules(selectedTargets)
+	}
+	targetTokens, originalTokens, err := verifyMessageTargets(messages, selectedTargets, policy.ArchiveLoader, policy.CountTokens)
 	if err != nil {
 		result.OCRL.Reason = OCRLReasonTargetInvalid
+		result.OCRL.Selection = selection
 		if errors.Is(err, errOCRLTargetArchiveMismatch) {
 			result.OCRL.Reason = OCRLReasonTargetArchiveMismatch
 		}
@@ -163,15 +180,9 @@ func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy
 	buildPolicy := policy.OCRLPolicy
 	buildPolicy.OriginalTokens = originalTokens
 	buildPolicy.UseArchiveOriginalTokens = false
-	ocrl := BuildOCRLReplacement(capsules, buildPolicy)
+	ocrl := buildOCRLReplacementFromSelected(selectedCapsules, selection, buildPolicy, mode)
 	result.OCRL = ocrl
 	if !ocrl.Applied {
-		return result
-	}
-	selectedTargets := selectMessageTargetsByDecision(policy.Targets, ocrl.Selection)
-	if len(selectedTargets) == 0 {
-		result.OCRL.Applied = false
-		result.OCRL.Reason = OCRLReasonNoCapsules
 		return result
 	}
 	selectedTargets = sortMessageTargets(selectedTargets)
@@ -199,6 +210,14 @@ func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy
 }
 
 var errOCRLTargetArchiveMismatch = errors.New("ocrl target archive mismatch")
+
+func messageTargetCapsules(targets []OCRLMessageTarget) []Capsule {
+	out := make([]Capsule, 0, len(targets))
+	for _, target := range targets {
+		out = append(out, target.Capsule)
+	}
+	return out
+}
 
 func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget, load ArchiveLoader, count TokenCounter) (map[ocrlTargetKey]int, int, error) {
 	if load == nil || count == nil {

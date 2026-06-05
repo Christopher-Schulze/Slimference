@@ -326,6 +326,46 @@ func TestApplyOCRLToMessagesCountsOnlySelectedTargetsForFinalSavings(t *testing.
 	}
 }
 
+func TestApplyOCRLToMessagesIgnoresInvalidUnselectedTargets(t *testing.T) {
+	t.Parallel()
+	searchText := strings.Repeat("safe selected search context ", 40)
+	messages := []types.Message{
+		{Index: 1, Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", Text: searchText}}},
+	}
+	countTokens := func(text string) int {
+		if strings.HasPrefix(text, "[ocrl:v1 selected=") {
+			return 5
+		}
+		return len(strings.Fields(text))
+	}
+	searchCapsule := testSearchCapsule(t, "session-1", "turn-search", "search-archive")
+	result := ApplyOCRLToMessages(messages, OCRLMessageApplyPolicy{
+		OCRLPolicy: OCRLPolicy{
+			Mode:  OCRLModeAuto,
+			Route: OCRLRouteFullHistoryHTTP,
+			Selection: SelectionPolicy{
+				SessionID:   "session-1",
+				ActivePaths: []string{"/repo/active.go"},
+			},
+			ArchiveLoader: mapArchiveLoader(map[string]string{"search-archive": searchText}),
+			CountTokens:   countTokens,
+		},
+		Targets: []OCRLMessageTarget{
+			{MessageIndex: 99, BlockIndex: 0, Capsule: testFileCapsule(t, "session-1", "turn-active-file", "/repo/active.go", "active-archive")},
+			{MessageIndex: 0, BlockIndex: 0, Capsule: searchCapsule},
+		},
+	})
+	if !result.OCRL.Applied || result.OCRL.Reason != OCRLReasonApplied {
+		t.Fatalf("result=%+v want selected target applied despite invalid unselected target", result)
+	}
+	if result.AppliedTargets != 1 || result.OCRL.Selection.Capsules != 1 || result.OCRL.Selection.Verbatim != 1 {
+		t.Fatalf("bad selected/verbatim accounting: result=%+v selection=%+v", result, result.OCRL.Selection)
+	}
+	if strings.Contains(result.Messages[0].Content[0].Text, searchText) {
+		t.Fatalf("replacement leaked selected raw context: %q", result.Messages[0].Content[0].Text)
+	}
+}
+
 func TestApplyOCRLToMessagesRejectsDuplicateTargets(t *testing.T) {
 	t.Parallel()
 	text := strings.Repeat("duplicate target body ", 10)

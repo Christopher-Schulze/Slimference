@@ -71,9 +71,12 @@ apply primitive for full-history routes. It is deliberately stricter than the
 pure renderer:
 
 - callers must provide explicit `(message_index, block_index, capsule)` targets
-- each target capsule must have exactly one archive id
-- the archive payload must be byte-equal to the current target block text
-- duplicate or out-of-range targets full-pass
+- target selection runs before archive verification, so active/recent/risky
+  targets stay original and cannot poison safe old-context replacements
+- each selected target capsule must have exactly one archive id
+- the selected target archive payload must be byte-equal to the current target
+  block text
+- duplicate or out-of-range selected targets full-pass
 - selected targets are rechecked through the normal session, active-path,
   recent-turn, quality-pressure, archive, route, and token gates
 - final net savings count only selected targets, not verbatim or rejected
@@ -84,10 +87,11 @@ pure renderer:
   accepted
 
 This primitive does not infer context mapping from rendered text. If a future
-route cannot prove exact old-message positions and exact archive equality, it
-must not call the apply path. Explicit targets normalize a single archive id
-with the same trim/sort rule as the derivation, rendering, and archive
-verification paths; multiple archive ids for one target still fail closed.
+route cannot prove exact old-message positions and exact archive equality for a
+selected target, it must not replace that target. Explicit selected targets
+normalize a single archive id with the same trim/sort rule as the derivation,
+rendering, and archive verification paths; multiple archive ids for one
+selected target still fail closed.
 
 For full-history routes that already have the old message blocks locally,
 `ApplyOCRLToMessagesByArchiveMatch` can derive targets without guessing. It

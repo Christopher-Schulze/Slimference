@@ -32,14 +32,16 @@ replacement for reality.
   HTTP-style routes when net savings are positive.
 - `internal/contextledger/message_apply.go` now implements exact full-history
   message/block application. It accepts only explicit targets, requires exactly
-  one archive per target capsule, requires the archive payload to be byte-equal
-  to the current target block text, counts only selected targets in final net
-  savings, includes covered-marker overhead, and full-passes invalid targets,
-  duplicate targets, archive mismatch, shadow mode, Codex WSS, and non-positive
-  selected savings. It can also derive explicit targets from full-history
-  messages by exact archive-payload equality, but only when one capsule archive
-  matches exactly one current message block; ambiguous or missing evidence is
-  omitted and reported.
+  one archive per selected target capsule, requires the selected target archive
+  payload to be byte-equal to the current target block text, counts only
+  selected targets in final net savings, includes covered-marker overhead, and
+  full-passes invalid selected targets, duplicate selected targets, archive
+  mismatch, shadow mode, Codex WSS, and non-positive selected savings.
+  Verbatim/rejected targets remain original and no longer block independently
+  safe selected old-context replacements. It can also derive explicit targets
+  from full-history messages by exact archive-payload equality, but only when
+  one capsule archive matches exactly one current message block; ambiguous or
+  missing evidence is omitted and reported.
 - Codex WSS Phase-F now records content-free OCRL shadow telemetry in debug
   request summaries. It reports mode, route, reason, candidate/verbatim/rejected
   counts, archive expansion count, original archive tokens, replacement tokens,
@@ -188,10 +190,10 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules render in about 1.353 ms, 238060 B/op, 11 allocs/op;
-  exact archive-to-message target derivation runs in about 0.660 ms, 186132 B/op,
-  22 allocs/op; full archive-match OCRL apply runs in about 3.509 ms,
-  1171594 B/op, 1085 allocs/op.
+  512 file capsules render in about 1.986 ms, 238096 B/op, 11 allocs/op;
+  exact archive-to-message target derivation runs in about 0.936 ms, 186211 B/op,
+  22 allocs/op; full archive-match OCRL apply runs in about 4.273 ms,
+  1114840 B/op, and 1086 allocs/op.
 
 ## Verification
 
@@ -475,3 +477,13 @@ summary remains opt-in, not default.
   and `3509444 ns/op`, `1171594 B/op`, `1085 allocs/op` for full archive-match
   apply. `benchmark-corpus --check` passed; `--maxx-check` still fails only on
   the deliberately missing real non-synthetic `ocrl_full_history` workload.
+- 2026-06-05: Changed exact full-history OCRL message apply to select before
+  target archive verification. Only targets selected for replacement must have
+  valid positions and byte-equal archive payloads; verbatim/rejected targets
+  stay original and cannot poison safe selected replacements. Added a regression
+  test where an invalid ActivePath target is ignored while a safe old search
+  target still applies. Focused verification:
+  `go test ./internal/contextledger -run 'Test(BuildOCRLReplacement|ApplyOCRLToMessages|DeriveOCRLMessageTargets)' -count=1`.
+  Benchmarks: full archive-match apply `3842609`, `3647210`, and
+  `3853674 ns/op` across three `-benchtime=1s` runs, with about `1118-1120 KB/op`
+  and `1095-1100 allocs/op`.
