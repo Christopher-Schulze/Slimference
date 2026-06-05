@@ -47,7 +47,7 @@ func TestTrySendAnalytics_DropCounter(t *testing.T) {
 	// Capacity 2, send 5 low-priority events, expect 2 enqueued + 3 dropped.
 	p := newProxyForQueueTest(t, 2)
 	for i := 0; i < 5; i++ {
-		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventCompressionComplete})
+		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventLayerToggled})
 	}
 	if got := p.analyticsEnqueued.Load(); got != 2 {
 		t.Fatalf("enqueued = %d, want 2", got)
@@ -65,7 +65,7 @@ func TestTrySendAnalytics_DropCounter(t *testing.T) {
 
 func TestTrySendAnalytics_ProofEventSurvivesLowPrioritySaturation(t *testing.T) {
 	p := newProxyForQueueTest(t, 2)
-	p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventCompressionComplete})
+	p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventLayerToggled})
 	p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventLayerToggled})
 
 	p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventRequestProcessed, InputTokensOrig: 10})
@@ -111,7 +111,7 @@ func TestNoteAnalyticsDrop_WarnRateLimit(t *testing.T) {
 	p.analyticsQueue <- types.AnalyticsEvent{Type: types.EventRequestProcessed}
 
 	for i := 0; i < 10; i++ {
-		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventCompressionComplete})
+		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventLayerToggled})
 	}
 	if got := p.analyticsDropped.Load(); got != 10 {
 		t.Fatalf("dropped = %d, want 10", got)

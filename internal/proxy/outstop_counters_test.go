@@ -105,10 +105,6 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 		ChunkDedupReferences:    7,
 		ChunkDedupRefBytes:      4096,
 		ChunkDedupInputBytes:    8192,
-		LedgerCommandCapsules:   2,
-		LedgerFileCapsules:      1,
-		LedgerSearchCapsules:    1,
-		LedgerFailureCapsules:   1,
 		PolicyDecisions: []savingspolicy.CodexMechanismDecision{
 			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyAllow, Reason: "recoverable_chunk_dedup"},
 			{Mechanism: savingspolicy.CodexMechanismFirstReadElision, Action: savingspolicy.CodexPolicyShadow, Reason: "capture_or_ab_proof_required", BlockReason: "capture_or_ab_proof_required"},
@@ -175,12 +171,6 @@ func TestOutputReduceCountersProxyLayer0(t *testing.T) {
 		t.Errorf("proxy layer0 chunk density mismatch: refs=%d ref_bytes=%d input_bytes=%d",
 			s.ProxyLayer0ChunkDedupReferences, s.ProxyLayer0ChunkDedupRefBytes, s.ProxyLayer0ChunkDedupInputBytes)
 	}
-	if s.ProxyLayer0LedgerCommandCapsules != 2 ||
-		s.ProxyLayer0LedgerFileCapsules != 1 ||
-		s.ProxyLayer0LedgerSearchCapsules != 1 ||
-		s.ProxyLayer0LedgerFailureCapsules != 1 {
-		t.Errorf("proxy layer0 ledger counters mismatch: %+v", s)
-	}
 	if len(s.ProxyLayer0Policy) != 2 {
 		t.Fatalf("policy entries=%d want 2: %+v", len(s.ProxyLayer0Policy), s.ProxyLayer0Policy)
 	}
@@ -217,8 +207,6 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		ChunkDedupReferences:    3,
 		ChunkDedupRefBytes:      2048,
 		ChunkDedupInputBytes:    4096,
-		LedgerCommandCapsules:   1,
-		LedgerFileCapsules:      1,
 		PolicyDecisions: []savingspolicy.CodexMechanismDecision{
 			{Mechanism: savingspolicy.CodexMechanismChunkDedup, Action: savingspolicy.CodexPolicyAllow, Reason: "recoverable_chunk_dedup"},
 		},
@@ -245,9 +233,7 @@ func TestOutputReduceCountersProxyLayer0Routes(t *testing.T) {
 		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupBlocks != 1 ||
 		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupReferences != 3 ||
 		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupRefBytes != 2048 ||
-		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupInputBytes != 4096 ||
-		s.ProxyLayer0Routes.WSSPhaseF.LedgerCommandCapsules != 1 ||
-		s.ProxyLayer0Routes.WSSPhaseF.LedgerFileCapsules != 1 {
+		s.ProxyLayer0Routes.WSSPhaseF.ChunkDedupInputBytes != 4096 {
 		t.Fatalf("wss route counters mismatch: %+v", s.ProxyLayer0Routes.WSSPhaseF)
 	}
 	if s.ProxyLayer0Routes.HTTP.ToolResultBlocks != 2 ||
@@ -331,7 +317,6 @@ func TestAdminStatusExposesOutputReduceCounters(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StopSequencesEnabled = true
 	p := New(cfg)
 

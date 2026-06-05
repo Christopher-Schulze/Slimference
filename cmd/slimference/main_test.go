@@ -23,7 +23,6 @@ import (
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/proxy"
 	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/tui"
 	"github.com/slimference/slimference/internal/types"
@@ -41,41 +40,6 @@ func TestFormatTokensPlain64(t *testing.T) {
 	}
 	if formatTokensPlain64(-3) != "0" {
 		t.Fatalf("got %q", formatTokensPlain64(-3))
-	}
-}
-
-func TestRunTUI_Layer2PolicyError(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	origConfigLoad := configLoadFn
-	origAfterStart := runTUIAfterStartFn
-	origStdin := os.Stdin
-	defer func() {
-		configLoadFn = origConfigLoad
-		runTUIAfterStartFn = origAfterStart
-		os.Stdin = origStdin
-	}()
-
-	cfg := config.Defaults()
-	cfg.Compression.Layer2Enabled = true
-	configLoadFn = func() (*config.Config, error) { return cfg, nil }
-	runTUIAfterStartFn = func(tui.ProxyInterface) {
-		t.Fatal("runTUIAfterStartFn must not run after policy error")
-	}
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = r.Close()
-	_ = w.Close()
-	os.Stdin = r
-
-	rp, cleanup := redirectStderr()
-	code, exited := captureExit(runTUI)
-	cleanup()
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, rp)
-	if !exited || code != 1 || !strings.Contains(buf.String(), "layer2 policy") {
-		t.Fatalf("exited=%v code=%d stderr=%q", exited, code, buf.String())
 	}
 }
 
@@ -366,29 +330,6 @@ func TestFormatTokensPlain(t *testing.T) {
 	}
 }
 
-// TestGetLayer2Status_withCache covers the cs != nil branch (main.go:1275-1277) by using
-// a proxy whose Layer2 cache has a stored summary.
-func TestGetLayer2Status_withCache(t *testing.T) {
-	cfg := config.Defaults()
-	p := proxy.New(cfg)
-	cache := p.GetLayer2Cache()
-	if cache == nil {
-		t.Skip("no layer2 cache available")
-	}
-	cache.Store(&summarization.CachedSummary{
-		Summary:   "test",
-		CreatedAt: time.Now(),
-	})
-	a := newProxyAdapter(p)
-	st := a.GetLayer2Status()
-	if !st.HasCache {
-		t.Fatalf("expected HasCache=true, got %+v", st)
-	}
-	if st.LastRun.IsZero() {
-		t.Fatalf("expected non-zero LastRun, got %+v", st)
-	}
-}
-
 // exitPanic is the sentinel type panicked by the injected exitFn.
 type exitPanic struct{ code int }
 
@@ -649,8 +590,6 @@ func (p *testTUIProxy) GetRecentRequests(int) []types.RequestMetrics { return ni
 func (p *testTUIProxy) GetRecentFlights(int) []dbg.FlightRequestSummary { return nil }
 
 func (p *testTUIProxy) GetLayer0Status() tui.Layer0Status { return tui.Layer0Status{} }
-
-func (p *testTUIProxy) GetLayer2Status() tui.Layer2Status { return tui.Layer2Status{} }
 
 func (p *testTUIProxy) GetReadCacheStatus() tui.ReadCacheStatus { return tui.ReadCacheStatus{} }
 

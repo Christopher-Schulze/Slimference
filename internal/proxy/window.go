@@ -1,0 +1,288 @@
+package proxy
+
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"math"
+	"net/http"
+	"strings"
+
+	"github.com/slimference/slimference/internal/types"
+)
+
+type windowDecision struct {
+	Size   int
+	Score  float64
+	Reason string
+	Min    int
+	Max    int
+}
+
+func (d windowDecision) String() string {
+	return fmt.Sprintf("window=%d score=%.2f reason=%q bounds=[%d,%d]", d.Size, d.Score, d.Reason, d.Min, d.Max)
+}
+
+func resolveWindow(messages []types.Message, baseWindow int, enabled bool, wmin, wmax int) windowDecision {
+	if wmin <= 0 {
+		wmin = 3
+	}
+	if wmax <= 0 {
+		wmax = 12
+	}
+	if !enabled {
+		return windowDecision{Size: baseWindow, Reason: "adaptive disabled", Min: wmin, Max: wmax}
+	}
+	if len(messages) < baseWindow+2 {
+		return windowDecision{Size: baseWindow, Reason: "too few messages", Min: wmin, Max: wmax}
+	}
+
+	recentStart := len(messages) - 10
+	if recentStart < 0 {
+		recentStart = 0
+	}
+	score := windowComplexityScore(messages[recentStart:])
+	adjusted := baseWindow + int(math.Round(score*4)) - 2
+	if adjusted < wmin {
+		return windowDecision{Size: wmin, Score: score, Reason: "clamped to min", Min: wmin, Max: wmax}
+	}
+	if adjusted > wmax {
+		return windowDecision{Size: wmax, Score: score, Reason: "clamped to max", Min: wmin, Max: wmax}
+	}
+	reason := "adaptive"
+	if adjusted == baseWindow {
+		reason = "adaptive (no change)"
+	}
+	return windowDecision{Size: adjusted, Score: score, Reason: reason, Min: wmin, Max: wmax}
+}
+
+func windowComplexityScore(msgs []types.Message) float64 {
+	if len(msgs) == 0 {
+		return 0.5
+	}
+	fileScore := normalizeWindowScore(float64(countWindowFilePaths(msgs)), 1, 15)
+	toolScore := normalizeWindowScore(float64(countWindowToolDiversity(msgs)), 1, 8)
+	anchorScore := windowAnchorDensity(msgs)
+	return 0.3*fileScore + 0.3*toolScore + 0.4*anchorScore
+}
+
+func normalizeWindowScore(v, lo, hi float64) float64 {
+	if hi <= lo {
+		return 0
+	}
+	n := (v - lo) / (hi - lo)
+	if n < 0 {
+		return 0
+	}
+	if n > 1 {
+		return 1
+	}
+	return n
+}
+
+func countWindowFilePaths(msgs []types.Message) int {
+	seen := make(map[string]struct{})
+	for _, msg := range msgs {
+		for _, block := range msg.Content {
+			if path := windowBlockFilePath(block); path != "" {
+				seen[path] = struct{}{}
+			}
+		}
+	}
+	return len(seen)
+}
+
+func countWindowToolDiversity(msgs []types.Message) int {
+	seen := make(map[string]struct{})
+	for _, msg := range msgs {
+		for _, block := range msg.Content {
+			if block.Type == "tool_use" && block.ToolName != "" {
+				seen[strings.ToLower(block.ToolName)] = struct{}{}
+			}
+		}
+	}
+	return len(seen)
+}
+
+func windowAnchorDensity(msgs []types.Message) float64 {
+	if len(msgs) == 0 {
+		return 0
+	}
+	anchors := 0
+	for _, msg := range msgs {
+		if windowAnchorMessage(msg) {
+			anchors++
+		}
+	}
+	return float64(anchors) / float64(len(msgs))
+}
+
+func windowAnchorMessage(msg types.Message) bool {
+	text := strings.ToLower(messageText(msg))
+	if strings.Contains(text, "error") || strings.Contains(text, "panic") ||
+		strings.Contains(text, "traceback") || strings.Contains(text, "exception") ||
+		strings.Contains(text, "fatal") {
+		return true
+	}
+	if msg.Role == "user" && len(strings.Fields(text)) < 50 {
+		for _, word := range []string{"yes", "ja", "approved", "no", "nein", "stop", "cancel"} {
+			if strings.Contains(text, word) {
+				return true
+			}
+		}
+	}
+	for _, block := range msg.Content {
+		if block.Type == "tool_use" && strings.Contains(strings.ToLower(block.ToolName), "edit") {
+			return true
+		}
+		if path := windowBlockFilePath(block); path != "" && looksConfigPath(path) {
+			return true
+		}
+	}
+	return false
+}
+
+func messageText(msg types.Message) string {
+	var b strings.Builder
+	for _, block := range msg.Content {
+		if block.Text != "" {
+			b.WriteString(block.Text)
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+func windowBlockFilePath(block types.ContentBlock) string {
+	input := block.ToolInput
+	if input == "" {
+		return ""
+	}
+	for _, key := range []string{`"path"`, `"file_path"`, `"filename"`, `"filepath"`, `"file"`} {
+		idx := strings.Index(input, key)
+		if idx < 0 {
+			continue
+		}
+		rest := input[idx+len(key):]
+		colonIdx := strings.Index(rest, ":")
+		if colonIdx < 0 {
+			continue
+		}
+		rest = strings.TrimSpace(rest[colonIdx+1:])
+		if len(rest) == 0 || rest[0] != '"' {
+			continue
+		}
+		end := strings.Index(rest[1:], `"`)
+		if end < 0 {
+			continue
+		}
+		return rest[1 : end+1]
+	}
+	return ""
+}
+
+func looksConfigPath(path string) bool {
+	path = strings.ToLower(strings.TrimSpace(path))
+	return strings.HasSuffix(path, ".json") ||
+		strings.HasSuffix(path, ".toml") ||
+		strings.HasSuffix(path, ".yaml") ||
+		strings.HasSuffix(path, ".yml") ||
+		strings.HasSuffix(path, ".env") ||
+		strings.HasSuffix(path, ".conf") ||
+		strings.HasSuffix(path, "makefile") ||
+		strings.HasSuffix(path, "dockerfile")
+}
+
+func extractSessionID(provider types.Provider, body []byte, headers http.Header) string {
+	switch provider {
+	case types.Anthropic:
+		if org := headers.Get("anthropic-organization-id"); org != "" {
+			if uid := extractMetadataUserID(body); uid != "" {
+				return "anthropic:" + org + ":" + uid
+			}
+			return "anthropic:" + org
+		}
+		if trace := headers.Get("anthropic-trace-id"); trace != "" {
+			return "anthropic:" + trace
+		}
+	case types.OpenAI, types.CodexChatGPT:
+		if cid := headers.Get("openai-conversation-id"); cid != "" {
+			return "openai:" + cid
+		}
+		if rid := extractPreviousResponseID(body); rid != "" {
+			return "openai:" + rid
+		}
+	}
+	return contentHashSessionID(body)
+}
+
+func contentHashSessionID(body []byte) string {
+	text := extractFirstUserText(body)
+	if text == "" {
+		return "empty"
+	}
+	if len(text) > 200 {
+		text = text[:200]
+	}
+	h := sha256.Sum256([]byte(text))
+	return fmt.Sprintf("fh:%x", h[:8])
+}
+
+func extractFirstUserText(body []byte) string {
+	var req struct {
+		Messages []struct {
+			Role    string      `json:"role"`
+			Content interface{} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return ""
+	}
+	for _, msg := range req.Messages {
+		if msg.Role == "user" {
+			return contentValueString(msg.Content)
+		}
+	}
+	return ""
+}
+
+func contentValueString(value interface{}) string {
+	switch content := value.(type) {
+	case string:
+		return content
+	case []interface{}:
+		parts := make([]string, 0, len(content))
+		for _, item := range content {
+			if m, ok := item.(map[string]interface{}); ok {
+				if text, ok := m["text"].(string); ok {
+					parts = append(parts, text)
+				}
+			}
+		}
+		return strings.Join(parts, " ")
+	default:
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+func extractMetadataUserID(body []byte) string {
+	var req struct {
+		Metadata struct {
+			UserID string `json:"user_id"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return ""
+	}
+	return req.Metadata.UserID
+}
+
+func extractPreviousResponseID(body []byte) string {
+	var req struct {
+		PreviousResponseID string `json:"previous_response_id"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return ""
+	}
+	return req.PreviousResponseID
+}

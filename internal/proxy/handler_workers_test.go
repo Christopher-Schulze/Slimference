@@ -9,92 +9,6 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
-func TestCompressionWorker_drainsJobThenShutdown(t *testing.T) {
-	p := New(config.Defaults())
-	p.wg.Add(1)
-	go p.compressionWorker()
-
-	p.compressQueue <- types.CompressJob{
-		Messages: []types.Message{
-			{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "x"}}},
-		},
-		Timestamp: time.Now(),
-	}
-
-	close(p.shutdownCh)
-	p.wg.Wait()
-}
-
-// TestCompressionWorker_jobBranchCovered reliably exercises the case job := <-p.compressQueue
-// branch (lines 419-420) by waiting for the analyticsQueue event that runCompressionJob emits.
-func TestCompressionWorker_jobBranchCovered(t *testing.T) {
-	p := New(config.Defaults())
-	p.wg.Add(1)
-	go p.compressionWorker()
-
-	// Drain analyticsQueue in background so it never blocks.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			select {
-			case <-p.analyticsQueue:
-				// runCompressionJob sends EventCompressionComplete - receiving it proves the job ran.
-				close(p.shutdownCh)
-				return
-			case <-time.After(2 * time.Second):
-				return
-			}
-		}
-	}()
-
-	p.compressQueue <- types.CompressJob{
-		Messages: []types.Message{
-			{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "hello world"}}},
-		},
-		Timestamp: time.Now(),
-	}
-
-	<-done
-	p.wg.Wait()
-}
-
-func TestRunCompressionJob_skipsStaleCandidateHash(t *testing.T) {
-	p := New(config.Defaults())
-	msgs := []types.Message{
-		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "first prefix"}}},
-		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "second prefix"}}},
-		{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "live tail"}}},
-	}
-	oldHash, ok := p.layer2.CompressionCandidateHash(msgs, 1)
-	if !ok {
-		t.Fatal("expected candidate hash")
-	}
-	newer := append([]types.Message(nil), msgs...)
-	newer[0].Content = append([]types.ContentBlock(nil), newer[0].Content...)
-	newer[0].Content[0].Text = "newer prefix"
-	newHash, ok := p.layer2.CompressionCandidateHash(newer, 1)
-	if !ok {
-		t.Fatal("expected newer candidate hash")
-	}
-	p.layer2.MarkCompressionCandidate("s1", newHash)
-
-	p.runCompressionJob(types.CompressJob{
-		Messages:     msgs,
-		Timestamp:    time.Now(),
-		SessionID:    "s1",
-		InputHash:    oldHash,
-		HasInputHash: true,
-	})
-
-	if got := p.layer2.CacheStats().StaleJobSkips; got != 1 {
-		t.Fatalf("stale job skips = %d, want 1", got)
-	}
-	if got := len(p.analyticsQueue); got != 0 {
-		t.Fatalf("stale job should not emit analytics, queue len=%d", got)
-	}
-}
-
 func TestAnalyticsWorker_requestProcessedFansOutToTUI(t *testing.T) {
 	p := New(config.Defaults())
 	ts := time.Now()
@@ -166,7 +80,7 @@ func TestAnalyticsWorker_nonRequestProcessedSkipsTUI(t *testing.T) {
 	go p.analyticsWorker()
 
 	p.analyticsQueue <- types.AnalyticsEvent{
-		Type:      types.EventCompressionComplete,
+		Type:      types.EventSecretDetected,
 		Timestamp: time.Now(),
 	}
 	// Let worker process (no TUI for this event type).

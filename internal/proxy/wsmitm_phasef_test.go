@@ -1750,7 +1750,6 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	t.Cleanup(func() { proxyUserHomeDir = oldHome })
 
 	cfg := config.Defaults()
-	cfg.Compression.Layer2Enabled = true
 	cfg.Compression.Tuning.PlannerLiveCorpusConfidence = "high"
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
@@ -1811,12 +1810,6 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 	if summary.ReReadCount != 1 {
 		t.Fatalf("WSS re-read canary not recorded: %+v", summary)
 	}
-	if !summary.ContextLedger.TelemetryOnly ||
-		summary.ContextLedger.CommandCapsules == 0 ||
-		summary.ContextLedger.FileCapsules == 0 ||
-		summary.ContextLedger.ReReadCount != 1 {
-		t.Fatalf("WSS context ledger summary missing telemetry/canary: %+v", summary.ContextLedger)
-	}
 	if summary.Tokens.Original <= summary.Tokens.Final || summary.NetSavedTokens <= 0 {
 		t.Fatalf("expected positive WSS planner token delta: %+v", summary.Tokens)
 	}
@@ -1830,9 +1823,6 @@ func TestWSPhaseFRequestRecordsBodyPlannerSummary(t *testing.T) {
 		if !hasString(summary.Plan.ContentClasses, want) {
 			t.Fatalf("plan content classes=%v missing %s", summary.Plan.ContentClasses, want)
 		}
-	}
-	if !hasPlanAction(summary.Plan.Decisions, "l2", "shadow", "codex_wss_l2_requires_fixture_live_proof") {
-		t.Fatalf("WSS L2 proof gate missing: %+v", summary.Plan.Decisions)
 	}
 	if !hasPlanAction(summary.Plan.Decisions, "l3", "shadow", "codex_wss_l3_requires_fixture_live_proof") {
 		t.Fatalf("WSS L3 proof gate missing: %+v", summary.Plan.Decisions)

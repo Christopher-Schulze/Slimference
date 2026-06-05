@@ -85,19 +85,6 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	}
 }
 
-func TestDefaults_OCRLConfig(t *testing.T) {
-	t.Parallel()
-	cfg := Defaults()
-	if cfg.Compression.OCRL.Mode != "shadow" {
-		t.Fatalf("OCRL mode = %q, want shadow", cfg.Compression.OCRL.Mode)
-	}
-	if cfg.Compression.OCRL.MaxCapsules != 512 ||
-		cfg.Compression.OCRL.MinNetSavedTokens != 1 ||
-		cfg.Compression.OCRL.MaxReplacementTokens != 0 {
-		t.Fatalf("OCRL defaults mismatch: %+v", cfg.Compression.OCRL)
-	}
-}
-
 func TestApplyEnvHooksDebug(t *testing.T) {
 	t.Setenv("SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND", "/opt/bin/slimference")
 	t.Setenv("SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS", "3")
@@ -119,19 +106,10 @@ func TestApplyEnvHooksDebug(t *testing.T) {
 	}
 }
 
-func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
+func TestApplyEnvDebugAndOutputReduceKnobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_DEBUG_LEVEL", "trace")
 	t.Setenv("SLIMFERENCE_DEBUG_FORMAT", "json")
 	t.Setenv("SLIMFERENCE_DEBUG_MAX_ENTRIES", "42")
-	t.Setenv("SLIMFERENCE_L2_MODE", "extractive")
-	t.Setenv("SLIMFERENCE_L2_REQUIRE_DETERMINISTIC", "off")
-	t.Setenv("SLIMFERENCE_L2_OUTBOUND_REDACTION", "strict")
-	t.Setenv("SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT", "true")
-	t.Setenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH", "/tmp/prompt.md")
-	t.Setenv("SLIMFERENCE_OCRL_MODE", "max")
-	t.Setenv("SLIMFERENCE_OCRL_MAX_CAPSULES", "123")
-	t.Setenv("SLIMFERENCE_OCRL_MIN_NET_SAVED_TOKENS", "45")
-	t.Setenv("SLIMFERENCE_OCRL_MAX_REPLACEMENT_TOKENS", "678")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING", "on")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING_MIN_TURN_GAP", "9")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE", "yes")
@@ -159,19 +137,6 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	applyEnvOverrides(cfg)
 	if cfg.Debug.Level != "trace" || cfg.Debug.Format != "json" || cfg.Debug.MaxEntries != 42 {
 		t.Fatalf("debug env not applied: %+v", cfg.Debug)
-	}
-	if cfg.Compression.Summary.Mode != "extractive" ||
-		cfg.Compression.Summary.RequireDeterministic ||
-		cfg.Compression.Summary.OutboundRedaction != "strict" ||
-		!cfg.Compression.Summary.AllowModelFacingReplacement ||
-		cfg.Compression.PromptOverridePath != "/tmp/prompt.md" {
-		t.Fatalf("layer2 env not applied: %+v", cfg.Compression)
-	}
-	if cfg.Compression.OCRL.Mode != "max" ||
-		cfg.Compression.OCRL.MaxCapsules != 123 ||
-		cfg.Compression.OCRL.MinNetSavedTokens != 45 ||
-		cfg.Compression.OCRL.MaxReplacementTokens != 678 {
-		t.Fatalf("OCRL env not applied: %+v", cfg.Compression.OCRL)
 	}
 	or := cfg.Compression.OutputReduce
 	if or.Profile != "codex_aggressive" || or.MinInputTokens != 123 ||
@@ -523,30 +488,6 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 	}
 }
 
-func TestValidate_InvalidOCRLConfig(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name   string
-		mutate func(*Config)
-	}{
-		{"mode", func(c *Config) { c.Compression.OCRL.Mode = "reckless" }},
-		{"max_capsules", func(c *Config) { c.Compression.OCRL.MaxCapsules = -1 }},
-		{"min_net", func(c *Config) { c.Compression.OCRL.MinNetSavedTokens = -1 }},
-		{"max_replacement", func(c *Config) { c.Compression.OCRL.MaxReplacementTokens = -1 }},
-	}
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := Defaults()
-			tc.mutate(cfg)
-			if err := validate(cfg); err == nil {
-				t.Fatal("expected validation error")
-			}
-		})
-	}
-}
-
 // TestValidate_InvalidSecretsMode verifies that unknown mode strings fail validation.
 func TestValidate_InvalidSecretsMode(t *testing.T) {
 	t.Parallel()
@@ -567,36 +508,8 @@ func TestValidate_InvalidTuning(t *testing.T) {
 		name  string
 		apply func(c *Config)
 	}{
-		{"incremental_overlap_threshold negative", func(c *Config) {
-			c.Compression.Tuning.IncrementalOverlapThreshold = -0.1
-		}},
-		{"incremental_overlap_threshold too high", func(c *Config) {
-			c.Compression.Tuning.IncrementalOverlapThreshold = 1.1
-		}},
 		{"overflow_sliding_window zero", func(c *Config) {
 			c.Compression.Tuning.OverflowSlidingWindow = 0
-		}},
-		{"overflow_target_ratio negative", func(c *Config) {
-			c.Compression.Tuning.OverflowTargetRatio = -0.5
-		}},
-		{"overflow_target_ratio too high", func(c *Config) {
-			c.Compression.Tuning.OverflowTargetRatio = 1.5
-		}},
-		{"staircase threshold out of range", func(c *Config) {
-			c.Compression.Tuning.IncrementalStaircase = []StaircaseStep{
-				{MsgCountLE: 60, Threshold: 1.5},
-			}
-		}},
-		{"staircase msg_count_le zero", func(c *Config) {
-			c.Compression.Tuning.IncrementalStaircase = []StaircaseStep{
-				{MsgCountLE: 0, Threshold: 0.5},
-			}
-		}},
-		{"staircase msg_count_le not strictly increasing", func(c *Config) {
-			c.Compression.Tuning.IncrementalStaircase = []StaircaseStep{
-				{MsgCountLE: 60, Threshold: 0.7},
-				{MsgCountLE: 60, Threshold: 0.5},
-			}
 		}},
 	}
 
@@ -676,8 +589,18 @@ func TestDefaultTOML(t *testing.T) {
 	if !strings.Contains(out, "listen_port") {
 		t.Error("DefaultTOML() should contain listen_port")
 	}
-	if !strings.Contains(out, "[compression.ocrl]") || !strings.Contains(out, "mode = \"shadow\"") {
-		t.Error("DefaultTOML() should contain OCRL shadow defaults")
+	for _, obsolete := range []string{
+		"layer" + "2",
+		"min_tokens_for_" + "layer" + "2",
+		"[compression." + "summary]",
+		"[compression." + "mini" + "max]",
+		"[compression." + "oc" + "rl]",
+		"oc" + "rl",
+		"Mini" + "Max",
+	} {
+		if strings.Contains(out, obsolete) {
+			t.Fatalf("DefaultTOML() exposes retired compression surface %q", obsolete)
+		}
 	}
 }
 
@@ -782,39 +705,6 @@ func TestApplyEnvOverrides_InvalidGainFloat(t *testing.T) {
 	}
 }
 
-// TestLoad_ValidateFails covers the validate error path in Load().
-// TestLoad_InvalidMode surfaces the ApplyL2OperatingMode error from Load().
-func TestLoad_InvalidMode(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "config-*.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fmt.Fprint(f, "[compression.summary]\nmode = \"turbo\"\n"); err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	t.Setenv("SLIMFERENCE_CONFIG", f.Name())
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "strict|balanced|fast") {
-		t.Fatalf("Load() must reject unknown mode, got err=%v", err)
-	}
-}
-
-// TestLoad_EnvOverridesMode selects fast mode via SLIMFERENCE_L2_MODE.
-func TestLoad_EnvOverridesMode(t *testing.T) {
-	t.Setenv("SLIMFERENCE_CONFIG", "/nonexistent/config.toml")
-	t.Setenv("SLIMFERENCE_L2_MODE", "fast")
-	cfg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Compression.Summary.Mode != ModeFast {
-		t.Fatalf("env override must switch mode, got %q", cfg.Compression.Summary.Mode)
-	}
-	if cfg.Compression.Summary.TargetRatio != 0.30 {
-		t.Fatalf("fast profile target ratio: %v", cfg.Compression.Summary.TargetRatio)
-	}
-}
-
 func TestLoad_ValidateFails(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "config-*.toml")
 	if err != nil {
@@ -909,48 +799,6 @@ func TestExpandHome_BareTildeHomeDirError(t *testing.T) {
 
 	if got := expandHome("~"); got != "~" {
 		t.Fatalf("want bare tilde unchanged on error, got %q", got)
-	}
-}
-
-func TestDefaults_Layer2Disabled(t *testing.T) {
-	// 2026-05-15: Slimference ships deterministic-only by default.
-	// Layer 2 (model-backed semantic summarization) is opt-in.
-	// Supersedes the T129 default-on policy.
-	cfg := Defaults()
-	if cfg.Compression.Layer2Enabled {
-		t.Fatal("Layer2Enabled must be false by default — deterministic-only ships by default; users opt into model-based summarization explicitly")
-	}
-	if cfg.Compression.Summary.AllowModelFacingReplacement {
-		t.Fatal("Layer 2 summary replacement must be blocked by default; product direction is ledger, not summary-as-truth")
-	}
-}
-
-func TestLoad_ExplicitLayer2FalsePreserved(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "config-*.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Fprint(f, "[compression]\nlayer2_enabled = false\n")
-	f.Close()
-	t.Setenv("SLIMFERENCE_CONFIG", f.Name())
-	cfg, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Compression.Layer2Enabled {
-		t.Fatal("explicit layer2_enabled=false must remain disabled")
-	}
-}
-
-func TestValidate_MidExchangeThresholdNegative(t *testing.T) {
-	cfg := Defaults()
-	cfg.Compression.Tuning.MidExchangeThresholdTokens = -1
-	err := validate(cfg)
-	if err == nil {
-		t.Fatal("expected error for negative MidExchangeThresholdTokens")
-	}
-	if !strings.Contains(err.Error(), "mid_exchange_threshold_tokens") {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

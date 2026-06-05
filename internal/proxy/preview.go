@@ -13,8 +13,6 @@ import (
 // flowed through Layer 1 compression. T82 lets operators see the
 // rewritten body locally without paying for an upstream call.
 //
-// Layer 2 is intentionally skipped: it requires a live MiniMax round
-// trip and would defeat the "no upstream" contract of the preview.
 // Layer 3 (response cache) is irrelevant before a request is sent.
 type PreviewResult struct {
 	Provider         types.Provider  `json:"provider"`

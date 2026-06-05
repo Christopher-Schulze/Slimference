@@ -14,7 +14,7 @@ This is the short closure companion to `docs/rtk-audit.md`.
 
 - Layer-0 pipeline, hook install/verify, analytics gain tracking, and ANSI
   stripping all have first-class Go equivalents.
-- Slimference also adds the proxy, Layer 1/2/3 stack, TUI, daemon service,
+- Slimference also adds the proxy, active Layer 0/1/3/4 stack, TUI, daemon service,
   prompt-cache visibility, and operating modes, which RTK never had.
 
 ## Explicitly Not Ported

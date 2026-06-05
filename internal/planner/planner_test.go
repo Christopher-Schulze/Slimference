@@ -22,9 +22,6 @@ func TestPlan_SmallRequestBypassesHeavyWork(t *testing.T) {
 	if got := findDecision(t, plan, Layer1).Action; got != ActionCheapOnly {
 		t.Fatalf("L1 action=%s", got)
 	}
-	if got := findDecision(t, plan, Layer2).Action; got != ActionBypass {
-		t.Fatalf("L2 action=%s", got)
-	}
 	if got := findDecision(t, plan, Layer4).Action; got != ActionBypass {
 		t.Fatalf("L4 action=%s", got)
 	}
@@ -52,9 +49,9 @@ func TestPlan_ManualDisableOverridesLayer(t *testing.T) {
 	t.Parallel()
 	plan := Plan(RequestFacts{
 		EstimatedInputTokens: 20000,
-		ManualDisabled:       map[Layer]bool{Layer0: true, Layer1: true, Layer2: true, Layer3: true, Layer4: true},
+		ManualDisabled:       map[Layer]bool{Layer0: true, Layer1: true, Layer3: true, Layer4: true},
 	})
-	for _, layer := range []Layer{Layer0, Layer1, Layer2, Layer3, Layer4} {
+	for _, layer := range []Layer{Layer0, Layer1, Layer3, Layer4} {
 		if d := findDecision(t, plan, layer); d.Action != ActionBypass || d.Reason != "operator_disabled" {
 			t.Fatalf("%s=%+v", layer, d)
 		}
@@ -73,40 +70,6 @@ func TestPlan_L1SafetyGates(t *testing.T) {
 	recent := Plan(RequestFacts{EstimatedInputTokens: 5000, RecentEdit: true})
 	if d := findDecision(t, recent, Layer1); d.Action != ActionCheapOnly || d.Reason != "recent_edit_preserve_full_context" {
 		t.Fatalf("recent edit L1=%+v", d)
-	}
-}
-
-func TestPlan_L2PolicyAndThresholds(t *testing.T) {
-	t.Parallel()
-	notReady := Plan(RequestFacts{EstimatedInputTokens: 20000})
-	if d := findDecision(t, notReady, Layer2); d.Action != ActionBypass || d.Risk != "none" {
-		t.Fatalf("not ready L2=%+v", d)
-	}
-	ready := Plan(RequestFacts{EstimatedInputTokens: 20000, ExternalLayer2Allowed: true, Layer2Acknowledged: true, LiveCorpusConfidence: "medium"})
-	if d := findDecision(t, ready, Layer2); d.Action != ActionShadow || d.Reason != "context_ledger_shadow_summary_replacement_blocked" || d.Confidence != "medium" {
-		t.Fatalf("ready L2=%+v", d)
-	}
-	legacyAllowed := Plan(RequestFacts{
-		EstimatedInputTokens:     20000,
-		ExternalLayer2Allowed:    true,
-		Layer2Acknowledged:       true,
-		Layer2ModelFacingAllowed: true,
-		LiveCorpusConfidence:     "medium",
-	})
-	if d := findDecision(t, legacyAllowed, Layer2); d.Action != ActionRun || d.Confidence != "medium" {
-		t.Fatalf("legacy-allowed L2=%+v", d)
-	}
-	adaptive := Plan(RequestFacts{EstimatedInputTokens: 8000, ContentClasses: []string{"repeated_tool_output"}, ExternalLayer2Allowed: true, Layer2Acknowledged: true})
-	if d := findDecision(t, adaptive, Layer2); d.Action != ActionShadow || d.Reason != "adaptive_roi_candidate" {
-		t.Fatalf("adaptive L2=%+v", d)
-	}
-	below := Plan(RequestFacts{EstimatedInputTokens: 8000, ExternalLayer2Allowed: true, Layer2Acknowledged: true})
-	if d := findDecision(t, below, Layer2); d.Action != ActionBypass || d.Reason != "below_roi_threshold" {
-		t.Fatalf("below L2=%+v", d)
-	}
-	recent := Plan(RequestFacts{EstimatedInputTokens: 20000, ExternalLayer2Allowed: true, Layer2Acknowledged: true, RecentEdit: true})
-	if d := findDecision(t, recent, Layer2); d.Action != ActionBypass || d.Reason != "recent_edit_window" {
-		t.Fatalf("recent L2=%+v", d)
 	}
 }
 
@@ -134,22 +97,17 @@ func TestPlan_L3CacheAndPreviousResponse(t *testing.T) {
 	}
 }
 
-func TestPlan_CodexWSSL2L3RemainProofGatedCandidates(t *testing.T) {
+func TestPlan_CodexWSSL3AndWSSRemainProofGatedCandidates(t *testing.T) {
 	t.Parallel()
 	plan := Plan(RequestFacts{
 		Provider:                    "codex_chatgpt",
 		RouteMode:                   "websocket_phasef",
 		EstimatedInputTokens:        20000,
 		ContentClasses:              []string{"repeated_tool_output"},
-		ExternalLayer2Allowed:       true,
-		Layer2Acknowledged:          true,
 		ProviderCacheSupported:      true,
 		PreviousResponseIDAvailable: true,
 		LiveCorpusConfidence:        "high",
 	})
-	if d := findDecision(t, plan, Layer2); d.Action != ActionShadow || d.Reason != "codex_wss_l2_requires_fixture_live_proof" || d.Risk != "medium" {
-		t.Fatalf("Codex WSS L2 must stay a shadow candidate before fixture+live proof: %+v", d)
-	}
 	if d := findDecision(t, plan, Layer3); d.Action != ActionShadow || d.Reason != "codex_wss_l3_requires_fixture_live_proof" || d.Risk != "medium" {
 		t.Fatalf("Codex WSS L3 must stay a shadow candidate before fixture+live proof: %+v", d)
 	}
@@ -257,7 +215,7 @@ func TestPlan_WebSocketModes(t *testing.T) {
 
 func TestPlan_NormalizationAndHelpers(t *testing.T) {
 	t.Parallel()
-	plan := Plan(RequestFacts{Provider: " openai ", Model: " gpt ", RouteMode: " websocket ", TaskShape: " debug ", ContentClasses: []string{"JSON"}, LiveCorpusConfidence: "strange", LatencyBudgetMs: 0})
+	plan := Plan(RequestFacts{Provider: " openai ", Model: " gpt ", RouteMode: " websocket ", TaskShape: " debug ", ContentClasses: []string{"JSON"}, LiveCorpusConfidence: "strange"})
 	if plan.Provider != "openai" || plan.Model != "gpt" || plan.RouteMode != "websocket" {
 		t.Fatalf("normalization failed: %+v", plan)
 	}

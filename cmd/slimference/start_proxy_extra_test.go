@@ -14,7 +14,6 @@ import (
 func TestStartProxyFn_DefaultClosureStartsAndStopsProxy(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Proxy.ListenPort = 0
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 

@@ -17,10 +17,6 @@ const (
 	// so it needs separate routing even though the body format is OpenAI-flavoured.
 	// See T66.
 	CodexChatGPT
-	// MiniMax is the summarization side-channel provider. Not an upstream that
-	// the user talks to directly; it receives compressed conversation prefixes
-	// for abstractive summarization. T121.
-	MiniMax
 )
 
 func (p Provider) String() string {
@@ -31,8 +27,6 @@ func (p Provider) String() string {
 		return "openai"
 	case CodexChatGPT:
 		return "codex_chatgpt"
-	case MiniMax:
-		return "minimax"
 	default:
 		return "unknown"
 	}
@@ -68,7 +62,8 @@ const (
 	ToolTypeCommandOutput                // generic command output
 )
 
-// ToolResultPriority controls how MiniMax summarization treats content.
+// ToolResultPriority controls how aggressively deterministic reducers may
+// compact tool-result content.
 type ToolResultPriority int
 
 const (
@@ -83,7 +78,6 @@ type CompressionLevel int
 const (
 	CompressionNone   CompressionLevel = 0
 	CompressionLayer1 CompressionLevel = 1
-	CompressionLayer2 CompressionLevel = 2
 )
 
 // ContentBlock is a unified content block across providers.
@@ -165,22 +159,12 @@ func (m *Message) HasToolUse() bool {
 	return false
 }
 
-// CompressJob is sent to the async compression worker goroutine.
-type CompressJob struct {
-	Messages     []Message
-	Timestamp    time.Time
-	SessionID    string
-	InputHash    [32]byte
-	HasInputHash bool
-}
-
 // EventType classifies analytics events.
 type EventType int
 
 const (
 	EventRequestProcessed EventType = iota
 	EventCacheHit
-	EventCompressionComplete
 	EventSecretDetected
 	EventErrorOccurred
 	EventLayerToggled

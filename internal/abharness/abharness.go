@@ -10,7 +10,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
@@ -18,8 +17,6 @@ import (
 
 var archiveURIPattern = regexp.MustCompile(`(?:local-archive://|slim://archive/)([A-Za-z0-9_\-]+)`)
 var contextChunkPattern = regexp.MustCompile(`\[context-chunk status=unchanged uri=((?:local-archive://|slim://archive/)[A-Za-z0-9_\-]+) bytes=[0-9]+\]`)
-var ocrlArchiveListPattern = regexp.MustCompile(`archives=\[((?:"(?:\\.|[^"\\])*"\s*,?\s*)+)\]`)
-var quotedStringPattern = regexp.MustCompile(`"(?:\\.|[^"\\])*"`)
 
 // Turn holds one request's content messages before and after compression. The
 // reducer preserves block order and count, so blocks are paired by index.
@@ -310,9 +307,6 @@ func shouldUseContextArchiveIDs(before, after string) bool {
 	if strings.TrimSpace(after) == "" {
 		return true
 	}
-	if strings.HasPrefix(strings.TrimSpace(after), "[ocrl:v1 covered_by=") {
-		return true
-	}
 	return len(after) < len(before)
 }
 
@@ -404,32 +398,8 @@ func archiveIDs(text string) []string {
 	for _, match := range matches {
 		out = appendArchiveID(out, seen, match[1])
 	}
-	for _, id := range ocrlArchiveIDs(text) {
-		out = appendArchiveID(out, seen, id)
-	}
 	if len(out) == 0 {
 		return nil
-	}
-	return out
-}
-
-func ocrlArchiveIDs(text string) []string {
-	if !strings.Contains(text, "[ocrl:v1") {
-		return nil
-	}
-	matches := ocrlArchiveListPattern.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(matches))
-	for _, match := range matches {
-		for _, quoted := range quotedStringPattern.FindAllString(match[1], -1) {
-			value, err := strconv.Unquote(quoted)
-			if err != nil {
-				continue
-			}
-			out = append(out, archiveIDFromURI(value))
-		}
 	}
 	return out
 }

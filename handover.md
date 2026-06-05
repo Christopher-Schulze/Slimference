@@ -18,7 +18,7 @@
 
 1. **Layer 0 — Pre-Entry (CLI):** Shell-Befehle, die Coding-Agenten ausführen, können **vor** der Aufnahme in den Chat gekürzt werden (`slimference filter`, Hooks, Rewrites, SQLite-Tracking, Tee-Recovery). Ziel: weniger Tokens in der Historie, bevor der Proxy überhaupt sieht.
 
-2. **Layer 1–3 — Post-Entry (HTTP-Proxy):** Ein **transparenter Reverse-Proxy** zwischen Tools (Claude Code, OpenAI-Codex-CLI o. Ä.) und den APIs **Anthropic / OpenAI**. Eingehende Requests werden modifiziert (Kompression alter Nachrichten, Caching, Secrets, Analytics); **Responses** werden **unverändert** durchgereicht (Streaming/SSE).
+2. **Layer 1/3/4 — Post-Entry (HTTP-Proxy):** Ein **transparenter Reverse-Proxy** zwischen Tools (Claude Code, OpenAI-Codex-CLI o. Ä.) und den APIs **Anthropic / OpenAI**. Eingehende Requests werden deterministisch reduziert (Layer 1), gecacht (Layer 3), mit Output-/Tool-Surface-Reduktion versehen (Layer 4), Secrets/Analytics lokal verarbeitet; **Responses** werden **unverändert** durchgereicht (Streaming/SSE), soweit kein explizit sicherer Output-Reducer greift.
 
 **TUI:** Ohne Argumente startet `main()` die **BubbleTea**-Oberfläche + Proxy im Hintergrund — das ist die „Haupt-App“, kein separater Daemon-Modus.
 
@@ -45,8 +45,8 @@
 
 ## 3. Spec.md vs spec+.md (kurz und präzise)
 
-- **`spec.md`:** Nur **Layer 1–4**-Proxy-Welt (kein Layer 0), ältere Savings-Zahlen, **kein** SQLite-Filter-Tracking, **kein** Hook-System in der Tiefe von v2.
-- **`spec+.md`:** **Layer 0** (Filter-Engine, 24 Filter-Module, TOML-DSL, Tee, Permissions), **erweiterte Layer-1**-Sub-Layer (ANSI, Tool-Classifier, …), **Layer-2**-Erweiterungen (adaptives Fenster, Priorität), **Debug/JSONL**-System, aktualisierte **Projektstruktur**, **Appendices D/E**.
+- **`spec.md`:** Historische v1-Proxy-Welt. Sie beschreibt noch entfernte Layer-2-Ziele und ist nur Kontext.
+- **`spec+.md`:** Aktuelle v2-Spezifikation. Layer 2 ist retired; aktive Produktpfade sind Layer 0, Layer 1, Layer 3, Layer 4, WSS/Codex-Reducer, Readcache, Chunk-Dedup und Output-/Tool-Surface-Reduktion.
 
 **Praktische Regel:** Feature-Anforderung → in **`spec+.md`** nachschlagen; historische Motivation optional in **`spec.md`**.
 
@@ -62,8 +62,8 @@ Entspricht **`docs/todo.md`** (Phasen A–E) und dem früheren HANDOVER §3:
 2. **Phase B — Layer 0**  
    `internal/filter/`, `internal/hooks/`, CLI `filter|hook|rewrite|gain`, SQLite, Tee, TOML-DSL — **großteils vorhanden** (siehe §8).
 
-3. **Phase C — Layer 2 Erweiterungen**  
-   Adaptives Fenster, Tool-Priorität für Summarization.
+3. **Phase C — Codex/WSS Proof- und Savings-Erweiterungen**
+   Readcache, Ranged Reads, repeated output dedup, repo-safe search keying, chunk dedup, provider-cache proof, host-resource proof.
 
 4. **Phase D — Advanced L1 + Debug**  
    Fehlende L1.x-Sub-Layer, `internal/debug` vollständig (Decision-JSONL, …).
@@ -84,13 +84,10 @@ Slimference/
   spec+.md, spec.md          ← Spezifikationen
   go.mod, go.sum
   .gitignore                 ← u.a. .env.local, .secrets/ (keine Keys committen)
-  .env.local                 ← optional lokal: MINIMAX_API_KEY (nicht versionieren)
-
   cmd/slimference/            ← main, alle CLI-Subcommands, TUI-Einstieg
   internal/
     proxy/                   ← HTTP-Handler, Streaming, Provider (Anthropic/OpenAI)
     compression/             ← Layer 1 (layer1.go, ansi_strip, dedup, structure.go, …)
-    summarization/           ← Layer 2 (MiniMax, Cache, Progressive, …)
     caching/, tokens/, security/, resilience/, sessions/, analytics/, util/, types/, config/, tui/
     filter/                  ← Layer 0 (Pipeline, Built-ins, TOML-DSL, SQLite, Tee, …)
     hooks/                   ← Claude/Codex install/remove/verify
@@ -119,7 +116,7 @@ Slimference/
 
 2. **Mit Args:** `handleSubcommand` — z. B. `config`, `test`, `doctor`, `stats`, `gain`, `filter`, `rewrite`, `hook`, `debug`, `version`. Viele Pfade beenden mit `os.Exit`; Tests nutzen Subprozesse + Env-Flags.
 
-3. **Proxy-Hot-Path:** Request → Handler → Kompression (Layer 1) / Queue für Layer 2 → Upstream → Response-Stream zurück. Details in `internal/proxy/handler.go`, `provider.go`, `streaming.go`.
+3. **Proxy-Hot-Path:** Request → Handler → Layer 1 / Cache- und Output-Reducer → Upstream → Response-Stream zurück. Details in `internal/proxy/handler.go`, `provider.go`, `streaming.go`.
 
 4. **Layer 0:** `slimference filter -- <argv>` → `filter.RunPipeline` (ANSI, Built-ins, TOML, Truncate) → Exit-Code vom Kind; bei Fehler/nicht-null ggf. Tee-Recovery unter `SLIMFERENCE_TEE_DIR` / Config.
 
@@ -132,7 +129,7 @@ Aus `cmd/slimference/main.go` Kommentar + Implementierung — **nicht** jede Zei
 | Bereich | Beispiele |
 |---------|-----------|
 | Config | `config init`, `config show` |
-| Diagnose | `doctor`, `test minimax|anthropic|openai`, `test intercept <claude|codex>` |
+| Diagnose | `doctor`, `test anthropic|openai`, `test intercept <claude|codex>` |
 | Analytics | `stats today|week|month`, `gain …` (JSON/CSV/by-command/project, USD aus Config) |
 | Layer 0 | `filter -- …`, `rewrite …` (oder Hook-JSON auf stdin) |
 | Hooks | `hook install|remove|verify|status` (v1: claude, codex) |
@@ -149,7 +146,7 @@ Aus `cmd/slimference/main.go` Kommentar + Implementierung — **nicht** jede Zei
 
 - **Proxy** mit Anthropic/OpenAI-Pfaden, Streaming, Retry/Resilience, Session-Logging, Analytics-Persister.
 - **Layer 1:** u. a. `ansi_strip`, `json_compact`, `comment_strip`, `dedup` + **`dedup_minhash`**, **`structure.go`** (Regex, nicht Tree-sitter), `delta`, `prompt_cache`, `success_shortcircuit`, Exchange-Window-Logik — **nicht** alle spec+.md-Sub-Layer vollständig (siehe `docs/todo.md` L1.7–L1.14).
-- **Layer 2:** MiniMax-Client, Summary-Cache, Progressive, Anchor, Validator, etc.
+- **Layer 2:** retired. Kein MiniMax, kein lokaler Context-Ledger-Ersatz und keine model-facing Summary-Insertion sind Produktpfad.
 - **Layer 0:** `internal/filter` mit Pipeline, vielen `TryCompact*`-Built-ins, TOML-DSL (`filters_toml.go`), SQLite `filter_runs`, Tee, Permissions/Deny-Patterns, `slimference gain`.
 - **Hooks:** Install/Remove/Verify für Claude & Codex.
 - **Debug:** Pfade, last/summary/tail, Replay-**Preview** — volle „Decision JSONL“-Pipeline laut `docs/todo.md` teils **offen**.
@@ -164,8 +161,8 @@ Aus `cmd/slimference/main.go` Kommentar + Implementierung — **nicht** jede Zei
 
 *(Für den nächsten Agenten: konkrete Git-Historie ist maßgeblich; hier inhaltliche Schwerpunkte.)*
 
-- **Test-Coverage erhöht** in mehreren Paketen (`cmd/slimference`, `internal/proxy`, Filter, …): Subcommand-Tests, Provider/Streaming-Kanten, `handleDoctorCmd`, `handleConfigCmd`/`filter` (u. a. Tee bei non-zero exit), `GetLayer2Status` via `proxy.ClearLayer2ForTesting()`.
-- **Secrets:** Projekt-**`.gitignore`** ergänzt; **`MINIMAX_API_KEY`** kann lokal in **`.env.local`** liegen — **niemals committen**; Keys aus Chats rotieren, falls exponiert.
+- **Test-Coverage erhöht** in mehreren Paketen (`cmd/slimference`, `internal/proxy`, Filter, …): Subcommand-Tests, Provider/Streaming-Kanten, `handleDoctorCmd`, `handleConfigCmd`/`filter` (u. a. Tee bei non-zero exit).
+- **Secrets:** Projekt-**`.gitignore`** ergänzt; echte Provider-Keys bleiben lokal und werden nie committed.
 - **Dokumentation:** Diese **`handover.md`** ersetzt/überführt den veralteten Inhalt von **`docs/HANDOVER.md`** (ältere Version sprach noch von nicht-existierenden Dateinamen wie `treesitter.go` ohne Rename — **im Repo gibt es `structure.go`**).
 
 ---
@@ -184,7 +181,7 @@ Aus `cmd/slimference/main.go` Kommentar + Implementierung — **nicht** jede Zei
 ## 11. Konfiguration & Umgebungsvariablen (Auszug)
 
 - **Config-Datei:** Standard `~/.slimference/config.toml`; Override **`SLIMFERENCE_CONFIG`** (Pfad zur TOML).
-- **Wichtige ENV:** `SLIMFERENCE_UPSTREAM_*`, `SLIMFERENCE_LISTEN_*`, `MINIMAX_API_KEY` (oder Name aus Config `api_key_env`), `SLIMFERENCE_FILTER_DB`, `SLIMFERENCE_TEE_DIR`, `SLIMFERENCE_DEBUG_DECISIONS_LOG`, `SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND`, `SLIMFERENCE_CONFIRM_SUDO` (Layer-0 sudo-Verhalten), … — Vollliste in **`spec+.md` §13** und **`internal/config/config.go`** (`applyEnvOverrides`).
+- **Wichtige ENV:** `SLIMFERENCE_UPSTREAM_*`, `SLIMFERENCE_LISTEN_*`, `SLIMFERENCE_FILTER_DB`, `SLIMFERENCE_TEE_DIR`, `SLIMFERENCE_DEBUG_DECISIONS_LOG`, `SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND`, `SLIMFERENCE_CONFIRM_SUDO` (Layer-0 sudo-Verhalten), … — Vollliste in **`spec+.md` §13** und **`internal/config/config.go`** (`applyEnvOverrides`).
 
 ---
 
@@ -194,7 +191,7 @@ Aus `cmd/slimference/main.go` Kommentar + Implementierung — **nicht** jede Zei
 - **Sliding window:** Überall **user-started exchanges**, nicht rohe Message-Count (`spec+.md` §13.1).
 - **Overflow:** Handler muss **`spec+.md` §17.4** (Re-Compression, dann Fallback) entsprechen — bei Abweichungen Spec oder Code fixen.
 - **Hooks:** Nur **bash/settings**-Pflege für v1-Targets; echte Claude/Codex-Tests sind manuell wertvoll.
-- **`proxy.ClearLayer2ForTesting()`:** Nur für Tests gedacht (TUI-Adapter `GetLayer2Status`).
+- **Layer 2:** Entfernt. Alte Summary-/Ledger-/MiniMax-Hinweise sind historische Aufgaben, kein Produktpfad.
 
 ---
 

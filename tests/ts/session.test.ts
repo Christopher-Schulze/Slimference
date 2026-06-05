@@ -11,21 +11,9 @@ interface TokenCounts {
   original: number;
   after_layer0: number;
   after_layer1: number;
-  after_layer2: number;
   final: number;
   saved: number;
   ratio: number;
-}
-
-interface Layer2Summary {
-  applied: boolean;
-  cache_hit: boolean;
-  covered_range_from: number;
-  covered_range_to: number;
-  original_tokens: number;
-  compressed_tokens: number;
-  anchor_count: number;
-  compression_ratio: number;
 }
 
 interface RequestSummary {
@@ -39,7 +27,6 @@ interface RequestSummary {
   layers_applied: number[];
   tokens: TokenCounts;
   layer1_breakdown: Record<string, SubLayerBreakdown>;
-  layer2: Layer2Summary;
   cache_hit: boolean;
   secrets_redacted: number;
   proxy_latency_ms: number;

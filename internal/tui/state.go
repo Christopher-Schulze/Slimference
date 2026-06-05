@@ -17,7 +17,6 @@ type PersistedState struct {
 	ClaudeEnabled bool   `json:"claude_enabled"`
 	CodexEnabled  bool   `json:"codex_enabled"`
 	Layer1Enabled bool   `json:"layer1_enabled"`
-	Layer2Enabled bool   `json:"layer2_enabled"`
 	Layer3Enabled bool   `json:"layer3_enabled"`
 	View          string `json:"view"`
 }
@@ -91,7 +90,6 @@ func stateFromModel(m *Model) PersistedState {
 		ClaudeEnabled: m.claudeEnabled,
 		CodexEnabled:  m.codexEnabled,
 		Layer1Enabled: m.layer1Enabled,
-		Layer2Enabled: m.layer2Enabled,
 		Layer3Enabled: m.layer3Enabled,
 		View:          viewModeToString(m.view),
 	}
@@ -104,7 +102,6 @@ func applyPersistedState(m *Model, s PersistedState) {
 	m.claudeEnabled = s.ClaudeEnabled
 	m.codexEnabled = s.CodexEnabled
 	m.layer1Enabled = s.Layer1Enabled
-	m.layer2Enabled = s.Layer2Enabled
 	m.layer3Enabled = s.Layer3Enabled
 	if v, ok := viewModeFromString(s.View); ok {
 		m.view = v
@@ -113,7 +110,6 @@ func applyPersistedState(m *Model, s PersistedState) {
 		m.proxy.SetProviderEnabled(types.Anthropic, m.claudeEnabled)
 		m.proxy.SetProviderEnabled(types.OpenAI, m.codexEnabled)
 		m.proxy.SetLayerEnabled(1, m.layer1Enabled)
-		m.proxy.SetLayerEnabled(2, m.layer2Enabled)
 		m.proxy.SetLayerEnabled(3, m.layer3Enabled)
 	}
 }

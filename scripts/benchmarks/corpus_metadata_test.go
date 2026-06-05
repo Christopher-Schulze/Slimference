@@ -39,9 +39,9 @@ func sampleMetadata() CorpusMetadata {
 			CodexVersion:  "synthetic-fixture",
 			Client:        "codex-cli-fixture",
 			HooksEnabled:  []string{"pre_tool", "post_tool", "read"},
-			LayersEnabled: []int{0, 1, 2, 3},
+			LayersEnabled: []int{0, 1, 3},
 			RequestCount:  2,
-			Scenarios:     []string{"clean", "summary"},
+			Scenarios:     []string{"clean", "cache"},
 		}},
 		RegressionGate: &RegressionGate{
 			MinRequests:     1,
@@ -147,8 +147,8 @@ func TestFormatCorpusMetadata_FullText(t *testing.T) {
 		"Captured:           2026-04-29", "synthetic test fixture",
 		"session-smoke.jsonl", "codex_version: synthetic-fixture",
 		"client:        codex-cli-fixture", "hooks:         pre_tool,post_tool,read",
-		"layers:        L0,L1,L2,L3", "requests:      2",
-		"scenarios:     clean, summary",
+		"layers:        L0,L1,L3", "requests:      2",
+		"scenarios:     clean, cache",
 		"v1-responses-input.json (route=/v1/responses, shape=responses_input)",
 	} {
 		if !strings.Contains(got, want) {
@@ -166,7 +166,7 @@ func TestFormatCorpusMetadataMarkdown_FullText(t *testing.T) {
 		"**Schema:** v1", "**Scrubbed:** true",
 		"**Redaction:** manual_synthetic", "**Captured:** 2026-04-29",
 		"| Session fixture | Codex version | Hooks | Layers | Requests |",
-		"| session-smoke.jsonl | synthetic-fixture | pre_tool,post_tool,read | L0,L1,L2,L3 | 2 |",
+		"| session-smoke.jsonl | synthetic-fixture | pre_tool,post_tool,read | L0,L1,L3 | 2 |",
 		"| Request fixture | Route | Shape |",
 		"| v1-responses-input.json | /v1/responses | responses_input |",
 	} {
@@ -222,7 +222,6 @@ func TestEvaluateRegressionGate_AllChecksFail(t *testing.T) {
 		MinSavingsRatio: 0.5,
 		MinLayer0Saved:  10,
 		MinLayer1Saved:  10,
-		MinLayer2Saved:  10,
 		MinLayer3Saved:  10,
 		Providers:       map[string]int{"codex_chatgpt": 2, "anthropic": 1},
 		Routes:          map[string]int{"/v1/responses": 2, "/backend-api/codex/responses": 1},
@@ -232,7 +231,6 @@ func TestEvaluateRegressionGate_AllChecksFail(t *testing.T) {
 		"requests=0 < min=5",
 		"layer0_saved=0 < min=10",
 		"layer1_saved=0 < min=10",
-		"layer2_saved=0 < min=10",
 		"layer3_saved=0 < min=10",
 		"provider[anthropic]=0 < min=1",
 		"provider[codex_chatgpt]=0 < min=2",
@@ -266,7 +264,6 @@ func TestEvaluateRegressionGate_AllPass(t *testing.T) {
 	agg.savedTokens = 800
 	agg.layer0Saved = 50
 	agg.layer1Saved = 200
-	agg.layer2Saved = 400
 	agg.layer3Saved = 150
 	agg.perProvider["codex_chatgpt"] = 3
 	agg.perCodexRoute["/v1/responses"] = 3
@@ -275,7 +272,6 @@ func TestEvaluateRegressionGate_AllPass(t *testing.T) {
 		MinSavingsRatio: 0.5,
 		MinLayer0Saved:  10,
 		MinLayer1Saved:  10,
-		MinLayer2Saved:  10,
 		MinLayer3Saved:  10,
 		Providers:       map[string]int{"codex_chatgpt": 2},
 		Routes:          map[string]int{"/v1/responses": 2},

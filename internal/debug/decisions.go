@@ -77,49 +77,9 @@ type TokenCounts struct {
 	Original    int     `json:"original"`
 	AfterLayer0 int     `json:"after_layer0"`
 	AfterLayer1 int     `json:"after_layer1"`
-	AfterLayer2 int     `json:"after_layer2"`
 	Final       int     `json:"final"`
 	Saved       int     `json:"saved"`
 	Ratio       float64 `json:"ratio"` // final/original
-}
-
-// Layer2Summary holds Layer 2 stats for a request.
-type Layer2Summary struct {
-	Applied          bool    `json:"applied"`
-	CacheHit         bool    `json:"cache_hit"`
-	CoveredRangeFrom int     `json:"covered_range_from"`
-	CoveredRangeTo   int     `json:"covered_range_to"`
-	OriginalTokens   int     `json:"original_tokens"`
-	CompressedTokens int     `json:"compressed_tokens"`
-	AnchorCount      int     `json:"anchor_count"`
-	CompressionRatio float64 `json:"compression_ratio"`
-}
-
-// ContextLedgerSummary records deterministic ledger shadow telemetry. It is
-// content-free and does not mean capsules were inserted into model-facing text.
-type ContextLedgerSummary struct {
-	TelemetryOnly         bool   `json:"telemetry_only,omitempty"`
-	CommandCapsules       int    `json:"command_capsules,omitempty"`
-	FileCapsules          int    `json:"file_capsules,omitempty"`
-	SearchCapsules        int    `json:"search_capsules,omitempty"`
-	FailureCapsules       int    `json:"failure_capsules,omitempty"`
-	ReReadCount           int    `json:"re_read_count,omitempty"`
-	OCRLMode              string `json:"ocrl_mode,omitempty"`
-	OCRLRoute             string `json:"ocrl_route,omitempty"`
-	OCRLReason            string `json:"ocrl_reason,omitempty"`
-	OCRLShadowOnly        bool   `json:"ocrl_shadow_only,omitempty"`
-	OCRLCandidateCapsules int    `json:"ocrl_candidate_capsules,omitempty"`
-	OCRLVerbatimCapsules  int    `json:"ocrl_verbatim_capsules,omitempty"`
-	OCRLRejectedCapsules  int    `json:"ocrl_rejected_capsules,omitempty"`
-	OCRLArchiveExpansions int    `json:"ocrl_archive_expansions,omitempty"`
-	OCRLOriginalTokens    int    `json:"ocrl_original_tokens,omitempty"`
-	OCRLReplacementTokens int    `json:"ocrl_replacement_tokens,omitempty"`
-	OCRLRecoveryOverhead  int    `json:"ocrl_recovery_overhead_tokens,omitempty"`
-	OCRLShadowSavedTokens int    `json:"ocrl_shadow_saved_tokens,omitempty"`
-}
-
-func (s ContextLedgerSummary) TotalCapsules() int {
-	return s.CommandCapsules + s.FileCapsules + s.SearchCapsules + s.FailureCapsules
 }
 
 // PromptCacheSummary records content-free provider-cache hint decisions.
@@ -193,8 +153,6 @@ type RequestSummary struct {
 	Tokens                 TokenCounts                  `json:"tokens"`
 	Layer1Breakdown        map[string]SubLayerBreakdown `json:"layer1_breakdown"`
 	Layer1Decisions        []Layer1DecisionSummary      `json:"layer1_decisions,omitempty"`
-	Layer2                 Layer2Summary                `json:"layer2"`
-	ContextLedger          ContextLedgerSummary         `json:"context_ledger,omitempty"`
 	CacheHit               bool                         `json:"cache_hit"`
 	CacheReadTokens        int                          `json:"cache_read_tokens"`
 	CacheCreateTokens      int                          `json:"cache_create_tokens"`
@@ -327,45 +285,6 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 			Count:       bd.Blocks,
 			SavedTokens: bd.Saved,
 			NetTokens:   bd.Saved,
-		})
-	}
-	if s.Layer2.Applied || s.Layer2.OriginalTokens > 0 || s.Layer2.CompressedTokens > 0 {
-		saved := s.Layer2.OriginalTokens - s.Layer2.CompressedTokens
-		if saved < 0 {
-			saved = 0
-		}
-		out = append(out, MechanismAccounting{
-			Name:           "layer2_summarization",
-			Layer:          2,
-			Source:         "layer2",
-			Count:          boolCount(s.Layer2.Applied),
-			OriginalTokens: s.Layer2.OriginalTokens,
-			FinalTokens:    s.Layer2.CompressedTokens,
-			SavedTokens:    saved,
-			NetTokens:      saved,
-		})
-	}
-	if s.ContextLedger.TotalCapsules() > 0 || s.ContextLedger.ReReadCount > 0 {
-		name := "context_ledger_shadow"
-		reason := "telemetry_only"
-		netTokens := 0
-		if s.ContextLedger.OCRLReason != "" {
-			reason = "ocrl_" + s.ContextLedger.OCRLReason
-			if s.ContextLedger.OCRLShadowOnly || s.ContextLedger.TelemetryOnly {
-				reason = "ocrl_shadow_" + s.ContextLedger.OCRLReason
-			} else {
-				name = "context_ledger_ocrl"
-				netTokens = positive(s.ContextLedger.OCRLShadowSavedTokens)
-			}
-		}
-		out = append(out, MechanismAccounting{
-			Name:        name,
-			Layer:       2,
-			Source:      "context_ledger",
-			Count:       s.ContextLedger.TotalCapsules(),
-			SavedTokens: positive(s.ContextLedger.OCRLShadowSavedTokens),
-			NetTokens:   netTokens,
-			Reason:      reason,
 		})
 	}
 	if s.PromptCache.Applied || s.PromptCache.Reason != "" || s.CacheReadTokens > 0 || s.CacheCreateTokens > 0 || s.ProviderCachedTokens > 0 {

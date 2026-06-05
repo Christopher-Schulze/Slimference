@@ -683,7 +683,6 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			Original:    originalTokens,
 			AfterLayer0: finalTokens,
 			AfterLayer1: finalTokens,
-			AfterLayer2: finalTokens,
 			Final:       finalTokens,
 			Saved:       saved,
 			Ratio:       ratio,
@@ -693,7 +692,6 @@ func (a *wsPhaseFAdapter) recordRequestPlan(body []byte, mutated []byte, message
 			Profile: "wss_phasef",
 			Reason:  wssPlannerOutputReduceReason(replaced, l0Stats),
 		},
-		ContextLedger:  a.p.buildOCRLShadowContextLedgerSummary(l0Stats, meta.SessionID, meta.PreviousResponseID, reReadCount),
 		ReReadCount:    reReadCount,
 		NetSavedTokens: saved,
 		Plan: a.p.dryRunPlan(plannerInput{

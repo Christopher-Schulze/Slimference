@@ -67,31 +67,24 @@ func TestTrustClass_UpstreamProviders(t *testing.T) {
 	}
 }
 
-func TestTrustClass_MiniMaxExternal(t *testing.T) {
-	caps := CapabilitiesFor(MiniMax)
-	if caps.TrustClass != TrustClassExternalThirdParty {
-		t.Errorf("MiniMax.TrustClass = %q, want %q", caps.TrustClass, TrustClassExternalThirdParty)
-	}
-}
-
 func TestEffectiveTrustClass_Default(t *testing.T) {
-	got := EffectiveTrustClass(MiniMax, "")
-	if got != TrustClassExternalThirdParty {
-		t.Errorf("EffectiveTrustClass(minimax, empty) = %q, want %q", got, TrustClassExternalThirdParty)
+	got := EffectiveTrustClass(Anthropic, "")
+	if got != TrustClassUpstreamProvider {
+		t.Errorf("EffectiveTrustClass(anthropic, empty) = %q, want %q", got, TrustClassUpstreamProvider)
 	}
 }
 
 func TestEffectiveTrustClass_OverrideUpstream(t *testing.T) {
-	got := EffectiveTrustClass(MiniMax, TrustClassUpstreamProvider)
+	got := EffectiveTrustClass(Provider(999), TrustClassUpstreamProvider)
 	if got != TrustClassUpstreamProvider {
-		t.Errorf("EffectiveTrustClass(minimax, upstream) = %q, want %q", got, TrustClassUpstreamProvider)
+		t.Errorf("EffectiveTrustClass(unknown, upstream) = %q, want %q", got, TrustClassUpstreamProvider)
 	}
 }
 
 func TestEffectiveTrustClass_OverrideInvalid(t *testing.T) {
-	got := EffectiveTrustClass(MiniMax, "nonsense")
-	if got != TrustClassExternalThirdParty {
-		t.Errorf("EffectiveTrustClass(minimax, nonsense) = %q, want external fallback", got)
+	got := EffectiveTrustClass(Provider(999), "nonsense")
+	if got != TrustClassUnknown {
+		t.Errorf("EffectiveTrustClass(unknown, nonsense) = %q, want unknown fallback", got)
 	}
 }
 
@@ -99,11 +92,5 @@ func TestEffectiveTrustClass_UnknownProvider(t *testing.T) {
 	got := EffectiveTrustClass(Provider(999), "")
 	if got != TrustClassUnknown {
 		t.Errorf("EffectiveTrustClass(unknown, empty) = %q, want %q", got, TrustClassUnknown)
-	}
-}
-
-func TestMiniMaxProviderString(t *testing.T) {
-	if MiniMax.String() != "minimax" {
-		t.Errorf("MiniMax.String() = %q, want minimax", MiniMax.String())
 	}
 }

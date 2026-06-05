@@ -683,7 +683,6 @@ func TestServeHTTP_CodexResponsesCompressionAndHeaders(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = true
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.SlidingWindow = 1
 	cfg.Secrets.Mode = "off"
@@ -767,7 +766,6 @@ func TestServeHTTP_CodexResponsesProxyLayer0CompactsToolOutput(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Secrets.Mode = "off"
@@ -860,7 +858,6 @@ func TestServeHTTP_CodexResponsesProxyLayer0CompactsLocalShellEnvelope(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Secrets.Mode = "off"

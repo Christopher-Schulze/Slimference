@@ -33,17 +33,6 @@ func TestConfigAdapter_GetPrefillSpeed(t *testing.T) {
 	}
 }
 
-func TestProxyAdapter_GetLayer2Status_layer2Cleared(t *testing.T) {
-	cfg := config.Defaults()
-	p := proxy.New(cfg)
-	p.ClearLayer2ForTesting()
-	a := newProxyAdapter(p)
-	st := a.GetLayer2Status()
-	if st.HasCache || st.Compressing || st.QueueDepth != 0 || !st.LastRun.IsZero() {
-		t.Fatalf("got %+v", st)
-	}
-}
-
 func TestSetupLogging_jsonFileAndTextStderr(t *testing.T) {
 	discard := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{}))
 	t.Cleanup(func() { slog.SetDefault(discard) })
@@ -110,23 +99,19 @@ func TestProxyAdapter_smoke(t *testing.T) {
 		t.Fatal("expected anthropic disabled")
 	}
 	a.SetProviderEnabled(types.Anthropic, true)
-	a.SetLayerEnabled(2, false)
-	if a.IsLayerEnabled(2) {
-		t.Fatal("expected layer 2 off")
+	a.SetLayerEnabled(3, false)
+	if a.IsLayerEnabled(3) {
+		t.Fatal("expected layer 3 off")
 	}
 	a.FlushCaches()
 	_ = a.GetAnalytics()
 	_ = a.GetRecentRequests(2)
-	_ = a.GetLayer2Status()
 	_ = a.SessionLogger()
 	_ = a.GetProviderHealth(types.Anthropic)
 	_ = a.GetProviderHealth(types.OpenAI)
 	if a.Config().GetListenPort() != cfg.Proxy.ListenPort {
 		t.Fatal("config adapter")
 	}
-	// GetMiniMaxTrustClass removed in Phase H — TrustClass concept is
-	// deprecated since the 2-surface architecture has no third-party
-	// summarization provider. The config adapter no longer exposes it.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := a.Shutdown(ctx); err != nil {
@@ -345,7 +330,6 @@ func TestApplyTUIFlags(t *testing.T) {
 		cfg.Proxy.ListenPort = 8080
 		cfg.Compression.SlidingWindow = 20
 		cfg.Compression.Layer1Enabled = true
-		cfg.Compression.Layer2Enabled = true
 		cfg.Compression.Layer3Enabled = true
 		cfg.Logging.Level = "info"
 		return cfg
@@ -385,19 +369,7 @@ func TestApplyTUIFlags(t *testing.T) {
 		if cfg.Compression.Layer1Enabled {
 			t.Fatal("expected Layer1Enabled=false")
 		}
-		if !cfg.Compression.Layer2Enabled || !cfg.Compression.Layer3Enabled {
-			t.Fatal("other layers should be unaffected")
-		}
-	})
-
-	t.Run("no_layer2", func(t *testing.T) {
-		t.Parallel()
-		cfg := base()
-		applyTUIFlags(cfg, []string{"--no-layer2"})
-		if cfg.Compression.Layer2Enabled {
-			t.Fatal("expected Layer2Enabled=false")
-		}
-		if !cfg.Compression.Layer1Enabled || !cfg.Compression.Layer3Enabled {
+		if !cfg.Compression.Layer3Enabled {
 			t.Fatal("other layers should be unaffected")
 		}
 	})
@@ -423,12 +395,9 @@ func TestApplyTUIFlags(t *testing.T) {
 	t.Run("combined_flags", func(t *testing.T) {
 		t.Parallel()
 		cfg := base()
-		applyTUIFlags(cfg, []string{"--port", "1234", "--no-layer2", "--log-level", "warn", "--sliding-window", "3"})
+		applyTUIFlags(cfg, []string{"--port", "1234", "--log-level", "warn", "--sliding-window", "3"})
 		if cfg.Proxy.ListenPort != 1234 {
 			t.Fatalf("port = %d, want 1234", cfg.Proxy.ListenPort)
-		}
-		if cfg.Compression.Layer2Enabled {
-			t.Fatal("expected Layer2Enabled=false")
 		}
 		if cfg.Logging.Level != "warn" {
 			t.Fatalf("log level = %q, want warn", cfg.Logging.Level)
@@ -513,7 +482,6 @@ func TestApplyPersistedRuntimeState(t *testing.T) {
 			ClaudeEnabled: false,
 			CodexEnabled:  true,
 			Layer1Enabled: false,
-			Layer2Enabled: true,
 			Layer3Enabled: false,
 		}, nil
 	}

@@ -13,7 +13,6 @@ import (
 	"github.com/slimference/slimference/internal/chunkdedup"
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/contentarchive"
-	"github.com/slimference/slimference/internal/contextledger"
 	"github.com/slimference/slimference/internal/filter"
 	"github.com/slimference/slimference/internal/savingspolicy"
 	"github.com/slimference/slimference/internal/sessions"
@@ -37,7 +36,7 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(unchanged, "", nil)
 	if stats.TokensSaved != 0 || stats.BlocksModified != 0 || stats.ToolResultBlocks != 3 ||
 		stats.CommandResolvedBlocks != 1 || stats.CommandUnresolvedBlocks != 2 ||
-		stats.ToolUseUnresolvedBlocks != 2 || stats.LedgerCommandCapsules != 1 {
+		stats.ToolUseUnresolvedBlocks != 2 {
 		t.Fatalf("unchanged stats mismatch: %+v", stats)
 	}
 
@@ -64,8 +63,7 @@ func TestApplyProxyLayer0Branches(t *testing.T) {
 	_, stats = applyProxyLayer0WithSessionAndToolUsesDetailed(changed, "", nil)
 	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.TokensSaved <= 0 ||
 		stats.BlocksModified != 1 || stats.CapturedOutputBlocks != 1 ||
-		stats.ReadDeltaBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 ||
-		stats.LedgerCommandCapsules != 1 {
+		stats.ReadDeltaBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 {
 		t.Fatalf("captured-output stats mismatch: %+v", stats)
 	}
 }
@@ -183,134 +181,6 @@ func TestProxyResolveToolUseBranches(t *testing.T) {
 	use := types.ContentBlock{ToolName: "shell", ToolInput: `{"command":"pwd"}`}
 	if got := proxyResolveToolUse(types.ContentBlock{ToolUseID: "u1"}, map[string]types.ContentBlock{"u1": use}); got.ToolName != "shell" {
 		t.Fatalf("fallback ToolUseID did not resolve: %#v", got)
-	}
-}
-
-func TestApplyProxyLayer0LedgerObservationKinds(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	readOutput := "Process exited with code 0\nOutput:\n" + strings.Repeat("package proxy\nfunc ledgerObservation() {}\n", 20)
-	messages := []types.Message{
-		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-read", ToolName: "exec_command", ToolInput: `{"cmd":"sed -n '1,20p' internal/proxy/layer0_proxy.go","workdir":"/repo"}`}}},
-		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-read", Text: readOutput}}},
-		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-search", ToolName: "exec_command", ToolInput: `{"cmd":"rg -n TODO .","workdir":"/repo"}`}}},
-		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-search", Text: "Process exited with code 0\nOutput:\na.go:1:TODO\n"}}},
-		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-fail", ToolName: "exec_command", ToolInput: `{"cmd":"go test ./pkg","workdir":"/repo"}`}}},
-		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-fail", Text: "Process exited with code 1\nOutput:\n--- FAIL: TestThing\n"}}},
-	}
-	result := reduceCodexLayer0(codexLayer0Request{
-		Messages:  messages,
-		SessionID: "sess-ledger",
-		TurnID:    "turn-1",
-	})
-	stats := result.Stats
-	if stats.LedgerCommandCapsules != 3 ||
-		stats.LedgerFileCapsules != 1 ||
-		stats.LedgerSearchCapsules != 1 ||
-		stats.LedgerFailureCapsules != 1 {
-		t.Fatalf("ledger counters mismatch: %+v", stats)
-	}
-	if len(stats.LedgerCapsules) != 6 {
-		t.Fatalf("ledger capsule objects mismatch: %+v", stats.LedgerCapsules)
-	}
-	kinds := map[contextledger.CapsuleKind]int{}
-	for _, capsule := range stats.LedgerCapsules {
-		kinds[capsule.Kind]++
-		if capsule.Provenance.SessionID != "sess-ledger" || capsule.Provenance.TurnID != "turn-1" {
-			t.Fatalf("capsule provenance mismatch: %+v", capsule)
-		}
-	}
-	if kinds[contextledger.CapsuleCommand] != 3 ||
-		kinds[contextledger.CapsuleFile] != 1 ||
-		kinds[contextledger.CapsuleSearch] != 1 ||
-		kinds[contextledger.CapsuleFailure] != 1 {
-		t.Fatalf("ledger capsule kind mismatch: %+v", kinds)
-	}
-}
-
-func TestApplyProxyLayer0LedgerSearchRequiresScope(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	messages := []types.Message{
-		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-search", ToolName: "exec_command", ToolInput: `{"cmd":"rg -n TODO ."}`}}},
-		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-search", Text: "Process exited with code 0\nOutput:\na.go:1:TODO\n"}}},
-	}
-	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-ledger", nil)
-	if stats.LedgerCommandCapsules != 1 {
-		t.Fatalf("command capsule should still be counted: %+v", stats)
-	}
-	if stats.LedgerSearchCapsules != 0 {
-		t.Fatalf("implicit-scope search must not become a promotable ledger search capsule: %+v", stats)
-	}
-	if len(stats.LedgerCapsules) != 1 || stats.LedgerCapsules[0].Kind != contextledger.CapsuleCommand {
-		t.Fatalf("implicit-scope search should keep only command capsule object: %+v", stats.LedgerCapsules)
-	}
-}
-
-func TestApplyProxyLayer0LedgerSearchAcceptsCommandScopedSearch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	messages := []types.Message{
-		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-search", ToolName: "exec_command", ToolInput: `{"cmd":"cd /repo/project && rg -n TODO internal"}`}}},
-		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-search", Text: "Process exited with code 0\nOutput:\ninternal/a.go:1:TODO\n"}}},
-	}
-	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-ledger", nil)
-	if stats.LedgerCommandCapsules != 1 {
-		t.Fatalf("command capsule should still be counted: %+v", stats)
-	}
-	if stats.LedgerSearchCapsules != 1 {
-		t.Fatalf("repo-scoped cd search should become ledger search telemetry: %+v", stats)
-	}
-	if len(stats.LedgerCapsules) != 2 || stats.LedgerCapsules[1].Kind != contextledger.CapsuleSearch {
-		t.Fatalf("repo-scoped search should preserve search capsule object: %+v", stats.LedgerCapsules)
-	}
-}
-
-func TestProxyLayer0LedgerSearchKeyAndScope(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name        string
-		commandLine string
-		workdir     string
-		wantScope   string
-		wantKey     bool
-	}{
-		{name: "implicit cwd is not promotable", commandLine: `rg -n TODO internal`},
-		{name: "tool workdir scopes search", commandLine: `rg -n TODO internal`, workdir: "/repo/project", wantScope: "/repo/project", wantKey: true},
-		{name: "leading cd scopes search", commandLine: `cd /repo/project && rg -n TODO internal`, wantScope: "/repo/project/internal", wantKey: true},
-		{name: "git C scopes search", commandLine: `git -C /repo/project grep TODO -- internal`, wantScope: "/repo/project", wantKey: true},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			key, scope := proxyLayer0LedgerSearchKeyAndScope(tc.commandLine, tc.workdir)
-			if tc.wantKey && key == "" {
-				t.Fatalf("expected key for %q", tc.commandLine)
-			}
-			if !tc.wantKey && key != "" {
-				t.Fatalf("unexpected key for %q: %q scope=%q", tc.commandLine, key, scope)
-			}
-			if scope != tc.wantScope {
-				t.Fatalf("scope=%q want %q key=%q", scope, tc.wantScope, key)
-			}
-		})
-	}
-}
-
-func TestApplyProxyLayer0LedgerFileRequiresScope(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	readOutput := "Process exited with code 0\nOutput:\n" + strings.Repeat("package proxy\nfunc ledgerObservation() {}\n", 20)
-	messages := []types.Message{
-		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-read", ToolName: "exec_command", ToolInput: `{"cmd":"sed -n '1,20p' /repo/internal/proxy/layer0_proxy.go"}`}}},
-		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-read", Text: readOutput}}},
-	}
-	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-ledger", nil)
-	if stats.LedgerCommandCapsules != 1 {
-		t.Fatalf("command capsule should still be counted: %+v", stats)
-	}
-	if stats.LedgerFileCapsules != 0 {
-		t.Fatalf("file ledger capsule without explicit scope must full-pass telemetry: %+v", stats)
-	}
-	if len(stats.LedgerCapsules) != 1 || stats.LedgerCapsules[0].Kind != contextledger.CapsuleCommand {
-		t.Fatalf("unscoped read should keep only command capsule object: %+v", stats.LedgerCapsules)
 	}
 }
 
@@ -582,8 +452,7 @@ func TestApplyProxyLayer0WithSessionReadDelta(t *testing.T) {
 	}
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(second, "sess-read", nil)
 	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.ReadDeltaAttempts != 1 ||
-		stats.ReadDeltaMisses != 0 || stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 ||
-		stats.LedgerFileCapsules != 0 {
+		stats.ReadDeltaMisses != 0 || stats.TokensSaved <= 0 || stats.BlocksModified != 1 || stats.ReadDeltaBlocks != 1 {
 		t.Fatalf("read-delta stats mismatch: %+v", stats)
 	}
 	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Action != proxyLayer0CacheHit || stats.CacheEvents[0].Reason != "unchanged" {
@@ -657,8 +526,7 @@ func TestApplyProxyLayer0WithSessionRepeatedNonFileOutput(t *testing.T) {
 	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-output", nil)
 	if stats.ToolResultBlocks != 1 || stats.CommandResolvedBlocks != 1 || stats.TokensSaved <= 0 ||
 		stats.BlocksModified != 1 || stats.RepeatedOutputBlocks != 1 ||
-		stats.ReadDeltaBlocks != 0 || stats.CapturedOutputBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 ||
-		stats.LedgerCommandCapsules != 1 {
+		stats.ReadDeltaBlocks != 0 || stats.CapturedOutputBlocks != 0 || stats.CodexExecEnvelopeBlocks != 0 {
 		t.Fatalf("repeated-output stats mismatch: %+v", stats)
 	}
 	if len(stats.CacheEvents) != 1 || stats.CacheEvents[0].Mechanism != "repeated_output" ||

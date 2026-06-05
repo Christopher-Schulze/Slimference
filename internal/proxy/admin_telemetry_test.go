@@ -80,37 +80,6 @@ func TestAdminStatusSnapshot_NewTelemetryBlocks(t *testing.T) {
 	}
 }
 
-// TestAdminStatusSnapshot_Layer2RedactionWired covers T109 surface:
-// the Redaction block must always be present in the snapshot, mode
-// reflects the configured value, and counters start at zero.
-func TestAdminStatusSnapshot_Layer2RedactionWired(t *testing.T) {
-	t.Parallel()
-	p := New(config.Defaults())
-	snap := p.adminStatusSnapshot()
-	if snap.Layer2.Redaction.Mode == "" {
-		t.Fatalf("expected mode to be set on default config, got empty")
-	}
-	if snap.Layer2.Redaction.Secrets != 0 ||
-		snap.Layer2.Redaction.Paths != 0 ||
-		snap.Layer2.Redaction.Headers != 0 ||
-		snap.Layer2.Redaction.JSONKeys != 0 ||
-		snap.Layer2.Redaction.Inputs != 0 {
-		t.Fatalf("expected zero counters, got %+v", snap.Layer2.Redaction)
-	}
-}
-
-// TestAdminStatusSnapshot_Layer2RedactionNilLayer2 covers the
-// defensive zero-value path when the Layer2 receiver is nil.
-func TestAdminStatusSnapshot_Layer2RedactionNilLayer2(t *testing.T) {
-	t.Parallel()
-	p := New(config.Defaults())
-	p.layer2 = nil
-	snap := p.adminStatusSnapshot()
-	if snap.Layer2.Redaction.Mode != "" {
-		t.Fatalf("expected empty mode for nil layer2, got %q", snap.Layer2.Redaction.Mode)
-	}
-}
-
 func TestBypassExpiresUnix(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())

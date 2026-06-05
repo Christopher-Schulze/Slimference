@@ -5,7 +5,7 @@ Slimference is a local Go proxy and tool-output compressor for coding agents lik
 It reduces token waste in two places:
 
 - Layer 0: before shell output ever enters the conversation
-- Layers 1-3: after conversation history already exists, directly on API requests
+- Layers 1, 3, and 4: deterministic request/cache/output reducers after conversation history already exists
 
 The result is longer working sessions, less repeated context, and better visibility into what is being compressed.
 
@@ -27,7 +27,7 @@ In practice that means:
 
 ## Architecture
 
-Slimference is split into four effective layers:
+Slimference is split into four active product layers:
 
 1. Layer 0: CLI pre-entry filtering
    Shell commands are intercepted through hooks and compacted before their output is added to chat history.
@@ -35,11 +35,13 @@ Slimference is split into four effective layers:
 2. Layer 1: deterministic compression
    Fast synchronous Go transforms like ANSI stripping, JSON compaction, deduplication, structure extraction, delta encoding, repeated tool collapse, and more.
 
-3. Layer 2: MiniMax summarization
-   Older conversation regions can be summarized asynchronously and reused from cache on later requests.
-
-4. Layer 3: response caching
+3. Layer 3: response caching
    Safe requests can be served from cache, and Anthropic prompt-cache breakpoints are optimized where possible.
+
+4. Layer 4: output and tool-surface reduction
+   Safe output directives, repetition controls, and tool-schema pruning reduce avoidable output/tool tokens without replacing conversation memory.
+
+Layer 2 is retired. Slimference does not use an external summarization model, local context ledger replacement, or model-facing summary insertion as a product savings path.
 
 ## Runtime Model
 

@@ -16,7 +16,7 @@ type PipelineMode int
 const (
 	// PipelineFull runs every enabled layer normally.
 	PipelineFull PipelineMode = iota
-	// PipelineConservative skips Layer 1 and Layer 2 - the byte stream is
+	// PipelineConservative skips Layer 1 - the byte stream is
 	// forwarded as-is so we cannot mis-compress a format we do not know.
 	// Layer 3 response cache still applies because it operates on request
 	// hashes, not semantic content.

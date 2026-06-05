@@ -74,9 +74,6 @@ func TestProxy_ToggleBounds(t *testing.T) {
 	if p.IsLayerEnabled(99) {
 		t.Fatal("layer 99 invalid")
 	}
-	if p.GetLayer2Cache() == nil {
-		t.Fatal("layer2 cache")
-	}
 }
 
 func TestProxy_GetAnalyticsFlushCaches(t *testing.T) {
@@ -222,15 +219,6 @@ func TestProxy_getOriginalBody(t *testing.T) {
 	if string(p.getOriginalBody(r)) != string(payload) {
 		t.Fatalf("got %q", p.getOriginalBody(r))
 	}
-}
-
-func TestProxy_runCompressionJob_shortConversationExitsEarly(t *testing.T) {
-	t.Parallel()
-	p := New(config.Defaults())
-	msgs := []types.Message{
-		{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "hi"}}},
-	}
-	p.runCompressionJob(types.CompressJob{Messages: msgs})
 }
 
 func TestProxy_ConfigAndSetTUISendFn(t *testing.T) {
@@ -406,26 +394,12 @@ func TestRecoverMiddleware_panicWithBody(t *testing.T) {
 	// Passthrough to upstream -> 200, or if network fails -> 502. Either way, no panic.
 }
 
-func TestProxy_ClearLayer2ForTesting_CompressQueue_SessionLogger(t *testing.T) {
+func TestProxy_SessionLogger(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
-	// CompressQueue returns the channel
-	if p.CompressQueue() == nil {
-		t.Fatal("CompressQueue nil")
-	}
 	// SessionLogger returns non-nil session logger
 	if p.SessionLogger() == nil {
 		t.Fatal("SessionLogger nil")
-	}
-	// GetLayer2Cache returns non-nil before clear
-	if p.GetLayer2Cache() == nil {
-		t.Fatal("GetLayer2Cache should be non-nil before clear")
-	}
-	// ClearLayer2ForTesting sets layer2 to nil
-	p.ClearLayer2ForTesting()
-	// GetLayer2Cache returns nil after clear (covers the nil branch)
-	if p.GetLayer2Cache() != nil {
-		t.Fatal("GetLayer2Cache should be nil after ClearLayer2ForTesting")
 	}
 }
 

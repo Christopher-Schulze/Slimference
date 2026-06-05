@@ -35,17 +35,15 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	p.outputReduceCounters.RecordStopSeqInjection(4)
 	p.outputReduceCounters.RecordBeTerseInjection(64)
 	p.outputReduceCounters.RecordProxyLayer0Stats(proxyLayer0Stats{
-		TokensSaved:           2000,
-		BlocksModified:        1,
-		RepeatedOutputBlocks:  1,
-		ChunkDedupBlocks:      1,
-		ChunkDedupReferences:  2,
-		ChunkDedupRefBytes:    1024,
-		ChunkDedupInputBytes:  4096,
-		LedgerCommandCapsules: 1,
-		LedgerSearchCapsules:  1,
-		TotalLatencyNs:        1_000_000,
-		ChunkDedupLatencyNs:   250_000,
+		TokensSaved:          2000,
+		BlocksModified:       1,
+		RepeatedOutputBlocks: 1,
+		ChunkDedupBlocks:     1,
+		ChunkDedupReferences: 2,
+		ChunkDedupRefBytes:   1024,
+		ChunkDedupInputBytes: 4096,
+		TotalLatencyNs:       1_000_000,
+		ChunkDedupLatencyNs:  250_000,
 		CacheEvents: []proxyLayer0CacheEvent{
 			{Mechanism: "repeated_output", Action: proxyLayer0CacheMiss, Reason: "first_observation_seeded"},
 		},
@@ -143,9 +141,6 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		got.ProxyLayer0ChunkRefBytes != 1024 ||
 		got.ProxyLayer0ChunkInBytes != 4096 {
 		t.Errorf("ProxyLayer0 chunk density mismatch: %+v", got)
-	}
-	if got.ProxyLayer0LedgerCommand != 1 || got.ProxyLayer0LedgerSearch != 1 {
-		t.Errorf("ProxyLayer0 ledger mismatch: %+v", got)
 	}
 	if len(got.ProxyLayer0Cache) != 1 || got.ProxyLayer0Cache[0].Reason != "first_observation_seeded" {
 		t.Errorf("ProxyLayer0Cache mismatch: %+v", got.ProxyLayer0Cache)

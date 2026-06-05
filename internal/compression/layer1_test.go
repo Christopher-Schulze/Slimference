@@ -37,7 +37,6 @@ func defaultTestCfg(slidingWindow int) *config.CompressionConfig {
 	return &config.CompressionConfig{
 		SlidingWindow:             slidingWindow,
 		MinMessagesForCompression: 1,
-		MinTokensForLayer2:        30000,
 		StructureMinTokens:        500,
 		StructureLanguages:        []string{"go", "typescript", "python"},
 		DedupSimilarityThreshold:  0.85,

@@ -122,7 +122,6 @@ func (m *Model) renderStatsView() string {
 	rows := [][]string{
 		{"Total Input", formatTokens(snap.TotalInputTokens), formatTokens(snap.TotalInputTokens - snap.SavedInputTokens), fmt.Sprintf("%d%%", ratio)},
 		{"Layer 1 (determ)", "-", "-", formatTokens(snap.Layer1Savings)},
-		{"Layer 2 (semantic)", "-", "-", formatTokens(snap.Layer2Savings)},
 		{"Layer 3 (cache)", "-", "-", formatTokens(snap.Layer3Savings)},
 		{"Total Output", formatTokens(snap.TotalOutputTokens), "(passthru)", "-"},
 	}
@@ -245,9 +244,6 @@ func (m *Model) renderStatsView() string {
 	if snap.LatencyOpenAIMs > 0 || snap.PerProvider[types.OpenAI].Messages > 0 {
 		ttft := providerTTFTSaving(snap, types.OpenAI, avgPrefill)
 		latRows = append(latRows, []string{"OpenAI", fmt.Sprintf("%.0fms", snap.LatencyOpenAIMs), fmt.Sprintf("~%.1fs", ttft)})
-	}
-	if snap.MiniMaxAvgLatencyMs > 0 {
-		latRows = append(latRows, []string{"Layer 2 (async)", fmt.Sprintf("%.0fms", snap.MiniMaxAvgLatencyMs), "-"})
 	}
 	if len(latRows) == 0 {
 		appendCard("LATENCY", []string{s.Muted.Render("  No requests yet.")})
@@ -697,7 +693,6 @@ func (m *Model) renderSetupView() string {
 		}
 		_, cfgErr := os.Stat(configPath())
 		checklistLines = append(checklistLines, check("Config file", cfgErr == nil))
-		// Layer 2 API key removed from required checklist (Phase H: not part of 2-surface install).
 		checklistLines = append(checklistLines, check("Codex hook installed", m.hookStatus.Codex))
 		port := m.proxy.Config().GetListenPort()
 		checklistLines = append(checklistLines, check(fmt.Sprintf("Proxy listening on :%d", port), true))
@@ -1004,10 +999,8 @@ func (m *Model) buildLeftPanel(width int) []string {
 	add(" " + s.Muted.Render("○ Claude Code  [OFF]  opt-in later"))
 	add("")
 
-	l2Status := m.proxy.GetLayer2Status()
 	add(" " + s.PanelTitle.Render("BACKGROUND"))
 	add(renderLayerLine(s, 1, "Deterministic", m.layer1Enabled, snap.Layer1Savings, ""))
-	add(renderLayerLine(s, 2, "Semantic", m.layer2Enabled, snap.Layer2Savings, l2Summary(l2Status)))
 	add(renderLayerLine(s, 3, "Cache", m.layer3Enabled, snap.Layer3Savings, fmt.Sprintf("hits: %d/%d", snap.CacheHits, snap.TotalRequests)))
 	add("")
 
@@ -1142,16 +1135,6 @@ func (m *Model) buildRightPanel(width int) []string {
 	}
 
 	return lines
-}
-
-func l2Summary(status Layer2Status) string {
-	if status.Compressing {
-		return "compressing now"
-	}
-	if status.HasCache {
-		return fmt.Sprintf("last: %s · q:%d", formatAgo(status.LastRun), status.QueueDepth)
-	}
-	return "idle"
 }
 
 func renderProductRouteLine(s Styles, product ProductPanel) string {

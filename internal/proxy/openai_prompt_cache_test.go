@@ -13,19 +13,6 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
-func TestEnqueueCompressionJob(t *testing.T) {
-	queue := make(chan types.CompressJob, 1)
-	enqueueCompressionJob(queue, types.CompressJob{SessionID: "first"})
-	if got := <-queue; got.SessionID != "first" {
-		t.Fatalf("first job=%+v", got)
-	}
-	queue <- types.CompressJob{SessionID: "kept"}
-	enqueueCompressionJob(queue, types.CompressJob{SessionID: "dropped"})
-	if got := <-queue; got.SessionID != "kept" {
-		t.Fatalf("full queue should keep original job, got %+v", got)
-	}
-}
-
 func TestInjectOpenAIPromptCache(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Proxy.OpenAIPromptCache.Enabled = true
@@ -319,7 +306,6 @@ func TestServeHTTP_OpenAIPromptCacheInjectionRetryReappliesServerState(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 	cfg.Proxy.ServerStateEnabled = true

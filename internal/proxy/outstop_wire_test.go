@@ -34,7 +34,6 @@ func TestOutstopWiredIntoAnthropicUpstream(t *testing.T) {
 		cfg := config.Defaults()
 		cfg.Upstream.Anthropic.BaseURL = upstream.URL
 		cfg.Compression.Layer1Enabled = false
-		cfg.Compression.Layer2Enabled = false
 		cfg.Compression.OutputReduce.StopSequencesEnabled = true
 		p := New(cfg)
 		req := httptest.NewRequest(http.MethodPost, "/v1/messages",
@@ -81,7 +80,6 @@ func TestOutstopWiredIntoAnthropicUpstream(t *testing.T) {
 		cfg := config.Defaults()
 		cfg.Upstream.Anthropic.BaseURL = upstream.URL
 		cfg.Compression.Layer1Enabled = false
-		cfg.Compression.Layer2Enabled = false
 		cfg.Compression.OutputReduce.StopSequencesEnabled = false
 		p := New(cfg)
 		req := httptest.NewRequest(http.MethodPost, "/v1/messages",
@@ -121,7 +119,6 @@ func TestOutstopWiredIntoOpenAIUpstream(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StopSequencesEnabled = true
 	p := New(cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
@@ -171,7 +168,6 @@ func TestOutstopWireSkipsOpenAIResponsesShape(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StopSequencesEnabled = true
 	p := New(cfg)
 	body := `{"model":"gpt-5","input":"hi"}`
@@ -217,7 +213,6 @@ func TestOutstopWireSkipsCodexResponsesPath(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StopSequencesEnabled = true
 	p := New(cfg)
 	body := `{"model":"gpt-5-codex","input":[{"type":"message","role":"user","content":"hi"}],"stream":true}`
@@ -291,7 +286,6 @@ func TestStreamcutWiredClosesUpstreamOnCommentary(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StreamCutEnabled = true
 	p := New(cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages",
@@ -354,7 +348,6 @@ func TestStreamcutDisabledLetsTailThrough(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StreamCutEnabled = false
 	p := New(cfg)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages",
@@ -395,7 +388,6 @@ func TestRepdetWiredRewritesAnthropicResponse(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.RepetitionDetectionEnabled = true
 	p := New(cfg)
 
@@ -457,7 +449,6 @@ func TestRepdetWiredRewritesOpenAIResponse(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.RepetitionDetectionEnabled = true
 	p := New(cfg)
 
@@ -507,7 +498,6 @@ func TestRepdetDisabledLeavesBodyIntact(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.RepetitionDetectionEnabled = false
 	p := New(cfg)
 	reqBody := map[string]any{

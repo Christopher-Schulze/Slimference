@@ -26,7 +26,6 @@ func (p *Proxy) GetRecentRequests(n int) []types.RequestMetrics {
 func (p *Proxy) FlushCaches() {
 	p.responseCache.Flush()
 	p.layer1.Reset()
-	p.layer2.InvalidateAllSessions()
 	if home, err := os.UserHomeDir(); err == nil {
 		if err := readcache.Clear(readcache.DefaultDir(home)); err != nil {
 			slog.Warn("read cache flush failed", "error", err)

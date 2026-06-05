@@ -8,16 +8,16 @@ import (
 	"testing"
 )
 
-const sampleJSONL = `{"req_id":"r1","ts":"2026-04-18T12:00:00Z","provider":"anthropic","model":"claude","total_messages":10,"messages_in_window":5,"layers_applied":[1,2],"tokens":{"original":1000,"after_layer0":1000,"after_layer1":700,"after_layer2":500,"final":500,"saved":500,"ratio":0.5},"layer1_breakdown":{"dedup":{"blocks":2,"saved":150},"json_compact":{"blocks":1,"saved":100}},"cache_hit":false,"proxy_latency_ms":50}
-{"req_id":"r2","ts":"2026-04-18T12:00:05Z","provider":"openai","model":"gpt-4o","total_messages":6,"messages_in_window":4,"layers_applied":[3],"tokens":{"original":600,"after_layer0":600,"after_layer1":600,"after_layer2":600,"final":600,"saved":0,"ratio":1.0},"layer1_breakdown":{},"cache_hit":true,"proxy_latency_ms":2}
+const sampleJSONL = `{"req_id":"r1","ts":"2026-04-18T12:00:00Z","provider":"anthropic","model":"claude","total_messages":10,"messages_in_window":5,"layers_applied":[1],"tokens":{"original":1000,"after_layer0":1000,"after_layer1":700,"final":500,"saved":500,"ratio":0.5},"layer1_breakdown":{"dedup":{"blocks":2,"saved":150},"json_compact":{"blocks":1,"saved":100}},"cache_hit":false,"proxy_latency_ms":50}
+{"req_id":"r2","ts":"2026-04-18T12:00:05Z","provider":"openai","model":"gpt-4o","total_messages":6,"messages_in_window":4,"layers_applied":[3],"tokens":{"original":600,"after_layer0":600,"after_layer1":600,"final":600,"saved":0,"ratio":1.0},"layer1_breakdown":{},"cache_hit":true,"proxy_latency_ms":2}
 `
 
-const codexJSONL = `{"req_id":"c1","ts":"2026-04-29T12:00:00Z","provider":"codex_chatgpt","model":"codex-cli","codex_route":"/v1/responses","total_messages":8,"messages_in_window":4,"layers_applied":[0,1,3],"tokens":{"original":2000,"after_layer0":1800,"after_layer1":1200,"after_layer2":1200,"final":900,"saved":1100,"ratio":0.45},"layer1_breakdown":{"tool_compressor":{"blocks":2,"saved":500},"json_compact":{"blocks":1,"saved":100}},"cache_hit":true,"cache_read_tokens":300,"cache_create_tokens":120,"proxy_latency_ms":12}
+const codexJSONL = `{"req_id":"c1","ts":"2026-04-29T12:00:00Z","provider":"codex_chatgpt","model":"codex-cli","codex_route":"/v1/responses","total_messages":8,"messages_in_window":4,"layers_applied":[0,1,3],"tokens":{"original":2000,"after_layer0":1800,"after_layer1":1200,"final":900,"saved":1100,"ratio":0.45},"layer1_breakdown":{"tool_compressor":{"blocks":2,"saved":500},"json_compact":{"blocks":1,"saved":100}},"cache_hit":true,"cache_read_tokens":300,"cache_create_tokens":120,"proxy_latency_ms":12}
 `
 
-const plannedJSONL = `{"req_id":"p1","provider":"openai","model":"gpt-5","route_mode":"upstream","layers_applied":[0,1],"tokens":{"original":1000,"after_layer0":900,"after_layer1":700,"after_layer2":700,"final":700,"saved":300},"output_reduce":{"applied":true},"plan":{"provider":"openai","route_mode":"upstream","decisions":[{"layer":"l0","action":"run","reason":"tool","expected_savings_tokens":100,"risk":"low","confidence":"high"},{"layer":"l1","action":"cheap_only","reason":"recent","expected_savings_tokens":40,"risk":"low","confidence":"medium"},{"layer":"l2","action":"run","reason":"long","expected_savings_tokens":300,"risk":"medium","confidence":"low"},{"layer":"l4_output","action":"run","reason":"output","expected_savings_tokens":50,"risk":"medium","confidence":"high"},{"layer":"websocket","action":"bypass","reason":"not_ws","risk":"none","confidence":"high"}]}}` + "\n" +
-	`{"req_id":"p2","provider":"codex_chatgpt","route_mode":"websocket_tunnel","tokens":{"original":100,"after_layer0":100,"after_layer1":100,"after_layer2":100,"final":100,"saved":0},"plan":{"provider":"codex_chatgpt","route_mode":"websocket_tunnel","safety_blocked":true,"decisions":[{"layer":"websocket","action":"tunnel","reason":"operator_disabled","risk":"none","confidence":"high"},{"layer":"","action":"run"},{"layer":"l3","action":"bypass","reason":"small","risk":"none","confidence":"high"}]}}` + "\n" +
-	`{"req_id":"p3","provider":"openai","route_mode":"upstream","cache_hit":true,"cache_read_tokens":5,"previous_response_id_used":true,"tokens":{"original":100,"after_layer0":90,"after_layer1":80,"after_layer2":70,"final":60,"saved":40},"layer2":{"applied":true},"flight":{"route_mode":"upstream","plan":{"provider":"openai","route_mode":"upstream","decisions":[{"layer":"l3","action":"run","reason":"cache","expected_savings_tokens":20,"risk":"low","confidence":"provider_reported"},{"layer":"unknown","action":"run","reason":"unknown","expected_savings_tokens":1,"risk":"medium","confidence":"low"}]}}}` + "\n"
+const plannedJSONL = `{"req_id":"p1","provider":"openai","model":"gpt-5","route_mode":"upstream","layers_applied":[0,1],"tokens":{"original":1000,"after_layer0":900,"after_layer1":700,"final":700,"saved":300},"output_reduce":{"applied":true},"plan":{"provider":"openai","route_mode":"upstream","decisions":[{"layer":"l0","action":"run","reason":"tool","expected_savings_tokens":100,"risk":"low","confidence":"high"},{"layer":"l1","action":"cheap_only","reason":"recent","expected_savings_tokens":40,"risk":"low","confidence":"medium"},{"layer":"l4_output","action":"run","reason":"output","expected_savings_tokens":50,"risk":"medium","confidence":"high"},{"layer":"websocket","action":"bypass","reason":"not_ws","risk":"none","confidence":"high"}]}}` + "\n" +
+	`{"req_id":"p2","provider":"codex_chatgpt","route_mode":"websocket_tunnel","tokens":{"original":100,"after_layer0":100,"after_layer1":100,"final":100,"saved":0},"plan":{"provider":"codex_chatgpt","route_mode":"websocket_tunnel","safety_blocked":true,"decisions":[{"layer":"websocket","action":"tunnel","reason":"operator_disabled","risk":"none","confidence":"high"},{"layer":"","action":"run"},{"layer":"l3","action":"bypass","reason":"small","risk":"none","confidence":"high"}]}}` + "\n" +
+	`{"req_id":"p3","provider":"openai","route_mode":"upstream","cache_hit":true,"cache_read_tokens":5,"previous_response_id_used":true,"tokens":{"original":100,"after_layer0":90,"after_layer1":80,"final":60,"saved":40},"flight":{"route_mode":"upstream","plan":{"provider":"openai","route_mode":"upstream","decisions":[{"layer":"l3","action":"run","reason":"cache","expected_savings_tokens":20,"risk":"low","confidence":"provider_reported"},{"layer":"unknown","action":"run","reason":"unknown","expected_savings_tokens":1,"risk":"medium","confidence":"low"}]}}}` + "\n"
 
 func TestAggregateSessions_HappyPath(t *testing.T) {
 	t.Parallel()
@@ -37,9 +37,6 @@ func TestAggregateSessions_HappyPath(t *testing.T) {
 	if agg.layer1Saved != 300 {
 		t.Fatalf("layer1Saved: %d", agg.layer1Saved)
 	}
-	if agg.layer2Saved != 200 {
-		t.Fatalf("layer2Saved: %d", agg.layer2Saved)
-	}
 	if agg.cacheHits != 1 {
 		t.Fatalf("cacheHits: %d", agg.cacheHits)
 	}
@@ -49,7 +46,7 @@ func TestAggregateSessions_HappyPath(t *testing.T) {
 	if agg.perProvider["anthropic"] != 1 || agg.perProvider["openai"] != 1 {
 		t.Fatalf("perProvider: %+v", agg.perProvider)
 	}
-	if agg.layerCombinations["L1+L2"].Requests != 1 || agg.layerCombinations["L3"].Requests != 1 {
+	if agg.layerCombinations["L1"].Requests != 1 || agg.layerCombinations["L3"].Requests != 1 {
 		t.Fatalf("layer combinations: %+v", agg.layerCombinations)
 	}
 }
@@ -60,8 +57,8 @@ func TestAggregateSessions_CodexFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agg.layer0Saved != 200 || agg.layer1Saved != 600 || agg.layer2Saved != 0 || agg.layer3Saved != 300 {
-		t.Fatalf("layers: l0=%d l1=%d l2=%d l3=%d", agg.layer0Saved, agg.layer1Saved, agg.layer2Saved, agg.layer3Saved)
+	if agg.layer0Saved != 200 || agg.layer1Saved != 600 || agg.layer3Saved != 300 {
+		t.Fatalf("layers: l0=%d l1=%d l3=%d", agg.layer0Saved, agg.layer1Saved, agg.layer3Saved)
 	}
 	if agg.perProvider["codex_chatgpt"] != 1 || agg.perCodexRoute["/v1/responses"] != 1 {
 		t.Fatalf("splits provider=%+v route=%+v", agg.perProvider, agg.perCodexRoute)
@@ -80,28 +77,28 @@ func TestAggregateSessions_PlannedVsActual(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agg.planReplay.RequestsWithPlan != 3 || agg.planReplay.Decisions != 9 {
+	if agg.planReplay.RequestsWithPlan != 3 || agg.planReplay.Decisions != 8 {
 		t.Fatalf("plan replay counts: %+v", agg.planReplay)
 	}
-	if agg.planReplay.ExpectedSavingsTokens != 511 {
+	if agg.planReplay.ExpectedSavingsTokens != 211 {
 		t.Fatalf("expected plan savings=%d", agg.planReplay.ExpectedSavingsTokens)
 	}
-	if agg.planReplay.ExpectedActive != 6 || agg.planReplay.ObservedActive != 4 || agg.planReplay.MissedActive != 2 {
+	if agg.planReplay.ExpectedActive != 5 || agg.planReplay.ObservedActive != 4 || agg.planReplay.MissedActive != 1 {
 		t.Fatalf("active replay: %+v", agg.planReplay)
 	}
 	if agg.planReplay.BypassApplied != 1 || agg.planReplay.SafetyBlocked != 1 {
 		t.Fatalf("bypass/blocked replay: %+v", agg.planReplay)
 	}
-	if agg.planReplay.ActionCounts["run"] != 5 || agg.planReplay.ActionCounts["cheap_only"] != 1 ||
+	if agg.planReplay.ActionCounts["run"] != 4 || agg.planReplay.ActionCounts["cheap_only"] != 1 ||
 		agg.planReplay.ActionCounts["bypass"] != 2 || agg.planReplay.ActionCounts["tunnel"] != 1 {
 		t.Fatalf("action counts: %+v", agg.planReplay.ActionCounts)
 	}
-	if agg.planReplay.RiskCounts["medium"] != 3 || agg.planReplay.RiskCounts["none"] != 3 {
+	if agg.planReplay.RiskCounts["medium"] != 2 || agg.planReplay.RiskCounts["none"] != 3 {
 		t.Fatalf("risk counts: %+v", agg.planReplay.RiskCounts)
 	}
 	cloned := clonePlanReplayAggregate(agg.planReplay)
 	agg.planReplay.ActionCounts["run"] = 999
-	if cloned.ActionCounts["run"] != 5 {
+	if cloned.ActionCounts["run"] != 4 {
 		t.Fatalf("clone aliased action counts: %+v", cloned.ActionCounts)
 	}
 }
@@ -144,7 +141,7 @@ func TestFormatSessionReport_NonEmpty(t *testing.T) {
 	t.Parallel()
 	agg, _ := AggregateSessions(strings.NewReader(sampleJSONL), nil)
 	out := FormatSessionReport(agg)
-	for _, need := range []string{"Requests:", "Original tokens:", "Layer 0 saved:", "Layer 1 saved:", "Layer 3 saved:", "Cache hit rate:", "Layer combination breakdown:", "L1+L2", "anthropic", "openai"} {
+	for _, need := range []string{"Requests:", "Original tokens:", "Layer 0 saved:", "Layer 1 saved:", "Layer 3 saved:", "Cache hit rate:", "Layer combination breakdown:", "L1", "anthropic", "openai"} {
 		if !strings.Contains(out, need) {
 			t.Fatalf("missing %q in report:\n%s", need, out)
 		}
@@ -199,7 +196,7 @@ func TestFormatSessionMarkdown_Nonempty(t *testing.T) {
 	t.Parallel()
 	agg, _ := AggregateSessions(strings.NewReader(sampleJSONL), nil)
 	md := FormatSessionMarkdown(agg)
-	for _, need := range []string{"| Metric | Value |", "| Requests | 2 |", "| Savings ratio |", "| Layer combination | Requests |", "| L1+L2 | 1 |", "| Provider | Requests |"} {
+	for _, need := range []string{"| Metric | Value |", "| Requests | 2 |", "| Savings ratio |", "| Layer combination | Requests |", "| L1 | 1 |", "| Provider | Requests |"} {
 		if !strings.Contains(md, need) {
 			t.Fatalf("missing %q in markdown:\n%s", need, md)
 		}
@@ -221,7 +218,7 @@ func TestFormatSessionMarkdown_PlannerReplay(t *testing.T) {
 	t.Parallel()
 	agg, _ := AggregateSessions(strings.NewReader(plannedJSONL), nil)
 	md := FormatSessionMarkdown(agg)
-	for _, need := range []string{"| Planner requests | 3 |", "| Planner expected savings | 511 |", "| Planner active observed | 4 / 6 |"} {
+	for _, need := range []string{"| Planner requests | 3 |", "| Planner expected savings | 211 |", "| Planner active observed | 4 / 5 |"} {
 		if !strings.Contains(md, need) {
 			t.Fatalf("missing %q in markdown:\n%s", need, md)
 		}
@@ -289,7 +286,7 @@ func TestAggregateSessionsFromPath_CheckedInCodexFixture(t *testing.T) {
 	if agg.perCodexRoute["/v1/responses"] != 1 || agg.perCodexRoute["/backend-api/codex/responses"] != 1 {
 		t.Fatalf("routes=%+v", agg.perCodexRoute)
 	}
-	if agg.layer0Saved == 0 || agg.layer1Saved == 0 || agg.layer2Saved == 0 || agg.layer3Saved == 0 {
-		t.Fatalf("layers l0=%d l1=%d l2=%d l3=%d", agg.layer0Saved, agg.layer1Saved, agg.layer2Saved, agg.layer3Saved)
+	if agg.layer0Saved == 0 || agg.layer1Saved == 0 || agg.layer3Saved == 0 {
+		t.Fatalf("layers l0=%d l1=%d l3=%d", agg.layer0Saved, agg.layer1Saved, agg.layer3Saved)
 	}
 }

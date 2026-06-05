@@ -7,7 +7,6 @@ type Layer string
 const (
 	Layer0         Layer = "l0"
 	Layer1         Layer = "l1"
-	Layer2         Layer = "l2"
 	Layer3         Layer = "l3"
 	Layer4         Layer = "l4_output"
 	LayerWebSocket Layer = "websocket"
@@ -35,9 +34,6 @@ type RequestFacts struct {
 	ContentClasses              []string
 	ManualDisabled              map[Layer]bool
 	RecentEdit                  bool
-	ExternalLayer2Allowed       bool
-	Layer2Acknowledged          bool
-	Layer2ModelFacingAllowed    bool
 	ProviderCacheSupported      bool
 	PreviousResponseIDAvailable bool
 	ToolPruneCooldown           bool
@@ -46,7 +42,6 @@ type RequestFacts struct {
 	WebSocketShapeKnown         bool
 	WebSocketMutationRequested  bool
 	LiveCorpusConfidence        string
-	LatencyBudgetMs             int
 }
 
 type LayerDecision struct {
@@ -76,7 +71,6 @@ func Plan(facts RequestFacts) CompressionPlan {
 	plan.Decisions = append(plan.Decisions,
 		decideL0(normalized),
 		decideL1(normalized),
-		decideL2(normalized),
 		decideL3(normalized),
 		decideL4(normalized),
 		decideWebSocket(normalized),
@@ -98,9 +92,6 @@ func normalizeFacts(facts RequestFacts) RequestFacts {
 	facts.LiveCorpusConfidence = strings.TrimSpace(facts.LiveCorpusConfidence)
 	if facts.LiveCorpusConfidence == "" {
 		facts.LiveCorpusConfidence = "unknown"
-	}
-	if facts.LatencyBudgetMs == 0 {
-		facts.LatencyBudgetMs = 50
 	}
 	return facts
 }
@@ -129,31 +120,6 @@ func decideL1(f RequestFacts) LayerDecision {
 		return decision(Layer1, ActionRun, "large_or_structured_input", f.EstimatedInputTokens/5, "medium", confidenceFromCorpus(f))
 	}
 	return decision(Layer1, ActionCheapOnly, "cheap_passes_only", f.EstimatedInputTokens/25, "low", "high")
-}
-
-func decideL2(f RequestFacts) LayerDecision {
-	if disabled(f, Layer2) {
-		return decision(Layer2, ActionBypass, "operator_disabled", 0, "none", "high")
-	}
-	if !f.ExternalLayer2Allowed || !f.Layer2Acknowledged {
-		return decision(Layer2, ActionBypass, "external_summary_policy_not_ready", 0, "none", "high")
-	}
-	if f.RecentEdit {
-		return decision(Layer2, ActionBypass, "recent_edit_window", 0, "medium", "high")
-	}
-	if isCodexWebSocketRoute(f) && f.EstimatedInputTokens >= 7000 {
-		return decision(Layer2, ActionShadow, "codex_wss_l2_requires_fixture_live_proof", f.EstimatedInputTokens/4, "medium", confidenceFromCorpus(f))
-	}
-	if f.EstimatedInputTokens >= 15000 {
-		if !f.Layer2ModelFacingAllowed {
-			return decision(Layer2, ActionShadow, "context_ledger_shadow_summary_replacement_blocked", f.EstimatedInputTokens/4, "medium", confidenceFromCorpus(f))
-		}
-		return decision(Layer2, ActionRun, "long_context_threshold", f.EstimatedInputTokens/3, "medium", confidenceFromCorpus(f))
-	}
-	if f.EstimatedInputTokens >= 7000 && hasClass(f, "repeated_tool_output") {
-		return decision(Layer2, ActionShadow, "adaptive_roi_candidate", f.EstimatedInputTokens/4, "medium", "medium")
-	}
-	return decision(Layer2, ActionBypass, "below_roi_threshold", 0, "none", "high")
 }
 
 func decideL3(f RequestFacts) LayerDecision {

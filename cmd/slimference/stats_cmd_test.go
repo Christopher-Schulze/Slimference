@@ -168,7 +168,6 @@ func TestPrintStatsTable_smoke(t *testing.T) {
 			SavedInputTokens:  100,
 			TotalOutputTokens: 50,
 			CacheHits:         1,
-			MiniMaxCalls:      2,
 			SecretsRedacted:   0,
 		},
 	})

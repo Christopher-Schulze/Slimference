@@ -72,7 +72,6 @@ func TestLoadSessionReport_snapshotFallback(t *testing.T) {
 			SavedInputTokens:  300,
 			TotalOutputTokens: 90,
 			Layer1Savings:     200,
-			Layer2Savings:     100,
 			CacheHits:         1,
 			PerProvider: map[types.Provider]analytics.ProviderStats{
 				types.Anthropic: {

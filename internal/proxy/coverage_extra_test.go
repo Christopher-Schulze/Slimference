@@ -13,7 +13,6 @@ import (
 
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -83,7 +82,7 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 		fillAnalyticsQueue(p)
 		body := []byte(`{"model":"claude","temperature":0,"messages":[{"role":"user","content":"cache"}]}`)
 		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
-		sessionID := summarization.ExtractSessionID(types.Anthropic, body, req.Header)
+		sessionID := extractSessionID(types.Anthropic, body, req.Header)
 		key := p.responseCache.ComputeRequestKeyWithRoute(types.Anthropic, p.responseCacheEffectiveRouteKey(req, sessionID), body, req.Header)
 		p.responseCache.Set(key, &caching.CacheEntry{
 			Response:    []byte(`{"ok":true}`),
@@ -110,7 +109,6 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 		cfg := config.Defaults()
 		cfg.Upstream.Anthropic.BaseURL = upstream.URL
 		cfg.Compression.Layer1Enabled = false
-		cfg.Compression.Layer2Enabled = false
 		cfg.Compression.Layer3Enabled = false
 		cfg.Secrets.Mode = "redact"
 
@@ -128,7 +126,6 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 		cfg := config.Defaults()
 		cfg.Upstream.Anthropic.BaseURL = "http://127.0.0.1:1"
 		cfg.Compression.Layer1Enabled = false
-		cfg.Compression.Layer2Enabled = false
 		cfg.Compression.Layer3Enabled = false
 		cfg.Secrets.Mode = "off"
 
@@ -139,35 +136,6 @@ func TestServeHTTP_AnalyticsQueueFullBranches(t *testing.T) {
 		p.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadGateway {
 			t.Fatalf("upstream error status = %d body=%s", rec.Code, rec.Body.String())
-		}
-	})
-
-	t.Run("request processed and compress queue full", func(t *testing.T) {
-		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(w, `{"id":"ok","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude","stop_reason":"end_turn"}`)
-		}))
-		defer upstream.Close()
-
-		cfg := config.Defaults()
-		cfg.Upstream.Anthropic.BaseURL = upstream.URL
-		cfg.Compression.Layer1Enabled = false
-		cfg.Compression.Layer2Enabled = true
-		cfg.Compression.Layer3Enabled = false
-		cfg.Compression.MinTokensForLayer2 = 1
-		cfg.Secrets.Mode = "off"
-
-		p := New(cfg)
-		fillAnalyticsQueue(p)
-		for range cap(p.compressQueue) {
-			p.compressQueue <- types.CompressJob{Messages: []types.Message{{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "x"}}}}, Timestamp: time.Now()}
-		}
-		req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(anthropicLongConversationJSON(10)))
-		rec := httptest.NewRecorder()
-		p.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("request processed status = %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 }
@@ -230,15 +198,6 @@ func TestDoUpstreamRequest_ContextDoneAndOverflowAnalyticsQueueFull(t *testing.T
 		if calls != 2 {
 			t.Fatalf("expected overflow retry path, got %d calls", calls)
 		}
-	})
-}
-
-func TestRunCompressionJob_AnalyticsQueueFull(t *testing.T) {
-	p := New(config.Defaults())
-	fillAnalyticsQueue(p)
-	p.runCompressionJob(types.CompressJob{
-		Messages:  []types.Message{{Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "x"}}}},
-		Timestamp: time.Now(),
 	})
 }
 

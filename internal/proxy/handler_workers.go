@@ -11,26 +11,6 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
-func enqueueCompressionJob(queue chan types.CompressJob, job types.CompressJob) {
-	select {
-	case queue <- job:
-	default:
-		// Queue full, compression already in progress - skip.
-	}
-}
-
-func (p *Proxy) enqueueLayer2Compression(sessionID string, messages []types.Message, window int) {
-	job := types.CompressJob{Messages: messages, Timestamp: time.Now(), SessionID: sessionID}
-	if p.layer2 != nil {
-		if inputHash, ok := p.layer2.CompressionCandidateHash(messages, window); ok {
-			p.layer2.MarkCompressionCandidate(sessionID, inputHash)
-			job.InputHash = inputHash
-			job.HasInputHash = true
-		}
-	}
-	enqueueCompressionJob(p.compressQueue, job)
-}
-
 // healthHandler responds to GET /health with full proxy status JSON.
 func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 	resource := p.daemonResourceSnapshot()
@@ -56,7 +36,6 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		Providers         map[string]bool `json:"providers"`
 		QueueDepth        map[string]int  `json:"queue_depth"`
 		CacheEntries      int             `json:"cache_entries"`
-		MiniMaxConfigured bool            `json:"minimax_configured"`
 	}{
 		Status:            "ok",
 		Service:           "slimference",
@@ -76,7 +55,6 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		StateBytes:        stateBytes,
 		Layers: map[string]bool{
 			"1": p.isLayerEnabled(1),
-			"2": p.isLayerEnabled(2),
 			"3": p.isLayerEnabled(3),
 		},
 		Providers: map[string]bool{
@@ -84,51 +62,13 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 			"openai":    p.isProviderEnabled(types.OpenAI),
 		},
 		QueueDepth: map[string]int{
-			"compress":  len(p.compressQueue),
 			"analytics": len(p.analyticsQueue),
 		},
-		CacheEntries:      p.responseCache.Len(),
-		MiniMaxConfigured: false,
+		CacheEntries: p.responseCache.Len(),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(status)
-}
-
-// compressionWorker processes CompressJob items from the queue asynchronously.
-func (p *Proxy) compressionWorker() {
-	defer p.wg.Done()
-	for {
-		select {
-		case <-p.shutdownCh:
-			return
-		default:
-		}
-		select {
-		case <-p.shutdownCh:
-			return
-		case job := <-p.compressQueue:
-			p.runCompressionJob(job)
-		}
-	}
-}
-
-// runCompressionJob executes a full MiniMax summarization cycle.
-func (p *Proxy) runCompressionJob(job types.CompressJob) {
-	if job.HasInputHash && !p.layer2.IsCurrentCompressionCandidate(job.SessionID, job.InputHash) {
-		p.layer2.RecordStaleCompressionJobSkip()
-		return
-	}
-	p.layer2.SetCompressingSession(job.SessionID, true)
-	defer p.layer2.SetCompressingSession(job.SessionID, false)
-
-	slog.Debug("compression job started", "messages", len(job.Messages))
-	p.layer2.RunCompressionJobSession(p.compressionContext(), job.SessionID, job.Messages)
-
-	p.trySendAnalytics(types.AnalyticsEvent{
-		Type:      types.EventCompressionComplete,
-		Timestamp: time.Now(),
-	})
 }
 
 // analyticsWorker reads from analyticsQueue and records events.

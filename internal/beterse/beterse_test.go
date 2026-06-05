@@ -291,7 +291,7 @@ func TestInjectMalformedJSON(t *testing.T) {
 }
 
 func TestInjectUnknownProvider(t *testing.T) {
-	out, res := Inject(types.MiniMax, []byte(`{"x":1}`), "hint")
+	out, res := Inject(types.Provider(99), []byte(`{"x":1}`), "hint")
 	if res.Applied {
 		t.Errorf("unknown provider should be no-op")
 	}

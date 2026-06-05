@@ -30,7 +30,6 @@ func TestStaleReadAgingWiredIntoHandler(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
 	cfg.Compression.OutputReduce.StaleReadAgingMinTurnGap = 2
 	p := New(cfg)
@@ -109,7 +108,6 @@ func TestObsoleteReadPruneWiredIntoHandler(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
 	p := New(cfg)
@@ -179,7 +177,6 @@ func TestObsoleteReadPruneDisabledLeavesMessages(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = false
 	p := New(cfg)
@@ -225,7 +222,6 @@ func TestStaleReadAgingDisabledLeavesMessagesIntact(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = false
 	p := New(cfg)
 

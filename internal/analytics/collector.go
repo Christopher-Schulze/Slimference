@@ -28,7 +28,6 @@ type Analytics struct {
 	SavedInputTokens  int // total original - total compressed
 
 	Layer1Savings int
-	Layer2Savings int
 	Layer3Savings int
 
 	CacheHits   int
@@ -38,8 +37,7 @@ type Analytics struct {
 	PromptCacheCreateTokens int
 	PromptCacheReadRequests int
 
-	SecretsRedacted  int
-	CompressionCalls int // MiniMax API calls
+	SecretsRedacted int
 
 	Errors           int
 	AutoRetries      int // total of RateLimitRetries + OverflowRetries
@@ -47,10 +45,6 @@ type Analytics struct {
 	OverflowRetries  int // retries triggered by context-length overflow errors
 
 	RequestLog *types.RingBuffer[types.RequestMetrics] // cap 100
-
-	MiniMaxCalls        int
-	MiniMaxAvgLatencyMs float64
-	MiniMaxFailures     int
 
 	LatencyAnthropicMs float64 // running average
 	LatencyOpenAIMs    float64 // running average
@@ -88,8 +82,6 @@ func (a *Analytics) Record(event types.AnalyticsEvent) {
 			switch layer {
 			case 1:
 				a.Layer1Savings += saved
-			case 2:
-				a.Layer2Savings += saved
 			case 3:
 				a.Layer3Savings += saved
 			}
@@ -141,13 +133,6 @@ func (a *Analytics) Record(event types.AnalyticsEvent) {
 
 	case types.EventCacheHit:
 		a.CacheHits++
-
-	case types.EventCompressionComplete:
-		a.CompressionCalls++
-		if event.LatencyMs > 0 {
-			a.MiniMaxCalls++
-			a.MiniMaxAvgLatencyMs = updateRunningAvg(a.MiniMaxAvgLatencyMs, event.LatencyMs, a.MiniMaxCalls)
-		}
 
 	case types.EventSecretDetected:
 		a.SecretsRedacted += event.SecretsFound
@@ -233,7 +218,6 @@ func (a *Analytics) Snapshot() AnalyticsSnapshot {
 		TotalOutputTokens:       a.TotalOutputTokens,
 		SavedInputTokens:        a.SavedInputTokens,
 		Layer1Savings:           a.Layer1Savings,
-		Layer2Savings:           a.Layer2Savings,
 		Layer3Savings:           a.Layer3Savings,
 		CacheHits:               a.CacheHits,
 		CacheMisses:             a.CacheMisses,
@@ -241,14 +225,10 @@ func (a *Analytics) Snapshot() AnalyticsSnapshot {
 		PromptCacheCreateTokens: a.PromptCacheCreateTokens,
 		PromptCacheReadRequests: a.PromptCacheReadRequests,
 		SecretsRedacted:         a.SecretsRedacted,
-		CompressionCalls:        a.CompressionCalls,
 		Errors:                  a.Errors,
 		AutoRetries:             a.AutoRetries,
 		RateLimitRetries:        a.RateLimitRetries,
 		OverflowRetries:         a.OverflowRetries,
-		MiniMaxCalls:            a.MiniMaxCalls,
-		MiniMaxAvgLatencyMs:     a.MiniMaxAvgLatencyMs,
-		MiniMaxFailures:         a.MiniMaxFailures,
 		LatencyAnthropicMs:      a.LatencyAnthropicMs,
 		LatencyOpenAIMs:         a.LatencyOpenAIMs,
 		PerProvider:             ps,
@@ -306,7 +286,6 @@ type AnalyticsSnapshot struct {
 	SavedInputTokens  int `json:"saved_input_tokens"`
 
 	Layer1Savings int `json:"layer1_savings"`
-	Layer2Savings int `json:"layer2_savings"`
 	Layer3Savings int `json:"layer3_savings"`
 
 	CacheHits   int `json:"cache_hits"`
@@ -316,17 +295,12 @@ type AnalyticsSnapshot struct {
 	PromptCacheCreateTokens int `json:"prompt_cache_create_tokens"`
 	PromptCacheReadRequests int `json:"prompt_cache_read_requests"`
 
-	SecretsRedacted  int `json:"secrets_redacted"`
-	CompressionCalls int `json:"compression_calls"`
+	SecretsRedacted int `json:"secrets_redacted"`
 
 	Errors           int `json:"errors"`
 	AutoRetries      int `json:"auto_retries"`
 	RateLimitRetries int `json:"rate_limit_retries"`
 	OverflowRetries  int `json:"overflow_retries"`
-
-	MiniMaxCalls        int     `json:"minimax_calls"`
-	MiniMaxAvgLatencyMs float64 `json:"minimax_avg_latency_ms"`
-	MiniMaxFailures     int     `json:"minimax_failures"`
 
 	LatencyAnthropicMs float64 `json:"latency_anthropic_ms"`
 	LatencyOpenAIMs    float64 `json:"latency_openai_ms"`

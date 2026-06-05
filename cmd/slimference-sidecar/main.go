@@ -18,7 +18,7 @@
 // Dependency surface is intentionally minimal: net/http, net/http/httputil,
 // encoding/json, internal/types, internal/proxy/upstream,
 // internal/daemon/hookproto. No imports of internal/compression,
-// internal/summarization, internal/sessions, internal/tui, internal/tlsca
+// internal/sessions, internal/tui, internal/tlsca
 // so the sidecar cannot inherit those packages' crash risks.
 package main
 

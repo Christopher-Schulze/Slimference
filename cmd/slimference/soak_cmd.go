@@ -33,7 +33,6 @@ type SoakReport struct {
 	ErrorRatePct       float64 `json:"error_rate_pct"`
 	OverflowRetries    int     `json:"overflow_retries"`
 	RateLimitRetries   int     `json:"rate_limit_retries"`
-	MiniMaxFailureRate float64 `json:"minimax_failure_rate"`
 	// SafeForT100 / SafeForT103 are the headline verdicts: either the
 	// data point at the trends hard enough to call enabling the flag a
 	// regression risk, or it doesn't.
@@ -97,7 +96,6 @@ func computeSoakReport(logDir, period string, now time.Time) (SoakReport, error)
 	var totalOrig, totalSaved int
 	var totalErr int
 	var promptHits, promptReqs int
-	var mmCalls, mmFails int
 
 	// Collect a per-day prompt-cache hit-rate so we can detect drift.
 	hitRates := make([]float64, 0, days)
@@ -121,8 +119,6 @@ func computeSoakReport(logDir, period string, now time.Time) (SoakReport, error)
 			promptReqs += s.TotalRequests
 			dayHits += s.PromptCacheReadRequests
 			dayReqs += s.TotalRequests
-			mmCalls += s.MiniMaxCalls
-			mmFails += s.MiniMaxFailures
 		}
 		if dayReqs > 0 {
 			hitRates = append(hitRates, float64(dayHits)/float64(dayReqs))
@@ -144,10 +140,6 @@ func computeSoakReport(logDir, period string, now time.Time) (SoakReport, error)
 	if totalReq > 0 {
 		rep.ErrorRatePct = float64(totalErr) / float64(totalReq) * 100
 	}
-	if mmCalls > 0 {
-		rep.MiniMaxFailureRate = float64(mmFails) / float64(mmCalls)
-	}
-
 	// Trend detection: compare the first half of the window against
 	// the second half. >5 pp drop in prompt-cache hit rate is a hint
 	// that compression-config drift hurt the cacheable prefix.
@@ -162,7 +154,6 @@ func computeSoakReport(logDir, period string, now time.Time) (SoakReport, error)
 		rep.SafeForT103 = false
 	} else {
 		rep.SafeForT100 = rep.ErrorRatePct < 1.0 &&
-			rep.MiniMaxFailureRate < 0.05 &&
 			rep.PromptCacheTrend != "regression" &&
 			rep.OverflowRetries == 0
 		rep.SafeForT103 = rep.ErrorRatePct < 1.0 &&
@@ -234,7 +225,6 @@ func formatSoakText(r SoakReport) string {
 	sb.WriteString(fmt.Sprintf("Error rate:                 %.2f %%\n", r.ErrorRatePct))
 	sb.WriteString(fmt.Sprintf("Overflow retries:           %d\n", r.OverflowRetries))
 	sb.WriteString(fmt.Sprintf("Rate-limit retries:         %d\n", r.RateLimitRetries))
-	sb.WriteString(fmt.Sprintf("MiniMax failure rate:       %.2f %%\n", r.MiniMaxFailureRate*100))
 	sb.WriteString(strings.Repeat("-", 60) + "\n")
 	sb.WriteString(fmt.Sprintf("Safe to enable T100 coordinator: %v\n", r.SafeForT100))
 	sb.WriteString(fmt.Sprintf("Safe to enable T103 tool-prune:  %v\n", r.SafeForT103))

@@ -123,8 +123,6 @@ func TestBuildMechanismAccounting(t *testing.T) {
 			Reason:       "metadata",
 		}},
 		Layer1Breakdown: map[string]SubLayerBreakdown{"json_compact": {Blocks: 2, Saved: 80}},
-		Layer2:          Layer2Summary{Applied: true, OriginalTokens: 500, CompressedTokens: 200},
-		ContextLedger:   ContextLedgerSummary{TelemetryOnly: true, CommandCapsules: 2, FileCapsules: 1, ReReadCount: 1, OCRLReason: "route_not_eligible", OCRLShadowSavedTokens: 77},
 		PromptCache:     PromptCacheSummary{Applied: true, Reason: "stable_prefix", StablePrefixTokens: 400},
 		CacheReadTokens: 100,
 		ToolPrune:       ToolPruneSummary{Applied: true, Reason: "unused_tools", SavedTokens: 120, Reattached: 20},
@@ -141,44 +139,14 @@ func TestBuildMechanismAccounting(t *testing.T) {
 	if byName["hook_context"].AddedTokens != 50 || byName["hook_context"].NetTokens != -50 {
 		t.Fatalf("hook context accounting=%+v", byName["hook_context"])
 	}
-	if byName["json_compact"].SavedTokens != 80 || byName["layer2_summarization"].SavedTokens != 300 {
+	if byName["json_compact"].SavedTokens != 80 {
 		t.Fatalf("layer accounting missing: %+v", byName)
-	}
-	if byName["context_ledger_shadow"].Count != 3 ||
-		byName["context_ledger_shadow"].SavedTokens != 77 ||
-		byName["context_ledger_shadow"].NetTokens != 0 ||
-		byName["context_ledger_shadow"].Reason != "ocrl_shadow_route_not_eligible" {
-		t.Fatalf("context ledger accounting missing: %+v", byName["context_ledger_shadow"])
 	}
 	if byName["provider_prompt_cache"].NetTokens != 100 || byName["tool_prune"].NetTokens != 100 {
 		t.Fatalf("cache/tool accounting missing: %+v", byName)
 	}
 	if byName["output_reduce_directive"].NetTokens != -12 || byName["request_total"].NetTokens != 288 {
 		t.Fatalf("overhead/total accounting missing: %+v", byName)
-	}
-}
-
-func TestBuildMechanismAccountingShadowOCRL(t *testing.T) {
-	t.Parallel()
-	got := BuildMechanismAccounting(RequestSummary{
-		ContextLedger: ContextLedgerSummary{
-			CommandCapsules:       1,
-			OCRLReason:            "shadow_only",
-			OCRLCandidateCapsules: 1,
-			OCRLArchiveExpansions: 1,
-			OCRLShadowSavedTokens: 4410,
-			OCRLShadowOnly:        true,
-			TelemetryOnly:         true,
-		},
-	})
-	if len(got) != 1 {
-		t.Fatalf("mechanisms = %+v", got)
-	}
-	if got[0].Name != "context_ledger_shadow" ||
-		got[0].Reason != "ocrl_shadow_shadow_only" ||
-		got[0].SavedTokens != 4410 ||
-		got[0].NetTokens != 0 {
-		t.Fatalf("shadow OCRL mechanism mismatch: %+v", got[0])
 	}
 }
 
@@ -200,7 +168,6 @@ func TestBuildMechanismAccountingEdges(t *testing.T) {
 			TokensAfter:  12,
 			SavedTokens:  -2,
 		}},
-		Layer2:       Layer2Summary{CompressedTokens: 20},
 		PromptCache:  PromptCacheSummary{Reason: "miss"},
 		ToolPrune:    ToolPruneSummary{Reason: "skip"},
 		OutputReduce: OutputReduceSummary{Reason: "skip"},
@@ -212,9 +179,6 @@ func TestBuildMechanismAccountingEdges(t *testing.T) {
 	}
 	if byName["unnamed"].AddedTokens != 2 || byName["unnamed"].NetTokens != -2 {
 		t.Fatalf("unnamed negative entry=%+v", byName["unnamed"])
-	}
-	if byName["layer2_summarization"].SavedTokens != 0 || byName["layer2_summarization"].Count != 0 {
-		t.Fatalf("negative layer2 saving not clamped: %+v", byName["layer2_summarization"])
 	}
 	if byName["provider_prompt_cache"].Count != 0 ||
 		byName["tool_prune"].Count != 0 ||

@@ -7,10 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/summarization"
 )
 
 func TestServeHTTP_zeroDownsideRevertsBeforeForwarding(t *testing.T) {
@@ -33,18 +31,10 @@ func TestServeHTTP_zeroDownsideRevertsBeforeForwarding(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = true
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
-	p.layer2.GetCache().Store(&summarization.CachedSummary{
-		Summary:          strings.Repeat("oversized summary ", 80),
-		CoveredRange:     [2]int{0, 1},
-		OriginalTokens:   10,
-		CompressedTokens: 2000,
-		CreatedAt:        time.Now(),
-	})
 
 	body := `{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"a"},{"role":"assistant","content":"b"},{"role":"user","content":"tail"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))

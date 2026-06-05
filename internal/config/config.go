@@ -83,12 +83,12 @@ type ProxyConfig struct {
 	// HTTPS transport, which lets the existing JSON compression pipeline run.
 	DirectCodexWebSocketPolicy string `toml:"direct_codex_websocket_policy"`
 	// AnthropicVersions lists the `anthropic-version` header values for
-	// which the full Layer 1 / Layer 2 pipeline is trusted. Requests
+	// which the Layer 1 pipeline is trusted. Requests
 	// carrying an unknown version downgrade to conservative mode (T62).
 	// An empty list means "trust everything" for backwards compatibility.
 	AnthropicVersions []string `toml:"anthropic_versions"`
 	// AnthropicUnknownBehavior decides how unknown-version requests are
-	// handled: "conservative" skips L1+L2, "passthrough" runs no
+	// handled: "conservative" skips non-essential reducers, "passthrough" runs no
 	// compression at all, "full" trusts the unknown version. Default
 	// "conservative". Case-insensitive; empty string means default.
 	AnthropicUnknownBehavior string `toml:"anthropic_unknown_behavior"`
@@ -168,58 +168,17 @@ type ProviderUpstream struct {
 	BaseURL string `toml:"base_url"`
 }
 
-// CompressionConfig controls the multi-layer compression pipeline.
+// CompressionConfig controls the deterministic compression pipeline.
 type CompressionConfig struct {
-	Layer1Enabled             bool `toml:"layer1_enabled"`
-	Layer2Enabled             bool `toml:"layer2_enabled"`
-	Layer3Enabled             bool `toml:"layer3_enabled"`
-	SlidingWindow             int  `toml:"sliding_window"`
-	MinMessagesForCompression int  `toml:"min_messages_for_compression"`
-	MinTokensForLayer2        int  `toml:"min_tokens_for_layer2"`
-	// Layer2LatencyBudgetMs (T54) caps the per-request time Slimference is
-	// willing to spend on Layer 2. If the EMA of past MiniMax latencies
-	// multiplied by Layer2LatencyProjectionMultiplier exceeds this budget,
-	// L2 is skipped for the current request even if other preconditions
-	// are met. 0 disables the guard (legacy behaviour). Default 0.
-	Layer2LatencyBudgetMs int `toml:"layer2_latency_budget_ms"`
-	// Layer2LatencyProjectionMultiplier is the safety margin applied to the
-	// EMA when computing the projection. Default 1.2.
-	Layer2LatencyProjectionMultiplier float64 `toml:"layer2_latency_projection_multiplier"`
-	// Layer2LatencyEMAAlpha is the exponential-moving-average weight on
-	// new observations. Default 0.2.
-	Layer2LatencyEMAAlpha    float64            `toml:"layer2_latency_ema_alpha"`
-	StructureMinTokens       int                `toml:"structure_min_tokens"`
-	StructureLanguages       []string           `toml:"structure_languages"`
-	DedupSimilarityThreshold float64            `toml:"dedup_similarity_threshold"`
-	Summary                  SummaryConfig      `toml:"summary"`
-	OCRL                     OCRLConfig         `toml:"ocrl"`
-	OutputReduce             OutputReduceConfig `toml:"output_reduce"`
-	Tuning                   TuningConfig       `toml:"tuning"`
-	// PromptOverridePath (T86) points at a file whose contents replace
-	// the compiled-in MiniMax system prompt header. Empty disables the
-	// override. The file's first non-empty line may carry a
-	// `# version: <tag>` annotation that is recorded in
-	// /admin/status.summarization.active_prompt_version.
-	PromptOverridePath string `toml:"prompt_override_path"`
-}
-
-// OCRLConfig controls the deterministic Old Context Recovery Ledger.
-// OCRL is not a classical summary layer and product runtime is shadow-only:
-// it records archive-backed proof telemetry without replacing model-facing
-// context.
-type OCRLConfig struct {
-	// Mode is one of off, shadow, auto, or max. Shadow computes telemetry only.
-	// Auto and max are still constrained by route eligibility and safety gates;
-	// max cannot override a missing archive, active-context, or route gate.
-	Mode string `toml:"mode"`
-	// MaxCapsules caps selected ledger capsules per OCRL candidate.
-	MaxCapsules int `toml:"max_capsules"`
-	// MinNetSavedTokens is the minimum positive would-save threshold required
-	// before OCRL reports shadow proof telemetry.
-	MinNetSavedTokens int `toml:"min_net_saved_tokens"`
-	// MaxReplacementTokens caps the rendered replacement block. Zero means no
-	// explicit cap beyond positive net savings.
-	MaxReplacementTokens int `toml:"max_replacement_tokens"`
+	Layer1Enabled             bool               `toml:"layer1_enabled"`
+	Layer3Enabled             bool               `toml:"layer3_enabled"`
+	SlidingWindow             int                `toml:"sliding_window"`
+	MinMessagesForCompression int                `toml:"min_messages_for_compression"`
+	StructureMinTokens        int                `toml:"structure_min_tokens"`
+	StructureLanguages        []string           `toml:"structure_languages"`
+	DedupSimilarityThreshold  float64            `toml:"dedup_similarity_threshold"`
+	OutputReduce              OutputReduceConfig `toml:"output_reduce"`
+	Tuning                    TuningConfig       `toml:"tuning"`
 }
 
 // OutputReduceConfig controls Layer 4 output-token reduction through
@@ -333,31 +292,13 @@ type OutputReduceConfig struct {
 }
 
 // TuningConfig centralises behaviour-visible numerical knobs that would
-// otherwise be scattered as literals across compression and summarization
-// hot paths. Every knob has a safe default; overrides live in config.toml
-// under [compression.tuning].
-//
-// Implementation-detail thresholds (e.g. MiniMax bullet-dedup fuzzy Jaccard
-// at 0.70) are intentionally not exposed here - they do not change observable
-// behaviour in a way operators would tune.
+// otherwise be scattered as literals across deterministic compression hot
+// paths. Every knob has a safe default; overrides live in config.toml under
+// [compression.tuning].
 type TuningConfig struct {
-	// IncrementalOverlapThreshold is the fallback fraction of the compressible
-	// range that must already be covered by an existing summary to qualify
-	// for an incremental update instead of a full rebuild. Used whenever the
-	// IncrementalStaircase is empty. Default 0.70.
-	IncrementalOverlapThreshold float64 `toml:"incremental_overlap_threshold"`
-	// IncrementalStaircase is a staircase of thresholds keyed by conversation
-	// size. The first step whose `msg_count_le` is >= the current conversation
-	// length wins. Long conversations pay a proportionally larger cost for
-	// full rebuilds, so a lower threshold is reasonable. If empty, the scalar
-	// IncrementalOverlapThreshold is used uniformly. See T27.
-	IncrementalStaircase []StaircaseStep `toml:"incremental_staircase"`
 	// OverflowSlidingWindow is the aggressive sliding window used when the
 	// upstream reports a context overflow (spec+.md §17.4). Default 2.
 	OverflowSlidingWindow int `toml:"overflow_sliding_window"`
-	// OverflowTargetRatio is the aggressive summary target ratio used during
-	// overflow recover. Default 0.10.
-	OverflowTargetRatio float64 `toml:"overflow_target_ratio"`
 	// StructureInWindow enables Layer 1 structure extraction (signature-only
 	// compression) for tool_result blocks inside the sliding window. Default
 	// false. When enabled, large code blocks older than the most recent
@@ -391,12 +332,6 @@ type TuningConfig struct {
 	// shape-aware preview when strictly shorter. Default false (T74) until
 	// preview recovery is fully reversible via local archive.
 	StructurePreview bool `toml:"structure_preview"`
-	// CoordinatorEnabled (T100) gates the L1/L2 cross-direction
-	// coordinator: when true and Layer 2 is enabled, Layer 1 skips
-	// heavy sub-layers on the prefix that L2 will summarise. Cheap
-	// passes (ANSI strip, JSON compact) always run. Default off until
-	// real-corpus data validates the trade-off.
-	CoordinatorEnabled bool `toml:"coordinator_enabled"`
 	// CoordinatorParallel (T104) opts in to goroutine fan-out across
 	// independent L1 sub-layers. Race-prone when off; off by default
 	// until benchmark evidence shows the sequential pipeline is the
@@ -413,15 +348,6 @@ type TuningConfig struct {
 	// ToolPruneAlwaysKeep extends the built-in always-keep class for
 	// project-specific safety tools. Entries are exact tool names.
 	ToolPruneAlwaysKeep []string `toml:"tool_prune_always_keep"`
-	// MidExchangeEnabled (T99) gates Layer 2 mid-exchange summarization:
-	// when on, long in-flight exchanges exceeding the token threshold
-	// produce an in-progress summary. Default off until a corpus
-	// validates the trade-off.
-	MidExchangeEnabled bool `toml:"mid_exchange_enabled"`
-	// MidExchangeThresholdTokens is the token budget above which an
-	// in-flight exchange is considered for mid-exchange summarization.
-	// Default 10000.
-	MidExchangeThresholdTokens int `toml:"mid_exchange_threshold_tokens"`
 	// StreamingCompressionEnabled (T108) gates the chunked Layer 1
 	// pipeline (ANSI strip / line dedup / repeated-line collapse) for
 	// large bodies. The pipeline lives in
@@ -489,56 +415,10 @@ type StaircaseStep struct {
 	Threshold  float64 `toml:"threshold"`
 }
 
-// SummaryConfig controls quality thresholds for deterministic summarizer outputs.
-//
-// Mode (T36) selects a coherent operating profile on top of which the
-// individual knobs (TargetRatio / MaxRatio / MinRatio / Strict) act as
-// explicit overrides. Precedence: Mode sets the profile first, then any
-// non-zero individual knob overrides its field. This resolves the
-// "correctness vs aggressiveness vs latency" tension documented in
-// docs/gap-analysis.md.
-type SummaryConfig struct {
-	// Mode is one of "strict" | "balanced" | "fast" | "" (backwards-compat:
-	// empty means "respect the individual knobs only"). Env override:
-	// SLIMFERENCE_L2_MODE.
-	Mode        string  `toml:"mode"`
-	TargetRatio float64 `toml:"target_ratio"`
-	MaxRatio    float64 `toml:"max_ratio"`
-	MinRatio    float64 `toml:"min_ratio"`
-	Strict      bool    `toml:"strict"`
-	// RequireDeterministic (T88) gates the FallbackChain on
-	// strict-determinism capabilities. When on, providers whose
-	// capability map does not advertise SupportsTemperatureZero +
-	// SupportsSeed are skipped. Default off so legacy MiniMax-only
-	// chains keep working.
-	RequireDeterministic bool `toml:"require_deterministic"`
-	// OutboundRedaction (T109) controls how aggressively outbound
-	// summarisation input is sanitised before leaving the proxy. One of
-	// "off", "default", "strict". Empty defaults to "default". Under
-	// "strict", tool_input bodies are dropped entirely and an
-	// additional structural JSON sweep runs on tool_result text.
-	OutboundRedaction string `toml:"outbound_redaction"`
-	// OutboundDropToolInputs forces tool_input dropping independently of
-	// the OutboundRedaction mode. Useful for operators that want
-	// default-mode redaction plus the strictest tool_input handling.
-	OutboundDropToolInputs bool `toml:"outbound_drop_tool_inputs"`
-	// MaxAnchorsInlined (T111) caps how many anchor messages are re-injected
-	// verbatim into the compressed output. Excess anchors become one-line
-	// digests. Default 8.
-	MaxAnchorsInlined int `toml:"max_anchors_inlined"`
-	// AllowModelFacingReplacement gates classical Layer 2 summary insertion.
-	// Default false: background/telemetry can exist, but a lossy summary cannot
-	// replace conversation history unless an operator explicitly accepts that
-	// legacy behaviour after proof. Env override:
-	// SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT.
-	AllowModelFacingReplacement bool `toml:"allow_model_facing_replacement"`
-}
-
 // CacheConfig controls response caching behaviour.
 type CacheConfig struct {
-	ResponseCacheMaxEntries       int `toml:"response_cache_max_entries"`
-	ResponseCacheTTLSeconds       int `toml:"response_cache_ttl_seconds"`
-	SummaryRefreshIntervalSeconds int `toml:"summary_refresh_interval_seconds"`
+	ResponseCacheMaxEntries int `toml:"response_cache_max_entries"`
+	ResponseCacheTTLSeconds int `toml:"response_cache_ttl_seconds"`
 }
 
 // ResponseCacheTTL returns the TTL as a duration.
@@ -691,9 +571,9 @@ func Load() (*Config, error) {
 }
 
 // LoadWithOptions is the full-fidelity loader. It applies the precedence
-// chain, runs env overrides, applies the L2 operating mode, and validates
-// the resulting Config. The returned LoadInfo identifies which source was
-// used so callers can surface that to users.
+// chain, runs env overrides, and validates the resulting Config. The returned
+// LoadInfo identifies which source was used so callers can surface that to
+// users.
 func LoadWithOptions(opts LoadOptions) (*Config, LoadInfo, error) {
 	cfg := defaultsRaw()
 	info := ResolveConfigPath(opts)
@@ -709,14 +589,6 @@ func LoadWithOptions(opts LoadOptions) (*Config, LoadInfo, error) {
 	}
 
 	applyEnvOverrides(cfg)
-
-	// T36: apply the selected Layer 2 operating mode. This fills any numeric
-	// summary fields that the TOML or env did not explicitly set, giving the
-	// mode profile the role of "coherent default bundle". Explicit positive
-	// overrides from TOML/env win.
-	if err := ApplyL2OperatingMode(&cfg.Compression.Summary, cfg.Compression.Summary.Mode); err != nil {
-		return nil, info, fmt.Errorf("invalid config: %w", err)
-	}
 
 	if err := validate(cfg); err != nil {
 		return nil, info, fmt.Errorf("invalid config: %w", err)
@@ -779,37 +651,6 @@ func applyEnvOverrides(cfg *Config) {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.Analytics.GainUSDPerMillionTokens = f
 		}
-	}
-	if v := os.Getenv("SLIMFERENCE_L2_MODE"); v != "" {
-		cfg.Compression.Summary.Mode = v
-	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_REQUIRE_DETERMINISTIC")); v != "" {
-		if b, ok := parseEnvBool(v); ok {
-			cfg.Compression.Summary.RequireDeterministic = b
-		}
-	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_OUTBOUND_REDACTION")); v != "" {
-		cfg.Compression.Summary.OutboundRedaction = v
-	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT")); v != "" {
-		if b, ok := parseEnvBool(v); ok {
-			cfg.Compression.Summary.AllowModelFacingReplacement = b
-		}
-	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH")); v != "" {
-		cfg.Compression.PromptOverridePath = v
-	}
-	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OCRL_MODE")); v != "" {
-		cfg.Compression.OCRL.Mode = v
-	}
-	if n, ok := envIntOK("SLIMFERENCE_OCRL_MAX_CAPSULES"); ok && n >= 0 {
-		cfg.Compression.OCRL.MaxCapsules = n
-	}
-	if n, ok := envIntOK("SLIMFERENCE_OCRL_MIN_NET_SAVED_TOKENS"); ok && n >= 0 {
-		cfg.Compression.OCRL.MinNetSavedTokens = n
-	}
-	if n, ok := envIntOK("SLIMFERENCE_OCRL_MAX_REPLACEMENT_TOKENS"); ok && n >= 0 {
-		cfg.Compression.OCRL.MaxReplacementTokens = n
 	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
@@ -955,27 +796,8 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("compression.dedup_similarity_threshold must be 0.0-1.0")
 	}
 	t := cfg.Compression.Tuning
-	if t.IncrementalOverlapThreshold < 0 || t.IncrementalOverlapThreshold > 1 {
-		return fmt.Errorf("compression.tuning.incremental_overlap_threshold must be 0.0-1.0")
-	}
-	prevLE := -1
-	for i, step := range t.IncrementalStaircase {
-		if step.Threshold < 0 || step.Threshold > 1 {
-			return fmt.Errorf("compression.tuning.incremental_staircase[%d].threshold must be 0.0-1.0", i)
-		}
-		if step.MsgCountLE <= 0 {
-			return fmt.Errorf("compression.tuning.incremental_staircase[%d].msg_count_le must be > 0", i)
-		}
-		if step.MsgCountLE <= prevLE {
-			return fmt.Errorf("compression.tuning.incremental_staircase[%d].msg_count_le must be strictly increasing", i)
-		}
-		prevLE = step.MsgCountLE
-	}
 	if t.OverflowSlidingWindow < 1 {
 		return fmt.Errorf("compression.tuning.overflow_sliding_window must be >= 1")
-	}
-	if t.OverflowTargetRatio < 0 || t.OverflowTargetRatio > 1 {
-		return fmt.Errorf("compression.tuning.overflow_target_ratio must be 0.0-1.0")
 	}
 	switch strings.TrimSpace(t.PlannerLiveCorpusConfidence) {
 	case "", "unknown", "low", "medium", "high":
@@ -994,24 +816,6 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Hooks.CodexPostToolMinTokens < 0 {
 		return fmt.Errorf("hooks.codex_posttool_min_tokens must be >= 0, got %d", cfg.Hooks.CodexPostToolMinTokens)
-	}
-	if cfg.Compression.Tuning.MidExchangeThresholdTokens < 0 {
-		return fmt.Errorf("compression.tuning.mid_exchange_threshold_tokens must be >= 0, got %d", cfg.Compression.Tuning.MidExchangeThresholdTokens)
-	}
-	ocrl := cfg.Compression.OCRL
-	switch strings.ToLower(strings.TrimSpace(ocrl.Mode)) {
-	case "", "off", "shadow", "auto", "max":
-	default:
-		return fmt.Errorf("compression.ocrl.mode must be off/shadow/auto/max, got %q", ocrl.Mode)
-	}
-	if ocrl.MaxCapsules < 0 {
-		return fmt.Errorf("compression.ocrl.max_capsules must be >= 0, got %d", ocrl.MaxCapsules)
-	}
-	if ocrl.MinNetSavedTokens < 0 {
-		return fmt.Errorf("compression.ocrl.min_net_saved_tokens must be >= 0, got %d", ocrl.MinNetSavedTokens)
-	}
-	if ocrl.MaxReplacementTokens < 0 {
-		return fmt.Errorf("compression.ocrl.max_replacement_tokens must be >= 0, got %d", ocrl.MaxReplacementTokens)
 	}
 	if cfg.Analytics.GainUSDPerMillionTokens < 0 {
 		return fmt.Errorf("analytics.gain_usd_per_million_tokens must be >= 0, got %v", cfg.Analytics.GainUSDPerMillionTokens)

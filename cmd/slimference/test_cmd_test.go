@@ -195,8 +195,6 @@ func TestTestUpstream_connRefusedExits1(t *testing.T) {
 	}
 }
 
-// TestTestMiniMax_connRefusedExits1 covers testMiniMax error path (main.go:516-519).
-
 // TestHandleTestCmd_configLoadErrorExits1 covers handleTestCmd config load error (main.go:471-474).
 func TestHandleTestCmd_configLoadErrorExits1(t *testing.T) {
 	if os.Getenv("TP_TESTCMD_CFG_BAD") == "1" {

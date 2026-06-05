@@ -16,7 +16,6 @@ func BenchmarkPlan_CodexWSSLargeToolOutput(b *testing.B) {
 		WebSocketShapeKnown:         true,
 		WebSocketMutationRequested:  true,
 		LiveCorpusConfidence:        "medium",
-		LatencyBudgetMs:             25,
 	}
 	b.ReportAllocs()
 	b.ResetTimer()

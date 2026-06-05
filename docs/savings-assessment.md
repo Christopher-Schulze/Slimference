@@ -1,349 +1,113 @@
 # Slimference - Savings Assessment
 
-Date: 2026-04-19
-Scope: complete repository state in `cmd/`, `internal/`, `scripts/`, `tests/`
-Method: live verification against repository-native commands and checked-in fixtures
-
----
+Date: 2026-06-05
+Scope: current product architecture after Layer 2 removal
+Method: repository evidence, checked-in fixtures, and current product safety policy
 
 ## Executive Summary
 
-Slimference already contains the large savings levers. This is not a repo that
-still needs its first serious compression pass. The stack is already built:
+Slimference now has four active product layers:
 
-- Layer 0: pre-entry CLI filtering
+- Layer 0: pre-entry / Codex tool-output reduction
 - Layer 1: deterministic proxy-side compression
-- Layer 2: MiniMax summarization
-- Layer 3: response caching with Stage A and Stage B lookup
+- Layer 3: response and provider-cache leverage
+- Layer 4: output and tool-surface reduction
 
-The practical question is no longer "is there any savings in here?" but:
+Layer 2 is retired. Slimference does not use MiniMax, another external model, a
+local LLM, OCRL, or context-ledger insertion as a product savings path. That
+choice is intentional: replacing old context with any summary can remove details
+and create model-quality drawdown. The remaining product stack saves tokens by
+removing repeated, noisy, structurally redundant, or recoverably archived tool
+output, not by asking the model to reason from a lossy memory replacement.
 
-1. how much is already proven
-2. how much additional savings is still realistically available
-3. which remaining work would move the number materially
+## Current Product Layers
 
-Bottom line:
-
-- Proven from checked-in session fixture: `40.67%` token savings end-to-end
-- Documented and architecturally plausible in real coding sessions: `50-80%`
-- With stable prompt-cache prefixes and repeat traffic: effective savings can
-  climb much higher on cached prefixes
-- Remaining unproven upside in the current codebase is likely incremental, not
-  a second step-function: roughly `5-15%` relative improvement from here, not
-  another fresh `50%`
-
----
-
-## Hard Evidence
-
-### Repository proof state
-
-The repository is in a strong enough state that savings analysis is worth
-taking seriously:
-
-- `go test ./...` green
-- `go test -race ./...` green
-- `go test -count=1 -cover ./cmd/... ./internal/...` green at `100.0%`
-- `go run ./scripts/ci` green
-- `bun test tests/ts` green
-
-This matters because the savings claims are backed by executable code paths, not
-just whiteboard intent.
-
-### Checked-in measured fixture
-
-Using the built-in reporting path:
-
-```bash
-go run ./scripts/benchmarks session-report tests/fixtures/sample_session.jsonl
-```
-
-Measured result:
-
-| Metric | Value |
-| --- | --- |
-| Requests | 3 |
-| Original tokens | 8150 |
-| Final tokens | 4835 |
-| Saved tokens | 3315 |
-| Savings ratio | 40.67% |
-| Layer 1 saved | 2055 |
-| Layer 2 saved | 1260 |
-| Cache hits | 0 |
-
-Interpretation:
-
-- Even without any cache hit, the checked-in fixture shows material savings
-- Layer 1 contributes the majority share in the sample
-- Layer 2 adds another meaningful chunk instead of being cosmetic
-
-### Integration proof
-
-The integration test suite includes a real proxy-path check that verifies a
-large 15-message conversation reaches the upstream with a shorter body than the
-original request. That is weaker than a large benchmark corpus, but stronger
-than unit-only evidence.
-
-### Codex smoke corpus (synthetic, not a savings claim)
-
-The Codex reporting path has a checked-in smoke corpus:
-
-```bash
-go run ./scripts/benchmarks session-report tests/fixtures/codex
-go run ./scripts/benchmarks codex-smoke-gate tests/fixtures/codex
-```
-
-What it does prove:
-
-- the reporting harness aggregates a Codex directory
-- provider split, Codex route split, and Layer 0/1/2/3 attribution work for
-  `codex_chatgpt`
-- a regression-gate baseline declared in
-  `tests/fixtures/codex/codex-metadata.json` is enforced as part of
-  `go run ./scripts/ci`, so the path stays executable
-
-What it explicitly does not prove:
-
-- median real-Codex savings
-- distribution across short / medium / long Codex sessions
-- per-layer or per-route savings on real Codex traffic
-
-The `57.14%` saved tokens, the `Layer 0/1/2/3` split, and the cache-hit ratio
-shown by the smoke corpus are properties of the synthetic fixture. They are
-useful to keep the reporting path honest, not to make Codex savings claims.
-
-A real corpus still requires 10-20 scrubbed live Codex sessions, which cannot
-be captured until live-wiring the operator's Codex install is explicitly
-allowed.
-
----
-
-## Where The Savings Come From
-
-### 1. Layer 0 is the highest-leverage structural win
-
-Layer 0 is fundamentally different from the proxy layers because it prevents
-junk from entering history at all. Once a tool result is compacted before the
-agent sees it, every later request becomes cheaper too.
-
-This is the most economically important design choice in the repo.
-
-Strongest Layer-0 contributors in practice:
-
-- build/test/lint output collapse
-- git output compaction
-- search result limiting
-- JSON minification
-- file-read comment stripping
-
-### 2. Layer 1 is already broad and materially effective
-
-Layer 1 is not one trick. It is a stacked deterministic pipeline:
-
-- ANSI strip
-- JSON compact
-- comment strip
-- exact and near dedup
-- structure extraction
-- delta encoding
-- tool-aware compaction
-- repeated-call collapse
-- graph pruning
-- prompt-cache optimization support
-
-The checked-in fixture suggests the biggest concrete contributors are currently:
-
-- dedup
-- json_compact
-- ansi_strip
-
-That is a healthy sign. Those are low-risk, high-repeat mechanisms.
-
-### 3. Layer 2 is a multiplier, not the foundation
-
-Layer 2 matters, but it matters most after Layer 0 and Layer 1 remove noise.
-That is the right architecture. MiniMax should compress information-dense
-history, not raw terminal spam.
-
-The repo already implements:
-
-- sliding-window-based summary targeting
-- validation
-- operating modes
-- incremental overlap thresholding
-- repetition hints
-
-This means L2 is already in the "refinement and proof" phase, not in the
-"feature missing" phase.
-
-### 4. Layer 3 can create extreme effective savings
-
-When the same effective request reappears, Layer 3 skips work entirely. The
-repo now also performs Stage A lookup before compression, which means repeated
-identical original requests can skip the L1/L2 path as well.
-
-This is where effective savings can become dramatic, but only when traffic has
-real repetition.
-
----
+| Layer | Role | Deterministic | Product drawdown profile | Main savings source |
+| --- | --- | --- | --- | --- |
+| Layer 0 | Pre-entry and WSS/Codex tool-output reducers | Yes | Fail-open and proof-gated for recoverable refs | read/ranged-read/search/git/test/log/repeated/chunk outputs |
+| Layer 1 | Deterministic compression of safe conversation/tool prefix content | Yes | Safe tiers only in default product path; archive-backed where needed | ANSI/JSON/dedup/delta/structure/repeated collapse |
+| Layer 3 | Response cache and provider-cache accounting/hints | Yes | No model-content loss when keyed correctly | repeated effective requests and reusable stable prefixes |
+| Layer 4 | Output discipline and tool-schema pruning | Rule-based deterministic | Safe profile only for default product path | shorter assistant output and smaller tool surface |
 
 ## Realistic Savings Range
 
-### Already defensible today
+The current stack is workload-dependent. The strongest savings appear when the
+agent repeats expensive tool surfaces: reads, searches, git status/diff, tests,
+logs, and long command outputs.
 
-Without inventing numbers, the current repo state supports this range:
+| Workload | Realistic product savings |
+| --- | --- |
+| Tool-heavy Codex coding with repeated reads/searches/tests | 30-60% |
+| Very repeat-heavy sessions with proven readcache/chunk/cache hits | 60-80%+ |
+| Mixed coding and chat with moderate tools | 15-40% |
+| Linear greenfield/chat with little repeated tool output | 5-20% |
 
-- conservative mixed usage: `35-55%`
-- normal coding workflows with noisy tools: `50-70%`
-- tool-heavy sessions with repeated builds/tests/searches: `60-80%`
+These ranges must not be marketed as universal. They are valid as engineering
+expectations, not as release claims, until backed by the live-corpus gates.
 
-Why this range is defensible:
+## Proven vs Unproven
 
-- checked-in fixture already proves `40.67%`
-- architecture is designed to amplify repeated tool-output patterns
-- Layer 0 and Layer 1 are broad, deterministic, and cheap
-- prompt-cache and response-cache paths create large upside when sessions are stable
+What is proven by the repository:
 
-### Where the "extreme" numbers come from
+- Layer 0 and Layer 1 reducers are deterministic and covered by focused tests.
+- WSS/Codex reducer paths have checked-in proof fixtures for repeated reads,
+  ranged reads, search loops, git status, large tool output, output-reduce, and
+  related live-corpus categories.
+- The benchmark and release-proof scripts fail closed on missing metadata,
+  missed validators, safety counters, and weak promotion evidence.
+- Go source no longer contains the retired Layer 2 implementation.
 
-The repo documentation's very high stack-level examples only become believable
-when all of these are true:
+What still requires live/product proof:
 
-- hooks are actually installed and used
-- the session is tool-heavy
-- old prefixes stabilize
-- Anthropic prompt caching gets long reusable prefixes
-- Layer 3 sees repeated effective requests
+- Final median savings across a broad live Codex Desktop and CLI workday corpus.
+- Host resource proof on target machines under real traffic.
+- Provider-cache economics over long sessions.
+- The exact contribution split between Layer 0, Layer 1, Layer 3, and Layer 4 on
+  representative real work.
 
-That is possible, but it is workload-dependent. It is not the baseline number
-to market without a real corpus report.
+## Where Savings Come From
 
----
+### Layer 0
 
-## Remaining Savings Potential
+Layer 0 is the largest safe lever because it prevents redundant tool output from
+entering model-visible history at all. Repeat reads, ranged reads, search
+grouping/delta, exact repeated output dedup, and recoverable chunk dedup are the
+economic center of the product.
 
-### My estimate
+### Layer 1
 
-The current codebase likely still has roughly `5-15%` relative additional
-savings available before diminishing returns dominate.
+Layer 1 is the broad base layer. It removes deterministic waste such as ANSI
+noise, JSON whitespace, repeated blocks, old structural detail, duplicate tool
+results, and stable path repetition. It is not allowed to replace old context
+with a semantic paraphrase.
 
-I do **not** think there is another untouched `30-50%` sitting in the repo.
-The large levers are already present.
+### Layer 3
 
-### Why the remaining upside is limited
+Layer 3 pays when effective requests or stable prefixes repeat. It is highly
+valuable when it hits and close to irrelevant when traffic is unique. Claims
+must therefore be reported separately from local reducer savings.
 
-- most obvious compaction surfaces are already implemented
-- L1 already covers many high-frequency tool families
-- L2 already has modes, validation, and incremental behavior
-- L3 already does pre-compress and post-compress lookup
-- the codebase is heavily tested, which usually means fewer giant blind spots
+### Layer 4
 
-### What still looks unproven rather than absent
-
-The main gap is evidence quality, not necessarily missing compression logic:
-
-- no checked-in 100-session benchmark corpus
-- checked-in `docs/benchmarks.md` exists now, but it is still fixture-scale evidence rather than a large real-session corpus
-- Codex has a synthetic smoke corpus, route-aware reporting, a metadata schema
-  (`tests/fixtures/codex/codex-metadata.json`) and a CI-enforced regression
-  gate (`scripts/benchmarks codex-smoke-gate`), but not yet the required real
-  scrubbed 10-20 session corpus
-- no clear distribution view across short / medium / long sessions
-- no hard public split between savings from L0, L1, L2, L3 across a real corpus
-
-That means the repo may already be strong, but it cannot yet prove the strong
-claims at production-marketing level. The smoke corpus is a regression
-backstop, not a savings claim.
-
----
-
-## Top 3 Next Levers
-
-### 1. Build the real benchmark corpus and evidence document
-
-Priority: highest
-
-Reason:
-
-- This is the biggest gap between product claim and proof
-- It converts "sounds plausible" into "measured on N real sessions"
-- It will likely reveal which sub-layers actually pay for themselves
-
-Expected benefit:
-
-- not direct token savings by itself
-- very high decision-value
-- likely exposes the next real `5-10%` because it will show where the remaining noise still is
-
-### 2. Push harder on repeated-tool and delta-style compression
-
-Priority: high
-
-Reason:
-
-- repeated build/test/search/edit cycles are the natural shape of coding sessions
-- this repo already has `repeated_collapse`, file-version delta tracking, tool
-  keys, graph pruning, and staircase logic
-- that means the next real gains are likely in tightening these repeat-aware paths,
-  not inventing a brand-new layer
-
-Expected benefit:
-
-- meaningful on refactor/debug loops
-- likely one of the few remaining areas with real headroom
-
-### 3. Expand proof and observability around cache effectiveness
-
-Priority: high
-
-Reason:
-
-- prompt-cache and response-cache can dwarf other savings when they hit
-- today the code surfaces pieces of this, but the repo still lacks a single
-  canonical benchmark report that shows how often cache paths truly fire
-- without that, it is hard to know whether the most powerful economic lever is
-  merely implemented or actually delivering
-
-Expected benefit:
-
-- may not change logic much
-- can reveal whether cache hit-rate is the next biggest improvement frontier
-
----
-
-## Critical Caveats
-
-### 1. Current fixture evidence is real but too small
-
-The checked-in fixture proves the pipeline works. It does not prove the median
-real-world session.
-
-### 2. Micro-benchmarks are not the same as savings benchmarks
-
-The repo's Go benchmarks show the hot path is cheap. That is good. But those
-benchmarks are not the same as end-to-end token-economics proof.
-
-### 3. There is still minor documentation drift
-
-One concrete example: `docs/documentation.md` still says "Go 1.24 or later"
-while `go.mod` requires `go 1.25.0`.
-
-This does not change savings, but it matters for trust in surrounding claims.
-
----
+Layer 4 trims output and tool-definition overhead. Its default-safe value is
+smaller than Layer 0, but it is cheap, local, and useful on tool-heavy sessions.
+Aggressive output shaping remains proof-gated because model behavior must not
+be degraded.
 
 ## Final Judgment
 
-Slimference looks like a repo where the **architecture for savings is already
-substantially complete**.
+The product direction is correct after Layer 2 removal. The max-savings path
+without model-quality drawdown is not summarization. It is aggressive,
+deterministic, recoverable handling of tool output plus cache leverage.
 
-My direct answer to "wie viel Ersparnis ist drin?" is:
+Current honest position:
 
-- already proven: about `40%+`
-- realistically defensible in actual use: about `50-80%`
-- in ideal repeated/cached workflows: potentially much more on effective cost
-- additional upside still left in the current codebase: probably `5-15%` relative, if the next work is chosen well
+- implementation direction: strong
+- product drawdown posture: strong for active default-safe layers
+- savings potential: high on real coding workflows, low on non-repetitive chat
+- final release proof: still depends on clean live-corpus, resource, and cache
+  evidence
 
-The next smartest move is not blind feature expansion. It is building the hard
-benchmark corpus and then optimizing only the parts that that corpus shows are
-still leaking tokens.
+The next work should stay focused on measured Layer 0/WSS, Layer 1 safety tiers,
+Layer 3 cache proof, Layer 4 output/tool-surface proof, and release-corpus
+coverage. Do not resurrect a model-facing Layer 2 summary path.

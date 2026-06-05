@@ -27,7 +27,6 @@ func TestServeHTTP_tokenizerSelfCalibrates(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
@@ -48,7 +47,7 @@ func TestServeHTTP_tokenizerSelfCalibrates(t *testing.T) {
 
 // TestServeHTTP_stageACacheHitSkipsCompressionPipeline verifies the T20
 // two-stage cache: the second identical request resolves via the Stage A
-// pointer and does not run Layer 1 or Layer 2 at all.
+// pointer and does not run the compression pipeline at all.
 func TestServeHTTP_stageACacheHitSkipsCompressionPipeline(t *testing.T) {
 	t.Parallel()
 
@@ -65,7 +64,6 @@ func TestServeHTTP_stageACacheHitSkipsCompressionPipeline(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = true
-	cfg.Compression.Layer2Enabled = true
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 

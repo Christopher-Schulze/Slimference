@@ -7,7 +7,6 @@ type KeyMap struct {
 	ToggleClaude key.Binding
 	ToggleCodex  key.Binding
 	ToggleLayer1 key.Binding
-	ToggleLayer2 key.Binding
 	ToggleLayer3 key.Binding
 	PrevView     key.Binding
 	NextView     key.Binding
@@ -35,10 +34,6 @@ func DefaultKeyMap() KeyMap {
 		ToggleLayer1: key.NewBinding(
 			key.WithKeys("1"),
 			key.WithHelp("1", "toggle Layer 1"),
-		),
-		ToggleLayer2: key.NewBinding(
-			key.WithKeys("2"),
-			key.WithHelp("2", "toggle Layer 2"),
 		),
 		ToggleLayer3: key.NewBinding(
 			key.WithKeys("3"),
@@ -89,7 +84,7 @@ func DefaultKeyMap() KeyMap {
 
 // footerHelp returns the compact help string shown in the footer.
 func (km KeyMap) footerHelp() string {
-	return "[←/→] views  [↑/↓] move  [enter] execute  [c/x] providers  [1-3] layers  [f] flush  [b] bypass  [q] quit"
+	return "[←/→] views  [↑/↓] move  [enter] execute  [c/x] providers  [1/3] layers  [f] flush  [b] bypass  [q] quit"
 }
 
 // bindingSpec names a binding and references the KeyMap field.
@@ -114,7 +109,6 @@ func (km KeyMap) orderedBindings() []bindingSpec {
 		{"Providers", km.ToggleClaude},
 		{"Providers", km.ToggleCodex},
 		{"Layers", km.ToggleLayer1},
-		{"Layers", km.ToggleLayer2},
 		{"Layers", km.ToggleLayer3},
 		{"Actions", km.FlushCaches},
 		{"Actions", km.ToggleBypass},

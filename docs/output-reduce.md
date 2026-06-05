@@ -82,7 +82,7 @@ slimference gain --output [today|week|month|all] [--json|--csv]
 ```
 
 The command edits the resolved config file using the same config update path as
-Layer 2 toggles. `gain --output` reads persisted analytics JSONL and reports
+active layer toggles. `gain --output` reads persisted analytics JSONL and reports
 applied/skipped requests, directive input overhead, observed output tokens, and
 profile/task-shape/reason breakdowns.
 

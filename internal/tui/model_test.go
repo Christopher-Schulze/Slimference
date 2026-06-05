@@ -20,13 +20,11 @@ type mockProxy struct {
 	claudeEnabled  bool
 	codexEnabled   bool
 	layer1Enabled  bool
-	layer2Enabled  bool
 	layer3Enabled  bool
 	snap           analytics.AnalyticsSnapshot
 	recentReqs     []types.RequestMetrics
 	recentFlights  []dbg.FlightRequestSummary
 	layer0Status   Layer0Status
-	l2Status       Layer2Status
 	readStatus     ReadCacheStatus
 	qualityStatus  QualityStatus
 	productStatus  ProductStatus
@@ -65,7 +63,6 @@ func newMockProxy() *mockProxy {
 		claudeEnabled: true,
 		codexEnabled:  true,
 		layer1Enabled: true,
-		layer2Enabled: true,
 		layer3Enabled: true,
 		sessionLogger: sessions.NewSessionLogger(),
 		listenPort:    8990,
@@ -88,8 +85,6 @@ func (m *mockProxy) SetLayerEnabled(layer int, enabled bool) {
 	switch layer {
 	case 1:
 		m.layer1Enabled = enabled
-	case 2:
-		m.layer2Enabled = enabled
 	case 3:
 		m.layer3Enabled = enabled
 	}
@@ -106,8 +101,6 @@ func (m *mockProxy) IsLayerEnabled(layer int) bool {
 	switch layer {
 	case 1:
 		return m.layer1Enabled
-	case 2:
-		return m.layer2Enabled
 	case 3:
 		return m.layer3Enabled
 	}
@@ -127,7 +120,6 @@ func (m *mockProxy) GetRecentFlights(n int) []dbg.FlightRequestSummary {
 	return append([]dbg.FlightRequestSummary(nil), m.recentFlights[start:]...)
 }
 func (m *mockProxy) GetLayer0Status() Layer0Status { return m.layer0Status }
-func (m *mockProxy) GetLayer2Status() Layer2Status { return m.l2Status }
 func (m *mockProxy) GetReadCacheStatus() ReadCacheStatus {
 	return m.readStatus
 }
@@ -334,9 +326,6 @@ func TestNewModel_Defaults(t *testing.T) {
 	if !m.layer1Enabled {
 		t.Error("layer1Enabled should be true by default")
 	}
-	if !m.layer2Enabled {
-		t.Error("layer2Enabled should be true by default")
-	}
 	if !m.layer3Enabled {
 		t.Error("layer3Enabled should be true by default")
 	}
@@ -419,9 +408,8 @@ func TestUpdate_ToggleLayers(t *testing.T) {
 		model := updated.(Model)
 		m = model
 	}
-
-	if p.layer1Enabled || p.layer2Enabled || p.layer3Enabled {
-		t.Error("all layers should be off after toggling 1, 2, 3")
+	if p.layer1Enabled || p.layer3Enabled {
+		t.Error("layers 1 and 3 should be off after toggling")
 	}
 }
 
@@ -1000,7 +988,6 @@ func TestView_MainRender_WithData(t *testing.T) {
 		SavedInputTokens: 60000,
 		CompressionRatio: 0.6,
 		Layer1Savings:    30000,
-		Layer2Savings:    20000,
 		Layer3Savings:    10000,
 		CacheHits:        3,
 		SecretsRedacted:  2,
@@ -1120,40 +1107,6 @@ func TestView_MainRender_FlashMessage(t *testing.T) {
 	}
 }
 
-// TestView_MainRender_L2Compressing verifies the L2 "compressing..." branch.
-func TestView_MainRender_L2Compressing(t *testing.T) {
-	t.Parallel()
-	p := newMockProxy()
-	p.l2Status = Layer2Status{Compressing: true}
-	m := NewModel(p)
-	m.width = 100
-	m.height = 30
-
-	output := m.View()
-	if output == "" {
-		t.Error("View() returned empty string with L2 compressing status")
-	}
-}
-
-// TestView_MainRender_L2HasCache verifies the L2 HasCache branch in renderMainView.
-func TestView_MainRender_L2HasCache(t *testing.T) {
-	t.Parallel()
-	p := newMockProxy()
-	p.l2Status = Layer2Status{
-		HasCache:   true,
-		LastRun:    time.Now().Add(-30 * time.Second),
-		QueueDepth: 3,
-	}
-	m := NewModel(p)
-	m.width = 100
-	m.height = 30
-
-	output := m.View()
-	if output == "" {
-		t.Error("View() returned empty string with L2 HasCache status")
-	}
-}
-
 // TestView_MainRender_NarrowHeaderPad verifies the headerPad < 1 clamping branch.
 // With a very old sessionStart (1000+ hours) and narrow width=40, headerPad goes negative.
 func TestView_MainRender_NarrowHeaderPad(t *testing.T) {
@@ -1176,21 +1129,17 @@ func TestView_StatsRender_WithData(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	p.snap = analytics.AnalyticsSnapshot{
-		SessionStart:        time.Now(),
-		TotalRequests:       20,
-		TotalInputTokens:    200000,
-		SavedInputTokens:    120000,
-		TotalOutputTokens:   50000,
-		Layer1Savings:       60000,
-		Layer2Savings:       40000,
-		Layer3Savings:       20000,
-		CacheHits:           5,
-		SecretsRedacted:     3,
-		AutoRetries:         2,
-		MiniMaxCalls:        10,
-		MiniMaxAvgLatencyMs: 1500,
-		MiniMaxFailures:     1,
-		Errors:              0,
+		SessionStart:      time.Now(),
+		TotalRequests:     20,
+		TotalInputTokens:  200000,
+		SavedInputTokens:  120000,
+		TotalOutputTokens: 50000,
+		Layer1Savings:     60000,
+		Layer3Savings:     20000,
+		CacheHits:         5,
+		SecretsRedacted:   3,
+		AutoRetries:       2,
+		Errors:            0,
 		PerProvider: map[types.Provider]analytics.ProviderStats{
 			types.Anthropic: {
 				Messages:         12,

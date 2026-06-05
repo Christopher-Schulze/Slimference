@@ -26,13 +26,10 @@ func TestPlanInspect_TextAndJSON(t *testing.T) {
 			"--route", "websocket_tunnel",
 			"--input-tokens", "9000",
 			"--output-tokens", "500",
-			"--latency-budget-ms", "25",
 			"--task-shape", "code_edit",
 			"--class", "tool_output",
 			"--disable", "l0,4,ws",
 			"--recent-edit",
-			"--no-l2-policy",
-			"--no-l2-ack",
 			"--provider-cache",
 			"--previous-response",
 			"--output-cooldown",
@@ -112,8 +109,6 @@ func TestPlanInspectParseAndBuildErrors(t *testing.T) {
 		{"--input-tokens", "nope"},
 		{"--output-tokens"},
 		{"--output-tokens", "nope"},
-		{"--latency-budget-ms"},
-		{"--latency-budget-ms", "-1"},
 		{"--task-shape"},
 		{"--class"},
 		{"--disable"},
@@ -148,11 +143,11 @@ func TestPlanInspectHelpers(t *testing.T) {
 	if n, err := planInputTokenEstimate(""); err != nil || n != 0 {
 		t.Fatalf("empty input estimate n=%d err=%v", n, err)
 	}
-	layers, err := parsePlanDisabledLayers([]string{"0", "1", "2", "3", "l4", "output", "output-reduce", "websocket", "ws", ""})
+	layers, err := parsePlanDisabledLayers([]string{"0", "1", "3", "l4", "output", "output-reduce", "websocket", "ws", ""})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, layer := range []planner.Layer{planner.Layer0, planner.Layer1, planner.Layer2, planner.Layer3, planner.Layer4, planner.LayerWebSocket} {
+	for _, layer := range []planner.Layer{planner.Layer0, planner.Layer1, planner.Layer3, planner.Layer4, planner.LayerWebSocket} {
 		if !layers[layer] {
 			t.Fatalf("missing disabled layer %s in %+v", layer, layers)
 		}

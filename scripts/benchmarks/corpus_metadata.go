@@ -51,7 +51,6 @@ type RegressionGate struct {
 	MinSavingsRatio float64        `json:"min_savings_ratio"`
 	MinLayer0Saved  int64          `json:"min_layer0_saved"`
 	MinLayer1Saved  int64          `json:"min_layer1_saved"`
-	MinLayer2Saved  int64          `json:"min_layer2_saved"`
 	MinLayer3Saved  int64          `json:"min_layer3_saved"`
 	Providers       map[string]int `json:"providers"`
 	Routes          map[string]int `json:"routes"`
@@ -231,9 +230,6 @@ func EvaluateRegressionGate(agg *sessionReportAggregate, gate *RegressionGate) [
 	}
 	if gate.MinLayer1Saved > 0 && agg.layer1Saved < gate.MinLayer1Saved {
 		failures = append(failures, fmt.Sprintf("layer1_saved=%d < min=%d", agg.layer1Saved, gate.MinLayer1Saved))
-	}
-	if gate.MinLayer2Saved > 0 && agg.layer2Saved < gate.MinLayer2Saved {
-		failures = append(failures, fmt.Sprintf("layer2_saved=%d < min=%d", agg.layer2Saved, gate.MinLayer2Saved))
 	}
 	if gate.MinLayer3Saved > 0 && agg.layer3Saved < gate.MinLayer3Saved {
 		failures = append(failures, fmt.Sprintf("layer3_saved=%d < min=%d", agg.layer3Saved, gate.MinLayer3Saved))

@@ -48,7 +48,7 @@ SUBCOMMANDS:
   bypass       Toggle the master bypass flag (on|off|status)
   output-reduce Toggle T130 output-token discipline injection
   config       Config file tools (init|show)
-  test         Upstream connectivity tests (minimax|anthropic|openai|intercept)
+  test         Upstream connectivity tests (anthropic|openai|intercept)
   completion   Emit shell completion script (bash)
   trust        Trust-model tools (from RTK port)
   version      Print version
@@ -57,7 +57,6 @@ GLOBAL FLAGS:
   --no-tui / --headless   Run proxy foreground, no BubbleTea UI
   --port <n>              Override listen port (default 8990)
   --no-layer1             Disable Layer 1 deterministic compression
-  --no-layer2             Disable Layer 2 semantic summarisation
   --no-layer3             Disable Layer 3 response cache
   --sliding-window <n>    Override Layer 1 sliding window size
   --log-level <lvl>       debug | info | warn | error
@@ -251,8 +250,8 @@ the deterministic per-layer plan. Use --json for machine-readable output.
 Walk daily analytics snapshots over the chosen window and emit a
 verdict on whether [compression.tuning] coordinator_enabled (T100)
 or tool_prune_enabled (T103) can be flipped on. Looks at error
-rate, prompt-cache trend, MiniMax failure rate, and overflow
-retries. --json prints the structured SoakReport for scripting.
+rate, prompt-cache trend, and overflow retries. --json prints the
+structured SoakReport for scripting.
 `
 	case "stats":
 		return `slimference stats <today|week|month|prompt-cache [today|week|month|all]> [--json|--csv]
@@ -347,7 +346,7 @@ init   Write a default config.toml to ~/.config/slimference/config.toml (respect
 show   Print the resolved effective config (TOML + ENV merged).
 `
 	case "test":
-		return `slimference test <minimax|anthropic|openai|intercept>
+		return `slimference test <anthropic|openai|intercept>
 
 Run a live connectivity test against the named upstream. 'intercept' runs
 a transient in-process proxy to validate the full pipeline path.

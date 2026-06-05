@@ -15,7 +15,6 @@ run the generator or rerun the TUI key tests to regenerate.
 | Providers | `c` | toggle Claude Code |
 | Providers | `x` | toggle Codex |
 | Layers | `1` | toggle Layer 1 |
-| Layers | `2` | toggle Layer 2 |
 | Layers | `3` | toggle Layer 3 |
 | Actions | `f` | flush caches |
 | Actions | `b, B` | toggle bypass |

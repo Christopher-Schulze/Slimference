@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/types"
@@ -43,32 +42,6 @@ func (c *armedCancelContext) Err() error {
 		return context.Canceled
 	}
 	return nil
-}
-
-func TestCompressionWorker_shutdownSkipsQueuedJobs(t *testing.T) {
-	p := New(config.Defaults())
-	p.compressQueue <- types.CompressJob{
-		Messages: []types.Message{
-			{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "queued"}}},
-		},
-		Timestamp: time.Now(),
-	}
-
-	close(p.shutdownCh)
-	p.wg.Add(1)
-	go p.compressionWorker()
-	p.wg.Wait()
-
-	if got := len(p.analyticsQueue); got != 0 {
-		t.Fatalf("expected queued compression job to be skipped during shutdown, got %d analytics events", got)
-	}
-}
-
-func TestProxy_compressionContext_nilWorkerFallsBackToBackground(t *testing.T) {
-	p := &Proxy{}
-	if p.compressionContext() == nil {
-		t.Fatal("expected background fallback context")
-	}
 }
 
 func TestDoUpstreamRequest_overflowCanceledBeforeAggressiveRetry(t *testing.T) {

@@ -273,7 +273,6 @@ func TestServeHTTP_CodexZstdBodyRunsPipelineAndReencodes(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	p := New(cfg)
 

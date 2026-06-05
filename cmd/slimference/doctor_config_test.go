@@ -27,17 +27,13 @@ func TestHandleSubcommand_doctor_smoke(t *testing.T) {
 	osUserHomeDir = func() (string, error) { return fakeHome, nil }
 	t.Cleanup(func() { osUserHomeDir = prevHome })
 
-	// Write a minimal config with L2 disabled (T121 default) so the
-	// doctor smoke test does not depend on the operator's XDG config.
+	// Write a minimal config so the doctor smoke test does not depend on the
+	// operator's XDG config.
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "doctor.toml")
 	cfgContent := `[compression]
 layer1_enabled = true
-layer2_enabled = false
 layer3_enabled = true
-[compression.minimax]
-base_url = "https://api.minimax.io/v1"
-api_key_env = "MINIMAX_API_KEY"
 `
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
 		t.Fatal(err)
@@ -46,7 +42,6 @@ api_key_env = "MINIMAX_API_KEY"
 	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -142,16 +137,13 @@ func TestHandleSubcommand_doctor_invalidConfigExits1(t *testing.T) {
 	}
 }
 
-// TestHandleSubcommand_doctor_failingChecks covers the check() closure !ok branch
-// (main.go:592-595), the MiniMax key-missing branch (615-617), the upstream-unreachable
-// branches (624-626, 634-636), and the "Some checks failed" footer (652-654).
+// TestHandleSubcommand_doctor_failingChecks covers the check() closure !ok branch,
+// the upstream-unreachable branches, and the "Some checks failed" footer.
 func TestHandleSubcommand_doctor_failingChecks(t *testing.T) {
 
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-
-	t.Setenv("MINIMAX_API_KEY", "")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -172,134 +164,6 @@ func TestHandleSubcommand_doctor_failingChecks(t *testing.T) {
 	}
 }
 
-// TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOff covers
-// the T88 doctor warning when require_deterministic is on but
-// enable_seed is off (main.go::handleDoctorCmd Determinism gate
-// branch FAIL).
-func TestHandleSubcommandDoctorDeterminismGateOn(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
-	body := []byte(`[upstream.anthropic]
-base_url = "` + srv.URL + `"
-
-[upstream.openai]
-base_url = "` + srv.URL + `"
-
-[compression.summary]
-require_deterministic = true
-`)
-	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	if !strings.Contains(buf.String(), "on (deterministic compactor)") {
-		t.Fatalf("determinism gate output missing: %q", buf.String())
-	}
-}
-
-// TestHandleSubcommand_doctor_OutboundRedaction_Off covers the T109
-// FAIL branch when the operator has disabled outbound redaction.
-func TestHandleSubcommand_doctor_OutboundRedaction_Off(t *testing.T) {
-	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
-	body := []byte(`[compression.summary]
-outbound_redaction = "off"
-`)
-	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "L2 outbound redaction") || !strings.Contains(out, "OFF") {
-		t.Fatalf("expected outbound redaction OFF FAIL line, got: %s", out)
-	}
-}
-
-// TestHandleSubcommand_doctor_OutboundRedaction_Strict covers the T109
-// strict-mode reporting branch.
-func TestHandleSubcommand_doctor_OutboundRedaction_Strict(t *testing.T) {
-	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
-	body := []byte(`[compression.summary]
-outbound_redaction = "strict"
-`)
-	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "L2 outbound redaction") || !strings.Contains(out, "strict") {
-		t.Fatalf("expected outbound redaction strict line, got: %s", out)
-	}
-}
-
-// TestHandleSubcommand_doctor_OutboundRedaction_Unknown covers the
-// fallback warning when an unrecognised mode is configured.
-func TestHandleSubcommand_doctor_OutboundRedaction_Unknown(t *testing.T) {
-	cfgPath := filepath.Join(t.TempDir(), "cfg.toml")
-	body := []byte(`[compression.summary]
-outbound_redaction = "novel-mode"
-`)
-	if err := os.WriteFile(cfgPath, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "L2 outbound redaction") || !strings.Contains(out, "unknown mode") {
-		t.Fatalf("expected outbound redaction unknown-mode line, got: %s", out)
-	}
-}
-
-// TestHandleSubcommand_doctor_DeterminismGate_OnEnableSeedOn covers
-// the success branch of the T88 determinism gate.
-
 // TestHandleSubcommand_doctor_configFileMissingBranch covers the
 // "not found at ... (using defaults)" branch in the Config file check (main.go:604-606).
 // We override HOME so DefaultConfigPath returns a non-existent file.
@@ -312,7 +176,6 @@ func TestHandleSubcommand_doctor_configFileMissingBranch(t *testing.T) {
 
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -335,7 +198,6 @@ func TestHandleSubcommand_doctor_defaultsConfigBranch(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CONFIG", "")
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -380,7 +242,6 @@ func TestHandleSubcommand_doctor_configFileExistsBranch(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(tmp, "missing.toml"))
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -421,7 +282,6 @@ func TestHandleSubcommand_doctor_analyticsLogDirError(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CONFIG", cfgFile)
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", "http://127.0.0.1:1")
-	t.Setenv("MINIMAX_API_KEY", "")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -452,7 +312,6 @@ func TestHandleSubcommand_doctor_homeDirError(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	prev := osUserHomeDir
 	osUserHomeDir = func() (string, error) { return "", errors.New("no home") }
@@ -493,7 +352,6 @@ func TestHandleSubcommand_doctor_archiveUnreadable(t *testing.T) {
 	t.Setenv("SLIMFERENCE_CONFIG", filepath.Join(fakeHome, "missing.toml"))
 	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
 	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -506,45 +364,6 @@ func TestHandleSubcommand_doctor_archiveUnreadable(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "unreadable:") {
 		t.Fatalf("expected unreadable in output: %q", out)
-	}
-}
-
-// TestHandleSubcommand_doctor_promptOverrideConfigured covers the configured
-// branch of the Prompt override doctor check.
-func TestHandleSubcommand_doctor_promptOverrideConfigured(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	fakeHome := t.TempDir()
-	overridePath := filepath.Join(fakeHome, "override.txt")
-	if err := os.WriteFile(overridePath, []byte("# version: vX-doctor\n\nbody\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfgFile := filepath.Join(fakeHome, "test.toml")
-	cfgContent := "[compression]\nprompt_override_path = \"" + overridePath + "\"\n"
-	if err := os.WriteFile(cfgFile, []byte(cfgContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("HOME", fakeHome)
-	t.Setenv("SLIMFERENCE_CONFIG", cfgFile)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "active version:") || !strings.Contains(out, "override.txt") {
-		t.Fatalf("expected configured override path in output: %q", out)
 	}
 }
 
@@ -725,69 +544,5 @@ func TestHandleConfigCmd_writeFileError(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "write config") {
 		t.Fatalf("stderr: %q", buf.String())
-	}
-}
-
-func TestHandleSubcommand_doctor_redactionEmpty(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "doctor.toml")
-	content := "[compression]\nlayer2_enabled = true\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\n[compression.summary]\noutbound_redaction = \"\"\n"
-	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "default (secrets + paths + auth headers + JSON keys)") {
-		t.Fatalf("expected default redaction, got: %q", out)
-	}
-}
-
-func TestHandleSubcommand_doctor_redactionUnknown(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	cfgDir := t.TempDir()
-	cfgPath := filepath.Join(cfgDir, "doctor.toml")
-	content := "[compression]\nlayer2_enabled = false\n[compression.minimax]\nbase_url = \"https://api.minimax.io/v1\"\napi_key_env = \"MINIMAX_API_KEY\"\n[compression.summary]\noutbound_redaction = \"bogus_mode\"\n"
-	if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("SLIMFERENCE_CONFIG", cfgPath)
-	t.Setenv("SLIMFERENCE_UPSTREAM_ANTHROPIC_BASE_URL", srv.URL)
-	t.Setenv("SLIMFERENCE_UPSTREAM_OPENAI_BASE_URL", srv.URL)
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
-	handleSubcommand([]string{"doctor"})
-	_ = w.Close()
-	os.Stdout = old
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	out := buf.String()
-	if !strings.Contains(out, "unknown mode") {
-		t.Fatalf("expected unknown mode warning, got: %q", out)
 	}
 }

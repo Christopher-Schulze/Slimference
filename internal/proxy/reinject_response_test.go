@@ -46,7 +46,6 @@ func TestServeHTTP_T76c_RecordsReInjectOnUpstreamEcho(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 
@@ -91,7 +90,6 @@ func TestServeHTTP_T76c_NoOpWhenNoArchiveURI(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 

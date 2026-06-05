@@ -30,7 +30,6 @@ func TestPersistedState_Roundtrip(t *testing.T) {
 		ClaudeEnabled: true,
 		CodexEnabled:  false,
 		Layer1Enabled: true,
-		Layer2Enabled: false,
 		Layer3Enabled: true,
 		View:          "stats",
 	}
@@ -174,14 +173,13 @@ func TestApplyPersistedState_ProjectsOntoProxy(t *testing.T) {
 		ClaudeEnabled: false,
 		CodexEnabled:  true,
 		Layer1Enabled: false,
-		Layer2Enabled: true,
 		Layer3Enabled: false,
 		View:          "debug",
 	})
 	if p.claudeEnabled || !p.codexEnabled {
 		t.Fatalf("provider projection: claude=%v codex=%v", p.claudeEnabled, p.codexEnabled)
 	}
-	if p.layer1Enabled || !p.layer2Enabled || p.layer3Enabled {
+	if p.layer1Enabled || p.layer3Enabled {
 		t.Fatalf("layer projection: %+v", p)
 	}
 	if m.view != ViewDebug {
@@ -217,7 +215,6 @@ func TestStateFromModel_Snapshot(t *testing.T) {
 		claudeEnabled: true,
 		codexEnabled:  false,
 		layer1Enabled: true,
-		layer2Enabled: false,
 		layer3Enabled: true,
 		view:          ViewStats,
 	}
@@ -241,7 +238,6 @@ func TestNewModel_AppliesPersistedState(t *testing.T) {
 		ClaudeEnabled: false,
 		CodexEnabled:  false,
 		Layer1Enabled: true,
-		Layer2Enabled: false,
 		Layer3Enabled: true,
 		View:          "stats",
 	}); err != nil {
@@ -255,7 +251,7 @@ func TestNewModel_AppliesPersistedState(t *testing.T) {
 	if m.claudeEnabled || m.codexEnabled {
 		t.Fatalf("providers must follow persisted state: claude=%v codex=%v", m.claudeEnabled, m.codexEnabled)
 	}
-	if !p.layer1Enabled || p.layer2Enabled || !p.layer3Enabled {
+	if !p.layer1Enabled || !p.layer3Enabled {
 		t.Fatalf("proxy toggles must track persisted state: %+v", p)
 	}
 }

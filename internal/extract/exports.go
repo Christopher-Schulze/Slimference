@@ -1,8 +1,8 @@
 package extract
 
 // This file exposes the section parser and sentence splitter to
-// in-tree callers (e.g. internal/summarization) that need to reuse
-// the deterministic structure detection without re-implementing it.
+// in-tree callers that need to reuse deterministic structure detection without
+// re-implementing it.
 // The internal lowercase functions remain the implementation site;
 // these wrappers are purely API surface.
 

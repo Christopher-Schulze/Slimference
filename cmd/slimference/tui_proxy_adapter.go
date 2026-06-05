@@ -47,22 +47,6 @@ func (a *proxyAdapter) GetRecentRequests(n int) []types.RequestMetrics {
 func (a *proxyAdapter) GetRecentFlights(n int) []dbg.FlightRequestSummary {
 	return a.p.GetRecentFlights(n)
 }
-func (a *proxyAdapter) GetLayer2Status() tui.Layer2Status {
-	cache := a.p.GetLayer2Cache()
-	if cache == nil {
-		return tui.Layer2Status{}
-	}
-	cs := cache.Get()
-	status := tui.Layer2Status{
-		HasCache:    cs != nil,
-		Compressing: cache.Compressing.Load(),
-		QueueDepth:  len(a.p.CompressQueue()),
-	}
-	if cs != nil {
-		status.LastRun = cs.CreatedAt
-	}
-	return status
-}
 func (a *proxyAdapter) GetQualityStatus() tui.QualityStatus {
 	q := a.p.QualitySnapshot()
 	return tui.QualityStatus{

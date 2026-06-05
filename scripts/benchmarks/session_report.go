@@ -31,7 +31,6 @@ type sessionReportAggregate struct {
 	savedTokens               int64
 	layer0Saved               int64
 	layer1Saved               int64
-	layer2Saved               int64
 	layer3Saved               int64
 	cacheHits                 int
 	perSubLayer               map[string]int64 // tokens saved by sub-layer name
@@ -45,12 +44,6 @@ type sessionReportAggregate struct {
 	outputReduceInputOverhead int64
 	toolPruneApplied          int
 	toolPruneSaved            int64
-	ocrlCandidateCapsules     int
-	ocrlArchiveExpansions     int
-	ocrlSavedTokens           int64
-	ocrlApplied               int
-	ocrlShadowOnly            int
-	ocrlFullHistoryRows       int
 	errorCount                int
 	reReadCount               int
 	hostBudgetOK              int
@@ -121,8 +114,7 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 		agg.savedTokens += int64(rec.Tokens.Saved)
 		agg.layer0Saved += positiveDelta(rec.Tokens.Original, rec.Tokens.AfterLayer0)
 		agg.layer1Saved += positiveDelta(rec.Tokens.AfterLayer0, rec.Tokens.AfterLayer1)
-		agg.layer2Saved += positiveDelta(rec.Tokens.AfterLayer1, rec.Tokens.AfterLayer2)
-		agg.layer3Saved += positiveDelta(rec.Tokens.AfterLayer2, rec.Tokens.Final)
+		agg.layer3Saved += int64(rec.CacheReadTokens + rec.ProviderCachedTokens)
 		if rec.CacheHit {
 			agg.cacheHits++
 		}
@@ -142,7 +134,6 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 			agg.toolPruneApplied++
 			agg.toolPruneSaved += int64(rec.ToolPrune.SavedTokens)
 		}
-		aggregateOCRL(agg, rec.ContextLedger)
 		agg.errorCount += len(rec.Errors)
 		agg.reReadCount += rec.ReReadCount
 		switch hostBudgetStateFromRaw(raw) {
@@ -265,7 +256,6 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.savedTokens += src.savedTokens
 	dst.layer0Saved += src.layer0Saved
 	dst.layer1Saved += src.layer1Saved
-	dst.layer2Saved += src.layer2Saved
 	dst.layer3Saved += src.layer3Saved
 	dst.cacheHits += src.cacheHits
 	dst.cacheReadSum += src.cacheReadSum
@@ -276,12 +266,6 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.outputReduceInputOverhead += src.outputReduceInputOverhead
 	dst.toolPruneApplied += src.toolPruneApplied
 	dst.toolPruneSaved += src.toolPruneSaved
-	dst.ocrlCandidateCapsules += src.ocrlCandidateCapsules
-	dst.ocrlArchiveExpansions += src.ocrlArchiveExpansions
-	dst.ocrlSavedTokens += src.ocrlSavedTokens
-	dst.ocrlApplied += src.ocrlApplied
-	dst.ocrlShadowOnly += src.ocrlShadowOnly
-	dst.ocrlFullHistoryRows += src.ocrlFullHistoryRows
 	dst.errorCount += src.errorCount
 	dst.reReadCount += src.reReadCount
 	dst.hostBudgetOK += src.hostBudgetOK
@@ -300,28 +284,6 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	}
 }
 
-func aggregateOCRL(agg *sessionReportAggregate, summary dbg.ContextLedgerSummary) {
-	if agg == nil {
-		return
-	}
-	agg.ocrlCandidateCapsules += summary.OCRLCandidateCapsules
-	agg.ocrlArchiveExpansions += summary.OCRLArchiveExpansions
-	if summary.OCRLShadowSavedTokens > 0 {
-		agg.ocrlSavedTokens += int64(summary.OCRLShadowSavedTokens)
-	}
-	if summary.OCRLShadowOnly {
-		agg.ocrlShadowOnly++
-	}
-	if strings.EqualFold(strings.TrimSpace(summary.OCRLRoute), "full_history_http") {
-		agg.ocrlFullHistoryRows++
-	}
-	if strings.EqualFold(strings.TrimSpace(summary.OCRLReason), "applied") &&
-		!summary.OCRLShadowOnly &&
-		!summary.TelemetryOnly {
-		agg.ocrlApplied++
-	}
-}
-
 func aggregateLayerCombination(combos map[string]layerCombinationAggregate, rec dbg.RequestSummary, outputTokens int) {
 	key := layerCombinationKey(rec)
 	current := combos[key]
@@ -334,8 +296,8 @@ func aggregateLayerCombination(combos map[string]layerCombinationAggregate, rec 
 }
 
 func layerCombinationKey(rec dbg.RequestSummary) string {
-	labels := make([]string, 0, 6)
-	for _, layer := range []string{"l0", "l1", "l2", "l3", "l4_output", "websocket"} {
+	labels := make([]string, 0, 5)
+	for _, layer := range []string{"l0", "l1", "l3", "l4_output", "websocket"} {
 		if !actualLayerActive(rec, layer) {
 			continue
 		}
@@ -344,8 +306,6 @@ func layerCombinationKey(rec dbg.RequestSummary) string {
 			labels = append(labels, "L0")
 		case "l1":
 			labels = append(labels, "L1")
-		case "l2":
-			labels = append(labels, "L2")
 		case "l3":
 			labels = append(labels, "L3")
 		case "l4_output":
@@ -412,8 +372,6 @@ func actualLayerActive(rec dbg.RequestSummary, layer string) bool {
 		return hasAppliedLayer(rec.LayersApplied, 0) || positiveDelta(rec.Tokens.Original, rec.Tokens.AfterLayer0) > 0
 	case "l1":
 		return hasAppliedLayer(rec.LayersApplied, 1) || positiveDelta(rec.Tokens.AfterLayer0, rec.Tokens.AfterLayer1) > 0
-	case "l2":
-		return hasAppliedLayer(rec.LayersApplied, 2) || rec.Layer2.Applied || positiveDelta(rec.Tokens.AfterLayer1, rec.Tokens.AfterLayer2) > 0
 	case "l3":
 		return hasAppliedLayer(rec.LayersApplied, 3) || rec.CacheHit || rec.CacheReadTokens > 0 || rec.CacheCreateTokens > 0 || rec.ProviderCachedTokens > 0 || rec.PreviousResponseIDUsed
 	case "l4_output":
@@ -558,7 +516,6 @@ func FormatSessionReport(agg *sessionReportAggregate) string {
 	sb.WriteString(fmt.Sprintf("Savings ratio:      %.2f%%\n", ratio*100))
 	sb.WriteString(fmt.Sprintf("Layer 0 saved:      %d\n", agg.layer0Saved))
 	sb.WriteString(fmt.Sprintf("Layer 1 saved:      %d\n", agg.layer1Saved))
-	sb.WriteString(fmt.Sprintf("Layer 2 saved:      %d\n", agg.layer2Saved))
 	sb.WriteString(fmt.Sprintf("Layer 3 saved:      %d\n", agg.layer3Saved))
 	sb.WriteString(fmt.Sprintf("Cache hit rate:     %.2f%% (%d / %d)\n", cacheHitRate*100, agg.cacheHits, agg.requests))
 	if agg.cacheReadSum > 0 || agg.cacheCreateSum > 0 {
@@ -652,7 +609,6 @@ func FormatSessionMarkdown(agg *sessionReportAggregate) string {
 	sb.WriteString(fmt.Sprintf("| Savings ratio | %.2f%% |\n", ratio*100))
 	sb.WriteString(fmt.Sprintf("| Layer 0 saved | %d |\n", agg.layer0Saved))
 	sb.WriteString(fmt.Sprintf("| Layer 1 saved | %d |\n", agg.layer1Saved))
-	sb.WriteString(fmt.Sprintf("| Layer 2 saved | %d |\n", agg.layer2Saved))
 	sb.WriteString(fmt.Sprintf("| Layer 3 saved | %d |\n", agg.layer3Saved))
 	sb.WriteString(fmt.Sprintf("| Cache hits | %d |\n", agg.cacheHits))
 	if agg.cacheReadSum > 0 || agg.cacheCreateSum > 0 {

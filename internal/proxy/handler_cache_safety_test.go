@@ -69,7 +69,6 @@ func TestServeHTTP_layer3CacheHit_partitionsByAPIKey(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -113,7 +112,6 @@ func TestServeHTTP_layer3CacheHit_skipsExplicitStochasticRequests(t *testing.T) 
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -153,7 +151,6 @@ func TestServeHTTP_layer3CacheHit_skipsImplicitSamplingDefaults(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -193,7 +190,6 @@ func TestServeHTTP_layer3CacheHit_skipsMetadataServerState(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -231,7 +227,6 @@ func TestServeHTTP_providerCacheAccountingSeparatesOpenAICachedTokens(t *testing
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Secrets.Mode = "off"
@@ -278,7 +273,6 @@ func TestServeHTTP_providerCacheAccountingKeepsAnthropicReadTokens(t *testing.T)
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Secrets.Mode = "off"
@@ -330,7 +324,6 @@ func TestServeHTTP_layer3CacheHit_partitionsRequestPolicy(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Secrets.Mode = "off"
@@ -390,7 +383,6 @@ func TestServeHTTP_layer3CacheHit_partitionsBeTerseCohorts(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
 	cfg.Secrets.Mode = "off"
@@ -459,7 +451,6 @@ func TestServeHTTP_layer3CacheHit_recordsProcessedRequestMetrics(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -515,7 +506,6 @@ func TestServeHTTP_layer3CacheHit_invalidatesOnWatchedDependencyChange(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -579,7 +569,6 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWithoutDependencyWatcher(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -624,7 +613,6 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWhenDependencyWatchFails(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -679,7 +667,6 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWhenDependencyWatchIsNotArmed(t *t
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = true
 	cfg.Secrets.Mode = "off"
 

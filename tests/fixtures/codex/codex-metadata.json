@@ -25,11 +25,11 @@
       "codex_version": "synthetic-fixture",
       "client": "codex-cli-fixture",
       "hooks_enabled": ["pre_tool", "post_tool", "read"],
-      "layers_enabled": [0, 1, 2, 3],
+      "layers_enabled": [0, 1, 3],
       "request_count": 2,
       "scenarios": [
         "v1_responses_with_layer0_and_cache",
-        "backend_api_with_layer2_summary"
+        "backend_api_with_l1_reduction"
       ]
     }
   ],
@@ -37,7 +37,6 @@
     "min_requests": 2,
     "min_savings_ratio": 0.4,
     "min_layer1_saved": 1,
-    "min_layer2_saved": 1,
     "min_layer3_saved": 1,
     "providers": {
       "codex_chatgpt": 2

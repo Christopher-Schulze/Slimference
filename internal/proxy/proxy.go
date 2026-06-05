@@ -38,7 +38,6 @@ import (
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/sessions"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tlsca"
 	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/toolprune"
@@ -84,7 +83,6 @@ type Proxy struct {
 
 	// Compression layers.
 	layer1          *compression.DeterministicCompressor
-	layer2          *summarization.Layer2
 	responseCache   *caching.ResponseCache
 	fileWatcher     *caching.FileWatcher
 	secretsDetector *security.Detector
@@ -110,7 +108,6 @@ type Proxy struct {
 	sessionLogger *sessions.SessionLogger
 
 	// Async pipelines.
-	compressQueue  chan types.CompressJob
 	analyticsQueue chan types.AnalyticsEvent
 	workerCtx      context.Context
 	workerCancel   context.CancelFunc
@@ -133,7 +130,7 @@ type Proxy struct {
 	pipelineHist *analytics.PipelineHistograms
 
 	// Runtime toggle atomics. Index 0=Anthropic, 1=OpenAI, 2=CodexChatGPT.
-	// Index 0=Layer1, 1=Layer2, 2=Layer3 for layers.
+	// Layer index 1 is reserved for compatibility and left disabled.
 	providerEnabled [3]atomic.Bool
 	layerEnabled    [3]atomic.Bool
 
@@ -277,7 +274,6 @@ func New(cfg *config.Config) *Proxy {
 		config:              cfg,
 		startedAt:           time.Now(),
 		httpClients:         make(map[types.Provider]*http.Client),
-		compressQueue:       make(chan types.CompressJob, 4),
 		analyticsQueue:      make(chan types.AnalyticsEvent, 256),
 		workerCtx:           workerCtx,
 		workerCancel:        workerCancel,
@@ -342,7 +338,6 @@ func New(cfg *config.Config) *Proxy {
 	p.providerEnabled[types.OpenAI].Store(true)
 	p.providerEnabled[types.CodexChatGPT].Store(true)
 	p.layerEnabled[0].Store(cfg.Compression.Layer1Enabled)
-	p.layerEnabled[1].Store(cfg.Compression.Layer2Enabled)
 	p.layerEnabled[2].Store(cfg.Compression.Layer3Enabled)
 
 	tlsResolver, err := tlsdial.NewResolver(cfg.Transparent.DefaultTLSProfile, cfg.Transparent.TLSProfiles)
@@ -399,21 +394,6 @@ func New(cfg *config.Config) *Proxy {
 		GitModerateDiffLimit:      cfg.Compression.Tuning.ToolCompressor.GitModerateDiffLimit,
 		TestMaxFailureLines:       cfg.Compression.Tuning.ToolCompressor.TestMaxFailureLines,
 	})
-
-	// T86: load the optional prompt-override file once at startup so
-	// the operator can iterate on the system prompt without rebuilding.
-	// Best-effort: a missing or unreadable file logs a warning and
-	// keeps the compile-time default.
-	if path := cfg.Compression.PromptOverridePath; path != "" {
-		if version, err := summarization.LoadPromptOverrideFromPath(path); err != nil {
-			slog.Warn("prompt override load failed", "path", path, "error", err)
-		} else {
-			slog.Info("prompt override loaded", "path", path, "version", version)
-		}
-	}
-
-	// Layer 2: MiniMax summarizer.
-	p.layer2 = summarization.NewLayer2(&cfg.Compression)
 
 	// Layer 3: Response cache.
 	p.responseCache = caching.NewResponseCache(
@@ -969,9 +949,6 @@ func (p *Proxy) Start() error {
 
 	slog.Info("proxy listening", "addr", addr)
 
-	// Start background workers.
-	p.wg.Add(1)
-	go p.compressionWorker()
 	p.wg.Add(1)
 	go p.analyticsWorker()
 	p.wg.Add(1)
@@ -1570,6 +1547,9 @@ func (p *Proxy) isLayerEnabled(layer int) bool {
 	if p.Bypass() {
 		return false
 	}
+	if layer == 2 {
+		return false
+	}
 	if layer >= 1 && layer <= len(p.layerEnabled) {
 		return p.layerEnabled[layer-1].Load()
 	}
@@ -1602,22 +1582,6 @@ func (p *Proxy) HasListener() bool {
 	p.listenerMu.RLock()
 	defer p.listenerMu.RUnlock()
 	return p.listener != nil
-}
-
-// GetLayer2Cache returns the Layer 2 summary cache for TUI inspection.
-func (p *Proxy) GetLayer2Cache() *summarization.SummaryCache {
-	if p.layer2 == nil {
-		return nil
-	}
-	return p.layer2.GetCache()
-}
-
-// ClearLayer2ForTesting removes Layer 2 so cmd/slimference can cover GetLayer2Status when the cache is absent.
-func (p *Proxy) ClearLayer2ForTesting() { p.layer2 = nil }
-
-// CompressQueue returns the compression job queue (read-only access for TUI).
-func (p *Proxy) CompressQueue() chan types.CompressJob {
-	return p.compressQueue
 }
 
 // SessionLogger returns the session logger for the debug view.

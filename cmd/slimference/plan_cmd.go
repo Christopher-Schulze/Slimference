@@ -21,9 +21,6 @@ type planInspectFlags struct {
 	classes              []string
 	disabledLayers       []string
 	recentEdit           bool
-	layer2Allowed        bool
-	layer2Acknowledged   bool
-	layer2ModelFacing    bool
 	providerCache        bool
 	previousResponse     bool
 	outputCooldown       bool
@@ -31,7 +28,6 @@ type planInspectFlags struct {
 	websocketShapeKnown  bool
 	websocketMutation    bool
 	liveCorpusConfidence string
-	latencyBudgetMs      int
 	json                 bool
 	input                string
 }
@@ -85,8 +81,6 @@ func parsePlanInspectArgs(args []string) (planInspectFlags, error) {
 	flags := planInspectFlags{
 		provider:             "openai",
 		routeMode:            "upstream",
-		layer2Allowed:        true,
-		layer2Acknowledged:   true,
 		liveCorpusConfidence: "unknown",
 	}
 	for i := 0; i < len(args); i++ {
@@ -126,13 +120,6 @@ func parsePlanInspectArgs(args []string) (planInspectFlags, error) {
 			}
 			flags.outputTokens = value
 			i = next
-		case "--latency-budget-ms":
-			value, next, err := parsePlanIntFlag(args, i, "--latency-budget-ms")
-			if err != nil {
-				return flags, err
-			}
-			flags.latencyBudgetMs = value
-			i = next
 		case "--task-shape":
 			i++
 			if i >= len(args) || args[i] == "" {
@@ -153,12 +140,6 @@ func parsePlanInspectArgs(args []string) (planInspectFlags, error) {
 			flags.disabledLayers = append(flags.disabledLayers, strings.Split(args[i], ",")...)
 		case "--recent-edit":
 			flags.recentEdit = true
-		case "--no-l2-policy":
-			flags.layer2Allowed = false
-		case "--no-l2-ack":
-			flags.layer2Acknowledged = false
-		case "--allow-l2-summary-replacement":
-			flags.layer2ModelFacing = true
 		case "--provider-cache":
 			flags.providerCache = true
 		case "--previous-response":
@@ -234,9 +215,6 @@ func buildInspectablePlan(flags planInspectFlags) (planner.CompressionPlan, erro
 		ContentClasses:              flags.classes,
 		ManualDisabled:              disabled,
 		RecentEdit:                  flags.recentEdit,
-		ExternalLayer2Allowed:       flags.layer2Allowed,
-		Layer2Acknowledged:          flags.layer2Acknowledged,
-		Layer2ModelFacingAllowed:    flags.layer2ModelFacing,
 		ProviderCacheSupported:      flags.providerCache,
 		PreviousResponseIDAvailable: flags.previousResponse,
 		OutputReduceCooldown:        flags.outputCooldown,
@@ -244,7 +222,6 @@ func buildInspectablePlan(flags planInspectFlags) (planner.CompressionPlan, erro
 		WebSocketShapeKnown:         flags.websocketShapeKnown,
 		WebSocketMutationRequested:  flags.websocketMutation,
 		LiveCorpusConfidence:        flags.liveCorpusConfidence,
-		LatencyBudgetMs:             flags.latencyBudgetMs,
 	}), nil
 }
 
@@ -260,8 +237,6 @@ func parsePlanDisabledLayers(values []string) (map[planner.Layer]bool, error) {
 			out[planner.Layer0] = true
 		case "l1", "1":
 			out[planner.Layer1] = true
-		case "l2", "2":
-			out[planner.Layer2] = true
 		case "l3", "3":
 			out[planner.Layer3] = true
 		case "l4", "4", "output", "output-reduce":

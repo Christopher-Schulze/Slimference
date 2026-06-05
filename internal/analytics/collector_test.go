@@ -150,10 +150,10 @@ func TestAnalyticsSnapshot_EstExtraMessagesAndAvgTTFT(t *testing.T) {
 func TestAnalytics_Record_layerSavingsAndOpenAILatency(t *testing.T) {
 	t.Parallel()
 	a := NewAnalytics()
-	ev := makeRequestEvent(types.Anthropic, "m", 1000, 500, 100, false, 50, []int{1, 2, 3})
+	ev := makeRequestEvent(types.Anthropic, "m", 1000, 500, 100, false, 50, []int{1, 3})
 	a.Record(ev)
-	if a.Layer1Savings == 0 || a.Layer2Savings == 0 || a.Layer3Savings == 0 {
-		t.Fatalf("layer savings: L1=%d L2=%d L3=%d", a.Layer1Savings, a.Layer2Savings, a.Layer3Savings)
+	if a.Layer1Savings == 0 || a.Layer3Savings == 0 {
+		t.Fatalf("layer savings: L1=%d L3=%d", a.Layer1Savings, a.Layer3Savings)
 	}
 	a2 := NewAnalytics()
 	a2.Record(makeRequestEvent(types.OpenAI, "gpt", 200, 180, 20, false, 33, nil))
@@ -184,10 +184,6 @@ func TestAnalytics_Record_nonRequestEvents(t *testing.T) {
 	a.Record(types.AnalyticsEvent{Type: types.EventCacheHit, Timestamp: time.Now()})
 	if a.CacheHits != 1 {
 		t.Fatalf("CacheHits=%d", a.CacheHits)
-	}
-	a.Record(types.AnalyticsEvent{Type: types.EventCompressionComplete, Timestamp: time.Now(), LatencyMs: 100})
-	if a.CompressionCalls != 1 || a.MiniMaxCalls != 1 {
-		t.Fatalf("compression: calls=%d minimax=%d", a.CompressionCalls, a.MiniMaxCalls)
 	}
 	a.Record(types.AnalyticsEvent{Type: types.EventSecretDetected, Timestamp: time.Now(), SecretsFound: 3})
 	if a.SecretsRedacted != 3 {

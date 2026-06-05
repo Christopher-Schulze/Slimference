@@ -841,13 +841,13 @@ func TestHandleDebugReplay_noSummaries(t *testing.T) {
 }
 
 // TestHandleDebugReplay_fullOutput covers the full replay display path including
-// tokens, layers, layer1 breakdown, and layer2 stats.
+// tokens, layers, and layer1 breakdown.
 func TestHandleDebugReplay_fullOutput(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "s.jsonl")
 
 	content := `{"req_id":"r1","provider":"anthropic","model":"claude-3","layers_applied":[1],"tokens":{"original":1000,"final":800,"saved":200,"ratio":0.8},"layer1_breakdown":{"ansi_strip":{"blocks":3,"saved":200}}}
-{"req_id":"r2","provider":"openai","model":"gpt-4","layers_applied":[1,2],"tokens":{"original":2000,"final":1400,"saved":600,"ratio":0.7},"layer2":{"applied":true,"compression_ratio":0.85,"anchor_count":5}}
+{"req_id":"r2","provider":"openai","model":"gpt-4","layers_applied":[1],"tokens":{"original":2000,"final":1400,"saved":600,"ratio":0.7}}
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -875,9 +875,6 @@ func TestHandleDebugReplay_fullOutput(t *testing.T) {
 	}
 	if !strings.Contains(out, "ansi_strip") {
 		t.Fatalf("missing ansi_strip breakdown: %q", out)
-	}
-	if !strings.Contains(out, "layer2:") {
-		t.Fatalf("missing layer2 section: %q", out)
 	}
 	if !strings.Contains(out, "TOTAL: 2 request(s)  800 tokens saved") {
 		t.Fatalf("missing total line: %q", out)

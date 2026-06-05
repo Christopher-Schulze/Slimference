@@ -25,7 +25,6 @@ func newTestProxy(t *testing.T, upstreamURL string) *proxy.Proxy {
 	cfg.Upstream.Anthropic.BaseURL = upstreamURL
 	cfg.Upstream.OpenAI.BaseURL = upstreamURL
 	cfg.Compression.Layer1Enabled = true
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 	return proxy.New(cfg)
@@ -211,14 +210,13 @@ func TestProxy_HealthEndpoint(t *testing.T) {
 	}
 
 	var result struct {
-		Status            string          `json:"status"`
-		Service           string          `json:"service"`
-		Version           string          `json:"version"`
-		Layers            map[string]bool `json:"layers"`
-		Providers         map[string]bool `json:"providers"`
-		QueueDepth        map[string]int  `json:"queue_depth"`
-		CacheEntries      int             `json:"cache_entries"`
-		MiniMaxConfigured bool            `json:"minimax_configured"`
+		Status       string          `json:"status"`
+		Service      string          `json:"service"`
+		Version      string          `json:"version"`
+		Layers       map[string]bool `json:"layers"`
+		Providers    map[string]bool `json:"providers"`
+		QueueDepth   map[string]int  `json:"queue_depth"`
+		CacheEntries int             `json:"cache_entries"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		t.Fatalf("parse body: %v (body: %s)", err, body)

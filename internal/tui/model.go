@@ -55,7 +55,6 @@ type ProxyInterface interface {
 	GetRecentRequests(n int) []types.RequestMetrics
 	GetRecentFlights(n int) []dbg.FlightRequestSummary
 	GetLayer0Status() Layer0Status
-	GetLayer2Status() Layer2Status
 	GetReadCacheStatus() ReadCacheStatus
 	GetCheckpointStatus() CheckpointStatus
 	GetToolArchiveStatus() ToolArchiveStatus
@@ -97,15 +96,6 @@ type HookStatus struct {
 // SetHookStatus updates the hook installation status shown in the main view.
 func (m *Model) SetHookStatus(s HookStatus) {
 	m.hookStatus = s
-}
-
-// Layer2Status provides the TUI with a snapshot of Layer 2 compression state.
-// It is a plain value type populated by the proxy adapter.
-type Layer2Status struct {
-	HasCache    bool
-	Compressing bool
-	LastRun     time.Time
-	QueueDepth  int
 }
 
 type Layer0FilterStatus struct {
@@ -358,7 +348,6 @@ type Model struct {
 	claudeEnabled bool
 	codexEnabled  bool
 	layer1Enabled bool
-	layer2Enabled bool
 	layer3Enabled bool
 
 	// Current view.
@@ -420,7 +409,6 @@ func NewModel(proxy ProxyInterface) Model {
 		claudeEnabled: proxy.IsProviderEnabled(types.Anthropic),
 		codexEnabled:  proxy.IsProviderEnabled(types.OpenAI),
 		layer1Enabled: proxy.IsLayerEnabled(1),
-		layer2Enabled: proxy.IsLayerEnabled(2),
 		layer3Enabled: proxy.IsLayerEnabled(3),
 		view:          ViewMain,
 		width:         80,
@@ -524,10 +512,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
-			m.layer2Enabled = !m.layer2Enabled
-			m.proxy.SetLayerEnabled(2, m.layer2Enabled)
-			m.persistStateBestEffort()
-			m.setFlash(fmt.Sprintf("Layer 2: %s", onOff(m.layer2Enabled)))
 
 		case "3":
 			if m.view == ViewSetup {

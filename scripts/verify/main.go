@@ -257,11 +257,6 @@ func runLiveCorpusPlan(root, category, client string, now time.Time) int {
 	fmt.Printf("Capture file: %s\n", capturePath)
 	fmt.Printf("Corpus file:  %s\n", sessionFile)
 	fmt.Println("")
-	if isOCRLFullHistoryCategory(category) {
-		fmt.Println("OCRL full-history note: this category must prove shadow-only OCRL route/candidate/archive/would-save telemetry. Model-facing OCRL replacement is retired from product runtime.")
-		fmt.Println("Codex WSS / Responses-delta sessions are intentionally shadow-only and do not satisfy this promotion proof.")
-		fmt.Println("")
-	}
 	fmt.Println("1. Start capture against a running local Slimference path:")
 	fmt.Printf("   SLIMFERENCE_DEBUG_DECISIONS_LOG=%s slimference start\n", capturePath)
 	fmt.Println("")
@@ -270,13 +265,7 @@ func runLiveCorpusPlan(root, category, client string, now time.Time) int {
 	fmt.Println("3. Review and export the captured log:")
 	fmt.Printf("   slimference debug flight replay %s\n", capturePath)
 	fmt.Printf("   mkdir -p %s\n", categoryDir)
-	if isOCRLFullHistoryCategory(category) {
-		fmt.Println("   # OCRL corpus validation needs the redacted RequestSummary JSONL,")
-		fmt.Println("   # because normalized flight export omits OCRL candidate/archive counters.")
-		fmt.Printf("   cp %s %s\n", capturePath, sessionFile)
-	} else {
-		fmt.Printf("   slimference debug flight export %s\n", sessionFile)
-	}
+	fmt.Printf("   slimference debug flight export %s\n", sessionFile)
 	fmt.Println("")
 	fmt.Println("4. Create metadata.json next to the session with this starting shape:")
 	fmt.Println(renderLiveCorpusMetadataSkeleton(category, client))
@@ -330,15 +319,10 @@ func runReleaseProofPlan(root string, now time.Time) int {
 	for _, client := range releaseProofClients() {
 		fmt.Printf("   # %s\n", client)
 		for _, workload := range maxxProofWorkloads() {
-			if isOCRLFullHistoryCategory(workload) {
-				continue
-			}
 			fmt.Printf("   go run ./scripts/verify -mode live-corpus-plan -corpus-root %s -client %s -category %s\n",
 				root, client, workload)
 		}
 	}
-	fmt.Println("   # full_history_http")
-	fmt.Printf("   go run ./scripts/verify -mode live-corpus-plan -corpus-root %s -client full_history_http -category ocrl_full_history\n", root)
 	fmt.Println("")
 	fmt.Println("4. Close all Codex sessions so WSS counters flush, then finish savings + host-resource measurement:")
 	fmt.Println("   go run ./scripts/utils workday-savings finish")
@@ -461,7 +445,6 @@ func maxxProofWorkloads() []string {
 		"chunk_dedup_similar_outputs",
 		"chunk_dedup_log_output",
 		"chunk_dedup_test_output",
-		"ocrl_full_history",
 		"output_reduce_aggressive",
 		"output_reduce_ab",
 		"tool_heavy",
@@ -471,18 +454,11 @@ func maxxProofWorkloads() []string {
 }
 
 func normalizeLiveCorpusClient(category, client string) string {
-	if isOCRLFullHistoryCategory(category) {
-		return "full_history_http"
-	}
 	client = strings.TrimSpace(client)
 	if client == "" {
 		return "codex_cli"
 	}
 	return client
-}
-
-func isOCRLFullHistoryCategory(category string) bool {
-	return strings.TrimSpace(category) == "ocrl_full_history"
 }
 
 func safePlanName(value string) string {
@@ -534,8 +510,6 @@ func renderLiveCorpusMetadataSkeleton(category, client string) string {
 
 func liveCorpusScenarioValidators(workload string) []string {
 	switch strings.TrimSpace(workload) {
-	case "ocrl_full_history":
-		return []string{"ocrl_full_history", "low_error"}
 	case "output_reduce_aggressive":
 		return []string{"output_reduce", "low_error"}
 	case "output_reduce_ab":
@@ -568,10 +542,5 @@ func applyLiveCorpusWorkloadDefaults(payload map[string]any, workload string) {
 	case "tool_heavy", "chunk_dedup_similar_outputs", "chunk_dedup_log_output", "chunk_dedup_test_output", "host_resource_long_workday":
 		payload["expected_savings_min"] = 0.0
 		payload["expected_saved_tokens_min"] = 1
-	case "ocrl_full_history":
-		payload["description"] = "Real full-history HTTP-style operator-captured session proving OCRL shadow would-save telemetry; model-facing OCRL replacement is retired from product runtime."
-		payload["client_family"] = "full_history_http"
-		payload["tool_mix"] = "full_history_http_archive_backed"
-		payload["expected_savings_min"] = 0.0
 	}
 }

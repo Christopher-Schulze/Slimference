@@ -83,14 +83,14 @@ and clear the folder from the repository.
 
 | | RTK (Rust) | Slimference (Go) |
 |---|---|---|
-| Production SLOC | ~23 500 | ~68 000 (includes HTTP proxy + TUI + MiniMax) |
+| Production SLOC | ~23 500 | Slimference Go codebase with HTTP proxy + TUI |
 | TOML filter rules | 58 | TOML DSL + 26 built-in compactors (now incl. T25 Python + Terraform) |
 | Hook files | 11 | 3 (claude, codex, verify) |
 | Tests | Implicit via `cargo test` | 100 % statement coverage enforced |
 
 Scope difference: Slimference is a **superset** on everything that is not
 Layer-0 filtering. RTK has deeper Layer-0 specialisation; Slimference has
-the HTTP proxy, 3-layer compression pipeline, MiniMax summarisation,
+the HTTP proxy, active deterministic compression/cache/output-reduce stack,
 response cache, TUI, operating modes, prompt-cache metrics.
 
 ---
@@ -137,9 +137,9 @@ response cache, TUI, operating modes, prompt-cache metrics.
 Slimference scope is intentionally larger than RTK. The following are
 entirely outside RTK:
 
-- HTTP reverse proxy with 3-layer compression pipeline (L1 deterministic,
-  L2 async MiniMax summarisation with anchors/priority/staircase, L3
-  response cache with Stage A/B double keying - T20).
+- HTTP reverse proxy with active deterministic compression/cache/output-reduce
+  pipeline: L0/WSS reducers, L1 deterministic compression, L3 response cache,
+  and L4 output/tool-surface reduction.
 - Prompt-cache metrics, both injection (OptimizeCacheBreakpoints) and
   measurement (T23 `cache_read_input_tokens` aggregation).
 - Operating modes (T36: strict / balanced / fast) with explicit
@@ -149,9 +149,8 @@ entirely outside RTK:
 - Daemon service (launchd) with `daemon logs` subcommand (T30).
 - Hook-drift watchdog (T33).
 - Bash completion (T32).
-- Tuning staircases (T26 repetition, T27 incremental overlap, T36 L2 modes).
-- Overflow recover that is guaranteed to never call MiniMax synchronously
-  (T21).
+- Tuning staircases and overflow recovery that stay on deterministic product
+  reducers.
 
 ---
 

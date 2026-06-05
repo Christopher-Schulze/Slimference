@@ -6,12 +6,9 @@
 //	slimference                    # Start TUI + proxy
 //	slimference config init        # Generate default config file
 //	slimference config show        # Print resolved config
-//	slimference test minimax       # Test MiniMax API connectivity
 //	slimference test anthropic     # Test Anthropic reachability
 //	slimference test openai        # Test OpenAI reachability
 //	slimference doctor             # Run all diagnostics
-//	slimference layer2 enable --acknowledge-data-policy  # Enable L2 summarization
-//	slimference layer2 status      # Show Layer 2 config
 //	slimference stats today        # Print today's stats
 //	slimference stats prompt-cache week --json # Prompt-cache report
 //	slimference gain today         # Layer-0/filter/cache/output/proxy telemetry (--by-command, --by-parser, --cache, --output, --proxy)
@@ -70,7 +67,6 @@ import (
 	"github.com/slimference/slimference/internal/repetition"
 	"github.com/slimference/slimference/internal/sessions"
 	"github.com/slimference/slimference/internal/slogutil"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tlsca"
 	"github.com/slimference/slimference/internal/tlsdial"
 	"github.com/slimference/slimference/internal/tlsproof"
@@ -402,12 +398,6 @@ func runTUI() {
 	// Apply CLI flag overrides (take priority over config file).
 	applyTUIFlags(cfg, os.Args[1:])
 
-	if err := ensureLayer2PolicyAcknowledged(cfg, true, os.Stdin, os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintf(os.Stderr, "layer2 policy: %v\n", err)
-		exitFn(1)
-		return
-	}
-
 	setupLogging(cfg)
 	runTUIAfterStartFn(newRemoteProxyFn(cfg))
 }
@@ -460,7 +450,6 @@ func runTUIAfterStart(p tui.ProxyInterface) {
 //	--port <n>             Listen port override
 //	--sliding-window <n>   Layer 1 sliding window size
 //	--no-layer1            Disable Layer 1 (deterministic compression)
-//	--no-layer2            Disable Layer 2 (MiniMax summarization)
 //	--no-layer3            Disable Layer 3 (response caching)
 //	--log-level <level>    Log level: debug, info, warn, error
 func applyTUIFlags(cfg *config.Config, args []string) {
@@ -488,8 +477,6 @@ func applyTUIFlags(cfg *config.Config, args []string) {
 			}
 		case "--no-layer1":
 			cfg.Compression.Layer1Enabled = false
-		case "--no-layer2":
-			cfg.Compression.Layer2Enabled = false
 		case "--no-layer3":
 			cfg.Compression.Layer3Enabled = false
 		case "--log-level":
@@ -515,7 +502,7 @@ func handleSubcommand(args []string) {
 
 	case "test":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: slimference test <minimax|anthropic|openai|intercept>")
+			fmt.Fprintln(os.Stderr, "usage: slimference test <anthropic|openai|intercept>")
 			exitFn(1)
 		}
 		handleTestCmd(args[1:])
@@ -611,9 +598,6 @@ func handleSubcommand(args []string) {
 	case "bypass":
 		handleBypassCmd(args[1:])
 
-	case "layer2":
-		handleLayer2Cmd(args[1:])
-
 	case "output-reduce":
 		handleOutputReduceCmd(args[1:])
 
@@ -664,7 +648,7 @@ func handleSubcommand(args []string) {
 
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, expand-body, hook, debug, daemon, start, stop, restart, service, layer2, output-reduce, completion, trust, capture-session, codex, lab, proxy, version")
+		fmt.Fprintln(os.Stderr, "Run 'slimference' to start the TUI, or use: config, test, doctor, stats, gain, plan, filter, rewrite, readhook, posttool, codexhook, checkpoint, expand, expand-body, hook, debug, daemon, start, stop, restart, service, output-reduce, completion, trust, capture-session, codex, lab, proxy, version")
 		exitFn(1)
 	}
 }
@@ -1975,7 +1959,7 @@ func handleConfigCmd(args []string) {
 			exitFn(1)
 		}
 		fmt.Printf("Config written to %s\n", path)
-		fmt.Println("Next: set MINIMAX_API_KEY and run 'slimference doctor'")
+		fmt.Println("Next: run 'slimference doctor'")
 
 	case "show":
 		cfg, err := config.Load()
@@ -2140,10 +2124,6 @@ func handleDoctorCmd() {
 		return fmt.Sprintf("%s (port %d)", cfg.ListenAddr(), cfg.Proxy.ListenPort), true
 	})
 
-	check("Layer 2 engine", func() (string, bool) {
-		return "in-process deterministic compactor", true
-	})
-
 	check("Anthropic upstream", func() (string, bool) {
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Get(cfg.Upstream.Anthropic.BaseURL)
@@ -2203,53 +2183,6 @@ func handleDoctorCmd() {
 
 	warn("TLS reflected proof", func() string {
 		return formatTLSProofStatus(time.Now())
-	})
-
-	check("Determinism gate", func() (string, bool) {
-		if !cfg.Compression.Summary.RequireDeterministic {
-			return "off (no strict-determinism check)", true
-		}
-		// The in-process deterministic compactor is pure by
-		// construction; strict mode is trivially satisfied.
-		return "on (deterministic compactor)", true
-	})
-
-	check("Prompt override", func() (string, bool) {
-		if cfg.Compression.PromptOverridePath == "" {
-			return "default (no override path configured)", true
-		}
-		return fmt.Sprintf("%s (active version: %s)",
-			cfg.Compression.PromptOverridePath,
-			summarization.PromptVersion()), true
-	})
-
-	// T109: outbound redaction status for Layer 2. Off-mode is a
-	// data-policy red flag worth surfacing prominently.
-	check("L2 outbound redaction", func() (string, bool) {
-		mode := cfg.Compression.Summary.OutboundRedaction
-		if mode == "" {
-			mode = summarization.RedactionModeDefault
-		}
-		switch mode {
-		case summarization.RedactionModeOff:
-			return "OFF - configured external L2 providers can receive raw conversation prefixes (set [compression.summary] outbound_redaction = \"default\" to enable)", false
-		case summarization.RedactionModeStrict:
-			return "strict (secrets + paths + headers + JSON sweep + tool_input drop)", true
-		case summarization.RedactionModeDefault:
-			return "default (secrets + paths + auth headers + JSON keys)", true
-		default:
-			return fmt.Sprintf("unknown mode %q - falling back to default semantics", mode), false
-		}
-	})
-
-	// T121: warn when an external_third_party summarization provider is
-	// enabled. This is the data-policy safety net: even with redaction,
-	// the operator must explicitly acknowledge the data flow.
-	warn("L2 provider trust", func() string {
-		if !cfg.Compression.Layer2Enabled {
-			return "Layer 2 disabled"
-		}
-		return "Layer 2 enabled - model-facing summary replacement blocked unless explicitly allowed"
 	})
 
 	check("Content archive", func() (string, bool) {
@@ -3298,9 +3231,6 @@ func handleDebugReplay(args []string) {
 				fmt.Printf("      %-22s blocks=%d  saved=%d\n", name, bd.Blocks, bd.Saved)
 			}
 		}
-		if s.Layer2.Applied {
-			fmt.Printf("    layer2:  ratio=%.2f  anchors=%d\n", s.Layer2.CompressionRatio, s.Layer2.AnchorCount)
-		}
 	}
 	fmt.Println(strings.Repeat("-", 50))
 	fmt.Printf("TOTAL: %d request(s)  %d tokens saved\n", len(summaries), totalSaved)
@@ -3541,7 +3471,6 @@ func printStatsTable(snapshots []analytics.AnalyticsSnapshot) {
 		total.TotalOutputTokens += s.TotalOutputTokens
 		total.CacheHits += s.CacheHits
 		total.SecretsRedacted += s.SecretsRedacted
-		total.MiniMaxCalls += s.MiniMaxCalls
 	}
 
 	ratio := 0
@@ -3556,7 +3485,6 @@ func printStatsTable(snapshots []analytics.AnalyticsSnapshot) {
 	fmt.Printf("Input tokens saved:  %s (%d%%)\n", formatTokensPlain(total.SavedInputTokens), ratio)
 	fmt.Printf("Output tokens:       %s\n", formatTokensPlain(total.TotalOutputTokens))
 	fmt.Printf("Cache hits:          %d\n", total.CacheHits)
-	fmt.Printf("MiniMax calls:       %d\n", total.MiniMaxCalls)
 	fmt.Printf("Secrets redacted:    %d\n", total.SecretsRedacted)
 	fmt.Println(strings.Repeat("-", 50))
 }
@@ -4067,7 +3995,6 @@ func startProxyForDaemon() (port int, shutdown func(ctx context.Context) error, 
 	if err != nil {
 		return 0, nil, fmt.Errorf("config load: %w", err)
 	}
-	_ = ensureLayer2PolicyAcknowledged(cfg, false, nil, io.Discard, os.Stderr)
 	setupLogging(cfg)
 	p := newProxyFn(cfg)
 	ensureSlimDataDir()
@@ -4121,7 +4048,6 @@ func applyPersistedRuntimeState(p *proxy.Proxy) {
 	p.SetProviderEnabled(types.Anthropic, state.ClaudeEnabled)
 	p.SetProviderEnabled(types.OpenAI, state.CodexEnabled)
 	p.SetLayerEnabled(1, state.Layer1Enabled)
-	p.SetLayerEnabled(2, state.Layer2Enabled)
 	p.SetLayerEnabled(3, state.Layer3Enabled)
 }
 

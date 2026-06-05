@@ -31,7 +31,6 @@ func TestCodexDesktopVisionInputUntouched(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	p := New(cfg)
 
 	imageURL := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA"
@@ -88,7 +87,6 @@ func TestCodexDesktopWebSearchUntouched(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.StaleReadAgingEnabled = true
 	cfg.Compression.OutputReduce.ObsoleteReadPruneEnabled = true
 	p := New(cfg)
@@ -139,7 +137,6 @@ func TestCodexDesktopComputerCallUntouched(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.CodexChatGPT.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	p := New(cfg)
 
 	screenshotData := strings.Repeat("base64-screenshot-bytes. ", 30)

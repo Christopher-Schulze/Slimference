@@ -85,11 +85,11 @@ type DeterministicCompressor struct {
 	// mutate it. Optional; nil means "no archiving" and every helper
 	// short-circuits cheaply. T76.
 	recorder MutationRecorder
-	// coordinatorSubsume signals that Layer 2 will summarise the prefix
-	// being processed. T100: when true, heavy L1 sub-layers (dedup,
-	// structure, delta, tool-compressor, success-short, image-replace)
-	// are skipped on the prefix because L2 will replace it anyway.
-	// Cheap idempotent passes (ANSI strip, JSON compact) still run.
+	// coordinatorSubsume signals that an external request-scoped reducer will
+	// replace the prefix being processed. When true, heavy L1 sub-layers
+	// (dedup, structure, delta, tool-compressor, success-short, image-replace)
+	// are skipped on the prefix. Cheap idempotent passes (ANSI strip, JSON
+	// compact) still run.
 	coordinatorSubsume bool
 	// callMu serialises Compress calls because activeSessionID,
 	// activeDedupThreshold, and legacy coordinatorSubsume are request-local
@@ -146,8 +146,8 @@ func (c *DeterministicCompressor) Compress(messages []types.Message) Layer1Resul
 	return c.CompressWithSession("", messages)
 }
 
-// SetCoordinatorSubsume tells the compressor that Layer 2 will replace
-// the messages being passed in this call, so heavy L1 sub-layers can
+// SetCoordinatorSubsume tells the compressor that another request-scoped reducer
+// will replace the messages being passed in this call, so heavy L1 sub-layers can
 // skip on the prefix. T100. The flag stays set until changed.
 //
 // This setter is retained for legacy tests and preview-style single-threaded
@@ -488,7 +488,7 @@ func (c *DeterministicCompressor) compressMessage(
 			}
 		}
 
-		// T100: when the cross-direction coordinator decides Layer 2
+		// T100: when the cross-direction coordinator decides another reducer
 		// will subsume this prefix, skip every heavy sub-layer below
 		// (dedup, structure, delta, tool-compressor, success-short,
 		// image-replace) and let the cheap ANSI/JSON passes above

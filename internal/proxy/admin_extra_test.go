@@ -6,55 +6,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/slimference/slimference/internal/config"
 	"github.com/slimference/slimference/internal/readcache"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/types"
 )
 
-func TestAdminStatusSnapshot_Layer2Details(t *testing.T) {
+func TestAdminStatusSnapshot_ReadCacheDetails(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := config.Defaults()
 	p := New(cfg)
-
-	createdAt := time.Unix(1700000000, 0).UTC()
-	p.layer2.GetCache().Compressing.Store(true)
-	p.layer2.GetCache().Store(&summarization.CachedSummary{CreatedAt: createdAt})
-	p.compressQueue <- types.CompressJob{}
 	if err := readcache.RecordDecision(readcache.DefaultDir(home), readcache.Decision{Type: readcache.DecisionBlock, BlockKind: readcache.BlockKindDelta}); err != nil {
 		t.Fatalf("record read cache: %v", err)
 	}
 
 	got := p.adminStatusSnapshot()
-	if !got.Layer2.HasCache {
-		t.Fatal("expected layer2 cache in admin snapshot")
-	}
-	if !got.Layer2.Compressing {
-		t.Fatal("expected compressing flag in admin snapshot")
-	}
-	if got.Layer2.QueueDepth != 1 {
-		t.Fatalf("queue depth: got %d want 1", got.Layer2.QueueDepth)
-	}
-	if !got.Layer2.LastRun.Equal(createdAt) {
-		t.Fatalf("last run: got %s want %s", got.Layer2.LastRun, createdAt)
-	}
 	if got.ReadCache.DeltaBlocks != 1 || got.ReadCache.Blocks != 1 {
 		t.Fatalf("unexpected read cache snapshot: %+v", got.ReadCache)
-	}
-}
-
-func TestAdminStatusSnapshot_WithoutLayer2(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	cfg := config.Defaults()
-	p := New(cfg)
-	p.ClearLayer2ForTesting()
-
-	got := p.adminStatusSnapshot()
-	if got.Layer2.HasCache || got.Layer2.Compressing || !got.Layer2.LastRun.IsZero() || got.Layer2.QueueDepth != 0 {
-		t.Fatalf("unexpected layer2 status without layer2: %+v", got.Layer2)
 	}
 }
 

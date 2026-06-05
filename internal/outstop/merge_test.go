@@ -275,7 +275,7 @@ func TestMergeIntoBodyEmpty(t *testing.T) {
 
 func TestMergeIntoBodyUnknownProviderPassthrough(t *testing.T) {
 	body := []byte(`{"foo":1}`)
-	out, res := MergeIntoBody(types.MiniMax, body)
+	out, res := MergeIntoBody(types.Provider(99), body)
 	if !res.OK {
 		t.Errorf("unknown provider should return OK=true (no-op)")
 	}

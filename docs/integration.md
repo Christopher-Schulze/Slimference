@@ -196,7 +196,7 @@ traffic without editing Codex files.
 Codex request-body compression is code-ready without requiring live local
 Codex wiring: `/v1/responses` and `/backend-api/codex/*` are accepted as
 potential Codex compression paths, but only recognised conversation shapes
-enter Layer 1-3. Unknown Codex backend bodies are forwarded byte-for-byte
+enter active safe reducers. Unknown Codex backend bodies are forwarded byte-for-byte
 instead of being rejected or rewritten.
 
 If the installed Codex build uses WebSocket responses, the local direct path

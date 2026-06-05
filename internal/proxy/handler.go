@@ -30,7 +30,6 @@ import (
 	"github.com/slimference/slimference/internal/resilience"
 	"github.com/slimference/slimference/internal/security"
 	"github.com/slimference/slimference/internal/staleread"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/tokens"
 	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
@@ -188,7 +187,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	body = decodedBody
 	r = r.WithContext(context.WithValue(r.Context(), requestBodyEncodingKey{}, requestEncoding))
 	r = r.WithContext(context.WithValue(r.Context(), origBodyKey{}, body))
-	sessionID := summarization.ExtractSessionID(provider, body, r.Header)
+	sessionID := extractSessionID(provider, body, r.Header)
 
 	// --- 1. Extract messages ---
 	messages, rawBody, err := extractMessages(provider, body)
@@ -260,7 +259,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	log.Debug("request started", "messages", len(messages), "orig_tokens", origTokens)
 
 	// T112: adaptive sliding window resolution.
-	windowDecision := summarization.ResolveWindow(
+	windowDecision := resolveWindow(
 		messages,
 		p.config.Compression.SlidingWindow,
 		p.config.Compression.Tuning.AdaptiveWindowEnabled,
@@ -291,7 +290,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// --- 2.5. Stale-read aging (T170) ---
 	// Replace superseded older Read tool_results with neutral context-elision
 	// markers. Runs before secret detection (cheaper scan input) and
-	// before compression layers (so L1/L2 see the aged content).
+	// before compression layers.
 	// Lossless: the most-recent read of any given path always survives.
 	if p.config.Compression.OutputReduce.StaleReadAgingEnabled {
 		aged, agingStats := staleread.AgeMessages(messages, staleread.Options{
@@ -369,12 +368,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	})
 	layer0Action := plannerActionForLayer(runtimePlan, planner.Layer0, planner.ActionRun)
 	layer1Action := plannerActionForLayer(runtimePlan, planner.Layer1, planner.ActionRun)
-	layer2Action := plannerActionForLayer(runtimePlan, planner.Layer2, planner.ActionBypass)
-	layer2HardBypass := plannerHardBypassForLayer2(runtimePlan)
-
 	// --- 3.5 Stage A cache pre-check (T20) ---
 	// If an identical original request already produced a cached upstream
-	// response, serve it without running Layer 1 or Layer 2 at all.
+	// response, serve it without running the deterministic compression path.
 	var stageACacheKey [32]byte
 	effectiveRouteKey := p.responseCacheEffectiveRouteKey(r, sessionID)
 	stageAEnabled := p.isLayerEnabled(3) && caching.IsRequestCacheSafeWithRoute(effectiveRouteKey, body)
@@ -387,7 +383,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	}
 
 	compressedMessages := messages
-	var layer0Savings, layer1Savings, layer2Savings int
+	var layer0Savings, layer1Savings int
 	appliedLayers := make([]int, 0, 3)
 
 	// --- 3.75 Layer 0: proxy-side tool-output compaction ---
@@ -436,17 +432,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		l1Start := time.Now()
 		// T76: thread the request id as the session scope so any archive
 		// entry produced by lossy sub-layers carries a correlatable id.
-		// T100: when the coordinator is enabled and Layer 2 will fire
-		// (origTokens >= MinTokensForLayer2), tell the L1 compressor to
-		// skip heavy sub-layers since L2 will replace the prefix anyway.
-		coordinatorActive := p.config.Compression.Tuning.CoordinatorEnabled &&
-			p.isLayerEnabled(2) &&
-			layer2Action == planner.ActionRun
-		if layer1Action == planner.ActionCheapOnly {
-			coordinatorActive = true
-		}
 		result := p.layer1.CompressWithSessionOptions(reqID, compressedMessages, compression.Layer1CompressOptions{
-			CoordinatorSubsume: coordinatorActive,
+			CoordinatorSubsume: layer1Action == planner.ActionCheapOnly,
 		})
 		p.pipelineHist.L1.Record(time.Since(l1Start))
 		if result.TokensSaved > 0 {
@@ -462,18 +449,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 		layer1Breakdown = buildLayer1Breakdown(result)
 		layer1Decisions = buildLayer1Decisions(result)
-	}
-
-	var ocrlFullHistorySummary dbg.ContextLedgerSummary
-
-	// --- 5. Layer 2: OCRL shadow proof only ---
-	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull && !layer2HardBypass {
-		ocrlStart := time.Now()
-		ocrl := p.applyHTTPFullHistoryOCRL(provider, sessionID, compressedMessages, effectiveWindow, reReadCount)
-		if ocrl.HasSummary {
-			ocrlFullHistorySummary = ocrl.Summary
-		}
-		p.pipelineHist.L2.Record(time.Since(ocrlStart))
 	}
 
 	// --- 6. Prompt cache breakpoints (Anthropic only) ---
@@ -504,7 +479,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		appliedLayers = nil
 		layer0Savings = 0
 		layer1Savings = 0
-		layer2Savings = 0
 	}
 
 	// --- 7. Reconstruct request body ---
@@ -702,7 +676,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 					Tokens: dbg.TokenCounts{
 						Original:    origTokens,
 						AfterLayer1: origTokens - layer1Savings,
-						AfterLayer2: origTokens - layer1Savings - layer2Savings,
 						Final:       compressedTokens,
 						Saved:       totalSaved,
 						Ratio:       compressionRatio,
@@ -1061,9 +1034,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Layer 2 model-facing replacement and background summarization are retired
-	// from the product hot path. OCRL remains shadow/proof-only above.
-
 	// --- Debug decision recording ---
 	if p.debugRecorder != nil {
 		cacheReadTokens, providerCachedTokens := splitProviderCacheUsage(provider, upstreamCacheUsage)
@@ -1085,7 +1055,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				Original:    origTokens,
 				AfterLayer0: origTokens - layer0Savings,
 				AfterLayer1: origTokens - layer0Savings - layer1Savings,
-				AfterLayer2: origTokens - layer0Savings - layer1Savings - layer2Savings,
 				Final:       compressedTokens,
 				Saved:       totalSaved,
 				Ratio:       compressionRatio,
@@ -1115,7 +1084,6 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				AddedTokens: outputReduceStats.AddedTokens,
 				TaskShape:   string(outputReduceStats.TaskShape),
 			},
-			ContextLedger:          ocrlFullHistorySummary,
 			PreviousResponseIDUsed: serverStateUsed,
 			ProxyLatencyMs:         proxyLatencyMs,
 			ReReadCount:            reReadCount,
@@ -1206,7 +1174,7 @@ func (p *Proxy) serveStageACacheHit(
 	totalMessages int,
 	origTokens int,
 	log *slog.Logger,
-	aw summarization.WindowDecision,
+	aw windowDecision,
 ) {
 	for k, vv := range cached.Headers {
 		for _, v := range vv {
@@ -1234,7 +1202,6 @@ func (p *Proxy) serveStageACacheHit(
 			Tokens: dbg.TokenCounts{
 				Original:    origTokens,
 				AfterLayer1: origTokens,
-				AfterLayer2: origTokens,
 				Final:       origTokens,
 				Saved:       0,
 				Ratio:       1.0,
@@ -1523,19 +1490,13 @@ func isContextOverflow(body []byte) bool {
 }
 
 // buildAggressiveCompressedBodyContext re-runs Layer 1 with a minimal sliding
-// window. Layer 2 model-facing replacement is intentionally absent here: an
-// overflow recovery path must not insert summaries or archive capsules into the
-// model context.
+// window.
 func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash pipelineStash) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	cfg := p.config.Compression
 	cfg.SlidingWindow = aggressiveSlidingWindow(cfg.Tuning.OverflowSlidingWindow)
-	cfg.Summary.TargetRatio = aggressiveTargetRatio(cfg.Tuning.OverflowTargetRatio)
-	if cfg.Summary.TargetRatio < cfg.Summary.MinRatio {
-		cfg.Summary.TargetRatio = cfg.Summary.MinRatio
-	}
 	l1 := compression.NewDeterministicCompressor(&cfg)
 	msgs := l1.Compress(stash.messages).Messages
 
@@ -1549,22 +1510,6 @@ func aggressiveSlidingWindow(v int) int {
 		return 2
 	}
 	return v
-}
-
-// aggressiveTargetRatio returns the configured overflow target ratio,
-// defaulting to 0.10 when the tuning block is empty.
-func aggressiveTargetRatio(v float64) float64 {
-	if v <= 0 {
-		return 0.10
-	}
-	return v
-}
-
-func (p *Proxy) compressionContext() context.Context {
-	if p.workerCtx != nil {
-		return p.workerCtx
-	}
-	return context.Background()
 }
 
 // proxyError writes an error response to the client.

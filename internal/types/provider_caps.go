@@ -43,10 +43,9 @@ type ProviderCapabilities struct {
 }
 
 // TrustClass labels a provider's data-flow relationship to the operator.
-// T121. "upstream_provider" = the model the user is talking to (Anthropic,
-// OpenAI, Codex). "external_third_party" = a side-channel optimisation
-// provider the user did not ask to talk to (MiniMax). "unknown" = not
-// declared (treated as external for safety).
+// "upstream_provider" = the model the user is talking to (Anthropic, OpenAI,
+// Codex). "external_third_party" remains for compatibility with old config
+// values. "unknown" = not declared.
 const (
 	TrustClassUpstreamProvider   = "upstream_provider"
 	TrustClassExternalThirdParty = "external_third_party"
@@ -93,16 +92,6 @@ var providerCapsRegistry = map[Provider]ProviderCapabilities{
 		SupportsPreviousResponseIDHTTP:      true,
 		SupportsPreviousResponseIDWebSocket: false,
 		BillsPreviousResponseIDContext:      true,
-	},
-	MiniMax: {
-		TrustClass:                  TrustClassExternalThirdParty,
-		SupportsSeed:                true,
-		SupportsTemperatureZero:     true,
-		SupportsLogprobs:            false,
-		SupportsMinCompletionTokens: false,
-		SupportsStopConditions:      false,
-		SupportsResponseID:          false,
-		SupportsCachedPrefix:        false,
 	},
 }
 

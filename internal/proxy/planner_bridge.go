@@ -45,7 +45,6 @@ func (p *Proxy) dryRunPlan(in plannerInput) *dbg.PlanSummary {
 func (p *Proxy) buildCompressionPlan(in plannerInput) planner.CompressionPlan {
 	manualDisabled := map[planner.Layer]bool{
 		planner.Layer1: !p.isLayerEnabled(1),
-		planner.Layer2: !p.isLayerEnabled(2),
 		planner.Layer3: !p.isLayerEnabled(3),
 		planner.Layer4: !p.config.Compression.OutputReduce.Enabled,
 	}
@@ -65,9 +64,6 @@ func (p *Proxy) buildCompressionPlan(in plannerInput) planner.CompressionPlan {
 		ContentClasses:              normalizedPlannerClasses(in.contentClasses),
 		ManualDisabled:              manualDisabled,
 		RecentEdit:                  in.recentEdit,
-		ExternalLayer2Allowed:       p.config.Compression.Layer2Enabled,
-		Layer2Acknowledged:          p.config.Compression.Layer2Enabled,
-		Layer2ModelFacingAllowed:    p.config.Compression.Summary.AllowModelFacingReplacement,
 		ProviderCacheSupported:      providerCacheSupported,
 		PreviousResponseIDAvailable: in.previousResponseIDAvailable,
 		ToolPruneCooldown:           in.toolPruneCooldown,
@@ -76,7 +72,6 @@ func (p *Proxy) buildCompressionPlan(in plannerInput) planner.CompressionPlan {
 		WebSocketShapeKnown:         in.webSocketShapeKnown,
 		WebSocketMutationRequested:  in.webSocketMutationRequested,
 		LiveCorpusConfidence:        in.liveCorpusConfidence,
-		LatencyBudgetMs:             p.config.Compression.Layer2LatencyBudgetMs,
 	})
 }
 
@@ -193,19 +188,6 @@ func plannerActionForLayer(plan planner.CompressionPlan, layer planner.Layer, fa
 		return fallback
 	}
 	return decision.Action
-}
-
-func plannerHardBypassForLayer2(plan planner.CompressionPlan) bool {
-	decision, ok := plannerDecisionForLayer(plan, planner.Layer2)
-	if !ok || decision.Action != planner.ActionBypass {
-		return false
-	}
-	switch decision.Reason {
-	case "operator_disabled", "external_summary_policy_not_ready", "recent_edit_window":
-		return true
-	default:
-		return false
-	}
 }
 
 func debugPlanSummary(plan planner.CompressionPlan) *dbg.PlanSummary {

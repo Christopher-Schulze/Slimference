@@ -1,7 +1,7 @@
 // Package upstream resolves the upstream provider and URL for an inbound
 // request. The package is intentionally tiny and dependency-light so the
 // fail-open sidecar (t164) can import it without dragging the full proxy
-// stack (compression, summarization, sessions, tui) into its build.
+// stack (compression, sessions, tui) into its build.
 //
 // The detection rules mirror internal/proxy/provider.go.detectProviderWithUA
 // and internal/proxy/proxy.go.upstreamURL; once t164 lands and the sidecar

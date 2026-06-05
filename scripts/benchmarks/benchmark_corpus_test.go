@@ -47,29 +47,28 @@ func itoa(i int) string {
 	return string(digits)
 }
 
-const sampleHighSavingsRecord = `{"req_id":"req_high","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":600,"after_layer2":600,"final":600,"saved":400}}` + "\n"
-const sampleToolPruneRecord = `{"req_id":"req_tool_prune","provider":"codex_chatgpt","model":"gpt-5.5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":26},"tool_prune":{"applied":true,"pruned_tools":1,"saved_tokens":26}}` + "\n"
-const sampleOCRLFullHistoryRecord = `{"req_id":"req_ocrl","provider":"openai","model":"gpt-5","route_mode":"upstream","tokens":{"original":4200,"after_layer0":4200,"after_layer1":4200,"after_layer2":4200,"final":4200,"saved":0},"context_ledger":{"telemetry_only":true,"ocrl_mode":"auto","ocrl_route":"full_history_http","ocrl_reason":"shadow_only","ocrl_shadow_only":true,"ocrl_candidate_capsules":3,"ocrl_archive_expansions":3,"ocrl_original_tokens":3000,"ocrl_replacement_tokens":250,"ocrl_recovery_overhead_tokens":0,"ocrl_shadow_saved_tokens":2750}}` + "\n"
+const sampleHighSavingsRecord = `{"req_id":"req_high","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":600,"final":600,"saved":400}}` + "\n"
+const sampleToolPruneRecord = `{"req_id":"req_tool_prune","provider":"codex_chatgpt","model":"gpt-5.5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"final":0,"saved":26},"tool_prune":{"applied":true,"pruned_tools":1,"saved_tokens":26}}` + "\n"
 
-const sampleLowSavingsRecord = `{"req_id":"req_low","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":990,"after_layer1":950,"after_layer2":950,"final":950,"saved":50}}` + "\n"
+const sampleLowSavingsRecord = `{"req_id":"req_low","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":990,"after_layer1":950,"final":950,"saved":50}}` + "\n"
 
-const sampleAbsoluteSavingsRecord = `{"req_id":"req_abs","provider":"openai","model":"gpt-5","tokens":{"original":400,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":400}}` + "\n"
+const sampleAbsoluteSavingsRecord = `{"req_id":"req_abs","provider":"openai","model":"gpt-5","tokens":{"original":400,"after_layer0":0,"after_layer1":0,"final":0,"saved":400}}` + "\n"
 
-const sampleEvidenceRecord = `{"req_id":"req_evidence","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"cache_read_tokens":120,"cache_create_tokens":40,"provider_cached_tokens":120,"output_tokens":77,"output_reduce":{"applied":true,"profile":"codex_aggressive","added_tokens":12},"proxy_latency_ms":42.5}` + "\n"
-const sampleOutputReduceNoOutputTokensRecord = `{"req_id":"req_output_reduce_no_output","provider":"openai","model":"gpt-5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":0},"output_reduce":{"applied":true,"profile":"codex_aggressive"},"proxy_latency_ms":42.5}` + "\n"
-const sampleOutputReduceOverheadDominatesRecord = `{"req_id":"req_output_reduce_overhead","provider":"openai","model":"gpt-5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":0},"output_tokens":12,"output_reduce":{"applied":true,"profile":"codex_aggressive","added_tokens":12},"proxy_latency_ms":42.5}` + "\n"
+const sampleEvidenceRecord = `{"req_id":"req_evidence","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"final":800,"saved":200},"cache_read_tokens":120,"cache_create_tokens":40,"provider_cached_tokens":120,"output_tokens":77,"output_reduce":{"applied":true,"profile":"codex_aggressive","added_tokens":12},"proxy_latency_ms":42.5}` + "\n"
+const sampleOutputReduceNoOutputTokensRecord = `{"req_id":"req_output_reduce_no_output","provider":"openai","model":"gpt-5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"final":0,"saved":0},"output_reduce":{"applied":true,"profile":"codex_aggressive"},"proxy_latency_ms":42.5}` + "\n"
+const sampleOutputReduceOverheadDominatesRecord = `{"req_id":"req_output_reduce_overhead","provider":"openai","model":"gpt-5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"final":0,"saved":0},"output_tokens":12,"output_reduce":{"applied":true,"profile":"codex_aggressive","added_tokens":12},"proxy_latency_ms":42.5}` + "\n"
 const sampleOutputReduceABReport = `{"pairs":[{"pair_id":"pair_ok","output_tokens_saved":219,"net_tokens_saved":196,"output_savings_pct":22.18,"gate_passed":true}],"pair_count":1,"gate_passed":true}` + "\n"
 const sampleOutputReduceABFailedReport = `{"pairs":[{"pair_id":"pair_bad","output_tokens_saved":-10,"net_tokens_saved":-33,"output_savings_pct":-1,"gate_passed":false,"gate_failures":["net negative"]}],"pair_count":1,"gate_passed":false,"gate_failures":["pair_bad: net negative"]}` + "\n"
 
-const sampleHostBudgetOKRecord = `{"req_id":"req_host_ok","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"host_budget":{"status":"ok","exceeded":false,"compression_ok":true,"degradation_ok":true},"proxy_latency_ms":42.5}` + "\n"
+const sampleHostBudgetOKRecord = `{"req_id":"req_host_ok","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"final":800,"saved":200},"host_budget":{"status":"ok","exceeded":false,"compression_ok":true,"degradation_ok":true},"proxy_latency_ms":42.5}` + "\n"
 
-const sampleHostBudgetIssueRecord = `{"req_id":"req_host_issue","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"host_budget_status":"attention","host_budget_exceeded":true,"host_budget_compression_ok":true,"host_budget_degradation_ok":true,"proxy_latency_ms":42.5}` + "\n"
+const sampleHostBudgetIssueRecord = `{"req_id":"req_host_issue","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"final":800,"saved":200},"host_budget_status":"attention","host_budget_exceeded":true,"host_budget_compression_ok":true,"host_budget_degradation_ok":true,"proxy_latency_ms":42.5}` + "\n"
 
-const sampleErrorLatencyRecord = `{"req_id":"req_error","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"errors":["bad"],"proxy_latency_ms":2000}` + "\n"
+const sampleErrorLatencyRecord = `{"req_id":"req_error","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"final":800,"saved":200},"errors":["bad"],"proxy_latency_ms":2000}` + "\n"
 
-const sampleWebSocketRecord = `{"req_id":"req_ws","provider":"openai","model":"gpt-5","route_mode":"websocket","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":700,"final":650,"saved":350},"output_reduce":{"applied":true}}` + "\n"
+const sampleWebSocketRecord = `{"req_id":"req_ws","provider":"openai","model":"gpt-5","route_mode":"websocket","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"final":650,"saved":350},"output_reduce":{"applied":true}}` + "\n"
 
-const sampleReReadRecord = `{"req_id":"req_reread","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"after_layer2":800,"final":800,"saved":200},"re_read_count":2}` + "\n"
+const sampleReReadRecord = `{"req_id":"req_reread","provider":"openai","model":"gpt-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":800,"final":800,"saved":200},"re_read_count":2}` + "\n"
 
 func TestLoadCategoryMetadata_Missing(t *testing.T) {
 	t.Parallel()
@@ -285,8 +284,8 @@ func TestEvaluateCategory_PlannerReplayMetricsAndGates(t *testing.T) {
 		t.Fatalf("expected no failures, got %v", res.Failures)
 	}
 	if res.PlanReplay.RequestsWithPlan != 3 ||
-		res.PlanReplay.ExpectedSavingsTokens != 511 ||
-		res.PlanReplay.MissedActive != 2 ||
+		res.PlanReplay.ExpectedSavingsTokens != 211 ||
+		res.PlanReplay.MissedActive != 1 ||
 		res.PlanReplay.BypassApplied != 1 {
 		t.Fatalf("planner metrics: %+v", res.PlanReplay)
 	}
@@ -297,7 +296,7 @@ func TestEvaluateCategory_PlannerReplayGateFailures(t *testing.T) {
 	root := t.TempDir()
 	dir := writeCategory(t, root, "planner_bad", CategoryMetadata{
 		Category:                 "planner_bad",
-		ExpectedPlannerMissedMax: 1,
+		ExpectedPlannerMissedMax: 0,
 	}, []string{plannedJSONL})
 	metadataPath := filepath.Join(dir, corpusCategoryMetadataFilename)
 	raw, err := os.ReadFile(metadataPath)
@@ -308,6 +307,7 @@ func TestEvaluateCategory_PlannerReplayGateFailures(t *testing.T) {
 	if err := json.Unmarshal(raw, &meta); err != nil {
 		t.Fatalf("decode metadata: %v", err)
 	}
+	meta["expected_planner_missed_max"] = 0
 	meta["expected_planner_bypass_applied_max"] = 0
 	rewritten, _ := json.MarshalIndent(meta, "", "  ")
 	if err := os.WriteFile(metadataPath, rewritten, 0o644); err != nil {
@@ -318,7 +318,7 @@ func TestEvaluateCategory_PlannerReplayGateFailures(t *testing.T) {
 		t.Fatalf("evaluate: %v", err)
 	}
 	got := strings.Join(res.Failures, "\n")
-	for _, want := range []string{"planner_missed_active=2", "planner_bypass_applied=1"} {
+	for _, want := range []string{"planner_missed_active=1", "planner_bypass_applied=1"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in failures: %v", want, res.Failures)
 		}
@@ -339,9 +339,8 @@ func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
 			"low_error",
 			"host_budget_ok",
 			"layer_combo_diversity",
-			"ocrl_full_history",
 		},
-	}, []string{sampleEvidenceRecord, sampleWebSocketRecord, sampleHostBudgetOKRecord, sampleToolPruneRecord, sampleOCRLFullHistoryRecord})
+	}, []string{sampleEvidenceRecord, sampleWebSocketRecord, sampleHostBudgetOKRecord, sampleToolPruneRecord})
 	res, err := EvaluateCategory(dir, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
@@ -351,9 +350,6 @@ func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
 	}
 	if res.HostBudgetOKRows != 1 || res.HostBudgetIssueRows != 0 {
 		t.Fatalf("host budget rows: %+v", res)
-	}
-	if res.OCRLApplied != 0 || res.OCRLShadowOnly != 1 || res.OCRLFullHistoryRows != 1 || res.OCRLSavedTokens != 2750 {
-		t.Fatalf("ocrl aggregate mismatch: %+v", res)
 	}
 }
 
@@ -369,7 +365,6 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 			"low_error",
 			"host_budget_ok",
 			"layer_combo_diversity",
-			"ocrl_full_history",
 			"unknown_validator",
 		},
 	}, []string{sampleErrorLatencyRecord, sampleHostBudgetIssueRecord})
@@ -385,7 +380,6 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 		"scenario low_error",
 		"scenario host_budget_ok",
 		"scenario layer_combo_diversity",
-		"scenario ocrl_full_history",
 		"unknown scenario validator",
 	} {
 		if !strings.Contains(got, want) {
@@ -606,7 +600,6 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		"chunk_dedup_similar_outputs",
 		"chunk_dedup_log_output",
 		"chunk_dedup_test_output",
-		"ocrl_full_history",
 		"output_reduce_aggressive",
 		"output_reduce_ab",
 		"tool_heavy",
@@ -620,10 +613,6 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		name := client + "_" + workload
 		meta := promotionMeta(name, client, workload)
 		switch workload {
-		case "ocrl_full_history":
-			meta.ExpectedSavingsMin = 0
-			meta.ExpectedSavingsMax = 0.01
-			meta.ScenarioValidators = []string{"ocrl_full_history", "low_error"}
 		case "output_reduce_aggressive":
 			meta.ExpectedOutputReduceAppliedMin = 1
 			meta.ExpectedOutputReduceOverheadMax = 1000
@@ -648,9 +637,7 @@ func writeMaxxCorpus(t *testing.T, root string) {
 			meta.ScenarioValidators = []string{"low_error"}
 		}
 		session := sampleHighSavingsRecord
-		if workload == "ocrl_full_history" {
-			session = sampleOCRLFullHistoryRecord
-		} else if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" {
+		if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" {
 			session = sampleEvidenceRecord
 		} else if workload == "tool_heavy" {
 			session = sampleToolPruneRecord
@@ -814,18 +801,6 @@ func TestCategoryHasPromotionSavingsSignal_WorkloadSpecificEconomics(t *testing.
 			want:     false,
 		},
 		{
-			name:     "ocrl full history uses shadow proof validator",
-			workload: "ocrl_full_history",
-			meta:     &CategoryMetadata{ScenarioValidators: []string{"ocrl_full_history", "low_error"}},
-			want:     true,
-		},
-		{
-			name:     "ocrl full history rejects plain product savings metadata",
-			workload: "ocrl_full_history",
-			meta:     &CategoryMetadata{ExpectedSavingsMin: 0.10},
-			want:     false,
-		},
-		{
 			name:     "nil metadata fails",
 			workload: "repeat_read",
 			meta:     nil,
@@ -857,7 +832,6 @@ func TestEvaluateMaxxGate_Pass(t *testing.T) {
 		t.Fatalf("expected maxx pass, got %+v", gate)
 	}
 	if gate.SessionsByWorkload["chunk_dedup_log_output"] != 1 ||
-		gate.SessionsByWorkload["ocrl_full_history"] != 1 ||
 		gate.SessionsByWorkload["provider_cache_long_session"] != 1 {
 		t.Fatalf("maxx workload counts: %+v", gate.SessionsByWorkload)
 	}
@@ -878,43 +852,11 @@ func TestEvaluateMaxxGate_FailsMissingMechanismBreadth(t *testing.T) {
 	got := strings.Join(gate.Failures, "\n")
 	for _, want := range []string{
 		"missing maxx workload_class chunk_dedup_similar_outputs",
-		"missing maxx workload_class ocrl_full_history",
 		"missing maxx workload_class output_reduce_aggressive",
 		"missing maxx workload_class output_reduce_ab",
 		"missing maxx workload_class tool_heavy",
 		"missing maxx workload_class provider_cache_long_session",
 		"missing maxx workload_class host_resource_long_workday",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("missing %q in failures:\n%s", want, got)
-		}
-	}
-}
-
-func TestEvaluateMaxxGate_FailsOCRLFullHistoryWithoutShadowEvidence(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeMaxxCorpus(t, root)
-	meta := promotionMeta("codex_cli_ocrl_full_history", "codex_cli", "ocrl_full_history")
-	meta.ScenarioValidators = []string{"low_error"}
-	dir := writeCategory(t, root, "codex_cli_ocrl_full_history", meta, []string{sampleHighSavingsRecord})
-	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
-	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
-
-	report, err := EvaluateCorpus(root, &bytes.Buffer{})
-	if err != nil {
-		t.Fatalf("evaluate: %v", err)
-	}
-	gate := EvaluateMaxxGate(report)
-	if gate.Passed {
-		t.Fatalf("expected maxx failure without OCRL shadow evidence: %+v", gate)
-	}
-	got := strings.Join(gate.Failures, "\n")
-	for _, want := range []string{
-		"ocrl_full_history full_history_rows=0",
-		"ocrl_full_history candidates=0 archive_expansions=0",
-		"ocrl_full_history shadow_would_save_tokens=0",
-		"ocrl_full_history shadow_only_rows=0",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in failures:\n%s", want, got)
@@ -1076,7 +1018,7 @@ func TestFormatCorpusReport_PlannerReplay(t *testing.T) {
 	writeCategory(t, root, "planner", CategoryMetadata{
 		Category:                        "planner",
 		ExpectedSavingsMin:              0.10,
-		ExpectedPlannerMissedMax:        2,
+		ExpectedPlannerMissedMax:        1,
 		ExpectedPlannerBypassAppliedMax: 1,
 	}, []string{plannedJSONL})
 	report, err := EvaluateCorpus(root, &bytes.Buffer{})
@@ -1084,7 +1026,7 @@ func TestFormatCorpusReport_PlannerReplay(t *testing.T) {
 		t.Fatalf("evaluate: %v", err)
 	}
 	s := FormatCorpusReport(report)
-	for _, want := range []string{"planner:", "requests=3", "expected=511", "missed=2", "bypass-hit=1", "combos:", "L0+L1+L4"} {
+	for _, want := range []string{"planner:", "requests=3", "expected=211", "missed=1", "bypass-hit=1", "combos:", "L0+L1+L4"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in report:\n%s", want, s)
 		}

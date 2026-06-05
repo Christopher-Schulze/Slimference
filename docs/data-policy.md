@@ -1,10 +1,13 @@
 # Slimference Data Policy
 
-Last updated: 2026-06-05 (Layer 2 product replacement retired)
+Last updated: 2026-06-05 (Layer 2 removed)
 
 ## Overview
 
-Slimference processes LLM API requests through a multi-layer compression pipeline. This document describes what data flows where, and how to control it.
+Slimference processes LLM API requests through local deterministic reducers,
+cache/accounting paths, and provider-bound upstream forwarding. It no longer
+uses a model-facing Layer 2 summarization, OCRL/context-ledger replacement, or
+external compression provider.
 
 ## Data Flow by Layer
 
@@ -20,42 +23,30 @@ Slimference processes LLM API requests through a multi-layer compression pipelin
 - **Data destination**: Local process only. No data leaves your machine.
 - **Controls**: `[compression] layer1_enabled`
 
-### Layer 2: OCRL Context Ledger Shadow Infrastructure (local)
+### Retired Layer 2: no model-facing summarization
 
-- **Product direction**: OCRL, the Old Context Recovery Ledger, is local and
-  deterministic. It builds compact archive-backed capsules for old inactive
-  context and records shadow would-save telemetry, but product runtime keeps
-  model-facing context unchanged.
-- **Data destination for OCRL**: Local process and local archive only. OCRL does
-  not call an external model.
-- **Current runtime state**: shadow/proof only. OCRL does not insert capsules
-  into Codex WSS or full-history HTTP model-facing context.
-- **Legacy external summarization**: Legacy summarization providers can remain
-  configured for compatibility and offline experiments, but the product proxy
-  hot path no longer applies cached summaries, injects mid-exchange summaries,
-  or enqueues background summarization jobs.
-- **Data destination for legacy summarization**: Compressed conversation content
-  may be sent to the configured summarization provider only by explicit legacy
-  tooling, not by the product proxy path.
-- **Default state**: **Disabled** for fresh configs. Existing configs with
-  `layer2_enabled = true` do not make Layer 2 a product savings layer.
-- **Redaction**: Outbound redaction is **on by default** (T109). This strips:
-  - HTTP authentication headers
-  - Known credential/secret patterns (API keys, tokens, passwords)
-  - File paths are normalised (`<HOME>`, `<TMP>`)
-  - JSON credential keys are removed
-- **Strict mode**: `[compression.summary] outbound_redaction = "strict"` additionally drops all `tool_input` bodies and runs a recursive JSON sweep.
-- **Controls**:
-  - Enable: `slimference layer2 enable --acknowledge-data-policy`
-  - Disable: `slimference layer2 disable`
-  - Status: `slimference layer2 status`
-  - Doctor check: `slimference doctor`
+- **What happens**: Nothing. The Layer 2 code path has been removed.
+- **Data destination**: No data is sent to MiniMax, a local LLM, or any other
+  side-channel summarization provider by Slimference.
+- **Reason**: Any summary that replaces old context can remove details and create
+  product drawdown: worse model memory, weaker context consistency, or wrong
+  reconstruction. Slimference keeps default product savings on deterministic,
+  recoverable, and fail-open mechanisms instead.
+- **Controls**: There is no Layer 2 CLI surface or config surface.
 
 ### Layer 3: Response Cache (local only)
 
 - **What happens**: Compressed responses are cached locally to avoid redundant compression.
 - **Data destination**: Local memory and disk cache only. No data leaves your machine.
 - **Controls**: `[compression] layer3_enabled`, `[cache]`
+
+### Layer 4: Output and tool-surface reduction (local policy)
+
+- **What happens**: Safe output discipline, repetition control, and tool-schema
+  pruning reduce tokens that do not carry user-visible task state.
+- **Data destination**: Local process policy plus the normal upstream provider
+  request. No side-channel provider is involved.
+- **Controls**: Output-reduce and tool-pruning settings in the local config.
 
 ## Provider Trust Labels
 
@@ -64,33 +55,6 @@ Slimference processes LLM API requests through a multi-layer compression pipelin
 | Anthropic | `upstream_provider` | The LLM you are talking to |
 | OpenAI | `upstream_provider` | The LLM you are talking to |
 | Codex (ChatGPT) | `upstream_provider` | The LLM you are talking to |
-| MiniMax | `external_third_party` | Side-channel summarization provider |
-
-`slimference doctor` warns when any `external_third_party` provider is enabled.
-
-## Alternative Summarization Endpoint
-
-The `[compression.minimax]` section name is historical. The client sends non-streaming `/v1/chat/completions` requests and can point at any OpenAI-compatible endpoint. For MiniMax M2.x, `enable_reasoning_split = true` keeps thinking content out of `message.content`. Disable it when a non-MiniMax endpoint rejects extra fields.
-
-```toml
-[compression.minimax]
-base_url = "http://localhost:11434/v1"      # e.g. local/self-hosted endpoint
-model = "qwen2.5:7b"
-api_key_env = "LOCAL_LLM_KEY"
-enable_reasoning_split = false
-trust_class = "upstream_provider"          # suppress external-provider warning for self-hosted endpoints
-```
-
-When `trust_class = "upstream_provider"` is set explicitly, `slimference doctor` no longer warns about the provider being external.
-
-Environment overrides for fast model swaps:
-
-```bash
-SLIMFERENCE_MINIMAX_BASE_URL="https://integrate.api.nvidia.com/v1"
-SLIMFERENCE_MINIMAX_MODEL="nvidia/nemotron-3-super-120b-a12b"
-SLIMFERENCE_MINIMAX_API_KEY_ENV="NVIDIA_API_KEY"
-SLIMFERENCE_MINIMAX_ENABLE_REASONING_SPLIT=false
-```
 
 ## Disabling Layers
 
@@ -99,14 +63,7 @@ Each layer can be individually disabled in config:
 ```toml
 [compression]
 layer1_enabled = true   # deterministic compression (safe, local)
-layer2_enabled = false  # legacy external summarization remains opt-in; OCRL is local/shadow unless promoted
 layer3_enabled = true   # response cache (safe, local)
-```
-
-Or via CLI:
-
-```bash
-slimference layer2 disable   # writes layer2_enabled = false to config
 ```
 
 ## Logging and Telemetry
@@ -117,7 +74,4 @@ slimference layer2 disable   # writes layer2_enabled = false to config
 
 ## Further Reading
 
-- Redaction design: `docs/todo/t109-l2-outbound-redaction.md`
-- Trust model: `docs/todo/t121-l2-default-off-and-trust-labels.md`
-- OCRL product spec: `docs/ocrl.md`
 - Spec: `spec+.md` (normative)

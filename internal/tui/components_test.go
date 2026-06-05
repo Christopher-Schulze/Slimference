@@ -224,7 +224,7 @@ func TestRenderLayerLine(t *testing.T) {
 		t.Errorf("should contain layer name, got: %s", got)
 	}
 
-	offGot := renderLayerLine(s, 2, "MiniMax", false, 0, "")
+	offGot := renderLayerLine(s, 3, "Cache", false, 0, "")
 	if !strings.Contains(offGot, "OFF") {
 		t.Errorf("disabled layer should show OFF, got: %s", offGot)
 	}

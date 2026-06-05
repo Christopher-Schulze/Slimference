@@ -39,7 +39,6 @@ type CategoryMetadata struct {
 	ExpectedSavingsMax                  float64  `json:"expected_savings_max"`
 	ExpectedSavedTokensMin              int64    `json:"expected_saved_tokens_min,omitempty"`
 	ExpectedRequestCount                int      `json:"expected_request_count"`
-	ExpectedLayer2Optional              bool     `json:"expected_layer2_optional"`
 	ExpectedMaxErrors                   int      `json:"expected_max_errors,omitempty"`
 	ExpectedLatencyP95MaxMs             float64  `json:"expected_latency_p95_max_ms,omitempty"`
 	ExpectedProviderCacheReadMin        int64    `json:"expected_provider_cache_read_min,omitempty"`
@@ -72,7 +71,6 @@ type CategoryResult struct {
 	SavingsRatio                float64                              `json:"savings_ratio"`
 	Layer0Saved                 int64                                `json:"layer0_saved"`
 	Layer1Saved                 int64                                `json:"layer1_saved"`
-	Layer2Saved                 int64                                `json:"layer2_saved"`
 	Layer3Saved                 int64                                `json:"layer3_saved"`
 	OutputTokens                int64                                `json:"output_tokens"`
 	ProviderCacheReadTokens     int64                                `json:"provider_cache_read_tokens"`
@@ -89,12 +87,6 @@ type CategoryResult struct {
 	OutputReduceABFailures      []string                             `json:"output_reduce_ab_failures,omitempty"`
 	ToolPruneApplied            int                                  `json:"tool_prune_applied"`
 	ToolPruneSavedTokens        int64                                `json:"tool_prune_saved_tokens"`
-	OCRLCandidateCapsules       int                                  `json:"ocrl_candidate_capsules"`
-	OCRLArchiveExpansions       int                                  `json:"ocrl_archive_expansions"`
-	OCRLSavedTokens             int64                                `json:"ocrl_saved_tokens"`
-	OCRLApplied                 int                                  `json:"ocrl_applied"`
-	OCRLShadowOnly              int                                  `json:"ocrl_shadow_only"`
-	OCRLFullHistoryRows         int                                  `json:"ocrl_full_history_rows"`
 	ErrorCount                  int                                  `json:"error_count"`
 	ReReadCount                 int                                  `json:"reread_count"`
 	HostBudgetOKRows            int                                  `json:"host_budget_ok_rows"`
@@ -232,7 +224,6 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		SavingsRatio:                ratio,
 		Layer0Saved:                 agg.layer0Saved,
 		Layer1Saved:                 agg.layer1Saved,
-		Layer2Saved:                 agg.layer2Saved,
 		Layer3Saved:                 agg.layer3Saved,
 		OutputTokens:                agg.outputTokenSum,
 		ProviderCacheReadTokens:     agg.cacheReadSum,
@@ -249,12 +240,6 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		OutputReduceABFailures:      append([]string(nil), abSummary.Failures...),
 		ToolPruneApplied:            agg.toolPruneApplied,
 		ToolPruneSavedTokens:        agg.toolPruneSaved,
-		OCRLCandidateCapsules:       agg.ocrlCandidateCapsules,
-		OCRLArchiveExpansions:       agg.ocrlArchiveExpansions,
-		OCRLSavedTokens:             agg.ocrlSavedTokens,
-		OCRLApplied:                 agg.ocrlApplied,
-		OCRLShadowOnly:              agg.ocrlShadowOnly,
-		OCRLFullHistoryRows:         agg.ocrlFullHistoryRows,
 		ErrorCount:                  agg.errorCount,
 		ReReadCount:                 agg.reReadCount,
 		HostBudgetOKRows:            agg.hostBudgetOK,
@@ -493,22 +478,6 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 			if len(res.LayerCombinations) < 2 {
 				failures = append(failures, fmt.Sprintf("scenario layer_combo_diversity: combinations=%d", len(res.LayerCombinations)))
 			}
-		case "ocrl_full_history":
-			if res.OCRLApplied > 0 {
-				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: product-applied rows must be 0, got %d", res.OCRLApplied))
-			}
-			if res.OCRLFullHistoryRows <= 0 {
-				failures = append(failures, "scenario ocrl_full_history: expected full-history OCRL route evidence")
-			}
-			if res.OCRLCandidateCapsules <= 0 || res.OCRLArchiveExpansions <= 0 {
-				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: candidates=%d archive_expansions=%d", res.OCRLCandidateCapsules, res.OCRLArchiveExpansions))
-			}
-			if res.OCRLSavedTokens <= 0 {
-				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: shadow_would_save_tokens=%d", res.OCRLSavedTokens))
-			}
-			if res.OCRLShadowOnly <= 0 {
-				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: shadow_only_rows=%d", res.OCRLShadowOnly))
-			}
 		default:
 			failures = append(failures, fmt.Sprintf("unknown scenario validator %q", raw))
 		}
@@ -526,7 +495,6 @@ var supportedScenarioValidators = []string{
 	"low_error",
 	"host_budget_ok",
 	"layer_combo_diversity",
-	"ocrl_full_history",
 }
 
 func hasLayerCombination(combos map[string]layerCombinationAggregate, label string) bool {
@@ -571,7 +539,6 @@ var requiredMaxxWorkloads = []string{
 	"chunk_dedup_similar_outputs",
 	"chunk_dedup_log_output",
 	"chunk_dedup_test_output",
-	"ocrl_full_history",
 	"output_reduce_aggressive",
 	"output_reduce_ab",
 	"tool_heavy",
@@ -654,13 +621,6 @@ func categoryHasPromotionSavingsSignal(workload string, meta *CategoryMetadata) 
 		return meta.ExpectedOutputReduceAppliedMin > 0
 	case "output_reduce_ab":
 		return meta.ExpectedOutputReduceABPairsMin > 0 && meta.ExpectedOutputReduceABNetSavedMin > 0
-	case "ocrl_full_history":
-		for _, validator := range meta.ScenarioValidators {
-			if strings.TrimSpace(validator) == "ocrl_full_history" {
-				return true
-			}
-		}
-		return false
 	default:
 		return meta.ExpectedSavingsMin > 0 || meta.ExpectedSavedTokensMin > 0
 	}
@@ -695,26 +655,6 @@ func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
 		}
 		if category.OutputTokens <= 0 {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_aggressive missing observed output-token evidence", category.Category))
-		}
-	}
-	for _, category := range report.Categories {
-		if category.Synthetic || category.WorkloadClass != "ocrl_full_history" {
-			continue
-		}
-		if category.OCRLApplied > 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history product_applied=%d", category.Category, category.OCRLApplied))
-		}
-		if category.OCRLFullHistoryRows <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history full_history_rows=%d", category.Category, category.OCRLFullHistoryRows))
-		}
-		if category.OCRLCandidateCapsules <= 0 || category.OCRLArchiveExpansions <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history candidates=%d archive_expansions=%d", category.Category, category.OCRLCandidateCapsules, category.OCRLArchiveExpansions))
-		}
-		if category.OCRLSavedTokens <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history shadow_would_save_tokens=%d", category.Category, category.OCRLSavedTokens))
-		}
-		if category.OCRLShadowOnly <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history shadow_only_rows=%d", category.Category, category.OCRLShadowOnly))
 		}
 	}
 	for _, category := range report.Categories {
@@ -830,7 +770,7 @@ func FormatCorpusReport(report CorpusReport) string {
 		} else {
 			sb.WriteString("  ratio:        n/a\n")
 		}
-		sb.WriteString(fmt.Sprintf("  L0/L1/L2/L3:  %d / %d / %d / %d\n", c.Layer0Saved, c.Layer1Saved, c.Layer2Saved, c.Layer3Saved))
+		sb.WriteString(fmt.Sprintf("  L0/L1/L3:     %d / %d / %d\n", c.Layer0Saved, c.Layer1Saved, c.Layer3Saved))
 		sb.WriteString(fmt.Sprintf("  output tokens:%d\n", c.OutputTokens))
 		sb.WriteString(fmt.Sprintf("  provider cache read/create/cached: %d / %d / %d\n", c.ProviderCacheReadTokens, c.ProviderCacheCreateTokens, c.ProviderCachedTokens))
 		if c.OutputReduceApplied > 0 || c.OutputReduceInputOverhead > 0 {
@@ -845,10 +785,6 @@ func FormatCorpusReport(report CorpusReport) string {
 		}
 		if c.ToolPruneApplied > 0 || c.ToolPruneSavedTokens > 0 {
 			sb.WriteString(fmt.Sprintf("  tool-prune:   applied=%d saved=%d\n", c.ToolPruneApplied, c.ToolPruneSavedTokens))
-		}
-		if c.OCRLCandidateCapsules > 0 || c.OCRLSavedTokens > 0 || c.OCRLApplied > 0 || c.OCRLShadowOnly > 0 {
-			sb.WriteString(fmt.Sprintf("  OCRL:         applied=%d shadow=%d full_history=%d candidates=%d archive_expansions=%d saved=%d\n",
-				c.OCRLApplied, c.OCRLShadowOnly, c.OCRLFullHistoryRows, c.OCRLCandidateCapsules, c.OCRLArchiveExpansions, c.OCRLSavedTokens))
 		}
 		sb.WriteString(fmt.Sprintf("  errors:       %d\n", c.ErrorCount))
 		sb.WriteString(fmt.Sprintf("  re-reads:     %d\n", c.ReReadCount))

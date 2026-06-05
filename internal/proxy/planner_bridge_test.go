@@ -19,7 +19,6 @@ func TestDryRunPlan_AttachesProviderAndDisabledLayers(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Compression.OutputReduce.Enabled = false
 	p := New(cfg)
-	p.SetLayerEnabled(2, false)
 
 	plan := p.dryRunPlan(plannerInput{
 		provider:                    types.OpenAI,
@@ -33,9 +32,6 @@ func TestDryRunPlan_AttachesProviderAndDisabledLayers(t *testing.T) {
 	})
 	if plan == nil || plan.Provider != "openai" || plan.Model != "gpt-5.1" || plan.RouteMode != "upstream" {
 		t.Fatalf("bad plan identity: %+v", plan)
-	}
-	if !hasPlanAction(plan.Decisions, "l2", "bypass", "operator_disabled") {
-		t.Fatalf("expected disabled L2 decision: %+v", plan.Decisions)
 	}
 	if !hasPlanAction(plan.Decisions, "l4_output", "bypass", "operator_disabled") {
 		t.Fatalf("expected disabled L4 decision: %+v", plan.Decisions)
@@ -56,7 +52,6 @@ func TestDryRunPlan_NilProxy(t *testing.T) {
 func TestBuildCompressionPlan_DrivesRecentEditActions(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
-	cfg.Compression.Layer2Enabled = true
 	p := New(cfg)
 
 	plan := p.buildCompressionPlan(plannerInput{
@@ -70,22 +65,6 @@ func TestBuildCompressionPlan_DrivesRecentEditActions(t *testing.T) {
 	l1, ok := plannerDecisionForLayer(plan, planner.Layer1)
 	if !ok || l1.Action != planner.ActionCheapOnly || l1.Reason != "recent_edit_preserve_full_context" {
 		t.Fatalf("L1 recent-edit decision = %+v, ok=%v", l1, ok)
-	}
-	l2, ok := plannerDecisionForLayer(plan, planner.Layer2)
-	if !ok || l2.Action != planner.ActionBypass || l2.Reason != "recent_edit_window" {
-		t.Fatalf("L2 recent-edit decision = %+v, ok=%v", l2, ok)
-	}
-	if !plannerHardBypassForLayer2(plan) {
-		t.Fatal("recent-edit L2 bypass must be treated as a hard runtime bypass")
-	}
-	softPlan := p.buildCompressionPlan(plannerInput{
-		provider:             types.Anthropic,
-		model:                "claude",
-		routeMode:            "upstream",
-		estimatedInputTokens: 500,
-	})
-	if plannerHardBypassForLayer2(softPlan) {
-		t.Fatal("below-ROI L2 bypass must leave layer-local cache/candidate checks available")
 	}
 	if got := plannerActionForLayer(plan, planner.Layer3, planner.ActionInspect); got == planner.ActionInspect {
 		t.Fatalf("expected concrete L3 action, got fallback %q", got)
@@ -255,23 +234,6 @@ func TestWebSocketShapeKnown_UsesRegistry(t *testing.T) {
 	})
 	if !p.webSocketShapeKnown() {
 		t.Fatal("registered websocket Phase-F request shape must mark mutation shape known")
-	}
-}
-
-func TestPlannerHardBypassForLayer2Reasons(t *testing.T) {
-	t.Parallel()
-	for _, reason := range []string{"operator_disabled", "external_summary_policy_not_ready", "recent_edit_window"} {
-		plan := planner.CompressionPlan{Decisions: []planner.LayerDecision{{
-			Layer:  planner.Layer2,
-			Action: planner.ActionBypass,
-			Reason: reason,
-		}}}
-		if !plannerHardBypassForLayer2(plan) {
-			t.Fatalf("reason %q should hard-bypass", reason)
-		}
-	}
-	if plannerHardBypassForLayer2(planner.CompressionPlan{}) {
-		t.Fatal("missing L2 decision must not hard-bypass")
 	}
 }
 

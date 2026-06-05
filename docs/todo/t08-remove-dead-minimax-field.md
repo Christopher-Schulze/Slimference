@@ -1,48 +1,7 @@
-# T08: Layer2.minimax Feld entfernen (toter State)
+# RETIRED: t08-remove-dead-minimax-field
 
-**Date:** 2026-04-17
-**Severity:** HIGH
-**Status:** DONE
-**Parent:** `docs/todo.md` -> Audit-Fixes
+This task file is historical only. The Layer 2 / MiniMax / OCRL / context-ledger product path has been removed from Slimference.
 
-## Problem
+Do not use this file as implementation guidance. Current product work must follow `spec+.md`, `docs/documentation.md`, `docs/map.md`, and `docs/todo.md`.
 
-`internal/summarization/layer2.go:23`:
-
-```go
-type Layer2 struct {
-    cfg       *config.CompressionConfig
-    minimax   *MiniMaxClient   // <-- TOT: wird nie gelesen
-    chain     *FallbackChain
-    ...
-}
-```
-
-Das Feld `minimax` wird in `NewLayer2` (Zeile 38) gesetzt aber **nie gelesen**. Alle Zugriffe laufen ueber `l.chain`. Das Feld ist toter State der Speicher allokiert und Verwirrung stiftet.
-
-## Verification
-
-```bash
-grep -rn 'l\.minimax' internal/summarization/*.go | grep -v '_test.go'
-# Keine Treffer ausser layer2.go:23 (Deklaration) und layer2.go:38 (Zuweisung)
-```
-
-## Solution
-
-1. `minimax *MiniMaxClient` aus Layer2 struct entfernen
-2. `minimax: mm` aus NewLayer2 entfernen
-3. Lokale Variable `mm` in NewLayer2 behalten (wird an chain weitergegeben)
-4. Tests pruefen die direkt auf das Feld zugreifen (sollte keine geben)
-
-## Acceptance Criteria
-
-- [x] Layer2 struct hat kein `minimax` Feld mehr
-- [x] `NewLayer2` erzeugt `mm` nur als lokale Variable fuer `NewFallbackChain(mm)`
-- [x] `go build ./...` kompiliert
-- [x] `go test ./internal/summarization/` gruen
-- [x] `go vet ./...` clean
-
-## Affected Files
-
-- `internal/summarization/layer2.go` - Struct + Constructor
-- Ggf. `_test.go` die das Feld referenzieren
+Replacement direction: active savings belong to Layer 0, Layer 1, Layer 3, and Layer 4 only.

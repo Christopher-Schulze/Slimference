@@ -1,18 +1,10 @@
 package config
 
 // Defaults returns a Config populated with sensible production defaults.
-// SummaryConfig is then passed through ApplyL2OperatingMode so its numeric
-// fields reflect the default "balanced" profile without forcing every
-// caller to run the mode resolver themselves.
 func Defaults() *Config {
-	cfg := defaultsRaw()
-	_ = ApplyL2OperatingMode(&cfg.Compression.Summary, cfg.Compression.Summary.Mode)
-	return cfg
+	return defaultsRaw()
 }
 
-// defaultsRaw returns the pre-mode-applied defaults. Separated from Defaults
-// so Load() can decode TOML over an unresolved shell and resolve the mode
-// only after env overrides have been applied.
 func defaultsRaw() *Config {
 	return &Config{
 		Proxy: ProxyConfig{
@@ -63,21 +55,11 @@ func defaultsRaw() *Config {
 			CodexChatGPT: ProviderUpstream{BaseURL: "https://chatgpt.com"},
 		},
 		Compression: CompressionConfig{
-			Layer1Enabled: true,
-			// Layer 2 defaults to OFF. When explicitly enabled it may prepare
-			// deterministic background summaries, but model-facing summary
-			// replacement remains blocked unless
-			// Summary.AllowModelFacingReplacement is explicitly set. The product
-			// direction is context ledger, not summary-as-conversation-truth.
-			Layer2Enabled:                     false,
-			Layer3Enabled:                     true,
-			SlidingWindow:                     5,
-			MinMessagesForCompression:         8,
-			MinTokensForLayer2:                15000,
-			Layer2LatencyBudgetMs:             0, // 0 = guard off (opt-in)
-			Layer2LatencyProjectionMultiplier: 1.2,
-			Layer2LatencyEMAAlpha:             0.2,
-			StructureMinTokens:                500,
+			Layer1Enabled:             true,
+			Layer3Enabled:             true,
+			SlidingWindow:             5,
+			MinMessagesForCompression: 8,
+			StructureMinTokens:        500,
 			StructureLanguages: []string{
 				"go", "typescript", "javascript", "rust", "python",
 				"c", "cpp", "java", "ruby", "shell", "zig", "swift",
@@ -85,23 +67,6 @@ func defaultsRaw() *Config {
 				"svelte",
 			},
 			DedupSimilarityThreshold: 0.85,
-			Summary: SummaryConfig{
-				// Mode=balanced is the default operating profile. The
-				// numeric fields stay zero so ApplyL2OperatingMode can
-				// fill them from the profile without pretending they
-				// were operator-set. TOML/env values override after.
-				Mode: ModeBalanced,
-				// T109: outbound redaction default-on. Operators that
-				// truly want raw outbound must set this to "off"
-				// explicitly; doctor warns when they do.
-				OutboundRedaction: "default",
-			},
-			OCRL: OCRLConfig{
-				Mode:                 "shadow",
-				MaxCapsules:          512,
-				MinNetSavedTokens:    1,
-				MaxReplacementTokens: 0,
-			},
 			OutputReduce: OutputReduceConfig{
 				Enabled:              true,
 				Profile:              "auto",
@@ -136,14 +101,7 @@ func defaultsRaw() *Config {
 				CodexChunkDedupMaxSessionReferencePercent: 70,
 			},
 			Tuning: TuningConfig{
-				IncrementalOverlapThreshold: 0.70,
-				IncrementalStaircase: []StaircaseStep{
-					{MsgCountLE: 60, Threshold: 0.70},
-					{MsgCountLE: 120, Threshold: 0.55},
-					{MsgCountLE: 1_000_000, Threshold: 0.40},
-				},
 				OverflowSlidingWindow:       2,
-				OverflowTargetRatio:         0.10,
 				StructureInWindow:           false,
 				StructureInWindowMinTokens:  1500,
 				ToolOutputInWindow:          true,
@@ -156,7 +114,6 @@ func defaultsRaw() *Config {
 					{MsgCountLE: 40, Threshold: 0.82},
 					{MsgCountLE: 1_000_000, Threshold: 0.78},
 				},
-				MidExchangeThresholdTokens: 10000,
 				ToolCompressor: ToolCompressorTuning{
 					AggressiveAfterMultiplier: 2,
 					GitModerateDiffLimit:      60,
@@ -166,9 +123,8 @@ func defaultsRaw() *Config {
 			},
 		},
 		Cache: CacheConfig{
-			ResponseCacheMaxEntries:       100,
-			ResponseCacheTTLSeconds:       300,
-			SummaryRefreshIntervalSeconds: 1800,
+			ResponseCacheMaxEntries: 100,
+			ResponseCacheTTLSeconds: 300,
 		},
 		Usage: UsageConfig{
 			EstimatedPrefillSpeed: 50000,
@@ -263,16 +219,9 @@ base_url = "https://api.openai.com"
 
 [compression]
 layer1_enabled = true
-layer2_enabled = false
 layer3_enabled = true
 sliding_window = 5
 min_messages_for_compression = 8
-min_tokens_for_layer2 = 15000
-# T54: optional latency guard. Non-zero to activate. Skips L2 when
-# EMA-based projection would exceed the budget (ms).
-layer2_latency_budget_ms = 0
-layer2_latency_projection_multiplier = 1.2
-layer2_latency_ema_alpha = 0.2
 structure_min_tokens = 500
 structure_languages = ["go", "typescript", "javascript", "rust", "python", "c", "cpp", "java", "ruby", "shell", "zig", "swift", "kotlin", "php", "dart", "scala", "elixir", "solidity", "svelte"]
 dedup_similarity_threshold = 0.85
@@ -318,84 +267,10 @@ codex_chunk_dedup_ttl_seconds = 14400
 codex_chunk_dedup_max_reference_percent = 90
 codex_chunk_dedup_max_session_reference_percent = 70
 
-[compression.minimax]
-# Historical section name, but the client is OpenAI-compatible:
-# set base_url/model/api_key_env to swap MiniMax M2.7 for another
-# /v1/chat/completions provider such as NVIDIA NIM.
-base_url = "https://api.minimax.io/v1"
-api_key_env = "MINIMAX_API_KEY"
-model = "MiniMax-M2.7"
-temperature = 0
-top_p = 1
-max_retries = 3
-connect_timeout_seconds = 5
-response_timeout_seconds = 30
-rate_limit_rpm = 10
-# T91: emit seed for deterministic summaries; off until verified live.
-enable_seed = false
-# T91: emit min_tokens to lift the lower bound of the completion length.
-# Off by default because the field is not publicly documented for MiniMax.
-enable_min_tokens = false
-# MiniMax M2.x OpenAI-compatible responses may include <think> content in
-# message.content. reasoning_split moves that into reasoning_details. Disable
-# for non-MiniMax OpenAI-compatible providers that reject extra fields.
-enable_reasoning_split = true
-
-[compression.summary]
-# Operating mode: strict | balanced | fast. Selecting a mode configures
-# target_ratio / max_ratio / min_ratio / strict as a coherent bundle. Any
-# numeric field explicitly set below still overrides the profile.
-# Env override: SLIMFERENCE_L2_MODE.
-mode = "balanced"
-# Explicit overrides (optional; leave unset to inherit from mode).
-# target_ratio = 0.20
-# max_ratio = 0.40
-# min_ratio = 0.05
-# strict = true
-# T88: require_deterministic skips chain providers that do not advertise
-# both temperature=0 + seed support. Default off; turn on (alongside
-# [compression.minimax] enable_seed = true) before adding a second
-# OpenAI-style fallback whose determinism is unverified.
-require_deterministic = false
-# Classical summary replacement is retired from the product proxy path.
-# The flag remains for legacy compatibility only; product runtime keeps
-# model-facing context unchanged. Env: SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT.
-allow_model_facing_replacement = false
-
-[compression.ocrl]
-# OCRL (Old Context Recovery Ledger) is deterministic and archive-backed.
-# Product runtime is shadow-only: no Codex WSS or HTTP model-facing context
-# replacement. Modes: off | shadow | auto | max. Auto/max collect broader
-# would-save proof telemetry only. Env: SLIMFERENCE_OCRL_MODE.
-mode = "shadow"
-max_capsules = 512
-min_net_saved_tokens = 1
-max_replacement_tokens = 0
-
 [compression.tuning]
-# Incremental-summary overlap threshold: if an existing summary covers at
-# least this fraction of the compressible range, do an incremental update
-# instead of a full rebuild. Used only when incremental_staircase is empty.
-incremental_overlap_threshold = 0.70
 # Aggressive sliding window used only when upstream reports a context
 # overflow (spec+.md §17.4).
 overflow_sliding_window = 2
-# Aggressive summary target ratio for the overflow recover path.
-overflow_target_ratio = 0.10
-
-# Conversation-size-keyed staircase of incremental-overlap thresholds. The
-# first step whose msg_count_le is >= the current conversation length wins.
-# Long conversations benefit from a lower threshold: a full rebuild costs
-# proportionally more work while incremental updates remain cheap.
-[[compression.tuning.incremental_staircase]]
-msg_count_le = 60
-threshold = 0.70
-[[compression.tuning.incremental_staircase]]
-msg_count_le = 120
-threshold = 0.55
-[[compression.tuning.incremental_staircase]]
-msg_count_le = 1000000
-threshold = 0.40
 
 # T24: allow Layer 1 structure extraction on large tool_result blocks even
 # when they fall inside the sliding window. Conservative default: off.
@@ -421,11 +296,6 @@ loop_detection = false
 # recorder so the original is recoverable through "slimference expand".
 structure_preview = true
 
-# T100: cross-direction coordinator. When on and Layer 2 is enabled,
-# Layer 1 skips heavy sub-layers on the prefix that L2 will summarise.
-# Cheap passes (ANSI strip, JSON compact) always run. Default off.
-coordinator_enabled = false
-
 # T104: goroutine fan-out across independent L1 sub-layers. When on,
 # messages in the compressible prefix are processed concurrently
 # (bounded by GOMAXPROCS). Default off until benchmark evidence
@@ -440,13 +310,6 @@ tool_prune_idle_threshold_turns = 20
 # Extra exact tool names that must never be pruned. Shell/edit/read/safety,
 # browser, and MCP tool classes are always kept even when this list is empty.
 tool_prune_always_keep = []
-
-# T99: Layer 2 mid-exchange summarization. When on, long in-flight
-# exchanges exceeding the token threshold produce an in-progress
-# summary. Default off until a corpus validates the trade-off.
-mid_exchange_enabled = false
-# Token threshold for mid-exchange summarization (default 10000).
-mid_exchange_threshold_tokens = 10000
 
 # T149: planner live-corpus confidence. Leave unknown unless a real
 # operator corpus proves that higher-risk layers are safe for this ingress.
@@ -466,7 +329,6 @@ streaming_window_lines = 500
 [cache]
 response_cache_max_entries = 100
 response_cache_ttl_seconds = 300
-summary_refresh_interval_seconds = 1800
 
 [usage]
 estimated_prefill_speed = 50000

@@ -201,7 +201,7 @@ func TestInjectBody_SkipBranches(t *testing.T) {
 	if out, stats, err := InjectBody(types.OpenAI, body, Options{Enabled: false}); err != nil || stats.Applied || stats.Reason != "disabled" || string(out) != string(body) {
 		t.Fatalf("disabled out=%s stats=%+v err=%v", out, stats, err)
 	}
-	if out, stats, err := InjectBody(types.MiniMax, []byte(`{}`), Options{Enabled: true, Profile: "anthropic"}); err != nil || stats.Applied || stats.Reason != "unsupported_provider" || string(out) != `{}` {
+	if out, stats, err := InjectBody(types.Provider(99), []byte(`{}`), Options{Enabled: true, Profile: "anthropic"}); err != nil || stats.Applied || stats.Reason != "unsupported_provider" || string(out) != `{}` {
 		t.Fatalf("unsupported provider out=%s stats=%+v err=%v", out, stats, err)
 	}
 	dir := t.TempDir()
@@ -418,7 +418,7 @@ func TestAppendToMessageContentArrayAndFallback(t *testing.T) {
 
 func TestProfilesAndTokenEstimateBranches(t *testing.T) {
 	t.Parallel()
-	for _, provider := range []types.Provider{types.Anthropic, types.OpenAI, types.CodexChatGPT, types.MiniMax} {
+	for _, provider := range []types.Provider{types.Anthropic, types.OpenAI, types.CodexChatGPT} {
 		if ResolveProfile(provider, ProfileAuto) == "" {
 			t.Fatalf("empty resolved profile for %v", provider)
 		}

@@ -16,7 +16,6 @@ import (
 
 	"github.com/slimference/slimference/internal/caching"
 	"github.com/slimference/slimference/internal/config"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/toolprune"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -110,7 +109,6 @@ func TestHealthHandler(t *testing.T) {
 		Providers         map[string]bool `json:"providers"`
 		QueueDepth        map[string]int  `json:"queue_depth"`
 		CacheEntries      int             `json:"cache_entries"`
-		MiniMaxConfigured bool            `json:"minimax_configured"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -132,65 +130,18 @@ func TestHealthHandler(t *testing.T) {
 			body.CPUWindowPercent, body.CPUWindowSeconds, body.DiskReadOps, body.DiskWriteOps, body.DiskReadOpsDelta,
 			body.DiskWriteOpsDelta, body.StateBytes)
 	}
-	// 2026-06-05: Slimference ships deterministic-only by default.
-	// L1 + L3 are on; L2 model-facing summary replacement is retired
-	// from the product proxy path. Supersedes T129's default-on policy.
-	if !body.Layers["1"] || body.Layers["2"] || !body.Layers["3"] {
-		t.Errorf("layers = %v, want L1=true L2=false L3=true (deterministic-only defaults)", body.Layers)
+	if !body.Layers["1"] || !body.Layers["3"] {
+		t.Errorf("layers = %v, want L1=true L3=true", body.Layers)
 	}
 	// Both providers should be enabled.
 	if !body.Providers["anthropic"] || !body.Providers["openai"] {
 		t.Errorf("providers = %v, want all true", body.Providers)
-	}
-	// Queue depth fields must be present.
-	if _, ok := body.QueueDepth["compress"]; !ok {
-		t.Error("queue_depth.compress missing")
 	}
 	if _, ok := body.QueueDepth["analytics"]; !ok {
 		t.Error("queue_depth.analytics missing")
 	}
 }
 
-// TestBuildAggressiveCompressedBody_minRatioClamp verifies the TargetRatio is clamped to MinRatio
-// when MinRatio > 0.10 (the cfg.Summary.MinRatio > cfg.Summary.TargetRatio branch).
-func TestBuildAggressiveCompressedBody_minRatioClamp(t *testing.T) {
-	t.Parallel()
-	cfg := config.Defaults()
-	// Force MinRatio above the hardcoded 0.10 target so the clamp branch fires.
-	cfg.Compression.Summary.MinRatio = 0.50
-	p := New(cfg)
-
-	body := []byte(`{
-		"model": "claude-3-5-sonnet-20241022",
-		"max_tokens": 1024,
-		"messages": [
-			{"role": "user", "content": "hello world"},
-			{"role": "assistant", "content": "response here"}
-		]
-	}`)
-	msgs, _, err := extractMessages(types.Anthropic, body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := p.buildAggressiveCompressedBodyContext(context.Background(), pipelineStash{
-		messages: msgs,
-		origBody: body,
-		provider: types.Anthropic,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(out) == 0 {
-		t.Fatal("empty body")
-	}
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(out, &probe); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-}
-
-// TestBuildAggressiveCompressedBody_contextCancelled ensures the ctx.Err()
-// early-return branch fires when the caller's context is already dead.
 func TestBuildAggressiveCompressedBody_contextCancelled(t *testing.T) {
 	t.Parallel()
 	p := New(config.Defaults())
@@ -206,148 +157,6 @@ func TestBuildAggressiveCompressedBody_contextCancelled(t *testing.T) {
 	}
 }
 
-// TestBuildAggressiveCompressedBodyBlocksCachedSummary verifies that overflow
-// recovery never promotes cached Layer 2 summaries into model-facing context.
-func TestBuildAggressiveCompressedBodyBlocksCachedSummary(t *testing.T) {
-	t.Parallel()
-	cfg := config.Defaults()
-	cfg.Compression.Layer2Enabled = true
-	cfg.Compression.Summary.AllowModelFacingReplacement = true
-	p := New(cfg)
-	// Seed an existing Layer 2 summary that covers indices 0..1.
-	const sessionID = "session-trusted"
-	p.layer2.GetCache().GetInner().Store(sessionID, &summarization.CachedSummary{
-		Summary:          "stashed summary",
-		CoveredRange:     [2]int{0, 1},
-		OriginalTokens:   20,
-		CompressedTokens: 5,
-		CreatedAt:        time.Now(),
-	})
-
-	body := []byte(`{
-		"model": "claude-3-5-sonnet-20241022",
-		"max_tokens": 64,
-		"messages": [
-			{"role": "user", "content": "first"},
-			{"role": "assistant", "content": "second"},
-			{"role": "user", "content": "tail"}
-		]
-	}`)
-	msgs, _, err := extractMessages(types.Anthropic, body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := p.buildAggressiveCompressedBodyContext(context.Background(), pipelineStash{
-		messages:  msgs,
-		origBody:  body,
-		provider:  types.Anthropic,
-		sessionID: sessionID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bodyText := string(out)
-	if strings.Contains(bodyText, "Conversation summary covering messages") {
-		t.Fatalf("overflow recovery must not inject Layer 2 summaries; got %s", out)
-	}
-	for _, want := range []string{"first", "second", "tail"} {
-		if !strings.Contains(bodyText, want) {
-			t.Fatalf("expected original message content %q to remain; got %s", want, out)
-		}
-	}
-}
-
-// TestBuildAggressiveCompressedBody_layer2DisabledBlocksCachedSummary verifies
-// the overflow recover path cannot promote cached legacy summaries when Layer 2
-// is disabled, even if the explicit model-facing legacy override is present.
-func TestBuildAggressiveCompressedBody_layer2DisabledBlocksCachedSummary(t *testing.T) {
-	t.Parallel()
-	cfg := config.Defaults()
-	cfg.Compression.Layer2Enabled = false
-	cfg.Compression.Summary.AllowModelFacingReplacement = true
-	p := New(cfg)
-
-	const sessionID = "session-trusted"
-	p.layer2.GetCache().GetInner().Store(sessionID, &summarization.CachedSummary{
-		Summary:          "stashed summary",
-		CoveredRange:     [2]int{0, 1},
-		OriginalTokens:   20,
-		CompressedTokens: 5,
-		CreatedAt:        time.Now(),
-	})
-
-	body := []byte(`{
-		"model": "claude-3-5-sonnet-20241022",
-		"max_tokens": 64,
-		"messages": [
-			{"role": "user", "content": "first"},
-			{"role": "assistant", "content": "second"},
-			{"role": "user", "content": "tail"}
-		]
-	}`)
-	msgs, _, err := extractMessages(types.Anthropic, body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := p.buildAggressiveCompressedBodyContext(context.Background(), pipelineStash{
-		messages:  msgs,
-		origBody:  body,
-		provider:  types.Anthropic,
-		sessionID: sessionID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bodyText := string(out)
-	if strings.Contains(bodyText, "Conversation summary covering messages") {
-		t.Fatalf("layer2 disabled must block cached summary injection; got %s", out)
-	}
-	for _, want := range []string{"first", "second", "tail"} {
-		if !strings.Contains(bodyText, want) {
-			t.Fatalf("expected original message content %q to remain; got %s", want, out)
-		}
-	}
-}
-
-// TestBuildAggressiveCompressedBodyDoesNotEnqueueAsyncLayer2 verifies that the
-// overflow recovery path stays local and does not schedule retired Layer 2 work.
-func TestBuildAggressiveCompressedBodyDoesNotEnqueueAsyncLayer2(t *testing.T) {
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-	cfg := config.Defaults()
-	cfg.Compression.Layer2Enabled = true
-	cfg.Compression.Summary.MinRatio = 0.01
-	cfg.Compression.MinMessagesForCompression = 3
-	cfg.Compression.SlidingWindow = 2
-	cfg.Compression.MinTokensForLayer2 = 0
-	p := New(cfg)
-
-	// Build a stash with enough messages to pass ShouldTriggerCompression.
-	stash := pipelineStash{
-		messages: []types.Message{
-			{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "one"}}},
-			{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "two"}}},
-			{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "three"}}},
-			{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "four"}}},
-			{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "five"}}},
-			{Index: 5, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "six"}}},
-			{Index: 6, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "seven"}}},
-		},
-		origBody: []byte(`{"model":"claude-3-5-sonnet-20241022","max_tokens":32,"messages":[]}`),
-		provider: types.Anthropic,
-	}
-
-	_, err := p.buildAggressiveCompressedBodyContext(context.Background(), stash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-p.compressQueue:
-		t.Fatal("overflow recovery must not enqueue Layer 2 jobs")
-	case <-time.After(100 * time.Millisecond):
-		// ok
-	}
-}
-
 // TestAggressiveTuningHelpers_defaults asserts the tuning fallbacks fire when
 // the legacy config did not set them (T22).
 func TestAggressiveTuningHelpers_defaults(t *testing.T) {
@@ -360,51 +169,6 @@ func TestAggressiveTuningHelpers_defaults(t *testing.T) {
 	}
 	if got := aggressiveSlidingWindow(3); got != 3 {
 		t.Errorf("aggressiveSlidingWindow(3) = %d, want 3", got)
-	}
-	if got := aggressiveTargetRatio(0); got != 0.10 {
-		t.Errorf("aggressiveTargetRatio(0) = %v, want 0.10", got)
-	}
-	if got := aggressiveTargetRatio(-0.2); got != 0.10 {
-		t.Errorf("aggressiveTargetRatio(-0.2) = %v, want 0.10", got)
-	}
-	if got := aggressiveTargetRatio(0.25); got != 0.25 {
-		t.Errorf("aggressiveTargetRatio(0.25) = %v, want 0.25", got)
-	}
-}
-
-// TestBuildAggressiveCompressedBody_asyncQueueFullFallsThrough verifies the
-// default case of the non-blocking select fires when the queue is already
-// full - the recover path must still return successfully.
-func TestBuildAggressiveCompressedBody_asyncQueueFullFallsThrough(t *testing.T) {
-	t.Setenv("MINIMAX_API_KEY", "test-key")
-	cfg := config.Defaults()
-	cfg.Compression.Summary.MinRatio = 0.01
-	cfg.Compression.MinMessagesForCompression = 3
-	cfg.Compression.SlidingWindow = 2
-	cfg.Compression.MinTokensForLayer2 = 0
-	p := New(cfg)
-
-	// Fill the compression queue so the default branch has to fire.
-	for i := 0; i < cap(p.compressQueue); i++ {
-		p.compressQueue <- types.CompressJob{Timestamp: time.Now()}
-	}
-
-	stash := pipelineStash{
-		messages: []types.Message{
-			{Index: 0, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "one"}}},
-			{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "two"}}},
-			{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "three"}}},
-			{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "four"}}},
-			{Index: 4, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "five"}}},
-			{Index: 5, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: "six"}}},
-			{Index: 6, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "seven"}}},
-		},
-		origBody: []byte(`{"model":"claude-3-5-sonnet-20241022","max_tokens":32,"messages":[]}`),
-		provider: types.Anthropic,
-	}
-
-	if _, err := p.buildAggressiveCompressedBodyContext(context.Background(), stash); err != nil {
-		t.Fatalf("recover path must still succeed with full queue: %v", err)
 	}
 }
 
@@ -464,7 +228,6 @@ func TestHandleCompressibleRequest_origTokensZero(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
@@ -524,7 +287,6 @@ func TestProxy_Shutdown_serverShutdownError(t *testing.T) {
 	cfg.Proxy.ListenPort = 0
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Secrets.Mode = "off"
 
@@ -881,7 +643,6 @@ func TestHandleCompressibleRequest_ToolPruneEnabled(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
@@ -925,7 +686,6 @@ func TestHandleCompressibleRequest_ToolPrunePrunesIdle(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
@@ -985,7 +745,6 @@ func TestHandleCompressibleRequest_ToolPruneUnknownSchemaFullPasses(t *testing.T
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
@@ -1034,7 +793,6 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
@@ -1091,7 +849,6 @@ func TestHandleCompressibleRequest_ToolPruneReattachUnknownSchemaFullPassesAndKe
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
@@ -1153,7 +910,6 @@ func TestHandleCompressibleRequest_ToolPruneAlwaysKeepsCoreTools(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
@@ -1227,7 +983,6 @@ func TestHandleCompressibleRequest_ToolPruneMissingToolRetryDisablesSession(t *t
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Layer3Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
@@ -1267,41 +1022,5 @@ func TestHandleCompressibleRequest_ToolPruneMissingToolRetryDisablesSession(t *t
 	snap := p.toolPrune.Snapshot()
 	if snap.MissTotal != 1 || snap.RetryTotal != 1 || snap.DisabledSessions != 1 {
 		t.Fatalf("retry telemetry: %+v", snap)
-	}
-}
-
-// TestHandleCompressibleRequest_MidExchangeEnabledDoesNotMutate verifies the
-// retired mid-exchange toggle does not insert Layer 2 summaries.
-func TestHandleCompressibleRequest_MidExchangeEnabledDoesNotMutate(t *testing.T) {
-	t.Parallel()
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"done"}],"model":"claude","stop_reason":"end_turn"}`))
-	}))
-	defer upstream.Close()
-
-	cfg := config.Defaults()
-	cfg.Upstream.Anthropic.BaseURL = upstream.URL
-	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
-	cfg.Compression.Layer3Enabled = false
-	cfg.Compression.Tuning.MidExchangeEnabled = true
-	cfg.Compression.Tuning.MidExchangeThresholdTokens = 100
-	cfg.Compression.Summary.AllowModelFacingReplacement = true
-	cfg.Secrets.Mode = "off"
-	p := New(cfg)
-
-	longOutput := strings.Repeat("x ", 500)
-	body := fmt.Sprintf(`{"model":"claude-3-5-sonnet-20241022","max_tokens":64,"messages":[{"role":"user","content":"start"},{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]},{"role":"user","content":[{"type":"tool_result","content":"%s"}]},{"role":"assistant","content":"analysis"},{"role":"user","content":[{"type":"tool_result","content":"ok"}]}]}`, longOutput)
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	p.ServeHTTP(rec, req)
-
-	res := rec.Result()
-	t.Cleanup(func() { _ = res.Body.Close() })
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
 	}
 }

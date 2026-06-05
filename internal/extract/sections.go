@@ -1,9 +1,6 @@
-// Package extract is the deterministic semantic compactor that
-// replaces MiniMax-backed Layer-2 summarization. It compacts long
-// natural-language content (system prompts, assistant replies,
-// accumulated history) using TF-IDF-ranked extractive summarization
-// while preserving structural elements (code blocks, headers, lists)
-// verbatim.
+// Package extract provides deterministic natural-language section extraction.
+// It compacts long text with TF-IDF-ranked extractive selection while
+// preserving structural elements (code blocks, headers, lists) verbatim.
 //
 // Properties:
 //   - Deterministic: identical input → identical output.

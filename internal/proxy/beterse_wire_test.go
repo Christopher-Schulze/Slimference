@@ -60,7 +60,6 @@ func TestBeTerseHintInjectedForTreatmentSession(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
 	p := New(cfg)
 	org, user, _ := findTreatmentOrgUserPair(p.qualityAB)
@@ -116,7 +115,6 @@ func TestBeTerseHintNotInjectedForControlSession(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
 	p := New(cfg)
 	org, user, _ := findControlOrgUserPair(p.qualityAB)
@@ -160,7 +158,6 @@ func TestBeTerseHintDisabledNeverInjects(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = false
 	p := New(cfg)
 
@@ -194,7 +191,6 @@ func TestBeTerseTreatmentNoInjectionRecordsControlError(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
 	p := New(cfg)
 	org, user, _ := findTreatmentOrgUserPair(p.qualityAB)

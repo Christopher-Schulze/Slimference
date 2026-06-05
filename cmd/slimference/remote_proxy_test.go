@@ -75,12 +75,6 @@ func TestRemoteProxyAdapter_StatusAndActions(t *testing.T) {
 					{Model: "m1"},
 					{Model: "m2"},
 				},
-				Layer2: proxy.AdminLayer2Status{
-					HasCache:    true,
-					Compressing: true,
-					LastRun:     time.Unix(100, 0).UTC(),
-					QueueDepth:  4,
-				},
 				Layer0: map[string]filter.FilterSnapshot{
 					"git_status": {
 						Name:       "git_status",
@@ -135,9 +129,6 @@ func TestRemoteProxyAdapter_StatusAndActions(t *testing.T) {
 	if len(reqs) != 1 || reqs[0].Model != "m2" {
 		t.Fatalf("recent requests: %+v", reqs)
 	}
-	if !a.GetLayer2Status().Compressing {
-		t.Fatal("layer2 status should be cached from admin status")
-	}
 	if got := a.GetLayer0Status(); got.Attempts != 5 || got.BytesSaved != 120 || len(got.Filters) != 1 {
 		t.Fatalf("layer0 status: %+v", got)
 	}
@@ -149,9 +140,6 @@ func TestRemoteProxyAdapter_StatusAndActions(t *testing.T) {
 	}
 	if a.IsProviderEnabled(types.OpenAI) {
 		t.Fatal("openai provider should be disabled from admin status")
-	}
-	if a.IsLayerEnabled(2) {
-		t.Fatal("layer 2 should be disabled from admin status")
 	}
 
 	a.SetProviderEnabled(types.OpenAI, true)
@@ -195,9 +183,6 @@ func TestRemoteProxyAdapter_FallbacksAndHelpers(t *testing.T) {
 	}
 	if a.GetProviderHealth(types.Anthropic).Status != types.ProviderHealthIdle {
 		t.Fatal("missing daemon should report idle health")
-	}
-	if a.GetLayer2Status().HasCache {
-		t.Fatal("missing daemon should not report layer2 cache")
 	}
 	if len(a.GetRecentRequests(5)) != 0 {
 		t.Fatal("missing daemon should not report requests")

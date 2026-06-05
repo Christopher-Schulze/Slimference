@@ -43,7 +43,6 @@ func newRemoteProxyAdapter(cfg *config.Config) *remoteProxyAdapter {
 		status: proxy.AdminStatus{
 			Layers: map[string]bool{
 				"1": cfg.Compression.Layer1Enabled,
-				"2": cfg.Compression.Layer2Enabled,
 				"3": cfg.Compression.Layer3Enabled,
 			},
 			Providers: map[string]bool{
@@ -80,7 +79,6 @@ func (a *remoteProxyAdapter) refresh() {
 		a.status.Analytics = analytics.AnalyticsSnapshot{}
 		a.status.RecentRequests = nil
 		a.status.Layer0 = nil
-		a.status.Layer2 = proxy.AdminLayer2Status{}
 		a.status.ReadCache = proxy.AdminReadCacheStatus{}
 		a.status.ProviderHealth = map[string]types.ProviderHealthInfo{
 			"anthropic": {Status: types.ProviderHealthIdle},
@@ -194,17 +192,6 @@ func (a *remoteProxyAdapter) GetLayer0Status() tui.Layer0Status {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return layer0StatusFromSnapshots(a.status.Layer0)
-}
-
-func (a *remoteProxyAdapter) GetLayer2Status() tui.Layer2Status {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return tui.Layer2Status{
-		HasCache:    a.status.Layer2.HasCache,
-		Compressing: a.status.Layer2.Compressing,
-		LastRun:     a.status.Layer2.LastRun,
-		QueueDepth:  a.status.Layer2.QueueDepth,
-	}
 }
 
 func (a *remoteProxyAdapter) GetQualityStatus() tui.QualityStatus {

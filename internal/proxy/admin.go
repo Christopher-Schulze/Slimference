@@ -18,7 +18,6 @@ import (
 	"github.com/slimference/slimference/internal/qualityab"
 	"github.com/slimference/slimference/internal/readcache"
 	"github.com/slimference/slimference/internal/repetition"
-	"github.com/slimference/slimference/internal/summarization"
 	"github.com/slimference/slimference/internal/toolarchive"
 	"github.com/slimference/slimference/internal/types"
 )
@@ -85,17 +84,6 @@ type AdminSecuritySuspendResponse struct {
 	Mode         string `json:"mode"`
 }
 
-type AdminLayer2Status struct {
-	HasCache    bool                     `json:"has_cache"`
-	Compressing bool                     `json:"compressing"`
-	LastRun     time.Time                `json:"last_run"`
-	QueueDepth  int                      `json:"queue_depth"`
-	CacheStats  summarization.CacheStats `json:"cache_stats"`
-	// Redaction (T109) reports cumulative outbound-redaction counters
-	// so operators can see what was stripped from Layer 2 traffic.
-	Redaction summarization.RedactionCounters `json:"redaction"`
-}
-
 type AdminReadCacheStatus struct {
 	Evaluations     int `json:"evaluations"`
 	Allows          int `json:"allows"`
@@ -156,40 +144,36 @@ type AdminContentArchiveStatus struct {
 }
 
 type AdminStatus struct {
-	Status            string                              `json:"status"`
-	Service           string                              `json:"service"`
-	Version           string                              `json:"version"`
-	Layers            map[string]bool                     `json:"layers"`
-	Providers         map[string]bool                     `json:"providers"`
-	QueueDepth        map[string]int                      `json:"queue_depth"`
-	CacheEntries      int                                 `json:"cache_entries"`
-	MiniMaxConfigured bool                                `json:"minimax_configured"`
-	ListenPort        int                                 `json:"listen_port"`
-	PrefillSpeed      int                                 `json:"prefill_speed"`
-	Analytics         analytics.AnalyticsSnapshot         `json:"analytics"`
-	RecentRequests    []types.RequestMetrics              `json:"recent_requests"`
-	Layer2            AdminLayer2Status                   `json:"layer2"`
-	Layer0            map[string]filter.FilterSnapshot    `json:"layer0"`
-	ReadCache         AdminReadCacheStatus                `json:"read_cache"`
-	Checkpoints       AdminCheckpointStatus               `json:"checkpoints"`
-	ToolArchive       AdminToolArchiveStatus              `json:"tool_archive"`
-	ContentArchive    AdminContentArchiveStatus           `json:"content_archive"`
-	CacheAge          AdminCacheAgeStatus                 `json:"cache_age"`
-	ProviderHealth    map[string]types.ProviderHealthInfo `json:"provider_health"`
-	AnalyticsQueue    AnalyticsQueueStats                 `json:"analytics_queue"`
-	PromptCache       PromptCacheStats                    `json:"prompt_cache"`
-	Pipeline          []analytics.PhaseSnapshot           `json:"pipeline"`
-	AnthropicVersion  AnthropicVersionStats               `json:"anthropic_version"`
-	Bypass            bool                                `json:"bypass"`
-	BypassDetail      BypassStats                         `json:"bypass_detail"`
-	Quality           quality.QualitySnapshot             `json:"quality"`
-	AnyDegraded       bool                                `json:"any_provider_degraded"`
-	Summarization     SummarizationTelemetry              `json:"summarization"`
-	Coordinator       CoordinatorStats                    `json:"coordinator"`
-	Repetition        RepetitionStats                     `json:"repetition"`
-	ToolPrune         ToolPruneStats                      `json:"tool_prune"`
-	ServerState       ServerStateStats                    `json:"server_state"`
-	OutputReduce      outputreduce.Snapshot               `json:"output_reduce"`
+	Status           string                              `json:"status"`
+	Service          string                              `json:"service"`
+	Version          string                              `json:"version"`
+	Layers           map[string]bool                     `json:"layers"`
+	Providers        map[string]bool                     `json:"providers"`
+	QueueDepth       map[string]int                      `json:"queue_depth"`
+	CacheEntries     int                                 `json:"cache_entries"`
+	ListenPort       int                                 `json:"listen_port"`
+	PrefillSpeed     int                                 `json:"prefill_speed"`
+	Analytics        analytics.AnalyticsSnapshot         `json:"analytics"`
+	RecentRequests   []types.RequestMetrics              `json:"recent_requests"`
+	Layer0           map[string]filter.FilterSnapshot    `json:"layer0"`
+	ReadCache        AdminReadCacheStatus                `json:"read_cache"`
+	Checkpoints      AdminCheckpointStatus               `json:"checkpoints"`
+	ToolArchive      AdminToolArchiveStatus              `json:"tool_archive"`
+	ContentArchive   AdminContentArchiveStatus           `json:"content_archive"`
+	CacheAge         AdminCacheAgeStatus                 `json:"cache_age"`
+	ProviderHealth   map[string]types.ProviderHealthInfo `json:"provider_health"`
+	AnalyticsQueue   AnalyticsQueueStats                 `json:"analytics_queue"`
+	PromptCache      PromptCacheStats                    `json:"prompt_cache"`
+	Pipeline         []analytics.PhaseSnapshot           `json:"pipeline"`
+	AnthropicVersion AnthropicVersionStats               `json:"anthropic_version"`
+	Bypass           bool                                `json:"bypass"`
+	BypassDetail     BypassStats                         `json:"bypass_detail"`
+	Quality          quality.QualitySnapshot             `json:"quality"`
+	AnyDegraded      bool                                `json:"any_provider_degraded"`
+	Repetition       RepetitionStats                     `json:"repetition"`
+	ToolPrune        ToolPruneStats                      `json:"tool_prune"`
+	ServerState      ServerStateStats                    `json:"server_state"`
+	OutputReduce     outputreduce.Snapshot               `json:"output_reduce"`
 	// OutputReduceCounters surfaces T165/T166/T167 wire counters
 	// (stop-sequence injection, streamcut fire, repdet rewrite).
 	OutputReduceCounters OutputReduceTelemetry `json:"output_reduce_counters"`
@@ -211,29 +195,6 @@ type PromptCacheStats struct {
 	CacheReadTokens          int   `json:"cache_read_tokens"`
 	CacheCreateTokens        int   `json:"cache_create_tokens"`
 	EstimatedSavedReadTokens int   `json:"estimated_saved_read_tokens"`
-}
-
-// SummarizationTelemetry exposes the in-memory counters from
-// internal/summarization. T87/T89/T92 wired into one block so the
-// operator can see per-stack picker distribution, CoT-strip activity,
-// and per-bullet lineage-marker compliance in a single GET.
-type SummarizationTelemetry struct {
-	ActivePromptVersion       string           `json:"active_prompt_version"`
-	ExamplePromptDistribution map[string]int64 `json:"example_prompt_distribution"`
-	CoTTagCounts              map[string]int64 `json:"cot_tag_counts"`
-	LineageMarkerRate         float64          `json:"lineage_marker_rate"`
-	LineageMarkerMarked       int64            `json:"lineage_marker_marked"`
-	LineageMarkerTotal        int64            `json:"lineage_marker_total"`
-	RepairDeterministic       int64            `json:"repair_deterministic_total"`
-	RepairBulletNormalised    int64            `json:"repair_bullet_normalised_total"`
-	RepairPreambleTrimmed     int64            `json:"repair_preamble_trimmed_total"`
-	RepairHeaderStripped      int64            `json:"repair_header_stripped_total"`
-}
-
-// CoordinatorStats exposes T100 coordinator skip counters.
-type CoordinatorStats struct {
-	Enabled      bool `json:"enabled"`
-	SkippedTotal int  `json:"skipped_total"`
 }
 
 // RepetitionStats exposes T93 posttool repetition store snapshot.
@@ -286,19 +247,6 @@ type adminActionResponse struct {
 }
 
 func (p *Proxy) adminStatusSnapshot() AdminStatus {
-	layer2 := AdminLayer2Status{}
-	if p.layer2 != nil {
-		cache := p.layer2.GetCache()
-		layer2.Compressing = cache.Compressing.Load()
-		layer2.QueueDepth = len(p.compressQueue)
-		layer2.CacheStats = p.layer2.CacheStats()
-		if cs := cache.Get(); cs != nil {
-			layer2.HasCache = true
-			layer2.LastRun = cs.CreatedAt
-		}
-		// T109: snapshot the per-stage outbound-redaction counters.
-		layer2.Redaction = p.layer2.RedactionCounters()
-	}
 	readStatus := AdminReadCacheStatus{}
 	checkpointStatus := AdminCheckpointStatus{}
 	toolArchiveStatus := AdminToolArchiveStatus{}
@@ -380,7 +328,6 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 		Version: Version,
 		Layers: map[string]bool{
 			"1": p.isLayerEnabled(1),
-			"2": p.isLayerEnabled(2),
 			"3": p.isLayerEnabled(3),
 		},
 		Providers: map[string]bool{
@@ -389,22 +336,19 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			"codex_chatgpt": p.isProviderEnabled(types.CodexChatGPT),
 		},
 		QueueDepth: map[string]int{
-			"compress":  len(p.compressQueue),
 			"analytics": len(p.analyticsQueue),
 		},
-		CacheEntries:      p.responseCache.Len(),
-		MiniMaxConfigured: false,
-		ListenPort:        p.config.Proxy.ListenPort,
-		PrefillSpeed:      p.config.Usage.EstimatedPrefillSpeed,
-		Analytics:         analyticsSnap,
-		RecentRequests:    p.GetRecentRequests(20),
-		Layer2:            layer2,
-		Layer0:            filter.GlobalFilterObservability().Snapshot(),
-		ReadCache:         readStatus,
-		Checkpoints:       checkpointStatus,
-		ToolArchive:       toolArchiveStatus,
-		ContentArchive:    contentArchiveStatus,
-		CacheAge:          adminCacheAgeFrom(p.responseCache.AgeSnapshot()),
+		CacheEntries:   p.responseCache.Len(),
+		ListenPort:     p.config.Proxy.ListenPort,
+		PrefillSpeed:   p.config.Usage.EstimatedPrefillSpeed,
+		Analytics:      analyticsSnap,
+		RecentRequests: p.GetRecentRequests(20),
+		Layer0:         filter.GlobalFilterObservability().Snapshot(),
+		ReadCache:      readStatus,
+		Checkpoints:    checkpointStatus,
+		ToolArchive:    toolArchiveStatus,
+		ContentArchive: contentArchiveStatus,
+		CacheAge:       adminCacheAgeFrom(p.responseCache.AgeSnapshot()),
 		ProviderHealth: map[string]types.ProviderHealthInfo{
 			"anthropic":     p.GetProviderHealth(types.Anthropic),
 			"openai":        p.GetProviderHealth(types.OpenAI),
@@ -435,27 +379,7 @@ func (p *Proxy) adminStatusSnapshot() AdminStatus {
 			NextRequestBudget: p.BypassNextRequestCount(),
 			AutoRevertCount:   p.BypassAutoRevertCount(),
 		},
-		Quality: p.QualitySnapshot(),
-		Summarization: func() SummarizationTelemetry {
-			marked, total := summarization.LineageMarkerCounts()
-			detTotal, normalised, preamble, headers := summarization.RepairCounts()
-			return SummarizationTelemetry{
-				ActivePromptVersion:       summarization.PromptVersion(),
-				ExamplePromptDistribution: summarization.ExamplePromptCounts(),
-				CoTTagCounts:              summarization.CoTTagCounts(),
-				LineageMarkerRate:         summarization.LineageMarkerRate(),
-				LineageMarkerMarked:       marked,
-				LineageMarkerTotal:        total,
-				RepairDeterministic:       detTotal,
-				RepairBulletNormalised:    normalised,
-				RepairPreambleTrimmed:     preamble,
-				RepairHeaderStripped:      headers,
-			}
-		}(),
-		Coordinator: CoordinatorStats{
-			Enabled:      p.config.Compression.Tuning.CoordinatorEnabled,
-			SkippedTotal: p.layer1.CoordinatorSkipped(),
-		},
+		Quality:    p.QualitySnapshot(),
 		Repetition: repetitionStatus,
 		ToolPrune: func() ToolPruneStats {
 			if p.toolPrune == nil {

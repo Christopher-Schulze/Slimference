@@ -295,7 +295,6 @@ func requestSummaryFromWSSProofRow(row wssProofMatrixRecord) wssProofCorpusSumma
 			Original:    original,
 			AfterLayer0: final,
 			AfterLayer1: final,
-			AfterLayer2: final,
 			Final:       final,
 			Saved:       saved,
 			Ratio:       ratio,

@@ -35,8 +35,8 @@ func TestPersister_WriteSnapshot_MarshalErrorNaN(t *testing.T) {
 	defer p.Close()
 
 	err = p.WriteSnapshot(AnalyticsSnapshot{
-		SessionStart:        time.Now(),
-		MiniMaxAvgLatencyMs: math.NaN(),
+		SessionStart:       time.Now(),
+		LatencyAnthropicMs: math.NaN(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "marshal snapshot") {
 		t.Fatalf("expected marshal snapshot error, got %v", err)

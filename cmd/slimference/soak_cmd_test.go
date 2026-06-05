@@ -172,8 +172,6 @@ func TestComputeSoakReport_HappyPath_Stable(t *testing.T) {
 			SavedInputTokens:        4000,
 			Errors:                  0,
 			PromptCacheReadRequests: 80,
-			MiniMaxCalls:            50,
-			MiniMaxFailures:         0,
 			PerProvider:             map[types.Provider]analytics.ProviderStats{},
 		})
 	}
@@ -201,7 +199,6 @@ func TestComputeSoakReport_Regression(t *testing.T) {
 		writeSnapshot(t, dir, now.AddDate(0, 0, -i), analytics.AnalyticsSnapshot{
 			TotalRequests:           100,
 			PromptCacheReadRequests: 90,
-			MiniMaxCalls:            50,
 			PerProvider:             map[types.Provider]analytics.ProviderStats{},
 		})
 	}
@@ -210,7 +207,6 @@ func TestComputeSoakReport_Regression(t *testing.T) {
 		writeSnapshot(t, dir, now.AddDate(0, 0, -i), analytics.AnalyticsSnapshot{
 			TotalRequests:           100,
 			PromptCacheReadRequests: 30,
-			MiniMaxCalls:            50,
 			PerProvider:             map[types.Provider]analytics.ProviderStats{},
 		})
 	}
@@ -235,7 +231,6 @@ func TestComputeSoakReport_T100UnsafeButT103Safe(t *testing.T) {
 			TotalRequests:           100,
 			Errors:                  0,
 			PromptCacheReadRequests: 80,
-			MiniMaxCalls:            50,
 			OverflowRetries:         3, // blocks T100
 			PerProvider:             map[types.Provider]analytics.ProviderStats{},
 		})
