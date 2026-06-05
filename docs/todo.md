@@ -25,6 +25,7 @@ No queued tasks.
 
 ## Done
 
+- [x] T288 RTK breadth and Layer 3 renumbering -> docs/todo/t288-rtk-breadth-and-layer3-renumbering.md
 - [x] T287 Prevent persistent Codex route tests -> docs/todo/t287-prevent-persistent-codex-route-tests.md
 - [x] T286 Always-on safe product readiness rule -> docs/todo/t286-always-on-safe-product-readiness.md
 - [x] T285 OpenAI cache steering max-out -> docs/todo/t285-openai-cache-steering-maxx.md
@@ -47,7 +48,7 @@ No queued tasks.
 
 ## Current Product Rules
 
-- Active product layers: Layer 0, Layer 1, Layer 2, Layer 4.
+- Active product layers: Layer 0, Layer 1, Layer 2, Layer 3.
 - Removed product path: semantic context replacement.
 - No product path may summarize old model context or replace it with capsules.
 - Default-safe savings must be deterministic, recoverable, fail-open, or

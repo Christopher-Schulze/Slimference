@@ -14,7 +14,7 @@ semantic summaries.
 ## Acceptance
 
 - Current product docs describe active layers as Layer 0, Layer 1, Layer 2
-  response/provider cache, and Layer 4 output/tool-surface reduction.
+  response/provider cache, and Layer 3 output/tool-surface reduction.
 - Planner, benchmark reports, release proof summaries, analytics, and TUI use
   `Layer 2` / `L2` for response/provider cache.
 - Existing persisted or fixture fields using old `layer3_*` names remain
@@ -46,7 +46,7 @@ semantic summaries.
   full-pass, search-shape guards, late critical evidence retention, and parser
   family tests. No further default-on aggression was added because the next
   possible wins would require fresh real traffic proving no evidence loss.
-- Layer 4 was re-audited against T267/T268. Aggressive output-reduce remains
+- Layer 3 was re-audited against T267/T268. Aggressive output-reduce remains
   gated by task shape, exact-reply/command-output/repair guards, A/B evidence,
   auto-downgrade, and repair/re-ask cooldowns. No broad unsafe shortening was
   promoted.

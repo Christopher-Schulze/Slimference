@@ -2,7 +2,7 @@
 
 Status: IN PROGRESS (planning captured 2026-05-15; WP1 layer naming, archive-replacement attribution, and savings mechanism/session report landed)
 Priority: P0
-Scope: `internal/debug/`, `internal/analytics/`, `internal/hooks/`, `internal/filter/`, `internal/proxy/`, `internal/outputreduce/`, `internal/toolprune/`, `internal/readcache/`, `internal/sessions/`, `cmd/slimference/`, `docs/savings-assessment.md`, `docs/output-reduce.md`, `docs/todo/t143-l1-semantic-deterministic-frontier.md`, `docs/todo/t145-l3-cache-state-reuse-maximizer.md`, `docs/todo/t148-output-reduce-real-session-autotune.md`, `docs/todo/t151-l4-tool-schema-pruning-maximizer.md`, `docs/todo/t153-hierarchical-context-capsules.md`, `docs/todo/t154-read-file-delta-maximizer.md`.
+Scope: `internal/debug/`, `internal/analytics/`, `internal/hooks/`, `internal/filter/`, `internal/proxy/`, `internal/outputreduce/`, `internal/toolprune/`, `internal/readcache/`, `internal/sessions/`, `cmd/slimference/`, `docs/savings-assessment.md`, `docs/output-reduce.md`, `docs/todo/t143-l1-semantic-deterministic-frontier.md`, `docs/todo/t145-l3-cache-state-reuse-maximizer.md`, `docs/todo/t148-output-reduce-real-session-autotune.md`, `docs/todo/t151-l3-tool-schema-pruning-maximizer.md`, `docs/todo/t153-hierarchical-context-capsules.md`, `docs/todo/t154-read-file-delta-maximizer.md`.
 
 ## Why
 

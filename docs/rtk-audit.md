@@ -157,7 +157,7 @@ entirely outside RTK:
 
 - HTTP reverse proxy with active deterministic compression/cache/output-reduce
   pipeline: L0/WSS reducers, L1 deterministic compression, L2 response cache,
-  and L4 output/tool-surface reduction.
+  and L3 output/tool-surface reduction.
 - Prompt-cache metrics, both injection (OptimizeCacheBreakpoints) and
   measurement (T23 `cache_read_input_tokens` aggregation).
 - Operating modes (T36: strict / balanced / fast) with explicit

@@ -297,7 +297,7 @@ func aggregateLayerCombination(combos map[string]layerCombinationAggregate, rec 
 
 func layerCombinationKey(rec dbg.RequestSummary) string {
 	labels := make([]string, 0, 5)
-	for _, layer := range []string{"l0", "l1", "l3", "l4_output", "websocket"} {
+	for _, layer := range []string{"l0", "l1", "l2", "l3_output", "websocket"} {
 		if !actualLayerActive(rec, layer) {
 			continue
 		}
@@ -306,10 +306,10 @@ func layerCombinationKey(rec dbg.RequestSummary) string {
 			labels = append(labels, "L0")
 		case "l1":
 			labels = append(labels, "L1")
-		case "l3":
+		case "l2":
 			labels = append(labels, "L2")
-		case "l4_output":
-			labels = append(labels, "L4")
+		case "l3_output":
+			labels = append(labels, "L3")
 		case "websocket":
 			labels = append(labels, "WS")
 		}
@@ -372,9 +372,9 @@ func actualLayerActive(rec dbg.RequestSummary, layer string) bool {
 		return hasAppliedLayer(rec.LayersApplied, 0) || positiveDelta(rec.Tokens.Original, rec.Tokens.AfterLayer0) > 0
 	case "l1":
 		return hasAppliedLayer(rec.LayersApplied, 1) || positiveDelta(rec.Tokens.AfterLayer0, rec.Tokens.AfterLayer1) > 0
-	case "l3":
+	case "l2", "l3":
 		return hasAppliedLayer(rec.LayersApplied, 2) || hasAppliedLayer(rec.LayersApplied, 3) || rec.CacheHit || rec.CacheReadTokens > 0 || rec.CacheCreateTokens > 0 || rec.ProviderCachedTokens > 0 || rec.PreviousResponseIDUsed
-	case "l4_output":
+	case "l3_output":
 		return rec.OutputReduce.Applied
 	case "websocket":
 		route := strings.ToLower(rec.RouteMode)

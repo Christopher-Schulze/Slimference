@@ -8,7 +8,7 @@ const (
 	Layer0         Layer = "l0"
 	Layer1         Layer = "l1"
 	Layer2         Layer = "l2"
-	Layer4         Layer = "l4_output"
+	Layer3         Layer = "l3_output"
 	LayerWebSocket Layer = "websocket"
 )
 
@@ -72,7 +72,7 @@ func Plan(facts RequestFacts) CompressionPlan {
 		decideL0(normalized),
 		decideL1(normalized),
 		decideL2(normalized),
-		decideL4(normalized),
+		decideL3(normalized),
 		decideWebSocket(normalized),
 	)
 	for _, decision := range plan.Decisions {
@@ -145,43 +145,43 @@ func decideL2(f RequestFacts) LayerDecision {
 	return decision(Layer2, ActionRun, reason, f.EstimatedInputTokens/2, "low", "provider_reported")
 }
 
-func decideL4(f RequestFacts) LayerDecision {
-	if disabled(f, Layer4) {
-		return decision(Layer4, ActionBypass, "operator_disabled", 0, "none", "high")
+func decideL3(f RequestFacts) LayerDecision {
+	if disabled(f, Layer3) {
+		return decision(Layer3, ActionBypass, "operator_disabled", 0, "none", "high")
 	}
-	if d, guarded := decideL4ShapeGuard(f); guarded {
+	if d, guarded := decideL3ShapeGuard(f); guarded {
 		return d
 	}
 	if f.OutputReduceCooldown || f.ToolPruneCooldown {
-		return decision(Layer4, ActionCheapOnly, "quality_cooldown_soften_layer4", maxInt(f.ExpectedOutputTokens/10, 10), "medium", "high")
+		return decision(Layer3, ActionCheapOnly, "quality_cooldown_soften_layer3", maxInt(f.ExpectedOutputTokens/10, 10), "medium", "high")
 	}
 	if f.ExpectedOutputTokens >= 200 || f.EstimatedInputTokens >= 1000 {
-		return decision(Layer4, ActionRun, "output_tokens_or_task_size_justify_directive", maxInt(f.ExpectedOutputTokens/5, 20), "medium", confidenceFromCorpus(f))
+		return decision(Layer3, ActionRun, "output_tokens_or_task_size_justify_directive", maxInt(f.ExpectedOutputTokens/5, 20), "medium", confidenceFromCorpus(f))
 	}
-	return decision(Layer4, ActionBypass, "output_too_small", 0, "none", "high")
+	return decision(Layer3, ActionBypass, "output_too_small", 0, "none", "high")
 }
 
-func decideL4ShapeGuard(f RequestFacts) (LayerDecision, bool) {
+func decideL3ShapeGuard(f RequestFacts) (LayerDecision, bool) {
 	shape := strings.ToLower(strings.TrimSpace(f.TaskShape))
 	switch shape {
 	case "exact_reply":
-		return decision(Layer4, ActionBypass, "exact_reply", 0, "none", "high"), true
+		return decision(Layer3, ActionBypass, "exact_reply", 0, "none", "high"), true
 	case "command_output_relay":
-		return decision(Layer4, ActionBypass, "command_output_relay_exact_output", 0, "none", "high"), true
+		return decision(Layer3, ActionBypass, "command_output_relay_exact_output", 0, "none", "high"), true
 	case "repair_followup":
-		return decision(Layer4, ActionBypass, "repair_followup_low_roi", 0, "none", "high"), true
+		return decision(Layer3, ActionBypass, "repair_followup_low_roi", 0, "none", "high"), true
 	case "read_only_analysis":
-		return decision(Layer4, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
+		return decision(Layer3, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
 	case "planning":
-		return decision(Layer4, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
+		return decision(Layer3, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
 	case "direct_answer":
 		if f.EstimatedInputTokens > 0 && f.EstimatedInputTokens < 12000 {
-			return decision(Layer4, ActionBypass, "direct_answer_low_roi", 0, "none", "high"), true
+			return decision(Layer3, ActionBypass, "direct_answer_low_roi", 0, "none", "high"), true
 		}
 	case "code_edit", "debugging", "explanation_deep_analysis", "review", "tool_result_reasoning", "new_file_generation", "final_summary":
-		return decision(Layer4, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
+		return decision(Layer3, ActionBypass, "unproven_task_shape_ab_required", 0, "none", "high"), true
 	case "unknown":
-		return decision(Layer4, ActionBypass, "unknown_task_shape", 0, "none", "high"), true
+		return decision(Layer3, ActionBypass, "unknown_task_shape", 0, "none", "high"), true
 	}
 	return LayerDecision{}, false
 }

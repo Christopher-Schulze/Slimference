@@ -223,7 +223,7 @@ func TestServeHTTP_OutputReduceCooldownFeedsPlannerAndSoftensProfile(t *testing.
 	if len(summaries) != 1 || summaries[0].Plan == nil {
 		t.Fatalf("missing planner summary: %#v", summaries)
 	}
-	if !hasPlanAction(summaries[0].Plan.Decisions, "l4_output", "cheap_only", "quality_cooldown_soften_layer4") {
+	if !hasPlanAction(summaries[0].Plan.Decisions, "l3_output", "cheap_only", "quality_cooldown_soften_layer3") {
 		t.Fatalf("planner did not expose output-reduce cooldown: %+v", summaries[0].Plan.Decisions)
 	}
 	if summaries[0].OutputReduce.Profile != string(outputreduce.ProfileStandard) {

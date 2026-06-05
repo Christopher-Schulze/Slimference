@@ -243,7 +243,7 @@ func TestEvaluateCategory_EvidenceMetricsAndGates(t *testing.T) {
 	if res.OutputTokens != 77 || res.OutputReduceApplied != 1 || res.LatencyP95Ms != 42.5 || res.EvidenceLevel != "live_operator" {
 		t.Fatalf("evidence metrics: %+v", res)
 	}
-	if combo := res.LayerCombinations["L0+L1+L2+L4"]; combo.Requests != 1 || combo.OutputTokens != 77 {
+	if combo := res.LayerCombinations["L0+L1+L2+L3"]; combo.Requests != 1 || combo.OutputTokens != 77 {
 		t.Fatalf("layer combinations: %+v", res.LayerCombinations)
 	}
 }
@@ -1026,7 +1026,7 @@ func TestFormatCorpusReport_PlannerReplay(t *testing.T) {
 		t.Fatalf("evaluate: %v", err)
 	}
 	s := FormatCorpusReport(report)
-	for _, want := range []string{"planner:", "requests=3", "expected=211", "missed=1", "bypass-hit=1", "combos:", "L0+L1+L4"} {
+	for _, want := range []string{"planner:", "requests=3", "expected=211", "missed=1", "bypass-hit=1", "combos:", "L0+L1+L3"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in report:\n%s", want, s)
 		}

@@ -340,6 +340,7 @@ func New(cfg *config.Config) *Proxy {
 	p.providerEnabled[types.CodexChatGPT].Store(true)
 	p.layerEnabled[0].Store(cfg.Compression.Layer1Enabled)
 	p.layerEnabled[1].Store(cfg.Compression.Layer2Enabled)
+	p.layerEnabled[2].Store(cfg.Compression.OutputReduce.Enabled)
 
 	tlsResolver, err := tlsdial.NewResolver(cfg.Transparent.DefaultTLSProfile, cfg.Transparent.TLSProfiles)
 	if err != nil {
@@ -1276,8 +1277,6 @@ func (p *Proxy) SetProviderEnabled(prov types.Provider, enabled bool) {
 }
 
 // SetLayerEnabled enables or disables a compression layer (1-indexed).
-// Layer 3 is accepted as a legacy alias for the response/provider cache,
-// which is now product Layer 2.
 func (p *Proxy) SetLayerEnabled(layer int, enabled bool) {
 	layer = normalizeRuntimeLayer(layer)
 	if layer >= 1 && layer <= len(p.layerEnabled) {
@@ -1570,9 +1569,6 @@ func (p *Proxy) IsLayerEnabled(layer int) bool {
 }
 
 func normalizeRuntimeLayer(layer int) int {
-	if layer == 3 {
-		return 2
-	}
 	return layer
 }
 

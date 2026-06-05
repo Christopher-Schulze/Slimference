@@ -10,7 +10,7 @@ been superseded by the current safe-layer/product-proof pass.
 - Layer 0: pre-entry / Codex WSS tool-output reduction.
 - Layer 1: deterministic compression.
 - Layer 2: response and provider-cache leverage.
-- Layer 4: output and tool-surface reduction.
+- Layer 3: output and tool-surface reduction.
 - Old semantic context replacement: removed. No MiniMax, no external
   summarizer, no local summarizer, no OCRL/context-ledger insertion, and no
   semantic-summary CLI/config surface.

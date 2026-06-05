@@ -395,7 +395,7 @@ Verified with six integration tests in
 - Made cached summary application prefix-hash aware and exposed Layer 2 cache
   stats in `/admin/status.layer2.cache_stats`.
 
-### 2026-05-15 - T151 L4 Tool-Schema Pruning Maximizer
+### 2026-05-15 - T151 L3 Tool-Schema Pruning Maximizer
 
 - Added conservative always-keep classes and `tool_prune_always_keep` so
   shell/edit/read/safety/browser/MCP tools stay attached while cold custom
@@ -1326,7 +1326,7 @@ accepted only when the token count decreases.
 Planner telemetry is also tightened for the current CLI-only route: Codex HTTP
 provider requests explicitly bypass WebSocket mutation, Codex cache accounting is
 not mislabeled as prompt-cache-key mutation without a previous response id, and
-exact-reply prompts stay out of Layer-4 directive plans.
+exact-reply prompts stay out of Layer-3 directive plans.
 
 `slimference proxy run codex --proxied -- <args>` now executes the same safe
 one-process Codex environment that `proxy env codex --proxied` prints, removing

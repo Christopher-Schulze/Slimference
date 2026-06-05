@@ -97,10 +97,10 @@ func classifyToolInput(toolInput string) types.ToolResultType {
 		return types.ToolTypeUnknown
 	}
 	fields := strings.Fields(cmd)
-	head := fields[0]
+	head := strings.ToLower(fields[0])
 	if strings.Contains(head, "/") {
 		parts := strings.Split(head, "/")
-		head = parts[len(parts)-1]
+		head = strings.ToLower(parts[len(parts)-1])
 	}
 	switch head {
 	case "git":
@@ -110,23 +110,91 @@ func classifyToolInput(toolInput string) types.ToolResultType {
 				return types.ToolTypeGitOutput
 			}
 		}
-	case "go", "cargo", "pytest", "jest", "vitest", "playwright", "rspec":
-		if (len(fields) > 1 && fields[1] == "test") || head == "pytest" || head == "jest" || head == "vitest" || head == "playwright" || head == "rspec" {
+	case "go", "cargo", "dotnet", "gradle", "gradlew", "mvn", "swift", "mix", "pytest", "jest", "vitest", "playwright", "rspec", "rake":
+		if class := classifyBuildTestCommand(head, fields); class != types.ToolTypeUnknown {
+			return class
+		}
+	case "bun", "npm", "npx", "pnpm", "pnpx", "yarn":
+		return classifyJavaScriptPackageCommand(fields)
+	case "tsc", "webpack", "vite", "cmake", "make", "gcc", "g++", "xcodebuild", "trunk", "pio", "turbo", "nx":
+		return types.ToolTypeBuildOutput
+	case "eslint", "ruff", "mypy", "pyright", "basedpyright", "clippy", "golangci", "golangci-lint", "staticcheck", "biome", "hadolint", "markdownlint", "oxlint", "rubocop", "shellcheck", "ty", "yamllint":
+		return types.ToolTypeLintOutput
+	case "rg", "grep", "ag", "ack", "find", "fd", "ug", "ugrep", "sift", "locate", "plocate":
+		return types.ToolTypeSearchResult
+	case "ls", "tree", "df", "du", "ps", "stat":
+		return types.ToolTypeDirListing
+	case "journalctl", "systemctl", "fail2ban-client", "iptables", "ping":
+		return types.ToolTypeLogOutput
+	}
+	return types.ToolTypeUnknown
+}
+
+func classifyBuildTestCommand(head string, fields []string) types.ToolResultType {
+	if len(fields) < 2 {
+		switch head {
+		case "pytest", "jest", "vitest", "playwright", "rspec", "rake":
 			return types.ToolTypeTestOutput
 		}
-		if len(fields) > 1 && (fields[1] == "build" || fields[1] == "vet") {
+		return types.ToolTypeUnknown
+	}
+	sub := strings.ToLower(fields[1])
+	switch head {
+	case "pytest", "jest", "vitest", "playwright", "rspec":
+		return types.ToolTypeTestOutput
+	case "rake":
+		if sub == "test" || strings.HasPrefix(sub, "spec") {
+			return types.ToolTypeTestOutput
+		}
+	case "go":
+		if sub == "test" {
+			return types.ToolTypeTestOutput
+		}
+		if sub == "build" || sub == "vet" || sub == "generate" {
 			return types.ToolTypeBuildOutput
 		}
-	case "bun", "npm", "pnpm", "yarn":
-		return classifyJavaScriptPackageCommand(fields)
-	case "tsc", "webpack", "vite", "cmake", "make":
-		return types.ToolTypeBuildOutput
-	case "eslint", "ruff", "mypy", "pyright", "clippy", "golangci-lint", "staticcheck":
-		return types.ToolTypeLintOutput
-	case "rg", "grep", "ag", "ack", "find":
-		return types.ToolTypeSearchResult
-	case "ls", "tree":
-		return types.ToolTypeDirListing
+	case "cargo":
+		if sub == "test" || sub == "nextest" {
+			return types.ToolTypeTestOutput
+		}
+		if sub == "build" || sub == "check" || sub == "clippy" {
+			return types.ToolTypeBuildOutput
+		}
+	case "dotnet":
+		if sub == "test" {
+			return types.ToolTypeTestOutput
+		}
+		if sub == "build" || sub == "publish" || sub == "restore" {
+			return types.ToolTypeBuildOutput
+		}
+	case "gradle", "gradlew":
+		if strings.Contains(sub, "test") {
+			return types.ToolTypeTestOutput
+		}
+		if strings.Contains(sub, "build") || strings.Contains(sub, "compile") || strings.Contains(sub, "assemble") || strings.Contains(sub, "bootrun") {
+			return types.ToolTypeBuildOutput
+		}
+	case "mvn":
+		if sub == "test" {
+			return types.ToolTypeTestOutput
+		}
+		if sub == "compile" || sub == "package" || sub == "install" || sub == "verify" || sub == "spring-boot:run" {
+			return types.ToolTypeBuildOutput
+		}
+	case "swift":
+		if sub == "test" {
+			return types.ToolTypeTestOutput
+		}
+		if sub == "build" || sub == "package" {
+			return types.ToolTypeBuildOutput
+		}
+	case "mix":
+		if sub == "test" {
+			return types.ToolTypeTestOutput
+		}
+		if sub == "compile" || sub == "format" || sub == "deps.get" {
+			return types.ToolTypeBuildOutput
+		}
 	}
 	return types.ToolTypeUnknown
 }
@@ -135,16 +203,21 @@ func classifyJavaScriptPackageCommand(fields []string) types.ToolResultType {
 	if len(fields) < 2 {
 		return types.ToolTypeUnknown
 	}
+	head := strings.ToLower(fields[0])
 	args := fields[1:]
+	if (head == "pnpm" && args[0] == "exec" && len(args) > 1) ||
+		(head == "yarn" && args[0] == "dlx" && len(args) > 1) {
+		args = args[1:]
+	}
 	if args[0] == "run" && len(args) > 1 {
 		args = args[1:]
 	}
-	switch args[0] {
+	switch strings.ToLower(args[0]) {
 	case "test", "vitest", "jest", "playwright":
 		return types.ToolTypeTestOutput
-	case "build", "compile", "typecheck", "check":
+	case "build", "compile", "typecheck", "check", "tsc", "vite", "webpack":
 		return types.ToolTypeBuildOutput
-	case "lint", "eslint":
+	case "lint", "eslint", "biome", "oxlint":
 		return types.ToolTypeLintOutput
 	}
 	return types.ToolTypeUnknown

@@ -163,6 +163,87 @@ func TestRewriteCommand_NoFilterMatch(t *testing.T) {
 	}
 }
 
+func TestRewriteCommand_RTKBreadthCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"ansible-playbook site.yml",
+		"basedpyright .",
+		"brew install go",
+		"df -h /",
+		"du -sh internal",
+		"fail2ban-client status",
+		"g++ -Wall main.cpp",
+		"gcloud container clusters list",
+		"gradlew build",
+		"hadolint Dockerfile",
+		"iptables -L",
+		"jira issue list",
+		"jj status",
+		"jq . package.json",
+		"just test",
+		"liquibase update",
+		"markdownlint README.md",
+		"mise install",
+		"mix compile",
+		"npx tsc --noEmit",
+		"nx build app",
+		"ollama list",
+		"oxlint .",
+		"ping -c 1 example.com",
+		"pio run",
+		"poetry install",
+		"pre-commit run --all-files",
+		"ps aux",
+		"quarto render report.qmd",
+		"rsync -av src dst",
+		"shellcheck scripts/run.sh",
+		"shopify theme pull",
+		"skopeo inspect docker://example/image",
+		"sops -d secrets.yaml",
+		"stat README.md",
+		"swift build",
+		"task test",
+		"terraform plan",
+		"tofu validate",
+		"trunk build",
+		"turbo run build",
+		"ty check",
+		"uv sync",
+		"xcodebuild test",
+		"yadm status",
+		"yamllint .",
+	}
+
+	for _, cmd := range tests {
+		cmd := cmd
+		t.Run(cmd, func(t *testing.T) {
+			t.Parallel()
+			got, ok := RewriteCommand(cmd, nil)
+			if !ok {
+				t.Fatalf("expected RTK-breadth command to be rewritten: %q", cmd)
+			}
+			if want := "slimference filter " + cmd; got != want {
+				t.Fatalf("rewrite mismatch: got %q want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRewriteCommand_RiskyArbitraryOutputCommandsStayUnrewritten(t *testing.T) {
+	t.Parallel()
+
+	for _, cmd := range []string{"java -jar app.jar", "ssh host uptime"} {
+		cmd := cmd
+		t.Run(cmd, func(t *testing.T) {
+			t.Parallel()
+			if got, ok := RewriteCommand(cmd, nil); ok {
+				t.Fatalf("arbitrary-output command must not be rewritten by default: got %q", got)
+			}
+		})
+	}
+}
+
 func TestRewriteCommand_Excluded(t *testing.T) {
 	t.Parallel()
 	_, ok := RewriteCommand("git status", []string{"git"})

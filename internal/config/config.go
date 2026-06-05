@@ -182,7 +182,7 @@ type CompressionConfig struct {
 	Tuning                    TuningConfig       `toml:"tuning"`
 }
 
-// OutputReduceConfig controls Layer 4 output-token reduction through
+// OutputReduceConfig controls Layer 3 output-token reduction through
 // provider-specific system-prompt discipline. It never edits provider
 // responses after the fact; it only modifies outbound instructions.
 type OutputReduceConfig struct {
@@ -337,7 +337,7 @@ type TuningConfig struct {
 	// independent Layer-1 messages once the request has enough prefix work.
 	// Small requests stay sequential to avoid goroutine overhead.
 	CoordinatorParallel bool `toml:"coordinator_parallel"`
-	// ToolPruneEnabled (T103) gates Layer 4 tool-definition pruning:
+	// ToolPruneEnabled (T103) gates Layer 3 tool-definition pruning:
 	// when on, tool definitions idle for more than
 	// ToolPruneIdleThresholdTurns are removed from the request body
 	// and archived for transparent reattachment. Default off.

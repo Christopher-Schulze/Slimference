@@ -11,7 +11,7 @@ Slimference now has four active product layers:
 - Layer 0: pre-entry / Codex tool-output reduction
 - Layer 1: deterministic proxy-side compression
 - Layer 2: response and provider-cache leverage
-- Layer 4: output and tool-surface reduction
+- Layer 3: output and tool-surface reduction
 
 The old semantic summary path is retired. Slimference does not use MiniMax, another external model, a
 local LLM, OCRL, or context-ledger insertion as a product savings path. That
@@ -27,7 +27,7 @@ output, not by asking the model to reason from a lossy memory replacement.
 | Layer 0 | Pre-entry and WSS/Codex tool-output reducers | Yes | Fail-open and proof-gated for recoverable refs | read/ranged-read/search/git/test/log/repeated/chunk outputs |
 | Layer 1 | Deterministic compression of safe conversation/tool prefix content | Yes | Safe tiers only in default product path; archive-backed where needed | ANSI/JSON/dedup/delta/structure/repeated collapse |
 | Layer 2 | Response cache and provider-cache steering/accounting | Yes | No model-content loss: local replay is fail-closed, provider steering does not rewrite prompt content | repeated effective requests and reusable stable prefixes |
-| Layer 4 | Output discipline and tool-schema pruning | Rule-based deterministic | Safe profile only for default product path | shorter assistant output and smaller tool surface |
+| Layer 3 | Output discipline and tool-schema pruning | Rule-based deterministic | Safe profile only for default product path | shorter assistant output and smaller tool surface |
 
 ## Realistic Savings Range
 
@@ -62,7 +62,7 @@ What still requires live/product proof:
 - Final median savings across a broad live Codex Desktop and CLI workday corpus.
 - Host resource proof on target machines under real traffic.
 - Provider-cache economics over long sessions.
-- The exact contribution split between Layer 0, Layer 1, Layer 2, and Layer 4 on
+- The exact contribution split between Layer 0, Layer 1, Layer 2, and Layer 3 on
   representative real work.
 
 ## Where Savings Come From
@@ -93,9 +93,9 @@ acceptance proof. This can improve provider-side cache hit probability and
 latency/cost when many turns share long static instructions, tools, or history;
 it cannot create savings on unique one-shot prompts.
 
-### Layer 4
+### Layer 3
 
-Layer 4 trims output and tool-definition overhead. Its default-safe value is
+Layer 3 trims output and tool-definition overhead. Its default-safe value is
 smaller than Layer 0, but it is cheap, local, and useful on tool-heavy sessions.
 Aggressive output shaping remains proof-gated because model behavior must not
 be degraded.
@@ -115,5 +115,5 @@ Current honest position:
   evidence
 
 The next work should stay focused on measured Layer 0/WSS, Layer 1 safety tiers,
-Layer 2 cache proof, Layer 4 output/tool-surface proof, and release-corpus
+Layer 2 cache proof, Layer 3 output/tool-surface proof, and release-corpus
 coverage. Do not resurrect a model-facing Layer 2 summary path.

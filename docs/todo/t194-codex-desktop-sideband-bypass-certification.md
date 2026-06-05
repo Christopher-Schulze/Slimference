@@ -118,7 +118,7 @@ Operator-driven smoke test:
 Live verification is a manual checklist run before each release that
 touches the SNI router.
 
-### Layer 4: runtime safety guard
+### Layer 3: runtime safety guard
 
 If at any time a `passthrough_tls`-classified request lands on the MITM
 path due to a routing bug, the engine must:
@@ -137,7 +137,7 @@ This is a belt-and-braces fail-open guard. Code under
 - [ ] Layer-1 unit tests already in T189; cross-link.
 - [ ] Layer-2 replay test scaffolding.
 - [ ] Layer-3 manual checklist in `docs/release/codex-desktop-checklist.md`.
-- [ ] Layer-4 runtime guard implementation.
+- [ ] Layer-3 runtime guard implementation.
 - [ ] CI: run layer-1 + layer-2 on every PR touching router or
       wire-protocol code.
 

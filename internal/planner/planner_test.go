@@ -22,8 +22,8 @@ func TestPlan_SmallRequestBypassesHeavyWork(t *testing.T) {
 	if got := findDecision(t, plan, Layer1).Action; got != ActionCheapOnly {
 		t.Fatalf("L1 action=%s", got)
 	}
-	if got := findDecision(t, plan, Layer4).Action; got != ActionBypass {
-		t.Fatalf("L4 action=%s", got)
+	if got := findDecision(t, plan, Layer3).Action; got != ActionBypass {
+		t.Fatalf("L3 action=%s", got)
 	}
 	if plan.SafetyBlocked {
 		t.Fatalf("small request should not be safety blocked")
@@ -49,9 +49,9 @@ func TestPlan_ManualDisableOverridesLayer(t *testing.T) {
 	t.Parallel()
 	plan := Plan(RequestFacts{
 		EstimatedInputTokens: 20000,
-		ManualDisabled:       map[Layer]bool{Layer0: true, Layer1: true, Layer2: true, Layer4: true},
+		ManualDisabled:       map[Layer]bool{Layer0: true, Layer1: true, Layer2: true, Layer3: true},
 	})
-	for _, layer := range []Layer{Layer0, Layer1, Layer2, Layer4} {
+	for _, layer := range []Layer{Layer0, Layer1, Layer2, Layer3} {
 		if d := findDecision(t, plan, layer); d.Action != ActionBypass || d.Reason != "operator_disabled" {
 			t.Fatalf("%s=%+v", layer, d)
 		}
@@ -126,27 +126,27 @@ func TestPlan_CodexWSSL2AndWSSRemainProofGatedCandidates(t *testing.T) {
 	}
 }
 
-func TestPlan_L4OutputReduce(t *testing.T) {
+func TestPlan_L3OutputReduce(t *testing.T) {
 	t.Parallel()
 	cooldown := Plan(RequestFacts{ExpectedOutputTokens: 1000, OutputReduceCooldown: true})
-	if d := findDecision(t, cooldown, Layer4); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_layer4" || d.Risk != "medium" {
-		t.Fatalf("cooldown L4=%+v", d)
+	if d := findDecision(t, cooldown, Layer3); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_layer3" || d.Risk != "medium" {
+		t.Fatalf("cooldown L3=%+v", d)
 	}
 	toolCooldown := Plan(RequestFacts{ExpectedOutputTokens: 1000, ToolPruneCooldown: true})
-	if d := findDecision(t, toolCooldown, Layer4); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_layer4" {
-		t.Fatalf("tool cooldown L4=%+v", d)
+	if d := findDecision(t, toolCooldown, Layer3); d.Action != ActionCheapOnly || d.Reason != "quality_cooldown_soften_layer3" {
+		t.Fatalf("tool cooldown L3=%+v", d)
 	}
 	exact := Plan(RequestFacts{TaskShape: " exact_reply ", EstimatedInputTokens: 5000, ExpectedOutputTokens: 1000})
-	if d := findDecision(t, exact, Layer4); d.Action != ActionBypass || d.Reason != "exact_reply" {
-		t.Fatalf("exact L4=%+v", d)
+	if d := findDecision(t, exact, Layer3); d.Action != ActionBypass || d.Reason != "exact_reply" {
+		t.Fatalf("exact L3=%+v", d)
 	}
 	commandRelay := Plan(RequestFacts{TaskShape: "command_output_relay", EstimatedInputTokens: 90000, ExpectedOutputTokens: 2000})
-	if d := findDecision(t, commandRelay, Layer4); d.Action != ActionBypass || d.Reason != "command_output_relay_exact_output" {
-		t.Fatalf("command relay L4=%+v", d)
+	if d := findDecision(t, commandRelay, Layer3); d.Action != ActionBypass || d.Reason != "command_output_relay_exact_output" {
+		t.Fatalf("command relay L3=%+v", d)
 	}
 	repair := Plan(RequestFacts{TaskShape: "repair_followup", EstimatedInputTokens: 90000, ExpectedOutputTokens: 2000})
-	if d := findDecision(t, repair, Layer4); d.Action != ActionBypass || d.Reason != "repair_followup_low_roi" {
-		t.Fatalf("repair L4=%+v", d)
+	if d := findDecision(t, repair, Layer3); d.Action != ActionBypass || d.Reason != "repair_followup_low_roi" {
+		t.Fatalf("repair L3=%+v", d)
 	}
 	lowROIShapes := []struct {
 		name        string
@@ -160,24 +160,24 @@ func TestPlan_L4OutputReduce(t *testing.T) {
 	}
 	for _, tt := range lowROIShapes {
 		plan := Plan(RequestFacts{TaskShape: tt.shape, EstimatedInputTokens: tt.inputTokens, ExpectedOutputTokens: 2000})
-		if d := findDecision(t, plan, Layer4); d.Action != ActionBypass || d.Reason != tt.reason {
-			t.Fatalf("%s L4=%+v", tt.name, d)
+		if d := findDecision(t, plan, Layer3); d.Action != ActionBypass || d.Reason != tt.reason {
+			t.Fatalf("%s L3=%+v", tt.name, d)
 		}
 	}
 	safetyShapes := []string{"code_edit", "debugging", "explanation_deep_analysis", "review", "tool_result_reasoning", "new_file_generation", "final_summary", "read_only_analysis", "planning"}
 	for _, shape := range safetyShapes {
 		plan := Plan(RequestFacts{TaskShape: shape, EstimatedInputTokens: 90000, ExpectedOutputTokens: 2000, LiveCorpusConfidence: "high"})
-		if d := findDecision(t, plan, Layer4); d.Action != ActionBypass || d.Reason != "unproven_task_shape_ab_required" || d.Risk != "none" {
-			t.Fatalf("%s L4=%+v", shape, d)
+		if d := findDecision(t, plan, Layer3); d.Action != ActionBypass || d.Reason != "unproven_task_shape_ab_required" || d.Risk != "none" {
+			t.Fatalf("%s L3=%+v", shape, d)
 		}
 	}
 	run := Plan(RequestFacts{ExpectedOutputTokens: 300, LiveCorpusConfidence: "low"})
-	if d := findDecision(t, run, Layer4); d.Action != ActionRun || d.ExpectedSavingsTokens != 60 || d.Confidence != "low" {
-		t.Fatalf("run L4=%+v", d)
+	if d := findDecision(t, run, Layer3); d.Action != ActionRun || d.ExpectedSavingsTokens != 60 || d.Confidence != "low" {
+		t.Fatalf("run L3=%+v", d)
 	}
 	min := Plan(RequestFacts{EstimatedInputTokens: 1000, ExpectedOutputTokens: 10})
-	if d := findDecision(t, min, Layer4); d.Action != ActionRun || d.ExpectedSavingsTokens != 20 {
-		t.Fatalf("min L4=%+v", d)
+	if d := findDecision(t, min, Layer3); d.Action != ActionRun || d.ExpectedSavingsTokens != 20 {
+		t.Fatalf("min L3=%+v", d)
 	}
 }
 

@@ -1,4 +1,4 @@
-# TASK 130: Layer 4 - output-token compression via per-provider system-prompt directives
+# TASK 130: Layer 3 - output-token compression via per-provider system-prompt directives
 
 Status: CODE-COMPLETE / LOCAL TELEMETRY COMPLETE / LIVE-SAVING-PROOF PENDING (implemented 2026-05-02)
 Priority: P0 (largest unrealised cost lever)
@@ -161,6 +161,6 @@ slimference output-reduce status
 
 ## Notes on user's brief
 
-Operator: "das hier würde ich auch noch wollen" pointing to Layer 4 output-token compression.
+Operator: "das hier würde ich auch noch wollen" pointing to Layer 3 output-token compression.
 
 This task is the spec for that. P0 priority because it is the single largest cost lever in the entire stack and the only one that addresses *output* tokens (every other layer is input-side).

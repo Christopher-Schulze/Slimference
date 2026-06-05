@@ -131,7 +131,7 @@ Required minimum categories:
 - Planner replay is now reported when captured summaries contain `plan`: requests with plan, decision count, expected planner savings, expected-active actions, observed-active actions, misses, bypass/tunnel activity, and safety-blocked requests.
 - Layer-combination reporting is now emitted for every corpus category and
   session report. It groups actual observed combinations such as `L0+L1+L3`,
-  `L1+L2`, `L0+L1+L3+L4`, or `WS` by request count, saved tokens, output
+  `L1+L2`, `L0+L1+L3+L3`, or `WS` by request count, saved tokens, output
   tokens, and errors. This is not a fake simulator; it is factual evidence
   about which combinations actually ran.
 
@@ -175,7 +175,7 @@ Required minimum categories:
 - 2026-05-14 T146c:
   - `session-report` and `benchmark-corpus` now emit an observed
     layer-combination matrix.
-  - Combination keys use stable labels (`L0`, `L1`, `L2`, `L3`, `L4`, `WS`,
+  - Combination keys use stable labels (`L0`, `L1`, `L2`, `L3`, `L3`, `WS`,
     or `none`) and aggregate requests, original tokens, saved tokens, output
     tokens, and errors.
   - The JSON report exposes `layer_combinations` per category so later A/B

@@ -13,7 +13,7 @@ Last updated: 2026-06-05
 | Layer 0 | Pre-entry and Codex/WSS tool-output reduction | `internal/filter`, `internal/readcache`, `internal/chunkdedup`, `internal/proxy/layer0_proxy.go`, `internal/proxy/wsmitm_phasef.go` |
 | Layer 1 | Deterministic compression | `internal/compression`, `internal/contentarchive` |
 | Layer 2 | Response cache and provider-cache accounting | `internal/caching`, `internal/analytics`, `internal/proxy` |
-| Layer 4 | Output and tool-surface reduction | `internal/outputreduce`, `internal/outstop`, `internal/beterse`, `internal/toolprune` |
+| Layer 3 | Output and tool-surface reduction | `internal/outputreduce`, `internal/outstop`, `internal/beterse`, `internal/toolprune` |
 
 The old semantic summary path is retired. There is no
 `internal/summarization`, no `internal/contextledger`, no summary CLI, no
@@ -80,7 +80,7 @@ cmd          <- CLI, TUI entry, install/status/codex/debug/report commands
 - `internal/analytics/proxy_gain.go`: local reducer, provider-cache, and
   output-reduce accounting.
 
-### Layer 4
+### Layer 3
 
 - `internal/outputreduce/`: output discipline injection and auto-downgrade.
 - `internal/outstop/`: stop/merge helpers.

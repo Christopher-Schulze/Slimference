@@ -685,7 +685,7 @@ func TestView_DebugRender(t *testing.T) {
 				{Layer: "l1", Action: "run"},
 				{Layer: "l2", Action: "bypass"},
 				{Layer: "l3", Action: "run"},
-				{Layer: "l4_output", Action: "run"},
+				{Layer: "l3_output", Action: "run"},
 			},
 		},
 		TotalProxyOverheadMs: 4.2,

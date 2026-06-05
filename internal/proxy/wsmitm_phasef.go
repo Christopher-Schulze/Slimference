@@ -373,7 +373,7 @@ func (a *wsPhaseFAdapter) applyWSSToolPrune(body []byte, messages []types.Messag
 }
 
 func (a *wsPhaseFAdapter) applyWSSOutputReduce(body []byte) ([]byte, outputreduce.Stats) {
-	if a == nil || a.p == nil || a.p.config == nil || !a.p.config.Compression.OutputReduce.Enabled {
+	if a == nil || a.p == nil || a.p.config == nil || !a.p.config.Compression.OutputReduce.Enabled || !a.p.isLayerEnabled(3) {
 		return body, outputreduce.Stats{Reason: "disabled"}
 	}
 	if wssBodyContainsFunctionCallOutput(body) {

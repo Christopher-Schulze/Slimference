@@ -495,7 +495,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		compressionRatio = float64(compressedTokens) / float64(origTokens)
 	}
 
-	// --- 7.5 Tool-definition pruning (T103/T151, Layer 4, default off) ---
+	// --- 7.5 Tool-definition pruning (T103/T151, Layer 3, default off) ---
 	toolPruneSummary := dbg.ToolPruneSummary{Reason: "disabled"}
 	toolPruneSessionKey := resolveToolPruneSessionKey(sessionID, reqID)
 	preToolPruneBody := newBody
@@ -578,9 +578,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	outputReduceStats := outputreduce.Stats{Reason: "disabled"}
 	outputReduceCooldown := false
 	outputReduceMinTokens := p.config.Compression.OutputReduce.MinInputTokens
-	if p.config.Compression.OutputReduce.Enabled && compressedTokens < outputReduceMinTokens {
+	if p.config.Compression.OutputReduce.Enabled && p.isLayerEnabled(3) && compressedTokens < outputReduceMinTokens {
 		outputReduceStats = outputreduce.Stats{Reason: "below_min_tokens"}
-	} else if p.config.Compression.OutputReduce.Enabled {
+	} else if p.config.Compression.OutputReduce.Enabled && p.isLayerEnabled(3) {
 		taskShape := outputreduce.DetectTaskShape(provider, newBody)
 		profileName := p.config.Compression.OutputReduce.Profile
 		if configuredProfile, err := outputreduce.ParseProfile(profileName); err == nil {

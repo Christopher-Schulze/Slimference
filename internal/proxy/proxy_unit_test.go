@@ -57,6 +57,14 @@ func TestProxy_ProviderLayerToggles(t *testing.T) {
 	if !p.IsLayerEnabled(1) {
 		t.Fatal("layer1 on")
 	}
+	p.SetLayerEnabled(2, false)
+	p.SetLayerEnabled(3, true)
+	if p.IsLayerEnabled(2) {
+		t.Fatal("layer2 must stay off when layer3 is toggled")
+	}
+	if !p.IsLayerEnabled(3) {
+		t.Fatal("layer3 on")
+	}
 }
 
 func TestProxy_ToggleBounds(t *testing.T) {

@@ -24,7 +24,7 @@ Write the v2.0.0 changelog entry covering all work done in the v2.0.0-draft mile
   - Delta encoding (LCS unified diff)
 - Layer 2: Adaptive sliding window, tool result priority classification
 - Layer 3: True LRU response cache (fixed from FIFO), fsnotify file watcher with interface abstraction
-- Layer 4: recoverMiddleware (panic recovery + passthrough), rate limit retry (429), context overflow retry
+- Layer 3: recoverMiddleware (panic recovery + passthrough), rate limit retry (429), context overflow retry
 - Multi-provider: Anthropic + OpenAI, OAuth passthrough, format normalization
 - Secret detection: 12+ patterns, redact/warn/block modes
 - BubbleTea TUI: 3 views (main/stats/debug), keyboard controls, provider/layer toggles

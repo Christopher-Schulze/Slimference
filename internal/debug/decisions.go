@@ -94,7 +94,7 @@ type PromptCacheSummary struct {
 	StablePrefixTokens int    `json:"stable_prefix_tokens,omitempty"`
 }
 
-// ToolPruneSummary records content-free Layer 4 tool-schema pruning telemetry.
+// ToolPruneSummary records content-free Layer 3 tool-schema pruning telemetry.
 type ToolPruneSummary struct {
 	Applied       bool   `json:"applied"`
 	Reason        string `json:"reason,omitempty"`

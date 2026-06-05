@@ -28,7 +28,7 @@ func TestPlanInspect_TextAndJSON(t *testing.T) {
 			"--output-tokens", "500",
 			"--task-shape", "code_edit",
 			"--class", "tool_output",
-			"--disable", "l0,4,ws",
+			"--disable", "l0,3,ws",
 			"--recent-edit",
 			"--provider-cache",
 			"--previous-response",
@@ -143,11 +143,11 @@ func TestPlanInspectHelpers(t *testing.T) {
 	if n, err := planInputTokenEstimate(""); err != nil || n != 0 {
 		t.Fatalf("empty input estimate n=%d err=%v", n, err)
 	}
-	layers, err := parsePlanDisabledLayers([]string{"0", "1", "3", "l4", "output", "output-reduce", "websocket", "ws", ""})
+	layers, err := parsePlanDisabledLayers([]string{"0", "1", "2", "l3", "output", "output-reduce", "websocket", "ws", ""})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, layer := range []planner.Layer{planner.Layer0, planner.Layer1, planner.Layer2, planner.Layer4, planner.LayerWebSocket} {
+	for _, layer := range []planner.Layer{planner.Layer0, planner.Layer1, planner.Layer2, planner.Layer3, planner.LayerWebSocket} {
 		if !layers[layer] {
 			t.Fatalf("missing disabled layer %s in %+v", layer, layers)
 		}

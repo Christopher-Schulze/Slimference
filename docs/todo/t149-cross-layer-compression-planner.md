@@ -77,7 +77,7 @@ Operators can inspect why Slimference did or did not compress a request.
   fed by the byte-preserving `wscompact` frame inspector.
 - [x] Output-reduce cooldown is now read from the T141 auto-tune tracker before
   profile selection. The planner records this as a `cheap_only`
-  `quality_cooldown_soften_layer4` decision so debug/corpus replay matches the
+  `quality_cooldown_soften_layer3` decision so debug/corpus replay matches the
   real behavior: aggressive directives are softened, not silently kept.
 
 ### WP3 - Layer action selection
@@ -230,8 +230,8 @@ Operators can inspect why Slimference did or did not compress a request.
 - 2026-05-14 T149e:
   - Added `outputreduce.Tracker.InCooldown` and wired it into the proxy's
     planner facts before output-reduce profile selection.
-  - Planner L4 cooldown behavior now says `cheap_only` with
-    `quality_cooldown_soften_layer4`, matching the T141 auto-tuner's real
+  - Planner L3 cooldown behavior now says `cheap_only` with
+    `quality_cooldown_soften_layer3`, matching the T141 auto-tuner's real
     downgrade behavior and T151's tool-prune session cooldown instead of
     pretending the layer is fully bypassed.
   - Added proxy integration coverage proving an aggressive profile in cooldown

@@ -41,7 +41,7 @@ external compression provider.
 - **Data destination**: Local memory and disk cache only. No data leaves your machine.
 - **Controls**: `[compression] layer2_enabled`, `[cache]`
 
-### Layer 4: Output and tool-surface reduction (local policy)
+### Layer 3: Output and tool-surface reduction (local policy)
 
 - **What happens**: Safe output discipline, repetition control, and tool-schema
   pruning reduce tokens that do not carry user-visible task state.

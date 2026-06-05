@@ -19,6 +19,6 @@ stricter: Slimference must not hide old context behind a capsule or replacement
 unless it can prove the model will never need the hidden detail. That proof is
 not generally available for Codex/GPT workflows. The safe savings direction is
 therefore Layer 0/WSS tool-output reduction, Layer 1 deterministic compression,
-Layer 2 cache leverage, and Layer 4 output/tool-surface reduction.
+Layer 2 cache leverage, and Layer 3 output/tool-surface reduction.
 
 This file remains only to make old links resolve to the current decision.

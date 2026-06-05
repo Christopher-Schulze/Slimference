@@ -15,31 +15,43 @@ var filterableCommands = map[string]bool{
 	// Git (F01-F05)
 	"git": true,
 	// Build (F07)
-	"cargo": true, "go": true, "tsc": true, "npm": true, "pnpm": true, "yarn": true,
-	"bun": true, "make": true, "dotnet": true, "gradle": true, "mvn": true,
+	"cargo": true, "go": true, "tsc": true, "npm": true, "npx": true, "pnpm": true,
+	"pnpx": true, "yarn": true,
+	"bun": true, "make": true, "dotnet": true, "gradle": true, "gradlew": true,
+	"mvn": true, "gcc": true, "g++": true, "just": true, "mix": true, "nx": true,
+	"pio": true, "swift": true, "task": true, "trunk": true, "turbo": true,
+	"xcodebuild": true,
 	// Test (F08)
 	"pytest": true, "python": true, "python3": true, "vitest": true, "jest": true,
 	"rspec": true, "rake": true, "mocha": true,
 	// Lint (F09)
 	"eslint": true, "tslint": true, "golangci-lint": true, "rubocop": true,
 	"ruff": true, "biome": true, "mypy": true, "flake8": true, "pylint": true,
+	"basedpyright": true, "hadolint": true, "markdownlint": true, "oxlint": true,
+	"shellcheck": true, "ty": true, "yamllint": true,
 	// Search (F10)
 	"grep": true, "rg": true, "ag": true, "ack": true,
 	// Files (F06, F11)
 	"cat": true, "head": true, "tail": true, "ls": true, "tree": true,
-	"find": true, "fd": true, "bat": true, "wc": true,
+	"find": true, "fd": true, "bat": true, "wc": true, "df": true, "du": true,
+	"jq": true, "ps": true, "stat": true,
 	// Package managers (F12)
 	"pip": true, "pip3": true, "composer": true, "gem": true, "bundle": true,
+	"brew": true, "mise": true, "poetry": true, "uv": true,
 	// Container (F13)
-	"docker": true, "kubectl": true, "k9s": true, "helm": true,
+	"docker": true, "kubectl": true, "k9s": true, "helm": true, "skopeo": true,
 	// Cloud / CI (F16, F18)
-	"aws": true, "gh": true, "glab": true,
+	"aws": true, "gh": true, "glab": true, "ansible-playbook": true, "gcloud": true,
+	"jira": true, "jj": true, "pre-commit": true, "quarto": true, "rsync": true,
+	"shopify": true, "terraform": true, "tofu": true, "yadm": true,
 	// Format (F24)
 	"prettier": true, "gofmt": true, "rustfmt": true, "black": true, "isort": true,
+	"liquibase": true, "sops": true,
 	// DB (F19)
 	"psql": true, "mysql": true, "sqlite3": true,
 	// Misc logs (F15)
-	"journalctl": true, "systemctl": true,
+	"fail2ban-client": true, "iptables": true, "journalctl": true, "ollama": true,
+	"ping": true, "systemctl": true,
 }
 
 // findAlwaysCommands are rewritten even when they appear after a pipe

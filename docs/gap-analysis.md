@@ -9,7 +9,7 @@ valid because Layer 2 has been removed from Slimference.
 
 ## Current Closure Rules
 
-- Active product layers are Layer 0, Layer 1, Layer 2, and Layer 4.
+- Active product layers are Layer 0, Layer 1, Layer 2, and Layer 3.
 - Model-facing summarization, MiniMax, OCRL, and context-ledger insertion are
   not valid product gaps or future default-on targets.
 - Savings claims must be backed by active-layer benchmark and live-corpus proof.

@@ -65,7 +65,7 @@ The gate reports and can enforce evidence level, input-layer savings,
 output-wire savings, provider-cache read/create/cached tokens, output-reduce
 hits, error count, latency p95, host-resource status, and planner replay
 consistency. It also emits an observed layer-combination matrix such as
-`L0+L1`, `L0+L1+L2`, `L4`, `WS`, and `none`.
+`L0+L1`, `L0+L1+L2`, `L3`, `WS`, and `none`.
 
 ## Scope and Limits
 

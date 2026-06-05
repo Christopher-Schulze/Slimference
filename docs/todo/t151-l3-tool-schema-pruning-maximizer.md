@@ -1,4 +1,4 @@
-# TASK 151: L4 tool-schema pruning maximizer
+# TASK 151: L3 tool-schema pruning maximizer
 
 Status: DONE
 Priority: P0
@@ -11,7 +11,7 @@ Tool schemas are a persistent per-request tax. T103 shipped the forward pruning 
 
 ## Target State
 
-Layer 4 removes idle tool definitions with almost-zero drawdown:
+Layer 3 removes idle tool definitions with almost-zero drawdown:
 
 1. Always keep core tools required for shell/edit/read safety.
 2. Prune unused or cold tool definitions after a configurable idle window.
@@ -73,7 +73,7 @@ Layer 4 removes idle tool definitions with almost-zero drawdown:
   --proxy` now expose pruned-tool, saved-token, reattach, miss, retry,
   always-keep, and disabled-session counters.
 - The T149 planner receives `ToolPruneCooldown` and reports
-  `quality_cooldown_soften_layer4` when Layer 4 is in cooldown.
+  `quality_cooldown_soften_layer3` when Layer 3 is in cooldown.
 
 ## Verification
 

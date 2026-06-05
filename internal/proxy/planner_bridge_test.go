@@ -33,8 +33,8 @@ func TestDryRunPlan_AttachesProviderAndDisabledLayers(t *testing.T) {
 	if plan == nil || plan.Provider != "openai" || plan.Model != "gpt-5.1" || plan.RouteMode != "upstream" {
 		t.Fatalf("bad plan identity: %+v", plan)
 	}
-	if !hasPlanAction(plan.Decisions, "l4_output", "bypass", "operator_disabled") {
-		t.Fatalf("expected disabled L4 decision: %+v", plan.Decisions)
+	if !hasPlanAction(plan.Decisions, "l3_output", "bypass", "operator_disabled") {
+		t.Fatalf("expected disabled L3 decision: %+v", plan.Decisions)
 	}
 	if !hasPlanAction(plan.Decisions, "l2", "run", "previous_response_state_available") {
 		t.Fatalf("expected L2 previous-response decision: %+v", plan.Decisions)

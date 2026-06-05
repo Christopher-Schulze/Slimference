@@ -215,7 +215,7 @@ Output reduction becomes a runtime-governed layer:
   frames increment `OutputTokensObserved` without mutating the response.
 - 2026-06-04: Aligned the central planner with the runtime output-reduce safety
   contract. `exact_reply`, `command_output_relay`, `repair_followup`, and
-  low-ROI direct-answer shapes report Layer 4 bypasses in planner summaries.
+  low-ROI direct-answer shapes report Layer 3 bypasses in planner summaries.
   As of the stricter 2026-06-05 safety pass, unproven detail-sensitive shapes
   also bypass output-reduce injection by default instead of receiving a
   standard directive: code-edit/debugging/review/explanation/tool-reasoning/
@@ -333,7 +333,7 @@ Output reduction becomes a runtime-governed layer:
   relay, repair, review, final-summary, and Desktop direct-long shapes is not
   maxxed engineering; it is an unproven quality risk. The product surface now
   claims concrete savings only for paired, net-positive direct-answer/status
-  shapes and otherwise gates or softens Layer 4 before it can reduce requested
+  shapes and otherwise gates or softens Layer 3 before it can reduce requested
   detail, exact output, paths, errors, patches, or workflow context. Future
   shapes can reopen T267 only with paired A/B proof that passes host-budget,
   lost-context, safety, repair/re-ask, and net-token gates.

@@ -121,7 +121,7 @@ routine use, it stays out of the product path.
   toggle to off, making the proxy a pure relay.
 - **`encoding/json` only**: no third-party JSON library.
 - **Hot path budget ≤ 5 ms**: Layer 0/WSS reducers, Layer 1, Layer 2,
-  and Layer 4 must fail open and stay cheap enough for normal Codex use.
+  and Layer 3 must fail open and stay cheap enough for normal Codex use.
 
 ---
 
@@ -133,7 +133,7 @@ routine use, it stays out of the product path.
 │ Codex App   │                    │                                     │
 └─────────────┘       TLS/SNI      │ transparent SNI listener :8443      │
       │        chatgpt.com:443     │  ┌──── request/WSS pipeline ────┐   │
-      └───────────────────────────▶│  │ detect → L0/WSS → L1 → L2/L4 │   │──HTTPS──▶ chatgpt.com
+      └───────────────────────────▶│  │ detect → L0/WSS → L1 → L2/L3 │   │──HTTPS──▶ chatgpt.com
                                    │  └──────────────────────────────┘   │──HTTPS──▶ api.openai.com
                                    │  ┌──── response pipeline ───────┐   │
                                    │  │ streamcut/repdet + cache     │   │
@@ -191,7 +191,7 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
     model-bound stable-prefix hashes. Optional model-gated
     `prompt_cache_retention` stays operator-controlled. CodexChatGPT backend
     routes stay untouched until live proof.
-11. **Layer 4 output/tool-surface reducers** — safe output discipline and
+11. **Layer 3 output/tool-surface reducers** — safe output discipline and
     tool-surface reductions are applied only when policy and proof gates allow.
 12. **Upstream call** via the per-provider HTTP client. Streaming is
     preserved.
@@ -417,7 +417,7 @@ product route for recoverable archive/chunk mechanisms.
 
 Layer 2 semantic context replacement is retired. Product savings now stay on
 Layer 0/WSS tool-output reducers, Layer 1 deterministic compression, Layer 2
-cache leverage, and Layer 4 output/tool-surface reduction. No context ledger,
+cache leverage, and Layer 3 output/tool-surface reduction. No context ledger,
 OCRL capsule, or summary text is inserted into model-facing context.
 
 The offline A/B harness still proves archive-backed references by expanding
@@ -984,7 +984,7 @@ The reason is product safety: any semantic replacement of old context can drop a
 detail the model later needs, which violates the project drawdown rule. Savings
 therefore stay on deterministic, recoverable, fail-open mechanisms: Layer 0
 Codex/tool-output reducers, Layer 1 deterministic compression, Layer 2 cache
-leverage, and Layer 4 output/tool-surface reduction.
+leverage, and Layer 3 output/tool-surface reduction.
 
 There is no semantic-summary config surface, no summary CLI subcommand, no
 background summary worker, no summary cache apply, and no model-facing context
@@ -1231,7 +1231,7 @@ context replacement. The active product behavior keeps model-facing context
 byte-equal except for the current deterministic reducer stack; there is no
 context-ledger insertion path.
 
-### Layer 4 tool-definition pruning (T103)
+### Layer 3 tool-definition pruning (T103)
 
 `[compression.tuning] tool_prune_enabled` activates the per-session
 tool-usage tracker + body-rewrite pass. Tool definitions idle
@@ -2084,7 +2084,7 @@ keeps mutating after a version drift without fresh proof.
 coordination. It turns request facts (provider/model/route, input/output token
 size, content classes, live-corpus confidence, manual disables, recent-edit
 state, provider cache support, output-reduce/tool-prune cooldown, and WebSocket
-shape confidence) into per-layer decisions for L0, L1, L2, Layer 4
+shape confidence) into per-layer decisions for L0, L1, L2, Layer 3
 output/tool controls, and WebSocket transport. The package is pure: same facts produce
 the same `CompressionPlan`, every decision carries action, reason, expected
 saving, risk, and confidence, and operator-disabled layers stay disabled.
@@ -2096,9 +2096,9 @@ edited files. Live-corpus confidence defaults to `unknown`, can be asserted via
 by the inspect-only `wscompact.ShapeRegistry`; it records observed JSON frame
 shapes without changing bytes, and it exposes mutation confidence only for
 registered Phase-F-compatible shapes rather than arbitrary JSON envelopes.
-Layer 4 cooldown is sourced from the T141 output-reduce tracker and the T151
+Layer 3 cooldown is sourced from the T141 output-reduce tracker and the T151
 tool-prune session bucket; the planner marks it as a `cheap_only`
-`quality_cooldown_soften_layer4` decision because the runtime softens Layer 4
+`quality_cooldown_soften_layer3` decision because the runtime softens Layer 3
 rather than blindly continuing aggressive behavior. Output-reduce task-shape
 selection now bypasses unproven detail-sensitive shapes instead of merely
 capping them to `standard`: code edits, new-file generation, debugging, reviews,
@@ -2107,7 +2107,7 @@ analysis, deep explanations, and planning. Those shapes need complete evidence
 or exact workflow content more than maximal terse output. The planner mirrors
 the runtime output-reduce guard for its own summaries: exact replies,
 command-output relay, repair follow-ups, unproven detail shapes, and low-ROI
-direct-answer tasks bypass Layer 4 in the plan. Tool-schema
+direct-answer tasks bypass Layer 3 in the plan. Tool-schema
 pruning runs only after strict schema extraction: if any `tools[]` entry cannot
 be named for the provider shape, the request keeps the full schema instead of
 partially pruning a mixed/unknown tool surface.
@@ -2157,7 +2157,7 @@ versus observed-active actions, missed active actions, bypass/tunnel actions
 that still saw activity, and safety-blocked requests. Category metadata can set
 planner thresholds so future default-on changes have measurable evidence.
 It also emits an observed layer-combination matrix keyed by stable labels
-(`L0`, `L1`, `L2`, `L4`, `WS`, or `none`) with request count, saved
+(`L0`, `L1`, `L2`, `L3`, `WS`, or `none`) with request count, saved
 tokens, output tokens, and errors. This is factual corpus accounting, not a
 simulated alternate-run replay. Category metadata can additionally declare
 `scenario_validators` (`tool_heavy`, `cache_reuse`, `output_reduce`,

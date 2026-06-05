@@ -237,10 +237,10 @@ func parsePlanDisabledLayers(values []string) (map[planner.Layer]bool, error) {
 			out[planner.Layer0] = true
 		case "l1", "1":
 			out[planner.Layer1] = true
-		case "l2", "2", "l3", "3":
+		case "l2", "2":
 			out[planner.Layer2] = true
-		case "l4", "4", "output", "output-reduce":
-			out[planner.Layer4] = true
+		case "l3", "3", "output", "output-reduce":
+			out[planner.Layer3] = true
 		case "websocket", "ws":
 			out[planner.LayerWebSocket] = true
 		default:

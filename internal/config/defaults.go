@@ -303,7 +303,7 @@ structure_preview = true
 # with the original message order preserved.
 coordinator_parallel = true
 
-# T103: Layer 4 tool-definition pruning. When on, tool definitions
+# T103: Layer 3 tool-definition pruning. When on, tool definitions
 # idle for more than the threshold are removed from the request
 # body and archived for reattachment. Default off.
 tool_prune_enabled = false

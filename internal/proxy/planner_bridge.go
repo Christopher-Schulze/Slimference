@@ -46,7 +46,7 @@ func (p *Proxy) buildCompressionPlan(in plannerInput) planner.CompressionPlan {
 	manualDisabled := map[planner.Layer]bool{
 		planner.Layer1: !p.isLayerEnabled(1),
 		planner.Layer2: !p.isLayerEnabled(2),
-		planner.Layer4: !p.config.Compression.OutputReduce.Enabled,
+		planner.Layer3: !p.isLayerEnabled(3) || !p.config.Compression.OutputReduce.Enabled,
 	}
 	caps := types.CapabilitiesFor(in.provider)
 	providerCacheSupported := in.providerCacheSupported ||

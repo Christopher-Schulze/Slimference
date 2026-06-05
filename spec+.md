@@ -94,9 +94,9 @@ Requirements:
 - do not inject OpenAI prompt-cache keys into CodexChatGPT backend routes until
   live request acceptance is proven.
 
-## 6. Layer 4
+## 6. Layer 3
 
-Layer 4 reduces output and tool-surface overhead.
+Layer 3 reduces output and tool-surface overhead.
 
 Requirements:
 

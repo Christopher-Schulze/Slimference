@@ -1,4 +1,4 @@
-# TASK 103: Layer 4 - Tool-Definition Pruning
+# TASK 103: Layer 3 - Tool-Definition Pruning
 
 Status: FORWARD-PATH SHIPPED (2026-04-30); reattach path tracked as T103b. Default off via `[compression.tuning] tool_prune_enabled`.
 Priority: P1
@@ -15,7 +15,7 @@ T103 is gated on T76 because tool removal must be reversible: the model may invo
 
 ## Target State
 
-Layer 4 (Tool-Definition Pruning) runs after L1 and before final body assembly:
+Layer 3 (Tool-Definition Pruning) runs after L1 and before final body assembly:
 
 1. Per-session tool-usage tracker counts how often each tool has been used in the last N turns.
 2. Tools idle for `[toolprune] idle_threshold_turns` (default 20) are removed from the request's tool list.
@@ -31,7 +31,7 @@ Layer 4 (Tool-Definition Pruning) runs after L1 and before final body assembly:
 - `internal/toolprune/usage.go` tracks per-session tool invocations with a sliding window.
 
 ### WP2 - Pruner
-- New L4 pass on the final body that drops tool definitions exceeding the idle threshold.
+- New L3 pass on the final body that drops tool definitions exceeding the idle threshold.
 - Storage: T76 content archive.
 
 ### WP3 - Reattach path
@@ -54,7 +54,7 @@ Layer 4 (Tool-Definition Pruning) runs after L1 and before final body assembly:
 - [x] Counters surface in `/admin/status.tool_prune`.
 - [x] Coverage 100%; race tests green.
 - [x] T103b (2026-04-30): heuristic-mention reattach path shipped (`UsageTracker.RememberPrunedDef` + `MentionedTools` + `ReattachToolDefinitions`). Upstream 4xx-on-unknown-tool detection remains a design alternative; reopen as T103d only if heuristic reattach proves too eager in real traffic.
-- [ ] **Tracked as T103c** (separate task): T77 quality signals show no spike in re-read rate after L4 enables. Requires a soak window with the flag on against real traffic; not measurable in unit tests.
+- [ ] **Tracked as T103c** (separate task): T77 quality signals show no spike in re-read rate after L3 enables. Requires a soak window with the flag on against real traffic; not measurable in unit tests.
 
 ## Out of Scope
 
