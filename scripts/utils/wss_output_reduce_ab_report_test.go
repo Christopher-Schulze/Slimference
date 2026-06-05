@@ -103,6 +103,38 @@ func TestOutputReduceABReportFailsUnsafeOrNegativePairs(t *testing.T) {
 	}
 }
 
+func TestOutputReduceABReportFailsInjectedDirectiveWithoutInputOverhead(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath,
+		outputReduceABRow("ab-baseline", "ab", "baseline", &codexCaptureLiveDelta{
+			ProviderOutputTokens:    500,
+			HostBudgetStatus:        "ok",
+			HostBudgetCompressionOK: true,
+			HostBudgetDegradationOK: true,
+		}),
+		outputReduceABRow("ab-directive", "ab", "directive", &codexCaptureLiveDelta{
+			OutputReduceInjected:    1,
+			ProviderOutputTokens:    300,
+			HostBudgetStatus:        "ok",
+			HostBudgetCompressionOK: true,
+			HostBudgetDegradationOK: true,
+		}),
+	)
+
+	report, err := loadOutputReduceABReport(outputReduceABFlags{path: matrixPath, minNetTokens: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.GatePassed {
+		t.Fatalf("expected missing-overhead failure: %+v", report)
+	}
+	if joined := strings.Join(report.GateFailures, "\n"); !strings.Contains(joined, "directive missing positive output_reduce_input_overhead_tokens") {
+		t.Fatalf("missing overhead failure:\n%s", joined)
+	}
+}
+
 func TestRunOutputReduceABReportJSONExitCodes(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

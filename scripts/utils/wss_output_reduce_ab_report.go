@@ -263,6 +263,9 @@ func validateOutputReduceABLive(label string, live *codexCaptureLiveDelta, wantI
 	if wantInjected && live.OutputReduceInjected <= 0 {
 		failures = append(failures, "directive missing output_reduce_injected")
 	}
+	if wantInjected && live.OutputReduceInjected > 0 && live.OutputReduceInputOverheadTokens <= 0 {
+		failures = append(failures, "directive missing positive output_reduce_input_overhead_tokens")
+	}
 	if !wantInjected && live.OutputReduceInjected > 0 {
 		failures = append(failures, "baseline unexpectedly has output_reduce_injected")
 	}

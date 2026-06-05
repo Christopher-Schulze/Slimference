@@ -2073,8 +2073,12 @@ be called complete, default-safe, and production-grade.
   accounting. That pair is now committed as a content-free live-corpus
   `output_reduce_ab` artifact, and `benchmark-corpus --maxx-check` requires
   positive paired net output-token savings instead of accepting output-reduce
-  injection alone. The remaining T267 gap is broader CLI/Desktop task-shape A/B
-  breadth, not offline proof tooling. The central planner and hot path now
+  injection alone. A second autonomous status A/B pair stayed net-negative and
+  exposed a proof-accounting edge where a directive row had injection but zero
+  overhead accounting; `wss-output-reduce-ab-report` now fails such rows with
+  `directive missing positive output_reduce_input_overhead_tokens`. The
+  remaining T267 gap is broader CLI/Desktop task-shape A/B breadth, not
+  offline proof tooling. The central planner and hot path now
   mirror the same stricter output-reduce guard: exact/relay/repair/low-ROI
   direct-answer shapes and all unproven detail-sensitive shapes bypass Layer 4
   by default instead of injecting a standard directive without paired A/B proof.

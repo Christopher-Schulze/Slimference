@@ -2520,10 +2520,11 @@ gate. It pairs matrix rows by `ab_pair_id` and `ab_variant` (`baseline` or
 output-token observations in both rows, requires guarded output-reduce injection
 only in the directive row, subtracts directive input overhead, and fails on
 safety errors, output-reduce downgrades, host-budget violations, non-positive
-output-token reduction, or net tokens below the configured floor. `codex-capture-run`
-and `wss-proof-live-row` can stamp those A/B fields into matrix rows; the report
-still reads only content-free proof counters, never raw prompts, model text, or
-tool output.
+output-token reduction, net tokens below the configured floor, or an injected
+directive row that has no positive `output_reduce_input_overhead_tokens`.
+`codex-capture-run` and `wss-proof-live-row` can stamp those A/B fields into
+matrix rows; the report still reads only content-free proof counters, never raw
+prompts, model text, or tool output.
 The first focused CLI direct-answer/status A/B passed on 2026-06-05 after
 fixing proof accounting to record general provider output tokens from WSS usage
 frames and model-facing directive overhead instead of JSON re-marshal byte

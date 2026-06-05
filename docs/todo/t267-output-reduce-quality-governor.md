@@ -291,6 +291,18 @@ Output reduction becomes a runtime-governed layer:
   `unproven_task_shape_ab_required`, and leaves `Applied=false`. This locks the
   stronger post-A/B policy: safety-sensitive shapes are not merely softened from
   aggressive to standard; they full-pass until paired proof exists.
+- 2026-06-05: Reality-checked another autonomous CLI status A/B pair
+  (`t267-status-extra-20260605`) against the stricter product claim. The pair
+  was intentionally not promoted: baseline output was `310`, directive output
+  was `616`, net saved tokens were `-306`, host budget stayed `ok`, replay lost
+  `0`, and safety counters stayed clean. More importantly, the directive row
+  had `output_reduce_injected=1` but `output_reduce_input_overhead_tokens=0`,
+  so the old report could have treated an injected directive as structurally
+  valid without proving model-facing overhead accounting. The
+  `wss-output-reduce-ab-report` gate now fails such rows with
+  `directive missing positive output_reduce_input_overhead_tokens`. This keeps
+  T267 honest: only paired, net-positive, overhead-accounted rows can support a
+  savings claim.
 
 ## Done
 
