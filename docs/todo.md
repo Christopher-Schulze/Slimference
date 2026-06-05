@@ -2277,11 +2277,13 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   summary text, matching cached prefix, and positive token savings. Overflow
   recovery follows the same double gate before consuming cached summaries.
   Ledger selection full-passes
-  active-file capsules and all capsules under quality/re-read pressure.
-  Remaining closeout is the real non-synthetic `ocrl_full_history`
-  Full-History HTTP live-corpus proof plus broader live A/B proof that
-  model-facing ledger context preserves task decisions with recoverable raw
-  context.
+  active-file capsules and all capsules under quality/re-read pressure. The
+  real non-synthetic `ocrl_full_history` Full-History HTTP live-corpus proof is
+  now present and passes `benchmark-corpus --maxx-check`: a live Slimference
+  proxy sent `[ocrl:v1 ...]` upstream only after exact archive-backed
+  replacement and the local upstream rejected any non-OCRL/full-old-text
+  request. Remaining closeout is broader live A/B proof that model-facing
+  ledger context preserves task decisions with recoverable raw context.
 - [x] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility

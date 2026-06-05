@@ -158,6 +158,28 @@ func TestBuildMechanismAccounting(t *testing.T) {
 	}
 }
 
+func TestBuildMechanismAccountingAppliedOCRL(t *testing.T) {
+	t.Parallel()
+	got := BuildMechanismAccounting(RequestSummary{
+		ContextLedger: ContextLedgerSummary{
+			CommandCapsules:       1,
+			OCRLReason:            "applied",
+			OCRLCandidateCapsules: 1,
+			OCRLArchiveExpansions: 1,
+			OCRLShadowSavedTokens: 4410,
+		},
+	})
+	if len(got) != 1 {
+		t.Fatalf("mechanisms = %+v", got)
+	}
+	if got[0].Name != "context_ledger_ocrl" ||
+		got[0].Reason != "ocrl_applied" ||
+		got[0].SavedTokens != 4410 ||
+		got[0].NetTokens != 4410 {
+		t.Fatalf("applied OCRL mechanism mismatch: %+v", got[0])
+	}
+}
+
 func TestBuildMechanismAccountingEdges(t *testing.T) {
 	t.Parallel()
 	var nilSummary *RequestSummary

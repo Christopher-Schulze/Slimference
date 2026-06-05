@@ -346,17 +346,25 @@ func BuildMechanismAccounting(s RequestSummary) []MechanismAccounting {
 		})
 	}
 	if s.ContextLedger.TotalCapsules() > 0 || s.ContextLedger.ReReadCount > 0 {
+		name := "context_ledger_shadow"
 		reason := "telemetry_only"
+		netTokens := 0
 		if s.ContextLedger.OCRLReason != "" {
-			reason = "ocrl_shadow_" + s.ContextLedger.OCRLReason
+			reason = "ocrl_" + s.ContextLedger.OCRLReason
+			if s.ContextLedger.OCRLShadowOnly || s.ContextLedger.TelemetryOnly {
+				reason = "ocrl_shadow_" + s.ContextLedger.OCRLReason
+			} else {
+				name = "context_ledger_ocrl"
+				netTokens = positive(s.ContextLedger.OCRLShadowSavedTokens)
+			}
 		}
 		out = append(out, MechanismAccounting{
-			Name:        "context_ledger_shadow",
+			Name:        name,
 			Layer:       2,
 			Source:      "context_ledger",
 			Count:       s.ContextLedger.TotalCapsules(),
 			SavedTokens: positive(s.ContextLedger.OCRLShadowSavedTokens),
-			NetTokens:   0,
+			NetTokens:   netTokens,
 			Reason:      reason,
 		})
 	}

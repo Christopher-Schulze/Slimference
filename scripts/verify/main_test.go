@@ -491,6 +491,8 @@ func TestRunLiveCorpusPlan_OCRLFullHistoryUsesFullHistoryClient(t *testing.T) {
 		"Client:       full_history_http",
 		"must prove model-facing OCRL on a full-history HTTP-style route",
 		"Codex WSS / Responses-delta sessions are intentionally shadow-only",
+		"normalized flight export omits OCRL candidate/archive counters",
+		"cp ~/.slimference/captures/ocrl_full_history_20260605_080910.jsonl tests/fixtures/live_corpus/ocrl_full_history/ocrl_full_history_20260605_080910.jsonl",
 		`"client_family": "full_history_http"`,
 		`"tool_mix": "full_history_http_archive_backed"`,
 	} {

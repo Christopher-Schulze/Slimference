@@ -267,10 +267,16 @@ func runLiveCorpusPlan(root, category, client string, now time.Time) int {
 	fmt.Println("")
 	fmt.Println("2. Run the real operator task for this category, then stop Slimference.")
 	fmt.Println("")
-	fmt.Println("3. Review and export the captured flight log:")
+	fmt.Println("3. Review and export the captured log:")
 	fmt.Printf("   slimference debug flight replay %s\n", capturePath)
 	fmt.Printf("   mkdir -p %s\n", categoryDir)
-	fmt.Printf("   slimference debug flight export %s\n", sessionFile)
+	if isOCRLFullHistoryCategory(category) {
+		fmt.Println("   # OCRL corpus validation needs the redacted RequestSummary JSONL,")
+		fmt.Println("   # because normalized flight export omits OCRL candidate/archive counters.")
+		fmt.Printf("   cp %s %s\n", capturePath, sessionFile)
+	} else {
+		fmt.Printf("   slimference debug flight export %s\n", sessionFile)
+	}
 	fmt.Println("")
 	fmt.Println("4. Create metadata.json next to the session with this starting shape:")
 	fmt.Println(renderLiveCorpusMetadataSkeleton(category, client))

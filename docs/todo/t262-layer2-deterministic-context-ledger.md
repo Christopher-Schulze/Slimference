@@ -496,8 +496,9 @@ summary remains opt-in, not default.
   measured `1353336 ns/op`, `238060 B/op`, `11 allocs/op` for renderer/build,
   `659655 ns/op`, `186132 B/op`, `22 allocs/op` for exact target derivation,
   and `3509444 ns/op`, `1171594 B/op`, `1085 allocs/op` for full archive-match
-  apply. `benchmark-corpus --check` passed; `--maxx-check` still fails only on
-  the deliberately missing real non-synthetic `ocrl_full_history` workload.
+  apply. `benchmark-corpus --check` passed; at that point `--maxx-check` still
+  failed only on the deliberately missing real non-synthetic `ocrl_full_history`
+  workload, which was closed by the later Full-History HTTP live-corpus proof.
 - 2026-06-05: Changed exact full-history OCRL message apply to select before
   target archive verification. Only targets selected for replacement must have
   valid positions and byte-equal archive payloads; verbatim/rejected targets
@@ -554,3 +555,19 @@ summary remains opt-in, not default.
   `587480 ns/op`, `238069 B/op`, `11 allocs/op`; target derivation
   `232415 ns/op`, `185709 B/op`, `20 allocs/op`; full archive-match apply
   `1675228 ns/op`, `1139840 B/op`, `1083 allocs/op`.
+- 2026-06-05: Closed the real non-synthetic OCRL Full-History HTTP corpus gap.
+  A temporary local proof harness ran a real Slimference HTTP proxy with
+  `SLIMFERENCE_DEBUG_DECISIONS_LOG`, `layer2_enabled=true`, `ocrl.mode=max`,
+  `sliding_window=1`, and a local OpenAI-compatible upstream stub. The stub
+  rejected the request unless `[ocrl:v1 ...]` reached upstream and the old
+  full-history text was absent. The reviewed redacted `RequestSummary` JSONL was
+  committed under `tests/fixtures/live_corpus/ocrl_full_history/` with
+  `evidence_level=live_operator`, `client_family=full_history_http`, and the
+  `ocrl_full_history` validator. `session-report` measured one request,
+  `4561 -> 151` estimated input tokens, `4410` saved tokens, `96.69%` savings,
+  `ocrl applied=1`, `full_history=1`, `candidates=1`, `archive_expansions=1`,
+  `shadow=0`, `errors=0`, `re_reads=0`, and `p95=4.5 ms`.
+  `benchmark-corpus --check` and `benchmark-corpus --maxx-check` both passed.
+  The live-corpus runbook was corrected so OCRL uses the redacted
+  `RequestSummary` capture directly; normalized flight export omits the OCRL
+  candidate/archive counters required by the validator.

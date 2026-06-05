@@ -105,6 +105,12 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
 
    The proxy writes one redacted `RequestSummary` per request line to that path. The T109 redactor (default-on) strips secret patterns, normalises absolute paths, and drops auth headers before anything is written.
 
+   For `ocrl_full_history`, commit the reviewed redacted `RequestSummary` JSONL
+   itself. Do not use `debug flight export` for that category: normalized flight
+   records are useful for operator review, but the OCRL corpus validator needs
+   the full context-ledger counters (`ocrl_candidate_capsules`,
+   `ocrl_archive_expansions`, full-history route, and shadow/applied flags).
+
 2. After the session ends, **read** the captured file end-to-end. If anything looks wrong:
    - run a regex sweep against the maintained secret-pattern list (`internal/security/secrets.go`);
    - eyeball every `tool_input` and `tool_result` excerpt;
