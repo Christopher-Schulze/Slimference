@@ -1,7 +1,7 @@
 # Slimference - Technical Documentation
 
 Version: 2.3.0
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 Comprehensive reference for the Slimference token-optimising proxy. This
 document is re-written for the 2.3 line; sections follow current code
@@ -236,10 +236,14 @@ public install path writes `~/.claude`.
    mechanism id, command family, safety class, default eligibility, and
    preserved-evidence contract before the reducer can participate in product
    dispatch. The default order covers git-status, git-diff, git-log, git-show,
-   build-output, test-output, dotnet, ruby, search/path-list grouping, ls, tree, wc, lint, log,
-   format, psql, package-manager, container, gh list, glab list, AWS JSON,
-   python traceback, Terraform plan/init/validate/show, structured JSON, and
-   JSON minify. Long `terraform state list` and plain human-readable
+   build-output, test-output, dotnet, ruby, search/path-list grouping, ls, tree, wc,
+   exact network-response JSON, lint, log, format, psql, package-manager,
+   container, gh list, glab list, AWS JSON, python traceback, Terraform
+   plan/init/validate/show, structured JSON, and JSON minify. `curl`/`wget`
+   network output is guarded before generic reducers: valid JSON may be
+   whitespace-compacted exactly, while non-JSON and already-compact JSON
+   full-pass so API bodies cannot be log-windowed, schema-summarized, or
+   truncated by default. Long `terraform state list` and plain human-readable
    `terraform output` full-pass in the default package because resource
    addresses, output names, and output values are requested facts unless a
    future route-specific reducer owns exact archive recovery.
@@ -257,6 +261,13 @@ public install path writes `~/.claude`.
    npm/pnpm/yarn/bun/pip/uv resolver-error noise to actionable lines.
    `psql` covers SQL-shell table-border compaction for psql, MySQL/MariaDB,
    SQLite, and SQLite3 outputs.
+   The hook rewrite gate now reaches every safe built-in reducer family
+   surfaced by the RTK registry audit, including direct build/lint/format/search
+   binaries such as `ninja`, `cmake`, `next`, `vite`, `webpack`,
+   `staticcheck`, `semgrep`, `stylelint`, `dprint`, `taplo`, `shfmt`,
+   `sqlfmt`, `pipenv`, `prisma`, `gt`, `diff`, `curl`, and `wget`. Arbitrary
+   runtime commands that can execute user programs remain guarded; for example
+   `deno run`, `dart run`, and `flutter run` are not rewritten by default.
 4. Fallback: `FirstMatchingTOMLRule` applies user-defined 8-stage
    rules from `~/.slimference/filters.toml`.
    The embedded default TOML catalog uses a product-safe application path:

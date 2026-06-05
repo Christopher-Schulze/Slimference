@@ -355,6 +355,13 @@ func TestApplyLayer0AfterANSI_allFilters(t *testing.T) {
 			wantContains: `"status"`,
 			wantAbsent:   "  ",
 		},
+		{
+			name:         "network non-json full pass before log compaction",
+			argv:         []string{"curl", "https://api.example.com/logs"},
+			stdout:       []byte("INFO boot\nINFO boot\nINFO boot\n"),
+			wantContains: "INFO boot\nINFO boot\nINFO boot",
+			wantAbsent:   "[x3]",
+		},
 		// raw passthrough (no filter matches)
 		{
 			name:         "unrecognized tool passthrough",

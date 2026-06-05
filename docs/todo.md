@@ -25,6 +25,7 @@ No queued tasks.
 
 ## Done
 
+- [x] T289 RTK safe extra tool breadth -> docs/todo/t289-rtk-safe-extra-tool-breadth.md
 - [x] T288 RTK breadth and Layer 3 renumbering -> docs/todo/t288-rtk-breadth-and-layer3-renumbering.md
 - [x] T287 Prevent persistent Codex route tests -> docs/todo/t287-prevent-persistent-codex-route-tests.md
 - [x] T286 Always-on safe product readiness rule -> docs/todo/t286-always-on-safe-product-readiness.md

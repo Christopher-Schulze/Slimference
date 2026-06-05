@@ -13,40 +13,59 @@ import (
 // Commands not in this set are passed through unchanged by RewriteCommand.
 var filterableCommands = map[string]bool{
 	// Git (F01-F05)
-	"git": true,
+	"diff": true, "git": true, "gt": true,
 	// Build (F07)
-	"cargo": true, "go": true, "tsc": true, "npm": true, "npx": true, "pnpm": true,
-	"pnpx": true, "yarn": true,
-	"bun": true, "make": true, "dotnet": true, "gradle": true, "gradlew": true,
-	"mvn": true, "gcc": true, "g++": true, "just": true, "mix": true, "nx": true,
-	"pio": true, "swift": true, "task": true, "trunk": true, "turbo": true,
-	"xcodebuild": true,
+	"bazel": true, "bun": true, "cargo": true, "cmake": true, "dotnet": true,
+	"esbuild": true, "g++": true, "gcc": true, "go": true, "gradle": true,
+	"gradlew": true, "just": true, "ko": true, "make": true, "meson": true,
+	"mix": true, "moon": true, "mvn": true, "next": true, "ninja": true,
+	"npm": true, "npx": true, "nx": true, "pack": true, "parcel": true,
+	"pio": true, "pnpm": true, "pnpx": true, "rollup": true, "rspack": true,
+	"swift": true, "task": true, "trunk": true, "tsc": true, "turbo": true,
+	"vite": true, "wasm-pack": true, "webpack": true, "webpack-cli": true,
+	"xcodebuild": true, "yarn": true, "zig": true,
 	// Test (F08)
-	"pytest": true, "python": true, "python3": true, "vitest": true, "jest": true,
-	"rspec": true, "rake": true, "mocha": true,
+	"ava": true, "cypress": true, "dart": true, "deno": true, "elm-test": true,
+	"flutter": true, "hatch": true, "jest": true, "mill": true, "mocha": true,
+	"nox": true, "playwright": true, "pytest": true, "python": true,
+	"python3": true, "rake": true, "rspec": true, "sbt": true, "tap": true,
+	"vitest": true, "wdio": true,
 	// Lint (F09)
-	"eslint": true, "tslint": true, "golangci-lint": true, "rubocop": true,
-	"ruff": true, "biome": true, "mypy": true, "flake8": true, "pylint": true,
-	"basedpyright": true, "hadolint": true, "markdownlint": true, "oxlint": true,
-	"shellcheck": true, "ty": true, "yamllint": true,
+	"actionlint": true, "ansible-lint": true, "bandit": true, "basedpyright": true,
+	"biome": true, "buf": true, "cfn-lint": true, "cue": true, "detekt": true,
+	"djlint": true, "dotenv-linter": true, "errcheck": true, "eslint": true,
+	"flake8": true, "forbidigo": true, "gocritic": true, "gocyclo": true,
+	"gofumpt": true, "golangci-lint": true, "gosec": true, "hadolint": true,
+	"ineffassign": true, "jscpd": true, "ktlint": true, "kube-linter": true,
+	"markdownlint": true, "misspell": true, "mypy": true, "nilaway": true,
+	"oxlint": true, "phan": true, "phpcs": true, "phpstan": true, "pint": true,
+	"prealloc": true, "protolint": true, "psalm": true, "pylint": true,
+	"pyright": true, "revive": true, "rubocop": true, "ruff": true,
+	"semgrep": true, "shellcheck": true, "spectral": true, "sqlfluff": true,
+	"staticcheck": true, "stylelint": true, "swiftlint": true, "taplo": true,
+	"tflint": true, "tslint": true, "ty": true, "unparam": true, "vale": true,
+	"yamllint": true, "zizmor": true,
 	// Search (F10)
-	"grep": true, "rg": true, "ag": true, "ack": true,
+	"ack": true, "ag": true, "grep": true, "locate": true, "plocate": true,
+	"rg": true, "sift": true, "sk": true, "ugrep": true,
 	// Files (F06, F11)
 	"cat": true, "head": true, "tail": true, "ls": true, "tree": true,
 	"find": true, "fd": true, "bat": true, "wc": true, "df": true, "du": true,
 	"jq": true, "ps": true, "stat": true,
 	// Package managers (F12)
 	"pip": true, "pip3": true, "composer": true, "gem": true, "bundle": true,
-	"brew": true, "mise": true, "poetry": true, "uv": true,
+	"brew": true, "mise": true, "pipenv": true, "poetry": true, "uv": true,
 	// Container (F13)
 	"docker": true, "kubectl": true, "k9s": true, "helm": true, "skopeo": true,
 	// Cloud / CI (F16, F18)
 	"aws": true, "gh": true, "glab": true, "ansible-playbook": true, "gcloud": true,
-	"jira": true, "jj": true, "pre-commit": true, "quarto": true, "rsync": true,
-	"shopify": true, "terraform": true, "tofu": true, "yadm": true,
+	"curl": true, "jira": true, "jj": true, "pre-commit": true, "prisma": true,
+	"quarto": true, "rsync": true, "shopify": true, "terraform": true, "tofu": true,
+	"wget": true, "yadm": true,
 	// Format (F24)
 	"prettier": true, "gofmt": true, "rustfmt": true, "black": true, "isort": true,
-	"liquibase": true, "sops": true,
+	"autopep8": true, "clang-format": true, "dprint": true, "liquibase": true,
+	"shfmt": true, "sops": true, "sqlfmt": true,
 	// DB (F19)
 	"psql": true, "mysql": true, "sqlite3": true,
 	// Misc logs (F15)
@@ -175,7 +194,7 @@ func rewriteCompoundSeg(toks []ParsedToken, excluded map[string]bool) (string, b
 		base := stageBaseCommand(seg)
 		canRewrite := (isFirst || findAlwaysCommands[base]) && !excluded[strings.ToLower(base)]
 
-		if canRewrite && filterableCommands[base] {
+		if canRewrite && isFilterableStage(base, seg) {
 			rendered = "slimference filter " + rendered
 			anyChanged = true
 		}
@@ -188,6 +207,53 @@ func rewriteCompoundSeg(toks []ParsedToken, excluded map[string]bool) (string, b
 	}
 
 	return strings.Join(parts, " "), anyChanged
+}
+
+func isFilterableStage(base string, toks []ParsedToken) bool {
+	if !filterableCommands[base] {
+		return false
+	}
+	switch base {
+	case "dart":
+		return stageHasSubcommand(toks, "analyze", "test")
+	case "deno":
+		return stageHasSubcommand(toks, "lint", "test")
+	case "flutter":
+		return stageHasSubcommand(toks, "analyze", "test")
+	default:
+		return true
+	}
+}
+
+func stageHasSubcommand(toks []ParsedToken, subs ...string) bool {
+	args := stageArgValues(toks)
+	if len(args) < 2 {
+		return false
+	}
+	for _, sub := range subs {
+		if args[1] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+func stageArgValues(toks []ParsedToken) []string {
+	args := make([]string, 0, len(toks))
+	for _, t := range toks {
+		if t.Kind != TokenArg {
+			continue
+		}
+		v := t.Value
+		if idx := strings.Index(v, "="); idx > 0 {
+			before := v[:idx]
+			if !strings.ContainsAny(before, " /.-") {
+				continue
+			}
+		}
+		args = append(args, v)
+	}
+	return args
 }
 
 // stageBaseCommand returns the base name of argv[0] for a pipe stage,

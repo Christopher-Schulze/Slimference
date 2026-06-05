@@ -1,6 +1,6 @@
 # RTK Current Delta Audit (T211)
 
-Date: 2026-06-05
+Date: 2026-06-06
 Scope: current RTK upstream snapshot `0a630fe`, embedded read-only reference
 at `research/rtk-ai/rtk/`, Codex CLI `0.137.0`, and Slimference Go
 implementation.
@@ -29,9 +29,17 @@ evidence, require a shorter result, and fail open on ambiguous shapes; the
 shape-refusal delta is safety-only and prevents the colon parser from touching
 formats it cannot prove.
 
+T289 also closed the remaining safe registry-breadth gap: Slimference's hook
+rewrite gate now reaches existing deterministic build/lint/format/search/package
+reducers for the RTK-style direct commands that were previously only compacted
+when users invoked `slimference filter` manually. `curl` and `wget` gained an
+argv-aware exact network-response guard before generic reducers, so API bodies
+cannot be lossy log-windowed or schema-summarized by default.
+
 The remaining non-ported RTK surfaces are closed product decisions, not hidden
 queue items: Claude-only rewrites stay parked, prompt-level advisory tooling
-does not save tokens in Codex hot paths, and aggressive code-signature summaries
+does not save tokens in Codex hot paths, lossy dependency-list summaries remain
+rejected as default dependency evidence, and aggressive code-signature summaries
 are rejected as defaults because they remove implementation bodies.
 
 ## Current Matrix
@@ -54,6 +62,9 @@ are rejected as defaults because they remove implementation bodies.
 | `wc` compact output | RTK `src/cmds/system/wc_cmd.rs` strips alignment and common path prefixes | Slimference now has safe `TryCompactWc` Layer-0 reducer and rewrite coverage | ported |
 | Large `find`/`fd` path-list output | RTK groups file search results by directory, but its command executes a new gitignore-aware walk | Slimference ports only the safe output half: group large actual path lists by repeated directory prefix, preserve every path component and order, fail-open on ambiguous lines | ported-safe-subset |
 | NUL/custom-separator search output | RTK's registry treats output shape as a command-level safety boundary | Slimference refuses `rg -0`, GNU `grep -Z`, `--null`, `--null-data`, and `--path-separator` before match-line grouping | ported-guard |
+| Registry-only direct command breadth | RTK `src/discover/rules.rs` routes additional direct tools such as `gt`, `diff`, `curl`, `wget`, `prisma`, plus many build/lint/format/search binaries | Slimference now routes these to existing safe reducers or exact full-pass guards; arbitrary runtime subcommands such as `deno run`, `dart run`, and `flutter run` stay unrewritten | ported-safe |
+| `curl`/`wget` response handling | RTK preserves JSON and pipe outputs to avoid corrupting downstream consumers | Slimference's `network_response_exact` reducer exact-minifies JSON whitespace and otherwise full-passes before generic log/JSON reducers | ported-safer-for-codex |
+| Package list/outdated/show summaries | RTK has broader package-manager list/outdated surfaces | Rejected as default because dependency versions and package names are requested facts; keep full-pass unless a future exact/recoverable table compactor owns the shape | reject-default |
 | Aggressive code-signature summaries | RTK `rtk read -l aggressive` keeps imports/signatures and removes implementation bodies; default `rtk read` level is `none` | Rejected as default for Codex. It may save many tokens but can remove body details GPT-5.x needs later, so it violates Slimference's default drawdown bar. | reject-default |
 
 ## Port Decisions

@@ -230,6 +230,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		emptyEvidenceReducer("ls", "listing", []string{"empty marker", "non-empty listings full-pass"}, TryCompactLs),
 		emptyEvidenceReducer("tree", "listing", []string{"empty marker", "non-empty hierarchy full-pass"}, TryCompactTree),
 		evidenceReducer("wc", "listing", []string{"count values", "requested count units", "file path", "total row"}, TryCompactWc),
+		argvReducer("network_response_exact", "network", Layer0ReducerSafetyExact, []string{"all response bytes", "valid JSON fields", "valid JSON scalar values", "array order"}, TryCompactNetworkResponse),
 		diagnosticReducer("lint_output", "lint", []string{"tool", "rule id", "severity", "file", "line", "message"}, TryCompactLintOutput),
 		diagnosticReducer("log_output", "log", []string{"severity", "timestamp", "error line", "count marker"}, TryCompactLogOutput),
 		evidenceReducer("format_output", "format", []string{"tool", "changed file", "failure line", "success marker"}, TryCompactFormatOutput),
