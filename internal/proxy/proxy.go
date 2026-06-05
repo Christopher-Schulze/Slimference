@@ -121,9 +121,11 @@ type Proxy struct {
 	// Analytics queue telemetry (T42). Counters are updated via trySendAnalytics
 	// so every non-blocking send site is instrumented uniformly. Tests pause the
 	// rate-limited warn via analyticsWarnClock.
-	analyticsEnqueued atomic.Int64
-	analyticsDropped  atomic.Int64
-	analyticsLastWarn atomic.Int64 // unix-nano of last drop warn, for 1/min rate limit
+	analyticsEnqueued           atomic.Int64
+	analyticsDropped            atomic.Int64
+	analyticsProofDropped       atomic.Int64
+	analyticsLowPriorityDropped atomic.Int64
+	analyticsLastWarn           atomic.Int64 // unix-nano of last drop warn, for 1/min rate limit
 
 	// Pipeline phase histograms (T58). Per-phase p50/p95/avg/max on a
 	// 200-sample rolling window so TUI + /admin/status can surface
@@ -861,38 +863,95 @@ func (p *Proxy) trySendAnalytics(ev types.AnalyticsEvent) {
 	select {
 	case p.analyticsQueue <- ev:
 		p.analyticsEnqueued.Add(1)
+		return
 	default:
-		p.analyticsDropped.Add(1)
-		now := time.Now().UnixNano()
-		last := p.analyticsLastWarn.Load()
-		if now-last >= analyticsWarnIntervalNs &&
-			p.analyticsLastWarn.CompareAndSwap(last, now) {
-			slog.Warn("analytics_queue_full",
-				"event", "analytics_drop",
-				"dropped_total", p.analyticsDropped.Load(),
-				"capacity", cap(p.analyticsQueue),
-				"depth", len(p.analyticsQueue),
-			)
+	}
+
+	priority := analyticsEventPriorityOf(ev)
+	if priority == analyticsEventPriorityProof {
+		p.tryDrainOneAnalyticsEvent()
+		select {
+		case p.analyticsQueue <- ev:
+			p.analyticsEnqueued.Add(1)
+			return
+		default:
 		}
 	}
+	p.noteAnalyticsDrop(ev, priority)
 }
 
 // AnalyticsQueueStats returns a snapshot of analytics queue telemetry.
 // Safe for concurrent use; values are consistent at read time.
 type AnalyticsQueueStats struct {
-	Capacity      int   `json:"capacity"`
-	Depth         int   `json:"depth"`
-	EnqueuedTotal int64 `json:"enqueued_total"`
-	DroppedTotal  int64 `json:"dropped_total"`
+	Capacity                int   `json:"capacity"`
+	Depth                   int   `json:"depth"`
+	EnqueuedTotal           int64 `json:"enqueued_total"`
+	DroppedTotal            int64 `json:"dropped_total"`
+	ProofDroppedTotal       int64 `json:"proof_dropped_total"`
+	LowPriorityDroppedTotal int64 `json:"low_priority_dropped_total"`
 }
 
 // AnalyticsQueueStats reports current analytics queue telemetry.
 func (p *Proxy) AnalyticsQueueStats() AnalyticsQueueStats {
 	return AnalyticsQueueStats{
-		Capacity:      cap(p.analyticsQueue),
-		Depth:         len(p.analyticsQueue),
-		EnqueuedTotal: p.analyticsEnqueued.Load(),
-		DroppedTotal:  p.analyticsDropped.Load(),
+		Capacity:                cap(p.analyticsQueue),
+		Depth:                   len(p.analyticsQueue),
+		EnqueuedTotal:           p.analyticsEnqueued.Load(),
+		DroppedTotal:            p.analyticsDropped.Load(),
+		ProofDroppedTotal:       p.analyticsProofDropped.Load(),
+		LowPriorityDroppedTotal: p.analyticsLowPriorityDropped.Load(),
+	}
+}
+
+type analyticsEventPriority int
+
+const (
+	analyticsEventPriorityLow analyticsEventPriority = iota
+	analyticsEventPriorityProof
+)
+
+func analyticsEventPriorityOf(ev types.AnalyticsEvent) analyticsEventPriority {
+	switch ev.Type {
+	case types.EventRequestProcessed,
+		types.EventSecretDetected,
+		types.EventErrorOccurred,
+		types.EventRateLimitRetry,
+		types.EventOverflowRetry:
+		return analyticsEventPriorityProof
+	default:
+		return analyticsEventPriorityLow
+	}
+}
+
+func (p *Proxy) tryDrainOneAnalyticsEvent() {
+	select {
+	case event := <-p.analyticsQueue:
+		p.processAnalyticsEvent(event)
+	default:
+	}
+}
+
+func (p *Proxy) noteAnalyticsDrop(ev types.AnalyticsEvent, priority analyticsEventPriority) {
+	p.analyticsDropped.Add(1)
+	if priority == analyticsEventPriorityProof {
+		p.analyticsProofDropped.Add(1)
+	} else {
+		p.analyticsLowPriorityDropped.Add(1)
+	}
+	now := time.Now().UnixNano()
+	last := p.analyticsLastWarn.Load()
+	if now-last >= analyticsWarnIntervalNs &&
+		p.analyticsLastWarn.CompareAndSwap(last, now) {
+		slog.Warn("analytics_queue_full",
+			"event", "analytics_drop",
+			"event_type", int(ev.Type),
+			"proof_priority", priority == analyticsEventPriorityProof,
+			"dropped_total", p.analyticsDropped.Load(),
+			"proof_dropped_total", p.analyticsProofDropped.Load(),
+			"low_priority_dropped_total", p.analyticsLowPriorityDropped.Load(),
+			"capacity", cap(p.analyticsQueue),
+			"depth", len(p.analyticsQueue),
+		)
 	}
 }
 

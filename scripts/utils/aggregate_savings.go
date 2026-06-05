@@ -25,34 +25,36 @@ type aggregateSavingsFlags struct {
 }
 
 type aggregateWSSBlock struct {
-	PhasefBridged             int64                            `json:"phasef_bridged"`
-	CompressedMessagesMutated int64                            `json:"compressed_messages_mutated"`
-	FramesReencoded           int64                            `json:"frames_reencoded"`
-	PhasefMutations           int64                            `json:"phasef_mutations"`
-	InputTokensSaved          int64                            `json:"input_tokens_saved"`
-	ProxyLayer0ToolResults    int64                            `json:"proxy_layer0_tool_result_blocks"`
-	ProxyLayer0ToolMisses     int64                            `json:"proxy_layer0_tool_use_unresolved_blocks"`
-	ProxyLayer0Commands       int64                            `json:"proxy_layer0_command_resolved_blocks"`
-	ProxyLayer0CommandMisses  int64                            `json:"proxy_layer0_command_unresolved_blocks"`
-	ProxyLayer0ReadAttempts   int64                            `json:"proxy_layer0_read_delta_attempts"`
-	ProxyLayer0ReadMisses     int64                            `json:"proxy_layer0_read_delta_misses"`
-	ProxyLayer0Blocks         int64                            `json:"proxy_layer0_blocks"`
-	ProxyLayer0ReadDelta      int64                            `json:"proxy_layer0_read_delta_blocks"`
-	ProxyLayer0Captured       int64                            `json:"proxy_layer0_captured_output_blocks"`
-	ProxyLayer0Envelope       int64                            `json:"proxy_layer0_codex_exec_envelope_blocks"`
-	ProxyLayer0Repeated       int64                            `json:"proxy_layer0_repeated_output_blocks"`
-	ProxyLayer0ChunkDedup     int64                            `json:"proxy_layer0_chunk_dedup_blocks"`
-	ProxyLayer0ChunkRefs      int64                            `json:"proxy_layer0_chunk_dedup_references"`
-	ProxyLayer0ChunkRefBytes  int64                            `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
-	ProxyLayer0ChunkInputB    int64                            `json:"proxy_layer0_chunk_dedup_input_bytes"`
-	ProxyLayer0Routes         control.ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
-	ProxyLayer0Policy         []control.ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
-	ProxyLayer0Cache          []control.ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
-	ParseFailures             int64                            `json:"parse_failures"`
-	DegradedSessions          int64                            `json:"degraded_sessions"`
-	CompressionErrors         int64                            `json:"compression_errors"`
-	MutationActive            bool                             `json:"mutation_active"`
-	ByteBridgeOnly            bool                             `json:"byte_bridge_only"`
+	PhasefBridged                     int64                            `json:"phasef_bridged"`
+	CompressedMessagesMutated         int64                            `json:"compressed_messages_mutated"`
+	FramesReencoded                   int64                            `json:"frames_reencoded"`
+	PhasefMutations                   int64                            `json:"phasef_mutations"`
+	InputTokensSaved                  int64                            `json:"input_tokens_saved"`
+	ProxyLayer0ToolResults            int64                            `json:"proxy_layer0_tool_result_blocks"`
+	ProxyLayer0ToolMisses             int64                            `json:"proxy_layer0_tool_use_unresolved_blocks"`
+	ProxyLayer0Commands               int64                            `json:"proxy_layer0_command_resolved_blocks"`
+	ProxyLayer0CommandMisses          int64                            `json:"proxy_layer0_command_unresolved_blocks"`
+	ProxyLayer0ReadAttempts           int64                            `json:"proxy_layer0_read_delta_attempts"`
+	ProxyLayer0ReadMisses             int64                            `json:"proxy_layer0_read_delta_misses"`
+	ProxyLayer0Blocks                 int64                            `json:"proxy_layer0_blocks"`
+	ProxyLayer0ReadDelta              int64                            `json:"proxy_layer0_read_delta_blocks"`
+	ProxyLayer0Captured               int64                            `json:"proxy_layer0_captured_output_blocks"`
+	ProxyLayer0Envelope               int64                            `json:"proxy_layer0_codex_exec_envelope_blocks"`
+	ProxyLayer0Repeated               int64                            `json:"proxy_layer0_repeated_output_blocks"`
+	ProxyLayer0ChunkDedup             int64                            `json:"proxy_layer0_chunk_dedup_blocks"`
+	ProxyLayer0ChunkRefs              int64                            `json:"proxy_layer0_chunk_dedup_references"`
+	ProxyLayer0ChunkRefBytes          int64                            `json:"proxy_layer0_chunk_dedup_referenced_bytes"`
+	ProxyLayer0ChunkInputB            int64                            `json:"proxy_layer0_chunk_dedup_input_bytes"`
+	ProxyLayer0Routes                 control.ProxyLayer0RoutesSummary `json:"proxy_layer0_routes"`
+	ProxyLayer0Policy                 []control.ProxyLayer0PolicyEntry `json:"proxy_layer0_policy"`
+	ProxyLayer0Cache                  []control.ProxyLayer0CacheEntry  `json:"proxy_layer0_cache"`
+	AnalyticsProofEventsDropped       int64                            `json:"analytics_proof_events_dropped"`
+	AnalyticsLowPriorityEventsDropped int64                            `json:"analytics_low_priority_events_dropped"`
+	ParseFailures                     int64                            `json:"parse_failures"`
+	DegradedSessions                  int64                            `json:"degraded_sessions"`
+	CompressionErrors                 int64                            `json:"compression_errors"`
+	MutationActive                    bool                             `json:"mutation_active"`
+	ByteBridgeOnly                    bool                             `json:"byte_bridge_only"`
 }
 
 type aggregateOutputReduceBlock struct {
@@ -356,34 +358,36 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 			MutationActive:          state.HostBudget.MutationActive,
 		},
 		WSS: aggregateWSSBlock{
-			PhasefBridged:             state.WSS.PhasefBridged,
-			CompressedMessagesMutated: state.WSS.CompressedMessagesMutated,
-			FramesReencoded:           state.WSS.FramesReencoded,
-			PhasefMutations:           state.WSS.PhaseFMutations,
-			InputTokensSaved:          state.Savings.InputTokensSaved,
-			ProxyLayer0ToolResults:    state.Savings.ProxyLayer0ToolResults,
-			ProxyLayer0ToolMisses:     state.Savings.ProxyLayer0ToolMisses,
-			ProxyLayer0Commands:       state.Savings.ProxyLayer0Commands,
-			ProxyLayer0CommandMisses:  state.Savings.ProxyLayer0CommandMisses,
-			ProxyLayer0ReadAttempts:   state.Savings.ProxyLayer0ReadAttempts,
-			ProxyLayer0ReadMisses:     state.Savings.ProxyLayer0ReadMisses,
-			ProxyLayer0Blocks:         state.Savings.ProxyLayer0Blocks,
-			ProxyLayer0ReadDelta:      state.Savings.ProxyLayer0ReadDelta,
-			ProxyLayer0Captured:       state.Savings.ProxyLayer0Captured,
-			ProxyLayer0Envelope:       state.Savings.ProxyLayer0Envelope,
-			ProxyLayer0Repeated:       state.Savings.ProxyLayer0Repeated,
-			ProxyLayer0ChunkDedup:     state.Savings.ProxyLayer0ChunkDedup,
-			ProxyLayer0ChunkRefs:      state.Savings.ProxyLayer0ChunkRefs,
-			ProxyLayer0ChunkRefBytes:  state.Savings.ProxyLayer0ChunkRefBytes,
-			ProxyLayer0ChunkInputB:    state.Savings.ProxyLayer0ChunkInBytes,
-			ProxyLayer0Routes:         state.Savings.ProxyLayer0Routes,
-			ProxyLayer0Policy:         state.Savings.ProxyLayer0Policy,
-			ProxyLayer0Cache:          state.Savings.ProxyLayer0Cache,
-			ParseFailures:             state.WSS.ParseFailures,
-			DegradedSessions:          state.WSS.DegradedSessions,
-			CompressionErrors:         state.WSS.CompressionErrors,
-			MutationActive:            state.WSS.MutationActive,
-			ByteBridgeOnly:            state.WSS.ByteBridgeOnly,
+			PhasefBridged:                     state.WSS.PhasefBridged,
+			CompressedMessagesMutated:         state.WSS.CompressedMessagesMutated,
+			FramesReencoded:                   state.WSS.FramesReencoded,
+			PhasefMutations:                   state.WSS.PhaseFMutations,
+			InputTokensSaved:                  state.Savings.InputTokensSaved,
+			ProxyLayer0ToolResults:            state.Savings.ProxyLayer0ToolResults,
+			ProxyLayer0ToolMisses:             state.Savings.ProxyLayer0ToolMisses,
+			ProxyLayer0Commands:               state.Savings.ProxyLayer0Commands,
+			ProxyLayer0CommandMisses:          state.Savings.ProxyLayer0CommandMisses,
+			ProxyLayer0ReadAttempts:           state.Savings.ProxyLayer0ReadAttempts,
+			ProxyLayer0ReadMisses:             state.Savings.ProxyLayer0ReadMisses,
+			ProxyLayer0Blocks:                 state.Savings.ProxyLayer0Blocks,
+			ProxyLayer0ReadDelta:              state.Savings.ProxyLayer0ReadDelta,
+			ProxyLayer0Captured:               state.Savings.ProxyLayer0Captured,
+			ProxyLayer0Envelope:               state.Savings.ProxyLayer0Envelope,
+			ProxyLayer0Repeated:               state.Savings.ProxyLayer0Repeated,
+			ProxyLayer0ChunkDedup:             state.Savings.ProxyLayer0ChunkDedup,
+			ProxyLayer0ChunkRefs:              state.Savings.ProxyLayer0ChunkRefs,
+			ProxyLayer0ChunkRefBytes:          state.Savings.ProxyLayer0ChunkRefBytes,
+			ProxyLayer0ChunkInputB:            state.Savings.ProxyLayer0ChunkInBytes,
+			ProxyLayer0Routes:                 state.Savings.ProxyLayer0Routes,
+			ProxyLayer0Policy:                 state.Savings.ProxyLayer0Policy,
+			ProxyLayer0Cache:                  state.Savings.ProxyLayer0Cache,
+			AnalyticsProofEventsDropped:       state.Savings.AnalyticsProofEventsDropped,
+			AnalyticsLowPriorityEventsDropped: state.Savings.AnalyticsLowPriorityEventsDropped,
+			ParseFailures:                     state.WSS.ParseFailures,
+			DegradedSessions:                  state.WSS.DegradedSessions,
+			CompressionErrors:                 state.WSS.CompressionErrors,
+			MutationActive:                    state.WSS.MutationActive,
+			ByteBridgeOnly:                    state.WSS.ByteBridgeOnly,
 		},
 		OutputReduce: aggregateOutputReduceBlock{
 			OutputWireBytesSaved:    state.Savings.OutputWireBytesSaved,
@@ -434,6 +438,10 @@ func buildAggregateSavingsReport(state control.SetupState, source string, flags 
 	if report.HostBudget.Status != "" && report.HostBudget.Status != "ok" {
 		report.Notes = append(report.Notes,
 			fmt.Sprintf("host_budget=%s: resource guard is not green; managed reducers should loosen before UX is affected.", report.HostBudget.Status))
+	}
+	if report.WSS.AnalyticsProofEventsDropped > 0 {
+		report.Notes = append(report.Notes,
+			fmt.Sprintf("analytics_proof_events_dropped=%d: proof window is not release-claimable until telemetry loss is zero.", report.WSS.AnalyticsProofEventsDropped))
 	}
 	return report
 }
@@ -495,6 +503,8 @@ func writeAggregateSavingsText(w io.Writer, report aggregateSavingsReport) {
 	fmt.Fprintf(w, "  mutation_active:              %v\n", report.WSS.MutationActive)
 	fmt.Fprintf(w, "  byte_bridge_only:             %v\n", report.WSS.ByteBridgeOnly)
 	fmt.Fprintf(w, "  input_tokens_saved:           %d\n", report.WSS.InputTokensSaved)
+	fmt.Fprintf(w, "  analytics_proof_dropped:      %d\n", report.WSS.AnalyticsProofEventsDropped)
+	fmt.Fprintf(w, "  analytics_low_dropped:        %d\n", report.WSS.AnalyticsLowPriorityEventsDropped)
 	fmt.Fprintf(w, "  proxy_layer0_tool_results:    %d\n", report.WSS.ProxyLayer0ToolResults)
 	fmt.Fprintf(w, "  proxy_layer0_tool_misses:     %d\n", report.WSS.ProxyLayer0ToolMisses)
 	fmt.Fprintf(w, "  proxy_layer0_commands:        %d\n", report.WSS.ProxyLayer0Commands)

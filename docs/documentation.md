@@ -486,10 +486,13 @@ For product UI and low-noise status surfaces, `/admin/state` also exposes
 `savings.product`: a content-free rollup with `status` (`idle`,
 `active_no_savings`, `saving`, or `attention`), billable input tokens saved,
 output-wire bytes saved, request-side bytes reduced, cost estimate, cache hit/miss
-counts, read/repeated/chunk hits, tool-resolution misses, and aggregate safety
-issues. The raw route, policy, parser, and cache counters remain available under
-the existing debug fields, but product surfaces should prefer this rollup instead
-of inventing their own mixed headline.
+counts, read/repeated/chunk hits, tool-resolution misses, analytics drop
+counters, and aggregate safety issues. Analytics drops are split into total,
+proof-critical, and low-priority counters; any proof-critical analytics loss
+sets the product status to `attention` because the release proof window is no
+longer evidence-complete. The raw route, policy, parser, and cache counters
+remain available under the existing debug fields, but product surfaces should
+prefer this rollup instead of inventing their own mixed headline.
 `/admin/state.host_budget` is the product resource guard. It reports `ok`,
 `unknown`, or `attention`, daemon RSS, uptime, process CPU time, lifetime and
 windowed CPU percentage, OS-reported lifetime and windowed disk read/write
@@ -2330,10 +2333,12 @@ partially pruning a mixed/unknown tool surface.
 Product status separates provider-cache savings from local input/output-wire
 savings. `/admin/state.savings.product` carries provider-cache read/create tokens
 from analytics, billable Layer-0 input savings, output-wire savings, cache hit
-counts, and safety/host-budget state as distinct fields so the TUI does not
-present a mixed headline number. Host-budget demotion is wired into the Codex
-Layer-0 policy: if the latest product host-budget snapshot is exceeded, WSS/HTTP
-Codex tool-output reducers full-pass until the process is back inside budget.
+counts, analytics proof-loss counters, and safety/host-budget state as distinct
+fields so the TUI does not present a mixed headline number. Proof-critical
+analytics loss is surfaced as product safety pressure rather than hidden as a
+debug-only queue statistic. Host-budget demotion is wired into the Codex Layer-0
+policy: if the latest product host-budget snapshot is exceeded, WSS/HTTP Codex
+tool-output reducers full-pass until the process is back inside budget.
 The reducer hot path reads this as an atomic state bit, avoiding fresh RSS/state
 directory scans per frame. Oversized state trees that cannot be fully measured
 within the bounded scan limit are treated as budget pressure. Phase-F request
@@ -2415,10 +2420,12 @@ process, sets `SLIMFERENCE_WSS_AB_CAPTURE`, waits for `/health`, runs scoped
 Codex, records before/after admin-state deltas, replays with fail-on-lost
 semantics, and appends an optional `wss-proof-matrix` row. The matrix row stores
 live `billable_input_tokens_saved`, provider-cache read/create token deltas, and
-safety counters (`parse_failures`, `degraded_sessions`, `compression_errors`)
-next to replay bytes. Release proof treats live billable input-token savings and
-provider-cache read tokens as separate product signals; replay bytes are
-retained only as a model-facing regression/safety proxy. The runner supports
+safety counters (`parse_failures`, `degraded_sessions`, `compression_errors`,
+`analytics_proof_events_dropped`) next to replay bytes. Release proof treats live
+billable input-token savings and provider-cache read tokens as separate product
+signals; replay bytes are retained only as a model-facing regression/safety
+proxy. Any proof-critical analytics loss fails the release proof gate; low-value
+analytics drops remain visible but are not product-proof blockers. The runner supports
 `--codex-timeout` for bounded proof runs, `--exit-marker` /
 `--exit-marker-count` for unattended shutdown, and `--quiet-codex-output` for
 machine-readable runs without Codex TUI noise. Passing

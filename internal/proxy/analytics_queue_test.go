@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slimference/slimference/internal/analytics"
 	"github.com/slimference/slimference/internal/types"
 )
 
@@ -15,6 +16,7 @@ func newProxyForQueueTest(t *testing.T, capacity int) *Proxy {
 	t.Helper()
 	return &Proxy{
 		analyticsQueue: make(chan types.AnalyticsEvent, capacity),
+		analytics:      analytics.NewAnalytics(),
 	}
 }
 
@@ -42,16 +44,58 @@ func TestTrySendAnalytics_EnqueueCounter(t *testing.T) {
 }
 
 func TestTrySendAnalytics_DropCounter(t *testing.T) {
-	// Capacity 2, send 5, expect 2 enqueued + 3 dropped.
+	// Capacity 2, send 5 low-priority events, expect 2 enqueued + 3 dropped.
 	p := newProxyForQueueTest(t, 2)
 	for i := 0; i < 5; i++ {
-		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventRequestProcessed})
+		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventCompressionComplete})
 	}
 	if got := p.analyticsEnqueued.Load(); got != 2 {
 		t.Fatalf("enqueued = %d, want 2", got)
 	}
 	if got := p.analyticsDropped.Load(); got != 3 {
 		t.Fatalf("dropped = %d, want 3", got)
+	}
+	if got := p.analyticsLowPriorityDropped.Load(); got != 3 {
+		t.Fatalf("low priority dropped = %d, want 3", got)
+	}
+	if got := p.analyticsProofDropped.Load(); got != 0 {
+		t.Fatalf("proof dropped = %d, want 0", got)
+	}
+}
+
+func TestTrySendAnalytics_ProofEventSurvivesLowPrioritySaturation(t *testing.T) {
+	p := newProxyForQueueTest(t, 2)
+	p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventCompressionComplete})
+	p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventLayerToggled})
+
+	p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventRequestProcessed, InputTokensOrig: 10})
+
+	if got := p.analyticsDropped.Load(); got != 0 {
+		t.Fatalf("proof event should drain one queued event instead of dropping, dropped=%d", got)
+	}
+	var sawProof bool
+	for len(p.analyticsQueue) > 0 {
+		event := <-p.analyticsQueue
+		if event.Type == types.EventRequestProcessed {
+			sawProof = true
+		}
+	}
+	if !sawProof {
+		t.Fatalf("proof event was not preserved in the queue")
+	}
+	if snap := p.analytics.Snapshot(); snap.TotalRequests != 0 {
+		t.Fatalf("drained low-priority events must not become request proof rows: %+v", snap)
+	}
+}
+
+func TestTrySendAnalytics_ProofDropCounter(t *testing.T) {
+	p := newProxyForQueueTest(t, 0)
+	p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventRequestProcessed})
+	if got := p.analyticsDropped.Load(); got != 1 {
+		t.Fatalf("dropped = %d, want 1", got)
+	}
+	if got := p.analyticsProofDropped.Load(); got != 1 {
+		t.Fatalf("proof dropped = %d, want 1", got)
 	}
 }
 
@@ -67,7 +111,7 @@ func TestNoteAnalyticsDrop_WarnRateLimit(t *testing.T) {
 	p.analyticsQueue <- types.AnalyticsEvent{Type: types.EventRequestProcessed}
 
 	for i := 0; i < 10; i++ {
-		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventErrorOccurred})
+		p.trySendAnalytics(types.AnalyticsEvent{Type: types.EventCompressionComplete})
 	}
 	if got := p.analyticsDropped.Load(); got != 10 {
 		t.Fatalf("dropped = %d, want 10", got)
@@ -113,9 +157,16 @@ func TestAnalyticsQueueStatsSnapshot(t *testing.T) {
 	p := newProxyForQueueTest(t, 3)
 	p.analyticsEnqueued.Store(42)
 	p.analyticsDropped.Store(7)
+	p.analyticsProofDropped.Store(2)
+	p.analyticsLowPriorityDropped.Store(5)
 	p.analyticsQueue <- types.AnalyticsEvent{}
 	s := p.AnalyticsQueueStats()
-	if s.Capacity != 3 || s.Depth != 1 || s.EnqueuedTotal != 42 || s.DroppedTotal != 7 {
+	if s.Capacity != 3 ||
+		s.Depth != 1 ||
+		s.EnqueuedTotal != 42 ||
+		s.DroppedTotal != 7 ||
+		s.ProofDroppedTotal != 2 ||
+		s.LowPriorityDroppedTotal != 5 {
 		t.Fatalf("snapshot = %+v", s)
 	}
 }

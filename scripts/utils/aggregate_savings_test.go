@@ -201,6 +201,8 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		"mutation_active:              true",
 		"byte_bridge_only:             false",
 		"input_tokens_saved:           42000",
+		"analytics_proof_dropped:      0",
+		"analytics_low_dropped:        0",
 		"proxy_layer0_tool_results:    8",
 		"proxy_layer0_tool_misses:     2",
 		"proxy_layer0_commands:        6",
@@ -241,6 +243,31 @@ func TestAggregateSavingsTextOutputIncludesAllSections(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q\nfull output:\n%s", want, out)
 		}
+	}
+}
+
+func TestAggregateSavingsReportsProofEventDrops(t *testing.T) {
+	stateBody := strings.Replace(aggregateSampleAdminState,
+		`"billable_input_tokens_saved": 42000,`,
+		`"billable_input_tokens_saved": 42000,
+    "analytics_proof_events_dropped": 2,
+    "analytics_low_priority_events_dropped": 3,`, 1)
+	statePath := writeAggregateStateFile(t, stateBody)
+
+	var stdout, stderr bytes.Buffer
+	code := runAggregateSavings([]string{"--admin-state-file=" + statePath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+	}
+	var report aggregateSavingsReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("decode aggregate JSON: %v\n%s", err, stdout.String())
+	}
+	if report.WSS.AnalyticsProofEventsDropped != 2 || report.WSS.AnalyticsLowPriorityEventsDropped != 3 {
+		t.Fatalf("drop counters not propagated: %+v", report.WSS)
+	}
+	if !strings.Contains(strings.Join(report.Notes, "\n"), "not release-claimable") {
+		t.Fatalf("proof drop note missing: %+v", report.Notes)
 	}
 }
 

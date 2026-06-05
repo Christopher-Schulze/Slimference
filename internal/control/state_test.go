@@ -202,6 +202,14 @@ func TestSavingsSummaryProductSignalsStatusPriority(t *testing.T) {
 			},
 			want: "active_no_savings",
 		},
+		{
+			name: "proof analytics drop is attention",
+			in: SavingsSummary{
+				BillableInputTokensSaved:    100,
+				AnalyticsProofEventsDropped: 1,
+			},
+			want: "attention",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

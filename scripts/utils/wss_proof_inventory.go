@@ -221,7 +221,7 @@ func loadWSSProofInventory(path string) (wssProofInventoryReport, error) {
 					status.PositiveTokenRows++
 				}
 			}
-			if row.LiveDelta.ParseFailures+row.LiveDelta.DegradedSessions+row.LiveDelta.CompressionErrors > 0 {
+			if row.LiveDelta.ParseFailures+row.LiveDelta.DegradedSessions+row.LiveDelta.CompressionErrors+row.LiveDelta.AnalyticsProofEventsDropped > 0 {
 				report.SafetyIssueRows++
 				if status != nil {
 					status.SafetyIssueRows++

@@ -31,9 +31,11 @@ type releaseProofReport struct {
 	ExpectedZeroRows            int                               `json:"expected_zero_rows"`
 	HostBudgetOKRows            int                               `json:"host_budget_ok_rows"`
 	HostBudgetIssueRows         int                               `json:"host_budget_issue_rows"`
+	ProofEventLossRows          int                               `json:"proof_event_loss_rows"`
 	SafetyIssueRows             int                               `json:"safety_issue_rows"`
 	ExpectedZeroLocalViolations int                               `json:"expected_zero_local_violations"`
 	HostBudgetIssueIDs          []string                          `json:"host_budget_issue_ids,omitempty"`
+	ProofEventLossIDs           []string                          `json:"proof_event_loss_ids,omitempty"`
 	ExpectedZeroViolationIDs    []string                          `json:"expected_zero_violation_ids,omitempty"`
 	Economics                   releaseProofEconomics             `json:"economics"`
 	LiveReducerHits             map[string]int64                  `json:"live_reducer_hits"`
@@ -212,6 +214,10 @@ func addReleaseProofRow(report *releaseProofReport, row wssProofMatrixRecord) {
 		report.HostBudgetIssueRows++
 		report.HostBudgetIssueIDs = append(report.HostBudgetIssueIDs, releaseProofRowID(row))
 	}
+	if live.AnalyticsProofEventsDropped > 0 {
+		report.ProofEventLossRows++
+		report.ProofEventLossIDs = append(report.ProofEventLossIDs, releaseProofRowID(row))
+	}
 	if row.ExpectedZeroSavings && wssProofLiveLocalSavingsSignal(live) {
 		report.ExpectedZeroLocalViolations++
 		report.ExpectedZeroViolationIDs = append(report.ExpectedZeroViolationIDs, releaseProofRowID(row))
@@ -249,6 +255,11 @@ func releaseProofGateFailures(report releaseProofReport) []string {
 		failures = append(failures, fmt.Sprintf("host budget issue rows=%d ids=%s",
 			report.HostBudgetIssueRows,
 			formatInventoryStringSlice(report.HostBudgetIssueIDs)))
+	}
+	if report.ProofEventLossRows > 0 {
+		failures = append(failures, fmt.Sprintf("proof event loss rows=%d ids=%s",
+			report.ProofEventLossRows,
+			formatInventoryStringSlice(report.ProofEventLossIDs)))
 	}
 	if report.ExpectedZeroLocalViolations > 0 {
 		failures = append(failures, fmt.Sprintf("expected-zero rows had local savings=%d ids=%s",
@@ -395,7 +406,11 @@ func validateReleaseAggregateHostBudget(path, label string) []string {
 	if err := json.Unmarshal(data, &report); err != nil {
 		return []string{label + ".json is not valid aggregate-savings JSON: " + err.Error()}
 	}
-	return releaseHostBudgetIssues(label, report.HostBudget)
+	issues := releaseHostBudgetIssues(label, report.HostBudget)
+	if report.WSS.AnalyticsProofEventsDropped > 0 {
+		issues = append(issues, fmt.Sprintf("%s analytics proof events dropped=%d", label, report.WSS.AnalyticsProofEventsDropped))
+	}
+	return issues
 }
 
 func validateReleaseWorkdayFinish(path string) []string {
@@ -411,8 +426,9 @@ func validateReleaseWorkdayFinish(path string) []string {
 	issues = append(issues, releaseHostBudgetIssues("workday-delta", result.Delta.HostBudget)...)
 	if result.Delta.WSS.ParseFailures != 0 ||
 		result.Delta.WSS.DegradedSessions != 0 ||
-		result.Delta.WSS.CompressionErrors != 0 {
-		issues = append(issues, "workday delta has non-zero WSS parse/degrade/compression errors")
+		result.Delta.WSS.CompressionErrors != 0 ||
+		result.Delta.WSS.AnalyticsProofEventsDropped != 0 {
+		issues = append(issues, "workday delta has non-zero WSS parse/degrade/compression/proof-drop errors")
 	}
 	return issues
 }
@@ -460,7 +476,7 @@ func releaseResourceMatrixRowOK(row wssProofMatrixRecord) bool {
 	if live.HostBudgetStatus != "ok" || live.HostBudgetExceeded || !live.HostBudgetCompressionOK || !live.HostBudgetDegradationOK {
 		return false
 	}
-	return live.ParseFailures == 0 && live.DegradedSessions == 0 && live.CompressionErrors == 0
+	return live.ParseFailures == 0 && live.DegradedSessions == 0 && live.CompressionErrors == 0 && live.AnalyticsProofEventsDropped == 0
 }
 
 func normalizeReleaseResourceClient(client string) string {
@@ -527,9 +543,10 @@ func writeReleaseProofReportText(w io.Writer, report releaseProofReport) {
 	fmt.Fprintf(w, "  output_reduce_input_overhead:      %d\n", report.Economics.OutputReduceInputOverhead)
 	fmt.Fprintf(w, "  output_reduce_observed_tokens:     %d\n", report.Economics.OutputReduceObservedTokens)
 	fmt.Fprintf(w, "  output_reduce_net_observed_tokens: %d\n", report.Economics.OutputReduceNetObservedTokens)
-	fmt.Fprintf(w, "Host/safety: host_budget_ok=%d host_budget_issues=%d safety_issues=%d expected_zero_local_violations=%d resource_profile_ok=%v\n",
+	fmt.Fprintf(w, "Host/safety: host_budget_ok=%d host_budget_issues=%d proof_event_loss=%d safety_issues=%d expected_zero_local_violations=%d resource_profile_ok=%v\n",
 		report.HostBudgetOKRows,
 		report.HostBudgetIssueRows,
+		report.ProofEventLossRows,
 		report.SafetyIssueRows,
 		report.ExpectedZeroLocalViolations,
 		report.ResourceProfileProofOK)

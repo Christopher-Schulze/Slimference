@@ -217,6 +217,19 @@ func TestReleaseProofReportRejectsAnomalyRows(t *testing.T) {
 				HostBudgetDegradationOK: true,
 			},
 		},
+		wssProofMatrixRecord{
+			ID:            "proof-drop-row",
+			Client:        "cli",
+			WorkloadClass: "repeat_read",
+			FramesPath:    framesPath,
+			LiveDelta: &codexCaptureLiveDelta{
+				BillableInputTokensSaved:    1,
+				AnalyticsProofEventsDropped: 1,
+				HostBudgetStatus:            "ok",
+				HostBudgetCompressionOK:     true,
+				HostBudgetDegradationOK:     true,
+			},
+		},
 	)
 
 	report, err := loadReleaseProofReport(releaseProofReportFlags{
@@ -229,8 +242,32 @@ func TestReleaseProofReportRejectsAnomalyRows(t *testing.T) {
 	joined := strings.Join(report.GateFailures, "\n")
 	if report.GatePassed ||
 		!strings.Contains(joined, "host-attention-row") ||
-		!strings.Contains(joined, "zero-violation-row") {
+		!strings.Contains(joined, "zero-violation-row") ||
+		!strings.Contains(joined, "proof-drop-row") {
 		t.Fatalf("anomaly rows must fail release proof gate: passed=%v failures=%v", report.GatePassed, report.GateFailures)
+	}
+}
+
+func TestReleaseResourceProofBundleRejectsProofEventDrops(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	resourceBundle := writeReleaseResourceProofBundle(t, dir, "cli")
+	writeTextFile(t, filepath.Join(resourceBundle, "admin-after.json"), `{
+  "host_budget": {
+    "status": "ok",
+    "rss_bytes": 10,
+    "cpu_window_seconds": 1,
+    "compression_ok": true,
+    "degradation_ok": true
+  },
+  "wss": {
+    "analytics_proof_events_dropped": 1
+  }
+}`)
+
+	result := validateReleaseResourceProof(resourceBundle)
+	if result.OK || !strings.Contains(strings.Join(result.Issues, "\n"), "analytics proof events dropped=1") {
+		t.Fatalf("proof event drops must fail resource proof validation: %+v", result)
 	}
 }
 

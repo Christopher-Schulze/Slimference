@@ -376,10 +376,10 @@ func loadWSSProofMatrixReportWithOptions(path string, options wssProofMatrixOpti
 			if !capture.ExpectedZeroSavings && !tokenPositive {
 				capture.GateFailures = append(capture.GateFailures, "expected positive live economic signal, got none")
 			}
-			if safety := capture.LiveDelta.ParseFailures + capture.LiveDelta.DegradedSessions + capture.LiveDelta.CompressionErrors; safety > 0 {
+			if safety := capture.LiveDelta.ParseFailures + capture.LiveDelta.DegradedSessions + capture.LiveDelta.CompressionErrors + capture.LiveDelta.AnalyticsProofEventsDropped; safety > 0 {
 				capture.GateFailures = append(capture.GateFailures,
-					fmt.Sprintf("live safety counters non-zero: parse=%d degraded=%d compression_errors=%d",
-						capture.LiveDelta.ParseFailures, capture.LiveDelta.DegradedSessions, capture.LiveDelta.CompressionErrors))
+					fmt.Sprintf("live safety counters non-zero: parse=%d degraded=%d compression_errors=%d proof_events_dropped=%d",
+						capture.LiveDelta.ParseFailures, capture.LiveDelta.DegradedSessions, capture.LiveDelta.CompressionErrors, capture.LiveDelta.AnalyticsProofEventsDropped))
 			}
 			if capture.LiveDelta.HostBudgetStatus != "" {
 				if capture.LiveDelta.HostBudgetStatus != "ok" || capture.LiveDelta.HostBudgetExceeded || !capture.LiveDelta.HostBudgetCompressionOK || !capture.LiveDelta.HostBudgetDegradationOK {
@@ -691,6 +691,11 @@ func liveReducerCount(name string, live *codexCaptureLiveDelta) (int64, bool) {
 		return live.ProviderCacheCreateTokens, true
 	case "host_budget_ok":
 		if live.HostBudgetStatus == "ok" && !live.HostBudgetExceeded && live.HostBudgetCompressionOK && live.HostBudgetDegradationOK {
+			return 1, true
+		}
+		return 0, true
+	case "proof_events_ok":
+		if live.AnalyticsProofEventsDropped == 0 {
 			return 1, true
 		}
 		return 0, true

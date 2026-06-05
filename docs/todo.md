@@ -2347,10 +2347,13 @@ operability.
   requested, and `--clean` removes only known untracked candidates. The local
   cleanup removed 67.3MiB and the guard now reports `clean=true`. Detail:
   `docs/todo/t274-local-generated-artifact-hygiene.md`
-- [ ] **T275 Analytics/proof event queue hardening** - harden asynchronous
-  analytics delivery so product proof events are prioritized or drained without
-  silent loss under burst pressure while preserving fail-open request latency.
-  Detail: `docs/todo/t275-analytics-proof-event-queue-hardening.md`
+- [x] **T275 Analytics/proof event queue hardening** - asynchronous analytics
+  delivery now classifies proof-critical events, drains one queued event under
+  saturation before dropping proof rows, exposes separate proof/low-priority
+  drop counters in `/admin/state.savings(.product)`, marks proof loss as
+  product `attention`, and fails release proof closed when a proof window loses
+  proof-critical telemetry. Detail:
+  `docs/todo/t275-analytics-proof-event-queue-hardening.md`
 - [ ] **T276 TUI presenter split** - separate product-state projection from
   Bubble Tea rendering so the savings/route/safety surface stays testable as
   the dashboard grows, without adding debug clutter to the product UI. Detail:

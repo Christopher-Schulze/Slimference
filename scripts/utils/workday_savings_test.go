@@ -15,6 +15,8 @@ func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
 	currentBody = strings.ReplaceAll(currentBody, `"tokens_saved": 42000`, `"tokens_saved": 43000`)
 	currentBody = strings.ReplaceAll(currentBody, `"compressed_messages_mutated": 5`, `"compressed_messages_mutated": 6`)
 	currentBody = strings.ReplaceAll(currentBody, `"frames_reencoded": 5`, `"frames_reencoded": 6`)
+	currentBody = strings.Replace(currentBody, `"billable_input_tokens_saved": 42000,`, `"billable_input_tokens_saved": 42000,
+    "analytics_proof_events_dropped": 1,`, 1)
 	currentBody = strings.Replace(currentBody, `"recert_attempt_id": "attempt-1"`, `"recert_attempt_id": "attempt-2"`, 1)
 	currentBody = strings.Replace(currentBody, `"recert_status": "passed"`, `"recert_status": "running"`, 1)
 	currentBody = strings.Replace(currentBody, `"needs_recert": false`, `"needs_recert": true`, 1)
@@ -50,6 +52,9 @@ func TestWorkdaySavingsStartAndFinishJSONDelta(t *testing.T) {
 	}
 	if got.Delta.WSS.CompressedMessagesMutated != 1 || got.Delta.WSS.FramesReencoded != 1 {
 		t.Fatalf("delta mutation counters mismatch: %+v", got.Delta.WSS)
+	}
+	if got.Delta.WSS.AnalyticsProofEventsDropped != 1 {
+		t.Fatalf("delta proof drops: got=%d want=1", got.Delta.WSS.AnalyticsProofEventsDropped)
 	}
 	if got.Delta.Aggregate.TotalTokensSaved != 1000 {
 		t.Fatalf("delta aggregate tokens: got=%d want=1000", got.Delta.Aggregate.TotalTokensSaved)

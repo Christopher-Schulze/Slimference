@@ -135,9 +135,11 @@ type codexCaptureAdminSnapshot struct {
 	ObsoleteReadBlocksPruned         int64 `json:"obsolete_read_blocks_pruned"`
 	BeterseInjections                int64 `json:"beterse_injections"`
 
-	ParseFailures     int64 `json:"parse_failures"`
-	DegradedSessions  int64 `json:"degraded_sessions"`
-	CompressionErrors int64 `json:"compression_errors"`
+	ParseFailures                     int64 `json:"parse_failures"`
+	DegradedSessions                  int64 `json:"degraded_sessions"`
+	CompressionErrors                 int64 `json:"compression_errors"`
+	AnalyticsProofEventsDropped       int64 `json:"analytics_proof_events_dropped"`
+	AnalyticsLowPriorityEventsDropped int64 `json:"analytics_low_priority_events_dropped"`
 
 	HostBudgetStatus        string   `json:"host_budget_status,omitempty"`
 	HostBudgetExceeded      bool     `json:"host_budget_exceeded,omitempty"`
@@ -196,9 +198,11 @@ type codexCaptureLiveDelta struct {
 	ObsoleteReadBlocksPruned         int64 `json:"obsolete_read_blocks_pruned"`
 	BeterseInjections                int64 `json:"beterse_injections"`
 
-	ParseFailures     int64 `json:"parse_failures"`
-	DegradedSessions  int64 `json:"degraded_sessions"`
-	CompressionErrors int64 `json:"compression_errors"`
+	ParseFailures                     int64 `json:"parse_failures"`
+	DegradedSessions                  int64 `json:"degraded_sessions"`
+	CompressionErrors                 int64 `json:"compression_errors"`
+	AnalyticsProofEventsDropped       int64 `json:"analytics_proof_events_dropped"`
+	AnalyticsLowPriorityEventsDropped int64 `json:"analytics_low_priority_events_dropped"`
 
 	HostBudgetStatus        string   `json:"host_budget_status,omitempty"`
 	HostBudgetExceeded      bool     `json:"host_budget_exceeded,omitempty"`
@@ -1162,9 +1166,11 @@ func codexCaptureAdminSnapshotFromState(setup codexCaptureAdminState) codexCaptu
 		ObsoleteReadBlocksPruned:         int64(setup.OutputReduceCounters.ObsoleteReadBlocksPruned),
 		BeterseInjections:                int64(setup.OutputReduceCounters.BeterseInjections),
 
-		ParseFailures:     setup.WSS.ParseFailures,
-		DegradedSessions:  setup.WSS.DegradedSessions,
-		CompressionErrors: setup.WSS.CompressionErrors,
+		ParseFailures:                     setup.WSS.ParseFailures,
+		DegradedSessions:                  setup.WSS.DegradedSessions,
+		CompressionErrors:                 setup.WSS.CompressionErrors,
+		AnalyticsProofEventsDropped:       setup.Savings.AnalyticsProofEventsDropped,
+		AnalyticsLowPriorityEventsDropped: setup.Savings.AnalyticsLowPriorityEventsDropped,
 
 		HostBudgetStatus:        setup.HostBudget.Status,
 		HostBudgetExceeded:      setup.HostBudget.Exceeded,
@@ -1224,9 +1230,11 @@ func deltaCodexCaptureAdminSnapshot(base, current codexCaptureAdminSnapshot) *co
 		ObsoleteReadBlocksPruned:         nonNegativeDelta(current.ObsoleteReadBlocksPruned, base.ObsoleteReadBlocksPruned),
 		BeterseInjections:                nonNegativeDelta(current.BeterseInjections, base.BeterseInjections),
 
-		ParseFailures:     nonNegativeDelta(current.ParseFailures, base.ParseFailures),
-		DegradedSessions:  nonNegativeDelta(current.DegradedSessions, base.DegradedSessions),
-		CompressionErrors: nonNegativeDelta(current.CompressionErrors, base.CompressionErrors),
+		ParseFailures:                     nonNegativeDelta(current.ParseFailures, base.ParseFailures),
+		DegradedSessions:                  nonNegativeDelta(current.DegradedSessions, base.DegradedSessions),
+		CompressionErrors:                 nonNegativeDelta(current.CompressionErrors, base.CompressionErrors),
+		AnalyticsProofEventsDropped:       nonNegativeDelta(current.AnalyticsProofEventsDropped, base.AnalyticsProofEventsDropped),
+		AnalyticsLowPriorityEventsDropped: nonNegativeDelta(current.AnalyticsLowPriorityEventsDropped, base.AnalyticsLowPriorityEventsDropped),
 
 		HostBudgetStatus:        current.HostBudgetStatus,
 		HostBudgetExceeded:      current.HostBudgetExceeded,
@@ -1607,6 +1615,8 @@ func writeCodexCaptureRunSummary(w io.Writer, result codexCaptureRunResult) {
 			result.LiveDelta.ProxyLayer0ChunkDedup, result.LiveDelta.ProxyLayer0ChunkRefs)
 		fmt.Fprintf(w, "  safety_parse/degraded/compression: %d / %d / %d\n",
 			result.LiveDelta.ParseFailures, result.LiveDelta.DegradedSessions, result.LiveDelta.CompressionErrors)
+		fmt.Fprintf(w, "  analytics_proof/low_dropped: %d / %d\n",
+			result.LiveDelta.AnalyticsProofEventsDropped, result.LiveDelta.AnalyticsLowPriorityEventsDropped)
 		writeCodexCaptureHostBudgetSummary(w, result.LiveDelta)
 		writeCodexCapturePolicySummary(w, result.LiveDelta.ProxyLayer0Policy)
 		writeCodexCaptureCacheSummary(w, result.LiveDelta.ProxyLayer0Cache)

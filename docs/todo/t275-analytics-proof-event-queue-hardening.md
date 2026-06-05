@@ -2,7 +2,7 @@
 
 ## Status
 
-Open.
+Done.
 
 ## Source
 
@@ -67,3 +67,20 @@ routing while giving product/proof events priority.
 
 - Runtime model quality is unaffected by the queue, but proof integrity is part
   of the user's max-out bar.
+- Implemented a priority classification for analytics events. Request,
+  secret, error, rate-limit, and overflow events are proof-critical; debug /
+  low-value events remain low-priority.
+- Proof-critical events get one bounded synchronous drain attempt when the
+  shared queue is full, then retry enqueue. If they still cannot enqueue,
+  Slimference increments `analytics_proof_events_dropped`; low-priority drops
+  increment `analytics_low_priority_events_dropped`.
+- `/admin/state.savings` and `/admin/state.savings.product` now expose total,
+  proof-critical, and low-priority analytics drop counters. Any proof-critical
+  loss pushes product status to `attention`.
+- Aggregate, workday, WSS proof matrix, proof inventory, capture summaries, and
+  release proof reports carry the proof-loss counters. Release proof fails
+  closed if a proof window reports proof-critical analytics loss.
+- Verification:
+  - `go test ./internal/proxy -run 'AnalyticsQueue|SavingsProbe' -count=1`
+  - `go test ./internal/control -run 'SavingsSummaryProductSignals' -count=1`
+  - `go test ./scripts/utils -run 'AggregateSavingsReportsProofEventDrops|WorkdaySavingsStartAndFinishJSONDelta|ReleaseProofReportRejectsAnomalyRows|ReleaseResourceProofBundleRejectsProofEventDrops|WSSProof|CodexCapture' -count=1`

@@ -54,6 +54,9 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	p.toolPrune.MarkReattached()
 	p.outputReduce.ObserveInjection(outputreduce.Stats{Applied: true, AddedTokens: 9, Reason: "applied"})
 	p.outputReduce.ObserveOutput(42)
+	p.analyticsDropped.Store(3)
+	p.analyticsProofDropped.Store(1)
+	p.analyticsLowPriorityDropped.Store(2)
 	p.analytics.Record(types.AnalyticsEvent{
 		Type:              types.EventRequestProcessed,
 		Timestamp:         time.Now(),
@@ -87,8 +90,8 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 	if got.BillableInputTokensSaved != 2026 {
 		t.Errorf("BillableInputTokensSaved=%d want 2026", got.BillableInputTokensSaved)
 	}
-	if got.Product.Status != "saving" {
-		t.Errorf("Product.Status=%q want saving", got.Product.Status)
+	if got.Product.Status != "attention" {
+		t.Errorf("Product.Status=%q want attention", got.Product.Status)
 	}
 	if got.Product.BillableInputTokensSaved != 2026 ||
 		got.Product.ProviderCacheReadTokens != 700 ||
@@ -106,6 +109,13 @@ func TestSavingsProbeMapsCounters(t *testing.T) {
 		got.Product.OutputReduceObservedTokens != 42 ||
 		got.Product.OutputReduceInputOverhead != 9 {
 		t.Errorf("Product output-reduce mismatch: %+v", got.Product)
+	}
+	if got.AnalyticsEventsDropped != 3 ||
+		got.AnalyticsProofEventsDropped != 1 ||
+		got.AnalyticsLowPriorityEventsDropped != 2 ||
+		got.Product.AnalyticsProofEventsDropped != 1 ||
+		got.Product.SafetyIssues == 0 {
+		t.Errorf("analytics drop counters did not surface as product safety: %+v", got)
 	}
 	if got.Product.CacheMisses != 1 || got.Product.CacheHits != 0 {
 		t.Errorf("Product cache mismatch: %+v", got.Product)
