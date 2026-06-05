@@ -1098,6 +1098,10 @@ decision capsule touching an actively worked file verbatim, including
 repo-relative search hits resolved against the capsule `repo_root`.
 `SelectionPolicy.QualityPressure` full-passes every capsule when re-read,
 recovery, or comprehension canaries report pressure.
+Full-history message application can derive explicit OCRL targets only by exact
+archive-to-message matching: one capsule archive payload must equal exactly one
+current message block. Ambiguous, duplicate, missing, errored, or unmatched
+candidates are omitted and reported instead of guessed.
 
 Focused verification on 2026-06-05:
 
@@ -1107,7 +1111,7 @@ Focused verification on 2026-06-05:
 - `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
 
 The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
-0.645 ms with 238095 B/op and 11 allocs/op after archive verification and
+0.570 ms with 238070 B/op and 11 allocs/op after archive verification and
 renderer scratch-buffer reuse.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it

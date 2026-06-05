@@ -87,6 +87,13 @@ This primitive does not infer context mapping from rendered text. If a future
 route cannot prove exact old-message positions and exact archive equality, it
 must not call the apply path.
 
+For full-history routes that already have the old message blocks locally,
+`ApplyOCRLToMessagesByArchiveMatch` can derive targets without guessing. It
+loads each capsule's single archive payload and accepts a target only when that
+payload is byte-equal to exactly one current message block. Ambiguous matches,
+missing archives, archive read errors, unmatched payloads, and duplicate target
+positions are omitted and counted in the derivation report.
+
 ## Capsule Rendering
 
 The rendered OCRL block is deterministic and machine-readable:
@@ -153,6 +160,7 @@ OCRL full-passes on:
 - archive expansion error
 - invalid or duplicate message target
 - target archive payload mismatch
+- ambiguous archive-to-message target derivation
 - unknown capsule kind
 - capsule budget exhaustion
 - non-positive net savings
@@ -175,6 +183,9 @@ The engine requires:
 - full-history message-apply tests proving positive-saving application,
   archive-mismatch full-pass, route/shadow gates, marker overhead accounting,
   duplicate-target rejection, and selected-target-only token accounting
+- archive-match target-derivation tests proving exact single-match apply and
+  fail-closed behavior for ambiguous, unmatched, missing, errored, and duplicate
+  target candidates
 - docs and TODO state updated before a task can be closed
 
 Live Codex App/Desktop captures are a promotion gate for route claims, not a

@@ -36,7 +36,10 @@ replacement for reality.
   to the current target block text, counts only selected targets in final net
   savings, includes covered-marker overhead, and full-passes invalid targets,
   duplicate targets, archive mismatch, shadow mode, Codex WSS, and non-positive
-  selected savings.
+  selected savings. It can also derive explicit targets from full-history
+  messages by exact archive-payload equality, but only when one capsule archive
+  matches exactly one current message block; ambiguous or missing evidence is
+  omitted and reported.
 - Codex WSS Phase-F now records content-free OCRL shadow telemetry in debug
   request summaries. It reports mode, route, reason, candidate/verbatim/rejected
   counts, archive expansion count, original archive tokens, replacement tokens,
@@ -146,6 +149,8 @@ The ledger stores deterministic capsules:
    - [x] implement exact full-history message/block apply with archive
      byte-match, explicit target mapping, selected-target-only token
      accounting, marker-overhead accounting, and full-pass gates
+   - [x] add exact archive-to-message target derivation for full-history
+     messages without guessing ambiguous or missing matches
    - [ ] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
@@ -181,7 +186,7 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules in about 0.645 ms, 238095 B/op, 11 allocs/op.
+  512 file capsules in about 0.570 ms, 238070 B/op, 11 allocs/op.
 
 ## Verification
 
@@ -397,4 +402,12 @@ summary remains opt-in, not default.
   and maps directly into one builder with reusable scratch buffers, while
   singleton archive verification avoids per-capsule sort/map allocation.
   `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
-  measured `644837 ns/op`, `238095 B/op`, and `11 allocs/op`.
+  measured `570468 ns/op`, `238070 B/op`, and `11 allocs/op`.
+- 2026-06-05: Added safe full-history OCRL target derivation.
+  `ApplyOCRLToMessagesByArchiveMatch` and `DeriveOCRLMessageTargets` load each
+  capsule's single archive payload and derive a message/block target only when
+  that payload is byte-equal to exactly one current message block. Ambiguous
+  matches, missing archives, archive read errors, unmatched payloads, and
+  duplicate target positions are omitted and counted in the derivation report,
+  so a future route can use model-facing OCRL only with proven target mapping.
+  `go test ./internal/contextledger -count=1` passed.

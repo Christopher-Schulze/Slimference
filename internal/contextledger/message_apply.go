@@ -33,6 +33,88 @@ type OCRLMessageApplyResult struct {
 	CoveredMarkers int             `json:"covered_markers"`
 }
 
+type OCRLMessageTargetDerivation struct {
+	Targets         []OCRLMessageTarget `json:"-"`
+	Matched         int                 `json:"matched"`
+	Unmatched       int                 `json:"unmatched"`
+	Ambiguous       int                 `json:"ambiguous"`
+	MissingArchive  int                 `json:"missing_archive"`
+	ArchiveErrors   int                 `json:"archive_errors"`
+	DuplicateTarget int                 `json:"duplicate_target"`
+}
+
+// ApplyOCRLToMessagesByArchiveMatch is the safe full-history convenience path:
+// it derives explicit targets only when a capsule's single archive payload is
+// byte-equal to exactly one current message block. Ambiguous, missing, or
+// archive-error candidates are omitted instead of guessed.
+func ApplyOCRLToMessagesByArchiveMatch(messages []types.Message, capsules []Capsule, policy OCRLPolicy) (OCRLMessageApplyResult, OCRLMessageTargetDerivation) {
+	derivation := DeriveOCRLMessageTargets(messages, capsules, policy.ArchiveLoader)
+	return ApplyOCRLToMessages(messages, OCRLMessageApplyPolicy{
+		OCRLPolicy: policy,
+		Targets:    derivation.Targets,
+	}), derivation
+}
+
+func DeriveOCRLMessageTargets(messages []types.Message, capsules []Capsule, load ArchiveLoader) OCRLMessageTargetDerivation {
+	derivation := OCRLMessageTargetDerivation{Targets: make([]OCRLMessageTarget, 0, len(capsules))}
+	usedTargets := make(map[string]struct{}, len(capsules))
+	for _, capsule := range capsules {
+		target, reason := deriveOCRLMessageTarget(messages, capsule, load)
+		switch reason {
+		case "matched":
+			key := messageTargetKey(target)
+			if _, ok := usedTargets[key]; ok {
+				derivation.DuplicateTarget++
+				continue
+			}
+			usedTargets[key] = struct{}{}
+			derivation.Targets = append(derivation.Targets, target)
+			derivation.Matched++
+		case "missing_archive":
+			derivation.MissingArchive++
+		case "archive_error":
+			derivation.ArchiveErrors++
+		case "ambiguous":
+			derivation.Ambiguous++
+		default:
+			derivation.Unmatched++
+		}
+	}
+	return derivation
+}
+
+func deriveOCRLMessageTarget(messages []types.Message, capsule Capsule, load ArchiveLoader) (OCRLMessageTarget, string) {
+	if load == nil || len(capsule.Archives) != 1 {
+		return OCRLMessageTarget{}, "missing_archive"
+	}
+	id := sortedArchiveIDs(capsule.Archives)
+	if len(id) != 1 {
+		return OCRLMessageTarget{}, "missing_archive"
+	}
+	body, err := load(id[0])
+	if err != nil || len(body) == 0 {
+		return OCRLMessageTarget{}, "archive_error"
+	}
+	payload := string(body)
+	var match OCRLMessageTarget
+	matches := 0
+	for msgIdx, msg := range messages {
+		for blockIdx, block := range msg.Content {
+			if block.Text != "" && block.Text == payload {
+				match = OCRLMessageTarget{MessageIndex: msgIdx, BlockIndex: blockIdx, Capsule: capsule}
+				matches++
+				if matches > 1 {
+					return OCRLMessageTarget{}, "ambiguous"
+				}
+			}
+		}
+	}
+	if matches == 0 {
+		return OCRLMessageTarget{}, "unmatched"
+	}
+	return match, "matched"
+}
+
 // ApplyOCRLToMessages replaces explicitly targeted old message blocks with one
 // deterministic OCRL block. It is intentionally stricter than BuildOCRLReplacement:
 // every selected target must point at a live message block whose current text is

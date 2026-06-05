@@ -297,6 +297,91 @@ func TestApplyOCRLToMessagesRejectsDuplicateTargets(t *testing.T) {
 	}
 }
 
+func TestApplyOCRLToMessagesByArchiveMatchDerivesExactTargets(t *testing.T) {
+	t.Parallel()
+	fileText := strings.Repeat("derived old file ", 30)
+	searchText := strings.Repeat("derived old search ", 30)
+	messages := []types.Message{
+		{Index: 1, Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", Text: fileText}}},
+		{Index: 2, Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", Text: searchText}}},
+		{Index: 3, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "keep active request"}}},
+	}
+	result, derivation := ApplyOCRLToMessagesByArchiveMatch(messages, []Capsule{
+		testFileCapsule(t, "session-1", "turn-file", "/repo/a.go", "file-archive"),
+		testSearchCapsule(t, "session-1", "turn-search", "search-archive"),
+	}, OCRLPolicy{
+		Mode:          OCRLModeAuto,
+		Route:         OCRLRouteFullHistoryHTTP,
+		Selection:     SelectionPolicy{SessionID: "session-1"},
+		ArchiveLoader: mapArchiveLoader(map[string]string{"file-archive": fileText, "search-archive": searchText}),
+		CountTokens:   wordTokenCounter,
+	})
+	if derivation.Matched != 2 || len(derivation.Targets) != 2 ||
+		derivation.Ambiguous != 0 || derivation.Unmatched != 0 ||
+		derivation.MissingArchive != 0 || derivation.ArchiveErrors != 0 ||
+		derivation.DuplicateTarget != 0 {
+		t.Fatalf("unexpected derivation: %+v", derivation)
+	}
+	if !result.OCRL.Applied || result.AppliedTargets != 2 {
+		t.Fatalf("result=%+v want archive-derived OCRL apply", result)
+	}
+	if strings.Contains(result.Messages[0].Content[0].Text, fileText) ||
+		strings.Contains(result.Messages[0].Content[0].Text, searchText) {
+		t.Fatalf("derived replacement leaked raw context: %q", result.Messages[0].Content[0].Text)
+	}
+	if got := result.Messages[2].Content[0].Text; got != "keep active request" {
+		t.Fatalf("untargeted active request changed: %q", got)
+	}
+}
+
+func TestDeriveOCRLMessageTargetsFailsClosedOnAmbiguousOrMissingEvidence(t *testing.T) {
+	t.Parallel()
+	shared := strings.Repeat("same old context ", 20)
+	unique := strings.Repeat("unique old context ", 20)
+	messages := []types.Message{
+		{Index: 1, Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", Text: shared}}},
+		{Index: 2, Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", Text: shared}}},
+		{Index: 3, Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", Text: unique}}},
+	}
+	duplicateA := testSearchCapsule(t, "session-1", "turn-dup-a", "unique-a")
+	duplicateB := testSearchCapsule(t, "session-1", "turn-dup-b", "unique-b")
+	missingArchive := testCapsule(CapsuleSearch, "session-1", "turn-missing")
+	multiArchive := testCapsule(CapsuleSearch, "session-1", "turn-multi", "a", "b")
+	derivation := DeriveOCRLMessageTargets(messages, []Capsule{
+		testSearchCapsule(t, "session-1", "turn-ambiguous", "ambiguous"),
+		testSearchCapsule(t, "session-1", "turn-unmatched", "unmatched"),
+		testSearchCapsule(t, "session-1", "turn-error", "error"),
+		missingArchive,
+		multiArchive,
+		duplicateA,
+		duplicateB,
+	}, func(id string) ([]byte, error) {
+		switch id {
+		case "ambiguous":
+			return []byte(shared), nil
+		case "unmatched":
+			return []byte("not in messages"), nil
+		case "error":
+			return nil, errors.New("archive missing")
+		case "unique-a", "unique-b":
+			return []byte(unique), nil
+		default:
+			return nil, errors.New("unexpected archive")
+		}
+	})
+	if derivation.Matched != 1 || len(derivation.Targets) != 1 {
+		t.Fatalf("expected one unambiguous target, got %+v", derivation)
+	}
+	if derivation.Ambiguous != 1 || derivation.Unmatched != 1 ||
+		derivation.ArchiveErrors != 1 || derivation.MissingArchive != 2 ||
+		derivation.DuplicateTarget != 1 {
+		t.Fatalf("bad fail-closed counters: %+v", derivation)
+	}
+	if derivation.Targets[0].MessageIndex != 2 || derivation.Targets[0].BlockIndex != 0 {
+		t.Fatalf("wrong derived target: %+v", derivation.Targets[0])
+	}
+}
+
 func testFileCapsule(t *testing.T, sessionID, turnID, path, archiveID string) Capsule {
 	t.Helper()
 	capsule, err := BuildFileCapsule(FileObservation{

@@ -1958,9 +1958,11 @@ be called complete, default-safe, and production-grade.
   `internal/contextledger/message_apply.go` now provides an exact full-history
   OCRL apply primitive for explicit message/block targets; it requires
   byte-equal archive payloads, selected-target-only token accounting, marker
-  overhead accounting, and full-pass behavior for unsafe targets. The offline
-  A/B harness now expands OCRL `archives=[...]` references and proves replaced
-  or deleted old blocks recover only when archive payloads match byte-exactly.
+  overhead accounting, and full-pass behavior for unsafe targets. It can derive
+  full-history targets only from exact single archive-payload matches, never
+  ambiguous or missing evidence. The offline A/B harness now expands OCRL
+  `archives=[...]` references and proves replaced or deleted old blocks recover
+  only when archive payloads match byte-exactly.
   Overflow recovery now also requires `layer2_enabled=true` before it may apply
   any cached legacy summary, so the legacy override alone cannot bypass the
   default-off product path. Only proof-gated model-facing ledger insertion and
