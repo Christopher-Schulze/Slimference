@@ -54,7 +54,7 @@ func TestResponseCacheRouteKeyIncludesMethodPathAndQuery(t *testing.T) {
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_partitionsByAPIKey(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_partitionsByAPIKey(t *testing.T) {
 	t.Parallel()
 
 	var upstreamCalls atomic.Int32
@@ -69,7 +69,7 @@ func TestServeHTTP_layer3CacheHit_partitionsByAPIKey(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -97,7 +97,7 @@ func TestServeHTTP_layer3CacheHit_partitionsByAPIKey(t *testing.T) {
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_skipsExplicitStochasticRequests(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_skipsExplicitStochasticRequests(t *testing.T) {
 	t.Parallel()
 
 	var upstreamCalls atomic.Int32
@@ -112,7 +112,7 @@ func TestServeHTTP_layer3CacheHit_skipsExplicitStochasticRequests(t *testing.T) 
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -136,7 +136,7 @@ func TestServeHTTP_layer3CacheHit_skipsExplicitStochasticRequests(t *testing.T) 
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_skipsImplicitSamplingDefaults(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_skipsImplicitSamplingDefaults(t *testing.T) {
 	t.Parallel()
 
 	var upstreamCalls atomic.Int32
@@ -151,7 +151,7 @@ func TestServeHTTP_layer3CacheHit_skipsImplicitSamplingDefaults(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -175,7 +175,7 @@ func TestServeHTTP_layer3CacheHit_skipsImplicitSamplingDefaults(t *testing.T) {
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_skipsMetadataServerState(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_skipsMetadataServerState(t *testing.T) {
 	t.Parallel()
 
 	var upstreamCalls atomic.Int32
@@ -190,7 +190,7 @@ func TestServeHTTP_layer3CacheHit_skipsMetadataServerState(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -227,7 +227,7 @@ func TestServeHTTP_providerCacheAccountingSeparatesOpenAICachedTokens(t *testing
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Secrets.Mode = "off"
 
@@ -273,7 +273,7 @@ func TestServeHTTP_providerCacheAccountingKeepsAnthropicReadTokens(t *testing.T)
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Secrets.Mode = "off"
 
@@ -306,7 +306,7 @@ func TestServeHTTP_providerCacheAccountingKeepsAnthropicReadTokens(t *testing.T)
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_partitionsRequestPolicy(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_partitionsRequestPolicy(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls.Add(1)
@@ -324,7 +324,7 @@ func TestServeHTTP_layer3CacheHit_partitionsRequestPolicy(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Compression.OutputReduce.StopSequencesEnabled = false
 	cfg.Secrets.Mode = "off"
 
@@ -365,7 +365,7 @@ func TestServeHTTP_layer3CacheHit_partitionsRequestPolicy(t *testing.T) {
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_partitionsBeTerseCohorts(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_partitionsBeTerseCohorts(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls.Add(1)
@@ -383,7 +383,7 @@ func TestServeHTTP_layer3CacheHit_partitionsBeTerseCohorts(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Compression.OutputReduce.BeTerseHintEnabled = true
 	cfg.Secrets.Mode = "off"
 
@@ -436,7 +436,7 @@ func TestServeHTTP_layer3CacheHit_partitionsBeTerseCohorts(t *testing.T) {
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_recordsProcessedRequestMetrics(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_recordsProcessedRequestMetrics(t *testing.T) {
 	t.Parallel()
 
 	var upstreamCalls atomic.Int32
@@ -451,7 +451,7 @@ func TestServeHTTP_layer3CacheHit_recordsProcessedRequestMetrics(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -487,7 +487,7 @@ func TestServeHTTP_layer3CacheHit_recordsProcessedRequestMetrics(t *testing.T) {
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_invalidatesOnWatchedDependencyChange(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_invalidatesOnWatchedDependencyChange(t *testing.T) {
 	dir := t.TempDir()
 	depPath := filepath.Join(dir, "cache-target.txt")
 	if err := os.WriteFile(depPath, []byte("before"), 0o644); err != nil {
@@ -506,7 +506,7 @@ func TestServeHTTP_layer3CacheHit_invalidatesOnWatchedDependencyChange(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -548,7 +548,7 @@ func TestServeHTTP_layer3CacheHit_invalidatesOnWatchedDependencyChange(t *testin
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_skipsCachingWithoutDependencyWatcher(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_skipsCachingWithoutDependencyWatcher(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -569,7 +569,7 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWithoutDependencyWatcher(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -598,7 +598,7 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWithoutDependencyWatcher(t *testin
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_skipsCachingWhenDependencyWatchFails(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_skipsCachingWhenDependencyWatchFails(t *testing.T) {
 	t.Parallel()
 
 	var upstreamCalls atomic.Int32
@@ -613,7 +613,7 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWhenDependencyWatchFails(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -642,7 +642,7 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWhenDependencyWatchFails(t *testin
 	}
 }
 
-func TestServeHTTP_layer3CacheHit_skipsCachingWhenDependencyWatchIsNotArmed(t *testing.T) {
+func TestServeHTTP_layer2CacheHit_skipsCachingWhenDependencyWatchIsNotArmed(t *testing.T) {
 	t.Parallel()
 
 	base := t.TempDir()
@@ -667,7 +667,7 @@ func TestServeHTTP_layer3CacheHit_skipsCachingWhenDependencyWatchIsNotArmed(t *t
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)

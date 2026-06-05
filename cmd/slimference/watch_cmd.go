@@ -130,10 +130,11 @@ func renderWatchTick(now time.Time, body []byte) string {
 		sb.WriteString("PROVIDER DEGRADED | ")
 	}
 	enabled := []string{}
-	for _, layer := range []string{"1", "2", "3"} {
-		if view.Layers[layer] {
-			enabled = append(enabled, "L"+layer)
-		}
+	if view.Layers["1"] {
+		enabled = append(enabled, "L1")
+	}
+	if view.Layers["2"] || view.Layers["3"] {
+		enabled = append(enabled, "L2")
 	}
 	sb.WriteString("layers=" + strings.Join(enabled, ","))
 	sb.WriteString(fmt.Sprintf(" cache=%d", view.CacheEntries))

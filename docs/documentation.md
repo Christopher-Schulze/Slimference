@@ -17,8 +17,8 @@ source in one hop.
 3. [Request Lifecycle](#3-request-lifecycle)
 4. [Layer 0 - Pre-Entry Filter](#4-layer-0-pre-entry-filter)
 5. [Layer 1 - Deterministic Compression](#5-layer-1-deterministic-compression)
-6. [Retired Layer 2](#6-retired-layer-2)
-7. [Layer 3 - Response Cache](#7-layer-3-response-cache)
+6. [Retired Semantic Summary Path](#6-retired-semantic-summary-path)
+7. [Layer 2 - Response Cache](#7-layer-3-response-cache)
 8. [Provider Support](#8-provider-support)
 9. [Install and integration](#9-install-and-integration)
 10. [Bypass and Fallback](#10-bypass-and-fallback)
@@ -114,7 +114,7 @@ payload is shorter and schema-safe.
 - **Bypass switch**: a single atomic flag collapses every provider + layer
   toggle to off, making the proxy a pure relay.
 - **`encoding/json` only**: no third-party JSON library.
-- **Hot path budget ≤ 5 ms**: Layer 0/WSS reducers, Layer 1, Layer 3,
+- **Hot path budget ≤ 5 ms**: Layer 0/WSS reducers, Layer 1, Layer 2,
   and Layer 4 must fail open and stay cheap enough for normal Codex use.
 
 ---
@@ -127,7 +127,7 @@ payload is shorter and schema-safe.
 │ Codex App   │                    │                                     │
 └─────────────┘       TLS/SNI      │ transparent SNI listener :8443      │
       │        chatgpt.com:443     │  ┌──── request/WSS pipeline ────┐   │
-      └───────────────────────────▶│  │ detect → L0/WSS → L1 → L3/L4 │   │──HTTPS──▶ chatgpt.com
+      └───────────────────────────▶│  │ detect → L0/WSS → L1 → L2/L4 │   │──HTTPS──▶ chatgpt.com
                                    │  └──────────────────────────────┘   │──HTTPS──▶ api.openai.com
                                    │  ┌──── response pipeline ───────┐   │
                                    │  │ streamcut/repdet + cache     │   │
@@ -190,7 +190,7 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
     preserved.
 13. **Overflow recovery** (spec+.md §17.4): on HTTP 400 with context-
     too-large signal, retry with aggressive re-compression, then raw.
-14. **Layer 3 response cache** — stores by request hash; `FileWatcher`
+14. **Layer 2 response cache** — stores by request hash; `FileWatcher`
     invalidates on change.
 15. **Analytics events** via non-blocking queue. Drops are counted +
     warn-logged (T42).
@@ -409,7 +409,7 @@ HTTP is explicitly blocked from archive-backed chunk references; WSS is the
 product route for recoverable archive/chunk mechanisms.
 
 Layer 2 semantic context replacement is retired. Product savings now stay on
-Layer 0/WSS tool-output reducers, Layer 1 deterministic compression, Layer 3
+Layer 0/WSS tool-output reducers, Layer 1 deterministic compression, Layer 2
 cache leverage, and Layer 4 output/tool-surface reduction. No context ledger,
 OCRL capsule, or summary text is inserted into model-facing context.
 
@@ -966,27 +966,27 @@ original body locally retrievable.
 
 ---
 
-## 6. Retired Layer 2
+## 6. Retired Semantic Summary Path
 
-Layer 2 has been removed from the product and codebase. Slimference no longer
-ships MiniMax summarization, external OpenAI-compatible summarization, local LLM
-summarization, OCRL full-history replacement, or context-ledger insertion as a
-model-facing savings path.
+The old semantic summary path has been removed from the product and codebase.
+Slimference no longer ships MiniMax summarization, external OpenAI-compatible
+summarization, local LLM summarization, OCRL full-history replacement, or
+context-ledger insertion as a model-facing savings path.
 
 The reason is product safety: any semantic replacement of old context can drop a
 detail the model later needs, which violates the project drawdown rule. Savings
 therefore stay on deterministic, recoverable, fail-open mechanisms: Layer 0
-Codex/tool-output reducers, Layer 1 deterministic compression, Layer 3 cache
+Codex/tool-output reducers, Layer 1 deterministic compression, Layer 2 cache
 leverage, and Layer 4 output/tool-surface reduction.
 
-There is no Layer 2 config surface, no Layer 2 CLI subcommand, no background
-summary worker, no summary cache apply, and no model-facing context ledger
-mutation in the current product. Historical task files may mention the retired
-experiments, but current code and product docs must not require them.
+There is no semantic-summary config surface, no summary CLI subcommand, no
+background summary worker, no summary cache apply, and no model-facing context
+ledger mutation in the current product. Historical task files may mention the
+retired experiments, but current code and product docs must not require them.
 
 ---
 
-## 7. Layer 3 - Response Cache
+## 7. Layer 2 - Response Cache
 
 `internal/caching/response_cache.go` is an LRU keyed by the SHA-256 of
 the provider, HTTP method plus route path/query, request-affecting Slimference policy
@@ -1008,7 +1008,7 @@ session/conversation/thread/assistant marker, or Codex turn-metadata marker
 full-passes upstream. Local replay is allowed only for stateless deterministic
 requests, because skipping upstream response-id creation or conversation-state
 updates would change workflow state even if the visible text matched.
-This keeps Layer 3 from replaying a cached tool workflow or a fresh model sample
+This keeps Layer 2 from replaying a cached tool workflow or a fresh model sample
 where timing, tool state, or stochasticity matters.
 
 Provider-cache accounting is intentionally split by provider shape. Anthropic
@@ -1293,7 +1293,7 @@ corpus that is intentionally not captured until the operator allows it.
 header values. Unknown versions downgrade via
 `anthropic_unknown_behavior`:
 
-- `conservative` (default): skip Layer 1 body mutation, still use L3 response
+- `conservative` (default): skip Layer 1 body mutation, still use L2 response
   cache.
 - `passthrough`: no compression at all.
 - `full`: trust the unknown version (opt-in risk).
@@ -1631,7 +1631,7 @@ Base path `/_slimference/admin`:
 - `provider_health`: per-provider health.
 - `prompt_cache.breakpoints_injected_total` (T45).
 - `pipeline`: array of `PhaseSnapshot {name, count, p50_ms, p95_ms,
-  avg_ms, max_ms, sample_size}` for `l1`, `l2`, `l3`, `upstream`,
+  avg_ms, max_ms, sample_size}` for `l1`, `l2`, `upstream`,
   `total` (T58).
 - `anthropic_version`: whitelist + unknown-behavior + count (T62).
 - `bypass`: current master-bypass state (T67).
@@ -1783,7 +1783,7 @@ anthropic_unknown_behavior = "conservative"   # conservative|passthrough|full
 
 [compression]
 layer1_enabled                       = true
-layer3_enabled                       = true
+layer2_enabled                       = true
 sliding_window                       = 6
 min_messages_for_compression         = 5
 structure_min_tokens                 = 500
@@ -1888,7 +1888,7 @@ slimference help [subcommand]
 | `hook`        | install, remove, verify, status, check-upstream (manual hook mgmt).    |
 | `gain`        | Report Layer-0, by-command/by-parser, prompt-cache, output, or proxy-flight telemetry.|
 | `stats`       | Analytics snapshots (today/week/month/prompt-cache).                   |
-| `savings`     | Unified savings view (L0 + proxy flights + L3) per period; --json / --csv (T80).|
+| `savings`     | Unified savings view (L0 + proxy flights + L2) per period; --json / --csv (T80).|
 | `compress-preview` | Dry-run the L1 pipeline against a body; --diff / --json (T82).    |
 | `watch`       | Live ticker against /admin/status; Ctrl-C to stop (T79).               |
 | `filter --stream` | Streaming-aware Layer-0 wrapper for `tail -f` style inputs (T94).  |
@@ -2066,7 +2066,7 @@ keeps mutating after a version drift without fresh proof.
 coordination. It turns request facts (provider/model/route, input/output token
 size, content classes, live-corpus confidence, manual disables, recent-edit
 state, provider cache support, output-reduce/tool-prune cooldown, and WebSocket
-shape confidence) into per-layer decisions for L0, L1, L3, Layer 4
+shape confidence) into per-layer decisions for L0, L1, L2, Layer 4
 output/tool controls, and WebSocket transport. The package is pure: same facts produce
 the same `CompressionPlan`, every decision carries action, reason, expected
 saving, risk, and confidence, and operator-disabled layers stay disabled.
@@ -2139,7 +2139,7 @@ versus observed-active actions, missed active actions, bypass/tunnel actions
 that still saw activity, and safety-blocked requests. Category metadata can set
 planner thresholds so future default-on changes have measurable evidence.
 It also emits an observed layer-combination matrix keyed by stable labels
-(`L0`, `L1`, `L3`, `L4`, `WS`, or `none`) with request count, saved
+(`L0`, `L1`, `L2`, `L4`, `WS`, or `none`) with request count, saved
 tokens, output tokens, and errors. This is factual corpus accounting, not a
 simulated alternate-run replay. Category metadata can additionally declare
 `scenario_validators` (`tool_heavy`, `cache_reuse`, `output_reduce`,
@@ -2568,7 +2568,7 @@ internal/compression/         Layer 1 sub-layers + Layer 1 pipeline.
   loop_detect.go              Loop-nudge Jaccard detector (T37).
 
 
-internal/caching/             Layer 3 response cache + file watcher.
+internal/caching/             Layer 2 response cache + file watcher.
 
 internal/analytics/           Rolling snapshots + phase histograms (T58).
 

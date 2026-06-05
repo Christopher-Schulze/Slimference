@@ -64,7 +64,7 @@ Input Tokens (comp):  412,510
 Savings:              834,490 (66.9%)
 Layer 1 Savings:      312,000 (25.0%)
 Layer 2 Savings:      498,000 (39.9%)
-Layer 3 Savings:      24,490  (2.0%)
+Layer 2 Cache Savings: 24,490  (2.0%)
 
 Per-Sub-Layer Breakdown:
   ansi_strip:          12,000 tokens

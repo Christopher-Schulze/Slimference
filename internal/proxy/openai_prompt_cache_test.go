@@ -306,7 +306,7 @@ func TestServeHTTP_OpenAIPromptCacheInjectionRetryReappliesServerState(t *testin
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	cfg.Proxy.ServerStateEnabled = true
 	cfg.Proxy.OpenAIPromptCache.Enabled = true

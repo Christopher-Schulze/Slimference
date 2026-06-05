@@ -35,13 +35,13 @@ Slimference is split into four active product layers:
 2. Layer 1: deterministic compression
    Fast synchronous Go transforms like ANSI stripping, JSON compaction, deduplication, structure extraction, delta encoding, repeated tool collapse, and more.
 
-3. Layer 3: response caching
+3. Layer 2: response caching
    Safe requests can be served from cache, and Anthropic prompt-cache breakpoints are optimized where possible.
 
 4. Layer 4: output and tool-surface reduction
    Safe output directives, repetition controls, and tool-schema pruning reduce avoidable output/tool tokens without replacing conversation memory.
 
-Layer 2 is retired. Slimference does not use an external summarization model, local context ledger replacement, or model-facing summary insertion as a product savings path.
+The old semantic summary path is retired. Slimference does not use an external summarization model, local context ledger replacement, or model-facing summary insertion as a product savings path.
 
 ## Runtime Model
 

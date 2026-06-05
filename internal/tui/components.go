@@ -301,6 +301,9 @@ func formatLayers(layers []int) string {
 	}
 	parts := make([]string, len(layers))
 	for i, l := range layers {
+		if l == 3 {
+			l = 2
+		}
 		parts[i] = fmt.Sprintf("L%d", l)
 	}
 	return strings.Join(parts, "+")

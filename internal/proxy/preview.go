@@ -13,7 +13,7 @@ import (
 // flowed through Layer 1 compression. T82 lets operators see the
 // rewritten body locally without paying for an upstream call.
 //
-// Layer 3 (response cache) is irrelevant before a request is sent.
+// Layer 2 (response cache) is irrelevant before a request is sent.
 type PreviewResult struct {
 	Provider         types.Provider  `json:"provider"`
 	ProviderString   string          `json:"provider_string"`

@@ -233,7 +233,7 @@ requires explicit permission to run live Codex.
 |------------------|-------------------------------------------------------|---------------------------|
 | TUI bypass       | `B` hotkey OR `slimference bypass on`                 | all layers, all providers |
 | Per-provider     | TUI toggle OR `/admin/provider` POST                  | one provider              |
-| Per-layer        | TUI toggle OR `/admin/layer` POST                     | L1 / L2 / L3 individually |
+| Per-layer        | TUI toggle OR `/admin/layer` POST                     | L1 / L2 / L2 individually |
 
 The TUI bypass is a single atomic flag that short-circuits every downstream
 toggle, so "proxy is off" has one canonical meaning.

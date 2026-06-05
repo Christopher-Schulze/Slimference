@@ -138,7 +138,7 @@ func TestPipelineHistograms_SnapshotOrder(t *testing.T) {
 	h.Upstream.Record(10 * time.Millisecond)
 	h.Total.Record(20 * time.Millisecond)
 	snaps := h.Snapshot()
-	want := []string{"l1", "l2", "l3", "upstream", "total"}
+	want := []string{"l1", "l2", "upstream", "total"}
 	if len(snaps) != len(want) {
 		t.Fatalf("len = %d, want %d", len(snaps), len(want))
 	}

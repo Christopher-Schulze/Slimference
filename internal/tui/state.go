@@ -14,11 +14,44 @@ import (
 // choices that is written on quit and re-applied on startup. A missing or
 // corrupt file must not crash the TUI - it is pure user preference.
 type PersistedState struct {
-	ClaudeEnabled bool   `json:"claude_enabled"`
-	CodexEnabled  bool   `json:"codex_enabled"`
-	Layer1Enabled bool   `json:"layer1_enabled"`
-	Layer3Enabled bool   `json:"layer3_enabled"`
-	View          string `json:"view"`
+	ClaudeEnabled       bool   `json:"claude_enabled"`
+	CodexEnabled        bool   `json:"codex_enabled"`
+	Layer1Enabled       bool   `json:"layer1_enabled"`
+	Layer2Enabled       bool   `json:"layer2_enabled"`
+	Layer3EnabledLegacy *bool  `json:"layer3_enabled,omitempty"`
+	View                string `json:"view"`
+	layer2Set           bool
+}
+
+func (s *PersistedState) UnmarshalJSON(data []byte) error {
+	type persistedStateAlias PersistedState
+	var aux struct {
+		*persistedStateAlias
+		Layer2 *bool `json:"layer2_enabled"`
+		Layer3 *bool `json:"layer3_enabled"`
+	}
+	aux.persistedStateAlias = (*persistedStateAlias)(s)
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.Layer2 != nil {
+		s.Layer2Enabled = *aux.Layer2
+		s.layer2Set = true
+	}
+	if aux.Layer3 != nil {
+		s.Layer3EnabledLegacy = aux.Layer3
+	}
+	return nil
+}
+
+func (s PersistedState) responseCacheEnabled() bool {
+	if s.layer2Set {
+		return s.Layer2Enabled
+	}
+	if s.Layer3EnabledLegacy != nil {
+		return *s.Layer3EnabledLegacy
+	}
+	return s.Layer2Enabled
 }
 
 // tuiStatePathFn is overridable in tests so the default path
@@ -90,7 +123,7 @@ func stateFromModel(m *Model) PersistedState {
 		ClaudeEnabled: m.claudeEnabled,
 		CodexEnabled:  m.codexEnabled,
 		Layer1Enabled: m.layer1Enabled,
-		Layer3Enabled: m.layer3Enabled,
+		Layer2Enabled: m.layer2Enabled,
 		View:          viewModeToString(m.view),
 	}
 }
@@ -102,7 +135,7 @@ func applyPersistedState(m *Model, s PersistedState) {
 	m.claudeEnabled = s.ClaudeEnabled
 	m.codexEnabled = s.CodexEnabled
 	m.layer1Enabled = s.Layer1Enabled
-	m.layer3Enabled = s.Layer3Enabled
+	m.layer2Enabled = s.responseCacheEnabled()
 	if v, ok := viewModeFromString(s.View); ok {
 		m.view = v
 	}
@@ -110,7 +143,7 @@ func applyPersistedState(m *Model, s PersistedState) {
 		m.proxy.SetProviderEnabled(types.Anthropic, m.claudeEnabled)
 		m.proxy.SetProviderEnabled(types.OpenAI, m.codexEnabled)
 		m.proxy.SetLayerEnabled(1, m.layer1Enabled)
-		m.proxy.SetLayerEnabled(3, m.layer3Enabled)
+		m.proxy.SetLayerEnabled(2, m.layer2Enabled)
 	}
 }
 

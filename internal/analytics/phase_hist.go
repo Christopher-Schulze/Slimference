@@ -137,7 +137,6 @@ func nsToMs(ns int64) float64 {
 type PipelineHistograms struct {
 	L1       *PhaseHistogram
 	L2       *PhaseHistogram
-	L3       *PhaseHistogram
 	Upstream *PhaseHistogram
 	Total    *PhaseHistogram
 }
@@ -149,19 +148,17 @@ func NewPipelineHistograms() *PipelineHistograms {
 	return &PipelineHistograms{
 		L1:       NewPhaseHistogram("l1", 200),
 		L2:       NewPhaseHistogram("l2", 200),
-		L3:       NewPhaseHistogram("l3", 200),
 		Upstream: NewPhaseHistogram("upstream", 200),
 		Total:    NewPhaseHistogram("total", 200),
 	}
 }
 
 // Snapshot returns one snapshot per registered phase in a stable order
-// (L1 -> L2 -> L3 -> Upstream -> Total) so admin/TUI output is consistent.
+// (L1 -> L2 -> Upstream -> Total) so admin/TUI output is consistent.
 func (p *PipelineHistograms) Snapshot() []PhaseSnapshot {
 	return []PhaseSnapshot{
 		p.L1.Snapshot(),
 		p.L2.Snapshot(),
-		p.L3.Snapshot(),
 		p.Upstream.Snapshot(),
 		p.Total.Snapshot(),
 	}

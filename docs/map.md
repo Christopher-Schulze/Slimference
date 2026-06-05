@@ -12,12 +12,13 @@ Last updated: 2026-06-05
 | --- | --- | --- |
 | Layer 0 | Pre-entry and Codex/WSS tool-output reduction | `internal/filter`, `internal/readcache`, `internal/chunkdedup`, `internal/proxy/layer0_proxy.go`, `internal/proxy/wsmitm_phasef.go` |
 | Layer 1 | Deterministic compression | `internal/compression`, `internal/contentarchive` |
-| Layer 3 | Response cache and provider-cache accounting | `internal/caching`, `internal/analytics`, `internal/proxy` |
+| Layer 2 | Response cache and provider-cache accounting | `internal/caching`, `internal/analytics`, `internal/proxy` |
 | Layer 4 | Output and tool-surface reduction | `internal/outputreduce`, `internal/outstop`, `internal/beterse`, `internal/toolprune` |
 
-Layer 2 is retired. There is no `internal/summarization`, no
-`internal/contextledger`, no Layer 2 CLI, no MiniMax provider path, and no
-model-facing context summary or OCRL insertion in the product.
+The old semantic summary path is retired. There is no
+`internal/summarization`, no `internal/contextledger`, no summary CLI, no
+MiniMax provider path, and no model-facing context summary or OCRL insertion in
+the product.
 
 ## Dependency Graph
 
@@ -72,7 +73,7 @@ cmd          <- CLI, TUI entry, install/status/codex/debug/report commands
 - `internal/compression/repeated_collapse.go`: repeated call/result collapse.
 - `internal/compression/recorder.go`: archive-backed mutation recorder.
 
-### Layer 3
+### Layer 2
 
 - `internal/caching/response_cache.go`: canonical request-keyed LRU.
 - `internal/caching/file_watcher.go`: dependency invalidation.

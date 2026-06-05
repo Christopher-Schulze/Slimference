@@ -24,10 +24,10 @@ must be removed from the product path.
 | --- | --- | --- | --- |
 | 0 | Pre-entry / Codex tool-output reducers | Shrink tool outputs before or as they enter model-visible context | Parser/reducer guards, archive recovery where needed, fail-open |
 | 1 | Deterministic compression | Remove deterministic waste from safe prefix/tool content | Shorter-than-original guard, safety tiers, archive-backed recovery for lossy transforms |
-| 3 | Response/provider cache leverage | Avoid repeat work and account provider-cache economics | Canonical keys, stochastic/stateful bypass, dependency invalidation |
+| 2 | Response/provider cache leverage | Avoid repeat work and account provider-cache economics | Canonical keys, stochastic/stateful bypass, dependency invalidation |
 | 4 | Output/tool-surface reduction | Reduce completion and tool-definition overhead | Exact-reply/repair guards, provider-shape validation, auto-demotion |
 
-Layer 2 is retired. Slimference must not ship MiniMax, external summarization,
+The old semantic summary path is retired. Slimference must not ship MiniMax, external summarization,
 local LLM summarization, OCRL full-history replacement, context-ledger insertion,
 summary cache apply, or background summary workers.
 
@@ -69,9 +69,9 @@ Requirements:
 - archive originals before any recoverable lossy transform;
 - expose sub-layer decisions and savings for proof and debugging.
 
-## 5. Layer 3
+## 5. Layer 2
 
-Layer 3 is a local response cache plus provider-cache accounting surface.
+Layer 2 is a local response cache plus provider-cache accounting surface.
 
 Requirements:
 
@@ -116,7 +116,7 @@ failure.
 
 Fresh configs expose active product surfaces only:
 
-- `[compression] layer1_enabled`, `layer3_enabled`, sliding window, structure
+- `[compression] layer1_enabled`, `layer2_enabled`, sliding window, structure
   and deterministic tuning;
 - Layer 0, readcache, chunk dedup, output reduce, tool prune, cache, and provider
   settings;
@@ -156,7 +156,7 @@ Required local gates:
 Savings claims must be scoped to the evidence that proves them. Synthetic smoke
 fixtures prove report executability, not production median savings.
 
-## 11. Removed Layer 2 Invariant
+## 11. Removed Semantic Summary Invariant
 
 The following must stay absent from product code, configs, tests, fixtures, and
 current docs:
@@ -167,5 +167,5 @@ current docs:
 - background summary queue/workers;
 - OCRL/context-ledger packages or config;
 - model-facing context replacement by capsules, summaries, or paraphrases;
-- benchmark or live-corpus promotion gates that require removed Layer 2
+- benchmark or live-corpus promotion gates that require removed semantic summaries
   mechanisms.

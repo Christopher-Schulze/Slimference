@@ -328,7 +328,7 @@ func New(cfg *config.Config) *Proxy {
 	}
 
 	// Prefix-stability tracker for the Anthropic prompt-cache
-	// breakpoint optimiser (L3). Defaults: 1024 sessions in LRU,
+	// breakpoint optimiser (L2). Defaults: 1024 sessions in LRU,
 	// 30 min TTL.
 	p.promptCacheStability = promptcache.NewTracker(0, 0)
 	p.loadCodexLayer0LatencyBudgetState()
@@ -338,7 +338,7 @@ func New(cfg *config.Config) *Proxy {
 	p.providerEnabled[types.OpenAI].Store(true)
 	p.providerEnabled[types.CodexChatGPT].Store(true)
 	p.layerEnabled[0].Store(cfg.Compression.Layer1Enabled)
-	p.layerEnabled[2].Store(cfg.Compression.Layer3Enabled)
+	p.layerEnabled[1].Store(cfg.Compression.Layer2Enabled)
 
 	tlsResolver, err := tlsdial.NewResolver(cfg.Transparent.DefaultTLSProfile, cfg.Transparent.TLSProfiles)
 	if err != nil {
@@ -395,7 +395,7 @@ func New(cfg *config.Config) *Proxy {
 		TestMaxFailureLines:       cfg.Compression.Tuning.ToolCompressor.TestMaxFailureLines,
 	})
 
-	// Layer 3: Response cache.
+	// Layer 2: Response cache.
 	p.responseCache = caching.NewResponseCache(
 		cfg.Cache.ResponseCacheMaxEntries,
 		cfg.Cache.ResponseCacheTTL(),
@@ -1275,7 +1275,10 @@ func (p *Proxy) SetProviderEnabled(prov types.Provider, enabled bool) {
 }
 
 // SetLayerEnabled enables or disables a compression layer (1-indexed).
+// Layer 3 is accepted as a legacy alias for the response/provider cache,
+// which is now product Layer 2.
 func (p *Proxy) SetLayerEnabled(layer int, enabled bool) {
+	layer = normalizeRuntimeLayer(layer)
 	if layer >= 1 && layer <= len(p.layerEnabled) {
 		p.layerEnabled[layer-1].Store(enabled)
 	}
@@ -1542,12 +1545,10 @@ func (p *Proxy) Bypass() bool {
 }
 
 func (p *Proxy) isLayerEnabled(layer int) bool {
+	layer = normalizeRuntimeLayer(layer)
 	// T81: route through Bypass() so duration-bounded bypass auto-
 	// reverts on next read after the deadline.
 	if p.Bypass() {
-		return false
-	}
-	if layer == 2 {
 		return false
 	}
 	if layer >= 1 && layer <= len(p.layerEnabled) {
@@ -1563,7 +1564,15 @@ func (p *Proxy) IsProviderEnabled(prov types.Provider) bool {
 
 // IsLayerEnabled is the exported version for TUI.
 func (p *Proxy) IsLayerEnabled(layer int) bool {
+	layer = normalizeRuntimeLayer(layer)
 	return p.isLayerEnabled(layer)
+}
+
+func normalizeRuntimeLayer(layer int) int {
+	if layer == 3 {
+		return 2
+	}
+	return layer
 }
 
 // ListenAddr returns the address the proxy is listening on, or "" if not started.

@@ -49,9 +49,9 @@ func TestPlan_ManualDisableOverridesLayer(t *testing.T) {
 	t.Parallel()
 	plan := Plan(RequestFacts{
 		EstimatedInputTokens: 20000,
-		ManualDisabled:       map[Layer]bool{Layer0: true, Layer1: true, Layer3: true, Layer4: true},
+		ManualDisabled:       map[Layer]bool{Layer0: true, Layer1: true, Layer2: true, Layer4: true},
 	})
-	for _, layer := range []Layer{Layer0, Layer1, Layer3, Layer4} {
+	for _, layer := range []Layer{Layer0, Layer1, Layer2, Layer4} {
 		if d := findDecision(t, plan, layer); d.Action != ActionBypass || d.Reason != "operator_disabled" {
 			t.Fatalf("%s=%+v", layer, d)
 		}
@@ -73,31 +73,31 @@ func TestPlan_L1SafetyGates(t *testing.T) {
 	}
 }
 
-func TestPlan_L3CacheAndPreviousResponse(t *testing.T) {
+func TestPlan_L2CacheAndPreviousResponse(t *testing.T) {
 	t.Parallel()
 	unsupported := Plan(RequestFacts{EstimatedInputTokens: 5000})
-	if d := findDecision(t, unsupported, Layer3); d.Action != ActionBypass || d.Reason != "provider_cache_unsupported" {
-		t.Fatalf("unsupported L3=%+v", d)
+	if d := findDecision(t, unsupported, Layer2); d.Action != ActionBypass || d.Reason != "provider_cache_unsupported" {
+		t.Fatalf("unsupported L2=%+v", d)
 	}
 	small := Plan(RequestFacts{EstimatedInputTokens: 100, ProviderCacheSupported: true})
-	if d := findDecision(t, small, Layer3); d.Action != ActionBypass || d.Reason != "prefix_too_small" {
-		t.Fatalf("small L3=%+v", d)
+	if d := findDecision(t, small, Layer2); d.Action != ActionBypass || d.Reason != "prefix_too_small" {
+		t.Fatalf("small L2=%+v", d)
 	}
 	codexAccountingOnly := Plan(RequestFacts{Provider: "codex_chatgpt", EstimatedInputTokens: 5000, ProviderCacheSupported: true})
-	if d := findDecision(t, codexAccountingOnly, Layer3); d.Action != ActionBypass || d.Reason != "codex_cache_accounting_only" || d.Confidence != "provider_reported" {
-		t.Fatalf("codex accounting-only L3=%+v", d)
+	if d := findDecision(t, codexAccountingOnly, Layer2); d.Action != ActionBypass || d.Reason != "codex_cache_accounting_only" || d.Confidence != "provider_reported" {
+		t.Fatalf("codex accounting-only L2=%+v", d)
 	}
 	cache := Plan(RequestFacts{EstimatedInputTokens: 5000, ProviderCacheSupported: true})
-	if d := findDecision(t, cache, Layer3); d.Action != ActionRun || d.Reason != "stable_prefix_cache_hint" || d.Confidence != "provider_reported" {
-		t.Fatalf("cache L3=%+v", d)
+	if d := findDecision(t, cache, Layer2); d.Action != ActionRun || d.Reason != "stable_prefix_cache_hint" || d.Confidence != "provider_reported" {
+		t.Fatalf("cache L2=%+v", d)
 	}
 	prev := Plan(RequestFacts{Provider: "codex_chatgpt", EstimatedInputTokens: 100, ProviderCacheSupported: true, PreviousResponseIDAvailable: true})
-	if d := findDecision(t, prev, Layer3); d.Action != ActionRun || d.Reason != "previous_response_state_available" {
-		t.Fatalf("prev L3=%+v", d)
+	if d := findDecision(t, prev, Layer2); d.Action != ActionRun || d.Reason != "previous_response_state_available" {
+		t.Fatalf("prev L2=%+v", d)
 	}
 }
 
-func TestPlan_CodexWSSL3AndWSSRemainProofGatedCandidates(t *testing.T) {
+func TestPlan_CodexWSSL2AndWSSRemainProofGatedCandidates(t *testing.T) {
 	t.Parallel()
 	plan := Plan(RequestFacts{
 		Provider:                    "codex_chatgpt",
@@ -108,8 +108,8 @@ func TestPlan_CodexWSSL3AndWSSRemainProofGatedCandidates(t *testing.T) {
 		PreviousResponseIDAvailable: true,
 		LiveCorpusConfidence:        "high",
 	})
-	if d := findDecision(t, plan, Layer3); d.Action != ActionShadow || d.Reason != "codex_wss_l3_requires_fixture_live_proof" || d.Risk != "medium" {
-		t.Fatalf("Codex WSS L3 must stay a shadow candidate before fixture+live proof: %+v", d)
+	if d := findDecision(t, plan, Layer2); d.Action != ActionShadow || d.Reason != "codex_wss_l2_requires_fixture_live_proof" || d.Risk != "medium" {
+		t.Fatalf("Codex WSS L2 must stay a shadow candidate before fixture+live proof: %+v", d)
 	}
 	if plan.SafetyBlocked {
 		t.Fatalf("proof-gated candidates should not hard-block the route: %+v", plan.Decisions)
@@ -121,8 +121,8 @@ func TestPlan_CodexWSSL3AndWSSRemainProofGatedCandidates(t *testing.T) {
 		EstimatedInputTokens:   100,
 		ProviderCacheSupported: true,
 	})
-	if d := findDecision(t, firstTurn, Layer3); d.Action != ActionBypass || d.Reason != "codex_cache_accounting_only" {
-		t.Fatalf("first-turn Codex WSS L3 should remain accounting-only, got %+v", d)
+	if d := findDecision(t, firstTurn, Layer2); d.Action != ActionBypass || d.Reason != "codex_cache_accounting_only" {
+		t.Fatalf("first-turn Codex WSS L2 should remain accounting-only, got %+v", d)
 	}
 }
 

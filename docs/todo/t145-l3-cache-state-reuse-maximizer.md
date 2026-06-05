@@ -1,4 +1,4 @@
-# TASK 145: Layer 3 provider-cache and state-reuse maximizer
+# TASK 145: Layer 2 provider-cache and state-reuse maximizer
 
 Status: IN PROGRESS (local/provable slices landed; live proof pending)
 Priority: P0
@@ -6,13 +6,13 @@ Scope: `internal/caching/`, `internal/proxy/handler.go`, `internal/proxy/streami
 
 ## Why
 
-Layer 3 is not only telemetry. It is the place where provider-native reuse can eliminate billing for stable prefixes without changing content. The current implementation parses provider cached-token usage and has safe local prompt-cache hints, but it does not yet act like an aggressive cache planner across Codex/OpenAI/Anthropic request shapes.
+Layer 2 cache is not only telemetry. It is the place where provider-native reuse can eliminate billing for stable prefixes without changing content. The current implementation parses provider cached-token usage and has safe local prompt-cache hints, but it does not yet act like an aggressive cache planner across Codex/OpenAI/Anthropic request shapes.
 
 This task maximizes provider-supported reuse while keeping savings claims honest: only provider-reported `cached_tokens` / cache read/create fields count as billing savings.
 
 ## Target State
 
-Layer 3 becomes a provider-capability optimizer:
+Layer 2 cache becomes a provider-capability optimizer:
 
 1. Detect stable prefixes.
 2. Place provider cache hints/breakpoints where they are most likely to hit.

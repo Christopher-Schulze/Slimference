@@ -27,7 +27,7 @@ func TestServeHTTP_tokenizerSelfCalibrates(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 
@@ -64,7 +64,7 @@ func TestServeHTTP_stageACacheHitSkipsCompressionPipeline(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = true
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)

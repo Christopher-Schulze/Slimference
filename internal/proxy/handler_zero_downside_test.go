@@ -31,7 +31,7 @@ func TestServeHTTP_zeroDownsideRevertsBeforeForwarding(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)

@@ -7,7 +7,7 @@ type Layer string
 const (
 	Layer0         Layer = "l0"
 	Layer1         Layer = "l1"
-	Layer3         Layer = "l3"
+	Layer2         Layer = "l2"
 	Layer4         Layer = "l4_output"
 	LayerWebSocket Layer = "websocket"
 )
@@ -71,7 +71,7 @@ func Plan(facts RequestFacts) CompressionPlan {
 	plan.Decisions = append(plan.Decisions,
 		decideL0(normalized),
 		decideL1(normalized),
-		decideL3(normalized),
+		decideL2(normalized),
 		decideL4(normalized),
 		decideWebSocket(normalized),
 	)
@@ -122,27 +122,27 @@ func decideL1(f RequestFacts) LayerDecision {
 	return decision(Layer1, ActionCheapOnly, "cheap_passes_only", f.EstimatedInputTokens/25, "low", "high")
 }
 
-func decideL3(f RequestFacts) LayerDecision {
-	if disabled(f, Layer3) {
-		return decision(Layer3, ActionBypass, "operator_disabled", 0, "none", "high")
+func decideL2(f RequestFacts) LayerDecision {
+	if disabled(f, Layer2) {
+		return decision(Layer2, ActionBypass, "operator_disabled", 0, "none", "high")
 	}
 	if !f.ProviderCacheSupported {
-		return decision(Layer3, ActionBypass, "provider_cache_unsupported", 0, "none", "high")
+		return decision(Layer2, ActionBypass, "provider_cache_unsupported", 0, "none", "high")
 	}
 	if isCodexWebSocketRoute(f) && (f.PreviousResponseIDAvailable || f.EstimatedInputTokens >= 1000) {
-		return decision(Layer3, ActionShadow, "codex_wss_l3_requires_fixture_live_proof", f.EstimatedInputTokens/2, "medium", "provider_reported")
+		return decision(Layer2, ActionShadow, "codex_wss_l2_requires_fixture_live_proof", f.EstimatedInputTokens/2, "medium", "provider_reported")
 	}
 	if isCodexChatGPT(f) && !f.PreviousResponseIDAvailable {
-		return decision(Layer3, ActionBypass, "codex_cache_accounting_only", 0, "none", "provider_reported")
+		return decision(Layer2, ActionBypass, "codex_cache_accounting_only", 0, "none", "provider_reported")
 	}
 	if f.EstimatedInputTokens < 1000 && !f.PreviousResponseIDAvailable {
-		return decision(Layer3, ActionBypass, "prefix_too_small", 0, "none", "high")
+		return decision(Layer2, ActionBypass, "prefix_too_small", 0, "none", "high")
 	}
 	reason := "stable_prefix_cache_hint"
 	if f.PreviousResponseIDAvailable {
 		reason = "previous_response_state_available"
 	}
-	return decision(Layer3, ActionRun, reason, f.EstimatedInputTokens/2, "low", "provider_reported")
+	return decision(Layer2, ActionRun, reason, f.EstimatedInputTokens/2, "low", "provider_reported")
 }
 
 func decideL4(f RequestFacts) LayerDecision {

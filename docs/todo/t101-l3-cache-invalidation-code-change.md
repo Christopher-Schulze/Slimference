@@ -1,4 +1,4 @@
-# TASK 101: Layer 3 cache invalidation on code change
+# TASK 101: Layer 2 cache invalidation on code change
 
 Status: closed - already implemented via ExtractDependencyPaths + fileWatcher
 Priority: P2

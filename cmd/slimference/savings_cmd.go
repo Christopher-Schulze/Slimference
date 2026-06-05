@@ -24,7 +24,7 @@ type savingsFlags struct {
 }
 
 // SavingsSummary collapses Layer 0 filter, Layer 1+2 proxy compression,
-// and Layer 3 cache savings into a single canonical view. Returned by
+// and Layer 2 cache savings into a single canonical view. Returned by
 // `slimference savings <period>` and surfaced via /admin if needed.
 type SavingsSummary struct {
 	Period                           string                    `json:"period"`
@@ -435,7 +435,7 @@ func formatSavingsText(s SavingsSummary) string {
 			))
 		}
 	}
-	sb.WriteString(fmt.Sprintf("Layer 3 cache hits:         %d\n", s.CacheHits))
+	sb.WriteString(fmt.Sprintf("Layer 2 cache hits:         %d\n", s.CacheHits))
 	sb.WriteString(strings.Repeat("-", 60) + "\n")
 	sb.WriteString(fmt.Sprintf("Total tokens saved:         %s\n", formatInt64Plain(s.TotalSavedTokens)))
 	if s.NetBillableEquivalentTokens != s.TotalSavedTokens {

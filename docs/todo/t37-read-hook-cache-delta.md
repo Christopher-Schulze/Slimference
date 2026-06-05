@@ -24,7 +24,7 @@ This is not currently covered by Slimference's existing:
 
 - Layer 1 deterministic compression
 - Layer 2 summarization
-- Layer 3 response cache
+- Layer 2 response/provider cache
 
 So this feature is additive, not duplicate.
 

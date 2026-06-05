@@ -26,7 +26,7 @@ A small, scrubbed Codex evidence corpus exists and can be re-run locally:
   - Layer 0 hooks
   - Layer 1 deterministic compression
   - Layer 2 summary
-  - Layer 3 cache
+  - Layer 2 cache
   - read cache / tool archive where applicable
 - Docs state conservative, normal, and best-case Codex savings from corpus data,
   not intuition.

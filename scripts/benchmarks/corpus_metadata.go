@@ -51,7 +51,8 @@ type RegressionGate struct {
 	MinSavingsRatio float64        `json:"min_savings_ratio"`
 	MinLayer0Saved  int64          `json:"min_layer0_saved"`
 	MinLayer1Saved  int64          `json:"min_layer1_saved"`
-	MinLayer3Saved  int64          `json:"min_layer3_saved"`
+	MinLayer2Saved  int64          `json:"min_layer2_saved"`
+	MinLayer3Saved  int64          `json:"min_layer3_saved,omitempty"`
 	Providers       map[string]int `json:"providers"`
 	Routes          map[string]int `json:"routes"`
 }
@@ -71,6 +72,9 @@ func LoadCorpusMetadata(dir string) (*CorpusMetadata, bool, error) {
 	var meta CorpusMetadata
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, false, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if meta.RegressionGate != nil && meta.RegressionGate.MinLayer2Saved == 0 {
+		meta.RegressionGate.MinLayer2Saved = meta.RegressionGate.MinLayer3Saved
 	}
 	return &meta, true, nil
 }
@@ -119,7 +123,7 @@ func FormatCorpusMetadata(meta *CorpusMetadata) string {
 			if len(sf.LayersEnabled) > 0 {
 				layerStrs := make([]string, len(sf.LayersEnabled))
 				for i, l := range sf.LayersEnabled {
-					layerStrs[i] = fmt.Sprintf("L%d", l)
+					layerStrs[i] = corpusLayerLabel(l)
 				}
 				sb.WriteString(fmt.Sprintf("      layers:        %s\n", strings.Join(layerStrs, ",")))
 			}
@@ -171,7 +175,7 @@ func FormatCorpusMetadataMarkdown(meta *CorpusMetadata) string {
 		for _, sf := range meta.SessionFixtures {
 			layerStrs := make([]string, len(sf.LayersEnabled))
 			for i, l := range sf.LayersEnabled {
-				layerStrs[i] = fmt.Sprintf("L%d", l)
+				layerStrs[i] = corpusLayerLabel(l)
 			}
 			sb.WriteString(fmt.Sprintf(
 				"| %s | %s | %s | %s | %d |\n",
@@ -196,6 +200,13 @@ func FormatCorpusMetadataMarkdown(meta *CorpusMetadata) string {
 	}
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+func corpusLayerLabel(layer int) string {
+	if layer == 3 {
+		return "L2"
+	}
+	return fmt.Sprintf("L%d", layer)
 }
 
 func strOrDash(value string) string {
@@ -231,8 +242,8 @@ func EvaluateRegressionGate(agg *sessionReportAggregate, gate *RegressionGate) [
 	if gate.MinLayer1Saved > 0 && agg.layer1Saved < gate.MinLayer1Saved {
 		failures = append(failures, fmt.Sprintf("layer1_saved=%d < min=%d", agg.layer1Saved, gate.MinLayer1Saved))
 	}
-	if gate.MinLayer3Saved > 0 && agg.layer3Saved < gate.MinLayer3Saved {
-		failures = append(failures, fmt.Sprintf("layer3_saved=%d < min=%d", agg.layer3Saved, gate.MinLayer3Saved))
+	if gate.MinLayer2Saved > 0 && agg.layer2Saved < gate.MinLayer2Saved {
+		failures = append(failures, fmt.Sprintf("layer2_saved=%d < min=%d", agg.layer2Saved, gate.MinLayer2Saved))
 	}
 	if len(gate.Providers) > 0 {
 		keys := make([]string, 0, len(gate.Providers))

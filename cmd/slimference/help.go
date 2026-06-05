@@ -57,7 +57,7 @@ GLOBAL FLAGS:
   --no-tui / --headless   Run proxy foreground, no BubbleTea UI
   --port <n>              Override listen port (default 8990)
   --no-layer1             Disable Layer 1 deterministic compression
-  --no-layer3             Disable Layer 3 response cache
+  --no-layer2             Disable Layer 2 response cache
   --sliding-window <n>    Override Layer 1 sliding window size
   --log-level <lvl>       debug | info | warn | error
   --help, -h, help        Show this help
@@ -211,7 +211,7 @@ machine-readable output. Optional $/M-token rate in config multiplies savings.
 		return `slimference savings [today|week|month|all] [--json|--csv] [--project <p>]
 
 Unified savings view (T80) collapsing Layer-0 filter.db, proxy-side
-compression analytics, and Layer-3 cache hits into one canonical
+compression analytics, and Layer-2 cache hits into one canonical
 report in tokens and (when configured) USD/EUR.
 `
 	case "compress-preview":

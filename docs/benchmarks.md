@@ -24,7 +24,7 @@ Expected report dimensions:
 | Saved tokens | `original - final` |
 | Layer 0 saved | Tool-output / Codex reducer savings |
 | Layer 1 saved | Deterministic compression savings |
-| Layer 3 saved | Response/cache savings where applicable |
+| Layer 2 saved | Response/cache savings where applicable |
 | Output reduce | Provider-output / directive accounting |
 | Cache hits | Local response-cache hits |
 
@@ -65,7 +65,7 @@ The gate reports and can enforce evidence level, input-layer savings,
 output-wire savings, provider-cache read/create/cached tokens, output-reduce
 hits, error count, latency p95, host-resource status, and planner replay
 consistency. It also emits an observed layer-combination matrix such as
-`L0+L1`, `L0+L1+L3`, `L4`, `WS`, and `none`.
+`L0+L1`, `L0+L1+L2`, `L4`, `WS`, and `none`.
 
 ## Scope and Limits
 

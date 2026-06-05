@@ -1,4 +1,4 @@
-# TASK 102: Layer 3 cache TTL / aging policy
+# TASK 102: Layer 2 cache TTL / aging policy
 
 Status: completed (existing TTL implements aging; histogram surface added)
 Priority: P2

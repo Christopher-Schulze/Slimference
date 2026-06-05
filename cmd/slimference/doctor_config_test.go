@@ -33,7 +33,7 @@ func TestHandleSubcommand_doctor_smoke(t *testing.T) {
 	cfgPath := filepath.Join(cfgDir, "doctor.toml")
 	cfgContent := `[compression]
 layer1_enabled = true
-layer3_enabled = true
+layer2_enabled = true
 `
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
 		t.Fatal(err)

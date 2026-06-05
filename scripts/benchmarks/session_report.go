@@ -31,7 +31,7 @@ type sessionReportAggregate struct {
 	savedTokens               int64
 	layer0Saved               int64
 	layer1Saved               int64
-	layer3Saved               int64
+	layer2Saved               int64
 	cacheHits                 int
 	perSubLayer               map[string]int64 // tokens saved by sub-layer name
 	perProvider               map[string]int
@@ -114,7 +114,7 @@ func AggregateSessions(rd io.Reader, errOut io.Writer) (*sessionReportAggregate,
 		agg.savedTokens += int64(rec.Tokens.Saved)
 		agg.layer0Saved += positiveDelta(rec.Tokens.Original, rec.Tokens.AfterLayer0)
 		agg.layer1Saved += positiveDelta(rec.Tokens.AfterLayer0, rec.Tokens.AfterLayer1)
-		agg.layer3Saved += int64(rec.CacheReadTokens + rec.ProviderCachedTokens)
+		agg.layer2Saved += int64(rec.CacheReadTokens + rec.ProviderCachedTokens)
 		if rec.CacheHit {
 			agg.cacheHits++
 		}
@@ -256,7 +256,7 @@ func mergeSessionReportAggregate(dst, src *sessionReportAggregate) {
 	dst.savedTokens += src.savedTokens
 	dst.layer0Saved += src.layer0Saved
 	dst.layer1Saved += src.layer1Saved
-	dst.layer3Saved += src.layer3Saved
+	dst.layer2Saved += src.layer2Saved
 	dst.cacheHits += src.cacheHits
 	dst.cacheReadSum += src.cacheReadSum
 	dst.cacheCreateSum += src.cacheCreateSum
@@ -307,7 +307,7 @@ func layerCombinationKey(rec dbg.RequestSummary) string {
 		case "l1":
 			labels = append(labels, "L1")
 		case "l3":
-			labels = append(labels, "L3")
+			labels = append(labels, "L2")
 		case "l4_output":
 			labels = append(labels, "L4")
 		case "websocket":
@@ -373,7 +373,7 @@ func actualLayerActive(rec dbg.RequestSummary, layer string) bool {
 	case "l1":
 		return hasAppliedLayer(rec.LayersApplied, 1) || positiveDelta(rec.Tokens.AfterLayer0, rec.Tokens.AfterLayer1) > 0
 	case "l3":
-		return hasAppliedLayer(rec.LayersApplied, 3) || rec.CacheHit || rec.CacheReadTokens > 0 || rec.CacheCreateTokens > 0 || rec.ProviderCachedTokens > 0 || rec.PreviousResponseIDUsed
+		return hasAppliedLayer(rec.LayersApplied, 2) || hasAppliedLayer(rec.LayersApplied, 3) || rec.CacheHit || rec.CacheReadTokens > 0 || rec.CacheCreateTokens > 0 || rec.ProviderCachedTokens > 0 || rec.PreviousResponseIDUsed
 	case "l4_output":
 		return rec.OutputReduce.Applied
 	case "websocket":
@@ -516,7 +516,7 @@ func FormatSessionReport(agg *sessionReportAggregate) string {
 	sb.WriteString(fmt.Sprintf("Savings ratio:      %.2f%%\n", ratio*100))
 	sb.WriteString(fmt.Sprintf("Layer 0 saved:      %d\n", agg.layer0Saved))
 	sb.WriteString(fmt.Sprintf("Layer 1 saved:      %d\n", agg.layer1Saved))
-	sb.WriteString(fmt.Sprintf("Layer 3 saved:      %d\n", agg.layer3Saved))
+	sb.WriteString(fmt.Sprintf("Layer 2 saved:      %d\n", agg.layer2Saved))
 	sb.WriteString(fmt.Sprintf("Cache hit rate:     %.2f%% (%d / %d)\n", cacheHitRate*100, agg.cacheHits, agg.requests))
 	if agg.cacheReadSum > 0 || agg.cacheCreateSum > 0 {
 		sb.WriteString(fmt.Sprintf("Prompt cache read:  %d\n", agg.cacheReadSum))
@@ -609,7 +609,7 @@ func FormatSessionMarkdown(agg *sessionReportAggregate) string {
 	sb.WriteString(fmt.Sprintf("| Savings ratio | %.2f%% |\n", ratio*100))
 	sb.WriteString(fmt.Sprintf("| Layer 0 saved | %d |\n", agg.layer0Saved))
 	sb.WriteString(fmt.Sprintf("| Layer 1 saved | %d |\n", agg.layer1Saved))
-	sb.WriteString(fmt.Sprintf("| Layer 3 saved | %d |\n", agg.layer3Saved))
+	sb.WriteString(fmt.Sprintf("| Layer 2 saved | %d |\n", agg.layer2Saved))
 	sb.WriteString(fmt.Sprintf("| Cache hits | %d |\n", agg.cacheHits))
 	if agg.cacheReadSum > 0 || agg.cacheCreateSum > 0 {
 		sb.WriteString(fmt.Sprintf("| Prompt cache read tokens | %d |\n", agg.cacheReadSum))

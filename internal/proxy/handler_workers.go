@@ -55,7 +55,7 @@ func (p *Proxy) healthHandler(w http.ResponseWriter, _ *http.Request) {
 		StateBytes:        stateBytes,
 		Layers: map[string]bool{
 			"1": p.isLayerEnabled(1),
-			"3": p.isLayerEnabled(3),
+			"2": p.isLayerEnabled(2),
 		},
 		Providers: map[string]bool{
 			"anthropic": p.isProviderEnabled(types.Anthropic),

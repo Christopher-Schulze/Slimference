@@ -450,7 +450,7 @@ func runTUIAfterStart(p tui.ProxyInterface) {
 //	--port <n>             Listen port override
 //	--sliding-window <n>   Layer 1 sliding window size
 //	--no-layer1            Disable Layer 1 (deterministic compression)
-//	--no-layer3            Disable Layer 3 (response caching)
+//	--no-layer2            Disable Layer 2 (response caching)
 //	--log-level <level>    Log level: debug, info, warn, error
 func applyTUIFlags(cfg *config.Config, args []string) {
 	for i := 0; i < len(args); i++ {
@@ -477,8 +477,8 @@ func applyTUIFlags(cfg *config.Config, args []string) {
 			}
 		case "--no-layer1":
 			cfg.Compression.Layer1Enabled = false
-		case "--no-layer3":
-			cfg.Compression.Layer3Enabled = false
+		case "--no-layer2":
+			cfg.Compression.Layer2Enabled = false
 		case "--log-level":
 			if v, ok := nextArg(); ok {
 				cfg.Logging.Level = v
@@ -4048,7 +4048,7 @@ func applyPersistedRuntimeState(p *proxy.Proxy) {
 	p.SetProviderEnabled(types.Anthropic, state.ClaudeEnabled)
 	p.SetProviderEnabled(types.OpenAI, state.CodexEnabled)
 	p.SetLayerEnabled(1, state.Layer1Enabled)
-	p.SetLayerEnabled(3, state.Layer3Enabled)
+	p.SetLayerEnabled(2, state.Layer2Enabled)
 }
 
 func handleDaemonCmd(args []string) {

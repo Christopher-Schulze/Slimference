@@ -68,7 +68,7 @@ Per-provider tuning: the directive is rewritten at compile time for each provide
 
 ### WP2 - Inbound injection
 
-- [x] `internal/proxy/handler.go` calls `outputreduce.InjectBody` after input compression/tool pruning and before Layer 3 cache lookup.
+- [x] `internal/proxy/handler.go` calls `outputreduce.InjectBody` after input compression/tool pruning and before Layer 2 cache lookup.
 - [x] Injection is idempotent via the configured signature marker.
 - [x] Total bytes added are capped by `max_added_bytes`.
 - [x] Small requests are skipped by `min_input_tokens` to avoid negative net economics.

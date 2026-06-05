@@ -28,7 +28,7 @@ type Analytics struct {
 	SavedInputTokens  int // total original - total compressed
 
 	Layer1Savings int
-	Layer3Savings int
+	Layer2Savings int
 
 	CacheHits   int
 	CacheMisses int
@@ -82,8 +82,8 @@ func (a *Analytics) Record(event types.AnalyticsEvent) {
 			switch layer {
 			case 1:
 				a.Layer1Savings += saved
-			case 3:
-				a.Layer3Savings += saved
+			case 2, 3:
+				a.Layer2Savings += saved
 			}
 		}
 		if event.CacheHit {
@@ -218,7 +218,7 @@ func (a *Analytics) Snapshot() AnalyticsSnapshot {
 		TotalOutputTokens:       a.TotalOutputTokens,
 		SavedInputTokens:        a.SavedInputTokens,
 		Layer1Savings:           a.Layer1Savings,
-		Layer3Savings:           a.Layer3Savings,
+		Layer2Savings:           a.Layer2Savings,
 		CacheHits:               a.CacheHits,
 		CacheMisses:             a.CacheMisses,
 		PromptCacheReadTokens:   a.PromptCacheReadTokens,
@@ -286,7 +286,7 @@ type AnalyticsSnapshot struct {
 	SavedInputTokens  int `json:"saved_input_tokens"`
 
 	Layer1Savings int `json:"layer1_savings"`
-	Layer3Savings int `json:"layer3_savings"`
+	Layer2Savings int `json:"layer2_savings"`
 
 	CacheHits   int `json:"cache_hits"`
 	CacheMisses int `json:"cache_misses"`

@@ -26,7 +26,7 @@ func TestServeHTTP_OutputReduceInjectsBeforeUpstream(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = true
 	cfg.Compression.OutputReduce.MinInputTokens = 1
 	cfg.Secrets.Mode = "off"
@@ -66,7 +66,7 @@ func TestServeHTTP_OutputReduceSkipsBelowMinTokens(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = true
 	cfg.Compression.OutputReduce.MinInputTokens = 10_000
 	cfg.Secrets.Mode = "off"
@@ -108,7 +108,7 @@ func TestServeHTTP_NonStreamingOpenAIUsageOverridesEstimatedOutputTokens(t *test
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = false
 	cfg.Secrets.Mode = "off"
 
@@ -143,7 +143,7 @@ func TestServeHTTP_OutputReduceInjectionErrorFallsBackToOriginal(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = true
 	cfg.Compression.OutputReduce.MinInputTokens = 1
 	cfg.Compression.OutputReduce.CustomDirectivePath = "/definitely/missing/slimference-output-rules.md"
@@ -184,7 +184,7 @@ func TestServeHTTP_OutputReduceCooldownFeedsPlannerAndSoftensProfile(t *testing.
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = true
 	cfg.Compression.OutputReduce.Profile = string(outputreduce.ProfileAggressive)
 	cfg.Compression.OutputReduce.MinInputTokens = 1
@@ -246,7 +246,7 @@ func TestServeHTTP_OutputReduceRepairFollowupImmediatelySoftensNextBucket(t *tes
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = true
 	cfg.Compression.OutputReduce.Profile = string(outputreduce.ProfileAggressive)
 	cfg.Compression.OutputReduce.MinInputTokens = 1
@@ -316,7 +316,7 @@ func TestServeHTTP_OutputReduceRepairFollowupBreadthSignals(t *testing.T) {
 			cfg := config.Defaults()
 			cfg.Upstream.Anthropic.BaseURL = upstream.URL
 			cfg.Compression.Layer1Enabled = false
-			cfg.Compression.Layer3Enabled = false
+			cfg.Compression.Layer2Enabled = false
 			cfg.Compression.OutputReduce.Enabled = true
 			cfg.Compression.OutputReduce.Profile = string(outputreduce.ProfileAggressive)
 			cfg.Compression.OutputReduce.MinInputTokens = 1
@@ -388,7 +388,7 @@ func TestServeHTTP_OutputReduceCapsAggressiveCodeEditProfile(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.OutputReduce.Enabled = true
 	cfg.Compression.OutputReduce.Profile = string(outputreduce.ProfileAggressive)
 	cfg.Compression.OutputReduce.MinInputTokens = 1

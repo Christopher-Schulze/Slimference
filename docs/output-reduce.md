@@ -15,7 +15,7 @@ It never edits provider responses after generation.
   is pure input overhead.
 - Idempotent via `signature_marker`; if the marker is already present in the
   request body, Slimference does not inject again.
-- Runs after input compression and tool pruning, before Layer 3 cache lookup
+- Runs after input compression and tool pruning, before Layer 2 cache lookup
   and before the upstream request. Cache keys therefore include the injected
   prompt when injection is active.
 - Provider profiles:

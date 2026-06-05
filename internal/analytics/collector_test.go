@@ -152,8 +152,8 @@ func TestAnalytics_Record_layerSavingsAndOpenAILatency(t *testing.T) {
 	a := NewAnalytics()
 	ev := makeRequestEvent(types.Anthropic, "m", 1000, 500, 100, false, 50, []int{1, 3})
 	a.Record(ev)
-	if a.Layer1Savings == 0 || a.Layer3Savings == 0 {
-		t.Fatalf("layer savings: L1=%d L3=%d", a.Layer1Savings, a.Layer3Savings)
+	if a.Layer1Savings == 0 || a.Layer2Savings == 0 {
+		t.Fatalf("layer savings: L1=%d L2=%d", a.Layer1Savings, a.Layer2Savings)
 	}
 	a2 := NewAnalytics()
 	a2.Record(makeRequestEvent(types.OpenAI, "gpt", 200, 180, 20, false, 33, nil))

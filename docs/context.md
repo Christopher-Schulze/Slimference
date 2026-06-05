@@ -3,16 +3,17 @@
 Date: 2026-06-05
 
 This file is a short orientation note. The old v2.0 remediation worklog has
-been superseded by the current Layer 2 removal pass.
+been superseded by the current safe-layer/product-proof pass.
 
 ## Current Product Shape
 
 - Layer 0: pre-entry / Codex WSS tool-output reduction.
 - Layer 1: deterministic compression.
-- Layer 3: response and provider-cache leverage.
+- Layer 2: response and provider-cache leverage.
 - Layer 4: output and tool-surface reduction.
-- Layer 2: removed. No MiniMax, no external summarizer, no local summarizer, no
-  OCRL/context-ledger insertion, no Layer 2 CLI/config surface.
+- Old semantic context replacement: removed. No MiniMax, no external
+  summarizer, no local summarizer, no OCRL/context-ledger insertion, and no
+  semantic-summary CLI/config surface.
 
 ## Current Proof Rule
 

@@ -590,7 +590,6 @@ func TestDefaultTOML(t *testing.T) {
 		t.Error("DefaultTOML() should contain listen_port")
 	}
 	for _, obsolete := range []string{
-		"layer" + "2",
 		"min_tokens_for_" + "layer" + "2",
 		"[compression." + "summary]",
 		"[compression." + "mini" + "max]",

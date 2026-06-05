@@ -1,11 +1,16 @@
-# TASK 279: Remove retired Layer 2
+# TASK 279: Remove retired semantic Layer 2
+
+Historical numbering note: this task removed the old semantic Layer 2
+summary/OCRL/context-replacement path. Current product Layer 2 is the
+response/provider cache layer.
 
 ## Why
 
-Layer 2 summary/context replacement cannot satisfy Slimference's zero-drawdown
+Semantic summary/context replacement cannot satisfy Slimference's zero-drawdown
 product rule. Any semantic summary or capsule replacement can hide details the
-model later needs. The correct product direction is to remove Layer 2 entirely
-and keep savings on deterministic, recoverable, fail-open mechanisms.
+model later needs. The correct product direction was to remove that semantic
+path entirely and keep savings on deterministic, recoverable, fail-open
+mechanisms.
 
 ## Acceptance
 
@@ -13,10 +18,10 @@ and keep savings on deterministic, recoverable, fail-open mechanisms.
   `internal/summarization`, `internal/contextledger`, MiniMax, OCRL, Layer2
   runtime status, Layer2 commands, summary queues, summary configs, or
   `after_layer2` accounting.
-- Current product docs describe only Layer 0, Layer 1, Layer 3, and Layer 4 as
-  active layers.
-- Historical docs that remain linked clearly state that Layer 2 is retired and
-  do not instruct operators to enable it.
+- Current product docs describe only Layer 0, Layer 1, Layer 2 cache, and Layer
+  4 as active layers.
+- Historical docs that remain linked clearly state that semantic Layer 2 was
+  retired and do not instruct operators to enable summarization/OCRL.
 - `go test ./...` passes.
 - `go run ./scripts/ci` passes.
 - Final audit proves no stale active Layer 2 surface remains.
@@ -34,7 +39,8 @@ and keep savings on deterministic, recoverable, fail-open mechanisms.
 
 ## Notes
 
-- Layer 2 may be mentioned only as a retired/removed mechanism in current docs.
+- Semantic Layer 2 may be mentioned only as a retired/removed mechanism in
+  current docs; current Layer 2 means response/provider cache.
 - Do not replace it with a new summary layer unless the replacement can prove no
   model-quality drawdown.
 - `go test ./...` passed.

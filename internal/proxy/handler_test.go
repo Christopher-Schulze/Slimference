@@ -130,8 +130,8 @@ func TestHealthHandler(t *testing.T) {
 			body.CPUWindowPercent, body.CPUWindowSeconds, body.DiskReadOps, body.DiskWriteOps, body.DiskReadOpsDelta,
 			body.DiskWriteOpsDelta, body.StateBytes)
 	}
-	if !body.Layers["1"] || !body.Layers["3"] {
-		t.Errorf("layers = %v, want L1=true L3=true", body.Layers)
+	if !body.Layers["1"] || !body.Layers["2"] {
+		t.Errorf("layers = %v, want L1=true L2=true", body.Layers)
 	}
 	// Both providers should be enabled.
 	if !body.Providers["anthropic"] || !body.Providers["openai"] {
@@ -228,7 +228,7 @@ func TestHandleCompressibleRequest_origTokensZero(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 
@@ -287,7 +287,7 @@ func TestProxy_Shutdown_serverShutdownError(t *testing.T) {
 	cfg.Proxy.ListenPort = 0
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -643,7 +643,7 @@ func TestHandleCompressibleRequest_ToolPruneEnabled(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
@@ -686,7 +686,7 @@ func TestHandleCompressibleRequest_ToolPrunePrunesIdle(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
@@ -745,7 +745,7 @@ func TestHandleCompressibleRequest_ToolPruneUnknownSchemaFullPasses(t *testing.T
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
@@ -793,7 +793,7 @@ func TestHandleCompressibleRequest_T103b_ReattachOnMention(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
@@ -849,7 +849,7 @@ func TestHandleCompressibleRequest_ToolPruneReattachUnknownSchemaFullPassesAndKe
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
@@ -910,7 +910,7 @@ func TestHandleCompressibleRequest_ToolPruneAlwaysKeepsCoreTools(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
@@ -983,7 +983,7 @@ func TestHandleCompressibleRequest_ToolPruneMissingToolRetryDisablesSession(t *t
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.Tuning.ToolPruneEnabled = true
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)

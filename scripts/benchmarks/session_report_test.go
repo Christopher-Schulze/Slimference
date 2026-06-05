@@ -46,7 +46,7 @@ func TestAggregateSessions_HappyPath(t *testing.T) {
 	if agg.perProvider["anthropic"] != 1 || agg.perProvider["openai"] != 1 {
 		t.Fatalf("perProvider: %+v", agg.perProvider)
 	}
-	if agg.layerCombinations["L1"].Requests != 1 || agg.layerCombinations["L3"].Requests != 1 {
+	if agg.layerCombinations["L1"].Requests != 1 || agg.layerCombinations["L2"].Requests != 1 {
 		t.Fatalf("layer combinations: %+v", agg.layerCombinations)
 	}
 }
@@ -57,8 +57,8 @@ func TestAggregateSessions_CodexFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agg.layer0Saved != 200 || agg.layer1Saved != 600 || agg.layer3Saved != 300 {
-		t.Fatalf("layers: l0=%d l1=%d l3=%d", agg.layer0Saved, agg.layer1Saved, agg.layer3Saved)
+	if agg.layer0Saved != 200 || agg.layer1Saved != 600 || agg.layer2Saved != 300 {
+		t.Fatalf("layers: l0=%d l1=%d l3=%d", agg.layer0Saved, agg.layer1Saved, agg.layer2Saved)
 	}
 	if agg.perProvider["codex_chatgpt"] != 1 || agg.perCodexRoute["/v1/responses"] != 1 {
 		t.Fatalf("splits provider=%+v route=%+v", agg.perProvider, agg.perCodexRoute)
@@ -66,7 +66,7 @@ func TestAggregateSessions_CodexFields(t *testing.T) {
 	if agg.cacheReadSum != 300 || agg.cacheCreateSum != 120 {
 		t.Fatalf("prompt cache read=%d create=%d", agg.cacheReadSum, agg.cacheCreateSum)
 	}
-	if combo := agg.layerCombinations["L0+L1+L3"]; combo.Requests != 1 || combo.SavedTokens != 1100 {
+	if combo := agg.layerCombinations["L0+L1+L2"]; combo.Requests != 1 || combo.SavedTokens != 1100 {
 		t.Fatalf("codex layer combination: %+v", agg.layerCombinations)
 	}
 }
@@ -141,7 +141,7 @@ func TestFormatSessionReport_NonEmpty(t *testing.T) {
 	t.Parallel()
 	agg, _ := AggregateSessions(strings.NewReader(sampleJSONL), nil)
 	out := FormatSessionReport(agg)
-	for _, need := range []string{"Requests:", "Original tokens:", "Layer 0 saved:", "Layer 1 saved:", "Layer 3 saved:", "Cache hit rate:", "Layer combination breakdown:", "L1", "anthropic", "openai"} {
+	for _, need := range []string{"Requests:", "Original tokens:", "Layer 0 saved:", "Layer 1 saved:", "Layer 2 saved:", "Cache hit rate:", "Layer combination breakdown:", "L1", "anthropic", "openai"} {
 		if !strings.Contains(out, need) {
 			t.Fatalf("missing %q in report:\n%s", need, out)
 		}
@@ -286,7 +286,7 @@ func TestAggregateSessionsFromPath_CheckedInCodexFixture(t *testing.T) {
 	if agg.perCodexRoute["/v1/responses"] != 1 || agg.perCodexRoute["/backend-api/codex/responses"] != 1 {
 		t.Fatalf("routes=%+v", agg.perCodexRoute)
 	}
-	if agg.layer0Saved == 0 || agg.layer1Saved == 0 || agg.layer3Saved == 0 {
-		t.Fatalf("layers l0=%d l1=%d l3=%d", agg.layer0Saved, agg.layer1Saved, agg.layer3Saved)
+	if agg.layer0Saved == 0 || agg.layer1Saved == 0 || agg.layer2Saved == 0 {
+		t.Fatalf("layers l0=%d l1=%d l3=%d", agg.layer0Saved, agg.layer1Saved, agg.layer2Saved)
 	}
 }

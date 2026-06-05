@@ -79,7 +79,7 @@ func TestFormatLayers(t *testing.T) {
 		{[]int{}, "-"},
 		{[]int{1}, "L1"},
 		{[]int{1, 2}, "L1+L2"},
-		{[]int{1, 2, 3}, "L1+L2+L3"},
+		{[]int{1, 2, 3}, "L1+L2+L2"},
 	}
 	for _, tt := range tests {
 		got := formatLayers(tt.input)

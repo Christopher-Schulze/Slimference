@@ -373,7 +373,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	// response, serve it without running the deterministic compression path.
 	var stageACacheKey [32]byte
 	effectiveRouteKey := p.responseCacheEffectiveRouteKey(r, sessionID)
-	stageAEnabled := p.isLayerEnabled(3) && caching.IsRequestCacheSafeWithRoute(effectiveRouteKey, body)
+	stageAEnabled := p.isLayerEnabled(2) && caching.IsRequestCacheSafeWithRoute(effectiveRouteKey, body)
 	if stageAEnabled {
 		stageACacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, effectiveRouteKey, body, r.Header)
 		if cached, _, ok := p.responseCache.GetByOriginal(stageACacheKey); ok {
@@ -640,9 +640,9 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		promptCacheDecision = decision
 	}
 
-	// --- 8.5 Response cache lookup (Layer 3) ---
+	// --- 8.5 Response cache lookup (Layer 2) ---
 	var cacheKey [32]byte
-	requestCacheSafe := p.isLayerEnabled(3) && caching.IsRequestCacheSafeWithRoute(effectiveRouteKey, newBody)
+	requestCacheSafe := p.isLayerEnabled(2) && caching.IsRequestCacheSafeWithRoute(effectiveRouteKey, newBody)
 	if requestCacheSafe {
 		cacheKey = p.responseCache.ComputeRequestKeyWithRoute(provider, effectiveRouteKey, newBody, r.Header)
 		if cached, ok := p.responseCache.Get(cacheKey); ok {
@@ -655,7 +655,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 			w.WriteHeader(cached.StatusCode)
 			w.Write(cached.Response) //nolint:errcheck
 
-			cacheLayers := append(append([]int{}, appliedLayers...), 3)
+			cacheLayers := append(append([]int{}, appliedLayers...), 2)
 			cacheLatencyMs := float64(time.Since(start).Microseconds()) / 1000.0
 			outputTokens := estimateTokensFromText(string(cached.Response))
 
@@ -985,27 +985,27 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 	proxyLatencyMs := float64(time.Since(latencyStart).Microseconds()) / 1000.0
 	p.pipelineHist.Total.Record(time.Since(start))
 
-	// --- 10. Cache successful response (Layer 3) ---
+	// --- 10. Cache successful response (Layer 2) ---
 	if requestCacheSafe && responseBody != nil && upstreamResp.StatusCode == http.StatusOK {
 		dependencyPaths := caching.ExtractDependencyPaths(body)
 		canCacheResponse := true
 		if len(dependencyPaths) > 0 {
 			if p.fileWatcher == nil {
 				canCacheResponse = false
-				log.Warn("skipping layer3 cache store because dependency invalidation is unavailable",
+				log.Warn("skipping layer2 cache store because dependency invalidation is unavailable",
 					"dependency_paths", len(dependencyPaths))
 			} else {
 				for _, path := range dependencyPaths {
 					if err := p.fileWatcher.Watch(path); err != nil {
 						canCacheResponse = false
-						log.Warn("skipping layer3 cache store because dependency watch failed",
+						log.Warn("skipping layer2 cache store because dependency watch failed",
 							"path", path,
 							"error", err)
 						break
 					}
 					if !p.fileWatcher.IsWatching(path) {
 						canCacheResponse = false
-						log.Warn("skipping layer3 cache store because dependency watch was not armed",
+						log.Warn("skipping layer2 cache store because dependency watch was not armed",
 							"path", path)
 						break
 					}
@@ -1162,7 +1162,7 @@ func (p *Proxy) passthroughWithOptionalRepdet(w http.ResponseWriter, upstreamRes
 }
 
 // serveStageACacheHit writes a cached response for a Stage A hit (pre-compression).
-// The entire compression pipeline is skipped; only Layer 3 is reported as applied.
+// The entire compression pipeline is skipped; only Layer 2 is reported as applied.
 // Spec: T20, double-keyed cache.
 func (p *Proxy) serveStageACacheHit(
 	w http.ResponseWriter,
@@ -1198,7 +1198,7 @@ func (p *Proxy) serveStageACacheHit(
 			TotalMessages:      totalMessages,
 			MessagesInWindow:   aw.Size,
 			MessagesCompressed: 0,
-			LayersApplied:      []int{3},
+			LayersApplied:      []int{2},
 			Tokens: dbg.TokenCounts{
 				Original:    origTokens,
 				AfterLayer1: origTokens,
@@ -1243,7 +1243,7 @@ func (p *Proxy) serveStageACacheHit(
 		InputTokensComp:  origTokens,
 		OutputTokens:     outputTokens,
 		CompressionRatio: 1.0,
-		Layers:           []int{3},
+		Layers:           []int{2},
 		LatencyMs:        latencyMs,
 		CacheHit:         true,
 		TokensSaved:      0,
@@ -1255,7 +1255,7 @@ func (p *Proxy) serveStageACacheHit(
 		"saved", 0,
 		"output", outputTokens,
 		"ratio", "1.00",
-		"layers", []int{3},
+		"layers", []int{2},
 		"cache_hit", true,
 		"cache_stage", "A",
 		"latency_ms", fmt.Sprintf("%.2f", latencyMs),

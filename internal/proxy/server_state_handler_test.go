@@ -32,7 +32,7 @@ func TestServeHTTP_serverStateCaptureAndReuse(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	cfg.Proxy.ServerStateEnabled = true
 
@@ -115,7 +115,7 @@ func TestServeHTTP_serverStateRecoveryOnUnknownPreviousID(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	cfg.Proxy.ServerStateEnabled = true
 
@@ -172,7 +172,7 @@ func TestServeHTTP_serverStateDisabledByDefault(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	// ServerStateEnabled stays false.
 
@@ -217,7 +217,7 @@ func TestServeHTTP_serverStateAnthropicNoRegression(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	cfg.Proxy.ServerStateEnabled = true
 

@@ -171,7 +171,8 @@ type ProviderUpstream struct {
 // CompressionConfig controls the deterministic compression pipeline.
 type CompressionConfig struct {
 	Layer1Enabled             bool               `toml:"layer1_enabled"`
-	Layer3Enabled             bool               `toml:"layer3_enabled"`
+	Layer2Enabled             bool               `toml:"layer2_enabled"`
+	Layer2EnabledLegacy       bool               `toml:"layer3_enabled"`
 	SlidingWindow             int                `toml:"sliding_window"`
 	MinMessagesForCompression int                `toml:"min_messages_for_compression"`
 	StructureMinTokens        int                `toml:"structure_min_tokens"`
@@ -583,9 +584,11 @@ func LoadWithOptions(opts LoadOptions) (*Config, LoadInfo, error) {
 	}
 
 	if info.ResolvedPath != "" {
-		if _, err := toml.DecodeFile(info.ResolvedPath, cfg); err != nil {
+		md, err := toml.DecodeFile(info.ResolvedPath, cfg)
+		if err != nil {
 			return nil, info, fmt.Errorf("parse config %s: %w", info.ResolvedPath, err)
 		}
+		applyConfigAliases(cfg, md)
 	}
 
 	applyEnvOverrides(cfg)
@@ -595,6 +598,12 @@ func LoadWithOptions(opts LoadOptions) (*Config, LoadInfo, error) {
 	}
 
 	return cfg, info, nil
+}
+
+func applyConfigAliases(cfg *Config, md toml.MetaData) {
+	if !md.IsDefined("compression", "layer2_enabled") && md.IsDefined("compression", "layer3_enabled") {
+		cfg.Compression.Layer2Enabled = cfg.Compression.Layer2EnabledLegacy
+	}
 }
 
 // applyEnvOverrides reads SLIMFERENCE_* environment variables and overlays them on cfg.

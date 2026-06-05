@@ -122,7 +122,7 @@ func (m *Model) renderStatsView() string {
 	rows := [][]string{
 		{"Total Input", formatTokens(snap.TotalInputTokens), formatTokens(snap.TotalInputTokens - snap.SavedInputTokens), fmt.Sprintf("%d%%", ratio)},
 		{"Layer 1 (determ)", "-", "-", formatTokens(snap.Layer1Savings)},
-		{"Layer 3 (cache)", "-", "-", formatTokens(snap.Layer3Savings)},
+		{"Layer 2 (cache)", "-", "-", formatTokens(snap.Layer2Savings)},
 		{"Total Output", formatTokens(snap.TotalOutputTokens), "(passthru)", "-"},
 	}
 	appendCard("SAVINGS", []string{renderTable(s, headers, rows, []int{20, 12, 12, 8})})
@@ -1001,7 +1001,7 @@ func (m *Model) buildLeftPanel(width int) []string {
 
 	add(" " + s.PanelTitle.Render("BACKGROUND"))
 	add(renderLayerLine(s, 1, "Deterministic", m.layer1Enabled, snap.Layer1Savings, ""))
-	add(renderLayerLine(s, 3, "Cache", m.layer3Enabled, snap.Layer3Savings, fmt.Sprintf("hits: %d/%d", snap.CacheHits, snap.TotalRequests)))
+	add(renderLayerLine(s, 2, "Cache", m.layer2Enabled, snap.Layer2Savings, fmt.Sprintf("hits: %d/%d", snap.CacheHits, snap.TotalRequests)))
 	add("")
 
 	readCache := m.proxy.GetReadCacheStatus()

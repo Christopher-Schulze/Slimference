@@ -71,7 +71,7 @@ type CategoryResult struct {
 	SavingsRatio                float64                              `json:"savings_ratio"`
 	Layer0Saved                 int64                                `json:"layer0_saved"`
 	Layer1Saved                 int64                                `json:"layer1_saved"`
-	Layer3Saved                 int64                                `json:"layer3_saved"`
+	Layer2Saved                 int64                                `json:"layer2_saved"`
 	OutputTokens                int64                                `json:"output_tokens"`
 	ProviderCacheReadTokens     int64                                `json:"provider_cache_read_tokens"`
 	ProviderCacheCreateTokens   int64                                `json:"provider_cache_create_tokens"`
@@ -224,7 +224,7 @@ func EvaluateCategory(dir string, errOut io.Writer) (CategoryResult, error) {
 		SavingsRatio:                ratio,
 		Layer0Saved:                 agg.layer0Saved,
 		Layer1Saved:                 agg.layer1Saved,
-		Layer3Saved:                 agg.layer3Saved,
+		Layer2Saved:                 agg.layer2Saved,
 		OutputTokens:                agg.outputTokenSum,
 		ProviderCacheReadTokens:     agg.cacheReadSum,
 		ProviderCacheCreateTokens:   agg.cacheCreateSum,
@@ -439,8 +439,8 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 				failures = append(failures, "scenario tool_heavy: expected tool-prune application with saved tokens")
 			}
 		case "cache_reuse":
-			if res.Layer3Saved <= 0 && res.ProviderCacheReadTokens <= 0 && res.ProviderCachedTokens <= 0 {
-				failures = append(failures, "scenario cache_reuse: expected Layer 3 or provider cache evidence")
+			if res.Layer2Saved <= 0 && res.ProviderCacheReadTokens <= 0 && res.ProviderCachedTokens <= 0 {
+				failures = append(failures, "scenario cache_reuse: expected Layer 2 or provider cache evidence")
 			}
 		case "output_reduce":
 			if res.OutputReduceApplied <= 0 {
@@ -770,7 +770,7 @@ func FormatCorpusReport(report CorpusReport) string {
 		} else {
 			sb.WriteString("  ratio:        n/a\n")
 		}
-		sb.WriteString(fmt.Sprintf("  L0/L1/L3:     %d / %d / %d\n", c.Layer0Saved, c.Layer1Saved, c.Layer3Saved))
+		sb.WriteString(fmt.Sprintf("  L0/L1/L2:     %d / %d / %d\n", c.Layer0Saved, c.Layer1Saved, c.Layer2Saved))
 		sb.WriteString(fmt.Sprintf("  output tokens:%d\n", c.OutputTokens))
 		sb.WriteString(fmt.Sprintf("  provider cache read/create/cached: %d / %d / %d\n", c.ProviderCacheReadTokens, c.ProviderCacheCreateTokens, c.ProviderCachedTokens))
 		if c.OutputReduceApplied > 0 || c.OutputReduceInputOverhead > 0 {

@@ -768,8 +768,8 @@ Scope: Claude Code and Codex CLI only (Cursor, Copilot, Gemini CLI = non-goals f
 - `main()` sets `proxy.Version = version` and routes flag args (`--`) to `runTUIFn()` instead
   of `handleSubcommand()`.
 - `applyTUIFlags(cfg, os.Args[1:])` called in `runTUI()` after config load, before logging setup.
-- Supported flags: `--port`/`-port`, `--sliding-window`, `--no-layer1`, `--no-layer2`,
-  `--no-layer3`, `--log-level`.
+- Supported flags at the time: `--port`/`-port`, `--sliding-window`,
+  `--no-layer1`, `--no-layer2`, and `--log-level`.
 - `TestApplyTUIFlags` added with 11 parallel subtests covering all flags, combinations,
   invalid values (zero port, non-numeric port), and unknown flags.
 
@@ -876,7 +876,7 @@ New **Section 17** added to `docs/documentation.md`:
   and prompt cache prefix stability. Table: dedup/MinHash/delta/cache impact with vs without L0.
   Concrete example: 8000-byte go test output vs 26-byte compact version.
 - **17.2 Response Cache Key Stability**: L0 deterministic compact output eliminates timestamp/process-ID
-  variance, increasing L3 cache hit rate from ~5% to 30-40%.
+  variance, increasing the cache-layer hit rate from ~5% to 30-40%.
 - **17.3 MiniMax Input Reduction**: L0-filtered messages reduce MiniMax summarization input 5-10x,
   lowering cost, latency, and improving summary quality.
 - **17.4 Prompt Cache Prefix Extension**: Stable compact tool_results extend Anthropic prompt cache
@@ -1122,7 +1122,7 @@ Complete implementation from scratch based on spec.md v1.0.0-final.
 - `internal/security`: Secret detection (12 patterns) with redact/warn/block/off modes
 - `internal/compression`: Layer 1 deterministic compression (JSON compact, comment strip, dedup, regex-based structure extraction, delta encoding, Anthropic prompt cache optimization)
 - `internal/summarization`: Layer 2 MiniMax M2.7 integration (anchor detection, summary cache, quality validation, progressive tiers)
-- `internal/caching`: Layer 3 response cache (LRU, TTL) + fsnotify file watcher
+- `internal/caching`: response/provider cache, now Layer 2 (LRU, TTL) + fsnotify file watcher
 - `internal/analytics`: Session metrics collection, per-provider stats, JSONL persistence
 - `internal/resilience`: HTTP retry with exponential backoff, health checks, latency tracking
 - `internal/sessions`: In-session log ring buffer with subscriber fan-out

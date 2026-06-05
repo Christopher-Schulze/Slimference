@@ -29,7 +29,7 @@ func TestServeHTTP_compressibleAnthropic(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -64,7 +64,7 @@ func TestServeHTTP_compressibleOpenAI(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -101,7 +101,7 @@ func TestServeHTTP_compressibleStreamingAnthropic(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -137,7 +137,7 @@ func TestServeHTTP_compressibleStreamingOpenAI(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -160,7 +160,7 @@ func TestServeHTTP_compressibleStreamingOpenAI(t *testing.T) {
 func TestServeHTTP_compressibleMalformedJSON(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 
@@ -179,8 +179,8 @@ func TestServeHTTP_compressibleMalformedJSON(t *testing.T) {
 	}
 }
 
-// TestServeHTTP_layer3CacheHit verifies identical compressible requests hit the response cache (upstream once).
-func TestServeHTTP_layer3CacheHit(t *testing.T) {
+// TestServeHTTP_layer2CacheHit verifies identical compressible requests hit the response cache (upstream once).
+func TestServeHTTP_layer2CacheHit(t *testing.T) {
 	t.Parallel()
 	var upstreamCalls atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +198,7 @@ func TestServeHTTP_layer3CacheHit(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = true
+	cfg.Compression.Layer2Enabled = true
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
@@ -234,7 +234,7 @@ func TestServeHTTP_compressibleUpstreamUnreachable(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = "http://127.0.0.1:1"
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 
@@ -258,7 +258,7 @@ func TestServeHTTP_compressibleOpenAIUpstreamUnreachable(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
 	cfg.Upstream.OpenAI.BaseURL = "http://127.0.0.1:1"
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 
@@ -291,7 +291,7 @@ func TestServeHTTP_compressibleSecretsBlock(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "block"
 
 	p := New(cfg)
@@ -341,7 +341,7 @@ func TestServeHTTP_compressibleSecretsRedact(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "redact"
 
 	p := New(cfg)
@@ -380,7 +380,7 @@ func TestServeHTTP_compressibleSecretsWarn(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "warn"
 
 	p := New(cfg)
@@ -419,7 +419,7 @@ func TestServeHTTP_compressibleSecretsUnknownMode(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = false
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "not-a-valid-mode"
 
 	p := New(cfg)
@@ -509,7 +509,7 @@ func TestServeHTTP_layer1Applied(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = true
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	// SlidingWindow=5 by default; use 7 exchanges to ensure messages fall outside the window.
 	// prettyJSON has enough whitespace to exceed the 10% savings threshold.
@@ -547,7 +547,7 @@ func TestServeHTTP_promptCacheBreakpointsInjected(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.Layer1Enabled = true
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Compression.SlidingWindow = 5
 	cfg.Secrets.Mode = "off"
 
@@ -648,7 +648,7 @@ func TestServeHTTPPrecompactSignalShrinksWindow(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.SlidingWindow = 4
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 	if err := p.compactSignals.WriteMarker(compactsignal.PhasePre, "anthropic:trace-pre", "", "test"); err != nil {
@@ -676,7 +676,7 @@ func TestServeHTTPAnthropicPromptCacheHotBranch(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Upstream.Anthropic.BaseURL = upstream.URL
 	cfg.Compression.SlidingWindow = 1
-	cfg.Compression.Layer3Enabled = false
+	cfg.Compression.Layer2Enabled = false
 	cfg.Secrets.Mode = "off"
 	p := New(cfg)
 	body := anthropicLongConversationJSON(4)

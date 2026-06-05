@@ -1,8 +1,11 @@
-# T263 - Layer 3 provider/prompt cache max-out
+# T263 - Layer 2 provider/prompt cache max-out
+
+Historical filename note: this task was created when the response/provider cache
+was still numbered Layer 3. Current product naming calls this Layer 2.
 
 ## Why
 
-Layer 3 is the cleanest savings class: it can reduce cost without changing the
+Layer 2 is the cleanest savings class: it can reduce cost without changing the
 model-facing context. That makes it the best place to chase aggressive gains.
 The remaining work is precision: cache keys, invalidation, provider accounting,
 and long-session proof.
@@ -44,7 +47,7 @@ and long-session proof.
   extractor and prevents a local cache hit from skipping an upstream
   conversation/session state update.
 - Prompt-cache planning exists for stable prefixes.
-- Layer 3 is default-enabled for supported paths.
+- Layer 2 is default-enabled for supported paths.
 - Savings claims must be separated from local byte savings and output-wire
   savings.
 
@@ -126,7 +129,7 @@ accounting or locally proven upstream bypass, not mixed counters.
 - 2026-06-01: Hardened local response-cache eligibility again: implicit provider
   sampling defaults now full-pass upstream, and cache replay requires an
   explicit deterministic request. Integration coverage proves both explicit
-  stochastic settings and missing sampling fields bypass Layer 3.
+  stochastic settings and missing sampling fields bypass Layer 2.
 - 2026-06-02: Hardened local response-cache keying with request-policy
   partitions. Stage-A and Stage-B cache keys now include stop-sequence policy
   and be-terse cohort/hint partitioning. Regression coverage proves a cached
@@ -164,7 +167,7 @@ accounting or locally proven upstream bypass, not mixed counters.
   and `provider_cache_create_tokens` in matrix `live_delta` rows, prints them
   in the content-free capture summary, and `wss-proof-matrix` /
   `wss-proof-inventory` can require or inventory `provider_cache_read` and
-  `provider_cache_create` as distinct Layer-3 proof signals. This closes the
+  `provider_cache_create` as distinct Layer-2 proof signals. This closes the
   offline proof-schema gap for the later `provider_cache_long_session` capture
   without mixing provider-cache tokens into local Layer-0 input savings.
 - 2026-06-03: Live provider-cache proof exposed and closed a WSS accounting gap.
@@ -183,6 +186,6 @@ accounting or locally proven upstream bypass, not mixed counters.
 
 ## Done
 
-Layer 3 is maxxed when cache hits are maximized by stable-prefix and provider
+Layer 2 is maxxed when cache hits are maximized by stable-prefix and provider
 accounting, every invalidation path is tested, and no model-facing context is
 changed for the sake of cache savings.

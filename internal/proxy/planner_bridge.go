@@ -45,7 +45,7 @@ func (p *Proxy) dryRunPlan(in plannerInput) *dbg.PlanSummary {
 func (p *Proxy) buildCompressionPlan(in plannerInput) planner.CompressionPlan {
 	manualDisabled := map[planner.Layer]bool{
 		planner.Layer1: !p.isLayerEnabled(1),
-		planner.Layer3: !p.isLayerEnabled(3),
+		planner.Layer2: !p.isLayerEnabled(2),
 		planner.Layer4: !p.config.Compression.OutputReduce.Enabled,
 	}
 	caps := types.CapabilitiesFor(in.provider)

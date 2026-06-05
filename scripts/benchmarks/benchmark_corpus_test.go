@@ -243,7 +243,7 @@ func TestEvaluateCategory_EvidenceMetricsAndGates(t *testing.T) {
 	if res.OutputTokens != 77 || res.OutputReduceApplied != 1 || res.LatencyP95Ms != 42.5 || res.EvidenceLevel != "live_operator" {
 		t.Fatalf("evidence metrics: %+v", res)
 	}
-	if combo := res.LayerCombinations["L0+L1+L3+L4"]; combo.Requests != 1 || combo.OutputTokens != 77 {
+	if combo := res.LayerCombinations["L0+L1+L2+L4"]; combo.Requests != 1 || combo.OutputTokens != 77 {
 		t.Fatalf("layer combinations: %+v", res.LayerCombinations)
 	}
 }

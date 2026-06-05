@@ -6,11 +6,11 @@ Scope: `internal/planner/`, `internal/proxy/handler.go`, `internal/compression/`
 
 ## Why
 
-The project now has many powerful levers: L0 parsers, L1 deterministic compaction, L2 summarization, L3 provider cache/state reuse, output-reduce, and future WebSocket mutation. If each layer acts independently, they can fight each other:
+The project now has many powerful levers: L0 parsers, L1 deterministic compaction, L2 provider cache/state reuse, output-reduce, and future WebSocket mutation. If each layer acts independently, they can fight each other:
 
 - L1 may spend CPU compacting content L2 will summarize.
 - L2 may summarize too early and cause extra tool calls.
-- L3 cache hints may miss because L1 changed a stable prefix.
+- L2 cache hints may miss because L1 changed a stable prefix.
 - Output-reduce may save text but trigger repair turns.
 - WebSocket mutation may be unsafe for a drifted message shape.
 

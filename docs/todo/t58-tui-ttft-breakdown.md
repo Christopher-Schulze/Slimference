@@ -30,7 +30,7 @@ Request pipeline (rolling p50 / p95 ms):
   L1 deterministic  2.1 / 5.4    -42.1 % tokens
   L1 structure+del  0.9 / 2.2    -11.7 % tokens
   L2 MiniMax       340   / 780    -22.4 % tokens   (ran:  78 / 93)
-  L3 cache-hit      0.1 / 0.3    -28.0 % tokens   (hits: 31 / 93)
+  L2 cache-hit      0.1 / 0.3    -28.0 % tokens   (hits: 31 / 93)
   Upstream         620   / 1950
   Total (proxy-only)   3.3 / 8.7
   Total (incl. upstream) 623 / 1958
@@ -125,7 +125,7 @@ Phase instrumentation must cost < 0.5 µs per phase on hot path. Use
 
 - [ ] Phase recorder type.
 - [ ] Rolling histogram with p50/p95.
-- [ ] Handler phase wraps (L0/L1-det/L1-struct/L2/L3/upstream).
+- [ ] Handler phase wraps (L0/L1-det/L1-struct/L2-cache/upstream).
 - [ ] Byte-savings aggregation per layer.
 - [ ] Admin JSON extension.
 - [ ] TUI table render.

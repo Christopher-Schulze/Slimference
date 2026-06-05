@@ -147,7 +147,7 @@ func TestPlanInspectHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, layer := range []planner.Layer{planner.Layer0, planner.Layer1, planner.Layer3, planner.Layer4, planner.LayerWebSocket} {
+	for _, layer := range []planner.Layer{planner.Layer0, planner.Layer1, planner.Layer2, planner.Layer4, planner.LayerWebSocket} {
 		if !layers[layer] {
 			t.Fatalf("missing disabled layer %s in %+v", layer, layers)
 		}

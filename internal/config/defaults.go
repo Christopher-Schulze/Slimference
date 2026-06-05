@@ -56,7 +56,7 @@ func defaultsRaw() *Config {
 		},
 		Compression: CompressionConfig{
 			Layer1Enabled:             true,
-			Layer3Enabled:             true,
+			Layer2Enabled:             true,
 			SlidingWindow:             5,
 			MinMessagesForCompression: 8,
 			StructureMinTokens:        500,
@@ -219,7 +219,7 @@ base_url = "https://api.openai.com"
 
 [compression]
 layer1_enabled = true
-layer3_enabled = true
+layer2_enabled = true
 sliding_window = 5
 min_messages_for_compression = 8
 structure_min_tokens = 500

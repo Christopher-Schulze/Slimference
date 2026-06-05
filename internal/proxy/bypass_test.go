@@ -36,7 +36,7 @@ func TestBypass_ShortCircuitsLayerEnabled(t *testing.T) {
 	for i := range p.layerEnabled {
 		p.layerEnabled[i].Store(true)
 	}
-	if !p.isLayerEnabled(1) || !p.isLayerEnabled(3) {
+	if !p.isLayerEnabled(1) || !p.isLayerEnabled(2) {
 		t.Fatal("sanity: layers enabled pre-bypass")
 	}
 	p.SetBypass(true)

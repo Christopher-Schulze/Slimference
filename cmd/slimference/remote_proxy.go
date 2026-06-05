@@ -43,7 +43,7 @@ func newRemoteProxyAdapter(cfg *config.Config) *remoteProxyAdapter {
 		status: proxy.AdminStatus{
 			Layers: map[string]bool{
 				"1": cfg.Compression.Layer1Enabled,
-				"3": cfg.Compression.Layer3Enabled,
+				"2": cfg.Compression.Layer2Enabled,
 			},
 			Providers: map[string]bool{
 				"anthropic": true,

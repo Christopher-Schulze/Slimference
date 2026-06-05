@@ -627,10 +627,10 @@ func TestUpdate_RemainingViewAndSelectionPaths(t *testing.T) {
 	if model.layer1Enabled {
 		t.Fatalf("layer1 should toggle off in main view")
 	}
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	model = updated.(Model)
-	if model.layer3Enabled {
-		t.Fatalf("layer3 should toggle off in main view")
+	if model.layer2Enabled {
+		t.Fatalf("layer2 should toggle off in main view")
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})

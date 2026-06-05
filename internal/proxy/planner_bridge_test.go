@@ -36,8 +36,8 @@ func TestDryRunPlan_AttachesProviderAndDisabledLayers(t *testing.T) {
 	if !hasPlanAction(plan.Decisions, "l4_output", "bypass", "operator_disabled") {
 		t.Fatalf("expected disabled L4 decision: %+v", plan.Decisions)
 	}
-	if !hasPlanAction(plan.Decisions, "l3", "run", "previous_response_state_available") {
-		t.Fatalf("expected L3 previous-response decision: %+v", plan.Decisions)
+	if !hasPlanAction(plan.Decisions, "l2", "run", "previous_response_state_available") {
+		t.Fatalf("expected L2 previous-response decision: %+v", plan.Decisions)
 	}
 }
 
@@ -66,8 +66,8 @@ func TestBuildCompressionPlan_DrivesRecentEditActions(t *testing.T) {
 	if !ok || l1.Action != planner.ActionCheapOnly || l1.Reason != "recent_edit_preserve_full_context" {
 		t.Fatalf("L1 recent-edit decision = %+v, ok=%v", l1, ok)
 	}
-	if got := plannerActionForLayer(plan, planner.Layer3, planner.ActionInspect); got == planner.ActionInspect {
-		t.Fatalf("expected concrete L3 action, got fallback %q", got)
+	if got := plannerActionForLayer(plan, planner.Layer2, planner.ActionInspect); got == planner.ActionInspect {
+		t.Fatalf("expected concrete L2 action, got fallback %q", got)
 	}
 	if got := plannerActionForLayer(plan, planner.Layer("missing"), planner.ActionInspect); got != planner.ActionInspect {
 		t.Fatalf("missing layer action = %q, want fallback", got)

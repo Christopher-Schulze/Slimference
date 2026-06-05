@@ -180,7 +180,7 @@ type sessionStats struct {
 	compTokens      int
 	outputTokens    int
 	layer1Savings   int
-	layer3Savings   int
+	layer2Savings   int
 	secretsFound    int
 	errors          int
 	retries         int
@@ -204,7 +204,7 @@ type sessionReportOutput struct {
 	CompTokens     int                          `json:"comp_tokens"`
 	OutputTokens   int                          `json:"output_tokens"`
 	Layer1Savings  int                          `json:"layer1_savings"`
-	Layer3Savings  int                          `json:"layer3_savings"`
+	Layer2Savings  int                          `json:"layer2_savings"`
 	SecretsFound   int                          `json:"secrets_found"`
 	Errors         int                          `json:"errors"`
 	Retries        int                          `json:"retries"`
@@ -351,8 +351,8 @@ func applyRequestProcessed(stats *sessionStats, timestamp time.Time, ev types.An
 		switch l {
 		case 1:
 			stats.layer1Savings += ev.TokensSaved
-		case 3:
-			stats.layer3Savings += ev.TokensSaved
+		case 2, 3:
+			stats.layer2Savings += ev.TokensSaved
 		}
 	}
 	prov := ev.Provider.String()
@@ -380,7 +380,7 @@ func applySnapshot(stats *sessionStats, snap analytics.AnalyticsSnapshot) {
 	stats.compTokens = snap.TotalInputTokens - snap.SavedInputTokens
 	stats.outputTokens = snap.TotalOutputTokens
 	stats.layer1Savings = snap.Layer1Savings
-	stats.layer3Savings = snap.Layer3Savings
+	stats.layer2Savings = snap.Layer2Savings
 	stats.secretsFound = snap.SecretsRedacted
 	stats.errors = snap.Errors
 	stats.retries = snap.AutoRetries
@@ -406,7 +406,7 @@ func buildSessionReport(path, source string, stats *sessionStats) sessionReportO
 		CompTokens:     stats.compTokens,
 		OutputTokens:   stats.outputTokens,
 		Layer1Savings:  stats.layer1Savings,
-		Layer3Savings:  stats.layer3Savings,
+		Layer2Savings:  stats.layer2Savings,
 		SecretsFound:   stats.secretsFound,
 		Errors:         stats.errors,
 		Retries:        stats.retries,
@@ -664,7 +664,7 @@ func writeSessionCSV(w *os.File, report sessionReportOutput) error {
 		{"saved_tokens", fmt.Sprintf("%d", report.OrigTokens-report.CompTokens)},
 		{"saved_ratio_pct", fmt.Sprintf("%.2f", ratioPct(report.OrigTokens, report.OrigTokens-report.CompTokens))},
 		{"layer1_savings", fmt.Sprintf("%d", report.Layer1Savings)},
-		{"layer3_savings", fmt.Sprintf("%d", report.Layer3Savings)},
+		{"layer2_savings", fmt.Sprintf("%d", report.Layer2Savings)},
 		{"secrets_found", fmt.Sprintf("%d", report.SecretsFound)},
 		{"errors", fmt.Sprintf("%d", report.Errors)},
 		{"retries", fmt.Sprintf("%d", report.Retries)},

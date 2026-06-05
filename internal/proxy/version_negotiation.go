@@ -18,7 +18,7 @@ const (
 	PipelineFull PipelineMode = iota
 	// PipelineConservative skips Layer 1 - the byte stream is
 	// forwarded as-is so we cannot mis-compress a format we do not know.
-	// Layer 3 response cache still applies because it operates on request
+	// Layer 2 response cache still applies because it operates on request
 	// hashes, not semantic content.
 	PipelineConservative
 	// PipelinePassthrough runs no compression at all; equivalent to a

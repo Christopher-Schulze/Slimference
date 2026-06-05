@@ -160,7 +160,7 @@ func TestRenderWatchTick_HappyPath(t *testing.T) {
 		"recent_requests": [{"provider": "anthropic", "tokens_saved": 50, "compression_ratio": 0.5}]
 	}`)
 	got := renderWatchTick(time.Now(), body)
-	for _, want := range []string{"PROVIDER DEGRADED", "L1,L3", "cache=7", "queue=3", "anthropic"} {
+	for _, want := range []string{"PROVIDER DEGRADED", "L1,L2", "cache=7", "queue=3", "anthropic"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, got)
 		}

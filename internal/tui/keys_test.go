@@ -19,7 +19,7 @@ func TestDefaultKeyMap_AllBindingsPresent(t *testing.T) {
 		{"ToggleClaude", km.ToggleClaude},
 		{"ToggleCodex", km.ToggleCodex},
 		{"ToggleLayer1", km.ToggleLayer1},
-		{"ToggleLayer3", km.ToggleLayer3},
+		{"ToggleLayer2", km.ToggleLayer2},
 		{"PrevView", km.PrevView},
 		{"NextView", km.NextView},
 		{"CursorUp", km.CursorUp},
@@ -48,7 +48,7 @@ func TestFooterHelp_ContainsAllKeys(t *testing.T) {
 	km := DefaultKeyMap()
 	help := km.footerHelp()
 
-	expectedKeys := []string{"[←/→]", "[↑/↓]", "[enter]", "[c/x]", "[1/3]", "[f]", "[q]"}
+	expectedKeys := []string{"[←/→]", "[↑/↓]", "[enter]", "[c/x]", "[1/2]", "[f]", "[q]"}
 	for _, key := range expectedKeys {
 		if !strings.Contains(help, key) {
 			t.Errorf("footerHelp() missing key %q in: %s", key, help)

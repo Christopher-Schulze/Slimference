@@ -348,7 +348,7 @@ type Model struct {
 	claudeEnabled bool
 	codexEnabled  bool
 	layer1Enabled bool
-	layer3Enabled bool
+	layer2Enabled bool
 
 	// Current view.
 	view        ViewMode
@@ -409,7 +409,7 @@ func NewModel(proxy ProxyInterface) Model {
 		claudeEnabled: proxy.IsProviderEnabled(types.Anthropic),
 		codexEnabled:  proxy.IsProviderEnabled(types.OpenAI),
 		layer1Enabled: proxy.IsLayerEnabled(1),
-		layer3Enabled: proxy.IsLayerEnabled(3),
+		layer2Enabled: proxy.IsLayerEnabled(2),
 		view:          ViewMain,
 		width:         80,
 		height:        24,
@@ -512,6 +512,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
+			m.layer2Enabled = !m.layer2Enabled
+			m.proxy.SetLayerEnabled(2, m.layer2Enabled)
+			m.persistStateBestEffort()
+			m.setFlash(fmt.Sprintf("Layer 2: %s", onOff(m.layer2Enabled)))
 
 		case "3":
 			if m.view == ViewSetup {
@@ -519,10 +523,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.persistStateBestEffort()
 				return m, nil
 			}
-			m.layer3Enabled = !m.layer3Enabled
-			m.proxy.SetLayerEnabled(3, m.layer3Enabled)
-			m.persistStateBestEffort()
-			m.setFlash(fmt.Sprintf("Layer 3: %s", onOff(m.layer3Enabled)))
 
 		case "enter":
 			if m.view == ViewMain {

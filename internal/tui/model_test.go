@@ -20,7 +20,7 @@ type mockProxy struct {
 	claudeEnabled  bool
 	codexEnabled   bool
 	layer1Enabled  bool
-	layer3Enabled  bool
+	layer2Enabled  bool
 	snap           analytics.AnalyticsSnapshot
 	recentReqs     []types.RequestMetrics
 	recentFlights  []dbg.FlightRequestSummary
@@ -63,7 +63,7 @@ func newMockProxy() *mockProxy {
 		claudeEnabled: true,
 		codexEnabled:  true,
 		layer1Enabled: true,
-		layer3Enabled: true,
+		layer2Enabled: true,
 		sessionLogger: sessions.NewSessionLogger(),
 		listenPort:    8990,
 		prefillSpeed:  50000,
@@ -85,8 +85,8 @@ func (m *mockProxy) SetLayerEnabled(layer int, enabled bool) {
 	switch layer {
 	case 1:
 		m.layer1Enabled = enabled
-	case 3:
-		m.layer3Enabled = enabled
+	case 2, 3:
+		m.layer2Enabled = enabled
 	}
 }
 
@@ -101,8 +101,8 @@ func (m *mockProxy) IsLayerEnabled(layer int) bool {
 	switch layer {
 	case 1:
 		return m.layer1Enabled
-	case 3:
-		return m.layer3Enabled
+	case 2, 3:
+		return m.layer2Enabled
 	}
 	return false
 }
@@ -326,8 +326,8 @@ func TestNewModel_Defaults(t *testing.T) {
 	if !m.layer1Enabled {
 		t.Error("layer1Enabled should be true by default")
 	}
-	if !m.layer3Enabled {
-		t.Error("layer3Enabled should be true by default")
+	if !m.layer2Enabled {
+		t.Error("layer2Enabled should be true by default")
 	}
 }
 
@@ -397,19 +397,19 @@ func TestUpdate_SetupCodexRouteToggleError(t *testing.T) {
 	}
 }
 
-// TestUpdate_ToggleLayers verifies that pressing '1', '2', '3' toggles layers.
+// TestUpdate_ToggleLayers verifies that pressing '1' and '2' toggles layers.
 func TestUpdate_ToggleLayers(t *testing.T) {
 	t.Parallel()
 	p := newMockProxy()
 	m := NewModel(p)
 
-	for _, key := range []rune{'1', '2', '3'} {
+	for _, key := range []rune{'1', '2'} {
 		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
 		model := updated.(Model)
 		m = model
 	}
-	if p.layer1Enabled || p.layer3Enabled {
-		t.Error("layers 1 and 3 should be off after toggling")
+	if p.layer1Enabled || p.layer2Enabled {
+		t.Error("layers 1 and 2 should be off after toggling")
 	}
 }
 
@@ -988,7 +988,7 @@ func TestView_MainRender_WithData(t *testing.T) {
 		SavedInputTokens: 60000,
 		CompressionRatio: 0.6,
 		Layer1Savings:    30000,
-		Layer3Savings:    10000,
+		Layer2Savings:    10000,
 		CacheHits:        3,
 		SecretsRedacted:  2,
 		AutoRetries:      1,
@@ -1135,7 +1135,7 @@ func TestView_StatsRender_WithData(t *testing.T) {
 		SavedInputTokens:  120000,
 		TotalOutputTokens: 50000,
 		Layer1Savings:     60000,
-		Layer3Savings:     20000,
+		Layer2Savings:     20000,
 		CacheHits:         5,
 		SecretsRedacted:   3,
 		AutoRetries:       2,

@@ -1,6 +1,6 @@
 # Slimference Data Policy
 
-Last updated: 2026-06-05 (Layer 2 removed)
+Last updated: 2026-06-05 (semantic summary path removed, Layer 2 cache active)
 
 ## Overview
 
@@ -23,22 +23,23 @@ external compression provider.
 - **Data destination**: Local process only. No data leaves your machine.
 - **Controls**: `[compression] layer1_enabled`
 
-### Retired Layer 2: no model-facing summarization
+### Retired semantic summary path: no model-facing summarization
 
-- **What happens**: Nothing. The Layer 2 code path has been removed.
+- **What happens**: Nothing. The old semantic-summary code path has been
+  removed.
 - **Data destination**: No data is sent to MiniMax, a local LLM, or any other
   side-channel summarization provider by Slimference.
 - **Reason**: Any summary that replaces old context can remove details and create
   product drawdown: worse model memory, weaker context consistency, or wrong
   reconstruction. Slimference keeps default product savings on deterministic,
   recoverable, and fail-open mechanisms instead.
-- **Controls**: There is no Layer 2 CLI surface or config surface.
+- **Controls**: There is no semantic-summary CLI surface or config surface.
 
-### Layer 3: Response Cache (local only)
+### Layer 2: Response Cache (local only)
 
 - **What happens**: Compressed responses are cached locally to avoid redundant compression.
 - **Data destination**: Local memory and disk cache only. No data leaves your machine.
-- **Controls**: `[compression] layer3_enabled`, `[cache]`
+- **Controls**: `[compression] layer2_enabled`, `[cache]`
 
 ### Layer 4: Output and tool-surface reduction (local policy)
 
@@ -63,7 +64,7 @@ Each layer can be individually disabled in config:
 ```toml
 [compression]
 layer1_enabled = true   # deterministic compression (safe, local)
-layer3_enabled = true   # response cache (safe, local)
+layer2_enabled = true   # response cache (safe, local)
 ```
 
 ## Logging and Telemetry

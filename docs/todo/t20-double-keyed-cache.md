@@ -8,7 +8,7 @@ Scope: internal/caching, internal/proxy/handler.go
 
 ## Problem
 
-The Layer 3 response cache currently computes its key from the **post-compression
+The response/provider cache, now Layer 2, currently computes its key from the **post-compression
 body** (`handler.go:168-170`). Consequence: even on a cache hit, every request
 pays the full cost of Layer 1 and, if triggered, the synchronous part of
 Layer 2. On a modern M1 that cost is small in absolute ms but not free:
@@ -32,7 +32,7 @@ doing any work at all when we already have the answer cached.
 Two-stage cache lookup in `handleCompressibleRequest`:
 
 1. **Stage A (pre-compress):** hash the canonical normalized original body
-   + provider + headers. If hit -> serve immediately, skip L1/L2/L3-store.
+   + provider + headers. If hit -> serve immediately, skip L1/L2/cache-store.
 2. **Stage B (post-compress):** keep the existing hash on the compressed
    body as the **authoritative** cache identity. Populated on miss + success.
 
@@ -83,7 +83,7 @@ or invalidated Stage B entry, fall through to the normal pipeline.
 - [x] Wire Stage A lookup into `handleCompressibleRequest`.
 - [x] Add metric `cache.stage_a_hit` / `cache.stage_b_hit` / `cache.miss`.
 - [x] Add tests for: same-input hit, different-input miss, invalidated hit.
-- [x] Update `docs/documentation.md` (Layer 3 section) to describe the
+- [x] Update `docs/documentation.md` (cache layer section) to describe the
       two-stage model.
 
 ## Acceptance Criteria

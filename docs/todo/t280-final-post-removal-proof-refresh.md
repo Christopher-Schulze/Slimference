@@ -2,14 +2,14 @@
 
 ## Why
 
-After Layer 2 is removed, the proof stack must be refreshed against the active
-layers only. Release evidence should not accidentally count removed Layer 2
-fixtures, metadata, validators, or savings fields.
+After the semantic Layer 2 path is removed, the proof stack must be refreshed
+against the active layers only. Release evidence should not accidentally count
+removed summary/OCRL fixtures, metadata, validators, or savings fields.
 
 ## Acceptance
 
-- `go test ./...` passes after Layer 2 removal.
-- `go run ./scripts/ci` passes after Layer 2 removal.
+- `go test ./...` passes after semantic Layer 2 removal.
+- `go run ./scripts/ci` passes after semantic Layer 2 removal.
 - Benchmark and live-corpus reports list only active layers and active workload
   classes.
 - `release-proof-report` fails closed unless fresh CLI and Desktop resource

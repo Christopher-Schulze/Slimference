@@ -99,9 +99,9 @@ func TestProxyAdapter_smoke(t *testing.T) {
 		t.Fatal("expected anthropic disabled")
 	}
 	a.SetProviderEnabled(types.Anthropic, true)
-	a.SetLayerEnabled(3, false)
-	if a.IsLayerEnabled(3) {
-		t.Fatal("expected layer 3 off")
+	a.SetLayerEnabled(2, false)
+	if a.IsLayerEnabled(2) {
+		t.Fatal("expected layer 2 off")
 	}
 	a.FlushCaches()
 	_ = a.GetAnalytics()
@@ -330,7 +330,7 @@ func TestApplyTUIFlags(t *testing.T) {
 		cfg.Proxy.ListenPort = 8080
 		cfg.Compression.SlidingWindow = 20
 		cfg.Compression.Layer1Enabled = true
-		cfg.Compression.Layer3Enabled = true
+		cfg.Compression.Layer2Enabled = true
 		cfg.Logging.Level = "info"
 		return cfg
 	}
@@ -369,17 +369,17 @@ func TestApplyTUIFlags(t *testing.T) {
 		if cfg.Compression.Layer1Enabled {
 			t.Fatal("expected Layer1Enabled=false")
 		}
-		if !cfg.Compression.Layer3Enabled {
+		if !cfg.Compression.Layer2Enabled {
 			t.Fatal("other layers should be unaffected")
 		}
 	})
 
-	t.Run("no_layer3", func(t *testing.T) {
+	t.Run("no_layer2", func(t *testing.T) {
 		t.Parallel()
 		cfg := base()
-		applyTUIFlags(cfg, []string{"--no-layer3"})
-		if cfg.Compression.Layer3Enabled {
-			t.Fatal("expected Layer3Enabled=false")
+		applyTUIFlags(cfg, []string{"--no-layer2"})
+		if cfg.Compression.Layer2Enabled {
+			t.Fatal("expected Layer2Enabled=false")
 		}
 	})
 
@@ -482,7 +482,7 @@ func TestApplyPersistedRuntimeState(t *testing.T) {
 			ClaudeEnabled: false,
 			CodexEnabled:  true,
 			Layer1Enabled: false,
-			Layer3Enabled: false,
+			Layer2Enabled: false,
 		}, nil
 	}
 	applyPersistedRuntimeState(p)
@@ -490,8 +490,8 @@ func TestApplyPersistedRuntimeState(t *testing.T) {
 	if p.IsProviderEnabled(types.Anthropic) {
 		t.Fatal("claude should be disabled from persisted state")
 	}
-	if p.IsLayerEnabled(1) || p.IsLayerEnabled(3) {
-		t.Fatal("layer 1 and 3 should be disabled from persisted state")
+	if p.IsLayerEnabled(1) || p.IsLayerEnabled(2) {
+		t.Fatal("layer 1 and 2 should be disabled from persisted state")
 	}
 
 	loadTUIStateFn = func() (*tui.PersistedState, error) { return nil, errors.New("boom") }
