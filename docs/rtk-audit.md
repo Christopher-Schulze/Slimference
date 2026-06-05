@@ -29,6 +29,11 @@ evidence, require a shorter result, and fail open on ambiguous shapes; the
 shape-refusal delta is safety-only and prevents the colon parser from touching
 formats it cannot prove.
 
+The remaining non-ported RTK surfaces are closed product decisions, not hidden
+queue items: Claude-only rewrites stay parked, prompt-level advisory tooling
+does not save tokens in Codex hot paths, and aggressive code-signature summaries
+are rejected as defaults because they remove implementation bodies.
+
 ## Current Matrix
 
 | RTK capability | Evidence | Slimference status | Classification |
@@ -39,27 +44,27 @@ formats it cannot prove.
 | Claude PostTool output replacement | RTK does not ship a dedicated `updatedToolOutput` posttool path in the inspected snapshot | Slimference retains `claudeposttool` handler code for reference, but the public command is not exposed in product mode. | parked |
 | Codex adoption | RTK `hooks/codex/rtk-awareness.md` is instruction-based | Slimference has Codex hooks plus transparent SNI MITM, HTTP Responses mutation, WSS Phase-F mutation, and proxy Layer-0 tool-output adoption | already-better |
 | Codex hook event coverage | Codex CLI `0.137.0` exposes lifecycle events including `PreCompact`, `PostCompact`, `SubagentStart`, and `SubagentStop` | Slimference installs pre/post compact hooks and now normalizes those event names when migrating legacy flat `hooks.json` | parity |
-| Rewrite compound operators, pipes, env prefixes, absolute paths | RTK `src/discover/registry.rs` tests cover compounds, pipes, env prefixes, absolute paths, git global options | Slimference covers compounds, pipes, env prefixes, absolute paths via `filepath.Base`, explicit opt-out; lacks RTK transparent-prefix config | parity with one port-later gap |
-| Transparent wrapper prefixes (`shadowenv exec --`, `direnv exec .`, `docker exec app`) | RTK `transparent_prefixes` registry support | Slimference does not expose configurable transparent prefixes | port-later |
+| Rewrite compound operators, pipes, env prefixes, absolute paths | RTK `src/discover/registry.rs` tests cover compounds, pipes, env prefixes, absolute paths, git global options | Slimference covers Codex-relevant command extraction through `filepath.Base`, `cd &&` normalization, env-prefix handling, explicit opt-out, and proxy/WSS tool-output adoption | Codex parity |
+| Transparent wrapper prefixes (`shadowenv exec --`, `direnv exec .`, `docker exec app`) | RTK `transparent_prefixes` registry support exists for command rewrite surfaces | Not a Codex product gap: current Codex hooks do not expose a proven command-mutation contract, and Slimference's Codex savings happen after tool output exists through hooks/proxy/WSS | not-codex-product |
 | Explicit disabled env var | RTK `RTK_DISABLED=1`; Slimference `SLIMFERENCE_DISABLED=1` | Equivalent local opt-out under Slimference naming | parity |
-| Read/Grep/Glob/LS built-in non-Bash tools | RTK README states Claude built-in Read/Grep/Glob bypass Bash hook | Slimference has Claude Read hook only; Grep/Glob/LS remain unimplemented until verified profitable/contract-stable | port-later |
+| Read/Grep/Glob/LS built-in non-Bash tools | RTK README states Claude built-in Read/Grep/Glob bypass Bash hook | Claude-only gap, outside the current Codex product scope. Codex uses tool-output/proxy/WSS surfaces instead of Claude built-in tool hooks. | not-codex-product |
 | Observability | RTK SQLite tracking and gain; Slimference filter.db, gain/savings, admin state, WSS counters | Slimference has more surfaces, especially proxy/WSS counters | already-better |
 | Fail-open | RTK raw proxy, tee, hook version guard; Slimference tee, panic guards, timeouts, schema-drift byte bridge, daemon lifecycle revert | Slimference stronger for Codex live traffic | already-better |
 | Discover/learn/advisory tooling | RTK `discover/` and `learn/` | Not hot-path savings; Slimference has stats/gain and T210/T211 docs | not-needed |
 | `wc` compact output | RTK `src/cmds/system/wc_cmd.rs` strips alignment and common path prefixes | Slimference now has safe `TryCompactWc` Layer-0 reducer and rewrite coverage | ported |
 | Large `find`/`fd` path-list output | RTK groups file search results by directory, but its command executes a new gitignore-aware walk | Slimference ports only the safe output half: group large actual path lists by repeated directory prefix, preserve every path component and order, fail-open on ambiguous lines | ported-safe-subset |
 | NUL/custom-separator search output | RTK's registry treats output shape as a command-level safety boundary | Slimference refuses `rg -0`, GNU `grep -Z`, `--null`, `--null-data`, and `--path-separator` before match-line grouping | ported-guard |
-| Aggressive code-signature summaries | RTK `rtk read -l aggressive` keeps imports/signatures and removes implementation bodies; default `rtk read` level is `none` | Rejected as default for Codex. It may save many tokens but can remove body details GPT-5.x needs later. Reconsider only as explicit scan/repeated-read mode with exact archive recovery plus live quality proof. | reject-default |
+| Aggressive code-signature summaries | RTK `rtk read -l aggressive` keeps imports/signatures and removes implementation bodies; default `rtk read` level is `none` | Rejected as default for Codex. It may save many tokens but can remove body details GPT-5.x needs later, so it violates Slimference's default drawdown bar. | reject-default |
 
-## Port Queue
+## Port Decisions
 
 | Item | Decision | Reason |
 |---|---|---|
 | Claude `PostToolUse.updatedToolOutput` replacement | Parked by T217 | Useful reference code, but not part of the Slimference product path while RTK handles Claude Code. |
 | Wrapper help/completion truth | Done in T214 | Keeps wrapper excellent but explicitly advanced-only; removed unimplemented flags from help/completion. |
 | DoH fallback and status preflight | Done in T215 | RTK has no equivalent transparent-MITM self-loop problem; Slimference needed this for T209. |
-| Configurable transparent rewrite prefixes | New future gap | Useful for Claude wrapper ergonomics (`shadowenv`, `direnv`, selected `docker exec`), but not needed for Codex CLI live certification and can alter command semantics if rushed. |
-| Claude Grep/Glob/LS dedicated hooks | Future Claude phase | Built-in tools bypass Bash. Add only after local Claude hook payloads are verified with real examples. |
+| Configurable transparent rewrite prefixes | Do not port for Codex product | Useful for Claude wrapper ergonomics (`shadowenv`, `direnv`, selected `docker exec`), but Codex does not expose the needed transparent command rewrite contract and Slimference already operates on Codex tool outputs. |
+| Claude Grep/Glob/LS dedicated hooks | Parked outside Codex scope | Built-in Claude tools bypass Bash, but this project is Codex-focused and RTK remains the active Claude recommendation. |
 | RTK discover/learn | Do not port now | Advisory productivity feature, not core token-saving layer. |
 
 ## Answer To The RTK Question

@@ -39,11 +39,16 @@ This is the short closure companion to `docs/rtk-audit.md`.
 - RTK aggressive code-signature summaries as default product behavior; they
   remove implementation details and therefore violate Slimference's default
   drawdown bar unless exact recovery and live quality proof exist.
+- RTK transparent rewrite prefixes and Claude built-in tool hooks as Codex
+  product work; those are command-mutation or Claude-specific surfaces, while
+  Slimference's Codex savings happen through Codex hooks, HTTP/WSS proxy
+  mutation, and tool-output reducers.
 
 ## Outcome
 
 - RTK has been reduced to an audit/reference exercise, not a live dependency.
-- The valuable in-scope ideas are already landed in Slimference.
+- The valuable in-scope Codex ideas are already landed in Slimference.
+- Non-ported RTK surfaces are closed product decisions, not pending hidden work.
 - `research/rtk-ai/rtk/` remains an embedded read-only foreign reference per
   `AGENTS.md`; it is not a live dependency and must not be edited as part of
   Slimference work.

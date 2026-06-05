@@ -38,6 +38,7 @@ No queued tasks.
 - [x] T280 Final post-removal proof refresh -> docs/todo/t280-final-post-removal-proof-refresh.md
 - [x] T281 RTK Codex maxx parity and safe deltas -> docs/todo/t281-rtk-codex-maxx-parity.md
 - [x] T282 Search output-shape hardening -> docs/todo/t282-search-output-shape-hardening.md
+- [x] T283 RTK Codex audit closure -> docs/todo/t283-rtk-codex-audit-closure.md
 
 ## Current Product Rules
 
