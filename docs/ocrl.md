@@ -85,6 +85,8 @@ pure renderer:
   covered blocks are deleted from their message
 - replacement and marker token overhead are both included before mutation is
   accepted
+- the byte-equal selected-target archive proof is reused by the apply builder,
+  so explicit apply does not load the same archive twice
 
 This primitive does not infer context mapping from rendered text. If a future
 route cannot prove exact old-message positions and exact archive equality for a

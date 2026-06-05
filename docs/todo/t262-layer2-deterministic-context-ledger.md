@@ -38,9 +38,11 @@ replacement for reality.
   full-passes invalid selected targets, duplicate selected targets, archive
   mismatch, shadow mode, Codex WSS, and non-positive selected savings.
   Verbatim/rejected targets remain original and no longer block independently
-  safe selected old-context replacements. It can also derive explicit targets
-  from full-history messages by exact archive-payload equality, but only when
-  one capsule archive matches exactly one current message block; ambiguous or
+  safe selected old-context replacements. The byte-equal selected-target archive
+  proof is reused by the internal apply builder, so explicit apply does not
+  load the same selected archive twice. It can also derive explicit targets from
+  full-history messages by exact archive-payload equality, but only when one
+  capsule archive matches exactly one current message block; ambiguous or
   missing evidence is omitted and reported.
 - Codex WSS Phase-F now records content-free OCRL shadow telemetry in debug
   request summaries. It reports mode, route, reason, candidate/verbatim/rejected
@@ -190,10 +192,10 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules render in about 1.986 ms, 238096 B/op, 11 allocs/op;
-  exact archive-to-message target derivation runs in about 0.936 ms, 186211 B/op,
-  22 allocs/op; full archive-match OCRL apply runs in about 4.273 ms,
-  1114840 B/op, and 1086 allocs/op.
+  512 file capsules render in about 0.969 ms, 238061 B/op, 11 allocs/op;
+  exact archive-to-message target derivation runs in about 0.545 ms, 185930 B/op,
+  21 allocs/op; full archive-match OCRL apply runs in about 3.615 ms,
+  1114131 B/op, and 1083 allocs/op.
 
 ## Verification
 
@@ -487,3 +489,15 @@ summary remains opt-in, not default.
   Benchmarks: full archive-match apply `3842609`, `3647210`, and
   `3853674 ns/op` across three `-benchtime=1s` runs, with about `1118-1120 KB/op`
   and `1095-1100 allocs/op`.
+- 2026-06-05: Removed duplicate selected-archive loading from exact
+  full-history OCRL apply. The explicit apply path now passes its byte-equal
+  selected-target proof into an internal builder option, preserving public
+  `BuildOCRLReplacement` archive verification while avoiding a second load for
+  already proven selected archives. Added a regression test proving an explicit
+  one-target apply succeeds with exactly one archive load and still reports one
+  archive expansion. Focused verification:
+  `go test ./internal/contextledger -run 'Test(BuildOCRLReplacement|ApplyOCRLToMessages|DeriveOCRLMessageTargets)' -count=1`.
+  Benchmark gate measured renderer/build `968859 ns/op`, `238061 B/op`,
+  `11 allocs/op`; target derivation `545000 ns/op`, `185930 B/op`,
+  `21 allocs/op`; full archive-match apply `3615460 ns/op`, `1114131 B/op`,
+  `1083 allocs/op`.

@@ -1073,7 +1073,9 @@ targets, not verbatim or rejected candidates, and includes covered-marker
 overhead. Invalid selected targets, duplicate selected targets, archive
 mismatch, shadow mode, Codex WSS, and non-positive selected-target savings all
 full-pass the original messages. Verbatim/rejected targets remain original and
-cannot block other independently safe old-context replacements.
+cannot block other independently safe old-context replacements. The explicit
+apply path reuses the first byte-equal selected-target archive proof inside the
+internal OCRL builder, so it does not load the same selected archive twice.
 
 OCRL is operator-visible and configured under `[compression.ocrl]`. Fresh
 configs default to `mode = "shadow"`, `max_capsules = 512`,
@@ -1116,10 +1118,10 @@ Focused verification on 2026-06-05:
 - `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
 
 The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
-1.986 ms with 238096 B/op and 11 allocs/op after archive verification and
+0.969 ms with 238061 B/op and 11 allocs/op after archive verification and
 renderer scratch-buffer reuse. Exact archive-to-message target derivation for
-512 capsules measured about 0.936 ms with 186211 B/op and 22 allocs/op; full
-archive-match OCRL apply measured about 4.273 ms with 1114840 B/op and 1086
+512 capsules measured about 0.545 ms with 185930 B/op and 21 allocs/op; full
+archive-match OCRL apply measured about 3.615 ms with 1114131 B/op and 1083
 allocs/op.
 
 The live-corpus gate now has an OCRL-aware validator. `ocrl_full_history`

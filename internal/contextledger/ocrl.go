@@ -68,6 +68,11 @@ type OCRLResult struct {
 	ArchiveExpansions      int             `json:"archive_expansions"`
 }
 
+type ocrlBuildOptions struct {
+	ArchivesPreverified          bool
+	PreverifiedArchiveExpansions int
+}
+
 func BuildOCRLReplacement(capsules []Capsule, policy OCRLPolicy) OCRLResult {
 	mode := normalizedOCRLMode(policy.Mode)
 	result := OCRLResult{
@@ -85,6 +90,10 @@ func BuildOCRLReplacement(capsules []Capsule, policy OCRLPolicy) OCRLResult {
 }
 
 func buildOCRLReplacementFromSelected(selected []Capsule, selection SelectionReport, policy OCRLPolicy, mode OCRLMode) OCRLResult {
+	return buildOCRLReplacementFromSelectedWithOptions(selected, selection, policy, mode, ocrlBuildOptions{})
+}
+
+func buildOCRLReplacementFromSelectedWithOptions(selected []Capsule, selection SelectionReport, policy OCRLPolicy, mode OCRLMode, opts ocrlBuildOptions) OCRLResult {
 	result := OCRLResult{
 		Reason:                 OCRLReasonOff,
 		Selection:              selection,
@@ -99,14 +108,18 @@ func buildOCRLReplacementFromSelected(selected []Capsule, selection SelectionRep
 		return result
 	}
 	archiveOriginalTokens := 0
-	for _, capsule := range selected {
-		expansions, originalTokens, err := verifyCapsuleArchivesForOCRL(capsule, policy.ArchiveLoader, policy.CountTokens, policy.UseArchiveOriginalTokens)
-		if err != nil {
-			result.Reason = OCRLReasonArchiveUnavailable
-			return result
+	if opts.ArchivesPreverified && !policy.UseArchiveOriginalTokens {
+		result.ArchiveExpansions = opts.PreverifiedArchiveExpansions
+	} else {
+		for _, capsule := range selected {
+			expansions, originalTokens, err := verifyCapsuleArchivesForOCRL(capsule, policy.ArchiveLoader, policy.CountTokens, policy.UseArchiveOriginalTokens)
+			if err != nil {
+				result.Reason = OCRLReasonArchiveUnavailable
+				return result
+			}
+			result.ArchiveExpansions += expansions
+			archiveOriginalTokens += originalTokens
 		}
-		result.ArchiveExpansions += expansions
-		archiveOriginalTokens += originalTokens
 	}
 	if result.OriginalTokens <= 0 && policy.UseArchiveOriginalTokens {
 		result.OriginalTokens = archiveOriginalTokens

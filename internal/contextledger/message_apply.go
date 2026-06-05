@@ -168,7 +168,7 @@ func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy
 	if len(selectedTargets) != len(policy.Targets) {
 		selectedCapsules = messageTargetCapsules(selectedTargets)
 	}
-	targetTokens, originalTokens, err := verifyMessageTargets(messages, selectedTargets, policy.ArchiveLoader, policy.CountTokens)
+	targetTokens, originalTokens, archiveExpansions, err := verifyMessageTargets(messages, selectedTargets, policy.ArchiveLoader, policy.CountTokens)
 	if err != nil {
 		result.OCRL.Reason = OCRLReasonTargetInvalid
 		result.OCRL.Selection = selection
@@ -180,7 +180,10 @@ func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy
 	buildPolicy := policy.OCRLPolicy
 	buildPolicy.OriginalTokens = originalTokens
 	buildPolicy.UseArchiveOriginalTokens = false
-	ocrl := buildOCRLReplacementFromSelected(selectedCapsules, selection, buildPolicy, mode)
+	ocrl := buildOCRLReplacementFromSelectedWithOptions(selectedCapsules, selection, buildPolicy, mode, ocrlBuildOptions{
+		ArchivesPreverified:          true,
+		PreverifiedArchiveExpansions: archiveExpansions,
+	})
 	result.OCRL = ocrl
 	if !ocrl.Applied {
 		return result
@@ -219,46 +222,48 @@ func messageTargetCapsules(targets []OCRLMessageTarget) []Capsule {
 	return out
 }
 
-func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget, load ArchiveLoader, count TokenCounter) (map[ocrlTargetKey]int, int, error) {
+func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget, load ArchiveLoader, count TokenCounter) (map[ocrlTargetKey]int, int, int, error) {
 	if load == nil || count == nil {
-		return nil, 0, errors.New("archive loader and token counter are required")
+		return nil, 0, 0, errors.New("archive loader and token counter are required")
 	}
 	seen := make(map[ocrlTargetKey]struct{}, len(targets))
 	tokensByTarget := make(map[ocrlTargetKey]int, len(targets))
 	total := 0
+	archiveExpansions := 0
 	for _, target := range targets {
 		if target.MessageIndex < 0 || target.MessageIndex >= len(messages) {
-			return nil, 0, errors.New("message index out of range")
+			return nil, 0, 0, errors.New("message index out of range")
 		}
 		msg := messages[target.MessageIndex]
 		if target.BlockIndex < 0 || target.BlockIndex >= len(msg.Content) {
-			return nil, 0, errors.New("block index out of range")
+			return nil, 0, 0, errors.New("block index out of range")
 		}
 		targetKey := messageTargetKey(target)
 		if _, ok := seen[targetKey]; ok {
-			return nil, 0, errors.New("duplicate message target")
+			return nil, 0, 0, errors.New("duplicate message target")
 		}
 		seen[targetKey] = struct{}{}
 		id := sortedArchiveIDs(target.Capsule.Archives)
 		if len(id) != 1 {
-			return nil, 0, errOCRLTargetArchiveMismatch
+			return nil, 0, 0, errOCRLTargetArchiveMismatch
 		}
 		body, err := load(id[0])
 		if err != nil {
-			return nil, 0, errOCRLTargetArchiveMismatch
+			return nil, 0, 0, errOCRLTargetArchiveMismatch
 		}
+		archiveExpansions++
 		text := msg.Content[target.BlockIndex].Text
 		if !bytesEqualString(body, text) {
-			return nil, 0, errOCRLTargetArchiveMismatch
+			return nil, 0, 0, errOCRLTargetArchiveMismatch
 		}
 		tokens := count(text)
 		if tokens <= 0 {
-			return nil, 0, errors.New("target token counter returned non-positive value")
+			return nil, 0, 0, errors.New("target token counter returned non-positive value")
 		}
 		tokensByTarget[targetKey] = tokens
 		total += tokens
 	}
-	return tokensByTarget, total, nil
+	return tokensByTarget, total, archiveExpansions, nil
 }
 
 func sumMessageTargetTokens(targets []OCRLMessageTarget, tokens map[ocrlTargetKey]int) int {
