@@ -26,7 +26,7 @@ output, not by asking the model to reason from a lossy memory replacement.
 | --- | --- | --- | --- | --- |
 | Layer 0 | Pre-entry and WSS/Codex tool-output reducers | Yes | Fail-open and proof-gated for recoverable refs | read/ranged-read/search/git/test/log/repeated/chunk outputs |
 | Layer 1 | Deterministic compression of safe conversation/tool prefix content | Yes | Safe tiers only in default product path; archive-backed where needed | ANSI/JSON/dedup/delta/structure/repeated collapse |
-| Layer 2 | Response cache and provider-cache accounting/hints | Yes | No model-content loss when keyed correctly | repeated effective requests and reusable stable prefixes |
+| Layer 2 | Response cache and provider-cache steering/accounting | Yes | No model-content loss: local replay is fail-closed, provider steering does not rewrite prompt content | repeated effective requests and reusable stable prefixes |
 | Layer 4 | Output discipline and tool-schema pruning | Rule-based deterministic | Safe profile only for default product path | shorter assistant output and smaller tool surface |
 
 ## Realistic Savings Range
@@ -85,7 +85,13 @@ with a semantic paraphrase.
 
 Layer 2 pays when effective requests or stable prefixes repeat. It is highly
 valuable when it hits and close to irrelevant when traffic is unique. Claims
-must therefore be reported separately from local reducer savings.
+must therefore be reported separately from local reducer savings. OpenAI
+prompt-cache steering now defaults to model-bound stable-prefix keys for generic
+OpenAI API traffic: the proxy hashes only stable prefix shape, never raw prompt
+text, and does not inject keys into CodexChatGPT backend routes without live
+acceptance proof. This can improve provider-side cache hit probability and
+latency/cost when many turns share long static instructions, tools, or history;
+it cannot create savings on unique one-shot prompts.
 
 ### Layer 4
 

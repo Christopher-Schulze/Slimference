@@ -37,6 +37,7 @@ func TestInjectOpenAIPromptCacheDecisionBranches(t *testing.T) {
 
 	t.Run("disabled", func(t *testing.T) {
 		cfg := config.Defaults()
+		cfg.Proxy.OpenAIPromptCache.Enabled = false
 		p := New(cfg)
 		out, decision := p.injectOpenAIPromptCache(types.OpenAI, baseBody, "gpt-5", 200, "sess")
 		if decision.Applied || decision.Reason != "disabled" || string(out) != string(baseBody) {
@@ -101,8 +102,8 @@ func TestInjectOpenAIPromptCacheDecisionBranches(t *testing.T) {
 func TestBuildOpenAIPromptCacheKeyBranches(t *testing.T) {
 	cfg := config.Defaults().Proxy.OpenAIPromptCache
 	cfg.PromptCacheKeyStrategy = ""
-	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-raw-secret", "prefix-hash"); got == "" || strings.Contains(got, "sess-raw-secret") || strings.Contains(got, "prefix-hash") {
-		t.Fatalf("default/session key not hashed: %q", got)
+	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-raw-secret", "prefix-hash"); got == "" || !strings.Contains(got, "model_stable_prefix") || strings.Contains(got, "sess-raw-secret") || strings.Contains(got, "prefix-hash") {
+		t.Fatalf("default/model-stable key not hashed: %q", got)
 	}
 	cfg.PromptCacheKeyStrategy = "off"
 	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess", "prefix-hash"); got != "" {
@@ -112,6 +113,26 @@ func TestBuildOpenAIPromptCacheKeyBranches(t *testing.T) {
 	cfg.StaticPromptCacheKey = "  fixed-key  "
 	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess", "prefix-hash"); got != "fixed-key" {
 		t.Fatalf("static key=%q", got)
+	}
+	cfg.PromptCacheKeyStrategy = "stable_prefix"
+	stableA := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-a", "prefix-hash")
+	stableB := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-b", "prefix-hash")
+	if stableA == "" || stableA != stableB || !strings.Contains(stableA, "stable_prefix") {
+		t.Fatalf("stable_prefix should reuse key across sessions: a=%q b=%q", stableA, stableB)
+	}
+	cfg.PromptCacheKeyStrategy = "model_stable_prefix"
+	modelA := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-a", "prefix-hash")
+	modelB := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-b", "prefix-hash")
+	modelChanged := buildOpenAIPromptCacheKey(cfg, "gpt-5.1", "sess-a", "prefix-hash")
+	prefixChanged := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-a", "other-prefix")
+	if modelA == "" || modelA != modelB || modelA == modelChanged || modelA == prefixChanged {
+		t.Fatalf("model_stable_prefix key mismatch: a=%q b=%q model=%q prefix=%q", modelA, modelB, modelChanged, prefixChanged)
+	}
+	cfg.PromptCacheKeyStrategy = "session"
+	sessionA := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-a", "prefix-hash")
+	sessionB := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess-b", "prefix-hash")
+	if sessionA == "" || sessionA == sessionB {
+		t.Fatalf("session keys must remain session-scoped: a=%q b=%q", sessionA, sessionB)
 	}
 	cfg.PromptCacheKeyStrategy = "unknown"
 	if got := buildOpenAIPromptCacheKey(cfg, "gpt-5", "sess", "prefix-hash"); got != "" {
@@ -246,6 +267,32 @@ func TestOpenAIPromptCacheRateLimit(t *testing.T) {
 	}
 }
 
+func TestOpenAIPromptCacheRejectedCooldown(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Proxy.OpenAIPromptCache.Enabled = true
+	cfg.Proxy.OpenAIPromptCache.MinTokens = 0
+	p := New(cfg)
+	now := time.Unix(2000, 0)
+
+	if p.openAIPromptCacheRejected(types.OpenAI, "gpt-5", now) {
+		t.Fatal("unexpected rejection before mark")
+	}
+	p.markOpenAIPromptCacheRejected(types.OpenAI, "gpt-5", now)
+	if !p.openAIPromptCacheRejected(types.OpenAI, "gpt-5", now.Add(time.Minute)) {
+		t.Fatal("expected rejection cooldown")
+	}
+	if p.openAIPromptCacheRejected(types.OpenAI, "gpt-5", now.Add(openAIPromptCacheRejectTTL+time.Second)) {
+		t.Fatal("cooldown should expire")
+	}
+
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"system","content":"stable prefix"},{"role":"user","content":"old"},{"role":"assistant","content":"ok"},{"role":"user","content":"latest"}]}`)
+	p.markOpenAIPromptCacheRejected(types.OpenAI, "gpt-5", time.Now())
+	out, decision := p.injectOpenAIPromptCache(types.OpenAI, body, "gpt-5", 100, "sess")
+	if decision.Applied || decision.Reason != "rejected_cooldown" || string(out) != string(body) {
+		t.Fatalf("decision=%+v body=%s", decision, out)
+	}
+}
+
 func TestPromptCacheUnsupportedPeekRestoresBody(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: http.StatusBadRequest,
@@ -333,5 +380,8 @@ func TestServeHTTP_OpenAIPromptCacheInjectionRetryReappliesServerState(t *testin
 	}
 	if strings.Contains(bodies[1], "prompt_cache_key") || !strings.Contains(bodies[1], `"previous_response_id":"resp_old"`) {
 		t.Fatalf("retry must remove cache hints and preserve server state: %s", bodies[1])
+	}
+	if !p.openAIPromptCacheRejected(types.OpenAI, "gpt-5", time.Now()) {
+		t.Fatal("rejected cache hints should activate per-model cooldown")
 	}
 }

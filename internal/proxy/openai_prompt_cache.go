@@ -19,6 +19,8 @@ type promptCacheRateBucket struct {
 	count       int
 }
 
+const openAIPromptCacheRejectTTL = 30 * time.Minute
+
 type openAIPromptCacheDecision struct {
 	Applied            bool
 	Key                string
@@ -42,6 +44,9 @@ func (p *Proxy) injectOpenAIPromptCache(provider types.Provider, body []byte, mo
 	}
 	if provider != types.OpenAI {
 		return body, openAIPromptCacheDecision{Reason: "unsupported_provider"}
+	}
+	if p.openAIPromptCacheRejected(provider, model, time.Now()) {
+		return body, openAIPromptCacheDecision{Reason: "rejected_cooldown"}
 	}
 	caps := types.CapabilitiesFor(provider)
 	var root map[string]json.RawMessage
@@ -105,7 +110,7 @@ func (p *Proxy) injectOpenAIPromptCache(provider types.Provider, body []byte, mo
 func buildOpenAIPromptCacheKey(cfg config.OpenAIPromptCacheConfig, model string, sessionID string, stablePrefixHash string) string {
 	strategy := strings.TrimSpace(cfg.PromptCacheKeyStrategy)
 	if strategy == "" {
-		strategy = "session"
+		strategy = "model_stable_prefix"
 	}
 	stablePrefixHash = strings.TrimSpace(stablePrefixHash)
 	switch strategy {
@@ -113,6 +118,10 @@ func buildOpenAIPromptCacheKey(cfg config.OpenAIPromptCacheConfig, model string,
 		return ""
 	case "static":
 		return strings.TrimSpace(cfg.StaticPromptCacheKey)
+	case "stable_prefix":
+		return hashedPromptCacheKey("stable_prefix", stablePrefixHash)
+	case "model_stable_prefix":
+		return hashedPromptCacheKey("model_stable_prefix", joinKeyParts(model, stablePrefixHash))
 	case "session":
 		return hashedPromptCacheKey("session", joinKeyParts(sessionID, stablePrefixHash))
 	case "model_session":
@@ -183,6 +192,45 @@ func (p *Proxy) allowOpenAIPromptCacheKey(key string, maxPerMinute int, now time
 	b.count++
 	p.openAIPromptCacheRate[key] = b
 	return true
+}
+
+func (p *Proxy) markOpenAIPromptCacheRejected(provider types.Provider, model string, now time.Time) {
+	key := openAIPromptCacheRejectKey(provider, model)
+	if key == "" {
+		return
+	}
+	p.openAIPromptCacheMu.Lock()
+	defer p.openAIPromptCacheMu.Unlock()
+	if p.openAIPromptCacheRejects == nil {
+		p.openAIPromptCacheRejects = make(map[string]time.Time)
+	}
+	p.openAIPromptCacheRejects[key] = now
+}
+
+func (p *Proxy) openAIPromptCacheRejected(provider types.Provider, model string, now time.Time) bool {
+	key := openAIPromptCacheRejectKey(provider, model)
+	if key == "" {
+		return false
+	}
+	p.openAIPromptCacheMu.Lock()
+	defer p.openAIPromptCacheMu.Unlock()
+	rejectedAt, ok := p.openAIPromptCacheRejects[key]
+	if !ok {
+		return false
+	}
+	if now.Sub(rejectedAt) >= openAIPromptCacheRejectTTL {
+		delete(p.openAIPromptCacheRejects, key)
+		return false
+	}
+	return true
+}
+
+func openAIPromptCacheRejectKey(provider types.Provider, model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return provider.String()
+	}
+	return provider.String() + "\x00" + model
 }
 
 func peekPromptCacheUnsupportedError(resp *http.Response) bool {

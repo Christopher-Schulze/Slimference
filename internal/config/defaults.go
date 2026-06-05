@@ -13,8 +13,8 @@ func defaultsRaw() *Config {
 			IPv6:                       false,
 			DirectCodexWebSocketPolicy: "tunnel",
 			OpenAIPromptCache: OpenAIPromptCacheConfig{
-				Enabled:                    false,
-				PromptCacheKeyStrategy:     "session",
+				Enabled:                    true,
+				PromptCacheKeyStrategy:     "model_stable_prefix",
 				Retention:                  "off",
 				MinTokens:                  1024,
 				MaxRequestsPerKeyPerMinute: 15,
@@ -176,11 +176,12 @@ direct_codex_websocket_policy = "tunnel"
 server_state_enabled = false
 
 [proxy.openai_prompt_cache]
-# T136: optional OpenAI API prompt-cache routing fields. Disabled by default
-# because generic OpenAI supports these fields, but CodexChatGPT backend routes
-# must stay untouched until their live contract is captured.
-enabled = false
-prompt_cache_key_strategy = "session" # off | session | model_session | static
+# T136/T285: OpenAI API prompt-cache routing fields for stable prefixes.
+# Applies only to generic OpenAI API traffic. CodexChatGPT backend routes stay
+# untouched until their live contract is captured. Rejected fields trigger a
+# fail-open retry and a short per-model cooldown.
+enabled = true
+prompt_cache_key_strategy = "model_stable_prefix" # off | stable_prefix | model_stable_prefix | session | model_session | static
 static_prompt_cache_key = ""
 retention = "off" # off | in_memory | 24h | auto
 min_tokens = 1024

@@ -202,15 +202,16 @@ type Proxy struct {
 	// qualityAB hosts T186 cohort routing and outcome tracking for
 	// T169 be-terse hint and future gated levers. nil when not
 	// constructed.
-	qualityAB             *qualityab.Harness
-	outputReduceRepairMu  sync.Mutex
-	outputReduceRepair    map[string]pendingOutputReduceSignal
-	archiveRecoveryNoteMu sync.Mutex
-	archiveRecoveryNote   map[string]struct{}
-	openAIPromptCacheMu   sync.Mutex
-	openAIPromptCacheRate map[string]promptCacheRateBucket
-	webSocketTunnel       *WebSocketTunnel
-	webSocketShapes       *wscompact.ShapeRegistry
+	qualityAB                *qualityab.Harness
+	outputReduceRepairMu     sync.Mutex
+	outputReduceRepair       map[string]pendingOutputReduceSignal
+	archiveRecoveryNoteMu    sync.Mutex
+	archiveRecoveryNote      map[string]struct{}
+	openAIPromptCacheMu      sync.Mutex
+	openAIPromptCacheRate    map[string]promptCacheRateBucket
+	openAIPromptCacheRejects map[string]time.Time
+	webSocketTunnel          *WebSocketTunnel
+	webSocketShapes          *wscompact.ShapeRegistry
 
 	// Debug decision recorder - records per-request Layer 1 summaries for "slimference debug last".
 	debugRecorder *dbg.Recorder

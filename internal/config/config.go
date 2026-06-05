@@ -101,9 +101,9 @@ type ProxyConfig struct {
 	// CodexChatGPT to use `previous_response_id` instead of resending
 	// the prefix. Default off; flip per environment after live verify.
 	ServerStateEnabled bool `toml:"server_state_enabled"`
-	// OpenAIPromptCache controls optional OpenAI prompt-cache routing
-	// fields. It never applies to CodexChatGPT backend routes until their
-	// live request contract is proven.
+	// OpenAIPromptCache controls OpenAI prompt-cache routing fields for
+	// stable prefixes. It never applies to CodexChatGPT backend routes
+	// until their live request contract is proven.
 	OpenAIPromptCache OpenAIPromptCacheConfig `toml:"openai_prompt_cache"`
 }
 
@@ -780,9 +780,9 @@ func validate(cfg *Config) error {
 	}
 	pc := cfg.Proxy.OpenAIPromptCache
 	switch pc.PromptCacheKeyStrategy {
-	case "", "off", "session", "model_session", "static":
+	case "", "off", "stable_prefix", "model_stable_prefix", "session", "model_session", "static":
 	default:
-		return fmt.Errorf("proxy.openai_prompt_cache.prompt_cache_key_strategy must be off/session/model_session/static, got %q", pc.PromptCacheKeyStrategy)
+		return fmt.Errorf("proxy.openai_prompt_cache.prompt_cache_key_strategy must be off/stable_prefix/model_stable_prefix/session/model_session/static, got %q", pc.PromptCacheKeyStrategy)
 	}
 	switch pc.Retention {
 	case "", "off", "in_memory", "24h", "auto":

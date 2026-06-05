@@ -180,10 +180,11 @@ Entry: `internal/proxy/proxy.go::ServeHTTP` (line 347).
    passes.
 9. **Prompt-cache breakpoints** (T45) — up to 4 `ephemeral` markers
    spread evenly across the stable prefix.
-10. **OpenAI prompt-cache hints** (T136) — optional hashed
-    `prompt_cache_key` and model-gated `prompt_cache_retention` injection
-    for generic OpenAI API requests only; CodexChatGPT backend routes stay
-    untouched until live proof.
+10. **OpenAI prompt-cache steering** (T136/T285) — default-on hashed
+    `prompt_cache_key` steering for generic OpenAI API requests only, using
+    model-bound stable-prefix hashes. Optional model-gated
+    `prompt_cache_retention` stays operator-controlled. CodexChatGPT backend
+    routes stay untouched until live proof.
 11. **Layer 4 output/tool-surface reducers** — safe output discipline and
     tool-surface reductions are applied only when policy and proof gates allow.
 12. **Upstream call** via the per-provider HTTP client. Streaming is
@@ -1144,26 +1145,34 @@ shape stays identical until you opt in. Counters at
 Streaming response-id capture is deferred — SSE replies do not yet
 seed the next-turn anchor.
 
-### OpenAI prompt-cache hints (T136)
+### OpenAI prompt-cache steering (T136/T285)
 
-`[proxy.openai_prompt_cache]` is an opt-in request-hint layer for generic
-OpenAI API traffic. When enabled, Slimference first builds a stable-prefix
-plan from `messages` / Responses `input` arrays plus stable top-level fields
+`[proxy.openai_prompt_cache]` is a deterministic request-hint layer for generic
+OpenAI API traffic. Slimference first builds a stable-prefix plan from
+`messages` / Responses `input` arrays plus stable top-level fields
 (`instructions`, `system`, `developer`, `tools`). Only content before the
 final user turn is eligible; the latest user turn is excluded so normal prompt
 edits do not rotate the cache key. The hint gate uses stable-prefix tokens,
 not whole-request tokens, so one-turn requests do not pay cache-hint overhead
 just because the latest prompt is large.
 
-Generated `prompt_cache_key` values are privacy-safe hashes over session/model
-strategy plus the stable-prefix hash. They rotate when the stable prefix or
-tool schema changes, but they never contain raw prompt text or full local
-paths. Existing caller-owned fields are preserved, and a per-key rate cap
-disables the hint before it can create high-cardinality cache churn. If OpenAI
-rejects the fields with a relevant 4xx response, the proxy retries once
-without those hints while preserving any server-state rewrite. Debug/flight
-telemetry records only content-free fields: applied/reason, retention,
-stable-prefix token estimate, and stable-prefix hash.
+Generated `prompt_cache_key` values are privacy-safe hashes over stable-prefix
+shape. The default strategy is `model_stable_prefix`, which reuses the same key
+across sessions when the same model sees the same stable prefix, and rotates on
+model, stable-prefix, or tool-schema changes. `stable_prefix`, `session`,
+`model_session`, `static`, and `off` remain supported for operators that need a
+different cache-key cardinality. Generated keys never contain raw prompt text,
+session IDs, or full local paths.
+
+`prompt_cache_retention` remains off by default. Operators may set `in_memory`
+or model-gated `24h`; `auto` leaves the provider default untouched. Existing
+caller-owned fields are preserved, and a per-key rate cap disables the hint
+before it can create high-cardinality cache churn. If OpenAI rejects the fields
+with a relevant 4xx response, the proxy retries once without those hints while
+preserving any server-state rewrite, then suppresses prompt-cache steering for
+that provider/model for 30 minutes. Debug/flight telemetry records only
+content-free fields: applied/reason, retention, stable-prefix token estimate,
+and stable-prefix hash.
 
 CodexChatGPT backend routes do not receive these fields until T140 captures
 live request acceptance.

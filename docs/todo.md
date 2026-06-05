@@ -25,6 +25,7 @@ No queued tasks.
 
 ## Done
 
+- [x] T285 OpenAI cache steering max-out -> docs/todo/t285-openai-cache-steering-maxx.md
 - [x] T284 Response cache layer renumbering -> docs/todo/t284-response-cache-layer-renumbering.md
 - [x] T260 Layer 0 parser frontier max-out -> docs/todo/t260-layer0-parser-frontier-maxx.md
 - [x] T261 Layer 1 reversible safety tiers -> docs/todo/t261-layer1-reversible-safety-tiers.md

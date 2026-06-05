@@ -143,17 +143,17 @@ Slimference accurately tracks and improves OpenAI/Codex prompt-cache behavior:
   - `types.ProviderCapabilities` now exposes prompt-cache and previous-response capability flags: cache usage, cache key, cache retention, HTTP/WebSocket previous-response support, and whether previous-response context remains billable.
   - `config.Proxy.OpenAIPromptCache` adds `[proxy.openai_prompt_cache]`:
     - `enabled`
-    - `prompt_cache_key_strategy = "off|session|model_session|static"`
+    - `prompt_cache_key_strategy = "off|stable_prefix|model_stable_prefix|session|model_session|static"`
     - `static_prompt_cache_key`
     - `retention = "off|in_memory|24h|auto"`
     - `min_tokens`
     - `max_requests_per_key_per_minute`
-  - Defaults are conservative: disabled, session-key strategy prepared, retention off, 1024-token minimum, 15 requests/key/minute cap.
+  - T285 default: enabled for generic OpenAI API traffic, `model_stable_prefix` key strategy, retention off, 1024-token stable-prefix minimum, 15 requests/key/minute cap.
   - `internal/proxy/openai_prompt_cache.go` injects only for generic OpenAI API requests, never for `CodexChatGPT` backend routes without live proof.
   - Injection preserves caller-owned `prompt_cache_key` / `prompt_cache_retention`; generated keys are hashed and never include raw prompt text or full paths.
   - `24h` retention is emitted only for models documented as supporting extended prompt cache families (`gpt-5.1*`, `gpt-5*`, `gpt-4.1*`); `auto` leaves provider defaults untouched.
-  - If upstream rejects cache fields with a 4xx mentioning `prompt_cache_key` or `prompt_cache_retention`, the proxy retries once without those hints.
-  - Tests cover idempotence, provider scoping, rate limiting, retention model gating, and rejection-peek body restoration.
+  - If upstream rejects cache fields with a 4xx mentioning `prompt_cache_key` or `prompt_cache_retention`, the proxy retries once without those hints and suppresses further generic OpenAI cache-key injection for that provider/model for 30 minutes.
+  - Tests cover idempotence, provider scoping, cross-session stable-prefix keys, model/prefix rotation, rate limiting, rejection cooldown, retention model gating, and rejection-peek body restoration.
   - `go run ./scripts/ci` passes 8/8 with 100.0% total statement coverage after adding the prompt-cache handler retry and branch coverage tests.
 - Boundaries:
   - `previous_response_id` remains owned by T78 and is reported as state reuse, not billable token savings.

@@ -81,7 +81,13 @@ Requirements:
   conversation/thread, and non-deterministic request shapes;
 - invalidate file-dependent entries only when watches are actually armed;
 - keep provider-cache read/create/cached-token accounting separate from local
-  reducer savings.
+  reducer savings;
+- for generic OpenAI API traffic, steer prompt-cache routing only with
+  deterministic stable-prefix-hash keys, preserve caller-owned cache fields,
+  never include raw prompt text/path/session data in generated keys, and
+  downgrade fail-open with per-model cooldown if upstream rejects the fields;
+- do not inject OpenAI prompt-cache keys into CodexChatGPT backend routes until
+  live request acceptance is proven.
 
 ## 6. Layer 4
 
