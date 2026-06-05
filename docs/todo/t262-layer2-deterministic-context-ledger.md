@@ -31,6 +31,8 @@ replacement for reality.
   can no longer make cached summaries or mid-exchange summaries replace
   model-facing history unless the explicit legacy override
   `[compression.summary].allow_model_facing_replacement=true` is also set.
+  The reverse is also enforced: the legacy override alone cannot apply cached
+  summaries when `layer2_enabled=false`, including overflow recovery.
 - The planner now uses the same split: Layer 2 can be enabled for background
   work, but it cannot report or drive a model-facing `run` decision for
   classical summaries unless that legacy override is set.
@@ -254,3 +256,10 @@ summary remains opt-in, not default.
   The pure deterministic mid-exchange helper remains available for tests and
   legacy labs, but the product proxy cannot insert any summary-as-context path
   by only enabling `mid_exchange_enabled`.
+- 2026-06-05: Closed the overflow-recovery model-facing gap. The aggressive
+  context-overflow retry can consume an existing cached summary only when
+  `layer2_enabled=true` and the Layer2-owned model-facing legacy gate accepts
+  the session/cache. A focused regression test proves
+  `allow_model_facing_replacement=true` alone cannot inject cached summary text
+  while Layer 2 is disabled. The async background enqueue path already required
+  Layer 2 to be enabled, so recovery now matches the normal request hot path.

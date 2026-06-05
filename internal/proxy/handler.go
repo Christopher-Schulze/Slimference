@@ -1538,11 +1538,11 @@ func isContextOverflow(body []byte) bool {
 }
 
 // buildAggressiveCompressedBodyContext re-runs Layer 1 with a minimal sliding
-// window, applies any already-cached Layer 2 summary read-only, and enqueues
-// a fresh async Layer 2 job so the next request benefits from an updated
-// summary. Spec+.md §17.4: the overflow recover path must be bounded by local
-// CPU - no synchronous MiniMax call is permitted here, because a hanging
-// provider would hang the user-facing recover.
+// window, applies any already-cached Layer 2 summary read-only only when Layer 2
+// is explicitly enabled, and enqueues a fresh async Layer 2 job so the next
+// request benefits from an updated summary. Spec+.md §17.4: the overflow recover
+// path must be bounded by local CPU - no synchronous MiniMax call is permitted
+// here, because a hanging provider would hang the user-facing recover.
 func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash pipelineStash) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -1556,9 +1556,10 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 	l1 := compression.NewDeterministicCompressor(&cfg)
 	msgs := l1.Compress(stash.messages).Messages
 
-	// Read-only Layer 2 pass: consume any existing cached summary. Never call
-	// MiniMax synchronously - that is exactly what this path must not do.
-	if p.layer2 != nil {
+	// Read-only Layer 2 pass: consume any existing cached summary only when
+	// Layer 2 itself is enabled. Never call MiniMax synchronously - that is
+	// exactly what this path must not do.
+	if p.isLayerEnabled(2) && p.layer2 != nil {
 		if applied, _, ok := p.layer2.ApplyToMessagesSession(stash.sessionID, msgs); ok {
 			msgs = applied
 		}

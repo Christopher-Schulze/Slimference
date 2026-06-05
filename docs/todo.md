@@ -1944,8 +1944,11 @@ be called complete, default-safe, and production-grade.
   and explicit repo/workdir scope for file capsules, explicit execution scope
   for search capsules, explicit decision/recovery facts, archive ids, and a
   policy session id to prevent cross-session context selection. Active-file and
-  quality-pressure selection inputs now fail closed as tested primitives; only
-  proof-gated model-facing ledger insertion and live A/B promotion remain.
+  quality-pressure selection inputs now fail closed as tested primitives.
+  Overflow recovery now also requires `layer2_enabled=true` before it may apply
+  any cached legacy summary, so the legacy override alone cannot bypass the
+  default-off product path. Only proof-gated model-facing ledger insertion and
+  live A/B promotion remain.
   Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [x] **T263** Layer 3 provider/prompt cache max-out - local response cache now
@@ -2236,11 +2239,13 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   protection, unknown/unattributed fail-closed archive gating, and neutral
   product-name-free reversible marker text remain enforced by tests.
 - [ ] **T262 Layer 2 max-out closeout** - classical summary replacement and
-  mid-exchange summaries stay outside the product path unless explicitly
-  legacy-gated; archive provenance, quality-pressure fail-closed selection, and
-  A/B archive expansion are implemented offline. The legacy replacement path
-  fail-closes without a trusted session id, non-empty summary text, matching
-  cached prefix, and positive token savings. Ledger selection full-passes
+  mid-exchange summaries stay outside the product path unless Layer 2 is enabled
+  and the explicit legacy override is set; archive provenance, quality-pressure
+  fail-closed selection, and A/B archive expansion are implemented offline. The
+  legacy replacement path fail-closes without a trusted session id, non-empty
+  summary text, matching cached prefix, and positive token savings. Overflow
+  recovery follows the same double gate before consuming cached summaries.
+  Ledger selection full-passes
   active-file capsules and all capsules under quality/re-read pressure.
   Remaining closeout is live-only and intentionally not default-on: proof-gated
   deterministic context-ledger insertion plus live A/B proof that model-facing

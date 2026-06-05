@@ -425,13 +425,14 @@ is loader-based and must restore exact bytes or fail. It is not yet a default
 hot-path replacement mechanism; readcache provenance, replay, and live corpus
 proof remain the promotion gates.
 
-Classical Layer 2 summary replacement is now gated separately from
-`layer2_enabled`. Even if an operator enables Layer 2, cached extractive or
-provider summaries remain shadow/background artifacts unless
+Classical Layer 2 summary replacement is double-gated. First, Layer 2 itself
+must be enabled. Second, cached extractive or provider summaries remain
+shadow/background artifacts unless
 `[compression.summary].allow_model_facing_replacement = true` (or
 `SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT=1`) is explicitly set. This keeps
 summary-as-truth out of the product path while the context-ledger replacement is
-being proven.
+being proven. The same double gate covers normal request compression,
+mid-exchange summaries, and overflow recovery's read-only cached summary pass.
 
 The Codex Layer-0 reducer now feeds the tool-output ledger builders in the hot
 path as telemetry only. It builds command/file/search/failure capsule
@@ -1070,6 +1071,8 @@ with `slimference layer2 enable --acknowledge-data-policy` or an explicit
 `layer2_enabled = true` config. Even when Layer 2 is enabled, model-facing
 classical summary replacement stays blocked unless the explicit legacy override
 `[compression.summary].allow_model_facing_replacement = true` is configured.
+The inverse is also true: the legacy override alone is insufficient while
+`layer2_enabled` is false, including overflow recovery's cached-summary retry.
 The first interactive startup with Layer 2 enabled records an explicit acknowledgement under
 `~/.slimference/policy/layer2-default-on-ack.json`; non-interactive startup
 warns without blocking. `slimference layer2 acknowledge` records the marker
@@ -1088,12 +1091,12 @@ request completes, `ScoreBackgroundCandidateSession` checks provider
 availability, compressible-prefix size, recent edit/error anchors,
 projected savings, and existing summary coverage. Eligible jobs enter
 the bounded `compressQueue` with a session candidate hash. The worker
-drops stale hashes before running the summariser, and `ApplyToMessagesSession`
-only replaces messages when the legacy model-facing replacement gate is enabled
-and the cached summary hash still matches the live covered prefix. Gate disabled,
-hash mismatch, stale worker job, provider failure, timeout, validation failure,
-and anchor-loss validation all fail open to the original context. Telemetry is exposed at
-`/admin/status.layer2.cache_stats`.
+drops stale hashes before running the summariser. Product callers invoke cached
+replacement only when Layer 2 is enabled, the legacy model-facing replacement
+gate is enabled, and the cached summary hash still matches the live covered
+prefix. Gate disabled, hash mismatch, stale worker job, provider failure,
+timeout, validation failure, and anchor-loss validation all fail open to the
+original context. Telemetry is exposed at `/admin/status.layer2.cache_stats`.
 
 Layer 2 caps oversized message text before outbound redaction/rendering, then
 caps the formatted summariser input again before preprocessing or density
@@ -1417,10 +1420,10 @@ in-progress summary block when the current exchange exceeds
 for completed tool-use cycles (`assistant[tool_use]` ->
 `user[tool_result]` -> `assistant`) inside the live exchange and
 collapses the range to `[in-progress summary, anchor=msg #N]`.
-Because this is model-facing context replacement, it is also blocked unless
-`[compression.summary].allow_model_facing_replacement = true` is explicitly set.
-Default off. The product direction remains deterministic context ledger
-shadowing, not summary-as-truth.
+Because this is model-facing context replacement, it is blocked unless Layer 2
+is enabled and `[compression.summary].allow_model_facing_replacement = true` is
+explicitly set. Default off. The product direction remains deterministic context
+ledger shadowing, not summary-as-truth.
 
 ### Layer 4 tool-definition pruning (T103)
 
@@ -2369,7 +2372,7 @@ first behavior gates: L0 proxy compaction skips planner
 `cheap_only`, L1/L2 coordination keys off the planner's L2 `run` decision, and
 L2 cache apply/background enqueue skip hard L2 bypasses (operator-disabled,
 external policy disabled, recent-edit window). Classical Layer 2 summaries can
-only reach planner `run` when the explicit legacy
+only reach planner `run` when Layer 2 is enabled and the explicit legacy
 `allow_model_facing_replacement` gate is set; otherwise long-context Layer 2
 stays a context-ledger shadow candidate instead of replacing conversation
 truth. Soft below-ROI L2 bypasses still fall through to Layer2's session cache

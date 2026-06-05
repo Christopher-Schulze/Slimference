@@ -211,6 +211,7 @@ func TestBuildAggressiveCompressedBody_contextCancelled(t *testing.T) {
 func TestBuildAggressiveCompressedBody_appliesCachedSummary(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
+	cfg.Compression.Layer2Enabled = true
 	cfg.Compression.Summary.AllowModelFacingReplacement = true
 	p := New(cfg)
 	// Seed an existing Layer 2 summary that covers indices 0..1.
@@ -247,6 +248,58 @@ func TestBuildAggressiveCompressedBody_appliesCachedSummary(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "Conversation summary covering messages") {
 		t.Fatalf("expected synthetic summary injected into forwarded body; got %s", out)
+	}
+}
+
+// TestBuildAggressiveCompressedBody_layer2DisabledBlocksCachedSummary verifies
+// the overflow recover path cannot promote cached legacy summaries when Layer 2
+// is disabled, even if the explicit model-facing legacy override is present.
+func TestBuildAggressiveCompressedBody_layer2DisabledBlocksCachedSummary(t *testing.T) {
+	t.Parallel()
+	cfg := config.Defaults()
+	cfg.Compression.Layer2Enabled = false
+	cfg.Compression.Summary.AllowModelFacingReplacement = true
+	p := New(cfg)
+
+	const sessionID = "session-trusted"
+	p.layer2.GetCache().GetInner().Store(sessionID, &summarization.CachedSummary{
+		Summary:          "stashed summary",
+		CoveredRange:     [2]int{0, 1},
+		OriginalTokens:   20,
+		CompressedTokens: 5,
+		CreatedAt:        time.Now(),
+	})
+
+	body := []byte(`{
+		"model": "claude-3-5-sonnet-20241022",
+		"max_tokens": 64,
+		"messages": [
+			{"role": "user", "content": "first"},
+			{"role": "assistant", "content": "second"},
+			{"role": "user", "content": "tail"}
+		]
+	}`)
+	msgs, _, err := extractMessages(types.Anthropic, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := p.buildAggressiveCompressedBodyContext(context.Background(), pipelineStash{
+		messages:  msgs,
+		origBody:  body,
+		provider:  types.Anthropic,
+		sessionID: sessionID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodyText := string(out)
+	if strings.Contains(bodyText, "Conversation summary covering messages") {
+		t.Fatalf("layer2 disabled must block cached summary injection; got %s", out)
+	}
+	for _, want := range []string{"first", "second", "tail"} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("expected original message content %q to remain; got %s", want, out)
+		}
 	}
 }
 
