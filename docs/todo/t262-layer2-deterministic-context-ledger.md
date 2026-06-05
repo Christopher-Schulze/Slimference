@@ -181,7 +181,7 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules in about 2.494 ms, 414023 B/op, 8202 allocs/op.
+  512 file capsules in about 0.645 ms, 238095 B/op, 11 allocs/op.
 
 ## Verification
 
@@ -392,3 +392,9 @@ summary remains opt-in, not default.
   old blocks are recoverable when archives expand byte-equal, and mismatched
   OCRL archive payloads remain `reference_mismatch` lost-comprehension issues.
   `go test ./internal/abharness ./internal/contextledger -count=1` passed.
+- 2026-06-05: Reduced OCRL renderer and archive-verify hot allocations without
+  weakening gates. `RenderOCRLCapsules` now writes quoted fields, archive lists,
+  and maps directly into one builder with reusable scratch buffers, while
+  singleton archive verification avoids per-capsule sort/map allocation.
+  `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
+  measured `644837 ns/op`, `238095 B/op`, and `11 allocs/op`.

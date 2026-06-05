@@ -2,6 +2,7 @@ package contextledger
 
 import (
 	"errors"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -150,7 +151,7 @@ func verifyCapsuleArchivesForOCRL(capsule Capsule, load ArchiveLoader, count Tok
 	if load == nil {
 		return 0, 0, errors.New("archive loader is required")
 	}
-	ids := sortedStrings(capsule.Archives)
+	ids := sortedArchiveIDs(capsule.Archives)
 	if len(ids) == 0 {
 		return 0, 0, errors.New("capsule has no archive ids")
 	}
@@ -170,6 +171,9 @@ func verifyCapsuleArchivesForOCRL(capsule Capsule, load ArchiveLoader, count Tok
 func RenderOCRLCapsules(capsules []Capsule) string {
 	var b strings.Builder
 	b.Grow(64 + len(capsules)*192)
+	archiveScratch := make([]string, 0, 4)
+	keyScratch := make([]string, 0, 8)
+	quoteScratch := make([]byte, 0, 64)
 	b.WriteString("[ocrl:v1 selected=")
 	b.WriteString(strconv.Itoa(len(capsules)))
 	b.WriteString(" archive_recoverable=true]\n")
@@ -177,17 +181,17 @@ func RenderOCRLCapsules(capsules []Capsule) string {
 		b.WriteString("- kind=")
 		b.WriteString(string(capsule.Kind))
 		b.WriteString(" session=")
-		b.WriteString(quoteField(capsule.Provenance.SessionID))
+		writeQuotedField(&b, capsule.Provenance.SessionID, &quoteScratch)
 		b.WriteString(" turn=")
-		b.WriteString(quoteField(capsule.Provenance.TurnID))
+		writeQuotedField(&b, capsule.Provenance.TurnID, &quoteScratch)
 		b.WriteString(" source=")
-		b.WriteString(quoteField(capsule.Provenance.Source))
+		writeQuotedField(&b, capsule.Provenance.Source, &quoteScratch)
 		b.WriteString(" archives=")
-		b.WriteString(quoteList(capsule.Archives))
+		writeQuotedList(&b, capsule.Archives, &archiveScratch, &quoteScratch)
 		b.WriteString(" facts=")
-		b.WriteString(quoteMap(capsule.Facts))
+		writeQuotedMap(&b, capsule.Facts, &keyScratch, &quoteScratch)
 		b.WriteString(" hashes=")
-		b.WriteString(quoteMap(capsule.Hashes))
+		writeQuotedMap(&b, capsule.Hashes, &keyScratch, &quoteScratch)
 		b.WriteByte('\n')
 	}
 	return b.String()
@@ -223,56 +227,101 @@ func normalizedOCRLRoute(route OCRLRoute) OCRLRoute {
 	}
 }
 
-func quoteField(value string) string {
-	return strconv.Quote(strings.TrimSpace(value))
-}
-
-func quoteList(values []string) string {
-	values = sortedStrings(values)
+func writeQuotedList(b *strings.Builder, values []string, scratch *[]string, quoteScratch *[]byte) {
+	values = sortedStringsScratch(values, scratch)
 	if len(values) == 0 {
-		return "[]"
+		b.WriteString("[]")
+		return
 	}
-	var b strings.Builder
-	b.Grow(2 + len(values)*12)
 	b.WriteByte('[')
 	for i, value := range values {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		b.WriteString(quoteField(value))
+		writeQuotedField(b, value, quoteScratch)
 	}
 	b.WriteByte(']')
-	return b.String()
 }
 
-func quoteMap(values map[string]string) string {
+func writeQuotedMap(b *strings.Builder, values map[string]string, scratch *[]string, quoteScratch *[]byte) {
 	if len(values) == 0 {
-		return "{}"
+		b.WriteString("{}")
+		return
 	}
-	keys := make([]string, 0, len(values))
+	keys := (*scratch)[:0]
 	for key, value := range values {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		if key == "" || value == "" {
 			continue
 		}
+		if containsString(keys, key) {
+			continue
+		}
 		keys = append(keys, key)
 	}
-	keys = sortedStrings(keys)
+	sort.Strings(keys)
+	*scratch = keys
 	if len(keys) == 0 {
-		return "{}"
+		b.WriteString("{}")
+		return
 	}
-	var b strings.Builder
-	b.Grow(2 + len(keys)*24)
 	b.WriteByte('{')
 	for i, key := range keys {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		b.WriteString(quoteField(key))
+		writeQuotedField(b, key, quoteScratch)
 		b.WriteByte(':')
-		b.WriteString(quoteField(values[key]))
+		writeQuotedField(b, values[key], quoteScratch)
 	}
 	b.WriteByte('}')
-	return b.String()
+}
+
+func writeQuotedField(b *strings.Builder, value string, scratch *[]byte) {
+	*scratch = strconv.AppendQuote((*scratch)[:0], strings.TrimSpace(value))
+	b.Write(*scratch)
+}
+
+func sortedArchiveIDs(values []string) []string {
+	if len(values) == 1 {
+		value := strings.TrimSpace(values[0])
+		if value == "" {
+			return nil
+		}
+		if value != values[0] {
+			return []string{value}
+		}
+		return values[:1]
+	}
+	return sortedStrings(values)
+}
+
+func sortedStringsScratch(values []string, scratch *[]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := (*scratch)[:0]
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || containsString(out, value) {
+			continue
+		}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	*scratch = out
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

@@ -228,6 +228,15 @@ func TestVerifyCapsuleArchivesAvoidsCopiesAndFailsClosed(t *testing.T) {
 	if count != 2 || calls != 2 {
 		t.Fatalf("count=%d calls=%d want 2", count, calls)
 	}
+	trimmed, err := VerifyCapsuleArchives(testCapsule(CapsuleFile, "s", "old", " single "), func(id string) ([]byte, error) {
+		if id != "single" {
+			t.Fatalf("singleton archive id not trimmed: %q", id)
+		}
+		return []byte("body"), nil
+	})
+	if err != nil || trimmed != 1 {
+		t.Fatalf("trimmed singleton verify: count=%d err=%v", trimmed, err)
+	}
 	if _, err := VerifyCapsuleArchives(Capsule{}, nil); err == nil {
 		t.Fatal("expected nil loader error")
 	}

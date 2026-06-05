@@ -255,7 +255,7 @@ func VerifyCapsuleArchives(capsule Capsule, load ArchiveLoader) (int, error) {
 	if load == nil {
 		return 0, errors.New("archive loader is required")
 	}
-	ids := sortedStrings(capsule.Archives)
+	ids := sortedArchiveIDs(capsule.Archives)
 	if len(ids) == 0 {
 		return 0, errors.New("capsule has no archive ids")
 	}

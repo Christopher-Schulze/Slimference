@@ -42,6 +42,7 @@ func run(args []string, stdout, stderr *os.File) int {
 		"-coverprofile="+prof,
 		"-covermode=atomic",
 		"-p=1",
+		"-parallel=1",
 		"./cmd/...",
 		"./internal/...",
 	)

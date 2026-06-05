@@ -1107,8 +1107,8 @@ Focused verification on 2026-06-05:
 - `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
 
 The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
-2.494 ms with 414023 B/op and 8202 allocs/op after archive verification and
-renderer allocation trimming.
+0.645 ms with 238095 B/op and 11 allocs/op after archive verification and
+renderer scratch-buffer reuse.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,
@@ -2776,7 +2776,8 @@ Full process in `docs/release-process.md`.
   + CLI contract checks.
 - **Race detector**: `go test -race ./...` green; required gate.
 - **Coverage gate**: `scripts/coverage` fails CI below the threshold and runs
-  package coverage serially to keep proxy shutdown/resource tests deterministic.
+  package plus intra-package coverage serially to keep proxy shutdown/resource
+  tests deterministic.
 - **Benchmark harness**: `scripts/benchmarks` runs the canonical
   micro-benchmarks under `go test -bench`.
 
