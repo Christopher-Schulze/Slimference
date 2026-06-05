@@ -41,6 +41,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	testCmd := exec.Command("go", "test",
 		"-coverprofile="+prof,
 		"-covermode=atomic",
+		"-p=1",
 		"./cmd/...",
 		"./internal/...",
 	)

@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/slimference/slimference/internal/types"
@@ -17,6 +18,8 @@ import (
 
 var archiveURIPattern = regexp.MustCompile(`(?:local-archive://|slim://archive/)([A-Za-z0-9_\-]+)`)
 var contextChunkPattern = regexp.MustCompile(`\[context-chunk status=unchanged uri=((?:local-archive://|slim://archive/)[A-Za-z0-9_\-]+) bytes=[0-9]+\]`)
+var ocrlArchiveListPattern = regexp.MustCompile(`archives=\[((?:"(?:\\.|[^"\\])*"\s*,?\s*)+)\]`)
+var quotedStringPattern = regexp.MustCompile(`"(?:\\.|[^"\\])*"`)
 
 // Turn holds one request's content messages before and after compression. The
 // reducer preserves block order and count, so blocks are paired by index.
@@ -197,7 +200,7 @@ func compareTurnSegments(turn int, before, after []string, pairs []equalPair, se
 				out = append(out, Elision{
 					Turn:     turn,
 					Block:    beforeAt,
-					Severity: classifyReplacement(bt, at, seenFull, resolve),
+					Severity: classifyReplacement(bt, at, after, seenFull, resolve),
 					Bytes:    len(bt) - len(at),
 					Preview:  preview(bt),
 				})
@@ -211,7 +214,7 @@ func compareTurnSegments(turn int, before, after []string, pairs []equalPair, se
 				out = append(out, Elision{
 					Turn:     turn,
 					Block:    beforeAt,
-					Severity: classifyReplacement(bt, "", seenFull, resolve),
+					Severity: classifyReplacement(bt, "", after, seenFull, resolve),
 					Bytes:    len(bt),
 					Preview:  preview(bt),
 				})
@@ -251,13 +254,16 @@ func blockTexts(msgs []types.Message) []string {
 	return out
 }
 
-func classifyReplacement(before string, after string, seenFull map[string]struct{}, resolve ArchiveResolver) Severity {
+func classifyReplacement(before string, after string, afterContext []string, seenFull map[string]struct{}, resolve ArchiveResolver) Severity {
 	for _, stable := range stableSeenFullTexts(before) {
 		if _, ok := seenFull[hashText(stable)]; ok {
 			return SeverityRecoverable
 		}
 	}
 	ids := archiveIDs(after)
+	if len(ids) == 0 && shouldUseContextArchiveIDs(before, after) {
+		ids = archiveIDs(strings.Join(afterContext, "\n"))
+	}
 	if len(ids) > 0 {
 		if resolve == nil {
 			return SeverityReferenced
@@ -295,6 +301,19 @@ func classifyReplacement(before string, after string, seenFull map[string]struct
 		return SeverityLost
 	}
 	return SeverityChanged
+}
+
+func shouldUseContextArchiveIDs(before, after string) bool {
+	if before == "" {
+		return false
+	}
+	if strings.TrimSpace(after) == "" {
+		return true
+	}
+	if strings.HasPrefix(strings.TrimSpace(after), "[ocrl:v1 covered_by=") {
+		return true
+	}
+	return len(after) < len(before)
 }
 
 func archiveBodyMatchesStable(body string, beforeStable []string, resolve ArchiveResolver, seen map[string]struct{}, depth int) bool {
@@ -379,24 +398,52 @@ func archiveIDFromURI(raw string) string {
 }
 
 func archiveIDs(text string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
 	matches := archiveURIPattern.FindAllStringSubmatch(text, -1)
+	for _, match := range matches {
+		out = appendArchiveID(out, seen, match[1])
+	}
+	for _, id := range ocrlArchiveIDs(text) {
+		out = appendArchiveID(out, seen, id)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func ocrlArchiveIDs(text string) []string {
+	if !strings.Contains(text, "[ocrl:v1") {
+		return nil
+	}
+	matches := ocrlArchiveListPattern.FindAllStringSubmatch(text, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(matches))
-	seen := map[string]struct{}{}
 	for _, match := range matches {
-		id := strings.TrimSpace(match[1])
-		if id == "" {
-			continue
+		for _, quoted := range quotedStringPattern.FindAllString(match[1], -1) {
+			value, err := strconv.Unquote(quoted)
+			if err != nil {
+				continue
+			}
+			out = append(out, archiveIDFromURI(value))
 		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
 	}
 	return out
+}
+
+func appendArchiveID(out []string, seen map[string]struct{}, raw string) []string {
+	id := archiveIDFromURI(raw)
+	if id == "" {
+		return out
+	}
+	if _, ok := seen[id]; ok {
+		return out
+	}
+	seen[id] = struct{}{}
+	return append(out, id)
 }
 
 func hashText(s string) string {

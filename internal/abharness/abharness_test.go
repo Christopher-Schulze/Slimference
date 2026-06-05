@@ -226,6 +226,39 @@ func TestCompareWithArchiveExpansion_VerifiesReferencedBytes(t *testing.T) {
 	}
 }
 
+func TestCompareWithArchiveExpansion_VerifiesOCRLArchiveListReferences(t *testing.T) {
+	t.Parallel()
+	first := strings.Repeat("old first context\n", 30)
+	second := strings.Repeat("old second context\n", 30)
+	ocrl := "[ocrl:v1 selected=2 archive_recoverable=true]\n" +
+		"- kind=file session=\"s\" turn=\"t1\" source=\"file\" archives=[\"first-archive\"] facts={\"path\":\"/repo/a.go\"} hashes={}\n" +
+		"- kind=search session=\"s\" turn=\"t2\" source=\"search\" archives=[\"second-archive\"] facts={\"command\":\"rg TODO\"} hashes={}\n"
+	rep := CompareWithArchiveExpansion([]Turn{
+		{Before: msg(first, second), After: msg(ocrl)},
+	}, func(id string) ([]byte, error) {
+		switch id {
+		case "first-archive":
+			return []byte(first), nil
+		case "second-archive":
+			return []byte(second), nil
+		default:
+			t.Fatalf("unexpected archive id %q", id)
+			return nil, errArchiveMissing{}
+		}
+	})
+	if rep.Lost() != 0 {
+		t.Fatalf("OCRL archive list should recover all replaced blocks: %+v", rep.Elisions)
+	}
+	if len(rep.Elisions) != 2 {
+		t.Fatalf("expected two OCRL elisions, got %+v", rep.Elisions)
+	}
+	for _, elision := range rep.Elisions {
+		if elision.Severity != SeverityReferenced {
+			t.Fatalf("want referenced OCRL elision, got %+v", rep.Elisions)
+		}
+	}
+}
+
 func TestCompareWithArchiveExpansion_FailsMissingOrMismatchedReference(t *testing.T) {
 	t.Parallel()
 	content := strings.Repeat("expected source\n", 40)
@@ -245,6 +278,18 @@ func TestCompareWithArchiveExpansion_FailsMissingOrMismatchedReference(t *testin
 	})
 	if mismatch.Lost() != 1 || len(mismatch.Elisions) != 1 || mismatch.Elisions[0].Severity != SeverityReferenceMismatch {
 		t.Fatalf("mismatched archive must be a lost issue: %+v", mismatch.Elisions)
+	}
+
+	ocrlMismatch := CompareWithArchiveExpansion([]Turn{
+		{
+			Before: msg(content),
+			After:  msg("[ocrl:v1 selected=1 archive_recoverable=true]\n- kind=file session=\"s\" turn=\"t\" source=\"file\" archives=[\"wrong\"] facts={\"path\":\"/repo/a.go\"} hashes={}\n"),
+		},
+	}, func(string) ([]byte, error) {
+		return []byte("different source"), nil
+	})
+	if ocrlMismatch.Lost() != 1 || len(ocrlMismatch.Elisions) != 1 || ocrlMismatch.Elisions[0].Severity != SeverityReferenceMismatch {
+		t.Fatalf("mismatched OCRL archive must be a lost issue: %+v", ocrlMismatch.Elisions)
 	}
 }
 

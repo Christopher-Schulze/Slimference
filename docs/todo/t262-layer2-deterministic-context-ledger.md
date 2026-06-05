@@ -49,6 +49,10 @@ replacement for reality.
   effective OCRL policy and the Codex WSS shadow-only route guard.
 - `contentarchive.Peek` supports OCRL proof verification by loading exact
   archive payloads without incrementing real expansion/recovery counters.
+- `internal/abharness` now understands OCRL archive lists in rendered
+  `[ocrl:v1 ...]` blocks. Direct-vs-OCRL replay treats replaced or deleted old
+  blocks as recoverable only when the listed archives expand to the exact direct
+  block text; missing or mismatched payloads remain lost-comprehension issues.
 - The Codex Layer-0 reducer now feeds those builders in the hot path as
   content-free telemetry only for tool-output command/file/search/failure
   observations. `/admin/state.savings` exposes those capsule counts globally and
@@ -120,6 +124,8 @@ The ledger stores deterministic capsules:
    - [x] missing archive means no replacement
    - [x] wire archive expansion replay into the A/B harness engine
    - [x] add real archived reducer-output fixtures to the A/B harness
+   - [x] add OCRL archive-list replay to the A/B harness, including deleted
+     block coverage and mismatch-fails-lost tests
    - [x] add allocation-light archive recoverability verification for OCRL
      apply gates without copying archive bytes
    - [x] add read-only archive peek for shadow/proof verification
@@ -175,7 +181,7 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules in about 1.023 ms, 414016 B/op, 8202 allocs/op.
+  512 file capsules in about 2.494 ms, 414023 B/op, 8202 allocs/op.
 
 ## Verification
 
@@ -184,6 +190,7 @@ The ledger stores deterministic capsules:
 - A/B context replay: direct vs ledger, with raw archive expansion proving no
   unrecoverable fact loss.
 - Unit gate: `go test ./internal/contextledger -count=1`
+- A/B harness gate: `go test ./internal/abharness ./internal/contextledger -count=1`
 - Proxy telemetry gate:
   `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - Benchmark gate:
@@ -376,4 +383,12 @@ summary remains opt-in, not default.
   rejection, selected-only token accounting, and duplicate-target rejection.
   `go test ./internal/contextledger -count=1` passed.
   `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
-  measured `1207204 ns/op`, `414048 B/op`, and `8202 allocs/op`.
+  measured `2494166 ns/op`, `414023 B/op`, and `8202 allocs/op`.
+- 2026-06-05: Extended the offline A/B harness for OCRL proof replay.
+  `internal/abharness` now extracts archive ids from OCRL `archives=[...]`
+  render lines and, when a compressed turn deletes a following old block under
+  an OCRL replacement, checks the whole compressed turn's OCRL archive set
+  before classifying the direct block as lost. Tests prove replaced and deleted
+  old blocks are recoverable when archives expand byte-equal, and mismatched
+  OCRL archive payloads remain `reference_mismatch` lost-comprehension issues.
+  `go test ./internal/abharness ./internal/contextledger -count=1` passed.

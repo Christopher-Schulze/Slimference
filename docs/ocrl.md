@@ -101,6 +101,12 @@ The rendered OCRL block is deterministic and machine-readable:
 It contains no raw omitted content. Raw content is recovered only through the
 archive expansion path.
 
+The offline A/B harness understands this rendered form. Archive ids in OCRL
+`archives=[...]` lists are replayed with the archive resolver, and old blocks
+deleted under a covering OCRL block are treated as recoverable only when a listed
+archive expands to the exact original block text. Missing or mismatched
+expansion remains a lost-comprehension failure.
+
 ## Savings Accounting
 
 Net savings are:
@@ -162,6 +168,8 @@ The engine requires:
 - pure deterministic unit tests for every gate
 - golden-style deterministic rendering assertions
 - archive expansion tests that prove copied exact bytes
+- A/B harness tests that prove OCRL archive lists recover replaced and deleted
+  old blocks, and fail on mismatched archive payloads
 - benchmark coverage for large capsule sets
 - route tests proving Codex WSS stays shadow-only
 - full-history message-apply tests proving positive-saving application,

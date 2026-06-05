@@ -470,6 +470,11 @@ normalized for this prior-full check: the harness tracks the stable payload afte
 `Output:\n` in addition to the full block, so volatile `Chunk ID` / `Wall time`
 headers do not turn a safe repeat-read collapse into a false loss. Archive-backed
 Codex exec compaction also stores the stable `Output:` payload, not volatile
+wrapper bytes. OCRL archive lists are replay-aware too: `archives=[...]` inside
+an `[ocrl:v1 ...]` block is treated as a recoverable reference only when the
+resolver expands the listed archive id to the exact direct block. If OCRL deletes
+a following old block because the first OCRL block covers it, the harness checks
+the whole compressed turn's OCRL archive set before calling the deletion lost.
 envelope metadata, and the harness follows bounded nested archive references so
 `captured_output` followed by `repeated_output` can be proven recoverable without
 pretending the model needs the changing `Chunk ID` line.
@@ -1097,11 +1102,12 @@ recovery, or comprehension canaries report pressure.
 Focused verification on 2026-06-05:
 
 - `go test ./internal/contextledger -count=1`
+- `go test ./internal/abharness ./internal/contextledger -count=1`
 - `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
 
 The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
-1.207 ms with 414048 B/op and 8202 allocs/op after archive verification and
+2.494 ms with 414023 B/op and 8202 allocs/op after archive verification and
 renderer allocation trimming.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
@@ -2769,7 +2775,8 @@ Full process in `docs/release-process.md`.
 - **TypeScript supplemental**: `tests/ts/` with `bun:test` for schema
   + CLI contract checks.
 - **Race detector**: `go test -race ./...` green; required gate.
-- **Coverage gate**: `scripts/coverage` fails CI below the threshold.
+- **Coverage gate**: `scripts/coverage` fails CI below the threshold and runs
+  package coverage serially to keep proxy shutdown/resource tests deterministic.
 - **Benchmark harness**: `scripts/benchmarks` runs the canonical
   micro-benchmarks under `go test -bench`.
 
