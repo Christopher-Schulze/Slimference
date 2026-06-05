@@ -151,9 +151,13 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
   route-gated, archive-verified, positive-savings engine. Exact full-history
   message apply now exists in `internal/contextledger/message_apply.go` for
   explicit message/block targets with byte-equal archive proof and selected-only
-  savings accounting. `[compression.ocrl]` and `slimference layer2 status`
-  expose the effective OCRL policy. Codex WSS remains shadow-only until live
-  proof shows a safe old-context insertion surface.
+  savings accounting. `internal/proxy/ocrl_full_history.go` now wires OCRL into
+  the real model-facing Full-History HTTP request path after Layer 1: it
+  archives the exact post-L1 old block, derives byte-equal targets, applies only
+  in `auto|max`, and keeps `shadow`, user/system content, and quality-pressure
+  cases unmutated. `[compression.ocrl]` and `slimference layer2 status` expose
+  the effective OCRL policy. Codex WSS remains shadow-only because that route
+  uses Responses delta/server-state semantics.
 - [x] Adaptive Sliding Window: `adaptive_window.go` — dynamische Fensteranpassung (3-7) nach Session-Komplexität
 - [x] Tool Result Priority Classification: `priority.go` — HIGH/MEDIUM/LOW, aggressivere Kompression für LOW
 
@@ -2264,17 +2268,20 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   mid-exchange summaries stay outside the product path unless Layer 2 is enabled
   and the explicit legacy override is set; archive provenance, quality-pressure
   fail-closed selection, OCRL policy config/status, and A/B archive expansion
-  are implemented offline. The
+  are implemented offline. Full-History HTTP OCRL runtime application is now
+  implemented and focused-tested: post-Layer-1 old inactive non-user/non-system
+  blocks are archived, target-matched by exact archive payload, and sent upstream
+  as `[ocrl:v1 ...]` only in `auto|max` with positive net savings; shadow and
+  quality-pressure paths full-pass. The
   legacy replacement path fail-closes without a trusted session id, non-empty
   summary text, matching cached prefix, and positive token savings. Overflow
   recovery follows the same double gate before consuming cached summaries.
   Ledger selection full-passes
   active-file capsules and all capsules under quality/re-read pressure.
-  Remaining closeout is live-only and intentionally not default-on: proof-gated
-  deterministic context-ledger insertion plus live A/B proof that model-facing
-  ledger context preserves task decisions with recoverable raw context. Until
-  that proof exists, Layer 2 is a telemetry/recovery primitive, not a
-  model-facing savings layer.
+  Remaining closeout is the real non-synthetic `ocrl_full_history`
+  Full-History HTTP live-corpus proof plus broader live A/B proof that
+  model-facing ledger context preserves task decisions with recoverable raw
+  context.
 - [x] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility

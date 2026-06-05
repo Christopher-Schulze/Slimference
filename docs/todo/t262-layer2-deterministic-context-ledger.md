@@ -61,6 +61,13 @@ replacement for reality.
   valid shadow/route-blocking evidence, but they do not satisfy model-facing
   OCRL promotion while the protocol sends Responses deltas instead of old full
   context.
+- Full-History HTTP OCRL is now wired into the actual proxy request path in
+  `internal/proxy/ocrl_full_history.go`. The hook runs after Layer 1, archives
+  the exact post-Layer-1 text that would otherwise reach the model, builds
+  deterministic capsules for old inactive non-user/non-system blocks, derives
+  targets by byte-equal archive payload, applies only in `auto|max`, and records
+  `full_history_http` telemetry. `shadow`, quality-pressure, user/system, and
+  non-positive cases keep original model context.
 - `contentarchive.Peek` supports OCRL proof verification by loading exact
   archive payloads without incrementing real expansion/recovery counters.
 - `internal/abharness` now understands OCRL archive lists in rendered
@@ -162,6 +169,9 @@ The ledger stores deterministic capsules:
      accounting, marker-overhead accounting, and full-pass gates
    - [x] add exact archive-to-message target derivation for full-history
      messages without guessing ambiguous or missing matches
+   - [x] wire OCRL into the Full-History HTTP proxy request path with
+     post-Layer-1 archive proof, mode-gated mutation, and request-summary
+     telemetry
    - [x] require real non-synthetic OCRL full-history evidence in the global
      `benchmark-corpus --maxx-check` promotion gate
    - [ ] promotion only after live corpus proof
@@ -214,6 +224,8 @@ The ledger stores deterministic capsules:
 - A/B harness gate: `go test ./internal/abharness ./internal/contextledger -count=1`
 - Proxy telemetry gate:
   `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
+- Proxy Full-History HTTP apply gate:
+  `go test ./internal/proxy -run 'TestApplyHTTPFullHistoryOCRL|TestServeHTTPAppliesOCRL|TestBuildOCRLShadow' -count=1`
 - Benchmark gate:
   `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
 - Corpus gate:
@@ -527,3 +539,18 @@ summary remains opt-in, not default.
   OCRL promotion route. `verify -mode release-proof-plan` lists the OCRL
   full-history proof once under the full-history route instead of duplicating it
   under CLI/Desktop WSS clients.
+- 2026-06-05: Wired OCRL into the actual Full-History HTTP proxy request path.
+  `internal/proxy/ocrl_full_history.go` runs after Layer 1, archives the exact
+  post-Layer-1 old block text, builds deterministic archive-backed capsules,
+  caps candidate creation by OCRL policy budget, and calls
+  `ApplyOCRLToMessagesByArchiveMatch` so only byte-equal archive-matched old
+  blocks can be replaced. The handler records `full_history_http` OCRL telemetry
+  in `debug.RequestSummary`; `mode=shadow`, user/system content, and re-read
+  quality pressure remain unmutated. Focused verification passed:
+  `go test ./internal/proxy -run 'TestApplyHTTPFullHistoryOCRL|TestServeHTTPAppliesOCRL|TestBuildOCRLShadow' -count=1`.
+  Full CI passed afterward with `go run ./scripts/ci`: all 8 steps green,
+  `benchmark-corpus --check` PASS, leaf audit PASS, and aggregate coverage
+  `96.9%`. The current focused OCRL benchmark measured renderer/build
+  `587480 ns/op`, `238069 B/op`, `11 allocs/op`; target derivation
+  `232415 ns/op`, `185709 B/op`, `20 allocs/op`; full archive-match apply
+  `1675228 ns/op`, `1139840 B/op`, `1083 allocs/op`.

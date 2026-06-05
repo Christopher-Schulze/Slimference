@@ -62,7 +62,13 @@ old context and replay proof shows no product drawdown.
 
 Full-history HTTP-style routes are the eligible product target because old
 messages are present in the request body and can be replaced before upstream
-delivery.
+delivery. The proxy now wires this route through
+`internal/proxy/ocrl_full_history.go`: after Layer 1 has produced the exact
+model-facing message text, old inactive non-user/non-system blocks are archived
+under the OCRL sub-layer, converted into deterministic capsules, matched back to
+the current message blocks by byte-equal archive payload, and replaced only when
+`mode=auto|max` plus all recovery and net-saving gates pass. In `mode=shadow`,
+the same proof is built and recorded without changing the upstream request.
 
 The `ocrl_full_history` live-corpus category is therefore a
 `full_history_http` proof category. Codex CLI/Desktop WSS captures can prove
@@ -113,6 +119,13 @@ uses compact numeric keys instead of formatted strings, and explicit archive
 payload checks compare bytes to current message text without allocating a
 converted payload string.
 
+The HTTP full-history product hook deliberately archives the post-Layer-1 block
+text, not an earlier raw pre-compression version. That makes the OCRL recovery
+proof byte-equal to the exact text the model would otherwise have received on
+this request. It also caps candidate creation at the configured capsule budget,
+skips user/system roles, skips tiny blocks, and full-passes under re-read or
+quality pressure before writing replacement text.
+
 ## Capsule Rendering
 
 The rendered OCRL block is deterministic and machine-readable:
@@ -162,6 +175,13 @@ The runtime shadow path uses the same configured OCRL policy as future eligible
 routes. `off` emits no would-save claim, `shadow` computes proof only, and
 `auto`/`max` still stay route-blocked on Codex WSS.
 
+Full-history HTTP requests attach model-facing OCRL telemetry to the normal
+debug request summary when candidates exist: `ocrl_route=full_history_http`,
+`ocrl_reason`, selected/verbatim/rejected counts, archive expansions, original
+tokens, replacement tokens, and OCRL saved tokens. Applied rows are
+`telemetry_only=false` and `ocrl_shadow_only=false`; shadow rows stay explicitly
+shadow-only.
+
 ## Zero Drawdown Gates
 
 OCRL full-passes on:
@@ -205,6 +225,9 @@ The engine requires:
 - archive-match target-derivation tests proving exact single-match apply and
   fail-closed behavior for ambiguous, unmatched, missing, errored, and duplicate
   target candidates
+- proxy runtime tests proving Full-History HTTP OCRL mutates the actual upstream
+  request only in `auto|max`, records `full_history_http/applied` telemetry, and
+  leaves shadow, user/system, and quality-pressure cases unmutated
 - benchmark-corpus OCRL validator coverage: `ocrl_full_history` requires
   applied full-history evidence, candidate capsules, archive expansions,
   positive OCRL savings, and no shadow-only rows

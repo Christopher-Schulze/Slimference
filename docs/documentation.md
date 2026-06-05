@@ -1112,18 +1112,32 @@ compact numeric keys instead of formatted strings, and explicit archive payload
 checks compare bytes to current message text without allocating converted
 payload strings.
 
+`internal/proxy/ocrl_full_history.go` wires OCRL into the normal model-facing
+HTTP request path for full-history clients. The hook runs after Layer 1, because
+post-Layer-1 text is the exact context the model would otherwise receive. It
+archives only old inactive non-user/non-system blocks outside the current
+sliding window, creates deterministic capsules from those archived blocks, caps
+candidate creation at `[compression.ocrl].max_capsules`, and uses
+`ApplyOCRLToMessagesByArchiveMatch` so every replacement target is proven by a
+single byte-equal archive payload. `mode=shadow` records proof without mutation;
+`mode=auto|max` can replace only when all OCRL route, archive, selection, and
+positive-net-saving gates pass. Re-read/quality pressure full-passes before
+replacement, and the legacy cached-summary path remains separately blocked by
+`[compression.summary].allow_model_facing_replacement`.
+
 Focused verification on 2026-06-05:
 
 - `go test ./internal/contextledger -count=1`
 - `go test ./internal/abharness ./internal/contextledger -count=1`
 - `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
+- `go test ./internal/proxy -run 'TestApplyHTTPFullHistoryOCRL|TestServeHTTPAppliesOCRL|TestBuildOCRLShadow' -count=1`
 - `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
 
 The latest OCRL benchmark on Apple M1 processed 512 file capsules in about
-0.997 ms with 238061 B/op and 11 allocs/op after archive verification and
+0.587 ms with 238069 B/op and 11 allocs/op after archive verification and
 renderer scratch-buffer reuse. Exact archive-to-message target derivation for
-512 capsules measured about 0.528 ms with 185817 B/op and 21 allocs/op; full
-archive-match OCRL apply measured about 2.865 ms with 1140472 B/op and 1085
+512 capsules measured about 0.232 ms with 185709 B/op and 20 allocs/op; full
+archive-match OCRL apply measured about 1.675 ms with 1139840 B/op and 1083
 allocs/op.
 
 The live-corpus gate now has an OCRL-aware validator. `ocrl_full_history`

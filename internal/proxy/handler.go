@@ -464,6 +464,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		layer1Decisions = buildLayer1Decisions(result)
 	}
 
+	var ocrlFullHistorySummary dbg.ContextLedgerSummary
+
 	// --- 4.5 Mid-exchange summary (T99, default off) ---
 	if p.config.Compression.Tuning.MidExchangeEnabled && pipelineMode == PipelineFull && p.layer2 != nil {
 		// T99b: live summary path via Layer2.ApplyMidExchange; falls
@@ -478,16 +480,34 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// --- 5. Layer 2: MiniMax summary ---
+	// --- 5. Layer 2: OCRL full-history replacement, then legacy cached summary fallback ---
+	ocrlApplied := false
 	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull && !layer2HardBypass {
-		l2Start := time.Now()
-		if newMsgs, saved, applied := p.layer2.ApplyToMessagesSession(sessionID, compressedMessages); applied {
-			compressedMessages = newMsgs
-			layer2Savings = saved
-			appliedLayers = append(appliedLayers, 2)
-			log.Debug("layer2 applied", "saved", saved)
+		ocrlStart := time.Now()
+		ocrl := p.applyHTTPFullHistoryOCRL(provider, sessionID, compressedMessages, effectiveWindow, reReadCount)
+		if ocrl.HasSummary {
+			ocrlFullHistorySummary = ocrl.Summary
 		}
-		p.pipelineHist.L2.Record(time.Since(l2Start))
+		if ocrl.Applied {
+			compressedMessages = ocrl.Messages
+			layer2Savings += ocrl.Saved
+			appliedLayers = append(appliedLayers, 2)
+			ocrlApplied = true
+			log.Debug("ocrl full-history applied", "saved", ocrl.Saved)
+		}
+		p.pipelineHist.L2.Record(time.Since(ocrlStart))
+	}
+	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull && !layer2HardBypass {
+		if !ocrlApplied {
+			l2Start := time.Now()
+			if newMsgs, saved, applied := p.layer2.ApplyToMessagesSession(sessionID, compressedMessages); applied {
+				compressedMessages = newMsgs
+				layer2Savings += saved
+				appliedLayers = append(appliedLayers, 2)
+				log.Debug("layer2 applied", "saved", saved)
+			}
+			p.pipelineHist.L2.Record(time.Since(l2Start))
+		}
 	}
 
 	// --- 6. Prompt cache breakpoints (Anthropic only) ---
@@ -1131,6 +1151,7 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 				AddedTokens: outputReduceStats.AddedTokens,
 				TaskShape:   string(outputReduceStats.TaskShape),
 			},
+			ContextLedger:          ocrlFullHistorySummary,
 			PreviousResponseIDUsed: serverStateUsed,
 			ProxyLatencyMs:         proxyLatencyMs,
 			ReReadCount:            reReadCount,
