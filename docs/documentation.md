@@ -1121,7 +1121,10 @@ The live-corpus gate now has an OCRL-aware validator. `ocrl_full_history`
 requires applied full-history OCRL evidence, selected capsules, archive
 expansions, positive OCRL saved tokens, and no shadow-only rows. The committed
 `synthetic_ocrl_full_history` fixture proves the gate wiring only; it is not a
-real Codex CLI/Desktop promotion claim.
+real Codex CLI/Desktop promotion claim. The stricter `benchmark-corpus
+--maxx-check` also requires a real, non-synthetic `ocrl_full_history` workload
+and repeats the applied/full-history/archive/savings/no-shadow checks before
+the whole max-out program can pass.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,
@@ -2476,9 +2479,9 @@ tokens, output tokens, and errors. This is factual corpus accounting, not a
 simulated alternate-run replay. Category metadata can additionally declare
 `scenario_validators` (`tool_heavy`, `cache_reuse`, `output_reduce`,
 `planner_alignment`, `websocket`, `low_error`, `layer_combo_diversity`,
-`l2_summary`) so a category fails unless the intended optimization behavior is
-actually present in the captured request summaries; unknown validator names fail
-closed.
+`l2_summary`, `ocrl_full_history`) so a category fails unless the intended
+optimization behavior is actually present in the captured request summaries;
+unknown validator names fail closed.
 
 `scripts/benchmarks benchmark-corpus --promotion-check` is the stricter
 release/default-on gate. It ignores synthetic categories and fails closed unless

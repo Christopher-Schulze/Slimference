@@ -189,6 +189,10 @@ The engine requires:
 - benchmark-corpus OCRL validator coverage: `ocrl_full_history` requires
   applied full-history evidence, candidate capsules, archive expansions,
   positive OCRL savings, and no shadow-only rows
+- max-out promotion coverage: `benchmark-corpus --maxx-check` requires a real,
+  non-synthetic `ocrl_full_history` workload and fails if it lacks applied
+  OCRL, full-history route rows, archive expansions, positive OCRL saved tokens,
+  or if any OCRL row is shadow-only
 - docs and TODO state updated before a task can be closed
 
 Live Codex App/Desktop captures are a promotion gate for route claims, not a

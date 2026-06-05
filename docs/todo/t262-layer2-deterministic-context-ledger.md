@@ -151,6 +151,8 @@ The ledger stores deterministic capsules:
      accounting, marker-overhead accounting, and full-pass gates
    - [x] add exact archive-to-message target derivation for full-history
      messages without guessing ambiguous or missing matches
+   - [x] require real non-synthetic OCRL full-history evidence in the global
+     `benchmark-corpus --maxx-check` promotion gate
    - [ ] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
@@ -207,6 +209,12 @@ The ledger stores deterministic capsules:
   `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --check`
   includes the synthetic `ocrl_full_history` validator fixture. This proves
   gate wiring, not live promotion.
+- Maxx promotion gate:
+  `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --maxx-check`
+  now requires a real non-synthetic `ocrl_full_history` workload and fails if
+  OCRL is not applied on a full-history route with archive expansions, positive
+  OCRL saved tokens, and no shadow-only OCRL rows. This is expected to remain
+  open until a real full-history OCRL capture exists.
 - Live corpus gate:
   - CLI and Desktop
   - no repair/re-read spike
@@ -429,3 +437,10 @@ summary remains opt-in, not default.
   savings, and no shadow-only rows. `synthetic_ocrl_full_history` keeps this
   gate covered in CI without pretending to be real CLI/Desktop promotion
   evidence.
+- 2026-06-05: Promoted OCRL into the strict max-out evidence gate without
+  promoting the product behavior. `benchmark-corpus --maxx-check` now requires
+  a real non-synthetic `ocrl_full_history` workload and independently verifies
+  applied OCRL, full-history route rows, candidate capsules, archive expansions,
+  positive OCRL saved tokens, and zero shadow-only rows. The committed
+  synthetic OCRL fixture still proves only gate wiring; the max-out gate now
+  remains failed until real model-facing OCRL live proof exists.

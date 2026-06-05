@@ -565,6 +565,7 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		"chunk_dedup_similar_outputs",
 		"chunk_dedup_log_output",
 		"chunk_dedup_test_output",
+		"ocrl_full_history",
 		"output_reduce_aggressive",
 		"output_reduce_ab",
 		"tool_heavy",
@@ -578,6 +579,8 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		name := client + "_" + workload
 		meta := promotionMeta(name, client, workload)
 		switch workload {
+		case "ocrl_full_history":
+			meta.ScenarioValidators = []string{"ocrl_full_history", "low_error"}
 		case "output_reduce_aggressive":
 			meta.ExpectedOutputReduceAppliedMin = 1
 			meta.ExpectedOutputReduceOverheadMax = 1000
@@ -602,7 +605,9 @@ func writeMaxxCorpus(t *testing.T, root string) {
 			meta.ScenarioValidators = []string{"low_error"}
 		}
 		session := sampleHighSavingsRecord
-		if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" {
+		if workload == "ocrl_full_history" {
+			session = sampleOCRLFullHistoryRecord
+		} else if workload == "output_reduce_aggressive" || workload == "provider_cache_long_session" {
 			session = sampleEvidenceRecord
 		} else if workload == "tool_heavy" {
 			session = sampleToolPruneRecord
@@ -797,6 +802,7 @@ func TestEvaluateMaxxGate_Pass(t *testing.T) {
 		t.Fatalf("expected maxx pass, got %+v", gate)
 	}
 	if gate.SessionsByWorkload["chunk_dedup_log_output"] != 1 ||
+		gate.SessionsByWorkload["ocrl_full_history"] != 1 ||
 		gate.SessionsByWorkload["provider_cache_long_session"] != 1 {
 		t.Fatalf("maxx workload counts: %+v", gate.SessionsByWorkload)
 	}
@@ -817,11 +823,43 @@ func TestEvaluateMaxxGate_FailsMissingMechanismBreadth(t *testing.T) {
 	got := strings.Join(gate.Failures, "\n")
 	for _, want := range []string{
 		"missing maxx workload_class chunk_dedup_similar_outputs",
+		"missing maxx workload_class ocrl_full_history",
 		"missing maxx workload_class output_reduce_aggressive",
 		"missing maxx workload_class output_reduce_ab",
 		"missing maxx workload_class tool_heavy",
 		"missing maxx workload_class provider_cache_long_session",
 		"missing maxx workload_class host_resource_long_workday",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in failures:\n%s", want, got)
+		}
+	}
+}
+
+func TestEvaluateMaxxGate_FailsOCRLFullHistoryWithoutAppliedEvidence(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeMaxxCorpus(t, root)
+	meta := promotionMeta("codex_cli_ocrl_full_history", "codex_cli", "ocrl_full_history")
+	meta.ScenarioValidators = []string{"low_error"}
+	dir := writeCategory(t, root, "codex_cli_ocrl_full_history", meta, []string{sampleHighSavingsRecord})
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_max_errors", 0)
+	forceMetadataNumber(t, filepath.Join(dir, corpusCategoryMetadataFilename), "expected_reread_count_max", 0)
+
+	report, err := EvaluateCorpus(root, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	gate := EvaluateMaxxGate(report)
+	if gate.Passed {
+		t.Fatalf("expected maxx failure without OCRL applied evidence: %+v", gate)
+	}
+	got := strings.Join(gate.Failures, "\n")
+	for _, want := range []string{
+		"ocrl_full_history applied=0",
+		"ocrl_full_history full_history_rows=0",
+		"ocrl_full_history candidates=0 archive_expansions=0",
+		"ocrl_full_history saved_tokens=0",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in failures:\n%s", want, got)
@@ -1194,6 +1232,16 @@ func TestRunBenchmarkCorpus_PromotionCheckFailsSyntheticOnly(t *testing.T) {
 	rc := runBenchmarkCorpus([]string{root, "--promotion-check"})
 	if rc != 1 {
 		t.Fatalf("expected promotion failure on synthetic-only corpus, got %d", rc)
+	}
+}
+
+func TestRunBenchmarkCorpus_CheckMaxxDoesNotBypassMaxxGate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeCategory(t, root, "ok", CategoryMetadata{Category: "ok", ExpectedSavingsMin: 0.30, Synthetic: true}, []string{sampleHighSavingsRecord})
+	rc := runBenchmarkCorpus([]string{root, "--check", "--maxx-check"})
+	if rc != 1 {
+		t.Fatalf("expected maxx failure with --check --maxx-check, got %d", rc)
 	}
 }
 

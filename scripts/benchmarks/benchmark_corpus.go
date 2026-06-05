@@ -562,6 +562,7 @@ var requiredMaxxWorkloads = []string{
 	"chunk_dedup_similar_outputs",
 	"chunk_dedup_log_output",
 	"chunk_dedup_test_output",
+	"ocrl_full_history",
 	"output_reduce_aggressive",
 	"output_reduce_ab",
 	"tool_heavy",
@@ -678,6 +679,26 @@ func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
 		}
 		if category.OutputTokens <= 0 {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: output_reduce_aggressive missing observed output-token evidence", category.Category))
+		}
+	}
+	for _, category := range report.Categories {
+		if category.Synthetic || category.WorkloadClass != "ocrl_full_history" {
+			continue
+		}
+		if category.OCRLApplied <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history applied=%d", category.Category, category.OCRLApplied))
+		}
+		if category.OCRLFullHistoryRows <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history full_history_rows=%d", category.Category, category.OCRLFullHistoryRows))
+		}
+		if category.OCRLCandidateCapsules <= 0 || category.OCRLArchiveExpansions <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history candidates=%d archive_expansions=%d", category.Category, category.OCRLCandidateCapsules, category.OCRLArchiveExpansions))
+		}
+		if category.OCRLSavedTokens <= 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history saved_tokens=%d", category.Category, category.OCRLSavedTokens))
+		}
+		if category.OCRLShadowOnly > 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history shadow_only_rows=%d", category.Category, category.OCRLShadowOnly))
 		}
 	}
 	for _, category := range report.Categories {
@@ -1003,7 +1024,7 @@ func runBenchmarkCorpus(args []string) int {
 		fmt.Fprintln(os.Stderr, "benchmark-corpus: corpus root required")
 		return 2
 	}
-	if check && !promotionCheck {
+	if check && !promotionCheck && !maxxCheck {
 		return CorpusGate(root, os.Stdout, os.Stderr)
 	}
 	report, err := EvaluateCorpus(root, os.Stderr)
