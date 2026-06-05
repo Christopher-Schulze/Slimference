@@ -2355,9 +2355,10 @@ operability.
   product `attention`, and fails release proof closed when a proof window loses
   proof-critical telemetry. Detail:
   `docs/todo/t275-analytics-proof-event-queue-hardening.md`
-- [ ] **T276 TUI presenter split** - separate product-state projection from
-  Bubble Tea rendering so the savings/route/safety surface stays testable as
-  the dashboard grows, without adding debug clutter to the product UI. Detail:
+- [x] **T276 TUI presenter split** - product-state projection now lives in a
+  pure `PresentProductStatus` presenter. The Bubble Tea right panel renders
+  presenter output, and tests cover saving/attention states while asserting
+  debug-only WSS internals do not leak into the default product panel. Detail:
   `docs/todo/t276-tui-presenter-split.md`
 - [x] **T277 Static lint gate hardening** - kept the default CI dependency-free
   and expanded the existing vet gate to `go vet ./...`, covering `scripts/` and

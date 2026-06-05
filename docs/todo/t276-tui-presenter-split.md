@@ -2,7 +2,7 @@
 
 ## Status
 
-Open.
+Done.
 
 ## Source
 
@@ -61,3 +61,15 @@ testable.
 
 - This is UX maintainability and product clarity. It is not a token-savings
   mechanism by itself.
+- Implemented `internal/tui/product_presenter.go` with pure `PresentProductStatus`
+  projection from `ProductStatus` to product panel lines. `buildRightPanel`
+  now renders the presenter output instead of mixing product selection logic
+  directly into Bubble Tea view composition.
+- Added presenter unit tests for the saving path and attention path. The
+  attention test deliberately sets debug-only WSS internals
+  (`WSSCompressedMutated`, `WSSCompressedInspected`, byte-bridge/mutation flags)
+  and asserts they do not leak into the default product panel.
+- No visual redesign, no new TUI dependency, no `/admin/state` semantic change.
+- Verification:
+  - `go test ./internal/tui ./internal/control -count=1`
+  - `go run ./scripts/ci`

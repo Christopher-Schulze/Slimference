@@ -1064,24 +1064,23 @@ func (m *Model) buildRightPanel(width int) []string {
 	var lines []string
 	add := func(str string) { lines = append(lines, pad(str)) }
 
+	productPanel := PresentProductStatus(product)
 	add(" " + s.PanelTitle.Render("PRODUCT"))
-	add(" " + renderProductRouteLine(s, product))
-	add(" " + s.Saved.Render(formatTokens(int(product.BillableInputTokensSaved))+" input saved") +
-		"  " + s.Dim.Render(formatBytesCompact(product.RequestSideBytesReduced)+" request"))
-	add(" " + s.Dim.Render(formatBytesCompact(product.OutputWireBytesSaved)+" output-wire saved"))
-	add(" " + s.Highlight.Render(formatTokens(int(product.ProviderCacheReadTokens))+" provider-cache read") +
-		"  " + s.Dim.Render(formatTokens(int(product.ProviderCacheCreateTokens))+" create"))
-	add(" " + s.Muted.Render(fmt.Sprintf("cache %d/%d · read %d · repeated %d · chunk %d",
-		product.CacheHits, product.CacheHits+product.CacheMisses,
-		product.ReadDeltaHits, product.RepeatedOutputHits, product.ChunkDedupHits)))
-	if line := productToolPruneLine(product); line != "" {
-		add(" " + s.Muted.Render(line))
+	add(" " + renderProductRouteLine(s, productPanel))
+	add(" " + s.Saved.Render(productPanel.InputSavedLine) +
+		"  " + s.Dim.Render(productPanel.RequestReducedLine))
+	add(" " + s.Dim.Render(productPanel.OutputWireLine))
+	add(" " + s.Highlight.Render(productPanel.ProviderCacheLine) +
+		"  " + s.Dim.Render(productPanel.ProviderCreateLine))
+	add(" " + s.Muted.Render(productPanel.CacheLine))
+	if productPanel.ToolPruneLine != "" {
+		add(" " + s.Muted.Render(productPanel.ToolPruneLine))
 	}
-	if line := productOutputReduceLine(product); line != "" {
-		add(" " + s.Muted.Render(line))
+	if productPanel.OutputReduceLine != "" {
+		add(" " + s.Muted.Render(productPanel.OutputReduceLine))
 	}
-	if product.SafetyIssues > 0 || product.HostBudgetExceeded || product.HostBudgetStatus == "unknown" {
-		add(" " + s.Warning.Render(productSafetyLine(product)))
+	if productPanel.SafetyNeedsWarning {
+		add(" " + s.Warning.Render(productPanel.SafetyLine))
 	} else {
 		add(" " + s.Muted.Render("safety ok"))
 	}
@@ -1155,17 +1154,16 @@ func l2Summary(status Layer2Status) string {
 	return "idle"
 }
 
-func renderProductRouteLine(s Styles, product ProductStatus) string {
-	route := productRouteDetail(product)
-	switch {
-	case product.SafetyIssues > 0 || product.HostBudgetExceeded:
-		return s.Warning.Render("● ATTENTION") + "  " + s.Dim.Render(route)
-	case product.SavingsStatus == "saving":
-		return s.Saved.Render("● SAVING") + "  " + s.Dim.Render(route)
-	case product.SavingsStatus == "active_no_savings":
-		return s.Highlight.Render("● ACTIVE") + "  " + s.Dim.Render(route+" · no savings yet")
+func renderProductRouteLine(s Styles, product ProductPanel) string {
+	switch product.RouteState {
+	case "attention":
+		return s.Warning.Render("● ATTENTION") + "  " + s.Dim.Render(product.RouteLine)
+	case "saving":
+		return s.Saved.Render("● SAVING") + "  " + s.Dim.Render(product.RouteLine)
+	case "active":
+		return s.Highlight.Render("● ACTIVE") + "  " + s.Dim.Render(product.RouteLine+" · no savings yet")
 	default:
-		return s.Muted.Render("○ IDLE") + "  " + s.Dim.Render(route)
+		return s.Muted.Render("○ IDLE") + "  " + s.Dim.Render(product.RouteLine)
 	}
 }
 

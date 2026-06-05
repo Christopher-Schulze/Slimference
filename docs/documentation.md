@@ -1937,7 +1937,10 @@ renders explicit zero values for output-wire and provider-cache savings instead
 of hiding absent counters, so `0` and "not shown" are never confused. The TUI
 caches product status in the model and refreshes it on ticks/events instead of
 fetching during render; host-budget attention slows the next tick from 500 ms to
-2 s.
+2 s. Product-signal selection is handled by the pure `PresentProductStatus`
+presenter before Bubble Tea styling, so route/savings/safety projection is
+unit-testable without starting the TUI and debug-only WSS internals cannot drift
+into the default product panel unnoticed.
 
 ### Keybindings
 
