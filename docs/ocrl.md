@@ -87,6 +87,8 @@ pure renderer:
   accepted
 - the byte-equal selected-target archive proof is reused by the apply builder,
   so explicit apply does not load the same archive twice
+- the archive-match convenience path tracks derivation proofs only internally,
+  so public target derivation stays allocation-light
 
 This primitive does not infer context mapping from rendered text. If a future
 route cannot prove exact old-message positions and exact archive equality for a

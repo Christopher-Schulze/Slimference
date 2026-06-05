@@ -35,12 +35,13 @@ type OCRLMessageApplyResult struct {
 
 type OCRLMessageTargetDerivation struct {
 	Targets         []OCRLMessageTarget `json:"-"`
-	Matched         int                 `json:"matched"`
-	Unmatched       int                 `json:"unmatched"`
-	Ambiguous       int                 `json:"ambiguous"`
-	MissingArchive  int                 `json:"missing_archive"`
-	ArchiveErrors   int                 `json:"archive_errors"`
-	DuplicateTarget int                 `json:"duplicate_target"`
+	verifiedTargets map[ocrlTargetKey]struct{}
+	Matched         int `json:"matched"`
+	Unmatched       int `json:"unmatched"`
+	Ambiguous       int `json:"ambiguous"`
+	MissingArchive  int `json:"missing_archive"`
+	ArchiveErrors   int `json:"archive_errors"`
+	DuplicateTarget int `json:"duplicate_target"`
 }
 
 type ocrlTargetKey struct {
@@ -53,15 +54,24 @@ type ocrlTargetKey struct {
 // byte-equal to exactly one current message block. Ambiguous, missing, or
 // archive-error candidates are omitted instead of guessed.
 func ApplyOCRLToMessagesByArchiveMatch(messages []types.Message, capsules []Capsule, policy OCRLPolicy) (OCRLMessageApplyResult, OCRLMessageTargetDerivation) {
-	derivation := DeriveOCRLMessageTargets(messages, capsules, policy.ArchiveLoader)
-	return ApplyOCRLToMessages(messages, OCRLMessageApplyPolicy{
+	derivation := deriveOCRLMessageTargets(messages, capsules, policy.ArchiveLoader, true)
+	return applyOCRLToMessages(messages, OCRLMessageApplyPolicy{
 		OCRLPolicy: policy,
 		Targets:    derivation.Targets,
-	}), derivation
+	}, derivation.verifiedTargets), derivation
 }
 
 func DeriveOCRLMessageTargets(messages []types.Message, capsules []Capsule, load ArchiveLoader) OCRLMessageTargetDerivation {
-	derivation := OCRLMessageTargetDerivation{Targets: make([]OCRLMessageTarget, 0, len(capsules))}
+	return deriveOCRLMessageTargets(messages, capsules, load, false)
+}
+
+func deriveOCRLMessageTargets(messages []types.Message, capsules []Capsule, load ArchiveLoader, trackProof bool) OCRLMessageTargetDerivation {
+	derivation := OCRLMessageTargetDerivation{
+		Targets: make([]OCRLMessageTarget, 0, len(capsules)),
+	}
+	if trackProof {
+		derivation.verifiedTargets = make(map[ocrlTargetKey]struct{}, len(capsules))
+	}
 	usedTargets := make(map[ocrlTargetKey]struct{}, len(capsules))
 	blockIndex := indexOCRLMessageBlocks(messages)
 	for _, capsule := range capsules {
@@ -74,6 +84,9 @@ func DeriveOCRLMessageTargets(messages []types.Message, capsules []Capsule, load
 				continue
 			}
 			usedTargets[key] = struct{}{}
+			if trackProof {
+				derivation.verifiedTargets[key] = struct{}{}
+			}
 			derivation.Targets = append(derivation.Targets, target)
 			derivation.Matched++
 		case "missing_archive":
@@ -143,6 +156,10 @@ func deriveOCRLMessageTarget(index map[string]ocrlMessageBlockMatch, capsule Cap
 // byte-equal to the target capsule's single archive payload. Callers that cannot
 // prove that exact mapping get a full-pass result.
 func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy) OCRLMessageApplyResult {
+	return applyOCRLToMessages(messages, policy, nil)
+}
+
+func applyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy, preverified map[ocrlTargetKey]struct{}) OCRLMessageApplyResult {
 	result := OCRLMessageApplyResult{Messages: messages}
 	if len(policy.Targets) == 0 {
 		result.OCRL.Reason = OCRLReasonNoCapsules
@@ -168,7 +185,7 @@ func ApplyOCRLToMessages(messages []types.Message, policy OCRLMessageApplyPolicy
 	if len(selectedTargets) != len(policy.Targets) {
 		selectedCapsules = messageTargetCapsules(selectedTargets)
 	}
-	targetTokens, originalTokens, archiveExpansions, err := verifyMessageTargets(messages, selectedTargets, policy.ArchiveLoader, policy.CountTokens)
+	targetTokens, originalTokens, archiveExpansions, err := verifySelectedMessageTargets(messages, selectedTargets, policy.ArchiveLoader, policy.CountTokens, preverified)
 	if err != nil {
 		result.OCRL.Reason = OCRLReasonTargetInvalid
 		result.OCRL.Selection = selection
@@ -220,6 +237,59 @@ func messageTargetCapsules(targets []OCRLMessageTarget) []Capsule {
 		out = append(out, target.Capsule)
 	}
 	return out
+}
+
+func verifySelectedMessageTargets(messages []types.Message, targets []OCRLMessageTarget, load ArchiveLoader, count TokenCounter, preverified map[ocrlTargetKey]struct{}) (map[ocrlTargetKey]int, int, int, error) {
+	if targetsPreverified(targets, preverified) {
+		return verifyPreverifiedMessageTargets(messages, targets, count)
+	}
+	return verifyMessageTargets(messages, targets, load, count)
+}
+
+func targetsPreverified(targets []OCRLMessageTarget, preverified map[ocrlTargetKey]struct{}) bool {
+	if len(targets) == 0 || len(preverified) == 0 {
+		return false
+	}
+	for _, target := range targets {
+		if _, ok := preverified[messageTargetKey(target)]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func verifyPreverifiedMessageTargets(messages []types.Message, targets []OCRLMessageTarget, count TokenCounter) (map[ocrlTargetKey]int, int, int, error) {
+	if count == nil {
+		return nil, 0, 0, errors.New("token counter is required")
+	}
+	seen := make(map[ocrlTargetKey]struct{}, len(targets))
+	tokensByTarget := make(map[ocrlTargetKey]int, len(targets))
+	total := 0
+	for _, target := range targets {
+		if target.MessageIndex < 0 || target.MessageIndex >= len(messages) {
+			return nil, 0, 0, errors.New("message index out of range")
+		}
+		msg := messages[target.MessageIndex]
+		if target.BlockIndex < 0 || target.BlockIndex >= len(msg.Content) {
+			return nil, 0, 0, errors.New("block index out of range")
+		}
+		targetKey := messageTargetKey(target)
+		if _, ok := seen[targetKey]; ok {
+			return nil, 0, 0, errors.New("duplicate message target")
+		}
+		seen[targetKey] = struct{}{}
+		id := sortedArchiveIDs(target.Capsule.Archives)
+		if len(id) != 1 {
+			return nil, 0, 0, errOCRLTargetArchiveMismatch
+		}
+		tokens := count(msg.Content[target.BlockIndex].Text)
+		if tokens <= 0 {
+			return nil, 0, 0, errors.New("target token counter returned non-positive value")
+		}
+		tokensByTarget[targetKey] = tokens
+		total += tokens
+	}
+	return tokensByTarget, total, len(targets), nil
 }
 
 func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget, load ArchiveLoader, count TokenCounter) (map[ocrlTargetKey]int, int, int, error) {

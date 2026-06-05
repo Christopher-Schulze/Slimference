@@ -405,6 +405,43 @@ func TestApplyOCRLToMessagesReusesVerifiedArchiveProof(t *testing.T) {
 	}
 }
 
+func TestApplyOCRLToMessagesByArchiveMatchReusesDerivedProof(t *testing.T) {
+	t.Parallel()
+	text := strings.Repeat("derived proof archive body ", 40)
+	calls := 0
+	result, derivation := ApplyOCRLToMessagesByArchiveMatch([]types.Message{{
+		Index:   1,
+		Role:    "tool",
+		Content: []types.ContentBlock{{Type: "tool_result", Text: text}},
+	}}, []Capsule{
+		testSearchCapsule(t, "session-1", "turn-old", "archive"),
+	}, OCRLPolicy{
+		Mode:      OCRLModeAuto,
+		Route:     OCRLRouteFullHistoryHTTP,
+		Selection: SelectionPolicy{SessionID: "session-1"},
+		ArchiveLoader: func(id string) ([]byte, error) {
+			calls++
+			if id != "archive" {
+				t.Fatalf("unexpected archive id %q", id)
+			}
+			if calls > 1 {
+				return nil, errors.New("apply should reuse derivation proof")
+			}
+			return []byte(text), nil
+		},
+		CountTokens: wordTokenCounter,
+	})
+	if derivation.Matched != 1 || len(derivation.Targets) != 1 {
+		t.Fatalf("bad derivation: %+v", derivation)
+	}
+	if !result.OCRL.Applied || result.OCRL.Reason != OCRLReasonApplied {
+		t.Fatalf("result=%+v want applied with reused derivation proof", result)
+	}
+	if calls != 1 || result.OCRL.ArchiveExpansions != 1 {
+		t.Fatalf("archive proof accounting calls=%d result=%+v", calls, result.OCRL)
+	}
+}
+
 func TestApplyOCRLToMessagesRejectsDuplicateTargets(t *testing.T) {
 	t.Parallel()
 	text := strings.Repeat("duplicate target body ", 10)

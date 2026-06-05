@@ -40,7 +40,9 @@ replacement for reality.
   Verbatim/rejected targets remain original and no longer block independently
   safe selected old-context replacements. The byte-equal selected-target archive
   proof is reused by the internal apply builder, so explicit apply does not
-  load the same selected archive twice. It can also derive explicit targets from
+  load the same selected archive twice. The archive-match convenience path
+  tracks derivation proofs only for its immediate apply call, so public target
+  derivation stays allocation-light. It can also derive explicit targets from
   full-history messages by exact archive-payload equality, but only when one
   capsule archive matches exactly one current message block; ambiguous or
   missing evidence is omitted and reported.
@@ -192,10 +194,10 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules render in about 0.969 ms, 238061 B/op, 11 allocs/op;
-  exact archive-to-message target derivation runs in about 0.545 ms, 185930 B/op,
-  21 allocs/op; full archive-match OCRL apply runs in about 3.615 ms,
-  1114131 B/op, and 1083 allocs/op.
+  512 file capsules render in about 0.997 ms, 238061 B/op, 11 allocs/op;
+  exact archive-to-message target derivation runs in about 0.528 ms, 185817 B/op,
+  21 allocs/op; full archive-match OCRL apply runs in about 2.865 ms,
+  1140472 B/op, and 1085 allocs/op.
 
 ## Verification
 
@@ -501,3 +503,14 @@ summary remains opt-in, not default.
   `11 allocs/op`; target derivation `545000 ns/op`, `185930 B/op`,
   `21 allocs/op`; full archive-match apply `3615460 ns/op`, `1114131 B/op`,
   `1083 allocs/op`.
+- 2026-06-05: Removed the remaining duplicate archive load from
+  `ApplyOCRLToMessagesByArchiveMatch`. Archive-match derivation can now carry
+  private proof keys into its immediate apply call, while public
+  `DeriveOCRLMessageTargets` avoids that map and keeps its allocation profile.
+  Added a regression test proving ByArchiveMatch succeeds with exactly one
+  archive load. Focused verification:
+  `go test ./internal/contextledger -run 'Test(BuildOCRLReplacement|ApplyOCRLToMessages|DeriveOCRLMessageTargets)' -count=1`.
+  Benchmark gate measured renderer/build `997481 ns/op`, `238061 B/op`,
+  `11 allocs/op`; public target derivation `528107 ns/op`, `185817 B/op`,
+  `21 allocs/op`; full archive-match apply `2865411 ns/op`, `1140472 B/op`,
+  `1085 allocs/op`.
