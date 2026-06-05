@@ -2708,16 +2708,19 @@ Full process in `docs/release-process.md`.
 ### Coverage headline
 
 Current formal release gate: `go run ./scripts/ci` runs
-`go run ./scripts/coverage -min=95.0`. This is an aggregate gate for
-the configured Go coverage profile. Individual package lines can report
-less than the aggregate threshold while the total gate remains green; do
-not describe that as a release failure unless `scripts/ci` itself exits
-non-zero. The hard rule is behavior-significant testing: new or changed
-complex logic, product paths, safety branches, routing/fallback decisions,
-and regression risks need real failable tests. The intent is to keep
-meaningful product/safety paths covered without spending engineering time
-on artificial coverage-chasing tests, unreachable OS-dependent cleanup
-branches, or always-green assertions.
+`go vet ./...` plus `go run ./scripts/coverage -min=95.0`. `go vet ./...`
+is the default static-analysis gate for all module packages, including
+`scripts/` and `docs/`, because Slimference's repo tooling carries release
+proof logic. No optional `staticcheck` or `golangci-lint` dependency is
+required for normal CI. The coverage step is an aggregate gate for the
+configured Go coverage profile. Individual package lines can report less than
+the aggregate threshold while the total gate remains green; do not describe
+that as a release failure unless `scripts/ci` itself exits non-zero. The hard
+rule is behavior-significant testing: new or changed complex logic, product
+paths, safety branches, routing/fallback decisions, and regression risks need
+real failable tests. The intent is to keep meaningful product/safety paths
+covered without spending engineering time on artificial coverage-chasing tests,
+unreachable OS-dependent cleanup branches, or always-green assertions.
 
 ### Benchmarks
 

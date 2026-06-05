@@ -2,7 +2,7 @@
 
 ## Status
 
-Open.
+Done.
 
 ## Source
 
@@ -57,3 +57,15 @@ enough for the default local CI path.
 
 - Review models can overvalue "add golangci" as a reflex. The real criterion is
   useful signal under this repo's constraints.
+- Decision: keep the default CI dependency-free and expand the existing
+  `go vet` gate to `go vet ./...` instead of adding optional external lint
+  tooling. This covers `cmd/`, `internal/`, `docs/`, `scripts/`, and tests; the
+  historical reported bug class lived under `scripts/utils`, so the previous
+  `./cmd/... ./internal/...` scope was too narrow.
+- Local tool check on this machine: neither `staticcheck` nor `golangci-lint`
+  is installed. Adding either to the default path would create a new local
+  dependency without evidence that it catches a current repo defect.
+- Verification:
+  - `go vet ./...`
+  - `go test ./scripts/ci ./docs -count=1`
+  - `go run ./scripts/ci`

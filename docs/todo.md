@@ -2359,10 +2359,11 @@ operability.
   Bubble Tea rendering so the savings/route/safety surface stays testable as
   the dashboard grows, without adding debug clutter to the product UI. Detail:
   `docs/todo/t276-tui-presenter-split.md`
-- [ ] **T277 Static lint gate hardening** - evaluate and wire a lightweight,
-  reproducible static-analysis gate beyond `go vet` only if it catches real
-  defects without adding brittle local tooling or slowing the default CI path
-  beyond the host-resource budget. Detail:
+- [x] **T277 Static lint gate hardening** - kept the default CI dependency-free
+  and expanded the existing vet gate to `go vet ./...`, covering `scripts/` and
+  `docs/` in addition to `cmd/` and `internal/`. No external staticcheck /
+  golangci dependency was added because neither is installed locally and no
+  current repo defect justified that brittleness. Detail:
   `docs/todo/t277-static-lint-gate-hardening.md`
 - [x] **T278 Hot-path allocation micro-sweep** - measured and optimized the
   real allocation candidates without changing model-facing bytes or safety

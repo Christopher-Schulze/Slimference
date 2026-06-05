@@ -26,7 +26,7 @@ func defaultSteps() []step {
 		{
 			label: "go vet",
 			cmd:   "go",
-			args:  []string{"vet", "./cmd/...", "./internal/..."},
+			args:  []string{"vet", "./..."},
 		},
 		{
 			label: "go build",

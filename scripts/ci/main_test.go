@@ -18,6 +18,10 @@ func TestDefaultSteps_CoverageGateUsesRealMinFlag(t *testing.T) {
 	if steps[0].label != "gofmt" || steps[0].cmd != "internal:gofmt-check" {
 		t.Fatalf("gofmt step: %+v", steps[0])
 	}
+	wantVet := []string{"vet", "./..."}
+	if !reflect.DeepEqual(steps[1].args, wantVet) {
+		t.Fatalf("go vet args: got %v want %v", steps[1].args, wantVet)
+	}
 
 	wantCoverage := []string{"run", "./scripts/coverage", "-min=95.0"}
 	if !reflect.DeepEqual(steps[4].args, wantCoverage) {
