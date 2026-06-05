@@ -2056,7 +2056,7 @@ be called complete, default-safe, and production-grade.
   issues.
   Detail:
   `docs/todo/t266-chunk-dedup-always-auto-hardening.md`
-- [~] **T267** Output-reduce quality governor - make aggressive output
+- [x] **T267** Output-reduce quality governor - make aggressive output
   reduction route/task aware, quality-rollback capable, and safe for exact
   code/patch/explanation workflows. Offline hardening now caps aggressive
   profiles for read-only analysis and planning as safety-sensitive shapes and
@@ -2106,8 +2106,12 @@ be called complete, default-safe, and production-grade.
   re-ask rollback is now covered in the HTTP hot path for English user re-ask,
   German user re-ask, and malformed-patch repair signals: the repair turn
   receives no output-reduce directive and the next matching bucket is
-  immediately softened. The remaining T267 gap is broader CLI/Desktop
-  task-shape A/B breadth, not offline proof tooling. The central planner and
+  immediately softened. The final product decision is intentionally narrow:
+  only paired, net-positive direct-answer/status shapes can support concrete
+  output-token savings claims; explanation/deep-analysis, Desktop direct-long,
+  exact/relay/repair, code/patch, and other detail-sensitive shapes are either
+  net-negative, unproven, or unsafe for a zero-drawdown default, so they bypass
+  Layer 4 instead of chasing broad but brittle savings. The central planner and
   hot path now mirror the same stricter output-reduce guard: exact/relay/
   repair/low-ROI direct-answer shapes and all unproven detail-sensitive shapes
   bypass Layer 4 by default instead of injecting a standard directive without
@@ -2326,7 +2330,7 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   maxxed. The current local proof inventory and exported live corpus include
   complete maxx workload coverage for chunk-similar, chunk-log, and chunk-test
   with zero safety issues.
-- [~] **T267 output-reduce closeout** - guarded WSS injection and observed
+- [x] **T267 output-reduce closeout** - guarded WSS injection and observed
   output-token accounting are live-proven with `host_budget_ok`, zero safety
   errors, bounded input-overhead accounting, explicit
   `output_reduce_net_observed_tokens` diagnostics, and a passing maxx corpus
@@ -2341,12 +2345,13 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   compaction and is intentionally not promoted. A clean Desktop direct-long A/B
   pair proved route, injection, host-budget OK, `lost=0`, and zero WSS safety
   errors, but was net-negative (`245 -> 566`, `23` overhead, `-344` net saved),
-  so it is also intentionally not promoted. Remaining closeout is broader
-  task-shape breadth plus repair/re-ask rollback evidence before claiming a
-  broad product-default output-reduction magnitude. WSS streamcut
-  stays disabled until terminal-safe proof exists; exact reply, patch, code, and
-  user-requested detail must not be shortened in a way that degrades workflow or
-  model usefulness.
+  so it is also intentionally not promoted. Repair/re-ask rollback is now
+  covered in the HTTP hot path for English user re-ask, German user re-ask, and
+  malformed-patch repair signals. Broad product-default output-reduction
+  magnitude is deliberately rejected until future evidence proves a safe new
+  shape; WSS streamcut stays disabled until terminal-safe proof exists; exact
+  reply, patch, code, and user-requested detail must not be shortened in a way
+  that degrades workflow or model usefulness.
 - [x] **T268 tool-schema pruning closeout** - focused Desktop tool-heavy proof
   is complete with a real non-core tool use, idle prune, positive
   `tool_prune_tokens_saved`, zero miss/retry, zero parse/degrade/compression

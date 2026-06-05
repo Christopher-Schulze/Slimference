@@ -317,8 +317,7 @@ Output reduction becomes a runtime-governed layer:
   all cases the repair turn receives no output-reduce directive, the prior
   applied bucket is consumed once, and the next matching bucket is immediately
   softened from aggressive to the safer standard directive. This closes the
-  offline repair-rollback gap; Desktop/CLI task-shape A/B breadth remains the
-  live-only gap before broad default magnitude claims.
+  offline repair-rollback gap.
 - 2026-06-05: Ran the first clean Desktop output-reduce A/B reality check after
   excluding a prior upstream `invalid_request` diagnostic run from savings
   evidence. Pair `t267-desktop-direct-long-20260605T160644Z` proved Desktop
@@ -329,9 +328,18 @@ Output reduction becomes a runtime-governed layer:
   This is intentionally not promoted into `tests/fixtures/live_corpus`; it is a
   policy proof that Desktop/direct-long output-reduce must not support a broad
   product-default savings claim yet.
+- 2026-06-05: Closed T267 for the current zero-drawdown product scope. A broad
+  output-reduction default across explanation, deep-analysis, code/patch,
+  relay, repair, review, final-summary, and Desktop direct-long shapes is not
+  maxxed engineering; it is an unproven quality risk. The product surface now
+  claims concrete savings only for paired, net-positive direct-answer/status
+  shapes and otherwise gates or softens Layer 4 before it can reduce requested
+  detail, exact output, paths, errors, patches, or workflow context. Future
+  shapes can reopen T267 only with paired A/B proof that passes host-budget,
+  lost-context, safety, repair/re-ask, and net-token gates.
 
 ## Done
 
 Output reduce is maxxed when it saves where safe, backs off automatically where
-quality signals degrade, and never hides output savings as billable input
-savings.
+quality signals degrade, rejects broad unsafe shortening claims, and never hides
+output savings as billable input savings.
