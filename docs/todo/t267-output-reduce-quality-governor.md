@@ -310,9 +310,15 @@ Output reduction becomes a runtime-governed layer:
   `391`, net tokens saved `368`, output reduction `61.97%`, `lost=0`, host
   budget `ok`, and zero safety errors. It is committed as
   `tests/fixtures/live_corpus/cli_output_reduce_ab_brief_status/` and broadens
-  the positive evidence beyond the first direct-answer/status pair. Desktop A/B
-  and repair/re-ask rollback breadth remain before broad default magnitude
-  claims.
+  the positive evidence beyond the first direct-answer/status pair.
+- 2026-06-05: Closed the repair/re-ask rollback breadth proof for the HTTP
+  output-reduce hot path. Proxy tests now cover the existing English user
+  re-ask path plus German user re-ask and malformed-patch repair signals. In
+  all cases the repair turn receives no output-reduce directive, the prior
+  applied bucket is consumed once, and the next matching bucket is immediately
+  softened from aggressive to the safer standard directive. This closes the
+  offline repair-rollback gap; Desktop/CLI task-shape A/B breadth remains the
+  live-only gap before broad default magnitude claims.
 - 2026-06-05: Ran the first clean Desktop output-reduce A/B reality check after
   excluding a prior upstream `invalid_request` diagnostic run from savings
   evidence. Pair `t267-desktop-direct-long-20260605T160644Z` proved Desktop
