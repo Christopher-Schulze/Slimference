@@ -444,3 +444,10 @@ summary remains opt-in, not default.
   positive OCRL saved tokens, and zero shadow-only rows. The committed
   synthetic OCRL fixture still proves only gate wiring; the max-out gate now
   remains failed until real model-facing OCRL live proof exists.
+- 2026-06-05: Wired OCRL full-history into the release-proof operator runbook.
+  `verify -mode release-proof-plan` now emits CLI/Desktop live-corpus plan
+  commands for `ocrl_full_history`, and `verify -mode live-corpus-plan
+  -category ocrl_full_history` renders metadata with the `ocrl_full_history`
+  validator plus positive saved-token evidence instead of generic low-error
+  metadata. This closes the offline runbook gap while keeping the real live
+  proof itself as the remaining promotion blocker.

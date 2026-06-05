@@ -448,7 +448,9 @@ func maxxProofWorkloads() []string {
 		"chunk_dedup_similar_outputs",
 		"chunk_dedup_log_output",
 		"chunk_dedup_test_output",
+		"ocrl_full_history",
 		"output_reduce_aggressive",
+		"output_reduce_ab",
 		"tool_heavy",
 		"provider_cache_long_session",
 		"host_resource_long_workday",
@@ -493,9 +495,52 @@ func renderLiveCorpusMetadataSkeleton(category, client string) string {
 		"expected_reread_count_max":           0,
 		"expected_planner_missed_max":         0,
 		"expected_planner_bypass_applied_max": 0,
-		"scenario_validators":                 []string{"low_error"},
+		"scenario_validators":                 liveCorpusScenarioValidators(category),
 		"notes":                               "Scrubbed manually after T109 redaction; raw prompts, secrets, screenshots, and absolute paths verified absent.",
 	}
+	applyLiveCorpusWorkloadDefaults(payload, category)
 	out, _ := json.MarshalIndent(payload, "   ", "  ")
 	return string(out)
+}
+
+func liveCorpusScenarioValidators(workload string) []string {
+	switch strings.TrimSpace(workload) {
+	case "ocrl_full_history":
+		return []string{"ocrl_full_history", "low_error"}
+	case "output_reduce_aggressive":
+		return []string{"output_reduce", "low_error"}
+	case "output_reduce_ab":
+		return []string{"output_reduce_ab", "low_error"}
+	case "provider_cache_long_session":
+		return []string{"cache_reuse", "low_error"}
+	case "tool_heavy":
+		return []string{"tool_heavy", "low_error"}
+	case "host_resource_long_workday", "chunk_dedup_similar_outputs", "chunk_dedup_log_output", "chunk_dedup_test_output":
+		return []string{"host_budget_ok", "low_error"}
+	default:
+		return []string{"low_error"}
+	}
+}
+
+func applyLiveCorpusWorkloadDefaults(payload map[string]any, workload string) {
+	switch strings.TrimSpace(workload) {
+	case "output_reduce_aggressive":
+		payload["expected_savings_min"] = 0.0
+		payload["expected_output_reduce_applied_min"] = 1
+	case "output_reduce_ab":
+		payload["expected_savings_min"] = 0.0
+		payload["expected_request_count"] = 0
+		payload["expected_output_reduce_ab_pairs_min"] = 1
+		payload["expected_output_reduce_ab_net_saved_min"] = 1
+		payload["expected_output_reduce_ab_savings_pct_min"] = 1.0
+	case "provider_cache_long_session":
+		payload["expected_savings_min"] = 0.0
+		payload["expected_provider_cache_read_min"] = 1
+	case "tool_heavy", "chunk_dedup_similar_outputs", "chunk_dedup_log_output", "chunk_dedup_test_output", "host_resource_long_workday":
+		payload["expected_savings_min"] = 0.0
+		payload["expected_saved_tokens_min"] = 1
+	case "ocrl_full_history":
+		payload["expected_savings_min"] = 0.0
+		payload["expected_saved_tokens_min"] = 1
+	}
 }

@@ -395,7 +395,9 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		"long_workday",
 		"additional maxx mechanism categories",
 		"chunk_dedup_similar_outputs",
+		"ocrl_full_history",
 		"output_reduce_aggressive",
+		"output_reduce_ab",
 		"provider_cache_long_session",
 		"host_resource_long_workday",
 		"wss-proof-matrix ~/.slimference/captures/release-proof-20260531_080910.jsonl --require-live-token-delta --json",
@@ -407,6 +409,55 @@ func TestRunReleaseProofPlan_RendersPromotionCeremony(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("release runbook missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestRenderLiveCorpusMetadataSkeleton_WorkloadDefaults(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		category string
+		wants    []string
+	}{
+		{
+			name:     "ocrl full history",
+			category: "ocrl_full_history",
+			wants: []string{
+				`"scenario_validators": [`,
+				`"ocrl_full_history"`,
+				`"expected_saved_tokens_min": 1`,
+			},
+		},
+		{
+			name:     "output reduce ab",
+			category: "output_reduce_ab",
+			wants: []string{
+				`"output_reduce_ab"`,
+				`"expected_request_count": 0`,
+				`"expected_output_reduce_ab_pairs_min": 1`,
+				`"expected_output_reduce_ab_net_saved_min": 1`,
+			},
+		},
+		{
+			name:     "provider cache",
+			category: "provider_cache_long_session",
+			wants: []string{
+				`"cache_reuse"`,
+				`"expected_provider_cache_read_min": 1`,
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out := renderLiveCorpusMetadataSkeleton(tt.category, "codex_cli")
+			for _, want := range tt.wants {
+				if !strings.Contains(out, want) {
+					t.Fatalf("metadata skeleton for %s missing %q:\n%s", tt.category, want, out)
+				}
+			}
+		})
 	}
 }
 
