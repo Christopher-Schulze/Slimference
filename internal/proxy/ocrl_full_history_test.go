@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/slimference/slimference/internal/abharness"
 	"github.com/slimference/slimference/internal/config"
+	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/contextledger"
 	dbg "github.com/slimference/slimference/internal/debug"
 	"github.com/slimference/slimference/internal/types"
@@ -51,6 +53,59 @@ func TestApplyHTTPFullHistoryOCRLReplacesOldInactiveArchiveBackedContext(t *test
 		result.Summary.OCRLArchiveExpansions != 1 ||
 		result.Summary.OCRLShadowSavedTokens <= 0 {
 		t.Fatalf("summary missing model-facing OCRL evidence: %+v", result.Summary)
+	}
+}
+
+func TestApplyHTTPFullHistoryOCRLABHarnessProvesRecoverableRawContext(t *testing.T) {
+	home := t.TempDir()
+	oldHome := proxyUserHomeDir
+	proxyUserHomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { proxyUserHomeDir = oldHome })
+
+	cfg := config.Defaults()
+	cfg.Compression.OCRL.Mode = "max"
+	cfg.Compression.OCRL.MinNetSavedTokens = 1
+	cfg.Compression.OCRL.MaxCapsules = 8
+	p := New(cfg)
+
+	oldBuildLog := strings.Repeat("old build log context with stable error-free package inventory omega11 ", 180)
+	oldSearchLog := strings.Repeat("old search context showing repeated repository hits under src/ theta22 ", 180)
+	recentText := "recent assistant tail stays visible"
+	before := []types.Message{
+		{Index: 0, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: oldBuildLog}}},
+		{Index: 1, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: oldSearchLog}}},
+		{Index: 2, Role: "user", Content: []types.ContentBlock{{Type: "text", Text: "current user instruction stays visible"}}},
+		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: recentText}}},
+	}
+
+	applied := p.applyHTTPFullHistoryOCRL(types.OpenAI, "sess-ocrl-ab-proof", before, 1, 0)
+	if !applied.Applied || applied.Saved <= 0 || applied.Summary.OCRLArchiveExpansions != 2 {
+		t.Fatalf("expected applied OCRL with two archive-backed targets: %+v", applied)
+	}
+	afterText := applied.Messages[0].Content[0].Text + "\n" + applied.Messages[1].Content[0].Text
+	if !strings.Contains(afterText, "[ocrl:v1") ||
+		strings.Contains(afterText, oldBuildLog) ||
+		strings.Contains(afterText, oldSearchLog) {
+		t.Fatalf("OCRL output did not replace old context cleanly: %q", afterText)
+	}
+
+	archiveDir := contentarchive.DefaultDir(home)
+	report := abharness.CompareWithArchiveExpansion([]abharness.Turn{
+		{Before: before, After: applied.Messages},
+	}, func(id string) ([]byte, error) {
+		_, body, err := contentarchive.Get(archiveDir, id)
+		return body, err
+	})
+	if report.Lost() != 0 {
+		t.Fatalf("OCRL A/B recovery must have zero lost context: %+v", report.Elisions)
+	}
+	if len(report.Elisions) != 2 || report.Saved() <= 0 {
+		t.Fatalf("expected two positive recoverable OCRL elisions, got %+v saved=%d", report.Elisions, report.Saved())
+	}
+	for _, elision := range report.Elisions {
+		if elision.Severity != abharness.SeverityReferenced {
+			t.Fatalf("OCRL elision must be archive-referenced, got %+v", report.Elisions)
+		}
 	}
 }
 

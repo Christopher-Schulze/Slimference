@@ -146,6 +146,12 @@ deleted under a covering OCRL block are treated as recoverable only when a liste
 archive expands to the exact original block text. Missing or mismatched
 expansion remains a lost-comprehension failure.
 
+The proxy-level Full-History HTTP test now drives the real OCRL apply path and
+then runs the same A/B harness against the before/after messages with
+`contentarchive.Get` as the resolver. This proves the product hook's actual
+model-facing replacement is byte-recoverable with `lost=0`; it is stronger than
+a renderer-only fixture because the archives are produced by the runtime path.
+
 ## Savings Accounting
 
 Net savings are:
@@ -228,6 +234,8 @@ The engine requires:
 - proxy runtime tests proving Full-History HTTP OCRL mutates the actual upstream
   request only in `auto|max`, records `full_history_http/applied` telemetry, and
   leaves shadow, user/system, and quality-pressure cases unmutated
+- proxy A/B recovery tests proving the real Full-History HTTP apply path's
+  replaced old blocks expand from the runtime content archive with `lost=0`
 - benchmark-corpus OCRL validator coverage: `ocrl_full_history` requires
   applied full-history evidence, candidate capsules, archive expansions,
   positive OCRL savings, and no shadow-only rows

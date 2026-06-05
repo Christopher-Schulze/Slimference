@@ -155,9 +155,12 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
   the real model-facing Full-History HTTP request path after Layer 1: it
   archives the exact post-L1 old block, derives byte-equal targets, applies only
   in `auto|max`, and keeps `shadow`, user/system content, and quality-pressure
-  cases unmutated. `[compression.ocrl]` and `slimference layer2 status` expose
-  the effective OCRL policy. Codex WSS remains shadow-only because that route
-  uses Responses delta/server-state semantics.
+  cases unmutated. The proxy-level A/B recovery test now drives that real hook,
+  expands runtime archive ids with `contentarchive.Get`, and requires `lost=0`
+  for the replaced old blocks. `[compression.ocrl]` and
+  `slimference layer2 status` expose the effective OCRL policy. Codex WSS
+  remains shadow-only because that route uses Responses delta/server-state
+  semantics.
 - [x] Adaptive Sliding Window: `adaptive_window.go` — dynamische Fensteranpassung (3-7) nach Session-Komplexität
 - [x] Tool Result Priority Classification: `priority.go` — HIGH/MEDIUM/LOW, aggressivere Kompression für LOW
 
@@ -1969,8 +1972,9 @@ be called complete, default-safe, and production-grade.
   only when archive payloads match byte-exactly.
   Overflow recovery now also requires `layer2_enabled=true` before it may apply
   any cached legacy summary, so the legacy override alone cannot bypass the
-  default-off product path. Only proof-gated model-facing ledger insertion and
-  live A/B promotion remain.
+  default-off product path. Full-History HTTP model-facing OCRL insertion and
+  autonomous A/B archive recovery proof are implemented; only broader real-LLM
+  live A/B certification remains for semantic task-decision equivalence.
   Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [x] **T263** Layer 3 provider/prompt cache max-out - local response cache now
@@ -2282,8 +2286,11 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   now present and passes `benchmark-corpus --maxx-check`: a live Slimference
   proxy sent `[ocrl:v1 ...]` upstream only after exact archive-backed
   replacement and the local upstream rejected any non-OCRL/full-old-text
-  request. Remaining closeout is broader live A/B proof that model-facing
-  ledger context preserves task decisions with recoverable raw context.
+  request. The autonomous proxy A/B recovery test now proves the actual OCRL
+  Full-History HTTP hook is byte-recoverable through the runtime content
+  archive with `lost=0`. Remaining closeout is broader real-LLM live A/B proof
+  that model-facing ledger context preserves task decisions, which cannot be
+  proven by a local upstream stub.
 - [x] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility

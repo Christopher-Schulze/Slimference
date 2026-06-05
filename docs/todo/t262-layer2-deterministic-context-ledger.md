@@ -74,6 +74,10 @@ replacement for reality.
   `[ocrl:v1 ...]` blocks. Direct-vs-OCRL replay treats replaced or deleted old
   blocks as recoverable only when the listed archives expand to the exact direct
   block text; missing or mismatched payloads remain lost-comprehension issues.
+- The Full-History HTTP proxy path now has a product-path A/B recovery test:
+  the test runs the real OCRL apply hook, resolves the resulting runtime archive
+  ids through `contentarchive.Get`, and requires the A/B harness to report
+  `lost=0` for the replaced old model-facing blocks.
 - The Codex Layer-0 reducer now feeds those builders in the hot path as
   content-free telemetry only for tool-output command/file/search/failure
   observations. `/admin/state.savings` exposes those capsule counts globally and
@@ -172,6 +176,8 @@ The ledger stores deterministic capsules:
    - [x] wire OCRL into the Full-History HTTP proxy request path with
      post-Layer-1 archive proof, mode-gated mutation, and request-summary
      telemetry
+   - [x] add proxy-level A/B recovery proof for the real Full-History HTTP
+     OCRL apply path with runtime archive expansion and `lost=0`
    - [x] require real non-synthetic OCRL full-history evidence in the global
      `benchmark-corpus --maxx-check` promotion gate
    - [x] promotion only after live corpus proof
@@ -226,6 +232,8 @@ The ledger stores deterministic capsules:
   `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - Proxy Full-History HTTP apply gate:
   `go test ./internal/proxy -run 'TestApplyHTTPFullHistoryOCRL|TestServeHTTPAppliesOCRL|TestBuildOCRLShadow' -count=1`
+  includes product-path A/B recovery proof through `contentarchive.Get` and
+  requires `lost=0` for real OCRL-applied before/after messages.
 - Benchmark gate:
   `go test ./internal/contextledger -bench='Benchmark(BuildOCRLReplacement|DeriveOCRLMessageTargets|ApplyOCRLToMessagesByArchiveMatch)' -benchmem -run '^$'`
 - Corpus gate:
@@ -236,8 +244,8 @@ The ledger stores deterministic capsules:
   `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --maxx-check`
   now requires a real non-synthetic `ocrl_full_history` workload captured on a
   full-history HTTP route and fails if OCRL is not applied with archive
-  expansions, positive OCRL saved tokens, and no shadow-only OCRL rows. This is
-  expected to remain open until a real full-history OCRL capture exists.
+  expansions, positive OCRL saved tokens, and no shadow-only OCRL rows. This
+  now passes with the committed real Full-History HTTP OCRL workload.
 - Live corpus gate:
   - CLI and Desktop
   - no repair/re-read spike
@@ -466,7 +474,8 @@ summary remains opt-in, not default.
   applied OCRL, full-history route rows, candidate capsules, archive expansions,
   positive OCRL saved tokens, and zero shadow-only rows. The committed
   synthetic OCRL fixture still proves only gate wiring; the max-out gate now
-  remains failed until real model-facing OCRL live proof exists.
+  remains failed until real model-facing OCRL live proof exists. This was later
+  closed by the real Full-History HTTP OCRL corpus proof.
 - 2026-06-05: Wired OCRL full-history into the release-proof operator runbook.
   `verify -mode release-proof-plan` now emits CLI/Desktop live-corpus plan
   commands for `ocrl_full_history`, and `verify -mode live-corpus-plan
@@ -571,3 +580,10 @@ summary remains opt-in, not default.
   The live-corpus runbook was corrected so OCRL uses the redacted
   `RequestSummary` capture directly; normalized flight export omits the OCRL
   candidate/archive counters required by the validator.
+- 2026-06-05: Added proxy-level OCRL A/B recovery proof on the real
+  Full-History HTTP apply path. `TestApplyHTTPFullHistoryOCRLABHarnessProvesRecoverableRawContext`
+  builds two old inactive model-facing blocks, lets the runtime hook archive and
+  replace them, resolves the generated archive ids through `contentarchive.Get`,
+  and requires `abharness.CompareWithArchiveExpansion` to produce `lost=0` with
+  two positive referenced elisions. Focused verification:
+  `go test ./internal/proxy -run 'TestApplyHTTPFullHistoryOCRLABHarnessProvesRecoverableRawContext|TestApplyHTTPFullHistoryOCRL|TestServeHTTPAppliesOCRL' -count=1`.

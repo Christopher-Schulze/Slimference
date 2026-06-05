@@ -1125,6 +1125,13 @@ positive-net-saving gates pass. Re-read/quality pressure full-passes before
 replacement, and the legacy cached-summary path remains separately blocked by
 `[compression.summary].allow_model_facing_replacement`.
 
+The Full-History HTTP product hook is covered by a runtime A/B recovery test.
+The test lets the real proxy OCRL hook archive and replace old model-facing
+blocks, then compares direct vs OCRL messages with
+`abharness.CompareWithArchiveExpansion` and `contentarchive.Get`. The gate must
+report `lost=0`, proving the product hook's model-facing replacement remains
+byte-recoverable from the runtime archive.
+
 Focused verification on 2026-06-05:
 
 - `go test ./internal/contextledger -count=1`
