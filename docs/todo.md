@@ -1942,7 +1942,9 @@ be called complete, default-safe, and production-grade.
   explicit legacy override. Archive-backed capsules now fail closed when
   required recoverability facts are missing, including full-pass turn provenance
   and explicit repo/workdir scope for file capsules, explicit execution scope
-  for search capsules, explicit decision/recovery facts, archive ids, and a
+  for search capsules from tool `workdir`/`cwd` metadata or repo-scoped search
+  commands such as `cd /repo && rg ...` / `git -C /repo grep ...`, explicit
+  decision/recovery facts, archive ids, and a
   policy session id to prevent cross-session context selection. Active-file and
   quality-pressure selection inputs now fail closed as tested primitives.
   Overflow recovery now also requires `layer2_enabled=true` before it may apply

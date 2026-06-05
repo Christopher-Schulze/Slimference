@@ -166,12 +166,12 @@ func (s *proxyLayer0Stats) recordLedgerObservation(use types.ContentBlock, sessi
 	}); err == nil {
 		s.LedgerCommandCapsules++
 	}
-	if key := filter.SearchOutputKeyFromCommandLine(commandLine); key != "" {
+	if key, scope := proxyLayer0LedgerSearchKeyAndScope(commandLine, cwd); key != "" {
 		if _, err := contextledger.BuildSearchCapsule(contextledger.SearchObservation{
 			SessionID:   sessionID,
 			TurnID:      turnID,
 			CommandLine: commandLine,
-			RepoRoot:    cwd,
+			RepoRoot:    scope,
 			PatternHash: proxyLayer0ShortHash(key),
 		}); err == nil {
 			s.LedgerSearchCapsules++
@@ -219,6 +219,52 @@ func proxyLayer0PayloadForLedger(text string) string {
 		return payload
 	}
 	return text
+}
+
+func proxyLayer0LedgerSearchKeyAndScope(commandLine, workdir string) (string, string) {
+	normalized := filter.NormalizeSearchCommandLine(commandLine, workdir)
+	if normalized == "" {
+		normalized = commandLine
+	}
+	key := filter.RepoScopedSearchOutputKeyFromCommandLine(normalized)
+	if key == "" {
+		return "", ""
+	}
+	scope := proxyCleanAbsWorkdir(workdir)
+	if scope == "" {
+		scope = proxyLayer0RepoScopedSearchScope(normalized)
+	}
+	if scope == "" {
+		return "", ""
+	}
+	return key, scope
+}
+
+func proxyLayer0RepoScopedSearchScope(commandLine string) string {
+	argv := filter.ArgvForCapturedOutput(commandLine)
+	if len(argv) == 0 {
+		return ""
+	}
+	if filepath.Base(strings.TrimSpace(argv[0])) == "git" {
+		for i := 1; i < len(argv); i++ {
+			switch {
+			case argv[i] == "-C" || argv[i] == "--work-tree":
+				if i+1 < len(argv) {
+					return proxyCleanAbsWorkdir(argv[i+1])
+				}
+				return ""
+			case strings.HasPrefix(argv[i], "--work-tree="):
+				return proxyCleanAbsWorkdir(strings.TrimPrefix(argv[i], "--work-tree="))
+			}
+		}
+		return ""
+	}
+	for i := 1; i < len(argv); i++ {
+		if scope := proxyCleanAbsWorkdir(argv[i]); scope != "" {
+			return scope
+		}
+	}
+	return ""
 }
 
 func proxyLayer0ReadRangeFact(req readcache.Request) string {

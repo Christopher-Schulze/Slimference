@@ -235,9 +235,11 @@ summary remains opt-in, not default.
 - 2026-06-03: Hardened search capsule scope. `BuildSearchCapsule` now requires
   an explicit repo/workdir scope and `SelectCapsules` requires the `repo_root`
   fact before any search capsule can become promotable old context. The Codex
-  reducer only counts search ledger telemetry when the tool call carries a
-  scoped workdir, so implicit-cwd searches cannot later become cross-repo
-  context.
+  reducer only counts search ledger telemetry when the tool call carries an
+  explicit scope, either via tool `workdir`/`cwd` metadata or a repo-scoped
+  command such as `cd /repo && rg ...`, an absolute search path, or
+  `git -C /repo grep ...`. Implicit-cwd searches still do not become
+  cross-repo context.
 - 2026-06-03: Hardened file capsule scope the same way. Archived file capsules
   now require `repo_root` plus full-pass-turn provenance, and the Codex reducer
   only counts file ledger telemetry when the read came from a tool call with an
@@ -263,3 +265,9 @@ summary remains opt-in, not default.
   `allow_model_facing_replacement=true` alone cannot inject cached summary text
   while Layer 2 is disabled. The async background enqueue path already required
   Layer 2 to be enabled, so recovery now matches the normal request hot path.
+- 2026-06-05: Extended scoped search ledger telemetry without widening product
+  risk. The Layer-0 reducer now derives search capsule scope from already
+  normalized repo-scoped commands (`cd /repo && rg ...`, absolute search paths,
+  or `git -C /repo grep ...`) as well as tool `workdir` metadata. The existing
+  implicit-cwd guard remains: unscoped `rg ...` still produces no search
+  capsule. Focused proxy/filter tests cover both sides.

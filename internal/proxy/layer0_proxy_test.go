@@ -225,6 +225,53 @@ func TestApplyProxyLayer0LedgerSearchRequiresScope(t *testing.T) {
 	}
 }
 
+func TestApplyProxyLayer0LedgerSearchAcceptsCommandScopedSearch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	messages := []types.Message{
+		{Role: "assistant", Content: []types.ContentBlock{{Type: "tool_use", ToolUseID: "call-search", ToolName: "exec_command", ToolInput: `{"cmd":"cd /repo/project && rg -n TODO internal"}`}}},
+		{Role: "tool", Content: []types.ContentBlock{{Type: "tool_result", ToolResultID: "call-search", Text: "Process exited with code 0\nOutput:\ninternal/a.go:1:TODO\n"}}},
+	}
+	_, stats := applyProxyLayer0WithSessionAndToolUsesDetailed(messages, "sess-ledger", nil)
+	if stats.LedgerCommandCapsules != 1 {
+		t.Fatalf("command capsule should still be counted: %+v", stats)
+	}
+	if stats.LedgerSearchCapsules != 1 {
+		t.Fatalf("repo-scoped cd search should become ledger search telemetry: %+v", stats)
+	}
+}
+
+func TestProxyLayer0LedgerSearchKeyAndScope(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		commandLine string
+		workdir     string
+		wantScope   string
+		wantKey     bool
+	}{
+		{name: "implicit cwd is not promotable", commandLine: `rg -n TODO internal`},
+		{name: "tool workdir scopes search", commandLine: `rg -n TODO internal`, workdir: "/repo/project", wantScope: "/repo/project", wantKey: true},
+		{name: "leading cd scopes search", commandLine: `cd /repo/project && rg -n TODO internal`, wantScope: "/repo/project/internal", wantKey: true},
+		{name: "git C scopes search", commandLine: `git -C /repo/project grep TODO -- internal`, wantScope: "/repo/project", wantKey: true},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			key, scope := proxyLayer0LedgerSearchKeyAndScope(tc.commandLine, tc.workdir)
+			if tc.wantKey && key == "" {
+				t.Fatalf("expected key for %q", tc.commandLine)
+			}
+			if !tc.wantKey && key != "" {
+				t.Fatalf("unexpected key for %q: %q scope=%q", tc.commandLine, key, scope)
+			}
+			if scope != tc.wantScope {
+				t.Fatalf("scope=%q want %q key=%q", scope, tc.wantScope, key)
+			}
+		})
+	}
+}
+
 func TestApplyProxyLayer0LedgerFileRequiresScope(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	readOutput := "Process exited with code 0\nOutput:\n" + strings.Repeat("package proxy\nfunc ledgerObservation() {}\n", 20)

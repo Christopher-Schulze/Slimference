@@ -438,6 +438,11 @@ The Codex Layer-0 reducer now feeds the tool-output ledger builders in the hot
 path as telemetry only. It builds command/file/search/failure capsule
 observations from tool-output metadata and exposes only content-free capsule
 counts in `/admin/state.savings`, globally and per `http` / `wss_phasef` route.
+Search ledger telemetry requires explicit execution scope, either from tool
+`workdir`/`cwd` metadata or from a repo-scoped command such as
+`cd /repo && rg ...`, an absolute search path, or `git -C /repo grep ...`;
+implicit-cwd search output remains telemetry-full-pass for ledger search
+capsules.
 Decision and recovery capsules are pure fail-closed primitives for the future
 ledger insertion path; they are not counted from the reducer until a real
 product source supplies explicit decision/recovery provenance. WSS decision
