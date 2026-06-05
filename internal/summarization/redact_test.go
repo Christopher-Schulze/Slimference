@@ -36,12 +36,15 @@ func redactTestMsg(role string, blocks ...types.ContentBlock) types.Message {
 	return types.Message{Role: role, Content: blocks}
 }
 
-// TestRedactor_OffMode_DeepCopyOnly asserts that mode=off returns a
-// slice that contains the original byte content unchanged.
-func TestRedactor_OffMode_DeepCopyOnly(t *testing.T) {
+// TestRedactor_OffMode_IdentityPassthrough asserts that mode=off returns the
+// original slice unchanged and allocation-free.
+func TestRedactor_OffMode_IdentityPassthrough(t *testing.T) {
 	r := NewRedactor(RedactOptions{Mode: RedactionModeOff})
 	src := []types.Message{redactTestMsg("user", textBlock("ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))}
 	out, stats := r.Redact(src)
+	if &out[0] != &src[0] {
+		t.Fatal("off mode should return the original message slice")
+	}
 	if out[0].Content[0].Text != src[0].Content[0].Text {
 		t.Fatalf("off mode mutated content: got %q, want %q", out[0].Content[0].Text, src[0].Content[0].Text)
 	}

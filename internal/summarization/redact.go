@@ -153,12 +153,15 @@ func quoteAll(in []string) []string {
 	return out
 }
 
-// Redact deep-copies messages and returns a sanitised slice plus stats.
-// The original slice is never mutated. Under RedactionModeOff the
-// function is a deep-copy passthrough so callers can rely on the same
-// invariant regardless of mode.
+// Redact returns a sanitised slice plus stats. The original slice is never
+// mutated in redacting modes. Under RedactionModeOff the function returns the
+// input slice unchanged, avoiding hot-path copies when the operator explicitly
+// disabled outbound redaction.
 func (r *Redactor) Redact(messages []types.Message) ([]types.Message, RedactStats) {
 	if len(messages) == 0 {
+		return messages, RedactStats{}
+	}
+	if r.opts.Mode == RedactionModeOff {
 		return messages, RedactStats{}
 	}
 	out := make([]types.Message, 0, len(messages))
@@ -169,10 +172,6 @@ func (r *Redactor) Redact(messages []types.Message) ([]types.Message, RedactStat
 		copyMsg.Content = make([]types.ContentBlock, 0, len(msg.Content))
 
 		for _, block := range msg.Content {
-			if r.opts.Mode == RedactionModeOff {
-				copyMsg.Content = append(copyMsg.Content, block)
-				continue
-			}
 			redactedBlock, blockStats := r.redactBlock(block)
 			stats.SecretsRedacted += blockStats.SecretsRedacted
 			stats.PathsNormalised += blockStats.PathsNormalised

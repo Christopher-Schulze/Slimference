@@ -2364,8 +2364,9 @@ operability.
   defects without adding brittle local tooling or slowing the default CI path
   beyond the host-resource budget. Detail:
   `docs/todo/t277-static-lint-gate-hardening.md`
-- [ ] **T278 Hot-path allocation micro-sweep** - benchmark and, where evidence
-  supports it, reduce allocations in proven hot paths such as Layer-2 redaction
-  off-mode, MinHash/dedup buffers, and capture/proof parsers without changing
-  model-facing bytes or safety gates. Detail:
-  `docs/todo/t278-hot-path-allocation-micro-sweep.md`
+- [x] **T278 Hot-path allocation micro-sweep** - measured and optimized the
+  real allocation candidates without changing model-facing bytes or safety
+  gates. Layer-2 redaction off-mode now identity-passes unchanged messages
+  (81 allocs/op to 0), and MinHash near-dedup now hashes word-span shingles
+  directly with inline FNV-1a (4010 allocs/op to 1) while preserving legacy
+  signatures. Detail: `docs/todo/t278-hot-path-allocation-micro-sweep.md`

@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -42,5 +43,39 @@ func TestMinHashSignatureFromText_empty(t *testing.T) {
 	sig := minHashSignatureFromText("   ")
 	if sig != [minHashDim]uint64{} {
 		t.Fatal("empty input")
+	}
+}
+
+func TestMinHashSignatureFromText_matchesLegacyJoin(t *testing.T) {
+	t.Parallel()
+	text := "alpha  beta\ngamma\t delta epsilon zeta"
+	got := minHashSignatureFromText(text)
+	shingles := wordShingles(tokenizeWords(text), 3)
+	var want [minHashDim]uint64
+	for i := 0; i < minHashDim; i++ {
+		var minv uint64 = 1<<64 - 1
+		seed := uint64(i + 1)
+		for _, sh := range shingles {
+			h := hashWithSeed(sh, seed)
+			if h < minv {
+				minv = h
+			}
+		}
+		want[i] = minv
+	}
+	if got != want {
+		t.Fatal("optimized minhash must match legacy joined shingles")
+	}
+}
+
+func BenchmarkMinHashSignatureFromText(b *testing.B) {
+	text := strings.Repeat("alpha beta gamma delta epsilon zeta eta theta iota kappa ", 200)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sig := minHashSignatureFromText(text)
+		if sig == [minHashDim]uint64{} {
+			b.Fatal("empty signature")
+		}
 	}
 }

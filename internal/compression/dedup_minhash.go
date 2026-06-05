@@ -1,7 +1,6 @@
 package compression
 
 import (
-	"hash/fnv"
 	"strings"
 	"unicode"
 )
@@ -48,18 +47,22 @@ func wordShingles(words []string, k int) []string {
 }
 
 func minHashSignatureFromText(text string) [minHashDim]uint64 {
-	shingles := wordShingles(tokenizeWords(text), 3)
+	words := wordSpans(text)
 	var sig [minHashDim]uint64
-	if len(shingles) == 0 {
+	if len(words) == 0 {
 		return sig
 	}
 	for i := 0; i < minHashDim; i++ {
 		var minv uint64 = 1<<64 - 1
 		seed := uint64(i + 1)
-		for _, sh := range shingles {
-			h := hashWithSeed(sh, seed)
-			if h < minv {
-				minv = h
+		if len(words) < 3 {
+			minv = hashWordSpanShingle(text, words, 0, len(words), seed)
+		} else {
+			for start := 0; start+3 <= len(words); start++ {
+				h := hashWordSpanShingle(text, words, start, start+3, seed)
+				if h < minv {
+					minv = h
+				}
 			}
 		}
 		sig[i] = minv
@@ -68,14 +71,89 @@ func minHashSignatureFromText(text string) [minHashDim]uint64 {
 }
 
 func hashWithSeed(s string, seed uint64) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(s))
-	var buf [8]byte
-	for i := range buf {
-		buf[i] = byte(seed >> (8 * i))
+	h := fnv64aOffset
+	for i := 0; i < len(s); i++ {
+		h = fnv64aByte(h, s[i])
 	}
-	_, _ = h.Write(buf[:])
-	return h.Sum64()
+	return fnv64aSeed(h, seed)
+}
+
+type wordSpan struct {
+	start int
+	end   int
+}
+
+func wordSpans(s string) []wordSpan {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	words := make([]wordSpan, 0, countWords(s))
+	start := -1
+	for idx, r := range s {
+		if unicode.IsSpace(r) {
+			if start >= 0 {
+				words = append(words, wordSpan{start: start, end: idx})
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = idx
+		}
+	}
+	if start >= 0 {
+		words = append(words, wordSpan{start: start, end: len(s)})
+	}
+	return words
+}
+
+func countWords(s string) int {
+	count := 0
+	inWord := false
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			inWord = false
+			continue
+		}
+		if !inWord {
+			count++
+			inWord = true
+		}
+	}
+	return count
+}
+
+const (
+	fnv64aOffset uint64 = 14695981039346656037
+	fnv64aPrime  uint64 = 1099511628211
+)
+
+func hashWordSpanShingle(text string, words []wordSpan, start, end int, seed uint64) uint64 {
+	h := fnv64aOffset
+	for i := start; i < end; i++ {
+		if i > start {
+			h = fnv64aByte(h, ' ')
+		}
+		word := words[i]
+		for j := word.start; j < word.end; j++ {
+			h = fnv64aByte(h, text[j])
+		}
+	}
+	return fnv64aSeed(h, seed)
+}
+
+func fnv64aSeed(h uint64, seed uint64) uint64 {
+	for i := 0; i < 8; i++ {
+		h = fnv64aByte(h, byte(seed>>(8*i)))
+	}
+	return h
+}
+
+func fnv64aByte(h uint64, b byte) uint64 {
+	h ^= uint64(b)
+	h *= fnv64aPrime
+	return h
 }
 
 func minHashJaccardEstimate(a, b [minHashDim]uint64) float64 {

@@ -1104,6 +1104,9 @@ actually submitted text, not the pre-cap message slice. This prevents huge
 historical reads from burning CPU or timing out before the provider call while
 leaving the original message slice intact for hashing, anchors, and covered
 range validation.
+When `outbound_redaction=off`, the redactor returns the original message slice
+unchanged instead of deep-copying it; Layer 2 callers treat that slice as
+read-only. Default and strict redaction modes still copy before mutation.
 
 Provider/runtime knobs:
 

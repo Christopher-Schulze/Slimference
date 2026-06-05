@@ -2,7 +2,7 @@
 
 ## Status
 
-Open.
+Done.
 
 ## Source
 
@@ -61,3 +61,27 @@ measurement.
 ## Notes
 
 - This is a measured polish task. "Sounds faster" is not enough.
+- Implemented measured Redaction-Off optimization. `Redactor.Redact` now
+  returns the original message slice unchanged when
+  `outbound_redaction=off`, because Layer 2 callers only read the returned
+  slice. Redacting modes still copy before mutation.
+  - Before: `BenchmarkRedactorOffModeLargeHistory` = 6977-7893 ns/op,
+    39040 B/op, 81 allocs/op.
+  - After: `BenchmarkRedactorOffModeLargeHistory` = 5.289-5.626 ns/op,
+    0 B/op, 0 allocs/op.
+- Implemented measured MinHash allocation reduction without changing
+  model-facing bytes or near-dedup signatures. The signature path now hashes
+  word-span shingles directly and uses inline FNV-1a instead of materialising
+  shingle strings.
+  - Before: `BenchmarkMinHashSignatureFromText` = 4.52-5.08 ms/op,
+    ~184655 B/op, 4010 allocs/op.
+  - After: `BenchmarkMinHashSignatureFromText` = 4.39-4.43 ms/op,
+    ~32768 B/op, 1 alloc/op.
+- Proof/capture parser pooling and deeper MinHash algorithm changes were not
+  implemented in this pass because no profile in this task showed them as the
+  next bottleneck. They should reopen only with pprof/bench evidence.
+- Verification:
+  - `go test ./internal/summarization -run 'Redactor|BuildRedactor' -count=1`
+  - `go test ./internal/compression -run 'MinHash|NearDedup' -count=1`
+  - `go test ./internal/summarization -run '^$' -bench '^BenchmarkRedactorOffModeLargeHistory$' -benchmem -count=5`
+  - `go test ./internal/compression -run '^$' -bench '^BenchmarkMinHashSignatureFromText$' -benchmem -count=5`
