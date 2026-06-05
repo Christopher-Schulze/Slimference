@@ -2325,3 +2325,40 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   `host_resource_long_workday` `matrix.jsonl` row. Local input,
   provider-cache, output-reduce, tool-prune, host, and safety evidence stay
   separate.
+
+### External model-review follow-up backlog
+
+These items come from the Gemini/MiniMax/Nemotron review pass after filtering
+out stale or false claims against commit `f0f96ed`. They are not product
+drawdowns by themselves, but they are valid max-out follow-ups for
+maintainability, local resource hygiene, proof fidelity, or long-session
+operability.
+
+- [ ] **T273 CLI/proxy God-file split** - split the remaining large
+  production files (`cmd/slimference/main.go`, `cmd/slimference/codex_cmd.go`,
+  `internal/proxy/handler.go`) into existing-domain files without changing
+  exported behavior, route semantics, or product proof counters. Detail:
+  `docs/todo/t273-cli-proxy-god-file-split.md`
+- [ ] **T274 Local generated-artifact hygiene** - remove untracked local build
+  artefacts (`proxy.test`, `readcache.test`, `benchmarks`, stale `dist/`, empty
+  `cmd/slimference/~`) and add a repeatable guard so future local test binaries
+  or release scratch output do not pollute the working tree. Detail:
+  `docs/todo/t274-local-generated-artifact-hygiene.md`
+- [ ] **T275 Analytics/proof event queue hardening** - harden asynchronous
+  analytics delivery so product proof events are prioritized or drained without
+  silent loss under burst pressure while preserving fail-open request latency.
+  Detail: `docs/todo/t275-analytics-proof-event-queue-hardening.md`
+- [ ] **T276 TUI presenter split** - separate product-state projection from
+  Bubble Tea rendering so the savings/route/safety surface stays testable as
+  the dashboard grows, without adding debug clutter to the product UI. Detail:
+  `docs/todo/t276-tui-presenter-split.md`
+- [ ] **T277 Static lint gate hardening** - evaluate and wire a lightweight,
+  reproducible static-analysis gate beyond `go vet` only if it catches real
+  defects without adding brittle local tooling or slowing the default CI path
+  beyond the host-resource budget. Detail:
+  `docs/todo/t277-static-lint-gate-hardening.md`
+- [ ] **T278 Hot-path allocation micro-sweep** - benchmark and, where evidence
+  supports it, reduce allocations in proven hot paths such as Layer-2 redaction
+  off-mode, MinHash/dedup buffers, and capture/proof parsers without changing
+  model-facing bytes or safety gates. Detail:
+  `docs/todo/t278-hot-path-allocation-micro-sweep.md`
