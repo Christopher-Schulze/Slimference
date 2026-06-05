@@ -174,7 +174,7 @@ The ledger stores deterministic capsules:
      telemetry
    - [x] require real non-synthetic OCRL full-history evidence in the global
      `benchmark-corpus --maxx-check` promotion gate
-   - [ ] promotion only after live corpus proof
+   - [x] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
    - labelled in docs and admin state
