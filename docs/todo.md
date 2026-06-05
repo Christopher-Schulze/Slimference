@@ -10,7 +10,7 @@ reintroduce MiniMax, summarization, OCRL, or context-ledger insertion.
 
 ## Active
 
-- [~] T280 Final post-removal proof refresh -> docs/todo/t280-final-post-removal-proof-refresh.md
+No active task.
 
 ## Queue
 
@@ -35,6 +35,7 @@ No queued tasks.
 - [x] T271 Product TUI and live-corpus proof -> docs/todo/t271-product-tui-and-live-corpus-proof.md
 - [x] T272 Host resource budget max-out -> docs/todo/t272-host-resource-budget-maxx.md
 - [x] T279 Remove retired Layer 2 from code and docs -> docs/todo/t279-remove-retired-layer2.md
+- [x] T280 Final post-removal proof refresh -> docs/todo/t280-final-post-removal-proof-refresh.md
 - [x] T281 RTK Codex maxx parity and safe deltas -> docs/todo/t281-rtk-codex-maxx-parity.md
 - [x] T282 Search output-shape hardening -> docs/todo/t282-search-output-shape-hardening.md
 

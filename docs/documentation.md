@@ -1293,7 +1293,8 @@ corpus that is intentionally not captured until the operator allows it.
 header values. Unknown versions downgrade via
 `anthropic_unknown_behavior`:
 
-- `conservative` (default): skip L1 + L2, still use L3 response cache.
+- `conservative` (default): skip Layer 1 body mutation, still use L3 response
+  cache.
 - `passthrough`: no compression at all.
 - `full`: trust the unknown version (opt-in risk).
 
@@ -2064,9 +2065,9 @@ keeps mutating after a version drift without fresh proof.
 `internal/planner` is the deterministic safety governor for cross-layer
 coordination. It turns request facts (provider/model/route, input/output token
 size, content classes, live-corpus confidence, manual disables, recent-edit
-state, provider cache support, L2 policy, output-reduce/tool-prune cooldown,
-and WebSocket shape confidence) into per-layer decisions for L0, L1, L2, L3,
-Layer 4 output/tool controls, and WebSocket transport. The package is pure: same facts produce
+state, provider cache support, output-reduce/tool-prune cooldown, and WebSocket
+shape confidence) into per-layer decisions for L0, L1, L3, Layer 4
+output/tool controls, and WebSocket transport. The package is pure: same facts produce
 the same `CompressionPlan`, every decision carries action, reason, expected
 saving, risk, and confidence, and operator-disabled layers stay disabled.
 The proxy derives recent-edit state from the current request plus file-backed
@@ -2138,7 +2139,7 @@ versus observed-active actions, missed active actions, bypass/tunnel actions
 that still saw activity, and safety-blocked requests. Category metadata can set
 planner thresholds so future default-on changes have measurable evidence.
 It also emits an observed layer-combination matrix keyed by stable labels
-(`L0`, `L1`, `L2`, `L3`, `L4`, `WS`, or `none`) with request count, saved
+(`L0`, `L1`, `L3`, `L4`, `WS`, or `none`) with request count, saved
 tokens, output tokens, and errors. This is factual corpus accounting, not a
 simulated alternate-run replay. Category metadata can additionally declare
 `scenario_validators` (`tool_heavy`, `cache_reuse`, `output_reduce`,
