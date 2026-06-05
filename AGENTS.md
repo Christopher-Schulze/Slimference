@@ -186,6 +186,9 @@ ChatGPT.app und Browser-ChatGPT normal bleiben:
   `CHATGPT_BASE_URL` Env-Vars
 - persistente `HTTPS_PROXY` / `HTTP_PROXY` Env-Vars
 - persistentes `openai_base_url` Feld in `~/.codex/config.toml`
+- persistentes `model_provider="slimference-codex"` oder ein marker-owned
+  Slimference-Provider-Route-Block in `~/.codex/config.toml` fuer Tests,
+  Captures oder Agentenbequemlichkeit
 - macOS System-Network-Proxy-Settings
 - unbestätigtes `slimference root-arm` ohne `--global-chatgpt-hosts`
 
@@ -195,6 +198,15 @@ sie manuell setzen, kriegen weiterhin Service. Aber: kein
 Integration-Test treibt sie als Primärpfad. Der per-process Codex-CLI
 Runner ist die Ausnahme, weil er nicht persistent ist und genau einen
 Codex-Prozess scoped.
+
+**Agent-Testregel:** Agenten duerfen fuer eigene Slimference/Codex-Tests keine
+persistente globale Codex-Route aktivieren oder zuruecklassen. Normales
+`codex` im Terminal muss direkt laufen. Tests/Captures laufen ueber scoped
+Commands wie `slimference codex run -- <prompt>` oder ueber den Launch-Center/
+TUI-Startpfad. Wenn ein Test ausnahmsweise eine Route-Arming-Pruefung braucht,
+muss der User das explizit freigeben; danach sofort `slimference disable`
+ausfuehren und mit `slimference codex status` verifizieren, dass
+`enabled=false` ist.
 
 **Single Entry Point:** Die Subcommands `slimference install`,
 `uninstall`, `status`, plus `slimference codex run|enable|disable|status`

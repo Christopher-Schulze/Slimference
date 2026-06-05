@@ -25,6 +25,7 @@ No queued tasks.
 
 ## Done
 
+- [x] T287 Prevent persistent Codex route tests -> docs/todo/t287-prevent-persistent-codex-route-tests.md
 - [x] T286 Always-on safe product readiness rule -> docs/todo/t286-always-on-safe-product-readiness.md
 - [x] T285 OpenAI cache steering max-out -> docs/todo/t285-openai-cache-steering-maxx.md
 - [x] T284 Response cache layer renumbering -> docs/todo/t284-response-cache-layer-renumbering.md
