@@ -87,6 +87,59 @@ func TestInstallSpecMatchesPlan(t *testing.T) {
 	_ = strings.TrimSpace
 }
 
+func TestDocumentationTOCAnchorsResolve(t *testing.T) {
+	doc, err := os.ReadFile("documentation.md")
+	if err != nil {
+		t.Fatalf("read documentation.md: %v", err)
+	}
+	text := string(doc)
+	anchors := markdownHeadingAnchors(text)
+	linkRe := regexp.MustCompile(`\[[^\]]+\]\(#([^)]+)\)`)
+	matches := linkRe.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		t.Fatal("no local markdown anchors found in docs/documentation.md")
+	}
+	for _, match := range matches {
+		anchor := match[1]
+		if !anchors[anchor] {
+			t.Errorf("docs/documentation.md local anchor %q has no matching heading", anchor)
+		}
+	}
+}
+
+func markdownHeadingAnchors(doc string) map[string]bool {
+	anchors := make(map[string]bool)
+	for _, line := range strings.Split(doc, "\n") {
+		if !strings.HasPrefix(line, "#") {
+			continue
+		}
+		title := strings.TrimSpace(strings.TrimLeft(line, "#"))
+		if title == "" {
+			continue
+		}
+		anchors[githubMarkdownAnchor(title)] = true
+	}
+	return anchors
+}
+
+func githubMarkdownAnchor(title string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevDash = false
+		case r == ' ' || r == '-':
+			if !prevDash && b.Len() > 0 {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
 // extractYAMLSpec finds the first ```yaml fenced block that contains
 // `schema_version: 1` and returns its body.
 func extractYAMLSpec(doc string) string {

@@ -18,7 +18,7 @@ source in one hop.
 4. [Layer 0 - Pre-Entry Filter](#4-layer-0-pre-entry-filter)
 5. [Layer 1 - Deterministic Compression](#5-layer-1-deterministic-compression)
 6. [Retired Semantic Summary Path](#6-retired-semantic-summary-path)
-7. [Layer 2 - Response Cache](#7-layer-3-response-cache)
+7. [Layer 2 - Response Cache](#7-layer-2-response-cache)
 8. [Provider Support](#8-provider-support)
 9. [Install and integration](#9-install-and-integration)
 10. [Bypass and Fallback](#10-bypass-and-fallback)
