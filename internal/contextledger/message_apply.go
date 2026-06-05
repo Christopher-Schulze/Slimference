@@ -215,10 +215,11 @@ func verifyMessageTargets(messages []types.Message, targets []OCRLMessageTarget,
 			return nil, 0, errors.New("duplicate message target")
 		}
 		seen[targetKey] = struct{}{}
-		if len(target.Capsule.Archives) != 1 {
+		id := sortedArchiveIDs(target.Capsule.Archives)
+		if len(id) != 1 {
 			return nil, 0, errOCRLTargetArchiveMismatch
 		}
-		body, err := load(target.Capsule.Archives[0])
+		body, err := load(id[0])
 		if err != nil {
 			return nil, 0, errOCRLTargetArchiveMismatch
 		}

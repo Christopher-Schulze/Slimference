@@ -142,6 +142,58 @@ func TestApplyOCRLToMessagesFullPassesOnArchiveMismatch(t *testing.T) {
 	}
 }
 
+func TestApplyOCRLToMessagesNormalizesSingleArchiveID(t *testing.T) {
+	t.Parallel()
+	text := strings.Repeat("trimmed archive target ", 20)
+	capsule := testSearchCapsule(t, "session-1", "turn-old", " archive ")
+	messages := []types.Message{{
+		Index:   1,
+		Role:    "tool",
+		Content: []types.ContentBlock{{Type: "tool_result", Text: text}},
+	}}
+	result := ApplyOCRLToMessages(messages, OCRLMessageApplyPolicy{
+		OCRLPolicy: OCRLPolicy{
+			Mode:          OCRLModeAuto,
+			Route:         OCRLRouteFullHistoryHTTP,
+			Selection:     SelectionPolicy{SessionID: "session-1"},
+			ArchiveLoader: mapArchiveLoader(map[string]string{"archive": text}),
+			CountTokens:   wordTokenCounter,
+		},
+		Targets: []OCRLMessageTarget{{MessageIndex: 0, BlockIndex: 0, Capsule: capsule}},
+	})
+	if !result.OCRL.Applied || result.OCRL.Reason != OCRLReasonApplied {
+		t.Fatalf("result=%+v want archive id trimmed and applied", result)
+	}
+}
+
+func TestApplyOCRLToMessagesRejectsMultipleArchiveIDs(t *testing.T) {
+	t.Parallel()
+	text := strings.Repeat("multi archive target ", 20)
+	capsule := testSearchCapsule(t, "session-1", "turn-old", "archive")
+	capsule.Archives = append(capsule.Archives, "other")
+	messages := []types.Message{{
+		Index:   1,
+		Role:    "tool",
+		Content: []types.ContentBlock{{Type: "tool_result", Text: text}},
+	}}
+	result := ApplyOCRLToMessages(messages, OCRLMessageApplyPolicy{
+		OCRLPolicy: OCRLPolicy{
+			Mode:          OCRLModeAuto,
+			Route:         OCRLRouteFullHistoryHTTP,
+			Selection:     SelectionPolicy{SessionID: "session-1"},
+			ArchiveLoader: mapArchiveLoader(map[string]string{"archive": text, "other": text}),
+			CountTokens:   wordTokenCounter,
+		},
+		Targets: []OCRLMessageTarget{{MessageIndex: 0, BlockIndex: 0, Capsule: capsule}},
+	})
+	if result.OCRL.Applied || result.OCRL.Reason != OCRLReasonTargetArchiveMismatch {
+		t.Fatalf("result=%+v want multi-archive target rejected", result)
+	}
+	if result.Messages[0].Content[0].Text != text {
+		t.Fatalf("multi-archive mismatch mutated messages: %+v", result.Messages)
+	}
+}
+
 func TestApplyOCRLToMessagesHonorsShadowAndRouteGates(t *testing.T) {
 	t.Parallel()
 	text := strings.Repeat("old route gated body ", 20)

@@ -85,7 +85,9 @@ pure renderer:
 
 This primitive does not infer context mapping from rendered text. If a future
 route cannot prove exact old-message positions and exact archive equality, it
-must not call the apply path.
+must not call the apply path. Explicit targets normalize a single archive id
+with the same trim/sort rule as the derivation, rendering, and archive
+verification paths; multiple archive ids for one target still fail closed.
 
 For full-history routes that already have the old message blocks locally,
 `ApplyOCRLToMessagesByArchiveMatch` can derive targets without guessing. It

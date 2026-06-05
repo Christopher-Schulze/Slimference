@@ -459,3 +459,7 @@ summary remains opt-in, not default.
   fails if any benchmark-supported scenario validator or promotion/maxx workload
   is omitted. This closes the validator-list drift class that hid
   `host_budget_ok` and `output_reduce_ab` from the operator-facing contract.
+- 2026-06-05: Hardened explicit full-history OCRL message targets to normalize
+  their single archive id through the same sorted/trimmed archive-id rule used
+  by target derivation, rendering, and archive verification. Added tests proving
+  trimmed single ids apply and multi-id targets still fail closed.
