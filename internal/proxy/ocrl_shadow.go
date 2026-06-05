@@ -23,22 +23,23 @@ func (p *Proxy) buildOCRLShadowContextLedgerSummary(stats proxyLayer0Stats, sess
 	if p == nil || len(stats.LedgerCapsules) == 0 || strings.TrimSpace(sessionID) == "" {
 		return summary
 	}
+	policyCfg := p.ocrlPolicyConfig()
 	result := contextledger.BuildOCRLReplacement(stats.LedgerCapsules, contextledger.OCRLPolicy{
-		Mode:  contextledger.OCRLModeMax,
+		Mode:  contextledger.OCRLMode(policyCfg.Mode),
 		Route: contextledger.OCRLRouteCodexWSS,
 		Selection: contextledger.SelectionPolicy{
 			SessionID:    sessionID,
 			ActiveTurnID: activeTurnID,
-			MaxCapsules:  512,
+			MaxCapsules:  policyCfg.MaxCapsules,
 		},
 		ArchiveLoader:            p.ocrlShadowArchiveLoader(),
 		CountTokens:              tokens.ForProvider(types.CodexChatGPT).CountString,
 		UseArchiveOriginalTokens: true,
 		RecoveryOverheadTokens:   0,
-		MinNetSavedTokens:        1,
-		MaxReplacementTokens:     0,
+		MinNetSavedTokens:        policyCfg.MinNetSavedTokens,
+		MaxReplacementTokens:     policyCfg.MaxReplacementTokens,
 	})
-	summary.OCRLMode = string(contextledger.OCRLModeMax)
+	summary.OCRLMode = policyCfg.Mode
 	summary.OCRLRoute = string(contextledger.OCRLRouteCodexWSS)
 	summary.OCRLReason = string(result.Reason)
 	summary.OCRLShadowOnly = result.ShadowOnly
@@ -53,6 +54,38 @@ func (p *Proxy) buildOCRLShadowContextLedgerSummary(stats proxyLayer0Stats, sess
 		summary.OCRLShadowSavedTokens = result.NetSavedTokens
 	}
 	return summary
+}
+
+type ocrlShadowPolicyConfig struct {
+	Mode                 string
+	MaxCapsules          int
+	MinNetSavedTokens    int
+	MaxReplacementTokens int
+}
+
+func (p *Proxy) ocrlPolicyConfig() ocrlShadowPolicyConfig {
+	cfg := ocrlShadowPolicyConfig{
+		Mode:              string(contextledger.OCRLModeShadow),
+		MaxCapsules:       512,
+		MinNetSavedTokens: 1,
+	}
+	if p == nil || p.config == nil {
+		return cfg
+	}
+	ocrl := p.config.Compression.OCRL
+	if mode := strings.ToLower(strings.TrimSpace(ocrl.Mode)); mode != "" {
+		cfg.Mode = mode
+	}
+	if ocrl.MaxCapsules >= 0 {
+		cfg.MaxCapsules = ocrl.MaxCapsules
+	}
+	if ocrl.MinNetSavedTokens >= 0 {
+		cfg.MinNetSavedTokens = ocrl.MinNetSavedTokens
+	}
+	if ocrl.MaxReplacementTokens >= 0 {
+		cfg.MaxReplacementTokens = ocrl.MaxReplacementTokens
+	}
+	return cfg
 }
 
 func (p *Proxy) ocrlShadowArchiveLoader() contextledger.ArchiveLoader {

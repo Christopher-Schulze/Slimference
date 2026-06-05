@@ -99,6 +99,8 @@ cmd          <- proxy, tui, config, analytics, filter, hooks, debug, checkpoints
 ### Layer 2 - OCRL Context Ledger and Legacy Background Summarization
 
 - `docs/ocrl.md`: OCRL product spec for deterministic old-context replacement, modes, route gates, archive recovery, and zero-drawdown promotion rules
+- `internal/config/config.go`: `[compression.ocrl]` policy schema, env overrides, and validation for OCRL modes and budgets
+- `cmd/slimference/layer2_cmd.go`: operator-visible Layer 2/OCRL status output, including Codex WSS shadow-only route guard
 - `internal/contextledger/ledger.go`: deterministic command/file/search/failure/decision/recovery capsule builders
 - `internal/contextledger/selection.go`: fail-closed capsule selection, active-path/quality-pressure gates, archive expansion and archive recoverability verification
 - `internal/contextledger/ocrl.go`: pure OCRL route/recovery/token gate engine plus deterministic capsule renderer

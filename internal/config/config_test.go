@@ -85,6 +85,19 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	}
 }
 
+func TestDefaults_OCRLConfig(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	if cfg.Compression.OCRL.Mode != "shadow" {
+		t.Fatalf("OCRL mode = %q, want shadow", cfg.Compression.OCRL.Mode)
+	}
+	if cfg.Compression.OCRL.MaxCapsules != 512 ||
+		cfg.Compression.OCRL.MinNetSavedTokens != 1 ||
+		cfg.Compression.OCRL.MaxReplacementTokens != 0 {
+		t.Fatalf("OCRL defaults mismatch: %+v", cfg.Compression.OCRL)
+	}
+}
+
 func TestApplyEnvHooksDebug(t *testing.T) {
 	t.Setenv("SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND", "/opt/bin/slimference")
 	t.Setenv("SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS", "3")
@@ -115,6 +128,10 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 	t.Setenv("SLIMFERENCE_L2_OUTBOUND_REDACTION", "strict")
 	t.Setenv("SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT", "true")
 	t.Setenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH", "/tmp/prompt.md")
+	t.Setenv("SLIMFERENCE_OCRL_MODE", "max")
+	t.Setenv("SLIMFERENCE_OCRL_MAX_CAPSULES", "123")
+	t.Setenv("SLIMFERENCE_OCRL_MIN_NET_SAVED_TOKENS", "45")
+	t.Setenv("SLIMFERENCE_OCRL_MAX_REPLACEMENT_TOKENS", "678")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING", "on")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_STALE_AGING_MIN_TURN_GAP", "9")
 	t.Setenv("SLIMFERENCE_INPUT_REDUCE_OBSOLETE_PRUNE", "yes")
@@ -149,6 +166,12 @@ func TestApplyEnvDebugAndLayer2Knobs(t *testing.T) {
 		!cfg.Compression.Summary.AllowModelFacingReplacement ||
 		cfg.Compression.PromptOverridePath != "/tmp/prompt.md" {
 		t.Fatalf("layer2 env not applied: %+v", cfg.Compression)
+	}
+	if cfg.Compression.OCRL.Mode != "max" ||
+		cfg.Compression.OCRL.MaxCapsules != 123 ||
+		cfg.Compression.OCRL.MinNetSavedTokens != 45 ||
+		cfg.Compression.OCRL.MaxReplacementTokens != 678 {
+		t.Fatalf("OCRL env not applied: %+v", cfg.Compression.OCRL)
 	}
 	or := cfg.Compression.OutputReduce
 	if or.Profile != "codex_aggressive" || or.MinInputTokens != 123 ||
@@ -500,6 +523,30 @@ func TestValidate_InvalidOutputReduceConfig(t *testing.T) {
 	}
 }
 
+func TestValidate_InvalidOCRLConfig(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"mode", func(c *Config) { c.Compression.OCRL.Mode = "reckless" }},
+		{"max_capsules", func(c *Config) { c.Compression.OCRL.MaxCapsules = -1 }},
+		{"min_net", func(c *Config) { c.Compression.OCRL.MinNetSavedTokens = -1 }},
+		{"max_replacement", func(c *Config) { c.Compression.OCRL.MaxReplacementTokens = -1 }},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Defaults()
+			tc.mutate(cfg)
+			if err := validate(cfg); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
 // TestValidate_InvalidSecretsMode verifies that unknown mode strings fail validation.
 func TestValidate_InvalidSecretsMode(t *testing.T) {
 	t.Parallel()
@@ -628,6 +675,9 @@ func TestDefaultTOML(t *testing.T) {
 	}
 	if !strings.Contains(out, "listen_port") {
 		t.Error("DefaultTOML() should contain listen_port")
+	}
+	if !strings.Contains(out, "[compression.ocrl]") || !strings.Contains(out, "mode = \"shadow\"") {
+		t.Error("DefaultTOML() should contain OCRL shadow defaults")
 	}
 }
 

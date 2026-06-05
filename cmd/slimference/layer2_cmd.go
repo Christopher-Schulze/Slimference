@@ -162,9 +162,16 @@ func handleLayer2Status() {
 	fmt.Printf("Layer 2 status: %s\n", status)
 	fmt.Printf("  Engine:        in-process deterministic extractive compactor\n")
 	fmt.Printf("  Model-facing:  %s\n", boolStr(cfg.Compression.Summary.AllowModelFacingReplacement, "legacy summary replacement enabled", "summary replacement blocked"))
+	fmt.Printf("  OCRL:          %s (%d capsules, min net %d tokens)\n",
+		effectiveOCRLMode(cfg.Compression.OCRL.Mode),
+		cfg.Compression.OCRL.MaxCapsules,
+		cfg.Compression.OCRL.MinNetSavedTokens)
 	fmt.Printf("  Redaction:     %s\n", redaction)
 	fmt.Printf("  Min tokens:    %d\n", cfg.Compression.MinTokensForLayer2)
 	fmt.Printf("  Policy ack:    %s\n", boolStr(layer2PolicyAcknowledged(), "recorded", "missing"))
+	fmt.Println()
+	fmt.Println("  OCRL is deterministic old-context replacement, not a classical summary.")
+	fmt.Println("  Codex WSS is telemetry/shadow-only until a safe model-facing insertion surface is live-proven.")
 
 	if enabled {
 		fmt.Println()
@@ -203,6 +210,13 @@ func effectiveRedaction(mode string) string {
 		return mode
 	}
 	return "default"
+}
+
+func effectiveOCRLMode(mode string) string {
+	if strings.TrimSpace(mode) == "" {
+		return "shadow"
+	}
+	return strings.ToLower(strings.TrimSpace(mode))
 }
 
 func layer2PolicyAckPath() string {

@@ -148,8 +148,10 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 
 - [x] OCRL (`docs/ocrl.md`, `internal/contextledger/ocrl.go`): deterministic
   Old Context Replacement Layer specified and implemented as a pure,
-  route-gated, archive-verified, positive-savings engine. Codex WSS remains
-  shadow-only until live proof shows a safe old-context insertion surface.
+  route-gated, archive-verified, positive-savings engine. `[compression.ocrl]`
+  and `slimference layer2 status` expose the effective OCRL policy. Codex WSS
+  remains shadow-only until live proof shows a safe old-context insertion
+  surface.
 - [x] Adaptive Sliding Window: `adaptive_window.go` — dynamische Fensteranpassung (3-7) nach Session-Komplexität
 - [x] Tool Result Priority Classification: `priority.go` — HIGH/MEDIUM/LOW, aggressivere Kompression für LOW
 
@@ -2251,7 +2253,8 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
 - [ ] **T262 Layer 2 max-out closeout** - classical summary replacement and
   mid-exchange summaries stay outside the product path unless Layer 2 is enabled
   and the explicit legacy override is set; archive provenance, quality-pressure
-  fail-closed selection, and A/B archive expansion are implemented offline. The
+  fail-closed selection, OCRL policy config/status, and A/B archive expansion
+  are implemented offline. The
   legacy replacement path fail-closes without a trusted session id, non-empty
   summary text, matching cached prefix, and positive token savings. Overflow
   recovery follows the same double gate before consuming cached summaries.

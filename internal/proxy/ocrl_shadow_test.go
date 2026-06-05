@@ -39,7 +39,9 @@ func TestBuildOCRLShadowSummaryUsesArchiveTokensWithoutExpansionStats(t *testing
 		t.Fatalf("load stats before: %v", err)
 	}
 
-	p := New(config.Defaults())
+	cfg := config.Defaults()
+	cfg.Compression.OCRL.Mode = "max"
+	p := New(cfg)
 	summary := p.buildOCRLShadowContextLedgerSummary(proxyLayer0Stats{
 		LedgerFileCapsules: 1,
 		LedgerCapsules:     []contextledger.Capsule{capsule},
@@ -87,7 +89,9 @@ func TestWSRecordRequestPlanIncludesOCRLShadowTelemetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("file capsule: %v", err)
 	}
-	p := New(config.Defaults())
+	cfg := config.Defaults()
+	cfg.Compression.OCRL.Mode = "max"
+	p := New(cfg)
 	p.debugRecorder = dbg.NewRecorder(10, "")
 	adapter := (&PhaseFDispatcher{Proxy: p}).newWSPhaseFAdapter()
 	adapter.recordRequestPlan([]byte(`{"model":"gpt-5-codex","input":[]}`), []byte(`{"model":"gpt-5-codex","input":[]}`), nil, proxyLayer0Stats{
@@ -110,5 +114,73 @@ func TestWSRecordRequestPlanIncludesOCRLShadowTelemetry(t *testing.T) {
 	}
 	if last[0].TurnID != "active-turn" {
 		t.Fatalf("request summary should retain WSS active turn id: %+v", last[0])
+	}
+}
+
+func TestBuildOCRLShadowSummaryDefaultModeStaysTelemetryOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := contentarchive.DefaultDir(home)
+	entry, err := contentarchive.Put(dir, contentarchive.Input{
+		SessionID: "sess-ocrl-default",
+		SubLayer:  "ocrl-default-test",
+		Original:  strings.Repeat("default shadow old context ", 120),
+	}, contentarchive.Limits{})
+	if err != nil || entry == nil {
+		t.Fatalf("put archive: entry=%+v err=%v", entry, err)
+	}
+	capsule, err := contextledger.BuildFileCapsule(contextledger.FileObservation{
+		SessionID:    "sess-ocrl-default",
+		TurnID:       "old-turn",
+		Path:         "internal/proxy/default.go",
+		RepoRoot:     "/repo",
+		Range:        "full",
+		ArchiveID:    entry.URI,
+		FullPassTurn: "old-turn",
+	})
+	if err != nil {
+		t.Fatalf("file capsule: %v", err)
+	}
+
+	summary := New(config.Defaults()).buildOCRLShadowContextLedgerSummary(proxyLayer0Stats{
+		LedgerFileCapsules: 1,
+		LedgerCapsules:     []contextledger.Capsule{capsule},
+	}, "sess-ocrl-default", "active-turn", 0)
+
+	if summary.OCRLMode != string(contextledger.OCRLModeShadow) ||
+		summary.OCRLReason != string(contextledger.OCRLReasonShadowOnly) ||
+		!summary.OCRLShadowOnly ||
+		summary.OCRLShadowSavedTokens <= 0 {
+		t.Fatalf("default OCRL should compute shadow-only telemetry: %+v", summary)
+	}
+}
+
+func TestBuildOCRLShadowSummaryOffModeClaimsNoSavings(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Compression.OCRL.Mode = "off"
+	p := New(cfg)
+	capsule, err := contextledger.BuildFileCapsule(contextledger.FileObservation{
+		SessionID:    "sess-ocrl-off",
+		TurnID:       "old-turn",
+		Path:         "internal/proxy/off.go",
+		RepoRoot:     "/repo",
+		Range:        "full",
+		ArchiveID:    "local-archive://sha256:missing",
+		FullPassTurn: "old-turn",
+	})
+	if err != nil {
+		t.Fatalf("file capsule: %v", err)
+	}
+
+	summary := p.buildOCRLShadowContextLedgerSummary(proxyLayer0Stats{
+		LedgerFileCapsules: 1,
+		LedgerCapsules:     []contextledger.Capsule{capsule},
+	}, "sess-ocrl-off", "active-turn", 0)
+
+	if summary.OCRLMode != string(contextledger.OCRLModeOff) ||
+		summary.OCRLReason != string(contextledger.OCRLReasonOff) ||
+		summary.OCRLShadowSavedTokens != 0 ||
+		summary.OCRLArchiveExpansions != 0 {
+		t.Fatalf("off OCRL must not claim savings or touch archives: %+v", summary)
 	}
 }

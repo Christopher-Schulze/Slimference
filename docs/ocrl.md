@@ -38,6 +38,20 @@ already observed, exactly recoverable reality.
 `max` is not allowed to weaken safety. It may only raise savings by considering
 more eligible old context.
 
+Configured surface:
+
+- TOML: `[compression.ocrl]`
+- `mode = "shadow"` by default
+- `max_capsules = 512`
+- `min_net_saved_tokens = 1`
+- `max_replacement_tokens = 0` means uncapped except by positive net savings
+- Env overrides: `SLIMFERENCE_OCRL_MODE`,
+  `SLIMFERENCE_OCRL_MAX_CAPSULES`,
+  `SLIMFERENCE_OCRL_MIN_NET_SAVED_TOKENS`,
+  `SLIMFERENCE_OCRL_MAX_REPLACEMENT_TOKENS`
+
+The CLI exposes the effective OCRL policy through `slimference layer2 status`.
+
 ## Route Reality
 
 Codex WSS currently uses server-side response state and does not resend the
@@ -88,6 +102,10 @@ capsule facts.
 
 Shadow archive verification uses a read-only content-archive peek path, so proof
 telemetry does not increment real recovery/expansion counters.
+
+The runtime shadow path uses the same configured OCRL policy as future eligible
+routes. `off` emits no would-save claim, `shadow` computes proof only, and
+`auto`/`max` still stay route-blocked on Codex WSS.
 
 ## Zero Drawdown Gates
 

@@ -1057,6 +1057,15 @@ archive expansion count, original archive tokens, replacement tokens, and
 would-save tokens). Those values never change model-facing context and never add
 to product `net_tokens` while the route remains shadow-only.
 
+OCRL is operator-visible and configured under `[compression.ocrl]`. Fresh
+configs default to `mode = "shadow"`, `max_capsules = 512`,
+`min_net_saved_tokens = 1`, and `max_replacement_tokens = 0`. Env overrides are
+`SLIMFERENCE_OCRL_MODE`, `SLIMFERENCE_OCRL_MAX_CAPSULES`,
+`SLIMFERENCE_OCRL_MIN_NET_SAVED_TOKENS`, and
+`SLIMFERENCE_OCRL_MAX_REPLACEMENT_TOKENS`. `slimference layer2 status` prints
+the effective OCRL policy and the Codex WSS shadow-only route guard, so the
+deterministic replacement layer is visible without enabling legacy summaries.
+
 `internal/summarization/layer2.go` still exists as a background optimizer. Its
 local fallback is deterministic extractive summarisation, and an
 OpenAI-compatible `/v1/chat/completions` endpoint can still be configured for
@@ -1080,8 +1089,8 @@ Focused verification on 2026-06-05:
 - `go test ./internal/proxy -run 'TestApplyProxyLayer0Ledger|TestProxyLayer0Ledger|TestApplyProxyLayer0Branches' -count=1`
 - `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
 
-The OCRL benchmark on Apple M1 processed 512 file capsules in about 0.875 ms
-with 413990 B/op and 8202 allocs/op after archive verification and renderer
+The OCRL benchmark on Apple M1 processed 512 file capsules in about 0.925 ms
+with 413950 B/op and 8201 allocs/op after archive verification and renderer
 allocation trimming.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it

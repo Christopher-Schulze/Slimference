@@ -96,6 +96,12 @@ func defaultsRaw() *Config {
 				// explicitly; doctor warns when they do.
 				OutboundRedaction: "default",
 			},
+			OCRL: OCRLConfig{
+				Mode:                 "shadow",
+				MaxCapsules:          512,
+				MinNetSavedTokens:    1,
+				MaxReplacementTokens: 0,
+			},
 			OutputReduce: OutputReduceConfig{
 				Enabled:              true,
 				Profile:              "auto",
@@ -356,6 +362,17 @@ require_deterministic = false
 # The Layer 2 product direction is deterministic context ledger, not summary as
 # conversation truth. Env: SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT.
 allow_model_facing_replacement = false
+
+[compression.ocrl]
+# OCRL (Old Context Replacement Layer) is deterministic and archive-backed.
+# It replaces nothing on Codex WSS today; WSS produces proof telemetry only.
+# Modes: off | shadow | auto | max. Auto/max still require full-history route
+# eligibility, archive recovery, inactive-context selection, and positive net
+# token savings. Env: SLIMFERENCE_OCRL_MODE.
+mode = "shadow"
+max_capsules = 512
+min_net_saved_tokens = 1
+max_replacement_tokens = 0
 
 [compression.tuning]
 # Incremental-summary overlap threshold: if an existing summary covers at

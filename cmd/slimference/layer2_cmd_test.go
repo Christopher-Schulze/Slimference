@@ -284,6 +284,12 @@ func TestHandleLayer2AcknowledgeAndStatus(t *testing.T) {
 	if !strings.Contains(out, "Model-facing:  summary replacement blocked") {
 		t.Fatalf("status should show model-facing summary gate, got: %q", out)
 	}
+	if !strings.Contains(out, "OCRL:          shadow (512 capsules, min net 1 tokens)") {
+		t.Fatalf("status should show OCRL policy, got: %q", out)
+	}
+	if !strings.Contains(out, "Codex WSS is telemetry/shadow-only") {
+		t.Fatalf("status should show OCRL WSS route guard, got: %q", out)
+	}
 }
 
 func TestEnsureLayer2PolicyAcknowledgedInteractiveAndNonInteractive(t *testing.T) {
@@ -698,6 +704,9 @@ func TestHandleLayer2Status_emptyRedaction(t *testing.T) {
 	out := string(buf[:n])
 	if !strings.Contains(out, "Redaction:     default") {
 		t.Fatalf("expected default redaction, got: %q", out)
+	}
+	if !strings.Contains(out, "OCRL:          shadow") {
+		t.Fatalf("expected default OCRL shadow mode, got: %q", out)
 	}
 }
 

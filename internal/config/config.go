@@ -192,6 +192,7 @@ type CompressionConfig struct {
 	StructureLanguages       []string           `toml:"structure_languages"`
 	DedupSimilarityThreshold float64            `toml:"dedup_similarity_threshold"`
 	Summary                  SummaryConfig      `toml:"summary"`
+	OCRL                     OCRLConfig         `toml:"ocrl"`
 	OutputReduce             OutputReduceConfig `toml:"output_reduce"`
 	Tuning                   TuningConfig       `toml:"tuning"`
 	// PromptOverridePath (T86) points at a file whose contents replace
@@ -200,6 +201,26 @@ type CompressionConfig struct {
 	// `# version: <tag>` annotation that is recorded in
 	// /admin/status.summarization.active_prompt_version.
 	PromptOverridePath string `toml:"prompt_override_path"`
+}
+
+// OCRLConfig controls the deterministic Old Context Replacement Layer.
+// OCRL is not a classical summary layer: it can replace only old, inactive,
+// archive-backed context that passes deterministic selection, recovery, and
+// net-token gates. Codex WSS remains shadow-only until a model-facing insertion
+// surface with full live proof exists.
+type OCRLConfig struct {
+	// Mode is one of off, shadow, auto, or max. Shadow computes telemetry only.
+	// Auto and max are still constrained by route eligibility and safety gates;
+	// max cannot override a missing archive, active-context, or route gate.
+	Mode string `toml:"mode"`
+	// MaxCapsules caps selected ledger capsules per OCRL candidate.
+	MaxCapsules int `toml:"max_capsules"`
+	// MinNetSavedTokens is the minimum positive net saving required before any
+	// model-facing replacement may apply on eligible full-history routes.
+	MinNetSavedTokens int `toml:"min_net_saved_tokens"`
+	// MaxReplacementTokens caps the rendered replacement block. Zero means no
+	// explicit cap beyond positive net savings.
+	MaxReplacementTokens int `toml:"max_replacement_tokens"`
 }
 
 // OutputReduceConfig controls Layer 4 output-token reduction through
@@ -779,6 +800,18 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_L2_PROMPT_OVERRIDE_PATH")); v != "" {
 		cfg.Compression.PromptOverridePath = v
 	}
+	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OCRL_MODE")); v != "" {
+		cfg.Compression.OCRL.Mode = v
+	}
+	if n, ok := envIntOK("SLIMFERENCE_OCRL_MAX_CAPSULES"); ok && n >= 0 {
+		cfg.Compression.OCRL.MaxCapsules = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_OCRL_MIN_NET_SAVED_TOKENS"); ok && n >= 0 {
+		cfg.Compression.OCRL.MinNetSavedTokens = n
+	}
+	if n, ok := envIntOK("SLIMFERENCE_OCRL_MAX_REPLACEMENT_TOKENS"); ok && n >= 0 {
+		cfg.Compression.OCRL.MaxReplacementTokens = n
+	}
 	if v := strings.TrimSpace(os.Getenv("SLIMFERENCE_OUTPUT_REDUCE_STOP_SEQS")); v != "" {
 		if b, ok := parseEnvBool(v); ok {
 			cfg.Compression.OutputReduce.StopSequencesEnabled = b
@@ -965,6 +998,21 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Compression.Tuning.MidExchangeThresholdTokens < 0 {
 		return fmt.Errorf("compression.tuning.mid_exchange_threshold_tokens must be >= 0, got %d", cfg.Compression.Tuning.MidExchangeThresholdTokens)
+	}
+	ocrl := cfg.Compression.OCRL
+	switch strings.ToLower(strings.TrimSpace(ocrl.Mode)) {
+	case "", "off", "shadow", "auto", "max":
+	default:
+		return fmt.Errorf("compression.ocrl.mode must be off/shadow/auto/max, got %q", ocrl.Mode)
+	}
+	if ocrl.MaxCapsules < 0 {
+		return fmt.Errorf("compression.ocrl.max_capsules must be >= 0, got %d", ocrl.MaxCapsules)
+	}
+	if ocrl.MinNetSavedTokens < 0 {
+		return fmt.Errorf("compression.ocrl.min_net_saved_tokens must be >= 0, got %d", ocrl.MinNetSavedTokens)
+	}
+	if ocrl.MaxReplacementTokens < 0 {
+		return fmt.Errorf("compression.ocrl.max_replacement_tokens must be >= 0, got %d", ocrl.MaxReplacementTokens)
 	}
 	if cfg.Analytics.GainUSDPerMillionTokens < 0 {
 		return fmt.Errorf("analytics.gain_usd_per_million_tokens must be >= 0, got %v", cfg.Analytics.GainUSDPerMillionTokens)

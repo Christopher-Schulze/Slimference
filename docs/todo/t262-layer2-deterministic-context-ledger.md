@@ -35,6 +35,11 @@ replacement for reality.
   counts, archive expansion count, original archive tokens, replacement tokens,
   and would-save tokens without inserting any model-facing text or counting the
   would-save value as product `net_tokens`.
+- OCRL is now a real operator policy surface, not a hard-coded proof path.
+  `[compression.ocrl]` defaults to `mode="shadow"`, `max_capsules=512`,
+  `min_net_saved_tokens=1`, and `max_replacement_tokens=0`, with matching
+  `SLIMFERENCE_OCRL_*` env overrides. `slimference layer2 status` reports the
+  effective OCRL policy and the Codex WSS shadow-only route guard.
 - `contentarchive.Peek` supports OCRL proof verification by loading exact
   archive payloads without incrementing real expansion/recovery counters.
 - The Codex Layer-0 reducer now feeds those builders in the hot path as
@@ -123,6 +128,8 @@ The ledger stores deterministic capsules:
      context and live proof supports promotion
    - [x] attach OCRL shadow results to WSS debug summaries without changing
      model-facing frames
+   - [x] expose OCRL as `[compression.ocrl]`, env overrides, and
+     `slimference layer2 status`
    - [ ] promotion only after live corpus proof
 6. [x] Keep provider summarizers outside default:
    - opt-in only
@@ -158,7 +165,7 @@ The ledger stores deterministic capsules:
 - Net win must include ledger overhead and archive-recovery note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
-  512 file capsules in about 0.84 ms, 413944 B/op, 8201 allocs/op.
+  512 file capsules in about 0.925 ms, 413950 B/op, 8201 allocs/op.
 
 ## Verification
 
@@ -330,3 +337,14 @@ summary remains opt-in, not default.
   `go test ./internal/contentarchive ./internal/contextledger ./internal/debug ./internal/proxy -run 'TestPeekDoesNotRecordExpansion|TestBuildOCRL|TestRenderOCRL|TestBuildMechanismAccounting|TestBuildOCRLShadow|TestWSRecordRequestPlanIncludesOCRLShadowTelemetry' -count=1`.
   `go test ./internal/contextledger -bench=BenchmarkBuildOCRLReplacement -benchmem -run '^$'`
   measured `874991 ns/op`, `413990 B/op`, and `8202 allocs/op`.
+- 2026-06-05: Exposed OCRL policy as a real product configuration surface.
+  `internal/config` now validates `[compression.ocrl]` with env overrides,
+  `internal/proxy/ocrl_shadow.go` consumes that policy instead of hard-coded
+  max-mode values, and `slimference layer2 status` shows OCRL mode/budget plus
+  the Codex WSS shadow-only route guard. Tests cover defaults, env overrides,
+  invalid values, default shadow telemetry, explicit max route blocking, and
+  off-mode no-savings behavior. Verification passed with focused OCRL tests,
+  affected package tests, `go test ./... -count=1`, benchmark
+  `BenchmarkBuildOCRLReplacement` at `924533 ns/op`, `413950 B/op`,
+  `8201 allocs/op`, and `go run ./scripts/ci` all 8 steps green with 97.0%
+  total coverage.
