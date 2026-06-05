@@ -56,7 +56,7 @@ payload is shorter and schema-safe.
 | Problem                                          | Slimference answer                          |
 |--------------------------------------------------|---------------------------------------------|
 | Large tool outputs repeated across turns         | Exact dedup plus archive-backed near-dedup  |
-| Long sessions exceed the context window          | Context ledger shadowing; summary replacement is legacy opt-in |
+| Long sessions exceed the context window          | Context ledger shadow/proof; no product context replacement |
 | Identical requests re-cost tokens                | Response cache + prompt-cache breakpoints   |
 | Verbose shell / git / test output                | 24 built-in filters + TOML DSL (Layer 0)    |
 | Compression costs latency on small requests      | Thresholds + latency-budget guard (T54)     |
@@ -410,29 +410,25 @@ surfaces. The server-state mirror remains telemetry/policy infrastructure only.
 HTTP is explicitly blocked from archive-backed chunk references; WSS is the
 product route for recoverable archive/chunk mechanisms.
 
-Layer 2 is being redirected away from "summary as truth" toward deterministic
-context ledgers. The pure `internal/contextledger` package builds archive-backed
+Layer 2 is retired as a model-facing product savings layer. The remaining
+implementation is deterministic context-ledger shadow/proof and recovery
+infrastructure. The pure `internal/contextledger` package builds archive-backed
 capsules for command, file, search, failure, decision, and recovery observations:
 compact facts plus provenance, stable hashes where raw bytes exist, and archive
-ids, without storing raw omitted content inside the capsule. This is the safe
-replacement foundation for old-context compression. A deterministic selector now
-fails closed before any future model-facing use: active turns, recent turns,
+ids, without storing raw omitted content inside the capsule. This is not a
+product context-replacement path. A deterministic selector now
+fails closed before any offline/recovery apply test: active turns, recent turns,
 missing policy session scope, missing provenance, missing archive ids, file or
 search capsules without an explicit execution scope, incomplete decision/recovery
 facts, and high-risk failure content stay verbatim; only old inactive archive-backed
 command/file/search/decision/recovery capsules can be selected. Archive expansion
-is loader-based and must restore exact bytes or fail. It is not yet a default
-hot-path replacement mechanism; readcache provenance, replay, and live corpus
-proof remain the promotion gates.
+is loader-based and must restore exact bytes or fail. Product hot paths keep
+the original model-facing context unchanged.
 
-Classical Layer 2 summary replacement is double-gated. First, Layer 2 itself
-must be enabled. Second, cached extractive or provider summaries remain
-shadow/background artifacts unless
-`[compression.summary].allow_model_facing_replacement = true` (or
-`SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT=1`) is explicitly set. This keeps
-summary-as-truth out of the product path while the context-ledger replacement is
-being proven. The same double gate covers normal request compression,
-mid-exchange summaries, and overflow recovery's read-only cached summary pass.
+Classical Layer 2 summary replacement, mid-exchange summaries, cached summary
+apply, and background summarization enqueue are no longer product behavior.
+Configuration flags may remain for legacy compatibility, but the proxy hot path
+must not insert summary text or OCRL capsule text into model-facing context.
 
 The Codex Layer-0 reducer now feeds the tool-output ledger builders in the hot
 path as telemetry only. It builds command/file/search/failure capsule
@@ -443,14 +439,13 @@ Search ledger telemetry requires explicit execution scope, either from tool
 `cd /repo && rg ...`, an absolute search path, or `git -C /repo grep ...`;
 implicit-cwd search output remains telemetry-full-pass for ledger search
 capsules.
-Decision and recovery capsules are pure fail-closed primitives for the future
-ledger insertion path; they are not counted from the reducer until a real
+Decision and recovery capsules are pure fail-closed primitives for offline
+recovery proof; they are not counted from the reducer until a real
 product source supplies explicit decision/recovery provenance. WSS decision
 summaries also carry a `context_ledger` shadow block with capsule counts and the
 re-read canary count, making ledger coverage and context-pressure visible in live
 proof logs without logging payloads. No ledger capsule is inserted into
-model-facing context until archive provenance, expansion replay, and live proof
-are complete.
+model-facing context in product runtime.
 
 Readcache decisions expose structured `ArchiveURI` and `FullPassTurnID`
 provenance to the reducer. File ledger observations are counted only when an
@@ -1036,31 +1031,26 @@ original body locally retrievable.
 
 ---
 
-## 6. Layer 2 - OCRL Context Ledger and Background Summarisation
+## 6. Layer 2 - OCRL Context Ledger Shadow Infrastructure
 
-Layer 2 is no longer treated as "summary as truth" for product defaults. The
-product direction is OCRL, the Old Context Replacement Layer documented in
-`docs/ocrl.md`. OCRL is deterministic old-context replacement: it can render
-archive-backed capsules only when current-session provenance, inactive-context
-selection, archive recoverability, route eligibility, and positive token
-accounting are all proven. Any missing gate full-passes the original context.
+Layer 2 is no longer a product savings layer. The product-safe remainder is
+OCRL, now documented as the Old Context Recovery Ledger in `docs/ocrl.md`.
+OCRL builds deterministic archive-backed capsules and shadow would-save
+telemetry, but product runtime keeps the original model-facing context
+unchanged.
 
 `internal/contextledger` builds deterministic command, file, search, failure,
 decision, and recovery capsules as compact provenance facts with hashes and
 archive ids. `internal/contextledger/ocrl.go` adds the route-gated OCRL engine:
-`off`, `shadow`, `auto`, and `max` modes; Codex WSS stays shadow-only; only
-full-history HTTP-style routes are model-facing eligible; archive availability
-is verified before rendering; and net savings must remain positive after
-capsule and recovery overhead. When an exact old-context slice is not available
-yet, OCRL shadow telemetry can count original tokens from archive payloads and
-report those numbers as would-save proof only. The Codex Layer-0 reducer now
-retains the actual capsule objects in its internal stats path, not only
-counters, so future OCRL promotion can use real provenance objects instead of
-re-parsing telemetry. Codex WSS request summaries now include content-free OCRL
-shadow fields (`ocrl_mode`, `ocrl_route`, `ocrl_reason`, candidate counts,
-archive expansion count, original archive tokens, replacement tokens, and
-would-save tokens). Those values never change model-facing context and never add
-to product `net_tokens` while the route remains shadow-only.
+`off`, `shadow`, `auto`, and `max` modes. In product runtime, all non-off modes
+are shadow-only. Archive availability is verified before would-save telemetry is
+reported. When an exact old-context slice is not available, OCRL shadow
+telemetry can count original tokens from archive payloads and report those
+numbers as would-save proof only. Codex WSS and full-history HTTP request
+summaries include content-free OCRL shadow fields (`ocrl_mode`, `ocrl_route`,
+`ocrl_reason`, candidate counts, archive expansion count, original archive
+tokens, replacement tokens, and would-save tokens). Those values never change
+model-facing context and never add to product `net_tokens`.
 
 `internal/contextledger/message_apply.go` is the exact full-history message
 apply primitive. It accepts only explicit message/block targets paired with
@@ -1095,11 +1085,11 @@ higher semantic compression. `[compression.minimax]` is now a historical
 section name: `base_url`, `model`, and `api_key_env` can point at another
 compatible provider without code changes.
 
-Ledger capsule selection is fail-closed. A model-facing OCRL path may select
-only archive-backed old context from the current session. Active turns, recent
-turns, high-risk failures, missing provenance, missing facts, wrong-session
-capsules, missing archives, and budget-overflow candidates stay verbatim or
-rejected. `SelectionPolicy.ActivePaths` also keeps any file, search, or
+Ledger capsule selection is fail-closed. OCRL may build shadow proof only from
+archive-backed old context in the current session. Active turns, recent turns,
+high-risk failures, missing provenance, missing facts, wrong-session capsules,
+missing archives, and budget-overflow candidates stay verbatim or rejected.
+`SelectionPolicy.ActivePaths` also keeps any file, search, or
 decision capsule touching an actively worked file verbatim, including
 repo-relative search hits resolved against the capsule `repo_root`.
 `SelectionPolicy.QualityPressure` full-passes every capsule when re-read,
@@ -1112,25 +1102,21 @@ compact numeric keys instead of formatted strings, and explicit archive payload
 checks compare bytes to current message text without allocating converted
 payload strings.
 
-`internal/proxy/ocrl_full_history.go` wires OCRL into the normal model-facing
-HTTP request path for full-history clients. The hook runs after Layer 1, because
-post-Layer-1 text is the exact context the model would otherwise receive. It
+`internal/proxy/ocrl_full_history.go` wires OCRL into the normal HTTP request
+path for full-history clients as shadow proof only. The hook runs after Layer 1,
+because post-Layer-1 text is the exact context the model still receives. It
 archives only old inactive non-user/non-system blocks outside the current
 sliding window, creates deterministic capsules from those archived blocks, caps
-candidate creation at `[compression.ocrl].max_capsules`, and uses
-`ApplyOCRLToMessagesByArchiveMatch` so every replacement target is proven by a
-single byte-equal archive payload. `mode=shadow` records proof without mutation;
-`mode=auto|max` can replace only when all OCRL route, archive, selection, and
-positive-net-saving gates pass. Re-read/quality pressure full-passes before
-replacement, and the legacy cached-summary path remains separately blocked by
-`[compression.summary].allow_model_facing_replacement`.
+candidate creation at `[compression.ocrl].max_capsules`, and verifies byte-equal
+archive payloads for would-save telemetry. `mode=shadow`, `mode=auto`, and
+`mode=max` all keep the upstream request unchanged. Re-read/quality pressure
+full-passes before proof work, and the legacy cached-summary path is retired
+from the product hot path.
 
-The Full-History HTTP product hook is covered by a runtime A/B recovery test.
-The test lets the real proxy OCRL hook archive and replace old model-facing
-blocks, then compares direct vs OCRL messages with
-`abharness.CompareWithArchiveExpansion` and `contentarchive.Get`. The gate must
-report `lost=0`, proving the product hook's model-facing replacement remains
-byte-recoverable from the runtime archive.
+The Full-History HTTP hook is covered by a runtime A/B recovery test. The test
+lets the real proxy OCRL hook archive old blocks and then verifies before/after
+model-facing messages remain byte-equal with `lost=0`. It proves recoverability
+evidence without hiding any context from the model.
 
 Focused verification on 2026-06-05:
 
@@ -1148,34 +1134,19 @@ archive-match OCRL apply measured about 1.675 ms with 1139840 B/op and 1083
 allocs/op.
 
 The live-corpus gate now has an OCRL-aware validator. `ocrl_full_history`
-requires applied full-history OCRL evidence, selected capsules, archive
-expansions, positive OCRL saved tokens, and no shadow-only rows. The committed
-`synthetic_ocrl_full_history` fixture proves the gate wiring only; the real
-`ocrl_full_history` category now contains an autonomous operator-captured
-Full-History HTTP run through a live Slimference proxy and local
-OpenAI-compatible upstream stub. The upstream accepted the request only when the
-model-facing OCRL marker was present and the old full-history text was absent.
-The live runbook treats `ocrl_full_history` as a `full_history_http` proof
-category because Codex WSS / Responses-delta sessions intentionally remain
-shadow-only. The stricter `benchmark-corpus --maxx-check` repeats the
-applied/full-history/archive/savings/no-shadow checks and now passes with the
-real OCRL workload present.
+requires full-history route evidence, selected capsules, archive expansions,
+positive OCRL would-save tokens, zero applied rows, and at least one shadow-only
+row. The committed `synthetic_ocrl_full_history` fixture proves the gate wiring
+only; the real `ocrl_full_history` category now contains an autonomous
+operator-captured Full-History HTTP run through a live Slimference proxy and
+local OpenAI-compatible upstream stub, normalized to the retired product rule.
 
-This closes OCRL as a deterministic implementation and proof-gated
-Full-History HTTP route, not as a broad default replacement for model memory.
-The remaining promotion boundary is real-LLM task-decision equivalence: a local
-upstream stub can prove exact request mutation, exact archive recovery, and token
-savings, but it cannot prove that a real model makes the same engineering
-decisions after old raw context is replaced by capsules. Until that live A/B
-proof exists, Codex WSS stays shadow/proof only and OCRL must not be advertised
-as broad default model-facing zero-drawdown savings.
-
-The executable promotion gate is `go run ./scripts/utils ocrl-llm-ab-proof`
-with `--model <OPENAI_COMPATIBLE_MODEL>`, `--api-key-env OPENAI_API_KEY`, and
-`--json`. It calls the real Slimference Full-History HTTP proxy path twice per
-scenario, once with Layer 2 off and once with OCRL enabled. A pass requires
-decision equivalence for irrelevant old context and blocks broad promotion if a
-detail-dependent old-context decision changes after OCRL applies.
+This closes OCRL as deterministic shadow/recovery infrastructure, not as a
+Layer 2 product savings lever. Model-facing OCRL replacement is retired because
+Slimference cannot prove that a real model will never need a hidden old detail.
+Savings work should reuse OCRL's archive and capsule primitives only inside
+reducers with independent zero-drawdown contracts, such as superseded reads,
+obsolete reads, repeated output, search delta, and chunk recovery.
 
 The content archive exposes `Peek` for shadow/proof paths. Unlike `Get`, it
 loads the exact archived payload without incrementing real expansion counters,
@@ -1197,37 +1168,13 @@ Default `min_tokens_for_layer2 = 15000` (was 30 k pre-T54). The
 latency-budget guard is opt-in; `layer2_latency_budget_ms = 0`
 disables it.
 
-Current default state: fresh configs keep Layer 2 disabled. Operators opt in
-with `slimference layer2 enable --acknowledge-data-policy` or an explicit
-`layer2_enabled = true` config. Even when Layer 2 is enabled, model-facing
-classical summary replacement stays blocked unless the explicit legacy override
-`[compression.summary].allow_model_facing_replacement = true` is configured.
-The inverse is also true: the legacy override alone is insufficient while
-`layer2_enabled` is false, including overflow recovery's cached-summary retry.
-The first interactive startup with Layer 2 enabled records an explicit acknowledgement under
-`~/.slimference/policy/layer2-default-on-ack.json`; non-interactive startup
-warns without blocking. `slimference layer2 acknowledge` records the marker
-manually, and `slimference layer2 status` prints the ack state. The legacy
-override is not the product direction; default-safe Layer 2 requires
-proof-gated ledger insertion with archive expansion, current-session scope, and
-no unresolved archive ids. Even under the explicit legacy replacement override,
-cached summaries are applied only when the caller has a non-empty session id,
-the summary text is non-empty, the cached prefix hash still matches the live
-conversation prefix, and the cached token accounting is a positive saving. The
-old sessionless `ApplyToMessages` compatibility wrapper therefore full-passes;
-model-facing replacement requires `ApplyToMessagesSession`.
-
-T152 hardens Layer 2 as a background-only optimizer. After the active
-request completes, `ScoreBackgroundCandidateSession` checks provider
-availability, compressible-prefix size, recent edit/error anchors,
-projected savings, and existing summary coverage. Eligible jobs enter
-the bounded `compressQueue` with a session candidate hash. The worker
-drops stale hashes before running the summariser. Product callers invoke cached
-replacement only when Layer 2 is enabled, the legacy model-facing replacement
-gate is enabled, and the cached summary hash still matches the live covered
-prefix. Gate disabled, hash mismatch, stale worker job, provider failure,
-timeout, validation failure, and anchor-loss validation all fail open to the
-original context. Telemetry is exposed at `/admin/status.layer2.cache_stats`.
+Current product state: fresh configs keep Layer 2 disabled, and enabling Layer 2
+does not make summary or OCRL replacement a product savings path. The proxy hot
+path no longer applies cached summaries, no longer injects mid-exchange
+summaries, and no longer enqueues background summarization jobs. Legacy config
+fields can still exist for compatibility and status output, but they do not
+authorize model-facing context mutation in product runtime. Telemetry remains
+available at `/admin/status.layer2.cache_stats` where legacy cache state exists.
 
 Layer 2 caps oversized message text before outbound redaction/rendering, then
 caps the formatted summariser input again before preprocessing or density
@@ -1545,16 +1492,10 @@ if message-level granularity turns out to be the wrong knob.
 
 ### Mid-exchange summary (T99)
 
-`[compression.tuning] mid_exchange_enabled` activates an
-in-progress summary block when the current exchange exceeds
-`mid_exchange_threshold_tokens` (default 10000). Detection looks
-for completed tool-use cycles (`assistant[tool_use]` ->
-`user[tool_result]` -> `assistant`) inside the live exchange and
-collapses the range to `[in-progress summary, anchor=msg #N]`.
-Because this is model-facing context replacement, it is blocked unless Layer 2
-is enabled and `[compression.summary].allow_model_facing_replacement = true` is
-explicitly set. Default off. The product direction remains deterministic context
-ledger shadowing, not summary-as-truth.
+`[compression.tuning] mid_exchange_enabled` is legacy configuration. Product
+runtime does not inject in-progress summary blocks because that is model-facing
+context replacement. The active product behavior remains deterministic context
+ledger shadowing and byte-equal model-facing context.
 
 ### Layer 4 tool-definition pruning (T103)
 
@@ -2498,18 +2439,12 @@ record and per client request-body planner summaries, so decisions logs can show
 real message counts, token deltas, previous-response state, output-reduce
 reason, and proof-gated L2/L3 candidates without logging frame payloads. For
 HTTP compression requests, the same request-local plan now also controls the
-first behavior gates: L0 proxy compaction skips planner
-`bypass`, L1 skips planner `bypass` and uses cheap-only mode for planner
-`cheap_only`, L1/L2 coordination keys off the planner's L2 `run` decision, and
-L2 cache apply/background enqueue skip hard L2 bypasses (operator-disabled,
-external policy disabled, recent-edit window). Classical Layer 2 summaries can
-only reach planner `run` when Layer 2 is enabled and the explicit legacy
-`allow_model_facing_replacement` gate is set; otherwise long-context Layer 2
-stays a context-ledger shadow candidate instead of replacing conversation
-truth. Soft below-ROI L2 bypasses still fall through to Layer2's session cache
-and candidate scoring so the planner does not suppress already-proven cache
-wins. Layer-local fallbacks remain active; the planner is an early governor,
-not the only safety mechanism.
+first behavior gates: L0 proxy compaction skips planner `bypass`, and L1 skips
+planner `bypass` and uses cheap-only mode for planner `cheap_only`. Layer 2
+planner decisions are telemetry/shadow decisions only: they do not trigger
+cached summary apply, background summarization enqueue, or OCRL insertion into
+model-facing context. Layer-local fallbacks remain active; the planner is an
+early governor, not the only safety mechanism.
 
 `slimference plan inspect` dry-runs the same planner without sending upstream
 traffic. It accepts provider/model/route/token/cache/WebSocket facts, can
@@ -2530,7 +2465,7 @@ tokens, output tokens, and errors. This is factual corpus accounting, not a
 simulated alternate-run replay. Category metadata can additionally declare
 `scenario_validators` (`tool_heavy`, `cache_reuse`, `output_reduce`,
 `output_reduce_ab`, `planner_alignment`, `websocket`, `low_error`,
-`host_budget_ok`, `layer_combo_diversity`, `l2_summary`, `ocrl_full_history`)
+`host_budget_ok`, `layer_combo_diversity`, `ocrl_full_history`)
 so a category fails unless the intended optimization behavior is actually
 present in the captured request summaries; unknown validator names fail closed.
 

@@ -54,7 +54,7 @@ func TestServeHTTP_compressibleAnthropic(t *testing.T) {
 	}
 }
 
-func TestServeHTTP_AdaptiveWindowAndLayer2CacheApplied(t *testing.T) {
+func TestServeHTTP_AdaptiveWindowDoesNotApplyLayer2Cache(t *testing.T) {
 	t.Parallel()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -597,9 +597,9 @@ func TestServeHTTP_layer1Applied(t *testing.T) {
 	}
 }
 
-// TestServeHTTP_layer2Applied covers handler.go lines 123-128 (layer2 applied, tokensSaved > 0).
-// Pre-populates the Layer2 cache with a summary so ApplyToMessages returns applied=true.
-func TestServeHTTP_layer2Applied(t *testing.T) {
+// TestServeHTTP_layer2CacheDoesNotApply pre-populates the Layer2 cache and
+// verifies the handler keeps model-facing context unchanged.
+func TestServeHTTP_layer2CacheDoesNotApply(t *testing.T) {
 	t.Parallel()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -620,7 +620,8 @@ func TestServeHTTP_layer2Applied(t *testing.T) {
 	// A conversation with 8 user turns so the sliding window (5) leaves 3 messages outside.
 	// Pre-seed the summary cache to cover messages 0-4 (indices 0,1,2,3,4 = 5 messages).
 	// The conversation has 8 exchanges (16 messages) + final user = 17, so end=4 < 17.
-	// ApplyToMessages returns applied=true.
+	// ApplyToMessages would return applied=true if called directly; the handler
+	// must not call it.
 	cache := p.layer2.GetCache()
 	cache.Store(&summarization.CachedSummary{
 		Summary:          "Summary of old messages.",
@@ -644,10 +645,9 @@ func TestServeHTTP_layer2Applied(t *testing.T) {
 	}
 }
 
-// TestServeHTTP_layer2CompressQueueEnqueue covers handler.go line 200 (successful compressQueue enqueue).
-// Uses a long conversation (> SlidingWindow exchanges) with layer2 enabled and an empty queue,
-// so ShouldTriggerCompression returns true and the job is enqueued successfully.
-func TestServeHTTP_layer2CompressQueueEnqueue(t *testing.T) {
+// TestServeHTTP_layer2CompressQueueNotEnqueued verifies the retired Layer 2
+// handler path does not schedule background summarization jobs.
+func TestServeHTTP_layer2CompressQueueNotEnqueued(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -663,7 +663,6 @@ func TestServeHTTP_layer2CompressQueueEnqueue(t *testing.T) {
 	cfg.Secrets.Mode = "off"
 
 	p := New(cfg)
-	// Queue starts empty; long conversation triggers ShouldTriggerCompression -> enqueue succeeds (line 200).
 	body := anthropicLongConversationJSON(10)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -674,6 +673,11 @@ func TestServeHTTP_layer2CompressQueueEnqueue(t *testing.T) {
 	t.Cleanup(func() { _ = res.Body.Close() })
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d: %s", res.StatusCode, rec.Body.String())
+	}
+	select {
+	case <-p.compressQueue:
+		t.Fatal("handler must not enqueue retired Layer 2 work")
+	default:
 	}
 }
 

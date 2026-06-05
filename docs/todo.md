@@ -147,17 +147,16 @@ Ergänzt Phasen A–E; Abgleich mit **`handover.md`** (u. a. §5–§8: Layout
 ## Layer 2 Enhancements
 
 - [x] OCRL (`docs/ocrl.md`, `internal/contextledger/ocrl.go`): deterministic
-  Old Context Replacement Layer specified and implemented as a pure,
-  route-gated, archive-verified, positive-savings engine. Exact full-history
-  message apply now exists in `internal/contextledger/message_apply.go` for
-  explicit message/block targets with byte-equal archive proof and selected-only
-  savings accounting. `internal/proxy/ocrl_full_history.go` now wires OCRL into
-  the real model-facing Full-History HTTP request path after Layer 1: it
-  archives the exact post-L1 old block, derives byte-equal targets, applies only
-  in `auto|max`, and keeps `shadow`, user/system content, and quality-pressure
-  cases unmutated. The proxy-level A/B recovery test now drives that real hook,
-  expands runtime archive ids with `contentarchive.Get`, and requires `lost=0`
-  for the replaced old blocks. `[compression.ocrl]` and
+  Old Context Recovery Ledger specified and retained as pure shadow/proof
+  infrastructure. Exact full-history message apply still exists in
+  `internal/contextledger/message_apply.go` for offline proof, but product
+  runtime no longer uses it to replace model-facing context.
+  `internal/proxy/ocrl_full_history.go` now archives exact post-L1 old blocks,
+  verifies byte-equal archive evidence, records full-history shadow would-save
+  telemetry, and keeps upstream request bytes unchanged even in `auto|max`.
+  The proxy-level A/B recovery test now drives that real shadow hook and
+  requires before/after model-facing messages to stay byte-equal with `lost=0`.
+  `[compression.ocrl]` and
   `slimference layer2 status` expose the effective OCRL policy. Codex WSS
   remains shadow-only because that route uses Responses delta/server-state
   semantics.
@@ -1971,13 +1970,11 @@ be called complete, default-safe, and production-grade.
   ambiguous or missing evidence. The offline A/B harness now expands OCRL
   `archives=[...]` references and proves replaced or deleted old blocks recover
   only when archive payloads match byte-exactly.
-  Overflow recovery now also requires `layer2_enabled=true` before it may apply
-  any cached legacy summary, so the legacy override alone cannot bypass the
-  default-off product path. Full-History HTTP model-facing OCRL insertion and
-  autonomous A/B archive recovery proof are implemented; only broader real-LLM
-  live A/B certification remains for semantic task-decision equivalence before
-  any broader default model-facing promotion claim. That remaining proof now has
-  an executable gate: `scripts/utils ocrl-llm-ab-proof`.
+  Overflow recovery and the normal hot path no longer apply cached legacy
+  summaries or enqueue background Layer 2 summarization. Final product decision:
+  Layer 2 is not a finished product savings layer; OCRL/classical summaries are
+  retained only as deterministic proof/recovery infrastructure and must not be
+  counted as product token savings.
   Detail:
   `docs/todo/t262-layer2-deterministic-context-ledger.md`
 - [x] **T263** Layer 3 provider/prompt cache max-out - local response cache now
@@ -2282,35 +2279,17 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   decisions carry positive archive-write counters. Prompt-cache boundary
   protection, unknown/unattributed fail-closed archive gating, and neutral
   product-name-free reversible marker text remain enforced by tests.
-- [!] **T262 Layer 2 max-out closeout** - classical summary replacement and
-  mid-exchange summaries stay outside the product path unless Layer 2 is enabled
-  and the explicit legacy override is set; archive provenance, quality-pressure
-  fail-closed selection, OCRL policy config/status, and A/B archive expansion
-  are implemented offline. Full-History HTTP OCRL runtime application is now
-  implemented and focused-tested: post-Layer-1 old inactive non-user/non-system
-  blocks are archived, target-matched by exact archive payload, and sent upstream
-  as `[ocrl:v1 ...]` only in `auto|max` with positive net savings; shadow and
-  quality-pressure paths full-pass. The
-  legacy replacement path fail-closes without a trusted session id, non-empty
-  summary text, matching cached prefix, and positive token savings. Overflow
-  recovery follows the same double gate before consuming cached summaries.
-  Ledger selection full-passes
-  active-file capsules and all capsules under quality/re-read pressure. The
-  real non-synthetic `ocrl_full_history` Full-History HTTP live-corpus proof is
-  now present and passes `benchmark-corpus --maxx-check`: a live Slimference
-  proxy sent `[ocrl:v1 ...]` upstream only after exact archive-backed
-  replacement and the local upstream rejected any non-OCRL/full-old-text
-  request. The autonomous proxy A/B recovery test now proves the actual OCRL
-  Full-History HTTP hook is byte-recoverable through the runtime content
-  archive with `lost=0`. Remaining closeout is broader real-LLM live A/B proof
-  that model-facing ledger context preserves task decisions, which cannot be
-  proven by a local upstream stub. Until that proof exists, OCRL is complete as
-  a deterministic guarded implementation and Codex-WSS shadow/proof path, but
-  not complete as a broad default model-facing savings claim. The live proof is
-  now executable via `go run ./scripts/utils ocrl-llm-ab-proof` with
-  `--model <OPENAI_COMPATIBLE_MODEL>`, `--api-key-env OPENAI_API_KEY`, and
-  `--json`; it blocks promotion if a detail-dependent old-context decision
-  changes after OCRL.
+- [x] **T262 Layer 2 max-out closeout** - Layer 2 is retired as a model-facing
+  product savings layer. Classical summary replacement, mid-exchange summaries,
+  cached summary apply, background summarization enqueue, and Full-History OCRL
+  insertion are all removed from the product proxy hot path. OCRL remains as the
+  Old Context Recovery Ledger: deterministic capsule/archive/recovery
+  infrastructure plus content-free shadow would-save telemetry. The real
+  non-synthetic `ocrl_full_history` Full-History HTTP live-corpus proof now
+  passes `benchmark-corpus --maxx-check` with zero product-applied rows,
+  positive shadow would-save telemetry, candidate/archive evidence, and
+  shadow-only behavior. The autonomous proxy A/B recovery test proves the real
+  Full-History HTTP hook keeps model-facing context byte-equal with `lost=0`.
 - [x] **T263 Layer 3 max-out closeout** - reconcile provider accounting,
   provider prompt-cache read/create token reporting, local response-cache
   eligibility, and 30+ turn long-session proof. Local response-cache eligibility

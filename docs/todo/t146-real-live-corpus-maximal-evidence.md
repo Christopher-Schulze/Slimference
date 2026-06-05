@@ -108,7 +108,7 @@ Required minimum categories:
 - Implemented foundation: corpus metadata can now fail categories on `expected_max_errors`.
 - Implemented 2026-05-15: category metadata supports failable `scenario_validators`
   for `tool_heavy`, `cache_reuse`, `output_reduce`, `planner_alignment`,
-  `websocket`, `low_error`, `layer_combo_diversity`, and `l2_summary`. Unknown
+  `websocket`, `low_error`, and `layer_combo_diversity`. Unknown
   validator names fail the gate instead of silently weakening evidence.
 
 ### WP5 - Reporting

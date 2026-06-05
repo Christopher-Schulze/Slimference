@@ -1,6 +1,6 @@
 # Slimference Data Policy
 
-Last updated: 2026-06-05 (OCRL local default direction + legacy external Layer 2 opt-in)
+Last updated: 2026-06-05 (Layer 2 product replacement retired)
 
 ## Overview
 
@@ -20,26 +20,25 @@ Slimference processes LLM API requests through a multi-layer compression pipelin
 - **Data destination**: Local process only. No data leaves your machine.
 - **Controls**: `[compression] layer1_enabled`
 
-### Layer 2: OCRL Context Ledger (local) + legacy summarization (external opt-in)
+### Layer 2: OCRL Context Ledger Shadow Infrastructure (local)
 
-- **Product direction**: OCRL, the Old Context Replacement Layer, is local and
+- **Product direction**: OCRL, the Old Context Recovery Ledger, is local and
   deterministic. It builds compact archive-backed capsules for old inactive
-  context and can become model-facing only when route, session, archive
-  recovery, active-context, quality-pressure, and positive-token-savings gates
-  all pass.
+  context and records shadow would-save telemetry, but product runtime keeps
+  model-facing context unchanged.
 - **Data destination for OCRL**: Local process and local archive only. OCRL does
   not call an external model.
-- **Current Codex WSS state**: shadow/proof only. OCRL does not insert capsules
-  into Codex WSS model-facing context.
-- **Legacy external summarization**: When explicitly enabled, conversation
-  prefixes exceeding the token threshold may be summarized by a configured
-  OpenAI-compatible LLM endpoint.
+- **Current runtime state**: shadow/proof only. OCRL does not insert capsules
+  into Codex WSS or full-history HTTP model-facing context.
+- **Legacy external summarization**: Legacy summarization providers can remain
+  configured for compatibility and offline experiments, but the product proxy
+  hot path no longer applies cached summaries, injects mid-exchange summaries,
+  or enqueues background summarization jobs.
 - **Data destination for legacy summarization**: Compressed conversation content
-  is sent to the configured summarization provider endpoint.
+  may be sent to the configured summarization provider only by explicit legacy
+  tooling, not by the product proxy path.
 - **Default state**: **Disabled** for fresh configs. Existing configs with
-  `layer2_enabled = true` stay enabled, but new installs must opt in explicitly.
-  Model-facing legacy summary replacement remains blocked unless
-  `[compression.summary].allow_model_facing_replacement = true` is also set.
+  `layer2_enabled = true` do not make Layer 2 a product savings layer.
 - **Redaction**: Outbound redaction is **on by default** (T109). This strips:
   - HTTP authentication headers
   - Known credential/secret patterns (API keys, tokens, passwords)

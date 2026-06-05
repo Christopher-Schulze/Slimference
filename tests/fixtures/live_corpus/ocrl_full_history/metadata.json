@@ -1,7 +1,7 @@
 {
   "category": "ocrl_full_history",
   "client_family": "full_history_http",
-  "description": "Real autonomous operator-captured Full-History HTTP session through a running Slimference proxy and local OpenAI-compatible upstream stub. The upstream accepted the request only when model-facing OCRL was present and the old full-history text was absent.",
+  "description": "Real autonomous operator-captured Full-History HTTP session through a running Slimference proxy and local OpenAI-compatible upstream stub. OCRL is kept shadow-only: the row proves deterministic archive-backed would-save telemetry, not model-facing product savings.",
   "evidence_level": "live_operator",
   "expected_latency_p95_max_ms": 1000,
   "expected_max_errors": 0,
@@ -11,11 +11,10 @@
   "expected_provider_cache_read_min": 0,
   "expected_request_count": 1,
   "expected_reread_count_max": 0,
-  "expected_saved_tokens_min": 1,
   "expected_savings_max": 0.99,
   "expected_savings_min": 0,
   "language": "mixed",
-  "notes": "Generated 2026-06-05 with a temporary local full-history HTTP harness: SLIMFERENCE_DEBUG_DECISIONS_LOG enabled, Layer 2 OCRL mode=max, Layer 1/3 disabled, sliding_window=1, local upstream stub rejecting non-OCRL requests. JSONL reviewed for raw prompt text and local absolute paths; no raw request text, secrets, screenshots, or auth headers are present.",
+  "notes": "Generated 2026-06-05 with a temporary local full-history HTTP harness and normalized after retiring Layer 2 model-facing product mutation. The fixture proves shadow OCRL route/candidate/archive/would-save telemetry only. JSONL reviewed for raw prompt text and local absolute paths; no raw request text, secrets, screenshots, or auth headers are present.",
   "scenario_validators": [
     "ocrl_full_history",
     "low_error"

@@ -93,7 +93,7 @@ candidateLoop:
 		recentTurns = append(recentTurns, ocrlFullHistoryTurnID(messages[msgIdx], msgIdx))
 	}
 	apply, _ := contextledger.ApplyOCRLToMessagesByArchiveMatch(messages, capsules, contextledger.OCRLPolicy{
-		Mode:  contextledger.OCRLMode(policyCfg.Mode),
+		Mode:  contextledger.OCRLModeShadow,
 		Route: contextledger.OCRLRouteFullHistoryHTTP,
 		Selection: contextledger.SelectionPolicy{
 			SessionID:       sessionID,
@@ -108,7 +108,7 @@ candidateLoop:
 		MaxReplacementTokens: policyCfg.MaxReplacementTokens,
 	})
 	summary := dbg.ContextLedgerSummary{
-		TelemetryOnly:         false,
+		TelemetryOnly:         true,
 		CommandCapsules:       len(capsules),
 		ReReadCount:           reReadCount,
 		OCRLMode:              policyCfg.Mode,

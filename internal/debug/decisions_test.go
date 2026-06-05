@@ -158,25 +158,27 @@ func TestBuildMechanismAccounting(t *testing.T) {
 	}
 }
 
-func TestBuildMechanismAccountingAppliedOCRL(t *testing.T) {
+func TestBuildMechanismAccountingShadowOCRL(t *testing.T) {
 	t.Parallel()
 	got := BuildMechanismAccounting(RequestSummary{
 		ContextLedger: ContextLedgerSummary{
 			CommandCapsules:       1,
-			OCRLReason:            "applied",
+			OCRLReason:            "shadow_only",
 			OCRLCandidateCapsules: 1,
 			OCRLArchiveExpansions: 1,
 			OCRLShadowSavedTokens: 4410,
+			OCRLShadowOnly:        true,
+			TelemetryOnly:         true,
 		},
 	})
 	if len(got) != 1 {
 		t.Fatalf("mechanisms = %+v", got)
 	}
-	if got[0].Name != "context_ledger_ocrl" ||
-		got[0].Reason != "ocrl_applied" ||
+	if got[0].Name != "context_ledger_shadow" ||
+		got[0].Reason != "ocrl_shadow_shadow_only" ||
 		got[0].SavedTokens != 4410 ||
-		got[0].NetTokens != 4410 {
-		t.Fatalf("applied OCRL mechanism mismatch: %+v", got[0])
+		got[0].NetTokens != 0 {
+		t.Fatalf("shadow OCRL mechanism mismatch: %+v", got[0])
 	}
 }
 

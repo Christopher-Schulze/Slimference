@@ -1,30 +1,24 @@
-# OCRL - Old Context Replacement Layer
+# OCRL - Old Context Recovery Ledger
 
-OCRL is the Layer 2 product direction. It replaces old inactive context with
-deterministic, archive-backed capsules only when the replacement is proven
-recoverable and cheaper than the original context. It is not an abstractive or
-extractive summary layer.
+OCRL is no longer a product context-replacement layer. The implementation is
+kept as deterministic shadow/proof and recovery infrastructure only. It can
+build archive-backed capsules and would-save telemetry, but the product runtime
+must keep original model-facing context unchanged.
 
 ## Product Contract
 
-OCRL may become model-facing only when all of these are true:
+OCRL is not allowed to become model-facing in product runtime. It may only:
 
-- the route resends old full context and can actually save input tokens
-- the current session id is known and matches every selected capsule
-- selected context is old, inactive, outside the recent working set, and not
-  under quality pressure
-- selected context does not touch active files
-- selected context is not a high-risk failure, active user instruction, active
-  patch, unresolved decision, or recovery-sensitive block
-- every selected capsule has complete deterministic facts
-- every selected capsule carries archive ids for omitted raw content
-- archive expansion succeeds before replacement
-- token accounting proves positive net savings after capsule and recovery
-  overhead
-- any gate failure falls back to full-pass original context
+- build deterministic capsules from already observed context
+- verify archive recoverability
+- report content-free shadow would-save telemetry
+- support offline A/B and recovery tests
+- feed safer superseded/obsolete/repeated reducers that already have their own
+  exact full-pass or recovery contracts
 
 The model must never be asked to trust a paraphrase. Capsules are indexes into
-already observed, exactly recoverable reality.
+already observed, exactly recoverable reality, not a replacement for visible
+model memory.
 
 ## Modes
 
@@ -32,11 +26,11 @@ already observed, exactly recoverable reality.
 |------|----------|
 | `off` | no OCRL selection, no model-facing replacement |
 | `shadow` | build and verify OCRL candidates, record proof data, keep original context |
-| `auto` | apply only on route-safe full-history paths when all zero-drawdown gates pass |
-| `max` | same safety gates as `auto`, but higher capsule budgets and broader old-context coverage |
+| `auto` | product runtime still shadow-only; kept as an operator policy input for proof/reporting compatibility |
+| `max` | product runtime still shadow-only; may consider broader candidates for would-save telemetry only |
 
-`max` is not allowed to weaken safety. It may only raise savings by considering
-more eligible old context.
+`auto` and `max` do not authorize model-facing OCRL replacement. They only
+change how much shadow evidence is collected.
 
 Configured surface:
 
@@ -57,48 +51,30 @@ The CLI exposes the effective OCRL policy through `slimference layer2 status`.
 Codex WSS currently uses server-side response state and does not resend the
 whole old conversation on every turn. OCRL therefore cannot claim direct
 model-facing savings on that route today. On Codex WSS, OCRL is shadow/proof
-infrastructure unless a future protocol surface actually resends replaceable
-old context and replay proof shows no product drawdown.
+infrastructure.
 
-Full-history HTTP-style routes are the eligible product target because old
-messages are present in the request body and can be replaced before upstream
-delivery. The proxy now wires this route through
-`internal/proxy/ocrl_full_history.go`: after Layer 1 has produced the exact
-model-facing message text, old inactive non-user/non-system blocks are archived
-under the OCRL sub-layer, converted into deterministic capsules, matched back to
-the current message blocks by byte-equal archive payload, and replaced only when
-`mode=auto|max` plus all recovery and net-saving gates pass. In `mode=shadow`,
-the same proof is built and recorded without changing the upstream request.
+Full-history HTTP-style routes resend old messages and were the only route
+where OCRL could have saved directly. That product target is now retired because
+Slimference cannot prove that a real model will never need a hidden old detail.
+`internal/proxy/ocrl_full_history.go` still archives old inactive
+non-user/non-system blocks, builds deterministic capsules, verifies byte-equal
+archive payloads, and records would-save telemetry, but it always keeps the
+upstream request unchanged.
 
-The `ocrl_full_history` live-corpus category is therefore a
-`full_history_http` proof category. Codex CLI/Desktop WSS captures can prove
-OCRL shadow telemetry and route blocking, but they cannot satisfy the
-model-facing OCRL promotion gate while the upstream route uses
-Responses-delta/server-state semantics.
+The `ocrl_full_history` live-corpus category is now a `full_history_http`
+shadow-proof category. It must prove route evidence, candidate capsules, archive
+expansions, and positive would-save telemetry while also proving zero applied
+OCRL rows.
 
-Current product status: OCRL is implementation-complete for deterministic
-archive-backed replacement and proof-gated Full-History HTTP application. It is
-not a broad default model-facing savings claim until real-LLM A/B proof shows
-that replacing old raw context with capsules preserves downstream task
-decisions. The committed local upstream proof is necessary but not sufficient
-for that semantic promotion; it proves exact route mutation, exact archive
-recovery, and positive token savings.
-
-The executable real-LLM promotion gate is:
-
-`go run ./scripts/utils ocrl-llm-ab-proof --model <OPENAI_COMPATIBLE_MODEL> --api-key-env OPENAI_API_KEY --json`
-
-The runner sends Baseline-vs-OCRL requests through the real Slimference
-Full-History HTTP proxy path. It requires `irrelevant_old_context` to keep the
-same decision after OCRL. It also runs `detail_dependency_guard`, an adversarial
-broad-promotion check: if OCRL applies and a detail-dependent decision changes,
-the report blocks broad model-facing promotion. No API key is stored or printed.
+Current product status: OCRL is not a finished Layer 2 product savings lever and
+must not be counted as product token savings. The reusable parts are capsule
+builders, archive verification, exact message-apply tests, and would-save
+telemetry for future safe reducers.
 
 ## Exact Message Apply Primitive
 
-`internal/contextledger/message_apply.go` provides the first model-facing OCRL
-apply primitive for full-history routes. It is deliberately stricter than the
-pure renderer:
+`internal/contextledger/message_apply.go` provides an exact OCRL apply primitive
+for tests and offline proof. It is deliberately stricter than the pure renderer:
 
 - callers must provide explicit `(message_index, block_index, capsule)` targets
 - target selection runs before archive verification, so active/recent/risky
@@ -120,8 +96,8 @@ pure renderer:
 - the archive-match convenience path tracks derivation proofs only internally,
   so public target derivation stays allocation-light
 
-This primitive does not infer context mapping from rendered text. If a future
-route cannot prove exact old-message positions and exact archive equality for a
+This primitive does not infer context mapping from rendered text. If an offline
+test cannot prove exact old-message positions and exact archive equality for a
 selected target, it must not replace that target. Explicit selected targets
 normalize a single archive id with the same trim/sort rule as the derivation,
 rendering, and archive verification paths; multiple archive ids for one
@@ -137,12 +113,11 @@ uses compact numeric keys instead of formatted strings, and explicit archive
 payload checks compare bytes to current message text without allocating a
 converted payload string.
 
-The HTTP full-history product hook deliberately archives the post-Layer-1 block
-text, not an earlier raw pre-compression version. That makes the OCRL recovery
-proof byte-equal to the exact text the model would otherwise have received on
-this request. It also caps candidate creation at the configured capsule budget,
-skips user/system roles, skips tiny blocks, and full-passes under re-read or
-quality pressure before writing replacement text.
+The HTTP full-history shadow hook archives the post-Layer-1 block text, not an
+earlier raw pre-compression version. That makes proof byte-equal to the exact
+text the model still receives. It caps candidate creation at the configured
+capsule budget, skips user/system roles, skips tiny blocks, and full-passes
+under re-read or quality pressure.
 
 ## Capsule Rendering
 
@@ -164,11 +139,10 @@ deleted under a covering OCRL block are treated as recoverable only when a liste
 archive expands to the exact original block text. Missing or mismatched
 expansion remains a lost-comprehension failure.
 
-The proxy-level Full-History HTTP test now drives the real OCRL apply path and
-then runs the same A/B harness against the before/after messages with
-`contentarchive.Get` as the resolver. This proves the product hook's actual
-model-facing replacement is byte-recoverable with `lost=0`; it is stronger than
-a renderer-only fixture because the archives are produced by the runtime path.
+The proxy-level Full-History HTTP test now drives the real OCRL shadow path and
+checks that before/after model-facing messages remain byte-equal. Archive data
+is still produced by the runtime path, so the test proves recoverability
+evidence exists without hiding any context from the model.
 
 ## Savings Accounting
 
@@ -176,13 +150,14 @@ Net savings are:
 
 `original_old_context_tokens - rendered_ocrl_tokens - recovery_overhead_tokens`
 
-OCRL applies only when net savings are positive and meet the configured minimum
-threshold. Missing or unavailable token accounting means full-pass.
+OCRL product runtime never applies. Net savings are reported only as shadow
+would-save telemetry. Missing or unavailable token accounting means no
+would-save claim.
 
 For shadow/proof telemetry, OCRL can count original tokens from the selected
 archive payloads when the caller does not yet have an exact old-context slice.
 Those values are reported as would-save telemetry only. They never contribute to
-product `net_tokens` until a route actually applies OCRL.
+product `net_tokens`.
 
 ## Runtime Shadow Proof
 
@@ -195,16 +170,15 @@ capsule facts.
 Shadow archive verification uses a read-only content-archive peek path, so proof
 telemetry does not increment real recovery/expansion counters.
 
-The runtime shadow path uses the same configured OCRL policy as future eligible
-routes. `off` emits no would-save claim, `shadow` computes proof only, and
-`auto`/`max` still stay route-blocked on Codex WSS.
+The runtime shadow path uses the configured OCRL policy only to decide how much
+proof data to collect. `off` emits no would-save claim; `shadow`, `auto`, and
+`max` compute proof only.
 
-Full-history HTTP requests attach model-facing OCRL telemetry to the normal
-debug request summary when candidates exist: `ocrl_route=full_history_http`,
-`ocrl_reason`, selected/verbatim/rejected counts, archive expansions, original
-tokens, replacement tokens, and OCRL saved tokens. Applied rows are
-`telemetry_only=false` and `ocrl_shadow_only=false`; shadow rows stay explicitly
-shadow-only.
+Full-history HTTP requests attach OCRL shadow telemetry to the normal debug
+request summary when candidates exist: `ocrl_route=full_history_http`,
+`ocrl_reason=shadow_only`, selected/verbatim/rejected counts, archive
+expansions, original tokens, replacement tokens, and would-save tokens. Rows
+must stay `telemetry_only=true` and `ocrl_shadow_only=true`.
 
 ## Zero Drawdown Gates
 
@@ -249,19 +223,17 @@ The engine requires:
 - archive-match target-derivation tests proving exact single-match apply and
   fail-closed behavior for ambiguous, unmatched, missing, errored, and duplicate
   target candidates
-- proxy runtime tests proving Full-History HTTP OCRL mutates the actual upstream
-  request only in `auto|max`, records `full_history_http/applied` telemetry, and
-  leaves shadow, user/system, and quality-pressure cases unmutated
-- proxy A/B recovery tests proving the real Full-History HTTP apply path's
-  replaced old blocks expand from the runtime content archive with `lost=0`
+- proxy runtime tests proving Full-History HTTP OCRL never mutates the upstream
+  request and records `full_history_http/shadow_only` telemetry
+- proxy A/B recovery tests proving the real Full-History HTTP shadow path keeps
+  old blocks visible with `lost=0`
 - benchmark-corpus OCRL validator coverage: `ocrl_full_history` requires
-  applied full-history evidence, candidate capsules, archive expansions,
-  positive OCRL savings, and no shadow-only rows
+  full-history route evidence, candidate capsules, archive expansions, positive
+  OCRL would-save telemetry, zero applied rows, and at least one shadow-only row
 - max-out promotion coverage: `benchmark-corpus --maxx-check` requires a real,
   non-synthetic `ocrl_full_history` workload captured on a full-history HTTP
-  route and fails if it lacks applied OCRL, full-history route rows, archive
-  expansions, positive OCRL saved tokens, or if any OCRL row is shadow-only
+  route and fails if it lacks shadow OCRL evidence or has any applied OCRL row
 - docs and TODO state updated before a task can be closed
 
-Live Codex App/Desktop captures are a promotion gate for route claims, not a
-reason to weaken offline safety.
+Live Codex App/Desktop captures are route evidence, not a reason to weaken
+offline safety or revive model-facing OCRL replacement.

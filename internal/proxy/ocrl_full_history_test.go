@@ -15,7 +15,7 @@ import (
 	"github.com/slimference/slimference/internal/types"
 )
 
-func TestApplyHTTPFullHistoryOCRLReplacesOldInactiveArchiveBackedContext(t *testing.T) {
+func TestApplyHTTPFullHistoryOCRLBuildsShadowProofWithoutReplacingContext(t *testing.T) {
 	home := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return home, nil }
@@ -36,27 +36,27 @@ func TestApplyHTTPFullHistoryOCRLReplacesOldInactiveArchiveBackedContext(t *test
 	}
 
 	result := p.applyHTTPFullHistoryOCRL(types.OpenAI, "sess-ocrl-full-history", messages, 1, 0)
-	if !result.Applied || !result.HasSummary || result.Saved <= 0 {
-		t.Fatalf("expected applied OCRL with positive savings: %+v", result)
+	if result.Applied || !result.HasSummary || result.Saved != 0 {
+		t.Fatalf("expected shadow-only OCRL proof without product savings: %+v", result)
 	}
-	if got := result.Messages[0].Content[0].Text; !strings.Contains(got, "[ocrl:v1") || strings.Contains(got, oldText) {
-		t.Fatalf("old block was not replaced by OCRL capsule: %q", got)
+	if got := result.Messages[0].Content[0].Text; got != oldText {
+		t.Fatalf("shadow OCRL must not replace old context: %q", got)
 	}
 	if result.Messages[1].Content[0].Text != messages[1].Content[0].Text || result.Messages[2].Content[0].Text != recentText {
 		t.Fatalf("recent/user blocks changed: %+v", result.Messages)
 	}
-	if result.Summary.TelemetryOnly ||
+	if !result.Summary.TelemetryOnly ||
 		result.Summary.OCRLRoute != string(contextledger.OCRLRouteFullHistoryHTTP) ||
-		result.Summary.OCRLReason != string(contextledger.OCRLReasonApplied) ||
-		result.Summary.OCRLShadowOnly ||
+		result.Summary.OCRLReason != string(contextledger.OCRLReasonShadowOnly) ||
+		!result.Summary.OCRLShadowOnly ||
 		result.Summary.OCRLCandidateCapsules != 1 ||
 		result.Summary.OCRLArchiveExpansions != 1 ||
 		result.Summary.OCRLShadowSavedTokens <= 0 {
-		t.Fatalf("summary missing model-facing OCRL evidence: %+v", result.Summary)
+		t.Fatalf("summary missing shadow OCRL proof evidence: %+v", result.Summary)
 	}
 }
 
-func TestApplyHTTPFullHistoryOCRLABHarnessProvesRecoverableRawContext(t *testing.T) {
+func TestApplyHTTPFullHistoryOCRLShadowProofLeavesRawContextRecoverable(t *testing.T) {
 	home := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return home, nil }
@@ -78,34 +78,29 @@ func TestApplyHTTPFullHistoryOCRLABHarnessProvesRecoverableRawContext(t *testing
 		{Index: 3, Role: "assistant", Content: []types.ContentBlock{{Type: "text", Text: recentText}}},
 	}
 
-	applied := p.applyHTTPFullHistoryOCRL(types.OpenAI, "sess-ocrl-ab-proof", before, 1, 0)
-	if !applied.Applied || applied.Saved <= 0 || applied.Summary.OCRLArchiveExpansions != 2 {
-		t.Fatalf("expected applied OCRL with two archive-backed targets: %+v", applied)
+	proof := p.applyHTTPFullHistoryOCRL(types.OpenAI, "sess-ocrl-ab-proof", before, 1, 0)
+	if proof.Applied || proof.Saved != 0 || proof.Summary.OCRLArchiveExpansions != 2 || proof.Summary.OCRLShadowSavedTokens <= 0 {
+		t.Fatalf("expected shadow OCRL proof with two archive-backed targets: %+v", proof)
 	}
-	afterText := applied.Messages[0].Content[0].Text + "\n" + applied.Messages[1].Content[0].Text
-	if !strings.Contains(afterText, "[ocrl:v1") ||
-		strings.Contains(afterText, oldBuildLog) ||
-		strings.Contains(afterText, oldSearchLog) {
-		t.Fatalf("OCRL output did not replace old context cleanly: %q", afterText)
+	afterText := proof.Messages[0].Content[0].Text + "\n" + proof.Messages[1].Content[0].Text
+	if strings.Contains(afterText, "[ocrl:v1") ||
+		!strings.Contains(afterText, oldBuildLog) ||
+		!strings.Contains(afterText, oldSearchLog) {
+		t.Fatalf("shadow OCRL must keep old context visible: %q", afterText)
 	}
 
 	archiveDir := contentarchive.DefaultDir(home)
 	report := abharness.CompareWithArchiveExpansion([]abharness.Turn{
-		{Before: before, After: applied.Messages},
+		{Before: before, After: proof.Messages},
 	}, func(id string) ([]byte, error) {
 		_, body, err := contentarchive.Get(archiveDir, id)
 		return body, err
 	})
 	if report.Lost() != 0 {
-		t.Fatalf("OCRL A/B recovery must have zero lost context: %+v", report.Elisions)
+		t.Fatalf("shadow OCRL must have zero lost context: %+v", report.Elisions)
 	}
-	if len(report.Elisions) != 2 || report.Saved() <= 0 {
-		t.Fatalf("expected two positive recoverable OCRL elisions, got %+v saved=%d", report.Elisions, report.Saved())
-	}
-	for _, elision := range report.Elisions {
-		if elision.Severity != abharness.SeverityReferenced {
-			t.Fatalf("OCRL elision must be archive-referenced, got %+v", report.Elisions)
-		}
+	if len(report.Elisions) != 0 || report.Saved() != 0 {
+		t.Fatalf("shadow OCRL must not elide model context, got %+v saved=%d", report.Elisions, report.Saved())
 	}
 }
 
@@ -169,7 +164,7 @@ func TestApplyHTTPFullHistoryOCRLSkipsUserAndQualityPressure(t *testing.T) {
 	}
 }
 
-func TestServeHTTPAppliesOCRLFullHistoryToUpstreamRequest(t *testing.T) {
+func TestServeHTTPKeepsOCRLFullHistoryShadowOnly(t *testing.T) {
 	home := t.TempDir()
 	oldHome := proxyUserHomeDir
 	proxyUserHomeDir = func() (string, error) { return home, nil }
@@ -214,18 +209,19 @@ func TestServeHTTPAppliesOCRLFullHistoryToUpstreamRequest(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("status %d body %s", res.StatusCode, rec.Body.String())
 	}
-	if !strings.Contains(upstreamBody, "[ocrl:v1") || strings.Contains(upstreamBody, oldText) {
-		t.Fatalf("upstream request did not carry OCRL replacement:\n%s", upstreamBody)
+	if strings.Contains(upstreamBody, "[ocrl:v1") || !strings.Contains(upstreamBody, oldText) {
+		t.Fatalf("upstream request must keep original old context:\n%s", upstreamBody)
 	}
 	last := p.debugRecorder.Last(1, false)
 	if len(last) != 1 {
 		t.Fatal("missing debug summary")
 	}
 	if last[0].ContextLedger.OCRLRoute != string(contextledger.OCRLRouteFullHistoryHTTP) ||
-		last[0].ContextLedger.OCRLReason != string(contextledger.OCRLReasonApplied) ||
-		last[0].ContextLedger.OCRLShadowOnly ||
+		last[0].ContextLedger.OCRLReason != string(contextledger.OCRLReasonShadowOnly) ||
+		!last[0].ContextLedger.OCRLShadowOnly ||
+		!last[0].ContextLedger.TelemetryOnly ||
 		last[0].ContextLedger.OCRLShadowSavedTokens <= 0 {
-		t.Fatalf("debug summary missing OCRL applied evidence: %+v", last[0].ContextLedger)
+		t.Fatalf("debug summary missing OCRL shadow evidence: %+v", last[0].ContextLedger)
 	}
 }
 

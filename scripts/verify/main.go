@@ -258,7 +258,7 @@ func runLiveCorpusPlan(root, category, client string, now time.Time) int {
 	fmt.Printf("Corpus file:  %s\n", sessionFile)
 	fmt.Println("")
 	if isOCRLFullHistoryCategory(category) {
-		fmt.Println("OCRL full-history note: this category must prove model-facing OCRL on a full-history HTTP-style route.")
+		fmt.Println("OCRL full-history note: this category must prove shadow-only OCRL route/candidate/archive/would-save telemetry. Model-facing OCRL replacement is retired from product runtime.")
 		fmt.Println("Codex WSS / Responses-delta sessions are intentionally shadow-only and do not satisfy this promotion proof.")
 		fmt.Println("")
 	}
@@ -569,10 +569,9 @@ func applyLiveCorpusWorkloadDefaults(payload map[string]any, workload string) {
 		payload["expected_savings_min"] = 0.0
 		payload["expected_saved_tokens_min"] = 1
 	case "ocrl_full_history":
-		payload["description"] = "Real full-history HTTP-style operator-captured session proving model-facing OCRL applied; Codex WSS / Responses-delta sessions are shadow-only and do not satisfy this category."
+		payload["description"] = "Real full-history HTTP-style operator-captured session proving OCRL shadow would-save telemetry; model-facing OCRL replacement is retired from product runtime."
 		payload["client_family"] = "full_history_http"
 		payload["tool_mix"] = "full_history_http_archive_backed"
 		payload["expected_savings_min"] = 0.0
-		payload["expected_saved_tokens_min"] = 1
 	}
 }

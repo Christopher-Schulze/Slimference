@@ -132,9 +132,9 @@ func TestHealthHandler(t *testing.T) {
 			body.CPUWindowPercent, body.CPUWindowSeconds, body.DiskReadOps, body.DiskWriteOps, body.DiskReadOpsDelta,
 			body.DiskWriteOpsDelta, body.StateBytes)
 	}
-	// 2026-05-15: Slimference ships deterministic-only by default.
-	// L1 + L3 are on; L2 model-facing summary replacement remains
-	// opt-in. Supersedes T129's default-on policy.
+	// 2026-06-05: Slimference ships deterministic-only by default.
+	// L1 + L3 are on; L2 model-facing summary replacement is retired
+	// from the product proxy path. Supersedes T129's default-on policy.
 	if !body.Layers["1"] || body.Layers["2"] || !body.Layers["3"] {
 		t.Errorf("layers = %v, want L1=true L2=false L3=true (deterministic-only defaults)", body.Layers)
 	}
@@ -206,9 +206,9 @@ func TestBuildAggressiveCompressedBody_contextCancelled(t *testing.T) {
 	}
 }
 
-// TestBuildAggressiveCompressedBody_appliesCachedSummary verifies the
-// read-only Layer 2 apply branch when a cached summary covers the messages.
-func TestBuildAggressiveCompressedBody_appliesCachedSummary(t *testing.T) {
+// TestBuildAggressiveCompressedBodyBlocksCachedSummary verifies that overflow
+// recovery never promotes cached Layer 2 summaries into model-facing context.
+func TestBuildAggressiveCompressedBodyBlocksCachedSummary(t *testing.T) {
 	t.Parallel()
 	cfg := config.Defaults()
 	cfg.Compression.Layer2Enabled = true
@@ -246,8 +246,14 @@ func TestBuildAggressiveCompressedBody_appliesCachedSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "Conversation summary covering messages") {
-		t.Fatalf("expected synthetic summary injected into forwarded body; got %s", out)
+	bodyText := string(out)
+	if strings.Contains(bodyText, "Conversation summary covering messages") {
+		t.Fatalf("overflow recovery must not inject Layer 2 summaries; got %s", out)
+	}
+	for _, want := range []string{"first", "second", "tail"} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("expected original message content %q to remain; got %s", want, out)
+		}
 	}
 }
 
@@ -303,10 +309,9 @@ func TestBuildAggressiveCompressedBody_layer2DisabledBlocksCachedSummary(t *test
 	}
 }
 
-// TestBuildAggressiveCompressedBody_enqueuesAsyncJob verifies that when
-// ShouldTriggerCompression is true, the overflow recover path enqueues a
-// fresh async Layer 2 job instead of calling MiniMax synchronously.
-func TestBuildAggressiveCompressedBody_enqueuesAsyncJob(t *testing.T) {
+// TestBuildAggressiveCompressedBodyDoesNotEnqueueAsyncLayer2 verifies that the
+// overflow recovery path stays local and does not schedule retired Layer 2 work.
+func TestBuildAggressiveCompressedBodyDoesNotEnqueueAsyncLayer2(t *testing.T) {
 	t.Setenv("MINIMAX_API_KEY", "test-key")
 	cfg := config.Defaults()
 	cfg.Compression.Layer2Enabled = true
@@ -335,12 +340,11 @@ func TestBuildAggressiveCompressedBody_enqueuesAsyncJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// At least one job must have landed on the compression queue.
 	select {
 	case <-p.compressQueue:
-		// ok
+		t.Fatal("overflow recovery must not enqueue Layer 2 jobs")
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected async compression job to be enqueued on overflow recover")
+		// ok
 	}
 }
 
@@ -1266,9 +1270,9 @@ func TestHandleCompressibleRequest_ToolPruneMissingToolRetryDisablesSession(t *t
 	}
 }
 
-// TestHandleCompressibleRequest_MidExchangeEnabled covers the T99 mid-exchange
-// summary wire-in path in the handler.
-func TestHandleCompressibleRequest_MidExchangeEnabled(t *testing.T) {
+// TestHandleCompressibleRequest_MidExchangeEnabledDoesNotMutate verifies the
+// retired mid-exchange toggle does not insert Layer 2 summaries.
+func TestHandleCompressibleRequest_MidExchangeEnabledDoesNotMutate(t *testing.T) {
 	t.Parallel()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -49,7 +49,7 @@ func itoa(i int) string {
 
 const sampleHighSavingsRecord = `{"req_id":"req_high","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":900,"after_layer1":600,"after_layer2":600,"final":600,"saved":400}}` + "\n"
 const sampleToolPruneRecord = `{"req_id":"req_tool_prune","provider":"codex_chatgpt","model":"gpt-5.5","tokens":{"original":0,"after_layer0":0,"after_layer1":0,"after_layer2":0,"final":0,"saved":26},"tool_prune":{"applied":true,"pruned_tools":1,"saved_tokens":26}}` + "\n"
-const sampleOCRLFullHistoryRecord = `{"req_id":"req_ocrl","provider":"openai","model":"gpt-5","route_mode":"upstream","tokens":{"original":4200,"after_layer0":4200,"after_layer1":4200,"after_layer2":1450,"final":1450,"saved":2750},"context_ledger":{"telemetry_only":false,"ocrl_mode":"auto","ocrl_route":"full_history_http","ocrl_reason":"applied","ocrl_shadow_only":false,"ocrl_candidate_capsules":3,"ocrl_archive_expansions":3,"ocrl_original_tokens":3000,"ocrl_replacement_tokens":250,"ocrl_recovery_overhead_tokens":0,"ocrl_shadow_saved_tokens":2750}}` + "\n"
+const sampleOCRLFullHistoryRecord = `{"req_id":"req_ocrl","provider":"openai","model":"gpt-5","route_mode":"upstream","tokens":{"original":4200,"after_layer0":4200,"after_layer1":4200,"after_layer2":4200,"final":4200,"saved":0},"context_ledger":{"telemetry_only":true,"ocrl_mode":"auto","ocrl_route":"full_history_http","ocrl_reason":"shadow_only","ocrl_shadow_only":true,"ocrl_candidate_capsules":3,"ocrl_archive_expansions":3,"ocrl_original_tokens":3000,"ocrl_replacement_tokens":250,"ocrl_recovery_overhead_tokens":0,"ocrl_shadow_saved_tokens":2750}}` + "\n"
 
 const sampleLowSavingsRecord = `{"req_id":"req_low","provider":"anthropic","model":"claude-3-5","tokens":{"original":1000,"after_layer0":990,"after_layer1":950,"after_layer2":950,"final":950,"saved":50}}` + "\n"
 
@@ -339,7 +339,6 @@ func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
 			"low_error",
 			"host_budget_ok",
 			"layer_combo_diversity",
-			"l2_summary",
 			"ocrl_full_history",
 		},
 	}, []string{sampleEvidenceRecord, sampleWebSocketRecord, sampleHostBudgetOKRecord, sampleToolPruneRecord, sampleOCRLFullHistoryRecord})
@@ -353,7 +352,7 @@ func TestEvaluateCategory_ScenarioValidatorsPass(t *testing.T) {
 	if res.HostBudgetOKRows != 1 || res.HostBudgetIssueRows != 0 {
 		t.Fatalf("host budget rows: %+v", res)
 	}
-	if res.OCRLApplied != 1 || res.OCRLFullHistoryRows != 1 || res.OCRLSavedTokens != 2750 {
+	if res.OCRLApplied != 0 || res.OCRLShadowOnly != 1 || res.OCRLFullHistoryRows != 1 || res.OCRLSavedTokens != 2750 {
 		t.Fatalf("ocrl aggregate mismatch: %+v", res)
 	}
 }
@@ -370,7 +369,6 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 			"low_error",
 			"host_budget_ok",
 			"layer_combo_diversity",
-			"l2_summary",
 			"ocrl_full_history",
 			"unknown_validator",
 		},
@@ -387,7 +385,6 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 		"scenario low_error",
 		"scenario host_budget_ok",
 		"scenario layer_combo_diversity",
-		"scenario l2_summary",
 		"scenario ocrl_full_history",
 		"unknown scenario validator",
 	} {
@@ -624,6 +621,8 @@ func writeMaxxCorpus(t *testing.T, root string) {
 		meta := promotionMeta(name, client, workload)
 		switch workload {
 		case "ocrl_full_history":
+			meta.ExpectedSavingsMin = 0
+			meta.ExpectedSavingsMax = 0.01
 			meta.ScenarioValidators = []string{"ocrl_full_history", "low_error"}
 		case "output_reduce_aggressive":
 			meta.ExpectedOutputReduceAppliedMin = 1
@@ -815,6 +814,18 @@ func TestCategoryHasPromotionSavingsSignal_WorkloadSpecificEconomics(t *testing.
 			want:     false,
 		},
 		{
+			name:     "ocrl full history uses shadow proof validator",
+			workload: "ocrl_full_history",
+			meta:     &CategoryMetadata{ScenarioValidators: []string{"ocrl_full_history", "low_error"}},
+			want:     true,
+		},
+		{
+			name:     "ocrl full history rejects plain product savings metadata",
+			workload: "ocrl_full_history",
+			meta:     &CategoryMetadata{ExpectedSavingsMin: 0.10},
+			want:     false,
+		},
+		{
 			name:     "nil metadata fails",
 			workload: "repeat_read",
 			meta:     nil,
@@ -880,7 +891,7 @@ func TestEvaluateMaxxGate_FailsMissingMechanismBreadth(t *testing.T) {
 	}
 }
 
-func TestEvaluateMaxxGate_FailsOCRLFullHistoryWithoutAppliedEvidence(t *testing.T) {
+func TestEvaluateMaxxGate_FailsOCRLFullHistoryWithoutShadowEvidence(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeMaxxCorpus(t, root)
@@ -896,14 +907,14 @@ func TestEvaluateMaxxGate_FailsOCRLFullHistoryWithoutAppliedEvidence(t *testing.
 	}
 	gate := EvaluateMaxxGate(report)
 	if gate.Passed {
-		t.Fatalf("expected maxx failure without OCRL applied evidence: %+v", gate)
+		t.Fatalf("expected maxx failure without OCRL shadow evidence: %+v", gate)
 	}
 	got := strings.Join(gate.Failures, "\n")
 	for _, want := range []string{
-		"ocrl_full_history applied=0",
 		"ocrl_full_history full_history_rows=0",
 		"ocrl_full_history candidates=0 archive_expansions=0",
-		"ocrl_full_history saved_tokens=0",
+		"ocrl_full_history shadow_would_save_tokens=0",
+		"ocrl_full_history shadow_only_rows=0",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in failures:\n%s", want, got)

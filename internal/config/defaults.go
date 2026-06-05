@@ -357,18 +357,16 @@ mode = "balanced"
 # [compression.minimax] enable_seed = true) before adding a second
 # OpenAI-style fallback whose determinism is unverified.
 require_deterministic = false
-# Classical summary replacement is not a product-default safety claim. Keep this
-# false unless a legacy/operator proof explicitly accepts model-facing summaries.
-# The Layer 2 product direction is deterministic context ledger, not summary as
-# conversation truth. Env: SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT.
+# Classical summary replacement is retired from the product proxy path.
+# The flag remains for legacy compatibility only; product runtime keeps
+# model-facing context unchanged. Env: SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT.
 allow_model_facing_replacement = false
 
 [compression.ocrl]
-# OCRL (Old Context Replacement Layer) is deterministic and archive-backed.
-# It replaces nothing on Codex WSS today; WSS produces proof telemetry only.
-# Modes: off | shadow | auto | max. Auto/max still require full-history route
-# eligibility, archive recovery, inactive-context selection, and positive net
-# token savings. Env: SLIMFERENCE_OCRL_MODE.
+# OCRL (Old Context Recovery Ledger) is deterministic and archive-backed.
+# Product runtime is shadow-only: no Codex WSS or HTTP model-facing context
+# replacement. Modes: off | shadow | auto | max. Auto/max collect broader
+# would-save proof telemetry only. Env: SLIMFERENCE_OCRL_MODE.
 mode = "shadow"
 max_capsules = 512
 min_net_saved_tokens = 1

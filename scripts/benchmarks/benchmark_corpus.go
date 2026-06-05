@@ -493,13 +493,9 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 			if len(res.LayerCombinations) < 2 {
 				failures = append(failures, fmt.Sprintf("scenario layer_combo_diversity: combinations=%d", len(res.LayerCombinations)))
 			}
-		case "l2_summary":
-			if res.Layer2Saved <= 0 {
-				failures = append(failures, "scenario l2_summary: expected Layer 2 savings")
-			}
 		case "ocrl_full_history":
-			if res.OCRLApplied <= 0 {
-				failures = append(failures, "scenario ocrl_full_history: expected model-facing OCRL applied evidence")
+			if res.OCRLApplied > 0 {
+				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: product-applied rows must be 0, got %d", res.OCRLApplied))
 			}
 			if res.OCRLFullHistoryRows <= 0 {
 				failures = append(failures, "scenario ocrl_full_history: expected full-history OCRL route evidence")
@@ -508,9 +504,9 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: candidates=%d archive_expansions=%d", res.OCRLCandidateCapsules, res.OCRLArchiveExpansions))
 			}
 			if res.OCRLSavedTokens <= 0 {
-				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: saved_tokens=%d", res.OCRLSavedTokens))
+				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: shadow_would_save_tokens=%d", res.OCRLSavedTokens))
 			}
-			if res.OCRLShadowOnly > 0 {
+			if res.OCRLShadowOnly <= 0 {
 				failures = append(failures, fmt.Sprintf("scenario ocrl_full_history: shadow_only_rows=%d", res.OCRLShadowOnly))
 			}
 		default:
@@ -530,7 +526,6 @@ var supportedScenarioValidators = []string{
 	"low_error",
 	"host_budget_ok",
 	"layer_combo_diversity",
-	"l2_summary",
 	"ocrl_full_history",
 }
 
@@ -625,7 +620,7 @@ func EvaluatePromotionGate(report CorpusReport) PromotionGateReport {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: expected_latency_p95_max_ms must be explicit", c.Category))
 		}
 		if c.Metadata == nil || !categoryHasPromotionSavingsSignal(c.WorkloadClass, c.Metadata) {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: missing explicit positive savings signal for workload_class %s", c.Category, c.WorkloadClass))
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: missing explicit positive savings/proof signal for workload_class %s", c.Category, c.WorkloadClass))
 		}
 		for _, failure := range c.Failures {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: %s", c.Category, failure))
@@ -659,6 +654,13 @@ func categoryHasPromotionSavingsSignal(workload string, meta *CategoryMetadata) 
 		return meta.ExpectedOutputReduceAppliedMin > 0
 	case "output_reduce_ab":
 		return meta.ExpectedOutputReduceABPairsMin > 0 && meta.ExpectedOutputReduceABNetSavedMin > 0
+	case "ocrl_full_history":
+		for _, validator := range meta.ScenarioValidators {
+			if strings.TrimSpace(validator) == "ocrl_full_history" {
+				return true
+			}
+		}
+		return false
 	default:
 		return meta.ExpectedSavingsMin > 0 || meta.ExpectedSavedTokensMin > 0
 	}
@@ -699,8 +701,8 @@ func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
 		if category.Synthetic || category.WorkloadClass != "ocrl_full_history" {
 			continue
 		}
-		if category.OCRLApplied <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history applied=%d", category.Category, category.OCRLApplied))
+		if category.OCRLApplied > 0 {
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history product_applied=%d", category.Category, category.OCRLApplied))
 		}
 		if category.OCRLFullHistoryRows <= 0 {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history full_history_rows=%d", category.Category, category.OCRLFullHistoryRows))
@@ -709,9 +711,9 @@ func EvaluateMaxxGate(report CorpusReport) MaxxGateReport {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history candidates=%d archive_expansions=%d", category.Category, category.OCRLCandidateCapsules, category.OCRLArchiveExpansions))
 		}
 		if category.OCRLSavedTokens <= 0 {
-			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history saved_tokens=%d", category.Category, category.OCRLSavedTokens))
+			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history shadow_would_save_tokens=%d", category.Category, category.OCRLSavedTokens))
 		}
-		if category.OCRLShadowOnly > 0 {
+		if category.OCRLShadowOnly <= 0 {
 			gate.Failures = append(gate.Failures, fmt.Sprintf("%s: ocrl_full_history shadow_only_rows=%d", category.Category, category.OCRLShadowOnly))
 		}
 	}

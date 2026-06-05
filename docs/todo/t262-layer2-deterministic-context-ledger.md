@@ -21,15 +21,13 @@ replacement for reality.
   command, file, search, failure, decision, and recovery observations. Capsules
   store compact facts, provenance, stable hashes where raw bytes exist, and
   archive ids, never raw omitted content.
-- `docs/ocrl.md` now defines OCRL, the Old Context Replacement Layer, as the
-  product replacement for classical Layer 2 summary-as-truth. OCRL has explicit
-  `off`, `shadow`, `auto`, and `max` modes, route eligibility, archive
-  recoverability, positive-token-savings, and zero-product-drawdown gates.
+- `docs/ocrl.md` now defines OCRL as the Old Context Recovery Ledger. OCRL is
+  retired as a model-facing product replacement layer and kept only as
+  deterministic shadow/proof and recovery infrastructure.
 - `internal/contextledger/ocrl.go` now implements the pure OCRL engine. It
   selects capsules through the existing fail-closed selector, verifies archive
   recoverability without copying raw bytes, renders stable machine-readable
-  capsule text, keeps Codex WSS shadow-only, and applies only on full-history
-  HTTP-style routes when net savings are positive.
+  capsule text for offline proof, and keeps product runtime shadow-only.
 - `internal/contextledger/message_apply.go` now implements exact full-history
   message/block application. It accepts only explicit targets, requires exactly
   one archive per selected target capsule, requires the selected target archive
@@ -58,16 +56,15 @@ replacement for reality.
   effective OCRL policy and the Codex WSS shadow-only route guard.
 - The OCRL live proof runbook now treats `ocrl_full_history` as a
   `full_history_http` proof category. Codex CLI/Desktop WSS sessions remain
-  valid shadow/route-blocking evidence, but they do not satisfy model-facing
-  OCRL promotion while the protocol sends Responses deltas instead of old full
+  valid shadow/route-blocking evidence, but they do not satisfy a product
+  savings claim while the protocol sends Responses deltas instead of old full
   context.
 - Full-History HTTP OCRL is now wired into the actual proxy request path in
-  `internal/proxy/ocrl_full_history.go`. The hook runs after Layer 1, archives
-  the exact post-Layer-1 text that would otherwise reach the model, builds
-  deterministic capsules for old inactive non-user/non-system blocks, derives
-  targets by byte-equal archive payload, applies only in `auto|max`, and records
-  `full_history_http` telemetry. `shadow`, quality-pressure, user/system, and
-  non-positive cases keep original model context.
+  `internal/proxy/ocrl_full_history.go` as shadow proof only. The hook runs
+  after Layer 1, archives the exact post-Layer-1 text that still reaches the
+  model, builds deterministic capsules for old inactive non-user/non-system
+  blocks, verifies byte-equal archive payloads, records `full_history_http`
+  telemetry, and never replaces model-facing context.
 - `contentarchive.Peek` supports OCRL proof verification by loading exact
   archive payloads without incrementing real expansion/recovery counters.
 - `internal/abharness` now understands OCRL archive lists in rendered
@@ -75,35 +72,30 @@ replacement for reality.
   blocks as recoverable only when the listed archives expand to the exact direct
   block text; missing or mismatched payloads remain lost-comprehension issues.
 - The Full-History HTTP proxy path now has a product-path A/B recovery test:
-  the test runs the real OCRL apply hook, resolves the resulting runtime archive
-  ids through `contentarchive.Get`, and requires the A/B harness to report
-  `lost=0` for the replaced old model-facing blocks.
+  the test runs the real OCRL shadow hook and requires before/after
+  model-facing messages to stay byte-equal with `lost=0`.
 - The Codex Layer-0 reducer now feeds those builders in the hot path as
   content-free telemetry only for tool-output command/file/search/failure
   observations. `/admin/state.savings` exposes those capsule counts globally and
-  per route. It also retains the actual capsule objects internally for future
-  OCRL promotion. Decision/recovery capsules are pure primitives only until a
-  real provenance source is wired. No capsule is inserted into Codex WSS
-  model-facing context yet.
-- Model-facing summary replacement is now separately gated. `layer2_enabled=true`
-  can no longer make cached summaries or mid-exchange summaries replace
-  model-facing history unless the explicit legacy override
-  `[compression.summary].allow_model_facing_replacement=true` is also set.
-  The reverse is also enforced: the legacy override alone cannot apply cached
-  summaries when `layer2_enabled=false`, including overflow recovery.
-- The planner now uses the same split: Layer 2 can be enabled for background
-  work, but it cannot report or drive a model-facing `run` decision for
-  classical summaries unless that legacy override is set.
+  per route. Decision/recovery capsules are pure primitives only until a real
+  provenance source is wired. No capsule is inserted into model-facing context
+  in product runtime.
+- Model-facing summary replacement and mid-exchange summary insertion are
+  retired from the proxy hot path. `layer2_enabled=true` no longer schedules
+  background summarization or inserts cached summaries during normal requests or
+  overflow recovery.
+- The planner still exposes Layer 2 decisions for inspection, but the proxy
+  runtime treats Layer 2 as shadow/proof-only infrastructure.
 - Capsule selection now requires an explicit policy session id. If a future
   insertion caller cannot prove the current session namespace, capsules stay
   verbatim instead of risking cross-session memory contamination.
 
-## Product target
+## Retained target
 
-Layer 2 becomes a Context Ledger:
+Layer 2 becomes Context Ledger shadow/recovery infrastructure:
 
 - active working set remains verbatim
-- old inactive context can be represented by exact structured facts
+- old inactive context can be indexed by exact structured facts
 - raw source remains archive-backed and recoverable
 - no semantic paraphrase is a default source of truth
 - no LLM-generated summary is default-on
@@ -199,20 +191,18 @@ The ledger stores deterministic capsules:
 - If a file or search capsule lacks an explicit execution scope, full-pass.
 - If archive expansion fails, full-pass and disable the mechanism for the
   session.
-- If the request route is not model-facing old-context eligible, OCRL stays
-  shadow-only.
+- OCRL stays shadow-only on every product route.
 - If token accounting is missing, invalid, or net-negative after capsule and
   recovery overhead, full-pass.
 - No LLM-produced summary can be default-on.
 
 ## Savings targets
 
-- Long HTTP/full-history sessions: measurable billable-input reduction after
-  active working set stabilizes.
-- Codex WSS: no model-facing replacement claim until the ledger has a meaningful
-  WSS insertion point that does not fight `previous_response_id` semantics. The
-  current hot-path wiring is telemetry-only and cannot change model behavior.
-- Net win must include ledger overhead and archive-recovery note overhead.
+- Long HTTP/full-history sessions: measurable OCRL would-save telemetry only;
+  no billable-input reduction is claimed from Layer 2 product runtime.
+- Codex WSS: telemetry-only and cannot change model behavior.
+- Shadow would-save accounting must include ledger overhead and archive-recovery
+  note overhead.
 - OCRL benchmark target: large capsule batches must stay cheap enough for
   offline/proof and non-hotpath operation. Current local Apple M1 measurement:
   512 file capsules render in about 0.997 ms, 238061 B/op, 11 allocs/op;
@@ -240,12 +230,13 @@ The ledger stores deterministic capsules:
   `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --check`
   includes the synthetic `ocrl_full_history` validator fixture. This proves
   gate wiring, not live promotion.
-- Maxx promotion gate:
+- Maxx evidence gate:
   `go run ./scripts/benchmarks benchmark-corpus tests/fixtures/live_corpus --maxx-check`
   now requires a real non-synthetic `ocrl_full_history` workload captured on a
-  full-history HTTP route and fails if OCRL is not applied with archive
-  expansions, positive OCRL saved tokens, and no shadow-only OCRL rows. This
-  now passes with the committed real Full-History HTTP OCRL workload.
+  full-history HTTP route and fails if OCRL has product-applied rows, lacks
+  archive expansions, lacks positive OCRL would-save tokens, or lacks
+  shadow-only OCRL rows. This now passes with the committed real Full-History
+  HTTP OCRL workload.
 - Live corpus gate:
   - CLI and Desktop
   - no repair/re-read spike
@@ -254,31 +245,24 @@ The ledger stores deterministic capsules:
 
 ## Done
 
-Layer 2 is product-ready only when it is a deterministic context ledger with
-archive-backed recovery and proof that it preserves task decisions. Classical
-summary remains opt-in, not default.
+Layer 2 is not a product-ready savings layer. Classical summary and OCRL
+model-facing replacement are retired from product runtime. The retained value is
+deterministic capsule, archive, recovery, and would-save telemetry that safer
+reducers can reuse.
 
 Current closeout split:
 
 - Complete now: deterministic OCRL primitives, archive-backed capsule
-  selection, Codex-WSS shadow telemetry, Full-History HTTP runtime application,
-  proxy-level byte-recovery A/B proof, and `benchmark-corpus --maxx-check`
-  coverage with a real non-synthetic `ocrl_full_history` workload.
-- Not complete for broad default model-facing savings: real-LLM task-decision
-  equivalence. A local upstream stub can prove route mutation, exact archive
-  recoverability, and token savings, but it cannot prove that a real model makes
-  the same downstream engineering decisions after seeing capsules instead of old
-  raw context.
-- Product rule: until that real-LLM A/B proof exists, OCRL must not be claimed
-  as broad default model-facing zero-drawdown savings. Codex WSS remains
-  shadow/proof only; Full-History HTTP OCRL remains gated by explicit `auto|max`
-  policy, exact archive recovery, quality-pressure full-pass, and positive
-  net-token accounting.
-- Executable live gate: `go run ./scripts/utils ocrl-llm-ab-proof` with
-  `--model <OPENAI_COMPATIBLE_MODEL>`, `--api-key-env OPENAI_API_KEY`, and
-  `--json`. It runs Baseline-vs-OCRL through the real Full-History HTTP proxy
-  path and blocks broad promotion when OCRL changes a detail-dependent
-  old-context decision.
+  selection, Codex-WSS shadow telemetry, Full-History HTTP shadow proof,
+  proxy-level byte-equality proof, and `benchmark-corpus --maxx-check` coverage
+  with a real non-synthetic `ocrl_full_history` workload.
+- Retired: broad/default model-facing Layer 2 savings. The engineering
+  judgement is that hidden old-context replacement cannot be made zero-drawdown
+  for Codex/GPT-class agents without relying on model behavior Slimference does
+  not control.
+- Product rule: OCRL and classical summaries must not mutate model-facing
+  context. Their safe parts are reused only as archive/recovery/proof inputs for
+  reducers with independent deterministic safety contracts.
 
 ## Progress
 
@@ -307,16 +291,11 @@ Current closeout split:
   that reducer-created archive entry to the exact changed read bytes, otherwise
   the replay is counted as lost.
 - 2026-06-01: Added an explicit legacy gate for model-facing Layer 2 summary
-  replacement. Cached summaries now stay shadow/background-only unless
-  `[compression.summary].allow_model_facing_replacement=true` or
-  `SLIMFERENCE_L2_ALLOW_MODEL_FACING_REPLACEMENT=1` is set. This prevents
-  classical summary-as-truth from being accidentally promoted while the ledger
-  insertion path remains live-proof gated.
-- 2026-06-05: Extended the same model-facing legacy gate to mid-exchange
-  summaries. `ApplyMidExchange` now returns full-pass unless
-  `allow_model_facing_replacement=true`, so enabling the old T99 tuning knob
-  cannot insert any summary-as-context path without the same explicit override
-  that protects cached Layer 2 replacement.
+  replacement. This was a temporary containment step before the final product
+  decision. The proxy product path now retires cached summary apply completely.
+- 2026-06-05: Extended the same containment to mid-exchange summaries before
+  the final product decision. The proxy product path now retires mid-exchange
+  summary insertion completely.
 - 2026-06-01: Aligned the cross-layer planner with the same safety gate. Long
   contexts now produce `context_ledger_shadow_summary_replacement_blocked`
   instead of planner `run` unless model-facing legacy summary replacement is
@@ -331,15 +310,10 @@ Current closeout split:
   `SelectCapsules` now keeps all capsules verbatim when `SelectionPolicy`
   lacks a session id, so a future model-facing insertion path cannot silently
   select archive-backed context across session namespaces.
-- 2026-06-04: Hardened the remaining legacy summary replacement function. Even
-  with the explicit `allow_model_facing_replacement` override, Layer 2 now
-  refuses model-facing replacement when the caller lacks a trusted session id,
-  falls back to `empty` / `fh:*` content-hash IDs, has empty cached summary
-  text, or lacks positive cached token savings. This keeps the legacy path
-  fail-closed and prevents cross-conversation or useless summary-as-truth
-  rewrites from ever counting as product work. The old sessionless
-  `ApplyToMessages` wrapper is therefore full-pass only; callers must use the
-  session-keyed API before any replacement can be considered.
+- 2026-06-04: Hardened the remaining legacy summary replacement function before
+  retiring it from the product proxy path. The old sessionless `ApplyToMessages`
+  wrapper remains full-pass only, and the session-keyed API is retained for
+  package-level legacy tests rather than product hot-path mutation.
 - 2026-06-04: Added two fail-closed selector inputs for future ledger promotion.
   `SelectionPolicy.ActivePaths` keeps file, search, and decision capsules
   verbatim when they touch an actively worked file, even if the capsule is old
@@ -386,19 +360,14 @@ Current closeout split:
   `SelectCapsules` now recognizes both kinds but still fails closed on missing
   facts or missing archives, so they are safe building blocks for future ledger
   insertion without changing model-facing context today.
-- 2026-06-05: Closed the remaining mid-exchange model-facing gap. The
-  Layer2-owned `ApplyMidExchange` method now full-passes unless
-  `allow_model_facing_replacement=true`, matching cached summary replacement.
-  The pure deterministic mid-exchange helper remains available for tests and
-  legacy labs, but the product proxy cannot insert any summary-as-context path
-  by only enabling `mid_exchange_enabled`.
+- 2026-06-05: Closed the remaining mid-exchange model-facing gap. The product
+  proxy path now ignores mid-exchange summary insertion entirely. The pure
+  deterministic mid-exchange helper remains available for package tests and
+  legacy labs only.
 - 2026-06-05: Closed the overflow-recovery model-facing gap. The aggressive
-  context-overflow retry can consume an existing cached summary only when
-  `layer2_enabled=true` and the Layer2-owned model-facing legacy gate accepts
-  the session/cache. A focused regression test proves
-  `allow_model_facing_replacement=true` alone cannot inject cached summary text
-  while Layer 2 is disabled. The async background enqueue path already required
-  Layer 2 to be enabled, so recovery now matches the normal request hot path.
+  context-overflow retry no longer consumes cached Layer 2 summaries at all.
+  Recovery now matches the normal request hot path: original context stays
+  visible and no summary text is inserted.
 - 2026-06-05: Extended scoped search ledger telemetry without widening product
   risk. The Layer-0 reducer now derives search capsule scope from already
   normalized repo-scoped commands (`cd /repo && rg ...`, absolute search paths,
@@ -477,7 +446,8 @@ Current closeout split:
   that payload is byte-equal to exactly one current message block. Ambiguous
   matches, missing archives, archive read errors, unmatched payloads, and
   duplicate target positions are omitted and counted in the derivation report,
-  so a future route can use model-facing OCRL only with proven target mapping.
+  so offline recovery tests can prove exact target mapping without making OCRL
+  a product context-replacement route.
   The apply path now maps selected targets from the selector decision order
   instead of rendering per-capsule keys. Current Apple M1 benchmarks measured
   `405735 ns/op`, `190034 B/op`, and `946 allocs/op` for target derivation, and
@@ -486,25 +456,23 @@ Current closeout split:
   `go test ./internal/contextledger -count=1` passed.
 - 2026-06-05: Added corpus-level OCRL proof gating. `benchmark-corpus` now
   aggregates OCRL context-ledger fields and the `ocrl_full_history` validator
-  requires applied full-history evidence, archive expansions, positive OCRL
-  savings, and no shadow-only rows. `synthetic_ocrl_full_history` keeps this
-  gate covered in CI without pretending to be real CLI/Desktop promotion
-  evidence.
-- 2026-06-05: Promoted OCRL into the strict max-out evidence gate without
-  promoting the product behavior. `benchmark-corpus --maxx-check` now requires
-  a real non-synthetic `ocrl_full_history` workload and independently verifies
-  applied OCRL, full-history route rows, candidate capsules, archive expansions,
-  positive OCRL saved tokens, and zero shadow-only rows. The committed
-  synthetic OCRL fixture still proves only gate wiring; the max-out gate now
-  remains failed until real model-facing OCRL live proof exists. This was later
-  closed by the real Full-History HTTP OCRL corpus proof.
-- 2026-06-05: Wired OCRL full-history into the release-proof operator runbook.
+  requires full-history route evidence, archive expansions, positive OCRL
+  would-save telemetry, zero applied rows, and at least one shadow-only row.
+  `synthetic_ocrl_full_history` keeps this gate covered in CI without
+  pretending to be product savings evidence.
+- 2026-06-05: Promoted OCRL shadow evidence into the strict max-out evidence
+  gate without promoting product behavior. `benchmark-corpus --maxx-check` now
+  requires a real non-synthetic `ocrl_full_history` workload and independently
+  verifies zero product-applied OCRL rows, full-history route rows, candidate
+  capsules, archive expansions, positive OCRL would-save tokens, and
+  shadow-only rows.
+- 2026-06-05: Wired OCRL full-history shadow proof into the release-proof
+  operator runbook.
   `verify -mode release-proof-plan` now emits CLI/Desktop live-corpus plan
   commands for `ocrl_full_history`, and `verify -mode live-corpus-plan
   -category ocrl_full_history` renders metadata with the `ocrl_full_history`
-  validator plus positive saved-token evidence instead of generic low-error
-  metadata. This closes the offline runbook gap while keeping the real live
-  proof itself as the remaining promotion blocker.
+  validator plus route/candidate/archive/would-save evidence instead of generic
+  low-error metadata.
 - 2026-06-05: Reconciled live-corpus documentation with the actual max-out
   gate. The metadata example now lists OCRL and all current maxx workload
   classes, and the supported validator list includes `output_reduce_ab` so the
@@ -540,16 +508,10 @@ Current closeout split:
   Benchmarks: full archive-match apply `3842609`, `3647210`, and
   `3853674 ns/op` across three `-benchtime=1s` runs, with about `1118-1120 KB/op`
   and `1095-1100 allocs/op`.
-- 2026-06-05: Added `scripts/utils ocrl-llm-ab-proof`, the executable real-LLM
-  OCRL A/B promotion gate. It runs the actual Slimference Full-History HTTP
-  proxy path twice per scenario, baseline with Layer 2 off and OCRL with
-  `mode=max`, then compares structured model decisions. The required
-  `irrelevant_old_context` scenario must stay equivalent. The adversarial
-  `detail_dependency_guard` scenario blocks broad model-facing promotion if
-  OCRL applies and the real model loses an old-context detail. Local tests cover
-  missing-key fail-closed behavior, positive irrelevant equivalence, and
-  broad-promotion blocking via a fake OpenAI-compatible upstream. The real run
-  still requires an external OpenAI-compatible key/model.
+- 2026-06-05: Removed the exploratory external proof utility from the product
+  tool surface. The final product decision is stricter: Layer 2 is not
+  promoted; OCRL remains shadow/proof-only and does not use external model proof
+  as a safety or promotion requirement.
 - 2026-06-05: Removed duplicate selected-archive loading from exact
   full-history OCRL apply. The explicit apply path now passes its byte-equal
   selected-target proof into an internal builder option, preserving public

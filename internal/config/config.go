@@ -203,11 +203,10 @@ type CompressionConfig struct {
 	PromptOverridePath string `toml:"prompt_override_path"`
 }
 
-// OCRLConfig controls the deterministic Old Context Replacement Layer.
-// OCRL is not a classical summary layer: it can replace only old, inactive,
-// archive-backed context that passes deterministic selection, recovery, and
-// net-token gates. Codex WSS remains shadow-only until a model-facing insertion
-// surface with full live proof exists.
+// OCRLConfig controls the deterministic Old Context Recovery Ledger.
+// OCRL is not a classical summary layer and product runtime is shadow-only:
+// it records archive-backed proof telemetry without replacing model-facing
+// context.
 type OCRLConfig struct {
 	// Mode is one of off, shadow, auto, or max. Shadow computes telemetry only.
 	// Auto and max are still constrained by route eligibility and safety gates;
@@ -215,8 +214,8 @@ type OCRLConfig struct {
 	Mode string `toml:"mode"`
 	// MaxCapsules caps selected ledger capsules per OCRL candidate.
 	MaxCapsules int `toml:"max_capsules"`
-	// MinNetSavedTokens is the minimum positive net saving required before any
-	// model-facing replacement may apply on eligible full-history routes.
+	// MinNetSavedTokens is the minimum positive would-save threshold required
+	// before OCRL reports shadow proof telemetry.
 	MinNetSavedTokens int `toml:"min_net_saved_tokens"`
 	// MaxReplacementTokens caps the rendered replacement block. Zero means no
 	// explicit cap beyond positive net savings.

@@ -466,48 +466,14 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 
 	var ocrlFullHistorySummary dbg.ContextLedgerSummary
 
-	// --- 4.5 Mid-exchange summary (T99, default off) ---
-	if p.config.Compression.Tuning.MidExchangeEnabled && pipelineMode == PipelineFull && p.layer2 != nil {
-		// T99b: live summary path via Layer2.ApplyMidExchange; falls
-		// back internally to the deterministic stub when the chain
-		// has no provider or the call errors out.
-		newMsgs, saved, applied := p.layer2.ApplyMidExchange(r.Context(), compressedMessages, p.config.Compression.Tuning.MidExchangeThresholdTokens)
-		if applied {
-			compressedMessages = newMsgs
-			layer2Savings += saved
-			appliedLayers = append(appliedLayers, 2)
-			log.Debug("mid_exchange applied", "saved", saved)
-		}
-	}
-
-	// --- 5. Layer 2: OCRL full-history replacement, then legacy cached summary fallback ---
-	ocrlApplied := false
+	// --- 5. Layer 2: OCRL shadow proof only ---
 	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull && !layer2HardBypass {
 		ocrlStart := time.Now()
 		ocrl := p.applyHTTPFullHistoryOCRL(provider, sessionID, compressedMessages, effectiveWindow, reReadCount)
 		if ocrl.HasSummary {
 			ocrlFullHistorySummary = ocrl.Summary
 		}
-		if ocrl.Applied {
-			compressedMessages = ocrl.Messages
-			layer2Savings += ocrl.Saved
-			appliedLayers = append(appliedLayers, 2)
-			ocrlApplied = true
-			log.Debug("ocrl full-history applied", "saved", ocrl.Saved)
-		}
 		p.pipelineHist.L2.Record(time.Since(ocrlStart))
-	}
-	if p.isLayerEnabled(2) && p.isProviderEnabled(provider) && pipelineMode == PipelineFull && !layer2HardBypass {
-		if !ocrlApplied {
-			l2Start := time.Now()
-			if newMsgs, saved, applied := p.layer2.ApplyToMessagesSession(sessionID, compressedMessages); applied {
-				compressedMessages = newMsgs
-				layer2Savings += saved
-				appliedLayers = append(appliedLayers, 2)
-				log.Debug("layer2 applied", "saved", saved)
-			}
-			p.pipelineHist.L2.Record(time.Since(l2Start))
-		}
 	}
 
 	// --- 6. Prompt cache breakpoints (Anthropic only) ---
@@ -1095,10 +1061,8 @@ func (p *Proxy) handleCompressibleRequest(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// --- 11. Trigger async Layer 2 compression if needed ---
-	if p.isLayerEnabled(2) && !layer2HardBypass && p.layer2.ShouldTriggerCompressionSessionWindow(sessionID, messages, effectiveWindow) {
-		p.enqueueLayer2Compression(sessionID, messages, effectiveWindow)
-	}
+	// Layer 2 model-facing replacement and background summarization are retired
+	// from the product hot path. OCRL remains shadow/proof-only above.
 
 	// --- Debug decision recording ---
 	if p.debugRecorder != nil {
@@ -1559,11 +1523,9 @@ func isContextOverflow(body []byte) bool {
 }
 
 // buildAggressiveCompressedBodyContext re-runs Layer 1 with a minimal sliding
-// window, applies any already-cached Layer 2 summary read-only only when Layer 2
-// is explicitly enabled, and enqueues a fresh async Layer 2 job so the next
-// request benefits from an updated summary. Spec+.md §17.4: the overflow recover
-// path must be bounded by local CPU - no synchronous MiniMax call is permitted
-// here, because a hanging provider would hang the user-facing recover.
+// window. Layer 2 model-facing replacement is intentionally absent here: an
+// overflow recovery path must not insert summaries or archive capsules into the
+// model context.
 func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash pipelineStash) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -1576,22 +1538,6 @@ func (p *Proxy) buildAggressiveCompressedBodyContext(ctx context.Context, stash 
 	}
 	l1 := compression.NewDeterministicCompressor(&cfg)
 	msgs := l1.Compress(stash.messages).Messages
-
-	// Read-only Layer 2 pass: consume any existing cached summary only when
-	// Layer 2 itself is enabled. Never call MiniMax synchronously - that is
-	// exactly what this path must not do.
-	if p.isLayerEnabled(2) && p.layer2 != nil {
-		if applied, _, ok := p.layer2.ApplyToMessagesSession(stash.sessionID, msgs); ok {
-			msgs = applied
-		}
-	}
-
-	// Enqueue a non-blocking async Layer 2 job so the next request benefits
-	// from an up-to-date summary. Drop silently if the queue is full - we
-	// already responded.
-	if p.isLayerEnabled(2) && p.layer2 != nil && p.layer2.ShouldTriggerCompressionSession(stash.sessionID, stash.messages) {
-		p.enqueueLayer2Compression(stash.sessionID, stash.messages, 0)
-	}
 
 	return reconstructBodyFn(stash.provider, stash.origBody, msgs)
 }
