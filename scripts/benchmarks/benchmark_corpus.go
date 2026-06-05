@@ -520,6 +520,20 @@ func evaluateScenarioValidators(res CategoryResult, validators []string) []strin
 	return failures
 }
 
+var supportedScenarioValidators = []string{
+	"tool_heavy",
+	"cache_reuse",
+	"output_reduce",
+	"output_reduce_ab",
+	"planner_alignment",
+	"websocket",
+	"low_error",
+	"host_budget_ok",
+	"layer_combo_diversity",
+	"l2_summary",
+	"ocrl_full_history",
+}
+
 func hasLayerCombination(combos map[string]layerCombinationAggregate, label string) bool {
 	for key := range combos {
 		for _, part := range strings.Split(key, "+") {

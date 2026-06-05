@@ -455,3 +455,7 @@ summary remains opt-in, not default.
   gate. The metadata example now lists OCRL and all current maxx workload
   classes, and the supported validator list includes `output_reduce_ab` so the
   documented corpus contract matches the benchmark validator implementation.
+- 2026-06-05: Added a regression test that reads the live-corpus docs and
+  fails if any benchmark-supported scenario validator or promotion/maxx workload
+  is omitted. This closes the validator-list drift class that hid
+  `host_budget_ok` and `output_reduce_ab` from the operator-facing contract.

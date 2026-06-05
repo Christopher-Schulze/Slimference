@@ -2479,9 +2479,9 @@ tokens, output tokens, and errors. This is factual corpus accounting, not a
 simulated alternate-run replay. Category metadata can additionally declare
 `scenario_validators` (`tool_heavy`, `cache_reuse`, `output_reduce`,
 `output_reduce_ab`, `planner_alignment`, `websocket`, `low_error`,
-`layer_combo_diversity`, `l2_summary`, `ocrl_full_history`) so a category fails
-unless the intended optimization behavior is actually present in the captured
-request summaries; unknown validator names fail closed.
+`host_budget_ok`, `layer_combo_diversity`, `l2_summary`, `ocrl_full_history`)
+so a category fails unless the intended optimization behavior is actually
+present in the captured request summaries; unknown validator names fail closed.
 
 `scripts/benchmarks benchmark-corpus --promotion-check` is the stricter
 release/default-on gate. It ignores synthetic categories and fails closed unless

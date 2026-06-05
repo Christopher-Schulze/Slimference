@@ -400,6 +400,50 @@ func TestEvaluateCategory_ScenarioValidatorsFail(t *testing.T) {
 	}
 }
 
+func TestLiveCorpusDocsListSupportedScenarioValidators(t *testing.T) {
+	t.Parallel()
+	paths := []string{
+		filepath.Join("..", "..", "docs", "live-corpus-policy.md"),
+		filepath.Join("..", "..", "docs", "documentation.md"),
+	}
+	for _, path := range paths {
+		path := path
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			t.Parallel()
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			text := string(body)
+			for _, name := range supportedScenarioValidators {
+				if !strings.Contains(text, "`"+name+"`") {
+					t.Fatalf("%s does not document scenario validator %q", path, name)
+				}
+			}
+		})
+	}
+}
+
+func TestLiveCorpusPolicyListsPromotionAndMaxxWorkloads(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join("..", "..", "docs", "live-corpus-policy.md")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	text := string(body)
+	for _, workload := range requiredPromotionWorkloads {
+		if !strings.Contains(text, workload) {
+			t.Fatalf("%s does not document promotion workload %q", path, workload)
+		}
+	}
+	for _, workload := range requiredMaxxWorkloads {
+		if !strings.Contains(text, workload) {
+			t.Fatalf("%s does not document maxx workload %q", path, workload)
+		}
+	}
+}
+
 func TestEvaluateCategory_EvidenceGateFailures(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
