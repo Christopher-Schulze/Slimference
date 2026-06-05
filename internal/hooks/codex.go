@@ -473,7 +473,7 @@ func parseCodexHooksRoot(data []byte) (map[string]interface{}, map[string]interf
 
 func isCodexHookEvent(name string) bool {
 	switch name {
-	case "SessionStart", "PreToolUse", "PermissionRequest", "PostToolUse", "UserPromptSubmit", "Stop":
+	case "SessionStart", "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "UserPromptSubmit", "SubagentStart", "SubagentStop", "Stop":
 		return true
 	default:
 		return false

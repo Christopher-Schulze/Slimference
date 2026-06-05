@@ -133,11 +133,49 @@ func TestGroupSearchResults_shortPassthrough(t *testing.T) {
 
 func TestGroupSearchResults_nonGrepTool(t *testing.T) {
 	t.Parallel()
-	// fd produces paths, not file:line:content — should pass through
+	// Short fd path lists do not save enough to justify changing shape.
 	input := "src/main.go\nsrc/config/config.go\nsrc/handler.go\nsrc/session.go\n"
 	_, ok := TryCompactSearchOutput([]string{"fd", ".go"}, []byte(input))
 	if ok {
-		t.Fatal("fd is not grep-style, should pass through or return not-ok")
+		t.Fatal("short fd path list should pass through")
+	}
+}
+
+func TestGroupPathListResults(t *testing.T) {
+	t.Parallel()
+	var sb strings.Builder
+	for i := 0; i < 40; i++ {
+		fmt.Fprintf(&sb, "src/generated/deep/package/file_%02d.go\n", i)
+	}
+	out, ok := TryCompactSearchOutput([]string{"fd", ".go"}, []byte(sb.String()))
+	if !ok {
+		t.Fatal("large fd path list should group")
+	}
+	text := string(out)
+	if !strings.Contains(text, "[fd paths]") || !strings.Contains(text, "src/generated/deep/package/") || !strings.Contains(text, "file_39.go") {
+		t.Fatalf("unexpected grouped path list: %q", text)
+	}
+	if len(text) >= sb.Len() {
+		t.Fatalf("grouped path list should be shorter: out=%d in=%d", len(text), sb.Len())
+	}
+}
+
+func TestGroupPathListResultsFailOpen(t *testing.T) {
+	t.Parallel()
+	var leading strings.Builder
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&leading, " src/path/file_%02d.go\n", i)
+	}
+	if _, ok := TryCompactSearchOutput([]string{"find", "."}, []byte(leading.String())); ok {
+		t.Fatal("ambiguous path list line should fail open")
+	}
+	var nul strings.Builder
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(&nul, "src/path/file_%02d.go\n", i)
+	}
+	withNUL := strings.Replace(nul.String(), "file_04.go", "file_04.go\x00", 1)
+	if _, ok := TryCompactSearchOutput([]string{"find", "."}, []byte(withNUL)); ok {
+		t.Fatal("NUL-separated/invalid path list should fail open")
 	}
 }
 

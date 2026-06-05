@@ -229,6 +229,7 @@ func layer0ReducerSpecs() []layer0ReducerSpec {
 		evidenceReducer("search_output", "search", []string{"file", "line", "match text", "match count", "omitted count"}, TryCompactSearchOutput),
 		emptyEvidenceReducer("ls", "listing", []string{"empty marker", "non-empty listings full-pass"}, TryCompactLs),
 		emptyEvidenceReducer("tree", "listing", []string{"empty marker", "non-empty hierarchy full-pass"}, TryCompactTree),
+		evidenceReducer("wc", "listing", []string{"count values", "requested count units", "file path", "total row"}, TryCompactWc),
 		diagnosticReducer("lint_output", "lint", []string{"tool", "rule id", "severity", "file", "line", "message"}, TryCompactLintOutput),
 		diagnosticReducer("log_output", "log", []string{"severity", "timestamp", "error line", "count marker"}, TryCompactLogOutput),
 		evidenceReducer("format_output", "format", []string{"tool", "changed file", "failure line", "success marker"}, TryCompactFormatOutput),

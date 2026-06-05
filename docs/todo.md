@@ -35,6 +35,7 @@ No queued tasks.
 - [x] T271 Product TUI and live-corpus proof -> docs/todo/t271-product-tui-and-live-corpus-proof.md
 - [x] T272 Host resource budget max-out -> docs/todo/t272-host-resource-budget-maxx.md
 - [x] T279 Remove retired Layer 2 from code and docs -> docs/todo/t279-remove-retired-layer2.md
+- [x] T281 RTK Codex maxx parity and safe deltas -> docs/todo/t281-rtk-codex-maxx-parity.md
 
 ## Current Product Rules
 

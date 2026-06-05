@@ -511,6 +511,12 @@ func TryCompactSearchOutput(argv []string, stdout []byte) ([]byte, bool) {
 		}
 	}
 
+	if isPathListTool(argv) {
+		if out, ok := groupPathListResults(stdout, searchToolName(argv)); ok {
+			return out, true
+		}
+	}
+
 	// Non-empty: try grouped output only for grep-style tools that are expected
 	// to emit file:line:content rows. Flags such as --json, --files, -l, or -c
 	// intentionally full-pass because grouping those formats would change the
@@ -523,6 +529,74 @@ func TryCompactSearchOutput(argv []string, stdout []byte) ([]byte, bool) {
 	}
 
 	return stdout, false
+}
+
+func isPathListTool(argv []string) bool {
+	if len(argv) == 0 {
+		return false
+	}
+	b := strings.ToLower(filepath.Base(argv[0]))
+	b = strings.TrimSuffix(b, ".exe")
+	return b == "fd" || b == "find"
+}
+
+func groupPathListResults(stdout []byte, toolName string) ([]byte, bool) {
+	s := strings.TrimSpace(string(stdout))
+	if s == "" {
+		return stdout, false
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 8 {
+		return stdout, false
+	}
+
+	var sb strings.Builder
+	sb.WriteString("[")
+	sb.WriteString(toolName)
+	sb.WriteString(" paths]\n")
+	currentDir := ""
+	grouped := 0
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r")
+		if !safePathListLine(line) {
+			return stdout, false
+		}
+		idx := strings.LastIndex(line, "/")
+		if idx <= 0 || idx == len(line)-1 {
+			return stdout, false
+		}
+		dir := line[:idx+1]
+		base := line[idx+1:]
+		if dir != currentDir {
+			sb.WriteString(dir)
+			sb.WriteByte('\n')
+			currentDir = dir
+			grouped++
+		}
+		sb.WriteString("  ")
+		sb.WriteString(base)
+		sb.WriteByte('\n')
+	}
+	out := sb.String()
+	if grouped == 0 || len(out) >= len(stdout) {
+		return stdout, false
+	}
+	return []byte(out), true
+}
+
+func safePathListLine(line string) bool {
+	if line == "" || strings.TrimSpace(line) != line {
+		return false
+	}
+	for _, r := range line {
+		if r == 0 || r == '\n' || r == '\r' || r == '\t' {
+			return false
+		}
+		if r < 0x20 {
+			return false
+		}
+	}
+	return true
 }
 
 // isGrepStyleTool returns true for tools that emit "file:line:content" style output.

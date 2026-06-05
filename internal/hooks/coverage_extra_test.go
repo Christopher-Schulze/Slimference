@@ -219,6 +219,11 @@ func TestCodexHookEventAndManagedLineBranches(t *testing.T) {
 	if isCodexHookEvent("NotARealHook") {
 		t.Fatal("unknown hook event should not be accepted")
 	}
+	for _, event := range []string{"PreCompact", "PostCompact", "SubagentStart", "SubagentStop"} {
+		if !isCodexHookEvent(event) {
+			t.Fatalf("%s should be accepted as a Codex hook event", event)
+		}
+	}
 	content := "model = \"gpt-5\"\n" + slimferenceCodexHooksLine + "\n"
 	cleaned := removeManagedCodexHooksLine(content, slimferenceCodexHooksLine)
 	if strings.Contains(cleaned, slimferenceCodexHooksLine) {

@@ -58,7 +58,7 @@ payload is shorter and schema-safe.
 | Large tool outputs repeated across turns         | Exact dedup plus archive-backed near-dedup  |
 | Long sessions repeat tool/context surfaces        | Readcache, deltas, chunk recovery, cache leverage |
 | Identical requests re-cost tokens                | Response cache + prompt-cache breakpoints   |
-| Verbose shell / git / test output                | 24 built-in filters + TOML DSL (Layer 0)    |
+| Verbose shell / git / test output                | Built-in parser reducers + TOML DSL (Layer 0) |
 | Compression costs latency on small requests      | Thresholds + latency-budget guard (T54)     |
 
 ### Client support
@@ -229,7 +229,7 @@ public install path writes `~/.claude`.
    mechanism id, command family, safety class, default eligibility, and
    preserved-evidence contract before the reducer can participate in product
    dispatch. The default order covers git-status, git-diff, git-log, git-show,
-   build-output, test-output, dotnet, ruby, search, ls, tree, lint, log,
+   build-output, test-output, dotnet, ruby, search/path-list grouping, ls, tree, wc, lint, log,
    format, psql, package-manager, container, gh list, glab list, AWS JSON,
    python traceback, Terraform plan/init/validate/show, structured JSON, and
    JSON minify. Long `terraform state list` and plain human-readable
@@ -1377,12 +1377,15 @@ scripts under `~/.slimference/hooks/`, and only the official
 write `openai_base_url` or `chatgpt_base_url`.
 
 The installed events are `SessionStart`, `PreToolUse`, `PermissionRequest`,
-`PostToolUse`, `UserPromptSubmit`, and `Stop`. `PostToolUse` is Bash-only by
-default; write tools (`apply_patch`, `Edit`, `Write`) and MCP calls are not
-post-processed because their current ROI is negative without per-tool output
-contracts. `SessionStart` records hook state without injecting context unless
-`SLIMFERENCE_CODEX_HOOK_MODE=debug` is set, and `PreToolUse` does not
-block/retry Bash commands unless `SLIMFERENCE_CODEX_HOOK_MODE=aggressive` is set
+`PostToolUse`, `PreCompact`, `PostCompact`, `UserPromptSubmit`, and `Stop`.
+The legacy flat `hooks.json` migration also recognizes current Codex lifecycle
+events such as `SubagentStart` and `SubagentStop` so unrelated user hooks are
+not lost during normalization. `PostToolUse` is Bash-only by default; write
+tools (`apply_patch`, `Edit`, `Write`) and MCP calls are not post-processed
+because their current ROI is negative without per-tool output contracts.
+`SessionStart` records hook state without injecting context unless
+`SLIMFERENCE_CODEX_HOOK_MODE=debug` is set, and `PreToolUse` does not block/retry
+Bash commands unless `SLIMFERENCE_CODEX_HOOK_MODE=aggressive` is set
 deliberately.
 `PostToolUse` records turn state and archives raw Bash output. The default
 `SLIMFERENCE_CODEX_HOOK_MODE=auto` emits visible `continue:false` replacement
@@ -2579,7 +2582,7 @@ internal/daemon/              launchd plumbing (macOS).
   daemon.go                   InstallLaunchd + plist + FormatStatus (T68).
 
 internal/hooks/               Claude + Codex hook installers.
-internal/filter/              Layer-0 pipeline + 24 filters + SQLite.
+internal/filter/              Layer-0 pipeline + parser reducers + SQLite.
 internal/security/            Secrets detector + per-session suspend (T59).
 internal/tui/                 BubbleTea UI + keybinding registry (T64).
 internal/readcache/           Read-hook delta cache (T37).

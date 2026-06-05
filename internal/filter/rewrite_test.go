@@ -92,6 +92,17 @@ func TestRewriteCommand_SimpleGit(t *testing.T) {
 	}
 }
 
+func TestRewriteCommand_SimpleWc(t *testing.T) {
+	t.Parallel()
+	got, ok := RewriteCommand("wc -l internal/filter/builtin_fs.go", nil)
+	if !ok {
+		t.Fatal("expected wc filter match")
+	}
+	if got != "slimference filter wc -l internal/filter/builtin_fs.go" {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestRewriteCommand_CompoundAnd(t *testing.T) {
 	t.Parallel()
 	got, ok := RewriteCommand("git status && cargo test", nil)

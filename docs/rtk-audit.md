@@ -1,26 +1,30 @@
 # RTK Current Delta Audit (T211)
 
-Date: 2026-05-17
-Scope: current embedded RTK snapshot at `research/rtk-ai/rtk/` vs.
-Slimference Go implementation.
+Date: 2026-06-05
+Scope: current RTK upstream snapshot `0a630fe`, embedded read-only reference
+at `research/rtk-ai/rtk/`, Codex CLI `0.137.0`, and Slimference Go
+implementation.
 
-Status: current. The older T18 audit below is historical and references the
-removed `rtk-master/` path.
+Status: refreshed for the post-Layer-2 product. The older T18 audit below is
+historical and references the removed `rtk-master/` path.
 
 ## Executive Result
 
-RTK still wins on one thing conceptually: Claude Code adoption ergonomics.
-Its Claude hook rewrites Bash `PreToolUse` with `updatedInput` and its docs
-make the wrapper obvious. Slimference now matches or exceeds the equivalent
-compression layer for Codex because it has the RTK TOML catalog, broader Go
-compactors, proxy-side HTTP/WSS mutation, and Codex tool-output Layer-0
-adoption.
+RTK still wins on Claude Code adoption ergonomics. Its Claude hook rewrites
+Bash `PreToolUse` with `updatedInput`, and its docs make wrapper usage
+obvious. For Codex it does not have an equivalent programmatic hook path:
+current RTK Codex support is prompt-level awareness. Slimference matches or
+exceeds the in-scope compression layer for Codex because it has the RTK TOML
+catalog, broader Go compactors, Codex hook signals, proxy-side HTTP/WSS
+mutation, and Codex tool-output Layer-0 adoption.
 
 No RTK compression rule is missing from Slimference's bundled TOML catalog:
 both trees currently contain 59 `.toml` filter files, and the filename diff is
-empty. RTK's 61 Rust `src/cmds/**/*.rs` command files map to Slimference's 47
-Go `builtin_*.go` files plus generic build/test/lint/search/package/container
-dispatchers.
+empty. RTK's Rust command files map to Slimference's `builtin_*.go` files plus
+generic build/test/lint/search/package/container dispatchers. The current
+accepted deltas from this refresh are `wc` compaction and safe large
+`find`/`fd` path-list grouping: both preserve requested evidence, require a
+shorter result, and fail open on ambiguous shapes.
 
 ## Current Matrix
 
@@ -31,6 +35,7 @@ dispatchers.
 | Claude Bash `PreToolUse.updatedInput` rewrite | RTK `hooks/claude/rtk-rewrite.sh`; Slimference `internal/hooks/claude.go` | Slimference retains reference code, but product entrypoints are parked by T217. Use RTK for Claude Code now. | parked |
 | Claude PostTool output replacement | RTK does not ship a dedicated `updatedToolOutput` posttool path in the inspected snapshot | Slimference retains `claudeposttool` handler code for reference, but the public command is not exposed in product mode. | parked |
 | Codex adoption | RTK `hooks/codex/rtk-awareness.md` is instruction-based | Slimference has Codex hooks plus transparent SNI MITM, HTTP Responses mutation, WSS Phase-F mutation, and proxy Layer-0 tool-output adoption | already-better |
+| Codex hook event coverage | Codex CLI `0.137.0` exposes lifecycle events including `PreCompact`, `PostCompact`, `SubagentStart`, and `SubagentStop` | Slimference installs pre/post compact hooks and now normalizes those event names when migrating legacy flat `hooks.json` | parity |
 | Rewrite compound operators, pipes, env prefixes, absolute paths | RTK `src/discover/registry.rs` tests cover compounds, pipes, env prefixes, absolute paths, git global options | Slimference covers compounds, pipes, env prefixes, absolute paths via `filepath.Base`, explicit opt-out; lacks RTK transparent-prefix config | parity with one port-later gap |
 | Transparent wrapper prefixes (`shadowenv exec --`, `direnv exec .`, `docker exec app`) | RTK `transparent_prefixes` registry support | Slimference does not expose configurable transparent prefixes | port-later |
 | Explicit disabled env var | RTK `RTK_DISABLED=1`; Slimference `SLIMFERENCE_DISABLED=1` | Equivalent local opt-out under Slimference naming | parity |
@@ -38,6 +43,9 @@ dispatchers.
 | Observability | RTK SQLite tracking and gain; Slimference filter.db, gain/savings, admin state, WSS counters | Slimference has more surfaces, especially proxy/WSS counters | already-better |
 | Fail-open | RTK raw proxy, tee, hook version guard; Slimference tee, panic guards, timeouts, schema-drift byte bridge, daemon lifecycle revert | Slimference stronger for Codex live traffic | already-better |
 | Discover/learn/advisory tooling | RTK `discover/` and `learn/` | Not hot-path savings; Slimference has stats/gain and T210/T211 docs | not-needed |
+| `wc` compact output | RTK `src/cmds/system/wc_cmd.rs` strips alignment and common path prefixes | Slimference now has safe `TryCompactWc` Layer-0 reducer and rewrite coverage | ported |
+| Large `find`/`fd` path-list output | RTK groups file search results by directory, but its command executes a new gitignore-aware walk | Slimference ports only the safe output half: group large actual path lists by repeated directory prefix, preserve every path component and order, fail-open on ambiguous lines | ported-safe-subset |
+| Aggressive code-signature summaries | RTK `rtk read -l aggressive` keeps imports/signatures and removes implementation bodies; default `rtk read` level is `none` | Rejected as default for Codex. It may save many tokens but can remove body details GPT-5.x needs later. Reconsider only as explicit scan/repeated-read mode with exact archive recovery plus live quality proof. | reject-default |
 
 ## Port Queue
 
@@ -62,10 +70,11 @@ parks all public activation paths so the product can focus on Codex
 CLI/Desktop.
 
 For Codex CLI, RTK cannot replace Slimference's transparent MITM approach:
-Codex does not reliably honor `updatedInput`, and Codex Desktop/WSS traffic is
-not controllable by a shell wrapper. The correct Codex-max path remains
+Codex `updatedInput` is not a proven transparent rewrite contract in the
+current Slimference evidence set, and Codex Desktop/WSS traffic is not
+controllable by a shell wrapper. The correct Codex-max path remains
 Slimference's two surfaces: Codex hooks for lifecycle/tool signals plus
-transparent MITM for HTTP/WSS request mutation.
+scoped/proxy HTTP/WSS request mutation.
 
 ---
 

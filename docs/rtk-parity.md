@@ -1,6 +1,6 @@
 # RTK Parity Summary
 
-Date: 2026-04-19
+Date: 2026-06-05
 
 This is the short closure companion to `docs/rtk-audit.md`.
 
@@ -9,6 +9,13 @@ This is the short closure companion to `docs/rtk-audit.md`.
 - Trust-model port: `internal/filter/trust.go`
 - Terraform filter coverage: `internal/filter/builtin_terraform.go`
 - Python traceback coverage: `internal/filter/builtin_python.go`
+- Current RTK TOML catalog parity: 59 RTK filter files, 59 Slimference bundled
+  TOML files, filename diff empty.
+- Safe RTK-inspired `wc` compaction: deterministic count/unit/path formatting
+  with shorter-than-original and fail-open guards.
+- Safe RTK-inspired `find`/`fd` path-list grouping: no command replacement,
+  no result cap, preserves every path component and order, fail-open on
+  ambiguous lines.
 
 ## Already Covered Better in Slimference
 
@@ -16,6 +23,9 @@ This is the short closure companion to `docs/rtk-audit.md`.
   stripping all have first-class Go equivalents.
 - Slimference also adds the proxy, active Layer 0/1/3/4 stack, TUI, daemon service,
   prompt-cache visibility, and operating modes, which RTK never had.
+- Codex support is materially stronger in Slimference: current RTK Codex
+  support is prompt-level awareness, while Slimference owns Codex hooks plus
+  HTTP/WSS proxy mutation and Phase-F reducers.
 
 ## Explicitly Not Ported
 
@@ -23,9 +33,14 @@ This is the short closure companion to `docs/rtk-audit.md`.
 - `learn/`
 - niche long-tail TOML filters with little hot-path value
 - `openclaw/` as a separate companion tool
+- RTK aggressive code-signature summaries as default product behavior; they
+  remove implementation details and therefore violate Slimference's default
+  drawdown bar unless exact recovery and live quality proof exist.
 
 ## Outcome
 
 - RTK has been reduced to an audit/reference exercise, not a live dependency.
 - The valuable in-scope ideas are already landed in Slimference.
-- The repo no longer needs the vendored RTK tree in HEAD.
+- `research/rtk-ai/rtk/` remains an embedded read-only foreign reference per
+  `AGENTS.md`; it is not a live dependency and must not be edited as part of
+  Slimference work.

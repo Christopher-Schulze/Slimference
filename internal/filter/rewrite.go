@@ -27,7 +27,7 @@ var filterableCommands = map[string]bool{
 	"grep": true, "rg": true, "ag": true, "ack": true,
 	// Files (F06, F11)
 	"cat": true, "head": true, "tail": true, "ls": true, "tree": true,
-	"find": true, "fd": true, "bat": true,
+	"find": true, "fd": true, "bat": true, "wc": true,
 	// Package managers (F12)
 	"pip": true, "pip3": true, "composer": true, "gem": true, "bundle": true,
 	// Container (F13)

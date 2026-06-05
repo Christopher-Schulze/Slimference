@@ -70,3 +70,41 @@ func TestTryCompactLs_onlyTotalLinesAreEmpty(t *testing.T) {
 		t.Errorf("only-total lines: want '[ls] empty\\n', got ok=%v out=%q", ok, out)
 	}
 }
+
+func TestTryCompactWc(t *testing.T) {
+	t.Parallel()
+	out, ok := TryCompactWc([]string{"wc"}, []byte("      30      96     978 scripts/find_duplicate_attrs.py\n"))
+	if !ok || string(out) != "scripts/find_duplicate_attrs.py: 30L 96W 978B\n" {
+		t.Fatalf("full wc: ok=%v out=%q", ok, out)
+	}
+
+	lines, ok := TryCompactWc([]string{"wc", "-l"}, []byte("      300 src/generated/very/long/path/main.go\n"))
+	if !ok || string(lines) != "src/generated/very/long/path/main.go: 300L\n" {
+		t.Fatalf("wc -l: ok=%v out=%q", ok, lines)
+	}
+
+	multi, ok := TryCompactWc([]string{"wc", "-lw"}, []byte("      30      96 src/main.rs\n      50     120 src/lib.rs\n      80     216 total\n"))
+	if !ok {
+		t.Fatal("multi-file wc should compact")
+	}
+	want := "[wc prefix=src/]\nmain.rs: 30L 96W\nlib.rs: 50L 120W\ntotal: 80L 216W\n"
+	if string(multi) != want {
+		t.Fatalf("multi-file wc = %q, want %q", multi, want)
+	}
+}
+
+func TestTryCompactWcFailOpen(t *testing.T) {
+	t.Parallel()
+	if _, ok := TryCompactWc([]string{"wc", "--files0-from=list"}, []byte("1 file\n")); ok {
+		t.Fatal("unsupported wc flag must fail open")
+	}
+	if _, ok := TryCompactWc([]string{"wc", "-l"}, []byte("not a count\n")); ok {
+		t.Fatal("unparseable wc output must fail open")
+	}
+	if _, ok := TryCompactWc([]string{"wc", "-l"}, []byte("123abc\n")); ok {
+		t.Fatal("wc count without a separator must fail open")
+	}
+	if _, ok := TryCompactWc([]string{"cat"}, []byte("1 file\n")); ok {
+		t.Fatal("non-wc command must fail open")
+	}
+}

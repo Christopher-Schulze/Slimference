@@ -118,6 +118,8 @@ The installed hook set is:
 | `PreToolUse` | `slimference rewrite` / `slimference readhook` | Read cache stays active; Bash block-and-rerun rewrite only with `SLIMFERENCE_CODEX_HOOK_MODE=aggressive` |
 | `PermissionRequest` | `slimference codexhook permission-request` | map Layer-0 deny/ask policy into Codex allow/deny decisions |
 | `PostToolUse` | `slimference posttool` | archive raw output and fail-open; default `auto` replaces only Bash outputs with >=600 original tokens, >=400 saved tokens, and >=45% savings; force with `SLIMFERENCE_CODEX_HOOK_MODE=compact`/`aggressive`, disable visible replacement with `silent` |
+| `PreCompact` | `slimference codexhook pre-compact` | record compaction-boundary signal before Codex compaction; no model-facing context injection |
+| `PostCompact` | `slimference codexhook post-compact` | record compaction boundary after Codex compaction for telemetry/proof correlation |
 | `UserPromptSubmit` | `slimference codexhook user-prompt-submit` | mark a new user turn for downstream state ownership |
 | `Stop` | `slimference codexhook stop` | flush/checkpoint hook-side telemetry |
 
