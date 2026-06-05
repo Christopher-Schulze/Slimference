@@ -1457,6 +1457,82 @@ func TestRunPipeline_CompactsStderr(t *testing.T) {
 	}
 }
 
+func TestRunPipeline_NonZeroStderrDoesNotEmitStdoutOK(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip()
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "cargo")
+	script := `#!/bin/sh
+cat >&2 <<'OUT'
+    Checking demo v0.1.0 (/tmp/demo)
+     Running ` + "`" + `CARGO=/toolchain/bin/cargo /toolchain/bin/rustc --crate-name demo src/main.rs --error-format=json --json=diagnostic-rendered-ansi` + "`" + `
+error[E0308]: mismatched types
+ --> src/main.rs:2:22
+  |
+2 |     let value: i32 = "not an integer";
+  |                ---   ^^^^^^^^^^^^^^^^ expected ` + "`" + `i32` + "`" + `, found ` + "`" + `&str` + "`" + `
+  |                |
+  |                expected due to this
+
+For more information about this error, try ` + "`" + `rustc --explain E0308` + "`" + `.
+error: could not compile ` + "`" + `demo` + "`" + ` (bin "demo") due to 1 previous error
+
+Caused by:
+  process didn't exit successfully: ` + "`" + `/toolchain/bin/rustc --crate-name demo src/main.rs --error-format=json --json=diagnostic-rendered-ansi` + "`" + ` (exit status: 1)
+OUT
+exit 101
+`
+	if err := os.WriteFile(bin, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	pr := RunPipeline(context.Background(), dir, []string{bin, "check", "-vv"}, 0)
+	if pr.Err != nil {
+		t.Fatal(pr.Err)
+	}
+	if pr.Code != 101 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", pr.Code, pr.Stdout, pr.Stderr)
+	}
+	if strings.Contains(string(pr.Stdout), "[cargo check] ok") || strings.TrimSpace(string(pr.Stdout)) != "" {
+		t.Fatalf("stdout must not fake success on stderr failure: %q", pr.Stdout)
+	}
+	stderr := string(pr.Stderr)
+	for _, want := range []string{"[cargo check] FAILED", "error[E0308]", "let value: i32", "expected due to this", "could not compile"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q: %q", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "Running `CARGO=") {
+		t.Fatalf("stderr kept neutral verbose command noise: %q", stderr)
+	}
+	if pr.OutputTokens >= pr.InputTokens {
+		t.Fatalf("expected savings, in=%d out=%d stderr=%q", pr.InputTokens, pr.OutputTokens, stderr)
+	}
+}
+
+func TestRunPipeline_EmptySuccessCompactsOnlyStdout(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip()
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "cargo")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	pr := RunPipeline(context.Background(), dir, []string{bin, "check"}, 0)
+	if pr.Err != nil {
+		t.Fatal(pr.Err)
+	}
+	if strings.TrimSpace(string(pr.Stdout)) != "[cargo check] ok" {
+		t.Fatalf("stdout=%q", pr.Stdout)
+	}
+	if strings.TrimSpace(string(pr.Stderr)) != "" {
+		t.Fatalf("stderr must stay empty on empty success: %q", pr.Stderr)
+	}
+}
+
 // TestRunPipeline_startError covers the runErr!=nil early return in RunPipeline.
 func TestRunPipeline_startError(t *testing.T) {
 	t.Parallel()

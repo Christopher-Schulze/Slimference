@@ -3,6 +3,7 @@ package filter
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/slimference/slimference/internal/compression"
 )
@@ -94,10 +95,20 @@ func RunPipeline(ctx context.Context, workDir string, argv []string, passthrough
 	}
 
 	stripped := compression.StripANSICodes(string(out))
-	pr.Stdout = applyLayer0AfterANSI(workDir, argv, []byte(stripped))
-	pr.Stdout = TruncateStdoutWithHint(pr.Stdout, passthroughMaxRunes)
 	strippedErr := compression.StripANSICodes(string(errOut))
-	pr.Stderr = applyLayer0AfterANSI(workDir, argv, []byte(strippedErr))
+	stdoutEmpty := strings.TrimSpace(stripped) == ""
+	stderrEmpty := strings.TrimSpace(strippedErr) == ""
+	if stdoutEmpty && (code != 0 || !stderrEmpty) {
+		pr.Stdout = []byte(stripped)
+	} else {
+		pr.Stdout = applyLayer0AfterANSI(workDir, argv, []byte(stripped))
+	}
+	pr.Stdout = TruncateStdoutWithHint(pr.Stdout, passthroughMaxRunes)
+	if stderrEmpty {
+		pr.Stderr = []byte(strippedErr)
+	} else {
+		pr.Stderr = applyLayer0AfterANSI(workDir, argv, []byte(strippedErr))
+	}
 	pr.Stderr = TruncateStdoutWithHint(pr.Stderr, passthroughMaxRunes)
 
 	pr.InputTokens = estimateTokensFromByteSlices(out, errOut)

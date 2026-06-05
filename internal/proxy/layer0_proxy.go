@@ -891,27 +891,54 @@ func compactProxyLayer0Text(commandLine, text string, ctx filter.FileReadContext
 }
 
 func compactProxyLayer0TextDetailed(commandLine, text string, ctx filter.FileReadContext) (string, bool, proxyLayer0Mechanism) {
-	out, changed := compactCodexExecEnvelope(commandLine, text, ctx)
+	filterWorkDir, filterCommandLine := proxyLayer0FilterCommandForCompaction(commandLine)
+	out, changed := compactCodexExecEnvelopeWithWorkDir(filterWorkDir, filterCommandLine, text, ctx)
 	if changed {
 		return out, true, proxyLayer0MechanismCodexEnvelope
 	}
 	if inferred := proxyInferCommandLineFromToolResult(text); inferred != "" && inferred != commandLine {
-		out, changed = compactCodexExecEnvelope(inferred, text, ctx)
+		inferredWorkDir, inferredCommandLine := proxyLayer0FilterCommandForCompaction(inferred)
+		out, changed = compactCodexExecEnvelopeWithWorkDir(inferredWorkDir, inferredCommandLine, text, ctx)
 		if changed {
 			return out, true, proxyLayer0MechanismCodexEnvelope
 		}
 	}
-	compacted, changed := filter.CompactCapturedOutputWithContext("", commandLine, text, 0, ctx)
+	compacted, changed := filter.CompactCapturedOutputWithContext(filterWorkDir, filterCommandLine, text, 0, ctx)
 	if changed {
 		return string(compacted), true, proxyLayer0MechanismCapturedOut
 	}
 	if inferred := proxyInferCommandLineFromToolResult(text); inferred != "" && inferred != commandLine {
-		compacted, changed = filter.CompactCapturedOutputWithContext("", inferred, text, 0, ctx)
+		inferredWorkDir, inferredCommandLine := proxyLayer0FilterCommandForCompaction(inferred)
+		compacted, changed = filter.CompactCapturedOutputWithContext(inferredWorkDir, inferredCommandLine, text, 0, ctx)
 		if changed {
 			return string(compacted), true, proxyLayer0MechanismCapturedOut
 		}
 	}
 	return "", false, ""
+}
+
+func proxyLayer0FilterCommandForCompaction(commandLine string) (string, string) {
+	commandLine = strings.TrimSpace(commandLine)
+	if commandLine == "" {
+		return "", ""
+	}
+	workdir, inner, ok := splitLeadingCDCommand(commandLine)
+	if ok && proxyLayer0SafeInnerFilterCommand(inner) {
+		return workdir, inner
+	}
+	return "", commandLine
+}
+
+func proxyLayer0SafeInnerFilterCommand(commandLine string) bool {
+	if strings.TrimSpace(commandLine) == "" {
+		return false
+	}
+	for _, marker := range []string{"&&", "||", ";", "|", "\n", "\r", "`", "$(", "<", ">"} {
+		if strings.Contains(commandLine, marker) {
+			return false
+		}
+	}
+	return len(filter.ArgvForCapturedOutput(commandLine)) > 0
 }
 
 func proxyInferCommandLineFromToolResult(text string) string {
@@ -1038,11 +1065,15 @@ func archiveProxyCapturedOutput(sessionID, commandLine, compacted, original stri
 }
 
 func compactCodexExecEnvelope(commandLine, text string, ctx filter.FileReadContext) (string, bool) {
+	return compactCodexExecEnvelopeWithWorkDir("", commandLine, text, ctx)
+}
+
+func compactCodexExecEnvelopeWithWorkDir(workDir, commandLine, text string, ctx filter.FileReadContext) (string, bool) {
 	header, payload, ok := splitCodexExecEnvelope(text)
 	if !ok {
 		return "", false
 	}
-	compacted, changed := filter.CompactCapturedOutputWithContext("", commandLine, payload, 0, ctx)
+	compacted, changed := filter.CompactCapturedOutputWithContext(workDir, commandLine, payload, 0, ctx)
 	if !changed {
 		return "", false
 	}
@@ -1586,24 +1617,10 @@ func normalizeLayer0CommandLine(commandLine string) string {
 }
 
 func normalizeLeadingCDCommand(commandLine string) string {
-	idx := strings.Index(commandLine, "&&")
-	if idx < 0 {
+	workdir, inner, ok := splitLeadingCDCommand(commandLine)
+	if !ok {
 		return ""
 	}
-	prefix := strings.TrimSpace(commandLine[:idx])
-	rest := strings.TrimSpace(commandLine[idx+len("&&"):])
-	if rest == "" {
-		return ""
-	}
-	argv := filter.ArgvForCapturedOutput(prefix)
-	if len(argv) != 2 || strings.ToLower(filepath.Base(argv[0])) != "cd" {
-		return ""
-	}
-	workdir := proxyCleanAbsWorkdir(argv[1])
-	if workdir == "" {
-		return ""
-	}
-	inner := normalizeLayer0CommandLine(rest)
 	if filter.ReadPathFromCommandLine(inner) != "" {
 		return applyWorkdirToReadCommand(inner, workdir)
 	}
@@ -1614,6 +1631,31 @@ func normalizeLeadingCDCommand(commandLine string) string {
 		return search
 	}
 	return ""
+}
+
+func splitLeadingCDCommand(commandLine string) (string, string, bool) {
+	idx := strings.Index(commandLine, "&&")
+	if idx < 0 {
+		return "", "", false
+	}
+	prefix := strings.TrimSpace(commandLine[:idx])
+	rest := strings.TrimSpace(commandLine[idx+len("&&"):])
+	if rest == "" {
+		return "", "", false
+	}
+	argv := filter.ArgvForCapturedOutput(prefix)
+	if len(argv) != 2 || strings.ToLower(filepath.Base(argv[0])) != "cd" {
+		return "", "", false
+	}
+	workdir := proxyCleanAbsWorkdir(argv[1])
+	if workdir == "" {
+		return "", "", false
+	}
+	inner := normalizeLayer0CommandLine(rest)
+	if strings.TrimSpace(inner) == "" {
+		return "", "", false
+	}
+	return workdir, inner, true
 }
 
 func applyWorkdirToGitCommand(commandLine, workdir string) string {

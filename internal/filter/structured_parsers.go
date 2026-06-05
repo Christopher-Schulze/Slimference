@@ -8,27 +8,27 @@ import (
 type structuredParser struct {
 	name    string
 	matches func(argv []string) bool
-	parse   func(stdout string) (compact string, hadFailures bool, ok bool)
+	parse   func(argv []string, stdout string) (compact string, hadFailures bool, ok bool)
 }
 
 var structuredParsers = []structuredParser{
-	{"go_build", isGoBuildOrVetArgv, parseGoErrors},
-	{"cargo_build", isCargoBuildOrCheckArgv, parseCargoErrors},
-	{"gcc_clang", isGccClangArgv, parseGccClangErrors},
-	{"typescript", isTypeScriptDiagnosticArgv, parseTypeScriptDiagnostics},
-	{"svelte", isSvelteDiagnosticArgv, parseSvelteDiagnostics},
-	{"frontend", isFrontendDiagnosticArgv, parseFrontendDiagnostics},
-	{"python", isPythonDiagnosticArgv, parsePythonDiagnostics},
-	{"zig", isZigDiagnosticArgv, parseZigDiagnostics},
-	{"sql", isSQLDiagnosticArgv, parseSQLDiagnostics},
-	{"markdown", isMarkdownDiagnosticArgv, parseMarkdownDiagnostics},
-	{"ecosystem", isPracticalEcosystemDiagnosticArgv, parsePracticalEcosystemDiagnostics},
+	{"go_build", isGoBuildOrVetArgv, parseStructuredWithoutArgv(parseGoErrors)},
+	{"cargo_build", isCargoBuildOrCheckArgv, parseCargoErrorsForArgv},
+	{"gcc_clang", isGccClangArgv, parseStructuredWithoutArgv(parseGccClangErrors)},
+	{"typescript", isTypeScriptDiagnosticArgv, parseStructuredWithoutArgv(parseTypeScriptDiagnostics)},
+	{"svelte", isSvelteDiagnosticArgv, parseStructuredWithoutArgv(parseSvelteDiagnostics)},
+	{"frontend", isFrontendDiagnosticArgv, parseStructuredWithoutArgv(parseFrontendDiagnostics)},
+	{"python", isPythonDiagnosticArgv, parseStructuredWithoutArgv(parsePythonDiagnostics)},
+	{"zig", isZigDiagnosticArgv, parseStructuredWithoutArgv(parseZigDiagnostics)},
+	{"sql", isSQLDiagnosticArgv, parseStructuredWithoutArgv(parseSQLDiagnostics)},
+	{"markdown", isMarkdownDiagnosticArgv, parseStructuredWithoutArgv(parseMarkdownDiagnostics)},
+	{"ecosystem", isPracticalEcosystemDiagnosticArgv, parseStructuredWithoutArgv(parsePracticalEcosystemDiagnostics)},
 }
 
 func ParseFailures(argv []string, stdout string) (string, bool) {
 	for _, p := range structuredParsers {
 		if p.matches(argv) {
-			compact, hadFailures, ok := p.parse(stdout)
+			compact, hadFailures, ok := p.parse(argv, stdout)
 			if !ok {
 				continue
 			}
@@ -39,6 +39,12 @@ func ParseFailures(argv []string, stdout string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func parseStructuredWithoutArgv(fn func(string) (string, bool, bool)) func([]string, string) (string, bool, bool) {
+	return func(_ []string, stdout string) (string, bool, bool) {
+		return fn(stdout)
+	}
 }
 
 func isGoBuildOrVetArgv(argv []string) bool {

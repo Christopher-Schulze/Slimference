@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -190,8 +191,6 @@ func exportWSSProofCorpus(matrixPath, corpusRoot string) (wssProofCorpusExportRe
 	sort.Strings(keys)
 	for _, key := range keys {
 		cat := categories[key]
-		cat.metadata.ExpectedRequestCount = len(cat.records)
-		tuneCorpusMetadataForWorkload(&cat.metadata, cat.records)
 		if err := writeWSSProofCorpusCategory(corpusRoot, key, *cat); err != nil {
 			return report, err
 		}
@@ -351,6 +350,13 @@ func writeWSSProofCorpusCategory(root, key string, cat wssProofCorpusExportCateg
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create corpus category %s: %w", dir, err)
 	}
+	existing, err := readExistingWSSProofCorpusRecords(dir)
+	if err != nil {
+		return err
+	}
+	cat.records = mergeWSSProofCorpusRecords(existing, cat.records)
+	cat.metadata.ExpectedRequestCount = len(cat.records)
+	tuneCorpusMetadataForWorkload(&cat.metadata, cat.records)
 	metaPath := filepath.Join(dir, "metadata.json")
 	metaData, err := json.MarshalIndent(cat.metadata, "", "  ")
 	if err != nil {
@@ -379,6 +385,68 @@ func writeWSSProofCorpusCategory(root, key string, cat wssProofCorpusExportCateg
 		}
 	}
 	return nil
+}
+
+func readExistingWSSProofCorpusRecords(dir string) ([]wssProofCorpusSummary, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read corpus category %s: %w", dir, err)
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, "session_wss_proof_export") && strings.HasSuffix(name, ".jsonl") {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	var out []wssProofCorpusSummary
+	for _, name := range names {
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read corpus export %s: %w", path, err)
+		}
+		line := strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0])
+		if line == "" {
+			continue
+		}
+		var rec wssProofCorpusSummary
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			return nil, fmt.Errorf("decode corpus export %s: %w", path, err)
+		}
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
+func mergeWSSProofCorpusRecords(existing, incoming []wssProofCorpusSummary) []wssProofCorpusSummary {
+	out := make([]wssProofCorpusSummary, 0, len(existing)+len(incoming))
+	seen := map[string]struct{}{}
+	add := func(rec wssProofCorpusSummary) {
+		key := strings.TrimSpace(rec.RequestID)
+		if key == "" {
+			key = rec.Timestamp.Format(time.RFC3339Nano) + ":" + strconv.Itoa(rec.Tokens.Saved)
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, rec)
+	}
+	for _, rec := range existing {
+		add(rec)
+	}
+	for _, rec := range incoming {
+		add(rec)
+	}
+	return out
 }
 
 func removeStaleWSSProofCorpusExports(dir string) error {

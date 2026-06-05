@@ -1906,7 +1906,11 @@ be called complete, default-safe, and production-grade.
   Terraform list/value cap risk was removed from default-auto: `terraform state
   list` and plain `terraform output` full-pass unless a future route-specific
   archive-backed reducer owns exact recovery. Non-empty healthy container
-  tables now full-pass too; only diagnostic attention rows are compacted.
+  tables now full-pass too; only diagnostic attention rows are compacted. Fresh
+  CLI WSS proof now covers cd-wrapped `cargo check -vv`: `codex_exec_envelope=1`,
+  `lost=0`, zero safety counters, 934 billable input tokens saved, and the
+  exported `cli_test_failure` corpus category now gates two real rows with
+  12081 saved tokens.
   Detail:
   `docs/todo/t260-layer0-parser-frontier-maxx.md`
 - [x] **T261** Layer 1 exact/reversible safety-tier max-out - Layer 1 now has a
@@ -2215,8 +2219,10 @@ drawdowns; only runtime model/workflow degradation counts as drawdown.
   default TOML/log caps retain late operational failures, auth/permission
   refusals, unhealthy/crash/OOM signals, and destructive infra-state evidence.
   Healthy non-empty Docker/Kubernetes tables full-pass because names/statuses
-  are requested evidence. Remaining closeout is live-only breadth: Desktop and
-  real-workload rows for parser families not yet represented in the corpus.
+  are requested evidence. Cd-wrapped Cargo failures are now live-proven through
+  Codex WSS and exported into the corpus without replacing stronger existing
+  evidence. Remaining closeout is live-only breadth: Desktop and real-workload
+  rows for parser families not yet represented in the corpus.
 - [x] **T261 Layer 1 max-out closeout** - dedicated Layer-1/full-history corpus
   round-trip proof is implemented. The corpus exercises archive-backed
   comment-strip plus near-dedup across historical messages, reads every emitted

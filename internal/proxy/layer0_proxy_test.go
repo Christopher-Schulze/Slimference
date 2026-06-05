@@ -338,6 +338,45 @@ func TestCompactProxyLayer0TextCodexExecEnvelope(t *testing.T) {
 	}
 }
 
+func TestCompactProxyLayer0TextCDWrappedCargoCheckEnvelope(t *testing.T) {
+	t.Parallel()
+
+	payload := strings.Join([]string{
+		"    Checking slimference-cargo-proof v0.1.0 (/tmp/slimference-cargo-proof)",
+		"     Running CARGO=/opt/homebrew/bin/cargo CARGO_CRATE_NAME=slimference_cargo_proof rustc --crate-name slimference_cargo_proof src/main.rs",
+		"error[E0308]: mismatched types",
+		" --> src/main.rs:2:22",
+		"  |",
+		"2 |     let value: i32 = \"not an integer\";",
+		"  |                ---   ^^^^^^^^^^^^^^^^ expected `i32`, found `&str`",
+		"  |                |",
+		"  |                expected due to this",
+		"",
+		"error: could not compile `slimference-cargo-proof` (bin \"slimference-cargo-proof\") due to 1 previous error",
+		"",
+	}, "\n")
+	envelope := "Chunk ID: cargo\nWall time: 0.0000 seconds\nProcess exited with code 101\nOriginal token count: 1200\nOutput:\n" + payload
+
+	out, changed, mechanism := compactProxyLayer0TextDetailed("cd /tmp/slimference-cargo-proof && cargo check -vv", envelope, filter.FileReadContext{Mode: "scan"})
+	if !changed || mechanism != proxyLayer0MechanismCodexEnvelope {
+		t.Fatalf("expected cd-wrapped cargo envelope savings, changed=%v mechanism=%q out=%q", changed, mechanism, out)
+	}
+	for _, want := range []string{
+		"Process exited with code 101",
+		"[cargo check] FAILED",
+		"error[E0308]: mismatched types",
+		"let value: i32 = \"not an integer\"",
+		"expected due to this",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("compacted cargo output missing %q: %q", want, out)
+		}
+	}
+	if strings.Contains(out, "Running CARGO=") {
+		t.Fatalf("verbose cargo runner noise leaked: %q", out)
+	}
+}
+
 func TestReduceCodexLayer0InfersCodexEnvelopeCommandWhenToolUseMissing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 

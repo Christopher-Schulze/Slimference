@@ -56,11 +56,14 @@ The capture flow is intentionally manual. Slimference does not auto-capture sess
    ```
 
    The exporter writes only scrubbed `RequestSummary` counters and
-   `metadata.json` files. Rows with safety issues, unsupported workload classes,
-   or no economic signal are skipped rather than being turned into fake proof.
-   Exported proof rows gate on absolute live saved-token counters or
-   mechanism-specific counters because proof-matrix rows do not preserve every
-   original-token denominator needed for a real percentage claim.
+   `metadata.json` files. Existing category exports are loaded, deduplicated by
+   request id, and rewritten with incoming rows appended so a weaker new proof
+   cannot replace a stronger existing category gate. Rows with safety issues,
+   unsupported workload classes, or no economic signal are skipped rather than
+   being turned into fake proof. Exported proof rows gate on absolute live
+   saved-token counters or mechanism-specific counters because proof-matrix rows
+   do not preserve every original-token denominator needed for a real percentage
+   claim.
    `wss-proof-clean-matrix` is the release-claim exporter. It reads proof rows
    only, normalizes stale expected-reducer labels only when the same row has
    current live reducer evidence, and writes only rows with host budget OK, zero

@@ -213,6 +213,23 @@ These are promotion targets, not claims:
   Healthy `kubectl -o json` lists also full-pass; only unhealthy attention
   items are summarized. Focused tests fail if these healthy non-empty surfaces
   become lossy again.
+- 2026-06-05: Closed a Codex WSS Layer-0 miss for `cd <repo> && cargo check -vv`
+  tool outputs. The shell-wrapper command stays intact for repo-safe cache and
+  dependency keys, while the parser receives the extracted workdir plus inner
+  Cargo command for compaction only. Cargo diagnostics now preserve the full
+  error block, including source line, caret span, and "expected due to this",
+  while dropping neutral verbose `Running CARGO=...` noise. The local wrapper
+  path also no longer emits a fake stdout `[cargo check] ok` when stderr holds a
+  non-zero failure. Focused tests cover non-zero stderr, Cargo check labels, and
+  cd-wrapped Codex envelopes. Live proof:
+  `/tmp/slimference-t260-cargo-vv-cd-testfailure-20260605T101244Z/matrix.jsonl`
+  passed `wss-proof-matrix --require-live-token-delta` with one CLI row,
+  `codex_exec_envelope=1`, `host_budget_ok`, `lost=0`, zero
+  parse/degrade/compression errors, 934 billable input tokens saved, and 3183
+  replay bytes saved. The content-free row was exported additively into
+  `tests/fixtures/live_corpus/cli_test_failure/session_wss_proof_export_002.jsonl`;
+  `benchmark-corpus --promotion-check` and `--maxx-check` pass with
+  `cli_test_failure` now gating two real rows and 12081 saved tokens.
 
 ## Done
 

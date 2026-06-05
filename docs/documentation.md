@@ -2410,6 +2410,9 @@ sessions, and real `live_operator` coverage for `repeat_read`, `ranged_read`,
 re-read-canary budget, explicit latency budget, and a positive savings floor.
 This keeps unit tests and synthetic fixtures useful while preventing a default
 promotion from vague or one-sided evidence.
+`wss-proof-export-corpus` appends deduplicated content-free proof rows to
+existing categories and recalculates category gates from the combined records,
+so new weaker rows cannot replace stronger existing proof.
 
 `go run ./scripts/verify -mode release-proof-plan` prints the deterministic
 operator ceremony for a release/default-on decision. The runbook starts from a

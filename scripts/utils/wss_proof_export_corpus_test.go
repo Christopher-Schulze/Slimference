@@ -207,6 +207,57 @@ func TestRunWSSProofExportCorpusJSON(t *testing.T) {
 	}
 }
 
+func TestWSSProofExportCorpusAppendsExistingCategory(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "corpus")
+	categoryDir := filepath.Join(root, "cli_test_failure")
+	if err := os.MkdirAll(categoryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := wssProofCorpusSummary{RequestSummary: dbg.RequestSummary{
+		RequestID:    "existing-strong-proof",
+		Source:       "wss-proof-export",
+		Provider:     "codex_chatgpt",
+		ClientFamily: "codex_cli",
+		RouteMode:    "wss_phasef",
+		Tokens:       dbg.TokenCounts{Saved: 11147},
+	}}
+	writeJSONLFile(t, filepath.Join(categoryDir, "session_wss_proof_export_001.jsonl"), existing)
+
+	matrixPath := filepath.Join(dir, "matrix.jsonl")
+	writeJSONLFile(t, matrixPath, wssProofMatrixRecord{
+		ID:            "new-cargo-proof",
+		Client:        "cli",
+		WorkloadClass: "build_test_lint_failure",
+		FramesPath:    filepath.Join(dir, "frames-cargo.jsonl"),
+		LiveDelta: &codexCaptureLiveDelta{
+			BillableInputTokensSaved: 934,
+			ProxyLayer0Envelope:      1,
+			HostBudgetStatus:         "ok",
+			HostBudgetCompressionOK:  true,
+			HostBudgetDegradationOK:  true,
+		},
+	})
+
+	report, err := exportWSSProofCorpus(matrixPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.RowsExported != 1 || report.CategoriesWritten != 1 {
+		t.Fatalf("bad export report: %+v", report)
+	}
+	meta := readExportMetadata(t, filepath.Join(categoryDir, "metadata.json"))
+	if meta.ExpectedRequestCount != 2 || meta.ExpectedSavedTokensMin != 12081 {
+		t.Fatalf("existing category was not appended safely: %+v", meta)
+	}
+	first := readFirstExportSummary(t, filepath.Join(categoryDir, "session_wss_proof_export_001.jsonl"))
+	second := readFirstExportSummary(t, filepath.Join(categoryDir, "session_wss_proof_export_002.jsonl"))
+	if first.RequestID != "existing-strong-proof" || first.Tokens.Saved != 11147 ||
+		second.RequestID != "new-cargo-proof" || second.Tokens.Saved != 934 {
+		t.Fatalf("unexpected merged records: first=%+v second=%+v", first, second)
+	}
+}
+
 func readExportMetadata(t *testing.T, path string) CategoryMetadataLite {
 	t.Helper()
 	raw, err := os.ReadFile(path)

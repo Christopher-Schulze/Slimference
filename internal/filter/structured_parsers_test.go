@@ -127,6 +127,7 @@ func TestParseCargoErrors_SingleError(t *testing.T) {
 	sb.WriteString("  |\n")
 	sb.WriteString("4 |     foo\n")
 	sb.WriteString("  |     ^^^ not found in this scope\n")
+	sb.WriteString("\n")
 	for i := 0; i < 10; i++ {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
@@ -143,6 +144,7 @@ func TestParseCargoErrors_Panic(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString("thread 'main' panicked at 'index out of bounds'\n")
 	sb.WriteString("stack backtrace:\n")
+	sb.WriteString("\n")
 	for i := 0; i < 10; i++ {
 		sb.WriteString("padding line that makes output significantly longer\n")
 	}
@@ -347,6 +349,38 @@ func TestIsCargoBuildOrCheckArgv(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("isCargoBuildOrCheckArgv(%v) = %v, want %v", tt.argv, got, tt.want)
 		}
+	}
+}
+
+func TestParseFailures_CargoCheckLabelAndDiagnosticBlock(t *testing.T) {
+	t.Parallel()
+	stdout := strings.Join([]string{
+		"    Checking demo v0.1.0 (/tmp/demo)",
+		"     Running `CARGO=/toolchain/bin/cargo /toolchain/bin/rustc --crate-name demo src/main.rs`",
+		"error[E0308]: mismatched types",
+		" --> src/main.rs:2:22",
+		"  |",
+		"2 |     let value: i32 = \"not an integer\";",
+		"  |                ---   ^^^^^^^^^^^^^^^^ expected `i32`, found `&str`",
+		"  |                |",
+		"  |                expected due to this",
+		"",
+		"error: could not compile `demo` (bin \"demo\") due to 1 previous error",
+		"",
+		"Caused by:",
+		"  process didn't exit successfully: `/toolchain/bin/rustc --crate-name demo src/main.rs` (exit status: 1)",
+	}, "\n")
+	compact, ok := ParseFailures([]string{"cargo", "check", "-vv"}, stdout)
+	if !ok {
+		t.Fatal("expected cargo check failure compaction")
+	}
+	for _, want := range []string{"[cargo check] FAILED", "error[E0308]", "let value: i32", "expected due to this", "could not compile"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("compact missing %q: %q", want, compact)
+		}
+	}
+	if strings.Contains(compact, "Running `CARGO=") {
+		t.Fatalf("compact kept neutral verbose command noise: %q", compact)
 	}
 }
 
