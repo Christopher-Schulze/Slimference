@@ -43,6 +43,21 @@ Live-Proof praktisch ausgeschlossen sind. Eine Optimierung, die nur mit
 manuellem Experiment-Schalter sinnvoll ist oder im Normalbetrieb Modellqualität
 riskiert, ist kein Produktfeature.
 
+## 1b. Neue Produktfeatures: Always-on-safe oder nicht bauen
+
+Neue Savings-/Produktmechanismen werden nur noch gebaut, wenn sie für den
+normalen Produktpfad **default-on** oder automatisch sicher aktivierbar sind.
+Ein neuer Mechanismus, der absehbar dauerhaft `default-off`, nur manuell
+promoted, experimentell, oder wegen Modellqualitätsrisiko nicht breit nutzbar
+bleibt, ist kein zulässiges neues Produktfeature.
+
+Bestehende Legacy-, Lab-, Proof- und Operator-Pfade dürfen im Code bleiben,
+solange sie isoliert, dokumentiert und nicht als Default-Produktpfad verkauft
+werden. Neue Arbeit an solchen Pfaden braucht eine ausdrückliche
+Projektfreigabe. Standardarbeit fokussiert auf deterministische,
+recoverable/fail-open, drawdownless Hebel, die im Alltag ohne Nutzer- oder
+Modellqualitätsverlust laufen können.
+
 ---
 
 ## 2. Fremd- und Referenzcode: `research/rtk-ai/rtk/`

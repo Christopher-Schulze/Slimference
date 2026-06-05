@@ -18,6 +18,11 @@ Default-on savings mechanisms must be deterministic, recoverable, fail-open, or
 proven by live replay. When a mechanism cannot prove model-quality safety, it
 must be removed from the product path.
 
+New product mechanisms must be designed for default-on or automatic safe
+enablement. New permanently default-off, manually promoted, or experimental
+mechanisms are out of scope unless an explicit project override classifies them
+as isolated legacy/lab/proof/operator work.
+
 ## 2. Active Product Layers
 
 | Layer | Name | Purpose | Safety contract |

@@ -330,13 +330,12 @@ type TuningConfig struct {
 	LoopStrategy string `toml:"loop_strategy"`
 	// StructurePreview enables T38: large tool_result blocks (>=4 KB) with
 	// JSON / path-list / ASCII-table shape are replaced with a compact,
-	// shape-aware preview when strictly shorter. Default false (T74) until
-	// preview recovery is fully reversible via local archive.
+	// shape-aware preview when strictly shorter. Default true since T76 made
+	// preview recovery archive-backed.
 	StructurePreview bool `toml:"structure_preview"`
-	// CoordinatorParallel (T104) opts in to goroutine fan-out across
-	// independent L1 sub-layers. Race-prone when off; off by default
-	// until benchmark evidence shows the sequential pipeline is the
-	// bottleneck on real bodies.
+	// CoordinatorParallel (T104) enables automatic goroutine fan-out across
+	// independent Layer-1 messages once the request has enough prefix work.
+	// Small requests stay sequential to avoid goroutine overhead.
 	CoordinatorParallel bool `toml:"coordinator_parallel"`
 	// ToolPruneEnabled (T103) gates Layer 4 tool-definition pruning:
 	// when on, tool definitions idle for more than

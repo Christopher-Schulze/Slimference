@@ -40,10 +40,12 @@ Synchronisation is a per-stage waitgroup. No additional locking inside sub-layer
 
 ## Acceptance Criteria
 
-- [x] No regression on small bodies (sequential fallback when parallel off or prefixEnd <= 1).
+- [x] No regression on small bodies (sequential fallback when parallel off,
+  prefixEnd <= 1, and T286 auto-gate says the prefix is too small).
 - [x] Race tests green (`go test -race ./internal/compression/...`).
 - [x] Coverage 100%.
-- [x] Default-off config flag `[compression.tuning] coordinator_parallel`.
+- [x] Config flag `[compression.tuning] coordinator_parallel`; T286 promotes it
+  to default-on with a small-prefix auto-gate.
 - [x] 200KB-body benchmark fixture exists (`BenchmarkCompress_LargeBody_{Sequential,Parallel}`).
 - [ ] Layer 1 latency on a 200KB body drops by >= 30% on a 4-core machine: **not met**. Apple M1 measurement shows ~11% drop (461μs → 409μs). Stage-partitioned sub-layer fan-out (T104b) was considered and dropped: the message granularity already harvests most of the wall-clock win and the stage-partitioned variant would add coordination overhead for a smaller delta. Reopen if profiler evidence shows a workload where the remaining 89% of sequential time is dominated by per-block sequential sub-layers rather than per-message work.
 

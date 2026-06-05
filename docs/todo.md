@@ -25,6 +25,7 @@ No queued tasks.
 
 ## Done
 
+- [x] T286 Always-on safe product readiness rule -> docs/todo/t286-always-on-safe-product-readiness.md
 - [x] T285 OpenAI cache steering max-out -> docs/todo/t285-openai-cache-steering-maxx.md
 - [x] T284 Response cache layer renumbering -> docs/todo/t284-response-cache-layer-renumbering.md
 - [x] T260 Layer 0 parser frontier max-out -> docs/todo/t260-layer0-parser-frontier-maxx.md
@@ -50,4 +51,10 @@ No queued tasks.
 - No product path may summarize old model context or replace it with capsules.
 - Default-safe savings must be deterministic, recoverable, fail-open, or
   live-proof gated.
+- New product mechanisms must be default-on-safe or automatically safe-enabled;
+  do not add new permanent manual experiment toggles without explicit project
+  override.
+- `docs/todo.md` is the active task queue. Unlisted detail files under
+  `docs/todo/` are historical records unless this file links them from Active,
+  Queue, or Blocked.
 - `go run ./scripts/ci` is the final local truth gate.

@@ -119,6 +119,7 @@ func defaultsRaw() *Config {
 					GitModerateDiffLimit:      60,
 					TestMaxFailureLines:       40,
 				},
+				CoordinatorParallel:         true,
 				PlannerLiveCorpusConfidence: "unknown",
 			},
 		},
@@ -297,11 +298,10 @@ loop_detection = false
 # recorder so the original is recoverable through "slimference expand".
 structure_preview = true
 
-# T104: goroutine fan-out across independent L1 sub-layers. When on,
-# messages in the compressible prefix are processed concurrently
-# (bounded by GOMAXPROCS). Default off until benchmark evidence
-# justifies the overhead on real bodies.
-coordinator_parallel = false
+# T104: automatic goroutine fan-out for large enough Layer-1 prefix work.
+# Small requests stay sequential; large prefixes are processed concurrently
+# with the original message order preserved.
+coordinator_parallel = true
 
 # T103: Layer 4 tool-definition pruning. When on, tool definitions
 # idle for more than the threshold are removed from the request

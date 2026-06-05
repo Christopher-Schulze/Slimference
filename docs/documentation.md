@@ -51,6 +51,12 @@ semantics, and unknown payloads are preserved. Known conversation bodies and
 known output frames may shrink when a deterministic reducer proves the mutated
 payload is shorter and schema-safe.
 
+New product mechanisms must be default-on-safe or automatically safe-enabled.
+Legacy, lab, proof, and operator surfaces may stay isolated in the tree, but new
+normal-product code must not add another permanent manual experiment toggle.
+If a lever cannot be made deterministic, recoverable/fail-open, and safe for
+routine use, it stays out of the product path.
+
 ### Why it works
 
 | Problem                                          | Slimference answer                          |
@@ -843,12 +849,12 @@ Plus:
 
 `compression.Layer1SubLayerRegistry()` is the control-plane contract for Layer 1.
 It classifies each sub-layer as exact, reversible, recoverable-with-archive,
-task-preserving summary, or non-default. The registry also records default
+task-preserving compaction, or non-default. The registry also records default
 eligibility, whether an archive is required, the model-risk being controlled,
 and the recovery path. The executor enforces that contract for archive-required
 mutations: if the original block cannot be archived and stamped with a valid
 archive id, the block full-passes and its per-block savings counters are reset.
-Exact and reversible transforms can stay automatic; context-dropping summaries
+Exact and reversible transforms can stay automatic; context-dropping compactions
 must stay archive-backed or be bypassed. Exact dedup remains reversible without
 an archive because the referenced block was already model-facing in the same
 context. MinHash/near-dedup is not exact and is therefore classified separately
@@ -856,9 +862,9 @@ as `dedup_near`: it full-passes unless the current omitted block is archived and
 stamped, and its decision telemetry is reported separately from exact `dedup`.
 The same archive-required rule applies to side paths such as
 `structure_in_window`: even when an in-window tool-result block is eligible for
-structural extraction, the original must archive successfully before the summary
+structural extraction, the original must archive successfully before the compact view
 can replace model-facing text.
-Success short-circuit summaries follow the same rule: a verbose success-only
+Success short-circuit compactions follow the same rule: a verbose success-only
 tool output can become an `[ok]` marker only when the original output has been
 archived, so the marker never becomes an unrecoverable source of truth.
 
@@ -1206,21 +1212,24 @@ savings. Surfaced via `/admin/status.quality`.
 ### L1 message-level fan-out (T104)
 
 `[compression.tuning] coordinator_parallel` runs `compressMessage`
-concurrently per message in the compressible prefix, bounded by
-`runtime.GOMAXPROCS(0)`. The `archiveOriginal` recorder is mutex-
-protected, the `coordinator_skipped` counter is atomic, and the receiver-local
-session/coordinator fields are serialized per Compress call so the hot path stays
-race-clean. Default off until benchmarks show real-body wins. Note: shipped at
-message granularity, not the
-spec's stage-partitioned sub-layer concurrency; reopens as T104b
-if message-level granularity turns out to be the wrong knob.
+concurrently per message in the compressible prefix when the prefix is large
+enough to amortize goroutine overhead. Small prefixes stay sequential. Parallel
+work is bounded by `runtime.GOMAXPROCS(0)`, output order is preserved, the
+`archiveOriginal` recorder is mutex-protected, the `coordinator_skipped`
+counter is atomic, and the receiver-local session/coordinator fields are
+serialized per Compress call so the hot path stays race-clean. The auto-gate is
+default-on because it changes CPU scheduling only, not model-visible content.
+Note: shipped at message granularity, not the spec's stage-partitioned sub-layer
+concurrency; reopens as T104b only if profiler evidence proves message-level
+granularity is the wrong knob.
 
 ### Mid-exchange summary (T99)
 
 `[compression.tuning] mid_exchange_enabled` is legacy configuration. Product
 runtime does not inject in-progress summary blocks because that is model-facing
-context replacement. The active product behavior remains deterministic context
-ledger shadowing and byte-equal model-facing context.
+context replacement. The active product behavior keeps model-facing context
+byte-equal except for the current deterministic reducer stack; there is no
+context-ledger insertion path.
 
 ### Layer 4 tool-definition pruning (T103)
 

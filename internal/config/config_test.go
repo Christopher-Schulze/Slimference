@@ -85,6 +85,14 @@ func TestDefaults_OutputReduceConfig(t *testing.T) {
 	}
 }
 
+func TestDefaults_Layer1CoordinatorParallelAuto(t *testing.T) {
+	t.Parallel()
+	cfg := Defaults()
+	if !cfg.Compression.Tuning.CoordinatorParallel {
+		t.Fatal("Layer-1 coordinator parallel auto-gate should default on")
+	}
+}
+
 func TestApplyEnvHooksDebug(t *testing.T) {
 	t.Setenv("SLIMFERENCE_HOOK_SLIMFERENCE_COMMAND", "/opt/bin/slimference")
 	t.Setenv("SLIMFERENCE_CODEX_POSTTOOL_TIMEOUT_SECONDS", "3")

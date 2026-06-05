@@ -1,6 +1,7 @@
 package compression
 
 import (
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -8,6 +9,41 @@ import (
 	"github.com/slimference/slimference/internal/contentarchive"
 	"github.com/slimference/slimference/internal/types"
 )
+
+func TestShouldUseCoordinatorParallelAutoGate(t *testing.T) {
+	t.Parallel()
+	small := []types.Message{
+		buildMessage(t, 0, "user", toolResultBlock("small")),
+		buildMessage(t, 1, "assistant", textBlock("ok")),
+		buildMessage(t, 2, "user", textBlock("tail")),
+	}
+	if shouldUseCoordinatorParallel(false, small, 2) {
+		t.Fatal("disabled coordinator must not fan out")
+	}
+	if shouldUseCoordinatorParallel(true, small, 1) {
+		t.Fatal("single-prefix message must stay sequential")
+	}
+	if shouldUseCoordinatorParallel(true, small, 2) {
+		t.Fatal("tiny prefix must stay sequential to avoid goroutine overhead")
+	}
+
+	large := []types.Message{
+		buildMessage(t, 0, "user", toolResultBlock(strings.Repeat("large ", 1500))),
+		buildMessage(t, 1, "assistant", textBlock("ok")),
+		buildMessage(t, 2, "user", textBlock("tail")),
+	}
+	if !shouldUseCoordinatorParallel(true, large, 2) {
+		t.Fatal("large prefix should use coordinator fan-out")
+	}
+
+	many := make([]types.Message, runtime.GOMAXPROCS(0)*2)
+	for i := range many {
+		many[i] = buildMessage(t, i, "user", toolResultBlock("x"))
+	}
+	if !shouldUseCoordinatorParallel(true, many, len(many)) {
+		t.Fatal("many prefix messages should use coordinator fan-out")
+	}
+}
 
 func TestCompress_ParallelFanOut_CompressesAllMessages(t *testing.T) {
 	t.Parallel()

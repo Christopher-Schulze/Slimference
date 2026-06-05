@@ -270,7 +270,7 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 	// the recorder + counters, both protected) and saturates the same
 	// CPU budget. Bounded by GOMAXPROCS so a 4-core machine spawns at
 	// most 4 in-flight compressMessage calls.
-	if c.cfg.Tuning.CoordinatorParallel && prefixEnd > 1 {
+	if shouldUseCoordinatorParallel(c.cfg.Tuning.CoordinatorParallel, out, prefixEnd) {
 		type fanOut struct {
 			msg                                            types.Message
 			js, ds, nds, cs, ss, d2, as, sc, ts, ims, dict int
@@ -383,6 +383,25 @@ func (c *DeterministicCompressor) compressWithSessionLocked(sessionID string, me
 	}
 
 	return result
+}
+
+func shouldUseCoordinatorParallel(enabled bool, messages []types.Message, prefixEnd int) bool {
+	if !enabled || prefixEnd <= 1 {
+		return false
+	}
+	if prefixEnd >= runtime.GOMAXPROCS(0)*2 {
+		return true
+	}
+	var bytes int
+	for i := 0; i < prefixEnd && i < len(messages); i++ {
+		for _, block := range messages[i].Content {
+			bytes += len(block.Text)
+			if bytes >= 8*1024 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Pipeline order (spec+.md §5): ANSI → JSON compact OR comment strip → dedup (exact + MinHash)
